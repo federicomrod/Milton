@@ -1,0 +1,6 @@
+Date,Description,Amount,Category,Reference
+2024-01-15,Office Supplies,-150.00,COGS,INV-001
+2024-01-16,Client Payment,2500.00,Subscription,PAY-001
+2024-01-17,Internet Bill,-89.99,Other OpEx,BILL-001
+2024-01-18,Consulting Fee,1800.00,One-time Service,CONS-001
+2024-01-19,Software License,-299.00,Marketing,LIC-001 

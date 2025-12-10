@@ -3,106 +3,14 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { handleSemanticMessage } from '@/lib/semantic-query-service'
+import {
+  BUSINESS_TYPE_AI_GUIDANCE,
+  DEFAULT_BUSINESS_TYPE,
+  type BusinessTypeId,
+} from '@/lib/business-types'
+import { buildDashboardContextForUser } from '@/lib/ai/dashboard-context'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! })
-
-type Tx = { date: string; amount: number; category?: string | null }
-type Deal = { phase?: string | null; amount?: number | null; closing_date?: string | null; first_appointment?: string | null }
-type Budget = { month: string; category?: string | null; value: number }
-
-/**
- * Build a compact textual summary of the user's data for the model.
- * Uses the current schema (user-scoped tables). If you later migrate
- * these to company-scoped tables, adjust the filters accordingly.
- */
-async function buildUserDataSummary(supabase: any, userId: string) {
-  // Pull small, aggregate-friendly slices
-  const [{ data: tx, error: txErr }, { data: deals, error: dealsErr }, { data: budgets, error: budErr }] = await Promise.all([
-    supabase.from('transactions').select('date,amount,category').eq('user_id', userId).limit(5000),
-    supabase.from('crm_deals').select('phase,amount,closing_date,first_appointment').eq('user_id', userId).limit(5000),
-    supabase.from('budgets').select('month,category,value').eq('user_id', userId).limit(5000),
-  ])
-
-  // Best-effort resilience
-  const txRows: Tx[] = tx ?? []
-  const dealRows: Deal[] = deals ?? []
-  const budRows: Budget[] = budgets ?? []
-
-  const monthKey = (d?: string | null) => {
-    if (!d) return 'unknown'
-    // normalize to YYYY-MM
-    const iso = d.slice(0, 10)
-    const y = iso.slice(0, 4)
-    const m = iso.slice(5, 7)
-    return `${y}-${m}`
-  }
-
-  // Revenue/Expense by month (actuals from transactions)
-  const revenueByMonth: Record<string, number> = {}
-  const expenseByMonth: Record<string, number> = {}
-  for (const t of txRows) {
-    const k = monthKey(t.date)
-    const amt = Number(t.amount || 0)
-    if (amt >= 0) revenueByMonth[k] = (revenueByMonth[k] || 0) + amt
-    else expenseByMonth[k] = (expenseByMonth[k] || 0) + Math.abs(amt)
-  }
-
-  // Simple category splits (top 5)
-  const expenseByCategory: Record<string, number> = {}
-  const revenueByCategory: Record<string, number> = {}
-  for (const t of txRows) {
-    const cat = (t.category || 'Uncategorized').trim()
-    const amt = Number(t.amount || 0)
-    if (amt >= 0) revenueByCategory[cat] = (revenueByCategory[cat] || 0) + amt
-    else expenseByCategory[cat] = (expenseByCategory[cat] || 0) + Math.abs(amt)
-  }
-  const topN = (obj: Record<string, number>, n = 5) =>
-    Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n).reduce((acc, [k, v]) => ({ ...acc, [k]: Math.round(v) }), {} as Record<string, number>)
-
-  // CRM pipeline stats
-  const pipelineTotal = dealRows.reduce((s, d) => s + Number(d.amount || 0), 0)
-  const openDeals = dealRows.filter(d => !d.closing_date).length
-  const dealsByPhase = dealRows.reduce((acc: Record<string, number>, d) => {
-    const p = (d.phase || 'Unknown').trim()
-    acc[p] = (acc[p] || 0) + 1
-    return acc
-  }, {})
-
-  // Budget by month (sum positives as revenue budget, negatives as expense budget)
-  const budgetRevByMonth: Record<string, number> = {}
-  const budgetExpByMonth: Record<string, number> = {}
-  for (const b of budRows) {
-    // month may be 'Jan 2025', '2025-01', etc. Keep as-is to avoid misparsing.
-    const k = (b.month || 'unknown').trim()
-    const v = Number(b.value || 0)
-    if (v >= 0) budgetRevByMonth[k] = (budgetRevByMonth[k] || 0) + v
-    else budgetExpByMonth[k] = (budgetExpByMonth[k] || 0) + Math.abs(v)
-  }
-
-  // Trim to ~last 12 keys where possible (keeps prompt small)
-  const trimToLastN = (obj: Record<string, number>, n = 12) => {
-    const keys = Object.keys(obj).sort()
-    const slice = keys.slice(-n)
-    const out: Record<string, number> = {}
-    for (const k of slice) out[k] = Math.round(obj[k])
-    return out
-  }
-
-  const summary = [
-    `RevenueByMonth: ${JSON.stringify(trimToLastN(revenueByMonth))}`,
-    `ExpenseByMonth: ${JSON.stringify(trimToLastN(expenseByMonth))}`,
-    `TopExpenseCategories: ${JSON.stringify(topN(expenseByCategory))}`,
-    `TopRevenueCategories: ${JSON.stringify(topN(revenueByCategory))}`,
-    `PipelineTotal: ${Math.round(pipelineTotal)}`,
-    `OpenDeals: ${openDeals}`,
-    `DealsByPhase: ${JSON.stringify(dealsByPhase)}`,
-    `BudgetRevenueByMonth: ${JSON.stringify(trimToLastN(budgetRevByMonth))}`,
-    `BudgetExpenseByMonth: ${JSON.stringify(trimToLastN(budgetExpByMonth))}`,
-    `Counts: {transactions:${txRows.length}, deals:${dealRows.length}, budgetRows:${budRows.length}}`,
-  ].join('\n')
-
-  return summary
-}
 
 export async function POST(req: Request) {
   const cookieStore = await cookies()
@@ -115,6 +23,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Missing "message" in body' }, { status: 400 })
   }
 
+  // Determine business type for this user
+  let businessType: BusinessTypeId = DEFAULT_BUSINESS_TYPE
+
+  const { data: modelRow, error: modelError } = await supabase
+    .from('business_models')
+    .select('business_type')
+    .eq('user_id', user.id)
+    .single()
+
+  if (!modelError && modelRow?.business_type) {
+    const validTypes: BusinessTypeId[] = ['saas', 'agency', 'fitness_studio']
+    const rawType = modelRow.business_type as string
+
+    if (validTypes.includes(rawType as BusinessTypeId)) {
+      businessType = rawType as BusinessTypeId
+    }
+  }
+
   // If the user message mentions chart or visualization, handle it via semantic service
   if (/\b(chart|graph|plot|compare|trend|visual)\b/i.test(message)) {
     const semanticResult = await handleSemanticMessage(message, user.id)
@@ -125,17 +51,31 @@ export async function POST(req: Request) {
     })
   }
 
-  // Build the compact data context
-  const dataSummary = await buildUserDataSummary(supabase, user.id).catch(() => 'No data available.')
+  // Build dashboard context with structured data
+  const dashboardContext = await buildDashboardContextForUser(user.id)
 
-  const systemPrompt = `
-You are Milton, the user's pragmatic finance co-pilot.
-Use ONLY the provided "Data Summary" (actuals, budgets, CRM) to answer questions about their business.
-If specific data is missing, say it explicitly and suggest which source to upload (transactions, CRM, or budget).
-Keep answers concise (≤6 sentences), numeric where possible, and give one actionable suggestion.
-`
+  // Build business-type-specific guidance
+  const businessInstruction = BUSINESS_TYPE_AI_GUIDANCE[businessType]
 
-  const userPrompt = `User question: ${message}\n\nData Summary:\n${dataSummary}`
+  const systemPrompt = [
+    'You are Milton, an AI finance copilot for small businesses.',
+    businessInstruction,
+    '',
+    'You have access to the following structured data about the user\'s business in JSON form:',
+    'JSON_START',
+    JSON.stringify(dashboardContext, null, 2),
+    'JSON_END',
+    '',
+    'Rules:',
+    '- Use ONLY this JSON data when giving numeric answers.',
+    '- If a metric is missing or the relevant data flags (like hasKpiSnapshots/hasTransactions) are false, explicitly say what is missing and suggest which files or data the user should upload.',
+    '- For missing data, suggest uploading specific files (e.g., "upload your sales transactions", "upload your CRM deals", "upload your bookings data").',
+    '- Prefer concise, numeric answers first, then one short sentence of explanation.',
+    '- If the user asks something outside the scope of this data (e.g., "write my marketing plan"), you can still answer normally as a helpful finance copilot, but don\'t fabricate KPIs that are not in the JSON data.',
+    '- Keep answers concise (≤6 sentences) and actionable.'
+  ].join('\n')
+
+  const userPrompt = message
 
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o-mini',

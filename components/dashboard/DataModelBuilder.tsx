@@ -12,13 +12,13 @@ import {
   addRelationship,
   removeRelationship,
   upsertFileMapping,
-  linkParsedSheetToModel,
   autoLinkDatasetsToModel,
 } from '@/lib/model/transform'
-import { upsertCustomDataset, listCustomDatasets, deleteCustomDataset, updateDatasetClassification } from '@/lib/model/dataset-service'
+import { listCustomDatasets, deleteCustomDataset } from '@/lib/model/dataset-service'
 import ColumnEditor from '@/components/dashboard/ColumnEditor'
-import DataPreviewModal from '@/components/dashboard/DataPreviewModal'
 import LinkedUploadsSidebar from '@/components/dashboard/LinkedUploadsSidebar'
+import { useBusinessContext } from '@/lib/business-context'
+import { callBusinessModelAnalyzer } from '@/lib/ai/business-model-analyzer-client'
 
 import { miltonEventsAPI } from '@/lib/milton-events'
 
@@ -70,6 +70,74 @@ try {
   console.warn('reactflow not installed. Run: npm install reactflow')
 }
 
+// Fitness Studio default model - used when business type is fitness_studio and no model exists
+const FITNESS_STUDIO_DEFAULT_MODEL: ModelProposal = {
+  businessType: 'fitness_studio',
+  recommendedTables: [
+    {
+      name: 'Customers',
+      fields: [
+        { name: 'customer_id', type: 'string', primaryKey: true },
+        { name: 'name', type: 'string' },
+        { name: 'email', type: 'string' },
+        { name: 'phone', type: 'string', nullable: true },
+        { name: 'join_date', type: 'date' },
+        { name: 'status', type: 'string' }, // active / inactive / cancelled
+      ],
+    },
+    {
+      name: 'Classes',
+      fields: [
+        { name: 'class_id', type: 'string', primaryKey: true },
+        { name: 'class_name', type: 'string' },
+        { name: 'category', type: 'string' }, // yoga / pilates / fitness
+        { name: 'capacity', type: 'integer' },
+        { name: 'duration_minutes', type: 'integer' },
+        { name: 'price', type: 'number' },
+      ],
+    },
+    {
+      name: 'Instructors',
+      fields: [
+        { name: 'instructor_id', type: 'string', primaryKey: true },
+        { name: 'name', type: 'string' },
+        { name: 'email', type: 'string' },
+        { name: 'hourly_rate', type: 'number' },
+        { name: 'specialization', type: 'string', nullable: true },
+      ],
+    },
+    {
+      name: 'Bookings',
+      fields: [
+        { name: 'booking_id', type: 'string', primaryKey: true },
+        { name: 'customer_id', type: 'string', references: { table: 'Customers', field: 'customer_id' } },
+        { name: 'class_id', type: 'string', references: { table: 'Classes', field: 'class_id' } },
+        { name: 'instructor_id', type: 'string', references: { table: 'Instructors', field: 'instructor_id' } },
+        { name: 'booking_time', type: 'date' },
+        { name: 'status', type: 'string' }, // booked / attended / cancelled / no-show
+      ],
+    },
+    {
+      name: 'Payments',
+      fields: [
+        { name: 'payment_id', type: 'string', primaryKey: true },
+        { name: 'customer_id', type: 'string', references: { table: 'Customers', field: 'customer_id' } },
+        { name: 'booking_id', type: 'string', nullable: true, references: { table: 'Bookings', field: 'booking_id' } },
+        { name: 'amount', type: 'number' },
+        { name: 'payment_date', type: 'date' },
+        { name: 'payment_method', type: 'string', nullable: true },
+      ],
+    },
+  ],
+  relationships: [
+    { from: 'Bookings.customer_id', to: 'Customers.customer_id' },
+    { from: 'Bookings.class_id', to: 'Classes.class_id' },
+    { from: 'Bookings.instructor_id', to: 'Instructors.instructor_id' },
+    { from: 'Payments.customer_id', to: 'Customers.customer_id' },
+    { from: 'Payments.booking_id', to: 'Bookings.booking_id' },
+  ],
+};
+
 export default function DataModelBuilder() {
   const [model, setModel] = useState<ModelProposal | null>(null)
   const [nodes, setNodes] = useState<Node[]>([])
@@ -77,18 +145,17 @@ export default function DataModelBuilder() {
   const [selectedTable, setSelectedTable] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [datasets, setDatasets] = useState<any[]>([])
+  const [isAiProposing, setIsAiProposing] = useState(false)  // Track AI model generation
 
-  const [previewData, setPreviewData] = useState<any | null>(null)
-  const [selectedSheet, setSelectedSheet] = useState<any | null>(null)
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
-  const [previewMode, setPreviewMode] = useState<'edit' | 'readonly'>('edit')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const [datasetBeingReplaced, setDatasetBeingReplaced] = useState<any | null>(null)
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)  // Store file for ingestion
+  const [isProcessing, setIsProcessing] = useState(false)  // Track upload progress
   const [selectedModel, setSelectedModel] = useState<string>(
     typeof window !== 'undefined' ? localStorage.getItem('businessModel') || '' : ''
   )
 
   const { toast } = useToast()
+  const { businessType } = useBusinessContext()
 
   const handleModelChange = (value: string) => {
     setSelectedModel(value)
@@ -105,189 +172,75 @@ export default function DataModelBuilder() {
   }
 
   const handleUploadData = () => {
-    setDatasetBeingReplaced(null)
     fileInputRef.current?.click()
   }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const formData = new FormData()
-    formData.append('file', file)
+    
+    // Store file for later reference
+    setUploadedFile(file)
+    
+    setIsProcessing(true)
+    
     try {
-      const res = await fetch('/api/files/parse', {
+      console.log('[DataModelBuilder] Uploading file:', file.name)
+      
+      // Infer dataset type from file name
+      let datasetType: 'bank' | 'crm' | 'budget' = 'bank'
+      const fileName = file.name.toLowerCase()
+      
+      if (fileName.includes('crm') || fileName.includes('deal') || fileName.includes('sales')) {
+        datasetType = 'crm'
+      } else if (fileName.includes('budget')) {
+        datasetType = 'budget'
+      } else if (fileName.includes('transaction') || fileName.includes('bank')) {
+        datasetType = 'bank'
+      }
+
+      // Call unified ingestion API
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('datasetType', datasetType)
+      formData.append('mode', 'append')  // Model Builder always appends
+
+      const res = await fetch('/api/data/upload', {
         method: 'POST',
         body: formData,
       })
-      const data = await res.json()
-      if (res.ok && data.sheets && data.sheets.length > 0) {
-        setPreviewData(data)
-        // Auto-select first sheet
-        setSelectedSheet(data.sheets[0])
-        setIsPreviewOpen(true)
-      } else {
-        console.error('File parse error:', data.error)
-        toast({
-          title: 'Upload failed',
-          description: data?.error || 'The file could not be parsed.',
-          variant: 'destructive',
-        })
+
+      if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(errorText)
       }
+
+      const result = await res.json()
+      console.log(`[DataModelBuilder] Successfully uploaded ${result.insertedCount} rows`)
+
+      // Refresh data status
+      document.dispatchEvent(new CustomEvent('data-status:refresh'))
+      
+      // Update model to reflect new data
+      await refreshDatasets()
+      
+      toast({
+        title: 'File uploaded successfully',
+        description: `Uploaded ${result.insertedCount} rows to ${datasetType} table.`,
+      })
+
     } catch (err) {
-      console.error('Upload failed:', err)
+      console.error('[DataModelBuilder] Upload failed:', err)
       toast({
         title: 'Upload failed',
-        description: (err as Error)?.message || 'Network or server error while uploading.',
+        description: (err as Error)?.message || 'Failed to upload file.',
         variant: 'destructive',
       })
     } finally {
+      setIsProcessing(false)
       e.target.value = ''
     }
   }
-
-  const handleSaveParsedSheet = async (payload: {
-    fileName: string
-    sheetName: string
-    columns: string[]
-    sampleRows: Record<string, unknown>[]
-  }) => {
-    if (!model) {
-      toast({
-        title: 'Error linking file',
-        description: 'Model not found. Please try again.',
-        variant: 'destructive',
-      })
-      return
-    }
-
-    try {
-      // 1) Update in-memory model
-      const baseModel = JSON.parse(JSON.stringify(model));
-      const { updatedModel, targetTable } = linkParsedSheetToModel(baseModel, {
-        columns: payload.columns,
-        sheetName: payload.sheetName,
-      })
-
-      let nextModel = updatedModel
-      let linkedModel = updatedModel
-      // 1a) Hoist AI classification variable for later use
-      let aiClassification: any = null;
-      let datasetResult: any = null;
-
-      // 2) Persist model back to Supabase
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        // Upsert model for user by user_id
-        const { error: upsertError } = await supabase
-          .from('business_models')
-          .upsert({ user_id: user.id, model_json: updatedModel }, { onConflict: 'user_id' })
-        if (upsertError) throw upsertError
-
-        // Upsert custom dataset using user.id as key
-        datasetResult = await upsertCustomDataset(
-          user.id,
-          {
-            fileName: payload.fileName,
-            sheetName: payload.sheetName,
-            columns: payload.columns,
-            sampleRows: payload.sampleRows,
-          },
-          datasetBeingReplaced?.id
-        )
-
-        // Attach linked table name to dataset metadata for sidebar display
-        if (datasetResult?.source_meta) {
-          datasetResult.source_meta.linkedTable = targetTable;
-        } else {
-          datasetResult.source_meta = { linkedTable: targetTable };
-        }
-
-        // Mark table as linked in the model with the new dataset info
-        linkedModel = markTableLinked(updatedModel, targetTable, datasetResult?.id, datasetResult?.dataset_name);
-
-        // AI classification (background, non-blocking)
-        try {
-          const classificationResponse = await fetch('/api/ai/dataset-classifier', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              datasetName: payload.fileName,
-              columns: payload.columns,
-              sampleRows: payload.sampleRows,
-              businessContext: model?.businessType || 'general startup'
-            })
-          })
-
-          if (classificationResponse.ok && datasetResult?.id) {
-            const classification = await classificationResponse.json()
-            aiClassification = classification
-            // Update dataset with AI classification results
-            await updateDatasetClassification(datasetResult.id, {
-              ...payload,
-              aiClassification: classification
-            })
-          }
-        } catch (err) {
-          console.warn('Dataset classification skipped:', err)
-        }
-
-        // Ensure we fetch latest datasets and auto-link using freshest model
-        try {
-          await refreshDatasets()
-          const dsList = await listCustomDatasets(user.id)
-          linkedModel = autoLinkDatasetsToModel(linkedModel, dsList)
-        } catch (err) {
-          console.warn('Auto-linking skipped:', err)
-        }
-
-        // Update model_json for the existing business_model row, using the linked model
-        const { error } = await supabase
-          .from('business_models')
-          .update({ model_json: linkedModel })
-          .eq('user_id', user.id)
-
-        if (error) throw error
-
-        // --- Begin Strict Sequencing: refreshDatasets first, then setModel, event, toast, emits ---
-        await refreshDatasets()
-        setModel(linkedModel)
-        window.dispatchEvent(new Event('model:updated'))
-        // Emit Milton chat event after a short delay to ensure component is mounted
-        setTimeout(() => {
-          console.log('[Milton] emitting post-refresh chat event');
-          miltonEventsAPI.publish('chat', { role: 'milton', content: `Your ${targetTable} data is ready and linked.` });
-        }, 500);
-        toast({
-          title: 'Dataset linked',
-          description: `Milton linked ${payload.fileName} to the ${targetTable} table successfully.`,
-        })
-        miltonEventsAPI.publish('datasets.linked', { targetTable, datasetName: datasetResult?.dataset_name })
-        miltonEventsAPI.publish('chat', { role: 'milton', content: `I linked ${payload.sheetName || payload.fileName} to ${targetTable}.` })
-        // --- End Strict Sequencing ---
-        nextModel = linkedModel
-      }
-
-      // 3) Notify and refresh
-      localStorage.setItem('milton-model', JSON.stringify(nextModel))
-      setIsPreviewOpen(false)
-      setPreviewData(null)
-      setSelectedSheet(null)
-      setPreviewMode('edit')
-      setDatasetBeingReplaced(null)
-      // (No duplicate refreshDatasets or emits here)
-    } catch (err: any) {
-      // Ensure we log but do not interrupt uploads
-      console.error('Error in handleSaveParsedSheet:', err)
-      toast({
-        title: 'Error linking file',
-        description: err?.message || 'An unexpected error occurred while saving your data.',
-        variant: 'destructive',
-      })
-      setDatasetBeingReplaced(null)
-    }
-  }
-
 
   const refreshDatasets = async () => {
     const supabase = createClient()
@@ -302,28 +255,21 @@ export default function DataModelBuilder() {
   }
 
   const handlePreviewDataset = (ds: any) => {
-    setDatasetBeingReplaced(null)
-    setPreviewData({
-      fileName: ds.dataset_name,
-      sheets: [{
-        name: ds.source_meta?.sheetName || 'Sheet',
-        columns: ds.schema_json,
-        sampleRows: ds.rows_json
-      }]
+    // TODO: Implement dataset preview without client-side parsing
+    console.log('[DataModelBuilder] Preview dataset:', ds.dataset_name)
+    toast({
+      title: 'Preview not available',
+      description: 'Dataset preview will be implemented in a future update.',
     })
-    setSelectedSheet({
-      name: ds.source_meta?.sheetName || 'Sheet',
-      columns: ds.schema_json,
-      sampleRows: ds.rows_json
-    })
-    setPreviewMode('readonly')
-    setIsPreviewOpen(true)
   }
 
   const handleReplaceDataset = (ds: any) => {
-    setDatasetBeingReplaced(ds)
-    setIsPreviewOpen(false)
-    fileInputRef.current?.click()
+    // TODO: Implement dataset replacement flow
+    console.log('[DataModelBuilder] Replace dataset:', ds.dataset_name)
+    toast({
+      title: 'Replace not available',
+      description: 'Dataset replacement will be implemented in a future update.',
+    })
   }
 
   const onNodeClick = useCallback((_: any, node: Node) => {
@@ -356,11 +302,17 @@ export default function DataModelBuilder() {
         }
       }
 
+      // If still no model, use fitness default if business type is fitness_studio
+      if (!loaded && businessType === 'fitness_studio') {
+        console.log('[DataModelBuilder] No existing model found, using fitness studio default')
+        loaded = FITNESS_STUDIO_DEFAULT_MODEL
+      }
+
       if (loaded) setModel(loaded)
       refreshDatasets()
     }
     loadModel()
-  }, [])
+  }, [businessType])
 
   // Listen for model updates
   useEffect(() => {
@@ -493,6 +445,144 @@ export default function DataModelBuilder() {
     }
   }
 
+  // Apply a ModelProposal to the builder state
+  const applyModelProposal = (proposal: ModelProposal) => {
+    console.log('[DataModelBuilder] Applying AI-generated model proposal')
+    
+    // Update the model state
+    setModel(proposal)
+    
+    // Convert the proposal to ReactFlow nodes/edges
+    const graph = proposalToGraph(proposal)
+    setNodes(graph.nodes.map((n) => ({
+      id: n.id,
+      type: 'default',
+      position: n.position,
+      data: { label: n.label },
+    })))
+    setEdges(graph.edges.map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      type: 'smoothstep',
+    })))
+    
+    // Trigger auto-save
+    window.dispatchEvent(new Event('model:updated'))
+    
+    toast({
+      title: 'Model updated',
+      description: 'Milton generated a new data model based on your files.',
+    })
+  }
+
+  // Ask Milton to propose a data model
+  const handleAskMiltonProposeModel = async () => {
+    if (!businessType) {
+      toast({
+        title: 'Business type required',
+        description: 'Please select a business type first.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      setIsAiProposing(true)
+
+      // 1. Fetch custom datasets (for sample rows)
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast({
+          title: 'Authentication required',
+          description: 'Please log in to use this feature.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      const datasetRows = await listCustomDatasets(user.id)
+
+      // Adapt to analyzer input format
+      const analyzerDatasets = (datasetRows ?? [])
+        .filter((ds) => Array.isArray(ds.rows_json) && ds.rows_json.length > 0)
+        .map((ds) => ({
+          sourceName: ds.dataset_name ?? 'Dataset',
+          tableHint: (ds.source_meta as any)?.sheetName ?? null,
+          sampleRows: ds.rows_json as Record<string, unknown>[],
+        }))
+
+      // Show confirmation if no datasets found
+      if (analyzerDatasets.length === 0) {
+        const proceed = window.confirm?.(
+          'No uploaded datasets with samples found. Milton will propose a generic model for your business type. Continue?'
+        )
+        if (!proceed) {
+          setIsAiProposing(false)
+          return
+        }
+      }
+
+      // 2. Build input for analyzer
+      const input = {
+        businessType,
+        datasets: analyzerDatasets,
+        currentModel: model, // Pass current model for refinement
+      }
+
+      console.log('[DataModelBuilder] Calling AI Business Model Analyzer with', {
+        businessType,
+        datasetsCount: analyzerDatasets.length,
+        hasCurrentModel: !!model,
+      })
+
+      // 3. Call the AI analyzer
+      const proposal = await callBusinessModelAnalyzer(input)
+
+      if (!proposal) {
+        toast({
+          title: 'AI generation failed',
+          description: 'Milton could not generate a model. Please try again.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      // 4. Ask user to confirm replacement
+      const shouldApply =
+        window.confirm?.(
+          'Milton has generated a proposed data model based on your files. Replace your current model with this proposal?'
+        ) ?? true
+
+      if (!shouldApply) {
+        toast({
+          title: 'Cancelled',
+          description: 'Model proposal was not applied.',
+        })
+        return
+      }
+
+      // 5. Apply the proposal
+      applyModelProposal(proposal)
+
+      // Publish event for Milton chat
+      miltonEventsAPI.publish('chat', {
+        role: 'milton',
+        content: `✅ I've generated a ${businessType.replace('_', ' ')} data model with ${proposal.recommendedTables?.length ?? 0} tables. You can now upload your data files or adjust the schema.`,
+      })
+    } catch (err) {
+      console.error('[DataModelBuilder] Error calling business-model-analyzer', err)
+      toast({
+        title: 'Error',
+        description: (err as Error)?.message || 'Failed to generate model proposal.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsAiProposing(false)
+    }
+  }
+
   // Auto-save on model changes (debounced)
   useEffect(() => {
     if (!model) return
@@ -564,6 +654,18 @@ export default function DataModelBuilder() {
         </div>
 
         <div className="flex gap-3">
+          <button
+            onClick={handleAskMiltonProposeModel}
+            disabled={!businessType || isAiProposing}
+            className={`px-3 py-1 text-white rounded text-sm ${
+              !businessType || isAiProposing
+                ? 'bg-indigo-300 cursor-not-allowed'
+                : 'bg-indigo-600 hover:bg-indigo-700'
+            }`}
+            title={!businessType ? 'Select a business type first' : 'Ask Milton to generate a data model'}
+          >
+            {isAiProposing ? '🤖 Milton is thinking…' : '🤖 Ask Milton to propose model'}
+          </button>
           <button
             onClick={handleUploadData}
             className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700"
@@ -688,25 +790,6 @@ export default function DataModelBuilder() {
             )
           })()}
         </div>
-      )}
-      {/* Preview Modal */}
-      {isPreviewOpen && selectedSheet && (
-        <DataPreviewModal
-          open={isPreviewOpen}
-          onClose={() => {
-            setIsPreviewOpen(false)
-            setPreviewData(null)
-            setSelectedSheet(null)
-            setPreviewMode('edit')
-            setDatasetBeingReplaced(null)
-          }}
-          fileName={previewData?.fileName || ''}
-          sheetName={selectedSheet.name}
-          columns={selectedSheet.columns}
-          sampleRows={selectedSheet.sampleRows}
-          onSave={previewMode === 'edit' ? handleSaveParsedSheet : undefined}
-          readOnly={previewMode === 'readonly'}
-        />
       )}
     </div>
   )

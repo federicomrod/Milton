@@ -13,6 +13,8 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
+import type { BusinessTypeId } from '@/lib/business-types'
+import { KPI_TEMPLATES } from '@/lib/kpi-templates'
 
 interface MetricOption {
   id: string
@@ -50,9 +52,10 @@ const availableMetrics: MetricOption[] = [
 interface MetricSelectorProps {
   selectedMetrics: string[]
   onMetricsChange: (metrics: string[]) => void
+  businessType?: BusinessTypeId | null
 }
 
-export function MetricSelector({ selectedMetrics, onMetricsChange }: MetricSelectorProps) {
+export function MetricSelector({ selectedMetrics, onMetricsChange, businessType }: MetricSelectorProps) {
   const [open, setOpen] = useState(false)
   const [tempSelection, setTempSelection] = useState<string[]>(selectedMetrics)
 
@@ -76,6 +79,63 @@ export function MetricSelector({ selectedMetrics, onMetricsChange }: MetricSelec
 
   const getCategoryMetrics = (category: string) => {
     return availableMetrics.filter(metric => metric.category === category)
+  }
+
+  const recommendedKpis = businessType ? (KPI_TEMPLATES[businessType] ?? []) : []
+
+  const renderRecommendedKpis = () => {
+    if (!recommendedKpis.length) return null
+
+    return (
+      <div className="space-y-3">
+        <div>
+          <h4 className="font-medium text-sm">Recommended KPIs for Your Business</h4>
+          <p className="text-xs text-gray-500">Based on your business type, these KPIs are highly relevant</p>
+        </div>
+        <div className="grid grid-cols-1 gap-3">
+          {recommendedKpis.map((kpi) => {
+            const isSelected = tempSelection.includes(kpi.id)
+            return (
+              <Card 
+                key={kpi.id} 
+                className={`cursor-pointer transition-all ${
+                  isSelected 
+                    ? 'border-blue-500 bg-blue-50' 
+                    : 'border-blue-300 hover:border-blue-400'
+                }`}
+                onClick={() => handleToggleMetric(kpi.id)}
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-sm">{kpi.label}</CardTitle>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">
+                        Recommended
+                      </span>
+                    </div>
+                    <Checkbox 
+                      checked={isSelected}
+                      onCheckedChange={() => handleToggleMetric(kpi.id)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-gray-600">{kpi.description}</p>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    {kpi.trendGoal === 'increase'
+                      ? '↑ Higher is better'
+                      : kpi.trendGoal === 'decrease'
+                      ? '↓ Lower is better'
+                      : '→ Keep stable'}
+                  </p>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      </div>
+    )
   }
 
   const renderMetricCategory = (title: string, category: string, description: string) => (
@@ -130,22 +190,28 @@ export function MetricSelector({ selectedMetrics, onMetricsChange }: MetricSelec
           </DialogDescription>
         </DialogHeader>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 py-4">
-          {renderMetricCategory(
-            "Core Metrics", 
-            "core", 
-            "Essential KPIs for tracking business performance"
-          )}
-          {renderMetricCategory(
-            "LTM Comparisons", 
-            "ltm", 
-            "12-month rolling averages for trend analysis"
-          )}
-          {renderMetricCategory(
-            "Advanced Analytics", 
-            "advanced", 
-            "Deeper insights requiring additional data"
-          )}
+        <div className="space-y-6 py-4">
+          {/* Recommended KPIs section */}
+          {renderRecommendedKpis()}
+
+          {/* Existing categories */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {renderMetricCategory(
+              "Core Metrics", 
+              "core", 
+              "Essential KPIs for tracking business performance"
+            )}
+            {renderMetricCategory(
+              "LTM Comparisons", 
+              "ltm", 
+              "12-month rolling averages for trend analysis"
+            )}
+            {renderMetricCategory(
+              "Advanced Analytics", 
+              "advanced", 
+              "Deeper insights requiring additional data"
+            )}
+          </div>
         </div>
         
         <div className="flex justify-between items-center pt-4 border-t">

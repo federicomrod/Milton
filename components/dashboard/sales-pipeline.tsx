@@ -21,43 +21,34 @@ import { formatCurrency as formatCurrencyUtil, formatDate } from '@/lib/utils/fo
 
 interface Deal {
   id: string
-  deal_name: string
-  phase: string
   amount: number
-  client_name: string
-  first_appointment: string
-  closing_date: string
-  product: string
+  stage: string  // normalized: lead_generation, first_contact, need_qualification, negotiation, deal, no_deal
+  company?: string
+  owner?: string
+  deal_name?: string
+  client_name?: string
+  product?: string | null
+  close_date: string | null
+  created_date: string | null
+  user_id: string
 }
 
 interface PhaseColors {
   [key: string]: string
 }
 
-// Phase normalization helper
-const phaseAliases: { [key: string]: string } = {
-  'lead gen': 'Lead Generation',
-  'leadgen': 'Lead Generation',
-  'lead-generation': 'Lead Generation',
-  'leadgeneration': 'Lead Generation',
-  'lead generation': 'Lead Generation',
-  'lead gen.': 'Lead Generation',
-  'lead-gen': 'Lead Generation',
-  'lead': 'Lead Generation',
-  'first contact': 'First Contact',
-  'need qualification': 'Need Qualification',
-  'qualifizierung': 'Need Qualification',
-  'verhandlung': 'Negotiation',
+// Stage normalization helper - converts normalized stage to display name
+const stageToDisplayName: { [key: string]: string } = {
+  'lead_generation': 'Lead Generation',
+  'first_contact': 'First Contact',
+  'need_qualification': 'Need Qualification',
   'negotiation': 'Negotiation',
   'deal': 'Deal',
-  'gewonnen': 'Deal',
-  'kein deal': 'No Deal',
-  'no deal': 'No Deal'
+  'no_deal': 'No Deal'
 }
 
-const normalizePhase = (value: string): string => {
-  const key = value.trim().toLowerCase()
-  return phaseAliases[key] || value
+const normalizeStage = (value: string): string => {
+  return stageToDisplayName[value] || 'Lead Generation'
 }
 
 export function SalesPipeline() {
@@ -256,8 +247,8 @@ export function SalesPipeline() {
         const dealsData: Deal[] = data || []
         console.log("📊 Loaded CRM deals from Supabase:", dealsData.length)
         console.log("✅ Sample Supabase deal object:", dealsData[0])
-        console.log("💬 Deal names check:", dealsData.map(d => d.deal_name))
-        console.log("💬 Client names check:", dealsData.map(d => d.client_name))
+        console.log("💬 Deal IDs check:", dealsData.map(d => d.id))
+        console.log("💬 Companies check:", dealsData.map(d => d.company))
         console.log("💬 Object keys of first deal:", Object.keys(dealsData[0] || {}))
         
         setAllDeals(dealsData)
@@ -280,20 +271,22 @@ export function SalesPipeline() {
 
   const calculatePipelineMetrics = (dealsData: Deal[]) => {
     console.log('[CRM DEALS]', dealsData);
-    console.log('[CRM DEAL PHASES]', dealsData.map(d => d.phase));
-    console.log('[CRM NORMALIZED PHASES]', dealsData.map(d => normalizePhase(d.phase || '')));
+    console.log('[CRM DEAL STAGES]', dealsData.map(d => d.stage));
+    console.log('[CRM NORMALIZED STAGES]', dealsData.map(d => normalizeStage(d.stage || '')));
+    
     // Pipeline by phase
     const phaseOrder = ['Lead Generation', 'First Contact', 'Need Qualification', 'Negotiation', 'Deal', 'No Deal']
-    // Show all deals, not just future ones
-    const today = new Date()
     const allDeals = dealsData
-    console.log('[PHASE CHECK]', Array.from(new Set(allDeals.map(d => d.phase))))
+    
+    console.log('[STAGE CHECK]', Array.from(new Set(allDeals.map(d => d.stage))))
+    
     const phaseData = phaseOrder.map(phase => {
-      const phaseDeals = allDeals.filter(d => normalizePhase(d.phase || '') === phase)
-      // Debug for Lead Generation phase
+      const phaseDeals = allDeals.filter(d => normalizeStage(d.stage || '') === phase)
+      
       if (phase === 'Lead Generation') {
         console.log('Lead Gen matches:', phaseDeals.map(d => ({ amount: d.amount, type: typeof d.amount })))
       }
+      
       return {
         phase,
         count: phaseDeals.length,
@@ -306,7 +299,7 @@ export function SalesPipeline() {
     const activePhasesData = phaseOrder.slice(0, -1) // Exclude 'No Deal'
     
     const funnelData = activePhasesData.map((phase) => {
-      const phaseDeals = allDeals.filter(d => normalizePhase(d.phase || '') === phase)
+      const phaseDeals = allDeals.filter(d => normalizeStage(d.stage || '') === phase)
       const count = phaseDeals.length
       const totalDeals = allDeals.length
       const value = phaseDeals.reduce((sum, d) => {
@@ -324,40 +317,33 @@ export function SalesPipeline() {
       }
     })
 
-    // Deals by product (only closed deals in the past)
-    const closedDealsForProducts = dealsData.filter(
-      d =>
-        normalizePhase(d.phase || '') === 'Deal' &&
-        d.product
-    )
-    const productData = closedDealsForProducts.reduce((acc: any[], deal) => {
-      const existing = acc.find(p => p.product === deal.product)
-      if (existing) {
-        existing.count += 1
-        existing.value += Number(deal.amount)
-      } else {
-        acc.push({
-          product: deal.product,
-          count: 1,
-          value: Number(deal.amount)
-        })
-      }
-      return acc
-    }, []).sort((a, b) => b.value - a.value) // Sort by value descending
+    // Aggregate closed deals by product
+    const productTotals = allDeals
+      .filter((d) => d.stage === 'deal' && d.product)
+      .reduce<Record<string, number>>((acc, deal) => {
+        const key = (deal.product || 'Unspecified').trim() || 'Unspecified';
+        acc[key] = (acc[key] || 0) + Number(deal.amount || 0);
+        return acc;
+      }, {});
 
-    // Calculate average sales cycle (for closed deals in the past)
-    const closedDeals = dealsData.filter(
-      d =>
-        normalizePhase(d.phase || '') === 'Deal' &&
-        d.first_appointment &&
-        d.closing_date &&
-        new Date(d.closing_date) <= today
-    )
-    const salesCycles = closedDeals.map(d => {
-      const start = new Date(d.first_appointment)
-      const end = new Date(d.closing_date)
-      return Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-    })
+    const productData = Object.entries(productTotals)
+      .map(([product, value]) => ({ product, value }))
+      .sort((a, b) => b.value - a.value);
+
+    // Calculate average sales cycle (for closed deals)
+    function daysBetween(start?: string | null, end?: string | null) {
+      if (!start || !end) return null;
+      const s = new Date(start);
+      const e = new Date(end);
+      return (e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24);
+    }
+    
+    const closedDeals = dealsData.filter(d => d.stage === 'deal' && d.close_date && d.created_date)
+    
+    const salesCycles = closedDeals
+      .map(d => daysBetween(d.created_date, d.close_date))
+      .filter((n): n is number => n != null && !Number.isNaN(n) && n > 0)
+    
     const avgSalesCycle = salesCycles.length > 0 ?
       Math.round(salesCycles.reduce((sum, days) => sum + days, 0) / salesCycles.length) : 0
 
@@ -386,10 +372,10 @@ export function SalesPipeline() {
         
         // Add deals to appropriate month and phase
         allDeals.forEach(deal => {
-          if (deal.closing_date) {
-            const dealDate = new Date(deal.closing_date)
+          if (deal.close_date) {
+            const dealDate = new Date(deal.close_date)
             const dealYearMonth = `${dealDate.getFullYear()}-${String(dealDate.getMonth() + 1).padStart(2, '0')}`
-            const normPhase = normalizePhase(deal.phase || '')
+            const normPhase = normalizeStage(deal.stage || '')
             if (
               dealYearMonth === yearMonth &&
               normPhase !== 'No Deal' &&
@@ -413,16 +399,17 @@ export function SalesPipeline() {
       return forecastData
     })()
 
-    // Top 10 deals
+    // Top 10 deals (closed deals only)
     const topDeals = [...allDeals]
-      .filter(d => d.deal_name && d.client_name && d.amount)
+      .filter(d => d.stage === 'deal' && d.close_date && d.amount)
       .sort((a, b) => Number(b.amount) - Number(a.amount))
       .slice(0, 10)
       .map(d => ({
-        name: d.deal_name?.trim() !== '' ? d.deal_name.substring(0, 30) + '...' : '(No Name)',
-        client: d.client_name?.trim() !== '' ? d.client_name : '(No Client)',
+        name: d.deal_name || (d.id ? `Deal ${String(d.id).slice(0, 8)}` : 'Unnamed Deal'),
+        client: d.client_name || d.company || '(No Client)',
         amount: Number(d.amount) || 0,
-        phase: normalizePhase(d.phase || '')
+        phase: normalizeStage(d.stage || ''),
+        id: d.id,
       }))
 
     console.log("🎯 Top Deals Preview:", topDeals.slice(0, 3))
@@ -607,7 +594,12 @@ export function SalesPipeline() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrencyUtil(deals.reduce((sum, d) => sum + d.amount, 0), prefs.currency)}
+              {formatCurrencyUtil(
+                allDeals
+                  .filter(d => d.stage !== 'no_deal')
+                  .reduce((sum, d) => sum + Number(d.amount || 0), 0),
+                prefs.currency
+              )}
             </div>
           </CardContent>
         </Card>
@@ -617,10 +609,7 @@ export function SalesPipeline() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {allDeals.filter(d => {
-                const phase = normalizePhase(d.phase || '')
-                return phase !== 'No Deal' && phase !== 'Deal'
-              }).length}
+              {allDeals.filter(d => d.stage !== 'no_deal').length}
             </div>
           </CardContent>
         </Card>
@@ -639,14 +628,10 @@ export function SalesPipeline() {
           <CardContent>
             <div className="text-2xl font-bold">
               {(() => {
-                // Only include deals closed in the past (Deal or No Deal)
-                const closedPast = allDeals.filter(d =>
-                  ['Deal', 'No Deal'].includes(normalizePhase(d.phase || '')) &&
-                  d.closing_date &&
-                  new Date(d.closing_date) <= new Date()
-                )
-                const wins = closedPast.filter(d => normalizePhase(d.phase || '') === 'Deal')
-                return closedPast.length > 0 ? ((wins.length / closedPast.length) * 100).toFixed(1) : '0.0'
+                const closedWon = allDeals.filter(d => d.stage === 'deal' && d.close_date).length
+                const closedLost = allDeals.filter(d => d.stage === 'no_deal' && d.close_date).length
+                const total = closedWon + closedLost
+                return total === 0 ? '0.0' : ((closedWon / total) * 100).toFixed(1)
               })()}%
             </div>
           </CardContent>
@@ -836,43 +821,45 @@ export function SalesPipeline() {
             <CardTitle>Closed Deals by Product</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={350}>
-              <BarChart 
-                data={metrics.dealsByProduct}
-                margin={{ top: 30, right: 30, left: 20, bottom: 100 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="product" 
-                  angle={-45} 
-                  textAnchor="end" 
-                  height={100}
-                  tick={{ fontSize: 11, fill: '#000' }}
-                  interval={0}
-                />
-                <YAxis tickFormatter={(value) => formatCurrency(value)} />
-                <Tooltip 
-                  formatter={(value: any) => [formatCurrency(Number(value)), 'Deal Value']}
-                  labelStyle={{ color: '#000' }}
-                />
-                <Bar 
-                  dataKey="value" 
-                  fill={currentColors['Deal']}
-                  name="Total Deal Value"
-                >
-                  <LabelList 
-                    dataKey="value" 
-                    position="top" 
-                    formatter={(value: any) => formatCurrency(Number(value))}
-                    style={{ fontSize: '12px', fontWeight: 'bold', fill: '#000' }}
-                  />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-            {metrics.dealsByProduct.length === 0 && (
-              <div className="flex items-center justify-center h-64">
-                <p className="text-gray-500">No closed deals found</p>
+            {!metrics.dealsByProduct || metrics.dealsByProduct.length === 0 ? (
+              <div className="rounded border p-6 text-center text-sm text-gray-500">
+                <p>📦 No product data available.</p>
+                <p className="text-xs mt-2">Upload CRM data with a "Product" or "Product Type" column to see this chart.</p>
               </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={350}>
+                <BarChart 
+                  data={metrics.dealsByProduct}
+                  margin={{ top: 30, right: 30, left: 20, bottom: 100 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="product" 
+                    angle={-45} 
+                    textAnchor="end" 
+                    height={100}
+                    tick={{ fontSize: 11, fill: '#000' }}
+                    interval={0}
+                  />
+                  <YAxis tickFormatter={(value) => formatCurrency(value)} />
+                  <Tooltip 
+                    formatter={(value: any) => [formatCurrency(Number(value)), 'Deal Value']}
+                    labelStyle={{ color: '#000' }}
+                  />
+                  <Bar 
+                    dataKey="value" 
+                    fill={currentColors['Deal']}
+                    name="Total Deal Value"
+                  >
+                    <LabelList 
+                      dataKey="value" 
+                      position="top" 
+                      formatter={(value: any) => formatCurrency(Number(value))}
+                      style={{ fontSize: '12px', fontWeight: 'bold', fill: '#000' }}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             )}
           </CardContent>
         </Card>

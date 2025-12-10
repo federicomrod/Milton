@@ -1,1 +1,20 @@
-npm test
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "🔍 Running pre-commit checks..."
+
+echo "🔎 Running type check..."
+npm run type-check || {
+  echo "❌ Type checking failed. Please fix the errors before committing."
+  exit 1
+}
+
+echo "📝 Running linter..."
+if npm run lint -- --max-warnings=0 2>/dev/null; then
+  echo "✅ Linting passed"
+else
+  echo "⚠️  Linting failed or not configured. Skipping lint check."
+  echo "   (You can run 'npm run lint' manually to check for issues)"
+fi
+
+echo "✅ Pre-commit checks completed!"

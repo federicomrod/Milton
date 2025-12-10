@@ -1,0 +1,43 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Conventional commit format validator
+# Format: type(scope): subject
+# Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+
+commit_msg=$(cat "$1")
+
+# Pattern: type(scope): subject OR type: subject
+# Optional types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+'
+
+if ! echo "$commit_msg" | grep -qE "$pattern"; then
+  echo "❌ Invalid commit message format!"
+  echo ""
+  echo "Commit messages must follow the conventional commit format:"
+  echo "  type(scope): subject"
+  echo ""
+  echo "Valid types:"
+  echo "  feat:     A new feature"
+  echo "  fix:      A bug fix"
+  echo "  docs:     Documentation only changes"
+  echo "  style:    Changes that don't affect code meaning (white-space, formatting)"
+  echo "  refactor: Code change that neither fixes bug nor adds feature"
+  echo "  perf:     Performance improvement"
+  echo "  test:     Adding missing tests or correcting existing tests"
+  echo "  build:    Changes that affect the build system or dependencies"
+  echo "  ci:       Changes to CI configuration files and scripts"
+  echo "  chore:    Other changes that don't modify src or test files"
+  echo "  revert:   Reverts a previous commit"
+  echo ""
+  echo "Examples:"
+  echo "  feat: add user authentication"
+  echo "  fix: resolve login button styling issue"
+  echo "  chore: upgrade dependencies"
+  echo "  feat(auth): add OAuth login"
+  echo ""
+  exit 1
+fi
+
+echo "✅ Commit message format is valid"
+

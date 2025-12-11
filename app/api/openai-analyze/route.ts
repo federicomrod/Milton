@@ -1,6 +1,5 @@
 // app/api/openai-analyze/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 
 export async function POST(request: NextRequest) {
   try {
@@ -68,8 +67,8 @@ export async function POST(request: NextRequest) {
     console.log('Making OpenAI API call...')
 
     // Handle message array format (for insights) vs string format (for file analysis)
-    const messages: ChatCompletionMessageParam[] = isMessageArray 
-      ? (prompt as ChatCompletionMessageParam[])
+    const messages = isMessageArray 
+      ? prompt 
       : [
           {
             role: "system",
@@ -77,7 +76,7 @@ export async function POST(request: NextRequest) {
           },
           {
             role: "user",
-            content: prompt as string
+            content: prompt
           }
         ]
 

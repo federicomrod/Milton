@@ -3,6 +3,8 @@
 
 import { SupabaseClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
+import { DEFAULT_CRM_MAPPING, CrmMapping } from '@/lib/crm-mapping'
+import { normalizeCrmRow } from '@/lib/crm-normalizer'
 
 export interface IngestFileParams {
   supabase: SupabaseClient
@@ -159,15 +161,25 @@ export async function ingestUploadedFile({
       insertedCount = transactions.length
 
     } else if (datasetType === 'crm') {
-      // Map CSV columns to crm_deals table
-      const deals = jsonData.map((row: any) => ({
-        user_id: userId,
-        deal_name: row.deal_name || row['Deal Name'] || row.name || 'Unnamed Deal',
-        client_name: row.client_name || row['Client Name'] || row.client || '',
-        amount: parseFloat(row.amount || row.Amount || row.value || '0'),
-        phase: row.phase || row.Phase || row.stage || 'Unknown',
-        closing_date: row.closing_date || row['Closing Date'] || row.date || new Date().toISOString()
-      }))
+      // Normalize CRM data using the CRM normalizer
+      const mapping: CrmMapping = DEFAULT_CRM_MAPPING; // later: load from DB per user
+      
+      const deals = jsonData.map((row: any) => {
+        const normalized = normalizeCrmRow(row, mapping);
+        return {
+          user_id: userId,
+          id: normalized.id,
+          deal_name: normalized.deal_name,
+          amount: normalized.amount,
+          stage: normalized.stage,
+          phase: normalized.stage, // Required NOT NULL column (legacy field)
+          company: normalized.company,
+          owner: normalized.owner,
+          product: normalized.product,
+          created_date: normalized.created_date,
+          close_date: normalized.close_date,
+        };
+      });
 
       const { error } = await supabase.from('crm_deals').insert(deals)
       if (error) throw error

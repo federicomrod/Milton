@@ -1,6 +1,7 @@
 // lib/report-data-service.ts
 import { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
+import type { BusinessTypeId } from '@/lib/business-types'
 
 export interface ReportPeriod {
   start: string
@@ -31,6 +32,8 @@ export interface ReportData {
   transactions: any[]
   crmDeals: any[]
   budgets: any[]
+  businessType: BusinessTypeId | null
+  selectedKpiIds: string[]
 }
 
 /**
@@ -124,6 +127,13 @@ export async function getReportData(
   // --- Budget variance ---
   const budgetSummary = computeBudgetVariance(transactions || [], budgets || [])
 
+  // Step 4: Fetch user preferences from business_models
+  const { data: modelRow } = await supabase
+    .from('business_models')
+    .select('business_type, selected_kpi_ids')
+    .eq('user_id', userId)
+    .single()
+
   return {
     kpis: {
       revenue: totalRevenue,
@@ -137,7 +147,9 @@ export async function getReportData(
     budgetVariance: budgetSummary,
     transactions: transactions || [],
     crmDeals: crmDeals || [],
-    budgets: budgets || []
+    budgets: budgets || [],
+    businessType: (modelRow?.business_type ?? null) as BusinessTypeId | null,
+    selectedKpiIds: (modelRow?.selected_kpi_ids ?? []) as string[]
   }
 }
 
@@ -271,5 +283,41 @@ export async function getUserKpiSnapshots(supabase: SupabaseClient, userId: stri
   } catch (err) {
     console.error('[getUserKpiSnapshots] Unexpected error:', err)
     return []
+  }
+}
+
+/**
+ * Retrieves user's KPI preferences (selected KPI IDs and business type)
+ * from the business_models table
+ */
+export async function getUserKpiPreferences(supabase: SupabaseClient, userId: string) {
+  try {
+    const { data, error } = await supabase
+      .from('business_models')
+      .select('selected_kpi_ids, business_type')
+      .eq('user_id', userId)
+      .single()
+
+    if (error) {
+      console.warn('[getUserKpiPreferences] Query error:', {
+        code: error.code,
+        message: error.message,
+      })
+      return {
+        selectedKpiIds: [],
+        businessType: null,
+      }
+    }
+
+    return {
+      selectedKpiIds: (data?.selected_kpi_ids ?? []) as string[],
+      businessType: data?.business_type as string | null,
+    }
+  } catch (err) {
+    console.error('[getUserKpiPreferences] Unexpected error:', err)
+    return {
+      selectedKpiIds: [],
+      businessType: null,
+    }
   }
 }

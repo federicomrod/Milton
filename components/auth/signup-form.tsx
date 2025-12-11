@@ -15,7 +15,6 @@ export function SignupForm() {
   const [password, setPassword] = useState('')
   const [companyName, setCompanyName] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const supabase = createClient()
@@ -24,99 +23,51 @@ export function SignupForm() {
     e.preventDefault()
     setLoading(true)
     setError(null)
-    setSuccess(false)
 
     try {
-      // Get redirect URL for email confirmation
-      const getRedirectUrl = () => {
-        if (typeof window !== 'undefined') {
-          return `${window.location.origin}/auth/callback`
-        }
-        return process.env.NEXT_PUBLIC_SITE_URL 
-          ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`
-          : 'https://milton-neon.vercel.app/auth/callback'
-      }
-
       // Step 1: Sign up the user
-      // Store company name in metadata so we can create it after email confirmation
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
-        options: {
-          emailRedirectTo: getRedirectUrl(),
-          data: {
-            company_name: companyName,
-          },
-        },
       })
 
-      // Check if signup actually failed
       if (authError) {
         throw authError
       }
 
-      // Check if user was created (even if email confirmation is pending)
       if (!authData.user) {
         throw new Error('No user data returned')
       }
 
-      // Signup was successful! Now try to create profile and company
-      // These might fail due to RLS policies if email confirmation is required,
-      // but that's okay - we'll handle it after confirmation
-      let profileCreated = false
-      let companyCreated = false
-
-      // Step 2 & 3: Try to create profile and company
-      // These will likely fail due to RLS policies requiring email confirmation
-      // We'll create them after email confirmation in the callback route
-      // Store company name in user metadata for later use
-      
-      // Try to create profile (may fail silently due to RLS)
+      // Step 2: Create profile record
       const { error: profileError } = await supabase
         .from('profiles')
         .insert({
           id: authData.user.id,
           company_name: companyName,
         })
-        .select()
-        .single()
 
-      if (!profileError) {
-        profileCreated = true
+      if (profileError) {
+        console.error('Profile error:', profileError)
+        // Don't throw here, continue to create company
       }
 
-      // Try to create company (may fail silently due to RLS)
+      // Step 3: Create company record
       const { error: companyError } = await supabase
         .from('companies')
         .insert({
           name: companyName,
           created_by: authData.user.id,
         })
-        .select()
-        .single()
 
-      if (!companyError) {
-        companyCreated = true
+      if (companyError) {
+        console.error('Company error:', companyError)
+        throw new Error('Failed to create company profile. Please try again.')
       }
 
-      // Note: If these fail, they'll be created after email confirmation
-      // The company name is stored in user metadata for that purpose
-
-      // Success! User was created, show success message
-      setSuccess(true)
-      setLoading(false)
-
-      // Set a flag in localStorage to indicate email confirmation is pending
-      // This will be checked on the login page
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('email_confirmation_pending', 'true')
-      }
-
-      // If email confirmation is not required and we have a session, redirect
-      if (authData.session) {
-        router.push('/dashboard')
-        router.refresh()
-      }
+      // Success! Redirect to dashboard
+      router.push('/dashboard')
+      router.refresh()
 
     } catch (err: any) {
       console.error('Signup error:', err)
@@ -136,13 +87,6 @@ export function SignupForm() {
           {error && (
             <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          {success && (
-            <Alert variant="success">
-              <AlertDescription>
-                Account created successfully! Please check your email to confirm your account before signing in.
-              </AlertDescription>
             </Alert>
           )}
           <div className="space-y-2">
@@ -177,7 +121,7 @@ export function SignupForm() {
               required
               minLength={6}
             />
-            <p className="text-xs text-muted-foreground mb-4">
+            <p className="text-xs text-muted-foreground">
               Minimum 6 characters
             </p>
           </div>

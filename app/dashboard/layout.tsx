@@ -5,6 +5,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import MiltonChat from '@/components/dashboard/miltonchat';
 import { createClient } from '@/lib/supabase/client';
 import { DataStatusProvider } from '@/lib/context/DataStatusContext';
+import { BusinessProvider } from '@/lib/business-context';
+import { DashboardBusinessGate } from '@/components/dashboard/DashboardBusinessGate';
 import { miltonEventsAPI } from '@/lib/milton-events';
 import { getKpiSnapshots, getUserKpiSnapshots } from '@/lib/report-data-service';
 import { generateIncomeStatementChart } from '@/lib/chart-generator';
@@ -200,61 +202,65 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   }, [pathname, dataStatus, router]);
 
   return (
-    <DataStatusProvider value={{ refreshDataStatus }}>
-      <div style={{ position: 'relative', minHeight: '100vh' }}>
-        {children}
-        {/* Optional insight preview - removed to prevent duplication */}
-        {/* (Optional) Add debug display for live KPI chart data */}
-        {/* <pre>{JSON.stringify(chartData, null, 2)}</pre> */}
-      {/* Chat Toggle Button */}
-      <button
-        aria-label="Open Milton Chat"
-        onClick={() => setIsChatOpen((open) => !open)}
-        style={{
-          position: 'fixed',
-          right: 32,
-          bottom: 32,
-          zIndex: 10050,
-          width: 56,
-          height: 56,
-          borderRadius: '50%',
-          background: '#fff',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          border: 'none',
-          fontSize: 28,
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}
-      >
-        💬
-      </button>
-      {/* Sliding Chat Panel */}
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          right: 0,
-          height: '100vh',
-          width: '33.333vw',
-          maxWidth: 420,
-          minWidth: 320,
-          background: '#fff',
-          boxShadow: '0 0 24px rgba(0,0,0,0.2)',
-          zIndex: 10000,
-          transform: isChatOpen ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform 0.3s cubic-bezier(.4,0,.2,1)',
-          display: 'flex',
-          flexDirection: 'column'
-        }}
-      >
-        <div className="chat-panel" style={{ position: 'relative' }}>
-          <MiltonChat />
-        </div>
-      </div>
-      </div>
-    </DataStatusProvider>
+    <BusinessProvider>
+      <DashboardBusinessGate>
+        <DataStatusProvider value={{ refreshDataStatus }}>
+          <div style={{ position: 'relative', minHeight: '100vh' }}>
+            {children}
+            {/* Optional insight preview - removed to prevent duplication */}
+            {/* (Optional) Add debug display for live KPI chart data */}
+            {/* <pre>{JSON.stringify(chartData, null, 2)}</pre> */}
+          {/* Chat Toggle Button */}
+          <button
+            aria-label="Open Milton Chat"
+            onClick={() => setIsChatOpen((open) => !open)}
+            style={{
+              position: 'fixed',
+              right: 32,
+              bottom: 32,
+              zIndex: 10050,
+              width: 56,
+              height: 56,
+              borderRadius: '50%',
+              background: '#fff',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              border: 'none',
+              fontSize: 28,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            💬
+          </button>
+          {/* Sliding Chat Panel */}
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              right: 0,
+              height: '100vh',
+              width: '33.333vw',
+              maxWidth: 420,
+              minWidth: 320,
+              background: '#fff',
+              boxShadow: '0 0 24px rgba(0,0,0,0.2)',
+              zIndex: 10000,
+              transform: isChatOpen ? 'translateX(0)' : 'translateX(100%)',
+              transition: 'transform 0.3s cubic-bezier(.4,0,.2,1)',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            <div className="chat-panel" style={{ position: 'relative' }}>
+              <MiltonChat />
+            </div>
+          </div>
+          </div>
+        </DataStatusProvider>
+      </DashboardBusinessGate>
+    </BusinessProvider>
   );
 };
 

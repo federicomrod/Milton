@@ -37,10 +37,6 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules",
-    "app copy",
-    "components copy",
-    "lib copy",
-    "types copy"
+    "node_modules"
   ]
 }

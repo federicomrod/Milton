@@ -44,11 +44,50 @@ export default function MiltonChat() {
     return () => unsubscribeDashboard()
   }, [])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim()) return
-    setMessages(prev => [...prev, { id: Date.now(), from: 'user', text: input.trim() }])
+    
+    const userMessage = input.trim()
+    setMessages(prev => [...prev, { id: Date.now(), from: 'user', text: userMessage }])
     setInput('')
+
+    // Add loading indicator
+    const loadingId = Date.now() + 1
+    setMessages(prev => [...prev, { id: loadingId, from: 'milton', text: '...' }])
+
+    try {
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMessage })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to get response from Milton')
+      }
+
+      const data = await response.json()
+      
+      // Remove loading indicator and add real response
+      setMessages(prev => 
+        prev.filter(m => m.id !== loadingId).concat({
+          id: Date.now(),
+          from: 'milton',
+          text: data.reply || 'I could not generate a response.'
+        })
+      )
+    } catch (error) {
+      console.error('[MiltonChat] Error:', error)
+      // Remove loading and show error
+      setMessages(prev => 
+        prev.filter(m => m.id !== loadingId).concat({
+          id: Date.now(),
+          from: 'milton',
+          text: 'Sorry, I encountered an error. Please try again.'
+        })
+      )
+    }
   }
 
   return (

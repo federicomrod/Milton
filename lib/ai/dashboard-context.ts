@@ -47,7 +47,7 @@ function getMonthKey(dateStr: string): string | null {
 }
 
 export async function buildDashboardContextForUser(userId: string): Promise<DashboardContext> {
-  const supabase = createClient();
+  const supabase = await createClient();
 
   try {
     // Get report data using existing service

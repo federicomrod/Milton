@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// Lazy initialization to avoid errors during build time
+function getOpenAIClient() {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("Missing OPENAI_API_KEY environment variable");
+  }
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
 
 export async function POST(req: Request) {
   try {
@@ -35,6 +41,7 @@ Sample rows (first 3):
 ${JSON.stringify(sampleRows.slice(0, 3), null, 2)}
 `
 
+    const client = getOpenAIClient();
     const completion = await client.chat.completions.create({
       model: 'gpt-4o-mini',
       temperature: 0.3,

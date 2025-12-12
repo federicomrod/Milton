@@ -88,8 +88,10 @@ jobs:
 
       - name: Build application
         run: npm run build
-        # Add environment variables here if needed:
-        # env:
-        #   NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-        #   NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        env:
+          # Dummy API key for build (not used at runtime, just to prevent build errors)
+          OPENAI_API_KEY: "sk-dummy-key-for-build-only"
+          # Add other environment variables here if needed:
+          # NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          # NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 

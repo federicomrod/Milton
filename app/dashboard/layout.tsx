@@ -188,7 +188,13 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     if (!pathname?.startsWith('/dashboard')) return;       // ignore non-dashboard routes
 
-    if (pathname.startsWith('/dashboard/model')) return;   // skip redirect for Data Model Builder and subpaths
+    // Skip redirect for pages that don't require data
+    if (pathname.startsWith('/dashboard/model')) return;   // Data Model Builder
+    if (pathname.startsWith('/dashboard/analytics')) return; // Analytics page
+    if (pathname.startsWith('/dashboard/reporting')) return; // Reporting page
+    if (pathname.startsWith('/dashboard/account')) return; // Account page
+    if (pathname.startsWith('/dashboard/settings')) return; // Settings page
+    if (pathname === '/dashboard') return; // Already on dashboard, no redirect needed
 
     if (
       dataStatus?.ok &&

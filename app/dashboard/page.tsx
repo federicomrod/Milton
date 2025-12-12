@@ -19,6 +19,7 @@ import { MetricSelector } from '@/components/dashboard/metric-selector'
 import { UseCaseSelector } from '@/components/dashboard/use-case-selector'
 import { getUseCase } from '@/types/use-cases'
 import WelcomeBanner from '@/components/dashboard/WelcomeBanner'
+import { useBusinessContext } from '@/lib/business-context'
 
 
 import {
@@ -44,9 +45,12 @@ type DataStatus = {
 
 export default function DashboardPage() {
   const router = useRouter()
+  const { businessType } = useBusinessContext()
+  // Core KPIs that always show
+  const coreKpiIds = ['mrr', 'arr', 'cashBalance', 'burnRate']
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>([
-    'mrr', 'arr', 'cashBalance', 'burnRate', 'contracted',
-    'ltmRevenue', 'netMargin', 'customers'
+    ...coreKpiIds,
+    'contracted', 'ltmRevenue', 'netMargin', 'customers'
   ])
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(false) // Start with loading false for development
@@ -191,6 +195,37 @@ export default function DashboardPage() {
     checkStoredUseCase()
   }, [])
 
+  // Fetch user's selected KPI IDs and merge with core KPIs
+  useEffect(() => {
+    const loadKpiPreferences = async () => {
+      try {
+        const res = await fetch('/api/onboarding/kpi-preferences')
+        if (!res.ok) {
+          console.warn('[Dashboard] Could not load KPI preferences, using defaults')
+          return
+        }
+        const data = await res.json()
+        const userSelectedKpiIds = (data.selectedKpiIds ?? []) as string[]
+        
+        if (userSelectedKpiIds.length > 0) {
+          console.log('[Dashboard] Loaded user KPI preferences:', userSelectedKpiIds)
+          
+          // Merge: core KPIs always show, then add user-selected ones (no duplicates)
+          const mergedKpiIds = [
+            ...coreKpiIds,
+            ...userSelectedKpiIds.filter(id => !coreKpiIds.includes(id))
+          ].slice(0, 8) // Limit to 8 tiles max
+          
+          setSelectedMetrics(mergedKpiIds)
+        }
+      } catch (err) {
+        console.error('[Dashboard] Error loading KPI preferences:', err)
+      }
+    }
+    
+    loadKpiPreferences()
+  }, [])
+
   // Handle use case selection
   const handleUseCaseSelect = (useCaseId: string) => {
     setSelectedUseCase(useCaseId)
@@ -228,7 +263,54 @@ export default function DashboardPage() {
   return (
     <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
       <div className="px-4 py-6 sm:px-0">
-        
+          
+
+
+          {/* DEBUG INFO - Remove in production */}
+          <Card className="mb-4 border-yellow-300 bg-yellow-50">
+            <CardHeader>
+              <CardTitle className="text-sm">🐛 Debug Info (Remove in production)</CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs space-y-1">
+              <div>useCaseConfirmed: <strong>{useCaseConfirmed ? 'true' : 'false'}</strong></div>
+              <div>selectedUseCase: <strong>{selectedUseCase || 'null'}</strong></div>
+              <div>hasUploadedData: <strong>{hasUploadedData ? 'true' : 'false'}</strong></div>
+              <div>isUploadOpen: <strong>{isUploadOpen ? 'true' : 'false'}</strong></div>
+              <div className="flex gap-2 mt-2">
+                <Button size="sm" variant="outline" onClick={resetUseCase}>
+                  Reset Use Case
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => {
+                  localStorage.clear()
+                  window.location.reload()
+                }}>
+                  Clear All Data
+                </Button>
+                <Button size="sm" variant="outline" onClick={async () => {
+                  console.log('🔍 Checking data status from API...')
+                  try {
+                    const res = await fetch('/api/data/status')
+                    const data = await res.json()
+                    console.log('🔍 Data status:', data)
+                    console.log('🔍 Bank:', data?.bank ? 'Yes' : 'No')
+                    console.log('🔍 CRM:', data?.crm ? 'Yes' : 'No')
+                    console.log('🔍 Budget:', data?.budget ? 'Yes' : 'No')
+                  } catch (err) {
+                    console.error('🔍 Error fetching data status:', err)
+                  }
+                }}>
+                  Debug Data
+                </Button>
+                <Button size="sm" variant="destructive" onClick={() => {
+                  localStorage.clear()
+                  sessionStorage.clear()
+                  window.location.reload()
+                }}>
+                  🚨 FORCE FRESH START
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Use Case Selection Section - Show when not confirmed */}
           {!useCaseConfirmed && (
@@ -352,21 +434,27 @@ export default function DashboardPage() {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="overview" className="space-y-4">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">Key Metrics</h2>
-                <MetricSelector
-                  selectedMetrics={selectedMetrics}
-                  onMetricsChange={(metrics) => setSelectedMetrics(metrics)}
-                />
+            <TabsContent value="overview" className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">Key Metrics</h2>
+                <div className="flex items-center gap-2">
+                  <MetricSelector
+                    selectedMetrics={selectedMetrics}
+                    onMetricsChange={(metrics) => setSelectedMetrics(metrics)}
+                    businessType={businessType}
+                  />
+                </div>
               </div>
+
               {dataStatus?.bank || dataStatus?.crm || dataStatus?.budget ? (
                 <>
                   <MetricsGrid selectedMetrics={selectedMetrics} />
-                  <h2 className="text-xl font-semibold mb-4 mt-8">Performance Charts</h2>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <FinancialCharts type="mrr-vs-plan" />
-                    <FinancialCharts type="burn-rate" />
+                  <div className="space-y-4 mt-8">
+                    <h2 className="text-lg font-semibold">Performance Charts</h2>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <FinancialCharts type="mrr-vs-plan" />
+                      <FinancialCharts type="burn-rate" />
+                    </div>
                   </div>
                 </>
               ) : (

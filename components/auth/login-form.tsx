@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,43 +14,9 @@ export function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-  const searchParams = useSearchParams()
   const supabase = createClient()
-
-  // Check for email confirmation success
-  useEffect(() => {
-    const confirmed = searchParams.get('confirmed')
-    const type = searchParams.get('type')
-    const code = searchParams.get('code')
-    const token = searchParams.get('token')
-    
-    // Check URL hash for Supabase redirects (sometimes Supabase uses hash fragments)
-    const hash = typeof window !== 'undefined' ? window.location.hash : ''
-    const hasHashParams = hash.includes('type=') || hash.includes('access_token=')
-    
-    // Check localStorage for pending confirmation flag
-    const pendingConfirmation = typeof window !== 'undefined' 
-      ? localStorage.getItem('email_confirmation_pending') === 'true'
-      : false
-    
-    // Check if user just confirmed their email
-    if (confirmed === 'true' || type === 'signup' || code || token || hasHashParams || pendingConfirmation) {
-      setSuccess(true)
-      // Clear the pending flag
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('email_confirmation_pending')
-      }
-      // Clean up URL by removing query params and hash after a brief delay
-      setTimeout(() => {
-        if (typeof window !== 'undefined') {
-          window.history.replaceState({}, '', '/auth/login')
-        }
-      }, 100)
-    }
-  }, [searchParams, router])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -82,13 +48,6 @@ export function LoginForm() {
           {error && (
             <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          {success && (
-            <Alert variant="success">
-              <AlertDescription>
-                🎉 Email confirmed successfully! You can now log in to your account.
-              </AlertDescription>
             </Alert>
           )}
           <div className="space-y-2">

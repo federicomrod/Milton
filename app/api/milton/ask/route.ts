@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { openai } from "@/lib/openai-client";
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 export async function POST(request: Request) {
   try {
     const { message, dataStatus } = await request.json();
 
-    const messages: ChatCompletionMessageParam[] = [
+    const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
       {
         role: "system",
         content:

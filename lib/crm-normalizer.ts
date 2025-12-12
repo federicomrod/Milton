@@ -1,5 +1,6 @@
 // lib/crm-normalizer.ts
 import { CrmMapping, CrmStage, mapStage } from './crm-mapping';
+import { normalizeDateValue } from '@/lib/utils';
 
 export interface NormalizedCrmDeal {
   id: string;
@@ -19,33 +20,7 @@ function getString(row: any, key?: string): string | undefined {
   return value == null ? undefined : String(value);
 }
 
-function normalizeDateValue(value: any): string | null {
-  if (value === null || value === undefined || value === '') return null;
-
-  // Already a JS Date
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-
-  // Try Excel serial date (e.g. 45731.04166…)
-  const numeric = typeof value === 'number' ? value : Number(String(value).trim());
-
-  if (!Number.isNaN(numeric) && numeric > 20000 && numeric < 60000) {
-    // Excel's epoch is 1899-12-30 (ignoring the 1900 leap-year bug – fine for our use)
-    const base = new Date(Date.UTC(1899, 11, 30));
-    base.setUTCDate(base.getUTCDate() + Math.floor(numeric));
-    return base.toISOString();
-  }
-
-  // Fallback: try to parse as a normal date string
-  const d = new Date(value);
-  if (!Number.isNaN(d.getTime())) {
-    return d.toISOString();
-  }
-
-  // If nothing works, let it be null so we don't blow up the insert
-  return null;
-}
+// Date normalization is now handled by the shared normalizeDateValue function from utils.ts
 
 function normalizeId(value: any): string {
   const str = String(value ?? '').trim();

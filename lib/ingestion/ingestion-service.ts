@@ -5,6 +5,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 import { DEFAULT_CRM_MAPPING, CrmMapping } from '@/lib/crm-mapping'
 import { normalizeCrmRow } from '@/lib/crm-normalizer'
+import { normalizeDateValue } from '@/lib/utils'
 
 export interface IngestFileParams {
   supabase: SupabaseClient
@@ -56,20 +57,43 @@ export async function insertProcessedData({
       }
     }
 
-    // Insert data
+    // Insert data - normalize dates in pre-processed data too
     let insertedCount = 0
     if (datasetType === 'bank') {
-      const { error } = await supabase.from('transactions').insert(data)
+      // Normalize dates in pre-processed data
+      const normalizedData = data.map((row: any) => ({
+        ...row,
+        date: normalizeDateValue(row.date) || row.date || new Date().toISOString()
+      }))
+      const { error } = await supabase.from('transactions').insert(normalizedData)
       if (error) throw error
-      insertedCount = data.length
+      insertedCount = normalizedData.length
     } else if (datasetType === 'crm') {
-      const { error } = await supabase.from('crm_deals').insert(data)
+      // Normalize dates in pre-processed data
+      const normalizedData = data.map((row: any) => ({
+        ...row,
+        created_date: row.created_date ? normalizeDateValue(row.created_date) : row.created_date,
+        close_date: row.close_date ? normalizeDateValue(row.close_date) : row.close_date,
+        closing_date: row.closing_date ? normalizeDateValue(row.closing_date) : row.closing_date
+      }))
+      const { error } = await supabase.from('crm_deals').insert(normalizedData)
       if (error) throw error
-      insertedCount = data.length
+      insertedCount = normalizedData.length
     } else if (datasetType === 'budget') {
-      const { error } = await supabase.from('budgets').insert(data)
+      // Normalize month field in pre-processed data
+      const normalizedData = data.map((row: any) => {
+        let month = row.month;
+        if (month) {
+          const normalizedDate = normalizeDateValue(month);
+          if (normalizedDate) {
+            month = normalizedDate.slice(0, 7);
+          }
+        }
+        return { ...row, month: month || new Date().toISOString().slice(0, 7) };
+      })
+      const { error } = await supabase.from('budgets').insert(normalizedData)
       if (error) throw error
-      insertedCount = data.length
+      insertedCount = normalizedData.length
     }
 
     console.log(`[Ingestion] Successfully inserted ${insertedCount} rows`)
@@ -147,14 +171,20 @@ export async function ingestUploadedFile({
 
     if (datasetType === 'bank') {
       // Map CSV columns to transactions table
-      const transactions = jsonData.map((row: any) => ({
-        user_id: userId,
-        date: row.date || row.Date || row.DATE || new Date().toISOString(),
-        amount: parseFloat(row.amount || row.Amount || row.AMOUNT || '0'),
-        description: row.description || row.Description || row.DESCRIPTION || '',
-        category: row.category || row.Category || row.CATEGORY || 'Uncategorized',
-        name: row.name || row.Name || row.NAME || row.description || ''
-      }))
+      const transactions = jsonData.map((row: any) => {
+        // Normalize date field - handles Excel serial dates, Date objects, and strings
+        const dateValue = row.date || row.Date || row.DATE || row.Datum || row['Transaction Date'] || row['Booking Date'];
+        const normalizedDate = normalizeDateValue(dateValue) || new Date().toISOString();
+        
+        return {
+          user_id: userId,
+          date: normalizedDate,
+          amount: parseFloat(row.amount || row.Amount || row.AMOUNT || '0'),
+          description: row.description || row.Description || row.DESCRIPTION || '',
+          category: row.category || row.Category || row.CATEGORY || 'Uncategorized',
+          name: row.name || row.Name || row.NAME || row.description || ''
+        }
+      })
 
       const { error } = await supabase.from('transactions').insert(transactions)
       if (error) throw error
@@ -187,12 +217,43 @@ export async function ingestUploadedFile({
 
     } else if (datasetType === 'budget') {
       // Map CSV columns to budgets table
-      const budgets = jsonData.map((row: any) => ({
-        user_id: userId,
-        month: row.month || row.Month || row.period || new Date().toISOString().slice(0, 7),
-        category: row.category || row.Category || 'General',
-        value: parseFloat(row.value || row.Value || row.amount || '0')
-      }))
+      const budgets = jsonData.map((row: any) => {
+        // Normalize month field - can be a date or a string like "2025-01" or "Jan 2025"
+        let monthValue = row.month || row.Month || row.period || row.Period || row.date || row.Date;
+        
+        // If it's a date value, normalize it and extract YYYY-MM format
+        if (monthValue) {
+          const normalizedDate = normalizeDateValue(monthValue);
+          if (normalizedDate) {
+            // Extract YYYY-MM from ISO string
+            monthValue = normalizedDate.slice(0, 7);
+          } else if (typeof monthValue === 'string') {
+            // Try to parse string formats like "Jan 2025" or "2025-01"
+            const dateMatch = monthValue.match(/(\d{4})-(\d{2})/);
+            if (dateMatch) {
+              monthValue = `${dateMatch[1]}-${dateMatch[2]}`;
+            } else {
+              // Try parsing as a date string
+              const parsed = new Date(monthValue);
+              if (!isNaN(parsed.getTime())) {
+                monthValue = parsed.toISOString().slice(0, 7);
+              }
+            }
+          }
+        }
+        
+        // Fallback to current month if still no valid value
+        if (!monthValue || monthValue.length < 7) {
+          monthValue = new Date().toISOString().slice(0, 7);
+        }
+        
+        return {
+          user_id: userId,
+          month: monthValue,
+          category: row.category || row.Category || 'General',
+          value: parseFloat(row.value || row.Value || row.amount || row.Amount || '0')
+        }
+      })
 
       const { error } = await supabase.from('budgets').insert(budgets)
       if (error) throw error

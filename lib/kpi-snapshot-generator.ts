@@ -1,20 +1,23 @@
-import { SupabaseClient } from '@supabase/supabase-js'
+import { SupabaseClient } from "@supabase/supabase-js";
 
 function monthKey(date: string) {
   const d = new Date(date);
   const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
   return `${y}-${m}-01`;
 }
 
-export async function generateUserKpiSnapshots(supabase: SupabaseClient, userId: string) {
+export async function generateUserKpiSnapshots(
+  supabase: SupabaseClient,
+  userId: string
+) {
   const { data: txs, error } = await supabase
-    .from('transactions')
-    .select('date, amount')
-    .eq('user_id', userId);
+    .from("transactions")
+    .select("date, amount")
+    .eq("user_id", userId);
 
   if (error) {
-    console.error('[KPI GEN] transactions fetch error', error);
+    console.error("[KPI GEN] transactions fetch error", error);
     throw error;
   }
 
@@ -28,27 +31,29 @@ export async function generateUserKpiSnapshots(supabase: SupabaseClient, userId:
     monthly.set(key, rec);
   });
 
-  const rows = Array.from(monthly.entries()).map(([period, { revenue, expenses }]) => ({
-    user_id: userId,
-    period,
-    revenue,
-    expenses,
-    net_income: revenue - expenses,
-    burn_rate: revenue - expenses < 0 ? Math.abs(revenue - expenses) : 0,
-    cash_runway: null,
-  }));
+  const rows = Array.from(monthly.entries()).map(
+    ([period, { revenue, expenses }]) => ({
+      user_id: userId,
+      period,
+      revenue,
+      expenses,
+      net_income: revenue - expenses,
+      burn_rate: revenue - expenses < 0 ? Math.abs(revenue - expenses) : 0,
+      cash_runway: null,
+    })
+  );
 
   if (!rows.length) {
-    console.warn('[KPI GEN] no rows to insert');
+    console.warn("[KPI GEN] no rows to insert");
     return { inserted: 0 };
   }
 
   const { error: upsertError } = await supabase
-    .from('kpi_snapshots_data')
-    .upsert(rows, { onConflict: 'user_id,period' });
+    .from("kpi_snapshots_data")
+    .upsert(rows, { onConflict: "user_id,period" });
 
   if (upsertError) {
-    console.error('[KPI GEN] upsert error', upsertError);
+    console.error("[KPI GEN] upsert error", upsertError);
     throw upsertError;
   }
 

@@ -1,6 +1,6 @@
 // lib/enhanced-data-processor.ts
-import Papa from 'papaparse'
-import * as XLSX from 'xlsx'
+import Papa from "papaparse";
+import * as XLSX from "xlsx";
 import {
   StandardizedData,
   StandardTransaction,
@@ -10,89 +10,136 @@ import {
   DataProcessingResult,
   FileType,
   DealPhase,
-  DEAL_PHASES
-} from '@/types/schema'
-import { categorizeTransaction } from './accounting-definitions'
+  DEAL_PHASES,
+} from "@/types/schema";
+import { categorizeTransaction } from "./accounting-definitions";
 
 export class EnhancedDataProcessor {
-  private aiEndpoint = '/api/openai-analyze'
+  private aiEndpoint = "/api/openai-analyze";
 
   // Canonical Supabase schemas with possible column name variations
   private readonly CRM_SCHEMA = {
-    deal_name: ['deal name', 'name', 'opportunity name', 'deal', 'title'],
-    phase: ['deal phase', 'stage', 'pipeline stage', 'status', 'phase'],
-    amount: ['amount', 'value', 'deal value', 'revenue', 'price', 'total'],
-    client_name: ['client name', 'customer', 'account name', 'company', 'client', 'account'],
-    first_appointment: ['first appointment', 'meeting date', 'initial contact', 'appointment', 'first meeting'],
-    closing_date: ['closing date', 'close date', 'expected close', 'deal close', 'close', 'target date'],
-    product: ['product', 'service', 'offering', 'category', 'type', 'solution']
-  }
+    deal_name: ["deal name", "name", "opportunity name", "deal", "title"],
+    phase: ["deal phase", "stage", "pipeline stage", "status", "phase"],
+    amount: ["amount", "value", "deal value", "revenue", "price", "total"],
+    client_name: [
+      "client name",
+      "customer",
+      "account name",
+      "company",
+      "client",
+      "account",
+    ],
+    first_appointment: [
+      "first appointment",
+      "meeting date",
+      "initial contact",
+      "appointment",
+      "first meeting",
+    ],
+    closing_date: [
+      "closing date",
+      "close date",
+      "expected close",
+      "deal close",
+      "close",
+      "target date",
+    ],
+    product: ["product", "service", "offering", "category", "type", "solution"],
+  };
 
   private readonly TRANSACTIONS_SCHEMA = {
-    date: ['date', 'transaction date', 'datum', 'booking date', 'value date'],
-    name: ['name', 'vendor', 'payee', 'merchant', 'counterparty'],
-    description: ['description', 'text', 'memo', 'details', 'narrative', 'purpose'],
-    amount: ['amount', 'value', 'sum', 'total', 'debit', 'credit'],
-    category: ['category', 'type', 'classification', 'account'],
-    reference: ['reference', 'ref', 'transaction id', 'id', 'number']
-  }
+    date: ["date", "transaction date", "datum", "booking date", "value date"],
+    name: ["name", "vendor", "payee", "merchant", "counterparty"],
+    description: [
+      "description",
+      "text",
+      "memo",
+      "details",
+      "narrative",
+      "purpose",
+    ],
+    amount: ["amount", "value", "sum", "total", "debit", "credit"],
+    category: ["category", "type", "classification", "account"],
+    reference: ["reference", "ref", "transaction id", "id", "number"],
+  };
 
   private readonly BUDGET_SCHEMA = {
-    cost_center: ['cost center', 'department', 'division', 'unit'],
-    month: ['month', 'period', 'date'],
-    budgeted_amount: ['budgeted', 'planned', 'budget', 'forecast'],
-    actual_amount: ['actual', 'spent', 'expenses'],
-    variance: ['variance', 'difference', 'delta']
-  }
+    cost_center: ["cost center", "department", "division", "unit"],
+    month: ["month", "period", "date"],
+    budgeted_amount: ["budgeted", "planned", "budget", "forecast"],
+    actual_amount: ["actual", "spent", "expenses"],
+    variance: ["variance", "difference", "delta"],
+  };
 
   /**
    * Auto-map CSV headers to CRM schema fields with confidence scoring
    */
-  private autoMapCRMColumns(headers: string[]): { mappings: ColumnMapping[], confidence: number, canSkipReview: boolean } {
-    const mappings: ColumnMapping[] = []
-    let totalConfidence = 0
-    let mappedFields = 0
+  private autoMapCRMColumns(headers: string[]): {
+    mappings: ColumnMapping[];
+    confidence: number;
+    canSkipReview: boolean;
+  } {
+    const mappings: ColumnMapping[] = [];
+    let totalConfidence = 0;
+    let mappedFields = 0;
 
-    console.log('[Mapping Auto] Starting auto-mapping for headers:', headers)
+    console.log("[Mapping Auto] Starting auto-mapping for headers:", headers);
 
-    headers.forEach(header => {
-      const normalizedHeader = header.toLowerCase().trim()
-      let bestMatch = { field: '', confidence: 0, keywords: [] as string[] }
+    headers.forEach((header) => {
+      const normalizedHeader = header.toLowerCase().trim();
+      let bestMatch = { field: "", confidence: 0, keywords: [] as string[] };
 
       // Check each CRM schema field for matches
       Object.entries(this.CRM_SCHEMA).forEach(([field, keywords]) => {
-        keywords.forEach(keyword => {
-          const confidence = this.calculateMatchConfidence(normalizedHeader, keyword)
+        keywords.forEach((keyword) => {
+          const confidence = this.calculateMatchConfidence(
+            normalizedHeader,
+            keyword
+          );
           if (confidence > bestMatch.confidence) {
-            bestMatch = { field, confidence, keywords }
+            bestMatch = { field, confidence, keywords };
           }
-        })
-      })
+        });
+      });
 
-      if (bestMatch.confidence >= 0.7) { // 70% minimum confidence threshold
+      if (bestMatch.confidence >= 0.7) {
+        // 70% minimum confidence threshold
         mappings.push({
           originalColumn: header,
           standardField: bestMatch.field,
-          dataType: this.getDataTypeForField(bestMatch.field) as "string" | "number" | "date" | "currency",
-          confidence: bestMatch.confidence
-        })
-        totalConfidence += bestMatch.confidence
-        mappedFields++
-        console.log(`[Mapping Auto] Matched "${header}" → ${bestMatch.field} (${Math.round(bestMatch.confidence * 100)}%)`)
+          dataType: this.getDataTypeForField(bestMatch.field) as
+            | "string"
+            | "number"
+            | "date"
+            | "currency",
+          confidence: bestMatch.confidence,
+        });
+        totalConfidence += bestMatch.confidence;
+        mappedFields++;
+        console.log(
+          `[Mapping Auto] Matched "${header}" → ${bestMatch.field} (${Math.round(bestMatch.confidence * 100)}%)`
+        );
       }
-    })
+    });
 
-    const avgConfidence = mappedFields > 0 ? totalConfidence / mappedFields : 0
-    const canSkipReview = this.canSkipManualReview(mappings, avgConfidence)
+    const avgConfidence = mappedFields > 0 ? totalConfidence / mappedFields : 0;
+    const canSkipReview = this.canSkipManualReview(mappings, avgConfidence);
 
-    console.log(`[Mapping Auto] Matched ${mappedFields}/${headers.length} fields automatically.`)
-    console.log(`[Mapping Auto] Average confidence: ${Math.round(avgConfidence * 100)}%`)
-    
+    console.log(
+      `[Mapping Auto] Matched ${mappedFields}/${headers.length} fields automatically.`
+    );
+    console.log(
+      `[Mapping Auto] Average confidence: ${Math.round(avgConfidence * 100)}%`
+    );
+
     if (canSkipReview) {
-      console.log('[Mapping Auto] All mappings > 90% confidence, skipping review.')
+      console.log(
+        "[Mapping Auto] All mappings > 90% confidence, skipping review."
+      );
     }
 
-    return { mappings, confidence: avgConfidence, canSkipReview }
+    return { mappings, confidence: avgConfidence, canSkipReview };
   }
 
   /**
@@ -100,30 +147,34 @@ export class EnhancedDataProcessor {
    */
   private calculateMatchConfidence(header: string, keyword: string): number {
     // Exact match
-    if (header === keyword) return 1.0
-    
+    if (header === keyword) return 1.0;
+
     // Contains match
-    if (header.includes(keyword) || keyword.includes(header)) return 0.9
-    
+    if (header.includes(keyword) || keyword.includes(header)) return 0.9;
+
     // Word boundary match
-    const headerWords = header.split(/\s+/)
-    const keywordWords = keyword.split(/\s+/)
-    
-    let wordMatches = 0
-    keywordWords.forEach(kw => {
-      if (headerWords.some(hw => hw === kw || hw.includes(kw) || kw.includes(hw))) {
-        wordMatches++
+    const headerWords = header.split(/\s+/);
+    const keywordWords = keyword.split(/\s+/);
+
+    let wordMatches = 0;
+    keywordWords.forEach((kw) => {
+      if (
+        headerWords.some(
+          (hw) => hw === kw || hw.includes(kw) || kw.includes(hw)
+        )
+      ) {
+        wordMatches++;
       }
-    })
-    
+    });
+
     if (wordMatches > 0) {
-      return (wordMatches / keywordWords.length) * 0.8
+      return (wordMatches / keywordWords.length) * 0.8;
     }
-    
+
     // Fuzzy match for common variations
-    if (this.isFuzzyMatch(header, keyword)) return 0.7
-    
-    return 0
+    if (this.isFuzzyMatch(header, keyword)) return 0.7;
+
+    return 0;
   }
 
   /**
@@ -131,61 +182,79 @@ export class EnhancedDataProcessor {
    */
   private isFuzzyMatch(header: string, keyword: string): boolean {
     const fuzzyMatches: { [key: string]: string[] } = {
-      'deal': ['d', 'deals'],
-      'name': ['nm', 'n'],
-      'client': ['cust', 'customer'],
-      'amount': ['amt', 'value', 'val'],
-      'date': ['dt', 'dte'],
-      'appointment': ['appt', 'meeting'],
-      'closing': ['close', 'closed']
-    }
+      deal: ["d", "deals"],
+      name: ["nm", "n"],
+      client: ["cust", "customer"],
+      amount: ["amt", "value", "val"],
+      date: ["dt", "dte"],
+      appointment: ["appt", "meeting"],
+      closing: ["close", "closed"],
+    };
 
     return Object.entries(fuzzyMatches).some(([key, variations]) => {
       if (keyword.includes(key)) {
-        return variations.some(variation => header.includes(variation))
+        return variations.some((variation) => header.includes(variation));
       }
-      return false
-    })
+      return false;
+    });
   }
 
   /**
    * Get appropriate data type for CRM field
    */
   private getDataTypeForField(field: string): string {
-    const key = field.toLowerCase()
-    
+    const key = field.toLowerCase();
+
     // Extended date recognition
-    if (["date", "transaction_date", "datum", "month", "closing_date", "first_appointment"].includes(key)) {
-      return "date"
+    if (
+      [
+        "date",
+        "transaction_date",
+        "datum",
+        "month",
+        "closing_date",
+        "first_appointment",
+      ].includes(key)
+    ) {
+      return "date";
     }
-    
+
     // Extended number recognition
-    if (["amount", "value", "budgeted", "planned", "actual", "variance"].includes(key)) {
-      return "number"
+    if (
+      ["amount", "value", "budgeted", "planned", "actual", "variance"].includes(
+        key
+      )
+    ) {
+      return "number";
     }
-    
+
     // Fallback to type map for CRM fields
     const typeMap: { [key: string]: string } = {
-      deal_name: 'text',
-      client_name: 'text',
-      phase: 'text',
-      product: 'text'
-    }
-    return typeMap[field] || 'text'
+      deal_name: "text",
+      client_name: "text",
+      phase: "text",
+      product: "text",
+    };
+    return typeMap[field] || "text";
   }
 
   /**
    * Determine if manual review can be skipped
    */
-  private canSkipManualReview(mappings: ColumnMapping[], avgConfidence: number): boolean {
+  private canSkipManualReview(
+    mappings: ColumnMapping[],
+    avgConfidence: number
+  ): boolean {
     // Required fields for CRM data
-    const requiredFields = ['deal_name', 'amount', 'client_name']
-    const mappedFields = mappings.map(m => m.standardField)
-    
-    const hasRequiredFields = requiredFields.every(field => mappedFields.includes(field))
-    const highConfidence = avgConfidence >= 0.9
-    
-    return hasRequiredFields && highConfidence
+    const requiredFields = ["deal_name", "amount", "client_name"];
+    const mappedFields = mappings.map((m) => m.standardField);
+
+    const hasRequiredFields = requiredFields.every((field) =>
+      mappedFields.includes(field)
+    );
+    const highConfidence = avgConfidence >= 0.9;
+
+    return hasRequiredFields && highConfidence;
   }
 
   /**
@@ -193,131 +262,171 @@ export class EnhancedDataProcessor {
    */
   private normalizeCRMData(data: any[], mappings: ColumnMapping[]): any[] {
     const fieldMap = Object.fromEntries(
-      mappings.map(m => [m.originalColumn, m.standardField])
-    )
+      mappings.map((m) => [m.originalColumn, m.standardField])
+    );
 
     return data.map((row, index) => {
       // Generate valid UUID for each deal
-      const idValue = row.id && /^[0-9a-fA-F-]{36}$/.test(row.id)
-        ? row.id
-        : crypto.randomUUID()
+      const idValue =
+        row.id && /^[0-9a-fA-F-]{36}$/.test(row.id)
+          ? row.id
+          : crypto.randomUUID();
 
       const normalized: any = {
         id: idValue,
-        user_id: null // Will be set during insertion
-      }
+        user_id: null, // Will be set during insertion
+      };
 
       // Map each column to its normalized field
       Object.entries(row).forEach(([column, value]) => {
-        const targetField = fieldMap[column]
+        const targetField = fieldMap[column];
         if (targetField) {
-          normalized[targetField] = this.processValue(value, this.getDataTypeForField(targetField))
+          normalized[targetField] = this.processValue(
+            value,
+            this.getDataTypeForField(targetField)
+          );
         }
-      })
+      });
 
       // Ensure required fields have fallback values
-      if (!normalized.deal_name) normalized.deal_name = 'Unnamed Deal'
-      if (!normalized.client_name) normalized.client_name = 'Unknown Client'
-      if (!normalized.amount || isNaN(Number(normalized.amount))) normalized.amount = 0
-      if (!normalized.phase) normalized.phase = 'Unknown'
+      if (!normalized.deal_name) normalized.deal_name = "Unnamed Deal";
+      if (!normalized.client_name) normalized.client_name = "Unknown Client";
+      if (!normalized.amount || isNaN(Number(normalized.amount)))
+        normalized.amount = 0;
+      if (!normalized.phase) normalized.phase = "Unknown";
 
       // Convert empty strings to null for date fields
-      if (normalized.first_appointment === '') normalized.first_appointment = null
-      if (normalized.closing_date === '') normalized.closing_date = null
-      if (normalized.product === '') normalized.product = null
+      if (normalized.first_appointment === "")
+        normalized.first_appointment = null;
+      if (normalized.closing_date === "") normalized.closing_date = null;
+      if (normalized.product === "") normalized.product = null;
 
-      return normalized
-    })
+      return normalized;
+    });
   }
 
   /**
    * Universal auto-mapping that detects file type and maps accordingly
    */
-  private autoMapColumns(headers: string[]): { fileType: FileType, mappings: ColumnMapping[], confidence: number, canSkipReview: boolean } {
-    console.log('[Mapping Auto] Attempting universal auto-mapping for headers:', headers)
-    
+  private autoMapColumns(headers: string[]): {
+    fileType: FileType;
+    mappings: ColumnMapping[];
+    confidence: number;
+    canSkipReview: boolean;
+  } {
+    console.log(
+      "[Mapping Auto] Attempting universal auto-mapping for headers:",
+      headers
+    );
+
     // Try CRM mapping
-    const crmResult = this.autoMapCRMColumns(headers)
+    const crmResult = this.autoMapCRMColumns(headers);
     if (crmResult.canSkipReview) {
-      console.log('[Mapping Auto] Detected as CRM/deals file')
-      return { fileType: 'deals', ...crmResult }
+      console.log("[Mapping Auto] Detected as CRM/deals file");
+      return { fileType: "deals", ...crmResult };
     }
-    
+
     // Try transactions mapping
-    const txResult = this.autoMapColumns_Generic(headers, this.TRANSACTIONS_SCHEMA, ['date', 'amount'])
+    const txResult = this.autoMapColumns_Generic(
+      headers,
+      this.TRANSACTIONS_SCHEMA,
+      ["date", "amount"]
+    );
     if (txResult.canSkipReview) {
-      console.log('[Mapping Auto] Detected as transactions file')
-      return { fileType: 'transactions', ...txResult }
+      console.log("[Mapping Auto] Detected as transactions file");
+      return { fileType: "transactions", ...txResult };
     }
-    
+
     // Try budget mapping
-    const budgetResult = this.autoMapColumns_Generic(headers, this.BUDGET_SCHEMA, ['month', 'budgeted_amount'])
+    const budgetResult = this.autoMapColumns_Generic(
+      headers,
+      this.BUDGET_SCHEMA,
+      ["month", "budgeted_amount"]
+    );
     if (budgetResult.canSkipReview) {
-      console.log('[Mapping Auto] Detected as budget file')
-      return { fileType: 'budget', ...budgetResult }
+      console.log("[Mapping Auto] Detected as budget file");
+      return { fileType: "budget", ...budgetResult };
     }
-    
+
     // Default to low confidence
-    return { fileType: 'transactions', mappings: [], confidence: 0, canSkipReview: false }
+    return {
+      fileType: "transactions",
+      mappings: [],
+      confidence: 0,
+      canSkipReview: false,
+    };
   }
 
   /**
    * Generic auto-mapping for any schema
    */
   private autoMapColumns_Generic(
-    headers: string[], 
-    schema: { [key: string]: string[] }, 
+    headers: string[],
+    schema: { [key: string]: string[] },
     requiredFields: string[]
-  ): { mappings: ColumnMapping[], confidence: number, canSkipReview: boolean } {
-    const mappings: ColumnMapping[] = []
-    let totalConfidence = 0
-    let mappedFields = 0
+  ): { mappings: ColumnMapping[]; confidence: number; canSkipReview: boolean } {
+    const mappings: ColumnMapping[] = [];
+    let totalConfidence = 0;
+    let mappedFields = 0;
 
-    headers.forEach(header => {
-      const normalizedHeader = header.toLowerCase().trim()
-      let bestMatch = { field: '', confidence: 0 }
+    headers.forEach((header) => {
+      const normalizedHeader = header.toLowerCase().trim();
+      let bestMatch = { field: "", confidence: 0 };
 
       Object.entries(schema).forEach(([field, keywords]) => {
-        keywords.forEach(keyword => {
-          const confidence = this.calculateMatchConfidence(normalizedHeader, keyword)
+        keywords.forEach((keyword) => {
+          const confidence = this.calculateMatchConfidence(
+            normalizedHeader,
+            keyword
+          );
           if (confidence > bestMatch.confidence) {
-            bestMatch = { field, confidence }
+            bestMatch = { field, confidence };
           }
-        })
-      })
+        });
+      });
 
       if (bestMatch.confidence >= 0.7) {
         mappings.push({
           originalColumn: header,
           standardField: bestMatch.field,
-          dataType: this.getDataTypeForField(bestMatch.field) as "string" | "number" | "date" | "currency",
-          confidence: bestMatch.confidence
-        })
-        totalConfidence += bestMatch.confidence
-        mappedFields++
+          dataType: this.getDataTypeForField(bestMatch.field) as
+            | "string"
+            | "number"
+            | "date"
+            | "currency",
+          confidence: bestMatch.confidence,
+        });
+        totalConfidence += bestMatch.confidence;
+        mappedFields++;
       }
-    })
+    });
 
-    const avgConfidence = mappedFields > 0 ? totalConfidence / mappedFields : 0
-    const mappedFieldNames = mappings.map(m => m.standardField)
-    const hasRequiredFields = requiredFields.every(field => mappedFieldNames.includes(field))
-    const canSkipReview = hasRequiredFields && avgConfidence >= 0.9
+    const avgConfidence = mappedFields > 0 ? totalConfidence / mappedFields : 0;
+    const mappedFieldNames = mappings.map((m) => m.standardField);
+    const hasRequiredFields = requiredFields.every((field) =>
+      mappedFieldNames.includes(field)
+    );
+    const canSkipReview = hasRequiredFields && avgConfidence >= 0.9;
 
-    return { mappings, confidence: avgConfidence, canSkipReview }
+    return { mappings, confidence: avgConfidence, canSkipReview };
   }
 
   /**
    * Convert auto-mapped transactions
    */
-  convertAutoMappedTransactions(data: any[], mappings?: ColumnMapping[]): any[] {
-    const normalized = data.map(r => {
-      const rawDate = r["Date"] || r["Transaction Date"] || r["Datum"] || null
-      const isoDate = this.parseDate(rawDate)
-      
-      const rawAmount = r["Amount"] || r["Value"]
-      const parsedAmount = this.parseAmount(rawAmount)
-      
-      const nameValue = r["Name"] || r["Vendor"] || r["Payee"] || "Unnamed Transaction"
+  convertAutoMappedTransactions(
+    data: any[],
+    mappings?: ColumnMapping[]
+  ): any[] {
+    const normalized = data.map((r) => {
+      const rawDate = r["Date"] || r["Transaction Date"] || r["Datum"] || null;
+      const isoDate = this.parseDate(rawDate);
+
+      const rawAmount = r["Amount"] || r["Value"];
+      const parsedAmount = this.parseAmount(rawAmount);
+
+      const nameValue =
+        r["Name"] || r["Vendor"] || r["Payee"] || "Unnamed Transaction";
 
       return {
         id: crypto.randomUUID(),
@@ -327,52 +436,65 @@ export class EnhancedDataProcessor {
         description: r["Description"] || r["Text"] || null,
         amount: parsedAmount || 0,
         category: r["Category"] || r["Type"] || null,
-        reference: r["Reference"] || ""
-      }
-    })
+        reference: r["Reference"] || "",
+      };
+    });
 
-    const sampleDates = normalized.slice(0, 3).map(t => t.date).filter(Boolean)
+    const sampleDates = normalized
+      .slice(0, 3)
+      .map((t) => t.date)
+      .filter(Boolean);
     if (sampleDates.length > 0) {
-      console.log("📆 Normalized dates to ISO:", sampleDates)
+      console.log("📆 Normalized dates to ISO:", sampleDates);
     }
 
-    return normalized
+    return normalized;
   }
 
   /**
    * Convert auto-mapped budgets
    */
   convertAutoMappedBudgets(data: any[], mappings?: ColumnMapping[]): any[] {
-    const normalized = data.map(r => ({
+    const normalized = data.map((r) => ({
       id: crypto.randomUUID(),
       user_id: null,
       month: this.parseDate(r["Month"] || null),
-      category: r["Category"] || r["Cost Center"] || r["Department"] || "General",
-      value: this.parseAmount(r["Budgeted"] || r["Planned"] || r["Value"] || 0)
-    }))
+      category:
+        r["Category"] || r["Cost Center"] || r["Department"] || "General",
+      value: this.parseAmount(r["Budgeted"] || r["Planned"] || r["Value"] || 0),
+    }));
 
-    const sampleMonths = normalized.slice(0, 3).map(b => b.month).filter(Boolean)
+    const sampleMonths = normalized
+      .slice(0, 3)
+      .map((b) => b.month)
+      .filter(Boolean);
     if (sampleMonths.length > 0) {
-      console.log("📆 Normalized budget months to ISO:", sampleMonths)
+      console.log("📆 Normalized budget months to ISO:", sampleMonths);
     }
 
-    return normalized
+    return normalized;
   }
 
-  async processFile(fileName: string, headers: string[], data: any[]): Promise<DataProcessingResult> {
+  async processFile(
+    fileName: string,
+    headers: string[],
+    data: any[]
+  ): Promise<DataProcessingResult> {
     try {
       if (!headers || !Array.isArray(headers)) {
-        throw new Error('Missing or invalid headers in processFile()')
+        throw new Error("Missing or invalid headers in processFile()");
       }
       if (!data || !Array.isArray(data)) {
-        throw new Error('Missing or invalid data in processFile()')
+        throw new Error("Missing or invalid data in processFile()");
       }
 
       // 1. Try universal auto-mapping first
-      const autoMappingResult = this.autoMapColumns(headers)
-      
+      const autoMappingResult = this.autoMapColumns(headers);
+
       if (autoMappingResult.canSkipReview) {
-        console.log('[Mapping Auto] Auto-mapping successful, skipping AI analysis')
+        console.log(
+          "[Mapping Auto] Auto-mapping successful, skipping AI analysis"
+        );
         return {
           fileType: autoMappingResult.fileType,
           confidence: autoMappingResult.confidence,
@@ -380,22 +502,28 @@ export class EnhancedDataProcessor {
           previewData: data.slice(0, 10),
           issues: [],
           needsManualReview: false,
-          autoMapped: true
-        }
+          autoMapped: true,
+        };
       }
 
       // 2. Fall back to AI analysis if auto-mapping confidence is too low
-      let aiAnalysis = await this.analyzeWithAI(fileName, headers, data.slice(0, 5))
-      if ((!aiAnalysis.mappings && !aiAnalysis.columnMappings) || 
-          (aiAnalysis.mappings && aiAnalysis.mappings.length === 0) ||
-          (aiAnalysis.columnMappings && aiAnalysis.columnMappings.length === 0)) {
-        console.warn('AI returned no mappings — falling back to rules.')
-        aiAnalysis = this.fallbackAnalysis(fileName, headers, data.slice(0, 5))
+      let aiAnalysis = await this.analyzeWithAI(
+        fileName,
+        headers,
+        data.slice(0, 5)
+      );
+      if (
+        (!aiAnalysis.mappings && !aiAnalysis.columnMappings) ||
+        (aiAnalysis.mappings && aiAnalysis.mappings.length === 0) ||
+        (aiAnalysis.columnMappings && aiAnalysis.columnMappings.length === 0)
+      ) {
+        console.warn("AI returned no mappings — falling back to rules.");
+        aiAnalysis = this.fallbackAnalysis(fileName, headers, data.slice(0, 5));
       }
-      
+
       // 3. Apply rule-based validation
-      const validated = this.validateAIAnalysis(aiAnalysis, headers, data)
-      
+      const validated = this.validateAIAnalysis(aiAnalysis, headers, data);
+
       // 4. Return processing result
       return {
         fileType: validated.fileType,
@@ -403,172 +531,198 @@ export class EnhancedDataProcessor {
         suggestedMappings: validated.mappings,
         previewData: data.slice(0, 10),
         issues: validated.issues,
-        needsManualReview: validated.confidence < 0.8
-      }
+        needsManualReview: validated.confidence < 0.8,
+      };
     } catch (error) {
-      console.error('File processing failed:', error)
+      console.error("File processing failed:", error);
       if (error instanceof Error) {
-        throw new Error(`Failed to process file: ${error.message}`)
+        throw new Error(`Failed to process file: ${error.message}`);
       } else {
-        throw new Error('Failed to process file: Unknown error')
+        throw new Error("Failed to process file: Unknown error");
       }
     }
   }
 
-  async callAIForMapping(headers: string[], sampleData: any[]): Promise<DataProcessingResult> {
+  async callAIForMapping(
+    headers: string[],
+    sampleData: any[]
+  ): Promise<DataProcessingResult> {
     try {
-      const result = await this.processFile('uploaded_file', headers, sampleData)
+      const result = await this.processFile(
+        "uploaded_file",
+        headers,
+        sampleData
+      );
       // Log the result before returning
       console.log("[Mapping Auto] Returning full mapping result:", {
         autoMapped: result.autoMapped,
         needsManualReview: result.needsManualReview,
         fileType: result.fileType,
         confidence: result.confidence,
-        mappingsCount: result.suggestedMappings.length
-      })
+        mappingsCount: result.suggestedMappings.length,
+      });
       // Return complete DataProcessingResult including autoMapped flag
-      return result
+      return result;
     } catch (error) {
-      console.error('AI mapping failed, using fallback:', error)
+      console.error("AI mapping failed, using fallback:", error);
       // Return a basic fallback mapping
       const fallbackResult = {
-        fileType: 'transactions' as const,
+        fileType: "transactions" as const,
         confidence: 0.5,
-        suggestedMappings: headers.map(header => ({
+        suggestedMappings: headers.map((header) => ({
           originalColumn: header,
-          standardField: this.mapColumnFallback(header, 'transactions'),
+          standardField: this.mapColumnFallback(header, "transactions"),
           confidence: 0.5,
           dataType: this.detectDataType(header, sampleData),
-          transformation: 'none' as const
+          transformation: "none" as const,
         })),
         previewData: sampleData.slice(0, 10),
-        issues: ['Using fallback mapping due to processing error'],
+        issues: ["Using fallback mapping due to processing error"],
         needsManualReview: true,
-        autoMapped: false
-      }
+        autoMapped: false,
+      };
       console.log("[Mapping Auto] Returning fallback result:", {
         autoMapped: false,
         needsManualReview: true,
-        fileType: 'transactions'
-      })
-      return fallbackResult
+        fileType: "transactions",
+      });
+      return fallbackResult;
     }
   }
 
-  private async parseFile(file: File): Promise<{ headers: string[], data: any[] }> {
-    if (file.name.endsWith('.csv')) {
-      return this.parseCSV(file)
+  private async parseFile(
+    file: File
+  ): Promise<{ headers: string[]; data: any[] }> {
+    if (file.name.endsWith(".csv")) {
+      return this.parseCSV(file);
     } else if (file.name.match(/\.(xlsx|xls)$/)) {
-      return this.parseExcel(file)
+      return this.parseExcel(file);
     } else {
-      throw new Error('Unsupported file format')
+      throw new Error("Unsupported file format");
     }
   }
 
-  private async parseCSV(file: File): Promise<{ headers: string[], data: any[] }> {
-    const text = await file.text()
-    
+  private async parseCSV(
+    file: File
+  ): Promise<{ headers: string[]; data: any[] }> {
+    const text = await file.text();
+
     // Try different delimiters
-    const delimiters = [',', ';', '\t', '|']
-    let bestResult = null
-    let maxColumns = 0
+    const delimiters = [",", ";", "\t", "|"];
+    let bestResult = null;
+    let maxColumns = 0;
 
     for (const delimiter of delimiters) {
       const result = Papa.parse(text, {
         header: true,
         delimiter,
         skipEmptyLines: true,
-        dynamicTyping: false // Keep as strings for better AI analysis
-      })
+        dynamicTyping: false, // Keep as strings for better AI analysis
+      });
 
       if (result.meta.fields && result.meta.fields.length > maxColumns) {
-        maxColumns = result.meta.fields.length
-        bestResult = result
+        maxColumns = result.meta.fields.length;
+        bestResult = result;
       }
     }
 
     if (!bestResult) {
-      throw new Error('Could not parse CSV file')
+      throw new Error("Could not parse CSV file");
     }
 
     return {
       headers: bestResult.meta.fields || [],
-      data: bestResult.data
-    }
+      data: bestResult.data,
+    };
   }
 
-  private async parseExcel(file: File): Promise<{ headers: string[], data: any[] }> {
-    const buffer = await file.arrayBuffer()
+  private async parseExcel(
+    file: File
+  ): Promise<{ headers: string[]; data: any[] }> {
+    const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, {
-      type: 'buffer', // handles both .xlsx and .xls
-      cellDates: true
-    })
-    
+      type: "buffer", // handles both .xlsx and .xls
+      cellDates: true,
+    });
+
     // Get the first sheet
-    const sheetName = workbook.SheetNames[0]
-    const worksheet = workbook.Sheets[sheetName]
-    
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+
     // Convert to JSON with proper options
     const jsonData = XLSX.utils.sheet_to_json(worksheet, {
       header: 1,
       raw: false, // Keep formatted values for dates
-      dateNF: 'yyyy-mm-dd'
-    }) as any[][]
+      dateNF: "yyyy-mm-dd",
+    }) as any[][];
 
     if (jsonData.length < 2) {
-      throw new Error('Excel file must have at least header and data rows')
+      throw new Error("Excel file must have at least header and data rows");
     }
 
-    const headers = jsonData[0].filter(h => h && h.toString().trim() !== '')
-    const dataRows = jsonData.slice(1).map(row => {
-      const obj: any = {}
-      headers.forEach((header, index) => {
-        obj[header] = row[index] || ''
+    const headers = jsonData[0].filter((h) => h && h.toString().trim() !== "");
+    const dataRows = jsonData
+      .slice(1)
+      .map((row) => {
+        const obj: any = {};
+        headers.forEach((header, index) => {
+          obj[header] = row[index] || "";
+        });
+        return obj;
       })
-      return obj
-    }).filter(row => Object.values(row).some(val => val && val.toString().trim() !== ''))
+      .filter((row) =>
+        Object.values(row).some((val) => val && val.toString().trim() !== "")
+      );
 
-    return { headers, data: dataRows }
+    return { headers, data: dataRows };
   }
 
-  private async analyzeWithAI(fileName: string, headers: string[], sampleData: any[]): Promise<any> {
-    const prompt = this.createAnalysisPrompt(fileName, headers, sampleData)
+  private async analyzeWithAI(
+    fileName: string,
+    headers: string[],
+    sampleData: any[]
+  ): Promise<any> {
+    const prompt = this.createAnalysisPrompt(fileName, headers, sampleData);
 
-    console.log('[AI DEBUG] Prompt sent to OpenAI:', prompt)
-    
+    console.log("[AI DEBUG] Prompt sent to OpenAI:", prompt);
+
     try {
       const response = await fetch(this.aiEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
-      })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
 
       if (!response.ok) {
-        throw new Error(`AI analysis failed: ${response.status}`)
+        throw new Error(`AI analysis failed: ${response.status}`);
       }
 
-          const json = await response.json()
-    console.log('[AI DEBUG] Response received from OpenAI:', json)
-    
-    // Handle API response format mismatch
-    if (json.columnMappings && !json.mappings) {
-      json.mappings = json.columnMappings.map((mapping: any) => ({
-        originalColumn: mapping.originalColumn || mapping.column,
-        standardField: mapping.standardField || mapping.field,
-        confidence: mapping.confidence || 0.8,
-        dataType: mapping.dataType || 'string',
-        transformation: mapping.transformation || 'none'
-      }))
-    }
-    
-    return json
+      const json = await response.json();
+      console.log("[AI DEBUG] Response received from OpenAI:", json);
+
+      // Handle API response format mismatch
+      if (json.columnMappings && !json.mappings) {
+        json.mappings = json.columnMappings.map((mapping: any) => ({
+          originalColumn: mapping.originalColumn || mapping.column,
+          standardField: mapping.standardField || mapping.field,
+          confidence: mapping.confidence || 0.8,
+          dataType: mapping.dataType || "string",
+          transformation: mapping.transformation || "none",
+        }));
+      }
+
+      return json;
     } catch (error) {
-      console.warn('AI analysis failed, using fallback:', error)
-      return this.fallbackAnalysis(fileName, headers, sampleData)
+      console.warn("AI analysis failed, using fallback:", error);
+      return this.fallbackAnalysis(fileName, headers, sampleData);
     }
   }
 
-  private createAnalysisPrompt(fileName: string, headers: string[], sampleData: any[]): string {
+  private createAnalysisPrompt(
+    fileName: string,
+    headers: string[],
+    sampleData: any[]
+  ): string {
     return `Analyze this business data file and provide column mappings.
 
 File: ${fileName}
@@ -601,383 +755,486 @@ Respond with ONLY valid JSON:
     "currencyFormat": "detected format",
     "primaryAmount": "main amount column"
   }
-}`
+}`;
   }
 
-  private fallbackAnalysis(fileName: string, headers: string[], sampleData: any[]): any {
-    const lowerHeaders = headers.map(h => h.toLowerCase().trim())
-    
-    // Detect file type
-    let fileType = 'transactions'
-    let confidence = 0.3
+  private fallbackAnalysis(
+    fileName: string,
+    headers: string[],
+    sampleData: any[]
+  ): any {
+    const lowerHeaders = headers.map((h) => h.toLowerCase().trim());
 
-    if (lowerHeaders.some(h => h.includes('deal') || h.includes('client') || h.includes('phase'))) {
-      fileType = 'deals'
-      confidence = 0.7
-    } else if (lowerHeaders.some(h => h.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i))) {
-      fileType = 'budget'
-      confidence = 0.6
+    // Detect file type
+    let fileType = "transactions";
+    let confidence = 0.3;
+
+    if (
+      lowerHeaders.some(
+        (h) => h.includes("deal") || h.includes("client") || h.includes("phase")
+      )
+    ) {
+      fileType = "deals";
+      confidence = 0.7;
+    } else if (
+      lowerHeaders.some((h) =>
+        h.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i)
+      )
+    ) {
+      fileType = "budget";
+      confidence = 0.6;
     }
 
     // Create basic mappings
-    const columnMappings = headers.map(header => ({
+    const columnMappings = headers.map((header) => ({
       originalColumn: header,
       standardField: this.mapColumnFallback(header, fileType),
       confidence: 0.5,
       dataType: this.detectDataType(header, sampleData),
-      transformation: 'none'
-    }))
+      transformation: "none",
+    }));
 
     return {
       fileType,
       confidence,
-      reasoning: 'Fallback rule-based analysis',
+      reasoning: "Fallback rule-based analysis",
       columnMappings,
       issues: [],
       businessInsights: {
-        detectedLanguage: 'unknown',
-        dateFormat: 'unknown',
-        currencyFormat: 'unknown',
-        primaryAmount: ''
-      }
-    }
+        detectedLanguage: "unknown",
+        dateFormat: "unknown",
+        currencyFormat: "unknown",
+        primaryAmount: "",
+      },
+    };
   }
 
   private mapColumnFallback(header: string, fileType: string): string {
-    const lower = header.toLowerCase().trim()
-    
-    if (fileType === 'deals') {
-      if (lower.includes('deal') && lower.includes('name')) return 'dealName'
-      if (lower.includes('client')) return 'clientName'
-      if (lower.includes('phase') || lower.includes('stage')) return 'phase'
-      if (lower.includes('amount') || lower.includes('value')) return 'amount'
-      if (lower.includes('product')) return 'product'
-      if (lower.includes('date')) return 'closingDate'
-    }
-    
-    if (fileType === 'transactions') {
-      if (lower.includes('buchung') || lower.includes('wertstellung')) return 'date'
-      if (lower.includes('umsatz') || lower.includes('betrag')) return 'amount'
-      if (lower.includes('verwendungszweck')) return 'reference'
-      if (lower.includes('empfänger') || lower.includes('absender') || lower.includes('zahlungspflichtiger')) return 'description'
-      if (lower.includes('kategorie') || lower.includes('category')) return 'category'
+    const lower = header.toLowerCase().trim();
+
+    if (fileType === "deals") {
+      if (lower.includes("deal") && lower.includes("name")) return "dealName";
+      if (lower.includes("client")) return "clientName";
+      if (lower.includes("phase") || lower.includes("stage")) return "phase";
+      if (lower.includes("amount") || lower.includes("value")) return "amount";
+      if (lower.includes("product")) return "product";
+      if (lower.includes("date")) return "closingDate";
     }
 
-    return 'unmapped'
+    if (fileType === "transactions") {
+      if (lower.includes("buchung") || lower.includes("wertstellung"))
+        return "date";
+      if (lower.includes("umsatz") || lower.includes("betrag")) return "amount";
+      if (lower.includes("verwendungszweck")) return "reference";
+      if (
+        lower.includes("empfänger") ||
+        lower.includes("absender") ||
+        lower.includes("zahlungspflichtiger")
+      )
+        return "description";
+      if (lower.includes("kategorie") || lower.includes("category"))
+        return "category";
+    }
+
+    return "unmapped";
   }
 
-  private detectDataType(header: string, sampleData: any[]): 'string' | 'number' | 'date' | 'currency' {
-    const lower = header.toLowerCase()
-    
-    if (lower.includes('date') || lower.includes('datum')) return 'date'
-    if (lower.includes('amount') || lower.includes('betrag') || lower.includes('value')) return 'currency'
-    
+  private detectDataType(
+    header: string,
+    sampleData: any[]
+  ): "string" | "number" | "date" | "currency" {
+    const lower = header.toLowerCase();
+
+    if (lower.includes("date") || lower.includes("datum")) return "date";
+    if (
+      lower.includes("amount") ||
+      lower.includes("betrag") ||
+      lower.includes("value")
+    )
+      return "currency";
+
     // Check sample data
-    const samples = sampleData.map(row => row[header]).filter(val => val != null && val !== '')
-    if (samples.length === 0) return 'string'
-    
-    const firstSample = samples[0].toString()
-    if (firstSample.match(/^\d+([.,]\d+)?$/)) return 'number'
-    if (firstSample.match(/\d{4}-\d{2}-\d{2}/) || firstSample.match(/\d{2}[./]\d{2}[./]\d{4}/)) return 'date'
-    
-    return 'string'
+    const samples = sampleData
+      .map((row) => row[header])
+      .filter((val) => val != null && val !== "");
+    if (samples.length === 0) return "string";
+
+    const firstSample = samples[0].toString();
+    if (firstSample.match(/^\d+([.,]\d+)?$/)) return "number";
+    if (
+      firstSample.match(/\d{4}-\d{2}-\d{2}/) ||
+      firstSample.match(/\d{2}[./]\d{2}[./]\d{4}/)
+    )
+      return "date";
+
+    return "string";
   }
 
-  private validateAIAnalysis(aiResult: any, headers: string[], data: any[]): any {
-    const issues = []
-    
+  private validateAIAnalysis(
+    aiResult: any,
+    headers: string[],
+    data: any[]
+  ): any {
+    const issues = [];
+
     // Handle both mappings and columnMappings formats
-    const mappings = aiResult.mappings || aiResult.columnMappings || []
-    const mappedFields = mappings.map((m: any) => m.standardField)
-    
-    if (aiResult.fileType === 'deals') {
-      if (!mappedFields.includes('dealName')) issues.push('No deal name column mapped')
-      if (!mappedFields.includes('amount')) issues.push('No amount column mapped')
-      if (!mappedFields.includes('clientName')) issues.push('No client name column mapped')
+    const mappings = aiResult.mappings || aiResult.columnMappings || [];
+    const mappedFields = mappings.map((m: any) => m.standardField);
+
+    if (aiResult.fileType === "deals") {
+      if (!mappedFields.includes("dealName"))
+        issues.push("No deal name column mapped");
+      if (!mappedFields.includes("amount"))
+        issues.push("No amount column mapped");
+      if (!mappedFields.includes("clientName"))
+        issues.push("No client name column mapped");
     }
-    
-    if (aiResult.fileType === 'transactions') {
-      if (!mappedFields.includes('date')) issues.push('No date column mapped')
-      if (!mappedFields.includes('amount')) issues.push('No amount column mapped')
+
+    if (aiResult.fileType === "transactions") {
+      if (!mappedFields.includes("date")) issues.push("No date column mapped");
+      if (!mappedFields.includes("amount"))
+        issues.push("No amount column mapped");
     }
-    
+
     // Adjust confidence based on issues
-    let adjustedConfidence = aiResult.confidence || 0.3
-    if (issues.length > 0) adjustedConfidence *= 0.7
-    
+    let adjustedConfidence = aiResult.confidence || 0.3;
+    if (issues.length > 0) adjustedConfidence *= 0.7;
+
     return {
       ...aiResult,
       confidence: adjustedConfidence,
       issues: [...(aiResult.issues || []), ...issues],
-      mappings
-    }
+      mappings,
+    };
   }
 
   async convertToStandardFormat(
-    data: any[], 
-    mappings: ColumnMapping[], 
+    data: any[],
+    mappings: ColumnMapping[],
     fileType: FileType
   ): Promise<StandardizedData> {
     switch (fileType) {
-      case 'deals':
-        return { deals: this.convertToDeals(data, mappings) }
-      case 'transactions':
-        return { transactions: this.convertToTransactions(data, mappings) }
-      case 'budget':
-        return { budget: this.convertToBudget(data, mappings) }
+      case "deals":
+        return { deals: this.convertToDeals(data, mappings) };
+      case "transactions":
+        return { transactions: this.convertToTransactions(data, mappings) };
+      case "budget":
+        return { budget: this.convertToBudget(data, mappings) };
       default:
-        throw new Error(`Unsupported file type: ${fileType}`)
+        throw new Error(`Unsupported file type: ${fileType}`);
     }
   }
 
   /**
    * Convert data using auto-mapped CRM columns (bypasses manual mapping)
    */
-  async convertAutoMappedCRMData(data: any[], mappings: ColumnMapping[]): Promise<StandardizedData> {
-    console.log('[Mapping Auto] Converting CRM data with auto-mapped columns')
-    const normalizedDeals = this.normalizeCRMData(data, mappings)
-    console.log(`[Mapping Auto] Normalized ${normalizedDeals.length} deals for Supabase insert`)
-    console.log('🧩 Prepared deals for Supabase insert:', normalizedDeals.slice(0, 2))
-    return { deals: normalizedDeals }
+  async convertAutoMappedCRMData(
+    data: any[],
+    mappings: ColumnMapping[]
+  ): Promise<StandardizedData> {
+    console.log("[Mapping Auto] Converting CRM data with auto-mapped columns");
+    const normalizedDeals = this.normalizeCRMData(data, mappings);
+    console.log(
+      `[Mapping Auto] Normalized ${normalizedDeals.length} deals for Supabase insert`
+    );
+    console.log(
+      "🧩 Prepared deals for Supabase insert:",
+      normalizedDeals.slice(0, 2)
+    );
+    return { deals: normalizedDeals };
   }
 
   private convertToDeals(data: any[], mappings: ColumnMapping[]): any[] {
     const fieldMap = Object.fromEntries(
-      mappings.map(m => [m.originalColumn, { field: m.standardField, type: m.dataType }])
-    )
+      mappings.map((m) => [
+        m.originalColumn,
+        { field: m.standardField, type: m.dataType },
+      ])
+    );
 
-    return data.map((row, index) => {
-      const deal: StandardDeal = {
-        id: `deal_${Date.now()}_${index}`,
-        dealName: '',
-        phase: 'Unknown',
-        amount: 0,
-        clientName: '',
-        firstAppointment: '',
-        closingDate: '',
-        product: ''
-      }
+    return data
+      .map((row, index) => {
+        const deal: StandardDeal = {
+          id: `deal_${Date.now()}_${index}`,
+          dealName: "",
+          phase: "Unknown",
+          amount: 0,
+          clientName: "",
+          firstAppointment: "",
+          closingDate: "",
+          product: "",
+        };
 
-      Object.entries(row).forEach(([column, value]) => {
-        const mapping = fieldMap[column]
-        console.log('[Mapping Debug]', { column, mappedField: mapping?.field, value })
-        // Hard fallback for phase recognition based on value content
-        if (!mapping && column.toLowerCase().includes('phase') && typeof value === 'string') {
-          const raw = value.toLowerCase()
-          if (raw.includes('lead')) {
-            deal.phase = 'Lead Generation'
-            // After processing, log if Lead Generation
-            if (deal.phase === 'Lead Generation') {
-              console.log('[Lead Gen Deal]', {
+        Object.entries(row).forEach(([column, value]) => {
+          const mapping = fieldMap[column];
+          console.log("[Mapping Debug]", {
+            column,
+            mappedField: mapping?.field,
+            value,
+          });
+          // Hard fallback for phase recognition based on value content
+          if (
+            !mapping &&
+            column.toLowerCase().includes("phase") &&
+            typeof value === "string"
+          ) {
+            const raw = value.toLowerCase();
+            if (raw.includes("lead")) {
+              deal.phase = "Lead Generation";
+              // After processing, log if Lead Generation
+              if (deal.phase === "Lead Generation") {
+                console.log("[Lead Gen Deal]", {
+                  dealName: deal.dealName,
+                  amount: deal.amount,
+                  clientName: deal.clientName,
+                  closingDate: deal.closingDate,
+                });
+              }
+              return;
+            }
+            if (raw.includes("first contact")) {
+              deal.phase = "First Contact";
+              return;
+            }
+            if (raw.includes("qual")) {
+              deal.phase = "Need Qualification";
+              return;
+            }
+            if (raw.includes("negotiation") || raw.includes("verhandlung")) {
+              deal.phase = "Negotiation";
+              return;
+            }
+            if (raw.includes("deal") || raw.includes("gewonnen")) {
+              deal.phase = "Deal";
+              return;
+            }
+            if (raw.includes("no deal") || raw.includes("kein")) {
+              deal.phase = "No Deal";
+              return;
+            }
+          }
+          // Fallback: infer phase if not explicitly mapped
+          if (
+            !mapping &&
+            column.toLowerCase().includes("phase") &&
+            typeof value === "string"
+          ) {
+            const norm = value.toString().trim().toLowerCase();
+            const phaseAliases: { [key: string]: string } = {
+              "lead gen": "Lead Generation",
+              leadgen: "Lead Generation",
+              "lead-generation": "Lead Generation",
+              leadgeneration: "Lead Generation",
+              "lead generation": "Lead Generation",
+              "lead gen.": "Lead Generation",
+              "lead-gen": "Lead Generation",
+              lead: "Lead Generation",
+              "first contact": "First Contact",
+              "need qualification": "Need Qualification",
+              qualifizierung: "Need Qualification",
+              verhandlung: "Negotiation",
+              negotiation: "Negotiation",
+              deal: "Deal",
+              gewonnen: "Deal",
+              "kein deal": "No Deal",
+              "no deal": "No Deal",
+            };
+            deal.phase = phaseAliases[norm] || value;
+            if (deal.phase === "Lead Generation") {
+              console.log("[Lead Gen Deal]", {
                 dealName: deal.dealName,
                 amount: deal.amount,
                 clientName: deal.clientName,
-                closingDate: deal.closingDate
-              })
+                closingDate: deal.closingDate,
+              });
             }
-            return
+            return;
           }
-          if (raw.includes('first contact')) {
-            deal.phase = 'First Contact'
-            return
+          if (!mapping || !value) return;
+
+          const processedValue = this.processValue(value, mapping.type);
+
+          switch (mapping.field) {
+            case "dealName":
+              deal.dealName = processedValue.toString();
+              break;
+            case "clientName":
+              deal.clientName = processedValue.toString();
+              break;
+            case "phase":
+              // Normalize phase values
+              const rawPhase = processedValue.toString().toLowerCase();
+              if (
+                [
+                  "lead generation",
+                  "LEAD GEN",
+                  "lead-gen",
+                  "kontaktaufnahme",
+                ].includes(rawPhase)
+              ) {
+                deal.phase = "Lead Generation";
+              } else if (
+                ["first contact", "FIRST CONTACT"].includes(rawPhase)
+              ) {
+                deal.phase = "First Contact";
+              } else if (
+                ["need qualification", "NEED QUALIFICATION", "bedarf"].includes(
+                  rawPhase
+                )
+              ) {
+                deal.phase = "Need Qualification";
+              } else if (
+                ["negotiation", "verhandlungsphase", "NEGOTIATION"].includes(
+                  rawPhase
+                )
+              ) {
+                deal.phase = "Negotiation";
+              } else if (["deal", "DEAL", "abgeschlossen"].includes(rawPhase)) {
+                deal.phase = "Deal";
+              } else if (
+                ["no deal", "kein deal", "NO DEAL"].includes(rawPhase)
+              ) {
+                deal.phase = "No Deal";
+              } else {
+                deal.phase = "Unknown";
+              }
+              if (deal.phase === "Lead Generation") {
+                console.log("[Lead Gen Deal]", {
+                  dealName: deal.dealName,
+                  amount: deal.amount,
+                  clientName: deal.clientName,
+                  closingDate: deal.closingDate,
+                });
+              }
+              break;
+            case "amount":
+              deal.amount = this.parseAmount(processedValue);
+              break;
+            case "product":
+              deal.product = processedValue.toString();
+              break;
+            case "firstAppointment":
+            case "closingDate":
+              const parsedDate = this.parseDate(processedValue);
+              deal[mapping.field] = parsedDate ?? undefined;
+              break;
           }
-          if (raw.includes('qual')) {
-            deal.phase = 'Need Qualification'
-            return
-          }
-          if (raw.includes('negotiation') || raw.includes('verhandlung')) {
-            deal.phase = 'Negotiation'
-            return
-          }
-          if (raw.includes('deal') || raw.includes('gewonnen')) {
-            deal.phase = 'Deal'
-            return
-          }
-          if (raw.includes('no deal') || raw.includes('kein')) {
-            deal.phase = 'No Deal'
-            return
-          }
-        }
-        // Fallback: infer phase if not explicitly mapped
-        if (!mapping && column.toLowerCase().includes('phase') && typeof value === 'string') {
-          const norm = value.toString().trim().toLowerCase()
-          const phaseAliases: { [key: string]: string } = {
-            'lead gen': 'Lead Generation',
-            'leadgen': 'Lead Generation',
-            'lead-generation': 'Lead Generation',
-            'leadgeneration': 'Lead Generation',
-            'lead generation': 'Lead Generation',
-            'lead gen.': 'Lead Generation',
-            'lead-gen': 'Lead Generation',
-            'lead': 'Lead Generation',
-            'first contact': 'First Contact',
-            'need qualification': 'Need Qualification',
-            'qualifizierung': 'Need Qualification',
-            'verhandlung': 'Negotiation',
-            'negotiation': 'Negotiation',
-            'deal': 'Deal',
-            'gewonnen': 'Deal',
-            'kein deal': 'No Deal',
-            'no deal': 'No Deal'
-          }
-          deal.phase = phaseAliases[norm] || value
-          if (deal.phase === 'Lead Generation') {
-            console.log('[Lead Gen Deal]', {
+          // After processing each column, log if Lead Generation
+          if (deal.phase === "Lead Generation") {
+            console.log("[Lead Gen Deal]", {
               dealName: deal.dealName,
               amount: deal.amount,
               clientName: deal.clientName,
-              closingDate: deal.closingDate
-            })
+              closingDate: deal.closingDate,
+            });
           }
-          return
-        }
-        if (!mapping || !value) return
+        });
 
-        const processedValue = this.processValue(value, mapping.type)
-        
-        switch (mapping.field) {
-          case 'dealName':
-            deal.dealName = processedValue.toString()
-            break
-          case 'clientName':
-            deal.clientName = processedValue.toString()
-            break
-          case 'phase':
-            // Normalize phase values
-            const rawPhase = processedValue.toString().toLowerCase()
-            if (['lead generation', 'LEAD GEN', 'lead-gen', 'kontaktaufnahme'].includes(rawPhase)) {
-              deal.phase = 'Lead Generation'
-            } else if (['first contact', 'FIRST CONTACT'].includes(rawPhase)) {
-              deal.phase = 'First Contact'
-            } else if (['need qualification', 'NEED QUALIFICATION', 'bedarf'].includes(rawPhase)) {
-              deal.phase = 'Need Qualification'
-            } else if (['negotiation', 'verhandlungsphase', 'NEGOTIATION'].includes(rawPhase)) {
-              deal.phase = 'Negotiation'
-            } else if (['deal', 'DEAL', 'abgeschlossen'].includes(rawPhase)) {
-              deal.phase = 'Deal'
-            } else if (['no deal', 'kein deal', 'NO DEAL'].includes(rawPhase)) {
-              deal.phase = 'No Deal'
-            } else {
-              deal.phase = 'Unknown'
-            }
-            if (deal.phase === 'Lead Generation') {
-              console.log('[Lead Gen Deal]', {
-                dealName: deal.dealName,
-                amount: deal.amount,
-                clientName: deal.clientName,
-                closingDate: deal.closingDate
-              })
-            }
-            break
-          case 'amount':
-            deal.amount = this.parseAmount(processedValue)
-            break
-          case 'product':
-            deal.product = processedValue.toString()
-            break
-          case 'firstAppointment':
-          case 'closingDate':
-            const parsedDate = this.parseDate(processedValue)
-            deal[mapping.field] = parsedDate ?? undefined
-            break
+        // Validation and cleanup
+        if (!deal.dealName && deal.clientName) {
+          deal.dealName = `Deal with ${deal.clientName}`;
         }
-        // After processing each column, log if Lead Generation
-        if (deal.phase === 'Lead Generation') {
-          console.log('[Lead Gen Deal]', {
-            dealName: deal.dealName,
-            amount: deal.amount,
-            clientName: deal.clientName,
-            closingDate: deal.closingDate
-          })
+        if (!deal.clientName) {
+          deal.clientName = "Unknown Client";
         }
+
+        return deal;
       })
-
-      // Validation and cleanup
-      if (!deal.dealName && deal.clientName) {
-        deal.dealName = `Deal with ${deal.clientName}`
-      }
-      if (!deal.clientName) {
-        deal.clientName = 'Unknown Client'
-      }
-
-      return deal
-    }).filter(deal => deal.dealName && (deal.amount > 0 || deal.clientName !== 'Unknown Client'))
-    .map(d => ({
-      // Convert to snake_case for Supabase compatibility
-      deal_name: d.dealName ?? '',
-      phase: d.phase ?? '',
-      amount: Number(d.amount ?? 0),
-      client_name: d.clientName ?? '',
-      first_appointment: d.firstAppointment ?? null,
-      closing_date: d.closingDate ?? null,
-      product: d.product ?? '',
-      // Keep original id for reference
-      id: d.id
-    }))
+      .filter(
+        (deal) =>
+          deal.dealName &&
+          (deal.amount > 0 || deal.clientName !== "Unknown Client")
+      )
+      .map((d) => ({
+        // Convert to snake_case for Supabase compatibility
+        deal_name: d.dealName ?? "",
+        phase: d.phase ?? "",
+        amount: Number(d.amount ?? 0),
+        client_name: d.clientName ?? "",
+        first_appointment: d.firstAppointment ?? null,
+        closing_date: d.closingDate ?? null,
+        product: d.product ?? "",
+        // Keep original id for reference
+        id: d.id,
+      }));
   }
 
-  private convertToTransactions(data: any[], mappings: ColumnMapping[]): StandardTransaction[] {
+  private convertToTransactions(
+    data: any[],
+    mappings: ColumnMapping[]
+  ): StandardTransaction[] {
     const fieldMap = Object.fromEntries(
-      mappings.map(m => [m.originalColumn, { field: m.standardField, type: m.dataType }])
-    )
+      mappings.map((m) => [
+        m.originalColumn,
+        { field: m.standardField, type: m.dataType },
+      ])
+    );
 
-    return data.map((row, index) => {
-      const transaction: any = {
-        id: `tx_${Date.now()}_${index}`,
-        date: '',
-        name: '',
-        description: '',
-        amount: 0,
-        category: 'Other',
-        reference: ''
-      }
+    return data
+      .map((row, index) => {
+        const transaction: any = {
+          id: `tx_${Date.now()}_${index}`,
+          date: "",
+          name: "",
+          description: "",
+          amount: 0,
+          category: "Other",
+          reference: "",
+        };
 
-      Object.entries(row).forEach(([column, value]) => {
-        const mapping = fieldMap[column]
-        if (!mapping || !value) return
+        Object.entries(row).forEach(([column, value]) => {
+          const mapping = fieldMap[column];
+          if (!mapping || !value) return;
 
-        const processedValue = this.processValue(value, mapping.type)
-        
-        switch (mapping.field) {
-          case 'date':
-            transaction.date = this.parseDate(processedValue)
-            break
-          case 'name':
-            transaction.name = processedValue.toString()
-            break
-          case 'amount':
-            transaction.amount = this.parseAmount(processedValue)
-            break
-          case 'description':
-            transaction.description = processedValue.toString()
-            break
-          case 'category':
-            // Use the accounting definitions for better categorization
-            const originalCategory = processedValue.toString()
-            transaction.category = categorizeTransaction(
-              transaction.description, 
-              transaction.amount, 
-              originalCategory
-            )
-            break
-          case 'reference':
-            transaction.reference = processedValue.toString()
-            break
+          const processedValue = this.processValue(value, mapping.type);
+
+          switch (mapping.field) {
+            case "date":
+              transaction.date = this.parseDate(processedValue);
+              break;
+            case "name":
+              transaction.name = processedValue.toString();
+              break;
+            case "amount":
+              transaction.amount = this.parseAmount(processedValue);
+              break;
+            case "description":
+              transaction.description = processedValue.toString();
+              break;
+            case "category":
+              // Use the accounting definitions for better categorization
+              const originalCategory = processedValue.toString();
+              transaction.category = categorizeTransaction(
+                transaction.description,
+                transaction.amount,
+                originalCategory
+              );
+              break;
+            case "reference":
+              transaction.reference = processedValue.toString();
+              break;
+          }
+        });
+
+        // Ensure name has a fallback value if not mapped
+        if (!transaction.name) {
+          transaction.name = transaction.description || "Unnamed Transaction";
         }
+
+        return transaction;
       })
-
-      // Ensure name has a fallback value if not mapped
-      if (!transaction.name) {
-        transaction.name = transaction.description || "Unnamed Transaction"
-      }
-
-      return transaction
-    }).filter(tx => tx.date && !isNaN(tx.amount))
+      .filter((tx) => tx.date && !isNaN(tx.amount));
   }
 
-  private convertToBudget(data: any[], mappings: ColumnMapping[]): StandardBudget {
+  private convertToBudget(
+    data: any[],
+    mappings: ColumnMapping[]
+  ): StandardBudget {
     // Debug log for incoming mappings
-    console.log("[Budget Debug] Incoming mappings:", mappings.map(m => m.standardField));
+    console.log(
+      "[Budget Debug] Incoming mappings:",
+      mappings.map((m) => m.standardField)
+    );
 
     // --- Auto-detect and flatten wide-format budget matrices ---
     // Detect if data is a wide-format budget matrix (one non-numeric column, multiple month-like columns)
@@ -986,14 +1243,22 @@ Respond with ONLY valid JSON:
       const sampleRow = data[0];
       const columns = Object.keys(sampleRow);
       // Count numeric-ness for each column
-      const colStats = columns.map(col => {
+      const colStats = columns.map((col) => {
         let numericCount = 0;
         let nonEmptyCount = 0;
         for (let i = 0; i < Math.min(10, data.length); ++i) {
           const v = data[i][col];
-          if (v !== undefined && v !== null && v !== '') {
+          if (v !== undefined && v !== null && v !== "") {
             nonEmptyCount++;
-            if (!isNaN(Number(String(v).replace(/[,.\s€$£¥]/g, '').replace(/[^0-9\-]/g, '')))) {
+            if (
+              !isNaN(
+                Number(
+                  String(v)
+                    .replace(/[,.\s€$£¥]/g, "")
+                    .replace(/[^0-9\-]/g, "")
+                )
+              )
+            ) {
               numericCount++;
             }
           }
@@ -1001,22 +1266,34 @@ Respond with ONLY valid JSON:
         return { col, numericCount, nonEmptyCount };
       });
       // Find non-numeric columns (likely "Category")
-      const likelyNonNumeric = colStats.filter(stat => stat.numericCount <= 2 && stat.nonEmptyCount > 0);
+      const likelyNonNumeric = colStats.filter(
+        (stat) => stat.numericCount <= 2 && stat.nonEmptyCount > 0
+      );
       // Find columns that are numeric for most rows (likely months)
-      const likelyMonthCols = colStats.filter(stat => stat.numericCount >= Math.max(3, Math.ceil(stat.nonEmptyCount * 0.7)));
+      const likelyMonthCols = colStats.filter(
+        (stat) =>
+          stat.numericCount >= Math.max(3, Math.ceil(stat.nonEmptyCount * 0.7))
+      );
       // Heuristic: if exactly one non-numeric column and >=2 likely month columns, treat as wide-format
       if (likelyNonNumeric.length === 1 && likelyMonthCols.length >= 2) {
         const categoryCol = likelyNonNumeric[0].col;
-        const monthCols = likelyMonthCols.map(stat => stat.col);
+        const monthCols = likelyMonthCols.map((stat) => stat.col);
         console.log("[Budget AutoDetect] Detected wide-format budget matrix");
         // Flatten to entries: { month, category, value }
-        const flatEntries: { month: string, category: string, value: number }[] = [];
-        data.forEach(row => {
-          const category = row[categoryCol] ? row[categoryCol].toString() : '';
-          monthCols.forEach(monthCol => {
+        const flatEntries: {
+          month: string;
+          category: string;
+          value: number;
+        }[] = [];
+        data.forEach((row) => {
+          const category = row[categoryCol] ? row[categoryCol].toString() : "";
+          monthCols.forEach((monthCol) => {
             const value = this.parseAmount(row[monthCol]);
             if (
-              (row[monthCol] !== undefined && row[monthCol] !== null && row[monthCol] !== '' && !isNaN(value)) ||
+              (row[monthCol] !== undefined &&
+                row[monthCol] !== null &&
+                row[monthCol] !== "" &&
+                !isNaN(value)) ||
               value !== 0
             ) {
               // Normalize month string to ISO or readable
@@ -1024,7 +1301,7 @@ Respond with ONLY valid JSON:
               flatEntries.push({
                 month: normMonth,
                 category,
-                value
+                value,
               });
             }
           });
@@ -1032,16 +1309,17 @@ Respond with ONLY valid JSON:
         // Build months/categories structure
         const monthSet = new Set<string>();
         const categorySet = new Set<string>();
-        flatEntries.forEach(entry => {
+        flatEntries.forEach((entry) => {
           monthSet.add(entry.month);
           categorySet.add(entry.category);
         });
         const months = Array.from(monthSet).sort();
-        const categories: { [category: string]: { [month: string]: number } } = {};
-        categorySet.forEach(category => {
+        const categories: { [category: string]: { [month: string]: number } } =
+          {};
+        categorySet.forEach((category) => {
           categories[category] = {};
         });
-        flatEntries.forEach(entry => {
+        flatEntries.forEach((entry) => {
           categories[entry.category][entry.month] = entry.value;
         });
         return { months, categories };
@@ -1050,7 +1328,7 @@ Respond with ONLY valid JSON:
 
     // --- Existing mapping-based logic for wide and long-format ---
     // Auto-detect month-like headers and update mappings if needed
-    if (!mappings.some(m => m.standardField.startsWith('month_'))) {
+    if (!mappings.some((m) => m.standardField.startsWith("month_"))) {
       // Month-like patterns: Jan, Feb, March, 2025-02, 2025.02, 02/2025, Jan-2025, Feb-2025, etc.
       const monthPatterns = [
         /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*([-. ]*\d{2,4})?\b/i,
@@ -1060,11 +1338,15 @@ Respond with ONLY valid JSON:
       for (const mapping of mappings) {
         const col = mapping.originalColumn;
         // Check for month-like string in column name
-        if (monthPatterns.some(pat => pat.test(col))) {
+        if (monthPatterns.some((pat) => pat.test(col))) {
           // Normalize: lowercase, replace spaces/dots with dashes, remove extra dashes
-          let normalized = col.toLowerCase().replace(/[\s.]+/g, '-').replace(/-+/g, '-').replace(/[^a-z0-9\-]/g, '');
+          let normalized = col
+            .toLowerCase()
+            .replace(/[\s.]+/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/[^a-z0-9\-]/g, "");
           // Avoid double month_ if already present
-          if (!mapping.standardField.startsWith('month_')) {
+          if (!mapping.standardField.startsWith("month_")) {
             mapping.standardField = `month_${normalized}`;
           }
         }
@@ -1072,61 +1354,88 @@ Respond with ONLY valid JSON:
     }
     // Budget conversion logic - supports both wide-format (month columns) and long-format (month/category/value rows)
     let months = mappings
-      .filter(m => m.standardField.startsWith('month_'))
-      .map(m => m.standardField.replace('month_', ''))
+      .filter((m) => m.standardField.startsWith("month_"))
+      .map((m) => m.standardField.replace("month_", ""))
       .sort();
 
     let categories: { [category: string]: { [month: string]: number } } = {};
 
     // --- Fallback: Auto-detect the category column if not explicitly mapped ---
-    let categoryColumn = mappings.find(m => m.standardField === 'category')?.originalColumn;
+    let categoryColumn = mappings.find(
+      (m) => m.standardField === "category"
+    )?.originalColumn;
     if (!categoryColumn && data.length) {
       const monthPatterns = [
-        /jan/i, /feb/i, /mar/i, /apr/i, /may/i, /jun/i,
-        /jul/i, /aug/i, /sep/i, /oct/i, /nov/i, /dec/i, /202\d/
+        /jan/i,
+        /feb/i,
+        /mar/i,
+        /apr/i,
+        /may/i,
+        /jun/i,
+        /jul/i,
+        /aug/i,
+        /sep/i,
+        /oct/i,
+        /nov/i,
+        /dec/i,
+        /202\d/,
       ];
       const fallbackCategory = Object.keys(data[0]).find(
-        col => !monthPatterns.some(p => p.test(col))
+        (col) => !monthPatterns.some((p) => p.test(col))
       );
       if (fallbackCategory) {
         categoryColumn = fallbackCategory;
         mappings.push({
           originalColumn: fallbackCategory,
-          standardField: 'category',
+          standardField: "category",
           confidence: 0.5,
-          dataType: 'string',
+          dataType: "string",
         });
-        console.log('[Budget AutoDetect] Fallback category column:', fallbackCategory);
+        console.log(
+          "[Budget AutoDetect] Fallback category column:",
+          fallbackCategory
+        );
       }
     }
 
     // Wide-format: each row is a category, each column is a month
-    data.forEach(row => {
+    data.forEach((row) => {
       if (!categoryColumn || !row[categoryColumn]) return;
 
       const category = row[categoryColumn].toString();
       categories[category] = {};
 
       mappings
-        .filter(m => m.standardField.startsWith('month_'))
-        .forEach(mapping => {
-          const month = mapping.standardField.replace('month_', '');
-          categories[category][month] = this.parseAmount(row[mapping.originalColumn] || 0);
+        .filter((m) => m.standardField.startsWith("month_"))
+        .forEach((mapping) => {
+          const month = mapping.standardField.replace("month_", "");
+          categories[category][month] = this.parseAmount(
+            row[mapping.originalColumn] || 0
+          );
         });
     });
 
     // Fallback: If no months or categories found, try to parse as long-format (month/category/value per row)
     if (months.length === 0 || Object.keys(categories).length === 0) {
       // Try to detect long-format budget: look for fields named "month", "category", "value"
-      const monthField = mappings.find(m => m.standardField === 'month')?.originalColumn || 'month';
-      const categoryField = mappings.find(m => m.standardField === 'category')?.originalColumn || 'category';
+      const monthField =
+        mappings.find((m) => m.standardField === "month")?.originalColumn ||
+        "month";
+      const categoryField =
+        mappings.find((m) => m.standardField === "category")?.originalColumn ||
+        "category";
       const valueField =
-        mappings.find(m => ['value', 'budgeted_amount', 'amount'].includes(m.standardField))?.originalColumn
-        || 'value';
+        mappings.find((m) =>
+          ["value", "budgeted_amount", "amount"].includes(m.standardField)
+        )?.originalColumn || "value";
 
       // Try to extract unique months and categories
-      const budgetEntries: { month: string, category: string, value: number }[] = [];
-      data.forEach(row => {
+      const budgetEntries: {
+        month: string;
+        category: string;
+        value: number;
+      }[] = [];
+      data.forEach((row) => {
         // Accept both with mappings or fallback to best-guess field names
         const rawMonth = row[monthField];
         const rawCategory = row[categoryField];
@@ -1139,22 +1448,22 @@ Respond with ONLY valid JSON:
         budgetEntries.push({
           month: normMonth,
           category: normCategory,
-          value: normValue
+          value: normValue,
         });
       });
       // Build months/categories structure
       const monthSet = new Set<string>();
       const categorySet = new Set<string>();
-      budgetEntries.forEach(entry => {
+      budgetEntries.forEach((entry) => {
         monthSet.add(entry.month);
         categorySet.add(entry.category);
       });
       months = Array.from(monthSet).sort();
       categories = {};
-      categorySet.forEach(category => {
+      categorySet.forEach((category) => {
         categories[category] = {};
       });
-      budgetEntries.forEach(entry => {
+      budgetEntries.forEach((entry) => {
         categories[entry.category][entry.month] = entry.value;
       });
     }
@@ -1163,16 +1472,16 @@ Respond with ONLY valid JSON:
   }
 
   private processValue(value: any, dataType: string): any {
-    if (value == null || value === '') return ''
-    
+    if (value == null || value === "") return "";
+
     switch (dataType) {
-      case 'date':
-        return this.parseDate(value)
-      case 'currency':
-      case 'number':
-        return this.parseAmount(value)
+      case "date":
+        return this.parseDate(value);
+      case "currency":
+      case "number":
+        return this.parseAmount(value);
       default:
-        return value.toString().trim()
+        return value.toString().trim();
     }
   }
 
@@ -1183,9 +1492,9 @@ Respond with ONLY valid JSON:
     // Sanitize header labels and remove suffixes/non-essential words
     const cleaned = str
       .toLowerCase()
-      .replace(/[\s_-]*(budget|plan|forecast|actuals?)\b/g, '') // remove trailing words
-      .replace(/[^a-z0-9\s-]/g, ' ') // strip non-alphanumeric
-      .replace(/\s+/g, ' ') // normalize spaces
+      .replace(/[\s_-]*(budget|plan|forecast|actuals?)\b/g, "") // remove trailing words
+      .replace(/[^a-z0-9\s-]/g, " ") // strip non-alphanumeric
+      .replace(/\s+/g, " ") // normalize spaces
       .trim();
 
     // Ignore placeholders or invalid values
@@ -1224,7 +1533,7 @@ Respond with ONLY valid JSON:
       november: "11",
       nov: "11",
       december: "12",
-      dec: "12"
+      dec: "12",
     };
 
     // Check if the string is a month name (case-insensitive, allow for whitespace)
@@ -1342,7 +1651,7 @@ Respond with ONLY valid JSON:
       sep: "09",
       oct: "10",
       nov: "11",
-      dec: "12"
+      dec: "12",
     };
     // If the string is a month or month-year-like, try to construct a date, otherwise return null
     // Try to extract year as 4-digit number
@@ -1364,120 +1673,172 @@ Respond with ONLY valid JSON:
   }
 
   private parseAmount(value: any): number {
-    if (typeof value === 'number') return value
-    if (!value) return 0
-    
-    let cleanValue = value.toString()
-      .replace(/[€$£¥\s]/g, '') // Remove currency symbols and spaces
-      .replace(/[^\d.,-]/g, '') // Keep only digits, dots, commas, minus
-    
+    if (typeof value === "number") return value;
+    if (!value) return 0;
+
+    let cleanValue = value
+      .toString()
+      .replace(/[€$£¥\s]/g, "") // Remove currency symbols and spaces
+      .replace(/[^\d.,-]/g, ""); // Keep only digits, dots, commas, minus
+
     // Handle German format: 1.234,56
-    if (cleanValue.includes(',') && cleanValue.includes('.')) {
-      const lastComma = cleanValue.lastIndexOf(',')
-      const lastDot = cleanValue.lastIndexOf('.')
+    if (cleanValue.includes(",") && cleanValue.includes(".")) {
+      const lastComma = cleanValue.lastIndexOf(",");
+      const lastDot = cleanValue.lastIndexOf(".");
       if (lastComma > lastDot) {
-        cleanValue = cleanValue.replace(/\./g, '').replace(',', '.')
+        cleanValue = cleanValue.replace(/\./g, "").replace(",", ".");
       }
-    } else if (cleanValue.includes(',')) {
+    } else if (cleanValue.includes(",")) {
       // German decimal or US thousands
-      const parts = cleanValue.split(',')
+      const parts = cleanValue.split(",");
       if (parts.length === 2 && parts[1].length <= 2) {
-        cleanValue = cleanValue.replace(',', '.')
+        cleanValue = cleanValue.replace(",", ".");
       } else {
-        cleanValue = cleanValue.replace(/,/g, '')
+        cleanValue = cleanValue.replace(/,/g, "");
       }
     }
-    
-    const parsed = parseFloat(cleanValue)
-    return isNaN(parsed) ? 0 : parsed
+
+    const parsed = parseFloat(cleanValue);
+    return isNaN(parsed) ? 0 : parsed;
   }
 
   private mapCategory(category: string): string {
-    const lowerCategory = category.toLowerCase().trim()
-    
+    const lowerCategory = category.toLowerCase().trim();
+
     // Map German revenue categories
-    if (lowerCategory.includes('trainings') || lowerCategory.includes('training')) {
-      return 'Revenue'
+    if (
+      lowerCategory.includes("trainings") ||
+      lowerCategory.includes("training")
+    ) {
+      return "Revenue";
     }
-    if (lowerCategory.includes('subscription') || lowerCategory.includes('abonnement')) {
-      return 'Revenue'
+    if (
+      lowerCategory.includes("subscription") ||
+      lowerCategory.includes("abonnement")
+    ) {
+      return "Revenue";
     }
-    if (lowerCategory.includes('programme') || lowerCategory.includes('programm')) {
-      return 'Revenue'
+    if (
+      lowerCategory.includes("programme") ||
+      lowerCategory.includes("programm")
+    ) {
+      return "Revenue";
     }
-    if (lowerCategory.includes('coaching')) {
-      return 'Revenue'
+    if (lowerCategory.includes("coaching")) {
+      return "Revenue";
     }
-    
+
     // Map German expense categories
-    if (lowerCategory.includes('gehälter') || lowerCategory.includes('gehalt') || lowerCategory.includes('lohn')) {
-      return 'Salaries'
+    if (
+      lowerCategory.includes("gehälter") ||
+      lowerCategory.includes("gehalt") ||
+      lowerCategory.includes("lohn")
+    ) {
+      return "Salaries";
     }
-    if (lowerCategory.includes('marketing')) {
-      return 'Marketing'
+    if (lowerCategory.includes("marketing")) {
+      return "Marketing";
     }
-    if (lowerCategory.includes('miete') || lowerCategory.includes('rent')) {
-      return 'Rent'
+    if (lowerCategory.includes("miete") || lowerCategory.includes("rent")) {
+      return "Rent";
     }
-    if (lowerCategory.includes('software') || lowerCategory.includes('licence') || lowerCategory.includes('lizenz')) {
-      return 'Software'
+    if (
+      lowerCategory.includes("software") ||
+      lowerCategory.includes("licence") ||
+      lowerCategory.includes("lizenz")
+    ) {
+      return "Software";
     }
-    if (lowerCategory.includes('sonstiges') || lowerCategory.includes('other') || lowerCategory.includes('misc')) {
-      return 'Other OpEx'
+    if (
+      lowerCategory.includes("sonstiges") ||
+      lowerCategory.includes("other") ||
+      lowerCategory.includes("misc")
+    ) {
+      return "Other OpEx";
     }
-    
+
     // Map English revenue categories (fallback)
-    if (lowerCategory.includes('revenue') || lowerCategory.includes('income') || lowerCategory.includes('sales')) {
-      return 'Revenue'
+    if (
+      lowerCategory.includes("revenue") ||
+      lowerCategory.includes("income") ||
+      lowerCategory.includes("sales")
+    ) {
+      return "Revenue";
     }
-    if (lowerCategory.includes('consulting') || lowerCategory.includes('service') || lowerCategory.includes('fee')) {
-      return 'Revenue'
+    if (
+      lowerCategory.includes("consulting") ||
+      lowerCategory.includes("service") ||
+      lowerCategory.includes("fee")
+    ) {
+      return "Revenue";
     }
-    if (lowerCategory.includes('subscription') || lowerCategory.includes('recurring')) {
-      return 'Revenue'
+    if (
+      lowerCategory.includes("subscription") ||
+      lowerCategory.includes("recurring")
+    ) {
+      return "Revenue";
     }
-    
+
     // Map English expense categories (fallback)
-    if (lowerCategory.includes('cost') || lowerCategory.includes('cogs') || lowerCategory.includes('goods')) {
-      return 'COGS'
+    if (
+      lowerCategory.includes("cost") ||
+      lowerCategory.includes("cogs") ||
+      lowerCategory.includes("goods")
+    ) {
+      return "COGS";
     }
-    if (lowerCategory.includes('salary') || lowerCategory.includes('wage') || lowerCategory.includes('payroll')) {
-      return 'Salaries'
+    if (
+      lowerCategory.includes("salary") ||
+      lowerCategory.includes("wage") ||
+      lowerCategory.includes("payroll")
+    ) {
+      return "Salaries";
     }
-    if (lowerCategory.includes('marketing') || lowerCategory.includes('advertising') || lowerCategory.includes('promotion')) {
-      return 'Marketing'
+    if (
+      lowerCategory.includes("marketing") ||
+      lowerCategory.includes("advertising") ||
+      lowerCategory.includes("promotion")
+    ) {
+      return "Marketing";
     }
-    if (lowerCategory.includes('rent') || lowerCategory.includes('lease') || lowerCategory.includes('office')) {
-      return 'Rent'
+    if (
+      lowerCategory.includes("rent") ||
+      lowerCategory.includes("lease") ||
+      lowerCategory.includes("office")
+    ) {
+      return "Rent";
     }
-    if (lowerCategory.includes('expense') || lowerCategory.includes('expenses')) {
-      return 'Other OpEx'
+    if (
+      lowerCategory.includes("expense") ||
+      lowerCategory.includes("expenses")
+    ) {
+      return "Other OpEx";
     }
-    
+
     // Default mapping - if positive amount, treat as revenue; if negative, treat as expense
-    return category
+    return category;
   }
 }
 // --- Universal Ingestion Types and Helpers ---
 
 // 1. Types for universal ingestion
 export type InferredColumn = {
-  name: string
-  type: 'string' | 'number' | 'date' | 'boolean' | 'currency'
-  description?: string
-}
+  name: string;
+  type: "string" | "number" | "date" | "boolean" | "currency";
+  description?: string;
+};
 
 export type InferredSchema = {
-  columns: InferredColumn[]
-  confidence: number
-  issues?: string[]
-}
+  columns: InferredColumn[];
+  confidence: number;
+  issues?: string[];
+};
 
 export type GenericIngestionResult = {
-  schema: InferredSchema
-  rows: Record<string, any>[]
-  readyForInsert: boolean
-}
+  schema: InferredSchema;
+  rows: Record<string, any>[];
+  readyForInsert: boolean;
+};
 
 // 2. AI schema detection with fallback logic
 export async function aiDetectSchema(
@@ -1486,66 +1847,66 @@ export async function aiDetectSchema(
 ): Promise<InferredSchema> {
   // Try OpenAI endpoint, fallback to simple inference
   try {
-    const resp = await fetch('/api/openai-analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const resp = await fetch("/api/openai-analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt: `Infer the schema (column names, types) for this data:\nHeaders: ${JSON.stringify(
           headers
-        )}\nSample Rows: ${JSON.stringify(sampleRows)}\nRespond with JSON: { columns: [{name,type,description}], confidence, issues }`
-      })
-    })
-    if (!resp.ok) throw new Error('OpenAI analyze failed')
-    const json = await resp.json()
+        )}\nSample Rows: ${JSON.stringify(sampleRows)}\nRespond with JSON: { columns: [{name,type,description}], confidence, issues }`,
+      }),
+    });
+    if (!resp.ok) throw new Error("OpenAI analyze failed");
+    const json = await resp.json();
     // Defensive: fix up old format if needed
     if (Array.isArray(json.columns)) {
       return {
         columns: json.columns.map((col: any) => ({
-          name: col.name || col.column || '',
-          type: (col.type || 'string').toLowerCase(),
-          description: col.description
+          name: col.name || col.column || "",
+          type: (col.type || "string").toLowerCase(),
+          description: col.description,
         })),
-        confidence: typeof json.confidence === 'number' ? json.confidence : 0.7,
-        issues: json.issues || []
-      }
+        confidence: typeof json.confidence === "number" ? json.confidence : 0.7,
+        issues: json.issues || [],
+      };
     }
-    throw new Error('No columns in OpenAI response')
+    throw new Error("No columns in OpenAI response");
   } catch (err) {
     // Fallback: simple type inference
-    const typesMap: Record<string, Set<string>> = {}
-    headers.forEach(h => {
-      typesMap[h] = new Set()
-    })
-    sampleRows.forEach(row => {
-      headers.forEach(h => {
-        const v = row[h]
-        if (v === null || v === undefined || v === '') return
-        if (typeof v === 'number') typesMap[h].add('number')
-        else if (typeof v === 'boolean') typesMap[h].add('boolean')
-        else if (typeof v === 'string') {
+    const typesMap: Record<string, Set<string>> = {};
+    headers.forEach((h) => {
+      typesMap[h] = new Set();
+    });
+    sampleRows.forEach((row) => {
+      headers.forEach((h) => {
+        const v = row[h];
+        if (v === null || v === undefined || v === "") return;
+        if (typeof v === "number") typesMap[h].add("number");
+        else if (typeof v === "boolean") typesMap[h].add("boolean");
+        else if (typeof v === "string") {
           // Try date
           if (
             /^\d{4}-\d{2}-\d{2}/.test(v) ||
             /^\d{2}[./-]\d{2}[./-]\d{4}/.test(v)
           ) {
-            typesMap[h].add('date')
-          } else if (/^\d+([.,]\d+)?$/.test(v.replace(/[,.\s€$£¥]/g, ''))) {
-            typesMap[h].add('number')
+            typesMap[h].add("date");
+          } else if (/^\d+([.,]\d+)?$/.test(v.replace(/[,.\s€$£¥]/g, ""))) {
+            typesMap[h].add("number");
           } else {
-            typesMap[h].add('string')
+            typesMap[h].add("string");
           }
         }
-      })
-    })
-    const columns: InferredColumn[] = headers.map(h => {
-      const types = Array.from(typesMap[h])
-      let type: InferredColumn['type'] = 'string'
-      if (types.includes('date')) type = 'date'
-      else if (types.includes('number')) type = 'number'
-      else if (types.includes('boolean')) type = 'boolean'
-      return { name: h, type }
-    })
-    return { columns, confidence: 0.5 }
+      });
+    });
+    const columns: InferredColumn[] = headers.map((h) => {
+      const types = Array.from(typesMap[h]);
+      let type: InferredColumn["type"] = "string";
+      if (types.includes("date")) type = "date";
+      else if (types.includes("number")) type = "number";
+      else if (types.includes("boolean")) type = "boolean";
+      return { name: h, type };
+    });
+    return { columns, confidence: 0.5 };
   }
 }
 
@@ -1554,60 +1915,60 @@ export function normalizeRowsBySchema(
   rows: any[],
   schema: InferredSchema
 ): Record<string, any>[] {
-  function normValue(val: any, type: InferredColumn['type']) {
-    if (val == null || val === '') return null
+  function normValue(val: any, type: InferredColumn["type"]) {
+    if (val == null || val === "") return null;
     switch (type) {
-      case 'number':
-      case 'currency':
-        if (typeof val === 'number') return val
-        if (typeof val === 'string') {
-          let s = val.replace(/[€$£¥\s]/g, '').replace(/[^\d.,-]/g, '')
-          if (s.includes(',') && s.includes('.')) {
-            const lastComma = s.lastIndexOf(',')
-            const lastDot = s.lastIndexOf('.')
+      case "number":
+      case "currency":
+        if (typeof val === "number") return val;
+        if (typeof val === "string") {
+          let s = val.replace(/[€$£¥\s]/g, "").replace(/[^\d.,-]/g, "");
+          if (s.includes(",") && s.includes(".")) {
+            const lastComma = s.lastIndexOf(",");
+            const lastDot = s.lastIndexOf(".");
             if (lastComma > lastDot) {
-              s = s.replace(/\./g, '').replace(',', '.')
+              s = s.replace(/\./g, "").replace(",", ".");
             }
-          } else if (s.includes(',')) {
-            const parts = s.split(',')
+          } else if (s.includes(",")) {
+            const parts = s.split(",");
             if (parts.length === 2 && parts[1].length <= 2) {
-              s = s.replace(',', '.')
+              s = s.replace(",", ".");
             } else {
-              s = s.replace(/,/g, '')
+              s = s.replace(/,/g, "");
             }
           }
-          const n = parseFloat(s)
-          return isNaN(n) ? null : n
+          const n = parseFloat(s);
+          return isNaN(n) ? null : n;
         }
-        return null
-      case 'date':
-        if (typeof val === 'string' || typeof val === 'number') {
+        return null;
+      case "date":
+        if (typeof val === "string" || typeof val === "number") {
           try {
-            const d = new Date(val)
-            if (!isNaN(d.getTime())) return d.toISOString().split('T')[0]
+            const d = new Date(val);
+            if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
           } catch {}
         }
-        return null
-      case 'boolean':
-        if (typeof val === 'boolean') return val
-        if (typeof val === 'string') {
-          const lower = val.toLowerCase()
-          if (['true', 'yes', '1'].includes(lower)) return true
-          if (['false', 'no', '0'].includes(lower)) return false
+        return null;
+      case "boolean":
+        if (typeof val === "boolean") return val;
+        if (typeof val === "string") {
+          const lower = val.toLowerCase();
+          if (["true", "yes", "1"].includes(lower)) return true;
+          if (["false", "no", "0"].includes(lower)) return false;
         }
-        if (typeof val === 'number') return val !== 0
-        return null
+        if (typeof val === "number") return val !== 0;
+        return null;
       default:
-        return val != null ? val.toString() : null
+        return val != null ? val.toString() : null;
     }
   }
-  return rows.map(row => {
-    const result: Record<string, any> = {}
-    schema.columns.forEach(col => {
-      result[col.name] = normValue(row[col.name], col.type)
-    })
-    return result
-  })
+  return rows.map((row) => {
+    const result: Record<string, any> = {};
+    schema.columns.forEach((col) => {
+      result[col.name] = normValue(row[col.name], col.type);
+    });
+    return result;
+  });
 }
 
 // 4. Universal ingestion builder
@@ -1616,17 +1977,17 @@ export async function buildGenericIngestion(
   allRows: any[],
   opts?: { sampleSize?: number }
 ): Promise<GenericIngestionResult> {
-  const sampleRows = allRows.slice(0, opts?.sampleSize || 10)
-  const schema = await aiDetectSchema(headers, sampleRows)
-  const normalizedRows = normalizeRowsBySchema(allRows, schema)
+  const sampleRows = allRows.slice(0, opts?.sampleSize || 10);
+  const schema = await aiDetectSchema(headers, sampleRows);
+  const normalizedRows = normalizeRowsBySchema(allRows, schema);
   // Ready for insert if all columns have a name and type and at least one row
   const readyForInsert =
     schema.columns.length > 0 &&
     normalizedRows.length > 0 &&
-    schema.columns.every(c => !!c.name && !!c.type)
+    schema.columns.every((c) => !!c.name && !!c.type);
   return {
     schema,
     rows: normalizedRows,
-    readyForInsert
-  }
+    readyForInsert,
+  };
 }

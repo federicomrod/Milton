@@ -1,91 +1,110 @@
 // lib/hooks/useDatasetReadiness.ts
-'use client'
+"use client";
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { miltonEventsAPI } from '@/lib/milton-events'
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { miltonEventsAPI } from "@/lib/milton-events";
 
-type Readiness = 'pending' | 'linked' | 'insightable'
+type Readiness = "pending" | "linked" | "insightable";
 
 export function useDatasetReadiness(tableName: string) {
-  const [state, setState] = useState<Readiness>('pending')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
-  const supabase = useMemo(() => createClient(), [])
-  const mountedRef = useRef(true)
-  const lastStateRef = useRef<Readiness>('pending')
+  const [state, setState] = useState<Readiness>("pending");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const supabase = useMemo(() => createClient(), []);
+  const mountedRef = useRef(true);
+  const lastStateRef = useRef<Readiness>("pending");
 
   useEffect(() => {
-    mountedRef.current = true
+    mountedRef.current = true;
     const fetchOnce = async () => {
       try {
-        setLoading(true)
+        setLoading(true);
         const { data, error } = await supabase
-          .from('table_status')
-          .select('readiness_state')
-          .eq('table_name', tableName)
-          .maybeSingle()
+          .from("table_status")
+          .select("readiness_state")
+          .eq("table_name", tableName)
+          .maybeSingle();
 
-        if (!mountedRef.current) return
+        if (!mountedRef.current) return;
         if (error) {
-          console.error('[useDatasetReadiness] fetch error', error)
-          setError(error as any)
-          setState('pending')
+          console.error("[useDatasetReadiness] fetch error", error);
+          setError(error as any);
+          setState("pending");
         } else if (data?.readiness_state) {
-          const newState = data.readiness_state as Readiness
+          const newState = data.readiness_state as Readiness;
           if (newState !== state) {
-            setState(newState)
+            setState(newState);
             // When readiness becomes 'insightable', notify Milton
-            if (newState === 'insightable' && lastStateRef.current !== 'insightable') {
-              miltonEventsAPI.publish('dataset.ready', { tableName, state: newState })
+            if (
+              newState === "insightable" &&
+              lastStateRef.current !== "insightable"
+            ) {
+              miltonEventsAPI.publish("dataset.ready", {
+                tableName,
+                state: newState,
+              });
             }
-            lastStateRef.current = newState
+            lastStateRef.current = newState;
           }
         } else {
-          setState('pending')
+          setState("pending");
         }
       } catch (e) {
-        if (!mountedRef.current) return
-        setError(e as Error)
-        setState('pending')
+        if (!mountedRef.current) return;
+        setError(e as Error);
+        setState("pending");
       } finally {
-        if (mountedRef.current) setLoading(false)
+        if (mountedRef.current) setLoading(false);
       }
-    }
+    };
 
-    fetchOnce()
+    fetchOnce();
 
     // Lightweight polling (15s) so UI updates without manual refresh
-    const pollId = setInterval(fetchOnce, 15000)
+    const pollId = setInterval(fetchOnce, 15000);
 
     // Optional realtime: update on Postgres changes (non-breaking if not configured)
     const channel = supabase
-      .channel('table_status_changes')
+      .channel("table_status_changes")
       .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'table_status', filter: `table_name=eq.${tableName}` },
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "table_status",
+          filter: `table_name=eq.${tableName}`,
+        },
         (payload) => {
-          if (!mountedRef.current) return
-          const next = (payload.new as any)?.readiness_state as Readiness | undefined
+          if (!mountedRef.current) return;
+          const next = (payload.new as any)?.readiness_state as
+            | Readiness
+            | undefined;
           if (next && next !== state) {
-            setState(next)
-            if (next === 'insightable' && lastStateRef.current !== 'insightable') {
-              miltonEventsAPI.publish('dataset.ready', { tableName, state: next })
+            setState(next);
+            if (
+              next === "insightable" &&
+              lastStateRef.current !== "insightable"
+            ) {
+              miltonEventsAPI.publish("dataset.ready", {
+                tableName,
+                state: next,
+              });
             }
-            lastStateRef.current = next
+            lastStateRef.current = next;
           }
         }
       )
-      .subscribe()
+      .subscribe();
 
     return () => {
-      mountedRef.current = false
-      clearInterval(pollId)
+      mountedRef.current = false;
+      clearInterval(pollId);
       try {
-        supabase.removeChannel(channel)
+        supabase.removeChannel(channel);
       } catch {}
-    }
-  }, [tableName, supabase])
+    };
+  }, [tableName, supabase]);
 
-  return { state, loading, error }
+  return { state, loading, error };
 }

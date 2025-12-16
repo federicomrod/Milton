@@ -1,5 +1,23 @@
 echo "🔍 Running pre-commit checks..."
 
+echo "💅 Formatting staged files..."
+# Get list of staged files that Prettier can format
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|js|jsx|json|css|md|yml|yaml|mjs)$' || true)
+
+if [ -n "$STAGED_FILES" ]; then
+  # Format only the staged files
+  echo "$STAGED_FILES" | xargs npx prettier --write 2>/dev/null || true
+  
+  # Re-stage only the files that were already staged
+  # This ensures we don't accidentally stage files you didn't intend to commit
+  for file in $STAGED_FILES; do
+    if [ -f "$file" ]; then
+      git add "$file" 2>/dev/null || true
+    fi
+  done
+  echo "✅ Formatted and re-staged $(echo "$STAGED_FILES" | wc -l | tr -d ' ') file(s)"
+fi
+
 echo "🔎 Running type check..."
 npm run type-check || {
   echo "❌ Type checking failed. Please fix the errors before committing."

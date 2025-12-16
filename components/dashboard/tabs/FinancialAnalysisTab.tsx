@@ -1,5 +1,5 @@
-'use client'
-import React from 'react'
+"use client";
+import React from "react";
 
 export default function FinancialAnalysisTab({ data }: { data?: any[] }) {
   if (!data || data.length === 0) {
@@ -10,13 +10,9 @@ export default function FinancialAnalysisTab({ data }: { data?: any[] }) {
           Upload your bank transactions and budget files to generate insights.
         </p>
       </div>
-    )
+    );
   }
 
   // Existing financial analysis chart rendering logic remains untouched here
-  return (
-    <div>
-      {/* Existing visuals for financial analysis */}
-    </div>
-  )
+  return <div>{/* Existing visuals for financial analysis */}</div>;
 }

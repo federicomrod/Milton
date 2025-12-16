@@ -1,89 +1,94 @@
-'use client'
-import React, { useEffect, useState } from 'react'
+"use client";
+import React, { useEffect, useState } from "react";
 
-import { proposalToGraph, ModelProposal } from '@/lib/model/transform'
+import { proposalToGraph, ModelProposal } from "@/lib/model/transform";
 
 // Note: This component requires 'reactflow' to be installed
 // Run: npm install reactflow
-let ReactFlow: any = null
-let MiniMap: any = null
-let Controls: any = null
-let Background: any = null
+let ReactFlow: any = null;
+let MiniMap: any = null;
+let Controls: any = null;
+let Background: any = null;
 
 // Define types for ReactFlow nodes and edges
 type ReactFlowNode = {
-  id: string
-  data: { label: React.ReactNode }
-  position: { x: number; y: number }
-  style?: Record<string, any>
-}
+  id: string;
+  data: { label: React.ReactNode };
+  position: { x: number; y: number };
+  style?: Record<string, any>;
+};
 
 type ReactFlowEdge = {
-  id: string
-  source: string
-  target: string
-  animated?: boolean
-  style?: Record<string, any>
-}
+  id: string;
+  source: string;
+  target: string;
+  animated?: boolean;
+  style?: Record<string, any>;
+};
 
 try {
-  const reactflowModule = require('reactflow')
-  ReactFlow = reactflowModule.default || reactflowModule.ReactFlow
-  MiniMap = reactflowModule.MiniMap
-  Controls = reactflowModule.Controls
-  Background = reactflowModule.Background
+  const reactflowModule = require("reactflow");
+  ReactFlow = reactflowModule.default || reactflowModule.ReactFlow;
+  MiniMap = reactflowModule.MiniMap;
+  Controls = reactflowModule.Controls;
+  Background = reactflowModule.Background;
   // Also try to import the CSS if available
-  require('reactflow/dist/style.css')
+  require("reactflow/dist/style.css");
 } catch (e) {
-  console.warn('reactflow not installed. Run: npm install reactflow')
+  console.warn("reactflow not installed. Run: npm install reactflow");
 }
 
-
-export default function DataModelVisualizer({ model: propModel, linkedDatasets = [] }: { model?: ModelProposal, linkedDatasets?: any[] }) {
-  const [model, setModel] = useState<ModelProposal | null>(propModel || null)
-  const [nodes, setNodes] = useState<ReactFlowNode[]>([])
-  const [edges, setEdges] = useState<ReactFlowEdge[]>([])
-  const [loading, setLoading] = useState(true)
+export default function DataModelVisualizer({
+  model: propModel,
+  linkedDatasets = [],
+}: {
+  model?: ModelProposal;
+  linkedDatasets?: any[];
+}) {
+  const [model, setModel] = useState<ModelProposal | null>(propModel || null);
+  const [nodes, setNodes] = useState<ReactFlowNode[]>([]);
+  const [edges, setEdges] = useState<ReactFlowEdge[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // Try to load from localStorage first
-    const stored = localStorage.getItem('milton-model')
+    const stored = localStorage.getItem("milton-model");
     if (stored) {
       try {
-        const parsed = JSON.parse(stored)
-        if (typeof parsed === 'object' && parsed) {
-          setModel(parsed.proposal || parsed)
+        const parsed = JSON.parse(stored);
+        if (typeof parsed === "object" && parsed) {
+          setModel(parsed.proposal || parsed);
         } else {
-          console.warn('Invalid model structure in localStorage.')
+          console.warn("Invalid model structure in localStorage.");
         }
       } catch (err) {
-        console.error('Failed to parse milton-model:', err)
+        console.error("Failed to parse milton-model:", err);
       }
     }
-    setLoading(false)
-  }, [])
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
     if (!model) return;
     const graph = proposalToGraph(model);
-    
+
     // Highlight linked nodes
     const generatedNodes = graph.nodes.map((n) => {
       // Normalize dataset names for matching
-      const normalizedLabel = n.label.toLowerCase()
+      const normalizedLabel = n.label.toLowerCase();
       const matchDataset = linkedDatasets.find((d) => {
-        const sheet = d.source_meta?.sheetName?.toLowerCase?.()
-        const detected = d.source_meta?.detectedTable?.toLowerCase?.()
+        const sheet = d.source_meta?.sheetName?.toLowerCase?.();
+        const detected = d.source_meta?.detectedTable?.toLowerCase?.();
         const aiDetected =
-          d.source_meta?.aiClassification?.detectedTable?.toLowerCase?.()
+          d.source_meta?.aiClassification?.detectedTable?.toLowerCase?.();
         return (
           sheet === normalizedLabel ||
           detected === normalizedLabel ||
           aiDetected === normalizedLabel
-        )
-      })
+        );
+      });
 
-      const isLinked = !!matchDataset
+      const isLinked = !!matchDataset;
 
       return {
         id: n.id,
@@ -92,16 +97,16 @@ export default function DataModelVisualizer({ model: propModel, linkedDatasets =
             <div
               className={`p-2 rounded shadow text-xs min-w-[150px] relative group transition-all duration-300 ${
                 isLinked
-                  ? 'bg-green-50 border-green-500 animate-pulse-once'
-                  : 'bg-white border-gray-200'
+                  ? "bg-green-50 border-green-500 animate-pulse-once"
+                  : "bg-white border-gray-200"
               }`}
               title={
                 isLinked
                   ? `Linked: ${
-                      matchDataset?.dataset_name || 'Unknown Dataset'
+                      matchDataset?.dataset_name || "Unknown Dataset"
                     } (AI detected: ${
                       matchDataset?.source_meta?.aiClassification
-                        ?.detectedTable || 'n/a'
+                        ?.detectedTable || "n/a"
                     })`
                   : undefined
               }
@@ -133,24 +138,24 @@ export default function DataModelVisualizer({ model: propModel, linkedDatasets =
         position: n.position || { x: 0, y: 0 },
         style: isLinked
           ? {
-              border: '2px solid #22c55e',
+              border: "2px solid #22c55e",
               borderRadius: 6,
-              background: '#e8ffe8',
-              boxShadow: '0 0 12px 2px rgba(34,197,94,0.6)',
+              background: "#e8ffe8",
+              boxShadow: "0 0 12px 2px rgba(34,197,94,0.6)",
             }
           : {
-              border: '1px solid #ddd',
+              border: "1px solid #ddd",
               borderRadius: 6,
-              background: '#f9fafb',
+              background: "#f9fafb",
             },
-      }
-    })
+      };
+    });
     const generatedEdges = graph.edges.map((e) => ({
       id: e.id,
       source: e.source,
       target: e.target,
       animated: true,
-      style: { stroke: '#2563eb' },
+      style: { stroke: "#2563eb" },
     }));
     setNodes(generatedNodes);
     setEdges(generatedEdges);
@@ -161,7 +166,7 @@ export default function DataModelVisualizer({ model: propModel, linkedDatasets =
       <div className="flex flex-col items-center justify-center text-gray-500 h-full p-10">
         <p>Loading model...</p>
       </div>
-    )
+    );
   }
 
   if (!model) {
@@ -169,7 +174,7 @@ export default function DataModelVisualizer({ model: propModel, linkedDatasets =
       <div className="flex flex-col items-center justify-center text-gray-500 h-full p-10">
         <p>No model found. Please complete onboarding first.</p>
       </div>
-    )
+    );
   }
 
   if (!ReactFlow) {
@@ -177,7 +182,7 @@ export default function DataModelVisualizer({ model: propModel, linkedDatasets =
       <div className="flex flex-col items-center justify-center text-gray-500 h-full p-10">
         <p>ReactFlow is not installed. Run: npm install reactflow</p>
       </div>
-    )
+    );
   }
 
   return (
@@ -194,15 +199,15 @@ export default function DataModelVisualizer({ model: propModel, linkedDatasets =
       `}</style>
       <div className="p-3 border-b bg-white flex justify-between items-center">
         <h2 className="text-sm font-semibold">
-          AI-Proposed Data Model — {model.businessType || 'Unknown Business'}
+          AI-Proposed Data Model — {model.businessType || "Unknown Business"}
         </h2>
         <button
           className="text-xs bg-blue-500 text-white px-2 py-1 rounded"
           onClick={() => {
-            localStorage.removeItem('milton-model')
-            setModel(null)
-            setNodes([])
-            setEdges([])
+            localStorage.removeItem("milton-model");
+            setModel(null);
+            setNodes([]);
+            setEdges([]);
           }}
         >
           Clear Model
@@ -222,5 +227,5 @@ export default function DataModelVisualizer({ model: propModel, linkedDatasets =
         <Background color="#aaa" gap={12} />
       </ReactFlow>
     </div>
-  )
+  );
 }

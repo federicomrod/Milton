@@ -1,8 +1,14 @@
-'use client'
+"use client";
 
-import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { useToast } from '../ui/use-toast'
-import { createClient } from '@/lib/supabase/client'
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
+import { useToast } from "../ui/use-toast";
+import { createClient } from "@/lib/supabase/client";
 import {
   proposalToGraph,
   ModelProposal,
@@ -13,21 +19,33 @@ import {
   removeRelationship,
   upsertFileMapping,
   autoLinkDatasetsToModel,
-} from '@/lib/model/transform'
-import { listCustomDatasets, deleteCustomDataset } from '@/lib/model/dataset-service'
-import ColumnEditor from '@/components/dashboard/ColumnEditor'
-import LinkedUploadsSidebar from '@/components/dashboard/LinkedUploadsSidebar'
-import { useBusinessContext } from '@/lib/business-context'
-import { callBusinessModelAnalyzer } from '@/lib/ai/business-model-analyzer-client'
+} from "@/lib/model/transform";
+import {
+  listCustomDatasets,
+  deleteCustomDataset,
+} from "@/lib/model/dataset-service";
+import ColumnEditor from "@/components/dashboard/ColumnEditor";
+import LinkedUploadsSidebar from "@/components/dashboard/LinkedUploadsSidebar";
+import { useBusinessContext } from "@/lib/business-context";
+import { callBusinessModelAnalyzer } from "@/lib/ai/business-model-analyzer-client";
 
-import { miltonEventsAPI } from '@/lib/milton-events'
+import { miltonEventsAPI } from "@/lib/milton-events";
 
 // Helper to mark a table as linked in the model
-function markTableLinked(m: any, tableName: string, datasetId: string, datasetName: string) {
+function markTableLinked(
+  m: any,
+  tableName: string,
+  datasetId: string,
+  datasetName: string
+) {
   const clone = JSON.parse(JSON.stringify(m));
-  const idx = clone.recommendedTables?.findIndex(
-    (t: any) => t && typeof t.name === 'string' && t.name.toLowerCase() === tableName.toLowerCase()
-  ) ?? -1;
+  const idx =
+    clone.recommendedTables?.findIndex(
+      (t: any) =>
+        t &&
+        typeof t.name === "string" &&
+        t.name.toLowerCase() === tableName.toLowerCase()
+    ) ?? -1;
   if (idx >= 0) {
     const tbl = clone.recommendedTables[idx];
     tbl.isLinked = true;
@@ -43,317 +61,360 @@ function markTableLinked(m: any, tableName: string, datasetId: string, datasetNa
 }
 
 // Temporary type aliases to satisfy TypeScript when using dynamic require for ReactFlow
-type Node = any
-type Edge = any
-type Connection = any
+type Node = any;
+type Edge = any;
+type Connection = any;
 
 // Optional ReactFlow imports - gracefully handle missing package
-let ReactFlow: any = null
-let Background: any = null
-let Controls: any = null
-let MiniMap: any = null
-let addEdge: any = null
-let applyNodeChanges: any = null
-let applyEdgeChanges: any = null
+let ReactFlow: any = null;
+let Background: any = null;
+let Controls: any = null;
+let MiniMap: any = null;
+let addEdge: any = null;
+let applyNodeChanges: any = null;
+let applyEdgeChanges: any = null;
 
 try {
-  const reactflowModule = require('reactflow')
-  ReactFlow = reactflowModule.default || reactflowModule.ReactFlow
-  Background = reactflowModule.Background
-  Controls = reactflowModule.Controls
-  MiniMap = reactflowModule.MiniMap
-  addEdge = reactflowModule.addEdge
-  applyNodeChanges = reactflowModule.applyNodeChanges
-  applyEdgeChanges = reactflowModule.applyEdgeChanges
-  require('reactflow/dist/style.css')
+  const reactflowModule = require("reactflow");
+  ReactFlow = reactflowModule.default || reactflowModule.ReactFlow;
+  Background = reactflowModule.Background;
+  Controls = reactflowModule.Controls;
+  MiniMap = reactflowModule.MiniMap;
+  addEdge = reactflowModule.addEdge;
+  applyNodeChanges = reactflowModule.applyNodeChanges;
+  applyEdgeChanges = reactflowModule.applyEdgeChanges;
+  require("reactflow/dist/style.css");
 } catch (e) {
-  console.warn('reactflow not installed. Run: npm install reactflow')
+  console.warn("reactflow not installed. Run: npm install reactflow");
 }
 
 // Fitness Studio default model - used when business type is fitness_studio and no model exists
 const FITNESS_STUDIO_DEFAULT_MODEL: ModelProposal = {
-  businessType: 'fitness_studio',
+  businessType: "fitness_studio",
   recommendedTables: [
     {
-      name: 'Customers',
+      name: "Customers",
       fields: [
-        { name: 'customer_id', type: 'string', primaryKey: true },
-        { name: 'name', type: 'string' },
-        { name: 'email', type: 'string' },
-        { name: 'phone', type: 'string', nullable: true },
-        { name: 'join_date', type: 'date' },
-        { name: 'status', type: 'string' }, // active / inactive / cancelled
+        { name: "customer_id", type: "string", primaryKey: true },
+        { name: "name", type: "string" },
+        { name: "email", type: "string" },
+        { name: "phone", type: "string", nullable: true },
+        { name: "join_date", type: "date" },
+        { name: "status", type: "string" }, // active / inactive / cancelled
       ],
     },
     {
-      name: 'Classes',
+      name: "Classes",
       fields: [
-        { name: 'class_id', type: 'string', primaryKey: true },
-        { name: 'class_name', type: 'string' },
-        { name: 'category', type: 'string' }, // yoga / pilates / fitness
-        { name: 'capacity', type: 'integer' },
-        { name: 'duration_minutes', type: 'integer' },
-        { name: 'price', type: 'number' },
+        { name: "class_id", type: "string", primaryKey: true },
+        { name: "class_name", type: "string" },
+        { name: "category", type: "string" }, // yoga / pilates / fitness
+        { name: "capacity", type: "integer" },
+        { name: "duration_minutes", type: "integer" },
+        { name: "price", type: "number" },
       ],
     },
     {
-      name: 'Instructors',
+      name: "Instructors",
       fields: [
-        { name: 'instructor_id', type: 'string', primaryKey: true },
-        { name: 'name', type: 'string' },
-        { name: 'email', type: 'string' },
-        { name: 'hourly_rate', type: 'number' },
-        { name: 'specialization', type: 'string', nullable: true },
+        { name: "instructor_id", type: "string", primaryKey: true },
+        { name: "name", type: "string" },
+        { name: "email", type: "string" },
+        { name: "hourly_rate", type: "number" },
+        { name: "specialization", type: "string", nullable: true },
       ],
     },
     {
-      name: 'Bookings',
+      name: "Bookings",
       fields: [
-        { name: 'booking_id', type: 'string', primaryKey: true },
-        { name: 'customer_id', type: 'string', references: { table: 'Customers', field: 'customer_id' } },
-        { name: 'class_id', type: 'string', references: { table: 'Classes', field: 'class_id' } },
-        { name: 'instructor_id', type: 'string', references: { table: 'Instructors', field: 'instructor_id' } },
-        { name: 'booking_time', type: 'date' },
-        { name: 'status', type: 'string' }, // booked / attended / cancelled / no-show
+        { name: "booking_id", type: "string", primaryKey: true },
+        {
+          name: "customer_id",
+          type: "string",
+          references: { table: "Customers", field: "customer_id" },
+        },
+        {
+          name: "class_id",
+          type: "string",
+          references: { table: "Classes", field: "class_id" },
+        },
+        {
+          name: "instructor_id",
+          type: "string",
+          references: { table: "Instructors", field: "instructor_id" },
+        },
+        { name: "booking_time", type: "date" },
+        { name: "status", type: "string" }, // booked / attended / cancelled / no-show
       ],
     },
     {
-      name: 'Payments',
+      name: "Payments",
       fields: [
-        { name: 'payment_id', type: 'string', primaryKey: true },
-        { name: 'customer_id', type: 'string', references: { table: 'Customers', field: 'customer_id' } },
-        { name: 'booking_id', type: 'string', nullable: true, references: { table: 'Bookings', field: 'booking_id' } },
-        { name: 'amount', type: 'number' },
-        { name: 'payment_date', type: 'date' },
-        { name: 'payment_method', type: 'string', nullable: true },
+        { name: "payment_id", type: "string", primaryKey: true },
+        {
+          name: "customer_id",
+          type: "string",
+          references: { table: "Customers", field: "customer_id" },
+        },
+        {
+          name: "booking_id",
+          type: "string",
+          nullable: true,
+          references: { table: "Bookings", field: "booking_id" },
+        },
+        { name: "amount", type: "number" },
+        { name: "payment_date", type: "date" },
+        { name: "payment_method", type: "string", nullable: true },
       ],
     },
   ],
   relationships: [
-    { from: 'Bookings.customer_id', to: 'Customers.customer_id' },
-    { from: 'Bookings.class_id', to: 'Classes.class_id' },
-    { from: 'Bookings.instructor_id', to: 'Instructors.instructor_id' },
-    { from: 'Payments.customer_id', to: 'Customers.customer_id' },
-    { from: 'Payments.booking_id', to: 'Bookings.booking_id' },
+    { from: "Bookings.customer_id", to: "Customers.customer_id" },
+    { from: "Bookings.class_id", to: "Classes.class_id" },
+    { from: "Bookings.instructor_id", to: "Instructors.instructor_id" },
+    { from: "Payments.customer_id", to: "Customers.customer_id" },
+    { from: "Payments.booking_id", to: "Bookings.booking_id" },
   ],
 };
 
 export default function DataModelBuilder() {
-  const [model, setModel] = useState<ModelProposal | null>(null)
-  const [nodes, setNodes] = useState<Node[]>([])
-  const [edges, setEdges] = useState<Edge[]>([])
-  const [selectedTable, setSelectedTable] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [datasets, setDatasets] = useState<any[]>([])
-  const [isAiProposing, setIsAiProposing] = useState(false)  // Track AI model generation
+  const [model, setModel] = useState<ModelProposal | null>(null);
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [edges, setEdges] = useState<Edge[]>([]);
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [datasets, setDatasets] = useState<any[]>([]);
+  const [isAiProposing, setIsAiProposing] = useState(false); // Track AI model generation
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null)  // Store file for ingestion
-  const [isProcessing, setIsProcessing] = useState(false)  // Track upload progress
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null); // Store file for ingestion
+  const [isProcessing, setIsProcessing] = useState(false); // Track upload progress
   const [selectedModel, setSelectedModel] = useState<string>(
-    typeof window !== 'undefined' ? localStorage.getItem('businessModel') || '' : ''
-  )
+    typeof window !== "undefined"
+      ? localStorage.getItem("businessModel") || ""
+      : ""
+  );
 
-  const { toast } = useToast()
-  const { businessType } = useBusinessContext()
+  const { toast } = useToast();
+  const { businessType } = useBusinessContext();
 
   const handleModelChange = (value: string) => {
-    setSelectedModel(value)
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('businessModel', value)
+    setSelectedModel(value);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("businessModel", value);
     }
-    console.log('[DataModelBuilder] Selected business model:', value)
-  }
+    console.log("[DataModelBuilder] Selected business model:", value);
+  };
 
   const handleGenerateDashboard = () => {
-    const model = localStorage.getItem('businessModel') || ''
-    miltonEventsAPI.publish('dashboard.generate', { businessModel: model })
-    console.log('[DataModelBuilder] Dashboard generation requested for', model)
-  }
+    const model = localStorage.getItem("businessModel") || "";
+    miltonEventsAPI.publish("dashboard.generate", { businessModel: model });
+    console.log("[DataModelBuilder] Dashboard generation requested for", model);
+  };
 
   const handleUploadData = () => {
-    fileInputRef.current?.click()
-  }
+    fileInputRef.current?.click();
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    
+    const file = e.target.files?.[0];
+    if (!file) return;
+
     // Store file for later reference
-    setUploadedFile(file)
-    
-    setIsProcessing(true)
-    
+    setUploadedFile(file);
+
+    setIsProcessing(true);
+
     try {
-      console.log('[DataModelBuilder] Uploading file:', file.name)
-      
+      console.log("[DataModelBuilder] Uploading file:", file.name);
+
       // Infer dataset type from file name
-      let datasetType: 'bank' | 'crm' | 'budget' = 'bank'
-      const fileName = file.name.toLowerCase()
-      
-      if (fileName.includes('crm') || fileName.includes('deal') || fileName.includes('sales')) {
-        datasetType = 'crm'
-      } else if (fileName.includes('budget')) {
-        datasetType = 'budget'
-      } else if (fileName.includes('transaction') || fileName.includes('bank')) {
-        datasetType = 'bank'
+      let datasetType: "bank" | "crm" | "budget" = "bank";
+      const fileName = file.name.toLowerCase();
+
+      if (
+        fileName.includes("crm") ||
+        fileName.includes("deal") ||
+        fileName.includes("sales")
+      ) {
+        datasetType = "crm";
+      } else if (fileName.includes("budget")) {
+        datasetType = "budget";
+      } else if (
+        fileName.includes("transaction") ||
+        fileName.includes("bank")
+      ) {
+        datasetType = "bank";
       }
 
       // Call unified ingestion API
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('datasetType', datasetType)
-      formData.append('mode', 'append')  // Model Builder always appends
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("datasetType", datasetType);
+      formData.append("mode", "append"); // Model Builder always appends
 
-      const res = await fetch('/api/data/upload', {
-        method: 'POST',
+      const res = await fetch("/api/data/upload", {
+        method: "POST",
         body: formData,
-      })
+      });
 
       if (!res.ok) {
-        const errorText = await res.text()
-        throw new Error(errorText)
+        const errorText = await res.text();
+        throw new Error(errorText);
       }
 
-      const result = await res.json()
-      console.log(`[DataModelBuilder] Successfully uploaded ${result.insertedCount} rows`)
+      const result = await res.json();
+      console.log(
+        `[DataModelBuilder] Successfully uploaded ${result.insertedCount} rows`
+      );
 
       // Refresh data status
-      document.dispatchEvent(new CustomEvent('data-status:refresh'))
-      
-      // Update model to reflect new data
-      await refreshDatasets()
-      
-      toast({
-        title: 'File uploaded successfully',
-        description: `Uploaded ${result.insertedCount} rows to ${datasetType} table.`,
-      })
+      document.dispatchEvent(new CustomEvent("data-status:refresh"));
 
-    } catch (err) {
-      console.error('[DataModelBuilder] Upload failed:', err)
+      // Update model to reflect new data
+      await refreshDatasets();
+
       toast({
-        title: 'Upload failed',
-        description: (err as Error)?.message || 'Failed to upload file.',
-        variant: 'destructive',
-      })
+        title: "File uploaded successfully",
+        description: `Uploaded ${result.insertedCount} rows to ${datasetType} table.`,
+      });
+    } catch (err) {
+      console.error("[DataModelBuilder] Upload failed:", err);
+      toast({
+        title: "Upload failed",
+        description: (err as Error)?.message || "Failed to upload file.",
+        variant: "destructive",
+      });
     } finally {
-      setIsProcessing(false)
-      e.target.value = ''
+      setIsProcessing(false);
+      e.target.value = "";
     }
-  }
+  };
 
   const refreshDatasets = async () => {
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
     try {
-      const rows = await listCustomDatasets(user.id)
-      setDatasets(rows)
+      const rows = await listCustomDatasets(user.id);
+      setDatasets(rows);
     } catch (e) {
-      console.error('Failed to load datasets:', e)
+      console.error("Failed to load datasets:", e);
     }
-  }
+  };
 
   const handlePreviewDataset = (ds: any) => {
     // TODO: Implement dataset preview without client-side parsing
-    console.log('[DataModelBuilder] Preview dataset:', ds.dataset_name)
+    console.log("[DataModelBuilder] Preview dataset:", ds.dataset_name);
     toast({
-      title: 'Preview not available',
-      description: 'Dataset preview will be implemented in a future update.',
-    })
-  }
+      title: "Preview not available",
+      description: "Dataset preview will be implemented in a future update.",
+    });
+  };
 
   const handleReplaceDataset = (ds: any) => {
     // TODO: Implement dataset replacement flow
-    console.log('[DataModelBuilder] Replace dataset:', ds.dataset_name)
+    console.log("[DataModelBuilder] Replace dataset:", ds.dataset_name);
     toast({
-      title: 'Replace not available',
-      description: 'Dataset replacement will be implemented in a future update.',
-    })
-  }
+      title: "Replace not available",
+      description:
+        "Dataset replacement will be implemented in a future update.",
+    });
+  };
 
   const onNodeClick = useCallback((_: any, node: Node) => {
-    setSelectedTable(node.data.label)
-  }, [])
+    setSelectedTable(node.data.label);
+  }, []);
 
   // Load model from Supabase or localStorage
   useEffect(() => {
     async function loadModel() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      let loaded: ModelProposal | null = null
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      let loaded: ModelProposal | null = null;
       if (user) {
         const { data } = await supabase
-          .from('business_models')
-          .select('user_id, model_json')
-          .eq('user_id', user.id)
-          .single()
-        loaded = data?.model_json ?? null
+          .from("business_models")
+          .select("user_id, model_json")
+          .eq("user_id", user.id)
+          .single();
+        loaded = data?.model_json ?? null;
       }
 
       if (!loaded) {
-        const local = localStorage.getItem('milton-model')
+        const local = localStorage.getItem("milton-model");
         if (local) {
           try {
-            loaded = JSON.parse(local)
+            loaded = JSON.parse(local);
           } catch (e) {
-            console.error('Failed to parse localStorage model JSON', e)
+            console.error("Failed to parse localStorage model JSON", e);
           }
         }
       }
 
       // If still no model, use fitness default if business type is fitness_studio
-      if (!loaded && businessType === 'fitness_studio') {
-        console.log('[DataModelBuilder] No existing model found, using fitness studio default')
-        loaded = FITNESS_STUDIO_DEFAULT_MODEL
+      if (!loaded && businessType === "fitness_studio") {
+        console.log(
+          "[DataModelBuilder] No existing model found, using fitness studio default"
+        );
+        loaded = FITNESS_STUDIO_DEFAULT_MODEL;
       }
 
-      if (loaded) setModel(loaded)
-      refreshDatasets()
+      if (loaded) setModel(loaded);
+      refreshDatasets();
     }
-    loadModel()
-  }, [businessType])
+    loadModel();
+  }, [businessType]);
 
   // Listen for model updates
   useEffect(() => {
-    const onUpdated = () => refreshDatasets()
-    window.addEventListener('model:updated', onUpdated)
-    return () => window.removeEventListener('model:updated', onUpdated)
-  }, [])
+    const onUpdated = () => refreshDatasets();
+    window.addEventListener("model:updated", onUpdated);
+    return () => window.removeEventListener("model:updated", onUpdated);
+  }, []);
 
   // Convert proposal to graph
   useEffect(() => {
-    if (!model) return
-    const graph = proposalToGraph(model)
+    if (!model) return;
+    const graph = proposalToGraph(model);
     // Highlight linked nodes
     // const linkedBySheet = new Set(
     //   datasets
     //     .map((d) => d.source_meta?.sheetName?.toLowerCase())
     //     .filter(Boolean)
     // )
-    const linkedTableMeta = new Map<string, { datasetId?: string; datasetName?: string }>()
+    const linkedTableMeta = new Map<
+      string,
+      { datasetId?: string; datasetName?: string }
+    >();
     model.recommendedTables?.forEach((tbl) => {
-      const normalizedName = typeof tbl.name === 'string' ? tbl.name.toLowerCase() : ''
+      const normalizedName =
+        typeof tbl.name === "string" ? tbl.name.toLowerCase() : "";
       if ((tbl as any).isLinked && normalizedName) {
-        linkedTableMeta.set(normalizedName, { 
+        linkedTableMeta.set(normalizedName, {
           datasetId: (tbl as any).linkedDatasetId,
-          datasetName: (tbl as any).linkedMeta?.datasetName
-        })
+          datasetName: (tbl as any).linkedMeta?.datasetName,
+        });
       }
-    })
+    });
     // const datasetById = new Map(datasets.map((d) => [d.id, d]))
     // const recentLinked = (typeof window !== 'undefined' && (window as any).__recentLinkedTable) ? String((window as any).__recentLinkedTable) : ''
     const mappedNodes: Node[] = graph.nodes.map((n) => {
-      const normalizedLabel = n.label.toLowerCase()
+      const normalizedLabel = n.label.toLowerCase();
       // Find the corresponding table in the model
       const tbl = model.recommendedTables?.find(
-        (t) => typeof t.name === 'string' && t.name.toLowerCase() === normalizedLabel
-      ) as any
-      const metadata = tbl?.linkedMeta
+        (t) =>
+          typeof t.name === "string" && t.name.toLowerCase() === normalizedLabel
+      ) as any;
+      const metadata = tbl?.linkedMeta;
       // New logic: isLinked and tooltipText derive directly from model data
       const isLinked = !!tbl?.isLinked;
       const tooltipText = tbl?.linkedMeta?.datasetName || metadata?.datasetName;
-      const isSelected = selectedTable === n.table
+      const isSelected = selectedTable === n.table;
       return {
         id: n.id,
         data: {
@@ -365,7 +426,7 @@ export default function DataModelBuilder() {
               </span>
               {isLinked && (
                 <div className="absolute bottom-full left-0 mb-1 hidden group-hover:block bg-gray-800 text-white text-xs p-1 rounded shadow-md z-50">
-                  Linked: {tooltipText || 'Dataset'}
+                  Linked: {tooltipText || "Dataset"}
                 </div>
               )}
             </div>
@@ -373,154 +434,163 @@ export default function DataModelBuilder() {
         },
         position: n.position || { x: 0, y: 0 },
         style: {
-          background: isSelected ? '#dbeafe' : (isLinked ? '#e8ffe8' : '#fff'),
-          border: isLinked ? '2px solid #22c55e' : '1px solid #ccc',
+          background: isSelected ? "#dbeafe" : isLinked ? "#e8ffe8" : "#fff",
+          border: isLinked ? "2px solid #22c55e" : "1px solid #ccc",
           borderRadius: 6,
           padding: 4,
           fontSize: 12,
-          boxShadow: isLinked ? '0 0 12px rgba(34,197,94,0.5)' : 'none',
-          transition: 'all 0.4s ease-in-out',
+          boxShadow: isLinked ? "0 0 12px rgba(34,197,94,0.5)" : "none",
+          transition: "all 0.4s ease-in-out",
         },
-      }
-    })
+      };
+    });
     const mappedEdges: Edge[] = graph.edges.map((e) => ({
       id: e.id,
       source: e.source,
       target: e.target,
       animated: true,
-      style: { stroke: '#2563eb' },
-    }))
-    setNodes(mappedNodes)
-    setEdges(mappedEdges)
-  }, [model, selectedTable])
+      style: { stroke: "#2563eb" },
+    }));
+    setNodes(mappedNodes);
+    setEdges(mappedEdges);
+  }, [model, selectedTable]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      if (!model) return
-      const fromTable = nodes.find((n) => n.id === connection.source)?.data.label
-      const toTable = nodes.find((n) => n.id === connection.target)?.data.label
+      if (!model) return;
+      const fromTable = nodes.find((n) => n.id === connection.source)?.data
+        .label;
+      const toTable = nodes.find((n) => n.id === connection.target)?.data.label;
       if (fromTable && toTable) {
         const updated = addRelationship(model, {
           from: `${fromTable}.id`,
           to: `${toTable}.id`,
-          type: 'one-to-many',
-        })
-        setModel(updated)
+          type: "one-to-many",
+        });
+        setModel(updated);
       }
     },
     [model, nodes]
-  )
+  );
 
   const onNodesChange = useCallback((changes: any) => {
-    setNodes((nds) => applyNodeChanges(changes, nds))
-  }, [])
+    setNodes((nds) => applyNodeChanges(changes, nds));
+  }, []);
 
   const onEdgesChange = useCallback((changes: any) => {
-    setEdges((eds) => applyEdgeChanges(changes, eds))
-  }, [])
+    setEdges((eds) => applyEdgeChanges(changes, eds));
+  }, []);
 
   const handleSave = async () => {
-    if (!model) return
-    setSaving(true)
+    if (!model) return;
+    setSaving(true);
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (user) {
         const { error } = await supabase
-          .from('business_models')
+          .from("business_models")
           .update({ model_json: model })
-          .eq('user_id', user.id)
+          .eq("user_id", user.id);
         if (error) {
-          console.error('Failed to save model to Supabase:', error)
+          console.error("Failed to save model to Supabase:", error);
         }
       }
-      localStorage.setItem('milton-model', JSON.stringify(model))
-      window.dispatchEvent(new Event('model:updated'))
+      localStorage.setItem("milton-model", JSON.stringify(model));
+      window.dispatchEvent(new Event("model:updated"));
       toast({
-        title: 'Model saved',
-        description: 'Your data model was saved successfully.',
-      })
+        title: "Model saved",
+        description: "Your data model was saved successfully.",
+      });
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   // Apply a ModelProposal to the builder state
   const applyModelProposal = (proposal: ModelProposal) => {
-    console.log('[DataModelBuilder] Applying AI-generated model proposal')
-    
+    console.log("[DataModelBuilder] Applying AI-generated model proposal");
+
     // Update the model state
-    setModel(proposal)
-    
+    setModel(proposal);
+
     // Convert the proposal to ReactFlow nodes/edges
-    const graph = proposalToGraph(proposal)
-    setNodes(graph.nodes.map((n) => ({
-      id: n.id,
-      type: 'default',
-      position: n.position,
-      data: { label: n.label },
-    })))
-    setEdges(graph.edges.map((e) => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      type: 'smoothstep',
-    })))
-    
+    const graph = proposalToGraph(proposal);
+    setNodes(
+      graph.nodes.map((n) => ({
+        id: n.id,
+        type: "default",
+        position: n.position,
+        data: { label: n.label },
+      }))
+    );
+    setEdges(
+      graph.edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        type: "smoothstep",
+      }))
+    );
+
     // Trigger auto-save
-    window.dispatchEvent(new Event('model:updated'))
-    
+    window.dispatchEvent(new Event("model:updated"));
+
     toast({
-      title: 'Model updated',
-      description: 'Milton generated a new data model based on your files.',
-    })
-  }
+      title: "Model updated",
+      description: "Milton generated a new data model based on your files.",
+    });
+  };
 
   // Ask Milton to propose a data model
   const handleAskMiltonProposeModel = async () => {
     if (!businessType) {
       toast({
-        title: 'Business type required',
-        description: 'Please select a business type first.',
-        variant: 'destructive',
-      })
-      return
+        title: "Business type required",
+        description: "Please select a business type first.",
+        variant: "destructive",
+      });
+      return;
     }
 
     try {
-      setIsAiProposing(true)
+      setIsAiProposing(true);
 
       // 1. Fetch custom datasets (for sample rows)
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) {
         toast({
-          title: 'Authentication required',
-          description: 'Please log in to use this feature.',
-          variant: 'destructive',
-        })
-        return
+          title: "Authentication required",
+          description: "Please log in to use this feature.",
+          variant: "destructive",
+        });
+        return;
       }
 
-      const datasetRows = await listCustomDatasets(user.id)
+      const datasetRows = await listCustomDatasets(user.id);
 
       // Adapt to analyzer input format
       const analyzerDatasets = (datasetRows ?? [])
         .filter((ds) => Array.isArray(ds.rows_json) && ds.rows_json.length > 0)
         .map((ds) => ({
-          sourceName: ds.dataset_name ?? 'Dataset',
+          sourceName: ds.dataset_name ?? "Dataset",
           tableHint: (ds.source_meta as any)?.sheetName ?? null,
           sampleRows: ds.rows_json as Record<string, unknown>[],
-        }))
+        }));
 
       // Show confirmation if no datasets found
       if (analyzerDatasets.length === 0) {
         const proceed = window.confirm?.(
-          'No uploaded datasets with samples found. Milton will propose a generic model for your business type. Continue?'
-        )
+          "No uploaded datasets with samples found. Milton will propose a generic model for your business type. Continue?"
+        );
         if (!proceed) {
-          setIsAiProposing(false)
-          return
+          setIsAiProposing(false);
+          return;
         }
       }
 
@@ -529,92 +599,107 @@ export default function DataModelBuilder() {
         businessType,
         datasets: analyzerDatasets,
         currentModel: model, // Pass current model for refinement
-      }
+      };
 
-      console.log('[DataModelBuilder] Calling AI Business Model Analyzer with', {
-        businessType,
-        datasetsCount: analyzerDatasets.length,
-        hasCurrentModel: !!model,
-      })
+      console.log(
+        "[DataModelBuilder] Calling AI Business Model Analyzer with",
+        {
+          businessType,
+          datasetsCount: analyzerDatasets.length,
+          hasCurrentModel: !!model,
+        }
+      );
 
       // 3. Call the AI analyzer
-      const proposal = await callBusinessModelAnalyzer(input)
+      const proposal = await callBusinessModelAnalyzer(input);
 
       if (!proposal) {
         toast({
-          title: 'AI generation failed',
-          description: 'Milton could not generate a model. Please try again.',
-          variant: 'destructive',
-        })
-        return
+          title: "AI generation failed",
+          description: "Milton could not generate a model. Please try again.",
+          variant: "destructive",
+        });
+        return;
       }
 
       // 4. Ask user to confirm replacement
       const shouldApply =
         window.confirm?.(
-          'Milton has generated a proposed data model based on your files. Replace your current model with this proposal?'
-        ) ?? true
+          "Milton has generated a proposed data model based on your files. Replace your current model with this proposal?"
+        ) ?? true;
 
       if (!shouldApply) {
         toast({
-          title: 'Cancelled',
-          description: 'Model proposal was not applied.',
-        })
-        return
+          title: "Cancelled",
+          description: "Model proposal was not applied.",
+        });
+        return;
       }
 
       // 5. Apply the proposal
-      applyModelProposal(proposal)
+      applyModelProposal(proposal);
 
       // Publish event for Milton chat
-      miltonEventsAPI.publish('chat', {
-        role: 'milton',
-        content: `✅ I've generated a ${businessType.replace('_', ' ')} data model with ${proposal.recommendedTables?.length ?? 0} tables. You can now upload your data files or adjust the schema.`,
-      })
+      miltonEventsAPI.publish("chat", {
+        role: "milton",
+        content: `✅ I've generated a ${businessType.replace("_", " ")} data model with ${proposal.recommendedTables?.length ?? 0} tables. You can now upload your data files or adjust the schema.`,
+      });
     } catch (err) {
-      console.error('[DataModelBuilder] Error calling business-model-analyzer', err)
+      console.error(
+        "[DataModelBuilder] Error calling business-model-analyzer",
+        err
+      );
       toast({
-        title: 'Error',
-        description: (err as Error)?.message || 'Failed to generate model proposal.',
-        variant: 'destructive',
-      })
+        title: "Error",
+        description:
+          (err as Error)?.message || "Failed to generate model proposal.",
+        variant: "destructive",
+      });
     } finally {
-      setIsAiProposing(false)
+      setIsAiProposing(false);
     }
-  }
+  };
 
   // Auto-save on model changes (debounced)
   useEffect(() => {
-    if (!model) return
+    if (!model) return;
     const timer = setTimeout(async () => {
       try {
-        const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         if (user) {
           const { error } = await supabase
-            .from('business_models')
+            .from("business_models")
             .update({ model_json: model })
-            .eq('user_id', user.id)
+            .eq("user_id", user.id);
           if (error) {
-            console.error('Auto-save failed:', error)
+            console.error("Auto-save failed:", error);
           }
         }
-        localStorage.setItem('milton-model', JSON.stringify(model))
+        localStorage.setItem("milton-model", JSON.stringify(model));
         // Silent auto-save: no toasts or banners
       } catch (e) {
-        console.error('Auto-save failed', e)
+        console.error("Auto-save failed", e);
       }
-    }, 1500) // 1.5s debounce
-    return () => clearTimeout(timer)
-  }, [model])
+    }, 1500); // 1.5s debounce
+    return () => clearTimeout(timer);
+  }, [model]);
 
-  if (!model || !model.recommendedTables || model.recommendedTables.length === 0) {
+  if (
+    !model ||
+    !model.recommendedTables ||
+    model.recommendedTables.length === 0
+  ) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-gray-500 text-sm">
         <p>No tables detected yet.</p>
-        <p className="mt-2">Upload your data files to start building your dashboards.</p>
+        <p className="mt-2">
+          Upload your data files to start building your dashboards.
+        </p>
       </div>
-    )
+    );
   }
 
   if (!ReactFlow) {
@@ -622,12 +707,16 @@ export default function DataModelBuilder() {
       <div className="flex items-center justify-center h-full text-gray-500 text-sm">
         <div className="text-center">
           <p className="mb-2">ReactFlow is not installed.</p>
-          <p className="text-xs">Run: <code className="bg-gray-100 px-2 py-1 rounded">npm install reactflow</code></p>
+          <p className="text-xs">
+            Run:{" "}
+            <code className="bg-gray-100 px-2 py-1 rounded">
+              npm install reactflow
+            </code>
+          </p>
         </div>
       </div>
-    )
+    );
   }
-
 
   return (
     <div className="relative h-[85vh] w-full flex flex-col bg-white rounded-md shadow-sm">
@@ -659,12 +748,18 @@ export default function DataModelBuilder() {
             disabled={!businessType || isAiProposing}
             className={`px-3 py-1 text-white rounded text-sm ${
               !businessType || isAiProposing
-                ? 'bg-indigo-300 cursor-not-allowed'
-                : 'bg-indigo-600 hover:bg-indigo-700'
+                ? "bg-indigo-300 cursor-not-allowed"
+                : "bg-indigo-600 hover:bg-indigo-700"
             }`}
-            title={!businessType ? 'Select a business type first' : 'Ask Milton to generate a data model'}
+            title={
+              !businessType
+                ? "Select a business type first"
+                : "Ask Milton to generate a data model"
+            }
           >
-            {isAiProposing ? '🤖 Milton is thinking…' : '🤖 Ask Milton to propose model'}
+            {isAiProposing
+              ? "🤖 Milton is thinking…"
+              : "🤖 Ask Milton to propose model"}
           </button>
           <button
             onClick={handleUploadData}
@@ -674,7 +769,9 @@ export default function DataModelBuilder() {
           </button>
           <button
             onClick={() =>
-              miltonEventsAPI.publish('dashboard.generate', { businessModel: selectedModel })
+              miltonEventsAPI.publish("dashboard.generate", {
+                businessModel: selectedModel,
+              })
             }
             className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
           >
@@ -684,10 +781,10 @@ export default function DataModelBuilder() {
             onClick={handleSave}
             disabled={saving}
             className={`px-3 py-1 text-white rounded ${
-              saving ? 'bg-blue-300' : 'bg-blue-600 hover:bg-blue-700'
+              saving ? "bg-blue-300" : "bg-blue-600 hover:bg-blue-700"
             }`}
           >
-            {saving ? 'Saving…' : 'Save Model'}
+            {saving ? "Saving…" : "Save Model"}
           </button>
         </div>
       </div>
@@ -717,18 +814,18 @@ export default function DataModelBuilder() {
           onReplace={handleReplaceDataset}
           onDelete={async (ds) => {
             try {
-              await deleteCustomDataset(ds.id)
+              await deleteCustomDataset(ds.id);
               toast({
-                title: 'Dataset deleted',
-                description: `${ds.dataset_name} was removed.`
-              })
-              await refreshDatasets()
+                title: "Dataset deleted",
+                description: `${ds.dataset_name} was removed.`,
+              });
+              await refreshDatasets();
             } catch (err) {
               toast({
-                title: 'Error deleting dataset',
-                description: 'Failed to remove dataset. Please try again.',
-                variant: 'destructive',
-              })
+                title: "Error deleting dataset",
+                description: "Failed to remove dataset. Please try again.",
+                variant: "destructive",
+              });
             }
           }}
         />
@@ -737,7 +834,9 @@ export default function DataModelBuilder() {
       {selectedTable && (
         <div className="absolute right-0 top-0 h-full w-80 bg-white border-l border-gray-200 shadow-lg p-4 overflow-y-auto">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="font-semibold text-gray-700 text-sm">{selectedTable} Fields</h3>
+            <h3 className="font-semibold text-gray-700 text-sm">
+              {selectedTable} Fields
+            </h3>
             <button
               className="text-xs text-gray-500 hover:text-gray-800"
               onClick={() => setSelectedTable(null)}
@@ -746,36 +845,47 @@ export default function DataModelBuilder() {
             </button>
           </div>
           {(() => {
-            const table = model?.recommendedTables.find((t) => t.name === selectedTable)
-            if (!table) return <p className="text-xs text-gray-400">No table found.</p>
+            const table = model?.recommendedTables.find(
+              (t) => t.name === selectedTable
+            );
+            if (!table)
+              return <p className="text-xs text-gray-400">No table found.</p>;
             const handleRename = (index: number, newName: string) => {
-              const oldName = table!.fields[index].name
-              setModel(renameField(model!, selectedTable!, oldName, newName))
-            }
+              const oldName = table!.fields[index].name;
+              setModel(renameField(model!, selectedTable!, oldName, newName));
+            };
             const handleTypeChange = (index: number, newType: string) => {
-              const t = { ...model! }
-              const tblIndex = t.recommendedTables.findIndex((tt) => tt.name === selectedTable)
-              if (tblIndex === -1) return
-              const tbl = { ...t.recommendedTables[tblIndex] }
-              const fields = [...tbl.fields]
-              fields[index] = { ...fields[index], type: newType }
-              tbl.fields = fields
-              const recommendedTables = [...t.recommendedTables]
-              recommendedTables[tblIndex] = tbl
-              setModel({ ...t, recommendedTables })
-            }
+              const t = { ...model! };
+              const tblIndex = t.recommendedTables.findIndex(
+                (tt) => tt.name === selectedTable
+              );
+              if (tblIndex === -1) return;
+              const tbl = { ...t.recommendedTables[tblIndex] };
+              const fields = [...tbl.fields];
+              fields[index] = { ...fields[index], type: newType };
+              tbl.fields = fields;
+              const recommendedTables = [...t.recommendedTables];
+              recommendedTables[tblIndex] = tbl;
+              setModel({ ...t, recommendedTables });
+            };
             const handleDelete = (index: number) => {
-              const fieldName = table!.fields[index].name
-              setModel(removeField(model!, selectedTable!, fieldName))
-            }
+              const fieldName = table!.fields[index].name;
+              setModel(removeField(model!, selectedTable!, fieldName));
+            };
             const handleAddField = () => {
-              const newField = { name: `new_field_${table!.fields.length + 1}`, type: 'string' }
-              setModel(addField(model!, selectedTable!, newField))
-            }
+              const newField = {
+                name: `new_field_${table!.fields.length + 1}`,
+                type: "string",
+              };
+              setModel(addField(model!, selectedTable!, newField));
+            };
             return (
               <div>
                 <ColumnEditor
-                  columns={table!.fields.map((f) => ({ name: f.name, type: f.type || 'string' }))}
+                  columns={table!.fields.map((f) => ({
+                    name: f.name,
+                    type: f.type || "string",
+                  }))}
                   onRename={handleRename}
                   onTypeChange={handleTypeChange}
                   onDelete={handleDelete}
@@ -787,10 +897,10 @@ export default function DataModelBuilder() {
                   + Add Field
                 </button>
               </div>
-            )
+            );
           })()}
         </div>
       )}
     </div>
-  )
+  );
 }

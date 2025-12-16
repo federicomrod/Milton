@@ -1,5 +1,5 @@
-'use client'
-import React from 'react'
+"use client";
+import React from "react";
 
 export default function OverviewTab({ kpis }: { kpis?: any[] }) {
   if (!kpis || kpis.length === 0) {
@@ -10,13 +10,9 @@ export default function OverviewTab({ kpis }: { kpis?: any[] }) {
           Upload your bank transactions and budget files to generate insights.
         </p>
       </div>
-    )
+    );
   }
 
   // Existing overview chart rendering logic remains untouched here
-  return (
-    <div>
-      {/* Existing visuals for KPIs */}
-    </div>
-  )
+  return <div>{/* Existing visuals for KPIs */}</div>;
 }

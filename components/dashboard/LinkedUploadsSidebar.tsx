@@ -1,21 +1,21 @@
-'use client'
-import React from 'react'
-import { miltonEventsAPI } from '@/lib/milton-events'
+"use client";
+import React from "react";
+import { miltonEventsAPI } from "@/lib/milton-events";
 
 type Dataset = {
-  id: string
-  dataset_type?: 'transactions' | 'crm_deals' | 'budgets' | string
-  source_meta?: { linkedTable?: string; [k: string]: any }
-  [k: string]: any
-}
+  id: string;
+  dataset_type?: "transactions" | "crm_deals" | "budgets" | string;
+  source_meta?: { linkedTable?: string; [k: string]: any };
+  [k: string]: any;
+};
 
 type Props = {
-  datasets: Dataset[]
-  onPreview: (dataset: Dataset) => void
-  onReplace: (dataset: Dataset) => void
-  onDelete: (dataset: Dataset) => void
-  onClear?: () => void
-}
+  datasets: Dataset[];
+  onPreview: (dataset: Dataset) => void;
+  onReplace: (dataset: Dataset) => void;
+  onDelete: (dataset: Dataset) => void;
+  onClear?: () => void;
+};
 
 export default function LinkedUploadsSidebar({
   datasets,
@@ -24,38 +24,41 @@ export default function LinkedUploadsSidebar({
   onDelete,
   onClear,
 }: Props) {
-  const [collapsed, setCollapsed] = React.useState(false)
+  const [collapsed, setCollapsed] = React.useState(false);
 
   // Guard to prevent duplicate emits per session
-  const hasEmittedRef = React.useRef(false)
+  const hasEmittedRef = React.useRef(false);
 
   React.useEffect(() => {
-    const required = ['transactions', 'crm_deals', 'budgets']
-    const byType: Record<string, Dataset | undefined> = {}
+    const required = ["transactions", "crm_deals", "budgets"];
+    const byType: Record<string, Dataset | undefined> = {};
 
     for (const ds of datasets) {
       if (ds.dataset_type && required.includes(ds.dataset_type)) {
-        byType[ds.dataset_type] = ds
+        byType[ds.dataset_type] = ds;
       }
     }
 
     const allLinked = required.every(
       (type) => byType[type] && byType[type]?.source_meta?.linkedTable
-    )
+    );
 
     if (allLinked && !hasEmittedRef.current) {
-      hasEmittedRef.current = true
-      const payload = { datasets, timestamp: Date.now() }
-      console.log('[LinkedUploadsSidebar] Emitting datasets.linked once', payload)
-      miltonEventsAPI.publish('datasets.linked', payload)
+      hasEmittedRef.current = true;
+      const payload = { datasets, timestamp: Date.now() };
+      console.log(
+        "[LinkedUploadsSidebar] Emitting datasets.linked once",
+        payload
+      );
+      miltonEventsAPI.publish("datasets.linked", payload);
     }
-  }, [datasets])
+  }, [datasets]);
 
   return (
     <>
       <div
         className={`transition-transform duration-300 fixed right-0 top-16 h-[calc(100vh-4rem)] w-80 bg-white border-l border-gray-200 shadow-lg overflow-y-auto transform ${
-          collapsed ? 'translate-x-full' : 'translate-x-0'
+          collapsed ? "translate-x-full" : "translate-x-0"
         }`}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b">
@@ -79,15 +82,15 @@ export default function LinkedUploadsSidebar({
                 className="border border-gray-200 rounded-md p-2 shadow-sm hover:shadow-md transition"
               >
                 <p className="text-sm font-medium text-gray-800 truncate">
-                  {ds.dataset_name || 'Unknown File'}
+                  {ds.dataset_name || "Unknown File"}
                 </p>
                 <p className="text-xs text-gray-500">
-                  Linked to:{' '}
+                  Linked to:{" "}
                   {ds.source_meta?.linkedTable
                     ? ds.source_meta.linkedTable
                     : ds.source_meta?.sheetName
-                    ? ds.source_meta.sheetName
-                    : ds.dataset_type || 'Unlinked'}
+                      ? ds.source_meta.sheetName
+                      : ds.dataset_type || "Unlinked"}
                 </p>
                 <p className="text-xs text-gray-400 mb-1">
                   {new Date(ds.created_at).toLocaleDateString()}
@@ -132,5 +135,5 @@ export default function LinkedUploadsSidebar({
         </button>
       )}
     </>
-  )
+  );
 }

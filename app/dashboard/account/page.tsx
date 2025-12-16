@@ -1,14 +1,65 @@
-'use client'
+"use client";
 
-import Link from 'next/link'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { useUserProfile } from '@/lib/hooks/useUserProfile'
-import { Building2, MapPin, Globe, CreditCard, Mail, Calendar, Edit, DollarSign, Hash, Palette } from 'lucide-react'
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { useUserProfile } from "@/lib/hooks/useUserProfile";
+import { getUserCompany } from "@/lib/profile-service";
+import { createClient } from "@/lib/supabase/client";
+import {
+  Building2,
+  MapPin,
+  Globe,
+  CreditCard,
+  Mail,
+  Calendar,
+  Edit,
+  DollarSign,
+  Hash,
+  Palette,
+} from "lucide-react";
+import { Company } from "@/lib/profile-service";
 
 export default function AccountPage() {
-  const { profile, loading, error } = useUserProfile()
+  const { profile, loading, error } = useUserProfile();
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [company, setCompany] = useState<Company | null>(null);
+  const [companyLoading, setCompanyLoading] = useState(true);
+
+  // Get email from auth.users (not from profiles)
+  useEffect(() => {
+    const fetchEmail = async () => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setUserEmail(user?.email || null);
+    };
+    fetchEmail();
+  }, []);
+
+  // Get company data from companies table (not from profiles)
+  useEffect(() => {
+    const fetchCompany = async () => {
+      try {
+        const companyData = await getUserCompany();
+        setCompany(companyData);
+      } catch (err) {
+        console.error("Failed to load company:", err);
+      } finally {
+        setCompanyLoading(false);
+      }
+    };
+    fetchCompany();
+  }, []);
 
   if (loading) {
     return (
@@ -17,7 +68,7 @@ export default function AccountPage() {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
         </div>
       </div>
-    )
+    );
   }
 
   if (error) {
@@ -29,12 +80,13 @@ export default function AccountPage() {
           </CardHeader>
           <CardContent>
             <div className="p-3 rounded bg-red-50 text-red-800">
-              Failed to load your account information. Please try refreshing the page.
+              Failed to load your account information. Please try refreshing the
+              page.
             </div>
           </CardContent>
         </Card>
       </div>
-    )
+    );
   }
 
   return (
@@ -44,7 +96,9 @@ export default function AccountPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Account</h1>
-            <p className="text-gray-600 mt-1">Manage your company profile and account settings</p>
+            <p className="text-gray-600 mt-1">
+              Manage your company profile and account settings
+            </p>
           </div>
           <Link href="/dashboard/settings">
             <Button className="gap-2">
@@ -67,9 +121,11 @@ export default function AccountPage() {
             <div className="flex items-start gap-3">
               <Building2 className="h-5 w-5 text-gray-400 mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-gray-500">Company Name</p>
+                <p className="text-sm font-medium text-gray-500">
+                  Company Name
+                </p>
                 <p className="text-base text-gray-900">
-                  {profile?.company_name || 'Not set'}
+                  {companyLoading ? "Loading..." : company?.name || "Not set"}
                 </p>
               </div>
             </div>
@@ -79,7 +135,9 @@ export default function AccountPage() {
               <div>
                 <p className="text-sm font-medium text-gray-500">Industry</p>
                 <p className="text-base text-gray-900">
-                  {profile?.industry || 'Not set'}
+                  {companyLoading
+                    ? "Loading..."
+                    : company?.industry || "Not set"}
                 </p>
               </div>
             </div>
@@ -89,7 +147,7 @@ export default function AccountPage() {
               <div>
                 <p className="text-sm font-medium text-gray-500">Timezone</p>
                 <p className="text-base text-gray-900">
-                  {profile?.timezone || 'Not set'}
+                  {profile?.timezone || "Not set"}
                 </p>
               </div>
             </div>
@@ -100,7 +158,9 @@ export default function AccountPage() {
         <Card>
           <CardHeader>
             <CardTitle>Account Status</CardTitle>
-            <CardDescription>Your subscription and billing information</CardDescription>
+            <CardDescription>
+              Your subscription and billing information
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-start gap-3">
@@ -109,7 +169,7 @@ export default function AccountPage() {
                 <p className="text-sm font-medium text-gray-500">Plan</p>
                 <div className="flex items-center gap-2 mt-1">
                   <Badge variant="default">
-                    {profile?.billing_status || 'Free Trial'}
+                    {profile?.billing_status || "Free Trial"}
                   </Badge>
                 </div>
               </div>
@@ -120,7 +180,7 @@ export default function AccountPage() {
               <div>
                 <p className="text-sm font-medium text-gray-500">Email</p>
                 <p className="text-base text-gray-900">
-                  {profile?.email || 'Not available'}
+                  {userEmail || "Not available"}
                 </p>
               </div>
             </div>
@@ -128,15 +188,17 @@ export default function AccountPage() {
             <div className="flex items-start gap-3">
               <Calendar className="h-5 w-5 text-gray-400 mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-gray-500">Member Since</p>
+                <p className="text-sm font-medium text-gray-500">
+                  Member Since
+                </p>
                 <p className="text-base text-gray-900">
-                  {profile?.created_at 
-                    ? new Date(profile.created_at).toLocaleDateString('en-US', { 
-                        year: 'numeric', 
-                        month: 'long', 
-                        day: 'numeric' 
+                  {profile?.created_at
+                    ? new Date(profile.created_at).toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
                       })
-                    : 'N/A'}
+                    : "N/A"}
                 </p>
               </div>
             </div>
@@ -155,7 +217,7 @@ export default function AccountPage() {
               <div>
                 <p className="text-sm font-medium text-gray-500">Currency</p>
                 <p className="text-base text-gray-900">
-                  {profile?.currency || 'EUR'}
+                  {profile?.currency || "EUR"}
                 </p>
               </div>
             </div>
@@ -165,7 +227,7 @@ export default function AccountPage() {
               <div>
                 <p className="text-sm font-medium text-gray-500">Date Format</p>
                 <p className="text-base text-gray-900">
-                  {profile?.date_format || 'DD/MM/YYYY'}
+                  {profile?.date_format || "DD/MM/YYYY"}
                 </p>
               </div>
             </div>
@@ -173,9 +235,11 @@ export default function AccountPage() {
             <div className="flex items-start gap-3">
               <Hash className="h-5 w-5 text-gray-400 mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-gray-500">Number Format</p>
+                <p className="text-sm font-medium text-gray-500">
+                  Number Format
+                </p>
                 <p className="text-base text-gray-900">
-                  {profile?.number_format || '1,000.00'}
+                  {profile?.number_format || "1,000.00"}
                 </p>
               </div>
             </div>
@@ -185,7 +249,7 @@ export default function AccountPage() {
               <div>
                 <p className="text-sm font-medium text-gray-500">Theme</p>
                 <p className="text-base text-gray-900 capitalize">
-                  {profile?.theme || 'Light'}
+                  {profile?.theme || "Light"}
                 </p>
               </div>
             </div>
@@ -217,6 +281,5 @@ export default function AccountPage() {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }
-

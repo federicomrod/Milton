@@ -1,9 +1,13 @@
 // app/data-model/layout.tsx
-'use client'
-import React from 'react'
-import MiltonChat from '@/components/dashboard/miltonchat'
+"use client";
+import React from "react";
+import MiltonChat from "@/components/dashboard/miltonchat";
 
-export default function DataModelLayout({ children }: { children: React.ReactNode }) {
+export default function DataModelLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex h-screen w-full overflow-hidden">
       {/* Main data-model workspace */}
@@ -19,5 +23,5 @@ export default function DataModelLayout({ children }: { children: React.ReactNod
         <MiltonChat />
       </aside>
     </div>
-  )
+  );
 }

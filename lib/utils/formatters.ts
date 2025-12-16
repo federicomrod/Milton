@@ -15,11 +15,11 @@ export function formatCurrency(
   locale?: string
 ): string {
   if (value === null || value === undefined || isNaN(value)) {
-    return `${getCurrencySymbol(currency)} 0`
+    return `${getCurrencySymbol(currency)} 0`;
   }
 
   // Auto-detect locale from currency if not provided
-  const detectedLocale = locale || getLocaleFromCurrency(currency)
+  const detectedLocale = locale || getLocaleFromCurrency(currency);
 
   try {
     return new Intl.NumberFormat(detectedLocale, {
@@ -27,10 +27,10 @@ export function formatCurrency(
       currency,
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
-    }).format(value)
+    }).format(value);
   } catch (error) {
-    console.warn("Currency formatting failed:", error)
-    return `${getCurrencySymbol(currency)} ${value.toFixed(2)}`
+    console.warn("Currency formatting failed:", error);
+    return `${getCurrencySymbol(currency)} ${value.toFixed(2)}`;
   }
 }
 
@@ -44,20 +44,20 @@ export function formatNumber(
   numberFormat: string = "1,000.00"
 ): string {
   if (value === null || value === undefined || isNaN(value)) {
-    return "0"
+    return "0";
   }
 
   // Determine locale from number format preference
-  const locale = numberFormat === "1.000,00" ? "de-DE" : "en-US"
+  const locale = numberFormat === "1.000,00" ? "de-DE" : "en-US";
 
   try {
     return new Intl.NumberFormat(locale, {
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
-    }).format(value)
+    }).format(value);
   } catch (error) {
-    console.warn("Number formatting failed:", error)
-    return value.toString()
+    console.warn("Number formatting failed:", error);
+    return value.toString();
   }
 }
 
@@ -72,14 +72,14 @@ export function formatDate(
   timezone: string = "UTC",
   dateFormat: string = "DD/MM/YYYY"
 ): string {
-  if (!dateString) return "-"
+  if (!dateString) return "-";
 
   try {
-    const date = new Date(dateString)
-    if (isNaN(date.getTime())) return dateString.toString()
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString.toString();
 
     // Get locale from date format
-    const locale = dateFormat === "MM/DD/YYYY" ? "en-US" : "en-GB"
+    const locale = dateFormat === "MM/DD/YYYY" ? "en-US" : "en-GB";
 
     // Format based on preference
     switch (dateFormat) {
@@ -89,25 +89,34 @@ export function formatDate(
           day: "2-digit",
           month: "2-digit",
           year: "numeric",
-        })
+        });
       case "MM/DD/YYYY":
         return date.toLocaleDateString("en-US", {
           timeZone: timezone,
           month: "2-digit",
           day: "2-digit",
           year: "numeric",
-        })
+        });
       case "YYYY-MM-DD":
-        const year = date.toLocaleDateString("en-CA", { timeZone: timezone, year: "numeric" })
-        const month = date.toLocaleDateString("en-CA", { timeZone: timezone, month: "2-digit" })
-        const day = date.toLocaleDateString("en-CA", { timeZone: timezone, day: "2-digit" })
-        return `${year}-${month}-${day}`
+        const year = date.toLocaleDateString("en-CA", {
+          timeZone: timezone,
+          year: "numeric",
+        });
+        const month = date.toLocaleDateString("en-CA", {
+          timeZone: timezone,
+          month: "2-digit",
+        });
+        const day = date.toLocaleDateString("en-CA", {
+          timeZone: timezone,
+          day: "2-digit",
+        });
+        return `${year}-${month}-${day}`;
       default:
-        return date.toLocaleDateString(locale, { timeZone: timezone })
+        return date.toLocaleDateString(locale, { timeZone: timezone });
     }
   } catch (error) {
-    console.warn("Date formatting failed:", error)
-    return dateString.toString()
+    console.warn("Date formatting failed:", error);
+    return dateString.toString();
   }
 }
 
@@ -120,11 +129,11 @@ export function formatDateTime(
   dateString: string | Date | null | undefined,
   timezone: string = "UTC"
 ): string {
-  if (!dateString) return "-"
+  if (!dateString) return "-";
 
   try {
-    const date = new Date(dateString)
-    if (isNaN(date.getTime())) return dateString.toString()
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString.toString();
 
     return date.toLocaleString("en-GB", {
       timeZone: timezone,
@@ -133,10 +142,10 @@ export function formatDateTime(
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
-    })
+    });
   } catch (error) {
-    console.warn("DateTime formatting failed:", error)
-    return dateString.toString()
+    console.warn("DateTime formatting failed:", error);
+    return dateString.toString();
   }
 }
 
@@ -149,8 +158,8 @@ function getCurrencySymbol(currency: string): string {
     USD: "$",
     GBP: "£",
     CHF: "CHF",
-  }
-  return symbols[currency] || currency
+  };
+  return symbols[currency] || currency;
 }
 
 /**
@@ -162,8 +171,8 @@ function getLocaleFromCurrency(currency: string): string {
     USD: "en-US",
     GBP: "en-GB",
     CHF: "de-CH",
-  }
-  return locales[currency] || "en-US"
+  };
+  return locales[currency] || "en-US";
 }
 
 /**
@@ -176,9 +185,8 @@ export function formatPercentage(
   decimals: number = 1
 ): string {
   if (value === null || value === undefined || isNaN(value)) {
-    return "0%"
+    return "0%";
   }
 
-  return `${(value * 100).toFixed(decimals)}%`
+  return `${(value * 100).toFixed(decimals)}%`;
 }
-

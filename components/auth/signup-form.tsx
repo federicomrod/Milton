@@ -1,86 +1,89 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import Link from 'next/link'
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import Link from "next/link";
 
 export function SignupForm() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [companyName, setCompanyName] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const router = useRouter()
-  const supabase = createClient()
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+  const supabase = createClient();
 
   const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
 
     try {
       // Step 1: Sign up the user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
-      })
+      });
 
       if (authError) {
-        throw authError
+        throw authError;
       }
 
       if (!authData.user) {
-        throw new Error('No user data returned')
+        throw new Error("No user data returned");
       }
 
-      // Step 2: Create profile record
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert({
-          id: authData.user.id,
-          company_name: companyName,
-        })
+      // Step 2: Create profile and company via API endpoint
+      // This uses admin client to bypass RLS
+      const response = await fetch("/api/auth/signup-complete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: authData.user.id,
+          companyName: companyName,
+        }),
+      });
 
-      if (profileError) {
-        console.error('Profile error:', profileError)
-        // Don't throw here, continue to create company
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.error ||
+            "Failed to create company profile. Please try again."
+        );
       }
 
-      // Step 3: Create company record
-      const { error: companyError } = await supabase
-        .from('companies')
-        .insert({
-          name: companyName,
-          created_by: authData.user.id,
-        })
-
-      if (companyError) {
-        console.error('Company error:', companyError)
-        throw new Error('Failed to create company profile. Please try again.')
-      }
-
-      // Success! Redirect to dashboard
-      router.push('/dashboard')
-      router.refresh()
-
+      // Success! Redirect to onboarding (new users need to onboard)
+      router.push("/onboarding");
+      router.refresh();
     } catch (err: any) {
-      console.error('Signup error:', err)
-      setError(err.message || 'An error occurred during signup')
-      setLoading(false)
+      console.error("Signup error:", err);
+      setError(err.message || "An error occurred during signup");
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
         <CardTitle>Create an account</CardTitle>
-        <CardDescription>Start your financial analytics journey</CardDescription>
+        <CardDescription>
+          Start your financial analytics journey
+        </CardDescription>
       </CardHeader>
       <form onSubmit={handleSignup}>
         <CardContent className="space-y-4">
@@ -128,10 +131,10 @@ export function SignupForm() {
         </CardContent>
         <CardFooter className="flex flex-col space-y-4">
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Creating account...' : 'Create account'}
+            {loading ? "Creating account..." : "Create account"}
           </Button>
           <p className="text-sm text-center text-muted-foreground">
-            Already have an account?{' '}
+            Already have an account?{" "}
             <Link href="/auth/login" className="text-primary hover:underline">
               Log in
             </Link>
@@ -139,5 +142,5 @@ export function SignupForm() {
         </CardFooter>
       </form>
     </Card>
-  )
+  );
 }

@@ -32,8 +32,23 @@ export function LoginForm() {
       setError(error.message)
       setLoading(false)
     } else {
-      router.push('/dashboard')
-      router.refresh()
+      // Check if onboarding is complete, redirect accordingly
+      try {
+        const { isOnboardingComplete } = await import('@/lib/onboarding-status')
+        const complete = await isOnboardingComplete()
+        
+        if (complete) {
+          router.push('/dashboard')
+        } else {
+          router.push('/onboarding')
+        }
+        router.refresh()
+      } catch (err) {
+        console.error('Error checking onboarding status:', err)
+        // Fallback to dashboard on error
+        router.push('/dashboard')
+        router.refresh()
+      }
     }
   }
 

@@ -38,9 +38,18 @@ OPENAI_API_KEY=your-api-key-here
 
 Configure Supabase credentials if using database features:
 ```
-SUPABASE_URL=your-supabase-url
-SUPABASE_KEY=your-supabase-key
+NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
+
+**Where to find these keys:**
+- Go to your Supabase Dashboard → Settings → API
+- `NEXT_PUBLIC_SUPABASE_URL`: Found at the top of the API settings page
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Found under "Project API keys" (anon/public key)
+- `SUPABASE_SERVICE_ROLE_KEY`: Found under "Service Role" section (⚠️ Keep this secret - server-side only!)
+
+**Important:** The service role key is required for user signup (creates profile and company). It bypasses Row Level Security and should never be exposed in client-side code.
 
 
 

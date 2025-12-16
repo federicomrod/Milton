@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
-import { getUserProfile, upsertUserProfile } from '@/lib/profile-service'
+import { getUserProfile, upsertUserProfile, getUserCompany, updateCompany } from '@/lib/profile-service'
 import { useUserPreferences } from '@/lib/context/UserPreferencesContext'
 import { Globe, DollarSign, Calendar, Hash, Palette, Building2 } from 'lucide-react'
 
@@ -18,26 +18,30 @@ const themes = ['light', 'dark', 'system']
 export default function SettingsPage() {
   const { setPrefs, refreshPrefs } = useUserPreferences()
   const [form, setForm] = useState({
-    company_name: '',
-    industry: '',
     timezone: 'Europe/Berlin',
     currency: 'EUR',
     date_format: 'DD/MM/YYYY',
     number_format: '1,000.00',
     theme: 'light'
   })
+  const [companyForm, setCompanyForm] = useState({
+    name: '',
+    industry: ''
+  })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    const loadProfile = async () => {
+    const loadData = async () => {
       try {
-        const profile = await getUserProfile()
+        const [profile, company] = await Promise.all([
+          getUserProfile(),
+          getUserCompany()
+        ])
+        
         if (profile) {
           setForm({
-            company_name: profile.company_name || '',
-            industry: profile.industry || '',
             timezone: profile.timezone || 'Europe/Berlin',
             currency: profile.currency || 'EUR',
             date_format: profile.date_format || 'DD/MM/YYYY',
@@ -45,13 +49,20 @@ export default function SettingsPage() {
             theme: profile.theme || 'light'
           })
         }
+        
+        if (company) {
+          setCompanyForm({
+            name: company.name || '',
+            industry: company.industry || ''
+          })
+        }
       } catch (error) {
-        console.error('Failed to load profile:', error)
+        console.error('Failed to load data:', error)
       } finally {
         setLoading(false)
       }
     }
-    loadProfile()
+    loadData()
   }, [])
 
   const handleChange = (key: string, value: string) => {
@@ -63,7 +74,11 @@ export default function SettingsPage() {
     setSaving(true)
     setMessage('')
     try {
-      await upsertUserProfile(form)
+      // Update profile and company separately
+      await Promise.all([
+        upsertUserProfile(form),
+        updateCompany(companyForm)
+      ])
       
       // ✅ Refresh preferences from Supabase - triggers live update across all components
       await refreshPrefs()
@@ -112,8 +127,8 @@ export default function SettingsPage() {
                 id="company_name"
                 name="company_name"
                 placeholder="Enter company name"
-                value={form.company_name || ''}
-                onChange={(e) => handleChange('company_name', e.target.value)}
+                value={companyForm.name || ''}
+                onChange={(e) => setCompanyForm({ ...companyForm, name: e.target.value })}
               />
             </div>
 
@@ -123,8 +138,8 @@ export default function SettingsPage() {
                 id="industry"
                 name="industry"
                 placeholder="e.g., SaaS, E-commerce, Fintech"
-                value={form.industry || ''}
-                onChange={(e) => handleChange('industry', e.target.value)}
+                value={companyForm.industry || ''}
+                onChange={(e) => setCompanyForm({ ...companyForm, industry: e.target.value })}
               />
             </div>
           </CardContent>

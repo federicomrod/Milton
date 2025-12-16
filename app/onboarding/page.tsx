@@ -21,6 +21,25 @@ export default function OnboardingPage() {
   const [miltonMessages, setMiltonMessages] = useState<{ from: 'milton' | 'user'; text: string }[]>([])
   const router = useRouter()
 
+  // Check if onboarding is already complete, redirect to dashboard if so
+  useEffect(() => {
+    const checkOnboardingStatus = async () => {
+      try {
+        const { isOnboardingComplete } = await import('@/lib/onboarding-status')
+        const complete = await isOnboardingComplete()
+        
+        if (complete) {
+          // Onboarding already complete, redirect to dashboard
+          router.replace('/dashboard')
+        }
+      } catch (err) {
+        console.error('Error checking onboarding status:', err)
+      }
+    }
+    
+    checkOnboardingStatus()
+  }, [router])
+
   // Fetch company ID on mount
   useEffect(() => {
     const supabase = createClient()

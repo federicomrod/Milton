@@ -39,34 +39,26 @@ export function SignupForm() {
         throw new Error('No user data returned')
       }
 
-      // Step 2: Create profile record
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert({
-          id: authData.user.id,
-          company_name: companyName,
-        })
+      // Step 2: Create profile and company via API endpoint
+      // This uses admin client to bypass RLS
+      const response = await fetch('/api/auth/signup-complete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: authData.user.id,
+          companyName: companyName,
+        }),
+      })
 
-      if (profileError) {
-        console.error('Profile error:', profileError)
-        // Don't throw here, continue to create company
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to create company profile. Please try again.')
       }
 
-      // Step 3: Create company record
-      const { error: companyError } = await supabase
-        .from('companies')
-        .insert({
-          name: companyName,
-          created_by: authData.user.id,
-        })
-
-      if (companyError) {
-        console.error('Company error:', companyError)
-        throw new Error('Failed to create company profile. Please try again.')
-      }
-
-      // Success! Redirect to dashboard
-      router.push('/dashboard')
+      // Success! Redirect to onboarding (new users need to onboard)
+      router.push('/onboarding')
       router.refresh()
 
     } catch (err: any) {

@@ -1,14 +1,46 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useUserProfile } from '@/lib/hooks/useUserProfile'
+import { getUserCompany } from '@/lib/profile-service'
+import { createClient } from '@/lib/supabase/client'
 import { Building2, MapPin, Globe, CreditCard, Mail, Calendar, Edit, DollarSign, Hash, Palette } from 'lucide-react'
+import { Company } from '@/lib/profile-service'
 
 export default function AccountPage() {
   const { profile, loading, error } = useUserProfile()
+  const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [company, setCompany] = useState<Company | null>(null)
+  const [companyLoading, setCompanyLoading] = useState(true)
+
+  // Get email from auth.users (not from profiles)
+  useEffect(() => {
+    const fetchEmail = async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      setUserEmail(user?.email || null)
+    }
+    fetchEmail()
+  }, [])
+
+  // Get company data from companies table (not from profiles)
+  useEffect(() => {
+    const fetchCompany = async () => {
+      try {
+        const companyData = await getUserCompany()
+        setCompany(companyData)
+      } catch (err) {
+        console.error('Failed to load company:', err)
+      } finally {
+        setCompanyLoading(false)
+      }
+    }
+    fetchCompany()
+  }, [])
 
   if (loading) {
     return (
@@ -69,7 +101,7 @@ export default function AccountPage() {
               <div>
                 <p className="text-sm font-medium text-gray-500">Company Name</p>
                 <p className="text-base text-gray-900">
-                  {profile?.company_name || 'Not set'}
+                  {companyLoading ? 'Loading...' : (company?.name || 'Not set')}
                 </p>
               </div>
             </div>
@@ -79,7 +111,7 @@ export default function AccountPage() {
               <div>
                 <p className="text-sm font-medium text-gray-500">Industry</p>
                 <p className="text-base text-gray-900">
-                  {profile?.industry || 'Not set'}
+                  {companyLoading ? 'Loading...' : (company?.industry || 'Not set')}
                 </p>
               </div>
             </div>
@@ -120,7 +152,7 @@ export default function AccountPage() {
               <div>
                 <p className="text-sm font-medium text-gray-500">Email</p>
                 <p className="text-base text-gray-900">
-                  {profile?.email || 'Not available'}
+                  {userEmail || 'Not available'}
                 </p>
               </div>
             </div>

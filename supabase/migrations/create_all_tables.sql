@@ -50,7 +50,7 @@ CREATE INDEX IF NOT EXISTS idx_crm_deals_stage ON public.crm_deals(stage);
 CREATE INDEX IF NOT EXISTS idx_crm_deals_close_date ON public.crm_deals(close_date);
 
 -- ============================================================================
--- 3. BUDGETS TABLE (This is the missing table causing the error)
+-- 3. BUDGETS TABLE
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.budgets (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -71,23 +71,37 @@ CREATE INDEX IF NOT EXISTS idx_budgets_user_month ON public.budgets(user_id, mon
 -- ============================================================================
 -- 4. PROFILES TABLE
 -- ============================================================================
+-- Extends auth.users with application-specific data
+-- Email and auth metadata are in auth.users, not duplicated here
+-- Company info (name, industry) is stored in companies table, not here
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
-  company_name TEXT,
-  industry TEXT,
   timezone TEXT,
   currency TEXT,
   date_format TEXT,
   number_format TEXT,
   theme TEXT,
-  email TEXT,
   billing_status TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON public.profiles(user_id);
+
+-- ============================================================================
+-- 4.5. COMPANIES TABLE
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.companies (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  industry TEXT,
+  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_companies_created_by ON public.companies(created_by);
 
 -- ============================================================================
 -- 5. BUSINESS_MODELS TABLE
@@ -154,7 +168,23 @@ CREATE TABLE IF NOT EXISTS public.table_status (
 );
 
 -- ============================================================================
--- 9. BUSINESS_MODEL_TEMPLATES TABLE
+-- 9. KPI_PROFILES TABLE (tracks onboarding completion)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.kpi_profiles (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  accepted_kpis JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(company_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_kpi_profiles_company_id ON public.kpi_profiles(company_id);
+CREATE INDEX IF NOT EXISTS idx_kpi_profiles_user_id ON public.kpi_profiles(user_id);
+
+-- ============================================================================
+-- 10. BUSINESS_MODEL_TEMPLATES TABLE
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.business_model_templates (
   key TEXT PRIMARY KEY,
@@ -172,10 +202,12 @@ ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.crm_deals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.budgets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.companies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.business_models ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.kpi_snapshots_data ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.custom_datasets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.table_status ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.kpi_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.business_model_templates ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies: Users can only access their own data
@@ -230,17 +262,26 @@ CREATE POLICY "Users can delete their own budgets"
   USING (auth.uid() = user_id);
 
 -- Profiles policies
+-- Note: INSERT/UPDATE handled via admin client API endpoints
+-- Users can only view their own profile
 CREATE POLICY "Users can view their own profile"
   ON public.profiles FOR SELECT
   USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can insert their own profile"
-  ON public.profiles FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
 CREATE POLICY "Users can update their own profile"
   ON public.profiles FOR UPDATE
   USING (auth.uid() = user_id);
+
+-- Companies policies
+-- Note: INSERT handled via admin client API endpoint during signup
+-- Users can view and update their own companies
+CREATE POLICY "Users can view their own companies"
+  ON public.companies FOR SELECT
+  USING (auth.uid() = created_by);
+
+CREATE POLICY "Users can update their own companies"
+  ON public.companies FOR UPDATE
+  USING (auth.uid() = created_by);
 
 -- Business Models policies
 CREATE POLICY "Users can view their own business_models"
@@ -298,6 +339,19 @@ CREATE POLICY "Users can update table_status"
   ON public.table_status FOR UPDATE
   USING (true);
 
+-- KPI Profiles policies
+CREATE POLICY "Users can view their own kpi_profiles"
+  ON public.kpi_profiles FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own kpi_profiles"
+  ON public.kpi_profiles FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own kpi_profiles"
+  ON public.kpi_profiles FOR UPDATE
+  USING (auth.uid() = user_id);
+
 -- Business Model Templates policies (read-only for all authenticated users)
 CREATE POLICY "Users can view business_model_templates"
   ON public.business_model_templates FOR SELECT
@@ -337,6 +391,11 @@ CREATE TRIGGER update_profiles_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_companies_updated_at
+  BEFORE UPDATE ON public.companies
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
 CREATE TRIGGER update_business_models_updated_at
   BEFORE UPDATE ON public.business_models
   FOR EACH ROW
@@ -352,6 +411,11 @@ CREATE TRIGGER update_custom_datasets_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_kpi_profiles_updated_at
+  BEFORE UPDATE ON public.kpi_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
 -- ============================================================================
 -- COMMENTS FOR DOCUMENTATION
 -- ============================================================================
@@ -359,10 +423,12 @@ CREATE TRIGGER update_custom_datasets_updated_at
 COMMENT ON TABLE public.transactions IS 'Bank and financial transactions for each user';
 COMMENT ON TABLE public.crm_deals IS 'CRM deals and pipeline data for each user';
 COMMENT ON TABLE public.budgets IS 'Budget planning data with monthly categories and amounts';
-COMMENT ON TABLE public.profiles IS 'User profile and preferences';
+COMMENT ON TABLE public.profiles IS 'User profile and preferences - extends auth.users with application-specific data.';
+COMMENT ON TABLE public.companies IS 'Companies created by users';
 COMMENT ON TABLE public.business_models IS 'User business model configuration and selected KPIs';
 COMMENT ON TABLE public.kpi_snapshots_data IS 'Monthly KPI snapshots aggregated from transactions';
 COMMENT ON TABLE public.custom_datasets IS 'Custom datasets uploaded by users';
 COMMENT ON TABLE public.table_status IS 'Tracks readiness state of datasets (pending/linked/insightable)';
+COMMENT ON TABLE public.kpi_profiles IS 'KPI profiles for companies - tracks onboarding completion (company has selected KPIs)';
 COMMENT ON TABLE public.business_model_templates IS 'Template definitions for business models and KPI recipes';
 

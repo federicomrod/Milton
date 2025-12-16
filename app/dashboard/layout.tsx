@@ -87,7 +87,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       } catch (err) {
         console.error(
           "[DashboardLayout] Error fetching KPIs or insights:",
-          err,
+          err
         );
       }
     };
@@ -95,21 +95,21 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     // Subscribe to dataset events
     const offLinked = miltonEventsAPI.subscribe(
       "datasets.linked",
-      fetchAndBuildCharts,
+      fetchAndBuildCharts
     );
     const offReady = miltonEventsAPI.subscribe(
       "dataset.ready",
-      fetchAndBuildCharts,
+      fetchAndBuildCharts
     );
 
     // Subscribe to KPI generation triggers
     const offKpiReady = miltonEventsAPI.subscribe(
       "dataset.ready",
-      runKpiGeneration,
+      runKpiGeneration
     );
     const offKpiDashboard = miltonEventsAPI.subscribe(
       "dashboard.generate",
-      runKpiGeneration,
+      runKpiGeneration
     );
 
     // Initial load (optional)
@@ -159,7 +159,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       async (payload) => {
         console.log(
           "[DashboardLayout] Dashboard generation triggered for:",
-          payload.businessModel,
+          payload.businessModel
         );
         try {
           const {
@@ -182,7 +182,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         } catch (err) {
           console.error("[DashboardLayout] Error generating dashboard:", err);
         }
-      },
+      }
     );
     return () => unsubscribe();
   }, [sessionReady, supabase]);
@@ -265,7 +265,13 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     if (!pathname?.startsWith("/dashboard")) return; // ignore non-dashboard routes
 
-    if (pathname.startsWith("/dashboard/model")) return; // skip redirect for Data Model Builder and subpaths
+    // Skip redirect for pages that don't require data
+    if (pathname.startsWith("/dashboard/model")) return; // Data Model Builder
+    if (pathname.startsWith("/dashboard/analytics")) return; // Analytics page
+    if (pathname.startsWith("/dashboard/reporting")) return; // Reporting page
+    if (pathname.startsWith("/dashboard/account")) return; // Account page
+    if (pathname.startsWith("/dashboard/settings")) return; // Settings page
+    if (pathname === "/dashboard") return; // Already on dashboard, no redirect needed
 
     if (
       dataStatus?.ok &&

@@ -10,7 +10,13 @@ import {
 } from "@/lib/business-types";
 import { buildDashboardContextForUser } from "@/lib/ai/dashboard-context";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+// Lazy initialization to avoid errors during build time
+function getOpenAI() {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("Missing OPENAI_API_KEY environment variable");
+  }
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
 
 export async function POST(req: Request) {
   const cookieStore = await cookies();
@@ -25,7 +31,7 @@ export async function POST(req: Request) {
   if (!message || typeof message !== "string") {
     return NextResponse.json(
       { error: 'Missing "message" in body' },
-      { status: 400 },
+      { status: 400 }
     );
   }
 
@@ -83,6 +89,7 @@ export async function POST(req: Request) {
 
   const userPrompt = message;
 
+  const openai = getOpenAI();
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     temperature: 0.2,

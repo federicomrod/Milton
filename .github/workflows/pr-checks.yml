@@ -2,12 +2,10 @@ name: PR Checks
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened]
     branches:
       - main
       - develop
-  push:
-    # Run on pushes to any branch to rerun checks on new commits
-    # No branches filter means it runs on all branches
 
 jobs:
   lint:

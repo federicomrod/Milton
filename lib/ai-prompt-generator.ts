@@ -1,10 +1,15 @@
-import { UseCase, getUseCase } from '@/types/use-cases'
+import { UseCase, getUseCase } from "@/types/use-cases";
 
-export const generateAIPromptForUseCase = (useCaseId: string, fileName: string, headers: string[], sampleData: any[]) => {
-  const useCase = getUseCase(useCaseId)
-  
+export const generateAIPromptForUseCase = (
+  useCaseId: string,
+  fileName: string,
+  headers: string[],
+  sampleData: any[],
+) => {
+  const useCase = getUseCase(useCaseId);
+
   if (!useCase) {
-    throw new Error(`Use case not found: ${useCaseId}`)
+    throw new Error(`Use case not found: ${useCaseId}`);
   }
 
   return `
@@ -13,11 +18,15 @@ You are an expert financial data analyst for ${useCase.name} businesses.
 BUSINESS CONTEXT: ${useCase.aiPromptContext}
 
 REQUIRED METRICS FOR THIS BUSINESS TYPE:
-${useCase.requiredMetrics.map(metric => `
+${useCase.requiredMetrics
+  .map(
+    (metric) => `
 - ${metric.name}: ${metric.description}
-  Required inputs: ${metric.requiredInputs.map(input => input.field).join(', ')}
+  Required inputs: ${metric.requiredInputs.map((input) => input.field).join(", ")}
   Calculation: ${metric.calculation.formula}
-`).join('')}
+`,
+  )
+  .join("")}
 
 FILE ANALYSIS:
 - File: ${fileName}
@@ -48,5 +57,5 @@ RESPONSE FORMAT (JSON only):
     "numberFormat": "detected number format"
   }
 }
-`
-}
+`;
+};

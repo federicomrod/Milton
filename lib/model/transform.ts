@@ -1,5 +1,3 @@
-
-
 /**
  * Shared model transform utilities for Milton Data Model Builder & Visualizer.
  *
@@ -15,17 +13,17 @@
 ///////////////////////
 
 export type FieldType =
-  | 'string'
-  | 'number'
-  | 'integer'
-  | 'boolean'
-  | 'date'
-  | 'datetime'
-  | 'currency'
-  | 'text'
-  | 'json'
-  | 'uuid'
-  | 'fk' // used for inferred FK fields
+  | "string"
+  | "number"
+  | "integer"
+  | "boolean"
+  | "date"
+  | "datetime"
+  | "currency"
+  | "text"
+  | "json"
+  | "uuid"
+  | "fk" // used for inferred FK fields
   | string;
 
 export interface FieldDef {
@@ -52,9 +50,9 @@ export interface TableDef {
 
 export interface RelationshipDef {
   from: string; // e.g., "Bookings.CoachID"
-  to: string;   // e.g., "Coaches.ID"
+  to: string; // e.g., "Coaches.ID"
   // optional constraint name or type
-  type?: 'one-to-many' | 'many-to-one' | 'one-to-one' | 'many-to-many' | string;
+  type?: "one-to-many" | "many-to-one" | "one-to-one" | "many-to-many" | string;
 }
 
 export interface ModelProposal {
@@ -100,15 +98,15 @@ const slug = (s: string) =>
   s
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)+/g, '');
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
 
 const nodeIdForTable = (tableName: string) => `table:${slug(tableName)}`;
 
 const parseEnd = (endpoint: string): { table: string; field?: string } => {
   // Accept forms like "Bookings.CoachID" or "Bookings"
-  const [table, field] = endpoint.split('.');
-  return { table: table?.trim() ?? '', field: field?.trim() };
+  const [table, field] = endpoint.split(".");
+  return { table: table?.trim() ?? "", field: field?.trim() };
 };
 
 ///////////////////////
@@ -121,12 +119,12 @@ const parseEnd = (endpoint: string): { table: string; field?: string } => {
  */
 export function proposalToGraph(
   proposal: ModelProposal,
-  opts?: { includeFkFieldHints?: boolean }
+  opts?: { includeFkFieldHints?: boolean },
 ): Graph {
   const includeFkHints = opts?.includeFkFieldHints ?? true;
 
   if (!proposal || !proposal.recommendedTables) {
-    console.warn('⚠️ proposal.recommendedTables missing:', proposal);
+    console.warn("⚠️ proposal.recommendedTables missing:", proposal);
     return { nodes: [], edges: [] };
   }
 
@@ -164,8 +162,10 @@ export function proposalToGraph(
           ...fromNode.fields,
           {
             name: e.fromField,
-            type: 'fk',
-            references: { table: (e.rel && parseEnd(e.rel.to).table) || e.target },
+            type: "fk",
+            references: {
+              table: (e.rel && parseEnd(e.rel.to).table) || e.target,
+            },
           },
         ];
       }
@@ -183,13 +183,13 @@ export function renameField(
   model: ModelProposal,
   tableName: string,
   oldName: string,
-  newName: string
+  newName: string,
 ): ModelProposal {
   if (!newName || oldName === newName) return model;
   const tables = model.recommendedTables.map((t) => {
     if (t.name !== tableName) return t;
     const fields = t.fields.map((f) =>
-      f.name === oldName ? { ...f, name: newName } : f
+      f.name === oldName ? { ...f, name: newName } : f,
     );
     return { ...t, fields };
   });
@@ -215,10 +215,10 @@ export function renameField(
 export function addField(
   model: ModelProposal,
   tableName: string,
-  field: FieldDef
+  field: FieldDef,
 ): ModelProposal {
   const tables = model.recommendedTables.map((t) =>
-    t.name === tableName ? { ...t, fields: [...t.fields, field] } : t
+    t.name === tableName ? { ...t, fields: [...t.fields, field] } : t,
   );
   return { ...model, recommendedTables: tables };
 }
@@ -226,10 +226,12 @@ export function addField(
 export function removeField(
   model: ModelProposal,
   tableName: string,
-  fieldName: string
+  fieldName: string,
 ): ModelProposal {
   const tables = model.recommendedTables.map((t) =>
-    t.name === tableName ? { ...t, fields: t.fields.filter((f) => f.name !== fieldName) } : t
+    t.name === tableName
+      ? { ...t, fields: t.fields.filter((f) => f.name !== fieldName) }
+      : t,
   );
   // Clean relationships that targeted the removed field
   const relationships = (model.relationships || []).filter((r) => {
@@ -245,7 +247,7 @@ export function removeField(
 
 export function addRelationship(
   model: ModelProposal,
-  rel: RelationshipDef
+  rel: RelationshipDef,
 ): ModelProposal {
   const relationships = [...(model.relationships || []), rel];
   return { ...model, relationships };
@@ -253,12 +255,10 @@ export function addRelationship(
 
 export function removeRelationship(
   model: ModelProposal,
-  predicate:
-    | ((r: RelationshipDef) => boolean)
-    | { from?: string; to?: string }
+  predicate: ((r: RelationshipDef) => boolean) | { from?: string; to?: string },
 ): ModelProposal {
   const relationships = (model.relationships || []).filter((r) => {
-    if (typeof predicate === 'function') return !predicate(r);
+    if (typeof predicate === "function") return !predicate(r);
     if (predicate.from && r.from !== predicate.from) return true;
     if (predicate.to && r.to !== predicate.to) return true;
     // if both match, drop
@@ -276,14 +276,17 @@ export function removeRelationship(
 export function upsertFileMapping(
   model: ModelProposal,
   tableName: string,
-  mapping: NonNullable<TableDef['fileMapping']>
+  mapping: NonNullable<TableDef["fileMapping"]>,
 ): ModelProposal {
   const tables = model.recommendedTables.map((t) => {
     if (t.name !== tableName) return t;
     const merged = {
       ...(t.fileMapping || {}),
       ...mapping,
-      columnMap: { ...(t.fileMapping?.columnMap || {}), ...(mapping.columnMap || {}) },
+      columnMap: {
+        ...(t.fileMapping?.columnMap || {}),
+        ...(mapping.columnMap || {}),
+      },
     };
     return { ...t, fileMapping: merged };
   });
@@ -294,20 +297,23 @@ export function upsertFileMapping(
 // Validation helpers
 ///////////////////////
 
-export function validateProposal(model: ModelProposal): { ok: true } | { ok: false; issues: string[] } {
+export function validateProposal(
+  model: ModelProposal,
+): { ok: true } | { ok: false; issues: string[] } {
   const issues: string[] = [];
 
   if (!model || !Array.isArray(model.recommendedTables)) {
-    issues.push('Missing or invalid recommendedTables.');
+    issues.push("Missing or invalid recommendedTables.");
   } else {
     for (const t of model.recommendedTables) {
-      if (!t.name) issues.push('Table missing name.');
-      if (!Array.isArray(t.fields)) issues.push(`Table "${t.name}" has invalid fields array.`);
+      if (!t.name) issues.push("Table missing name.");
+      if (!Array.isArray(t.fields))
+        issues.push(`Table "${t.name}" has invalid fields array.`);
     }
   }
 
   if (!Array.isArray(model.relationships)) {
-    issues.push('Missing or invalid relationships array.');
+    issues.push("Missing or invalid relationships array.");
   } else {
     for (const r of model.relationships) {
       if (!r.from || !r.to) issues.push('Relationship missing "from" or "to".');
@@ -322,185 +328,228 @@ export function validateProposal(model: ModelProposal): { ok: true } | { ok: fal
 // Yoga onboarding helpers
 ///////////////////////
 
-type Relationship = { from: string; to: string }
+type Relationship = { from: string; to: string };
 
 export type LinkResult = {
-  updatedModel: ModelProposal
-  targetTable: string
-  suggestedRelationships: Relationship[]
-}
+  updatedModel: ModelProposal;
+  targetTable: string;
+  suggestedRelationships: Relationship[];
+};
 
 const DE_EN = {
-  sessions: [/datum/i, /kursname|class|session/i, /trainer|coach/i, /dauer|duration/i, /kapazität|capacity/i],
-  bookings: [/buchung|booking/i, /mitglied|kunde|customer/i, /status/i, /session[_\s]?id/i],
-  payments: [/zahlung|payment/i, /betrag|amount|total/i, /mwst|vat|steuer|tax/i, /währung|currency/i, /zahlungsdatum|payment[_\s]?date/i],
+  sessions: [
+    /datum/i,
+    /kursname|class|session/i,
+    /trainer|coach/i,
+    /dauer|duration/i,
+    /kapazität|capacity/i,
+  ],
+  bookings: [
+    /buchung|booking/i,
+    /mitglied|kunde|customer/i,
+    /status/i,
+    /session[_\s]?id/i,
+  ],
+  payments: [
+    /zahlung|payment/i,
+    /betrag|amount|total/i,
+    /mwst|vat|steuer|tax/i,
+    /währung|currency/i,
+    /zahlungsdatum|payment[_\s]?date/i,
+  ],
   customers: [/kunde|mitglied|customer/i, /email/i, /beitritt|join/i],
   coaches: [/trainer|coach/i],
-}
+};
 
-function detectTargetTable(columns: string[]): 'sessions' | 'bookings' | 'payments' | 'customers' | 'coaches' {
-  const name = (cols: string[]) => cols.join(' ')
-  const cols = columns.map(c => String(c))
-  if (DE_EN.payments.some(r => r.test(name(cols)))) return 'payments'
-  if (DE_EN.bookings.some(r => r.test(name(cols)))) return 'bookings'
-  if (DE_EN.sessions.some(r => r.test(name(cols)))) return 'sessions'
-  if (DE_EN.customers.some(r => r.test(name(cols)))) return 'customers'
-  if (DE_EN.coaches.some(r => r.test(name(cols)))) return 'coaches'
+function detectTargetTable(
+  columns: string[],
+): "sessions" | "bookings" | "payments" | "customers" | "coaches" {
+  const name = (cols: string[]) => cols.join(" ");
+  const cols = columns.map((c) => String(c));
+  if (DE_EN.payments.some((r) => r.test(name(cols)))) return "payments";
+  if (DE_EN.bookings.some((r) => r.test(name(cols)))) return "bookings";
+  if (DE_EN.sessions.some((r) => r.test(name(cols)))) return "sessions";
+  if (DE_EN.customers.some((r) => r.test(name(cols)))) return "customers";
+  if (DE_EN.coaches.some((r) => r.test(name(cols)))) return "coaches";
   // default to bookings (most common middle table)
-  return 'bookings'
+  return "bookings";
 }
 
-function ensureTable(model: ModelProposal, tableName: string, incomingColumns: string[]): ModelProposal {
-  const exists = model.recommendedTables?.some((t: any) => t.name === tableName)
+function ensureTable(
+  model: ModelProposal,
+  tableName: string,
+  incomingColumns: string[],
+): ModelProposal {
+  const exists = model.recommendedTables?.some(
+    (t: any) => t.name === tableName,
+  );
   if (!exists) {
-    model.recommendedTables = model.recommendedTables || []
-    model.recommendedTables.push({ 
-      name: tableName, 
-      fields: Array.from(new Set(incomingColumns)).map(name => ({ name, type: 'string' })) 
-    })
+    model.recommendedTables = model.recommendedTables || [];
+    model.recommendedTables.push({
+      name: tableName,
+      fields: Array.from(new Set(incomingColumns)).map((name) => ({
+        name,
+        type: "string",
+      })),
+    });
   } else {
-    const t = model.recommendedTables.find((t: any) => t.name === tableName)
+    const t = model.recommendedTables.find((t: any) => t.name === tableName);
     if (t) {
-      const existingFieldNames = new Set(t.fields.map(f => f.name))
+      const existingFieldNames = new Set(t.fields.map((f) => f.name));
       const newFields = incomingColumns
-        .filter(col => !existingFieldNames.has(col))
-        .map(name => ({ name, type: 'string' as FieldType }))
-      t.fields = [...t.fields, ...newFields]
+        .filter((col) => !existingFieldNames.has(col))
+        .map((name) => ({ name, type: "string" as FieldType }));
+      t.fields = [...t.fields, ...newFields];
     }
   }
-  return model
+  return model;
 }
 
 function hasTable(model: ModelProposal, tableName: string) {
-  return model.recommendedTables?.some((t: any) => t.name === tableName)
+  return model.recommendedTables?.some((t: any) => t.name === tableName);
 }
 
-function suggestRelationships(model: ModelProposal, targetTable: string): Relationship[] {
-  const rel: Relationship[] = []
-  const has = (t: string) => hasTable(model, t)
+function suggestRelationships(
+  model: ModelProposal,
+  targetTable: string,
+): Relationship[] {
+  const rel: Relationship[] = [];
+  const has = (t: string) => hasTable(model, t);
 
-  if (targetTable === 'payments') {
-    if (has('bookings')) rel.push({ from: 'payments.booking_id', to: 'bookings.booking_id' })
-    if (has('customers')) rel.push({ from: 'payments.customer_id', to: 'customers.customer_id' })
+  if (targetTable === "payments") {
+    if (has("bookings"))
+      rel.push({ from: "payments.booking_id", to: "bookings.booking_id" });
+    if (has("customers"))
+      rel.push({ from: "payments.customer_id", to: "customers.customer_id" });
   }
-  if (targetTable === 'bookings') {
-    if (has('sessions')) rel.push({ from: 'bookings.session_id', to: 'sessions.session_id' })
-    if (has('customers')) rel.push({ from: 'bookings.customer_id', to: 'customers.customer_id' })
+  if (targetTable === "bookings") {
+    if (has("sessions"))
+      rel.push({ from: "bookings.session_id", to: "sessions.session_id" });
+    if (has("customers"))
+      rel.push({ from: "bookings.customer_id", to: "customers.customer_id" });
   }
-  if (targetTable === 'sessions' && has('coaches')) {
-    rel.push({ from: 'sessions.coach_id', to: 'coaches.coach_id' })
+  if (targetTable === "sessions" && has("coaches")) {
+    rel.push({ from: "sessions.coach_id", to: "coaches.coach_id" });
   }
-  return rel
+  return rel;
 }
 
 export function linkParsedSheetToModel(
-  model: ModelProposal, 
-  sheet: { columns: string[]; sheetName?: string }
+  model: ModelProposal,
+  sheet: { columns: string[]; sheetName?: string },
 ): LinkResult {
   // ✅ Deep clone so nested arrays are new
   const workingModel: ModelProposal =
-    typeof structuredClone === 'function'
+    typeof structuredClone === "function"
       ? structuredClone(model)
       : JSON.parse(JSON.stringify(model));
 
   // Smarter linking logic to improve node-to-sheet mapping
-  const normalizedSheet = sheet.sheetName?.toLowerCase().replace(/s$/, '') || ''
-  const targetTable = workingModel.recommendedTables?.find(t =>
-    t.name.toLowerCase() === normalizedSheet ||
-    normalizedSheet.includes(t.name.toLowerCase()) ||
-    t.name.toLowerCase().includes(normalizedSheet)
-  )?.name || detectTargetTable(sheet.columns)
-  
-  const target = targetTable
-  const normalizedCols = sheet.columns.map(c => String(c).trim())
-  const updated = ensureTable(workingModel, target, normalizedCols)
+  const normalizedSheet =
+    sheet.sheetName?.toLowerCase().replace(/s$/, "") || "";
+  const targetTable =
+    workingModel.recommendedTables?.find(
+      (t) =>
+        t.name.toLowerCase() === normalizedSheet ||
+        normalizedSheet.includes(t.name.toLowerCase()) ||
+        t.name.toLowerCase().includes(normalizedSheet),
+    )?.name || detectTargetTable(sheet.columns);
+
+  const target = targetTable;
+  const normalizedCols = sheet.columns.map((c) => String(c).trim());
+  const updated = ensureTable(workingModel, target, normalizedCols);
 
   // ensure base nodes exist to make graph meaningful
-  if (target === 'payments') {
-    if (!hasTable(updated, 'bookings')) {
-      updated.recommendedTables.push({ 
-        name: 'bookings', 
-        fields: [{ name: 'booking_id', type: 'string' }] 
-      })
+  if (target === "payments") {
+    if (!hasTable(updated, "bookings")) {
+      updated.recommendedTables.push({
+        name: "bookings",
+        fields: [{ name: "booking_id", type: "string" }],
+      });
     }
   }
-  if (target === 'bookings') {
-    if (!hasTable(updated, 'sessions')) {
-      updated.recommendedTables.push({ 
-        name: 'sessions', 
-        fields: [{ name: 'session_id', type: 'string' }] 
-      })
+  if (target === "bookings") {
+    if (!hasTable(updated, "sessions")) {
+      updated.recommendedTables.push({
+        name: "sessions",
+        fields: [{ name: "session_id", type: "string" }],
+      });
     }
-    if (!hasTable(updated, 'customers')) {
-      updated.recommendedTables.push({ 
-        name: 'customers', 
-        fields: [{ name: 'customer_id', type: 'string' }] 
-      })
+    if (!hasTable(updated, "customers")) {
+      updated.recommendedTables.push({
+        name: "customers",
+        fields: [{ name: "customer_id", type: "string" }],
+      });
     }
   }
 
-  const rel = updated.relationships || []
-  const suggestions = suggestRelationships(updated, target)
+  const rel = updated.relationships || [];
+  const suggestions = suggestRelationships(updated, target);
   // avoid dupes
   for (const s of suggestions) {
     if (!rel.some((r: RelationshipDef) => r.from === s.from && r.to === s.to)) {
-      rel.push(s)
+      rel.push(s);
     }
   }
-  updated.relationships = rel
+  updated.relationships = rel;
 
-  const notes = sheet.sheetName 
-    ? `Linked sheet "${sheet.sheetName}" as ${target}` 
-    : `Linked data as ${target}`
-  
+  const notes = sheet.sheetName
+    ? `Linked sheet "${sheet.sheetName}" as ${target}`
+    : `Linked data as ${target}`;
+
   updated.meta = {
     ...updated.meta,
-    notes: Array.isArray(updated.meta?.notes) 
+    notes: Array.isArray(updated.meta?.notes)
       ? [...updated.meta.notes, notes]
-      : [notes]
-  }
+      : [notes],
+  };
 
-  return { updatedModel: updated, targetTable: target, suggestedRelationships: suggestions }
+  return {
+    updatedModel: updated,
+    targetTable: target,
+    suggestedRelationships: suggestions,
+  };
 }
 
 // Auto-links uploaded datasets to business-model tables using AI classification
 export function autoLinkDatasetsToModel(model: ModelProposal, datasets: any[]) {
-  if (!model?.recommendedTables || !datasets?.length) return model
+  if (!model?.recommendedTables || !datasets?.length) return model;
 
   // Deep clone to ensure React detects a new reference
-  const updated = JSON.parse(JSON.stringify(model))
+  const updated = JSON.parse(JSON.stringify(model));
 
   updated.recommendedTables = updated.recommendedTables.map((tbl: any) => {
-    const tblName = tbl.name?.toLowerCase?.() || ''
+    const tblName = tbl.name?.toLowerCase?.() || "";
     const match = datasets.find((ds) => {
       const aiDetected =
-        ds.source_meta?.aiClassification?.detectedTable?.toLowerCase?.() || ''
-      const detected = ds.source_meta?.detectedTable?.toLowerCase?.() || aiDetected
-      const dsName = ds.dataset_name?.toLowerCase?.() || ''
-      const sheetName = ds.source_meta?.sheetName?.toLowerCase?.() || ''
+        ds.source_meta?.aiClassification?.detectedTable?.toLowerCase?.() || "";
+      const detected =
+        ds.source_meta?.detectedTable?.toLowerCase?.() || aiDetected;
+      const dsName = ds.dataset_name?.toLowerCase?.() || "";
+      const sheetName = ds.source_meta?.sheetName?.toLowerCase?.() || "";
 
       const matchesDetected =
         detected &&
         (detected === tblName ||
           tblName.includes(detected) ||
-          detected.includes(tblName))
+          detected.includes(tblName));
 
       const matchesSheet =
         sheetName &&
         (sheetName === tblName ||
           tblName.includes(sheetName) ||
-          sheetName.includes(tblName))
+          sheetName.includes(tblName));
 
       const matchesName =
-        dsName && (dsName.includes(tblName) || tblName.includes(dsName))
+        dsName && (dsName.includes(tblName) || tblName.includes(dsName));
 
-      return matchesDetected || matchesSheet || matchesName
-    })
+      return matchesDetected || matchesSheet || matchesName;
+    });
 
     if (match) {
       console.log(
-        `[AutoLink] Table "${tbl.name}" linked with dataset "${match.dataset_name}" (detected=${match.source_meta?.aiClassification?.detectedTable})`
-      )
+        `[AutoLink] Table "${tbl.name}" linked with dataset "${match.dataset_name}" (detected=${match.source_meta?.aiClassification?.detectedTable})`,
+      );
     }
 
     return {
@@ -514,13 +563,20 @@ export function autoLinkDatasetsToModel(model: ModelProposal, datasets: any[]) {
               match.source_meta?.aiClassification?.detectedTable ||
               match.source_meta?.detectedTable,
             confidence:
-              match.source_meta?.aiClassification?.confidence || 'n/a',
+              match.source_meta?.aiClassification?.confidence || "n/a",
           }
         : undefined,
-    }
-  })
+    };
+  });
 
-  console.log('[AutoLink] Result tables:', updated.recommendedTables.map((t:any)=>({name:t.name,isLinked:t.isLinked,linkedId:t.linkedDatasetId})))
+  console.log(
+    "[AutoLink] Result tables:",
+    updated.recommendedTables.map((t: any) => ({
+      name: t.name,
+      isLinked: t.isLinked,
+      linkedId: t.linkedDatasetId,
+    })),
+  );
 
-  return updated
+  return updated;
 }

@@ -1,97 +1,118 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import { getUserProfile, upsertUserProfile, getUserCompany, updateCompany } from '@/lib/profile-service'
-import { useUserPreferences } from '@/lib/context/UserPreferencesContext'
-import { Globe, DollarSign, Calendar, Hash, Palette, Building2 } from 'lucide-react'
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import {
+  getUserProfile,
+  upsertUserProfile,
+  getUserCompany,
+  updateCompany,
+} from "@/lib/profile-service";
+import { useUserPreferences } from "@/lib/context/UserPreferencesContext";
+import {
+  Globe,
+  DollarSign,
+  Calendar,
+  Hash,
+  Palette,
+  Building2,
+} from "lucide-react";
 
-const currencies = ['EUR', 'USD', 'GBP', 'CHF']
-const dateFormats = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD']
-const numberFormats = ['1,000.00', '1.000,00']
-const themes = ['light', 'dark', 'system']
+const currencies = ["EUR", "USD", "GBP", "CHF"];
+const dateFormats = ["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"];
+const numberFormats = ["1,000.00", "1.000,00"];
+const themes = ["light", "dark", "system"];
 
 export default function SettingsPage() {
-  const { setPrefs, refreshPrefs } = useUserPreferences()
+  const { setPrefs, refreshPrefs } = useUserPreferences();
   const [form, setForm] = useState({
-    timezone: 'Europe/Berlin',
-    currency: 'EUR',
-    date_format: 'DD/MM/YYYY',
-    number_format: '1,000.00',
-    theme: 'light'
-  })
+    timezone: "Europe/Berlin",
+    currency: "EUR",
+    date_format: "DD/MM/YYYY",
+    number_format: "1,000.00",
+    theme: "light",
+  });
   const [companyForm, setCompanyForm] = useState({
-    name: '',
-    industry: ''
-  })
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState('')
+    name: "",
+    industry: "",
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     const loadData = async () => {
       try {
         const [profile, company] = await Promise.all([
           getUserProfile(),
-          getUserCompany()
-        ])
-        
+          getUserCompany(),
+        ]);
+
         if (profile) {
           setForm({
-            timezone: profile.timezone || 'Europe/Berlin',
-            currency: profile.currency || 'EUR',
-            date_format: profile.date_format || 'DD/MM/YYYY',
-            number_format: profile.number_format || '1,000.00',
-            theme: profile.theme || 'light'
-          })
+            timezone: profile.timezone || "Europe/Berlin",
+            currency: profile.currency || "EUR",
+            date_format: profile.date_format || "DD/MM/YYYY",
+            number_format: profile.number_format || "1,000.00",
+            theme: profile.theme || "light",
+          });
         }
-        
+
         if (company) {
           setCompanyForm({
-            name: company.name || '',
-            industry: company.industry || ''
-          })
+            name: company.name || "",
+            industry: company.industry || "",
+          });
         }
       } catch (error) {
-        console.error('Failed to load data:', error)
+        console.error("Failed to load data:", error);
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
-    loadData()
-  }, [])
+    };
+    loadData();
+  }, []);
 
   const handleChange = (key: string, value: string) => {
-    setForm({ ...form, [key]: value })
-  }
+    setForm({ ...form, [key]: value });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
-    setMessage('')
+    e.preventDefault();
+    setSaving(true);
+    setMessage("");
     try {
       // Update profile and company separately
-      await Promise.all([
-        upsertUserProfile(form),
-        updateCompany(companyForm)
-      ])
-      
+      await Promise.all([upsertUserProfile(form), updateCompany(companyForm)]);
+
       // ✅ Refresh preferences from Supabase - triggers live update across all components
-      await refreshPrefs()
-      
-      setMessage('Preferences updated successfully!')
-      setTimeout(() => setMessage(''), 3000)
+      await refreshPrefs();
+
+      setMessage("Preferences updated successfully!");
+      setTimeout(() => setMessage(""), 3000);
     } catch (error) {
-      setMessage('Failed to update preferences. Please try again.')
-      console.error(error)
+      setMessage("Failed to update preferences. Please try again.");
+      console.error(error);
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   if (loading) {
     return (
@@ -100,14 +121,16 @@ export default function SettingsPage() {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
         </div>
       </div>
-    )
+    );
   }
 
   return (
     <div className="container mx-auto p-6 max-w-3xl">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-        <p className="text-gray-600 mt-1">Manage your company profile and preferences</p>
+        <p className="text-gray-600 mt-1">
+          Manage your company profile and preferences
+        </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -118,7 +141,9 @@ export default function SettingsPage() {
               <Building2 className="h-5 w-5" />
               Company Information
             </CardTitle>
-            <CardDescription>Basic details about your organization</CardDescription>
+            <CardDescription>
+              Basic details about your organization
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -127,8 +152,10 @@ export default function SettingsPage() {
                 id="company_name"
                 name="company_name"
                 placeholder="Enter company name"
-                value={companyForm.name || ''}
-                onChange={(e) => setCompanyForm({ ...companyForm, name: e.target.value })}
+                value={companyForm.name || ""}
+                onChange={(e) =>
+                  setCompanyForm({ ...companyForm, name: e.target.value })
+                }
               />
             </div>
 
@@ -138,8 +165,10 @@ export default function SettingsPage() {
                 id="industry"
                 name="industry"
                 placeholder="e.g., SaaS, E-commerce, Fintech"
-                value={companyForm.industry || ''}
-                onChange={(e) => setCompanyForm({ ...companyForm, industry: e.target.value })}
+                value={companyForm.industry || ""}
+                onChange={(e) =>
+                  setCompanyForm({ ...companyForm, industry: e.target.value })
+                }
               />
             </div>
           </CardContent>
@@ -160,13 +189,18 @@ export default function SettingsPage() {
                 <Globe className="h-4 w-4" />
                 Timezone
               </Label>
-              <Select value={form.timezone} onValueChange={(v) => handleChange('timezone', v)}>
+              <Select
+                value={form.timezone}
+                onValueChange={(v) => handleChange("timezone", v)}
+              >
                 <SelectTrigger id="timezone">
                   <SelectValue placeholder="Select timezone" />
                 </SelectTrigger>
                 <SelectContent className="max-h-60">
-                  {Intl.supportedValuesOf('timeZone').map((tz) => (
-                    <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                  {Intl.supportedValuesOf("timeZone").map((tz) => (
+                    <SelectItem key={tz} value={tz}>
+                      {tz}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -177,7 +211,10 @@ export default function SettingsPage() {
                 <DollarSign className="h-4 w-4" />
                 Currency
               </Label>
-              <Select value={form.currency} onValueChange={(v) => handleChange('currency', v)}>
+              <Select
+                value={form.currency}
+                onValueChange={(v) => handleChange("currency", v)}
+              >
                 <SelectTrigger id="currency">
                   <SelectValue placeholder="Select currency" />
                 </SelectTrigger>
@@ -196,14 +233,20 @@ export default function SettingsPage() {
                 <Calendar className="h-4 w-4" />
                 Date Format
               </Label>
-              <Select value={form.date_format} onValueChange={(v) => handleChange('date_format', v)}>
+              <Select
+                value={form.date_format}
+                onValueChange={(v) => handleChange("date_format", v)}
+              >
                 <SelectTrigger id="date_format">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {dateFormats.map((f) => (
                     <SelectItem key={f} value={f}>
-                      {f} <span className="text-gray-400 ml-2">({formatDateExample(f)})</span>
+                      {f}{" "}
+                      <span className="text-gray-400 ml-2">
+                        ({formatDateExample(f)})
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -211,17 +254,25 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="number_format" className="flex items-center gap-2">
+              <Label
+                htmlFor="number_format"
+                className="flex items-center gap-2"
+              >
                 <Hash className="h-4 w-4" />
                 Number Format
               </Label>
-              <Select value={form.number_format} onValueChange={(v) => handleChange('number_format', v)}>
+              <Select
+                value={form.number_format}
+                onValueChange={(v) => handleChange("number_format", v)}
+              >
                 <SelectTrigger id="number_format">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {numberFormats.map((f) => (
-                    <SelectItem key={f} value={f}>{f}</SelectItem>
+                    <SelectItem key={f} value={f}>
+                      {f}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -241,7 +292,10 @@ export default function SettingsPage() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="theme">Theme</Label>
-              <Select value={form.theme} onValueChange={(v) => handleChange('theme', v)}>
+              <Select
+                value={form.theme}
+                onValueChange={(v) => handleChange("theme", v)}
+              >
                 <SelectTrigger id="theme">
                   <SelectValue />
                 </SelectTrigger>
@@ -254,9 +308,12 @@ export default function SettingsPage() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-gray-500">
-                {form.theme === 'system' && 'Automatically switch between light and dark mode based on system settings'}
-                {form.theme === 'light' && 'Use light mode throughout the application'}
-                {form.theme === 'dark' && 'Use dark mode throughout the application'}
+                {form.theme === "system" &&
+                  "Automatically switch between light and dark mode based on system settings"}
+                {form.theme === "light" &&
+                  "Use light mode throughout the application"}
+                {form.theme === "dark" &&
+                  "Use dark mode throughout the application"}
               </p>
             </div>
           </CardContent>
@@ -264,41 +321,43 @@ export default function SettingsPage() {
 
         {/* Success/Error Message */}
         {message && (
-          <div className={`p-4 rounded-lg ${message.includes('success') ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+          <div
+            className={`p-4 rounded-lg ${message.includes("success") ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"}`}
+          >
             {message}
           </div>
         )}
 
         {/* Submit Button */}
         <Button type="submit" disabled={saving} className="w-full" size="lg">
-          {saving ? 'Saving...' : 'Save Preferences'}
+          {saving ? "Saving..." : "Save Preferences"}
         </Button>
       </form>
     </div>
-  )
+  );
 }
 
 // Helper functions
 function getCurrencySymbol(currency: string): string {
   const symbols: Record<string, string> = {
-    EUR: '€',
-    USD: '$',
-    GBP: '£',
-    CHF: 'CHF'
-  }
-  return symbols[currency] || currency
+    EUR: "€",
+    USD: "$",
+    GBP: "£",
+    CHF: "CHF",
+  };
+  return symbols[currency] || currency;
 }
 
 function formatDateExample(format: string): string {
-  const date = new Date(2024, 0, 15) // January 15, 2024
+  const date = new Date(2024, 0, 15); // January 15, 2024
   switch (format) {
-    case 'DD/MM/YYYY':
-      return '15/01/2024'
-    case 'MM/DD/YYYY':
-      return '01/15/2024'
-    case 'YYYY-MM-DD':
-      return '2024-01-15'
+    case "DD/MM/YYYY":
+      return "15/01/2024";
+    case "MM/DD/YYYY":
+      return "01/15/2024";
+    case "YYYY-MM-DD":
+      return "2024-01-15";
     default:
-      return ''
+      return "";
   }
 }

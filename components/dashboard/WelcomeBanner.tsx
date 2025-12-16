@@ -1,41 +1,43 @@
-'use client'
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+"use client";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function WelcomeBanner() {
-  const search = useSearchParams()
-  const router = useRouter()
-  const [hasModel, setHasModel] = useState(false)
-  const [dismissed, setDismissed] = useState(false)
-  const welcome = search.get('welcome')
+  const search = useSearchParams();
+  const router = useRouter();
+  const [hasModel, setHasModel] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const welcome = search.get("welcome");
 
   useEffect(() => {
-    router.prefetch('/dashboard/model') // Prefetch for instant navigation
+    router.prefetch("/dashboard/model"); // Prefetch for instant navigation
 
     try {
-      const raw = localStorage.getItem('milton-model')
-      const isDismissed = localStorage.getItem('milton-banner-dismissed') === 'true'
-      if (isDismissed) setDismissed(true)
-      if (raw && JSON.parse(raw)) setHasModel(true)
+      const raw = localStorage.getItem("milton-model");
+      const isDismissed =
+        localStorage.getItem("milton-banner-dismissed") === "true";
+      if (isDismissed) setDismissed(true);
+      if (raw && JSON.parse(raw)) setHasModel(true);
     } catch {
       // ignore JSON parse errors
     }
-  }, [router])
+  }, [router]);
 
-  if (dismissed || (!welcome && !hasModel)) return null
+  if (dismissed || (!welcome && !hasModel)) return null;
 
   const handleDismiss = () => {
-    setDismissed(true)
-    localStorage.setItem('milton-banner-dismissed', 'true')
-  }
+    setDismissed(true);
+    localStorage.setItem("milton-banner-dismissed", "true");
+  };
 
   return (
     <div className="mb-4 rounded-lg border bg-blue-50 p-4 flex items-center justify-between">
       <div>
         <div className="font-semibold">Your workspace is ready</div>
         <div className="text-sm text-blue-900/80">
-          We generated a data model tailored to your business. Review it and adjust relationships.
+          We generated a data model tailored to your business. Review it and
+          adjust relationships.
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -53,5 +55,5 @@ export default function WelcomeBanner() {
         </button>
       </div>
     </div>
-  )
+  );
 }

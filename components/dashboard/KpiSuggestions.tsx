@@ -1,22 +1,22 @@
-'use client'
+"use client";
 
-import React from 'react'
-import { useBusinessContext } from '@/lib/business-context'
-import { KPI_TEMPLATES } from '@/lib/kpi-templates'
-import type { BusinessTypeId } from '@/lib/business-types'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import React from "react";
+import { useBusinessContext } from "@/lib/business-context";
+import { KPI_TEMPLATES } from "@/lib/kpi-templates";
+import type { BusinessTypeId } from "@/lib/business-types";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 export function KpiSuggestions() {
-  const { businessType } = useBusinessContext()
+  const { businessType } = useBusinessContext();
 
   if (!businessType) {
-    return null
+    return null;
   }
 
-  const templates = KPI_TEMPLATES[businessType as BusinessTypeId] ?? []
+  const templates = KPI_TEMPLATES[businessType as BusinessTypeId] ?? [];
 
   if (!templates.length) {
-    return null
+    return null;
   }
 
   return (
@@ -32,11 +32,11 @@ export function KpiSuggestions() {
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">{kpi.label}</span>
               <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                {kpi.trendGoal === 'increase'
-                  ? 'Higher is better'
-                  : kpi.trendGoal === 'decrease'
-                  ? 'Lower is better'
-                  : 'Keep stable'}
+                {kpi.trendGoal === "increase"
+                  ? "Higher is better"
+                  : kpi.trendGoal === "decrease"
+                    ? "Lower is better"
+                    : "Keep stable"}
               </span>
             </div>
             <p className="text-xs text-muted-foreground">{kpi.description}</p>
@@ -44,6 +44,5 @@ export function KpiSuggestions() {
         ))}
       </CardContent>
     </Card>
-  )
+  );
 }
-

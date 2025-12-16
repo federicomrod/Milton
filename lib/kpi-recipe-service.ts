@@ -1,5 +1,5 @@
 // lib/kpi-recipe-service.ts
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * Loads KPI recipe definitions for a given business model key
@@ -7,20 +7,20 @@ import { createClient } from '@/lib/supabase/client'
  */
 export async function getKpiRecipes(modelKey: string) {
   try {
-    const supabase = createClient()
+    const supabase = createClient();
     const { data, error } = await supabase
-      .from('business_model_templates')
-      .select('kpi_recipes')
-      .eq('key', modelKey)
-      .limit(1)
+      .from("business_model_templates")
+      .select("kpi_recipes")
+      .eq("key", modelKey)
+      .limit(1);
 
     if (error) {
-      console.error('[getKpiRecipes] error:', error)
-      return []
+      console.error("[getKpiRecipes] error:", error);
+      return [];
     }
-    return (data && data.length > 0) ? data[0].kpi_recipes || [] : []
+    return data && data.length > 0 ? data[0].kpi_recipes || [] : [];
   } catch (err) {
-    console.error('[getKpiRecipes] unexpected error:', err)
-    return []
+    console.error("[getKpiRecipes] unexpected error:", err);
+    return [];
   }
 }

@@ -1,8 +1,14 @@
-'use client'
+"use client";
 
-import { ReportsTab } from '@/components/dashboard/reports-tab'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { FileText } from 'lucide-react'
+import { ReportsTab } from "@/components/dashboard/reports-tab";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { FileText } from "lucide-react";
 
 export default function ReportingPage() {
   return (
@@ -15,7 +21,8 @@ export default function ReportingPage() {
             <h1 className="text-3xl font-bold text-gray-900">Reporting</h1>
           </div>
           <p className="text-gray-600">
-            Generate professional PDF reports with AI-powered insights, financial charts, and KPI summaries
+            Generate professional PDF reports with AI-powered insights,
+            financial charts, and KPI summaries
           </p>
         </div>
 
@@ -23,6 +30,5 @@ export default function ReportingPage() {
         <ReportsTab />
       </div>
     </div>
-  )
+  );
 }
-

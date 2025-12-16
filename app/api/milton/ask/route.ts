@@ -5,7 +5,10 @@ export async function POST(request: Request) {
   try {
     const { message, dataStatus } = await request.json();
 
-    const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+    const messages: Array<{
+      role: "system" | "user" | "assistant";
+      content: string;
+    }> = [
       {
         role: "system",
         content:
@@ -26,6 +29,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ reply });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "An error occurred" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "An error occurred" },
+      { status: 500 },
+    );
   }
 }

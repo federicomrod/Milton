@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { KpiSelectionStep } from '@/components/onboarding/KpiSelectionStep';
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { KpiSelectionStep } from "@/components/onboarding/KpiSelectionStep";
 
 export default function OnboardingKpisPage() {
   const router = useRouter();
@@ -12,9 +12,9 @@ export default function OnboardingKpisPage() {
       <div>
         <h1 className="text-xl font-semibold">Choose your key KPIs</h1>
         <p className="text-sm text-muted-foreground">
-          Based on your business type and the data you connected, Milton recommends a
-          set of KPIs. Select the ones you care about most. You can always adjust them
-          later in your dashboard settings.
+          Based on your business type and the data you connected, Milton
+          recommends a set of KPIs. Select the ones you care about most. You can
+          always adjust them later in your dashboard settings.
         </p>
       </div>
 
@@ -26,14 +26,11 @@ export default function OnboardingKpisPage() {
         <Button
           type="button"
           variant="ghost"
-          onClick={() => router.push('/onboarding/model')}
+          onClick={() => router.push("/onboarding/model")}
         >
           Back to data model
         </Button>
-        <Button
-          type="button"
-          onClick={() => router.push('/dashboard')}
-        >
+        <Button type="button" onClick={() => router.push("/dashboard")}>
           Finish onboarding &amp; go to dashboard
         </Button>
       </div>

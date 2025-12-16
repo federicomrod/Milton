@@ -1,10 +1,15 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { BUSINESS_TYPES, type BusinessTypeId } from '@/lib/business-types';
-import { useBusinessContext } from '@/lib/business-context';
-import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import React from "react";
+import { BUSINESS_TYPES, type BusinessTypeId } from "@/lib/business-types";
+import { useBusinessContext } from "@/lib/business-context";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 export function BusinessTypeSelector() {
   const { setBusinessType } = useBusinessContext();
@@ -21,7 +26,8 @@ export function BusinessTypeSelector() {
             What type of business are you running?
           </h1>
           <p className="text-sm text-muted-foreground">
-            Milton tailors KPIs, dashboards, and AI insights based on your business model.
+            Milton tailors KPIs, dashboards, and AI insights based on your
+            business model.
           </p>
         </div>
 
@@ -33,10 +39,16 @@ export function BusinessTypeSelector() {
               onClick={() => handleSelect(type.id)}
             >
               <CardHeader className="space-y-2">
-                <CardTitle className="text-base font-semibold">{type.label}</CardTitle>
-                <CardDescription className="text-xs">{type.description}</CardDescription>
+                <CardTitle className="text-base font-semibold">
+                  {type.label}
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  {type.description}
+                </CardDescription>
                 {type.tagline && (
-                  <p className="text-xs text-muted-foreground italic">{type.tagline}</p>
+                  <p className="text-xs text-muted-foreground italic">
+                    {type.tagline}
+                  </p>
                 )}
               </CardHeader>
               <div className="px-4 pb-4">
@@ -56,10 +68,10 @@ export function BusinessTypeSelector() {
         </div>
 
         <p className="text-xs text-muted-foreground text-center">
-          You can change this later in your settings or data model configuration.
+          You can change this later in your settings or data model
+          configuration.
         </p>
       </div>
     </div>
   );
 }
-

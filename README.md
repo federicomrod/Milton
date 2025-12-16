@@ -20,23 +20,25 @@ Clone the repository:
 git clone https://github.com/your-username/milton.git
 cd milton
 
-
 Install dependencies:
 npm install
-# or
-pnpm install
 
+# or
+
+pnpm install
 
 Set up environment variables:
 
 Create a `.env.local` file in the root directory.
 
 Add your OpenAI API key:
+
 ```
 OPENAI_API_KEY=your-api-key-here
 ```
 
 Configure Supabase credentials if using database features:
+
 ```
 NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
@@ -44,6 +46,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
 
 **Where to find these keys:**
+
 - Go to your Supabase Dashboard → Settings → API
 - `NEXT_PUBLIC_SUPABASE_URL`: Found at the top of the API settings page
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Found under "Project API keys" (anon/public key)
@@ -51,14 +54,12 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 **Important:** The service role key is required for user signup (creates profile and company). It bypasses Row Level Security and should never be exposed in client-side code.
 
-
-
-
 Run the development server:
 npm run dev
-# or
-pnpm dev
 
+# or
+
+pnpm dev
 
 Open http://localhost:3000 in your browser to see the app.
 
@@ -82,6 +83,7 @@ Open http://localhost:3000 in your browser to see the app.
 - **Database & Tooling**: Supabase (database and authentication), OpenAI API (AI insights), Expo (mobile app builder), Astro (blogs & content sites).
 
 The tech stack is kept simple to minimize complexity and reduce the likelihood of AI-related issues, focusing on client-side rendering and local storage where feasible.
+
 ## Development Guidelines
 
 - Use client-side logic for data processing where possible to avoid server dependencies.
@@ -90,6 +92,7 @@ The tech stack is kept simple to minimize complexity and reduce the likelihood o
 - Plan for future AI agent implementation in the side window using WebSocket or similar lightweight technology.
 
 ## Deployment
+
 For now, the app runs locally. Future deployment will leverage Vercel for simplicity:
 
 Push your code to a Git repository.

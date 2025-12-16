@@ -1,5 +1,5 @@
-'use client'
-import React from 'react'
+"use client";
+import React from "react";
 
 export default function CashFlowTab({ data }: { data?: any[] }) {
   if (!data || data.length === 0) {
@@ -10,13 +10,9 @@ export default function CashFlowTab({ data }: { data?: any[] }) {
           Upload your bank transactions and budget files to generate insights.
         </p>
       </div>
-    )
+    );
   }
 
   // Existing cash flow chart rendering logic remains untouched here
-  return (
-    <div>
-      {/* Existing visuals for cash flow */}
-    </div>
-  )
+  return <div>{/* Existing visuals for cash flow */}</div>;
 }

@@ -1,11 +1,17 @@
-'use client'
+"use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { FinancialCharts } from '@/components/dashboard/financial-charts'
-import { SalesPipeline } from '@/components/dashboard/sales-pipeline'
-import { CashFlowAnalysis } from '@/components/dashboard/cash-flow-analysis'
-import { BarChart } from 'lucide-react'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FinancialCharts } from "@/components/dashboard/financial-charts";
+import { SalesPipeline } from "@/components/dashboard/sales-pipeline";
+import { CashFlowAnalysis } from "@/components/dashboard/cash-flow-analysis";
+import { BarChart } from "lucide-react";
 
 export default function AnalyticsPage() {
   return (
@@ -18,7 +24,8 @@ export default function AnalyticsPage() {
             <h1 className="text-3xl font-bold text-gray-900">Analytics</h1>
           </div>
           <p className="text-gray-600">
-            Deep dive into your financial performance, sales pipeline, and cash flow metrics
+            Deep dive into your financial performance, sales pipeline, and cash
+            flow metrics
           </p>
         </div>
 
@@ -48,6 +55,5 @@ export default function AnalyticsPage() {
         </Tabs>
       </div>
     </div>
-  )
+  );
 }
-

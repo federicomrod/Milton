@@ -1,14 +1,16 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { useBusinessContext } from '@/lib/business-context';
-import { BusinessTypeSelector } from './BusinessTypeSelector';
+import React from "react";
+import { useBusinessContext } from "@/lib/business-context";
+import { BusinessTypeSelector } from "./BusinessTypeSelector";
 
 type DashboardBusinessGateProps = {
   children: React.ReactNode;
 };
 
-export function DashboardBusinessGate({ children }: DashboardBusinessGateProps) {
+export function DashboardBusinessGate({
+  children,
+}: DashboardBusinessGateProps) {
   const { businessType, isLoading } = useBusinessContext();
 
   // Show loading state while checking localStorage
@@ -20,7 +22,9 @@ export function DashboardBusinessGate({ children }: DashboardBusinessGateProps) 
             <div className="h-4 w-48 bg-muted rounded mx-auto" />
             <div className="h-3 w-32 bg-muted rounded mx-auto" />
           </div>
-          <p className="text-sm text-muted-foreground mt-4">Preparing your workspace…</p>
+          <p className="text-sm text-muted-foreground mt-4">
+            Preparing your workspace…
+          </p>
         </div>
       </div>
     );
@@ -34,4 +38,3 @@ export function DashboardBusinessGate({ children }: DashboardBusinessGateProps) 
   // Business type is selected, render the dashboard
   return <>{children}</>;
 }
-

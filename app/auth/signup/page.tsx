@@ -1,9 +1,11 @@
-import { SignupForm } from '@/components/auth/signup-form'
+import { SignupForm } from "@/components/auth/signup-form";
+
+export const dynamic = "force-dynamic";
 
 export default function SignupPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <SignupForm />
     </div>
-  )
+  );
 }

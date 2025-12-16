@@ -19,7 +19,7 @@ export default function DataModelLayout({
       </div>
 
       {/* Milton fixed sidebar */}
-      <aside className="w-[400px] border-l bg-white shadow-inner flex flex-col">
+      <aside className="w-[400px] border-l bg-white shadow-inner flex flex-col p-4">
         <MiltonChat />
       </aside>
     </div>

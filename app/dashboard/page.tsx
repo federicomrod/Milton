@@ -22,7 +22,6 @@ import { FinancialCharts } from "@/components/dashboard/financial-charts";
 import { SalesPipeline } from "@/components/dashboard/sales-pipeline";
 import { CashFlowAnalysis } from "@/components/dashboard/cash-flow-analysis";
 import { MetricSelector } from "@/components/dashboard/metric-selector";
-import { UseCaseSelector } from "@/components/dashboard/use-case-selector";
 import { getUseCase } from "@/types/use-cases";
 import WelcomeBanner from "@/components/dashboard/WelcomeBanner";
 import { useBusinessContext } from "@/lib/business-context";
@@ -32,7 +31,15 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { ChevronDown, ChevronUp, Upload, FileText, Target } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Upload,
+  FileText,
+  Target,
+  ArrowRight,
+  Sparkles,
+} from "lucide-react";
 
 // Helper component for locked/missing data placeholders
 const LockedPlaceholder = ({ message }: { message: string }) => (
@@ -61,8 +68,8 @@ export default function DashboardPage() {
     "customers",
   ]);
   const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(false); // Start with loading false for development
-  const [isUploadOpen, setIsUploadOpen] = useState(true); // Default to open
+  const [loading, setLoading] = useState(false);
+  const [isUploadOpen, setIsUploadOpen] = useState(true);
   const [hasUploadedData, setHasUploadedData] = useState(false);
   const [dataStatus, setDataStatus] = useState<DataStatus>(null);
   const [pendingUpload, setPendingUpload] = useState<{
@@ -70,6 +77,7 @@ export default function DashboardPage() {
     datasetType: "bank" | "crm" | "budget" | null;
   } | null>(null);
   const [showUploadModeDialog, setShowUploadModeDialog] = useState(false);
+  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
 
   // Use case selection state
   const [selectedUseCase, setSelectedUseCase] = useState<string | null>(null);
@@ -78,18 +86,15 @@ export default function DashboardPage() {
   // Check if user has uploaded data via Supabase/API
   const checkUploadedData = async () => {
     try {
-      console.log("[Dashboard] Checking uploaded data from API...");
       const res = await fetch("/api/data/status");
 
       if (!res.ok) {
-        console.warn("[Dashboard] Data status API returned non-OK status");
         setIsUploadOpen(true);
         setDataStatus(null);
         return;
       }
 
       const json = await res.json();
-      console.log("[Dashboard] Data status:", json);
 
       // Update dataStatus state for conditional rendering
       setDataStatus(json);
@@ -102,7 +107,6 @@ export default function DashboardPage() {
         setIsUploadOpen(true);
       }
     } catch (err) {
-      console.error("[Dashboard] Error checking data status:", err);
       setIsUploadOpen(true);
       setDataStatus(null);
     }
@@ -127,13 +131,11 @@ export default function DashboardPage() {
 
       if (!res.ok) {
         const errorText = await res.text();
-        console.error("[Dashboard] Upload failed", errorText);
         alert("Upload failed: " + errorText);
         return;
       }
 
-      const result = await res.json();
-      console.log("[Dashboard] Upload successful:", result);
+      await res.json();
 
       // Refresh data status and trigger dashboard generation
       await checkUploadedData();
@@ -142,7 +144,6 @@ export default function DashboardPage() {
         businessModel: localStorage.getItem("businessModel") || "",
       });
     } catch (err) {
-      console.error("[Dashboard] Upload error:", err);
       alert("Upload error: " + (err as Error).message);
     }
   };
@@ -166,9 +167,7 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    // Temporarily skip auth check for development
     const checkAuth = async () => {
-      console.log("⚠️ Skipping auth check for development");
       setLoading(false);
     };
 
@@ -178,29 +177,35 @@ export default function DashboardPage() {
         const storedUseCase = localStorage.getItem("selectedUseCase");
         const storedConfirmed = localStorage.getItem("useCaseConfirmed");
 
-        console.log("🔍 Stored use case:", storedUseCase);
-        console.log("🔍 Stored confirmed:", storedConfirmed);
-
         if (storedUseCase && storedConfirmed === "true") {
           setSelectedUseCase(storedUseCase);
           setUseCaseConfirmed(true);
         } else {
-          // Don't auto-confirm - let user select
-          console.log("📝 No use case confirmed, showing selector");
           setSelectedUseCase(null);
           setUseCaseConfirmed(false);
         }
       } catch (error) {
-        console.error("Error checking use case:", error);
-        // Fallback to showing selector
         setSelectedUseCase(null);
         setUseCaseConfirmed(false);
+      }
+    };
+
+    // Check onboarding status
+    const checkOnboardingStatus = async () => {
+      try {
+        const { isOnboardingComplete } =
+          await import("@/lib/onboarding-status");
+        const complete = await isOnboardingComplete();
+        setNeedsOnboarding(!complete);
+      } catch (error) {
+        setNeedsOnboarding(null);
       }
     };
 
     checkAuth();
     checkUploadedData();
     checkStoredUseCase();
+    checkOnboardingStatus();
   }, []);
 
   // Fetch user's selected KPI IDs and merge with core KPIs
@@ -209,20 +214,12 @@ export default function DashboardPage() {
       try {
         const res = await fetch("/api/onboarding/kpi-preferences");
         if (!res.ok) {
-          console.warn(
-            "[Dashboard] Could not load KPI preferences, using defaults"
-          );
           return;
         }
         const data = await res.json();
         const userSelectedKpiIds = (data.selectedKpiIds ?? []) as string[];
 
         if (userSelectedKpiIds.length > 0) {
-          console.log(
-            "[Dashboard] Loaded user KPI preferences:",
-            userSelectedKpiIds
-          );
-
           // Merge: core KPIs always show, then add user-selected ones (no duplicates)
           const mergedKpiIds = [
             ...coreKpiIds,
@@ -232,26 +229,13 @@ export default function DashboardPage() {
           setSelectedMetrics(mergedKpiIds);
         }
       } catch (err) {
-        console.error("[Dashboard] Error loading KPI preferences:", err);
+        // Silently fail, use defaults
       }
     };
 
     loadKpiPreferences();
   }, []);
 
-  // Handle use case selection
-  const handleUseCaseSelect = (useCaseId: string) => {
-    setSelectedUseCase(useCaseId);
-    localStorage.setItem("selectedUseCase", useCaseId);
-  };
-
-  // Handle use case confirmation
-  const handleUseCaseConfirm = () => {
-    setUseCaseConfirmed(true);
-    localStorage.setItem("useCaseConfirmed", "true");
-  };
-
-  // Reset use case (for testing)
   const resetUseCase = () => {
     setUseCaseConfirmed(false);
     setSelectedUseCase(null);
@@ -267,99 +251,80 @@ export default function DashboardPage() {
     );
   }
 
-  // Temporarily allow rendering without user for development
-  if (!user) {
-    console.log("⚠️ No user, but rendering anyway for development");
-    // return null // Commented out for development
+  // Show onboarding prompt if needed
+  if (needsOnboarding === true) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <Card className="max-w-2xl w-full border-2 border-blue-200 shadow-lg">
+          <CardHeader className="text-center pb-4">
+            <div className="flex justify-center mb-4">
+              <div className="rounded-full bg-blue-100 p-4">
+                <Sparkles className="h-12 w-12 text-blue-600" />
+              </div>
+            </div>
+            <CardTitle className="text-2xl md:text-3xl mb-2">
+              Complete Your Onboarding
+            </CardTitle>
+            <CardDescription className="text-base">
+              Get started by setting up your company profile and selecting your
+              KPIs
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="rounded-full bg-blue-100 p-1.5 mt-0.5">
+                  <Target className="h-4 w-4 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm">Set up your company</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Tell us about your business to get personalized insights
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="rounded-full bg-blue-100 p-1.5 mt-0.5">
+                  <FileText className="h-4 w-4 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm">Select your KPIs</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Choose the metrics that matter most to your business
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="rounded-full bg-blue-100 p-1.5 mt-0.5">
+                  <Upload className="h-4 w-4 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm">Upload your data</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Connect your financial data to start tracking performance
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="pt-4">
+              <Button
+                onClick={() => router.push("/onboarding")}
+                className="w-full h-12 text-base"
+                size="lg"
+              >
+                Start Onboarding
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (
     <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
       <div className="px-4 py-6 sm:px-0">
-        {/* DEBUG INFO - Remove in production */}
-        <Card className="mb-4 border-yellow-300 bg-yellow-50">
-          <CardHeader>
-            <CardTitle className="text-sm">
-              🐛 Debug Info (Remove in production)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs space-y-1">
-            <div>
-              useCaseConfirmed:{" "}
-              <strong>{useCaseConfirmed ? "true" : "false"}</strong>
-            </div>
-            <div>
-              selectedUseCase: <strong>{selectedUseCase || "null"}</strong>
-            </div>
-            <div>
-              hasUploadedData:{" "}
-              <strong>{hasUploadedData ? "true" : "false"}</strong>
-            </div>
-            <div>
-              isUploadOpen: <strong>{isUploadOpen ? "true" : "false"}</strong>
-            </div>
-            <div className="flex gap-2 mt-2">
-              <Button size="sm" variant="outline" onClick={resetUseCase}>
-                Reset Use Case
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  localStorage.clear();
-                  window.location.reload();
-                }}
-              >
-                Clear All Data
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={async () => {
-                  console.log("🔍 Checking data status from API...");
-                  try {
-                    const res = await fetch("/api/data/status");
-                    const data = await res.json();
-                    console.log("🔍 Data status:", data);
-                    console.log("🔍 Bank:", data?.bank ? "Yes" : "No");
-                    console.log("🔍 CRM:", data?.crm ? "Yes" : "No");
-                    console.log("🔍 Budget:", data?.budget ? "Yes" : "No");
-                  } catch (err) {
-                    console.error("🔍 Error fetching data status:", err);
-                  }
-                }}
-              >
-                Debug Data
-              </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => {
-                  localStorage.clear();
-                  sessionStorage.clear();
-                  window.location.reload();
-                }}
-              >
-                🚨 FORCE FRESH START
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Use Case Selection Section - Show when not confirmed */}
-        {!useCaseConfirmed && (
-          <div className="mb-8 border-2 border-blue-200 bg-blue-50 p-6 rounded-lg">
-            <h3 className="text-xl font-semibold mb-4 text-blue-800">
-              Select Your Business Type
-            </h3>
-            <UseCaseSelector
-              selectedUseCase={selectedUseCase}
-              onUseCaseSelect={handleUseCaseSelect}
-              onConfirm={handleUseCaseConfirm}
-            />
-          </div>
-        )}
-
         {/* Show business type badge when confirmed */}
         {useCaseConfirmed && selectedUseCase && (
           <div className="mb-6 flex items-center justify-between">

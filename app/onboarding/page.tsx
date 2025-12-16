@@ -16,7 +16,6 @@ export default function OnboardingPage() {
   const [peersFocus, setPeersFocus] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [companyInfo, setCompanyInfo] = useState<any>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [miltonMessages, setMiltonMessages] = useState<
     { from: "milton" | "user"; text: string }[]
@@ -68,7 +67,12 @@ export default function OnboardingPage() {
   }, []);
 
   const handleOnboardingFinish = useCallback(
-    async (answers: { industry: string; employees: string; goals: string }) => {
+    async (answers: {
+      industry: string;
+      employees: string;
+      goals: string;
+      businessType?: string;
+    }) => {
       console.log("🟩 Milton finished onboarding with answers:", answers);
       setLoading(true);
       setMiltonMessages((prev) => [
@@ -79,12 +83,18 @@ export default function OnboardingPage() {
         },
       ]);
       setError(null);
-      setCompanyInfo(answers);
 
       try {
         // Generate AI business model proposal
         console.log("🧠 Generating business model for:", answers);
-        const businessDescription = `Industry: ${answers.industry}, Employees: ${answers.employees}, Goals: ${answers.goals}`;
+        const businessDescription = `Business Type: ${answers.industry}, Employees: ${answers.employees}, Goals: ${answers.goals}`;
+
+        // Store business type for dashboard
+        if (answers.businessType) {
+          localStorage.setItem("selectedUseCase", answers.businessType);
+          localStorage.setItem("useCaseConfirmed", "true");
+          localStorage.setItem("businessModel", answers.businessType);
+        }
 
         setMiltonMessages((prev) => [
           ...prev,
@@ -131,7 +141,7 @@ export default function OnboardingPage() {
         ]);
 
         // Existing generateBusinessModel call (kept as is)
-        const model = await generateBusinessModel(businessDescription);
+        await generateBusinessModel(businessDescription);
 
         console.log("✅ Business model stored successfully");
       } catch (err) {
@@ -185,7 +195,7 @@ export default function OnboardingPage() {
         setLoading(false);
       }
     },
-    [companyId, router]
+    [companyId]
   );
 
   const toggleKPISelection = useCallback((kpi: KPI) => {
@@ -235,7 +245,9 @@ export default function OnboardingPage() {
       // ✅ Pragmatic unblock: persist locally, continue flow
       try {
         localStorage.setItem("selectedKPIs", JSON.stringify(selectedKPIs));
-      } catch {}
+      } catch {
+        // Ignore localStorage errors
+      }
       alert(
         "KPIs saved locally for now. Redirecting to your Data Model Builder…"
       );
@@ -255,116 +267,104 @@ export default function OnboardingPage() {
     [handleOnboardingFinish, miltonMessages]
   );
 
+  // Only show KPI panel when we have recommendations
+  const showKpiPanel = recommendedKPIs.length > 0 && !loading;
+
   return (
-    <div className="min-h-screen flex bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Left: Milton Chat */}
-      <div className="w-3/5 border-r bg-white shadow-sm flex flex-col">
-        <div className="p-6 border-b">
-          <h1 className="text-2xl font-semibold text-gray-800">
-            Welcome to Milton
-          </h1>
-          <p className="text-gray-500 text-sm">
-            Your AI-powered finance copilot
-          </p>
+    <div className="h-screen flex flex-col md:flex-row bg-gradient-to-br from-gray-50 to-gray-100 overflow-hidden">
+      {/* Main: Milton Chat */}
+      <div
+        className={`${showKpiPanel ? "md:w-3/5" : "w-full"} border-r bg-white shadow-sm flex flex-col h-full overflow-hidden`}
+      >
+        <div className="flex-1 overflow-hidden min-h-0 p-4 md:p-6 flex items-center justify-center">
+          {memoizedMiltonChat}
         </div>
-        <div className="flex-1 overflow-auto">{memoizedMiltonChat}</div>
       </div>
 
-      {/* Right: KPI Recommendation Panel */}
-      <div className="w-2/5 p-8 flex flex-col items-center justify-center bg-gray-50 overflow-auto">
-        <Card className="p-6 w-full max-w-md text-center">
-          {error ? (
-            <>
-              <h2 className="text-xl font-semibold mb-4 text-red-600">Error</h2>
-              <p className="text-gray-600 mb-4">{error}</p>
-              <Button
-                onClick={() => {
-                  setError(null);
-                  setRecommendedKPIs([]);
-                  setPeersFocus([]);
-                }}
-                variant="outline"
-              >
-                Try Again
-              </Button>
-            </>
-          ) : !loading && recommendedKPIs.length === 0 ? (
-            <>
-              <h2 className="text-xl font-semibold mb-4 text-gray-700">
-                KPI Recommendations
-              </h2>
-              <p className="text-gray-500">
-                Once Milton learns about your business, KPI suggestions will
-                appear here.
-              </p>
-            </>
-          ) : loading ? (
-            <div className="flex flex-col items-center justify-center text-gray-500">
-              <div className="animate-spin rounded-full h-10 w-10 border-4 border-blue-500 border-t-transparent mb-3"></div>
-              <p>Analyzing your business model...</p>
-            </div>
-          ) : (
-            <>
-              <h2 className="text-xl font-semibold mb-4 text-gray-700">
-                Recommended KPIs
-              </h2>
-              {recommendedKPIs.length > 0 && (
-                <p className="text-sm text-gray-500 mb-2">
-                  Click on at least three KPIs that matter most to you.
-                </p>
-              )}
-              <div className="grid grid-cols-2 gap-3 text-left">
-                {recommendedKPIs.map((k, i) => {
-                  const isSelected = selectedKPIs.some(
-                    (sk) => sk.name === k.name
-                  );
-                  return (
-                    <div
-                      key={i}
-                      onClick={() => toggleKPISelection(k)}
-                      className={`cursor-pointer rounded-2xl border p-3 bg-white shadow-sm ${
-                        isSelected
-                          ? "border-blue-500 bg-blue-50"
-                          : "border-gray-200"
-                      }`}
-                    >
-                      <div className="text-sm uppercase opacity-60">
-                        {k.category}
+      {/* Right: KPI Recommendation Panel - Only show when we have recommendations */}
+      {showKpiPanel && (
+        <div className="md:w-2/5 p-6 md:p-8 flex flex-col items-center justify-center bg-gray-50 overflow-auto border-t md:border-t-0 md:border-l">
+          <Card className="p-6 w-full max-w-md text-center">
+            {error ? (
+              <>
+                <h2 className="text-xl font-semibold mb-4 text-red-600">
+                  Error
+                </h2>
+                <p className="text-gray-600 mb-4">{error}</p>
+                <Button
+                  onClick={() => {
+                    setError(null);
+                    setRecommendedKPIs([]);
+                    setPeersFocus([]);
+                  }}
+                  variant="outline"
+                >
+                  Try Again
+                </Button>
+              </>
+            ) : (
+              <>
+                <h2 className="text-xl font-semibold mb-4 text-gray-700">
+                  Recommended KPIs
+                </h2>
+                {recommendedKPIs.length > 0 && (
+                  <p className="text-sm text-gray-500 mb-4">
+                    Click on at least three KPIs that matter most to you.
+                  </p>
+                )}
+                <div className="grid grid-cols-2 gap-3 text-left">
+                  {recommendedKPIs.map((k, i) => {
+                    const isSelected = selectedKPIs.some(
+                      (sk) => sk.name === k.name
+                    );
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => toggleKPISelection(k)}
+                        className={`cursor-pointer rounded-2xl border p-3 bg-white shadow-sm transition-all ${
+                          isSelected
+                            ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
+                            : "border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        <div className="text-sm uppercase opacity-60">
+                          {k.category}
+                        </div>
+                        <div className="font-medium">{k.name}</div>
+                        <div className="text-sm opacity-80">{k.why}</div>
                       </div>
-                      <div className="font-medium">{k.name}</div>
-                      <div className="text-sm opacity-80">{k.why}</div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="mt-6 text-left">
-                <p className="font-semibold mb-2 text-gray-700">
-                  Peers focus on:
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {peersFocus.map((p, i) => (
-                    <span
-                      key={i}
-                      className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm"
-                    >
-                      {p}
-                    </span>
-                  ))}
+                    );
+                  })}
                 </div>
-              </div>
-              <Button
-                className="mt-6 w-full"
-                disabled={selectedKPIs.length < 3}
-                onClick={saveSelectedKPIs}
-              >
-                {selectedKPIs.length < 3
-                  ? `Select at least ${3 - selectedKPIs.length} more KPI${3 - selectedKPIs.length > 1 ? "s" : ""}`
-                  : "Confirm My KPIs"}
-              </Button>
-            </>
-          )}
-        </Card>
-      </div>
+                <div className="mt-6 text-left">
+                  <p className="font-semibold mb-2 text-gray-700">
+                    Peers focus on:
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {peersFocus.map((p, i) => (
+                      <span
+                        key={i}
+                        className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm"
+                      >
+                        {p}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <Button
+                  className="mt-6 w-full"
+                  disabled={selectedKPIs.length < 3}
+                  onClick={saveSelectedKPIs}
+                >
+                  {selectedKPIs.length < 3
+                    ? `Select at least ${3 - selectedKPIs.length} more KPI${3 - selectedKPIs.length > 1 ? "s" : ""}`
+                    : "Confirm My KPIs"}
+                </Button>
+              </>
+            )}
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

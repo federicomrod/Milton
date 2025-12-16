@@ -10,7 +10,7 @@ import type {
  * Returns a ModelProposal or null if the request fails
  */
 export async function callBusinessModelAnalyzer(
-  input: BusinessModelAnalyzerInput,
+  input: BusinessModelAnalyzerInput
 ): Promise<ModelProposal | null> {
   try {
     const res = await fetch("/api/ai/business-model-analyzer", {

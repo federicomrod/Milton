@@ -8,7 +8,7 @@ export async function POST(req: Request) {
     if (!message) {
       return NextResponse.json(
         { error: "Missing query message" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     console.error("Error in /api/charts/generate:", err);
     return NextResponse.json(
       { error: err?.message || "Failed to generate chart" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

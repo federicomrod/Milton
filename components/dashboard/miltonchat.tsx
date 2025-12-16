@@ -45,7 +45,7 @@ export default function MiltonChat() {
             text: `✅ Dashboard ready! I've generated visuals for your key KPIs under the ${payload.businessModel.replace("_", " ")} model.`,
           },
         ]);
-      },
+      }
     );
     return () => unsubscribeDashboard();
   }, []);
@@ -89,7 +89,7 @@ export default function MiltonChat() {
             id: Date.now(),
             from: "milton",
             text: data.reply || "I could not generate a response.",
-          }),
+          })
       );
     } catch (error) {
       console.error("[MiltonChat] Error:", error);
@@ -101,7 +101,7 @@ export default function MiltonChat() {
             id: Date.now(),
             from: "milton",
             text: "Sorry, I encountered an error. Please try again.",
-          }),
+          })
       );
     }
   };

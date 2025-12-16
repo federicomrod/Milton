@@ -9,7 +9,7 @@ function monthKey(date: string) {
 
 export async function generateUserKpiSnapshots(
   supabase: SupabaseClient,
-  userId: string,
+  userId: string
 ) {
   const { data: txs, error } = await supabase
     .from("transactions")
@@ -40,7 +40,7 @@ export async function generateUserKpiSnapshots(
       net_income: revenue - expenses,
       burn_rate: revenue - expenses < 0 ? Math.abs(revenue - expenses) : 0,
       cash_runway: null,
-    }),
+    })
   );
 
   if (!rows.length) {

@@ -179,12 +179,12 @@ export function UseCaseSelector({
                           </div>
                         ))}
                       {currentUseCase.requiredMetrics.filter(
-                        (m) => m.priority === "core",
+                        (m) => m.priority === "core"
                       ).length > 6 && (
                         <div className="text-xs text-gray-500 mt-1">
                           +
                           {currentUseCase.requiredMetrics.filter(
-                            (m) => m.priority === "core",
+                            (m) => m.priority === "core"
                           ).length - 6}{" "}
                           more metrics
                         </div>

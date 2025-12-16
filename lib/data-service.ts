@@ -13,7 +13,7 @@ export interface FileSummary {
  */
 export const getUploadedFilesSummary = async (
   supabase: SupabaseClient,
-  userId: string,
+  userId: string
 ): Promise<FileSummary[]> => {
   const tables = [
     { name: "transactions", label: "Bank Transactions" },
@@ -34,12 +34,12 @@ export const getUploadedFilesSummary = async (
       }
 
       return { ...t, count: count ?? 0, updated_at: new Date().toISOString() };
-    }),
+    })
   );
 
   console.log(
     "📊 Fetched file summaries:",
-    results.map((r) => `${r.name}=${r.count}`).join(", "),
+    results.map((r) => `${r.name}=${r.count}`).join(", ")
   );
 
   return results;
@@ -51,7 +51,7 @@ export const getUploadedFilesSummary = async (
 export const deleteFileData = async (
   supabase: SupabaseClient,
   userId: string,
-  tableName: string,
+  tableName: string
 ): Promise<{ success: boolean; error?: string }> => {
   const { error } = await supabase
     .from(tableName)
@@ -64,7 +64,7 @@ export const deleteFileData = async (
   }
 
   console.log(
-    `✅ Successfully deleted all ${tableName} for user ${userId.substring(0, 8)}...`,
+    `✅ Successfully deleted all ${tableName} for user ${userId.substring(0, 8)}...`
   );
   return { success: true };
 };

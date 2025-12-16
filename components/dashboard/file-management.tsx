@@ -99,7 +99,7 @@ export function FileManagement() {
 
   const deleteFile = async (type: "transactions" | "deals" | "budgets") => {
     const confirmed = confirm(
-      `Are you sure you want to delete all ${type} data? This cannot be undone.`,
+      `Are you sure you want to delete all ${type} data? This cannot be undone.`
     );
     if (!confirmed) return;
 

@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
     if (!businessType || typeof businessType !== "string") {
       return NextResponse.json(
         { success: false, error: "Missing or invalid businessType" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     if (!validTypes.includes(businessType)) {
       return NextResponse.json(
         { success: false, error: "Invalid businessType value" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     if (userError || !user) {
       return NextResponse.json(
         { success: false, error: "Not authenticated" },
-        { status: 401 },
+        { status: 401 }
       );
     }
 
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
       console.error("[business-type] update error", updateError);
       return NextResponse.json(
         { success: false, error: "Failed to update business_models" },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
@@ -65,20 +65,20 @@ export async function POST(req: NextRequest) {
         console.error("[business-type] insert error", insertError);
         return NextResponse.json(
           { success: false, error: "Failed to insert business_models" },
-          { status: 500 },
+          { status: 500 }
         );
       }
     }
 
     console.log(
-      `[business-type] Successfully persisted businessType="${businessType}" for user ${userId}`,
+      `[business-type] Successfully persisted businessType="${businessType}" for user ${userId}`
     );
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("[business-type] unexpected error", err);
     return NextResponse.json(
       { success: false, error: "Unexpected error" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

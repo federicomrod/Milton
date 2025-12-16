@@ -59,7 +59,7 @@ export function CashFlowAnalysis() {
   const calculateCashFlowMetrics = (txData: Transaction[]) => {
     // Sort transactions by date
     const sortedTx = [...txData].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
 
     // Calculate running balance
@@ -133,7 +133,7 @@ export function CashFlowAnalysis() {
       last3Months.length > 0
         ? last3Months.reduce(
             (sum: number, m: any) => sum + (m.outflow - m.inflow),
-            0,
+            0
           ) / last3Months.length
         : 0;
 
@@ -245,9 +245,9 @@ export function CashFlowAnalysis() {
                 ? formatCurrency(
                     Math.round(
                       metrics.monthlyFlow[metrics.monthlyFlow.length - 1]
-                        .netFlow,
+                        .netFlow
                     ),
-                    prefs.currency,
+                    prefs.currency
                   )
                 : formatCurrency(0, prefs.currency)}
             </div>
@@ -318,7 +318,7 @@ export function CashFlowAnalysis() {
               <PieChart>
                 <Pie
                   data={metrics.categoryBreakdown.filter(
-                    (c: any) => c.outflow > 0,
+                    (c: any) => c.outflow > 0
                   )}
                   cx="50%"
                   cy="50%"
@@ -344,7 +344,7 @@ export function CashFlowAnalysis() {
                         key={`cell-${index}`}
                         fill={COLORS[index % COLORS.length]}
                       />
-                    ),
+                    )
                   )}
                 </Pie>
                 <Tooltip

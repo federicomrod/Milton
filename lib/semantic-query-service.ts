@@ -73,7 +73,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function runSemanticQuery(
   query: SemanticQuery,
-  userId?: string,
+  userId?: string
 ): Promise<SemanticResult> {
   if (!userId) {
     return {
@@ -170,7 +170,7 @@ export async function runSemanticQuery(
  */
 export async function handleSemanticMessage(
   message: string,
-  userId?: string,
+  userId?: string
 ): Promise<SemanticResult> {
   const query = await parseUserQuery(message);
   const result = await runSemanticQuery(query, userId);

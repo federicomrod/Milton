@@ -77,7 +77,7 @@ export class DataDetectionService {
 
   async detectDataStructure(
     data: any[],
-    fileName: string,
+    fileName: string
   ): Promise<DetectionResult> {
     if (!data || data.length === 0) {
       throw new Error("No data provided for detection");
@@ -102,13 +102,13 @@ export class DataDetectionService {
     const suggestedMappings = this.createColumnMappings(
       headers,
       sampleData,
-      structure,
+      structure
     );
 
     // Determine if user confirmation is needed
     const needsUserConfirmation = this.shouldRequestConfirmation(
       suggestedMappings,
-      structure,
+      structure
     );
 
     return {
@@ -121,13 +121,13 @@ export class DataDetectionService {
 
   private detectCategoryStructure(
     headers: string[],
-    data: any[],
+    data: any[]
   ): "single-category" | "multi-category" | "unknown" {
     // Check if there's a single category column
     const hasSingleCategory = headers.some((h) =>
       this.standardFields.category.some((cat) =>
-        h.toLowerCase().includes(cat.toLowerCase()),
-      ),
+        h.toLowerCase().includes(cat.toLowerCase())
+      )
     );
 
     if (hasSingleCategory) {
@@ -168,11 +168,11 @@ export class DataDetectionService {
     ];
 
     const germanCount = headers.filter((h) =>
-      germanWords.some((word) => h.toLowerCase().includes(word)),
+      germanWords.some((word) => h.toLowerCase().includes(word))
     ).length;
 
     const englishCount = headers.filter((h) =>
-      englishWords.some((word) => h.toLowerCase().includes(word)),
+      englishWords.some((word) => h.toLowerCase().includes(word))
     ).length;
 
     if (germanCount > englishCount) return "de";
@@ -219,8 +219,8 @@ export class DataDetectionService {
     return (
       headers.find((h) =>
         this.standardFields.amount.some((pattern) =>
-          h.toLowerCase().includes(pattern.toLowerCase()),
-        ),
+          h.toLowerCase().includes(pattern.toLowerCase())
+        )
       ) || ""
     );
   }
@@ -229,8 +229,8 @@ export class DataDetectionService {
     return (
       headers.find((h) =>
         this.standardFields.date.some((pattern) =>
-          h.toLowerCase().includes(pattern.toLowerCase()),
-        ),
+          h.toLowerCase().includes(pattern.toLowerCase())
+        )
       ) || ""
     );
   }
@@ -239,8 +239,8 @@ export class DataDetectionService {
     return (
       headers.find((h) =>
         this.standardFields.description.some((pattern) =>
-          h.toLowerCase().includes(pattern.toLowerCase()),
-        ),
+          h.toLowerCase().includes(pattern.toLowerCase())
+        )
       ) || ""
     );
   }
@@ -248,7 +248,7 @@ export class DataDetectionService {
   private createColumnMappings(
     headers: string[],
     data: any[],
-    structure: DataStructure,
+    structure: DataStructure
   ): ColumnMapping[] {
     const mappings: ColumnMapping[] = [];
 
@@ -278,8 +278,8 @@ export class DataDetectionService {
     if (structure.type === "single-category") {
       const categoryColumn = headers.find((h) =>
         this.standardFields.category.some((cat) =>
-          h.toLowerCase().includes(cat.toLowerCase()),
-        ),
+          h.toLowerCase().includes(cat.toLowerCase())
+        )
       );
 
       if (categoryColumn) {
@@ -329,7 +329,7 @@ export class DataDetectionService {
 
     // Check expense subcategories
     for (const [subcat, keywords] of Object.entries(
-      this.standardCategories.expenses,
+      this.standardCategories.expenses
     )) {
       if (keywords.some((keyword) => lowerCol.includes(keyword))) {
         return subcat;
@@ -341,12 +341,12 @@ export class DataDetectionService {
 
   private shouldRequestConfirmation(
     mappings: ColumnMapping[],
-    structure: DataStructure,
+    structure: DataStructure
   ): boolean {
     // Request confirmation if:
     // 1. Any core field has low confidence
     const coreFields = mappings.filter((m) =>
-      ["date", "amount", "description"].includes(m.standardField),
+      ["date", "amount", "description"].includes(m.standardField)
     );
     const lowConfidenceCore = coreFields.some((m) => m.confidence < 0.8);
 
@@ -371,7 +371,7 @@ export class DataDetectionService {
   normalizeData(
     rawData: any[],
     confirmedMappings: ColumnMapping[],
-    structure: DataStructure,
+    structure: DataStructure
   ): any[] {
     return rawData
       .map((row) => {
@@ -381,16 +381,16 @@ export class DataDetectionService {
           if (mapping.standardField === "amount") {
             normalizedRow.amount = this.normalizeAmount(
               row[mapping.original],
-              structure.currencySymbol,
+              structure.currencySymbol
             );
           } else if (mapping.standardField === "date") {
             normalizedRow.date = this.normalizeDate(
               row[mapping.original],
-              structure.dateFormat,
+              structure.dateFormat
             );
           } else if (mapping.standardField === "category") {
             normalizedRow.category = this.normalizeCategory(
-              row[mapping.original],
+              row[mapping.original]
             );
           } else if (mapping.standardField.startsWith("category_")) {
             // Handle multi-category structure

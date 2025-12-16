@@ -79,7 +79,7 @@ export class PDFGenerator {
       0,
       this.pageWidth * 0.4,
       this.pageHeight,
-      "F",
+      "F"
     );
 
     // Main title on the right side
@@ -90,7 +90,7 @@ export class PDFGenerator {
     // Split title into lines if too long
     const titleLines = this.pdf.splitTextToSize(
       config.title.toUpperCase(),
-      this.pageWidth * 0.35,
+      this.pageWidth * 0.35
     );
     const titleY = this.pageHeight * 0.3;
     titleLines.forEach((line: string, index: number) => {
@@ -103,7 +103,7 @@ export class PDFGenerator {
     this.pdf.text(
       config.companyName,
       this.pageWidth * 0.62,
-      this.pageHeight * 0.5,
+      this.pageHeight * 0.5
     );
 
     // Report period
@@ -111,7 +111,7 @@ export class PDFGenerator {
     this.pdf.text(
       config.reportPeriod,
       this.pageWidth * 0.62,
-      this.pageHeight * 0.8,
+      this.pageHeight * 0.8
     );
 
     // Logo placeholder bottom right
@@ -123,7 +123,7 @@ export class PDFGenerator {
     this.pdf.text(
       `Generated: ${new Date().toLocaleDateString()}`,
       this.pageWidth * 0.62,
-      this.pageHeight * 0.9,
+      this.pageHeight * 0.9
     );
   }
 
@@ -221,7 +221,7 @@ export class PDFGenerator {
       this.pdf.setFont("helvetica", "normal");
       const subtitleLines = this.pdf.splitTextToSize(
         metric.subtitle,
-        cardWidth - 10,
+        cardWidth - 10
       );
       this.pdf.text(subtitleLines, x + 5, y + 35);
     });
@@ -261,7 +261,7 @@ export class PDFGenerator {
       60,
       chartWidth,
       chartHeight,
-      "F",
+      "F"
     );
     this.pdf.setDrawColor(203, 213, 225);
     this.pdf.rect(
@@ -269,7 +269,7 @@ export class PDFGenerator {
       60,
       chartWidth,
       chartHeight,
-      "S",
+      "S"
     );
 
     this.pdf.setTextColor(51, 65, 85);
@@ -278,7 +278,7 @@ export class PDFGenerator {
     this.pdf.text(
       "Monthly Burn Rate Analysis",
       this.margin + chartWidth + 20,
-      75,
+      75
     );
 
     this.pdf.setFont("helvetica", "normal");
@@ -286,26 +286,26 @@ export class PDFGenerator {
     this.pdf.text(
       "• Revenue vs expense trends",
       this.margin + chartWidth + 20,
-      85,
+      85
     );
     this.pdf.text(
       "• Net burn rate progression",
       this.margin + chartWidth + 20,
-      95,
+      95
     );
     this.pdf.text(
       "• Efficiency improvements",
       this.margin + chartWidth + 20,
-      105,
+      105
     );
     this.pdf.text(
       "[Chart will be rendered here]",
       this.margin + chartWidth + 20,
-      145,
+      145
     );
 
     await this.addSmallerCommentsSection(
-      "Performance shows consistent growth with controlled burn rate.",
+      "Performance shows consistent growth with controlled burn rate."
     );
   }
 
@@ -334,23 +334,23 @@ export class PDFGenerator {
     this.pdf.text(
       `• Monthly Revenue: ${this.formatCurrency(metrics.mrr)}`,
       this.margin + 10,
-      105,
+      105
     );
     this.pdf.text(
       `• Cash Runway: ${this.calculateRunway(metrics)} months`,
       this.margin + 10,
-      115,
+      115
     );
     this.pdf.text("• Income statement breakdown", this.margin + 10, 125);
     this.pdf.text("• Variance analysis vs budget", this.margin + 10, 135);
     this.pdf.text(
       "[Financial charts will be rendered here]",
       this.margin + 10,
-      150,
+      150
     );
 
     await this.addSmallerCommentsSection(
-      "Strong financial position with healthy margins.",
+      "Strong financial position with healthy margins."
     );
   }
 
@@ -377,7 +377,7 @@ export class PDFGenerator {
     this.pdf.text(
       `• Contracted Revenue: ${this.formatCurrency(metrics.contracted)}`,
       this.margin + 10,
-      95,
+      95
     );
     this.pdf.text("• Sales funnel conversion rates", this.margin + 10, 105);
     this.pdf.text("• Pipeline forecast by closing date", this.margin + 10, 115);
@@ -386,11 +386,11 @@ export class PDFGenerator {
     this.pdf.text(
       "[Sales charts will be rendered here]",
       this.margin + 10,
-      150,
+      150
     );
 
     await this.addSmallerCommentsSection(
-      "Strong pipeline momentum with healthy conversion rates.",
+      "Strong pipeline momentum with healthy conversion rates."
     );
   }
 
@@ -419,12 +419,12 @@ export class PDFGenerator {
     this.pdf.text(
       `• Current Cash Balance: ${this.formatCurrency(metrics.cashBalance)}`,
       this.margin + 10,
-      95,
+      95
     );
     this.pdf.text(
       `• Monthly Burn Rate: ${this.formatCurrency(metrics.burnRate)}`,
       this.margin + 10,
-      105,
+      105
     );
     this.pdf.text(`• Cash Runway: ${runway} months`, this.margin + 10, 115);
     this.pdf.text("• Cash balance trends over time", this.margin + 10, 125);
@@ -432,11 +432,11 @@ export class PDFGenerator {
     this.pdf.text(
       "[Cash flow charts will be rendered here]",
       this.margin + 10,
-      150,
+      150
     );
 
     await this.addSmallerCommentsSection(
-      `Cash runway of ${runway} months provides adequate buffer.`,
+      `Cash runway of ${runway} months provides adequate buffer.`
     );
   }
 
@@ -533,12 +533,12 @@ export class PDFGenerator {
     const monthStart = new Date(
       currentMonth.getFullYear(),
       currentMonth.getMonth(),
-      1,
+      1
     );
     const monthEnd = new Date(
       currentMonth.getFullYear(),
       currentMonth.getMonth() + 1,
-      0,
+      0
     );
 
     const currentMonthTx = transactionData.filter((t: any) => {
@@ -550,13 +550,13 @@ export class PDFGenerator {
       .filter(
         (t: any) =>
           (t["Category"] || t.category) === "Subscription" &&
-          (t["Amount"] || t.amount) > 0,
+          (t["Amount"] || t.amount) > 0
       )
       .reduce((sum: number, t: any) => sum + (t["Amount"] || t.amount), 0);
 
     const cashBalance = transactionData.reduce(
       (sum: number, t: any) => sum + (t["Amount"] || t.amount),
-      0,
+      0
     );
 
     const monthlyRevenue = currentMonthTx
@@ -566,7 +566,7 @@ export class PDFGenerator {
     const monthlyExpenses = Math.abs(
       currentMonthTx
         .filter((t: any) => (t["Amount"] || t.amount) < 0)
-        .reduce((sum: number, t: any) => sum + (t["Amount"] || t.amount), 0),
+        .reduce((sum: number, t: any) => sum + (t["Amount"] || t.amount), 0)
     );
 
     const netMargin =
@@ -578,12 +578,12 @@ export class PDFGenerator {
       .filter(
         (d: any) =>
           (d.phase || "").toLowerCase().includes("negotiation") ||
-          (d.phase || "").toLowerCase().includes("closed"),
+          (d.phase || "").toLowerCase().includes("closed")
       )
       .reduce((sum: number, d: any) => sum + (d.amount || 0), 0);
 
     const customers = new Set(
-      dealData.map((d: any) => d.clientName).filter(Boolean),
+      dealData.map((d: any) => d.clientName).filter(Boolean)
     ).size;
 
     return {

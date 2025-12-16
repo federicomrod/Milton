@@ -25,14 +25,14 @@ export async function POST(req: Request) {
     if (!(file instanceof File)) {
       return NextResponse.json(
         { error: "No valid file uploaded" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
     if (!datasetType || !["bank", "crm", "budget"].includes(datasetType)) {
       return NextResponse.json(
         { error: "Invalid datasetType" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     if (!result.success) {
       return NextResponse.json(
         { error: result.error || "Upload failed" },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     console.error("[Upload API] Error:", error);
     return NextResponse.json(
       { error: error.message || "Upload failed" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

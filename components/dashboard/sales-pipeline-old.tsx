@@ -47,7 +47,7 @@ export function SalesPipeline() {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [showWeighted, setShowWeighted] = useState(false);
   const [colorMode, setColorMode] = useState<"individual" | "corporate">(
-    "individual",
+    "individual"
   );
   const [corporateColor, setCorporateColor] = useState("#3b82f6");
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
@@ -139,18 +139,18 @@ export function SalesPipeline() {
       "Lead Generation": hslToHex(
         hslColor.h,
         hslColor.s,
-        Math.min(95, hslColor.l + 40),
+        Math.min(95, hslColor.l + 40)
       ),
       "First Contact": hslToHex(
         hslColor.h,
         hslColor.s,
-        Math.min(85, hslColor.l + 20),
+        Math.min(85, hslColor.l + 20)
       ),
       "Need Qualification": baseColor,
       Negotiation: hslToHex(
         hslColor.h,
         hslColor.s,
-        Math.max(15, hslColor.l - 15),
+        Math.max(15, hslColor.l - 15)
       ),
       Deal: hslToHex(hslColor.h, hslColor.s, Math.max(10, hslColor.l - 25)),
       "No Deal": "#ef4444", // Always red for failed deals
@@ -308,20 +308,20 @@ export function SalesPipeline() {
 
     // Calculate average sales cycle (for closed deals)
     const closedDeals = dealsData.filter(
-      (d) => d.phase === "Deal" && d.firstAppointment && d.closingDate,
+      (d) => d.phase === "Deal" && d.firstAppointment && d.closingDate
     );
     const salesCycles = closedDeals.map((d) => {
       const start = new Date(d.firstAppointment);
       const end = new Date(d.closingDate);
       return Math.round(
-        (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
+        (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
       );
     });
     const avgSalesCycle =
       salesCycles.length > 0
         ? Math.round(
             salesCycles.reduce((sum, days) => sum + days, 0) /
-              salesCycles.length,
+              salesCycles.length
           )
         : 0;
 
@@ -380,7 +380,7 @@ export function SalesPipeline() {
           .slice(0, -2)
           .reduce(
             (sum, phase) => sum + (monthData[`${phase}_weighted`] || 0),
-            0,
+            0
           );
 
         return monthData;
@@ -543,7 +543,7 @@ export function SalesPipeline() {
                                 style={{ backgroundColor: color }}
                                 title={phase}
                               ></div>
-                            ),
+                            )
                           )}
                         </div>
                       </div>
@@ -618,7 +618,7 @@ export function SalesPipeline() {
               {(
                 (deals.filter((d) => d.phase === "Deal").length /
                   deals.filter(
-                    (d) => d.phase === "Deal" || d.phase === "No Deal",
+                    (d) => d.phase === "Deal" || d.phase === "No Deal"
                   ).length) *
                 100
               ).toFixed(1)}

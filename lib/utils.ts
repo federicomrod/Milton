@@ -45,7 +45,7 @@ export function normalizeDateValue(value: any): string | null {
         const hours = Math.floor(timeComponent * 24);
         const minutes = Math.floor((timeComponent * 24 - hours) * 60);
         const seconds = Math.floor(
-          ((timeComponent * 24 - hours) * 60 - minutes) * 60,
+          ((timeComponent * 24 - hours) * 60 - minutes) * 60
         );
         base.setUTCHours(hours, minutes, seconds);
       }
@@ -85,7 +85,7 @@ export function normalizeDateValue(value: any): string | null {
         const hours = Math.floor(timeComponent * 24);
         const minutes = Math.floor((timeComponent * 24 - hours) * 60);
         const seconds = Math.floor(
-          ((timeComponent * 24 - hours) * 60 - minutes) * 60,
+          ((timeComponent * 24 - hours) * 60 - minutes) * 60
         );
         base.setUTCHours(hours, minutes, seconds);
       }

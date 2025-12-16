@@ -543,7 +543,7 @@ export const getUseCase = (id: string): UseCase | undefined => {
 
 export const getMetricDefinition = (
   useCaseId: string,
-  metricId: string,
+  metricId: string
 ): MetricDefinition | undefined => {
   const useCase = getUseCase(useCaseId);
   return useCase?.requiredMetrics.find((metric) => metric.id === metricId);
@@ -557,7 +557,7 @@ export const generateAIPromptForUseCase = (
   useCase: UseCase,
   fileName: string,
   headers: string[],
-  sampleData: any[],
+  sampleData: any[]
 ) => {
   return `
 You are an expert financial data analyst for ${useCase.name} businesses.
@@ -571,7 +571,7 @@ ${useCase.requiredMetrics
 - ${metric.name}: ${metric.description}
   Required inputs: ${metric.requiredInputs.map((input) => input.field).join(", ")}
   Calculation: ${metric.calculation.formula}
-`,
+`
   )
   .join("")}
 

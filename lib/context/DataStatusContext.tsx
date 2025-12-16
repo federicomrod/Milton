@@ -7,7 +7,7 @@ interface DataStatusContextType {
 }
 
 const DataStatusContext = createContext<DataStatusContextType | undefined>(
-  undefined,
+  undefined
 );
 
 export function useDataStatus() {

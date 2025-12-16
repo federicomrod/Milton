@@ -95,7 +95,7 @@ export class EnhancedDataProcessor {
         keywords.forEach((keyword) => {
           const confidence = this.calculateMatchConfidence(
             normalizedHeader,
-            keyword,
+            keyword
           );
           if (confidence > bestMatch.confidence) {
             bestMatch = { field, confidence, keywords };
@@ -118,7 +118,7 @@ export class EnhancedDataProcessor {
         totalConfidence += bestMatch.confidence;
         mappedFields++;
         console.log(
-          `[Mapping Auto] Matched "${header}" → ${bestMatch.field} (${Math.round(bestMatch.confidence * 100)}%)`,
+          `[Mapping Auto] Matched "${header}" → ${bestMatch.field} (${Math.round(bestMatch.confidence * 100)}%)`
         );
       }
     });
@@ -127,15 +127,15 @@ export class EnhancedDataProcessor {
     const canSkipReview = this.canSkipManualReview(mappings, avgConfidence);
 
     console.log(
-      `[Mapping Auto] Matched ${mappedFields}/${headers.length} fields automatically.`,
+      `[Mapping Auto] Matched ${mappedFields}/${headers.length} fields automatically.`
     );
     console.log(
-      `[Mapping Auto] Average confidence: ${Math.round(avgConfidence * 100)}%`,
+      `[Mapping Auto] Average confidence: ${Math.round(avgConfidence * 100)}%`
     );
 
     if (canSkipReview) {
       console.log(
-        "[Mapping Auto] All mappings > 90% confidence, skipping review.",
+        "[Mapping Auto] All mappings > 90% confidence, skipping review."
       );
     }
 
@@ -160,7 +160,7 @@ export class EnhancedDataProcessor {
     keywordWords.forEach((kw) => {
       if (
         headerWords.some(
-          (hw) => hw === kw || hw.includes(kw) || kw.includes(hw),
+          (hw) => hw === kw || hw.includes(kw) || kw.includes(hw)
         )
       ) {
         wordMatches++;
@@ -222,7 +222,7 @@ export class EnhancedDataProcessor {
     // Extended number recognition
     if (
       ["amount", "value", "budgeted", "planned", "actual", "variance"].includes(
-        key,
+        key
       )
     ) {
       return "number";
@@ -243,14 +243,14 @@ export class EnhancedDataProcessor {
    */
   private canSkipManualReview(
     mappings: ColumnMapping[],
-    avgConfidence: number,
+    avgConfidence: number
   ): boolean {
     // Required fields for CRM data
     const requiredFields = ["deal_name", "amount", "client_name"];
     const mappedFields = mappings.map((m) => m.standardField);
 
     const hasRequiredFields = requiredFields.every((field) =>
-      mappedFields.includes(field),
+      mappedFields.includes(field)
     );
     const highConfidence = avgConfidence >= 0.9;
 
@@ -262,7 +262,7 @@ export class EnhancedDataProcessor {
    */
   private normalizeCRMData(data: any[], mappings: ColumnMapping[]): any[] {
     const fieldMap = Object.fromEntries(
-      mappings.map((m) => [m.originalColumn, m.standardField]),
+      mappings.map((m) => [m.originalColumn, m.standardField])
     );
 
     return data.map((row, index) => {
@@ -283,7 +283,7 @@ export class EnhancedDataProcessor {
         if (targetField) {
           normalized[targetField] = this.processValue(
             value,
-            this.getDataTypeForField(targetField),
+            this.getDataTypeForField(targetField)
           );
         }
       });
@@ -316,7 +316,7 @@ export class EnhancedDataProcessor {
   } {
     console.log(
       "[Mapping Auto] Attempting universal auto-mapping for headers:",
-      headers,
+      headers
     );
 
     // Try CRM mapping
@@ -330,7 +330,7 @@ export class EnhancedDataProcessor {
     const txResult = this.autoMapColumns_Generic(
       headers,
       this.TRANSACTIONS_SCHEMA,
-      ["date", "amount"],
+      ["date", "amount"]
     );
     if (txResult.canSkipReview) {
       console.log("[Mapping Auto] Detected as transactions file");
@@ -341,7 +341,7 @@ export class EnhancedDataProcessor {
     const budgetResult = this.autoMapColumns_Generic(
       headers,
       this.BUDGET_SCHEMA,
-      ["month", "budgeted_amount"],
+      ["month", "budgeted_amount"]
     );
     if (budgetResult.canSkipReview) {
       console.log("[Mapping Auto] Detected as budget file");
@@ -363,7 +363,7 @@ export class EnhancedDataProcessor {
   private autoMapColumns_Generic(
     headers: string[],
     schema: { [key: string]: string[] },
-    requiredFields: string[],
+    requiredFields: string[]
   ): { mappings: ColumnMapping[]; confidence: number; canSkipReview: boolean } {
     const mappings: ColumnMapping[] = [];
     let totalConfidence = 0;
@@ -377,7 +377,7 @@ export class EnhancedDataProcessor {
         keywords.forEach((keyword) => {
           const confidence = this.calculateMatchConfidence(
             normalizedHeader,
-            keyword,
+            keyword
           );
           if (confidence > bestMatch.confidence) {
             bestMatch = { field, confidence };
@@ -404,7 +404,7 @@ export class EnhancedDataProcessor {
     const avgConfidence = mappedFields > 0 ? totalConfidence / mappedFields : 0;
     const mappedFieldNames = mappings.map((m) => m.standardField);
     const hasRequiredFields = requiredFields.every((field) =>
-      mappedFieldNames.includes(field),
+      mappedFieldNames.includes(field)
     );
     const canSkipReview = hasRequiredFields && avgConfidence >= 0.9;
 
@@ -416,7 +416,7 @@ export class EnhancedDataProcessor {
    */
   convertAutoMappedTransactions(
     data: any[],
-    mappings?: ColumnMapping[],
+    mappings?: ColumnMapping[]
   ): any[] {
     const normalized = data.map((r) => {
       const rawDate = r["Date"] || r["Transaction Date"] || r["Datum"] || null;
@@ -478,7 +478,7 @@ export class EnhancedDataProcessor {
   async processFile(
     fileName: string,
     headers: string[],
-    data: any[],
+    data: any[]
   ): Promise<DataProcessingResult> {
     try {
       if (!headers || !Array.isArray(headers)) {
@@ -493,7 +493,7 @@ export class EnhancedDataProcessor {
 
       if (autoMappingResult.canSkipReview) {
         console.log(
-          "[Mapping Auto] Auto-mapping successful, skipping AI analysis",
+          "[Mapping Auto] Auto-mapping successful, skipping AI analysis"
         );
         return {
           fileType: autoMappingResult.fileType,
@@ -510,7 +510,7 @@ export class EnhancedDataProcessor {
       let aiAnalysis = await this.analyzeWithAI(
         fileName,
         headers,
-        data.slice(0, 5),
+        data.slice(0, 5)
       );
       if (
         (!aiAnalysis.mappings && !aiAnalysis.columnMappings) ||
@@ -545,13 +545,13 @@ export class EnhancedDataProcessor {
 
   async callAIForMapping(
     headers: string[],
-    sampleData: any[],
+    sampleData: any[]
   ): Promise<DataProcessingResult> {
     try {
       const result = await this.processFile(
         "uploaded_file",
         headers,
-        sampleData,
+        sampleData
       );
       // Log the result before returning
       console.log("[Mapping Auto] Returning full mapping result:", {
@@ -591,7 +591,7 @@ export class EnhancedDataProcessor {
   }
 
   private async parseFile(
-    file: File,
+    file: File
   ): Promise<{ headers: string[]; data: any[] }> {
     if (file.name.endsWith(".csv")) {
       return this.parseCSV(file);
@@ -603,7 +603,7 @@ export class EnhancedDataProcessor {
   }
 
   private async parseCSV(
-    file: File,
+    file: File
   ): Promise<{ headers: string[]; data: any[] }> {
     const text = await file.text();
 
@@ -637,7 +637,7 @@ export class EnhancedDataProcessor {
   }
 
   private async parseExcel(
-    file: File,
+    file: File
   ): Promise<{ headers: string[]; data: any[] }> {
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, {
@@ -671,7 +671,7 @@ export class EnhancedDataProcessor {
         return obj;
       })
       .filter((row) =>
-        Object.values(row).some((val) => val && val.toString().trim() !== ""),
+        Object.values(row).some((val) => val && val.toString().trim() !== "")
       );
 
     return { headers, data: dataRows };
@@ -680,7 +680,7 @@ export class EnhancedDataProcessor {
   private async analyzeWithAI(
     fileName: string,
     headers: string[],
-    sampleData: any[],
+    sampleData: any[]
   ): Promise<any> {
     const prompt = this.createAnalysisPrompt(fileName, headers, sampleData);
 
@@ -721,7 +721,7 @@ export class EnhancedDataProcessor {
   private createAnalysisPrompt(
     fileName: string,
     headers: string[],
-    sampleData: any[],
+    sampleData: any[]
   ): string {
     return `Analyze this business data file and provide column mappings.
 
@@ -761,7 +761,7 @@ Respond with ONLY valid JSON:
   private fallbackAnalysis(
     fileName: string,
     headers: string[],
-    sampleData: any[],
+    sampleData: any[]
   ): any {
     const lowerHeaders = headers.map((h) => h.toLowerCase().trim());
 
@@ -771,15 +771,14 @@ Respond with ONLY valid JSON:
 
     if (
       lowerHeaders.some(
-        (h) =>
-          h.includes("deal") || h.includes("client") || h.includes("phase"),
+        (h) => h.includes("deal") || h.includes("client") || h.includes("phase")
       )
     ) {
       fileType = "deals";
       confidence = 0.7;
     } else if (
       lowerHeaders.some((h) =>
-        h.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i),
+        h.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i)
       )
     ) {
       fileType = "budget";
@@ -842,7 +841,7 @@ Respond with ONLY valid JSON:
 
   private detectDataType(
     header: string,
-    sampleData: any[],
+    sampleData: any[]
   ): "string" | "number" | "date" | "currency" {
     const lower = header.toLowerCase();
 
@@ -874,7 +873,7 @@ Respond with ONLY valid JSON:
   private validateAIAnalysis(
     aiResult: any,
     headers: string[],
-    data: any[],
+    data: any[]
   ): any {
     const issues = [];
 
@@ -912,7 +911,7 @@ Respond with ONLY valid JSON:
   async convertToStandardFormat(
     data: any[],
     mappings: ColumnMapping[],
-    fileType: FileType,
+    fileType: FileType
   ): Promise<StandardizedData> {
     switch (fileType) {
       case "deals":
@@ -931,16 +930,16 @@ Respond with ONLY valid JSON:
    */
   async convertAutoMappedCRMData(
     data: any[],
-    mappings: ColumnMapping[],
+    mappings: ColumnMapping[]
   ): Promise<StandardizedData> {
     console.log("[Mapping Auto] Converting CRM data with auto-mapped columns");
     const normalizedDeals = this.normalizeCRMData(data, mappings);
     console.log(
-      `[Mapping Auto] Normalized ${normalizedDeals.length} deals for Supabase insert`,
+      `[Mapping Auto] Normalized ${normalizedDeals.length} deals for Supabase insert`
     );
     console.log(
       "🧩 Prepared deals for Supabase insert:",
-      normalizedDeals.slice(0, 2),
+      normalizedDeals.slice(0, 2)
     );
     return { deals: normalizedDeals };
   }
@@ -950,7 +949,7 @@ Respond with ONLY valid JSON:
       mappings.map((m) => [
         m.originalColumn,
         { field: m.standardField, type: m.dataType },
-      ]),
+      ])
     );
 
     return data
@@ -1080,13 +1079,13 @@ Respond with ONLY valid JSON:
                 deal.phase = "First Contact";
               } else if (
                 ["need qualification", "NEED QUALIFICATION", "bedarf"].includes(
-                  rawPhase,
+                  rawPhase
                 )
               ) {
                 deal.phase = "Need Qualification";
               } else if (
                 ["negotiation", "verhandlungsphase", "NEGOTIATION"].includes(
-                  rawPhase,
+                  rawPhase
                 )
               ) {
                 deal.phase = "Negotiation";
@@ -1144,7 +1143,7 @@ Respond with ONLY valid JSON:
       .filter(
         (deal) =>
           deal.dealName &&
-          (deal.amount > 0 || deal.clientName !== "Unknown Client"),
+          (deal.amount > 0 || deal.clientName !== "Unknown Client")
       )
       .map((d) => ({
         // Convert to snake_case for Supabase compatibility
@@ -1162,13 +1161,13 @@ Respond with ONLY valid JSON:
 
   private convertToTransactions(
     data: any[],
-    mappings: ColumnMapping[],
+    mappings: ColumnMapping[]
   ): StandardTransaction[] {
     const fieldMap = Object.fromEntries(
       mappings.map((m) => [
         m.originalColumn,
         { field: m.standardField, type: m.dataType },
-      ]),
+      ])
     );
 
     return data
@@ -1208,7 +1207,7 @@ Respond with ONLY valid JSON:
               transaction.category = categorizeTransaction(
                 transaction.description,
                 transaction.amount,
-                originalCategory,
+                originalCategory
               );
               break;
             case "reference":
@@ -1229,12 +1228,12 @@ Respond with ONLY valid JSON:
 
   private convertToBudget(
     data: any[],
-    mappings: ColumnMapping[],
+    mappings: ColumnMapping[]
   ): StandardBudget {
     // Debug log for incoming mappings
     console.log(
       "[Budget Debug] Incoming mappings:",
-      mappings.map((m) => m.standardField),
+      mappings.map((m) => m.standardField)
     );
 
     // --- Auto-detect and flatten wide-format budget matrices ---
@@ -1256,8 +1255,8 @@ Respond with ONLY valid JSON:
                 Number(
                   String(v)
                     .replace(/[,.\s€$£¥]/g, "")
-                    .replace(/[^0-9\-]/g, ""),
-                ),
+                    .replace(/[^0-9\-]/g, "")
+                )
               )
             ) {
               numericCount++;
@@ -1268,12 +1267,12 @@ Respond with ONLY valid JSON:
       });
       // Find non-numeric columns (likely "Category")
       const likelyNonNumeric = colStats.filter(
-        (stat) => stat.numericCount <= 2 && stat.nonEmptyCount > 0,
+        (stat) => stat.numericCount <= 2 && stat.nonEmptyCount > 0
       );
       // Find columns that are numeric for most rows (likely months)
       const likelyMonthCols = colStats.filter(
         (stat) =>
-          stat.numericCount >= Math.max(3, Math.ceil(stat.nonEmptyCount * 0.7)),
+          stat.numericCount >= Math.max(3, Math.ceil(stat.nonEmptyCount * 0.7))
       );
       // Heuristic: if exactly one non-numeric column and >=2 likely month columns, treat as wide-format
       if (likelyNonNumeric.length === 1 && likelyMonthCols.length >= 2) {
@@ -1363,7 +1362,7 @@ Respond with ONLY valid JSON:
 
     // --- Fallback: Auto-detect the category column if not explicitly mapped ---
     let categoryColumn = mappings.find(
-      (m) => m.standardField === "category",
+      (m) => m.standardField === "category"
     )?.originalColumn;
     if (!categoryColumn && data.length) {
       const monthPatterns = [
@@ -1382,7 +1381,7 @@ Respond with ONLY valid JSON:
         /202\d/,
       ];
       const fallbackCategory = Object.keys(data[0]).find(
-        (col) => !monthPatterns.some((p) => p.test(col)),
+        (col) => !monthPatterns.some((p) => p.test(col))
       );
       if (fallbackCategory) {
         categoryColumn = fallbackCategory;
@@ -1394,7 +1393,7 @@ Respond with ONLY valid JSON:
         });
         console.log(
           "[Budget AutoDetect] Fallback category column:",
-          fallbackCategory,
+          fallbackCategory
         );
       }
     }
@@ -1411,7 +1410,7 @@ Respond with ONLY valid JSON:
         .forEach((mapping) => {
           const month = mapping.standardField.replace("month_", "");
           categories[category][month] = this.parseAmount(
-            row[mapping.originalColumn] || 0,
+            row[mapping.originalColumn] || 0
           );
         });
     });
@@ -1427,7 +1426,7 @@ Respond with ONLY valid JSON:
         "category";
       const valueField =
         mappings.find((m) =>
-          ["value", "budgeted_amount", "amount"].includes(m.standardField),
+          ["value", "budgeted_amount", "amount"].includes(m.standardField)
         )?.originalColumn || "value";
 
       // Try to extract unique months and categories
@@ -1551,7 +1550,7 @@ Respond with ONLY valid JSON:
     // e.g., "January 2023", "2023 January"
     const monthNameRegex = new RegExp(
       `^(?:(${Object.keys(monthMap).join("|")})\\s*(\\d{4})|(\\d{4})\\s*(${Object.keys(monthMap).join("|")}))$`,
-      "i",
+      "i"
     );
     const match = cleaned.match(monthNameRegex);
     if (match) {
@@ -1844,7 +1843,7 @@ export type GenericIngestionResult = {
 // 2. AI schema detection with fallback logic
 export async function aiDetectSchema(
   headers: string[],
-  sampleRows: any[],
+  sampleRows: any[]
 ): Promise<InferredSchema> {
   // Try OpenAI endpoint, fallback to simple inference
   try {
@@ -1853,7 +1852,7 @@ export async function aiDetectSchema(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt: `Infer the schema (column names, types) for this data:\nHeaders: ${JSON.stringify(
-          headers,
+          headers
         )}\nSample Rows: ${JSON.stringify(sampleRows)}\nRespond with JSON: { columns: [{name,type,description}], confidence, issues }`,
       }),
     });
@@ -1914,7 +1913,7 @@ export async function aiDetectSchema(
 // 3. Normalize rows by inferred schema
 export function normalizeRowsBySchema(
   rows: any[],
-  schema: InferredSchema,
+  schema: InferredSchema
 ): Record<string, any>[] {
   function normValue(val: any, type: InferredColumn["type"]) {
     if (val == null || val === "") return null;
@@ -1976,7 +1975,7 @@ export function normalizeRowsBySchema(
 export async function buildGenericIngestion(
   headers: string[],
   allRows: any[],
-  opts?: { sampleSize?: number },
+  opts?: { sampleSize?: number }
 ): Promise<GenericIngestionResult> {
   const sampleRows = allRows.slice(0, opts?.sampleSize || 10);
   const schema = await aiDetectSchema(headers, sampleRows);

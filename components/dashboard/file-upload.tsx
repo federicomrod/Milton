@@ -10,7 +10,7 @@ interface FileUploadProps {
   selectedUseCase?: string | null;
   onFileSelected?: (
     file: File,
-    datasetType: "bank" | "crm" | "budget",
+    datasetType: "bank" | "crm" | "budget"
   ) => Promise<void>;
 }
 
@@ -107,11 +107,11 @@ export default function FileUpload({
 
       const result = await res.json();
       console.log(
-        `[FileUpload] Successfully uploaded ${result.insertedCount} rows`,
+        `[FileUpload] Successfully uploaded ${result.insertedCount} rows`
       );
 
       setUploadMessage(
-        `✅ Successfully uploaded ${file.name} (${result.insertedCount} rows)`,
+        `✅ Successfully uploaded ${file.name} (${result.insertedCount} rows)`
       );
 
       // Refresh data status

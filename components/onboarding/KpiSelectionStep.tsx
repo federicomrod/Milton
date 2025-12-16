@@ -52,7 +52,7 @@ export function KpiSelectionStep() {
         const availability = evaluateKpiAvailability(
           businessType,
           model,
-          templates,
+          templates
         );
 
         setAvailabilities(availability);
@@ -74,11 +74,11 @@ export function KpiSelectionStep() {
     if (status === "requiresData") {
       // For now, allow selection but show a warning
       window.alert(
-        "This KPI cannot be calculated with your current data. Consider uploading or modeling the required data first.",
+        "This KPI cannot be calculated with your current data. Consider uploading or modeling the required data first."
       );
     }
     setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
 
@@ -163,7 +163,7 @@ export function KpiSelectionStep() {
                 isSelected
                   ? "border-primary bg-primary/5"
                   : "hover:border-primary/60",
-                status === "requiresData" ? "opacity-80" : "",
+                status === "requiresData" ? "opacity-80" : ""
               )}
               onClick={() => toggleKpi(tpl.id, status)}
             >
@@ -187,7 +187,7 @@ export function KpiSelectionStep() {
                   className={cn(
                     status === "requiresData"
                       ? "text-yellow-600"
-                      : "text-green-600",
+                      : "text-green-600"
                   )}
                 >
                   {status === "available" ? "Available" : "Needs more data"}

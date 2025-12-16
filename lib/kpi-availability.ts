@@ -15,12 +15,12 @@ export interface KpiAvailability {
 
 function modelHasTable(
   model: ModelProposal | null | undefined,
-  tableId: string,
+  tableId: string
 ): boolean {
   if (!model) return false;
   return (
     model.recommendedTables?.some(
-      (t) => t.name?.toLowerCase() === tableId.toLowerCase(),
+      (t) => t.name?.toLowerCase() === tableId.toLowerCase()
     ) ?? false
   );
 }
@@ -28,7 +28,7 @@ function modelHasTable(
 export function evaluateKpiAvailability(
   businessType: BusinessTypeId,
   model: ModelProposal | null | undefined,
-  templates: KpiTemplate[],
+  templates: KpiTemplate[]
 ): KpiAvailability[] {
   return templates.map((tpl) => {
     // Very simple v1 rules. We can refine later.

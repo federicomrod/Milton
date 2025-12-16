@@ -119,7 +119,7 @@ const parseEnd = (endpoint: string): { table: string; field?: string } => {
  */
 export function proposalToGraph(
   proposal: ModelProposal,
-  opts?: { includeFkFieldHints?: boolean },
+  opts?: { includeFkFieldHints?: boolean }
 ): Graph {
   const includeFkHints = opts?.includeFkFieldHints ?? true;
 
@@ -183,13 +183,13 @@ export function renameField(
   model: ModelProposal,
   tableName: string,
   oldName: string,
-  newName: string,
+  newName: string
 ): ModelProposal {
   if (!newName || oldName === newName) return model;
   const tables = model.recommendedTables.map((t) => {
     if (t.name !== tableName) return t;
     const fields = t.fields.map((f) =>
-      f.name === oldName ? { ...f, name: newName } : f,
+      f.name === oldName ? { ...f, name: newName } : f
     );
     return { ...t, fields };
   });
@@ -215,10 +215,10 @@ export function renameField(
 export function addField(
   model: ModelProposal,
   tableName: string,
-  field: FieldDef,
+  field: FieldDef
 ): ModelProposal {
   const tables = model.recommendedTables.map((t) =>
-    t.name === tableName ? { ...t, fields: [...t.fields, field] } : t,
+    t.name === tableName ? { ...t, fields: [...t.fields, field] } : t
   );
   return { ...model, recommendedTables: tables };
 }
@@ -226,12 +226,12 @@ export function addField(
 export function removeField(
   model: ModelProposal,
   tableName: string,
-  fieldName: string,
+  fieldName: string
 ): ModelProposal {
   const tables = model.recommendedTables.map((t) =>
     t.name === tableName
       ? { ...t, fields: t.fields.filter((f) => f.name !== fieldName) }
-      : t,
+      : t
   );
   // Clean relationships that targeted the removed field
   const relationships = (model.relationships || []).filter((r) => {
@@ -247,7 +247,7 @@ export function removeField(
 
 export function addRelationship(
   model: ModelProposal,
-  rel: RelationshipDef,
+  rel: RelationshipDef
 ): ModelProposal {
   const relationships = [...(model.relationships || []), rel];
   return { ...model, relationships };
@@ -255,7 +255,7 @@ export function addRelationship(
 
 export function removeRelationship(
   model: ModelProposal,
-  predicate: ((r: RelationshipDef) => boolean) | { from?: string; to?: string },
+  predicate: ((r: RelationshipDef) => boolean) | { from?: string; to?: string }
 ): ModelProposal {
   const relationships = (model.relationships || []).filter((r) => {
     if (typeof predicate === "function") return !predicate(r);
@@ -276,7 +276,7 @@ export function removeRelationship(
 export function upsertFileMapping(
   model: ModelProposal,
   tableName: string,
-  mapping: NonNullable<TableDef["fileMapping"]>,
+  mapping: NonNullable<TableDef["fileMapping"]>
 ): ModelProposal {
   const tables = model.recommendedTables.map((t) => {
     if (t.name !== tableName) return t;
@@ -298,7 +298,7 @@ export function upsertFileMapping(
 ///////////////////////
 
 export function validateProposal(
-  model: ModelProposal,
+  model: ModelProposal
 ): { ok: true } | { ok: false; issues: string[] } {
   const issues: string[] = [];
 
@@ -362,7 +362,7 @@ const DE_EN = {
 };
 
 function detectTargetTable(
-  columns: string[],
+  columns: string[]
 ): "sessions" | "bookings" | "payments" | "customers" | "coaches" {
   const name = (cols: string[]) => cols.join(" ");
   const cols = columns.map((c) => String(c));
@@ -378,10 +378,10 @@ function detectTargetTable(
 function ensureTable(
   model: ModelProposal,
   tableName: string,
-  incomingColumns: string[],
+  incomingColumns: string[]
 ): ModelProposal {
   const exists = model.recommendedTables?.some(
-    (t: any) => t.name === tableName,
+    (t: any) => t.name === tableName
   );
   if (!exists) {
     model.recommendedTables = model.recommendedTables || [];
@@ -411,7 +411,7 @@ function hasTable(model: ModelProposal, tableName: string) {
 
 function suggestRelationships(
   model: ModelProposal,
-  targetTable: string,
+  targetTable: string
 ): Relationship[] {
   const rel: Relationship[] = [];
   const has = (t: string) => hasTable(model, t);
@@ -436,7 +436,7 @@ function suggestRelationships(
 
 export function linkParsedSheetToModel(
   model: ModelProposal,
-  sheet: { columns: string[]; sheetName?: string },
+  sheet: { columns: string[]; sheetName?: string }
 ): LinkResult {
   // ✅ Deep clone so nested arrays are new
   const workingModel: ModelProposal =
@@ -452,7 +452,7 @@ export function linkParsedSheetToModel(
       (t) =>
         t.name.toLowerCase() === normalizedSheet ||
         normalizedSheet.includes(t.name.toLowerCase()) ||
-        t.name.toLowerCase().includes(normalizedSheet),
+        t.name.toLowerCase().includes(normalizedSheet)
     )?.name || detectTargetTable(sheet.columns);
 
   const target = targetTable;
@@ -548,7 +548,7 @@ export function autoLinkDatasetsToModel(model: ModelProposal, datasets: any[]) {
 
     if (match) {
       console.log(
-        `[AutoLink] Table "${tbl.name}" linked with dataset "${match.dataset_name}" (detected=${match.source_meta?.aiClassification?.detectedTable})`,
+        `[AutoLink] Table "${tbl.name}" linked with dataset "${match.dataset_name}" (detected=${match.source_meta?.aiClassification?.detectedTable})`
       );
     }
 
@@ -575,7 +575,7 @@ export function autoLinkDatasetsToModel(model: ModelProposal, datasets: any[]) {
       name: t.name,
       isLinked: t.isLinked,
       linkedId: t.linkedDatasetId,
-    })),
+    }))
   );
 
   return updated;

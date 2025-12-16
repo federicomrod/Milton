@@ -64,7 +64,7 @@ export function DataDebugComponent() {
         count: txs.length,
         totalAmount: txs.reduce(
           (sum: number, tx: any) => sum + (tx.amount || 0),
-          0,
+          0
         ),
         positiveAmount: txs.filter((tx: any) => tx.amount > 0).length,
         negativeAmount: txs.filter((tx: any) => tx.amount < 0).length,
@@ -82,7 +82,7 @@ export function DataDebugComponent() {
             tx.amount > 0 &&
             (tx.category?.toLowerCase().includes("subscription") ||
               tx.category?.toLowerCase().includes("recurring") ||
-              tx.category?.toLowerCase().includes("wiederk")),
+              tx.category?.toLowerCase().includes("wiederk"))
         ).length,
         amountDistribution: {
           min: Math.min(...txs.map((tx: any) => tx.amount)),
@@ -96,12 +96,12 @@ export function DataDebugComponent() {
       // Check for issues
       if (analysis.transactions.recurringRevenue === 0) {
         analysis.issues.push(
-          "No recurring revenue transactions detected - MRR will be €0",
+          "No recurring revenue transactions detected - MRR will be €0"
         );
       }
       if (analysis.transactions.positiveAmount === 0) {
         analysis.issues.push(
-          "No positive transactions found - no revenue detected",
+          "No positive transactions found - no revenue detected"
         );
       }
     } else {
@@ -115,7 +115,7 @@ export function DataDebugComponent() {
         count: deals.length,
         totalValue: deals.reduce(
           (sum: number, deal: any) => sum + (deal.amount || 0),
-          0,
+          0
         ),
         phases: [...new Set(deals.map((deal: any) => deal.phase))],
         clients: [...new Set(deals.map((deal: any) => deal.clientName))],
@@ -288,7 +288,7 @@ export function DataDebugComponent() {
                       <div>
                         <strong>Avg Amount:</strong> €
                         {analysis.transactions.amountDistribution?.avg?.toFixed(
-                          2,
+                          2
                         )}
                       </div>
                     </div>
@@ -305,7 +305,7 @@ export function DataDebugComponent() {
                             >
                               {cat}
                             </Badge>
-                          ),
+                          )
                         )}
                       </div>
                     </div>
@@ -316,7 +316,7 @@ export function DataDebugComponent() {
                         {JSON.stringify(
                           analysis.transactions.sampleTransaction,
                           null,
-                          2,
+                          2
                         )}
                       </pre>
                     </div>
@@ -359,7 +359,7 @@ export function DataDebugComponent() {
                             >
                               {phase}
                             </Badge>
-                          ),
+                          )
                         )}
                       </div>
                     </div>
@@ -404,7 +404,7 @@ export function DataDebugComponent() {
                             >
                               {cat}
                             </Badge>
-                          ),
+                          )
                         )}
                       </div>
                     </div>

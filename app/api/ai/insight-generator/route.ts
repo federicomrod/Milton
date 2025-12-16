@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     console.error("[insight-generator] Error:", err);
     return NextResponse.json(
       { error: "Insight generation failed" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

@@ -131,13 +131,13 @@ function buildSystemPrompt(businessType: BusinessTypeId): string {
 function buildUserPrompt(
   businessType: BusinessTypeId,
   datasets: AnalyzerDatasetSample[],
-  currentModel: unknown,
+  currentModel: unknown
 ): string {
   const parts: string[] = [];
 
   parts.push(
     `The business type is "${businessType}".`,
-    "You will receive sample rows from uploaded files. Use them to infer table names, fields, and relationships.",
+    "You will receive sample rows from uploaded files. Use them to infer table names, fields, and relationships."
   );
 
   if (businessType === "fitness_studio") {
@@ -145,24 +145,24 @@ function buildUserPrompt(
       "This is a fitness / wellness studio (e.g. yoga studio).",
       "Typical entities: Customers/Members, Instructors, Classes, Bookings, Payments.",
       "Important relationships: Bookings link Customers to Classes and Instructors; Payments link Customers (and optionally Bookings).",
-      "Use these exact table names: Customers, Classes, Instructors, Bookings, Payments.",
+      "Use these exact table names: Customers, Classes, Instructors, Bookings, Payments."
     );
   } else if (businessType === "saas") {
     parts.push(
       "This is a SaaS / digital product business.",
-      "Typical entities: Customers, Subscriptions, Invoices, CRM Deals, Usage Events.",
+      "Typical entities: Customers, Subscriptions, Invoices, CRM Deals, Usage Events."
     );
   } else if (businessType === "agency") {
     parts.push(
       "This is an agency / services business.",
-      "Typical entities: Clients, Projects, Invoices, Time Entries, Team Members.",
+      "Typical entities: Clients, Projects, Invoices, Time Entries, Team Members."
     );
   }
 
   if (currentModel) {
     parts.push(
       "Here is the current model JSON (if present). Refine or extend it instead of discarding it:",
-      JSON.stringify(currentModel, null, 2),
+      JSON.stringify(currentModel, null, 2)
     );
   }
 
@@ -172,13 +172,13 @@ function buildUserPrompt(
     for (const ds of datasets) {
       parts.push(
         `\nDataset: ${ds.sourceName ?? "Unnamed"}`,
-        ds.tableHint ? `Table hint: ${ds.tableHint}` : "",
+        ds.tableHint ? `Table hint: ${ds.tableHint}` : ""
       );
       parts.push(JSON.stringify(ds.sampleRows.slice(0, 5), null, 2));
     }
   } else {
     parts.push(
-      "No datasets were provided. Propose a sensible default model for this business type.",
+      "No datasets were provided. Propose a sensible default model for this business type."
     );
   }
 
@@ -186,7 +186,7 @@ function buildUserPrompt(
     "",
     "Return a ModelProposal JSON that uses clear, human-readable English table and field names.",
     "Do NOT include any extra keys not in the ModelProposal type.",
-    "Remember: output must be pure JSON without markdown code fences.",
+    "Remember: output must be pure JSON without markdown code fences."
   );
 
   return parts.join("\n");
@@ -199,7 +199,7 @@ export async function POST(req: NextRequest) {
     if (!body || !body.businessType) {
       return NextResponse.json(
         { success: false, error: "Missing businessType" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -210,7 +210,7 @@ export async function POST(req: NextRequest) {
     if (!validTypes.includes(businessType)) {
       return NextResponse.json(
         { success: false, error: "Invalid businessType" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -224,7 +224,7 @@ export async function POST(req: NextRequest) {
     if (userError || !user) {
       return NextResponse.json(
         { success: false, error: "Not authenticated" },
-        { status: 401 },
+        { status: 401 }
       );
     }
 
@@ -234,7 +234,7 @@ export async function POST(req: NextRequest) {
 
     console.log(
       "[business-model-analyzer] Calling OpenAI for businessType:",
-      businessType,
+      businessType
     );
 
     const chatCompletion = await openai.chat.completions.create({
@@ -269,7 +269,7 @@ export async function POST(req: NextRequest) {
       !Array.isArray(parsed.recommendedTables)
     ) {
       console.warn(
-        "[business-model-analyzer] Invalid model structure, using fallback",
+        "[business-model-analyzer] Invalid model structure, using fallback"
       );
 
       // Return appropriate fallback based on business type
@@ -288,7 +288,7 @@ export async function POST(req: NextRequest) {
           proposal: fallback,
           warning: "Returned fallback model due to parsing error",
         },
-        { status: 200 },
+        { status: 200 }
       );
     }
 
@@ -298,7 +298,7 @@ export async function POST(req: NextRequest) {
     console.log(
       "[business-model-analyzer] Successfully generated model with",
       parsed.recommendedTables.length,
-      "tables",
+      "tables"
     );
 
     return NextResponse.json(
@@ -306,13 +306,13 @@ export async function POST(req: NextRequest) {
         success: true,
         proposal: parsed,
       },
-      { status: 200 },
+      { status: 200 }
     );
   } catch (err) {
     console.error("[business-model-analyzer] Unexpected error", err);
     return NextResponse.json(
       { success: false, error: "Unexpected error" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

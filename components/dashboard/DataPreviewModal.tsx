@@ -32,7 +32,7 @@ const DataPreviewModal: React.FC<Props> = ({
 }) => {
   const [columns, setColumns] = useState<string[]>(initialColumns);
   const [rows, setRows] = useState<Record<string, unknown>[]>(
-    sampleRows.map((row) => ({ ...row })),
+    sampleRows.map((row) => ({ ...row }))
   );
 
   useEffect(() => {
@@ -53,7 +53,7 @@ const DataPreviewModal: React.FC<Props> = ({
       prev.map((row) => {
         const { [name]: _discard, ...rest } = row;
         return rest;
-      }),
+      })
     );
   };
 

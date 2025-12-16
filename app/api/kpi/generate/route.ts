@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     if (!user) {
       return NextResponse.json(
         { ok: false, error: "Unauthorized" },
-        { status: 401 },
+        { status: 401 }
       );
     }
 
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     console.error("[kpi/generate] Error:", error);
     return NextResponse.json(
       { ok: false, error: String(error?.message ?? error) },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

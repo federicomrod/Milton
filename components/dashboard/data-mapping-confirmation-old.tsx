@@ -64,7 +64,7 @@ interface DataMappingConfirmationProps {
   fileName: string;
   onConfirm: (
     confirmedMappings: ColumnMapping[],
-    structure: DataStructure,
+    structure: DataStructure
   ) => void;
   onCancel: () => void;
 }
@@ -93,10 +93,10 @@ export function DataMappingConfirmation({
   onCancel,
 }: DataMappingConfirmationProps) {
   const [mappings, setMappings] = useState<ColumnMapping[]>(
-    detectionResult.suggestedMappings,
+    detectionResult.suggestedMappings
   );
   const [structure, setStructure] = useState<DataStructure>(
-    detectionResult.structure,
+    detectionResult.structure
   );
   const [showPreview, setShowPreview] = useState(false);
 
@@ -112,8 +112,8 @@ export function DataMappingConfirmation({
               confidence: 1.0,
               detected: true,
             }
-          : mapping,
-      ),
+          : mapping
+      )
     );
   };
 
@@ -131,7 +131,7 @@ export function DataMappingConfirmation({
 
   const removeMapping = (original: string) => {
     setMappings((prev) =>
-      prev.filter((mapping) => mapping.original !== original),
+      prev.filter((mapping) => mapping.original !== original)
     );
   };
 
@@ -168,7 +168,7 @@ export function DataMappingConfirmation({
   const isValid = () => {
     const requiredFields = ["date", "amount"];
     return requiredFields.every((field) =>
-      mappings.some((mapping) => mapping.standardField === field),
+      mappings.some((mapping) => mapping.standardField === field)
     );
   };
 

@@ -10,7 +10,7 @@ export type ParsedSheet = {
 export async function upsertCustomDataset(
   modelId: string,
   parsed: ParsedSheet,
-  existingDatasetId?: string,
+  existingDatasetId?: string
 ) {
   const supabase = createClient();
   const {
@@ -72,7 +72,7 @@ export async function deleteCustomDataset(datasetId: string) {
 
 export async function updateDatasetClassification(
   id: string,
-  classification: any,
+  classification: any
 ) {
   const supabase = createClient();
   const { error } = await supabase

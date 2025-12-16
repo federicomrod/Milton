@@ -21,7 +21,7 @@ export class ChartCaptureService {
     // Only create instance in browser environment
     if (typeof window === "undefined") {
       throw new Error(
-        "ChartCaptureService can only be used in browser environment",
+        "ChartCaptureService can only be used in browser environment"
       );
     }
 
@@ -62,7 +62,7 @@ export class ChartCaptureService {
 
   private async renderComponent(
     component: React.ReactElement,
-    options: ChartCaptureOptions = {},
+    options: ChartCaptureOptions = {}
   ): Promise<string> {
     // Ensure we're in browser environment
     if (typeof window === "undefined" || typeof document === "undefined") {
@@ -192,8 +192,8 @@ export class ChartCaptureService {
               root.unmount();
               reject(
                 new Error(
-                  `Chart capture failed: ${fallbackError instanceof Error ? fallbackError.message : "Unknown error"}`,
-                ),
+                  `Chart capture failed: ${fallbackError instanceof Error ? fallbackError.message : "Unknown error"}`
+                )
               );
             }
           }
@@ -211,7 +211,7 @@ export class ChartCaptureService {
       | "income-statement"
       | "variance-analysis"
       | "ytd-performance",
-    options: ChartCaptureOptions = {},
+    options: ChartCaptureOptions = {}
   ): Promise<string> {
     const component = createElement(FinancialCharts, { type });
     return this.renderComponent(component, {
@@ -222,7 +222,7 @@ export class ChartCaptureService {
   }
 
   async captureSalesPipeline(
-    options: ChartCaptureOptions = {},
+    options: ChartCaptureOptions = {}
   ): Promise<string> {
     const component = createElement(SalesPipeline);
     return this.renderComponent(component, {
@@ -233,7 +233,7 @@ export class ChartCaptureService {
   }
 
   async captureCashFlowAnalysis(
-    options: ChartCaptureOptions = {},
+    options: ChartCaptureOptions = {}
   ): Promise<string> {
     const component = createElement(CashFlowAnalysis);
     return this.renderComponent(component, {
@@ -253,7 +253,7 @@ export class ChartCaptureService {
   }
 
   async captureBurnRateChart(
-    options: ChartCaptureOptions = {},
+    options: ChartCaptureOptions = {}
   ): Promise<string> {
     return this.captureFinancialChart("burn-rate", {
       width: 380,
@@ -263,7 +263,7 @@ export class ChartCaptureService {
   }
 
   async captureIncomeStatementChart(
-    options: ChartCaptureOptions = {},
+    options: ChartCaptureOptions = {}
   ): Promise<string> {
     return this.captureFinancialChart("income-statement", {
       width: 760,
@@ -273,7 +273,7 @@ export class ChartCaptureService {
   }
 
   async captureVarianceAnalysisChart(
-    options: ChartCaptureOptions = {},
+    options: ChartCaptureOptions = {}
   ): Promise<string> {
     return this.captureFinancialChart("variance-analysis", {
       width: 760,
@@ -283,7 +283,7 @@ export class ChartCaptureService {
   }
 
   async captureYTDPerformanceChart(
-    options: ChartCaptureOptions = {},
+    options: ChartCaptureOptions = {}
   ): Promise<string> {
     return this.captureFinancialChart("ytd-performance", {
       width: 760,
@@ -294,7 +294,7 @@ export class ChartCaptureService {
 
   // Method to capture multiple charts for a specific slide
   async captureChartsForSlide(
-    slideType: "overview" | "financial" | "sales" | "cashflow",
+    slideType: "overview" | "financial" | "sales" | "cashflow"
   ): Promise<{ [key: string]: string }> {
     const charts: { [key: string]: string } = {};
 
@@ -350,7 +350,7 @@ export function getChartCaptureService(): ChartCaptureService | null {
 
 // Helper function to preload charts for faster PDF generation
 export async function preloadChartsForReport(
-  config: any,
+  config: any
 ): Promise<{ [key: string]: string }> {
   // Ensure we're in browser environment
   const service = getChartCaptureService();

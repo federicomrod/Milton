@@ -175,7 +175,7 @@ export function MetricSelector({
     setTempSelection((prev) =>
       prev.includes(metricId)
         ? prev.filter((id) => id !== metricId)
-        : [...prev, metricId],
+        : [...prev, metricId]
     );
   };
 
@@ -259,7 +259,7 @@ export function MetricSelector({
   const renderMetricCategory = (
     title: string,
     category: string,
-    description: string,
+    description: string
   ) => (
     <div key={category} className="space-y-3">
       <div>
@@ -322,17 +322,17 @@ export function MetricSelector({
             {renderMetricCategory(
               "Core Metrics",
               "core",
-              "Essential KPIs for tracking business performance",
+              "Essential KPIs for tracking business performance"
             )}
             {renderMetricCategory(
               "LTM Comparisons",
               "ltm",
-              "12-month rolling averages for trend analysis",
+              "12-month rolling averages for trend analysis"
             )}
             {renderMetricCategory(
               "Advanced Analytics",
               "advanced",
-              "Deeper insights requiring additional data",
+              "Deeper insights requiring additional data"
             )}
           </div>
         </div>

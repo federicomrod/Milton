@@ -36,7 +36,7 @@ function markTableLinked(
   m: any,
   tableName: string,
   datasetId: string,
-  datasetName: string,
+  datasetName: string
 ) {
   const clone = JSON.parse(JSON.stringify(m));
   const idx =
@@ -44,7 +44,7 @@ function markTableLinked(
       (t: any) =>
         t &&
         typeof t.name === "string" &&
-        t.name.toLowerCase() === tableName.toLowerCase(),
+        t.name.toLowerCase() === tableName.toLowerCase()
     ) ?? -1;
   if (idx >= 0) {
     const tbl = clone.recommendedTables[idx];
@@ -192,7 +192,7 @@ export default function DataModelBuilder() {
   const [selectedModel, setSelectedModel] = useState<string>(
     typeof window !== "undefined"
       ? localStorage.getItem("businessModel") || ""
-      : "",
+      : ""
   );
 
   const { toast } = useToast();
@@ -265,7 +265,7 @@ export default function DataModelBuilder() {
 
       const result = await res.json();
       console.log(
-        `[DataModelBuilder] Successfully uploaded ${result.insertedCount} rows`,
+        `[DataModelBuilder] Successfully uploaded ${result.insertedCount} rows`
       );
 
       // Refresh data status
@@ -359,7 +359,7 @@ export default function DataModelBuilder() {
       // If still no model, use fitness default if business type is fitness_studio
       if (!loaded && businessType === "fitness_studio") {
         console.log(
-          "[DataModelBuilder] No existing model found, using fitness studio default",
+          "[DataModelBuilder] No existing model found, using fitness studio default"
         );
         loaded = FITNESS_STUDIO_DEFAULT_MODEL;
       }
@@ -408,8 +408,7 @@ export default function DataModelBuilder() {
       // Find the corresponding table in the model
       const tbl = model.recommendedTables?.find(
         (t) =>
-          typeof t.name === "string" &&
-          t.name.toLowerCase() === normalizedLabel,
+          typeof t.name === "string" && t.name.toLowerCase() === normalizedLabel
       ) as any;
       const metadata = tbl?.linkedMeta;
       // New logic: isLinked and tooltipText derive directly from model data
@@ -471,7 +470,7 @@ export default function DataModelBuilder() {
         setModel(updated);
       }
     },
-    [model, nodes],
+    [model, nodes]
   );
 
   const onNodesChange = useCallback((changes: any) => {
@@ -525,7 +524,7 @@ export default function DataModelBuilder() {
         type: "default",
         position: n.position,
         data: { label: n.label },
-      })),
+      }))
     );
     setEdges(
       graph.edges.map((e) => ({
@@ -533,7 +532,7 @@ export default function DataModelBuilder() {
         source: e.source,
         target: e.target,
         type: "smoothstep",
-      })),
+      }))
     );
 
     // Trigger auto-save
@@ -587,7 +586,7 @@ export default function DataModelBuilder() {
       // Show confirmation if no datasets found
       if (analyzerDatasets.length === 0) {
         const proceed = window.confirm?.(
-          "No uploaded datasets with samples found. Milton will propose a generic model for your business type. Continue?",
+          "No uploaded datasets with samples found. Milton will propose a generic model for your business type. Continue?"
         );
         if (!proceed) {
           setIsAiProposing(false);
@@ -608,7 +607,7 @@ export default function DataModelBuilder() {
           businessType,
           datasetsCount: analyzerDatasets.length,
           hasCurrentModel: !!model,
-        },
+        }
       );
 
       // 3. Call the AI analyzer
@@ -626,7 +625,7 @@ export default function DataModelBuilder() {
       // 4. Ask user to confirm replacement
       const shouldApply =
         window.confirm?.(
-          "Milton has generated a proposed data model based on your files. Replace your current model with this proposal?",
+          "Milton has generated a proposed data model based on your files. Replace your current model with this proposal?"
         ) ?? true;
 
       if (!shouldApply) {
@@ -648,7 +647,7 @@ export default function DataModelBuilder() {
     } catch (err) {
       console.error(
         "[DataModelBuilder] Error calling business-model-analyzer",
-        err,
+        err
       );
       toast({
         title: "Error",
@@ -847,7 +846,7 @@ export default function DataModelBuilder() {
           </div>
           {(() => {
             const table = model?.recommendedTables.find(
-              (t) => t.name === selectedTable,
+              (t) => t.name === selectedTable
             );
             if (!table)
               return <p className="text-xs text-gray-400">No table found.</p>;
@@ -858,7 +857,7 @@ export default function DataModelBuilder() {
             const handleTypeChange = (index: number, newType: string) => {
               const t = { ...model! };
               const tblIndex = t.recommendedTables.findIndex(
-                (tt) => tt.name === selectedTable,
+                (tt) => tt.name === selectedTable
               );
               if (tblIndex === -1) return;
               const tbl = { ...t.recommendedTables[tblIndex] };

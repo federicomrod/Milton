@@ -51,7 +51,7 @@ export async function getUserProfile(): Promise<UserProfile | null> {
 }
 
 export async function upsertUserProfile(
-  profileData: Partial<UserProfile>,
+  profileData: Partial<UserProfile>
 ): Promise<UserProfile> {
   const supabase = createClient();
   const {
@@ -84,7 +84,7 @@ export async function upsertUserProfile(
       "Profile update error:",
       error.message,
       error.details,
-      error.hint,
+      error.hint
     );
     throw error;
   }
@@ -120,7 +120,7 @@ export async function getUserCompany(): Promise<Company | null> {
 }
 
 export async function updateCompany(
-  companyData: Partial<Company>,
+  companyData: Partial<Company>
 ): Promise<Company> {
   const supabase = createClient();
   const {
@@ -146,7 +146,7 @@ export async function updateCompany(
       "Company update error:",
       companyError.message,
       companyError.details,
-      companyError.hint,
+      companyError.hint
     );
     throw companyError;
   }

@@ -12,7 +12,7 @@
 export function formatCurrency(
   value: number | null | undefined,
   currency: string = "EUR",
-  locale?: string,
+  locale?: string
 ): string {
   if (value === null || value === undefined || isNaN(value)) {
     return `${getCurrencySymbol(currency)} 0`;
@@ -41,7 +41,7 @@ export function formatCurrency(
  */
 export function formatNumber(
   value: number | null | undefined,
-  numberFormat: string = "1,000.00",
+  numberFormat: string = "1,000.00"
 ): string {
   if (value === null || value === undefined || isNaN(value)) {
     return "0";
@@ -70,7 +70,7 @@ export function formatNumber(
 export function formatDate(
   dateString: string | Date | null | undefined,
   timezone: string = "UTC",
-  dateFormat: string = "DD/MM/YYYY",
+  dateFormat: string = "DD/MM/YYYY"
 ): string {
   if (!dateString) return "-";
 
@@ -127,7 +127,7 @@ export function formatDate(
  */
 export function formatDateTime(
   dateString: string | Date | null | undefined,
-  timezone: string = "UTC",
+  timezone: string = "UTC"
 ): string {
   if (!dateString) return "-";
 
@@ -182,7 +182,7 @@ function getLocaleFromCurrency(currency: string): string {
  */
 export function formatPercentage(
   value: number | null | undefined,
-  decimals: number = 1,
+  decimals: number = 1
 ): string {
   if (value === null || value === undefined || isNaN(value)) {
     return "0%";

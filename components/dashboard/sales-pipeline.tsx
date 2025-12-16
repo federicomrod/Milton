@@ -74,7 +74,7 @@ export function SalesPipeline() {
   const [loading, setLoading] = useState(true);
   const [showWeighted, setShowWeighted] = useState(false);
   const [colorMode, setColorMode] = useState<"individual" | "corporate">(
-    "individual",
+    "individual"
   );
   const [corporateColor, setCorporateColor] = useState("#3b82f6");
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
@@ -89,7 +89,7 @@ export function SalesPipeline() {
 
   // Currency format state and helper
   const [formatStyle, setFormatStyle] = useState<"short" | "swiss" | "mio">(
-    "short",
+    "short"
   );
 
   const formatCurrency = (value: number): string => {
@@ -190,18 +190,18 @@ export function SalesPipeline() {
       "Lead Generation": hslToHex(
         hslColor.h,
         hslColor.s,
-        Math.min(95, hslColor.l + 40),
+        Math.min(95, hslColor.l + 40)
       ),
       "First Contact": hslToHex(
         hslColor.h,
         hslColor.s,
-        Math.min(85, hslColor.l + 20),
+        Math.min(85, hslColor.l + 20)
       ),
       "Need Qualification": baseColor,
       Negotiation: hslToHex(
         hslColor.h,
         hslColor.s,
-        Math.max(15, hslColor.l - 15),
+        Math.max(15, hslColor.l - 15)
       ),
       Deal: hslToHex(hslColor.h, hslColor.s, Math.max(10, hslColor.l - 25)),
       "No Deal": "#ef4444", // Always red for failed deals
@@ -300,15 +300,15 @@ export function SalesPipeline() {
         console.log("✅ Sample Supabase deal object:", dealsData[0]);
         console.log(
           "💬 Deal IDs check:",
-          dealsData.map((d) => d.id),
+          dealsData.map((d) => d.id)
         );
         console.log(
           "💬 Companies check:",
-          dealsData.map((d) => d.company),
+          dealsData.map((d) => d.company)
         );
         console.log(
           "💬 Object keys of first deal:",
-          Object.keys(dealsData[0] || {}),
+          Object.keys(dealsData[0] || {})
         );
 
         setAllDeals(dealsData);
@@ -319,7 +319,7 @@ export function SalesPipeline() {
         await new Promise((r) => setTimeout(r, 100));
         console.log(
           "🧩 Metrics computation triggered with deals count:",
-          dealsData.length,
+          dealsData.length
         );
         calculatePipelineMetrics(dealsData);
         setLoading(false);
@@ -336,11 +336,11 @@ export function SalesPipeline() {
     console.log("[CRM DEALS]", dealsData);
     console.log(
       "[CRM DEAL STAGES]",
-      dealsData.map((d) => d.stage),
+      dealsData.map((d) => d.stage)
     );
     console.log(
       "[CRM NORMALIZED STAGES]",
-      dealsData.map((d) => normalizeStage(d.stage || "")),
+      dealsData.map((d) => normalizeStage(d.stage || ""))
     );
 
     // Pipeline by phase
@@ -356,18 +356,18 @@ export function SalesPipeline() {
 
     console.log(
       "[STAGE CHECK]",
-      Array.from(new Set(allDeals.map((d) => d.stage))),
+      Array.from(new Set(allDeals.map((d) => d.stage)))
     );
 
     const phaseData = phaseOrder.map((phase) => {
       const phaseDeals = allDeals.filter(
-        (d) => normalizeStage(d.stage || "") === phase,
+        (d) => normalizeStage(d.stage || "") === phase
       );
 
       if (phase === "Lead Generation") {
         console.log(
           "Lead Gen matches:",
-          phaseDeals.map((d) => ({ amount: d.amount, type: typeof d.amount })),
+          phaseDeals.map((d) => ({ amount: d.amount, type: typeof d.amount }))
         );
       }
 
@@ -388,7 +388,7 @@ export function SalesPipeline() {
 
     const funnelData = activePhasesData.map((phase) => {
       const phaseDeals = allDeals.filter(
-        (d) => normalizeStage(d.stage || "") === phase,
+        (d) => normalizeStage(d.stage || "") === phase
       );
       const count = phaseDeals.length;
       const totalDeals = allDeals.length;
@@ -430,7 +430,7 @@ export function SalesPipeline() {
     }
 
     const closedDeals = dealsData.filter(
-      (d) => d.stage === "deal" && d.close_date && d.created_date,
+      (d) => d.stage === "deal" && d.close_date && d.created_date
     );
 
     const salesCycles = closedDeals
@@ -441,7 +441,7 @@ export function SalesPipeline() {
       salesCycles.length > 0
         ? Math.round(
             salesCycles.reduce((sum, days) => sum + days, 0) /
-              salesCycles.length,
+              salesCycles.length
           )
         : 0;
 
@@ -500,7 +500,7 @@ export function SalesPipeline() {
           .slice(0, -2)
           .reduce(
             (sum, phase) => sum + (monthData[`${phase}_weighted`] || 0),
-            0,
+            0
           );
 
         return monthData;
@@ -684,7 +684,7 @@ export function SalesPipeline() {
                                 style={{ backgroundColor: color }}
                                 title={phase}
                               ></div>
-                            ),
+                            )
                           )}
                         </div>
                       </div>
@@ -739,7 +739,7 @@ export function SalesPipeline() {
                 allDeals
                   .filter((d) => d.stage !== "no_deal")
                   .reduce((sum, d) => sum + Number(d.amount || 0), 0),
-                prefs.currency,
+                prefs.currency
               )}
             </div>
           </CardContent>
@@ -774,10 +774,10 @@ export function SalesPipeline() {
             <div className="text-2xl font-bold">
               {(() => {
                 const closedWon = allDeals.filter(
-                  (d) => d.stage === "deal" && d.close_date,
+                  (d) => d.stage === "deal" && d.close_date
                 ).length;
                 const closedLost = allDeals.filter(
-                  (d) => d.stage === "no_deal" && d.close_date,
+                  (d) => d.stage === "no_deal" && d.close_date
                 ).length;
                 const total = closedWon + closedLost;
                 return total === 0

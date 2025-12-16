@@ -70,7 +70,7 @@ export function WaterfallChart({ data, height = 400 }: WaterfallChartProps) {
         width={width}
         height={height}
         fill={payload.color || fill}
-      />,
+      />
     );
 
     // Connecting line to next bar (if not a total and not the last item)
@@ -91,7 +91,7 @@ export function WaterfallChart({ data, height = 400 }: WaterfallChartProps) {
           stroke="#666"
           strokeWidth={1}
           strokeDasharray="3 3"
-        />,
+        />
       );
     }
 

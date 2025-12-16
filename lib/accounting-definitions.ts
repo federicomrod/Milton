@@ -217,7 +217,7 @@ export const BUDGET_STRUCTURE: BudgetStructure = {
 export function categorizeTransaction(
   description: string,
   amount: number,
-  originalCategory?: string,
+  originalCategory?: string
 ): string {
   const lowerDesc = description.toLowerCase();
   const lowerCategory = originalCategory?.toLowerCase() || "";
@@ -235,12 +235,12 @@ export function categorizeTransaction(
     ) {
       // Check German terms
       const hasGermanMatch = category.germanTerms.some(
-        (term) => lowerDesc.includes(term) || lowerCategory.includes(term),
+        (term) => lowerDesc.includes(term) || lowerCategory.includes(term)
       );
 
       // Check English terms
       const hasEnglishMatch = category.englishTerms.some(
-        (term) => lowerDesc.includes(term) || lowerCategory.includes(term),
+        (term) => lowerDesc.includes(term) || lowerCategory.includes(term)
       );
 
       if (hasGermanMatch || hasEnglishMatch) {
@@ -262,7 +262,7 @@ export function categorizeTransaction(
 // Helper function to identify budget keys
 export function identifyBudgetKey(
   budgetData: any,
-  keyType: "revenue" | "expense",
+  keyType: "revenue" | "expense"
 ): string | null {
   const keys =
     keyType === "revenue"
@@ -282,7 +282,7 @@ export function identifyBudgetKey(
 export function getMonthFormat(budgetData: any): string {
   // Check if budget has any data to determine format
   const firstKey = Object.keys(budgetData).find(
-    (key) => typeof budgetData[key] === "object" && budgetData[key] !== null,
+    (key) => typeof budgetData[key] === "object" && budgetData[key] !== null
   );
 
   if (firstKey && budgetData[firstKey]) {

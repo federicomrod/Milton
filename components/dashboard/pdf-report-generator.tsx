@@ -191,7 +191,7 @@ export function PDFReportGenerator() {
       setError(
         err instanceof Error
           ? err.message
-          : "Failed to generate PDF. Please try again.",
+          : "Failed to generate PDF. Please try again."
       );
       setGenerationStatus("error");
     } finally {

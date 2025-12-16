@@ -125,7 +125,7 @@ export class MetricsCalculationService {
       if (
         this.categoryMappings.revenue.subscription.some(
           (keyword) =>
-            category.includes(keyword) || description.includes(keyword),
+            category.includes(keyword) || description.includes(keyword)
         )
       ) {
         return { type: "revenue", subtype: "subscription" };
@@ -135,7 +135,7 @@ export class MetricsCalculationService {
       if (
         this.categoryMappings.revenue.oneTime.some(
           (keyword) =>
-            category.includes(keyword) || description.includes(keyword),
+            category.includes(keyword) || description.includes(keyword)
         )
       ) {
         return { type: "revenue", subtype: "oneTime" };
@@ -150,7 +150,7 @@ export class MetricsCalculationService {
       if (
         this.categoryMappings.cogs.direct.some(
           (keyword) =>
-            category.includes(keyword) || description.includes(keyword),
+            category.includes(keyword) || description.includes(keyword)
         )
       ) {
         return { type: "cogs", subtype: "direct" };
@@ -158,12 +158,12 @@ export class MetricsCalculationService {
 
       // Check for specific expense types
       for (const [expenseType, keywords] of Object.entries(
-        this.categoryMappings.expenses,
+        this.categoryMappings.expenses
       )) {
         if (
           keywords.some(
             (keyword) =>
-              category.includes(keyword) || description.includes(keyword),
+              category.includes(keyword) || description.includes(keyword)
           )
         ) {
           return { type: "expense", subtype: expenseType };
@@ -181,12 +181,12 @@ export class MetricsCalculationService {
     const monthStart = new Date(
       currentMonth.getFullYear(),
       currentMonth.getMonth(),
-      1,
+      1
     );
     const monthEnd = new Date(
       currentMonth.getFullYear(),
       currentMonth.getMonth() + 1,
-      0,
+      0
     );
 
     const monthlyRevenue = transactions
@@ -213,11 +213,11 @@ export class MetricsCalculationService {
 
   private calculateCashBalance(transactions: Transaction[]): number {
     const sortedTransactions = [...transactions].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
 
     return Math.round(
-      sortedTransactions.reduce((balance, tx) => balance + tx.amount, 0),
+      sortedTransactions.reduce((balance, tx) => balance + tx.amount, 0)
     );
   }
 
@@ -262,11 +262,11 @@ export class MetricsCalculationService {
         deal.phase?.toLowerCase().includes("closed") ||
         deal.phase?.toLowerCase().includes("contract") ||
         deal.phase?.toLowerCase().includes("verhandlung") ||
-        deal.phase?.toLowerCase().includes("abgeschlossen"),
+        deal.phase?.toLowerCase().includes("abgeschlossen")
     );
 
     return Math.round(
-      contractedDeals.reduce((sum, deal) => sum + (deal.amount || 0), 0),
+      contractedDeals.reduce((sum, deal) => sum + (deal.amount || 0), 0)
     );
   }
 
@@ -291,7 +291,7 @@ export class MetricsCalculationService {
   private calculateGrossMargin(transactions: Transaction[]): number {
     const currentYear = new Date().getFullYear();
     const yearTransactions = transactions.filter(
-      (tx) => new Date(tx.date).getFullYear() === currentYear,
+      (tx) => new Date(tx.date).getFullYear() === currentYear
     );
 
     const totalRevenue = yearTransactions
@@ -318,7 +318,7 @@ export class MetricsCalculationService {
 
   private calculateCustomers(
     transactions: Transaction[],
-    deals: Deal[],
+    deals: Deal[]
   ): number {
     // Get unique customers from both transactions and deals
     const customerSet = new Set<string>();
@@ -347,7 +347,7 @@ export class MetricsCalculationService {
     const monthStart = new Date(
       currentMonth.getFullYear(),
       currentMonth.getMonth(),
-      1,
+      1
     );
 
     // Calculate marketing expenses for current month
@@ -394,7 +394,7 @@ export class MetricsCalculationService {
       (deal) =>
         deal.phase?.toLowerCase().includes("lost") ||
         deal.phase?.toLowerCase().includes("cancelled") ||
-        deal.phase?.toLowerCase().includes("verloren"),
+        deal.phase?.toLowerCase().includes("verloren")
     ).length;
 
     return totalCustomers > 0

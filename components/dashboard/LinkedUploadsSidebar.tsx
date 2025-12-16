@@ -40,7 +40,7 @@ export default function LinkedUploadsSidebar({
     }
 
     const allLinked = required.every(
-      (type) => byType[type] && byType[type]?.source_meta?.linkedTable,
+      (type) => byType[type] && byType[type]?.source_meta?.linkedTable
     );
 
     if (allLinked && !hasEmittedRef.current) {
@@ -48,7 +48,7 @@ export default function LinkedUploadsSidebar({
       const payload = { datasets, timestamp: Date.now() };
       console.log(
         "[LinkedUploadsSidebar] Emitting datasets.linked once",
-        payload,
+        payload
       );
       miltonEventsAPI.publish("datasets.linked", payload);
     }

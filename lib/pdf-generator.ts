@@ -23,7 +23,7 @@ const theme = {
  */
 export async function generateReportPDF(
   data: ReportData,
-  config?: ReportConfig,
+  config?: ReportConfig
 ): Promise<void> {
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
 
@@ -35,7 +35,7 @@ export async function generateReportPDF(
     doc,
     data.kpis.pipelineValue,
     data.kpis.openDeals,
-    y + 40,
+    y + 40
   );
   drawSummarySection(doc, data.kpis, y + 60);
 
@@ -101,7 +101,7 @@ function drawKPISection(doc: jsPDF, kpis: any, startY: number): number {
 function drawBudgetVariance(
   doc: jsPDF,
   variance: any[],
-  startY: number,
+  startY: number
 ): number {
   doc.setFont(theme.font, "bold");
   doc.setFontSize(14);
@@ -147,7 +147,7 @@ function drawPipelineSection(
   doc: jsPDF,
   pipelineValue: number,
   openDeals: number,
-  startY: number,
+  startY: number
 ): number {
   doc.setFont(theme.font, "bold");
   doc.setFontSize(14);

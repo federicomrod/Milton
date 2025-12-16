@@ -18,7 +18,7 @@ type BusinessContextValue = {
 };
 
 const BusinessContext = createContext<BusinessContextValue | undefined>(
-  undefined,
+  undefined
 );
 
 type BusinessProviderProps = {
@@ -27,7 +27,7 @@ type BusinessProviderProps = {
 
 export function BusinessProvider({ children }: BusinessProviderProps) {
   const [businessType, setBusinessTypeState] = useState<BusinessTypeId | null>(
-    null,
+    null
   );
   const [isLoading, setIsLoading] = useState(true);
 
@@ -102,7 +102,7 @@ export function useBusinessContext(): BusinessContextValue {
   const ctx = useContext(BusinessContext);
   if (!ctx) {
     throw new Error(
-      "useBusinessContext must be used within a BusinessProvider",
+      "useBusinessContext must be used within a BusinessProvider"
     );
   }
   return ctx;

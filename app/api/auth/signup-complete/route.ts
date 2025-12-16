@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     if (!userId || !companyName) {
       return NextResponse.json(
         { error: "Missing userId or companyName" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -19,7 +19,7 @@ export async function POST(req: Request) {
     if (!uuidRegex.test(userId)) {
       return NextResponse.json(
         { error: "Invalid userId format" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -36,14 +36,14 @@ export async function POST(req: Request) {
       },
       {
         onConflict: "user_id",
-      },
+      }
     );
 
     if (profileError) {
       console.error("Profile creation error:", profileError);
       return NextResponse.json(
         { error: `Failed to create profile: ${profileError.message}` },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
       console.error("Company creation error:", companyError);
       return NextResponse.json(
         { error: `Failed to create company: ${companyError.message}` },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
@@ -73,7 +73,7 @@ export async function POST(req: Request) {
     console.error("Signup complete API error:", error);
     return NextResponse.json(
       { error: error?.message || "Internal server error" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

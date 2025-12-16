@@ -223,7 +223,7 @@ export function MetricsGrid({
           if (Array.isArray(parsedTransactions)) {
             transactions = parsedTransactions.filter(validateTransaction);
             console.log(
-              `MetricsGrid: Loaded ${transactions.length} valid transactions from ${parsedTransactions.length} total`,
+              `MetricsGrid: Loaded ${transactions.length} valid transactions from ${parsedTransactions.length} total`
             );
 
             // Show sample transaction for debugging
@@ -245,7 +245,7 @@ export function MetricsGrid({
           if (Array.isArray(parsedCRM)) {
             crmDeals = parsedCRM.filter(validateDeal);
             console.log(
-              `MetricsGrid: Loaded ${crmDeals.length} valid deals from ${parsedCRM.length} total`,
+              `MetricsGrid: Loaded ${crmDeals.length} valid deals from ${parsedCRM.length} total`
             );
           } else {
             console.warn("MetricsGrid: CRM data is not an array");
@@ -267,7 +267,7 @@ export function MetricsGrid({
 
       if (transactions.length === 0) {
         console.log(
-          "MetricsGrid: No valid transactions found, using default metrics",
+          "MetricsGrid: No valid transactions found, using default metrics"
         );
         setMetrics({
           mrr: 0,
@@ -298,7 +298,7 @@ export function MetricsGrid({
           return aiInsights.recurringRevenue.some(
             (col: string) =>
               transaction.categoryColumn === col ||
-              transaction.category?.toLowerCase().includes(col.toLowerCase()),
+              transaction.category?.toLowerCase().includes(col.toLowerCase())
           );
         }
 
@@ -320,7 +320,7 @@ export function MetricsGrid({
           const isRevenueByAI = aiInsights.revenueColumns.some(
             (col: string) =>
               transaction.categoryColumn === col ||
-              transaction.categoryType === "revenue",
+              transaction.categoryType === "revenue"
           );
           if (isRevenueByAI) return true;
         }
@@ -366,16 +366,16 @@ export function MetricsGrid({
       const monthStart = new Date(
         targetMonth.getFullYear(),
         targetMonth.getMonth(),
-        1,
+        1
       );
       const monthEnd = new Date(
         targetMonth.getFullYear(),
         targetMonth.getMonth() + 1,
-        0,
+        0
       );
 
       console.log(
-        `MetricsGrid: Calculating metrics for: ${targetMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })}`,
+        `MetricsGrid: Calculating metrics for: ${targetMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
       );
 
       // Filter transactions for the target month with safe date parsing
@@ -391,7 +391,7 @@ export function MetricsGrid({
       });
 
       console.log(
-        `MetricsGrid: Found ${currentMonthTransactions.length} transactions for the month`,
+        `MetricsGrid: Found ${currentMonthTransactions.length} transactions for the month`
       );
 
       // Calculate MRR using AI-enhanced logic
@@ -409,21 +409,21 @@ export function MetricsGrid({
       // Calculate total cash balance
       const totalCash = transactions.reduce(
         (sum, t) => sum + safeParseFloat(t.amount),
-        0,
+        0
       );
 
       // Calculate monthly expenses (excluding COGS)
       const monthlyExpenses = Math.abs(
         currentMonthTransactions
           .filter((t) => safeParseFloat(t.amount) < 0 && !isCOGS(t))
-          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0),
+          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0)
       );
 
       // Calculate COGS separately
       const cogs = Math.abs(
         currentMonthTransactions
           .filter((t) => safeParseFloat(t.amount) < 0 && isCOGS(t))
-          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0),
+          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0)
       );
 
       // Calculate net burn (expenses minus revenue)
@@ -455,7 +455,7 @@ export function MetricsGrid({
       const ltmTotalExpenses = Math.abs(
         ltmTransactions
           .filter((t) => safeParseFloat(t.amount) < 0 && !isCOGS(t))
-          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0),
+          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0)
       );
 
       const ltmMonthlyExpenses = ltmTotalExpenses / 12;
@@ -470,8 +470,8 @@ export function MetricsGrid({
       const contractedRevenue = crmDeals
         .filter((d) =>
           ["Negotiation", "Deal", "Closed", "Contract"].includes(
-            safeToString(d.phase),
-          ),
+            safeToString(d.phase)
+          )
         )
         .reduce((sum, d) => sum + safeParseFloat(d.amount), 0);
 
@@ -495,15 +495,15 @@ export function MetricsGrid({
           ? new Set(
               crmDeals
                 .map((d) => safeToLowerCase(d.clientName).trim())
-                .filter((name) => name !== ""),
+                .filter((name) => name !== "")
             ).size
           : new Set(
               transactions
                 .filter((t) => safeParseFloat(t.amount) > 0 && isRevenue(t))
                 .map((t) =>
-                  safeToLowerCase(t.name || t.description || "").trim(),
+                  safeToLowerCase(t.name || t.description || "").trim()
                 )
-                .filter((name) => name !== ""),
+                .filter((name) => name !== "")
             ).size;
 
       // Calculate runway
@@ -848,7 +848,7 @@ export function MetricsGrid({
 
   // Filter metrics based on selection
   const metricCards = allMetricCards.filter((metric) =>
-    selectedMetrics.includes(metric.id),
+    selectedMetrics.includes(metric.id)
   );
 
   return (

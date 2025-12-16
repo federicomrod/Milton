@@ -63,7 +63,7 @@ export function SignupForm() {
         const errorData = await response.json();
         throw new Error(
           errorData.error ||
-            "Failed to create company profile. Please try again.",
+            "Failed to create company profile. Please try again."
         );
       }
 

@@ -17,12 +17,12 @@ type DashboardViewProps = {
 };
 
 export default function DashboardView(
-  { data }: DashboardViewProps = { data: undefined },
+  { data }: DashboardViewProps = { data: undefined }
 ) {
   const [chartData, setChartData] = useState<any[]>([]);
   const [businessModel, setBusinessModel] = useState("");
   const [selectedKpiIds, setSelectedKpiIds] = useState<string[]>(
-    data?.selectedKpiIds ?? [],
+    data?.selectedKpiIds ?? []
   );
 
   useEffect(() => {
@@ -41,7 +41,7 @@ export default function DashboardView(
           }));
           setChartData(normalized);
         }
-      },
+      }
     );
     return () => unsubscribe();
   }, []);

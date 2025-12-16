@@ -42,7 +42,7 @@ export async function insertProcessedData({
 }): Promise<IngestFileResult> {
   try {
     console.log(
-      `[Ingestion] Inserting ${data.length} pre-processed ${datasetType} rows (mode: ${mode})`,
+      `[Ingestion] Inserting ${data.length} pre-processed ${datasetType} rows (mode: ${mode})`
     );
 
     // Handle overwrite mode
@@ -146,7 +146,7 @@ export async function ingestUploadedFile({
 }: IngestFileParams): Promise<IngestFileResult> {
   try {
     console.log(
-      `[Ingestion] Processing ${datasetType} file: ${file.name} (mode: ${mode})`,
+      `[Ingestion] Processing ${datasetType} file: ${file.name} (mode: ${mode})`
     );
 
     // Step 1: Parse the file
@@ -175,7 +175,7 @@ export async function ingestUploadedFile({
     // Step 2: Handle overwrite mode - delete existing data
     if (mode === "overwrite") {
       console.log(
-        `[Ingestion] Overwriting existing ${datasetType} data for user ${userId}`,
+        `[Ingestion] Overwriting existing ${datasetType} data for user ${userId}`
       );
 
       if (datasetType === "bank") {
@@ -300,7 +300,7 @@ export async function ingestUploadedFile({
           month: monthValue,
           category: row.category || row.Category || "General",
           value: parseFloat(
-            row.value || row.Value || row.amount || row.Amount || "0",
+            row.value || row.Value || row.amount || row.Amount || "0"
           ),
         };
       });
@@ -311,7 +311,7 @@ export async function ingestUploadedFile({
     }
 
     console.log(
-      `[Ingestion] Successfully inserted ${insertedCount} rows for ${datasetType}`,
+      `[Ingestion] Successfully inserted ${insertedCount} rows for ${datasetType}`
     );
 
     return {

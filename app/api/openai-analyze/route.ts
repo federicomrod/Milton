@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
     if (!prompt) {
       return NextResponse.json(
         { error: "Prompt is required" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     const isMessageArray = Array.isArray(prompt);
     console.log(
       "Received prompt for analysis",
-      isMessageArray ? "(message array)" : "(string)",
+      isMessageArray ? "(message array)" : "(string)"
     );
 
     // Check if OpenAI key exists
@@ -142,7 +142,7 @@ export async function POST(request: NextRequest) {
       fileType: parsedResponse.fileType || "unknown",
       confidence: Math.min(
         Math.max(Number(parsedResponse.confidence) || 0, 0),
-        1,
+        1
       ),
       reasoning: parsedResponse.reasoning || "No reasoning provided",
       columnMappings: Array.isArray(parsedResponse.columnMappings)
@@ -166,7 +166,7 @@ export async function POST(request: NextRequest) {
 
     console.log(
       "Returning validated response with confidence:",
-      validatedResponse.confidence,
+      validatedResponse.confidence
     );
     return NextResponse.json(validatedResponse);
   } catch (error) {

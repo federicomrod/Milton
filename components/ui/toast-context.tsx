@@ -16,7 +16,7 @@ type ToastContextValue = {
 };
 
 const ToastContext = React.createContext<ToastContextValue | undefined>(
-  undefined,
+  undefined
 );
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {

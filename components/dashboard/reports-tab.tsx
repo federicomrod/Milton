@@ -144,7 +144,7 @@ export function ReportsTab() {
       | "salesCards"
       | "cashFlowCards",
     card: string,
-    value: boolean,
+    value: boolean
   ) => {
     setConfig((prev) => ({
       ...prev,
@@ -220,7 +220,7 @@ export function ReportsTab() {
 
       // Convert period label (e.g., "October 2025") into start/end ISO strings
       function parsePeriodLabel(
-        label: string | null | undefined,
+        label: string | null | undefined
       ): { start: string; end: string } | null {
         if (!label) return null;
         try {
@@ -242,7 +242,7 @@ export function ReportsTab() {
       const reportData = await getReportData(
         supabase,
         user.id,
-        periodRange || undefined,
+        periodRange || undefined
       );
 
       // Generate AI insights for each section
@@ -268,7 +268,7 @@ export function ReportsTab() {
       } catch (insightError) {
         console.warn(
           "AI insights generation failed, proceeding without insights:",
-          insightError,
+          insightError
         );
         // Continue with empty insights if OpenAI fails
       }
@@ -288,7 +288,7 @@ export function ReportsTab() {
           timezone: prefs.timezone,
         },
         insights,
-        chartImages,
+        chartImages
       );
 
       setGenerationStatus("success");
@@ -298,7 +298,7 @@ export function ReportsTab() {
       setError(
         err instanceof Error
           ? err.message
-          : "Failed to generate PDF. Please try again.",
+          : "Failed to generate PDF. Please try again."
       );
       setGenerationStatus("error");
     } finally {
@@ -477,7 +477,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "overviewCards",
                           "metricsGrid",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />
@@ -496,7 +496,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "overviewCards",
                           "performanceCharts",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />
@@ -556,7 +556,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "financialCards",
                           "revenueBreakdown",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />
@@ -575,7 +575,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "financialCards",
                           "expenseAnalysis",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />
@@ -594,7 +594,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "financialCards",
                           "varianceReport",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />
@@ -654,7 +654,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "salesCards",
                           "pipelineMetrics",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />
@@ -673,7 +673,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "salesCards",
                           "pipelineByStage",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />
@@ -692,7 +692,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "salesCards",
                           "pipelineByClosingDate",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />
@@ -711,7 +711,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "salesCards",
                           "dealSources",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />
@@ -771,7 +771,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "cashFlowCards",
                           "currentBalance",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />
@@ -790,7 +790,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "cashFlowCards",
                           "monthlyBurnRate",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />
@@ -809,7 +809,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "cashFlowCards",
                           "cashRunway",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />
@@ -828,7 +828,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "cashFlowCards",
                           "monthlyTrend",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />
@@ -847,7 +847,7 @@ export function ReportsTab() {
                         handleCardSelectionChange(
                           "cashFlowCards",
                           "inflowOutflowBreakdown",
-                          checked as boolean,
+                          checked as boolean
                         )
                       }
                     />

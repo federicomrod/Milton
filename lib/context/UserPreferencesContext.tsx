@@ -26,7 +26,7 @@ interface UserPreferencesContextType {
 }
 
 const UserPreferencesContext = createContext<UserPreferencesContextType | null>(
-  null,
+  null
 );
 
 export function UserPreferencesProvider({ children }: { children: ReactNode }) {
@@ -110,7 +110,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
                 theme: payload.new.theme || prev.theme,
               }));
             }
-          },
+          }
         )
         .subscribe();
 
@@ -139,7 +139,7 @@ export function useUserPreferences() {
   const context = useContext(UserPreferencesContext);
   if (!context) {
     throw new Error(
-      "useUserPreferences must be used within UserPreferencesProvider",
+      "useUserPreferences must be used within UserPreferencesProvider"
     );
   }
   return context;

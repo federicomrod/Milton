@@ -82,19 +82,19 @@ export async function GET(request: NextRequest) {
       ]);
       if ((bankCount ?? 0) === 0 && (globalBankCount ?? 0) > 0) {
         console.warn(
-          "⚠️ DEV fallback: found global transaction rows without user attribution",
+          "⚠️ DEV fallback: found global transaction rows without user attribution"
         );
         bankCount = globalBankCount;
       }
       if ((crmCount ?? 0) === 0 && (globalCrmCount ?? 0) > 0) {
         console.warn(
-          "⚠️ DEV fallback: found global CRM rows without user attribution",
+          "⚠️ DEV fallback: found global CRM rows without user attribution"
         );
         crmCount = globalCrmCount;
       }
       if ((budgetCount ?? 0) === 0 && (globalBudgetCount ?? 0) > 0) {
         console.warn(
-          "⚠️ DEV fallback: found global budget rows without user attribution",
+          "⚠️ DEV fallback: found global budget rows without user attribution"
         );
         budgetCount = globalBudgetCount;
       }
@@ -116,7 +116,7 @@ export async function GET(request: NextRequest) {
         crm: false,
         budget: false,
       },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

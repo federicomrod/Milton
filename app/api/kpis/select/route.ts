@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     if (!accepted_kpis) {
       return NextResponse.json(
         { error: "Missing accepted_kpis" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -37,11 +37,11 @@ export async function POST(req: Request) {
     // Gracefully handle missing company ID
     if (!resolvedCompanyId) {
       console.warn(
-        "⚠️ No valid company ID found — skipping Supabase insert in local dev",
+        "⚠️ No valid company ID found — skipping Supabase insert in local dev"
       );
       return NextResponse.json(
         { error: "No valid company ID found" },
-        { status: 404 },
+        { status: 404 }
       );
     }
 
@@ -71,7 +71,7 @@ export async function POST(req: Request) {
             error: updateError.message ?? "update_error",
             details: updateError,
           },
-          { status: 400 },
+          { status: 400 }
         );
       }
     } else {
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
             error: insertError.message ?? "insert_error",
             details: insertError,
           },
-          { status: 400 },
+          { status: 400 }
         );
       }
     }
@@ -101,7 +101,7 @@ export async function POST(req: Request) {
     console.error("KPI selection API error:", error);
     return NextResponse.json(
       { error: error?.message ?? "Failed to save KPIs", details: error },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

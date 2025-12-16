@@ -230,7 +230,7 @@ export default function EnhancedDataMappingUI({
     // Check for duplicate mappings
     const duplicates = mappedFields.filter(
       (field, index, arr) =>
-        arr.indexOf(field) !== index && field !== "unmapped",
+        arr.indexOf(field) !== index && field !== "unmapped"
     );
     if (duplicates.length > 0) {
       errors.push(`Duplicate mappings found: ${duplicates.join(", ")}`);
@@ -244,8 +244,8 @@ export default function EnhancedDataMappingUI({
       prev.map((mapping) =>
         mapping.originalColumn === originalColumn
           ? { ...mapping, standardField, confidence: 1.0 }
-          : mapping,
-      ),
+          : mapping
+      )
     );
   };
 
@@ -537,7 +537,7 @@ export default function EnhancedDataMappingUI({
                       .filter((f) => f.required)
                       .map((field) => {
                         const isMapped = mappings.some(
-                          (m) => m.standardField === field.value,
+                          (m) => m.standardField === field.value
                         );
                         return (
                           <div

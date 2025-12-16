@@ -97,7 +97,7 @@ export function FinancialCharts({ type }: ChartProps) {
   const generateMRRChart = (
     transactions: any[],
     budget: any,
-    currentMonth: string,
+    currentMonth: string
   ) => {
     // Helper functions (same as MetricsGrid)
     const isRevenue = (category: string): boolean => {
@@ -110,7 +110,7 @@ export function FinancialCharts({ type }: ChartProps) {
         "revenue",
       ];
       return revenueCategories.some((cat) =>
-        category.toLowerCase().includes(cat),
+        category.toLowerCase().includes(cat)
       );
     };
 
@@ -122,7 +122,7 @@ export function FinancialCharts({ type }: ChartProps) {
         "mrr",
       ];
       return recurringCategories.some((cat) =>
-        category.toLowerCase().includes(cat),
+        category.toLowerCase().includes(cat)
       );
     };
 
@@ -135,12 +135,12 @@ export function FinancialCharts({ type }: ChartProps) {
     const monthStart = new Date(
       targetMonth.getFullYear(),
       targetMonth.getMonth(),
-      1,
+      1
     );
     const monthEnd = new Date(
       targetMonth.getFullYear(),
       targetMonth.getMonth() + 1,
-      0,
+      0
     );
 
     // Calculate actual MRR from current month transactions (same logic as MetricsGrid)
@@ -172,7 +172,7 @@ export function FinancialCharts({ type }: ChartProps) {
     yearAgo.setFullYear(yearAgo.getFullYear() - 1);
 
     const ltmTransactions = transactions.filter(
-      (t: any) => new Date(t.date) > yearAgo && new Date(t.date) <= targetMonth,
+      (t: any) => new Date(t.date) > yearAgo && new Date(t.date) <= targetMonth
     );
 
     const ltmTotalRevenue = ltmTransactions
@@ -230,7 +230,7 @@ export function FinancialCharts({ type }: ChartProps) {
       const expenses = Math.abs(
         monthTransactions
           .filter((t: any) => t.amount < 0)
-          .reduce((sum: number, t: any) => sum + t.amount, 0),
+          .reduce((sum: number, t: any) => sum + t.amount, 0)
       );
 
       monthlyData.push({
@@ -272,7 +272,7 @@ export function FinancialCharts({ type }: ChartProps) {
     const totalExpenses = Math.abs(
       Object.entries(categories)
         .filter(([cat, amount]) => amount < 0)
-        .reduce((sum, [, amount]) => sum + amount, 0),
+        .reduce((sum, [, amount]) => sum + amount, 0)
     );
 
     // For waterfall chart, we'll use the actual categories found
@@ -315,7 +315,7 @@ export function FinancialCharts({ type }: ChartProps) {
     const actualExpenses = Math.abs(
       monthTransactions
         .filter((t: any) => t.amount < 0)
-        .reduce((sum: number, t: any) => sum + t.amount, 0),
+        .reduce((sum: number, t: any) => sum + t.amount, 0)
     );
 
     // Compare with budget - try different budget key formats
@@ -367,7 +367,7 @@ export function FinancialCharts({ type }: ChartProps) {
         actual: actualExpenses,
         variance: actualExpenses - budgetExpenses,
         variancePercent: ((actualExpenses / budgetExpenses - 1) * 100).toFixed(
-          1,
+          1
         ),
       });
     }

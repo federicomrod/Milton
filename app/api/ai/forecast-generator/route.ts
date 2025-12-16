@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     console.error("[forecast-generator] Error:", err);
     return NextResponse.json(
       { error: "Forecast generation failed" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

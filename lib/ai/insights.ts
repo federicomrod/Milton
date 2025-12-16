@@ -8,7 +8,7 @@ export type Insights = Partial<Record<InsightSection, string[]>>;
 
 export async function generateInsights(
   data: ReportData,
-  section: InsightSection,
+  section: InsightSection
 ): Promise<string[]> {
   // Build a compact, structured summary payload
   const payload = {
@@ -80,11 +80,11 @@ function summarizeVariance(data: ReportData): string[] | null {
   const lines: string[] = [];
   if (rev)
     lines.push(
-      `Revenue variance ${fmt(rev.variance)} (${pct(rev.variancePct)}).`,
+      `Revenue variance ${fmt(rev.variance)} (${pct(rev.variancePct)}).`
     );
   if (exp)
     lines.push(
-      `Expenses variance ${fmt(exp.variance)} (${pct(exp.variancePct)}).`,
+      `Expenses variance ${fmt(exp.variance)} (${pct(exp.variancePct)}).`
     );
   return lines.length ? lines : null;
 }

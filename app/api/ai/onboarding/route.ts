@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     // 🔧 Local/dev mode: ensure we never exit early
     if (!resolvedCompanyId) {
       console.warn(
-        "No company found — continuing with mock data for local dev",
+        "No company found — continuing with mock data for local dev"
       );
       resolvedCompanyId = "mock-company-id";
     }
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
     console.error("Error in /api/ai/onboarding:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

@@ -47,7 +47,7 @@ function getMonthKey(dateStr: string): string | null {
 }
 
 export async function buildDashboardContextForUser(
-  userId: string,
+  userId: string
 ): Promise<DashboardContext> {
   const supabase = await createClient();
 

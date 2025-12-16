@@ -93,7 +93,7 @@ export function useDatasetReadiness(tableName: string) {
             }
             lastStateRef.current = next;
           }
-        },
+        }
       )
       .subscribe();
 

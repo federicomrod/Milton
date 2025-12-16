@@ -112,7 +112,7 @@ export default function DashboardPage() {
   const uploadFileWithMode = async (
     file: File,
     datasetType: "bank" | "crm" | "budget",
-    mode: "overwrite" | "append",
+    mode: "overwrite" | "append"
   ) => {
     try {
       const formData = new FormData();
@@ -150,7 +150,7 @@ export default function DashboardPage() {
   // Handle file selected from dashboard uploader
   const handleDashboardFileSelected = async (
     file: File,
-    datasetType: "bank" | "crm" | "budget",
+    datasetType: "bank" | "crm" | "budget"
   ) => {
     const alreadyHasData =
       (datasetType === "bank" && dataStatus?.bank) ||
@@ -210,7 +210,7 @@ export default function DashboardPage() {
         const res = await fetch("/api/onboarding/kpi-preferences");
         if (!res.ok) {
           console.warn(
-            "[Dashboard] Could not load KPI preferences, using defaults",
+            "[Dashboard] Could not load KPI preferences, using defaults"
           );
           return;
         }
@@ -220,7 +220,7 @@ export default function DashboardPage() {
         if (userSelectedKpiIds.length > 0) {
           console.log(
             "[Dashboard] Loaded user KPI preferences:",
-            userSelectedKpiIds,
+            userSelectedKpiIds
           );
 
           // Merge: core KPIs always show, then add user-selected ones (no duplicates)
@@ -581,7 +581,7 @@ export default function DashboardPage() {
                   await uploadFileWithMode(
                     pendingUpload.file!,
                     pendingUpload.datasetType!,
-                    "overwrite",
+                    "overwrite"
                   );
                   setShowUploadModeDialog(false);
                   setPendingUpload(null);
@@ -596,7 +596,7 @@ export default function DashboardPage() {
                   await uploadFileWithMode(
                     pendingUpload.file!,
                     pendingUpload.datasetType!,
-                    "append",
+                    "append"
                   );
                   setShowUploadModeDialog(false);
                   setPendingUpload(null);

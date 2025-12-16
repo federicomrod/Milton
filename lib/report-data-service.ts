@@ -44,7 +44,7 @@ export interface ReportData {
 export async function getReportData(
   supabase: SupabaseClient,
   userId: string,
-  reportPeriod?: ReportPeriod,
+  reportPeriod?: ReportPeriod
 ): Promise<ReportData> {
   // Step 1: Fetch transactions
   let txQuery = supabase
@@ -131,13 +131,13 @@ export async function getReportData(
         d.phase !== "Deal" &&
         d.phase !== "No Deal" &&
         d.phase !== "Closed Won" &&
-        d.phase !== "Closed Lost",
+        d.phase !== "Closed Lost"
     ).length || 0;
 
   // --- Budget variance ---
   const budgetSummary = computeBudgetVariance(
     transactions || [],
-    budgets || [],
+    budgets || []
   );
 
   // Step 4: Fetch user preferences from business_models
@@ -171,7 +171,7 @@ export async function getReportData(
  */
 function computeBudgetVariance(
   transactions: any[],
-  budgets: any[],
+  budgets: any[]
 ): BudgetVariance[] {
   if (!budgets?.length || !transactions?.length) {
     return [
@@ -203,13 +203,13 @@ function computeBudgetVariance(
   // Sum budgeted amounts (assuming positive for revenue categories)
   const plannedRevenue = budgets
     .filter(
-      (b) => b.value > 0 && /revenue|income|sales|mrr/i.test(b.category || ""),
+      (b) => b.value > 0 && /revenue|income|sales|mrr/i.test(b.category || "")
     )
     .reduce((s, b) => s + Number(b.value || 0), 0);
 
   const plannedExpenses = budgets
     .filter((b) =>
-      /expense|opex|cost|salary|marketing|rent/i.test(b.category || ""),
+      /expense|opex|cost|salary|marketing|rent/i.test(b.category || "")
     )
     .reduce((s, b) => s + Number(b.value || 0), 0);
 
@@ -276,7 +276,7 @@ export async function getKpiSnapshots(userId: string) {
  */
 export async function getUserKpiSnapshots(
   supabase: SupabaseClient,
-  userId: string,
+  userId: string
 ) {
   try {
     // Try RPC first
@@ -323,7 +323,7 @@ export async function getUserKpiSnapshots(
  */
 export async function getUserKpiPreferences(
   supabase: SupabaseClient,
-  userId: string,
+  userId: string
 ) {
   try {
     const { data, error } = await supabase

@@ -4,7 +4,7 @@ export const generateAIPromptForUseCase = (
   useCaseId: string,
   fileName: string,
   headers: string[],
-  sampleData: any[],
+  sampleData: any[]
 ) => {
   const useCase = getUseCase(useCaseId);
 
@@ -24,7 +24,7 @@ ${useCase.requiredMetrics
 - ${metric.name}: ${metric.description}
   Required inputs: ${metric.requiredInputs.map((input) => input.field).join(", ")}
   Calculation: ${metric.calculation.formula}
-`,
+`
   )
   .join("")}
 

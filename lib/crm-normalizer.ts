@@ -68,7 +68,7 @@ function findProductColumn(row: any): string | null {
 
 export function normalizeCrmRow(
   row: any,
-  mapping: CrmMapping,
+  mapping: CrmMapping
 ): NormalizedCrmDeal {
   const amountRaw = row?.[mapping.amount];
   const amount =
@@ -93,12 +93,12 @@ export function normalizeCrmRow(
 
   // Generate ID first, then use it for deal_name fallback
   const id = normalizeId(
-    row.id ?? row.deal_id ?? row["Deal ID"] ?? row["ID"] ?? row.Id ?? row.ID,
+    row.id ?? row.deal_id ?? row["Deal ID"] ?? row["ID"] ?? row.Id ?? row.ID
   );
 
   // Create lowercase version of row for product detection
   const lowerRow = Object.fromEntries(
-    Object.entries(row).map(([k, v]) => [k.toLowerCase().trim(), v]),
+    Object.entries(row).map(([k, v]) => [k.toLowerCase().trim(), v])
   );
 
   // Find product column dynamically

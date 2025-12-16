@@ -64,7 +64,7 @@ export async function generateReportSlides(
   data: ReportData,
   config?: ReportConfig,
   insights?: ReportInsights,
-  chartImages?: ChartImages,
+  chartImages?: ChartImages
 ): Promise<void> {
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
 
@@ -119,7 +119,7 @@ function drawOverviewPage(
   data: ReportData,
   insights?: ReportInsights,
   chartImages?: ChartImages,
-  config?: ReportConfig,
+  config?: ReportConfig
 ): void {
   doc.setFont(theme.font, "bold");
   doc.setFontSize(16);
@@ -174,7 +174,7 @@ function drawOverviewPage(
         col.leftX,
         chartY,
         chartW,
-        chartH,
+        chartH
       );
     } catch {
       drawChartPlaceholder(
@@ -183,7 +183,7 @@ function drawOverviewPage(
         chartY,
         chartW,
         chartH,
-        "Overview Chart (Image Load Failed)",
+        "Overview Chart (Image Load Failed)"
       );
     }
   } else {
@@ -193,7 +193,7 @@ function drawOverviewPage(
       chartY,
       chartW,
       chartH,
-      "Overview Charts",
+      "Overview Charts"
     );
   }
 
@@ -205,7 +205,7 @@ function drawOverviewPage(
     col.rightW,
     410,
     "Overview – Key Insights",
-    insights?.overview,
+    insights?.overview
   );
 }
 
@@ -215,7 +215,7 @@ function drawFinancialPage(
   data: ReportData,
   insights?: ReportInsights,
   chartImages?: ChartImages,
-  config?: ReportConfig,
+  config?: ReportConfig
 ): void {
   doc.setFont(theme.font, "bold");
   doc.setFontSize(16);
@@ -274,7 +274,7 @@ function drawFinancialPage(
         col.leftX,
         chartY,
         chartW,
-        chartH,
+        chartH
       );
     } catch {
       drawChartPlaceholder(
@@ -283,7 +283,7 @@ function drawFinancialPage(
         chartY,
         chartW,
         chartH,
-        "Financial Chart (Image Load Failed)",
+        "Financial Chart (Image Load Failed)"
       );
     }
   } else {
@@ -293,7 +293,7 @@ function drawFinancialPage(
       chartY,
       chartW,
       chartH,
-      "Revenue vs Expense",
+      "Revenue vs Expense"
     );
   }
 
@@ -305,7 +305,7 @@ function drawFinancialPage(
     col.rightW,
     410,
     "Financial – Variance & Notes",
-    insights?.financial,
+    insights?.financial
   );
 }
 
@@ -315,7 +315,7 @@ function drawPipelinePage(
   data: ReportData,
   insights?: ReportInsights,
   chartImages?: ChartImages,
-  config?: ReportConfig,
+  config?: ReportConfig
 ): void {
   doc.setFont(theme.font, "bold");
   doc.setFontSize(16);
@@ -366,7 +366,7 @@ function drawPipelinePage(
         col.leftX,
         chartY,
         chartW,
-        chartH,
+        chartH
       );
     } catch {
       drawChartPlaceholder(
@@ -375,7 +375,7 @@ function drawPipelinePage(
         chartY,
         chartW,
         chartH,
-        "Pipeline Chart (Image Load Failed)",
+        "Pipeline Chart (Image Load Failed)"
       );
     }
   } else {
@@ -385,7 +385,7 @@ function drawPipelinePage(
       chartY,
       chartW,
       chartH,
-      "Pipeline by Stage",
+      "Pipeline by Stage"
     );
   }
 
@@ -397,7 +397,7 @@ function drawPipelinePage(
     col.rightW,
     410,
     "Pipeline – Highlights",
-    insights?.pipeline,
+    insights?.pipeline
   );
 }
 
@@ -407,7 +407,7 @@ function drawCashFlowPage(
   data: ReportData,
   insights?: ReportInsights,
   chartImages?: ChartImages,
-  config?: ReportConfig,
+  config?: ReportConfig
 ): void {
   doc.setFont(theme.font, "bold");
   doc.setFontSize(16);
@@ -459,7 +459,7 @@ function drawCashFlowPage(
         col.leftX,
         chartY,
         chartW,
-        chartH,
+        chartH
       );
     } catch {
       drawChartPlaceholder(
@@ -468,7 +468,7 @@ function drawCashFlowPage(
         chartY,
         chartW,
         chartH,
-        "Cash Flow Chart (Image Load Failed)",
+        "Cash Flow Chart (Image Load Failed)"
       );
     }
   } else {
@@ -478,7 +478,7 @@ function drawCashFlowPage(
       chartY,
       chartW,
       chartH,
-      "Cash Flow Trend",
+      "Cash Flow Trend"
     );
   }
 
@@ -490,7 +490,7 @@ function drawCashFlowPage(
     col.rightW,
     410,
     "Cash Flow – Highlights",
-    insights?.cashflow,
+    insights?.cashflow
   );
 }
 
@@ -502,7 +502,7 @@ function drawCommentPanel(
   w: number,
   h: number,
   title: string,
-  bullets: string[] | undefined,
+  bullets: string[] | undefined
 ): void {
   // Background fill
   doc.setDrawColor(230, 230, 230);
@@ -545,7 +545,7 @@ function drawChartPlaceholder(
   y: number,
   w: number,
   h: number,
-  label: string,
+  label: string
 ): void {
   // Light background fill
   doc.setFillColor(245, 247, 250);
@@ -565,7 +565,7 @@ function drawChartPlaceholder(
 
 function formatCurrency(
   num: number | undefined | null,
-  config?: ReportConfig,
+  config?: ReportConfig
 ): string {
   if (num === undefined || num === null || isNaN(num)) return "–";
   const currency = config?.currency || "EUR";

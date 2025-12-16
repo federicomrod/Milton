@@ -185,7 +185,7 @@ export default function OnboardingPage() {
         setLoading(false);
       }
     },
-    [companyId, router],
+    [companyId, router]
   );
 
   const toggleKPISelection = useCallback((kpi: KPI) => {
@@ -237,7 +237,7 @@ export default function OnboardingPage() {
         localStorage.setItem("selectedKPIs", JSON.stringify(selectedKPIs));
       } catch {}
       alert(
-        "KPIs saved locally for now. Redirecting to your Data Model Builder…",
+        "KPIs saved locally for now. Redirecting to your Data Model Builder…"
       );
       router.push("/dashboard/model");
     }
@@ -252,7 +252,7 @@ export default function OnboardingPage() {
         setMessages={setMiltonMessages}
       />
     ),
-    [handleOnboardingFinish, miltonMessages],
+    [handleOnboardingFinish, miltonMessages]
   );
 
   return (
@@ -316,7 +316,7 @@ export default function OnboardingPage() {
               <div className="grid grid-cols-2 gap-3 text-left">
                 {recommendedKPIs.map((k, i) => {
                   const isSelected = selectedKPIs.some(
-                    (sk) => sk.name === k.name,
+                    (sk) => sk.name === k.name
                   );
                   return (
                     <div

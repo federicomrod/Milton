@@ -6,6 +6,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import MiltonChat from "@/app/onboarding/components/MiltonChat";
 import { createClient } from "@/lib/supabase/client";
+import { markOnboardingComplete } from "@/lib/onboarding-status";
+import { completeOnboardingChat } from "@/lib/onboarding-chat-service";
 import type { SuggestedKPI } from "@/lib/ai/business-model-analyzer-types";
 
 type KPI = {
@@ -16,6 +18,7 @@ type KPI = {
 };
 
 export default function OnboardingPage() {
+  const [isReady, setIsReady] = useState(false);
   const [recommendedKPIs, setRecommendedKPIs] = useState<KPI[]>([]);
   const [selectedKPIs, setSelectedKPIs] = useState<KPI[]>([]);
   const [loading, setLoading] = useState(false);
@@ -25,7 +28,7 @@ export default function OnboardingPage() {
   >([]);
   const router = useRouter();
 
-  // Check if onboarding is already complete
+  // Check if onboarding is already complete (auth is handled by middleware)
   useEffect(() => {
     const checkOnboardingStatus = async () => {
       try {
@@ -34,9 +37,12 @@ export default function OnboardingPage() {
         const complete = await isOnboardingComplete();
         if (complete) {
           router.replace("/dashboard");
+        } else {
+          setIsReady(true);
         }
       } catch (err) {
         console.error("Error checking onboarding status:", err);
+        setIsReady(true);
       }
     };
     checkOnboardingStatus();
@@ -135,13 +141,19 @@ export default function OnboardingPage() {
             },
           ]);
         } else {
+          // No KPIs suggested, archive chat, mark onboarding complete and redirect
+          await completeOnboardingChat();
+          await markOnboardingComplete();
           setMiltonMessages((prev) => [
             ...prev,
             {
               from: "milton",
-              text: "✅ Business model created! You can proceed to your dashboard.",
+              text: "✅ Business model created! Redirecting to your dashboard...",
             },
           ]);
+          setTimeout(() => {
+            router.push("/dashboard");
+          }, 1500);
         }
       } catch (err) {
         console.error("Error in business analysis:", err);
@@ -157,7 +169,7 @@ export default function OnboardingPage() {
         setLoading(false);
       }
     },
-    []
+    [router]
   );
 
   const toggleKPISelection = useCallback((kpi: KPI) => {
@@ -171,7 +183,7 @@ export default function OnboardingPage() {
     });
   }, []);
 
-  async function saveSelectedKPIs() {
+  const finishOnboarding = useCallback(async () => {
     try {
       const supabase = createClient();
       const {
@@ -192,29 +204,38 @@ export default function OnboardingPage() {
         }
       }
 
-      // Also save to localStorage as backup
+      // Save to localStorage as backup
       localStorage.setItem("selectedKPIs", JSON.stringify(selectedKPIs));
+
+      // Archive the completed conversation and mark onboarding complete
+      await completeOnboardingChat();
+      await markOnboardingComplete();
 
       setMiltonMessages((prev) => [
         ...prev,
         {
           from: "milton",
-          text: "✅ KPIs saved! Redirecting to your Data Model Builder...",
+          text: "✅ All set! Redirecting to your dashboard...",
         },
       ]);
 
       setTimeout(() => {
-        router.push("/dashboard/model");
+        router.push("/dashboard");
       }, 1000);
     } catch (err) {
-      console.error("Error saving KPIs:", err);
-      // Fallback to localStorage
-      localStorage.setItem("selectedKPIs", JSON.stringify(selectedKPIs));
-      router.push("/dashboard/model");
+      console.error("Error finishing onboarding:", err);
+      // Still try to redirect
+      await completeOnboardingChat();
+      await markOnboardingComplete();
+      router.push("/dashboard");
     }
-  }
+  }, [selectedKPIs, router]);
 
-  function skipKPISelection() {
+  const skipKPISelection = useCallback(async () => {
+    // Archive chat and mark onboarding as complete even when skipping
+    await completeOnboardingChat();
+    await markOnboardingComplete();
+
     setMiltonMessages((prev) => [
       ...prev,
       {
@@ -223,9 +244,9 @@ export default function OnboardingPage() {
       },
     ]);
     setTimeout(() => {
-      router.push("/dashboard/model");
+      router.push("/dashboard");
     }, 1000);
-  }
+  }, [router]);
 
   // Memoize MiltonChat to prevent re-renders
   const memoizedMiltonChat = useMemo(
@@ -240,6 +261,18 @@ export default function OnboardingPage() {
   );
 
   const showKpiPanel = recommendedKPIs.length > 0 && !loading;
+
+  // Show loading until we've verified auth and onboarding status
+  if (!isReady) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-500">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen flex flex-col md:flex-row bg-gradient-to-br from-gray-50 to-gray-100 overflow-hidden">
@@ -324,7 +357,7 @@ export default function OnboardingPage() {
                   <Button
                     className="w-full"
                     disabled={selectedKPIs.length < 3}
-                    onClick={saveSelectedKPIs}
+                    onClick={finishOnboarding}
                   >
                     {selectedKPIs.length < 3
                       ? `Select ${3 - selectedKPIs.length} more KPI${3 - selectedKPIs.length > 1 ? "s" : ""}`

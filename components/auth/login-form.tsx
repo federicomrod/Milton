@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +23,18 @@ export function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
+
+  // Handle error from URL (e.g., from auth callback)
+  useEffect(() => {
+    const urlError = searchParams.get("error");
+    if (urlError) {
+      setError(urlError);
+      // Clear the error from URL
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, [searchParams]);
 
   // Handle magic link authentication from URL hash
   useEffect(() => {

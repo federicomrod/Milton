@@ -32,7 +32,7 @@ export function SignupForm() {
     setError(null);
 
     try {
-      // Step 1: Sign up the user
+      // Sign up the user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -46,8 +46,7 @@ export function SignupForm() {
         throw new Error("No user data returned");
       }
 
-      // Step 2: Create profile and company via API endpoint
-      // This uses admin client to bypass RLS
+      // Create profile and company via API endpoint (uses admin client to bypass RLS)
       const response = await fetch("/api/auth/signup-complete", {
         method: "POST",
         headers: {
@@ -67,12 +66,14 @@ export function SignupForm() {
         );
       }
 
-      // Success! Redirect to onboarding (new users need to onboard)
+      // Proceed to onboarding
       router.push("/onboarding");
       router.refresh();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Signup error:", err);
-      setError(err.message || "An error occurred during signup");
+      const errorMessage =
+        err instanceof Error ? err.message : "An error occurred during signup";
+      setError(errorMessage);
       setLoading(false);
     }
   };

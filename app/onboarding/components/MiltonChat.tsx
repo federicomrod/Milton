@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -31,6 +31,12 @@ import {
   type BusinessTypeDefinition,
 } from "@/lib/business-model-templates";
 import type { BusinessTypeId } from "@/lib/business-types";
+import {
+  saveOnboardingChat,
+  archiveAndClearOnboardingChat,
+  loadOnboardingChat,
+  type OnboardingMessage,
+} from "@/lib/onboarding-chat-service";
 
 interface MiltonChatProps {
   onFinish: (answers: {
@@ -81,27 +87,59 @@ export default function MiltonChat({
     businessDescription?: string;
     businessType?: BusinessTypeId;
   }>({});
-  const hasFinishedRef = React.useRef(false);
+  const hasFinishedRef = useRef(false);
+  const hasLoadedRef = useRef(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const initialMessages: OnboardingMessage[] = [
+    {
+      from: "milton",
+      text: "Hi, I'm Milton 👋 — your AI finance copilot.",
+    },
+    {
+      from: "milton",
+      text: "I'll help you track your finances, understand your KPIs, and make data-driven decisions. Let's get started!",
+    },
+    {
+      from: "milton",
+      text: "Can I ask you a few quick questions to set up your workspace?",
+    },
+  ];
+
+  // Load existing chat on mount
   useEffect(() => {
-    if (messages.length === 0) {
-      setMessages([
-        {
-          from: "milton",
-          text: "Hi, I'm Milton 👋 — your AI finance copilot.",
-        },
-        {
-          from: "milton",
-          text: "I'll help you track your finances, understand your KPIs, and make data-driven decisions. Let's get started!",
-        },
-        {
-          from: "milton",
-          text: "Can I ask you a few quick questions to set up your workspace?",
-        },
-      ]);
-    }
+    if (hasLoadedRef.current) return;
+    hasLoadedRef.current = true;
+
+    const loadExistingChat = async () => {
+      const savedMessages = await loadOnboardingChat();
+      if (savedMessages && savedMessages.length > 0) {
+        setMessages(savedMessages);
+      } else if (messages.length === 0) {
+        setMessages(initialMessages);
+      }
+    };
+    loadExistingChat();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-save messages when they change (debounced)
+  const saveMessages = useCallback((msgs: OnboardingMessage[]) => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    saveTimeoutRef.current = setTimeout(() => {
+      if (msgs.length > 0) {
+        saveOnboardingChat(msgs);
+      }
+    }, 500);
+  }, []);
+
+  useEffect(() => {
+    if (messages.length > 0 && hasLoadedRef.current) {
+      saveMessages(messages);
+    }
+  }, [messages, saveMessages]);
 
   // Fetch business model templates from Supabase
   useEffect(() => {
@@ -319,25 +357,16 @@ export default function MiltonChat({
     }
   };
 
-  const handleStartOver = () => {
+  const handleStartOver = async () => {
+    // Archive current conversation before clearing
+    await archiveAndClearOnboardingChat();
+
     setStep("intro");
     setInput("");
     setSelectedBusinessType(null);
     setAnswers({});
-    setMessages([
-      {
-        from: "milton",
-        text: "Hi, I'm Milton 👋 — your AI finance copilot.",
-      },
-      {
-        from: "milton",
-        text: "I'll help you track your finances, understand your KPIs, and make data-driven decisions. Let's get started!",
-      },
-      {
-        from: "milton",
-        text: "Can I ask you a few quick questions to set up your workspace?",
-      },
-    ]);
+    hasFinishedRef.current = false;
+    setMessages(initialMessages);
   };
 
   const handleConfirm = () => {

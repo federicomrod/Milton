@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileText } from "lucide-react";
 import { useDataStatus } from "@/lib/context/DataStatusContext";
@@ -188,9 +187,15 @@ export default function FileUpload({
               <strong>File naming tips:</strong>
             </p>
             <ul className="list-disc list-inside ml-2 space-y-0.5">
-              <li>Include "bank" or "transactions" for bank data</li>
-              <li>Include "crm", "deals", or "sales" for CRM data</li>
-              <li>Include "budget" for budget data</li>
+              <li>
+                Include &quot;bank&quot; or &quot;transactions&quot; for bank
+                data
+              </li>
+              <li>
+                Include &quot;crm&quot;, &quot;deals&quot;, or &quot;sales&quot;
+                for CRM data
+              </li>
+              <li>Include &quot;budget&quot; for budget data</li>
             </ul>
           </div>
         </div>

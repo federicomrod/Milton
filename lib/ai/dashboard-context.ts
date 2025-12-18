@@ -1,6 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import type { BusinessTypeId } from "@/lib/business-types";
 import { getReportData } from "@/lib/report-data-service";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type {
+  TransactionData,
+  BudgetData,
+  CrmDealData,
+} from "@/lib/types/data";
 
 export interface DashboardKpi {
   id: string;
@@ -22,6 +28,12 @@ export interface DashboardContext {
   kpis: DashboardKpi[];
   monthlyRevenue: Record<string, number>;
   dataAvailability: DataAvailability;
+  transactionSummary?: {
+    totalCount: number;
+    positiveCount: number;
+    negativeCount: number;
+    zeroCount: number;
+  } | null;
 }
 
 // Map format to unit string
@@ -47,13 +59,15 @@ function getMonthKey(dateStr: string): string | null {
 }
 
 export async function buildDashboardContextForUser(
-  userId: string
+  userId: string,
+  supabase?: SupabaseClient
 ): Promise<DashboardContext> {
-  const supabase = await createClient();
+  // Use provided supabase client or create a new one
+  const client = supabase || (await createClient());
 
   try {
     // Get report data using existing service
-    const reportData = await getReportData(supabase, userId);
+    const reportData = await getReportData(client, userId);
 
     // Build KPI summary from report data
     const kpis: DashboardKpi[] = [];
@@ -122,14 +136,67 @@ export async function buildDashboardContextForUser(
     const monthlyRevenue: Record<string, number> = {};
     if (reportData.transactions && Array.isArray(reportData.transactions)) {
       for (const tx of reportData.transactions) {
-        if (tx.amount > 0 && tx.date) {
+        // Ensure amount is a number
+        const amount =
+          typeof tx.amount === "string"
+            ? parseFloat(tx.amount)
+            : tx.amount || 0;
+        if (amount > 0 && tx.date) {
           const monthKey = getMonthKey(tx.date);
           if (monthKey) {
-            monthlyRevenue[monthKey] =
-              (monthlyRevenue[monthKey] || 0) + tx.amount;
+            monthlyRevenue[monthKey] = (monthlyRevenue[monthKey] || 0) + amount;
           }
         }
       }
+    }
+
+    // Calculate LTM Avg Revenue (Last Twelve Months Average)
+    const now = new Date();
+    const targetMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const yearAgo = new Date(targetMonth);
+    yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+    const monthEnd = new Date(
+      targetMonth.getFullYear(),
+      targetMonth.getMonth() + 1,
+      0,
+      23,
+      59,
+      59
+    );
+
+    const ltmTransactions = (reportData.transactions || []).filter(
+      (t: TransactionData) => {
+        try {
+          const date = new Date(t.date);
+          return date >= yearAgo && date <= monthEnd && !isNaN(date.getTime());
+        } catch {
+          return false;
+        }
+      }
+    );
+
+    const ltmTotalRevenue = ltmTransactions
+      .filter((t: TransactionData) => {
+        const amt =
+          typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0;
+        return amt > 0;
+      })
+      .reduce((sum: number, t: TransactionData) => {
+        const amt =
+          typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0;
+        return sum + amt;
+      }, 0);
+
+    const ltmAvgRevenue = ltmTotalRevenue / 12;
+
+    // Add LTM Avg Revenue to KPIs if we have data
+    if (ltmAvgRevenue > 0) {
+      kpis.push({
+        id: "ltm_avg_revenue",
+        label: "LTM Avg Revenue",
+        currentValue: ltmAvgRevenue,
+        unit: "currency",
+      });
     }
 
     // Data availability flags
@@ -140,12 +207,46 @@ export async function buildDashboardContextForUser(
       hasCrmDeals: (reportData.crmDeals?.length || 0) > 0,
     };
 
+    // Add transaction summary even if totals are 0
+    const transactionSummary =
+      reportData.transactions && reportData.transactions.length > 0
+        ? {
+            totalCount: reportData.transactions.length,
+            positiveCount: reportData.transactions.filter(
+              (t: TransactionData) => {
+                const amt =
+                  typeof t.amount === "string"
+                    ? parseFloat(t.amount)
+                    : t.amount || 0;
+                return amt > 0;
+              }
+            ).length,
+            negativeCount: reportData.transactions.filter(
+              (t: TransactionData) => {
+                const amt =
+                  typeof t.amount === "string"
+                    ? parseFloat(t.amount)
+                    : t.amount || 0;
+                return amt < 0;
+              }
+            ).length,
+            zeroCount: reportData.transactions.filter((t: TransactionData) => {
+              const amt =
+                typeof t.amount === "string"
+                  ? parseFloat(t.amount)
+                  : t.amount || 0;
+              return amt === 0;
+            }).length,
+          }
+        : null;
+
     return {
       businessType: reportData.businessType,
       selectedKpiIds: reportData.selectedKpiIds,
       kpis,
       monthlyRevenue,
       dataAvailability,
+      transactionSummary, // Add this to help the AI understand transaction structure
     };
   } catch (error) {
     console.error("[buildDashboardContextForUser] Error:", error);
@@ -161,6 +262,7 @@ export async function buildDashboardContextForUser(
         hasBudgets: false,
         hasCrmDeals: false,
       },
+      transactionSummary: null,
     };
   }
 }

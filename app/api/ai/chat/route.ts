@@ -9,6 +9,7 @@ import {
   type BusinessTypeId,
 } from "@/lib/business-types";
 import { buildDashboardContextForUser } from "@/lib/ai/dashboard-context";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Lazy initialization to avoid errors during build time
 function getOpenAI() {
@@ -64,7 +65,10 @@ export async function POST(req: Request) {
   }
 
   // Build dashboard context with structured data
-  const dashboardContext = await buildDashboardContextForUser(user.id);
+  const dashboardContext = await buildDashboardContextForUser(
+    user.id,
+    supabase
+  );
 
   // Build business-type-specific guidance
   const businessInstruction = BUSINESS_TYPE_AI_GUIDANCE[businessType];
@@ -79,9 +83,16 @@ export async function POST(req: Request) {
     "JSON_END",
     "",
     "Rules:",
+    "- ALWAYS check the dataAvailability flags in the JSON data first.",
+    "- If hasTransactions is true, you HAVE transaction data available. Even if revenue/expenses KPIs show 0, you can still provide insights about the transaction data structure, count, and patterns.",
+    "- If hasCrmDeals is true, you HAVE CRM deal data. Use the pipelineValue and openDeals KPIs to provide insights.",
+    "- If hasBudgets is true, you HAVE budget data available. Use it to provide insights.",
+    "- If kpis array has items with non-null currentValue, reference those specific KPIs in your response.",
+    "- If monthlyRevenue object has keys, you have monthly revenue trends. Use it for trend analysis.",
+    "- When data IS available (dataAvailability flags are true), provide specific insights based on what you see in the JSON, even if some KPIs are 0.",
+    "- ONLY suggest uploading files if ALL dataAvailability flags are false AND kpis array is empty.",
+    "- If transactions exist but revenue is 0, mention that you see transaction data but the amounts may need review, or ask about the transaction structure.",
     "- Use ONLY this JSON data when giving numeric answers.",
-    "- If a metric is missing or the relevant data flags (like hasKpiSnapshots/hasTransactions) are false, explicitly say what is missing and suggest which files or data the user should upload.",
-    '- For missing data, suggest uploading specific files (e.g., "upload your sales transactions", "upload your CRM deals", "upload your bookings data").',
     "- Prefer concise, numeric answers first, then one short sentence of explanation.",
     '- If the user asks something outside the scope of this data (e.g., "write my marketing plan"), you can still answer normally as a helpful finance copilot, but don\'t fabricate KPIs that are not in the JSON data.',
     "- Keep answers concise (≤6 sentences) and actionable.",

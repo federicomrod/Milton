@@ -2,6 +2,11 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import type { BusinessTypeId } from "@/lib/business-types";
+import type {
+  TransactionData,
+  BudgetData,
+  CrmDealData,
+} from "@/lib/types/data";
 
 export interface ReportPeriod {
   start: string;
@@ -29,9 +34,9 @@ export interface BudgetVariance {
 export interface ReportData {
   kpis: KPIMetrics;
   budgetVariance: BudgetVariance[];
-  transactions: any[];
-  crmDeals: any[];
-  budgets: any[];
+  transactions: TransactionData[];
+  crmDeals: CrmDealData[];
+  budgets: BudgetData[];
   businessType: BusinessTypeId | null;
   selectedKpiIds: string[];
 }
@@ -49,7 +54,7 @@ export async function getReportData(
   // Step 1: Fetch transactions
   let txQuery = supabase
     .from("transactions")
-    .select("date, amount, category, name, description")
+    .select("id, date, amount, category, name, description, reference")
     .eq("user_id", userId)
     .order("date", { ascending: false });
 
@@ -67,7 +72,9 @@ export async function getReportData(
   // Step 2: Fetch CRM deals
   let crmQuery = supabase
     .from("crm_deals")
-    .select("amount, phase, closing_date, deal_name, client_name")
+    .select(
+      "id, amount, phase, closing_date, deal_name, client_name, created_date, product, stage, company, owner, close_date"
+    )
     .eq("user_id", userId)
     .order("amount", { ascending: false });
 
@@ -101,15 +108,21 @@ export async function getReportData(
   }
 
   // --- Derive metrics ---
-  const totalRevenue =
-    transactions
-      ?.filter((t) => t.amount > 0)
-      .reduce((sum, t) => sum + t.amount, 0) || 0;
+  // Ensure amounts are numbers (Supabase NUMERIC can return as string)
+  const transactionsWithNumericAmounts =
+    transactions?.map((t) => ({
+      ...t,
+      amount:
+        typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0,
+    })) || [];
 
-  const totalExpenses =
-    transactions
-      ?.filter((t) => t.amount < 0)
-      .reduce((sum, t) => sum + Math.abs(t.amount), 0) || 0;
+  const totalRevenue = transactionsWithNumericAmounts
+    .filter((t) => t.amount > 0)
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const totalExpenses = transactionsWithNumericAmounts
+    .filter((t) => t.amount < 0)
+    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
   const monthsDuration = reportPeriod
     ? getMonthsDiff(reportPeriod.start, reportPeriod.end)

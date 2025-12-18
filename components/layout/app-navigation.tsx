@@ -32,10 +32,12 @@ export function AppNavigation() {
   }, [pathname]);
 
   // Don't show navigation on auth pages or while loading
-  if (loading || pathname?.startsWith("/auth/") || !isAuthenticated) {
+  if (loading || pathname?.startsWith("/auth/")) {
     return null;
   }
 
+  // Show navigation even if not authenticated (but with limited options)
+  // Or redirect to login if needed
   const isActive = (path: string) => {
     if (path === "/dashboard" && pathname === "/dashboard") return true;
     if (path !== "/dashboard" && pathname?.startsWith(path)) return true;
@@ -47,77 +49,93 @@ export function AppNavigation() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center gap-6">
-            <Link href="/dashboard">
+            <Link href={isAuthenticated ? "/dashboard" : "/"}>
               <h1 className="text-xl font-semibold text-gray-900 cursor-pointer hover:text-blue-600 transition-colors">
                 CFO Platform
               </h1>
             </Link>
 
-            {/* Main Navigation */}
-            <nav className="hidden md:flex items-center gap-1">
-              <Link href="/dashboard">
-                <Button
-                  variant={
-                    isActive("/dashboard") && pathname === "/dashboard"
-                      ? "default"
-                      : "ghost"
-                  }
-                  size="sm"
-                  className="gap-2"
-                >
-                  <LayoutDashboard className="h-4 w-4" />
-                  Dashboard
-                </Button>
-              </Link>
-              <Link href="/dashboard/analytics">
-                <Button
-                  variant={
-                    isActive("/dashboard/analytics") ? "default" : "ghost"
-                  }
-                  size="sm"
-                  className="gap-2"
-                >
-                  <BarChart className="h-4 w-4" />
-                  Analytics
-                </Button>
-              </Link>
-              <Link href="/dashboard/reporting">
-                <Button
-                  variant={
-                    isActive("/dashboard/reporting") ? "default" : "ghost"
-                  }
-                  size="sm"
-                  className="gap-2"
-                >
-                  <FileText className="h-4 w-4" />
-                  Reporting
-                </Button>
-              </Link>
-            </nav>
+            {/* Main Navigation - only show if authenticated */}
+            {isAuthenticated && (
+              <nav className="hidden md:flex items-center gap-1">
+                <Link href="/dashboard">
+                  <Button
+                    variant={
+                      isActive("/dashboard") && pathname === "/dashboard"
+                        ? "default"
+                        : "ghost"
+                    }
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <LayoutDashboard className="h-4 w-4" />
+                    Dashboard
+                  </Button>
+                </Link>
+                <Link href="/dashboard/analytics">
+                  <Button
+                    variant={
+                      isActive("/dashboard/analytics") ? "default" : "ghost"
+                    }
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <BarChart className="h-4 w-4" />
+                    Analytics
+                  </Button>
+                </Link>
+                <Link href="/dashboard/reporting">
+                  <Button
+                    variant={
+                      isActive("/dashboard/reporting") ? "default" : "ghost"
+                    }
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <FileText className="h-4 w-4" />
+                    Reporting
+                  </Button>
+                </Link>
+              </nav>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
-            <Link href="/dashboard/account">
-              <Button
-                variant={isActive("/dashboard/account") ? "default" : "ghost"}
-                size="sm"
-                className="gap-2"
-              >
-                <User className="h-4 w-4" />
-                Account
-              </Button>
-            </Link>
-            <Link href="/dashboard/settings">
-              <Button
-                variant={isActive("/dashboard/settings") ? "default" : "ghost"}
-                size="sm"
-                className="gap-2"
-              >
-                <Settings className="h-4 w-4" />
-                Settings
-              </Button>
-            </Link>
-            <LogoutButton />
+            {isAuthenticated ? (
+              <>
+                <Link href="/dashboard/account">
+                  <Button
+                    variant={
+                      isActive("/dashboard/account") ? "default" : "ghost"
+                    }
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <User className="h-4 w-4" />
+                    Account
+                  </Button>
+                </Link>
+                <Link href="/dashboard/settings">
+                  <Button
+                    variant={
+                      isActive("/dashboard/settings") ? "default" : "ghost"
+                    }
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <Settings className="h-4 w-4" />
+                    Settings
+                  </Button>
+                </Link>
+                <LogoutButton />
+              </>
+            ) : (
+              <Link href="/auth/login">
+                <Button size="sm" variant="default">
+                  Login
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
       </div>

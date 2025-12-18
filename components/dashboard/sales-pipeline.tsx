@@ -11,8 +11,6 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  PieChart,
-  Pie,
   Cell,
   LabelList,
 } from "recharts";
@@ -30,10 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
 import { useUserPreferences } from "@/lib/context/UserPreferencesContext";
-import {
-  formatCurrency as formatCurrencyUtil,
-  formatDate,
-} from "@/lib/utils/formatters";
+import { formatCurrency as formatCurrencyUtil } from "@/lib/utils/formatters";
 
 interface Deal {
   id: string;
@@ -67,6 +62,69 @@ const normalizeStage = (value: string): string => {
   return stageToDisplayName[value] || "Lead Generation";
 };
 
+interface PipelineMetrics {
+  pipelineByPhase: Array<{
+    phase: string;
+    count: number;
+    value: number;
+    avgValue: number;
+  }>;
+  dealsByProduct: Array<{
+    product: string;
+    value: number;
+  }>;
+  averageSalesCycle: number;
+  conversionRates: Array<{
+    phase: string;
+    rate: number;
+  }>;
+  topDeals: Array<{
+    name: string;
+    client: string;
+    amount: number;
+    phase: string;
+    id: string;
+  }>;
+  pipelineForecast: Array<{
+    month: string;
+    [key: string]: string | number;
+  }>;
+  funnelData: Array<{
+    phase: string;
+    count: number;
+    cumulativeCount: number;
+    value: number;
+    percentage: string;
+    avgDealSize: number;
+  }>;
+}
+
+interface ColorPalette {
+  name: string;
+  colors: PhaseColors;
+}
+
+type FormatStyle = "short" | "swiss" | "mio";
+
+interface ForecastMonthData {
+  month: string;
+  [key: string]: string | number;
+}
+
+interface TooltipPayload {
+  name: string;
+  value: number | string;
+  color: string;
+  dataKey: string;
+  payload?: Record<string, unknown>;
+}
+
+interface TooltipProps {
+  active?: boolean;
+  payload?: readonly TooltipPayload[];
+  label?: string;
+}
+
 export function SalesPipeline() {
   const { prefs } = useUserPreferences();
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -78,13 +136,14 @@ export function SalesPipeline() {
   );
   const [corporateColor, setCorporateColor] = useState("#3b82f6");
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
-  const [metrics, setMetrics] = useState<any>({
+  const [metrics, setMetrics] = useState<PipelineMetrics>({
     pipelineByPhase: [],
     dealsByProduct: [],
     averageSalesCycle: 0,
     conversionRates: [],
     topDeals: [],
     pipelineForecast: [],
+    funnelData: [], // Add missing property
   });
 
   // Currency format state and helper
@@ -216,9 +275,9 @@ export function SalesPipeline() {
 
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
-    let h = 0,
-      s = 0,
-      l = (max + min) / 2;
+    let h = 0;
+    let s = 0;
+    const l = (max + min) / 2;
 
     if (max !== min) {
       const d = max - min;
@@ -271,66 +330,6 @@ export function SalesPipeline() {
     Deal: 1.0,
     "No Deal": 0,
   };
-
-  useEffect(() => {
-    const loadCRMData = async () => {
-      try {
-        const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) {
-          setLoading(false);
-          return;
-        }
-
-        const { data, error } = await supabase
-          .from("crm_deals")
-          .select("*")
-          .eq("user_id", user.id);
-
-        if (error) {
-          console.error("Failed to load CRM deals:", error);
-          setLoading(false);
-          return;
-        }
-
-        const dealsData: Deal[] = data || [];
-        console.log("📊 Loaded CRM deals from Supabase:", dealsData.length);
-        console.log("✅ Sample Supabase deal object:", dealsData[0]);
-        console.log(
-          "💬 Deal IDs check:",
-          dealsData.map((d) => d.id)
-        );
-        console.log(
-          "💬 Companies check:",
-          dealsData.map((d) => d.company)
-        );
-        console.log(
-          "💬 Object keys of first deal:",
-          Object.keys(dealsData[0] || {})
-        );
-
-        setAllDeals(dealsData);
-        setDeals(dealsData); // Show all deals, not just future ones
-        console.log("📊 Showing all deals without date filtering");
-
-        // Ensure state is updated before calculating metrics
-        await new Promise((r) => setTimeout(r, 100));
-        console.log(
-          "🧩 Metrics computation triggered with deals count:",
-          dealsData.length
-        );
-        calculatePipelineMetrics(dealsData);
-        setLoading(false);
-      } catch (error) {
-        console.error("Error loading CRM data:", error);
-        setLoading(false);
-      }
-    };
-
-    loadCRMData();
-  }, [prefs]);
 
   const calculatePipelineMetrics = (dealsData: Deal[]) => {
     console.log("[CRM DEALS]", dealsData);
@@ -463,7 +462,7 @@ export function SalesPipeline() {
 
       // Group deals by month and phase
       const forecastData = months.map(({ month, yearMonth }) => {
-        const monthData: any = { month };
+        const monthData: ForecastMonthData = { month };
 
         // Initialize all phases with 0
         phaseOrder.slice(0, -2).forEach((phase) => {
@@ -484,9 +483,9 @@ export function SalesPipeline() {
               normPhase !== "Deal"
             ) {
               monthData[normPhase] =
-                (monthData[normPhase] || 0) + Number(deal.amount);
+                (Number(monthData[normPhase]) || 0) + Number(deal.amount);
               monthData[`${normPhase}_weighted`] =
-                (monthData[`${normPhase}_weighted`] || 0) +
+                (Number(monthData[`${normPhase}_weighted`]) || 0) +
                 Number(deal.amount) * (phaseWeights[normPhase] || 0);
             }
           }
@@ -495,11 +494,11 @@ export function SalesPipeline() {
         // Calculate total for the month
         monthData.total = phaseOrder
           .slice(0, -2)
-          .reduce((sum, phase) => sum + (monthData[phase] || 0), 0);
+          .reduce((sum, phase) => sum + (Number(monthData[phase]) || 0), 0);
         monthData.total_weighted = phaseOrder
           .slice(0, -2)
           .reduce(
-            (sum, phase) => sum + (monthData[`${phase}_weighted`] || 0),
+            (sum, phase) => sum + (Number(monthData[`${phase}_weighted`]) || 0),
             0
           );
 
@@ -531,12 +530,73 @@ export function SalesPipeline() {
       funnelData: funnelData,
       dealsByProduct: productData,
       averageSalesCycle: avgSalesCycle,
+      conversionRates: [], // Add missing property
       topDeals: topDeals,
       pipelineForecast: pipelineForecast,
     });
   };
 
-  const applyColorPalette = (palette: any) => {
+  useEffect(() => {
+    const loadCRMData = async () => {
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) {
+          setLoading(false);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from("crm_deals")
+          .select("*")
+          .eq("user_id", user.id);
+
+        if (error) {
+          console.error("Failed to load CRM deals:", error);
+          setLoading(false);
+          return;
+        }
+
+        const dealsData: Deal[] = data || [];
+        console.log("📊 Loaded CRM deals from Supabase:", dealsData.length);
+        console.log("✅ Sample Supabase deal object:", dealsData[0]);
+        console.log(
+          "💬 Deal IDs check:",
+          dealsData.map((d) => d.id)
+        );
+        console.log(
+          "💬 Companies check:",
+          dealsData.map((d) => d.company)
+        );
+        console.log(
+          "💬 Object keys of first deal:",
+          Object.keys(dealsData[0] || {})
+        );
+
+        setAllDeals(dealsData);
+        setDeals(dealsData); // Show all deals, not just future ones
+        console.log("📊 Showing all deals without date filtering");
+
+        // Ensure state is updated before calculating metrics
+        await new Promise((r) => setTimeout(r, 100));
+        console.log(
+          "🧩 Metrics computation triggered with deals count:",
+          dealsData.length
+        );
+        calculatePipelineMetrics(dealsData);
+        setLoading(false);
+      } catch (error) {
+        console.error("Error loading CRM data:", error);
+        setLoading(false);
+      }
+    };
+
+    loadCRMData();
+  }, [prefs]);
+
+  const applyColorPalette = (palette: ColorPalette) => {
     setPhaseColors(palette.colors);
     setColorMode("individual");
     setIsColorDialogOpen(false);
@@ -716,11 +776,11 @@ export function SalesPipeline() {
         <label className="mr-2 text-sm text-gray-600">Amount Format:</label>
         <select
           value={formatStyle}
-          onChange={(e) => setFormatStyle(e.target.value as any)}
+          onChange={(e) => setFormatStyle(e.target.value as FormatStyle)}
           className="text-sm border rounded px-2 py-1"
         >
           <option value="short">€1.2k</option>
-          <option value="swiss">€1'000</option>
+          <option value="swiss">€1&apos;000</option>
           <option value="mio">€1.2 Mio</option>
         </select>
       </div>
@@ -797,50 +857,52 @@ export function SalesPipeline() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {metrics.funnelData.map((stage: any, index: number) => {
-              const width = `${stage.percentage}%`;
-              const isLast = index === metrics.funnelData.length - 1;
+            {metrics.funnelData.map(
+              (stage: PipelineMetrics["funnelData"][0], index: number) => {
+                const width = `${stage.percentage}%`;
+                const isLast = index === metrics.funnelData.length - 1;
 
-              return (
-                <div key={stage.phase} className="relative">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium">{stage.phase}</span>
-                    <span className="text-sm text-gray-600">
-                      {stage.cumulativeCount} deals ({stage.percentage}%) –{" "}
-                      {formatCurrency(stage.value)}
-                    </span>
-                  </div>
-                  <div className="relative h-10 bg-gray-200 rounded-lg overflow-hidden">
-                    <div
-                      className="absolute inset-y-0 left-0 flex items-center justify-center text-white font-semibold transition-all duration-500"
-                      style={{
-                        width: width,
-                        backgroundColor: currentColors[stage.phase],
-                      }}
-                    >
-                      {/* <span className="text-xs px-2">
+                return (
+                  <div key={stage.phase} className="relative">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">{stage.phase}</span>
+                      <span className="text-sm text-gray-600">
+                        {stage.cumulativeCount} deals ({stage.percentage}%) –{" "}
+                        {formatCurrency(stage.value)}
+                      </span>
+                    </div>
+                    <div className="relative h-10 bg-gray-200 rounded-lg overflow-hidden">
+                      <div
+                        className="absolute inset-y-0 left-0 flex items-center justify-center text-white font-semibold transition-all duration-500"
+                        style={{
+                          width: width,
+                          backgroundColor: currentColors[stage.phase],
+                        }}
+                      >
+                        {/* <span className="text-xs px-2">
                         {formatCurrency(stage.value)}
                       </span> */}
+                      </div>
                     </div>
+                    {!isLast && (
+                      <div className="flex justify-center my-2">
+                        <svg
+                          className="w-6 h-6 text-gray-400"
+                          fill="currentColor"
+                          viewBox="0 0 20 20"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      </div>
+                    )}
                   </div>
-                  {!isLast && (
-                    <div className="flex justify-center my-2">
-                      <svg
-                        className="w-6 h-6 text-gray-400"
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                );
+              }
+            )}
           </div>
         </CardContent>
       </Card>
@@ -862,15 +924,22 @@ export function SalesPipeline() {
                 />
                 <YAxis tickFormatter={(value) => formatCurrency(value)} />
                 <Tooltip
-                  formatter={(value: any) => formatCurrency(Number(value))}
+                  formatter={(value: number | string) =>
+                    formatCurrency(Number(value))
+                  }
                 />
                 <Bar dataKey="value" name="Total Value">
-                  {metrics.pipelineByPhase.map((entry: any, index: number) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={currentColors[entry.phase]}
-                    />
-                  ))}
+                  {metrics.pipelineByPhase.map(
+                    (
+                      entry: PipelineMetrics["pipelineByPhase"][0],
+                      index: number
+                    ) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={currentColors[entry.phase]}
+                      />
+                    )
+                  )}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -894,12 +963,17 @@ export function SalesPipeline() {
                 <YAxis />
                 <Tooltip />
                 <Bar dataKey="count" name="Number of Deals">
-                  {metrics.pipelineByPhase.map((entry: any, index: number) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={currentColors[entry.phase]}
-                    />
-                  ))}
+                  {metrics.pipelineByPhase.map(
+                    (
+                      entry: PipelineMetrics["pipelineByPhase"][0],
+                      index: number
+                    ) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={currentColors[entry.phase]}
+                      />
+                    )
+                  )}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -933,20 +1007,23 @@ export function SalesPipeline() {
               <XAxis dataKey="month" />
               <YAxis tickFormatter={(value) => formatCurrency(value)} />
               <Tooltip
-                formatter={(value: any) => formatCurrency(Number(value))}
-                content={({ active, payload, label }: any) => {
+                formatter={(value: number | string) =>
+                  formatCurrency(Number(value))
+                }
+                content={(props) => {
+                  const { active, payload, label } = props as TooltipProps;
                   if (active && payload && payload.length) {
                     const totalKey = showWeighted ? "total_weighted" : "total";
                     return (
                       <div className="bg-white p-4 border rounded shadow-lg">
                         <p className="font-semibold mb-2">{label}</p>
-                        {payload.map((entry: any, index: number) => (
+                        {payload.map((entry: TooltipPayload, index: number) => (
                           <p
                             key={index}
                             className="text-sm"
                             style={{ color: entry.color }}
                           >
-                            {entry.name}: {formatCurrency(entry.value)}
+                            {entry.name}: {formatCurrency(Number(entry.value))}
                             {showWeighted && phaseWeights[entry.name] && (
                               <span className="text-gray-500">
                                 {" "}
@@ -955,8 +1032,11 @@ export function SalesPipeline() {
                             )}
                           </p>
                         ))}
-                        <p className="text-sm font-semibold mt-2 pt-2 border-t">
-                          Total: {formatCurrency(payload[0].payload[totalKey])}
+                        <p className="text-sm font-semibold mt-2">
+                          Total:{" "}
+                          {formatCurrency(
+                            Number(payload[0]?.payload?.[totalKey] || 0)
+                          )}
                         </p>
                       </div>
                     );
@@ -1027,8 +1107,8 @@ export function SalesPipeline() {
               <div className="rounded border p-6 text-center text-sm text-gray-500">
                 <p>📦 No product data available.</p>
                 <p className="text-xs mt-2">
-                  Upload CRM data with a "Product" or "Product Type" column to
-                  see this chart.
+                  Upload CRM data with a &quot;Product&quot; or &quot;Product
+                  Type&quot; column to see this chart.
                 </p>
               </div>
             ) : (
@@ -1048,7 +1128,7 @@ export function SalesPipeline() {
                   />
                   <YAxis tickFormatter={(value) => formatCurrency(value)} />
                   <Tooltip
-                    formatter={(value: any) => [
+                    formatter={(value: number | string) => [
                       formatCurrency(Number(value)),
                       "Deal Value",
                     ]}
@@ -1062,7 +1142,10 @@ export function SalesPipeline() {
                     <LabelList
                       dataKey="value"
                       position="top"
-                      formatter={(value: any) => formatCurrency(Number(value))}
+                      formatter={(value: unknown) => {
+                        if (value === undefined || value === null) return "";
+                        return formatCurrency(Number(value));
+                      }}
                       style={{
                         fontSize: "12px",
                         fontWeight: "bold",
@@ -1084,31 +1167,34 @@ export function SalesPipeline() {
           <CardContent>
             <div className="space-y-2">
               {metrics.topDeals && metrics.topDeals.length > 0 ? (
-                metrics.topDeals.map((deal: any, index: number) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-2 bg-gray-50 rounded"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="w-3 h-3 rounded-full"
-                        style={{
-                          backgroundColor: currentColors[deal.phase] || "#ccc",
-                        }}
-                      ></div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">{deal.name}</p>
-                        <p className="text-xs text-gray-500">{deal.client}</p>
+                metrics.topDeals.map(
+                  (deal: PipelineMetrics["topDeals"][0], index: number) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between p-2 bg-gray-50 rounded"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-3 h-3 rounded-full"
+                          style={{
+                            backgroundColor:
+                              currentColors[deal.phase] || "#ccc",
+                          }}
+                        ></div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">{deal.name}</p>
+                          <p className="text-xs text-gray-500">{deal.client}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-bold">
+                          {formatCurrency(deal.amount)}
+                        </p>
+                        <p className="text-xs text-gray-500">{deal.phase}</p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold">
-                        {formatCurrency(deal.amount)}
-                      </p>
-                      <p className="text-xs text-gray-500">{deal.phase}</p>
-                    </div>
-                  </div>
-                ))
+                  )
+                )
               ) : (
                 <div className="flex items-center justify-center h-64 text-gray-500">
                   No deals found. Please verify CRM data.

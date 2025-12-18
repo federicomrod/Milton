@@ -20,6 +20,9 @@ import {
   formatNumber,
   formatPercentage,
 } from "@/lib/utils/formatters";
+import { getReportData } from "@/lib/report-data-service";
+import { createClient } from "@/lib/supabase/client";
+import type { TransactionData, CrmDealData } from "@/lib/types/data";
 
 interface Transaction {
   id: string;
@@ -66,6 +69,17 @@ interface MetricsGridProps {
   selectedMetrics?: string[];
 }
 
+interface MetricCard {
+  id: string;
+  title: string;
+  value: number | null;
+  format: "currency" | "percentage" | "number" | "months";
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: string;
+  suffix?: string;
+}
+
 export function MetricsGrid({
   selectedMetrics = [
     "mrr",
@@ -99,24 +113,27 @@ export function MetricsGrid({
     quickRatio: null,
   });
 
+  // Log when component mounts
+  console.log("MetricsGrid: Component mounted/rendered");
+
   // Safe helper functions with proper null/undefined checks
-  const safeToString = (value: any): string => {
+  const safeToString = (value: unknown): string => {
     if (value === null || value === undefined) return "";
     return String(value);
   };
 
-  const safeToLowerCase = (value: any): string => {
+  const safeToLowerCase = (value: unknown): string => {
     return safeToString(value).toLowerCase();
   };
 
-  const safeParseFloat = (value: any): number => {
+  const safeParseFloat = (value: unknown): number => {
     if (value === null || value === undefined) return 0;
-    const parsed = parseFloat(value);
+    const parsed = parseFloat(String(value));
     return isNaN(parsed) ? 0 : parsed;
   };
 
   // Helper function to classify revenue types with safe string handling
-  const isRecurringRevenue = (category: any): boolean => {
+  const isRecurringRevenue = (category: unknown): boolean => {
     if (!category) return false;
     const categoryStr = safeToLowerCase(category);
     const recurringCategories = [
@@ -129,7 +146,7 @@ export function MetricsGrid({
     return recurringCategories.some((cat) => categoryStr.includes(cat));
   };
 
-  const isRevenue = (category: any): boolean => {
+  const isRevenue = (category: unknown): boolean => {
     if (!category) return false;
     const categoryStr = safeToLowerCase(category);
     const revenueCategories = [
@@ -144,131 +161,386 @@ export function MetricsGrid({
     return revenueCategories.some((cat) => categoryStr.includes(cat));
   };
 
-  const isCOGS = (category: any): boolean => {
+  const isCOGS = (category: unknown): boolean => {
     if (!category) return false;
     const categoryStr = safeToLowerCase(category);
     return categoryStr.includes("cogs");
   };
 
-  const validateTransaction = (tx: any): tx is Transaction => {
-    // Check if transaction has required properties and they're valid
-    // Note: enhanced-data-processor uses 'description' instead of 'name'
+  const validateTransaction = (tx: unknown): tx is Transaction => {
+    if (!tx || typeof tx !== "object") return false;
+    const obj = tx as Record<string, unknown>;
     return (
-      tx &&
-      typeof tx === "object" &&
-      tx.hasOwnProperty("id") &&
-      tx.hasOwnProperty("date") &&
-      tx.hasOwnProperty("amount") &&
-      (tx.hasOwnProperty("name") || tx.hasOwnProperty("description")) &&
-      tx.hasOwnProperty("category") &&
-      !isNaN(safeParseFloat(tx.amount))
+      typeof obj.id === "string" &&
+      typeof obj.date === "string" &&
+      (typeof obj.amount === "number" || typeof obj.amount === "string") &&
+      (typeof obj.name === "string" || typeof obj.description === "string") &&
+      typeof obj.category === "string" &&
+      !isNaN(safeParseFloat(obj.amount))
     );
   };
 
-  const validateDeal = (deal: any): deal is Deal => {
+  const validateDeal = (deal: unknown): deal is Deal => {
+    if (!deal || typeof deal !== "object") return false;
+    const obj = deal as Record<string, unknown>;
     return (
-      deal &&
-      typeof deal === "object" &&
-      deal.hasOwnProperty("id") &&
-      deal.hasOwnProperty("dealName") &&
-      deal.hasOwnProperty("phase") &&
-      deal.hasOwnProperty("amount") &&
-      deal.hasOwnProperty("clientName") &&
-      !isNaN(safeParseFloat(deal.amount))
+      typeof obj.id === "string" &&
+      typeof obj.dealName === "string" &&
+      typeof obj.phase === "string" &&
+      (typeof obj.amount === "number" || typeof obj.amount === "string") &&
+      typeof obj.clientName === "string" &&
+      !isNaN(safeParseFloat(obj.amount))
     );
   };
 
   useEffect(() => {
-    try {
-      console.log("MetricsGrid: Starting calculation...");
+    console.log("MetricsGrid: useEffect triggered");
 
-      // Load all data sources with error handling
-      const storedTransactions = localStorage.getItem("transactions");
-      const storedCRM = localStorage.getItem("crmDeals");
-      const storedBudget = localStorage.getItem("budget");
-      const storedAIInsights = localStorage.getItem("aiBusinessInsights");
+    const fetchData = async () => {
+      try {
+        console.log("MetricsGrid: Starting calculation...");
 
-      console.log("Raw stored data:", {
-        transactions: storedTransactions ? "found" : "not found",
-        crm: storedCRM ? "found" : "not found",
-        budget: storedBudget ? "found" : "not found",
-        aiInsights: storedAIInsights ? "found" : "not found",
-      });
+        const supabase = createClient();
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
 
-      let transactions: Transaction[] = [];
-      let crmDeals: Deal[] = [];
-      let budget = null;
-      let aiInsights = null;
-
-      // Parse AI business insights
-      if (
-        storedAIInsights &&
-        storedAIInsights !== "undefined" &&
-        storedAIInsights !== "null"
-      ) {
-        try {
-          aiInsights = JSON.parse(storedAIInsights);
-          console.log("AI business insights loaded:", aiInsights);
-        } catch (error) {
-          console.error("Failed to parse AI insights:", error);
-          // Clear the invalid data
-          localStorage.removeItem("aiBusinessInsights");
+        if (userError || !user) {
+          console.error("MetricsGrid: Error getting user:", userError);
+          return;
         }
-      }
 
-      // Parse transactions with validation
-      if (storedTransactions) {
-        try {
-          const parsedTransactions = JSON.parse(storedTransactions);
-          if (Array.isArray(parsedTransactions)) {
-            transactions = parsedTransactions.filter(validateTransaction);
-            console.log(
-              `MetricsGrid: Loaded ${transactions.length} valid transactions from ${parsedTransactions.length} total`
-            );
+        console.log("MetricsGrid: User found:", user.id);
 
-            // Show sample transaction for debugging
-            if (transactions.length > 0) {
-              console.log("Sample transaction:", transactions[0]);
-            }
-          } else {
-            console.warn("MetricsGrid: Transactions data is not an array");
-          }
-        } catch (error) {
-          console.error("MetricsGrid: Error parsing transactions:", error);
-        }
-      }
+        // Use the same service that MiltonChat uses
+        const reportData = await getReportData(supabase, user.id);
 
-      // Parse CRM deals with validation
-      if (storedCRM) {
-        try {
-          const parsedCRM = JSON.parse(storedCRM);
-          if (Array.isArray(parsedCRM)) {
-            crmDeals = parsedCRM.filter(validateDeal);
-            console.log(
-              `MetricsGrid: Loaded ${crmDeals.length} valid deals from ${parsedCRM.length} total`
-            );
-          } else {
-            console.warn("MetricsGrid: CRM data is not an array");
-          }
-        } catch (error) {
-          console.error("MetricsGrid: Error parsing CRM data:", error);
-        }
-      }
+        console.log("MetricsGrid: Report data loaded:", {
+          transactionsCount: reportData.transactions?.length || 0,
+          crmDealsCount: reportData.crmDeals?.length || 0,
+          revenue: reportData.kpis.revenue,
+          expenses: reportData.kpis.expenses,
+        });
 
-      // Parse budget with validation
-      if (storedBudget) {
-        try {
-          budget = JSON.parse(storedBudget);
-          console.log("MetricsGrid: Loaded budget data");
-        } catch (error) {
-          console.error("MetricsGrid: Error parsing budget data:", error);
-        }
-      }
+        // Convert Supabase data to expected format with validation
+        const transactions: Transaction[] = (reportData.transactions || [])
+          .map((tx: TransactionData) => ({
+            id: tx.id || `tx_${Date.now()}_${Math.random()}`,
+            date: tx.date,
+            amount:
+              typeof tx.amount === "string"
+                ? parseFloat(tx.amount)
+                : tx.amount || 0,
+            name: tx.name || tx.description || "",
+            description: tx.description || tx.name || "",
+            category: tx.category || "Uncategorized",
+            reference: tx.reference || tx.id || "",
+          }))
+          .filter(validateTransaction);
 
-      if (transactions.length === 0) {
+        const crmDeals: Deal[] = (reportData.crmDeals || [])
+          .map((deal: CrmDealData) => ({
+            id: deal.id || `deal_${Date.now()}_${Math.random()}`,
+            dealName: deal.deal_name || deal.dealName || "",
+            clientName: deal.client_name || deal.clientName || "",
+            amount:
+              typeof deal.amount === "string"
+                ? parseFloat(deal.amount)
+                : deal.amount || 0,
+            phase: deal.phase || deal.stage || "Unknown",
+            closingDate:
+              deal.closing_date || deal.close_date || deal.closingDate || "",
+            firstAppointment: deal.created_date || deal.first_appointment || "",
+            product: deal.product || "",
+          }))
+          .filter(validateDeal);
+
         console.log(
-          "MetricsGrid: No valid transactions found, using default metrics"
+          `MetricsGrid: Processed ${transactions.length} valid transactions and ${crmDeals.length} valid CRM deals`
         );
+
+        if (transactions.length === 0) {
+          console.log(
+            "MetricsGrid: No valid transactions found, using default metrics"
+          );
+          setMetrics({
+            mrr: 0,
+            arr: 0,
+            cashBalance: 0,
+            burnRate: 0,
+            burnRateLTM: 0,
+            burnVariance: 0,
+            ltmRevenue: 0,
+            contractedRevenue: 0,
+            grossMargin: 0,
+            netMargin: 0,
+            customerCount: 0,
+            cac: null,
+            ltv: null,
+            churn: null,
+            nps: null,
+            runway: 0,
+            quickRatio: null,
+          });
+          return;
+        }
+
+        // Use current date for calculations
+        const now = new Date();
+
+        // Calculate for most recent month with data (like updated upstream)
+        const latestTransaction = transactions
+          .map((t) => {
+            try {
+              return new Date(t.date);
+            } catch {
+              return new Date();
+            }
+          })
+          .sort((a, b) => b.getTime() - a.getTime())[0];
+
+        const targetMonth = latestTransaction || now;
+        const monthStart = new Date(
+          targetMonth.getFullYear(),
+          targetMonth.getMonth(),
+          1
+        );
+        const monthEnd = new Date(
+          targetMonth.getFullYear(),
+          targetMonth.getMonth() + 1,
+          0,
+          23,
+          59,
+          59
+        );
+
+        console.log(
+          `MetricsGrid: Calculating metrics for: ${targetMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
+        );
+
+        // Filter transactions for the target month with safe date parsing
+        const currentMonthTransactions = transactions.filter((t) => {
+          try {
+            const date = new Date(t.date);
+            return (
+              date >= monthStart && date <= monthEnd && !isNaN(date.getTime())
+            );
+          } catch {
+            return false;
+          }
+        });
+
+        console.log(
+          `MetricsGrid: Found ${currentMonthTransactions.length} transactions for the month`
+        );
+
+        // If no transactions in current month, use all transactions for calculations (from stashed)
+        const transactionsToUse =
+          currentMonthTransactions.length > 0
+            ? currentMonthTransactions
+            : transactions;
+
+        console.log(
+          `MetricsGrid: Using ${transactionsToUse.length} transactions for calculations`
+        );
+
+        // Calculate MRR using recurring revenue logic
+        const recurringRevenue = transactionsToUse
+          .filter(
+            (t) =>
+              safeParseFloat(t.amount) > 0 && isRecurringRevenue(t.category)
+          )
+          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+
+        const totalMonthlyRevenue = transactionsToUse
+          .filter((t) => safeParseFloat(t.amount) > 0 && isRevenue(t.category))
+          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+
+        // If no revenue found with category matching, use ALL positive transactions (from stashed)
+        const allPositiveTransactions = transactionsToUse
+          .filter((t) => safeParseFloat(t.amount) > 0)
+          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+
+        // Use recurring revenue if available, otherwise fall back to total revenue, then all positive
+        const mrr =
+          recurringRevenue > 0
+            ? recurringRevenue
+            : totalMonthlyRevenue > 0
+              ? totalMonthlyRevenue
+              : allPositiveTransactions;
+        const arr = mrr * 12;
+
+        // Calculate total cash balance - use ALL transactions
+        const totalCash = transactions.reduce(
+          (sum, t) => sum + safeParseFloat(t.amount),
+          0
+        );
+
+        // Calculate monthly expenses (excluding COGS)
+        const monthlyExpenses = Math.abs(
+          transactionsToUse
+            .filter((t) => safeParseFloat(t.amount) < 0 && !isCOGS(t.category))
+            .reduce((sum, t) => sum + safeParseFloat(t.amount), 0)
+        );
+
+        // Calculate COGS separately
+        const cogs = Math.abs(
+          transactionsToUse
+            .filter((t) => safeParseFloat(t.amount) < 0 && isCOGS(t.category))
+            .reduce((sum, t) => sum + safeParseFloat(t.amount), 0)
+        );
+
+        // Calculate net burn (expenses minus revenue)
+        const revenueForBurn =
+          recurringRevenue > 0
+            ? recurringRevenue
+            : totalMonthlyRevenue > 0
+              ? totalMonthlyRevenue
+              : allPositiveTransactions;
+        const netBurn = monthlyExpenses - revenueForBurn;
+
+        // Calculate LTM metrics with consistent date range
+        const yearAgo = new Date(targetMonth);
+        yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+
+        const ltmTransactions = transactions.filter((t) => {
+          try {
+            const date = new Date(t.date);
+            return date > yearAgo && date <= monthEnd && !isNaN(date.getTime());
+          } catch {
+            return false;
+          }
+        });
+
+        // Calculate LTM total revenue (all revenue types)
+        const ltmTotalRevenue = ltmTransactions
+          .filter((t) => safeParseFloat(t.amount) > 0 && isRevenue(t.category))
+          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+
+        // If no revenue found with category matching, use ALL positive transactions
+        const ltmAllPositive = ltmTransactions
+          .filter((t) => safeParseFloat(t.amount) > 0)
+          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+
+        const ltmMonthlyRevenue =
+          (ltmTotalRevenue > 0 ? ltmTotalRevenue : ltmAllPositive) / 12;
+
+        // Calculate LTM expenses and burn rate
+        const ltmTotalExpenses = Math.abs(
+          ltmTransactions
+            .filter((t) => safeParseFloat(t.amount) < 0 && !isCOGS(t.category))
+            .reduce((sum, t) => sum + safeParseFloat(t.amount), 0)
+        );
+
+        const ltmMonthlyExpenses = ltmTotalExpenses / 12;
+        const ltmNetBurn = ltmMonthlyExpenses - ltmMonthlyRevenue;
+
+        // Calculate burn variance (current vs LTM)
+        const burnVariance = netBurn - ltmNetBurn;
+        const burnVariancePercent =
+          ltmNetBurn > 0 ? (burnVariance / ltmNetBurn) * 100 : 0;
+
+        // Calculate contracted revenue from CRM
+        const contractedRevenue = crmDeals
+          .filter((d) =>
+            [
+              "Negotiation",
+              "Deal",
+              "Closed",
+              "Contract",
+              "Closed Won",
+            ].includes(safeToString(d.phase))
+          )
+          .reduce((sum, d) => sum + safeParseFloat(d.amount), 0);
+
+        // Calculate gross margin
+        const revenueForMargin =
+          recurringRevenue > 0
+            ? recurringRevenue
+            : totalMonthlyRevenue > 0
+              ? totalMonthlyRevenue
+              : allPositiveTransactions;
+        const grossMargin =
+          revenueForMargin > 0
+            ? ((revenueForMargin - cogs) / revenueForMargin) * 100
+            : 0;
+
+        // Calculate net margin
+        const netMargin =
+          revenueForMargin > 0
+            ? ((revenueForMargin - monthlyExpenses - cogs) / revenueForMargin) *
+              100
+            : 0;
+
+        // Calculate unique customers with safe string handling
+        const customerCount =
+          crmDeals.length > 0
+            ? new Set(
+                crmDeals
+                  .map((d) => safeToLowerCase(d.clientName).trim())
+                  .filter((name) => name !== "")
+              ).size
+            : new Set(
+                transactions
+                  .filter(
+                    (t) => safeParseFloat(t.amount) > 0 && isRevenue(t.category)
+                  )
+                  .map((t) =>
+                    safeToLowerCase(t.name || t.description || "").trim()
+                  )
+                  .filter((name) => name !== "")
+              ).size;
+
+        // Calculate runway
+        const monthlyBurnRate = Math.max(0, netBurn); // Ensure positive burn rate
+        const runway =
+          monthlyBurnRate > 0 && totalCash > 0
+            ? Math.round(totalCash / monthlyBurnRate)
+            : ltmMonthlyExpenses > 0
+              ? Math.round(totalCash / ltmMonthlyExpenses)
+              : 0;
+
+        console.log("MetricsGrid: Calculated metrics:", {
+          mrr,
+          arr,
+          totalMonthlyRevenue,
+          recurringRevenue,
+          allPositiveTransactions,
+          monthlyExpenses,
+          netBurn,
+          ltmMonthlyRevenue,
+          ltmNetBurn,
+          totalCash,
+          contractedRevenue,
+          customerCount,
+          currentMonthCount: currentMonthTransactions.length,
+          totalTransactionsCount: transactions.length,
+          transactionsToUseCount: transactionsToUse.length,
+        });
+
+        setMetrics({
+          mrr: Math.round(mrr),
+          arr: Math.round(arr),
+          cashBalance: Math.round(totalCash),
+          burnRate: Math.round(Math.max(0, netBurn)),
+          burnRateLTM: Math.round(Math.max(0, ltmNetBurn)),
+          burnVariance: Math.round(burnVariancePercent),
+          ltmRevenue: Math.round(ltmMonthlyRevenue),
+          contractedRevenue: Math.round(contractedRevenue),
+          grossMargin: Math.round(grossMargin),
+          netMargin: Math.round(netMargin),
+          customerCount: customerCount,
+          cac: null,
+          ltv: null,
+          churn: null,
+          nps: null,
+          runway: runway,
+          quickRatio: null,
+        });
+      } catch (error) {
+        console.error("MetricsGrid: Error calculating metrics:", error);
+        // Set safe default values on any error
         setMetrics({
           mrr: 0,
           arr: 0,
@@ -288,286 +560,9 @@ export function MetricsGrid({
           runway: 0,
           quickRatio: null,
         });
-        return;
       }
-
-      // Enhanced revenue classification using AI insights
-      const isRecurringRevenue = (transaction: any): boolean => {
-        // Use AI insights if available
-        if (aiInsights?.recurringRevenue?.length > 0) {
-          return aiInsights.recurringRevenue.some(
-            (col: string) =>
-              transaction.categoryColumn === col ||
-              transaction.category?.toLowerCase().includes(col.toLowerCase())
-          );
-        }
-
-        // Fallback to original logic
-        const category = safeToLowerCase(transaction.category);
-        const recurringCategories = [
-          "subscription",
-          "monthly",
-          "recurring",
-          "mrr",
-          "wiederk",
-        ];
-        return recurringCategories.some((cat) => category.includes(cat));
-      };
-
-      const isRevenue = (transaction: any): boolean => {
-        // Use AI insights if available
-        if (aiInsights?.revenueColumns?.length > 0) {
-          const isRevenueByAI = aiInsights.revenueColumns.some(
-            (col: string) =>
-              transaction.categoryColumn === col ||
-              transaction.categoryType === "revenue"
-          );
-          if (isRevenueByAI) return true;
-        }
-
-        // Check if amount is positive (common revenue pattern)
-        if (transaction.amount > 0) {
-          const category = safeToLowerCase(transaction.category);
-          const revenueCategories = [
-            "subscription",
-            "consulting",
-            "service",
-            "sales",
-            "revenue",
-            "wiederk",
-            "eingehende",
-          ];
-          return revenueCategories.some((cat) => category.includes(cat));
-        }
-
-        return false;
-      };
-
-      const isCOGS = (transaction: any): boolean => {
-        const category = safeToLowerCase(transaction.category);
-        return category.includes("cogs");
-      };
-
-      // Use current date for calculations
-      const now = new Date();
-
-      // Calculate for most recent month with data
-      const latestTransaction = transactions
-        .map((t) => {
-          try {
-            return new Date(t.date);
-          } catch {
-            return new Date();
-          }
-        })
-        .sort((a, b) => b.getTime() - a.getTime())[0];
-
-      const targetMonth = latestTransaction || now;
-      const monthStart = new Date(
-        targetMonth.getFullYear(),
-        targetMonth.getMonth(),
-        1
-      );
-      const monthEnd = new Date(
-        targetMonth.getFullYear(),
-        targetMonth.getMonth() + 1,
-        0
-      );
-
-      console.log(
-        `MetricsGrid: Calculating metrics for: ${targetMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
-      );
-
-      // Filter transactions for the target month with safe date parsing
-      const currentMonthTransactions = transactions.filter((t) => {
-        try {
-          const date = new Date(t.date);
-          return (
-            date >= monthStart && date <= monthEnd && !isNaN(date.getTime())
-          );
-        } catch {
-          return false;
-        }
-      });
-
-      console.log(
-        `MetricsGrid: Found ${currentMonthTransactions.length} transactions for the month`
-      );
-
-      // Calculate MRR using AI-enhanced logic
-      const recurringRevenue = currentMonthTransactions
-        .filter((t) => safeParseFloat(t.amount) > 0 && isRecurringRevenue(t))
-        .reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
-
-      const totalMonthlyRevenue = currentMonthTransactions
-        .filter((t) => safeParseFloat(t.amount) > 0 && isRevenue(t))
-        .reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
-
-      // Use recurring revenue if available, otherwise fall back to total revenue
-      const mrr = recurringRevenue > 0 ? recurringRevenue : totalMonthlyRevenue;
-
-      // Calculate total cash balance
-      const totalCash = transactions.reduce(
-        (sum, t) => sum + safeParseFloat(t.amount),
-        0
-      );
-
-      // Calculate monthly expenses (excluding COGS)
-      const monthlyExpenses = Math.abs(
-        currentMonthTransactions
-          .filter((t) => safeParseFloat(t.amount) < 0 && !isCOGS(t))
-          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0)
-      );
-
-      // Calculate COGS separately
-      const cogs = Math.abs(
-        currentMonthTransactions
-          .filter((t) => safeParseFloat(t.amount) < 0 && isCOGS(t))
-          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0)
-      );
-
-      // Calculate net burn (expenses minus revenue)
-      const netBurn = monthlyExpenses - totalMonthlyRevenue;
-
-      // Calculate LTM metrics with consistent date range
-      const yearAgo = new Date(targetMonth);
-      yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-
-      const ltmTransactions = transactions.filter((t) => {
-        try {
-          const date = new Date(t.date);
-          return (
-            date > yearAgo && date <= targetMonth && !isNaN(date.getTime())
-          );
-        } catch {
-          return false;
-        }
-      });
-
-      // Calculate LTM total revenue (all revenue types)
-      const ltmTotalRevenue = ltmTransactions
-        .filter((t) => safeParseFloat(t.amount) > 0 && isRevenue(t))
-        .reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
-
-      const ltmMonthlyRevenue = ltmTotalRevenue / 12;
-
-      // Calculate LTM expenses and burn rate
-      const ltmTotalExpenses = Math.abs(
-        ltmTransactions
-          .filter((t) => safeParseFloat(t.amount) < 0 && !isCOGS(t))
-          .reduce((sum, t) => sum + safeParseFloat(t.amount), 0)
-      );
-
-      const ltmMonthlyExpenses = ltmTotalExpenses / 12;
-      const ltmNetBurn = ltmMonthlyExpenses - ltmMonthlyRevenue;
-
-      // Calculate burn variance (current vs LTM)
-      const burnVariance = netBurn - ltmNetBurn;
-      const burnVariancePercent =
-        ltmNetBurn > 0 ? (burnVariance / ltmNetBurn) * 100 : 0;
-
-      // Calculate contracted revenue from CRM
-      const contractedRevenue = crmDeals
-        .filter((d) =>
-          ["Negotiation", "Deal", "Closed", "Contract"].includes(
-            safeToString(d.phase)
-          )
-        )
-        .reduce((sum, d) => sum + safeParseFloat(d.amount), 0);
-
-      // Calculate gross margin
-      const grossMargin =
-        totalMonthlyRevenue > 0
-          ? ((totalMonthlyRevenue - cogs) / totalMonthlyRevenue) * 100
-          : 0;
-
-      // Calculate net margin
-      const netMargin =
-        totalMonthlyRevenue > 0
-          ? ((totalMonthlyRevenue - monthlyExpenses - cogs) /
-              totalMonthlyRevenue) *
-            100
-          : 0;
-
-      // Calculate unique customers with safe string handling
-      const customerCount =
-        crmDeals.length > 0
-          ? new Set(
-              crmDeals
-                .map((d) => safeToLowerCase(d.clientName).trim())
-                .filter((name) => name !== "")
-            ).size
-          : new Set(
-              transactions
-                .filter((t) => safeParseFloat(t.amount) > 0 && isRevenue(t))
-                .map((t) =>
-                  safeToLowerCase(t.name || t.description || "").trim()
-                )
-                .filter((name) => name !== "")
-            ).size;
-
-      // Calculate runway
-      const monthlyBurnRate = Math.max(0, netBurn); // Ensure positive burn rate
-      const runway =
-        monthlyBurnRate > 0 && totalCash > 0
-          ? Math.round(totalCash / monthlyBurnRate)
-          : 999;
-
-      console.log("MetricsGrid: Calculated metrics with AI insights:", {
-        mrr,
-        totalMonthlyRevenue,
-        monthlyExpenses,
-        netBurn,
-        ltmMonthlyRevenue,
-        ltmNetBurn,
-        totalCash,
-        contractedRevenue,
-        customerCount,
-        aiInsightsUsed: !!aiInsights,
-      });
-
-      setMetrics({
-        mrr: Math.round(mrr),
-        arr: Math.round(mrr * 12),
-        cashBalance: Math.round(totalCash),
-        burnRate: Math.round(Math.max(0, netBurn)),
-        burnRateLTM: Math.round(Math.max(0, ltmNetBurn)),
-        burnVariance: Math.round(burnVariancePercent),
-        ltmRevenue: Math.round(ltmMonthlyRevenue),
-        contractedRevenue: Math.round(contractedRevenue),
-        grossMargin: Math.round(grossMargin),
-        netMargin: Math.round(netMargin),
-        customerCount: customerCount,
-        cac: null,
-        ltv: null,
-        churn: null,
-        nps: null,
-        runway: runway,
-        quickRatio: null,
-      });
-    } catch (error) {
-      console.error("MetricsGrid: Error calculating metrics:", error);
-      // Set safe default values on any error
-      setMetrics({
-        mrr: 0,
-        arr: 0,
-        cashBalance: 0,
-        burnRate: 0,
-        burnRateLTM: 0,
-        burnVariance: 0,
-        ltmRevenue: 0,
-        contractedRevenue: 0,
-        grossMargin: 0,
-        netMargin: 0,
-        customerCount: 0,
-        cac: null,
-        ltv: null,
-        churn: null,
-        nps: null,
-        runway: 0,
-        quickRatio: null,
-      });
-    }
+    };
+    fetchData();
   }, []);
 
   const formatCurrency = (value: number | null) => {
@@ -590,7 +585,7 @@ export function MetricsGrid({
     return formatCurrencyUtil(value, prefs.currency);
   };
 
-  const formatMetricValue = (metric: any) => {
+  const formatMetricValue = (metric: MetricCard) => {
     if (metric.format === "currency") {
       return metric.value !== null ? formatCurrency(metric.value) : "N/A";
     } else if (metric.format === "percentage") {
@@ -611,7 +606,7 @@ export function MetricsGrid({
     return metric.value?.toString() || "N/A";
   };
 
-  const allMetricCards = [
+  const allMetricCards: MetricCard[] = [
     {
       id: "mrr",
       title: "MRR",

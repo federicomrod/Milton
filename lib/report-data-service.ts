@@ -54,7 +54,7 @@ export async function getReportData(
   // Step 1: Fetch transactions
   let txQuery = supabase
     .from("transactions")
-    .select("id, date, amount, category, name, description, reference")
+    .select("id, date, amount, category, name, description")
     .eq("user_id", userId)
     .order("date", { ascending: false });
 
@@ -72,9 +72,7 @@ export async function getReportData(
   // Step 2: Fetch CRM deals
   let crmQuery = supabase
     .from("crm_deals")
-    .select(
-      "id, amount, phase, closing_date, deal_name, client_name, created_date, product, stage, company, owner, close_date"
-    )
+    .select("id, amount, phase, closing_date, deal_name, client_name")
     .eq("user_id", userId)
     .order("amount", { ascending: false });
 

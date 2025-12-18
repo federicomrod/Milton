@@ -2,14 +2,12 @@ import { streamText, convertToCoreMessages, type UIMessage } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { handleSemanticMessage } from "@/lib/semantic-query-service";
 import {
   BUSINESS_TYPE_AI_GUIDANCE,
   DEFAULT_BUSINESS_TYPE,
   type BusinessTypeId,
 } from "@/lib/business-types";
 import { buildDashboardContextForUser } from "@/lib/ai/dashboard-context";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -54,8 +52,8 @@ export async function POST(req: Request) {
     Array.isArray(lastMessage.parts)
   ) {
     userMessage = lastMessage.parts
-      .filter((part: any) => part.type === "text")
-      .map((part: any) => part.text)
+      .filter((part: { type: string; text?: string }) => part.type === "text")
+      .map((part: { type: string; text?: string }) => part.text || "")
       .join("");
   }
 

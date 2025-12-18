@@ -54,7 +54,7 @@ export async function getReportData(
   // Step 1: Fetch transactions
   let txQuery = supabase
     .from("transactions")
-    .select("id, date, amount, category, name, description, reference")
+    .select("id, date, amount, category, name, description")
     .eq("user_id", userId)
     .order("date", { ascending: false });
 
@@ -72,9 +72,7 @@ export async function getReportData(
   // Step 2: Fetch CRM deals
   let crmQuery = supabase
     .from("crm_deals")
-    .select(
-      "id, amount, phase, closing_date, deal_name, client_name, created_date, product, stage, company, owner, close_date"
-    )
+    .select("id, amount, phase, closing_date, deal_name, client_name")
     .eq("user_id", userId)
     .order("amount", { ascending: false });
 
@@ -154,11 +152,22 @@ export async function getReportData(
   );
 
   // Step 4: Fetch user preferences from business_models
-  const { data: modelRow } = await supabase
-    .from("business_models")
-    .select("business_type, selected_kpi_ids")
-    .eq("user_id", userId)
+  // Get company for user
+  const { data: company } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("created_by", userId)
     .single();
+
+  let modelRow = null;
+  if (company) {
+    const { data } = await supabase
+      .from("business_models")
+      .select("business_type, selected_kpi_ids")
+      .eq("company_id", company.id)
+      .single();
+    modelRow = data;
+  }
 
   return {
     kpis: {
@@ -339,10 +348,21 @@ export async function getUserKpiPreferences(
   userId: string
 ) {
   try {
+    // Get company for user
+    const { data: company } = await supabase
+      .from("companies")
+      .select("id")
+      .eq("created_by", userId)
+      .single();
+
+    if (!company) {
+      return null;
+    }
+
     const { data, error } = await supabase
       .from("business_models")
       .select("selected_kpi_ids, business_type")
-      .eq("user_id", userId)
+      .eq("company_id", company.id)
       .single();
 
     if (error) {

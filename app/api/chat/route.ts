@@ -28,18 +28,27 @@ export async function POST(req: Request) {
   // Determine business type for this user
   let businessType: BusinessTypeId = DEFAULT_BUSINESS_TYPE;
 
-  const { data: modelRow, error: modelError } = await supabase
-    .from("business_models")
-    .select("business_type")
-    .eq("user_id", user.id)
+  // Get company for user
+  const { data: company } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("created_by", user.id)
     .single();
 
-  if (!modelError && modelRow?.business_type) {
-    const validTypes: BusinessTypeId[] = ["saas", "agency", "fitness_studio"];
-    const rawType = modelRow.business_type as string;
+  if (company) {
+    const { data: modelRow, error: modelError } = await supabase
+      .from("business_models")
+      .select("business_type")
+      .eq("company_id", company.id)
+      .single();
 
-    if (validTypes.includes(rawType as BusinessTypeId)) {
-      businessType = rawType as BusinessTypeId;
+    if (!modelError && modelRow?.business_type) {
+      const validTypes: BusinessTypeId[] = ["saas", "agency", "fitness_studio"];
+      const rawType = modelRow.business_type as string;
+
+      if (validTypes.includes(rawType as BusinessTypeId)) {
+        businessType = rawType as BusinessTypeId;
+      }
     }
   }
 

@@ -1,23 +1,66 @@
 // lib/ai/business-model-analyzer-types.ts
 // Types for the AI Business Model Analyzer API
 
-export type BusinessTypeId = "saas" | "agency" | "fitness_studio";
+// Re-export ModelProposal from the model transform module
+export type { ModelProposal } from "@/lib/model/transform";
 
+/**
+ * All onboarding answers collected from the user
+ */
+export interface OnboardingAnswers {
+  businessType: string;
+  businessTypeLabel?: string;
+  employees: string;
+  goals: string;
+  revenue: string;
+  dataSources: string;
+  systems: string;
+}
+
+/**
+ * Dataset sample for model refinement
+ */
 export interface AnalyzerDatasetSample {
-  sourceName?: string; // e.g. "bookings.xlsx", "payments.csv"
-  tableHint?: string | null; // optional, e.g. "Bookings", "Payments"
-  sampleRows: Record<string, unknown>[]; // first N rows from the parsed file
+  sourceName?: string;
+  tableHint?: string | null;
+  sampleRows: Record<string, unknown>[];
+}
+
+/**
+ * A suggested KPI from the AI
+ */
+export interface SuggestedKPI {
+  name: string;
+  description: string;
+  category: string;
+  formula?: string;
+  priority: "high" | "medium" | "low";
 }
 
 /**
  * Input payload for /api/ai/business-model-analyzer
+ * Supports two modes:
+ * 1. Onboarding mode: uses `answers` to generate initial model
+ * 2. Refinement mode: uses `datasets` and `currentModel` to refine existing model
  */
 export interface BusinessModelAnalyzerInput {
-  businessType: BusinessTypeId;
+  // For onboarding flow
+  answers?: OnboardingAnswers;
+  // For model refinement flow
+  businessType?: string;
   datasets?: AnalyzerDatasetSample[];
-  // optional: pass an existing model if we want the AI to refine it
   currentModel?: unknown;
 }
 
-// Re-export ModelProposal from the model transform module
-export type { ModelProposal } from "@/lib/model/transform";
+/**
+ * Response from the business model analyzer
+ */
+export interface BusinessModelAnalyzerResponse {
+  success: boolean;
+  proposal?: import("@/lib/model/transform").ModelProposal;
+  suggestedKPIs?: SuggestedKPI[];
+  error?: string;
+}
+
+// Legacy type alias for backward compatibility
+export type BusinessTypeId = string;

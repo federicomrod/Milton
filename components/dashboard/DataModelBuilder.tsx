@@ -30,6 +30,10 @@ import { useBusinessContext } from "@/lib/business-context";
 import { callBusinessModelAnalyzer } from "@/lib/ai/business-model-analyzer-client";
 
 import { miltonEventsAPI } from "@/lib/milton-events";
+import {
+  getBusinessModelTemplates,
+  BusinessTypeDefinition,
+} from "@/lib/business-model-templates";
 
 // Helper to mark a table as linked in the model
 function markTableLinked(
@@ -185,6 +189,9 @@ export default function DataModelBuilder() {
   const [saving, setSaving] = useState(false);
   const [datasets, setDatasets] = useState<any[]>([]);
   const [isAiProposing, setIsAiProposing] = useState(false); // Track AI model generation
+  const [businessModelTemplates, setBusinessModelTemplates] = useState<
+    BusinessTypeDefinition[]
+  >([]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null); // Store file for ingestion
@@ -337,12 +344,21 @@ export default function DataModelBuilder() {
       } = await supabase.auth.getUser();
       let loaded: ModelProposal | null = null;
       if (user) {
-        const { data } = await supabase
-          .from("business_models")
-          .select("user_id, model_json")
-          .eq("user_id", user.id)
+        // Get company for user
+        const { data: company } = await supabase
+          .from("companies")
+          .select("id")
+          .eq("created_by", user.id)
           .single();
-        loaded = data?.model_json ?? null;
+
+        if (company) {
+          const { data } = await supabase
+            .from("business_models")
+            .select("model_json")
+            .eq("company_id", company.id)
+            .single();
+          loaded = data?.model_json ?? null;
+        }
       }
 
       if (!loaded) {
@@ -369,6 +385,22 @@ export default function DataModelBuilder() {
     }
     loadModel();
   }, [businessType]);
+
+  // Fetch business model templates from database
+  useEffect(() => {
+    async function fetchTemplates() {
+      try {
+        const templates = await getBusinessModelTemplates();
+        setBusinessModelTemplates(templates);
+      } catch (error) {
+        console.error(
+          "[DataModelBuilder] Failed to fetch business model templates:",
+          error
+        );
+      }
+    }
+    fetchTemplates();
+  }, []);
 
   // Listen for model updates
   useEffect(() => {
@@ -490,12 +522,21 @@ export default function DataModelBuilder() {
         data: { user },
       } = await supabase.auth.getUser();
       if (user) {
-        const { error } = await supabase
-          .from("business_models")
-          .update({ model_json: model })
-          .eq("user_id", user.id);
-        if (error) {
-          console.error("Failed to save model to Supabase:", error);
+        // Get company for user
+        const { data: company } = await supabase
+          .from("companies")
+          .select("id")
+          .eq("created_by", user.id)
+          .single();
+
+        if (company) {
+          const { error } = await supabase
+            .from("business_models")
+            .update({ model_json: model })
+            .eq("company_id", company.id);
+          if (error) {
+            console.error("Failed to save model to Supabase:", error);
+          }
         }
       }
       localStorage.setItem("milton-model", JSON.stringify(model));
@@ -670,12 +711,21 @@ export default function DataModelBuilder() {
           data: { user },
         } = await supabase.auth.getUser();
         if (user) {
-          const { error } = await supabase
-            .from("business_models")
-            .update({ model_json: model })
-            .eq("user_id", user.id);
-          if (error) {
-            console.error("Auto-save failed:", error);
+          // Get company for user
+          const { data: company } = await supabase
+            .from("companies")
+            .select("id")
+            .eq("created_by", user.id)
+            .single();
+
+          if (company) {
+            const { error } = await supabase
+              .from("business_models")
+              .update({ model_json: model })
+              .eq("company_id", company.id);
+            if (error) {
+              console.error("Auto-save failed:", error);
+            }
           }
         }
         localStorage.setItem("milton-model", JSON.stringify(model));
@@ -737,8 +787,11 @@ export default function DataModelBuilder() {
             className="border p-1 rounded text-gray-800 text-sm max-w-xs inline-block"
           >
             <option value="">Select business model</option>
-            <option value="b2b_startup">B2B Startup</option>
-            <option value="sports_studio">Sports Studio</option>
+            {businessModelTemplates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.label}
+              </option>
+            ))}
           </select>
         </div>
 

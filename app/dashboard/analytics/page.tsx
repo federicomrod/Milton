@@ -1,19 +1,50 @@
 "use client";
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FinancialCharts } from "@/components/dashboard/financial-charts";
 import { SalesPipeline } from "@/components/dashboard/sales-pipeline";
 import { CashFlowAnalysis } from "@/components/dashboard/cash-flow-analysis";
 import { BarChart } from "lucide-react";
 
+// Helper component for locked/missing data placeholders
+const LockedPlaceholder = ({ message }: { message: string }) => (
+  <div className="rounded border border-dashed p-8 text-center text-sm text-gray-500">
+    💡 {message}
+  </div>
+);
+
+type DataStatus = {
+  ok?: boolean;
+  bank?: boolean;
+  crm?: boolean;
+  budget?: boolean;
+} | null;
+
 export default function AnalyticsPage() {
+  const [dataStatus, setDataStatus] = useState<DataStatus>(null);
+
+  // Check if user has uploaded data via Supabase/API
+  const checkUploadedData = async () => {
+    try {
+      const res = await fetch("/api/data/status");
+
+      if (!res.ok) {
+        setDataStatus(null);
+        return;
+      }
+
+      const json = await res.json();
+      setDataStatus(json);
+    } catch (err) {
+      setDataStatus(null);
+    }
+  };
+
+  useEffect(() => {
+    checkUploadedData();
+  }, []);
+
   return (
     <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
       <div className="px-4 py-6 sm:px-0">
@@ -31,26 +62,55 @@ export default function AnalyticsPage() {
 
         {/* Analytics Tabs */}
         <Tabs defaultValue="financial" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="financial">Financial Analysis</TabsTrigger>
-            <TabsTrigger value="sales">Sales Pipeline</TabsTrigger>
-            <TabsTrigger value="cashflow">Cash Flow</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3 mb-6 bg-white shadow-sm">
+            <TabsTrigger
+              value="financial"
+              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+            >
+              Financial Analysis
+            </TabsTrigger>
+            <TabsTrigger
+              value="sales"
+              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+            >
+              Sales Pipeline
+            </TabsTrigger>
+            <TabsTrigger
+              value="cashflow"
+              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+            >
+              Cash Flow
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="financial" className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <FinancialCharts type="income-statement" />
-              <FinancialCharts type="variance-analysis" />
-            </div>
-            <FinancialCharts type="ytd-performance" />
+            {dataStatus?.budget ? (
+              <>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <FinancialCharts type="income-statement" />
+                  <FinancialCharts type="variance-analysis" />
+                </div>
+                <FinancialCharts type="ytd-performance" />
+              </>
+            ) : (
+              <LockedPlaceholder message="To unlock Financial Analysis, upload your budget data on the Upload page." />
+            )}
           </TabsContent>
 
           <TabsContent value="sales" className="space-y-4">
-            <SalesPipeline />
+            {dataStatus?.crm ? (
+              <SalesPipeline />
+            ) : (
+              <LockedPlaceholder message="To unlock your Sales Pipeline, upload your CRM data on the Upload page." />
+            )}
           </TabsContent>
 
           <TabsContent value="cashflow" className="space-y-4">
-            <CashFlowAnalysis />
+            {dataStatus?.bank ? (
+              <CashFlowAnalysis />
+            ) : (
+              <LockedPlaceholder message="To unlock Cash Flow Analysis, upload your bank transaction data on the Upload page." />
+            )}
           </TabsContent>
         </Tabs>
       </div>

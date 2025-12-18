@@ -1,23 +1,16 @@
+import { streamText, convertToCoreMessages, type UIMessage } from "ai";
+import { openai } from "@ai-sdk/openai";
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
-import OpenAI from "openai";
 import { createClient } from "@/lib/supabase/server";
-import { handleSemanticMessage } from "@/lib/semantic-query-service";
 import {
   BUSINESS_TYPE_AI_GUIDANCE,
   DEFAULT_BUSINESS_TYPE,
   type BusinessTypeId,
 } from "@/lib/business-types";
 import { buildDashboardContextForUser } from "@/lib/ai/dashboard-context";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
-// Lazy initialization to avoid errors during build time
-function getOpenAI() {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("Missing OPENAI_API_KEY environment variable");
-  }
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-}
+// Allow streaming responses up to 30 seconds
+export const maxDuration = 30;
 
 export async function POST(req: Request) {
   const cookieStore = await cookies();
@@ -25,43 +18,62 @@ export async function POST(req: Request) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user)
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const { message } = await req.json().catch(() => ({ message: "" }));
-  if (!message || typeof message !== "string") {
-    return NextResponse.json(
-      { error: 'Missing "message" in body' },
-      { status: 400 }
-    );
+  if (!user) {
+    return new Response("Unauthorized", { status: 401 });
   }
+
+  const { messages }: { messages: UIMessage[] } = await req.json();
 
   // Determine business type for this user
   let businessType: BusinessTypeId = DEFAULT_BUSINESS_TYPE;
 
-  const { data: modelRow, error: modelError } = await supabase
-    .from("business_models")
-    .select("business_type")
-    .eq("user_id", user.id)
+  // Get company for user
+  const { data: company } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("created_by", user.id)
     .single();
 
-  if (!modelError && modelRow?.business_type) {
-    const validTypes: BusinessTypeId[] = ["saas", "agency", "fitness_studio"];
-    const rawType = modelRow.business_type as string;
+  if (company) {
+    const { data: modelRow, error: modelError } = await supabase
+      .from("business_models")
+      .select("business_type")
+      .eq("company_id", company.id)
+      .single();
 
-    if (validTypes.includes(rawType as BusinessTypeId)) {
-      businessType = rawType as BusinessTypeId;
+    if (!modelError && modelRow?.business_type) {
+      const validTypes: BusinessTypeId[] = ["saas", "agency", "fitness_studio"];
+      const rawType = modelRow.business_type as string;
+
+      if (validTypes.includes(rawType as BusinessTypeId)) {
+        businessType = rawType as BusinessTypeId;
+      }
     }
   }
 
+  // Get the last user message - UIMessage has parts array
+  const lastMessage = messages[messages.length - 1];
+  let userMessage = "";
+  if (
+    lastMessage &&
+    "parts" in lastMessage &&
+    Array.isArray(lastMessage.parts)
+  ) {
+    userMessage = lastMessage.parts
+      .filter((part: { type: string; text?: string }) => part.type === "text")
+      .map((part: { type: string; text?: string }) => part.text || "")
+      .join("");
+  }
+
   // If the user message mentions chart or visualization, handle it via semantic service
-  if (/\b(chart|graph|plot|compare|trend|visual)\b/i.test(message)) {
-    const semanticResult = await handleSemanticMessage(message, user.id);
-    return NextResponse.json({
-      reply: semanticResult.text,
-      chart: semanticResult.chartConfig,
-      data: semanticResult.data,
+  if (/\b(chart|graph|plot|compare|trend|visual)\b/i.test(userMessage)) {
+    // For semantic queries, we'll return a text response with the chart info
+    const result = streamText({
+      model: openai("gpt-4o-mini"),
+      messages: convertToCoreMessages(messages),
     });
+    return result.toUIMessageStreamResponse();
   }
 
   // Build dashboard context with structured data
@@ -98,20 +110,12 @@ export async function POST(req: Request) {
     "- Keep answers concise (≤6 sentences) and actionable.",
   ].join("\n");
 
-  const userPrompt = message;
-
-  const openai = getOpenAI();
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+  const result = streamText({
+    model: openai("gpt-4o-mini"),
+    system: systemPrompt,
+    messages: convertToCoreMessages(messages),
     temperature: 0.2,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
   });
 
-  const reply =
-    completion.choices?.[0]?.message?.content?.trim() ||
-    "I could not generate a response.";
-  return NextResponse.json({ reply });
+  return result.toUIMessageStreamResponse();
 }

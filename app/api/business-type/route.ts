@@ -34,13 +34,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const userId = user.id;
+    // Get company for user
+    const { data: company } = await supabase
+      .from("companies")
+      .select("id")
+      .eq("created_by", user.id)
+      .single();
 
-    // First, try to update existing rows for this user
+    if (!company) {
+      return NextResponse.json(
+        { success: false, error: "Company not found" },
+        { status: 404 }
+      );
+    }
+
+    // First, try to update existing rows for this company
     const { data: updateData, error: updateError } = await supabase
       .from("business_models")
       .update({ business_type: businessType })
-      .eq("user_id", userId)
+      .eq("company_id", company.id)
       .select("id");
 
     if (updateError) {
@@ -52,11 +64,11 @@ export async function POST(req: NextRequest) {
     }
 
     if (!updateData || updateData.length === 0) {
-      // No existing model for this user – insert a minimal row
+      // No existing model for this company – insert a minimal row
       const { error: insertError } = await supabase
         .from("business_models")
         .insert({
-          user_id: userId,
+          company_id: company.id,
           business_type: businessType,
           // other fields like model_json can be left as defaults/null for now
         });
@@ -71,7 +83,7 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(
-      `[business-type] Successfully persisted businessType="${businessType}" for user ${userId}`
+      `[business-type] Successfully persisted businessType="${businessType}" for company ${company.id}`
     );
     return NextResponse.json({ success: true });
   } catch (err) {

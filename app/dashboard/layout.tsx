@@ -232,35 +232,6 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
   const pathname = usePathname();
   const router = useRouter();
-  const [onboardingChecked, setOnboardingChecked] = useState(false);
-
-  // Check onboarding status and redirect if needed
-  useEffect(() => {
-    const checkOnboarding = async () => {
-      if (!pathname?.startsWith("/dashboard")) return;
-      if (pathname.startsWith("/dashboard/model")) return;
-
-      try {
-        const { isOnboardingComplete } =
-          await import("@/lib/onboarding-status");
-        const complete = await isOnboardingComplete();
-
-        if (!complete) {
-          console.log("Redirecting to onboarding - company not onboarded yet");
-          router.replace("/onboarding");
-          return;
-        }
-      } catch (error) {
-        console.error("Error checking onboarding status:", error);
-      } finally {
-        setOnboardingChecked(true);
-      }
-    };
-
-    if (sessionReady && !onboardingChecked) {
-      checkOnboarding();
-    }
-  }, [pathname, router, sessionReady, onboardingChecked]);
 
   useEffect(() => {
     if (!pathname?.startsWith("/dashboard")) return; // ignore non-dashboard routes
@@ -271,6 +242,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     if (pathname.startsWith("/dashboard/reporting")) return; // Reporting page
     if (pathname.startsWith("/dashboard/account")) return; // Account page
     if (pathname.startsWith("/dashboard/settings")) return; // Settings page
+    if (pathname.startsWith("/dashboard/upload")) return; // Upload page
     if (pathname === "/dashboard") return; // Already on dashboard, no redirect needed
 
     if (
@@ -336,7 +308,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
                 flexDirection: "column",
               }}
             >
-              <div className="chat-panel" style={{ position: "relative" }}>
+              <div className="chat-panel p-4 h-full">
                 <MiltonChat />
               </div>
             </div>

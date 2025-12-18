@@ -1,220 +1,169 @@
 // app/api/ai/business-model-analyzer/route.ts
-// AI-powered business model schema generation and refinement
+// AI-powered business model and KPI generation
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { openai } from "@/lib/openai-client";
 import type {
   BusinessModelAnalyzerInput,
+  BusinessModelAnalyzerResponse,
+  OnboardingAnswers,
   AnalyzerDatasetSample,
-  BusinessTypeId,
-  ModelProposal,
+  SuggestedKPI,
 } from "@/lib/ai/business-model-analyzer-types";
+import type { ModelProposal } from "@/lib/model/transform";
 
-// Fitness studio default model as fallback
-const FITNESS_STUDIO_FALLBACK: ModelProposal = {
-  businessType: "fitness_studio",
-  recommendedTables: [
-    {
-      name: "Customers",
-      fields: [
-        { name: "customer_id", type: "string", primaryKey: true },
-        { name: "name", type: "string" },
-        { name: "email", type: "string" },
-        { name: "phone", type: "string", nullable: true },
-        { name: "join_date", type: "date" },
-        { name: "status", type: "string" },
-      ],
-    },
-    {
-      name: "Classes",
-      fields: [
-        { name: "class_id", type: "string", primaryKey: true },
-        { name: "class_name", type: "string" },
-        { name: "category", type: "string" },
-        { name: "capacity", type: "integer" },
-        { name: "duration_minutes", type: "integer" },
-        { name: "price", type: "number" },
-      ],
-    },
-    {
-      name: "Instructors",
-      fields: [
-        { name: "instructor_id", type: "string", primaryKey: true },
-        { name: "name", type: "string" },
-        { name: "email", type: "string" },
-        { name: "hourly_rate", type: "number" },
-        { name: "specialization", type: "string", nullable: true },
-      ],
-    },
-    {
-      name: "Bookings",
-      fields: [
-        { name: "booking_id", type: "string", primaryKey: true },
-        {
-          name: "customer_id",
-          type: "string",
-          references: { table: "Customers", field: "customer_id" },
-        },
-        {
-          name: "class_id",
-          type: "string",
-          references: { table: "Classes", field: "class_id" },
-        },
-        {
-          name: "instructor_id",
-          type: "string",
-          references: { table: "Instructors", field: "instructor_id" },
-        },
-        { name: "booking_time", type: "date" },
-        { name: "status", type: "string" },
-      ],
-    },
-    {
-      name: "Payments",
-      fields: [
-        { name: "payment_id", type: "string", primaryKey: true },
-        {
-          name: "customer_id",
-          type: "string",
-          references: { table: "Customers", field: "customer_id" },
-        },
-        {
-          name: "booking_id",
-          type: "string",
-          nullable: true,
-          references: { table: "Bookings", field: "booking_id" },
-        },
-        { name: "amount", type: "number" },
-        { name: "payment_date", type: "date" },
-        { name: "payment_method", type: "string", nullable: true },
-      ],
-    },
-  ],
-  relationships: [
-    { from: "Bookings.customer_id", to: "Customers.customer_id" },
-    { from: "Bookings.class_id", to: "Classes.class_id" },
-    { from: "Bookings.instructor_id", to: "Instructors.instructor_id" },
-    { from: "Payments.customer_id", to: "Customers.customer_id" },
-    { from: "Payments.booking_id", to: "Bookings.booking_id" },
-  ],
-};
+// ============================================================================
+// ONBOARDING MODE - Generate model from user answers
+// ============================================================================
 
-function buildSystemPrompt(businessType: BusinessTypeId): string {
-  return [
-    "You are Milton, an AI data architect for small businesses.",
-    "Your job is to propose a JSON data model (ModelProposal) for the given business type.",
-    "The JSON MUST strictly match this TypeScript shape:",
-    "",
-    "interface ModelProposal {",
-    '  businessType: "saas" | "agency" | "fitness_studio";',
-    "  recommendedTables: {",
-    "    name: string;",
-    "    fields: {",
-    "      name: string;",
-    '      type: "string" | "number" | "integer" | "boolean" | "date";',
-    "      primaryKey?: boolean;",
-    "      nullable?: boolean;",
-    "      references?: { table: string; field?: string } | null;",
-    "    }[];",
-    "  }[];",
-    "  relationships: {",
-    '    from: string;  // e.g. "Bookings.customer_id"',
-    '    to: string;    // e.g. "Customers.customer_id"',
-    "  }[];",
-    "}",
-    "",
-    "Output ONLY valid JSON, without explanations or markdown code fences.",
-  ].join("\n");
+function buildOnboardingSystemPrompt(): string {
+  return `You are Milton, an AI data architect and financial advisor for small businesses.
+
+Your task is to analyze the user's business information and generate:
+1. A data model (tables, fields, relationships) tailored to their specific business
+2. Suggested KPIs they should track
+
+IMPORTANT RULES:
+- Make MINIMAL assumptions. Only include tables and fields that are clearly relevant.
+- If they mention specific tools (e.g., "Stripe", "Salesforce"), suggest fields that would come from those systems.
+- If they mention specific data sources (e.g., "Excel sales sheet"), suggest appropriate table structures.
+- Base KPI suggestions on their stated goals and revenue model.
+- Keep the model simple - a small business doesn't need 20 tables.
+
+You MUST respond with ONLY valid JSON matching this structure:
+
+{
+  "dataModel": {
+    "businessType": "string",
+    "recommendedTables": [
+      {
+        "name": "TableName",
+        "fields": [
+          { "name": "field_name", "type": "string|number|integer|boolean|date", "primaryKey": true|false, "nullable": true|false, "references": { "table": "OtherTable", "field": "field_name" } | null }
+        ]
+      }
+    ],
+    "relationships": [
+      { "from": "Table.field", "to": "OtherTable.field" }
+    ]
+  },
+  "suggestedKPIs": [
+    { "name": "KPI Name", "description": "What this measures", "category": "Revenue|Operations|Customer|Financial|Growth", "formula": "How to calculate (optional)", "priority": "high|medium|low" }
+  ]
 }
 
-function buildUserPrompt(
-  businessType: BusinessTypeId,
+Output ONLY the JSON, no explanations, no markdown.`;
+}
+
+function buildOnboardingUserPrompt(answers: OnboardingAnswers): string {
+  return `Here is the business information:
+
+BUSINESS TYPE: ${answers.businessTypeLabel || answers.businessType}
+TEAM SIZE: ${answers.employees || "Not specified"}
+MAIN GOALS: ${answers.goals || "Not specified"}
+REVENUE MODEL: ${answers.revenue || "Not specified"}
+DATA SOURCES: ${answers.dataSources || "Not specified"}
+SYSTEMS/TOOLS: ${answers.systems || "Not specified"}
+
+Based on this:
+1. Design a simple, practical data model with only the tables and fields they need.
+2. Suggest 5-8 KPIs that align with their goals.
+3. Prioritize KPIs based on their stated goals.
+
+Keep it simple for a business with ${answers.employees || "a few"} employees.`;
+}
+
+// ============================================================================
+// REFINEMENT MODE - Refine model based on uploaded datasets
+// ============================================================================
+
+function buildRefinementSystemPrompt(): string {
+  return `You are Milton, an AI data architect for small businesses.
+
+Your job is to propose or refine a data model based on uploaded datasets.
+
+You MUST respond with ONLY valid JSON matching this structure:
+
+{
+  "dataModel": {
+    "businessType": "string",
+    "recommendedTables": [
+      {
+        "name": "TableName",
+        "fields": [
+          { "name": "field_name", "type": "string|number|integer|boolean|date", "primaryKey": true|false, "nullable": true|false, "references": { "table": "OtherTable", "field": "field_name" } | null }
+        ]
+      }
+    ],
+    "relationships": [
+      { "from": "Table.field", "to": "OtherTable.field" }
+    ]
+  }
+}
+
+Output ONLY the JSON, no markdown.`;
+}
+
+function buildRefinementUserPrompt(
+  businessType: string,
   datasets: AnalyzerDatasetSample[],
   currentModel: unknown
 ): string {
   const parts: string[] = [];
-
+  parts.push(`Business type: "${businessType}"`);
   parts.push(
-    `The business type is "${businessType}".`,
-    "You will receive sample rows from uploaded files. Use them to infer table names, fields, and relationships."
+    "Infer table names, fields, and relationships from the uploaded files.\n"
   );
 
-  if (businessType === "fitness_studio") {
-    parts.push(
-      "This is a fitness / wellness studio (e.g. yoga studio).",
-      "Typical entities: Customers/Members, Instructors, Classes, Bookings, Payments.",
-      "Important relationships: Bookings link Customers to Classes and Instructors; Payments link Customers (and optionally Bookings).",
-      "Use these exact table names: Customers, Classes, Instructors, Bookings, Payments."
-    );
-  } else if (businessType === "saas") {
-    parts.push(
-      "This is a SaaS / digital product business.",
-      "Typical entities: Customers, Subscriptions, Invoices, CRM Deals, Usage Events."
-    );
-  } else if (businessType === "agency") {
-    parts.push(
-      "This is an agency / services business.",
-      "Typical entities: Clients, Projects, Invoices, Time Entries, Team Members."
-    );
-  }
-
   if (currentModel) {
-    parts.push(
-      "Here is the current model JSON (if present). Refine or extend it instead of discarding it:",
-      JSON.stringify(currentModel, null, 2)
-    );
+    parts.push("Current model (refine, don't discard):");
+    parts.push(JSON.stringify(currentModel, null, 2));
   }
 
   if (datasets.length > 0) {
-    parts.push("Here are the uploaded datasets with sample rows:");
-
+    parts.push("\nUploaded datasets:");
     for (const ds of datasets) {
-      parts.push(
-        `\nDataset: ${ds.sourceName ?? "Unnamed"}`,
-        ds.tableHint ? `Table hint: ${ds.tableHint}` : ""
-      );
+      parts.push(`\nDataset: ${ds.sourceName ?? "Unnamed"}`);
+      if (ds.tableHint) parts.push(`Table hint: ${ds.tableHint}`);
       parts.push(JSON.stringify(ds.sampleRows.slice(0, 5), null, 2));
     }
   } else {
-    parts.push(
-      "No datasets were provided. Propose a sensible default model for this business type."
-    );
+    parts.push("\nNo datasets provided. Propose a sensible default model.");
   }
 
-  parts.push(
-    "",
-    "Return a ModelProposal JSON that uses clear, human-readable English table and field names.",
-    "Do NOT include any extra keys not in the ModelProposal type.",
-    "Remember: output must be pure JSON without markdown code fences."
-  );
-
+  parts.push("\nReturn a ModelProposal JSON with clear, human-readable names.");
   return parts.join("\n");
 }
 
+// ============================================================================
+// API HANDLER
+// ============================================================================
+
+interface AIOnboardingResponse {
+  dataModel: ModelProposal;
+  suggestedKPIs: SuggestedKPI[];
+}
+
+interface AIRefinementResponse {
+  dataModel: ModelProposal;
+}
+
 export async function POST(req: NextRequest) {
+  console.log("[business-model-analyzer] Request received");
+
   try {
-    const body = (await req.json()) as BusinessModelAnalyzerInput;
-
-    if (!body || !body.businessType) {
+    let body: BusinessModelAnalyzerInput;
+    try {
+      body = await req.json();
+    } catch {
       return NextResponse.json(
-        { success: false, error: "Missing businessType" },
+        { success: false, error: "Invalid JSON" },
         { status: 400 }
       );
     }
 
-    const { businessType, datasets = [], currentModel } = body;
-
-    // Validate businessType
-    const validTypes: BusinessTypeId[] = ["saas", "agency", "fitness_studio"];
-    if (!validTypes.includes(businessType)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid businessType" },
-        { status: 400 }
-      );
-    }
-
-    // Optional: ensure user is authenticated
+    // Authenticate user
     const supabase = await createClient();
     const {
       data: { user },
@@ -222,96 +171,145 @@ export async function POST(req: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
+      console.error("[business-model-analyzer] Auth failed:", userError);
       return NextResponse.json(
         { success: false, error: "Not authenticated" },
         { status: 401 }
       );
     }
 
-    // Build the prompts
-    const systemPrompt = buildSystemPrompt(businessType);
-    const userPrompt = buildUserPrompt(businessType, datasets, currentModel);
+    // Determine mode: onboarding (answers) vs refinement (datasets)
+    const isOnboardingMode = !!body.answers;
 
     console.log(
-      "[business-model-analyzer] Calling OpenAI for businessType:",
-      businessType
+      "[business-model-analyzer] Mode:",
+      isOnboardingMode ? "onboarding" : "refinement"
     );
 
-    const chatCompletion = await openai.chat.completions.create({
+    let systemPrompt: string;
+    let userPrompt: string;
+
+    if (isOnboardingMode) {
+      systemPrompt = buildOnboardingSystemPrompt();
+      userPrompt = buildOnboardingUserPrompt(body.answers!);
+    } else {
+      if (!body.businessType) {
+        return NextResponse.json(
+          { success: false, error: "Missing businessType or answers" },
+          { status: 400 }
+        );
+      }
+      systemPrompt = buildRefinementSystemPrompt();
+      userPrompt = buildRefinementUserPrompt(
+        body.businessType,
+        body.datasets || [],
+        body.currentModel
+      );
+    }
+
+    console.log("[business-model-analyzer] Calling OpenAI...");
+
+    const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.1,
+      temperature: 0.2,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
     });
 
-    const raw = chatCompletion.choices?.[0]?.message?.content ?? "";
+    const raw = completion.choices?.[0]?.message?.content ?? "";
+    console.log("[business-model-analyzer] Response length:", raw.length);
 
-    let parsed: ModelProposal | null = null;
+    // Parse response
+    let parsed: AIOnboardingResponse | AIRefinementResponse | null = null;
     try {
-      // Strip markdown code fences if present
       const cleaned = raw
         .trim()
         .replace(/^```json\s*/i, "")
         .replace(/^```\s*/i, "")
         .replace(/```$/i, "")
         .trim();
-      parsed = JSON.parse(cleaned) as ModelProposal;
+      parsed = JSON.parse(cleaned);
     } catch (err) {
-      console.error("[business-model-analyzer] Failed to parse JSON", err);
-      console.error("[business-model-analyzer] Raw response:", raw);
-    }
-
-    if (
-      !parsed ||
-      !parsed.recommendedTables ||
-      !Array.isArray(parsed.recommendedTables)
-    ) {
-      console.warn(
-        "[business-model-analyzer] Invalid model structure, using fallback"
-      );
-
-      // Return appropriate fallback based on business type
-      const fallback: ModelProposal =
-        businessType === "fitness_studio"
-          ? FITNESS_STUDIO_FALLBACK
-          : {
-              businessType,
-              recommendedTables: [],
-              relationships: [],
-            };
-
+      console.error("[business-model-analyzer] JSON parse failed:", err);
+      console.error("[business-model-analyzer] Raw:", raw);
       return NextResponse.json(
-        {
-          success: true,
-          proposal: fallback,
-          warning: "Returned fallback model due to parsing error",
-        },
-        { status: 200 }
+        { success: false, error: "Failed to parse AI response" },
+        { status: 500 }
       );
     }
 
-    // Ensure the businessType field is set correctly
-    parsed.businessType = businessType;
+    if (!parsed?.dataModel?.recommendedTables) {
+      console.error("[business-model-analyzer] Invalid structure:", parsed);
+      return NextResponse.json(
+        { success: false, error: "Invalid AI response structure" },
+        { status: 500 }
+      );
+    }
 
+    // Set businessType
+    const businessType =
+      body.answers?.businessType || body.businessType || "general";
+    parsed.dataModel.businessType = businessType;
+
+    const tableCount = parsed.dataModel.recommendedTables.length;
+    const kpiCount =
+      (parsed as AIOnboardingResponse).suggestedKPIs?.length || 0;
     console.log(
-      "[business-model-analyzer] Successfully generated model with",
-      parsed.recommendedTables.length,
-      "tables"
+      "[business-model-analyzer] Generated:",
+      tableCount,
+      "tables,",
+      kpiCount,
+      "KPIs"
     );
 
+    // Save to database (only in onboarding mode)
+    if (isOnboardingMode && body.answers) {
+      // Get company for user
+      const { data: company } = await supabase
+        .from("companies")
+        .select("id")
+        .eq("created_by", user.id)
+        .single();
+
+      if (company) {
+        const { error: saveError } = await supabase
+          .from("business_models")
+          .upsert(
+            {
+              company_id: company.id,
+              business_type: businessType,
+              model_json: parsed.dataModel,
+              onboarding_answers: body.answers,
+              suggested_kpis:
+                (parsed as AIOnboardingResponse).suggestedKPIs || [],
+            },
+            { onConflict: "company_id" }
+          );
+
+        if (saveError) {
+          console.error("[business-model-analyzer] Save failed:", saveError);
+        } else {
+          console.log("[business-model-analyzer] Saved to database");
+        }
+      }
+    }
+
+    const response: BusinessModelAnalyzerResponse = {
+      success: true,
+      proposal: parsed.dataModel,
+      suggestedKPIs: (parsed as AIOnboardingResponse).suggestedKPIs,
+    };
+
+    return NextResponse.json(response, { status: 200 });
+  } catch (err) {
+    console.error("[business-model-analyzer] Error:", err);
     return NextResponse.json(
       {
-        success: true,
-        proposal: parsed,
+        success: false,
+        error: err instanceof Error ? err.message : "Unexpected error",
       },
-      { status: 200 }
-    );
-  } catch (err) {
-    console.error("[business-model-analyzer] Unexpected error", err);
-    return NextResponse.json(
-      { success: false, error: "Unexpected error" },
       { status: 500 }
     );
   }

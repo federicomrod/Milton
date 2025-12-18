@@ -11,35 +11,22 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { MetricsGrid } from "@/components/dashboard/metrics-grid";
-import { LogoutButton } from "@/components/dashboard/logout-button";
-import FileUpload from "@/components/dashboard/file-upload";
-import { UploadedFilesDisplay } from "@/components/dashboard/uploaded-files-display";
-import { FileManagement } from "@/components/dashboard/file-management";
 import { FinancialCharts } from "@/components/dashboard/financial-charts";
-import { SalesPipeline } from "@/components/dashboard/sales-pipeline";
-import { CashFlowAnalysis } from "@/components/dashboard/cash-flow-analysis";
 import { MetricSelector } from "@/components/dashboard/metric-selector";
 import { getUseCase } from "@/types/use-cases";
-import WelcomeBanner from "@/components/dashboard/WelcomeBanner";
 import { useBusinessContext } from "@/lib/business-context";
+import { UploadInvitation } from "@/components/dashboard/upload-invitation";
 
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
-  ChevronDown,
-  ChevronUp,
-  Upload,
-  FileText,
-  Target,
-  ArrowRight,
-  Sparkles,
-} from "lucide-react";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Target } from "lucide-react";
 
 // Helper component for locked/missing data placeholders
 const LockedPlaceholder = ({ message }: { message: string }) => (
@@ -72,25 +59,32 @@ export default function DashboardPage() {
   const [isUploadOpen, setIsUploadOpen] = useState(true);
   const [hasUploadedData, setHasUploadedData] = useState(false);
   const [dataStatus, setDataStatus] = useState<DataStatus>(null);
+  const [dataStatusLoading, setDataStatusLoading] = useState(true);
   const [pendingUpload, setPendingUpload] = useState<{
     file: File | null;
     datasetType: "bank" | "crm" | "budget" | null;
   } | null>(null);
   const [showUploadModeDialog, setShowUploadModeDialog] = useState(false);
-  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
+  const [showUseCaseDialog, setShowUseCaseDialog] = useState(false);
 
   // Use case selection state
   const [selectedUseCase, setSelectedUseCase] = useState<string | null>(null);
   const [useCaseConfirmed, setUseCaseConfirmed] = useState(false);
+  const [companyBusinessType, setCompanyBusinessType] = useState<string | null>(
+    null
+  );
 
   // Check if user has uploaded data via Supabase/API
   const checkUploadedData = async () => {
+    setDataStatusLoading(true);
     try {
       const res = await fetch("/api/data/status");
 
       if (!res.ok) {
         setIsUploadOpen(true);
         setDataStatus(null);
+        setHasUploadedData(false);
+        setDataStatusLoading(false);
         return;
       }
 
@@ -109,6 +103,9 @@ export default function DashboardPage() {
     } catch (err) {
       setIsUploadOpen(true);
       setDataStatus(null);
+      setHasUploadedData(false);
+    } finally {
+      setDataStatusLoading(false);
     }
   };
 
@@ -171,41 +168,78 @@ export default function DashboardPage() {
       setLoading(false);
     };
 
-    // Check if use case was previously selected
-    const checkStoredUseCase = () => {
+    // Fetch company business model
+    const fetchCompanyBusinessModel = async () => {
       try {
-        const storedUseCase = localStorage.getItem("selectedUseCase");
-        const storedConfirmed = localStorage.getItem("useCaseConfirmed");
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
 
-        if (storedUseCase && storedConfirmed === "true") {
-          setSelectedUseCase(storedUseCase);
-          setUseCaseConfirmed(true);
-        } else {
-          setSelectedUseCase(null);
-          setUseCaseConfirmed(false);
+        if (user) {
+          // Get company
+          const { data: company } = await supabase
+            .from("companies")
+            .select("id")
+            .eq("created_by", user.id)
+            .single();
+
+          if (company) {
+            // Get business model for company
+            const { data: businessModel } = await supabase
+              .from("business_models")
+              .select("business_type")
+              .eq("company_id", company.id)
+              .single();
+
+            if (businessModel?.business_type) {
+              setCompanyBusinessType(businessModel.business_type);
+              // Always use the business model from the company (not localStorage)
+              setSelectedUseCase(businessModel.business_type);
+              setUseCaseConfirmed(true);
+              // Update localStorage to match database
+              localStorage.setItem(
+                "selectedUseCase",
+                businessModel.business_type
+              );
+              localStorage.setItem("useCaseConfirmed", "true");
+            }
+          }
         }
       } catch (error) {
-        setSelectedUseCase(null);
-        setUseCaseConfirmed(false);
+        console.error("Error fetching company business model:", error);
       }
     };
 
-    // Check onboarding status
-    const checkOnboardingStatus = async () => {
-      try {
-        const { isOnboardingComplete } =
-          await import("@/lib/onboarding-status");
-        const complete = await isOnboardingComplete();
-        setNeedsOnboarding(!complete);
-      } catch (error) {
-        setNeedsOnboarding(null);
+    // Check if use case was previously selected (fallback only if no company business model)
+    const checkStoredUseCase = () => {
+      // This is now a fallback - we prioritize the company business model
+      // Only use localStorage if company business model is not available
+      if (!companyBusinessType) {
+        try {
+          const storedUseCase = localStorage.getItem("selectedUseCase");
+          const storedConfirmed = localStorage.getItem("useCaseConfirmed");
+
+          if (storedUseCase && storedConfirmed === "true") {
+            setSelectedUseCase(storedUseCase);
+            setUseCaseConfirmed(true);
+          } else {
+            setSelectedUseCase(null);
+            setUseCaseConfirmed(false);
+          }
+        } catch (error) {
+          setSelectedUseCase(null);
+          setUseCaseConfirmed(false);
+        }
       }
     };
 
     checkAuth();
     checkUploadedData();
-    checkStoredUseCase();
-    checkOnboardingStatus();
+    // Fetch company business model first, then check stored use case as fallback
+    fetchCompanyBusinessModel().then(() => {
+      checkStoredUseCase();
+    });
   }, []);
 
   // Fetch user's selected KPI IDs and merge with core KPIs
@@ -237,87 +271,58 @@ export default function DashboardPage() {
   }, []);
 
   const resetUseCase = () => {
-    setUseCaseConfirmed(false);
-    setSelectedUseCase(null);
-    localStorage.removeItem("useCaseConfirmed");
-    localStorage.removeItem("selectedUseCase");
+    // Show coming soon modal
+    setShowUseCaseDialog(true);
+  };
+
+  const updateBusinessModel = async (newBusinessType: string) => {
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (user) {
+        // Get company
+        const { data: company } = await supabase
+          .from("companies")
+          .select("id")
+          .eq("created_by", user.id)
+          .single();
+
+        if (company) {
+          // Update business model in database
+          const { error } = await supabase.from("business_models").upsert(
+            {
+              company_id: company.id,
+              business_type: newBusinessType,
+            },
+            { onConflict: "company_id" }
+          );
+
+          if (error) {
+            console.error("Failed to update business model:", error);
+            alert("Failed to update business type. Please try again.");
+          } else {
+            // Update local state
+            setSelectedUseCase(newBusinessType);
+            setUseCaseConfirmed(true);
+            setCompanyBusinessType(newBusinessType);
+            localStorage.setItem("selectedUseCase", newBusinessType);
+            localStorage.setItem("useCaseConfirmed", "true");
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error updating business model:", error);
+      alert("Failed to update business type. Please try again.");
+    }
   };
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-
-  // Show onboarding prompt if needed
-  if (needsOnboarding === true) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="max-w-2xl w-full border-2 border-blue-200 shadow-lg">
-          <CardHeader className="text-center pb-4">
-            <div className="flex justify-center mb-4">
-              <div className="rounded-full bg-blue-100 p-4">
-                <Sparkles className="h-12 w-12 text-blue-600" />
-              </div>
-            </div>
-            <CardTitle className="text-2xl md:text-3xl mb-2">
-              Complete Your Onboarding
-            </CardTitle>
-            <CardDescription className="text-base">
-              Get started by setting up your company profile and selecting your
-              KPIs
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-3">
-              <div className="flex items-start gap-3">
-                <div className="rounded-full bg-blue-100 p-1.5 mt-0.5">
-                  <Target className="h-4 w-4 text-blue-600" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-sm">Set up your company</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Tell us about your business to get personalized insights
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="rounded-full bg-blue-100 p-1.5 mt-0.5">
-                  <FileText className="h-4 w-4 text-blue-600" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-sm">Select your KPIs</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Choose the metrics that matter most to your business
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="rounded-full bg-blue-100 p-1.5 mt-0.5">
-                  <Upload className="h-4 w-4 text-blue-600" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-sm">Upload your data</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Connect your financial data to start tracking performance
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="pt-4">
-              <Button
-                onClick={() => router.push("/onboarding")}
-                className="w-full h-12 text-base"
-                size="lg"
-              >
-                Start Onboarding
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
       </div>
     );
   }
@@ -346,176 +351,64 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* File Upload Section - ALWAYS SHOW (Fixed) */}
-        <Collapsible
-          open={isUploadOpen}
-          onOpenChange={setIsUploadOpen}
-          className="mb-8"
-        >
-          <Card>
-            <CollapsibleTrigger asChild>
-              <CardHeader className="cursor-pointer hover:bg-gray-50 transition-colors">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Upload className="h-5 w-5" />
-                      Upload Financial Data
-                      {hasUploadedData && (
-                        <span className="text-sm bg-green-100 text-green-800 px-2 py-1 rounded-full">
-                          Data Loaded
-                        </span>
-                      )}
-                      {!useCaseConfirmed && (
-                        <span className="text-sm bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
-                          Use Case Required
-                        </span>
-                      )}
-                    </CardTitle>
-                    <CardDescription>
-                      Upload your bank transactions, CRM data, and budget files
-                      to generate comprehensive insights
-                      {!useCaseConfirmed && " (Select business type first)"}
-                    </CardDescription>
-                  </div>
-                  <Button variant="ghost" size="sm">
-                    {isUploadOpen ? (
-                      <ChevronUp className="h-4 w-4" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-              </CardHeader>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <CardContent>
-                {/* Always render the content, just disable if use case not confirmed */}
-                {useCaseConfirmed ? (
-                  <>
-                    <FileUpload
-                      selectedUseCase={selectedUseCase}
-                      onFileSelected={handleDashboardFileSelected}
-                    />
-                    <div className="mt-6">
-                      <FileManagement />
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-center py-8 text-gray-500">
-                    <Upload className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                    <h3 className="text-lg font-medium mb-2">
-                      Business Type Required
-                    </h3>
-                    <p className="text-sm">
-                      Please select your business type above before uploading
-                      files.
-                    </p>
-                    <Button
-                      className="mt-4"
-                      onClick={() => {
-                        setSelectedUseCase("b2b-startup");
-                        setUseCaseConfirmed(true);
-                        localStorage.setItem("selectedUseCase", "b2b-startup");
-                        localStorage.setItem("useCaseConfirmed", "true");
-                      }}
-                    >
-                      Quick Start with B2B Startup
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
+        {/* Upload Invitation Section - Only show if user hasn't uploaded data, and only after we've checked */}
+        {!dataStatusLoading && !hasUploadedData && (
+          <div className="mb-8">
+            <UploadInvitation />
+          </div>
+        )}
 
-        {/* KPI Tabs - Show regardless of use case for better UX */}
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4 mb-6 bg-white shadow-sm">
-            <TabsTrigger
-              value="overview"
-              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
-            >
-              Overview
-            </TabsTrigger>
-            <TabsTrigger
-              value="financial"
-              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
-            >
-              Financial Analysis
-            </TabsTrigger>
-            <TabsTrigger
-              value="sales"
-              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
-            >
-              Sales Pipeline
-            </TabsTrigger>
-            <TabsTrigger
-              value="cashflow"
-              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
-            >
-              Cash Flow
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="overview" className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Key Metrics</h2>
-              <div className="flex items-center gap-2">
-                <MetricSelector
-                  selectedMetrics={selectedMetrics}
-                  onMetricsChange={(metrics) => setSelectedMetrics(metrics)}
-                  businessType={businessType}
-                />
-              </div>
+        {/* Overview Section - Key Metrics and Performance Charts */}
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Key Metrics</h2>
+            <div className="flex items-center gap-2">
+              <MetricSelector
+                selectedMetrics={selectedMetrics}
+                onMetricsChange={(metrics) => setSelectedMetrics(metrics)}
+                businessType={businessType}
+              />
             </div>
+          </div>
 
-            {dataStatus?.bank || dataStatus?.crm || dataStatus?.budget ? (
-              <>
-                <MetricsGrid selectedMetrics={selectedMetrics} />
-                <div className="space-y-4 mt-8">
-                  <h2 className="text-lg font-semibold">Performance Charts</h2>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <FinancialCharts type="mrr-vs-plan" />
-                    <FinancialCharts type="burn-rate" />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <LockedPlaceholder message="Upload your financial data (bank transactions, CRM, or budget) in the 'Upload Financial Data' section above to see your key metrics and performance charts." />
-            )}
-          </TabsContent>
-
-          <TabsContent value="financial" className="space-y-4">
-            {dataStatus?.budget ? (
-              <>
+          {dataStatus?.bank || dataStatus?.crm || dataStatus?.budget ? (
+            <>
+              <MetricsGrid selectedMetrics={selectedMetrics} />
+              <div className="space-y-4 mt-8">
+                <h2 className="text-lg font-semibold">Performance Charts</h2>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <FinancialCharts type="income-statement" />
-                  <FinancialCharts type="variance-analysis" />
+                  <FinancialCharts type="mrr-vs-plan" />
+                  <FinancialCharts type="burn-rate" />
                 </div>
-                <FinancialCharts type="ytd-performance" />
-              </>
-            ) : (
-              <LockedPlaceholder message="To unlock Financial Analysis, upload your budget data in the 'Upload Financial Data' section above." />
-            )}
-          </TabsContent>
-
-          <TabsContent value="sales" className="space-y-4">
-            {dataStatus?.crm ? (
-              <SalesPipeline />
-            ) : (
-              <LockedPlaceholder message="To unlock your Sales Pipeline, upload your CRM data in the 'Upload Financial Data' section above." />
-            )}
-          </TabsContent>
-
-          <TabsContent value="cashflow" className="space-y-4">
-            {dataStatus?.bank ? (
-              <CashFlowAnalysis />
-            ) : (
-              <LockedPlaceholder message="To unlock Cash Flow Analysis, upload your bank transaction data in the 'Upload Financial Data' section above." />
-            )}
-          </TabsContent>
-        </Tabs>
+              </div>
+            </>
+          ) : (
+            <LockedPlaceholder message="Upload your financial data (bank transactions, CRM, or budget) in the 'Upload Financial Data' section above to see your key metrics and performance charts." />
+          )}
+        </div>
       </div>
+
+      {/* Use Case Selection Dialog - Coming Soon */}
+      <Dialog open={showUseCaseDialog} onOpenChange={setShowUseCaseDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Change Business Type</DialogTitle>
+            <DialogDescription>
+              This feature is currently under development. Stay tuned for
+              updates!
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <p className="text-sm text-blue-900">
+              We're working on allowing you to change your business type. This
+              feature will be available soon.
+            </p>
+          </div>
+          <div className="mt-6 flex justify-end">
+            <Button onClick={() => setShowUseCaseDialog(false)}>Got it</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Upload Mode Dialog */}
       {showUploadModeDialog && pendingUpload && (

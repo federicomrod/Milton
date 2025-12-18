@@ -16,10 +16,21 @@ export async function GET(_req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  // Get company for user
+  const { data: company } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("created_by", user.id)
+    .single();
+
+  if (!company) {
+    return NextResponse.json({ error: "company_not_found" }, { status: 404 });
+  }
+
   const { data, error } = await supabase
     .from("business_models")
     .select("selected_kpi_ids, business_type, model_json")
-    .eq("user_id", user.id)
+    .eq("company_id", company.id)
     .single();
 
   if (error) {
@@ -49,10 +60,21 @@ export async function POST(req: NextRequest) {
     ? (body.selectedKpiIds as string[])
     : [];
 
+  // Get company for user
+  const { data: company } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("created_by", user.id)
+    .single();
+
+  if (!company) {
+    return NextResponse.json({ error: "company_not_found" }, { status: 404 });
+  }
+
   const { error } = await supabase
     .from("business_models")
     .update({ selected_kpi_ids: selectedKpiIds })
-    .eq("user_id", user.id);
+    .eq("company_id", company.id);
 
   if (error) {
     console.error("[kpi-preferences] update error", error);

@@ -14,7 +14,7 @@ export default function TopNavbar() {
 
   return (
     <nav className="flex items-center gap-6 px-6 py-3 bg-white border-b shadow-sm">
-      <h1 className="text-lg font-semibold">CFO Platform</h1>
+      <h1 className="text-lg font-semibold">Milton</h1>
       <div className="flex gap-4 text-sm">
         {navItems.map((item) => (
           <Link

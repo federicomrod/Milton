@@ -337,12 +337,21 @@ export default function DataModelBuilder() {
       } = await supabase.auth.getUser();
       let loaded: ModelProposal | null = null;
       if (user) {
-        const { data } = await supabase
-          .from("business_models")
-          .select("user_id, model_json")
-          .eq("user_id", user.id)
+        // Get company for user
+        const { data: company } = await supabase
+          .from("companies")
+          .select("id")
+          .eq("created_by", user.id)
           .single();
-        loaded = data?.model_json ?? null;
+
+        if (company) {
+          const { data } = await supabase
+            .from("business_models")
+            .select("model_json")
+            .eq("company_id", company.id)
+            .single();
+          loaded = data?.model_json ?? null;
+        }
       }
 
       if (!loaded) {
@@ -490,12 +499,21 @@ export default function DataModelBuilder() {
         data: { user },
       } = await supabase.auth.getUser();
       if (user) {
-        const { error } = await supabase
-          .from("business_models")
-          .update({ model_json: model })
-          .eq("user_id", user.id);
-        if (error) {
-          console.error("Failed to save model to Supabase:", error);
+        // Get company for user
+        const { data: company } = await supabase
+          .from("companies")
+          .select("id")
+          .eq("created_by", user.id)
+          .single();
+
+        if (company) {
+          const { error } = await supabase
+            .from("business_models")
+            .update({ model_json: model })
+            .eq("company_id", company.id);
+          if (error) {
+            console.error("Failed to save model to Supabase:", error);
+          }
         }
       }
       localStorage.setItem("milton-model", JSON.stringify(model));
@@ -670,12 +688,21 @@ export default function DataModelBuilder() {
           data: { user },
         } = await supabase.auth.getUser();
         if (user) {
-          const { error } = await supabase
-            .from("business_models")
-            .update({ model_json: model })
-            .eq("user_id", user.id);
-          if (error) {
-            console.error("Auto-save failed:", error);
+          // Get company for user
+          const { data: company } = await supabase
+            .from("companies")
+            .select("id")
+            .eq("created_by", user.id)
+            .single();
+
+          if (company) {
+            const { error } = await supabase
+              .from("business_models")
+              .update({ model_json: model })
+              .eq("company_id", company.id);
+            if (error) {
+              console.error("Auto-save failed:", error);
+            }
           }
         }
         localStorage.setItem("milton-model", JSON.stringify(model));

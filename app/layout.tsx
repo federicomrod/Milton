@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CFO Platform - Financial Insights",
+  title: "Milton - Financial Insights",
   description: "Comprehensive financial analytics and reporting platform",
 };
 

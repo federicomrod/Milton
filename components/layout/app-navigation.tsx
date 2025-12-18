@@ -11,6 +11,7 @@ import {
   FileText,
   User,
   Settings,
+  Upload,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -31,8 +32,12 @@ export function AppNavigation() {
     checkAuth();
   }, [pathname]);
 
-  // Don't show navigation on auth pages or while loading
-  if (loading || pathname?.startsWith("/auth/")) {
+  // Don't show navigation on auth pages, onboarding-required page, or while loading
+  if (
+    loading ||
+    pathname?.startsWith("/auth/") ||
+    pathname === "/onboarding-required"
+  ) {
     return null;
   }
 
@@ -51,7 +56,7 @@ export function AppNavigation() {
           <div className="flex items-center gap-6">
             <Link href={isAuthenticated ? "/dashboard" : "/"}>
               <h1 className="text-xl font-semibold text-gray-900 cursor-pointer hover:text-blue-600 transition-colors">
-                CFO Platform
+                Milton
               </h1>
             </Link>
 
@@ -94,6 +99,18 @@ export function AppNavigation() {
                   >
                     <FileText className="h-4 w-4" />
                     Reporting
+                  </Button>
+                </Link>
+                <Link href="/dashboard/upload">
+                  <Button
+                    variant={
+                      isActive("/dashboard/upload") ? "default" : "ghost"
+                    }
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <Upload className="h-4 w-4" />
+                    Upload
                   </Button>
                 </Link>
               </nav>

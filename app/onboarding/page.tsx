@@ -191,16 +191,25 @@ export default function OnboardingPage() {
       } = await supabase.auth.getUser();
 
       if (user) {
-        // Save selected KPIs to the business_models table
-        const { error: saveError } = await supabase
-          .from("business_models")
-          .update({
-            selected_kpi_ids: selectedKPIs.map((k) => k.name),
-          })
-          .eq("user_id", user.id);
+        // Get company for user
+        const { data: company } = await supabase
+          .from("companies")
+          .select("id")
+          .eq("created_by", user.id)
+          .single();
 
-        if (saveError) {
-          console.error("Failed to save KPIs to database:", saveError);
+        if (company) {
+          // Save selected KPIs to the business_models table
+          const { error: saveError } = await supabase
+            .from("business_models")
+            .update({
+              selected_kpi_ids: selectedKPIs.map((k) => k.name),
+            })
+            .eq("company_id", company.id);
+
+          if (saveError) {
+            console.error("Failed to save KPIs to database:", saveError);
+          }
         }
       }
 

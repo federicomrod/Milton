@@ -266,24 +266,33 @@ export async function POST(req: NextRequest) {
 
     // Save to database (only in onboarding mode)
     if (isOnboardingMode && body.answers) {
-      const { error: saveError } = await supabase
-        .from("business_models")
-        .upsert(
-          {
-            user_id: user.id,
-            business_type: businessType,
-            model_json: parsed.dataModel,
-            onboarding_answers: body.answers,
-            suggested_kpis:
-              (parsed as AIOnboardingResponse).suggestedKPIs || [],
-          },
-          { onConflict: "user_id" }
-        );
+      // Get company for user
+      const { data: company } = await supabase
+        .from("companies")
+        .select("id")
+        .eq("created_by", user.id)
+        .single();
 
-      if (saveError) {
-        console.error("[business-model-analyzer] Save failed:", saveError);
-      } else {
-        console.log("[business-model-analyzer] Saved to database");
+      if (company) {
+        const { error: saveError } = await supabase
+          .from("business_models")
+          .upsert(
+            {
+              company_id: company.id,
+              business_type: businessType,
+              model_json: parsed.dataModel,
+              onboarding_answers: body.answers,
+              suggested_kpis:
+                (parsed as AIOnboardingResponse).suggestedKPIs || [],
+            },
+            { onConflict: "company_id" }
+          );
+
+        if (saveError) {
+          console.error("[business-model-analyzer] Save failed:", saveError);
+        } else {
+          console.log("[business-model-analyzer] Saved to database");
+        }
       }
     }
 

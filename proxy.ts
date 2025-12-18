@@ -10,6 +10,7 @@ const publicPrefixes = [
   "/_next/", // Next.js internals
   "/favicon.ico",
   "/public/",
+  "/onboarding", // Onboarding pages
 ];
 
 function isPublicRoute(pathname: string): boolean {
@@ -106,6 +107,35 @@ export async function proxy(request: NextRequest) {
     );
     const redirectUrl = new URL("/auth/login", request.url);
     return NextResponse.redirect(redirectUrl);
+  }
+
+  // Check onboarding status for protected routes (dashboard, analytics, etc.)
+  // Skip this check if user is already on onboarding-required page
+  if (
+    pathname !== "/onboarding-required" &&
+    (pathname.startsWith("/dashboard") ||
+      pathname.startsWith("/analytics") ||
+      pathname.startsWith("/reporting"))
+  ) {
+    try {
+      // Get company for user and check onboarding_completed flag
+      const { data: company } = await supabase
+        .from("companies")
+        .select("onboarding_completed")
+        .eq("created_by", user.id)
+        .single();
+
+      // If onboarding is not complete, redirect to onboarding-required page
+      if (!company?.onboarding_completed) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/onboarding-required";
+        return NextResponse.redirect(url);
+      }
+    } catch (error) {
+      // If there's an error checking onboarding, allow the request through
+      // (better to show the page than block users)
+      console.error("Error checking onboarding in proxy:", error);
+    }
   }
 
   return response;

@@ -89,6 +89,7 @@ export default function MiltonChat({
   }>({});
   const hasFinishedRef = useRef(false);
   const hasLoadedRef = useRef(false);
+  const hasRestoredRef = useRef(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const initialMessages: OnboardingMessage[] = [
@@ -106,7 +107,265 @@ export default function MiltonChat({
     },
   ];
 
-  // Load existing chat on mount
+  // Function to restore step and answers from messages
+  const restoreStateFromMessages = useCallback(
+    (msgs: OnboardingMessage[]) => {
+      if (!msgs || msgs.length === 0) return;
+
+      let restoredStep: typeof step = "intro";
+      const restoredAnswers: typeof answers = {};
+      let restoredBusinessType: BusinessTypeId | null = null;
+
+      // Check if we see "Yes, let's start" - means we're past intro
+      const hasStarted = msgs.some(
+        (m) => m.from === "user" && m.text.includes("Yes, let's start")
+      );
+
+      if (hasStarted) {
+        // Default to businessType step if we've started
+        restoredStep = "businessType";
+
+        // Find business type selection
+        const businessTypeQuestionIndex = msgs.findIndex(
+          (m) =>
+            m.from === "milton" &&
+            m.text.includes("What type of business are you running")
+        );
+        if (businessTypeQuestionIndex !== -1) {
+          const businessTypeResponse = msgs[businessTypeQuestionIndex + 1];
+          if (businessTypeResponse && businessTypeResponse.from === "user") {
+            const userBusinessType = businessTypeResponse.text;
+            // Try to find matching business type
+            const matchedType = businessTypes.find(
+              (bt) => bt.label === userBusinessType
+            );
+            if (matchedType) {
+              restoredBusinessType = matchedType.id as BusinessTypeId;
+              restoredAnswers.industry = matchedType.label;
+              // If business type is answered, advance to employees
+              restoredStep = "employees";
+            }
+          } else {
+            // Question exists but no answer - stay at businessType
+            restoredStep = "businessType";
+          }
+        }
+
+        // Check for employees question
+        const employeesQuestionIndex = msgs.findIndex(
+          (m) => m.from === "milton" && m.text.includes("How many employees")
+        );
+        if (employeesQuestionIndex !== -1) {
+          const employeesResponse = msgs[employeesQuestionIndex + 1];
+          if (employeesResponse && employeesResponse.from === "user") {
+            restoredAnswers.employees = employeesResponse.text;
+            // If employees is answered, advance to goals
+            restoredStep = "goals";
+          } else {
+            // Question exists but no answer - stay at employees
+            restoredStep = "employees";
+          }
+        }
+
+        // Check for goals question
+        const goalsQuestionIndex = msgs.findIndex(
+          (m) => m.from === "milton" && m.text.includes("main financial goals")
+        );
+        if (goalsQuestionIndex !== -1) {
+          const goalsResponse = msgs[goalsQuestionIndex + 1];
+          if (goalsResponse && goalsResponse.from === "user") {
+            restoredAnswers.goals = goalsResponse.text;
+            // If goals is answered, advance to revenue
+            restoredStep = "revenue";
+          } else {
+            // Question exists but no answer - stay at goals
+            restoredStep = "goals";
+          }
+        }
+
+        // Check for revenue question
+        const revenueQuestionIndex = msgs.findIndex(
+          (m) =>
+            m.from === "milton" &&
+            m.text.includes("How does your company generate revenue")
+        );
+        if (revenueQuestionIndex !== -1) {
+          const revenueResponse = msgs[revenueQuestionIndex + 1];
+          if (revenueResponse && revenueResponse.from === "user") {
+            restoredAnswers.revenue = revenueResponse.text;
+            // If revenue is answered, advance to data
+            restoredStep = "data";
+          } else {
+            // Question exists but no answer - stay at revenue
+            restoredStep = "revenue";
+          }
+        }
+
+        // Check for data sources question
+        const dataQuestionIndex = msgs.findIndex(
+          (m) =>
+            m.from === "milton" &&
+            m.text.includes("What kind of data do you already track")
+        );
+        if (dataQuestionIndex !== -1) {
+          const dataResponse = msgs[dataQuestionIndex + 1];
+          if (dataResponse && dataResponse.from === "user") {
+            restoredAnswers.dataSources = dataResponse.text;
+            // If data is answered, advance to systems
+            restoredStep = "systems";
+          } else {
+            // Question exists but no answer - stay at data
+            restoredStep = "data";
+          }
+        }
+
+        // Check for systems question
+        const systemsQuestionIndex = msgs.findIndex(
+          (m) =>
+            m.from === "milton" &&
+            m.text.includes("Do you use any software systems")
+        );
+        if (systemsQuestionIndex !== -1) {
+          const systemsResponse = msgs[systemsQuestionIndex + 1];
+          if (systemsResponse && systemsResponse.from === "user") {
+            restoredAnswers.systems = systemsResponse.text;
+            // If systems is answered, advance to confirm
+            restoredStep = "confirm";
+          } else {
+            // Question exists but no answer - stay at systems
+            restoredStep = "systems";
+          }
+        }
+
+        // Check if we're at confirm/done
+        const hasSummary = msgs.some(
+          (m) =>
+            m.from === "milton" && m.text.includes("Here's what I've gathered")
+        );
+        if (hasSummary) {
+          restoredStep = "confirm";
+        }
+
+        const isDone = msgs.some(
+          (m) =>
+            m.from === "milton" &&
+            (m.text.includes("prepare your KPI suggestions") ||
+              m.text.includes("Analyzing your business"))
+        );
+        if (isDone) {
+          restoredStep = "done";
+        }
+      }
+
+      // Apply restored state
+      if (restoredBusinessType) {
+        setSelectedBusinessType(restoredBusinessType);
+      }
+      if (Object.keys(restoredAnswers).length > 0) {
+        setAnswers(restoredAnswers);
+      }
+      setStep(restoredStep);
+    },
+    [businessTypes]
+  );
+
+  // Ensure the question for the current step exists in messages after restoration
+  useEffect(() => {
+    if (!hasRestoredRef.current || messages.length === 0) return;
+
+    const lastMessage = messages[messages.length - 1];
+    const needsQuestion = () => {
+      switch (step) {
+        case "employees":
+          return !messages.some(
+            (m) => m.from === "milton" && m.text.includes("How many employees")
+          );
+        case "goals":
+          return !messages.some(
+            (m) =>
+              m.from === "milton" && m.text.includes("main financial goals")
+          );
+        case "revenue":
+          return !messages.some(
+            (m) =>
+              m.from === "milton" &&
+              m.text.includes("How does your company generate revenue")
+          );
+        case "data":
+          return !messages.some(
+            (m) =>
+              m.from === "milton" &&
+              m.text.includes("What kind of data do you already track")
+          );
+        case "systems":
+          return !messages.some(
+            (m) =>
+              m.from === "milton" &&
+              m.text.includes("Do you use any software systems")
+          );
+        default:
+          return false;
+      }
+    };
+
+    if (
+      needsQuestion() &&
+      lastMessage?.from === "user" &&
+      step !== "intro" &&
+      step !== "businessType" &&
+      step !== "confirm" &&
+      step !== "done"
+    ) {
+      // Add the missing question
+      let questionText = "";
+      switch (step) {
+        case "employees": {
+          const businessType = businessTypes.find(
+            (bt) => bt.id === selectedBusinessType
+          );
+          questionText = `Perfect! I'll customize everything for ${businessType?.label || "your business"}. How many employees do you have?`;
+          break;
+        }
+        case "goals":
+          questionText =
+            "Perfect. What are your main financial goals right now?";
+          break;
+        case "revenue":
+          questionText = "How does your company generate revenue?";
+          break;
+        case "data":
+          questionText =
+            "What kind of data do you already track or have in files?";
+          break;
+        case "systems":
+          questionText =
+            "Do you use any software systems like a CRM, Stripe, or ERP?";
+          break;
+      }
+      // Only add if the question text is set and the last message isn't already this question
+      if (questionText && lastMessage?.text !== questionText) {
+        setMessages((prev) => {
+          // Double-check it's not already there to prevent duplicates
+          const alreadyExists = prev.some(
+            (m) => m.from === "milton" && m.text === questionText
+          );
+          if (alreadyExists) return prev;
+          return [...prev, { from: "milton", text: questionText }];
+        });
+      }
+    }
+  }, [step, messages, businessTypes, selectedBusinessType, setMessages]);
+
+  // Fetch business model templates from Supabase
+  useEffect(() => {
+    const loadBusinessTypes = async () => {
+      const types = await getBusinessModelTemplates();
+      setBusinessTypes(types);
+    };
+    loadBusinessTypes();
+  }, []);
+
+  // Load existing chat on mount and restore state
   useEffect(() => {
     if (hasLoadedRef.current) return;
     hasLoadedRef.current = true;
@@ -115,6 +374,8 @@ export default function MiltonChat({
       const savedMessages = await loadOnboardingChat();
       if (savedMessages && savedMessages.length > 0) {
         setMessages(savedMessages);
+        // Restore state after a brief delay to ensure businessTypes are loaded
+        // We'll restore again when businessTypes are ready
       } else if (messages.length === 0) {
         setMessages(initialMessages);
       }
@@ -122,6 +383,20 @@ export default function MiltonChat({
     loadExistingChat();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Restore state from messages when both messages and businessTypes are available
+  useEffect(() => {
+    if (
+      messages.length > 0 &&
+      businessTypes.length > 0 &&
+      hasLoadedRef.current &&
+      !hasRestoredRef.current
+    ) {
+      // Only restore once
+      hasRestoredRef.current = true;
+      restoreStateFromMessages(messages);
+    }
+  }, [messages, businessTypes, restoreStateFromMessages]);
 
   // Auto-save messages when they change (debounced)
   const saveMessages = useCallback((msgs: OnboardingMessage[]) => {
@@ -140,15 +415,6 @@ export default function MiltonChat({
       saveMessages(messages);
     }
   }, [messages, saveMessages]);
-
-  // Fetch business model templates from Supabase
-  useEffect(() => {
-    const loadBusinessTypes = async () => {
-      const types = await getBusinessModelTemplates();
-      setBusinessTypes(types);
-    };
-    loadBusinessTypes();
-  }, []);
 
   function sendUserMessage(text: string) {
     setMessages((prev) => [...prev, { from: "user", text }]);
@@ -366,6 +632,7 @@ export default function MiltonChat({
     setSelectedBusinessType(null);
     setAnswers({});
     hasFinishedRef.current = false;
+    hasRestoredRef.current = false;
     setMessages(initialMessages);
   };
 

@@ -30,8 +30,6 @@ export function DataDebugComponent() {
       crmDeals: localStorage.getItem("crmDeals"),
       budget: localStorage.getItem("budget"),
       aiBusinessInsights: localStorage.getItem("aiBusinessInsights"),
-      useCaseConfirmed: localStorage.getItem("useCaseConfirmed"),
-      selectedUseCase: localStorage.getItem("selectedUseCase"),
     };
 
     const parsed = {
@@ -41,8 +39,6 @@ export function DataDebugComponent() {
       aiBusinessInsights: data.aiBusinessInsights
         ? JSON.parse(data.aiBusinessInsights)
         : null,
-      useCaseConfirmed: data.useCaseConfirmed === "true",
-      selectedUseCase: data.selectedUseCase,
     };
 
     setStorageData(parsed);

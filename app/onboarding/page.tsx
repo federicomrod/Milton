@@ -71,13 +71,6 @@ export default function OnboardingPage() {
         },
       ]);
 
-      // Store business type for dashboard
-      if (answers.businessType) {
-        localStorage.setItem("selectedUseCase", answers.businessType);
-        localStorage.setItem("useCaseConfirmed", "true");
-        localStorage.setItem("businessModel", answers.businessType);
-      }
-
       try {
         // Call the AI business model analyzer with ALL answers
         const response = await fetch("/api/ai/business-model-analyzer", {

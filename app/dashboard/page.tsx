@@ -138,7 +138,7 @@ export default function DashboardPage() {
       await checkUploadedData();
       document.dispatchEvent(new CustomEvent("data-status:refresh"));
       miltonEventsAPI.publish("dashboard.generate", {
-        businessModel: localStorage.getItem("businessModel") || "",
+        businessModel: companyBusinessType || selectedUseCase || "",
       });
     } catch (err) {
       alert("Upload error: " + (err as Error).message);
@@ -194,15 +194,8 @@ export default function DashboardPage() {
 
             if (businessModel?.business_type) {
               setCompanyBusinessType(businessModel.business_type);
-              // Always use the business model from the company (not localStorage)
               setSelectedUseCase(businessModel.business_type);
               setUseCaseConfirmed(true);
-              // Update localStorage to match database
-              localStorage.setItem(
-                "selectedUseCase",
-                businessModel.business_type
-              );
-              localStorage.setItem("useCaseConfirmed", "true");
             }
           }
         }
@@ -211,35 +204,9 @@ export default function DashboardPage() {
       }
     };
 
-    // Check if use case was previously selected (fallback only if no company business model)
-    const checkStoredUseCase = () => {
-      // This is now a fallback - we prioritize the company business model
-      // Only use localStorage if company business model is not available
-      if (!companyBusinessType) {
-        try {
-          const storedUseCase = localStorage.getItem("selectedUseCase");
-          const storedConfirmed = localStorage.getItem("useCaseConfirmed");
-
-          if (storedUseCase && storedConfirmed === "true") {
-            setSelectedUseCase(storedUseCase);
-            setUseCaseConfirmed(true);
-          } else {
-            setSelectedUseCase(null);
-            setUseCaseConfirmed(false);
-          }
-        } catch (error) {
-          setSelectedUseCase(null);
-          setUseCaseConfirmed(false);
-        }
-      }
-    };
-
     checkAuth();
     checkUploadedData();
-    // Fetch company business model first, then check stored use case as fallback
-    fetchCompanyBusinessModel().then(() => {
-      checkStoredUseCase();
-    });
+    fetchCompanyBusinessModel();
   }, []);
 
   // Fetch user's selected KPI IDs and merge with core KPIs
@@ -308,8 +275,6 @@ export default function DashboardPage() {
             setSelectedUseCase(newBusinessType);
             setUseCaseConfirmed(true);
             setCompanyBusinessType(newBusinessType);
-            localStorage.setItem("selectedUseCase", newBusinessType);
-            localStorage.setItem("useCaseConfirmed", "true");
           }
         }
       }

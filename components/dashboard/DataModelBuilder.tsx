@@ -196,25 +196,56 @@ export default function DataModelBuilder() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null); // Store file for ingestion
   const [isProcessing, setIsProcessing] = useState(false); // Track upload progress
-  const [selectedModel, setSelectedModel] = useState<string>(
-    typeof window !== "undefined"
-      ? localStorage.getItem("businessModel") || ""
-      : ""
-  );
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [dbBusinessType, setDbBusinessType] = useState<string | null>(null);
 
   const { toast } = useToast();
   const { businessType } = useBusinessContext();
 
+  // Load business type from database
+  useEffect(() => {
+    (async () => {
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data: company } = await supabase
+          .from("companies")
+          .select("id")
+          .eq("created_by", user.id)
+          .single();
+
+        if (company) {
+          const { data: businessModel } = await supabase
+            .from("business_models")
+            .select("business_type")
+            .eq("company_id", company.id)
+            .single();
+
+          if (businessModel?.business_type) {
+            setDbBusinessType(businessModel.business_type);
+            setSelectedModel(businessModel.business_type);
+          }
+        }
+      } catch (error) {
+        console.error(
+          "[DataModelBuilder] Error fetching business type:",
+          error
+        );
+      }
+    })();
+  }, []);
+
   const handleModelChange = (value: string) => {
     setSelectedModel(value);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("businessModel", value);
-    }
     console.log("[DataModelBuilder] Selected business model:", value);
   };
 
   const handleGenerateDashboard = () => {
-    const model = localStorage.getItem("businessModel") || "";
+    const model = dbBusinessType || selectedModel || "";
     miltonEventsAPI.publish("dashboard.generate", { businessModel: model });
     console.log("[DataModelBuilder] Dashboard generation requested for", model);
   };

@@ -147,11 +147,18 @@ export function AppNavigation() {
                 <LogoutButton />
               </>
             ) : (
-              <Link href="/auth/login">
-                <Button size="sm" variant="default">
-                  Login
-                </Button>
-              </Link>
+              <>
+                <Link href="/auth/login">
+                  <Button size="sm" variant="ghost">
+                    Sign in
+                  </Button>
+                </Link>
+                <Link href="/auth/signup">
+                  <Button size="sm" variant="default">
+                    Get started
+                  </Button>
+                </Link>
+              </>
             )}
           </div>
         </div>

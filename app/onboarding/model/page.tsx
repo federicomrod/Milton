@@ -63,9 +63,10 @@ export default function OnboardingModelPage() {
         return;
       }
 
-      // Status is confirmed - redirect to dashboard
+      // Status is confirmed - redirect to dashboard with hard navigation
+      // Use window.location to force a full page reload and clear any caching
       console.log("[Model] Redirecting to dashboard...");
-      router.push("/dashboard");
+      window.location.href = "/dashboard";
     } catch (error) {
       console.error("[Model] Error completing onboarding:", error);
       alert("An error occurred. Please try again.");

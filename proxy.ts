@@ -125,12 +125,21 @@ export async function proxy(request: NextRequest) {
         .eq("created_by", user.id)
         .single();
 
+      console.log(
+        `[Proxy] User ${user.id} accessing ${pathname}, onboarding_status: ${company?.onboarding_status}`
+      );
+
       // If onboarding is not complete, redirect to onboarding-required page
       if (company?.onboarding_status !== "completed") {
+        console.log(
+          `[Proxy] Redirecting ${user.id} to /onboarding-required (status: ${company?.onboarding_status})`
+        );
         const url = request.nextUrl.clone();
         url.pathname = "/onboarding-required";
         return NextResponse.redirect(url);
       }
+
+      console.log(`[Proxy] Access granted to ${pathname}`);
     } catch (error) {
       // If there's an error checking onboarding, allow the request through
       // (better to show the page than block users)

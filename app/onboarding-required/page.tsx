@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -15,34 +15,72 @@ import { Sparkles, Target, FileText, Upload, ArrowRight } from "lucide-react";
 export default function OnboardingRequiredPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [attempts, setAttempts] = useState(0);
+  const maxAttempts = 5;
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const checkOnboardingStatus = async () => {
       try {
+        console.log(
+          `[OnboardingRequired] Checking status (attempt ${attempts + 1}/${maxAttempts})...`
+        );
         const { isOnboardingComplete } =
           await import("@/lib/onboarding-status");
         const complete = await isOnboardingComplete();
         if (complete) {
-          // If onboarding is complete, redirect to dashboard
-          router.replace("/dashboard");
+          console.log(
+            "[OnboardingRequired] Status is completed, redirecting to dashboard..."
+          );
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+          }
+          // If onboarding is complete, redirect to dashboard with hard navigation
+          window.location.href = "/dashboard";
         } else {
           setLoading(false);
+          setAttempts((prev) => prev + 1);
+
+          // Stop checking after max attempts
+          if (attempts + 1 >= maxAttempts) {
+            console.log(
+              "[OnboardingRequired] Max attempts reached, stopping checks"
+            );
+            if (intervalRef.current) {
+              clearInterval(intervalRef.current);
+            }
+          }
         }
       } catch (err) {
         console.error("Error checking onboarding status:", err);
         setLoading(false);
+        setAttempts((prev) => prev + 1);
+
+        if (attempts + 1 >= maxAttempts) {
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+          }
+        }
       }
     };
-    checkOnboardingStatus();
-  }, [router]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
+    // Check immediately
+    checkOnboardingStatus();
+
+    // Then check every 5 seconds, but only if we haven't hit max attempts
+    if (attempts < maxAttempts) {
+      intervalRef.current = setInterval(checkOnboardingStatus, 5000);
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [attempts, router]);
+
+  // Don't show separate loading screen, show it inline instead
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -50,15 +88,20 @@ export default function OnboardingRequiredPage() {
         <CardHeader className="text-center pb-4">
           <div className="flex justify-center mb-4">
             <div className="rounded-full bg-blue-100 p-4">
-              <Sparkles className="h-12 w-12 text-blue-600" />
+              {loading ? (
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+              ) : (
+                <Sparkles className="h-12 w-12 text-blue-600" />
+              )}
             </div>
           </div>
           <CardTitle className="text-2xl md:text-3xl mb-2">
-            Complete Your Onboarding
+            {loading ? "Checking Status..." : "Complete Your Onboarding"}
           </CardTitle>
           <CardDescription className="text-base">
-            Get started by setting up your company profile and selecting your
-            KPIs
+            {loading
+              ? `Verifying your onboarding status (${attempts}/${maxAttempts})...`
+              : "Get started by setting up your company profile and selecting your KPIs"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -97,16 +140,18 @@ export default function OnboardingRequiredPage() {
               </div>
             </div>
           </div>
-          <div className="pt-4">
-            <Button
-              onClick={() => router.push("/onboarding")}
-              className="w-full h-12 text-base"
-              size="lg"
-            >
-              Start Onboarding
-              <ArrowRight className="ml-2 h-5 w-5" />
-            </Button>
-          </div>
+          {!loading && (
+            <div className="pt-4">
+              <Button
+                onClick={() => router.push("/onboarding")}
+                className="w-full h-12 text-base"
+                size="lg"
+              >
+                Start Onboarding
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

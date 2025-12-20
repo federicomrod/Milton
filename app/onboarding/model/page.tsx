@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight } from "lucide-react";
@@ -8,12 +9,29 @@ import { markOnboardingComplete } from "@/lib/onboarding-status";
 
 export default function OnboardingModelPage() {
   const router = useRouter();
+  const [isFinishing, setIsFinishing] = useState(false);
 
   const handleFinish = async () => {
-    // Mark onboarding as complete
-    await markOnboardingComplete();
-    // Redirect to dashboard
-    router.push("/dashboard");
+    setIsFinishing(true);
+    try {
+      // Mark onboarding as complete
+      const success = await markOnboardingComplete();
+
+      if (!success) {
+        console.error("Failed to mark onboarding as complete");
+        setIsFinishing(false);
+        return;
+      }
+
+      // Wait a moment to ensure database update propagates
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Redirect to dashboard
+      router.push("/dashboard");
+    } catch (error) {
+      console.error("Error completing onboarding:", error);
+      setIsFinishing(false);
+    }
   };
 
   return (
@@ -39,8 +57,8 @@ export default function OnboardingModelPage() {
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back
         </Button>
-        <Button type="button" onClick={handleFinish}>
-          Finish Onboarding
+        <Button type="button" onClick={handleFinish} disabled={isFinishing}>
+          {isFinishing ? "Completing..." : "Finish Onboarding"}
           <ArrowRight className="h-4 w-4 ml-2" />
         </Button>
       </div>

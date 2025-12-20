@@ -181,7 +181,13 @@ const FITNESS_STUDIO_DEFAULT_MODEL: ModelProposal = {
   ],
 };
 
-export default function DataModelBuilder() {
+interface DataModelBuilderProps {
+  isOnboarding?: boolean;
+}
+
+export default function DataModelBuilder({
+  isOnboarding = false,
+}: DataModelBuilderProps) {
   const [model, setModel] = useState<ModelProposal | null>(null);
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
@@ -812,18 +818,28 @@ export default function DataModelBuilder() {
       <div className="flex items-center justify-between p-4 border-b bg-gray-50">
         <div>
           <h2 className="text-lg font-semibold mb-1">Your Data Model</h2>
-          <select
-            value={selectedModel}
-            onChange={(e) => handleModelChange(e.target.value)}
-            className="border p-1 rounded text-gray-800 text-sm max-w-xs inline-block"
-          >
-            <option value="">Select business model</option>
-            {businessModelTemplates.map((template) => (
-              <option key={template.id} value={template.id}>
-                {template.label}
-              </option>
-            ))}
-          </select>
+          {isOnboarding && dbBusinessType ? (
+            <p className="text-sm text-gray-600">
+              Business Type:{" "}
+              <span className="font-medium">
+                {businessModelTemplates.find((t) => t.id === dbBusinessType)
+                  ?.label || dbBusinessType}
+              </span>
+            </p>
+          ) : (
+            <select
+              value={selectedModel}
+              onChange={(e) => handleModelChange(e.target.value)}
+              className="border p-1 rounded text-gray-800 text-sm max-w-xs inline-block"
+            >
+              <option value="">Select business model</option>
+              {businessModelTemplates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="flex gap-3">

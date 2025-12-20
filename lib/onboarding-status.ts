@@ -1,10 +1,18 @@
 "use client";
 import { createClient } from "@/lib/supabase/client";
 
+export type OnboardingStatus =
+  | "not_started"
+  | "chat"
+  | "kpi_selection"
+  | "upload"
+  | "model"
+  | "completed";
+
 /**
- * Check if company onboarding is complete
+ * Get the current onboarding status for the user's company
  */
-export async function isOnboardingComplete(): Promise<boolean> {
+export async function getOnboardingStatus(): Promise<OnboardingStatus> {
   try {
     const supabase = createClient();
     const {
@@ -12,31 +20,40 @@ export async function isOnboardingComplete(): Promise<boolean> {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return false;
+      return "not_started";
     }
 
-    // Get company for user and check onboarding_completed flag
     const { data: company, error } = await supabase
       .from("companies")
-      .select("onboarding_completed")
+      .select("onboarding_status")
       .eq("created_by", user.id)
       .single();
 
     if (error || !company) {
-      return false;
+      return "not_started";
     }
 
-    return company.onboarding_completed === true;
+    return (company.onboarding_status as OnboardingStatus) || "not_started";
   } catch (error) {
-    console.error("Error checking onboarding status:", error);
-    return false;
+    console.error("Error getting onboarding status:", error);
+    return "not_started";
   }
 }
 
 /**
- * Mark onboarding as complete for the current user's company
+ * Check if company onboarding is complete
  */
-export async function markOnboardingComplete(): Promise<boolean> {
+export async function isOnboardingComplete(): Promise<boolean> {
+  const status = await getOnboardingStatus();
+  return status === "completed";
+}
+
+/**
+ * Update onboarding status for the current user's company
+ */
+export async function updateOnboardingStatus(
+  status: OnboardingStatus
+): Promise<boolean> {
   try {
     const supabase = createClient();
     const {
@@ -49,17 +66,24 @@ export async function markOnboardingComplete(): Promise<boolean> {
 
     const { error } = await supabase
       .from("companies")
-      .update({ onboarding_completed: true })
+      .update({ onboarding_status: status })
       .eq("created_by", user.id);
 
     if (error) {
-      console.error("Error marking onboarding complete:", error);
+      console.error("Error updating onboarding status:", error);
       return false;
     }
 
     return true;
   } catch (error) {
-    console.error("Error marking onboarding complete:", error);
+    console.error("Error updating onboarding status:", error);
     return false;
   }
+}
+
+/**
+ * Mark onboarding as complete for the current user's company
+ */
+export async function markOnboardingComplete(): Promise<boolean> {
+  return updateOnboardingStatus("completed");
 }

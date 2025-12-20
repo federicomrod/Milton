@@ -28,11 +28,11 @@ export async function GET(request: NextRequest) {
         // Check onboarding status
         const { data: company } = await supabase
           .from("companies")
-          .select("onboarding_completed")
-          .eq("user_id", user.id)
+          .select("onboarding_status")
+          .eq("created_by", user.id)
           .single();
 
-        if (company?.onboarding_completed) {
+        if (company?.onboarding_status === "completed") {
           console.log(
             "[auth/callback] Onboarding complete, going to dashboard"
           );
@@ -40,9 +40,9 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // New user: redirect to onboarding
+      // New user: redirect to onboarding chat
       console.log("[auth/callback] New user, going to onboarding");
-      return NextResponse.redirect(`${origin}/onboarding`);
+      return NextResponse.redirect(`${origin}/onboarding/chat`);
     }
 
     console.error("[auth/callback] Error exchanging code:", error);

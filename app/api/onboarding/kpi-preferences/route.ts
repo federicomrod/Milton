@@ -29,7 +29,7 @@ export async function GET(_req: NextRequest) {
 
   const { data, error } = await supabase
     .from("business_models")
-    .select("selected_kpi_ids, business_type, model_json")
+    .select("selected_kpi_ids, business_type, model_json, suggested_kpis")
     .eq("company_id", company.id)
     .single();
 
@@ -41,6 +41,7 @@ export async function GET(_req: NextRequest) {
     selectedKpiIds: (data.selected_kpi_ids ?? []) as string[],
     businessType: (data.business_type ?? "saas") as BusinessTypeId,
     modelJson: data.model_json ?? null,
+    suggestedKpis: (data.suggested_kpis ?? []) as any[],
   });
 }
 

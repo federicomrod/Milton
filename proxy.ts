@@ -118,15 +118,15 @@ export async function proxy(request: NextRequest) {
       pathname.startsWith("/reporting"))
   ) {
     try {
-      // Get company for user and check onboarding_completed flag
+      // Get company for user and check onboarding_status
       const { data: company } = await supabase
         .from("companies")
-        .select("onboarding_completed")
+        .select("onboarding_status")
         .eq("created_by", user.id)
         .single();
 
       // If onboarding is not complete, redirect to onboarding-required page
-      if (!company?.onboarding_completed) {
+      if (company?.onboarding_status !== "completed") {
         const url = request.nextUrl.clone();
         url.pathname = "/onboarding-required";
         return NextResponse.redirect(url);

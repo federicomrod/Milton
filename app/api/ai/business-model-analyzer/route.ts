@@ -57,9 +57,13 @@ Output ONLY the JSON, no explanations, no markdown.`;
 }
 
 function buildOnboardingUserPrompt(answers: OnboardingAnswers): string {
+  const businessTypeInfo = answers.businessType
+    ? `BUSINESS TYPE (USER SELECTED): ${answers.businessTypeLabel || answers.businessType}\nIMPORTANT: The user explicitly selected this business type. Use it as the businessType in your response.`
+    : `BUSINESS TYPE: ${answers.businessTypeLabel || "Not specified"}`;
+
   return `Here is the business information:
 
-BUSINESS TYPE: ${answers.businessTypeLabel || answers.businessType}
+${businessTypeInfo}
 TEAM SIZE: ${answers.employees || "Not specified"}
 MAIN GOALS: ${answers.goals || "Not specified"}
 REVENUE MODEL: ${answers.revenue || "Not specified"}
@@ -70,6 +74,7 @@ Based on this:
 1. Design a simple, practical data model with only the tables and fields they need.
 2. Suggest 5-8 KPIs that align with their goals.
 3. Prioritize KPIs based on their stated goals.
+${answers.businessType ? `4. Use "${answers.businessType}" as the businessType in your response.` : ""}
 
 Keep it simple for a business with ${answers.employees || "a few"} employees.`;
 }
@@ -248,9 +253,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Set businessType
+    // Set businessType - prioritize user's explicit selection over AI's interpretation
+    // User's selection is more reliable than AI inference
+    const userSelectedBusinessType =
+      body.answers?.businessType || body.businessType;
+    const aiDeterminedBusinessType = parsed.dataModel.businessType;
+
     const businessType =
-      body.answers?.businessType || body.businessType || "general";
+      userSelectedBusinessType || aiDeterminedBusinessType || "general";
+
+    console.log("[business-model-analyzer] Business type resolution:", {
+      userSelected: userSelectedBusinessType,
+      aiDetermined: aiDeterminedBusinessType,
+      final: businessType,
+    });
+
     parsed.dataModel.businessType = businessType;
 
     const tableCount = parsed.dataModel.recommendedTables.length;

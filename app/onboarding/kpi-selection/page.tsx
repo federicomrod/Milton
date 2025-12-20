@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { ArrowLeft } from "lucide-react";
 import { KpiSelectionStep } from "@/components/onboarding/KpiSelectionStep";
 
 export default function OnboardingKpisPage() {
@@ -19,19 +20,17 @@ export default function OnboardingKpisPage() {
       </div>
 
       <div className="rounded-2xl border bg-background p-4 md:p-6">
-        <KpiSelectionStep />
+        <KpiSelectionStep redirectTo="/onboarding/upload" />
       </div>
 
       <div className="flex justify-between">
         <Button
           type="button"
           variant="ghost"
-          onClick={() => router.push("/onboarding/model")}
+          onClick={() => router.push("/onboarding/chat")}
         >
-          Back to data model
-        </Button>
-        <Button type="button" onClick={() => router.push("/dashboard")}>
-          Finish onboarding &amp; go to dashboard
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back
         </Button>
       </div>
     </main>

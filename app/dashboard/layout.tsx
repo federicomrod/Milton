@@ -13,11 +13,6 @@ import { createClient } from "@/lib/supabase/client";
 import { DataStatusProvider } from "@/lib/context/DataStatusContext";
 import { BusinessProvider } from "@/lib/business-context";
 import { miltonEventsAPI } from "@/lib/milton-events";
-import {
-  getKpiSnapshots,
-  getUserKpiSnapshots,
-} from "@/lib/report-data-service";
-import { generateIncomeStatementChart } from "@/lib/chart-generator";
 import { getKpiRecipes } from "@/lib/kpi-recipe-service";
 
 type DataStatus = {
@@ -30,30 +25,12 @@ type DataStatus = {
 const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [dataStatus, setDataStatus] = useState<DataStatus>(null);
-  const [chartData, setChartData] = useState<any>(null);
   const [insight, setInsight] = useState<string>("");
   const [businessModel, setBusinessModel] = useState<string>("");
   const [recipes, setRecipes] = useState<any[]>([]);
   const [kpiData, setKpiData] = useState<any[]>([]);
   const supabase = useMemo(() => createClient(), []);
   const [sessionReady, setSessionReady] = useState(false);
-
-  const kpiGenRanRef = useRef(false);
-
-  async function runKpiGeneration() {
-    if (kpiGenRanRef.current) return;
-    kpiGenRanRef.current = true;
-    try {
-      const res = await fetch("/api/kpi/generate", { method: "POST" });
-      if (!res.ok) throw new Error(await res.text());
-
-      // ✅ redirect to dashboard after KPI generation
-      router.push("/dashboard");
-    } catch (e) {
-      console.error("[Dashboard] KPI generation failed", e);
-      kpiGenRanRef.current = false;
-    }
-  }
 
   const ensureSession = useCallback(async () => {
     const {
@@ -62,64 +39,6 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     if (session?.access_token) return true;
     const { data: refreshed } = await supabase.auth.refreshSession();
     return !!refreshed?.session?.access_token;
-  }, [supabase]);
-
-  // KPI refresh on dataset events
-  useEffect(() => {
-    const fetchAndBuildCharts = async () => {
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) return;
-        const kpis = await getKpiSnapshots(user.id);
-        const chart = generateIncomeStatementChart(kpis);
-        setChartData(chart);
-        console.log("[DashboardLayout] KPI chart data updated", chart);
-
-        // Request insight confirmation from Milton
-        miltonEventsAPI.publish("insight.requested", {
-          message:
-            "✅ All data sources are linked. Would you like me to generate insights?",
-          kpis,
-        });
-      } catch (err) {
-        console.error(
-          "[DashboardLayout] Error fetching KPIs or insights:",
-          err
-        );
-      }
-    };
-
-    // Subscribe to dataset events
-    const offLinked = miltonEventsAPI.subscribe(
-      "datasets.linked",
-      fetchAndBuildCharts
-    );
-    const offReady = miltonEventsAPI.subscribe(
-      "dataset.ready",
-      fetchAndBuildCharts
-    );
-
-    // Subscribe to KPI generation triggers
-    const offKpiReady = miltonEventsAPI.subscribe(
-      "dataset.ready",
-      runKpiGeneration
-    );
-    const offKpiDashboard = miltonEventsAPI.subscribe(
-      "dashboard.generate",
-      runKpiGeneration
-    );
-
-    // Initial load (optional)
-    fetchAndBuildCharts();
-
-    return () => {
-      offLinked();
-      offReady();
-      offKpiReady();
-      offKpiDashboard();
-    };
   }, [supabase]);
 
   // Load KPI recipes for selected business model from database
@@ -200,12 +119,11 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             console.warn("[DashboardLayout] No user authenticated");
             return;
           }
-          const kpis = await getUserKpiSnapshots(supabase, user.id);
           const modelRecipes = await getKpiRecipes(payload.businessModel);
-          setKpiData(kpis);
+          setKpiData([]);
           setRecipes(modelRecipes);
           miltonEventsAPI.publish("dashboard.data.ready", {
-            kpis,
+            kpis: [],
             recipes: modelRecipes,
             businessModel: payload.businessModel,
           });
@@ -293,8 +211,6 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         <div style={{ position: "relative", minHeight: "100vh" }}>
           {children}
           {/* Optional insight preview - removed to prevent duplication */}
-          {/* (Optional) Add debug display for live KPI chart data */}
-          {/* <pre>{JSON.stringify(chartData, null, 2)}</pre> */}
           {/* Chat Toggle Button */}
           <button
             aria-label="Open Milton Chat"

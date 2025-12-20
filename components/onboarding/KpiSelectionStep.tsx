@@ -8,7 +8,10 @@ import {
   type KpiAvailability,
 } from "@/lib/kpi-availability";
 import type { BusinessTypeId } from "@/lib/business-types";
-import type { ModelProposal } from "@/lib/ai/business-model-analyzer-types";
+import type {
+  ModelProposal,
+  SuggestedKPI,
+} from "@/lib/ai/business-model-analyzer-types";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -20,12 +23,19 @@ type ApiState =
       businessType: BusinessTypeId;
       model: ModelProposal | null;
       selected: string[];
+      suggestedKpis?: SuggestedKPI[];
     }
   | { status: "error"; message: string };
 
 const MIN_SELECTED = 3;
 
-export function KpiSelectionStep() {
+interface KpiSelectionStepProps {
+  redirectTo?: string;
+}
+
+export function KpiSelectionStep({
+  redirectTo = "/dashboard",
+}: KpiSelectionStepProps) {
   const router = useRouter();
   const [state, setState] = useState<ApiState>({ status: "loading" });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -47,8 +57,26 @@ export function KpiSelectionStep() {
         const businessType = data.businessType as BusinessTypeId;
         const model = (data.modelJson ?? null) as ModelProposal | null;
         const selected = (data.selectedKpiIds ?? []) as string[];
+        const suggestedKpis = (data.suggestedKpis ?? []) as SuggestedKPI[];
 
-        const templates: KpiTemplate[] = KPI_TEMPLATES[businessType] ?? [];
+        // Use suggested KPIs if available, otherwise fall back to templates
+        let templates: KpiTemplate[] = [];
+        if (suggestedKpis.length > 0) {
+          // Convert suggested KPIs to template format
+          templates = suggestedKpis.map((kpi) => ({
+            id: kpi.name.toLowerCase().replace(/\s+/g, "_"),
+            label: kpi.name,
+            description: kpi.description,
+            category: kpi.category,
+            trendGoal: "increase" as const,
+            formula: kpi.formula,
+            priority: kpi.priority,
+          }));
+        } else {
+          // Fall back to templates
+          templates = KPI_TEMPLATES[businessType] ?? [];
+        }
+
         const availability = evaluateKpiAvailability(
           businessType,
           model,
@@ -57,7 +85,13 @@ export function KpiSelectionStep() {
 
         setAvailabilities(availability);
         setSelectedIds(selected.length ? selected : []);
-        setState({ status: "ready", businessType, model, selected });
+        setState({
+          status: "ready",
+          businessType,
+          model,
+          selected,
+          suggestedKpis,
+        });
       } catch (err) {
         console.error("[KpiSelectionStep] load error", err);
         setState({
@@ -102,8 +136,15 @@ export function KpiSelectionStep() {
         return;
       }
 
-      // Move to the next onboarding step (e.g., redirect to dashboard)
-      router.push("/dashboard");
+      // Update onboarding status if we're in onboarding flow
+      if (redirectTo.includes("/onboarding")) {
+        const { updateOnboardingStatus } =
+          await import("@/lib/onboarding-status");
+        await updateOnboardingStatus("upload");
+      }
+
+      // Move to the next step
+      router.push(redirectTo);
     } catch (err) {
       console.error("[KpiSelectionStep] save error", err);
       window.alert("Unexpected error while saving KPI preferences.");
@@ -133,8 +174,26 @@ export function KpiSelectionStep() {
     );
   }
 
-  const { businessType } = state;
-  const templates: KpiTemplate[] = KPI_TEMPLATES[businessType] ?? [];
+  const { businessType, suggestedKpis } = state;
+
+  // Use suggested KPIs if available, otherwise fall back to templates
+  let templates: KpiTemplate[] = [];
+  if (suggestedKpis && suggestedKpis.length > 0) {
+    // Convert suggested KPIs to template format (already done in useEffect, but ensure we use them)
+    templates = suggestedKpis.map((kpi) => ({
+      id: kpi.name.toLowerCase().replace(/\s+/g, "_"),
+      label: kpi.name,
+      description: kpi.description,
+      category: kpi.category,
+      trendGoal: "increase" as const,
+      formula: kpi.formula,
+      priority: kpi.priority,
+    }));
+  } else {
+    // Fall back to templates
+    templates = KPI_TEMPLATES[businessType] ?? [];
+  }
+
   const availabilityById = new Map<string, KpiAvailability>();
   availabilities.forEach((a) => availabilityById.set(a.id, a));
 
@@ -203,7 +262,11 @@ export function KpiSelectionStep() {
           You can adjust your KPIs later in your dashboard settings.
         </p>
         <Button onClick={handleContinue} disabled={isSaving}>
-          {isSaving ? "Saving…" : "Continue to dashboard"}
+          {isSaving
+            ? "Saving…"
+            : redirectTo.includes("/onboarding")
+              ? "Continue"
+              : "Continue to dashboard"}
         </Button>
       </div>
     </div>

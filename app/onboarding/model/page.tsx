@@ -5,7 +5,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import DataModelBuilder from "@/components/dashboard/DataModelBuilder";
-import { markOnboardingComplete } from "@/lib/onboarding-status";
+import {
+  markOnboardingComplete,
+  getOnboardingStatus,
+} from "@/lib/onboarding-status";
 
 export default function OnboardingModelPage() {
   const router = useRouter();
@@ -14,22 +17,58 @@ export default function OnboardingModelPage() {
   const handleFinish = async () => {
     setIsFinishing(true);
     try {
+      console.log("[Model] Starting to mark onboarding as complete...");
+
       // Mark onboarding as complete
       const success = await markOnboardingComplete();
 
       if (!success) {
-        console.error("Failed to mark onboarding as complete");
+        console.error("[Model] Failed to mark onboarding as complete");
+        alert("Failed to complete onboarding. Please try again.");
         setIsFinishing(false);
         return;
       }
 
-      // Wait a moment to ensure database update propagates
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      console.log("[Model] Onboarding marked as complete, verifying...");
 
-      // Redirect to dashboard
+      // Verify the status was actually updated by re-fetching
+      let verified = false;
+      let attempts = 0;
+      const maxAttempts = 5;
+
+      while (!verified && attempts < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const status = await getOnboardingStatus();
+        console.log(
+          `[Model] Verification attempt ${attempts + 1}: status = ${status}`
+        );
+
+        if (status === "completed") {
+          verified = true;
+          console.log("[Model] Status verified as completed!");
+        }
+        attempts++;
+      }
+
+      if (!verified) {
+        console.error(
+          "[Model] Could not verify onboarding completion after",
+          maxAttempts,
+          "attempts"
+        );
+        alert(
+          "Onboarding may not have completed properly. Please contact support if you continue to have issues."
+        );
+        setIsFinishing(false);
+        return;
+      }
+
+      // Status is confirmed - redirect to dashboard
+      console.log("[Model] Redirecting to dashboard...");
       router.push("/dashboard");
     } catch (error) {
-      console.error("Error completing onboarding:", error);
+      console.error("[Model] Error completing onboarding:", error);
+      alert("An error occurred. Please try again.");
       setIsFinishing(false);
     }
   };

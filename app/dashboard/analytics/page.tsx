@@ -9,7 +9,7 @@ import { BarChart } from "lucide-react";
 
 // Helper component for locked/missing data placeholders
 const LockedPlaceholder = ({ message }: { message: string }) => (
-  <div className="rounded border border-dashed p-8 text-center text-sm text-gray-500">
+  <div className="rounded border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
     💡 {message}
   </div>
 );
@@ -51,10 +51,10 @@ export default function AnalyticsPage() {
         {/* Page Header */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
-            <BarChart className="h-8 w-8 text-blue-600" />
-            <h1 className="text-3xl font-bold text-gray-900">Analytics</h1>
+            <BarChart className="h-8 w-8 text-primary" />
+            <h1 className="text-3xl font-bold text-foreground">Analytics</h1>
           </div>
-          <p className="text-gray-600">
+          <p className="text-muted-foreground">
             Deep dive into your financial performance, sales pipeline, and cash
             flow metrics
           </p>
@@ -62,22 +62,22 @@ export default function AnalyticsPage() {
 
         {/* Analytics Tabs */}
         <Tabs defaultValue="financial" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3 mb-6 bg-white shadow-sm">
+          <TabsList className="grid w-full grid-cols-3 mb-6 shadow-sm">
             <TabsTrigger
               value="financial"
-              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+              className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               Financial Analysis
             </TabsTrigger>
             <TabsTrigger
               value="sales"
-              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+              className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               Sales Pipeline
             </TabsTrigger>
             <TabsTrigger
               value="cashflow"
-              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+              className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               Cash Flow
             </TabsTrigger>

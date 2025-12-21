@@ -206,7 +206,7 @@ export function MetricSelector({
           <h4 className="font-medium text-sm">
             Recommended KPIs for Your Business
           </h4>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted-foreground">
             Based on your business type, these KPIs are highly relevant
           </p>
         </div>
@@ -218,8 +218,8 @@ export function MetricSelector({
                 key={kpi.id}
                 className={`cursor-pointer transition-all ${
                   isSelected
-                    ? "border-blue-500 bg-blue-50"
-                    : "border-blue-300 hover:border-blue-400"
+                    ? "border-primary bg-primary/10"
+                    : "border-border hover:border-primary/50"
                 }`}
                 onClick={() => handleToggleMetric(kpi.id)}
               >
@@ -227,7 +227,7 @@ export function MetricSelector({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <CardTitle className="text-sm">{kpi.label}</CardTitle>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/20 text-primary font-semibold">
                         Recommended
                       </span>
                     </div>
@@ -239,8 +239,10 @@ export function MetricSelector({
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-xs text-gray-600">{kpi.description}</p>
-                  <p className="text-[11px] text-gray-500 mt-1">
+                  <p className="text-xs text-muted-foreground">
+                    {kpi.description}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
                     {kpi.trendGoal === "increase"
                       ? "↑ Higher is better"
                       : kpi.trendGoal === "decrease"
@@ -264,7 +266,7 @@ export function MetricSelector({
     <div key={category} className="space-y-3">
       <div>
         <h4 className="font-medium text-sm">{title}</h4>
-        <p className="text-xs text-gray-500">{description}</p>
+        <p className="text-xs text-muted-foreground">{description}</p>
       </div>
       <div className="grid grid-cols-1 gap-3">
         {getCategoryMetrics(category).map((metric) => (
@@ -272,8 +274,8 @@ export function MetricSelector({
             key={metric.id}
             className={`cursor-pointer transition-all ${
               tempSelection.includes(metric.id)
-                ? "border-blue-500 bg-blue-50"
-                : "hover:border-gray-300"
+                ? "border-primary bg-primary/10"
+                : "hover:border-primary/50"
             }`}
             onClick={() => handleToggleMetric(metric.id)}
           >
@@ -288,7 +290,9 @@ export function MetricSelector({
               </div>
             </CardHeader>
             <CardContent>
-              <p className="text-xs text-gray-600">{metric.description}</p>
+              <p className="text-xs text-muted-foreground">
+                {metric.description}
+              </p>
             </CardContent>
           </Card>
         ))}
@@ -337,13 +341,13 @@ export function MetricSelector({
           </div>
         </div>
 
-        <div className="flex justify-between items-center pt-4 border-t">
+        <div className="flex justify-between items-center pt-4 border-t border-border">
           <div className="space-y-1">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-muted-foreground">
               {tempSelection.length} of 8 metrics selected
             </p>
             {tempSelection.length > 8 && (
-              <p className="text-xs text-red-600">
+              <p className="text-xs text-destructive">
                 Please select 8 or fewer metrics for optimal display
               </p>
             )}

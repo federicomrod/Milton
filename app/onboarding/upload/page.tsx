@@ -119,11 +119,13 @@ export default function OnboardingUploadPage() {
   );
 
   return (
-    <div className="max-w-4xl mx-auto py-6 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-background max-w-4xl mx-auto py-6 sm:px-6 lg:px-8">
       <div className="px-4 py-6 sm:px-0">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold">Upload Your Data</h1>
-          <p className="text-gray-600 mt-2">
+          <h1 className="text-2xl font-bold text-foreground">
+            Upload Your Data
+          </h1>
+          <p className="text-muted-foreground mt-2">
             Upload your bank transactions, CRM data, and budget files. You can
             skip this step and upload later if you prefer.
           </p>
@@ -134,7 +136,7 @@ export default function OnboardingUploadPage() {
           <FileManagement />
         </div>
 
-        <div className="flex justify-between items-center mt-8 pt-6 border-t">
+        <div className="flex justify-between items-center mt-8 pt-6 border-t border-border">
           <Button
             variant="ghost"
             onClick={() => router.push("/onboarding/kpi-selection")}
@@ -159,11 +161,11 @@ export default function OnboardingUploadPage() {
       {/* Upload Mode Dialog */}
       {showUploadModeDialog && pendingUpload && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="rounded-md bg-white p-6 shadow-lg max-w-md w-full space-y-4">
-            <h2 className="text-lg font-semibold">
+          <div className="rounded-md bg-card border border-border p-6 shadow-lg max-w-md w-full space-y-4">
+            <h2 className="text-lg font-semibold text-foreground">
               How should I use this file?
             </h2>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-muted-foreground">
               We detected existing data for this dataset type. Do you want to{" "}
               <strong>overwrite the existing data</strong> or treat this as a{" "}
               <strong>new dataset</strong> and review it in the Data Model
@@ -175,7 +177,7 @@ export default function OnboardingUploadPage() {
                   setShowUploadModeDialog(false);
                   setPendingUpload(null);
                 }}
-                className="rounded bg-gray-200 px-3 py-1.5 text-sm hover:bg-gray-300"
+                className="rounded bg-muted px-3 py-1.5 text-sm hover:bg-muted/80 text-foreground"
               >
                 Cancel
               </button>

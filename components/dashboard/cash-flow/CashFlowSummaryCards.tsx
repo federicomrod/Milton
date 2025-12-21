@@ -9,11 +9,13 @@ import type { CashFlowMetrics } from "@/lib/cash-flow-data-generators";
 interface CashFlowSummaryCardsProps {
   metrics: CashFlowMetrics;
   currency: string;
+  numberFormat?: string;
 }
 
 export function CashFlowSummaryCards({
   metrics,
   currency,
+  numberFormat,
 }: CashFlowSummaryCardsProps) {
   const lastMonthNet =
     metrics.monthlyFlow.length > 0
@@ -33,7 +35,7 @@ export function CashFlowSummaryCards({
           <div
             className={`text-2xl font-bold ${metrics.currentBalance >= 0 ? "text-green-600" : "text-red-600"}`}
           >
-            {formatCurrency(metrics.currentBalance, currency)}
+            {formatCurrency(metrics.currentBalance, currency, numberFormat)}
           </div>
         </CardContent>
       </Card>
@@ -46,7 +48,11 @@ export function CashFlowSummaryCards({
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold text-red-600">
-            {formatCurrency(Math.round(metrics.burnRate), currency)}
+            {formatCurrency(
+              Math.round(metrics.burnRate),
+              currency,
+              numberFormat
+            )}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
             Last 3 months average
@@ -81,7 +87,7 @@ export function CashFlowSummaryCards({
           <div
             className={`text-2xl font-bold ${lastMonthNet >= 0 ? "text-green-600" : "text-red-600"}`}
           >
-            {formatCurrency(Math.round(lastMonthNet), currency)}
+            {formatCurrency(Math.round(lastMonthNet), currency, numberFormat)}
           </div>
         </CardContent>
       </Card>

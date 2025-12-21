@@ -47,13 +47,15 @@ export function BurnRateChart({ data }: BurnRateChartProps) {
           axisLine={{ stroke: "#d1d5db", strokeWidth: 1 }}
         />
         <YAxis
-          tickFormatter={(value) => formatCurrency(value, prefs.currency)}
+          tickFormatter={(value) =>
+            formatCurrency(value, prefs.currency, prefs.number_format)
+          }
           tick={{ fill: "#6b7280", fontSize: 11 }}
           axisLine={{ stroke: "#d1d5db", strokeWidth: 1 }}
         />
         <Tooltip
           formatter={(value: any) =>
-            formatCurrency(Number(value), prefs.currency)
+            formatCurrency(Number(value), prefs.currency, prefs.number_format)
           }
           contentStyle={{
             backgroundColor: "white",

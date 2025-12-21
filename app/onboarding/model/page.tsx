@@ -75,7 +75,7 @@ export default function OnboardingModelPage() {
   };
 
   return (
-    <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+    <main className="min-h-screen bg-background max-w-6xl mx-auto px-4 py-8 space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Customize Your Data Model</h1>
         <p className="text-sm text-muted-foreground">
@@ -88,7 +88,7 @@ export default function OnboardingModelPage() {
         <DataModelBuilder isOnboarding={true} />
       </div>
 
-      <div className="flex justify-between items-center pt-6 border-t">
+      <div className="flex justify-between items-center pt-6 border-t border-border">
         <Button
           type="button"
           variant="ghost"

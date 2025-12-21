@@ -18,11 +18,13 @@ import type { MonthlyFlowData } from "@/lib/cash-flow-data-generators";
 interface MonthlyCashFlowChartProps {
   data: MonthlyFlowData[];
   currency: string;
+  numberFormat?: string;
 }
 
 export function MonthlyCashFlowChart({
   data,
   currency,
+  numberFormat,
 }: MonthlyCashFlowChartProps) {
   return (
     <Card>
@@ -56,13 +58,15 @@ export function MonthlyCashFlowChart({
               axisLine={{ stroke: "#d1d5db", strokeWidth: 1 }}
             />
             <YAxis
-              tickFormatter={(value) => formatCurrency(value, currency)}
+              tickFormatter={(value) =>
+                formatCurrency(value, currency, numberFormat)
+              }
               tick={{ fill: "#6b7280", fontSize: 11 }}
               axisLine={{ stroke: "#d1d5db", strokeWidth: 1 }}
             />
             <Tooltip
               formatter={(value: number | string) =>
-                formatCurrency(Number(value), currency)
+                formatCurrency(Number(value), currency, numberFormat)
               }
               contentStyle={{
                 backgroundColor: "white",

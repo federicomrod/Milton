@@ -582,7 +582,7 @@ export function MetricsGrid({
     } else if (absValue >= 1000) {
       return `${currencySymbol}${(value / 1000).toFixed(1)}k`;
     }
-    return formatCurrencyUtil(value, prefs.currency);
+    return formatCurrencyUtil(value, prefs.currency, prefs.number_format);
   };
 
   const formatMetricValue = (metric: MetricCard) => {

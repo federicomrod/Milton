@@ -83,15 +83,15 @@ export default function OnboardingRequiredPage() {
   // Don't show separate loading screen, show it inline instead
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <Card className="max-w-2xl w-full border-2 border-blue-200 shadow-lg">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <Card className="max-w-2xl w-full border-2 border-primary/20 shadow-lg">
         <CardHeader className="text-center pb-4">
           <div className="flex justify-center mb-4">
-            <div className="rounded-full bg-blue-100 p-4">
+            <div className="rounded-full bg-primary/10 p-4">
               {loading ? (
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
               ) : (
-                <Sparkles className="h-12 w-12 text-blue-600" />
+                <Sparkles className="h-12 w-12 text-primary" />
               )}
             </div>
           </div>
@@ -107,8 +107,8 @@ export default function OnboardingRequiredPage() {
         <CardContent className="space-y-6">
           <div className="space-y-3">
             <div className="flex items-start gap-3">
-              <div className="rounded-full bg-blue-100 p-1.5 mt-0.5">
-                <Target className="h-4 w-4 text-blue-600" />
+              <div className="rounded-full bg-primary/10 p-1.5 mt-0.5">
+                <Target className="h-4 w-4 text-primary" />
               </div>
               <div>
                 <h3 className="font-semibold text-sm">Set up your company</h3>
@@ -118,8 +118,8 @@ export default function OnboardingRequiredPage() {
               </div>
             </div>
             <div className="flex items-start gap-3">
-              <div className="rounded-full bg-blue-100 p-1.5 mt-0.5">
-                <FileText className="h-4 w-4 text-blue-600" />
+              <div className="rounded-full bg-primary/10 p-1.5 mt-0.5">
+                <FileText className="h-4 w-4 text-primary" />
               </div>
               <div>
                 <h3 className="font-semibold text-sm">Select your KPIs</h3>
@@ -129,8 +129,8 @@ export default function OnboardingRequiredPage() {
               </div>
             </div>
             <div className="flex items-start gap-3">
-              <div className="rounded-full bg-blue-100 p-1.5 mt-0.5">
-                <Upload className="h-4 w-4 text-blue-600" />
+              <div className="rounded-full bg-primary/10 p-1.5 mt-0.5">
+                <Upload className="h-4 w-4 text-primary" />
               </div>
               <div>
                 <h3 className="font-semibold text-sm">Upload your data</h3>

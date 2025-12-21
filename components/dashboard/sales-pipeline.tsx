@@ -70,7 +70,7 @@ export function SalesPipeline() {
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-center h-64">
-            <p className="text-gray-500">Loading pipeline data...</p>
+            <p className="text-muted-foreground">Loading pipeline data...</p>
           </div>
         </CardContent>
       </Card>
@@ -85,7 +85,7 @@ export function SalesPipeline() {
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-center h-64">
-            <p className="text-gray-500">
+            <p className="text-muted-foreground">
               No CRM data available. Please upload your CRM file.
             </p>
           </div>
@@ -113,11 +113,13 @@ export function SalesPipeline() {
 
       {/* Currency Format Dropdown */}
       <div className="flex justify-end mb-2">
-        <label className="mr-2 text-sm text-gray-600">Amount Format:</label>
+        <label className="mr-2 text-sm text-muted-foreground">
+          Amount Format:
+        </label>
         <select
           value={formatStyle}
           onChange={(e) => setFormatStyle(e.target.value as FormatStyle)}
-          className="text-sm border rounded px-2 py-1"
+          className="text-sm border border-border rounded px-2 py-1 bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
         >
           <option value="short">€1.2k</option>
           <option value="swiss">€1&apos;000</option>
@@ -130,6 +132,7 @@ export function SalesPipeline() {
         allDeals={allDeals}
         metrics={metrics}
         currency={prefs.currency}
+        numberFormat={prefs.number_format}
       />
 
       {/* Sales Funnel */}

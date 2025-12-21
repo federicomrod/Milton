@@ -7,19 +7,29 @@
  * Format a number as currency based on user's preference
  * @param value - The numeric value to format
  * @param currency - Currency code (EUR, USD, GBP, CHF)
- * @param locale - Locale for formatting (default: auto-detected from currency)
+ * @param numberFormat - Format preference (1,000.00 or 1.000,00) - takes precedence over locale
+ * @param locale - Locale for formatting (default: auto-detected from currency or numberFormat)
  */
 export function formatCurrency(
   value: number | null | undefined,
   currency: string = "EUR",
+  numberFormat?: string,
   locale?: string
 ): string {
   if (value === null || value === undefined || isNaN(value)) {
     return `${getCurrencySymbol(currency)} 0`;
   }
 
-  // Auto-detect locale from currency if not provided
-  const detectedLocale = locale || getLocaleFromCurrency(currency);
+  // Determine locale: numberFormat takes precedence, then provided locale, then currency-based
+  let detectedLocale: string;
+  if (numberFormat) {
+    // Use locale based on number format preference
+    detectedLocale = numberFormat === "1.000,00" ? "de-DE" : "en-US";
+  } else if (locale) {
+    detectedLocale = locale;
+  } else {
+    detectedLocale = getLocaleFromCurrency(currency);
+  }
 
   try {
     return new Intl.NumberFormat(detectedLocale, {

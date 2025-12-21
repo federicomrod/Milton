@@ -65,7 +65,7 @@ export default function AccountPage() {
     return (
       <div className="container mx-auto p-6 max-w-4xl">
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
         </div>
       </div>
     );
@@ -79,7 +79,7 @@ export default function AccountPage() {
             <CardTitle>Error Loading Account</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="p-3 rounded bg-red-50 text-red-800">
+            <div className="p-3 rounded bg-destructive/10 text-destructive border border-destructive/20">
               Failed to load your account information. Please try refreshing the
               page.
             </div>
@@ -95,8 +95,8 @@ export default function AccountPage() {
       <div className="mb-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Account</h1>
-            <p className="text-gray-600 mt-1">
+            <h1 className="text-3xl font-bold text-foreground">Account</h1>
+            <p className="text-muted-foreground mt-1">
               Manage your company profile and account settings
             </p>
           </div>
@@ -119,22 +119,24 @@ export default function AccountPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-start gap-3">
-              <Building2 className="h-5 w-5 text-gray-400 mt-0.5" />
+              <Building2 className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-gray-500">
+                <p className="text-sm font-medium text-muted-foreground">
                   Company Name
                 </p>
-                <p className="text-base text-gray-900">
+                <p className="text-base text-foreground">
                   {companyLoading ? "Loading..." : company?.name || "Not set"}
                 </p>
               </div>
             </div>
 
             <div className="flex items-start gap-3">
-              <MapPin className="h-5 w-5 text-gray-400 mt-0.5" />
+              <MapPin className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-gray-500">Industry</p>
-                <p className="text-base text-gray-900">
+                <p className="text-sm font-medium text-muted-foreground">
+                  Industry
+                </p>
+                <p className="text-base text-foreground">
                   {companyLoading
                     ? "Loading..."
                     : company?.industry || "Not set"}
@@ -143,10 +145,12 @@ export default function AccountPage() {
             </div>
 
             <div className="flex items-start gap-3">
-              <Globe className="h-5 w-5 text-gray-400 mt-0.5" />
+              <Globe className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-gray-500">Timezone</p>
-                <p className="text-base text-gray-900">
+                <p className="text-sm font-medium text-muted-foreground">
+                  Timezone
+                </p>
+                <p className="text-base text-foreground">
                   {profile?.timezone || "Not set"}
                 </p>
               </div>
@@ -164,9 +168,11 @@ export default function AccountPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-start gap-3">
-              <CreditCard className="h-5 w-5 text-gray-400 mt-0.5" />
+              <CreditCard className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-gray-500">Plan</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Plan
+                </p>
                 <div className="flex items-center gap-2 mt-1">
                   <Badge variant="default">
                     {profile?.billing_status || "Free Trial"}
@@ -176,22 +182,24 @@ export default function AccountPage() {
             </div>
 
             <div className="flex items-start gap-3">
-              <Mail className="h-5 w-5 text-gray-400 mt-0.5" />
+              <Mail className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-gray-500">Email</p>
-                <p className="text-base text-gray-900">
+                <p className="text-sm font-medium text-muted-foreground">
+                  Email
+                </p>
+                <p className="text-base text-foreground">
                   {userEmail || "Not available"}
                 </p>
               </div>
             </div>
 
             <div className="flex items-start gap-3">
-              <Calendar className="h-5 w-5 text-gray-400 mt-0.5" />
+              <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-gray-500">
+                <p className="text-sm font-medium text-muted-foreground">
                   Member Since
                 </p>
-                <p className="text-base text-gray-900">
+                <p className="text-base text-foreground">
                   {profile?.created_at
                     ? new Date(profile.created_at).toLocaleDateString("en-US", {
                         year: "numeric",
@@ -213,42 +221,48 @@ export default function AccountPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-start gap-3">
-              <DollarSign className="h-5 w-5 text-gray-400 mt-0.5" />
+              <DollarSign className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-gray-500">Currency</p>
-                <p className="text-base text-gray-900">
+                <p className="text-sm font-medium text-muted-foreground">
+                  Currency
+                </p>
+                <p className="text-base text-foreground">
                   {profile?.currency || "EUR"}
                 </p>
               </div>
             </div>
 
             <div className="flex items-start gap-3">
-              <Calendar className="h-5 w-5 text-gray-400 mt-0.5" />
+              <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-gray-500">Date Format</p>
-                <p className="text-base text-gray-900">
+                <p className="text-sm font-medium text-muted-foreground">
+                  Date Format
+                </p>
+                <p className="text-base text-foreground">
                   {profile?.date_format || "DD/MM/YYYY"}
                 </p>
               </div>
             </div>
 
             <div className="flex items-start gap-3">
-              <Hash className="h-5 w-5 text-gray-400 mt-0.5" />
+              <Hash className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-gray-500">
+                <p className="text-sm font-medium text-muted-foreground">
                   Number Format
                 </p>
-                <p className="text-base text-gray-900">
+                <p className="text-base text-foreground">
                   {profile?.number_format || "1,000.00"}
                 </p>
               </div>
             </div>
 
             <div className="flex items-start gap-3">
-              <Palette className="h-5 w-5 text-gray-400 mt-0.5" />
+              <Palette className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-gray-500">Theme</p>
-                <p className="text-base text-gray-900 capitalize">
+                <p className="text-sm font-medium text-muted-foreground">
+                  Theme
+                </p>
+                <p className="text-base text-foreground capitalize">
                   {profile?.theme || "Light"}
                 </p>
               </div>

@@ -150,25 +150,25 @@ export default function OnboardingChatPage() {
   // Show loading until we've verified auth and onboarding status
   if (!isReady) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-500">Loading...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gradient-to-br from-gray-50 to-gray-100 overflow-hidden">
-      <div className="w-full border-r bg-white shadow-sm flex flex-col h-full overflow-hidden">
+    <div className="h-screen flex flex-col bg-background overflow-hidden">
+      <div className="w-full border-r border-border bg-card shadow-sm flex flex-col h-full overflow-hidden">
         <div className="flex-1 overflow-hidden min-h-0 p-4 md:p-6 flex items-center justify-center">
           {memoizedMiltonChat}
         </div>
       </div>
 
       {error && (
-        <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg shadow-lg z-50">
+        <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-destructive/10 border border-destructive/20 text-destructive p-4 rounded-lg shadow-lg z-50">
           <p className="text-sm">{error}</p>
         </div>
       )}

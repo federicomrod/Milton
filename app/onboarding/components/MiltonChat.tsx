@@ -686,7 +686,7 @@ export default function MiltonChat({
       </div>
 
       {step !== "done" && (
-        <div className="fixed bottom-0 left-0 right-0 border-t bg-white p-4 md:p-6 z-50 shadow-lg">
+        <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-card p-4 md:p-6 z-50 shadow-lg">
           <div className="max-w-4xl mx-auto">
             {step === "intro" ? (
               <Button
@@ -733,7 +733,7 @@ export default function MiltonChat({
                       >
                         <div>
                           <div className="font-medium">{bt.label}</div>
-                          <div className="text-sm text-gray-500">
+                          <div className="text-sm text-muted-foreground">
                             {bt.tagline}
                           </div>
                         </div>

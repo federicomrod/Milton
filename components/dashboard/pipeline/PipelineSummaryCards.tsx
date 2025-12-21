@@ -10,12 +10,14 @@ interface PipelineSummaryCardsProps {
   allDeals: Deal[];
   metrics: PipelineMetrics;
   currency: string;
+  numberFormat?: string;
 }
 
 export function PipelineSummaryCards({
   allDeals,
   metrics,
   currency,
+  numberFormat,
 }: PipelineSummaryCardsProps) {
   const totalPipelineValue = allDeals
     .filter((d) => d.stage !== "no_deal")
@@ -42,7 +44,7 @@ export function PipelineSummaryCards({
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">
-            {formatCurrencyUtil(totalPipelineValue, currency)}
+            {formatCurrencyUtil(totalPipelineValue, currency, numberFormat)}
           </div>
         </CardContent>
       </Card>

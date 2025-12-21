@@ -17,10 +17,10 @@ export default function ReportingPage() {
         {/* Page Header */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
-            <FileText className="h-8 w-8 text-blue-600" />
-            <h1 className="text-3xl font-bold text-gray-900">Reporting</h1>
+            <FileText className="h-8 w-8 text-primary" />
+            <h1 className="text-3xl font-bold text-foreground">Reporting</h1>
           </div>
-          <p className="text-gray-600">
+          <p className="text-muted-foreground">
             Generate professional PDF reports with AI-powered insights,
             financial charts, and KPI summaries
           </p>

@@ -33,7 +33,7 @@ export default function RootLayout({
       >
         <ClientProviders>
           <ToastProvider>
-            <div className="min-h-screen bg-gray-50">
+            <div className="min-h-screen bg-background">
               <AppNavigation />
               <main>{children}</main>
             </div>

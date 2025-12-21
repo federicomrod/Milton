@@ -23,7 +23,7 @@ export function CashFlowAnalysis() {
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-center h-64">
-            <p className="text-gray-500">Loading cash flow data...</p>
+            <p className="text-muted-foreground">Loading cash flow data...</p>
           </div>
         </CardContent>
       </Card>
@@ -38,7 +38,7 @@ export function CashFlowAnalysis() {
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-center h-64">
-            <p className="text-gray-500">
+            <p className="text-muted-foreground">
               No transaction data available. Please upload your bank
               transactions.
             </p>
@@ -51,15 +51,24 @@ export function CashFlowAnalysis() {
   return (
     <div className="space-y-6" data-chart="cash-flow">
       {/* Summary Cards */}
-      <CashFlowSummaryCards metrics={metrics} currency={prefs.currency} />
+      <CashFlowSummaryCards
+        metrics={metrics}
+        currency={prefs.currency}
+        numberFormat={prefs.number_format}
+      />
 
       {/* Cash Balance Over Time */}
-      <CashBalanceChart data={metrics.monthlyFlow} currency={prefs.currency} />
+      <CashBalanceChart
+        data={metrics.monthlyFlow}
+        currency={prefs.currency}
+        numberFormat={prefs.number_format}
+      />
 
       {/* Monthly Cash Flow */}
       <MonthlyCashFlowChart
         data={metrics.monthlyFlow}
         currency={prefs.currency}
+        numberFormat={prefs.number_format}
       />
 
       {/* Category Charts */}
@@ -67,6 +76,7 @@ export function CashFlowAnalysis() {
         <CategoryBreakdownChart
           data={metrics.categoryBreakdown}
           currency={prefs.currency}
+          numberFormat={prefs.number_format}
         />
         <CategoryNetImpact
           data={metrics.categoryBreakdown}
@@ -75,7 +85,11 @@ export function CashFlowAnalysis() {
       </div>
 
       {/* Net Cash Flow Trend */}
-      <NetCashFlowChart data={metrics.monthlyFlow} currency={prefs.currency} />
+      <NetCashFlowChart
+        data={metrics.monthlyFlow}
+        currency={prefs.currency}
+        numberFormat={prefs.number_format}
+      />
     </div>
   );
 }

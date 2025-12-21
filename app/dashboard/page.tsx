@@ -30,7 +30,7 @@ import { Target } from "lucide-react";
 
 // Helper component for locked/missing data placeholders
 const LockedPlaceholder = ({ message }: { message: string }) => (
-  <div className="rounded border border-dashed p-8 text-center text-sm text-gray-500">
+  <div className="rounded border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
     💡 {message}
   </div>
 );
@@ -286,8 +286,8 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     );
   }
@@ -299,9 +299,11 @@ export default function DashboardPage() {
         {useCaseConfirmed && selectedUseCase && (
           <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Target className="h-4 w-4 text-blue-600" />
-              <span className="text-sm text-gray-600">Business Type:</span>
-              <span className="text-sm font-medium text-blue-600">
+              <Target className="h-4 w-4 text-primary" />
+              <span className="text-sm text-muted-foreground">
+                Business Type:
+              </span>
+              <span className="text-sm font-medium text-primary">
                 {getUseCase(selectedUseCase)?.name || selectedUseCase}
               </span>
               <Button
@@ -378,11 +380,11 @@ export default function DashboardPage() {
       {/* Upload Mode Dialog */}
       {showUploadModeDialog && pendingUpload && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="rounded-md bg-white p-6 shadow-lg max-w-md w-full space-y-4">
-            <h2 className="text-lg font-semibold">
+          <div className="rounded-md bg-card border border-border p-6 shadow-lg max-w-md w-full space-y-4">
+            <h2 className="text-lg font-semibold text-foreground">
               How should I use this file?
             </h2>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-muted-foreground">
               We detected existing data for this dataset type. Do you want to{" "}
               <strong>overwrite the existing data</strong> or treat this as a{" "}
               <strong>new dataset</strong> and review it in the Data Model
@@ -394,7 +396,7 @@ export default function DashboardPage() {
                   setShowUploadModeDialog(false);
                   setPendingUpload(null);
                 }}
-                className="rounded bg-gray-200 px-3 py-1.5 text-sm hover:bg-gray-300"
+                className="rounded bg-muted px-3 py-1.5 text-sm hover:bg-muted/80 text-foreground"
               >
                 Cancel
               </button>

@@ -9,7 +9,7 @@ export default function OnboardingKpisPage() {
   const router = useRouter();
 
   return (
-    <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+    <main className="min-h-screen bg-background max-w-6xl mx-auto px-4 py-8 space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Choose your key KPIs</h1>
         <p className="text-sm text-muted-foreground">

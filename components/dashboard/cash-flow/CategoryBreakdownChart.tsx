@@ -9,6 +9,7 @@ import type { CategoryBreakdown } from "@/lib/cash-flow-data-generators";
 interface CategoryBreakdownChartProps {
   data: CategoryBreakdown[];
   currency: string;
+  numberFormat?: string;
 }
 
 const COLORS = [
@@ -23,6 +24,7 @@ const COLORS = [
 export function CategoryBreakdownChart({
   data,
   currency,
+  numberFormat,
 }: CategoryBreakdownChartProps) {
   const filteredData = data.filter((c) => c.outflow > 0);
 
@@ -74,7 +76,7 @@ export function CategoryBreakdownChart({
             </Pie>
             <Tooltip
               formatter={(value: number | string) =>
-                formatCurrency(Number(value), currency)
+                formatCurrency(Number(value), currency, numberFormat)
               }
               contentStyle={{
                 backgroundColor: "white",

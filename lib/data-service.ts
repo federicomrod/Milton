@@ -23,17 +23,32 @@ export const getUploadedFilesSummary = async (
 
   const results = await Promise.all(
     tables.map(async (t) => {
-      const { count, error } = await supabase
+      console.log(
+        `[getUploadedFilesSummary] Querying ${t.name} for user ${userId}`
+      );
+      const { count, error, data } = await supabase
         .from(t.name)
         .select("*", { count: "exact", head: true })
         .eq("user_id", userId);
+
+      console.log(`[getUploadedFilesSummary] ${t.name} result:`, {
+        count,
+        error: error?.message,
+        hasData: !!data,
+      });
 
       if (error) {
         console.warn(`⚠️ Could not count rows for ${t.name}:`, error.message);
         return { ...t, count: 0, updated_at: null };
       }
 
-      return { ...t, count: count ?? 0, updated_at: new Date().toISOString() };
+      const result = {
+        ...t,
+        count: count ?? 0,
+        updated_at: new Date().toISOString(),
+      };
+      console.log(`[getUploadedFilesSummary] ${t.name} final:`, result);
+      return result;
     })
   );
 

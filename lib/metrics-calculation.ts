@@ -1,4 +1,5 @@
 // lib/metrics-calculation.ts
+import type { TransactionData, CrmDealData } from "@/lib/types/data";
 
 export interface MetricsData {
   mrr: number;
@@ -37,6 +38,43 @@ export interface Deal {
 }
 
 export class MetricsCalculationService {
+  private transactions: Transaction[] = [];
+  private deals: Deal[] = [];
+
+  constructor(transactions?: TransactionData[], deals?: CrmDealData[]) {
+    if (transactions) {
+      this.transactions = this.normalizeTransactions(transactions);
+    }
+    if (deals) {
+      this.deals = this.normalizeDeals(deals);
+    }
+  }
+
+  private normalizeTransactions(data: TransactionData[]): Transaction[] {
+    return data.map((t) => ({
+      id: t.id,
+      date: t.date,
+      description: t.description || t.name || "",
+      amount:
+        typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0,
+      reference: t.reference || "",
+      category: t.category || "",
+    }));
+  }
+
+  private normalizeDeals(data: CrmDealData[]): Deal[] {
+    return data.map((d) => ({
+      id: d.id,
+      dealName: d.dealName || d.deal_name || "",
+      phase: d.phase || d.stage || "",
+      amount:
+        typeof d.amount === "string" ? parseFloat(d.amount) : d.amount || 0,
+      clientName: d.clientName || d.client_name || "",
+      date: d.closingDate || d.closing_date || d.close_date || "",
+      product: d.product || "",
+    }));
+  }
+
   // Category mappings for better classification
   private categoryMappings = {
     revenue: {
@@ -80,35 +118,22 @@ export class MetricsCalculationService {
   };
 
   calculateAllMetrics(): MetricsData {
-    const transactions = this.getTransactions();
-    const deals = this.getDeals();
-
     return {
-      mrr: this.calculateMRR(transactions),
-      arr: this.calculateARR(transactions),
-      cashBalance: this.calculateCashBalance(transactions),
-      burnRate: this.calculateBurnRate(transactions),
-      contracted: this.calculateContracted(deals),
-      ltmRevenue: this.calculateLTMRevenue(transactions),
-      grossMargin: this.calculateGrossMargin(transactions),
-      customers: this.calculateCustomers(transactions, deals),
-      cac: this.calculateCAC(transactions, deals),
-      ltv: this.calculateLTV(transactions, deals),
-      churn: this.calculateChurn(deals),
+      mrr: this.calculateMRR(this.transactions),
+      arr: this.calculateARR(this.transactions),
+      cashBalance: this.calculateCashBalance(this.transactions),
+      burnRate: this.calculateBurnRate(this.transactions),
+      contracted: this.calculateContracted(this.deals),
+      ltmRevenue: this.calculateLTMRevenue(this.transactions),
+      grossMargin: this.calculateGrossMargin(this.transactions),
+      customers: this.calculateCustomers(this.transactions, this.deals),
+      cac: this.calculateCAC(this.transactions, this.deals),
+      ltv: this.calculateLTV(this.transactions, this.deals),
+      churn: this.calculateChurn(this.deals),
       nps: this.calculateNPS(),
-      runway: this.calculateRunway(transactions),
-      quickRatio: this.calculateQuickRatio(transactions),
+      runway: this.calculateRunway(this.transactions),
+      quickRatio: this.calculateQuickRatio(this.transactions),
     };
-  }
-
-  private getTransactions(): Transaction[] {
-    const data = localStorage.getItem("transactions");
-    return data ? JSON.parse(data) : [];
-  }
-
-  private getDeals(): Deal[] {
-    const data = localStorage.getItem("crmDeals");
-    return data ? JSON.parse(data) : [];
   }
 
   private classifyTransaction(transaction: Transaction): {
@@ -433,14 +458,14 @@ export class MetricsCalculationService {
 
   // Method to get metrics for specific time period
   getMetricsForPeriod(startDate: Date, endDate: Date): Partial<MetricsData> {
-    const transactions = this.getTransactions().filter((tx) => {
+    const filteredTransactions = this.transactions.filter((tx) => {
       const txDate = new Date(tx.date);
       return txDate >= startDate && txDate <= endDate;
     });
 
     // Calculate period-specific metrics
     return {
-      cashBalance: this.calculateCashBalance(transactions),
+      cashBalance: this.calculateCashBalance(filteredTransactions),
       // Add other period-specific calculations as needed
     };
   }

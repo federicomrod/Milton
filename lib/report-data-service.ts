@@ -69,6 +69,12 @@ export async function getReportData(
     throw new Error(`Transactions fetch failed: ${txError.message}`);
   }
 
+  console.log("[getReportData] Transactions fetched:", {
+    count: transactions?.length || 0,
+    period: reportPeriod,
+    sample: transactions?.slice(0, 2),
+  });
+
   // Step 2: Fetch CRM deals
   let crmQuery = supabase
     .from("crm_deals")
@@ -86,6 +92,12 @@ export async function getReportData(
   if (crmError) {
     throw new Error(`CRM deals fetch failed: ${crmError.message}`);
   }
+
+  console.log("[getReportData] CRM deals fetched:", {
+    count: crmDeals?.length || 0,
+    period: reportPeriod,
+    sample: crmDeals?.slice(0, 2),
+  });
 
   // Step 3: Fetch budget data
   let budgetQuery = supabase
@@ -105,6 +117,12 @@ export async function getReportData(
     throw new Error(`Budgets fetch failed: ${budgetError.message}`);
   }
 
+  console.log("[getReportData] Budgets fetched:", {
+    count: budgets?.length || 0,
+    period: reportPeriod,
+    sample: budgets?.slice(0, 2),
+  });
+
   // --- Derive metrics ---
   // Ensure amounts are numbers (Supabase NUMERIC can return as string)
   const transactionsWithNumericAmounts =
@@ -114,6 +132,15 @@ export async function getReportData(
         typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0,
     })) || [];
 
+  console.log("[getReportData] Transactions with numeric amounts:", {
+    count: transactionsWithNumericAmounts.length,
+    sampleAmounts: transactionsWithNumericAmounts.slice(0, 5).map((t) => ({
+      amount: t.amount,
+      type: typeof t.amount,
+      date: t.date,
+    })),
+  });
+
   const totalRevenue = transactionsWithNumericAmounts
     .filter((t) => t.amount > 0)
     .reduce((sum, t) => sum + t.amount, 0);
@@ -121,6 +148,17 @@ export async function getReportData(
   const totalExpenses = transactionsWithNumericAmounts
     .filter((t) => t.amount < 0)
     .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+  console.log("[getReportData] Calculated metrics:", {
+    totalRevenue,
+    totalExpenses,
+    revenueTransactions: transactionsWithNumericAmounts.filter(
+      (t) => t.amount > 0
+    ).length,
+    expenseTransactions: transactionsWithNumericAmounts.filter(
+      (t) => t.amount < 0
+    ).length,
+  });
 
   const monthsDuration = reportPeriod
     ? getMonthsDiff(reportPeriod.start, reportPeriod.end)
@@ -130,20 +168,53 @@ export async function getReportData(
   const netIncome = totalRevenue - totalExpenses;
 
   // Calculate net cash position (total of all transactions including negatives)
-  const netCash = transactions?.reduce((sum, t) => sum + t.amount, 0) || 0;
+  // Use transactionsWithNumericAmounts instead of raw transactions
+  const netCash = transactionsWithNumericAmounts.reduce(
+    (sum, t) => sum + t.amount,
+    0
+  );
   const cashRunway = burnRate > 0 ? Math.round(netCash / burnRate) : 0;
 
+  console.log("[getReportData] Cash metrics:", {
+    netCash,
+    burnRate,
+    cashRunway,
+    monthsDuration,
+  });
+
   // --- CRM metrics ---
-  const pipelineValue =
-    crmDeals?.reduce((sum, d) => sum + (d.amount || 0), 0) || 0;
-  const openDeals =
-    crmDeals?.filter(
-      (d) =>
-        d.phase !== "Deal" &&
-        d.phase !== "No Deal" &&
-        d.phase !== "Closed Won" &&
-        d.phase !== "Closed Lost"
-    ).length || 0;
+  // Ensure amounts are numbers for CRM deals too
+  const crmDealsWithNumericAmounts = (crmDeals || []).map((d) => ({
+    ...d,
+    amount: typeof d.amount === "string" ? parseFloat(d.amount) : d.amount || 0,
+  }));
+
+  console.log("[getReportData] CRM deals with numeric amounts:", {
+    count: crmDealsWithNumericAmounts.length,
+    sampleAmounts: crmDealsWithNumericAmounts.slice(0, 5).map((d) => ({
+      amount: d.amount,
+      type: typeof d.amount,
+      phase: d.phase,
+    })),
+  });
+
+  const pipelineValue = crmDealsWithNumericAmounts.reduce(
+    (sum, d) => sum + d.amount,
+    0
+  );
+  const openDeals = crmDealsWithNumericAmounts.filter(
+    (d) =>
+      d.phase !== "Deal" &&
+      d.phase !== "No Deal" &&
+      d.phase !== "Closed Won" &&
+      d.phase !== "Closed Lost"
+  ).length;
+
+  console.log("[getReportData] CRM metrics:", {
+    pipelineValue,
+    openDeals,
+    totalDeals: crmDealsWithNumericAmounts.length,
+  });
 
   // --- Budget variance ---
   const budgetSummary = computeBudgetVariance(
@@ -169,16 +240,21 @@ export async function getReportData(
     modelRow = data;
   }
 
+  const finalKPIs = {
+    revenue: totalRevenue,
+    expenses: totalExpenses,
+    netIncome,
+    burnRate,
+    cashRunway,
+    pipelineValue,
+    openDeals,
+  };
+
+  console.log("[getReportData] Final KPIs:", finalKPIs);
+  console.log("[getReportData] Budget variance:", budgetSummary);
+
   return {
-    kpis: {
-      revenue: totalRevenue,
-      expenses: totalExpenses,
-      netIncome,
-      burnRate,
-      cashRunway,
-      pipelineValue,
-      openDeals,
-    },
+    kpis: finalKPIs,
     budgetVariance: budgetSummary,
     transactions: transactions || [],
     crmDeals: crmDeals || [],

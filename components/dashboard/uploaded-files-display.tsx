@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { FileText, Database, DollarSign } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { getUploadedFilesSummary } from "@/lib/data-service";
 
 interface UploadedFile {
   type: "transactions" | "deals" | "budget";
@@ -12,81 +14,76 @@ interface UploadedFile {
   color: string;
 }
 
+const FILE_TYPE_MAP: Record<
+  string,
+  { type: "transactions" | "deals" | "budget"; icon: any; color: string }
+> = {
+  transactions: {
+    type: "transactions",
+    icon: DollarSign,
+    color: "bg-green-100 text-green-800",
+  },
+  crm_deals: {
+    type: "deals",
+    icon: FileText,
+    color: "bg-blue-100 text-blue-800",
+  },
+  budgets: {
+    type: "budget",
+    icon: Database,
+    color: "bg-purple-100 text-purple-800",
+  },
+};
+
 export function UploadedFilesDisplay() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const checkUploadedFiles = () => {
-    const files: UploadedFile[] = [];
+  const checkUploadedFiles = async () => {
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    // Check transactions
-    const transactions = localStorage.getItem("transactions");
-    if (transactions) {
-      try {
-        const data = JSON.parse(transactions);
-        files.push({
-          type: "transactions",
-          label: "Bank Transactions",
-          count: Array.isArray(data) ? data.length : 0,
-          icon: DollarSign,
-          color: "bg-green-100 text-green-800",
-        });
-      } catch (error) {
-        console.error("Error parsing transactions:", error);
+      if (!user) {
+        setUploadedFiles([]);
+        setLoading(false);
+        return;
       }
-    }
 
-    // Check CRM deals
-    const crmDeals = localStorage.getItem("crmDeals");
-    if (crmDeals) {
-      try {
-        const data = JSON.parse(crmDeals);
-        files.push({
-          type: "deals",
-          label: "CRM Deals",
-          count: Array.isArray(data) ? data.length : 0,
-          icon: FileText,
-          color: "bg-blue-100 text-blue-800",
-        });
-      } catch (error) {
-        console.error("Error parsing CRM deals:", error);
-      }
-    }
+      const summaries = await getUploadedFilesSummary(supabase, user.id);
+      const files: UploadedFile[] = summaries
+        .filter((summary) => summary.count > 0)
+        .map((summary) => {
+          const fileType = FILE_TYPE_MAP[summary.name];
+          if (!fileType) return null;
+          return {
+            type: fileType.type,
+            label: summary.label,
+            count: summary.count,
+            icon: fileType.icon,
+            color: fileType.color,
+          };
+        })
+        .filter((file): file is UploadedFile => file !== null);
 
-    // Check budget
-    const budget = localStorage.getItem("budget");
-    if (budget) {
-      try {
-        const data = JSON.parse(budget);
-        files.push({
-          type: "budget",
-          label: "Budget Data",
-          count: 1,
-          icon: Database,
-          color: "bg-purple-100 text-purple-800",
-        });
-      } catch (error) {
-        console.error("Error parsing budget:", error);
-      }
+      setUploadedFiles(files);
+    } catch (error) {
+      console.error("Error checking uploaded files:", error);
+      setUploadedFiles([]);
+    } finally {
+      setLoading(false);
     }
-
-    setUploadedFiles(files);
   };
 
   useEffect(() => {
     checkUploadedFiles();
 
-    // Listen for storage changes to refresh the display
-    const handleStorageChange = () => {
-      checkUploadedFiles();
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-
-    // Also check periodically for changes
-    const interval = setInterval(checkUploadedFiles, 2000);
+    // Check periodically for changes
+    const interval = setInterval(checkUploadedFiles, 5000);
 
     return () => {
-      window.removeEventListener("storage", handleStorageChange);
       clearInterval(interval);
     };
   }, []);

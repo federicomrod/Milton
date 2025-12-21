@@ -23,6 +23,8 @@ import {
 import { FileDown, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { createClient } from "@/lib/supabase/client";
+import { getUploadedFilesSummary } from "@/lib/data-service";
 
 interface ReportConfig {
   title: string;
@@ -99,17 +101,36 @@ export function PDFReportGenerator() {
   >("idle");
   const [error, setError] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
+  const [dataStatus, setDataStatus] = useState<{
+    hasTransactions: boolean;
+    hasCRMData: boolean;
+    hasBudgetData: boolean;
+    hasAnyData: boolean;
+  }>({
+    hasTransactions: false,
+    hasCRMData: false,
+    hasBudgetData: false,
+    hasAnyData: false,
+  });
 
-  // Initialize client-side
+  // Initialize client-side and load data status
   useEffect(() => {
     setIsClient(true);
+    const loadDataStatus = async () => {
+      const status = await checkDataAvailability();
+      setDataStatus(status);
+    };
+    loadDataStatus().catch((err) => {
+      console.error("Error loading data status:", err);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleConfigChange = (field: keyof ReportConfig, value: any) => {
     setConfig((prev) => ({ ...prev, [field]: value }));
   };
 
-  const checkDataAvailability = () => {
+  const checkDataAvailability = async () => {
     // Early return if not on client side
     if (typeof window === "undefined" || !isClient) {
       return {
@@ -121,9 +142,27 @@ export function PDFReportGenerator() {
     }
 
     try {
-      const hasTransactions = !!localStorage.getItem("transactions");
-      const hasCRMData = !!localStorage.getItem("crmDeals");
-      const hasBudgetData = !!localStorage.getItem("budget");
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        return {
+          hasTransactions: false,
+          hasCRMData: false,
+          hasBudgetData: false,
+          hasAnyData: false,
+        };
+      }
+
+      const summaries = await getUploadedFilesSummary(supabase, user.id);
+      const hasTransactions =
+        (summaries.find((s) => s.name === "transactions")?.count ?? 0) > 0;
+      const hasCRMData =
+        (summaries.find((s) => s.name === "crm_deals")?.count ?? 0) > 0;
+      const hasBudgetData =
+        (summaries.find((s) => s.name === "budgets")?.count ?? 0) > 0;
 
       return {
         hasTransactions,
@@ -149,7 +188,7 @@ export function PDFReportGenerator() {
       return;
     }
 
-    const dataStatus = checkDataAvailability();
+    const dataStatus = await checkDataAvailability();
 
     if (!dataStatus.hasAnyData) {
       setError("No data available. Please upload your financial data first.");
@@ -198,8 +237,6 @@ export function PDFReportGenerator() {
       setIsGenerating(false);
     }
   };
-
-  const dataStatus = checkDataAvailability();
 
   // Don't render until client-side
   if (!isClient) {

@@ -22,12 +22,20 @@ export function AppNavigation() {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      setIsAuthenticated(!!user);
-      setLoading(false);
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        setIsAuthenticated(!!user);
+      } catch (error) {
+        // If Supabase is not configured (e.g., in tests or CI without env vars),
+        // treat user as not authenticated
+        console.warn("Auth check failed, assuming not authenticated:", error);
+        setIsAuthenticated(false);
+      } finally {
+        setLoading(false);
+      }
     };
     checkAuth();
   }, [pathname]);

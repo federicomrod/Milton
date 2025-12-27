@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { MetricsGrid } from "@/components/dashboard/metrics-grid";
 import { FinancialCharts } from "@/components/dashboard/financial-charts";
 import { MetricSelector } from "@/components/dashboard/metric-selector";
+import { DashboardInsights } from "@/components/dashboard/dashboard-insights";
 import { getUseCase } from "@/types/use-cases";
 import { useBusinessContext } from "@/lib/business-context";
 import { UploadInvitation } from "@/components/dashboard/upload-invitation";
@@ -341,6 +342,9 @@ export default function DashboardPage() {
           {dataStatus?.bank || dataStatus?.crm || dataStatus?.budget ? (
             <>
               <MetricsGrid selectedMetrics={selectedMetrics} />
+              <div className="mt-8">
+                <DashboardInsights />
+              </div>
               <div className="space-y-4 mt-8">
                 <h2 className="text-lg font-semibold">Performance Charts</h2>
                 <div className="grid gap-4 md:grid-cols-2">

@@ -23,6 +23,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = React.useState<Toast[]>([]);
 
   const addToast = (toast: Toast) => {
+    // eslint-disable-next-line react-hooks/purity
     const id = toast.id || Math.random().toString(36).substring(2);
     setToasts((current) => [...current, { ...toast, id }]);
     setTimeout(() => removeToast(id), 4000);

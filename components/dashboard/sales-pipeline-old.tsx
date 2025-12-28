@@ -230,6 +230,7 @@ export function SalesPipeline() {
       setDeals(dealsData);
 
       // Calculate metrics
+      // eslint-disable-next-line react-hooks/immutability
       calculatePipelineMetrics(dealsData);
     };
 

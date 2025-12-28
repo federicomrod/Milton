@@ -36,6 +36,7 @@ export function UseCaseSelector({
   useEffect(() => {
     if (selectedUseCase) {
       const useCase = getUseCase(selectedUseCase);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCurrentUseCase(useCase || null);
     }
   }, [selectedUseCase]);

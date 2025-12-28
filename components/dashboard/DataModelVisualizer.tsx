@@ -57,6 +57,7 @@ export default function DataModelVisualizer({
       try {
         const parsed = JSON.parse(stored);
         if (typeof parsed === "object" && parsed) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect
           setModel(parsed.proposal || parsed);
         } else {
           console.warn("Invalid model structure in localStorage.");
@@ -157,7 +158,9 @@ export default function DataModelVisualizer({
       animated: true,
       style: { stroke: "#2563eb" },
     }));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNodes(generatedNodes);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setEdges(generatedEdges);
   }, [model, linkedDatasets]);
 

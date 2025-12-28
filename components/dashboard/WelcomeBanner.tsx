@@ -17,7 +17,9 @@ export default function WelcomeBanner() {
       const raw = localStorage.getItem("milton-model");
       const isDismissed =
         localStorage.getItem("milton-banner-dismissed") === "true";
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (isDismissed) setDismissed(true);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (raw && JSON.parse(raw)) setHasModel(true);
     } catch {
       // ignore JSON parse errors

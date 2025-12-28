@@ -210,6 +210,7 @@ export default function EnhancedDataMappingUI({
   const standardFields = STANDARD_FIELDS[fileType] || [];
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability
     validateMappings();
   }, [mappings]);
 

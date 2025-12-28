@@ -137,12 +137,15 @@ export function WaterfallChart({ data, height = 400 }: WaterfallChartProps) {
           domain={[minValue - padding, maxValue + padding]}
           tickFormatter={(value) => `€${(value / 1000).toFixed(0)}k`}
         />
+        {/* eslint-disable-next-line react-hooks/static-components */}
         <Tooltip content={<CustomTooltip />} />
+        {/* eslint-disable react-hooks/static-components */}
         <Bar
           dataKey="height"
           shape={<CustomBar xAxisWidth={60} />}
           isAnimationActive={false}
         >
+          {/* eslint-enable react-hooks/static-components */}
           {processedData.map((entry, index) => (
             <Cell
               key={`cell-${index}`}

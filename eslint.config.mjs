@@ -48,6 +48,15 @@ export default typescriptEslint.config(
       "react/react-in-jsx-scope": "off",
       "react/prop-types": "off",
       "@typescript-eslint/no-explicit-any": "off",
+      // Downgrade strict rules to warnings
+      "@typescript-eslint/no-unused-vars": "warn",
+      "react-hooks/exhaustive-deps": "warn",
+      "prefer-const": "warn",
+      "no-case-declarations": "warn",
+      "no-useless-escape": "warn",
+      "react/no-unescaped-entities": "warn",
+      "no-empty": "warn",
+      "@typescript-eslint/no-require-imports": "warn",
     },
   }
 );

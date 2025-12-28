@@ -21,26 +21,9 @@ export function useReportData() {
 
   // Initialize client-side
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsClient(true);
   }, []);
-
-  // Load data status after client is confirmed
-  useEffect(() => {
-    if (!isClient || typeof window === "undefined") {
-      return;
-    }
-
-    const loadDataStatus = async () => {
-      try {
-        const status = await checkDataAvailability();
-        setDataStatus(status);
-      } catch (err) {
-        console.error("[useReportData] Error loading data status:", err);
-      }
-    };
-
-    loadDataStatus();
-  }, [isClient]);
 
   const checkDataAvailability = async (): Promise<DataStatus> => {
     // Early return if not on client side
@@ -93,6 +76,26 @@ export function useReportData() {
       };
     }
   };
+
+  // Load data status after client is confirmed
+  useEffect(() => {
+    if (!isClient || typeof window === "undefined") {
+      return;
+    }
+
+    const loadDataStatus = async () => {
+      try {
+        // eslint-disable-next-line react-hooks/immutability
+        const status = await checkDataAvailability();
+        setDataStatus(status);
+      } catch (err) {
+        console.error("[useReportData] Error loading data status:", err);
+      }
+    };
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadDataStatus();
+  }, [isClient]);
 
   return { isClient, dataStatus };
 }

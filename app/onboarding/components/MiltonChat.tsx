@@ -731,12 +731,7 @@ export default function MiltonChat({
                         value={bt.id}
                         textValue={bt.label}
                       >
-                        <div>
-                          <div className="font-medium">{bt.label}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {bt.tagline}
-                          </div>
-                        </div>
+                        <div className="font-medium">{bt.label}</div>
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -15,7 +15,6 @@ export interface DashboardKpi {
 }
 
 export interface DataAvailability {
-  hasKpiSnapshots: boolean;
   hasTransactions: boolean;
   hasBudgets: boolean;
   hasCrmDeals: boolean;
@@ -200,7 +199,6 @@ export async function buildDashboardContextForUser(
 
     // Data availability flags
     const dataAvailability: DataAvailability = {
-      hasKpiSnapshots: kpis.length > 0,
       hasTransactions: (reportData.transactions?.length || 0) > 0,
       hasBudgets: (reportData.budgets?.length || 0) > 0,
       hasCrmDeals: (reportData.crmDeals?.length || 0) > 0,
@@ -256,7 +254,6 @@ export async function buildDashboardContextForUser(
       kpis: [],
       monthlyRevenue: {},
       dataAvailability: {
-        hasKpiSnapshots: false,
         hasTransactions: false,
         hasBudgets: false,
         hasCrmDeals: false,

@@ -28,6 +28,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import {
   getBusinessModelTemplates,
+  getDataCategoriesForBusinessType,
   type BusinessTypeDefinition,
 } from "@/lib/business-model-templates";
 import {
@@ -47,6 +48,7 @@ interface MiltonChatProps {
     systems: string;
     businessDescription: string;
     businessType?: string;
+    selectedDataCategories?: Record<string, "yes" | "no" | "not_sure">;
   }) => void;
   messages: { from: "milton" | "user"; text: string }[];
   setMessages: React.Dispatch<
@@ -77,6 +79,12 @@ export default function MiltonChat({
   const [businessTypes, setBusinessTypes] = useState<BusinessTypeDefinition[]>(
     []
   );
+  const [dataCategories, setDataCategories] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [selectedDataCategories, setSelectedDataCategories] = useState<
+    Record<string, "yes" | "no" | "not_sure">
+  >({});
   const [answers, setAnswers] = useState<{
     industry?: string;
     employees?: string;
@@ -365,6 +373,20 @@ export default function MiltonChat({
     loadBusinessTypes();
   }, []);
 
+  // Load data categories when business type is selected
+  useEffect(() => {
+    const loadDataCategories = async () => {
+      if (selectedBusinessType) {
+        const categories =
+          await getDataCategoriesForBusinessType(selectedBusinessType);
+        setDataCategories(categories);
+        // Reset selected data categories when business type changes
+        setSelectedDataCategories({});
+      }
+    };
+    loadDataCategories();
+  }, [selectedBusinessType]);
+
   // Load existing chat on mount and restore state
   useEffect(() => {
     if (hasLoadedRef.current) return;
@@ -615,7 +637,7 @@ export default function MiltonChat({
       case "revenue":
         return "e.g., Subscription fees, product sales";
       case "data":
-        return "e.g., Excel sheets, Google Analytics";
+        return "Select data categories above...";
       case "systems":
         return "e.g., Salesforce, Stripe, NetSuite";
       default:
@@ -646,7 +668,15 @@ export default function MiltonChat({
       businessDescription,
       businessType: selectedBusinessType || undefined,
       industry: businessTypeLabel,
+      selectedDataCategories, // Save the data categories selections
     };
+
+    // Save data categories to localStorage for later use
+    localStorage.setItem(
+      "milton-selected-data-categories",
+      JSON.stringify(selectedDataCategories)
+    );
+
     setAnswers(next);
     finish(next);
   };
@@ -746,6 +776,108 @@ export default function MiltonChat({
                   size="default"
                   className="w-full min-h-[44px]"
                   disabled={!selectedBusinessType}
+                >
+                  Continue
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            ) : step === "data" ? (
+              <div className="space-y-4">
+                <div className="text-sm text-muted-foreground mb-4">
+                  Select which data categories you currently track. You can
+                  select multiple and change this later.
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {dataCategories.map((category) => (
+                    <div
+                      key={category.id}
+                      className="flex items-center space-x-3 p-3 border rounded-lg"
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium">{category.name}</div>
+                      </div>
+                      <div className="flex space-x-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={
+                            selectedDataCategories[category.id] === "yes"
+                              ? "default"
+                              : "outline"
+                          }
+                          onClick={() =>
+                            setSelectedDataCategories((prev) => ({
+                              ...prev,
+                              [category.id]: "yes",
+                            }))
+                          }
+                          className="text-xs px-3 py-1"
+                        >
+                          Yes
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={
+                            selectedDataCategories[category.id] === "no"
+                              ? "default"
+                              : "outline"
+                          }
+                          onClick={() =>
+                            setSelectedDataCategories((prev) => ({
+                              ...prev,
+                              [category.id]: "no",
+                            }))
+                          }
+                          className="text-xs px-3 py-1"
+                        >
+                          No
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={
+                            selectedDataCategories[category.id] === "not_sure"
+                              ? "default"
+                              : "outline"
+                          }
+                          onClick={() =>
+                            setSelectedDataCategories((prev) => ({
+                              ...prev,
+                              [category.id]: "not_sure",
+                            }))
+                          }
+                          className="text-xs px-3 py-1"
+                        >
+                          Not Sure
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    // Convert selected categories to a string for the answers
+                    const selectedCategoriesText = Object.entries(
+                      selectedDataCategories
+                    )
+                      .filter(([, status]) => status === "yes")
+                      .map(
+                        ([id]) =>
+                          dataCategories.find((cat) => cat.id === id)?.name
+                      )
+                      .filter(Boolean)
+                      .join(", ");
+                    setAnswers((a) => ({
+                      ...a,
+                      dataSources:
+                        selectedCategoriesText || "No data categories selected",
+                    }));
+                    nextStep();
+                  }}
+                  size="default"
+                  className="w-full min-h-[44px]"
                 >
                   Continue
                   <ArrowRight className="ml-2 h-4 w-4" />

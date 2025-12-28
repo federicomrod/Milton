@@ -63,3 +63,29 @@ export async function getBusinessModelTemplates(): Promise<
     return [];
   }
 }
+
+/**
+ * Fetch data categories for a specific business model template
+ */
+export async function getDataCategoriesForBusinessType(
+  businessTypeKey: string
+): Promise<Array<{ id: string; name: string }>> {
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("business_model_templates")
+      .select("data_categories")
+      .eq("key", businessTypeKey)
+      .single();
+
+    if (error) {
+      console.error("[getDataCategoriesForBusinessType] error:", error);
+      return [];
+    }
+
+    return data?.data_categories || [];
+  } catch (err) {
+    console.error("[getDataCategoriesForBusinessType] unexpected error:", err);
+    return [];
+  }
+}

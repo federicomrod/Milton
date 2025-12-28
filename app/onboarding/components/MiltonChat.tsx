@@ -335,7 +335,7 @@ export default function MiltonChat({
           return !messages.some(
             (m) =>
               m.from === "milton" &&
-              m.text.includes("Tell me more about your business context")
+              m.text.includes("Any additional context about your business")
           );
         default:
           return false;
@@ -533,7 +533,7 @@ export default function MiltonChat({
         ...prev,
         {
           from: "milton",
-          text: "Tell me more about your business context (optional - press Enter to skip).",
+          text: "Any additional context about your business? (Optional - you can skip this)",
         },
       ]);
     } else if (step === "business_context") {
@@ -564,6 +564,10 @@ export default function MiltonChat({
         `Revenue Model: ${answersRef.current.revenue || "Not specified"}`,
         `Data Sources: ${answersRef.current.dataSources || "Not specified"}`,
         `Systems: ${answersRef.current.systems || "Not specified"}`,
+        ...(answersRef.current.businessContext &&
+        answersRef.current.businessContext !== "Not specified"
+          ? [`Business Context: ${answersRef.current.businessContext}`]
+          : []),
       ].join("\n\n");
 
       const summaryMessages = [
@@ -633,8 +637,13 @@ export default function MiltonChat({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!input.trim()) return;
-    sendUserMessage(input);
+    if (step !== "business_context" && !input.trim()) return;
+
+    // For business context, use "Not specified" if empty
+    const messageToSend =
+      step === "business_context" && !input.trim() ? "Not specified" : input;
+
+    sendUserMessage(messageToSend);
 
     if (step === "goals") {
       setAnswers((a) => ({ ...a, goals: input }));
@@ -649,8 +658,8 @@ export default function MiltonChat({
       setAnswers((a) => ({ ...a, systems: input }));
       console.log("📝 Systems answer:", input);
     } else if (step === "business_context") {
-      setAnswers((a) => ({ ...a, businessContext: input || "Nothing added" }));
-      console.log("📝 Business context answer:", input || "Nothing added");
+      setAnswers((a) => ({ ...a, businessContext: input || "Not specified" }));
+      console.log("📝 Business context answer:", input || "Not specified");
     }
     // Confirm step is now handled by button click, not form submit
 
@@ -676,7 +685,7 @@ export default function MiltonChat({
       case "systems":
         return "e.g., Salesforce, Stripe, NetSuite";
       case "business_context":
-        return "Optional: e.g., We specialize in B2B SaaS for manufacturing companies...";
+        return "e.g., We specialize in B2B SaaS for manufacturing companies...";
       default:
         return "Type your message...";
     }
@@ -1022,13 +1031,15 @@ export default function MiltonChat({
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
-                      handleSubmit(e);
+                      if (step === "business_context" || input.trim()) {
+                        handleSubmit(e);
+                      }
                     }
                   }}
                 />
                 <PromptInputSubmit
                   status="ready"
-                  disabled={!input.trim()}
+                  disabled={step === "business_context" ? false : !input.trim()}
                   className="absolute bottom-1 right-1"
                 />
               </Input>

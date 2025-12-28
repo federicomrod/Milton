@@ -85,7 +85,6 @@ export function useReportData() {
 
     const loadDataStatus = async () => {
       try {
-        // eslint-disable-next-line react-hooks/immutability
         const status = await checkDataAvailability();
         setDataStatus(status);
       } catch (err) {
@@ -93,7 +92,6 @@ export function useReportData() {
       }
     };
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadDataStatus();
   }, [isClient]);
 

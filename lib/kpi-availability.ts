@@ -1,7 +1,6 @@
 // lib/kpi-availability.ts
 // Evaluates which KPIs can be calculated based on the data model
 
-import type { BusinessTypeId } from "@/lib/business-types";
 import type { ModelProposal } from "@/lib/ai/business-model-analyzer-types";
 import type { KpiTemplate } from "@/lib/kpi-templates";
 
@@ -26,7 +25,7 @@ function modelHasTable(
 }
 
 export function evaluateKpiAvailability(
-  businessType: BusinessTypeId,
+  businessType: string,
   model: ModelProposal | null | undefined,
   templates: KpiTemplate[]
 ): KpiAvailability[] {

@@ -2,11 +2,6 @@ import { streamText, convertToCoreMessages, type UIMessage } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import {
-  BUSINESS_TYPE_AI_GUIDANCE,
-  DEFAULT_BUSINESS_TYPE,
-  type BusinessTypeId,
-} from "@/lib/business-types";
 import { buildDashboardContextForUser } from "@/lib/ai/dashboard-context";
 
 // Allow streaming responses up to 30 seconds
@@ -25,10 +20,8 @@ export async function POST(req: Request) {
 
   const { messages }: { messages: UIMessage[] } = await req.json();
 
-  // Determine business type for this user
-  let businessType: BusinessTypeId = DEFAULT_BUSINESS_TYPE;
-
-  // Get company for user
+  // Get company and business model for context
+  let businessTypeLabel = "";
   const { data: company } = await supabase
     .from("companies")
     .select("id")
@@ -36,19 +29,14 @@ export async function POST(req: Request) {
     .single();
 
   if (company) {
-    const { data: modelRow, error: modelError } = await supabase
+    const { data: modelRow } = await supabase
       .from("business_models")
       .select("business_type")
       .eq("company_id", company.id)
       .single();
 
-    if (!modelError && modelRow?.business_type) {
-      const validTypes: BusinessTypeId[] = ["saas", "agency", "fitness_studio"];
-      const rawType = modelRow.business_type as string;
-
-      if (validTypes.includes(rawType as BusinessTypeId)) {
-        businessType = rawType as BusinessTypeId;
-      }
+    if (modelRow?.business_type) {
+      businessTypeLabel = modelRow.business_type;
     }
   }
 
@@ -82,8 +70,9 @@ export async function POST(req: Request) {
     supabase
   );
 
-  // Build business-type-specific guidance
-  const businessInstruction = BUSINESS_TYPE_AI_GUIDANCE[businessType];
+  const businessInstruction = businessTypeLabel
+    ? `The user's business type is: ${businessTypeLabel}. Tailor your insights and recommendations to this context.`
+    : "Provide general business insights based on the available data.";
 
   const systemPrompt = [
     "You are Milton, an AI finance copilot for small businesses.",

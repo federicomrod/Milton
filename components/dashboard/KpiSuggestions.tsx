@@ -3,7 +3,6 @@
 import React from "react";
 import { useBusinessContext } from "@/lib/business-context";
 import { KPI_TEMPLATES } from "@/lib/kpi-templates";
-import type { BusinessTypeId } from "@/lib/business-types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 export function KpiSuggestions() {
@@ -13,7 +12,7 @@ export function KpiSuggestions() {
     return null;
   }
 
-  const templates = KPI_TEMPLATES[businessType as BusinessTypeId] ?? [];
+  const templates = KPI_TEMPLATES[businessType] ?? [];
 
   if (!templates.length) {
     return null;

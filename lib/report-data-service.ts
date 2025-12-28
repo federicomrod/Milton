@@ -1,7 +1,6 @@
 // lib/report-data-service.ts
 import { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import type { BusinessTypeId } from "@/lib/business-types";
 import type {
   TransactionData,
   BudgetData,
@@ -37,7 +36,7 @@ export interface ReportData {
   transactions: TransactionData[];
   crmDeals: CrmDealData[];
   budgets: BudgetData[];
-  businessType: BusinessTypeId | null;
+  businessType: string | null;
   selectedKpiIds: string[];
 }
 
@@ -259,7 +258,7 @@ export async function getReportData(
     transactions: transactions || [],
     crmDeals: crmDeals || [],
     budgets: budgets || [],
-    businessType: (modelRow?.business_type ?? null) as BusinessTypeId | null,
+    businessType: (modelRow?.business_type ?? null) as string | null,
     selectedKpiIds: (modelRow?.selected_kpi_ids ?? []) as string[],
   };
 }

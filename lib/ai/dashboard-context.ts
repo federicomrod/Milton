@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import type { BusinessTypeId } from "@/lib/business-types";
 import { getReportData } from "@/lib/report-data-service";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -23,7 +22,7 @@ export interface DataAvailability {
 }
 
 export interface DashboardContext {
-  businessType: BusinessTypeId | null;
+  businessType: string | null;
   selectedKpiIds: string[];
   kpis: DashboardKpi[];
   monthlyRevenue: Record<string, number>;

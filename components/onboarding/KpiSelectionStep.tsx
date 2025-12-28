@@ -7,7 +7,6 @@ import {
   evaluateKpiAvailability,
   type KpiAvailability,
 } from "@/lib/kpi-availability";
-import type { BusinessTypeId } from "@/lib/business-types";
 import type {
   ModelProposal,
   SuggestedKPI,
@@ -20,7 +19,7 @@ type ApiState =
   | { status: "loading" }
   | {
       status: "ready";
-      businessType: BusinessTypeId;
+      businessType: string;
       model: ModelProposal | null;
       selected: string[];
       suggestedKpis?: SuggestedKPI[];
@@ -54,7 +53,7 @@ export function KpiSelectionStep({
           return;
         }
         const data = await res.json();
-        const businessType = data.businessType as BusinessTypeId;
+        const businessType = data.businessType as string;
         const model = (data.modelJson ?? null) as ModelProposal | null;
         const selected = (data.selectedKpiIds ?? []) as string[];
         const suggestedKpis = (data.suggestedKpis ?? []) as SuggestedKPI[];

@@ -1,8 +1,6 @@
 // lib/kpi-templates.ts
 // KPI template definitions for each business type
 
-import type { BusinessTypeId } from "@/lib/business-types";
-
 export type TrendGoal = "increase" | "decrease" | "stable";
 
 export interface KpiTemplate {
@@ -20,7 +18,7 @@ export interface KpiTemplate {
     | "utilization";
 }
 
-export type KpiTemplateMap = Record<BusinessTypeId, KpiTemplate[]>;
+export type KpiTemplateMap = Record<string, KpiTemplate[]>;
 
 export const KPI_TEMPLATES: KpiTemplateMap = {
   saas: [

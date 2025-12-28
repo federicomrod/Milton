@@ -12,15 +12,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate businessType is one of the allowed values
-    const validTypes = ["saas", "agency", "fitness_studio"];
-    if (!validTypes.includes(businessType)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid businessType value" },
-        { status: 400 }
-      );
-    }
-
     const supabase = await createClient();
     const {
       data: { user },

@@ -30,7 +30,6 @@ import {
   getBusinessModelTemplates,
   type BusinessTypeDefinition,
 } from "@/lib/business-model-templates";
-import type { BusinessTypeId } from "@/lib/business-types";
 import {
   saveOnboardingChat,
   archiveAndClearOnboardingChat,
@@ -47,7 +46,7 @@ interface MiltonChatProps {
     dataSources: string;
     systems: string;
     businessDescription: string;
-    businessType?: BusinessTypeId;
+    businessType?: string;
   }) => void;
   messages: { from: "milton" | "user"; text: string }[];
   setMessages: React.Dispatch<
@@ -72,8 +71,9 @@ export default function MiltonChat({
     | "done"
   >("intro");
   const [input, setInput] = useState("");
-  const [selectedBusinessType, setSelectedBusinessType] =
-    useState<BusinessTypeId | null>(null);
+  const [selectedBusinessType, setSelectedBusinessType] = useState<
+    string | null
+  >(null);
   const [businessTypes, setBusinessTypes] = useState<BusinessTypeDefinition[]>(
     []
   );
@@ -85,7 +85,7 @@ export default function MiltonChat({
     dataSources?: string;
     systems?: string;
     businessDescription?: string;
-    businessType?: BusinessTypeId;
+    businessType?: string;
   }>({});
   const hasFinishedRef = useRef(false);
   const hasLoadedRef = useRef(false);
@@ -114,7 +114,7 @@ export default function MiltonChat({
 
       let restoredStep: typeof step = "intro";
       const restoredAnswers: typeof answers = {};
-      let restoredBusinessType: BusinessTypeId | null = null;
+      let restoredBusinessType: string | null = null;
 
       // Check if we see "Yes, let's start" - means we're past intro
       const hasStarted = msgs.some(
@@ -140,7 +140,7 @@ export default function MiltonChat({
               (bt) => bt.label === userBusinessType
             );
             if (matchedType) {
-              restoredBusinessType = matchedType.id as BusinessTypeId;
+              restoredBusinessType = matchedType.id;
               restoredAnswers.industry = matchedType.label;
               // If business type is answered, advance to employees
               restoredStep = "employees";
@@ -703,7 +703,7 @@ export default function MiltonChat({
                 <Select
                   value={selectedBusinessType || ""}
                   onValueChange={(value) => {
-                    setSelectedBusinessType(value as BusinessTypeId);
+                    setSelectedBusinessType(value);
                     const businessType = businessTypes.find(
                       (bt) => bt.id === value
                     );

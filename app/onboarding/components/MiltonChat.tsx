@@ -31,6 +31,15 @@ import {
   getDataCategoriesForBusinessType,
   type BusinessTypeDefinition,
 } from "@/lib/business-model-templates";
+
+const EMPLOYEE_RANGES = [
+  { id: "1-5", label: "1-5 employees", value: "1-5" },
+  { id: "6-10", label: "6-10 employees", value: "6-10" },
+  { id: "11-25", label: "11-25 employees", value: "11-25" },
+  { id: "26-50", label: "26-50 employees", value: "26-50" },
+  { id: "51-100", label: "51-100 employees", value: "51-100" },
+  { id: "100+", label: "100+ employees", value: "100+" },
+];
 import {
   saveOnboardingChat,
   archiveAndClearOnboardingChat,
@@ -79,6 +88,9 @@ export default function MiltonChat({
   const [businessTypes, setBusinessTypes] = useState<BusinessTypeDefinition[]>(
     []
   );
+  const [selectedEmployeeRange, setSelectedEmployeeRange] = useState<
+    string | null
+  >(null);
   const [dataCategories, setDataCategories] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -95,6 +107,12 @@ export default function MiltonChat({
     businessDescription?: string;
     businessType?: string;
   }>({});
+  const answersRef = useRef(answers);
+
+  // Keep answersRef in sync with answers state
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
   const hasFinishedRef = useRef(false);
   const hasLoadedRef = useRef(false);
   const hasRestoredRef = useRef(false);
@@ -505,17 +523,17 @@ export default function MiltonChat({
       setStep("confirm");
 
       // Log all collected answers for debugging
-      console.log("📋 Onboarding answers collected:", {
+      console.log("📋 Onboarding answers collected at systems step:", {
         businessType: selectedBusinessType,
         businessTypeLabel: businessTypes.find(
           (bt) => bt.id === selectedBusinessType
         )?.label,
-        employees: answers.employees,
-        goals: answers.goals,
-        revenue: answers.revenue,
-        dataSources: answers.dataSources,
-        systems: answers.systems,
-        allAnswers: answers,
+        employees: answersRef.current.employees,
+        goals: answersRef.current.goals,
+        revenue: answersRef.current.revenue,
+        dataSources: answersRef.current.dataSources,
+        systems: answersRef.current.systems,
+        allAnswers: answersRef.current,
       });
 
       // Build summary message
@@ -524,11 +542,11 @@ export default function MiltonChat({
         "Unknown";
       const summary = [
         `Business Type: ${businessTypeLabel}`,
-        `Employees: ${answers.employees || "Not specified"}`,
-        `Goals: ${answers.goals || "Not specified"}`,
-        `Revenue Model: ${answers.revenue || "Not specified"}`,
-        `Data Sources: ${answers.dataSources || "Not specified"}`,
-        `Systems: ${answers.systems || "Not specified"}`,
+        `Employees: ${answersRef.current.employees || "Not specified"}`,
+        `Goals: ${answersRef.current.goals || "Not specified"}`,
+        `Revenue Model: ${answersRef.current.revenue || "Not specified"}`,
+        `Data Sources: ${answersRef.current.dataSources || "Not specified"}`,
+        `Systems: ${answersRef.current.systems || "Not specified"}`,
       ].join("\n\n");
 
       const summaryMessages = [
@@ -601,10 +619,7 @@ export default function MiltonChat({
     if (!input.trim()) return;
     sendUserMessage(input);
 
-    if (step === "employees") {
-      setAnswers((a) => ({ ...a, employees: input }));
-      console.log("📝 Employees answer:", input);
-    } else if (step === "goals") {
+    if (step === "goals") {
       setAnswers((a) => ({ ...a, goals: input }));
       console.log("📝 Goals answer:", input);
     } else if (step === "revenue") {
@@ -631,7 +646,7 @@ export default function MiltonChat({
       case "businessType":
         return "Select your business type...";
       case "employees":
-        return "e.g., 5";
+        return "Select employee range above...";
       case "goals":
         return "e.g., Grow revenue, improve cash flow";
       case "revenue":
@@ -652,6 +667,7 @@ export default function MiltonChat({
     setStep("intro");
     setInput("");
     setSelectedBusinessType(null);
+    setSelectedEmployeeRange(null);
     setAnswers({});
     hasFinishedRef.current = false;
     hasRestoredRef.current = false;
@@ -781,6 +797,66 @@ export default function MiltonChat({
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </div>
+            ) : step === "employees" ? (
+              <div className="space-y-4">
+                <Select
+                  value={selectedEmployeeRange || ""}
+                  onValueChange={(value) => {
+                    setSelectedEmployeeRange(value);
+                    const range = EMPLOYEE_RANGES.find((r) => r.id === value);
+                    if (range) {
+                      setAnswers((a) => ({
+                        ...a,
+                        employees: range.value,
+                      }));
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full min-h-[44px]">
+                    <SelectValue placeholder="Select number of employees...">
+                      {selectedEmployeeRange
+                        ? EMPLOYEE_RANGES.find(
+                            (r) => r.id === selectedEmployeeRange
+                          )?.label
+                        : "Select number of employees..."}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EMPLOYEE_RANGES.map((range) => (
+                      <SelectItem
+                        key={range.id}
+                        value={range.id}
+                        textValue={range.label}
+                      >
+                        <div className="font-medium">{range.label}</div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (selectedEmployeeRange) {
+                      const range = EMPLOYEE_RANGES.find(
+                        (r) => r.id === selectedEmployeeRange
+                      );
+                      const userResponse =
+                        range?.label || selectedEmployeeRange;
+                      setMessages((prev) => [
+                        ...prev,
+                        { from: "user", text: userResponse },
+                      ]);
+                      nextStep();
+                    }
+                  }}
+                  size="default"
+                  className="w-full min-h-[44px]"
+                  disabled={!selectedEmployeeRange}
+                >
+                  Continue
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
             ) : step === "data" ? (
               <div className="space-y-4">
                 <div className="text-sm text-muted-foreground mb-4">
@@ -874,6 +950,16 @@ export default function MiltonChat({
                       dataSources:
                         selectedCategoriesText || "No data categories selected",
                     }));
+
+                    // Add user response to chat
+                    const userResponse =
+                      selectedCategoriesText ||
+                      "No specific data categories selected";
+                    setMessages((prev) => [
+                      ...prev,
+                      { from: "user", text: userResponse },
+                    ]);
+
                     nextStep();
                   }}
                   size="default"

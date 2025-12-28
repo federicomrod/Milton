@@ -73,6 +73,7 @@ export default function MiltonChat({
   const [step, setStep] = useState<
     | "intro"
     | "businessType"
+    | "business_context"
     | "employees"
     | "goals"
     | "revenue"
@@ -99,6 +100,7 @@ export default function MiltonChat({
   >({});
   const [answers, setAnswers] = useState<{
     industry?: string;
+    businessContext?: string;
     employees?: string;
     goals?: string;
     revenue?: string;
@@ -302,9 +304,17 @@ export default function MiltonChat({
     const lastMessage = messages[messages.length - 1];
     const needsQuestion = () => {
       switch (step) {
+        case "business_context":
+          return !messages.some(
+            (m) =>
+              m.from === "milton" &&
+              m.text.includes("Tell me a bit more about your business")
+          );
         case "employees":
           return !messages.some(
-            (m) => m.from === "milton" && m.text.includes("How many employees")
+            (m) =>
+              m.from === "milton" &&
+              m.text.includes("how many employees do you have")
           );
         case "goals":
           return !messages.some(
@@ -345,11 +355,12 @@ export default function MiltonChat({
       // Add the missing question
       let questionText = "";
       switch (step) {
+        case "business_context":
+          questionText =
+            "Tell me a bit more about your business - what makes it unique or any specific details that would help me understand your needs?";
+          break;
         case "employees": {
-          const businessType = businessTypes.find(
-            (bt) => bt.id === selectedBusinessType
-          );
-          questionText = `Perfect! I'll customize everything for ${businessType?.label || "your business"}. How many employees do you have?`;
+          questionText = "Now, how many employees do you have?";
           break;
         }
         case "goals":
@@ -477,13 +488,22 @@ export default function MiltonChat({
       const businessType = businessTypes.find(
         (bt) => bt.id === selectedBusinessType
       );
-      setStep("employees");
+      setStep("business_context");
       setMessages((prev) => [
         ...prev,
         { from: "user", text: businessType?.label || selectedBusinessType },
         {
           from: "milton",
-          text: `Perfect! I'll customize everything for ${businessType?.label || "your business"}. How many employees do you have?`,
+          text: `Perfect! I'll customize everything for ${businessType?.label || "your business"}. Tell me a bit more about your business - what makes it unique or any specific details that would help me understand your needs?`,
+        },
+      ]);
+    } else if (step === "business_context") {
+      setStep("employees");
+      setMessages((prev) => [
+        ...prev,
+        {
+          from: "milton",
+          text: "Thanks for the context! Now, how many employees do you have?",
         },
       ]);
     } else if (step === "employees") {
@@ -542,6 +562,7 @@ export default function MiltonChat({
         "Unknown";
       const summary = [
         `Business Type: ${businessTypeLabel}`,
+        `Business Context: ${answersRef.current.businessContext || "Not specified"}`,
         `Employees: ${answersRef.current.employees || "Not specified"}`,
         `Goals: ${answersRef.current.goals || "Not specified"}`,
         `Revenue Model: ${answersRef.current.revenue || "Not specified"}`,
@@ -619,7 +640,10 @@ export default function MiltonChat({
     if (!input.trim()) return;
     sendUserMessage(input);
 
-    if (step === "goals") {
+    if (step === "business_context") {
+      setAnswers((a) => ({ ...a, businessContext: input }));
+      console.log("📝 Business context answer:", input);
+    } else if (step === "goals") {
       setAnswers((a) => ({ ...a, goals: input }));
       console.log("📝 Goals answer:", input);
     } else if (step === "revenue") {
@@ -645,6 +669,8 @@ export default function MiltonChat({
         return "Click Next to start...";
       case "businessType":
         return "Select your business type...";
+      case "business_context":
+        return "e.g., We specialize in B2B SaaS for manufacturing companies...";
       case "employees":
         return "Select employee range above...";
       case "goals":
@@ -678,7 +704,7 @@ export default function MiltonChat({
     const businessTypeLabel = selectedBusinessType
       ? businessTypes.find((bt) => bt.id === selectedBusinessType)?.label
       : answers.industry || "Unknown";
-    const businessDescription = `Business Type: ${businessTypeLabel}, Employees: ${answers.employees}, Goals: ${answers.goals}, Revenue: ${answers.revenue}, Data: ${answers.dataSources}, Systems: ${answers.systems}`;
+    const businessDescription = `Business Type: ${businessTypeLabel}, Context: ${answers.businessContext}, Employees: ${answers.employees}, Goals: ${answers.goals}, Revenue: ${answers.revenue}, Data: ${answers.dataSources}, Systems: ${answers.systems}`;
     const next = {
       ...answers,
       businessDescription,

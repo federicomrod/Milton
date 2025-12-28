@@ -46,6 +46,7 @@ export default function OnboardingChatPage() {
   const handleOnboardingFinish = useCallback(
     async (answers: {
       industry: string;
+      businessContext?: string;
       employees: string;
       goals: string;
       revenue: string;

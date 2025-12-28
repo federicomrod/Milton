@@ -78,6 +78,7 @@ export default function MiltonChat({
     | "revenue"
     | "data"
     | "systems"
+    | "business_context"
     | "confirm"
     | "done"
   >("intro");
@@ -104,6 +105,7 @@ export default function MiltonChat({
     revenue?: string;
     dataSources?: string;
     systems?: string;
+    businessContext?: string;
     businessDescription?: string;
     businessType?: string;
   }>({});
@@ -329,6 +331,12 @@ export default function MiltonChat({
               m.from === "milton" &&
               m.text.includes("Do you use any software systems")
           );
+        case "business_context":
+          return !messages.some(
+            (m) =>
+              m.from === "milton" &&
+              m.text.includes("Tell me more about your business context")
+          );
         default:
           return false;
       }
@@ -520,6 +528,15 @@ export default function MiltonChat({
         },
       ]);
     } else if (step === "systems") {
+      setStep("business_context");
+      setMessages((prev) => [
+        ...prev,
+        {
+          from: "milton",
+          text: "Tell me more about your business context (optional - press Enter to skip).",
+        },
+      ]);
+    } else if (step === "business_context") {
       setStep("confirm");
 
       // Log all collected answers for debugging
@@ -631,6 +648,9 @@ export default function MiltonChat({
     } else if (step === "systems") {
       setAnswers((a) => ({ ...a, systems: input }));
       console.log("📝 Systems answer:", input);
+    } else if (step === "business_context") {
+      setAnswers((a) => ({ ...a, businessContext: input || "Nothing added" }));
+      console.log("📝 Business context answer:", input || "Nothing added");
     }
     // Confirm step is now handled by button click, not form submit
 
@@ -655,6 +675,8 @@ export default function MiltonChat({
         return "Select data categories above...";
       case "systems":
         return "e.g., Salesforce, Stripe, NetSuite";
+      case "business_context":
+        return "Optional: e.g., We specialize in B2B SaaS for manufacturing companies...";
       default:
         return "Type your message...";
     }

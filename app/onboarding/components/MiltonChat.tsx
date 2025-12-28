@@ -78,6 +78,7 @@ export default function MiltonChat({
     | "revenue"
     | "data"
     | "systems"
+    | "business_context"
     | "confirm"
     | "done"
   >("intro");
@@ -104,6 +105,7 @@ export default function MiltonChat({
     revenue?: string;
     dataSources?: string;
     systems?: string;
+    businessContext?: string;
     businessDescription?: string;
     businessType?: string;
   }>({});
@@ -329,6 +331,12 @@ export default function MiltonChat({
               m.from === "milton" &&
               m.text.includes("Do you use any software systems")
           );
+        case "business_context":
+          return !messages.some(
+            (m) =>
+              m.from === "milton" &&
+              m.text.includes("would you like to add any additional context")
+          );
         default:
           return false;
       }
@@ -366,6 +374,10 @@ export default function MiltonChat({
         case "systems":
           questionText =
             "Do you use any software systems like a CRM, Stripe, or ERP?";
+          break;
+        case "business_context":
+          questionText =
+            "Before we finalize, would you like to add any additional context about your business? This is optional but can help me provide more tailored recommendations.";
           break;
       }
       // Only add if the question text is set and the last message isn't already this question
@@ -520,6 +532,15 @@ export default function MiltonChat({
         },
       ]);
     } else if (step === "systems") {
+      setStep("business_context");
+      setMessages((prev) => [
+        ...prev,
+        {
+          from: "milton",
+          text: "Before we finalize, would you like to add any additional context about your business? This is optional but can help me provide more tailored recommendations.",
+        },
+      ]);
+    } else if (step === "business_context") {
       setStep("confirm");
 
       // Log all collected answers for debugging
@@ -547,6 +568,9 @@ export default function MiltonChat({
         `Revenue Model: ${answersRef.current.revenue || "Not specified"}`,
         `Data Sources: ${answersRef.current.dataSources || "Not specified"}`,
         `Systems: ${answersRef.current.systems || "Not specified"}`,
+        ...(answersRef.current.businessContext
+          ? [`Business Context: ${answersRef.current.businessContext}`]
+          : []),
       ].join("\n\n");
 
       const summaryMessages = [
@@ -631,6 +655,9 @@ export default function MiltonChat({
     } else if (step === "systems") {
       setAnswers((a) => ({ ...a, systems: input }));
       console.log("📝 Systems answer:", input);
+    } else if (step === "business_context") {
+      setAnswers((a) => ({ ...a, businessContext: input }));
+      console.log("📝 Business context answer:", input);
     }
     // Confirm step is now handled by button click, not form submit
 
@@ -655,6 +682,8 @@ export default function MiltonChat({
         return "Select data categories above...";
       case "systems":
         return "e.g., Salesforce, Stripe, NetSuite";
+      case "business_context":
+        return "Optional: e.g., We specialize in B2B SaaS for manufacturing companies...";
       default:
         return "Type your message...";
     }
@@ -678,7 +707,7 @@ export default function MiltonChat({
     const businessTypeLabel = selectedBusinessType
       ? businessTypes.find((bt) => bt.id === selectedBusinessType)?.label
       : answers.industry || "Unknown";
-    const businessDescription = `Business Type: ${businessTypeLabel}, Employees: ${answers.employees}, Goals: ${answers.goals}, Revenue: ${answers.revenue}, Data: ${answers.dataSources}, Systems: ${answers.systems}`;
+    const businessDescription = `Business Type: ${businessTypeLabel}, Employees: ${answers.employees}, Goals: ${answers.goals}, Revenue: ${answers.revenue}, Data: ${answers.dataSources}, Systems: ${answers.systems}${answers.businessContext ? `, Context: ${answers.businessContext}` : ""}`;
     const next = {
       ...answers,
       businessDescription,
@@ -968,6 +997,48 @@ export default function MiltonChat({
                   Continue
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
+              </div>
+            ) : step === "business_context" ? (
+              <div className="space-y-4">
+                <div className="text-sm text-muted-foreground">
+                  Optional: Add any additional context about your business to
+                  help provide more tailored recommendations.
+                </div>
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      // Skip - go directly to confirm
+                      setAnswers((a) => ({ ...a, businessContext: "" }));
+                      setMessages((prev) => [
+                        ...prev,
+                        { from: "user", text: "No additional context" },
+                      ]);
+                      setTimeout(() => nextStep(), 600);
+                    }}
+                    size="default"
+                    variant="outline"
+                    className="flex-1 min-h-[44px]"
+                  >
+                    Skip
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      // Continue with context - submit the text input
+                      if (input.trim()) {
+                        sendUserMessage(input);
+                        setAnswers((a) => ({ ...a, businessContext: input }));
+                        setTimeout(() => nextStep(), 600);
+                      }
+                    }}
+                    size="default"
+                    className="flex-1 min-h-[44px]"
+                    disabled={!input.trim()}
+                  >
+                    Add Context
+                  </Button>
+                </div>
               </div>
             ) : step === "confirm" ? (
               <div className="flex gap-3">

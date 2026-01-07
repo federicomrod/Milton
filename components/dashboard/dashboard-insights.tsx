@@ -6,19 +6,30 @@ import {
   Lightbulb,
   Loader2,
   RefreshCw,
-  TrendingUp,
   AlertTriangle,
   Info,
   Sparkles,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
 import { getReportData } from "@/lib/report-data-service";
 import { useBusinessContext } from "@/lib/business-context";
 
 interface Insight {
+  id?: string;
   title: string;
   description: string;
   category: "positive" | "warning" | "info" | "action";
@@ -28,9 +39,114 @@ export function DashboardInsights() {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedInsights, setExpandedInsights] = useState<Set<string>>(
+    new Set()
+  );
+  const [removedInsights, setRemovedInsights] = useState<Set<string>>(
+    new Set()
+  );
+  const [showRefreshDialog, setShowRefreshDialog] = useState(false);
+  const [isCardCollapsed, setIsCardCollapsed] = useState(false);
   const { businessType } = useBusinessContext();
 
-  const fetchInsights = async () => {
+  // Load insights from database
+  const loadInsightsFromDB = async () => {
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        return [];
+      }
+
+      const { data, error } = await supabase
+        .from("dashboard_insights")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error loading insights:", error);
+        return [];
+      }
+
+      return (data || []).map((insight) => ({
+        id: insight.id,
+        title: insight.title,
+        description: insight.description,
+        category: insight.category as Insight["category"],
+      }));
+    } catch (err) {
+      console.error("Error loading insights from DB:", err);
+      return [];
+    }
+  };
+
+  // Save insights to database
+  const saveInsightsToDB = async (
+    insightsToSave: Insight[],
+    replaceAll: boolean = true
+  ) => {
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        return;
+      }
+
+      if (replaceAll) {
+        // Delete all existing insights for this user
+        await supabase
+          .from("dashboard_insights")
+          .delete()
+          .eq("user_id", user.id);
+      }
+
+      // Insert new insights
+      if (insightsToSave.length > 0) {
+        const insightsToInsert = insightsToSave.map((insight) => ({
+          user_id: user.id,
+          title: insight.title,
+          description: insight.description,
+          category: insight.category,
+        }));
+
+        const { error } = await supabase
+          .from("dashboard_insights")
+          .insert(insightsToInsert);
+
+        if (error) {
+          console.error("Error saving insights:", error);
+        }
+      }
+    } catch (err) {
+      console.error("Error saving insights to DB:", err);
+    }
+  };
+
+  // Delete insight from database
+  const deleteInsightFromDB = async (insightId: string) => {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("dashboard_insights")
+        .delete()
+        .eq("id", insightId);
+
+      if (error) {
+        console.error("Error deleting insight:", error);
+      }
+    } catch (err) {
+      console.error("Error deleting insight from DB:", err);
+    }
+  };
+
+  const generateNewInsights = async (count?: number) => {
     setLoading(true);
     setError(null);
 
@@ -272,17 +388,76 @@ export function DashboardInsights() {
       }
 
       const data = await response.json();
-      setInsights(data.insights || []);
+      const allGeneratedInsights = data.insights || [];
+      const maxInsights = 8;
+      const newInsights = count
+        ? allGeneratedInsights.slice(0, Math.min(count, maxInsights))
+        : allGeneratedInsights.slice(0, maxInsights);
+
+      // Save to database (replaceAll = !count means if count is provided, it's a partial refresh)
+      await saveInsightsToDB(newInsights, !count);
+
+      // Reload from database to get IDs
+      const savedInsights = await loadInsightsFromDB();
+      setInsights(savedInsights);
+
+      // Reset expanded states but keep removed insights
+      setExpandedInsights(new Set());
     } catch (err) {
-      console.error("Error fetching insights:", err);
-      setError(err instanceof Error ? err.message : "Failed to load insights");
+      console.error("Error generating insights:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to generate insights"
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  const handleRefreshClick = () => {
+    const removedCount = removedInsights.size;
+    if (removedCount > 0) {
+      setShowRefreshDialog(true);
+    } else {
+      generateNewInsights();
+    }
+  };
+
+  const handleRefreshAll = async () => {
+    setRemovedInsights(new Set());
+    setShowRefreshDialog(false);
+    await generateNewInsights();
+  };
+
+  const handleRefreshMissing = async () => {
+    const removedCount = removedInsights.size;
+    const currentRemovedIds = new Set(removedInsights);
+    setRemovedInsights(new Set());
+    setShowRefreshDialog(false);
+
+    // Generate only the missing count
+    await generateNewInsights(removedCount);
+
+    // After generating, remove the old removed insights from the array
+    setInsights((prev) =>
+      prev.filter((insight) => !currentRemovedIds.has(insight.id || ""))
+    );
+  };
+
   useEffect(() => {
-    fetchInsights();
+    const loadInsights = async () => {
+      setLoading(true);
+      const savedInsights = await loadInsightsFromDB();
+
+      if (savedInsights.length > 0) {
+        setInsights(savedInsights);
+        setLoading(false);
+      } else {
+        // No insights in DB, generate new ones
+        await generateNewInsights();
+      }
+    };
+
+    loadInsights();
   }, []);
 
   const getCategoryStyles = (category: Insight["category"]) => {
@@ -339,15 +514,44 @@ export function DashboardInsights() {
     }
   };
 
+  const toggleInsight = (insightId: string) => {
+    setExpandedInsights((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(insightId)) {
+        newSet.delete(insightId);
+      } else {
+        newSet.add(insightId);
+      }
+      return newSet;
+    });
+  };
+
+  const removeInsight = async (insightId: string) => {
+    // Remove from database
+    await deleteInsightFromDB(insightId);
+
+    // Update local state to mark as removed (but keep in array for refresh logic)
+    setRemovedInsights((prev) => {
+      const newSet = new Set(prev);
+      newSet.add(insightId);
+      return newSet;
+    });
+  };
+
+  // Filter out removed insights
+  const visibleInsights = insights.filter(
+    (insight) => insight.id && !removedInsights.has(insight.id)
+  );
+
   if (loading) {
     return (
       <Card className="overflow-hidden">
-        <CardHeader className="bg-transparent pb-0">
+        <CardHeader className="bg-transparent pb-3">
           <CardTitle className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-primary/10">
               <Lightbulb className="h-5 w-5 text-primary" />
             </div>
-            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-tight">
               AI Insights
             </span>
           </CardTitle>
@@ -369,12 +573,12 @@ export function DashboardInsights() {
   if (error) {
     return (
       <Card className="overflow-hidden">
-        <CardHeader className="bg-transparent pb-0">
+        <CardHeader className="bg-transparent pb-3">
           <CardTitle className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-primary/10">
               <Lightbulb className="h-5 w-5 text-primary" />
             </div>
-            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-tight">
               AI Insights
             </span>
           </CardTitle>
@@ -386,7 +590,7 @@ export function DashboardInsights() {
               {error}
             </p>
             <Button
-              onClick={fetchInsights}
+              onClick={handleRefreshClick}
               variant="outline"
               size="sm"
               className="gap-2"
@@ -403,12 +607,12 @@ export function DashboardInsights() {
   if (insights.length === 0) {
     return (
       <Card className="overflow-hidden">
-        <CardHeader className="bg-transparent pb-0">
+        <CardHeader className="bg-transparent pb-3">
           <CardTitle className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-primary/10">
               <Lightbulb className="h-5 w-5 text-primary" />
             </div>
-            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-tight">
               AI Insights
             </span>
           </CardTitle>
@@ -430,16 +634,40 @@ export function DashboardInsights() {
     <Card className="overflow-hidden">
       <CardHeader className="bg-transparent pb-0">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-lg bg-primary/10 backdrop-blur-sm">
-              <Lightbulb className="h-5 w-5 text-primary" />
-            </div>
-            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
-              AI Insights
-            </span>
-          </CardTitle>
+          <div className="flex items-center gap-2.5">
+            <CardTitle className="flex items-center gap-2.5">
+              <div className="p-1.5 rounded-lg bg-primary/10 backdrop-blur-sm">
+                <Lightbulb className="h-5 w-5 text-primary" />
+              </div>
+              <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-tight">
+                AI Insights
+              </span>
+              {isCardCollapsed && visibleInsights.length > 0 && (
+                <Badge
+                  variant="secondary"
+                  className="ml-1.5 h-5 px-1.5 text-xs font-medium"
+                >
+                  {visibleInsights.length}
+                </Badge>
+              )}
+            </CardTitle>
+            <button
+              onClick={() => setIsCardCollapsed(!isCardCollapsed)}
+              className="ml-2 flex items-center justify-center h-7 w-7 rounded hover:bg-primary/10 transition-colors"
+              aria-label={isCardCollapsed ? "Expand" : "Collapse"}
+            >
+              {isCardCollapsed ? (
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-colors" />
+              ) : (
+                <ChevronUp className="h-4 w-4 text-muted-foreground transition-colors" />
+              )}
+            </button>
+          </div>
           <Button
-            onClick={fetchInsights}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleRefreshClick();
+            }}
             variant="ghost"
             size="sm"
             className="h-8 w-8 p-0 hover:bg-primary/10 transition-colors"
@@ -448,51 +676,147 @@ export function DashboardInsights() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="pt-6">
-        <div className="space-y-4">
-          {insights.map((insight, index) => {
-            const styles = getCategoryStyles(insight.category);
-            const Icon = styles.icon;
-            return (
-              <div
-                key={index}
-                className={`group relative overflow-hidden rounded-xl border ${styles.border} bg-gradient-to-br ${styles.gradient} p-5 transition-all duration-300 hover:shadow-lg hover:scale-[1.01] hover:border-opacity-40`}
-                style={{
-                  animation: `fadeInUp 0.4s ease-out ${index * 0.08}s both`,
-                }}
-              >
-                <div className="flex items-start gap-4">
+      <div
+        className={`overflow-hidden transition-all duration-300 ease-in-out ${
+          isCardCollapsed ? "max-h-0 opacity-0" : "max-h-[5000px] opacity-100"
+        }`}
+      >
+        <CardContent className="pt-0">
+          {visibleInsights.length === 0 ? (
+            <div className="py-8 text-center">
+              <Info className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-50" />
+              <p className="text-sm text-muted-foreground font-medium">
+                All insights have been removed. Click refresh to generate new
+                ones.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {visibleInsights.map((insight, displayIndex) => {
+                if (!insight.id) return null;
+
+                const styles = getCategoryStyles(insight.category);
+                const Icon = styles.icon;
+                const isExpanded = expandedInsights.has(insight.id);
+
+                return (
                   <div
-                    className={`flex-shrink-0 p-2.5 rounded-lg bg-background/50 backdrop-blur-sm border ${styles.border} group-hover:scale-110 transition-transform duration-300`}
+                    key={insight.id}
+                    className={`group relative overflow-hidden rounded-xl border ${styles.border} bg-gradient-to-br ${styles.gradient} transition-all duration-300 hover:shadow-lg hover:scale-[1.01] hover:border-opacity-40 ${
+                      isExpanded ? "" : ""
+                    }`}
+                    style={{
+                      animation: `fadeInUp 0.4s ease-out ${displayIndex * 0.08}s both`,
+                    }}
                   >
-                    <Icon className={`h-5 w-5 ${styles.iconColor}`} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <h4 className="font-semibold text-base text-foreground leading-tight">
-                        {insight.title}
-                      </h4>
-                      <Badge
-                        variant="outline"
-                        className={`${styles.badge} text-xs font-medium shrink-0`}
-                      >
-                        {getCategoryLabel(insight.category)}
-                      </Badge>
+                    <div
+                      className={`transition-all duration-300 ${isExpanded ? "p-5" : "py-3 px-4"}`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div
+                          className={`flex-shrink-0 rounded-lg bg-background/50 backdrop-blur-sm border ${styles.border} group-hover:scale-110 transition-transform duration-300 ${
+                            isExpanded ? "p-2.5" : "p-2"
+                          }`}
+                        >
+                          <Icon
+                            className={`${isExpanded ? "h-5 w-5" : "h-4 w-4"} ${styles.iconColor}`}
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-3">
+                            <button
+                              onClick={() => toggleInsight(insight.id!)}
+                              className="flex-1 text-left group/button"
+                            >
+                              <h4
+                                className={`font-semibold text-foreground leading-tight group-hover/button:text-primary transition-colors ${
+                                  isExpanded ? "text-base" : "text-sm"
+                                }`}
+                              >
+                                {insight.title}
+                              </h4>
+                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Badge
+                                variant="outline"
+                                className={`${styles.badge} text-xs font-medium`}
+                              >
+                                {getCategoryLabel(insight.category)}
+                              </Badge>
+                              <Button
+                                onClick={() => toggleInsight(insight.id!)}
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 hover:bg-primary/10 transition-colors"
+                                aria-label={isExpanded ? "Collapse" : "Expand"}
+                              >
+                                {isExpanded ? (
+                                  <ChevronUp className="h-4 w-4" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4" />
+                                )}
+                              </Button>
+                              <Button
+                                onClick={() => removeInsight(insight.id!)}
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive transition-colors"
+                                aria-label="Remove insight"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                          <div
+                            className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                              isExpanded
+                                ? "max-h-[500px] opacity-100 mt-3"
+                                : "max-h-0 opacity-0 mt-0"
+                            }`}
+                          >
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                              {insight.description}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      {insight.description}
-                    </p>
+                    {/* Decorative accent line */}
+                    <div
+                      className={`absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b ${styles.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
+                    />
                   </div>
-                </div>
-                {/* Decorative accent line */}
-                <div
-                  className={`absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b ${styles.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </CardContent>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </div>
+
+      <Dialog open={showRefreshDialog} onOpenChange={setShowRefreshDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Refresh Insights</DialogTitle>
+            <DialogDescription>
+              You have removed {removedInsights.size} insight
+              {removedInsights.size !== 1 ? "s" : ""}. Would you like to
+              generate all new insights or only replace the removed ones?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowRefreshDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button variant="outline" onClick={handleRefreshMissing}>
+              Replace {removedInsights.size} Missing
+            </Button>
+            <Button onClick={handleRefreshAll}>Generate All New</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

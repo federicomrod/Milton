@@ -6,7 +6,6 @@ import {
   Lightbulb,
   Loader2,
   RefreshCw,
-  TrendingUp,
   AlertTriangle,
   Info,
   Sparkles,
@@ -47,6 +46,7 @@ export function DashboardInsights() {
     new Set()
   );
   const [showRefreshDialog, setShowRefreshDialog] = useState(false);
+  const [isCardCollapsed, setIsCardCollapsed] = useState(false);
   const { businessType } = useBusinessContext();
 
   // Load insights from database
@@ -389,9 +389,10 @@ export function DashboardInsights() {
 
       const data = await response.json();
       const allGeneratedInsights = data.insights || [];
+      const maxInsights = 8;
       const newInsights = count
-        ? allGeneratedInsights.slice(0, count)
-        : allGeneratedInsights;
+        ? allGeneratedInsights.slice(0, Math.min(count, maxInsights))
+        : allGeneratedInsights.slice(0, maxInsights);
 
       // Save to database (replaceAll = !count means if count is provided, it's a partial refresh)
       await saveInsightsToDB(newInsights, !count);
@@ -545,12 +546,12 @@ export function DashboardInsights() {
   if (loading) {
     return (
       <Card className="overflow-hidden">
-        <CardHeader className="bg-transparent pb-0">
+        <CardHeader className="bg-transparent pb-3">
           <CardTitle className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-primary/10">
               <Lightbulb className="h-5 w-5 text-primary" />
             </div>
-            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-tight">
               AI Insights
             </span>
           </CardTitle>
@@ -572,12 +573,12 @@ export function DashboardInsights() {
   if (error) {
     return (
       <Card className="overflow-hidden">
-        <CardHeader className="bg-transparent pb-0">
+        <CardHeader className="bg-transparent pb-3">
           <CardTitle className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-primary/10">
               <Lightbulb className="h-5 w-5 text-primary" />
             </div>
-            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-tight">
               AI Insights
             </span>
           </CardTitle>
@@ -606,12 +607,12 @@ export function DashboardInsights() {
   if (insights.length === 0) {
     return (
       <Card className="overflow-hidden">
-        <CardHeader className="bg-transparent pb-0">
+        <CardHeader className="bg-transparent pb-3">
           <CardTitle className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-primary/10">
               <Lightbulb className="h-5 w-5 text-primary" />
             </div>
-            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-tight">
               AI Insights
             </span>
           </CardTitle>
@@ -633,16 +634,39 @@ export function DashboardInsights() {
     <Card className="overflow-hidden">
       <CardHeader className="bg-transparent pb-0">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-lg bg-primary/10 backdrop-blur-sm">
-              <Lightbulb className="h-5 w-5 text-primary" />
+          <button
+            onClick={() => setIsCardCollapsed(!isCardCollapsed)}
+            className="flex items-center gap-2.5 group/header hover:opacity-80 transition-opacity"
+          >
+            <CardTitle className="flex items-center gap-2.5">
+              <div className="p-1.5 rounded-lg bg-primary/10 backdrop-blur-sm">
+                <Lightbulb className="h-5 w-5 text-primary" />
+              </div>
+              <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-tight">
+                AI Insights
+              </span>
+              {isCardCollapsed && visibleInsights.length > 0 && (
+                <Badge
+                  variant="secondary"
+                  className="ml-1.5 h-5 px-1.5 text-xs font-medium"
+                >
+                  {visibleInsights.length}
+                </Badge>
+              )}
+            </CardTitle>
+            <div className="ml-2">
+              {isCardCollapsed ? (
+                <ChevronDown className="h-4 w-4 text-muted-foreground group-hover/header:text-foreground transition-colors" />
+              ) : (
+                <ChevronUp className="h-4 w-4 text-muted-foreground group-hover/header:text-foreground transition-colors" />
+              )}
             </div>
-            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
-              AI Insights
-            </span>
-          </CardTitle>
+          </button>
           <Button
-            onClick={handleRefreshClick}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleRefreshClick();
+            }}
             variant="ghost"
             size="sm"
             className="h-8 w-8 p-0 hover:bg-primary/10 transition-colors"
@@ -651,116 +675,122 @@ export function DashboardInsights() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="pt-6">
-        {visibleInsights.length === 0 ? (
-          <div className="py-8 text-center">
-            <Info className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-50" />
-            <p className="text-sm text-muted-foreground font-medium">
-              All insights have been removed. Click refresh to generate new
-              ones.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {visibleInsights.map((insight, displayIndex) => {
-              if (!insight.id) return null;
+      <div
+        className={`overflow-hidden transition-all duration-300 ease-in-out ${
+          isCardCollapsed ? "max-h-0 opacity-0" : "max-h-[5000px] opacity-100"
+        }`}
+      >
+        <CardContent className="pt-0">
+          {visibleInsights.length === 0 ? (
+            <div className="py-8 text-center">
+              <Info className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-50" />
+              <p className="text-sm text-muted-foreground font-medium">
+                All insights have been removed. Click refresh to generate new
+                ones.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {visibleInsights.map((insight, displayIndex) => {
+                if (!insight.id) return null;
 
-              const styles = getCategoryStyles(insight.category);
-              const Icon = styles.icon;
-              const isExpanded = expandedInsights.has(insight.id);
+                const styles = getCategoryStyles(insight.category);
+                const Icon = styles.icon;
+                const isExpanded = expandedInsights.has(insight.id);
 
-              return (
-                <div
-                  key={insight.id}
-                  className={`group relative overflow-hidden rounded-xl border ${styles.border} bg-gradient-to-br ${styles.gradient} transition-all duration-300 hover:shadow-lg hover:scale-[1.01] hover:border-opacity-40 ${
-                    isExpanded ? "" : ""
-                  }`}
-                  style={{
-                    animation: `fadeInUp 0.4s ease-out ${displayIndex * 0.08}s both`,
-                  }}
-                >
+                return (
                   <div
-                    className={`transition-all duration-300 ${isExpanded ? "p-5" : "py-3 px-4"}`}
+                    key={insight.id}
+                    className={`group relative overflow-hidden rounded-xl border ${styles.border} bg-gradient-to-br ${styles.gradient} transition-all duration-300 hover:shadow-lg hover:scale-[1.01] hover:border-opacity-40 ${
+                      isExpanded ? "" : ""
+                    }`}
+                    style={{
+                      animation: `fadeInUp 0.4s ease-out ${displayIndex * 0.08}s both`,
+                    }}
                   >
-                    <div className="flex items-center gap-4">
-                      <div
-                        className={`flex-shrink-0 rounded-lg bg-background/50 backdrop-blur-sm border ${styles.border} group-hover:scale-110 transition-transform duration-300 ${
-                          isExpanded ? "p-2.5" : "p-2"
-                        }`}
-                      >
-                        <Icon
-                          className={`${isExpanded ? "h-5 w-5" : "h-4 w-4"} ${styles.iconColor}`}
-                        />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-3">
-                          <button
-                            onClick={() => toggleInsight(insight.id!)}
-                            className="flex-1 text-left group/button"
-                          >
-                            <h4
-                              className={`font-semibold text-foreground leading-tight group-hover/button:text-primary transition-colors ${
-                                isExpanded ? "text-base" : "text-sm"
-                              }`}
-                            >
-                              {insight.title}
-                            </h4>
-                          </button>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <Badge
-                              variant="outline"
-                              className={`${styles.badge} text-xs font-medium`}
-                            >
-                              {getCategoryLabel(insight.category)}
-                            </Badge>
-                            <Button
-                              onClick={() => toggleInsight(insight.id!)}
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 w-7 p-0 hover:bg-primary/10 transition-colors"
-                              aria-label={isExpanded ? "Collapse" : "Expand"}
-                            >
-                              {isExpanded ? (
-                                <ChevronUp className="h-4 w-4" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <Button
-                              onClick={() => removeInsight(insight.id!)}
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive transition-colors"
-                              aria-label="Remove insight"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
+                    <div
+                      className={`transition-all duration-300 ${isExpanded ? "p-5" : "py-3 px-4"}`}
+                    >
+                      <div className="flex items-center gap-4">
                         <div
-                          className={`overflow-hidden transition-all duration-300 ease-in-out ${
-                            isExpanded
-                              ? "max-h-[500px] opacity-100 mt-3"
-                              : "max-h-0 opacity-0 mt-0"
+                          className={`flex-shrink-0 rounded-lg bg-background/50 backdrop-blur-sm border ${styles.border} group-hover:scale-110 transition-transform duration-300 ${
+                            isExpanded ? "p-2.5" : "p-2"
                           }`}
                         >
-                          <p className="text-sm text-muted-foreground leading-relaxed">
-                            {insight.description}
-                          </p>
+                          <Icon
+                            className={`${isExpanded ? "h-5 w-5" : "h-4 w-4"} ${styles.iconColor}`}
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-3">
+                            <button
+                              onClick={() => toggleInsight(insight.id!)}
+                              className="flex-1 text-left group/button"
+                            >
+                              <h4
+                                className={`font-semibold text-foreground leading-tight group-hover/button:text-primary transition-colors ${
+                                  isExpanded ? "text-base" : "text-sm"
+                                }`}
+                              >
+                                {insight.title}
+                              </h4>
+                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Badge
+                                variant="outline"
+                                className={`${styles.badge} text-xs font-medium`}
+                              >
+                                {getCategoryLabel(insight.category)}
+                              </Badge>
+                              <Button
+                                onClick={() => toggleInsight(insight.id!)}
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 hover:bg-primary/10 transition-colors"
+                                aria-label={isExpanded ? "Collapse" : "Expand"}
+                              >
+                                {isExpanded ? (
+                                  <ChevronUp className="h-4 w-4" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4" />
+                                )}
+                              </Button>
+                              <Button
+                                onClick={() => removeInsight(insight.id!)}
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive transition-colors"
+                                aria-label="Remove insight"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                          <div
+                            className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                              isExpanded
+                                ? "max-h-[500px] opacity-100 mt-3"
+                                : "max-h-0 opacity-0 mt-0"
+                            }`}
+                          >
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                              {insight.description}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>
+                    {/* Decorative accent line */}
+                    <div
+                      className={`absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b ${styles.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
+                    />
                   </div>
-                  {/* Decorative accent line */}
-                  <div
-                    className={`absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b ${styles.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </CardContent>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </div>
 
       <Dialog open={showRefreshDialog} onOpenChange={setShowRefreshDialog}>
         <DialogContent>

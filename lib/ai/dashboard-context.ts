@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import type { BusinessTypeId } from "@/lib/business-types";
 import { getReportData } from "@/lib/report-data-service";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -16,14 +15,13 @@ export interface DashboardKpi {
 }
 
 export interface DataAvailability {
-  hasKpiSnapshots: boolean;
   hasTransactions: boolean;
   hasBudgets: boolean;
   hasCrmDeals: boolean;
 }
 
 export interface DashboardContext {
-  businessType: BusinessTypeId | null;
+  businessType: string | null;
   selectedKpiIds: string[];
   kpis: DashboardKpi[];
   monthlyRevenue: Record<string, number>;
@@ -201,7 +199,6 @@ export async function buildDashboardContextForUser(
 
     // Data availability flags
     const dataAvailability: DataAvailability = {
-      hasKpiSnapshots: kpis.length > 0,
       hasTransactions: (reportData.transactions?.length || 0) > 0,
       hasBudgets: (reportData.budgets?.length || 0) > 0,
       hasCrmDeals: (reportData.crmDeals?.length || 0) > 0,
@@ -257,7 +254,6 @@ export async function buildDashboardContextForUser(
       kpis: [],
       monthlyRevenue: {},
       dataAvailability: {
-        hasKpiSnapshots: false,
         hasTransactions: false,
         hasBudgets: false,
         hasCrmDeals: false,

@@ -51,8 +51,10 @@ export default function OnboardingChatPage() {
       revenue: string;
       dataSources: string;
       systems: string;
+      businessContext?: string;
       businessDescription: string;
       businessType?: string;
+      selectedDataCategories?: Record<string, "yes" | "no" | "not_sure">;
     }) => {
       console.log("🟩 Onboarding chat finished with answers:", answers);
       setLoading(true);

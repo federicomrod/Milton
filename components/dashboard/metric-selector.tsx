@@ -19,7 +19,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { BusinessTypeId } from "@/lib/business-types";
 import { KPI_TEMPLATES } from "@/lib/kpi-templates";
 
 interface MetricOption {
@@ -160,7 +159,7 @@ const availableMetrics: MetricOption[] = [
 interface MetricSelectorProps {
   selectedMetrics: string[];
   onMetricsChange: (metrics: string[]) => void;
-  businessType?: BusinessTypeId | null;
+  businessType?: string | null;
 }
 
 export function MetricSelector({

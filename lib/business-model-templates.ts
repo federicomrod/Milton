@@ -5,11 +5,16 @@ import { createClient } from "@/lib/supabase/client";
 
 export interface BusinessModelTemplate {
   id?: string;
-  key?: string; // Some tables use 'key' as primary key
+  key: string; // Primary key identifier (e.g., "saas", "agency")
   name: string;
   description?: string;
-  tagline?: string;
-  kpi_recipes: any[];
+  // New structure fields
+  required_tables_data?: any[]; // JSONB array of required tables/data sources
+  required_relationships?: any[]; // JSONB array of required relationships
+  kpi_ids?: string[]; // JSONB array of KPI IDs referencing separate KPIs table
+  filters?: any[]; // JSONB array of filter definitions
+  mvp_guardrails?: Record<string, any>; // JSONB object containing MVP guardrails
+  data_categories?: any[]; // JSONB array of data categories
   created_at?: string;
   updated_at?: string;
 }
@@ -19,7 +24,6 @@ export interface BusinessTypeDefinition {
   label: string;
   shortLabel?: string;
   description: string;
-  tagline?: string;
 }
 
 /**
@@ -30,7 +34,6 @@ export async function getBusinessModelTemplates(): Promise<
 > {
   try {
     const supabase = createClient();
-    // Fetch templates - try both 'id' and 'key' column names to support different table structures
     const { data, error } = await supabase
       .from("business_model_templates")
       .select("*")
@@ -38,60 +41,51 @@ export async function getBusinessModelTemplates(): Promise<
 
     if (error) {
       console.error("[getBusinessModelTemplates] error:", error);
-      // Fallback to default types if fetch fails
-      return getDefaultBusinessTypes();
+      return [];
     }
 
     if (!data || data.length === 0) {
-      return getDefaultBusinessTypes();
+      return [];
     }
 
     // Map Supabase data to BusinessTypeDefinition format
     return data.map((template: any) => {
-      // Support both 'id' and 'key' as primary key column names
-      const id = template.id || template.key || "";
+      const id = template.key || template.id || "";
       return {
         id,
         label: template.name || id,
         shortLabel: id.split("_")[0],
         description: template.description || "",
-        tagline: template.tagline || "",
       };
     });
   } catch (err) {
     console.error("[getBusinessModelTemplates] unexpected error:", err);
-    return getDefaultBusinessTypes();
+    return [];
   }
 }
 
 /**
- * Fallback default business types if Supabase fetch fails
+ * Fetch data categories for a specific business model template
  */
-function getDefaultBusinessTypes(): BusinessTypeDefinition[] {
-  return [
-    {
-      id: "saas",
-      label: "SaaS / Digital Product",
-      shortLabel: "SaaS",
-      description:
-        "Subscription-based or digital product businesses with recurring revenue and pipelines.",
-      tagline: "MRR, churn, pipeline, CAC & LTV.",
-    },
-    {
-      id: "agency",
-      label: "Agency / Service Business",
-      shortLabel: "Agency",
-      description:
-        "Consulting, marketing, training, or professional services with projects and retainers.",
-      tagline: "Projects, invoices, utilization & margin.",
-    },
-    {
-      id: "fitness_studio",
-      label: "Fitness / Wellness Studio",
-      shortLabel: "Fitness",
-      description:
-        "Yoga, pilates, and fitness studios with classes, bookings, instructors and packs.",
-      tagline: "Class utilization, pack sales & cancellations.",
-    },
-  ];
+export async function getDataCategoriesForBusinessType(
+  businessTypeKey: string
+): Promise<Array<{ id: string; name: string }>> {
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("business_model_templates")
+      .select("data_categories")
+      .eq("key", businessTypeKey)
+      .single();
+
+    if (error) {
+      console.error("[getDataCategoriesForBusinessType] error:", error);
+      return [];
+    }
+
+    return data?.data_categories || [];
+  } catch (err) {
+    console.error("[getDataCategoriesForBusinessType] unexpected error:", err);
+    return [];
+  }
 }

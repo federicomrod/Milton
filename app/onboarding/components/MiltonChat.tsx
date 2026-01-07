@@ -28,9 +28,18 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import {
   getBusinessModelTemplates,
+  getDataCategoriesForBusinessType,
   type BusinessTypeDefinition,
 } from "@/lib/business-model-templates";
-import type { BusinessTypeId } from "@/lib/business-types";
+
+const EMPLOYEE_RANGES = [
+  { id: "1-5", label: "1-5 employees", value: "1-5" },
+  { id: "6-10", label: "6-10 employees", value: "6-10" },
+  { id: "11-25", label: "11-25 employees", value: "11-25" },
+  { id: "26-50", label: "26-50 employees", value: "26-50" },
+  { id: "51-100", label: "51-100 employees", value: "51-100" },
+  { id: "100+", label: "100+ employees", value: "100+" },
+];
 import {
   saveOnboardingChat,
   archiveAndClearOnboardingChat,
@@ -47,7 +56,8 @@ interface MiltonChatProps {
     dataSources: string;
     systems: string;
     businessDescription: string;
-    businessType?: BusinessTypeId;
+    businessType?: string;
+    selectedDataCategories?: Record<string, "yes" | "no" | "not_sure">;
   }) => void;
   messages: { from: "milton" | "user"; text: string }[];
   setMessages: React.Dispatch<
@@ -68,15 +78,26 @@ export default function MiltonChat({
     | "revenue"
     | "data"
     | "systems"
+    | "business_context"
     | "confirm"
     | "done"
   >("intro");
   const [input, setInput] = useState("");
-  const [selectedBusinessType, setSelectedBusinessType] =
-    useState<BusinessTypeId | null>(null);
+  const [selectedBusinessType, setSelectedBusinessType] = useState<
+    string | null
+  >(null);
   const [businessTypes, setBusinessTypes] = useState<BusinessTypeDefinition[]>(
     []
   );
+  const [selectedEmployeeRange, setSelectedEmployeeRange] = useState<
+    string | null
+  >(null);
+  const [dataCategories, setDataCategories] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [selectedDataCategories, setSelectedDataCategories] = useState<
+    Record<string, "yes" | "no" | "not_sure">
+  >({});
   const [answers, setAnswers] = useState<{
     industry?: string;
     employees?: string;
@@ -84,9 +105,16 @@ export default function MiltonChat({
     revenue?: string;
     dataSources?: string;
     systems?: string;
+    businessContext?: string;
     businessDescription?: string;
-    businessType?: BusinessTypeId;
+    businessType?: string;
   }>({});
+  const answersRef = useRef(answers);
+
+  // Keep answersRef in sync with answers state
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
   const hasFinishedRef = useRef(false);
   const hasLoadedRef = useRef(false);
   const hasRestoredRef = useRef(false);
@@ -114,7 +142,7 @@ export default function MiltonChat({
 
       let restoredStep: typeof step = "intro";
       const restoredAnswers: typeof answers = {};
-      let restoredBusinessType: BusinessTypeId | null = null;
+      let restoredBusinessType: string | null = null;
 
       // Check if we see "Yes, let's start" - means we're past intro
       const hasStarted = msgs.some(
@@ -140,7 +168,7 @@ export default function MiltonChat({
               (bt) => bt.label === userBusinessType
             );
             if (matchedType) {
-              restoredBusinessType = matchedType.id as BusinessTypeId;
+              restoredBusinessType = matchedType.id;
               restoredAnswers.industry = matchedType.label;
               // If business type is answered, advance to employees
               restoredStep = "employees";
@@ -303,6 +331,12 @@ export default function MiltonChat({
               m.from === "milton" &&
               m.text.includes("Do you use any software systems")
           );
+        case "business_context":
+          return !messages.some(
+            (m) =>
+              m.from === "milton" &&
+              m.text.includes("Any additional context about your business")
+          );
         default:
           return false;
       }
@@ -364,6 +398,20 @@ export default function MiltonChat({
     };
     loadBusinessTypes();
   }, []);
+
+  // Load data categories when business type is selected
+  useEffect(() => {
+    const loadDataCategories = async () => {
+      if (selectedBusinessType) {
+        const categories =
+          await getDataCategoriesForBusinessType(selectedBusinessType);
+        setDataCategories(categories);
+        // Reset selected data categories when business type changes
+        setSelectedDataCategories({});
+      }
+    };
+    loadDataCategories();
+  }, [selectedBusinessType]);
 
   // Load existing chat on mount and restore state
   useEffect(() => {
@@ -480,20 +528,29 @@ export default function MiltonChat({
         },
       ]);
     } else if (step === "systems") {
+      setStep("business_context");
+      setMessages((prev) => [
+        ...prev,
+        {
+          from: "milton",
+          text: "Any additional context about your business? (Optional - you can skip this)",
+        },
+      ]);
+    } else if (step === "business_context") {
       setStep("confirm");
 
       // Log all collected answers for debugging
-      console.log("📋 Onboarding answers collected:", {
+      console.log("📋 Onboarding answers collected at systems step:", {
         businessType: selectedBusinessType,
         businessTypeLabel: businessTypes.find(
           (bt) => bt.id === selectedBusinessType
         )?.label,
-        employees: answers.employees,
-        goals: answers.goals,
-        revenue: answers.revenue,
-        dataSources: answers.dataSources,
-        systems: answers.systems,
-        allAnswers: answers,
+        employees: answersRef.current.employees,
+        goals: answersRef.current.goals,
+        revenue: answersRef.current.revenue,
+        dataSources: answersRef.current.dataSources,
+        systems: answersRef.current.systems,
+        allAnswers: answersRef.current,
       });
 
       // Build summary message
@@ -502,11 +559,15 @@ export default function MiltonChat({
         "Unknown";
       const summary = [
         `Business Type: ${businessTypeLabel}`,
-        `Employees: ${answers.employees || "Not specified"}`,
-        `Goals: ${answers.goals || "Not specified"}`,
-        `Revenue Model: ${answers.revenue || "Not specified"}`,
-        `Data Sources: ${answers.dataSources || "Not specified"}`,
-        `Systems: ${answers.systems || "Not specified"}`,
+        `Employees: ${answersRef.current.employees || "Not specified"}`,
+        `Goals: ${answersRef.current.goals || "Not specified"}`,
+        `Revenue Model: ${answersRef.current.revenue || "Not specified"}`,
+        `Data Sources: ${answersRef.current.dataSources || "Not specified"}`,
+        `Systems: ${answersRef.current.systems || "Not specified"}`,
+        ...(answersRef.current.businessContext &&
+        answersRef.current.businessContext !== "Not specified"
+          ? [`Business Context: ${answersRef.current.businessContext}`]
+          : []),
       ].join("\n\n");
 
       const summaryMessages = [
@@ -576,13 +637,15 @@ export default function MiltonChat({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!input.trim()) return;
-    sendUserMessage(input);
+    if (step !== "business_context" && !input.trim()) return;
 
-    if (step === "employees") {
-      setAnswers((a) => ({ ...a, employees: input }));
-      console.log("📝 Employees answer:", input);
-    } else if (step === "goals") {
+    // For business context, use "Not specified" if empty
+    const messageToSend =
+      step === "business_context" && !input.trim() ? "Not specified" : input;
+
+    sendUserMessage(messageToSend);
+
+    if (step === "goals") {
       setAnswers((a) => ({ ...a, goals: input }));
       console.log("📝 Goals answer:", input);
     } else if (step === "revenue") {
@@ -594,6 +657,9 @@ export default function MiltonChat({
     } else if (step === "systems") {
       setAnswers((a) => ({ ...a, systems: input }));
       console.log("📝 Systems answer:", input);
+    } else if (step === "business_context") {
+      setAnswers((a) => ({ ...a, businessContext: input || "Not specified" }));
+      console.log("📝 Business context answer:", input || "Not specified");
     }
     // Confirm step is now handled by button click, not form submit
 
@@ -609,15 +675,17 @@ export default function MiltonChat({
       case "businessType":
         return "Select your business type...";
       case "employees":
-        return "e.g., 5";
+        return "Select employee range above...";
       case "goals":
         return "e.g., Grow revenue, improve cash flow";
       case "revenue":
         return "e.g., Subscription fees, product sales";
       case "data":
-        return "e.g., Excel sheets, Google Analytics";
+        return "Select data categories above...";
       case "systems":
         return "e.g., Salesforce, Stripe, NetSuite";
+      case "business_context":
+        return "e.g., We specialize in B2B SaaS for manufacturing companies...";
       default:
         return "Type your message...";
     }
@@ -630,6 +698,7 @@ export default function MiltonChat({
     setStep("intro");
     setInput("");
     setSelectedBusinessType(null);
+    setSelectedEmployeeRange(null);
     setAnswers({});
     hasFinishedRef.current = false;
     hasRestoredRef.current = false;
@@ -646,7 +715,15 @@ export default function MiltonChat({
       businessDescription,
       businessType: selectedBusinessType || undefined,
       industry: businessTypeLabel,
+      selectedDataCategories, // Save the data categories selections
     };
+
+    // Save data categories to localStorage for later use
+    localStorage.setItem(
+      "milton-selected-data-categories",
+      JSON.stringify(selectedDataCategories)
+    );
+
     setAnswers(next);
     finish(next);
   };
@@ -703,7 +780,7 @@ export default function MiltonChat({
                 <Select
                   value={selectedBusinessType || ""}
                   onValueChange={(value) => {
-                    setSelectedBusinessType(value as BusinessTypeId);
+                    setSelectedBusinessType(value);
                     const businessType = businessTypes.find(
                       (bt) => bt.id === value
                     );
@@ -731,12 +808,7 @@ export default function MiltonChat({
                         value={bt.id}
                         textValue={bt.label}
                       >
-                        <div>
-                          <div className="font-medium">{bt.label}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {bt.tagline}
-                          </div>
-                        </div>
+                        <div className="font-medium">{bt.label}</div>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -751,6 +823,178 @@ export default function MiltonChat({
                   size="default"
                   className="w-full min-h-[44px]"
                   disabled={!selectedBusinessType}
+                >
+                  Continue
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            ) : step === "employees" ? (
+              <div className="space-y-4">
+                <Select
+                  value={selectedEmployeeRange || ""}
+                  onValueChange={(value) => {
+                    setSelectedEmployeeRange(value);
+                    const range = EMPLOYEE_RANGES.find((r) => r.id === value);
+                    if (range) {
+                      setAnswers((a) => ({
+                        ...a,
+                        employees: range.value,
+                      }));
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full min-h-[44px]">
+                    <SelectValue placeholder="Select number of employees...">
+                      {selectedEmployeeRange
+                        ? EMPLOYEE_RANGES.find(
+                            (r) => r.id === selectedEmployeeRange
+                          )?.label
+                        : "Select number of employees..."}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EMPLOYEE_RANGES.map((range) => (
+                      <SelectItem
+                        key={range.id}
+                        value={range.id}
+                        textValue={range.label}
+                      >
+                        <div className="font-medium">{range.label}</div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (selectedEmployeeRange) {
+                      const range = EMPLOYEE_RANGES.find(
+                        (r) => r.id === selectedEmployeeRange
+                      );
+                      const userResponse =
+                        range?.label || selectedEmployeeRange;
+                      setMessages((prev) => [
+                        ...prev,
+                        { from: "user", text: userResponse },
+                      ]);
+                      nextStep();
+                    }
+                  }}
+                  size="default"
+                  className="w-full min-h-[44px]"
+                  disabled={!selectedEmployeeRange}
+                >
+                  Continue
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            ) : step === "data" ? (
+              <div className="space-y-4">
+                <div className="text-sm text-muted-foreground mb-4">
+                  Select which data categories you currently track. You can
+                  select multiple and change this later.
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {dataCategories.map((category) => (
+                    <div
+                      key={category.id}
+                      className="flex items-center space-x-3 p-3 border rounded-lg"
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium">{category.name}</div>
+                      </div>
+                      <div className="flex space-x-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={
+                            selectedDataCategories[category.id] === "yes"
+                              ? "default"
+                              : "outline"
+                          }
+                          onClick={() =>
+                            setSelectedDataCategories((prev) => ({
+                              ...prev,
+                              [category.id]: "yes",
+                            }))
+                          }
+                          className="text-xs px-3 py-1"
+                        >
+                          Yes
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={
+                            selectedDataCategories[category.id] === "no"
+                              ? "default"
+                              : "outline"
+                          }
+                          onClick={() =>
+                            setSelectedDataCategories((prev) => ({
+                              ...prev,
+                              [category.id]: "no",
+                            }))
+                          }
+                          className="text-xs px-3 py-1"
+                        >
+                          No
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={
+                            selectedDataCategories[category.id] === "not_sure"
+                              ? "default"
+                              : "outline"
+                          }
+                          onClick={() =>
+                            setSelectedDataCategories((prev) => ({
+                              ...prev,
+                              [category.id]: "not_sure",
+                            }))
+                          }
+                          className="text-xs px-3 py-1"
+                        >
+                          Not Sure
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    // Convert selected categories to a string for the answers
+                    const selectedCategoriesText = Object.entries(
+                      selectedDataCategories
+                    )
+                      .filter(([, status]) => status === "yes")
+                      .map(
+                        ([id]) =>
+                          dataCategories.find((cat) => cat.id === id)?.name
+                      )
+                      .filter(Boolean)
+                      .join(", ");
+                    setAnswers((a) => ({
+                      ...a,
+                      dataSources:
+                        selectedCategoriesText || "No data categories selected",
+                    }));
+
+                    // Add user response to chat
+                    const userResponse =
+                      selectedCategoriesText ||
+                      "No specific data categories selected";
+                    setMessages((prev) => [
+                      ...prev,
+                      { from: "user", text: userResponse },
+                    ]);
+
+                    nextStep();
+                  }}
+                  size="default"
+                  className="w-full min-h-[44px]"
                 >
                   Continue
                   <ArrowRight className="ml-2 h-4 w-4" />
@@ -787,13 +1031,15 @@ export default function MiltonChat({
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
-                      handleSubmit(e);
+                      if (step === "business_context" || input.trim()) {
+                        handleSubmit(e);
+                      }
                     }
                   }}
                 />
                 <PromptInputSubmit
                   status="ready"
-                  disabled={!input.trim()}
+                  disabled={step === "business_context" ? false : !input.trim()}
                   className="absolute bottom-1 right-1"
                 />
               </Input>

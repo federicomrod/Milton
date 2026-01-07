@@ -7,13 +7,12 @@ import React, {
   useState,
   ReactNode,
 } from "react";
-import type { BusinessTypeId } from "./business-types";
 
 const STORAGE_KEY = "milton.businessType";
 
 type BusinessContextValue = {
-  businessType: BusinessTypeId | null;
-  setBusinessType: (type: BusinessTypeId) => void;
+  businessType: string | null;
+  setBusinessType: (type: string) => void;
   isLoading: boolean;
 };
 
@@ -26,9 +25,7 @@ type BusinessProviderProps = {
 };
 
 export function BusinessProvider({ children }: BusinessProviderProps) {
-  const [businessType, setBusinessTypeState] = useState<BusinessTypeId | null>(
-    null
-  );
+  const [businessType, setBusinessTypeState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Load from localStorage on client
@@ -38,18 +35,8 @@ export function BusinessProvider({ children }: BusinessProviderProps) {
         typeof window !== "undefined"
           ? window.localStorage.getItem(STORAGE_KEY)
           : null;
-      // Validate the stored value before using it
-      if (
-        stored === "saas" ||
-        stored === "agency" ||
-        stored === "fitness_studio"
-      ) {
-        setBusinessTypeState(stored as BusinessTypeId);
-      } else {
-        // Ignore invalid values
-        if (stored) {
-          console.warn("Ignoring invalid stored businessType:", stored);
-        }
+      if (stored) {
+        setBusinessTypeState(stored);
       }
     } catch (err) {
       console.error("Failed to read businessType from localStorage", err);
@@ -58,7 +45,7 @@ export function BusinessProvider({ children }: BusinessProviderProps) {
     }
   }, []);
 
-  const setBusinessType = (type: BusinessTypeId) => {
+  const setBusinessType = (type: string) => {
     setBusinessTypeState(type);
     try {
       if (typeof window !== "undefined") {

@@ -634,10 +634,7 @@ export function DashboardInsights() {
     <Card className="overflow-hidden">
       <CardHeader className="bg-transparent pb-0">
         <div className="flex items-center justify-between">
-          <button
-            onClick={() => setIsCardCollapsed(!isCardCollapsed)}
-            className="flex items-center gap-2.5 group/header hover:opacity-80 transition-opacity"
-          >
+          <div className="flex items-center gap-2.5">
             <CardTitle className="flex items-center gap-2.5">
               <div className="p-1.5 rounded-lg bg-primary/10 backdrop-blur-sm">
                 <Lightbulb className="h-5 w-5 text-primary" />
@@ -654,14 +651,18 @@ export function DashboardInsights() {
                 </Badge>
               )}
             </CardTitle>
-            <div className="ml-2">
+            <button
+              onClick={() => setIsCardCollapsed(!isCardCollapsed)}
+              className="ml-2 flex items-center justify-center h-7 w-7 rounded hover:bg-primary/10 transition-colors"
+              aria-label={isCardCollapsed ? "Expand" : "Collapse"}
+            >
               {isCardCollapsed ? (
-                <ChevronDown className="h-4 w-4 text-muted-foreground group-hover/header:text-foreground transition-colors" />
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-colors" />
               ) : (
-                <ChevronUp className="h-4 w-4 text-muted-foreground group-hover/header:text-foreground transition-colors" />
+                <ChevronUp className="h-4 w-4 text-muted-foreground transition-colors" />
               )}
-            </div>
-          </button>
+            </button>
+          </div>
           <Button
             onClick={(e) => {
               e.stopPropagation();

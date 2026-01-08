@@ -291,6 +291,17 @@ export async function POST(req: NextRequest) {
         .single();
 
       if (company) {
+        // Get systems (data readiness) and dataSources from onboarding answers
+        const systems = (body.answers as any)?.systems;
+        const dataSources = (body.answers as any)?.dataSources;
+
+        // Build data_readiness and data_sources objects - save even if empty
+        const dataReadiness = systems ? { systems: String(systems) } : {};
+        const dataSourcesObj = dataSources
+          ? { sources: String(dataSources) }
+          : {};
+
+        // Save business model with data_readiness (systems) and data_sources (dataSources) in the same upsert
         const { error: saveError } = await supabase
           .from("business_models")
           .upsert(
@@ -301,14 +312,14 @@ export async function POST(req: NextRequest) {
               onboarding_answers: body.answers,
               suggested_kpis:
                 (parsed as AIOnboardingResponse).suggestedKPIs || [],
+              data_readiness: dataReadiness,
+              data_sources: dataSourcesObj,
             },
             { onConflict: "company_id" }
           );
 
         if (saveError) {
           console.error("[business-model-analyzer] Save failed:", saveError);
-        } else {
-          console.log("[business-model-analyzer] Saved to database");
         }
       }
     }

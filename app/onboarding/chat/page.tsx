@@ -82,6 +82,7 @@ export default function OnboardingChatPage() {
               revenue: answers.revenue,
               dataSources: answers.dataSources,
               systems: answers.systems,
+              selectedDataCategories: answers.selectedDataCategories,
             },
           }),
         });

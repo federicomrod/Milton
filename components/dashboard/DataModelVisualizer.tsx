@@ -160,7 +160,7 @@ export default function DataModelVisualizer({
     }));
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setNodes(generatedNodes);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+
     setEdges(generatedEdges);
   }, [model, linkedDatasets]);
 

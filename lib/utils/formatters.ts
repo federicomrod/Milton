@@ -162,7 +162,7 @@ export function formatDateTime(
 /**
  * Helper: Get currency symbol
  */
-function getCurrencySymbol(currency: string): string {
+export function getCurrencySymbol(currency: string): string {
   const symbols: Record<string, string> = {
     EUR: "€",
     USD: "$",

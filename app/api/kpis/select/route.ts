@@ -12,7 +12,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
 
-    let { companyId, accepted_kpis } = await req.json();
+    const { companyId, accepted_kpis } = await req.json();
 
     // ✅ Initialize resolvedCompanyId safely as null (never a string placeholder)
     let resolvedCompanyId: string | null = companyId ?? null;

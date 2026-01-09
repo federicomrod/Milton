@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getReportData } from "@/lib/report-data-service";
+import { getCurrencySymbol } from "@/lib/utils/formatters";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   TransactionData,
@@ -20,6 +21,13 @@ export interface DataAvailability {
   hasCrmDeals: boolean;
 }
 
+export interface DashboardInsight {
+  id: string;
+  title: string;
+  description: string;
+  category: "positive" | "warning" | "info" | "action";
+}
+
 export interface DashboardContext {
   businessType: string | null;
   selectedKpiIds: string[];
@@ -32,6 +40,7 @@ export interface DashboardContext {
     negativeCount: number;
     zeroCount: number;
   } | null;
+  insights?: DashboardInsight[];
 }
 
 // Map format to unit string
@@ -64,6 +73,16 @@ export async function buildDashboardContextForUser(
   const client = supabase || (await createClient());
 
   try {
+    // Get user's currency preference from profile
+    const { data: profile } = await client
+      .from("profiles")
+      .select("currency")
+      .eq("user_id", userId)
+      .single();
+
+    const userCurrencyCode = profile?.currency || "EUR";
+    const userCurrencySymbol = getCurrencySymbol(userCurrencyCode);
+
     // Get report data using existing service
     const reportData = await getReportData(client, userId);
 
@@ -77,7 +96,7 @@ export async function buildDashboardContextForUser(
           id: "revenue",
           label: "Revenue",
           currentValue: reportData.kpis.revenue,
-          unit: "currency",
+          unit: userCurrencySymbol,
         });
       }
       if (reportData.kpis.expenses != null) {
@@ -85,7 +104,7 @@ export async function buildDashboardContextForUser(
           id: "expenses",
           label: "Expenses",
           currentValue: reportData.kpis.expenses,
-          unit: "currency",
+          unit: userCurrencySymbol,
         });
       }
       if (reportData.kpis.netIncome != null) {
@@ -93,7 +112,7 @@ export async function buildDashboardContextForUser(
           id: "net_income",
           label: "Net Income",
           currentValue: reportData.kpis.netIncome,
-          unit: "currency",
+          unit: userCurrencySymbol,
         });
       }
       if (reportData.kpis.burnRate != null) {
@@ -101,7 +120,7 @@ export async function buildDashboardContextForUser(
           id: "burn_rate",
           label: "Monthly Burn Rate",
           currentValue: reportData.kpis.burnRate,
-          unit: "currency",
+          unit: userCurrencySymbol,
         });
       }
       if (reportData.kpis.cashRunway != null) {
@@ -117,7 +136,7 @@ export async function buildDashboardContextForUser(
           id: "pipeline_value",
           label: "Pipeline Value",
           currentValue: reportData.kpis.pipelineValue,
-          unit: "currency",
+          unit: userCurrencySymbol,
         });
       }
       if (reportData.kpis.openDeals != null) {
@@ -193,7 +212,7 @@ export async function buildDashboardContextForUser(
         id: "ltm_avg_revenue",
         label: "LTM Avg Revenue",
         currentValue: ltmAvgRevenue,
-        unit: "currency",
+        unit: userCurrencySymbol,
       });
     }
 
@@ -237,6 +256,22 @@ export async function buildDashboardContextForUser(
           }
         : null;
 
+    // Fetch AI insights from database
+    const { data: insightsData } = await client
+      .from("dashboard_insights")
+      .select("id, title, description, category")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(10); // Limit to most recent 10 insights
+
+    const insights: DashboardInsight[] =
+      insightsData?.map((insight) => ({
+        id: insight.id,
+        title: insight.title,
+        description: insight.description,
+        category: insight.category as DashboardInsight["category"],
+      })) || [];
+
     return {
       businessType: reportData.businessType,
       selectedKpiIds: reportData.selectedKpiIds,
@@ -244,6 +279,7 @@ export async function buildDashboardContextForUser(
       monthlyRevenue,
       dataAvailability,
       transactionSummary, // Add this to help the AI understand transaction structure
+      insights, // Add AI insights to context
     };
   } catch (error) {
     console.error("[buildDashboardContextForUser] Error:", error);
@@ -259,6 +295,7 @@ export async function buildDashboardContextForUser(
         hasCrmDeals: false,
       },
       transactionSummary: null,
+      insights: [],
     };
   }
 }

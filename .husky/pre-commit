@@ -24,12 +24,24 @@ npm run type-check || {
   exit 1
 }
 
-echo "📝 Running linter..."
-if npm run lint -- --max-warnings=0 2>/dev/null; then
-  echo "✅ Linting passed"
+echo "📝 Running linter (warnings are ignored)..."
+# Only lint staged files - warnings are allowed, only errors will block  
+STAGED_TS_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|js|jsx)$' || true)
+if [ -n "$STAGED_TS_FILES" ]; then
+  # Run eslint and check output - allow warnings, block on errors
+  LINT_OUTPUT=$(echo "$STAGED_TS_FILES" | xargs npx eslint --max-warnings=999999 2>&1)
+  # Check if output shows any errors (not just warnings)
+  # ESLint output format: "✖ X problems (Y errors, Z warnings)"
+  if echo "$LINT_OUTPUT" | grep -qE "\([1-9][0-9]* error"; then
+    echo "$LINT_OUTPUT"
+    echo "❌ Linting found ERRORS. Please fix them or use --no-verify to skip."
+    exit 1
+  else
+    # Only warnings (0 errors) or no issues
+    echo "✅ Linting completed (warnings are ignored)"
+  fi
 else
-  echo "⚠️  Linting failed or not configured. Skipping lint check."
-  echo "   (You can run 'npm run lint' manually to check for issues)"
+  echo "ℹ️  No TypeScript/JavaScript files staged. Skipping lint check."
 fi
 
 echo "✅ Pre-commit checks completed!"

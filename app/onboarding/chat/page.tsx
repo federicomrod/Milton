@@ -64,7 +64,7 @@ export default function OnboardingChatPage() {
         ...prev,
         {
           from: "milton",
-          text: "Analyzing your business to create a tailored data model and suggest KPIs...",
+          text: "Analyzing your business to create a tailored data model...",
         },
       ]);
 
@@ -114,7 +114,7 @@ export default function OnboardingChatPage() {
           ...prev,
           {
             from: "milton",
-            text: `✅ I've created a data model with ${result.proposal?.recommendedTables?.length || 0} tables. Let's select your KPIs!`,
+            text: `✅ I've created a data model with ${result.proposal?.recommendedTables?.length || 0} tables. Next, let's choose your key KPIs!`,
           },
         ]);
 

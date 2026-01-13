@@ -189,6 +189,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     if (pathname.startsWith("/dashboard/account")) return; // Account page
     if (pathname.startsWith("/dashboard/settings")) return; // Settings page
     if (pathname.startsWith("/dashboard/upload")) return; // Upload page
+    if (pathname.startsWith("/dashboard/data")) return; // Data Management page
     if (pathname === "/dashboard") return; // Already on dashboard, no redirect needed
 
     if (

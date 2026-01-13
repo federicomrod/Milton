@@ -90,8 +90,8 @@ export default function OnboardingUploadPage() {
   };
 
   const handleContinue = async () => {
-    // Update onboarding status to model
-    await updateOnboardingStatus("model");
+    // Don't update onboarding status - upload is optional
+    // Just redirect back to model page where user can continue
     router.push("/onboarding/model");
   };
 
@@ -140,21 +140,19 @@ export default function OnboardingUploadPage() {
         <div className="flex justify-between items-center mt-8 pt-6 border-t border-border">
           <Button
             variant="ghost"
-            onClick={() => router.push("/onboarding/kpi-selection")}
+            onClick={() => router.push("/onboarding/model")}
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
+            Back to Model
           </Button>
           <div className="flex flex-col items-end gap-1">
-            <Button onClick={handleContinue} disabled={!hasUploadedAnyFile}>
-              Continue to Model Customization
+            <Button onClick={handleContinue}>
+              Return to Model Customization
               <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
-            {!hasUploadedAnyFile && (
-              <p className="text-xs text-muted-foreground">
-                Upload at least one file to continue
-              </p>
-            )}
+            <p className="text-xs text-muted-foreground">
+              You can upload files here or continue in the model builder
+            </p>
           </div>
         </div>
       </div>

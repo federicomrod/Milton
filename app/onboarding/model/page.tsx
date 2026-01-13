@@ -5,70 +5,34 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import DataModelBuilder from "@/components/dashboard/DataModelBuilder";
-import {
-  markOnboardingComplete,
-  getOnboardingStatus,
-} from "@/lib/onboarding-status";
+import { updateOnboardingStatus } from "@/lib/onboarding-status";
 
 export default function OnboardingModelPage() {
   const router = useRouter();
   const [isFinishing, setIsFinishing] = useState(false);
 
-  const handleFinish = async () => {
+  const handleContinue = async () => {
     setIsFinishing(true);
     try {
-      console.log("[Model] Starting to mark onboarding as complete...");
+      console.log("[Model] Completing onboarding...");
 
       // Mark onboarding as complete
+      const { markOnboardingComplete } =
+        await import("@/lib/onboarding-status");
       const success = await markOnboardingComplete();
 
       if (!success) {
-        console.error("[Model] Failed to mark onboarding as complete");
-        alert("Failed to complete onboarding. Please try again.");
+        console.error("[Model] Failed to update onboarding status");
+        alert("Failed to continue. Please try again.");
         setIsFinishing(false);
         return;
       }
 
-      console.log("[Model] Onboarding marked as complete, verifying...");
-
-      // Verify the status was actually updated by re-fetching
-      let verified = false;
-      let attempts = 0;
-      const maxAttempts = 5;
-
-      while (!verified && attempts < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        const status = await getOnboardingStatus();
-        console.log(
-          `[Model] Verification attempt ${attempts + 1}: status = ${status}`
-        );
-
-        if (status === "completed") {
-          verified = true;
-          console.log("[Model] Status verified as completed!");
-        }
-        attempts++;
-      }
-
-      if (!verified) {
-        console.error(
-          "[Model] Could not verify onboarding completion after",
-          maxAttempts,
-          "attempts"
-        );
-        alert(
-          "Onboarding may not have completed properly. Please contact support if you continue to have issues."
-        );
-        setIsFinishing(false);
-        return;
-      }
-
-      // Status is confirmed - redirect to dashboard with hard navigation
-      // Use window.location to force a full page reload and clear any caching
+      // Redirect to dashboard
       console.log("[Model] Redirecting to dashboard...");
-      window.location.href = "/dashboard";
+      router.push("/dashboard");
     } catch (error) {
-      console.error("[Model] Error completing onboarding:", error);
+      console.error("[Model] Error continuing onboarding:", error);
       alert("An error occurred. Please try again.");
       setIsFinishing(false);
     }
@@ -92,12 +56,12 @@ export default function OnboardingModelPage() {
         <Button
           type="button"
           variant="ghost"
-          onClick={() => router.push("/onboarding/upload")}
+          onClick={() => router.push("/onboarding/data-sources")}
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back
         </Button>
-        <Button type="button" onClick={handleFinish} disabled={isFinishing}>
+        <Button type="button" onClick={handleContinue} disabled={isFinishing}>
           {isFinishing ? "Completing..." : "Finish Onboarding"}
           <ArrowRight className="h-4 w-4 ml-2" />
         </Button>

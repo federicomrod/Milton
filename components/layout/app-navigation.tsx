@@ -11,7 +11,7 @@ import {
   FileText,
   User,
   Settings,
-  Upload,
+  Database,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -101,16 +101,19 @@ export function AppNavigation() {
                     Reporting
                   </Button>
                 </Link>
-                <Link href="/dashboard/upload">
+                <Link href="/dashboard/data">
                   <Button
                     variant={
-                      isActive("/dashboard/upload") ? "default" : "ghost"
+                      isActive("/dashboard/data") ||
+                      isActive("/dashboard/upload")
+                        ? "default"
+                        : "ghost"
                     }
                     size="sm"
                     className="gap-2"
                   >
-                    <Upload className="h-4 w-4" />
-                    Upload
+                    <Database className="h-4 w-4" />
+                    Data
                   </Button>
                 </Link>
               </nav>

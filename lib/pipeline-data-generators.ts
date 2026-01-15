@@ -54,7 +54,10 @@ export function calculatePipelineMetrics(dealsData: Deal[]): PipelineMetrics {
 
   // Aggregate closed deals by product
   const productTotals = allDeals
-    .filter((d) => d.stage === "deal" && d.product)
+    .filter((d) => {
+      const normalizedStage = normalizeStage(d.stage || "");
+      return normalizedStage === "Deal" && d.product;
+    })
     .reduce<Record<string, number>>((acc, deal) => {
       const key = (deal.product || "Unspecified").trim() || "Unspecified";
       acc[key] = (acc[key] || 0) + Number(deal.amount || 0);
@@ -73,9 +76,10 @@ export function calculatePipelineMetrics(dealsData: Deal[]): PipelineMetrics {
     return (e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24);
   }
 
-  const closedDeals = dealsData.filter(
-    (d) => d.stage === "deal" && d.close_date && d.created_date
-  );
+  const closedDeals = dealsData.filter((d) => {
+    const normalizedStage = normalizeStage(d.stage || "");
+    return normalizedStage === "Deal" && d.close_date && d.created_date;
+  });
 
   const salesCycles = closedDeals
     .map((d) => daysBetween(d.created_date, d.close_date))
@@ -158,8 +162,14 @@ export function calculatePipelineMetrics(dealsData: Deal[]): PipelineMetrics {
   })();
 
   // Top 10 deals (closed deals only)
+  // Filter for deals with stage "Deal" (normalized display name) or "deal" (lowercase)
   const topDeals = [...allDeals]
-    .filter((d) => d.stage === "deal" && d.close_date && d.amount)
+    .filter((d) => {
+      const normalizedStage = normalizeStage(d.stage || "");
+      const hasCloseDate = d.close_date && d.close_date.trim() !== "";
+      const hasAmount = d.amount && Number(d.amount) > 0;
+      return normalizedStage === "Deal" && hasCloseDate && hasAmount;
+    })
     .sort((a, b) => Number(b.amount) - Number(a.amount))
     .slice(0, 10)
     .map((d) => ({

@@ -40,11 +40,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`p-3 rounded text-white text-sm shadow-md ${
-              toast.variant === "destructive" ? "bg-red-600" : "bg-green-600"
+            className={`p-4 rounded-lg text-white text-sm shadow-lg border ${
+              toast.variant === "destructive"
+                ? "bg-red-600 dark:bg-red-700 border-red-700 dark:border-red-800"
+                : "bg-green-600 dark:bg-green-700 border-green-700 dark:border-green-800"
             }`}
           >
-            <strong>{toast.title}</strong>
+            <strong className="font-medium">{toast.title}</strong>
             {toast.description && (
               <div className="mt-1 opacity-90">{toast.description}</div>
             )}

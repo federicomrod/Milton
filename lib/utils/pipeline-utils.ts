@@ -20,8 +20,54 @@ export const stageToDisplayName: { [key: string]: string } = {
   no_deal: "No Deal",
 };
 
+// Reverse mapping: display name to normalized key
+const displayNameToKey: { [key: string]: string } = {
+  "Lead Generation": "lead_generation",
+  "First Contact": "first_contact",
+  "Need Qualification": "need_qualification",
+  Negotiation: "negotiation",
+  Deal: "deal",
+  "No Deal": "no_deal",
+};
+
+// Normalize any stage value to the standard display name
 export const normalizeStage = (value: string): string => {
-  return stageToDisplayName[value] || "Lead Generation";
+  if (!value) return "Lead Generation";
+
+  const normalized = value.toLowerCase().trim();
+
+  // If it's already a normalized key (e.g., "lead_generation"), convert to display name
+  if (stageToDisplayName[normalized]) {
+    return stageToDisplayName[normalized];
+  }
+
+  // If it's already a display name (e.g., "Lead Generation"), return as-is
+  if (displayNameToKey[value]) {
+    return value;
+  }
+
+  // Try to match by partial string matching
+  if (normalized.includes("lead") || normalized.includes("generation")) {
+    return "Lead Generation";
+  }
+  if (normalized.includes("first") && normalized.includes("contact")) {
+    return "First Contact";
+  }
+  if (normalized.includes("qualification") || normalized.includes("qualify")) {
+    return "Need Qualification";
+  }
+  if (normalized.includes("negotiation") || normalized.includes("negotiate")) {
+    return "Negotiation";
+  }
+  if (normalized.includes("deal") && !normalized.includes("no")) {
+    return "Deal";
+  }
+  if (normalized.includes("no deal") || normalized.includes("lost")) {
+    return "No Deal";
+  }
+
+  // Default fallback
+  return "Lead Generation";
 };
 
 export const PHASE_ORDER = [

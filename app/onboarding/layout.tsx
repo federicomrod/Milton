@@ -59,16 +59,18 @@ export default function OnboardingLayout({
           "not_started",
           "chat",
           "kpi_selection",
-          "upload",
+          "data_sources",
           "model",
+          "upload", // Upload is optional, not part of main flow
         ];
 
         // Map paths to statuses
         const pathToStatus: Record<string, OnboardingStatus> = {
           "/onboarding": "chat",
           "/onboarding/chat": "chat",
+          "/onboarding/data-sources": "data_sources",
           "/onboarding/kpi-selection": "kpi_selection",
-          "/onboarding/upload": "upload",
+          "/onboarding/upload": "upload", // Upload is optional
           "/onboarding/model": "model",
         };
 
@@ -79,11 +81,18 @@ export default function OnboardingLayout({
         const redirectMap: Record<OnboardingStatus, string> = {
           not_started: "/onboarding/chat",
           chat: "/onboarding/chat",
+          data_sources: "/onboarding/data-sources",
           kpi_selection: "/onboarding/kpi-selection",
-          upload: "/onboarding/upload",
+          upload: "/onboarding/upload", // Upload is optional
           model: "/onboarding/model",
           completed: "/dashboard",
         };
+
+        // Upload page is optional - allow navigation from it regardless of status
+        if (pathname === "/onboarding/upload") {
+          setIsChecking(false);
+          return;
+        }
 
         // Only redirect if user is trying to skip ahead to a future step
         if (currentPathStatus && statusIndex >= 0) {

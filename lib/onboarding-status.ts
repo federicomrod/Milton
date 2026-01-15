@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 export type OnboardingStatus =
   | "not_started"
   | "chat"
+  | "data_sources"
   | "kpi_selection"
   | "upload"
   | "model"

@@ -15,6 +15,7 @@ export default function OnboardingPage() {
       const redirectMap: Record<string, string> = {
         not_started: "/onboarding/chat",
         chat: "/onboarding/chat",
+        data_sources: "/onboarding/data-sources",
         kpi_selection: "/onboarding/kpi-selection",
         upload: "/onboarding/upload",
         model: "/onboarding/model",

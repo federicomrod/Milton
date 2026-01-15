@@ -5,24 +5,27 @@ import { Button } from "@/components/ui/button";
 import { KpiSelectionStep } from "@/components/onboarding/KpiSelectionStep";
 import MiltonChat from "@/app/onboarding/components/MiltonChat";
 import DataModelBuilder from "@/components/dashboard/DataModelBuilder";
+import { DataSourceSelectionStep } from "@/components/onboarding/DataSourceSelectionStep";
 
-type OnboardingStep = "chat" | "model" | "kpis";
+type OnboardingStep = "chat" | "kpis" | "data-sources" | "model";
 
 export function OnboardingWizard() {
   const [step, setStep] = React.useState<OnboardingStep>("chat");
 
   const goToNext = () => {
     setStep((prev) => {
-      if (prev === "chat") return "model";
-      if (prev === "model") return "kpis";
-      return "kpis";
+      if (prev === "chat") return "kpis";
+      if (prev === "kpis") return "data-sources";
+      if (prev === "data-sources") return "model";
+      return "model";
     });
   };
 
   const goToPrev = () => {
     setStep((prev) => {
-      if (prev === "kpis") return "model";
-      if (prev === "model") return "chat";
+      if (prev === "model") return "data-sources";
+      if (prev === "data-sources") return "kpis";
+      if (prev === "kpis") return "chat";
       return "chat";
     });
   };
@@ -38,15 +41,23 @@ export function OnboardingWizard() {
         </span>
         <span>›</span>
         <span
-          className={step === "model" ? "font-semibold text-foreground" : ""}
+          className={step === "kpis" ? "font-semibold text-foreground" : ""}
         >
-          2. Connect & model your data
+          2. Choose your key KPIs
         </span>
         <span>›</span>
         <span
-          className={step === "kpis" ? "font-semibold text-foreground" : ""}
+          className={
+            step === "data-sources" ? "font-semibold text-foreground" : ""
+          }
         >
-          3. Choose your key KPIs
+          3. Declare your data sources
+        </span>
+        <span>›</span>
+        <span
+          className={step === "model" ? "font-semibold text-foreground" : ""}
+        >
+          4. Connect & model your data
         </span>
       </div>
 
@@ -72,23 +83,26 @@ export function OnboardingWizard() {
           </>
         )}
 
+        {step === "kpis" && (
+          <>
+            <KpiSelectionStep />
+          </>
+        )}
+
+        {step === "data-sources" && (
+          <DataSourceSelectionStep onComplete={goToNext} />
+        )}
+
         {step === "model" && (
           <>
             <h1 className="text-xl font-semibold">Connect & model your data</h1>
             <p className="text-sm text-muted-foreground">
               Upload your files and refine the data model. Once you are happy
-              with the tables and relationships, continue to choose your key
-              KPIs.
+              with the tables and relationships, you're ready to go!
             </p>
             <div className="mt-4">
               <DataModelBuilder />
             </div>
-          </>
-        )}
-
-        {step === "kpis" && (
-          <>
-            <KpiSelectionStep />
           </>
         )}
       </div>
@@ -104,12 +118,13 @@ export function OnboardingWizard() {
           Back
         </Button>
 
-        {step !== "kpis" ? (
+        {step !== "model" ? (
           <Button type="button" onClick={goToNext}>
-            {step === "chat" && "Next: Configure data model"}
-            {step === "model" && "Next: Choose KPIs"}
+            {step === "chat" && "Next: Choose KPIs"}
+            {step === "kpis" && "Next: Declare data sources"}
+            {step === "data-sources" && "Next: Connect & model your data"}
           </Button>
-        ) : (
+        ) : step === "model" ? (
           <Button
             type="button"
             onClick={() => {
@@ -118,7 +133,7 @@ export function OnboardingWizard() {
           >
             Finish onboarding
           </Button>
-        )}
+        ) : null}
       </div>
     </div>
   );

@@ -127,7 +127,7 @@ export default function MiltonChat({
     },
     {
       from: "milton",
-      text: "I'll help you track your finances, understand your KPIs, and make data-driven decisions. Let's get started!",
+      text: "I'll help you track your finances, understand your KPIs, and make data-driven decisions. We'll start by understanding your business, then set up your data sources, model your data, and select your KPIs. Let's get started!",
     },
     {
       from: "milton",
@@ -277,7 +277,7 @@ export default function MiltonChat({
         const isDone = msgs.some(
           (m) =>
             m.from === "milton" &&
-            (m.text.includes("prepare your KPI suggestions") ||
+            (m.text.includes("prepare your data model proposal") ||
               m.text.includes("Analyzing your business"))
         );
         if (isDone) {
@@ -611,11 +611,11 @@ export default function MiltonChat({
       ...prev,
       {
         from: "milton",
-        text: "Awesome! Let me process this and prepare your KPI suggestions and data model proposal.",
+        text: "Awesome! Let me process this and prepare your data model proposal.",
       },
       {
         from: "milton",
-        text: "Please hold on while I prepare everything. You'll be redirected shortly to your data model builder.",
+        text: "Please hold on while I prepare everything. Next, you'll declare which data sources you use, then we'll build your data model together.",
       },
     ]);
     try {

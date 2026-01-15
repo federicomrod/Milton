@@ -218,10 +218,19 @@ export async function POST(req: NextRequest) {
     const raw = completion.choices?.[0]?.message?.content ?? "";
     console.log("[business-model-analyzer] Response length:", raw.length);
 
+    // Helper function to strip JSON comments
+    const stripJsonComments = (jsonString: string): string => {
+      // Remove single-line comments (// ...)
+      let cleaned = jsonString.replace(/\/\/.*$/gm, "");
+      // Remove multi-line comments (/* ... */)
+      cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, "");
+      return cleaned;
+    };
+
     // Parse response
     let parsed: AIOnboardingResponse | AIRefinementResponse | null = null;
     try {
-      const cleaned = raw
+      const cleaned = stripJsonComments(raw)
         .trim()
         .replace(/^```json\s*/i, "")
         .replace(/^```\s*/i, "")

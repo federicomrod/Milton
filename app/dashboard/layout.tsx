@@ -1,11 +1,6 @@
 "use client";
 
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-} from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import MiltonChat from "@/components/dashboard/miltonchat";
 import { createClient } from "@/lib/supabase/client";
@@ -203,6 +198,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     if (pathname.startsWith("/dashboard/account")) return; // Account page
     if (pathname.startsWith("/dashboard/settings")) return; // Settings page
     if (pathname.startsWith("/dashboard/upload")) return; // Upload page
+    if (pathname.startsWith("/dashboard/data")) return; // Data Management page
     if (pathname === "/dashboard") return; // Already on dashboard, no redirect needed
 
     if (
@@ -221,51 +217,41 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       <DataStatusProvider value={{ refreshDataStatus }}>
         <div style={{ position: "relative", minHeight: "100vh" }}>
           {children}
-          {/* Chat Toggle Button */}
-          <button
-            aria-label="Open Milton Chat"
-            onClick={() => setIsChatOpen((open) => !open)}
-            style={{
-              position: "fixed",
-              right: 32,
-              bottom: 32,
-              zIndex: 10050,
-              width: 56,
-              height: 56,
-              borderRadius: "50%",
-              background: "#fff",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-              border: "none",
-              fontSize: 28,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            💬
-          </button>
+          {/* Chat Toggle Button - Hide when chat is open */}
+          {!isChatOpen && (
+            <button
+              aria-label="Open Milton Chat"
+              onClick={() => setIsChatOpen(true)}
+              style={{
+                position: "fixed",
+                right: 32,
+                bottom: 32,
+                zIndex: 10050,
+                width: 56,
+                height: 56,
+                borderRadius: "50%",
+                background: "#fff",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                border: "none",
+                fontSize: 28,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              💬
+            </button>
+          )}
           {/* Sliding Chat Panel */}
           <div
+            className="fixed top-0 right-0 h-screen w-[33.333vw] max-w-[420px] min-w-[320px] bg-background shadow-[0_0_24px_rgba(0,0,0,0.2)] z-[10000] flex flex-col transition-transform duration-300 ease-out"
             style={{
-              position: "fixed",
-              top: 0,
-              right: 0,
-              height: "100vh",
-              width: "33.333vw",
-              maxWidth: 420,
-              minWidth: 320,
-              background: "#fff",
-              boxShadow: "0 0 24px rgba(0,0,0,0.2)",
-              zIndex: 10000,
               transform: isChatOpen ? "translateX(0)" : "translateX(100%)",
-              transition: "transform 0.3s cubic-bezier(.4,0,.2,1)",
-              display: "flex",
-              flexDirection: "column",
             }}
           >
-            <div className="chat-panel p-4 h-full">
-              <MiltonChat />
+            <div className="chat-panel p-4 h-full flex flex-col overflow-hidden">
+              <MiltonChat onClose={() => setIsChatOpen(false)} />
             </div>
           </div>
         </div>

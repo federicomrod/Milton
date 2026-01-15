@@ -19,7 +19,7 @@ export default function WelcomeBanner() {
         localStorage.getItem("milton-banner-dismissed") === "true";
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (isDismissed) setDismissed(true);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+
       if (raw && JSON.parse(raw)) setHasModel(true);
     } catch {
       // ignore JSON parse errors

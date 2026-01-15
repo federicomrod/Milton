@@ -2,7 +2,8 @@
 # Format: type(scope): subject
 # Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
 
-commit_msg=$(cat "$1")
+# Read commit message and trim whitespace/newlines
+commit_msg=$(cat "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | head -n1)
 
 # Pattern: type(scope): subject OR type: subject
 # Optional types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert

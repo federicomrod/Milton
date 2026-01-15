@@ -1297,7 +1297,7 @@ Respond with ONLY valid JSON:
               value !== 0
             ) {
               // Normalize month string to ISO or readable
-              let normMonth = this.parseDate(monthCol) || monthCol;
+              const normMonth = this.parseDate(monthCol) || monthCol;
               flatEntries.push({
                 month: normMonth,
                 category,
@@ -1340,7 +1340,7 @@ Respond with ONLY valid JSON:
         // Check for month-like string in column name
         if (monthPatterns.some((pat) => pat.test(col))) {
           // Normalize: lowercase, replace spaces/dots with dashes, remove extra dashes
-          let normalized = col
+          const normalized = col
             .toLowerCase()
             .replace(/[\s.]+/g, "-")
             .replace(/-+/g, "-")

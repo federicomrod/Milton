@@ -86,7 +86,7 @@ export async function runSemanticQuery(
   const supabase = await createClient();
   let data: ChartPoint[] = [];
   let text = "";
-  let chartType = query.chartType || "bar";
+  const chartType = query.chartType || "bar";
 
   try {
     if (query.metric === "revenue" || query.metric === "income") {

@@ -243,7 +243,16 @@ export function KpiSelectionStep({
       if (redirectTo.includes("/onboarding")) {
         const { updateOnboardingStatus } =
           await import("@/lib/onboarding-status");
-        await updateOnboardingStatus("upload");
+        if (redirectTo.includes("/data-sources")) {
+          await updateOnboardingStatus("data_sources");
+        } else {
+          await updateOnboardingStatus("upload");
+        }
+      } else if (redirectTo === "/dashboard") {
+        // Mark onboarding as complete when going to dashboard
+        const { markOnboardingComplete } =
+          await import("@/lib/onboarding-status");
+        await markOnboardingComplete();
       }
 
       // Move to the next step

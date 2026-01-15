@@ -129,6 +129,10 @@ export default function DashboardPage() {
         // Fetch from API
         const res = await fetch("/api/onboarding/kpi-preferences");
         if (!res.ok) {
+          // If no preferences found, use default 8 metrics from initial state
+          console.log(
+            "[DashboardPage] No saved KPI preferences, using defaults"
+          );
           return;
         }
         const data = await res.json();
@@ -159,7 +163,8 @@ export default function DashboardPage() {
         const selected = allKpis.filter((kpi) => kpiIds.includes(kpi.id));
         setSelectedKpis(selected);
       } catch (err) {
-        console.error("Error loading KPIs:", err);
+        // Silently fail, use defaults (initial state has 8 metrics)
+        console.error("[DashboardPage] Error loading KPI preferences:", err);
       }
     };
 

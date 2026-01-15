@@ -4,10 +4,10 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
-import { KpiSelectionStep } from "@/components/onboarding/KpiSelectionStep";
+import { DataSourceSelectionStep } from "@/components/onboarding/DataSourceSelectionStep";
 import { getOnboardingStatus } from "@/lib/onboarding-status";
 
-export default function OnboardingKpisPage() {
+export default function OnboardingDataSourcesPage() {
   const router = useRouter();
   const [isReady, setIsReady] = useState(false);
 
@@ -21,9 +21,13 @@ export default function OnboardingKpisPage() {
           return;
         }
 
-        // If user hasn't completed chat, redirect them back
-        if (status === "not_started") {
+        // If user hasn't completed chat or KPI selection, redirect them back
+        if (status === "not_started" || status === "chat") {
           router.replace("/onboarding/chat");
+          return;
+        }
+        if (status === "kpi_selection") {
+          router.replace("/onboarding/kpi-selection");
           return;
         }
 
@@ -37,6 +41,10 @@ export default function OnboardingKpisPage() {
     checkOnboardingStatus();
   }, [router]);
 
+  const handleComplete = () => {
+    router.push("/onboarding/model");
+  };
+
   if (!isReady) {
     return (
       <div className="h-screen flex items-center justify-center bg-background">
@@ -49,30 +57,20 @@ export default function OnboardingKpisPage() {
   }
 
   return (
-    <main className="min-h-screen bg-background max-w-6xl mx-auto px-4 py-8 space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">Choose your key KPIs</h1>
-        <p className="text-sm text-muted-foreground">
-          Based on your business type and the data you connected, Milton
-          recommends a set of KPIs. Select the ones you care about most. You can
-          always adjust them later in your dashboard settings.
-        </p>
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto max-w-4xl py-8 px-4 space-y-6">
+        <DataSourceSelectionStep onComplete={handleComplete} />
+        <div className="flex justify-start">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => router.push("/onboarding/kpi-selection")}
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+        </div>
       </div>
-
-      <div className="rounded-2xl border bg-background p-4 md:p-6">
-        <KpiSelectionStep redirectTo="/onboarding/data-sources" />
-      </div>
-
-      <div className="flex justify-between">
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => router.push("/onboarding/chat")}
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back
-        </Button>
-      </div>
-    </main>
+    </div>
   );
 }

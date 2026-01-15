@@ -24,17 +24,18 @@ export async function GET() {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // Get company for user
-  const { data: company } = await supabase
+  // Fetch company first (required for business model query)
+  const { data: company, error: companyError } = await supabase
     .from("companies")
     .select("id")
     .eq("created_by", user.id)
     .single();
 
-  if (!company) {
+  if (companyError || !company) {
     return NextResponse.json({ error: "company_not_found" }, { status: 404 });
   }
 
+  // Get business model (now that we have company)
   const { data, error } = await supabase
     .from("business_models")
     .select(
@@ -71,22 +72,28 @@ export async function GET() {
   };
 
   try {
-    // Try multiple business type formats
+    // Try multiple business type formats in a single query using OR
     const businessTypeVariants = normalizeBusinessType(businessType);
     let template = null;
 
-    for (const variant of businessTypeVariants) {
-      const { data, error } = await supabase
-        .from("business_model_templates")
-        .select("kpi_ids, key")
-        .eq("key", variant)
-        .single();
+    // Fetch template and check if we have cached rankings in parallel
+    // This allows us to determine if we need AI ranking before fetching KPIs
+    const templateQuery = supabase
+      .from("business_model_templates")
+      .select("kpi_ids, key")
+      .in("key", businessTypeVariants);
 
-      if (!error && data) {
-        template = data;
-        console.log(`[kpi-preferences] Found template with key: ${variant}`);
-        break;
-      }
+    const { data: templates, error: templateError } = await templateQuery;
+
+    if (!templateError && templates && templates.length > 0) {
+      // Prefer exact match, then try variants in order of preference
+      template =
+        templates.find((t) => t.key === businessType) ||
+        templates.find((t) => t.key === businessTypeVariants[1]) ||
+        templates.find((t) => t.key === businessTypeVariants[2]) ||
+        templates.find((t) => t.key === businessTypeVariants[3]) ||
+        templates[0];
+      console.log(`[kpi-preferences] Found template with key: ${template.key}`);
     }
 
     if (!template) {
@@ -95,11 +102,17 @@ export async function GET() {
       );
     }
 
+    // Check cached rankings from business model (before fetching KPIs)
+    const existingRankedKpiIds = (data as any).ranked_kpi_ids as
+      | string[]
+      | null
+      | undefined;
+
     if (template && template.kpi_ids && Array.isArray(template.kpi_ids)) {
       const kpiIds = template.kpi_ids as string[];
 
       if (kpiIds.length > 0) {
-        // Fetch KPIs from kpis table
+        // Fetch KPIs from kpis table (single query)
         const { data: kpis, error: kpisError } = await supabase
           .from("kpis")
           .select("*")
@@ -115,17 +128,9 @@ export async function GET() {
             `[kpi-preferences] Fetched ${kpis.length} KPIs from database`
           );
 
-          // Rank KPIs if onboarding answers exist
-          // Check if we already have ranked KPI IDs cached in the database.
-          // This prevents calling the AI ranking API on every request.
-          const existingRankedKpiIds = (data as any).ranked_kpi_ids as
-            | string[]
-            | null
-            | undefined;
-
+          // Rank KPIs if onboarding answers exist and we don't have cached rankings
           if (
             onboardingAnswers &&
-            kpis &&
             (!existingRankedKpiIds || existingRankedKpiIds.length === 0)
           ) {
             // Only call AI if we don't have cached rankings
@@ -299,13 +304,22 @@ Rank these KPIs by relevance. Return the ranked KPI IDs as a JSON array, with th
     `[kpi-preferences] Returning: ${recommendedKpis.length} recommended, ${additionalKpis.length} additional, ${recommendedKpis.length + additionalKpis.length} total`
   );
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     selectedKpiIds: (data.selected_kpi_ids ?? []) as string[],
     businessType,
     modelJson: data.model_json ?? null,
     recommendedKpis,
     additionalKpis,
   });
+
+  // Add caching headers to reduce API calls
+  // Cache for 5 minutes - data rarely changes
+  response.headers.set(
+    "Cache-Control",
+    "private, max-age=300, stale-while-revalidate=600"
+  );
+
+  return response;
 }
 
 export async function POST(req: NextRequest) {

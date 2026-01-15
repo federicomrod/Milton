@@ -93,15 +93,59 @@ export default function DashboardPage() {
     fetchData();
   }, []);
 
-  // Load selected KPIs and available KPIs
+  // Load selected KPIs and available KPIs (with caching)
   useEffect(() => {
     const loadKpis = async () => {
       try {
+        // Check cache first (5 minute expiry, same as API cache)
+        const cacheKey = "kpi-preferences-cache";
+        const cacheExpiry = 5 * 60 * 1000; // 5 minutes
+        const cached = sessionStorage.getItem(cacheKey);
+        if (cached) {
+          try {
+            const { data, timestamp } = JSON.parse(cached);
+            const age = Date.now() - timestamp;
+            if (age < cacheExpiry) {
+              // Use cached data
+              const kpiIds = (data.selectedKpiIds ?? []) as string[];
+              const recommended = (data.recommendedKpis ?? []) as DatabaseKpi[];
+              const additional = (data.additionalKpis ?? []) as DatabaseKpi[];
+
+              setSelectedKpiIds(kpiIds);
+              setRecommendedKpis(recommended);
+              setAdditionalKpis(additional);
+
+              const allKpis = [...recommended, ...additional];
+              const selected = allKpis.filter((kpi) => kpiIds.includes(kpi.id));
+              setSelectedKpis(selected);
+              return; // Use cached data, skip API call
+            }
+          } catch (parseErr) {
+            // Cache invalid, continue to API call
+            sessionStorage.removeItem(cacheKey);
+          }
+        }
+
+        // Fetch from API
         const res = await fetch("/api/onboarding/kpi-preferences");
         if (!res.ok) {
           return;
         }
         const data = await res.json();
+
+        // Cache the response
+        try {
+          sessionStorage.setItem(
+            cacheKey,
+            JSON.stringify({
+              data,
+              timestamp: Date.now(),
+            })
+          );
+        } catch (storageErr) {
+          // Ignore storage errors (e.g., private browsing mode)
+        }
+
         const kpiIds = (data.selectedKpiIds ?? []) as string[];
         const recommended = (data.recommendedKpis ?? []) as DatabaseKpi[];
         const additional = (data.additionalKpis ?? []) as DatabaseKpi[];
@@ -145,11 +189,12 @@ export default function DashboardPage() {
         )}
 
         {/* Upload Invitation Section - Show if user hasn't uploaded data */}
-        {dataStatus && !(dataStatus.bank || dataStatus.crm || dataStatus.budget) && (
-          <div className="mb-8">
-            <UploadInvitation />
-          </div>
-        )}
+        {dataStatus &&
+          !(dataStatus.bank || dataStatus.crm || dataStatus.budget) && (
+            <div className="mb-8">
+              <UploadInvitation />
+            </div>
+          )}
 
         {/* Overview Section - Key Metrics and Performance Charts */}
         <div className="space-y-6">

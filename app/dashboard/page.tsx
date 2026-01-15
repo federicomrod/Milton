@@ -16,9 +16,11 @@ import { MetricsGrid } from "@/components/dashboard/metrics-grid";
 import { FinancialCharts } from "@/components/dashboard/financial-charts";
 import { MetricSelector } from "@/components/dashboard/metric-selector";
 import { DashboardInsights } from "@/components/dashboard/dashboard-insights";
-import { getUseCase } from "@/types/use-cases";
 import { useBusinessContext } from "@/lib/business-context";
 import { UploadInvitation } from "@/components/dashboard/upload-invitation";
+import { KpiSelector } from "@/components/dashboard/kpi-selector";
+import { KpisGrid } from "@/components/dashboard/kpis-grid";
+import type { DatabaseKpi } from "@/lib/types/kpi";
 
 import {
   Dialog,
@@ -27,7 +29,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Target } from "lucide-react";
 
 // Helper component for locked/missing data placeholders
 const LockedPlaceholder = ({ message }: { message: string }) => (
@@ -66,11 +67,12 @@ export default function DashboardPage() {
     datasetType: "bank" | "crm" | "budget" | null;
   } | null>(null);
   const [showUploadModeDialog, setShowUploadModeDialog] = useState(false);
-  const [showUseCaseDialog, setShowUseCaseDialog] = useState(false);
 
-  // Use case selection state
-  const [selectedUseCase, setSelectedUseCase] = useState<string | null>(null);
-  const [useCaseConfirmed, setUseCaseConfirmed] = useState(false);
+  // KPI state
+  const [selectedKpiIds, setSelectedKpiIds] = useState<string[]>([]);
+  const [selectedKpis, setSelectedKpis] = useState<DatabaseKpi[]>([]);
+  const [recommendedKpis, setRecommendedKpis] = useState<DatabaseKpi[]>([]);
+  const [additionalKpis, setAdditionalKpis] = useState<DatabaseKpi[]>([]);
   const [companyBusinessType, setCompanyBusinessType] = useState<string | null>(
     null
   );
@@ -195,8 +197,6 @@ export default function DashboardPage() {
 
             if (businessModel?.business_type) {
               setCompanyBusinessType(businessModel.business_type);
-              setSelectedUseCase(businessModel.business_type);
-              setUseCaseConfirmed(true);
             }
           }
         }
@@ -210,37 +210,40 @@ export default function DashboardPage() {
     fetchCompanyBusinessModel();
   }, []);
 
-  // Fetch user's selected KPI IDs and merge with core KPIs
+  // Load selected KPIs and available KPIs
   useEffect(() => {
-    const loadKpiPreferences = async () => {
+    const loadKpis = async () => {
       try {
         const res = await fetch("/api/onboarding/kpi-preferences");
         if (!res.ok) {
           return;
         }
         const data = await res.json();
-        const userSelectedKpiIds = (data.selectedKpiIds ?? []) as string[];
+        const kpiIds = (data.selectedKpiIds ?? []) as string[];
+        const recommended = (data.recommendedKpis ?? []) as DatabaseKpi[];
+        const additional = (data.additionalKpis ?? []) as DatabaseKpi[];
 
-        if (userSelectedKpiIds.length > 0) {
-          // Merge: core KPIs always show, then add user-selected ones (no duplicates)
-          const mergedKpiIds = [
-            ...coreKpiIds,
-            ...userSelectedKpiIds.filter((id) => !coreKpiIds.includes(id)),
-          ].slice(0, 8); // Limit to 8 tiles max
+        setSelectedKpiIds(kpiIds);
+        setRecommendedKpis(recommended);
+        setAdditionalKpis(additional);
 
-          setSelectedMetrics(mergedKpiIds);
-        }
+        // Filter to get only selected KPI objects
+        const allKpis = [...recommended, ...additional];
+        const selected = allKpis.filter((kpi) => kpiIds.includes(kpi.id));
+        setSelectedKpis(selected);
       } catch (err) {
-        // Silently fail, use defaults
+        console.error("Error loading KPIs:", err);
       }
     };
 
-    loadKpiPreferences();
+    loadKpis();
   }, []);
 
-  const resetUseCase = () => {
-    // Show coming soon modal
-    setShowUseCaseDialog(true);
+  const handleKpisChange = (newKpiIds: string[]) => {
+    setSelectedKpiIds(newKpiIds);
+    const allKpis = [...recommendedKpis, ...additionalKpis];
+    const selected = allKpis.filter((kpi) => newKpiIds.includes(kpi.id));
+    setSelectedKpis(selected);
   };
 
   const updateBusinessModel = async (newBusinessType: string) => {
@@ -273,8 +276,6 @@ export default function DashboardPage() {
             alert("Failed to update business type. Please try again.");
           } else {
             // Update local state
-            setSelectedUseCase(newBusinessType);
-            setUseCaseConfirmed(true);
             setCompanyBusinessType(newBusinessType);
           }
         }
@@ -296,26 +297,15 @@ export default function DashboardPage() {
   return (
     <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
       <div className="px-4 py-6 sm:px-0">
-        {/* Show business type badge when confirmed */}
-        {useCaseConfirmed && selectedUseCase && (
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Target className="h-4 w-4 text-primary" />
-              <span className="text-sm text-muted-foreground">
-                Business Type:
-              </span>
-              <span className="text-sm font-medium text-primary">
-                {getUseCase(selectedUseCase)?.name || selectedUseCase}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={resetUseCase}
-                className="text-xs"
-              >
-                Change Use Case
-              </Button>
-            </div>
+        {/* Show business type badge */}
+        {companyBusinessType && (
+          <div className="mb-6 flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">
+              Business Type:
+            </span>
+            <span className="text-sm font-medium text-primary">
+              {companyBusinessType}
+            </span>
           </div>
         )}
 
@@ -356,30 +346,24 @@ export default function DashboardPage() {
           ) : (
             <LockedPlaceholder message="Upload your financial data (bank transactions, CRM, or budget) in the 'Upload Financial Data' section above to see your key metrics and performance charts." />
           )}
+
+          {/* KPIs Section */}
+          <div className="mt-8 space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">
+                Key Performance Indicators
+              </h2>
+              <KpiSelector
+                selectedKpiIds={selectedKpiIds}
+                onKpisChange={handleKpisChange}
+                recommendedKpis={recommendedKpis}
+                additionalKpis={additionalKpis}
+              />
+            </div>
+            <KpisGrid selectedKpis={selectedKpis} />
+          </div>
         </div>
       </div>
-
-      {/* Use Case Selection Dialog - Coming Soon */}
-      <Dialog open={showUseCaseDialog} onOpenChange={setShowUseCaseDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Change Business Type</DialogTitle>
-            <DialogDescription>
-              This feature is currently under development. Stay tuned for
-              updates!
-            </DialogDescription>
-          </DialogHeader>
-          <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-            <p className="text-sm text-blue-900">
-              We're working on allowing you to change your business type. This
-              feature will be available soon.
-            </p>
-          </div>
-          <div className="mt-6 flex justify-end">
-            <Button onClick={() => setShowUseCaseDialog(false)}>Got it</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Upload Mode Dialog */}
       {showUploadModeDialog && pendingUpload && (

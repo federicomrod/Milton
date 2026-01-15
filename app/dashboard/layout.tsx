@@ -13,7 +13,6 @@ import { createClient } from "@/lib/supabase/client";
 import { DataStatusProvider } from "@/lib/context/DataStatusContext";
 import { BusinessProvider } from "@/lib/business-context";
 import { miltonEventsAPI } from "@/lib/milton-events";
-import { getKpiRecipes } from "@/lib/kpi-recipe-service";
 
 type DataStatus = {
   ok?: boolean;
@@ -67,16 +66,21 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
           if (businessModel?.business_type) {
             setBusinessModel(businessModel.business_type);
-            const r = await getKpiRecipes(businessModel.business_type);
+
+            // Fetch selected KPIs instead of template KPIs
+            const { getSelectedKpis } =
+              await import("@/lib/kpi-recipe-service");
+            const r = await getSelectedKpis(company.id);
             setRecipes(r);
             miltonEventsAPI.publish("business.context", {
               businessModel: businessModel.business_type,
               recipes: r,
             });
             console.log(
-              "[DashboardLayout] Loaded KPI recipes for",
-              businessModel.business_type,
-              r
+              "[DashboardLayout] Loaded selected KPIs for company",
+              company.id,
+              r.length,
+              "KPIs"
             );
           }
         }

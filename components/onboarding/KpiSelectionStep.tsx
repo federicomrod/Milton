@@ -45,7 +45,7 @@ export function KpiSelectionStep({
     // Use sessionStorage to cache the KPI data within the same session
     const cacheKey = "kpi-selection-cache";
     const cached = sessionStorage.getItem(cacheKey);
-    
+
     if (cached) {
       try {
         const cachedData = JSON.parse(cached);
@@ -58,8 +58,10 @@ export function KpiSelectionStep({
           const businessType = cachedData.businessType as string;
           const model = (cachedData.modelJson ?? null) as ModelProposal | null;
           const selected = (cachedData.selectedKpiIds ?? []) as string[];
-          const recommendedKpis = (cachedData.recommendedKpis ?? []) as DatabaseKpi[];
-          const additionalKpis = (cachedData.additionalKpis ?? []) as DatabaseKpi[];
+          const recommendedKpis = (cachedData.recommendedKpis ??
+            []) as DatabaseKpi[];
+          const additionalKpis = (cachedData.additionalKpis ??
+            []) as DatabaseKpi[];
 
           // Process cached data same as fresh data
           let templates: KpiTemplate[] = [];
@@ -115,7 +117,7 @@ export function KpiSelectionStep({
           return;
         }
         const data = await res.json();
-        
+
         // Cache the response in sessionStorage
         try {
           sessionStorage.setItem(
@@ -277,13 +279,15 @@ export function KpiSelectionStep({
     );
   }
 
-  const { businessType, recommendedKpis, additionalKpis } = state;
+  const { businessType } = state;
+  const recommendedKpis = state.recommendedKpis ?? [];
+  const additionalKpis = state.additionalKpis ?? [];
 
   // Use KPIs from database (recommended + additional) if available
   let recommendedTemplates: KpiTemplate[] = [];
   let additionalTemplates: KpiTemplate[] = [];
 
-  if (recommendedKpis && recommendedKpis.length > 0) {
+  if (recommendedKpis.length > 0) {
     recommendedTemplates = recommendedKpis.map((kpi) => ({
       id: kpi.id,
       label: kpi.name,

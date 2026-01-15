@@ -261,7 +261,7 @@ export function generateVarianceAnalysisData(
   transactions: TransactionData[],
   budget: BudgetData[]
 ): ChartData[] {
-  const normalized = normalizeAmounts(transactions);
+  const normalized = normalizeAmounts(transactions || []);
   const currentMonth = new Date();
   const monthKey = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, "0")}`;
 
@@ -284,7 +284,7 @@ export function generateVarianceAnalysisData(
   );
 
   // Get budget data for current month
-  const monthBudget = budget.filter((b: BudgetData) =>
+  const monthBudget = (budget || []).filter((b: BudgetData) =>
     (b.month || "").startsWith(monthKey)
   );
 
@@ -293,6 +293,7 @@ export function generateVarianceAnalysisData(
       const cat = (b.category || "").toLowerCase();
       const value =
         typeof b.value === "string" ? parseFloat(b.value) : b.value || 0;
+      // Match revenue categories (positive values)
       return /revenue|income|sales|mrr/i.test(cat) && value > 0;
     })
     .reduce((sum: number, b: BudgetData) => {
@@ -301,23 +302,27 @@ export function generateVarianceAnalysisData(
       return sum + value;
     }, 0);
 
-  const budgetExpenses = Math.abs(
-    monthBudget
-      .filter((b: BudgetData) => {
-        const cat = (b.category || "").toLowerCase();
-        const value =
-          typeof b.value === "string" ? parseFloat(b.value) : b.value || 0;
-        return /expense|cost|opex|fc/i.test(cat) && value < 0;
-      })
-      .reduce((sum: number, b: BudgetData) => {
-        const value =
-          typeof b.value === "string" ? parseFloat(b.value) : b.value || 0;
-        return sum + value;
-      }, 0)
-  );
+  const budgetExpenses = monthBudget
+    .filter((b: BudgetData) => {
+      const cat = (b.category || "").toLowerCase();
+      const value =
+        typeof b.value === "string" ? parseFloat(b.value) : b.value || 0;
+      // Match expense categories (can be positive or negative, but typically positive in budgets)
+      return (
+        /expense|cost|opex|fc|variable|fixed|salary|marketing|rent/i.test(
+          cat
+        ) && value > 0
+      );
+    })
+    .reduce((sum: number, b: BudgetData) => {
+      const value =
+        typeof b.value === "string" ? parseFloat(b.value) : b.value || 0;
+      return sum + Math.abs(value);
+    }, 0);
 
   const variances: ChartData[] = [];
 
+  // Always show revenue if we have any budget or actual data
   if (budgetRevenue > 0 || actualRevenue > 0) {
     variances.push({
       metric: "Revenue",
@@ -331,6 +336,7 @@ export function generateVarianceAnalysisData(
     });
   }
 
+  // Always show expenses if we have any budget or actual data
   if (budgetExpenses > 0 || actualExpenses > 0) {
     variances.push({
       metric: "Operating Expenses",
@@ -343,6 +349,95 @@ export function generateVarianceAnalysisData(
           : "N/A",
     });
   }
+
+  // If we have budgets but no matching categories, try to use all budgets
+  // This handles cases where category names don't match our patterns
+  if (variances.length === 0 && monthBudget.length > 0) {
+    // Sum all positive budget values (could be revenue or expenses)
+    const totalBudget = monthBudget.reduce((sum: number, b: BudgetData) => {
+      const value =
+        typeof b.value === "string" ? parseFloat(b.value) : b.value || 0;
+      return sum + Math.abs(value);
+    }, 0);
+
+    // If we have any budget data, show it even if categories don't match
+    if (totalBudget > 0) {
+      // Try to split: if we have actual revenue, assume budget is for revenue
+      // Otherwise, assume it's expenses
+      if (actualRevenue > 0) {
+        variances.push({
+          metric: "Revenue",
+          budget: totalBudget,
+          actual: actualRevenue,
+          variance: actualRevenue - totalBudget,
+          variancePercent:
+            totalBudget > 0
+              ? ((actualRevenue / totalBudget - 1) * 100).toFixed(1)
+              : "N/A",
+        });
+      }
+
+      if (actualExpenses > 0 || actualRevenue === 0) {
+        variances.push({
+          metric: "Operating Expenses",
+          budget: totalBudget,
+          actual: actualExpenses,
+          variance: actualExpenses - totalBudget,
+          variancePercent:
+            totalBudget > 0
+              ? ((actualExpenses / totalBudget - 1) * 100).toFixed(1)
+              : "N/A",
+        });
+      }
+    }
+  }
+
+  // If still no data but we have budgets for other months, show the latest month with budget data
+  if (variances.length === 0 && (budget || []).length > 0) {
+    // Find the most recent month with budget data
+    const allMonths = [
+      ...new Set(
+        (budget || []).map((b: BudgetData) => b.month).filter(Boolean)
+      ),
+    ]
+      .sort()
+      .reverse();
+    if (allMonths.length > 0) {
+      const latestMonth = allMonths[0];
+      const latestMonthBudget = (budget || []).filter(
+        (b: BudgetData) => b.month === latestMonth
+      );
+      const totalLatestBudget = latestMonthBudget.reduce(
+        (sum: number, b: BudgetData) => {
+          const value =
+            typeof b.value === "string" ? parseFloat(b.value) : b.value || 0;
+          return sum + Math.abs(value);
+        },
+        0
+      );
+
+      if (totalLatestBudget > 0) {
+        variances.push({
+          metric: `Budget (${latestMonth})`,
+          budget: totalLatestBudget,
+          actual: 0,
+          variance: -totalLatestBudget,
+          variancePercent: "N/A",
+        });
+      }
+    }
+  }
+
+  console.log("[generateVarianceAnalysisData] Result:", {
+    monthKey,
+    monthBudgetCount: monthBudget.length,
+    budgetRevenue,
+    budgetExpenses,
+    actualRevenue,
+    actualExpenses,
+    variancesCount: variances.length,
+    variances,
+  });
 
   return variances;
 }
@@ -425,7 +520,11 @@ export function generateYTDPerformanceData(
 export function generateIncomeStatementData(
   transactions: TransactionData[]
 ): WaterfallData[] {
-  const normalized = normalizeAmounts(transactions);
+  const normalized = normalizeAmounts(transactions || []);
+
+  if (normalized.length === 0) {
+    return [];
+  }
 
   // Get current month transactions
   const currentMonth = new Date();
@@ -443,10 +542,18 @@ export function generateIncomeStatementData(
     59
   );
 
-  const monthTransactions = normalized.filter((t) => {
+  let monthTransactions = normalized.filter((t) => {
     const date = new Date(t.date);
     return date >= monthStart && date <= monthEnd;
   });
+
+  // If no transactions in current month, use all transactions (fallback)
+  if (monthTransactions.length === 0) {
+    monthTransactions = normalized;
+    console.log(
+      "[generateIncomeStatementData] No current month transactions, using all transactions"
+    );
+  }
 
   // Group by category
   const categories: Record<string, number> = {};
@@ -496,6 +603,16 @@ export function generateIncomeStatementData(
     value: netIncome,
     isTotal: true,
     color: netIncome >= 0 ? "#3b82f6" : "#dc2626",
+  });
+
+  console.log("[generateIncomeStatementData] Result:", {
+    monthTransactionsCount: monthTransactions.length,
+    totalTransactionsCount: normalized.length,
+    totalRevenue,
+    totalExpenses,
+    netIncome,
+    waterfallDataCount: waterfallData.length,
+    categories: Object.keys(categories),
   });
 
   return waterfallData;

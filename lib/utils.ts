@@ -27,8 +27,90 @@ export function normalizeDateValue(value: any): string | null {
     return value.toISOString();
   }
 
-  // Try Excel serial date (e.g. 45731.04166… or 45794.04114583333)
+  // FIRST: Try parsing as a date string (before checking for Excel serial dates)
+  // This handles cases where dates like "01.03.25" are stored as strings
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed !== "") {
+      // Try parsing common date formats first
+      // DD.MM.YY or DD.MM.YYYY (e.g., "01.03.25" or "01.03.2025")
+      const ddmmyyMatch = trimmed.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+      if (ddmmyyMatch) {
+        const day = parseInt(ddmmyyMatch[1], 10);
+        const month = parseInt(ddmmyyMatch[2], 10) - 1; // Month is 0-indexed
+        let year = parseInt(ddmmyyMatch[3], 10);
+        // Handle 2-digit years: assume 00-30 = 2000-2030, 31-99 = 1931-1999
+        if (year < 100) {
+          year = year <= 30 ? 2000 + year : 1900 + year;
+        }
+        const date = new Date(Date.UTC(year, month, day));
+        if (!isNaN(date.getTime())) {
+          return date.toISOString();
+        }
+      }
+
+      // DD/MM/YY or DD/MM/YYYY (e.g., "01/03/25" or "01/03/2025")
+      // Also handles ambiguous dates like "1/2/25" - prefer DD/MM/YY format
+      const slashDateMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+      if (slashDateMatch) {
+        const first = parseInt(slashDateMatch[1], 10);
+        const second = parseInt(slashDateMatch[2], 10);
+        let year = parseInt(slashDateMatch[3], 10);
+        if (year < 100) {
+          year = year <= 30 ? 2000 + year : 1900 + year;
+        }
+
+        // Smart detection: if first number > 12, it must be DD/MM format
+        // If both are <= 12, prefer DD/MM/YY (European format) over MM/DD/YY
+        let day: number, month: number;
+        if (first > 12) {
+          // First number is definitely day (DD/MM format)
+          day = first;
+          month = second - 1;
+        } else if (second > 12) {
+          // Second number is definitely day (MM/DD format)
+          month = first - 1;
+          day = second;
+        } else {
+          // Both <= 12, ambiguous - prefer DD/MM/YY format (European)
+          day = first;
+          month = second - 1;
+        }
+
+        const date = new Date(Date.UTC(year, month, day));
+        if (!isNaN(date.getTime())) {
+          return date.toISOString();
+        }
+      }
+
+      // Try parsing as ISO date string
+      const isoDate = new Date(trimmed);
+      if (!isNaN(isoDate.getTime())) {
+        return isoDate.toISOString();
+      }
+
+      // Try parsing as Excel serial date string (only if it looks like a number)
+      const numValue = Number(trimmed);
+      if (!Number.isNaN(numValue) && numValue > 1 && numValue < 100000) {
+        const base = new Date(Date.UTC(1899, 11, 30));
+        base.setUTCDate(base.getUTCDate() + Math.floor(numValue));
+        const timeComponent = numValue - Math.floor(numValue);
+        if (timeComponent > 0) {
+          const hours = Math.floor(timeComponent * 24);
+          const minutes = Math.floor((timeComponent * 24 - hours) * 60);
+          const seconds = Math.floor(
+            ((timeComponent * 24 - hours) * 60 - minutes) * 60
+          );
+          base.setUTCHours(hours, minutes, seconds);
+        }
+        return base.toISOString();
+      }
+    }
+  }
+
+  // SECOND: Try Excel serial date (e.g. 45731.04166… or 45659.99947916667)
   // Excel dates are typically between 1 (Jan 1, 1900) and ~100000 (year 2174)
+  // This handles cases where Excel has already converted the date to a serial number
   const numeric =
     typeof value === "number" ? value : Number(String(value).trim());
 
@@ -61,35 +143,6 @@ export function normalizeDateValue(value: any): string | null {
       if (!isNaN(date.getTime())) {
         return date.toISOString();
       }
-    }
-  }
-
-  // Fallback: try to parse as a normal date string
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (trimmed === "") return null;
-
-    // Try parsing as ISO date string first
-    const isoDate = new Date(trimmed);
-    if (!isNaN(isoDate.getTime())) {
-      return isoDate.toISOString();
-    }
-
-    // Try parsing as Excel serial date string
-    const numValue = Number(trimmed);
-    if (!Number.isNaN(numValue) && numValue > 1 && numValue < 100000) {
-      const base = new Date(Date.UTC(1899, 11, 30));
-      base.setUTCDate(base.getUTCDate() + Math.floor(numValue));
-      const timeComponent = numValue - Math.floor(numValue);
-      if (timeComponent > 0) {
-        const hours = Math.floor(timeComponent * 24);
-        const minutes = Math.floor((timeComponent * 24 - hours) * 60);
-        const seconds = Math.floor(
-          ((timeComponent * 24 - hours) * 60 - minutes) * 60
-        );
-        base.setUTCHours(hours, minutes, seconds);
-      }
-      return base.toISOString();
     }
   }
 

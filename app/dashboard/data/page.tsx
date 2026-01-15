@@ -42,6 +42,8 @@ import {
 import FileUpload from "@/components/dashboard/file-upload";
 import { FileManagement } from "@/components/dashboard/file-management";
 import { Separator } from "@/components/ui/separator";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useRef } from "react";
 
 const CATEGORY_ICONS: Record<DataSourceCategory, React.ReactNode> = {
   online_banking: <CreditCard className="h-4 w-4" />,
@@ -158,11 +160,20 @@ export default function DataManagementPage() {
     }
   };
 
-  const handleDeleteSource = async (sourceId: string) => {
-    if (!confirm("Are you sure you want to remove this data source?")) return;
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    sourceId: string | null;
+  }>({ open: false, sourceId: null });
+
+  const handleDeleteClick = (sourceId: string) => {
+    setConfirmDialog({ open: true, sourceId });
+  };
+
+  const handleDeleteSource = async () => {
+    if (!confirmDialog.sourceId) return;
 
     try {
-      await deleteUserDataSource(sourceId);
+      await deleteUserDataSource(confirmDialog.sourceId);
       await loadDataSources();
       setMessage({
         type: "success",
@@ -172,6 +183,8 @@ export default function DataManagementPage() {
     } catch (error) {
       setMessage({ type: "error", text: "Failed to remove data source." });
       console.error(error);
+    } finally {
+      setConfirmDialog({ open: false, sourceId: null });
     }
   };
 
@@ -401,7 +414,7 @@ export default function DataManagementPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleDeleteSource(source.id)}
+                      onClick={() => handleDeleteClick(source.id)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -429,8 +442,36 @@ export default function DataManagementPage() {
         </Card>
 
         {/* File Management Section */}
-        <FileManagement />
+        <FileManagement
+          onReplaceClick={(type) => {
+            // Map file type to dataset type and trigger upload
+            const datasetType =
+              type === "deals" ? "crm" : type === "budgets" ? "budget" : "bank";
+            // Dispatch event that FileUpload can listen to
+            window.dispatchEvent(
+              new CustomEvent("file-upload:replace", {
+                detail: { datasetType },
+              })
+            );
+          }}
+        />
       </div>
+
+      <ConfirmDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) =>
+          setConfirmDialog({
+            open,
+            sourceId: open ? confirmDialog.sourceId : null,
+          })
+        }
+        title="Remove Data Source"
+        description="Are you sure you want to remove this data source? This action cannot be undone."
+        confirmText="Remove"
+        cancelText="Cancel"
+        variant="destructive"
+        onConfirm={handleDeleteSource}
+      />
     </div>
   );
 }

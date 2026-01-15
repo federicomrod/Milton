@@ -178,8 +178,31 @@ export function MetricSelector({
     );
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    // Update local state
     onMetricsChange(tempSelection);
+
+    // Save to API
+    try {
+      const res = await fetch("/api/onboarding/kpi-preferences", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          selectedKpiIds: tempSelection,
+        }),
+      });
+
+      if (!res.ok) {
+        console.error("[MetricSelector] Failed to save preferences");
+        // Still update local state even if API save fails
+      }
+    } catch (err) {
+      console.error("[MetricSelector] Error saving preferences:", err);
+      // Still update local state even if API save fails
+    }
+
     setOpen(false);
   };
 

@@ -3,6 +3,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/utils/formatters";
+import { normalizeStage } from "@/lib/utils/pipeline-utils";
 import type { Deal } from "@/lib/types/pipeline";
 import type { PipelineMetrics } from "@/lib/types/pipeline";
 
@@ -20,17 +21,27 @@ export function PipelineSummaryCards({
   numberFormat,
 }: PipelineSummaryCardsProps) {
   const totalPipelineValue = allDeals
-    .filter((d) => d.stage !== "no_deal")
+    .filter((d) => {
+      const normalizedStage = normalizeStage(d.stage || "");
+      return normalizedStage !== "No Deal";
+    })
     .reduce((sum, d) => sum + Number(d.amount || 0), 0);
 
-  const activeDeals = allDeals.filter((d) => d.stage !== "no_deal").length;
+  const activeDeals = allDeals.filter((d) => {
+    const normalizedStage = normalizeStage(d.stage || "");
+    return normalizedStage !== "No Deal";
+  }).length;
 
-  const closedWon = allDeals.filter(
-    (d) => d.stage === "deal" && d.close_date
-  ).length;
-  const closedLost = allDeals.filter(
-    (d) => d.stage === "no_deal" && d.close_date
-  ).length;
+  const closedWon = allDeals.filter((d) => {
+    const normalizedStage = normalizeStage(d.stage || "");
+    return normalizedStage === "Deal" && d.close_date;
+  }).length;
+
+  const closedLost = allDeals.filter((d) => {
+    const normalizedStage = normalizeStage(d.stage || "");
+    return normalizedStage === "No Deal" && d.close_date;
+  }).length;
+
   const total = closedWon + closedLost;
   const winRate = total === 0 ? "0.0" : ((closedWon / total) * 100).toFixed(1);
 

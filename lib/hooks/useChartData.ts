@@ -34,10 +34,33 @@ export function useChartData(type: string) {
 
         const reportData = await getReportData(supabase, user.id);
 
-        if (!reportData.transactions || reportData.transactions.length === 0) {
+        // For variance-analysis and ytd-performance, we need budgets OR transactions
+        // For other charts, we need transactions
+        const needsTransactions = ![
+          "variance-analysis",
+          "ytd-performance",
+        ].includes(type);
+
+        if (
+          needsTransactions &&
+          (!reportData.transactions || reportData.transactions.length === 0)
+        ) {
           setData([]);
           setLoading(false);
           return;
+        }
+
+        // For variance-analysis, check if we have at least budgets or transactions
+        if (type === "variance-analysis") {
+          const hasTransactions =
+            reportData.transactions && reportData.transactions.length > 0;
+          const hasBudgets =
+            reportData.budgets && reportData.budgets.length > 0;
+          if (!hasTransactions && !hasBudgets) {
+            setData([]);
+            setLoading(false);
+            return;
+          }
         }
 
         let chartData: ChartData[] | WaterfallData[] = [];
@@ -45,25 +68,40 @@ export function useChartData(type: string) {
         switch (type) {
           case "mrr-vs-plan":
             chartData = generateMRRChartData(
-              reportData.transactions,
+              reportData.transactions || [],
               reportData.budgets || []
             );
             break;
           case "burn-rate":
-            chartData = generateBurnRateChartData(reportData.transactions);
+            chartData = generateBurnRateChartData(
+              reportData.transactions || []
+            );
             break;
           case "income-statement":
-            chartData = generateIncomeStatementData(reportData.transactions);
+            chartData = generateIncomeStatementData(
+              reportData.transactions || []
+            );
+            console.log("[useChartData] Income statement:", {
+              transactionsCount: reportData.transactions?.length || 0,
+              chartDataLength: chartData.length,
+              chartData,
+            });
             break;
           case "variance-analysis":
             chartData = generateVarianceAnalysisData(
-              reportData.transactions,
+              reportData.transactions || [],
               reportData.budgets || []
             );
+            console.log("[useChartData] Variance analysis:", {
+              transactionsCount: reportData.transactions?.length || 0,
+              budgetsCount: reportData.budgets?.length || 0,
+              chartDataLength: chartData.length,
+              chartData,
+            });
             break;
           case "ytd-performance":
             chartData = generateYTDPerformanceData(
-              reportData.transactions,
+              reportData.transactions || [],
               reportData.budgets || []
             );
             break;

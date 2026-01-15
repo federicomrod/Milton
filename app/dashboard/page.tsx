@@ -216,22 +216,64 @@ export default function DashboardPage() {
       try {
         const res = await fetch("/api/onboarding/kpi-preferences");
         if (!res.ok) {
+          // If no preferences found, use default 8 metrics from initial state
+          console.log(
+            "[DashboardPage] No saved KPI preferences, using defaults"
+          );
           return;
         }
         const data = await res.json();
         const userSelectedKpiIds = (data.selectedKpiIds ?? []) as string[];
 
+        console.log("[DashboardPage] Loaded KPI preferences:", {
+          userSelectedKpiIds,
+          count: userSelectedKpiIds.length,
+        });
+
         if (userSelectedKpiIds.length > 0) {
           // Merge: core KPIs always show, then add user-selected ones (no duplicates)
-          const mergedKpiIds = [
+          let mergedKpiIds = [
             ...coreKpiIds,
             ...userSelectedKpiIds.filter((id) => !coreKpiIds.includes(id)),
-          ].slice(0, 8); // Limit to 8 tiles max
+          ];
 
+          // If we have less than 8 metrics, fill with default metrics
+          if (mergedKpiIds.length < 8) {
+            const defaultMetrics = [
+              ...coreKpiIds,
+              "contracted",
+              "ltmRevenue",
+              "netMargin",
+              "customers",
+            ];
+            const additionalMetrics = defaultMetrics.filter(
+              (id) => !mergedKpiIds.includes(id)
+            );
+            mergedKpiIds = [...mergedKpiIds, ...additionalMetrics].slice(0, 8);
+            console.log("[DashboardPage] Filled metrics to 8:", {
+              before: mergedKpiIds.length - additionalMetrics.length,
+              after: mergedKpiIds.length,
+              added: additionalMetrics,
+            });
+          } else {
+            // Limit to 8 tiles max
+            mergedKpiIds = mergedKpiIds.slice(0, 8);
+          }
+
+          console.log(
+            "[DashboardPage] Setting selected metrics:",
+            mergedKpiIds
+          );
           setSelectedMetrics(mergedKpiIds);
+        } else {
+          // If userSelectedKpiIds is empty, keep the default 8 metrics from initial state
+          console.log(
+            "[DashboardPage] Empty saved preferences, keeping default 8 metrics"
+          );
         }
       } catch (err) {
-        // Silently fail, use defaults
+        // Silently fail, use defaults (initial state has 8 metrics)
+        console.error("[DashboardPage] Error loading KPI preferences:", err);
       }
     };
 

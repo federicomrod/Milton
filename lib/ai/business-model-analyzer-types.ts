@@ -27,17 +27,6 @@ export interface AnalyzerDatasetSample {
 }
 
 /**
- * A suggested KPI from the AI
- */
-export interface SuggestedKPI {
-  name: string;
-  description: string;
-  category: string;
-  formula?: string;
-  priority: "high" | "medium" | "low";
-}
-
-/**
  * Input payload for /api/ai/business-model-analyzer
  * Supports two modes:
  * 1. Onboarding mode: uses `answers` to generate initial model
@@ -58,7 +47,6 @@ export interface BusinessModelAnalyzerInput {
 export interface BusinessModelAnalyzerResponse {
   success: boolean;
   proposal?: import("@/lib/model/transform").ModelProposal;
-  suggestedKPIs?: SuggestedKPI[];
   error?: string;
 }
 

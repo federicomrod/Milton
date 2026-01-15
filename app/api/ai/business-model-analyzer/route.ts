@@ -9,7 +9,6 @@ import type {
   BusinessModelAnalyzerResponse,
   OnboardingAnswers,
   AnalyzerDatasetSample,
-  SuggestedKPI,
 } from "@/lib/ai/business-model-analyzer-types";
 import type { ModelProposal } from "@/lib/model/transform";
 
@@ -22,14 +21,13 @@ function buildOnboardingSystemPrompt(): string {
 
 Your task is to analyze the user's business information and generate:
 1. A data model (tables, fields, relationships) tailored to their specific business
-2. Suggested KPIs they should track
 
 IMPORTANT RULES:
 - Make MINIMAL assumptions. Only include tables and fields that are clearly relevant.
 - If they mention specific tools (e.g., "Stripe", "Salesforce"), suggest fields that would come from those systems.
 - If they mention specific data sources (e.g., "Excel sales sheet"), suggest appropriate table structures.
-- Base KPI suggestions on their stated goals and revenue model.
 - Keep the model simple - a small business doesn't need 20 tables.
+- KPIs are handled separately via business_model_templates - do not generate KPIs.
 
 You MUST respond with ONLY valid JSON matching this structure:
 
@@ -47,10 +45,7 @@ You MUST respond with ONLY valid JSON matching this structure:
     "relationships": [
       { "from": "Table.field", "to": "OtherTable.field" }
     ]
-  },
-  "suggestedKPIs": [
-    { "name": "KPI Name", "description": "What this measures", "category": "Revenue|Operations|Customer|Financial|Growth", "formula": "How to calculate (optional)", "priority": "high|medium|low" }
-  ]
+  }
 }
 
 Output ONLY the JSON, no explanations, no markdown.`;
@@ -72,9 +67,7 @@ SYSTEMS/TOOLS: ${answers.systems || "Not specified"}
 
 Based on this:
 1. Design a simple, practical data model with only the tables and fields they need.
-2. Suggest 5-8 KPIs that align with their goals.
-3. Prioritize KPIs based on their stated goals.
-${answers.businessType ? `4. Use "${answers.businessType}" as the businessType in your response.` : ""}
+${answers.businessType ? `2. Use "${answers.businessType}" as the businessType in your response.` : ""}
 
 Keep it simple for a business with ${answers.employees || "a few"} employees.`;
 }
@@ -147,7 +140,6 @@ function buildRefinementUserPrompt(
 
 interface AIOnboardingResponse {
   dataModel: ModelProposal;
-  suggestedKPIs: SuggestedKPI[];
 }
 
 interface AIRefinementResponse {
@@ -280,15 +272,7 @@ export async function POST(req: NextRequest) {
     parsed.dataModel.businessType = businessType;
 
     const tableCount = parsed.dataModel.recommendedTables.length;
-    const kpiCount =
-      (parsed as AIOnboardingResponse).suggestedKPIs?.length || 0;
-    console.log(
-      "[business-model-analyzer] Generated:",
-      tableCount,
-      "tables,",
-      kpiCount,
-      "KPIs"
-    );
+    console.log("[business-model-analyzer] Generated:", tableCount, "tables");
 
     // Save to database (only in onboarding mode)
     if (isOnboardingMode && body.answers) {
@@ -319,8 +303,6 @@ export async function POST(req: NextRequest) {
               business_type: businessType,
               model_json: parsed.dataModel,
               onboarding_answers: body.answers,
-              suggested_kpis:
-                (parsed as AIOnboardingResponse).suggestedKPIs || [],
               data_readiness: dataReadiness,
               data_sources: dataSourcesObj,
             },
@@ -336,7 +318,6 @@ export async function POST(req: NextRequest) {
     const response: BusinessModelAnalyzerResponse = {
       success: true,
       proposal: parsed.dataModel,
-      suggestedKPIs: (parsed as AIOnboardingResponse).suggestedKPIs,
     };
 
     return NextResponse.json(response, { status: 200 });

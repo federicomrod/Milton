@@ -7,7 +7,6 @@ import { createClient } from "@/lib/supabase/client";
 import { DataStatusProvider } from "@/lib/context/DataStatusContext";
 import { BusinessProvider } from "@/lib/business-context";
 import { miltonEventsAPI } from "@/lib/milton-events";
-import { getKpiRecipes } from "@/lib/kpi-recipe-service";
 
 type DataStatus = {
   ok?: boolean;
@@ -19,12 +18,8 @@ type DataStatus = {
 const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [dataStatus, setDataStatus] = useState<DataStatus>(null);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [_businessModel, setBusinessModel] = useState<string>("");
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [_recipes, setRecipes] = useState<any[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [_kpiData, setKpiData] = useState<any[]>([]);
+  const [businessModel, setBusinessModel] = useState<string>("");
+  const [selectedKpis, setSelectedKpis] = useState<any[]>([]);
   const supabase = useMemo(() => createClient(), []);
   const [sessionReady, setSessionReady] = useState(false);
 
@@ -37,7 +32,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     return !!refreshed?.session?.access_token;
   }, [supabase]);
 
-  // Load KPI recipes for selected business model from database
+  // Load selected KPIs for company from database
   useEffect(() => {
     (async () => {
       try {
@@ -63,16 +58,21 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
           if (businessModel?.business_type) {
             setBusinessModel(businessModel.business_type);
-            const r = await getKpiRecipes(businessModel.business_type);
-            setRecipes(r);
+
+            // Fetch selected KPIs instead of template KPIs
+            const { getSelectedKpis } =
+              await import("@/lib/kpi-recipe-service");
+            const selectedKpis = await getSelectedKpis(company.id);
+            setSelectedKpis(selectedKpis);
             miltonEventsAPI.publish("business.context", {
               businessModel: businessModel.business_type,
-              recipes: r,
+              selectedKpis: selectedKpis,
             });
             console.log(
-              "[DashboardLayout] Loaded KPI recipes for",
-              businessModel.business_type,
-              r
+              "[DashboardLayout] Loaded selected KPIs for company",
+              company.id,
+              selectedKpis.length,
+              "KPIs"
             );
           }
         }
@@ -115,14 +115,24 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             console.warn("[DashboardLayout] No user authenticated");
             return;
           }
-          const modelRecipes = await getKpiRecipes(payload.businessModel);
-          setKpiData([]);
-          setRecipes(modelRecipes);
-          miltonEventsAPI.publish("dashboard.data.ready", {
-            kpis: [],
-            recipes: modelRecipes,
-            businessModel: payload.businessModel,
-          });
+          // Get company for selected KPIs
+          const { data: company } = await supabase
+            .from("companies")
+            .select("id")
+            .eq("created_by", user.id)
+            .single();
+
+          if (company) {
+            const { getSelectedKpis } =
+              await import("@/lib/kpi-recipe-service");
+            const selectedKpis = await getSelectedKpis(company.id);
+            setSelectedKpis(selectedKpis);
+            miltonEventsAPI.publish("dashboard.data.ready", {
+              kpis: [],
+              selectedKpis: selectedKpis,
+              businessModel: payload.businessModel,
+            });
+          }
           console.log("[DashboardLayout] Dashboard data ready event published");
         } catch (err) {
           console.error("[DashboardLayout] Error generating dashboard:", err);
@@ -161,7 +171,6 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshDataStatus();
   }, [refreshDataStatus]);
 
@@ -208,7 +217,6 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       <DataStatusProvider value={{ refreshDataStatus }}>
         <div style={{ position: "relative", minHeight: "100vh" }}>
           {children}
-          {/* Optional insight preview - removed to prevent duplication */}
           {/* Chat Toggle Button - Hide when chat is open */}
           {!isChatOpen && (
             <button

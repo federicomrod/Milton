@@ -43,6 +43,11 @@ import FileUpload from "@/components/dashboard/file-upload";
 import { FileManagement } from "@/components/dashboard/file-management";
 import { Separator } from "@/components/ui/separator";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useRef } from "react";
 
 const CATEGORY_ICONS: Record<DataSourceCategory, React.ReactNode> = {
@@ -58,6 +63,12 @@ const CATEGORY_ICONS: Record<DataSourceCategory, React.ReactNode> = {
 export default function DataManagementPage() {
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
   const [otherTexts, setOtherTexts] = useState<Record<string, string>>({});
+  const [initialSelectedTools, setInitialSelectedTools] = useState<Set<string>>(
+    new Set()
+  );
+  const [initialOtherTexts, setInitialOtherTexts] = useState<
+    Record<string, string>
+  >({});
   const [existingSources, setExistingSources] = useState<UserDataSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -90,6 +101,9 @@ export default function DataManagementPage() {
       });
       setSelectedTools(tools);
       setOtherTexts(others);
+      // Store initial state for comparison
+      setInitialSelectedTools(new Set(tools));
+      setInitialOtherTexts({ ...others });
     } catch (error) {
       console.error("Failed to load data sources:", error);
       setMessage({ type: "error", text: "Failed to load data sources." });
@@ -216,6 +230,13 @@ export default function DataManagementPage() {
 
   const hasIntegrations = hasAvailableIntegrations(selectedToolIds);
 
+  // Check if there are any changes from the initial state
+  const hasChanges =
+    selectedTools.size !== initialSelectedTools.size ||
+    Array.from(selectedTools).some((key) => !initialSelectedTools.has(key)) ||
+    Array.from(initialSelectedTools).some((key) => !selectedTools.has(key)) ||
+    JSON.stringify(otherTexts) !== JSON.stringify(initialOtherTexts);
+
   const getToolName = (category: string, toolName: string): string => {
     if (toolName === "other") {
       const source = existingSources.find(
@@ -263,6 +284,49 @@ export default function DataManagementPage() {
                     {tools.map((tool) => {
                       const key = `${tool.category}:${tool.id}`;
                       const isSelected = selectedTools.has(key);
+                      const isDisabled = tool.id !== "sheets_excel";
+
+                      if (isDisabled) {
+                        return (
+                          <div
+                            key={tool.id}
+                            className="flex items-center space-x-2"
+                          >
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>
+                                  <Checkbox
+                                    id={key}
+                                    checked={isSelected}
+                                    disabled={isDisabled}
+                                    onCheckedChange={() =>
+                                      toggleTool(tool.category, tool.id)
+                                    }
+                                  />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" align="start">
+                                <p>
+                                  We don&apos;t support this integration yet
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                            <Label
+                              htmlFor={key}
+                              className="cursor-not-allowed opacity-50 font-normal flex-1"
+                            >
+                              {tool.name}
+                            </Label>
+                            {tool.hasIntegration && (
+                              <Badge variant="outline" className="text-xs">
+                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                Integration Available
+                              </Badge>
+                            )}
+                          </div>
+                        );
+                      }
+
                       return (
                         <div
                           key={tool.id}
@@ -271,6 +335,7 @@ export default function DataManagementPage() {
                           <Checkbox
                             id={key}
                             checked={isSelected}
+                            disabled={isDisabled}
                             onCheckedChange={() =>
                               toggleTool(tool.category, tool.id)
                             }
@@ -290,34 +355,48 @@ export default function DataManagementPage() {
                         </div>
                       );
                     })}
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`${category}:other`}
-                        checked={selectedTools.has(`${category}:other`)}
-                        onCheckedChange={() =>
-                          toggleTool(category as DataSourceCategory, "other")
-                        }
-                      />
+                    <div className="flex items-center space-x-2 cursor-not-allowed opacity-50">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Checkbox
+                              id={`${category}:other`}
+                              checked={selectedTools.has(`${category}:other`)}
+                              disabled
+                              onCheckedChange={() =>
+                                toggleTool(
+                                  category as DataSourceCategory,
+                                  "other"
+                                )
+                              }
+                            />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" align="start">
+                          <p>We don&apos;t support this integration yet</p>
+                        </TooltipContent>
+                      </Tooltip>
                       <Label
                         htmlFor={`${category}:other`}
-                        className="cursor-pointer font-normal"
+                        className="cursor-not-allowed font-normal"
                       >
                         Other
                       </Label>
-                      {selectedTools.has(`${category}:other`) && (
-                        <Input
-                          placeholder="Please specify..."
-                          value={otherTexts[category] || ""}
-                          onChange={(e) =>
-                            setOtherTexts((prev) => ({
-                              ...prev,
-                              [category]: e.target.value,
-                            }))
-                          }
-                          className="ml-2 max-w-xs"
-                        />
-                      )}
                     </div>
+                    {selectedTools.has(`${category}:other`) && (
+                      <Input
+                        placeholder="Please specify..."
+                        value={otherTexts[category] || ""}
+                        onChange={(e) =>
+                          setOtherTexts((prev) => ({
+                            ...prev,
+                            [category]: e.target.value,
+                          }))
+                        }
+                        className="ml-2 max-w-xs"
+                        disabled
+                      />
+                    )}
                   </div>
                 </div>
               ))}
@@ -375,7 +454,7 @@ export default function DataManagementPage() {
 
             <Button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || !hasChanges}
               className="w-full"
               size="lg"
             >

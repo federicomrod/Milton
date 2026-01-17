@@ -18,7 +18,15 @@ export interface ToolDefinition {
 }
 
 export const AVAILABLE_TOOLS: ToolDefinition[] = [
-  // Online Banking
+  // Manual File Upload - Currently Supported
+  {
+    id: "sheets_excel",
+    name: "Sheets/Excel",
+    category: "g_docs",
+    hasIntegration: true, // This is supported via manual file upload
+  },
+
+  // Online Banking - Not yet supported
   {
     id: "banking_psd2",
     name: "Banking (EU/EEA) via PSD2 Open Banking",
@@ -32,7 +40,7 @@ export const AVAILABLE_TOOLS: ToolDefinition[] = [
     hasIntegration: false,
   },
 
-  // CRM
+  // CRM - Not yet supported
   { id: "hubspot", name: "HubSpot", category: "crm", hasIntegration: false },
   {
     id: "salesforce",
@@ -47,7 +55,7 @@ export const AVAILABLE_TOOLS: ToolDefinition[] = [
     hasIntegration: false,
   },
 
-  // Accounting
+  // Accounting - Not yet supported
   {
     id: "datev",
     name: "DATEV (Germany)",
@@ -85,7 +93,6 @@ export const AVAILABLE_TOOLS: ToolDefinition[] = [
   // { id: 'spendesk', name: 'Spendesk', category: 'expense_management', hasIntegration: false },
   // { id: 'stripe', name: 'Stripe', category: 'accounting', hasIntegration: false },
   // { id: 'shopify', name: 'Shopify', category: 'cms', hasIntegration: false },
-  // { id: 'google_sheets', name: 'Google Sheets', category: 'g_docs', hasIntegration: false },
 ];
 
 export const CATEGORY_LABELS: Record<DataSourceCategory, string> = {

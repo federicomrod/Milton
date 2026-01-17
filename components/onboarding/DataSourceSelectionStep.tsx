@@ -14,6 +14,11 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   AVAILABLE_TOOLS,
   CATEGORY_LABELS,
   DataSourceCategory,
@@ -164,11 +169,50 @@ export function DataSourceSelectionStep({
               {tools.map((tool) => {
                 const key = `${tool.category}:${tool.id}`;
                 const isSelected = selectedTools.has(key);
+                const isDisabled = tool.id !== "sheets_excel";
+
+                if (isDisabled) {
+                  return (
+                    <div key={tool.id} className="flex items-center space-x-2">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Checkbox
+                              id={key}
+                              checked={isSelected}
+                              disabled={isDisabled}
+                              onCheckedChange={() =>
+                                toggleTool(tool.category, tool.id)
+                              }
+                            />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" align="start">
+                          <p>We don&apos;t support this integration yet</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Label
+                        htmlFor={key}
+                        className="cursor-not-allowed opacity-50 font-normal flex-1"
+                      >
+                        {tool.name}
+                      </Label>
+                      {tool.hasIntegration && (
+                        <Badge variant="outline" className="text-xs">
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          Integration Available
+                        </Badge>
+                      )}
+                    </div>
+                  );
+                }
+
                 return (
                   <div key={tool.id} className="flex items-center space-x-2">
                     <Checkbox
                       id={key}
                       checked={isSelected}
+                      disabled={isDisabled}
                       onCheckedChange={() => toggleTool(tool.category, tool.id)}
                     />
                     <Label
@@ -186,34 +230,45 @@ export function DataSourceSelectionStep({
                   </div>
                 );
               })}
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id={`${category}:other`}
-                  checked={selectedTools.has(`${category}:other`)}
-                  onCheckedChange={() =>
-                    toggleTool(category as DataSourceCategory, "other")
-                  }
-                />
+              <div className="flex items-center space-x-2 cursor-not-allowed opacity-50">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Checkbox
+                        id={`${category}:other`}
+                        checked={selectedTools.has(`${category}:other`)}
+                        disabled
+                        onCheckedChange={() =>
+                          toggleTool(category as DataSourceCategory, "other")
+                        }
+                      />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" align="start">
+                    <p>We don&apos;t support this integration yet</p>
+                  </TooltipContent>
+                </Tooltip>
                 <Label
                   htmlFor={`${category}:other`}
-                  className="cursor-pointer font-normal"
+                  className="cursor-not-allowed font-normal"
                 >
                   Other
                 </Label>
-                {selectedTools.has(`${category}:other`) && (
-                  <Input
-                    placeholder="Please specify..."
-                    value={otherTexts[category] || ""}
-                    onChange={(e) =>
-                      setOtherTexts((prev) => ({
-                        ...prev,
-                        [category]: e.target.value,
-                      }))
-                    }
-                    className="ml-2 max-w-xs"
-                  />
-                )}
               </div>
+              {selectedTools.has(`${category}:other`) && (
+                <Input
+                  placeholder="Please specify..."
+                  value={otherTexts[category] || ""}
+                  onChange={(e) =>
+                    setOtherTexts((prev) => ({
+                      ...prev,
+                      [category]: e.target.value,
+                    }))
+                  }
+                  className="ml-2 max-w-xs"
+                  disabled
+                />
+              )}
             </CardContent>
           </Card>
         ))}

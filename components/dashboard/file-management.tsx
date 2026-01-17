@@ -326,7 +326,7 @@ export function FileManagement({ onReplaceClick }: FileManagementProps = {}) {
             return (
               <div
                 key={file.id}
-                className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-950 hover:shadow-sm transition-shadow"
+                className="flex items-center justify-between p-4 border border-gray-200 dark:!border-gray-700 rounded-lg !bg-white dark:!bg-gray-900 hover:shadow-sm dark:hover:shadow-sm dark:hover:bg-gray-800 transition-shadow"
               >
                 <div className="flex items-center gap-4 flex-1 min-w-0">
                   <Badge
@@ -383,7 +383,7 @@ export function FileManagement({ onReplaceClick }: FileManagementProps = {}) {
           })}
         </div>
 
-        <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+        <div className="mt-4 p-3 bg-blue-50 dark:!bg-blue-950/40 border border-blue-200 dark:!border-blue-900 rounded-lg">
           <h4 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
             File Management Tips:
           </h4>

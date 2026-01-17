@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { FileText, Upload } from "lucide-react";
 import { useDataStatus } from "@/lib/context/DataStatusContext";
 import EnhancedDataMappingUI from "./data-mapping-confirmation";
 import SheetSelection from "./sheet-selection";
@@ -263,6 +264,23 @@ function calculateMatchConfidence(header: string, keyword: string): number {
   return 0;
 }
 
+interface QueuedFile {
+  id: string;
+  file: File;
+  status:
+    | "pending"
+    | "parsing"
+    | "mapping"
+    | "uploading"
+    | "completed"
+    | "error"
+    | "skipped";
+  parseResult?: any;
+  datasetType?: "bank" | "crm" | "budget";
+  error?: string;
+  rowCount?: number;
+}
+
 interface FileUploadProps {
   selectedUseCase?: string | null;
   onFileSelected?: (
@@ -295,6 +313,7 @@ export default function FileUpload({
       sampleData: any[];
       totalRows: number;
     }>;
+    queueIndex?: number;
   } | null>(null);
   const [pendingSheets, setPendingSheets] = useState<
     Array<{ sheetName: string; datasetType: "bank" | "crm" | "budget" }>
@@ -307,6 +326,7 @@ export default function FileUpload({
     suggestedMappings: ColumnMapping[];
     confidence: number;
     sheetName?: string;
+    queueIndex?: number;
   } | null>(null);
   const [existingFile, setExistingFile] = useState<UploadedFile | null>(null);
   const [showFileNameDialog, setShowFileNameDialog] = useState(false);
@@ -314,7 +334,14 @@ export default function FileUpload({
     file: File;
     parseResult: any;
     datasetType: "bank" | "crm" | "budget";
+    queueIndex?: number;
   } | null>(null);
+  const [fileQueue, setFileQueue] = useState<QueuedFile[]>([]);
+  const [currentFileIndex, setCurrentFileIndex] = useState<number | null>(null);
+  const [batchProgress, setBatchProgress] = useState({
+    completed: 0,
+    total: 0,
+  });
 
   // Listen for replace events
   useEffect(() => {
@@ -361,49 +388,77 @@ export default function FileUpload({
     };
   }, []);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
+  const inferDatasetType = (fileName: string): "bank" | "crm" | "budget" => {
+    const lowerName = fileName.toLowerCase();
+    if (
+      lowerName.includes("crm") ||
+      lowerName.includes("deal") ||
+      lowerName.includes("sales")
+    ) {
+      return "crm";
+    } else if (lowerName.includes("budget")) {
+      return "budget";
+    } else if (
+      lowerName.includes("transaction") ||
+      lowerName.includes("bank")
+    ) {
+      return "bank";
+    }
+    return "bank";
+  };
 
-    const file = files[0];
-    setIsProcessing(true);
-    setUploadMessage(null);
+  const updateFileStatus = (
+    index: number,
+    status: QueuedFile["status"],
+    error?: string,
+    rowCount?: number
+  ) => {
+    setFileQueue((prev) => {
+      const updated = [...prev];
+      if (updated[index]) {
+        updated[index] = { ...updated[index], status, error, rowCount };
+      }
+      return updated;
+    });
+  };
+
+  const processNextFile = async (index: number, queue: QueuedFile[]) => {
+    if (index >= queue.length) {
+      // All files processed
+      setCurrentFileIndex(null);
+      setIsProcessing(false);
+      setUploadMessage(
+        `✅ Successfully processed ${batchProgress.completed} of ${batchProgress.total} files`
+      );
+      await refreshDataStatus();
+      document.dispatchEvent(new CustomEvent("data-status:refresh"));
+      return;
+    }
+
+    const queuedFile = queue[index];
+    setCurrentFileIndex(index);
+    updateFileStatus(index, "parsing");
 
     try {
       // Use dataset type from replace mode if available, otherwise infer from filename
-      let datasetType: "bank" | "crm" | "budget" =
-        replaceMode.datasetType || "bank";
-
-      if (!replaceMode.datasetType) {
-        const fileName = file.name.toLowerCase();
-        if (
-          fileName.includes("crm") ||
-          fileName.includes("deal") ||
-          fileName.includes("sales")
-        ) {
-          datasetType = "crm";
-        } else if (fileName.includes("budget")) {
-          datasetType = "budget";
-        } else if (
-          fileName.includes("transaction") ||
-          fileName.includes("bank")
-        ) {
-          datasetType = "bank";
-        }
-      }
+      const datasetType: "bank" | "crm" | "budget" =
+        replaceMode.datasetType || inferDatasetType(queuedFile.file.name);
 
       // If onFileSelected handler is provided, delegate to it (skip mapping)
       if (onFileSelected) {
-        await onFileSelected(file, datasetType);
-        setUploadMessage(`✅ Successfully uploaded ${file.name}`);
-        await refreshDataStatus();
-        setIsProcessing(false);
+        await onFileSelected(queuedFile.file, datasetType);
+        updateFileStatus(index, "completed", undefined, 0);
+        setBatchProgress((prev) => ({
+          ...prev,
+          completed: prev.completed + 1,
+        }));
+        await processNextFile(index + 1, queue);
         return;
       }
 
       // Parse file to get headers and sample data
       const parseFormData = new FormData();
-      parseFormData.append("file", file);
+      parseFormData.append("file", queuedFile.file);
 
       const parseRes = await fetch("/api/data/parse", {
         method: "POST",
@@ -421,10 +476,11 @@ export default function FileUpload({
         hasSheets: !!parseResult.sheets,
         sheetsLength: parseResult.sheets?.length,
         isMultiSheet: parseResult.isMultiSheet,
-        fileName: file.name,
+        fileName: queuedFile.file.name,
       });
 
       // Check if a file with the same name has been uploaded before
+      let existing: UploadedFile | null = null;
       try {
         const supabase = createClient();
         const {
@@ -432,21 +488,26 @@ export default function FileUpload({
         } = await supabase.auth.getUser();
 
         if (user) {
-          const existing = await checkExistingFileByName(
+          existing = await checkExistingFileByName(
             supabase,
             user.id,
-            file.name
+            queuedFile.file.name
           );
 
           if (existing) {
             console.log(
-              `[FileUpload] Found existing file with name "${file.name}"`
+              `[FileUpload] Found existing file with name "${queuedFile.file.name}"`
             );
             setExistingFile(existing);
-            setPendingFile({ file, parseResult, datasetType });
+            setPendingFile({
+              file: queuedFile.file,
+              parseResult,
+              datasetType,
+              queueIndex: index,
+            });
             setShowFileNameDialog(true);
-            setIsProcessing(false);
-            return; // Wait for user's confirmation
+            // Wait for user's confirmation - processNextFile will be called from handleFileNameConfirm
+            return;
           }
         }
       } catch (err) {
@@ -455,13 +516,131 @@ export default function FileUpload({
       }
 
       // No existing file found or check failed - proceed with upload
-      proceedWithUpload(file, parseResult, datasetType);
+      proceedWithUploadForQueue(
+        queuedFile.file,
+        parseResult,
+        datasetType,
+        index
+      );
     } catch (err) {
       console.error("[FileUpload] Error:", err);
-      setUploadMessage(`❌ Upload failed: ${(err as Error).message}`);
-    } finally {
-      setIsProcessing(false);
+      updateFileStatus(index, "error", (err as Error).message);
+      // Continue with next file
+      await processNextFile(index + 1, queue);
     }
+  };
+
+  const skipFile = async (index: number) => {
+    updateFileStatus(index, "skipped");
+    const queue = [...fileQueue];
+    await processNextFile(index + 1, queue);
+  };
+
+  const clearQueue = () => {
+    setFileQueue([]);
+    setCurrentFileIndex(null);
+    setBatchProgress({ completed: 0, total: 0 });
+    setIsProcessing(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    // Single file mode (backward compatibility)
+    if (files.length === 1 && !replaceMode.enabled) {
+      const file = files[0];
+      setIsProcessing(true);
+      setUploadMessage(null);
+
+      try {
+        const datasetType: "bank" | "crm" | "budget" =
+          replaceMode.datasetType || inferDatasetType(file.name);
+
+        // If onFileSelected handler is provided, delegate to it (skip mapping)
+        if (onFileSelected) {
+          await onFileSelected(file, datasetType);
+          setUploadMessage(`✅ Successfully uploaded ${file.name}`);
+          await refreshDataStatus();
+          setIsProcessing(false);
+          return;
+        }
+
+        // Parse file to get headers and sample data
+        const parseFormData = new FormData();
+        parseFormData.append("file", file);
+
+        const parseRes = await fetch("/api/data/parse", {
+          method: "POST",
+          body: parseFormData,
+        });
+
+        if (!parseRes.ok) {
+          const errorText = await parseRes.text();
+          throw new Error(`Parse failed: ${errorText}`);
+        }
+
+        const parseResult = await parseRes.json();
+
+        // Check if a file with the same name has been uploaded before
+        try {
+          const supabase = createClient();
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+
+          if (user) {
+            const existing = await checkExistingFileByName(
+              supabase,
+              user.id,
+              file.name
+            );
+
+            if (existing) {
+              console.log(
+                `[FileUpload] Found existing file with name "${file.name}"`
+              );
+              setExistingFile(existing);
+              setPendingFile({ file, parseResult, datasetType });
+              setShowFileNameDialog(true);
+              setIsProcessing(false);
+              return; // Wait for user's confirmation
+            }
+          }
+        } catch (err) {
+          console.warn("[FileUpload] Failed to check for existing file:", err);
+          // Continue with upload if check fails
+        }
+
+        // No existing file found or check failed - proceed with upload
+        proceedWithUpload(file, parseResult, datasetType);
+      } catch (err) {
+        console.error("[FileUpload] Error:", err);
+        setUploadMessage(`❌ Upload failed: ${(err as Error).message}`);
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // Multiple file mode - create queue
+    const queue: QueuedFile[] = files.map((file, index) => ({
+      id: `${Date.now()}-${index}`,
+      file,
+      status: "pending",
+    }));
+
+    setFileQueue(queue);
+    setBatchProgress({ completed: 0, total: files.length });
+    setCurrentFileIndex(0);
+    setIsProcessing(true);
+    setUploadMessage(null);
+
+    // Start processing the first file
+    await processNextFile(0, queue);
   };
 
   const proceedWithUpload = (
@@ -507,10 +686,52 @@ export default function FileUpload({
     }
   };
 
-  const handleFileNameConfirm = () => {
+  const proceedWithUploadForQueue = (
+    file: File,
+    parseResult: any,
+    datasetType: "bank" | "crm" | "budget",
+    queueIndex: number
+  ) => {
+    // Check if this is a multi-sheet Excel file
+    if (parseResult.sheets && parseResult.sheets.length > 0) {
+      // Show sheet selection UI for all Excel files (single or multi-sheet)
+      console.log("[FileUpload] Showing sheet selection UI");
+      updateFileStatus(queueIndex, "mapping");
+      setSheetData({
+        file,
+        sheets: parseResult.sheets,
+        queueIndex,
+      });
+      setShowSheetSelection(true);
+    } else {
+      console.log("[FileUpload] Using legacy single-sheet flow");
+      // Single sheet or CSV - use legacy flow
+      // Generate auto-mapping suggestions
+      const { suggestedMappings, confidence } = generateAutoMappings(
+        parseResult.headers,
+        parseResult.sampleData,
+        datasetType
+      );
+
+      // Show mapping UI
+      updateFileStatus(queueIndex, "mapping");
+      setMappingData({
+        file,
+        datasetType,
+        headers: parseResult.headers,
+        sampleData: parseResult.sampleData,
+        suggestedMappings,
+        confidence,
+        queueIndex,
+      });
+      setShowMappingUI(true);
+    }
+  };
+
+  const handleFileNameConfirm = async () => {
     setShowFileNameDialog(false);
     if (pendingFile) {
-      const { file, parseResult, datasetType } = pendingFile;
+      const { file, parseResult, datasetType, queueIndex } = pendingFile;
       setPendingFile(null);
       // Set replace mode with the existing file's ID
       if (existingFile) {
@@ -520,22 +741,32 @@ export default function FileUpload({
           fileIdToReplace: existingFile.id,
         });
       }
-      proceedWithUpload(file, parseResult, datasetType);
+      // If queueIndex is defined, we're in batch mode
+      if (queueIndex !== undefined && currentFileIndex !== null) {
+        proceedWithUploadForQueue(file, parseResult, datasetType, queueIndex);
+      } else {
+        // Single file mode
+        proceedWithUpload(file, parseResult, datasetType);
+      }
     }
     setExistingFile(null);
   };
 
-  const handleFileNameCancel = () => {
+  const handleFileNameCancel = async () => {
     setShowFileNameDialog(false);
+    if (pendingFile?.queueIndex !== undefined && currentFileIndex !== null) {
+      // In batch mode, skip this file and continue with next
+      await skipFile(pendingFile.queueIndex);
+    }
     setPendingFile(null);
     setExistingFile(null);
-    // Clear file input
-    if (fileInputRef.current) {
+    // Clear file input only if not in batch mode
+    if (currentFileIndex === null && fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
 
-  const handleMappingConfirm = (mappings: ColumnMapping[]) => {
+  const handleMappingConfirm = async (mappings: ColumnMapping[]) => {
     if (!mappingData) return;
 
     // Check if this is part of a multi-sheet upload
@@ -549,10 +780,18 @@ export default function FileUpload({
       }
     }
 
-    // Single sheet upload (legacy flow)
-    setIsProcessing(true);
+    const queueIndex = mappingData.queueIndex;
+    const isBatchMode = queueIndex !== undefined && currentFileIndex !== null;
+
+    if (isBatchMode) {
+      updateFileStatus(queueIndex, "uploading");
+    } else {
+      setIsProcessing(true);
+    }
     setShowMappingUI(false);
-    setUploadMessage(null);
+    if (!isBatchMode) {
+      setUploadMessage(null);
+    }
 
     // Upload file with mappings - use overwrite mode if replacing
     const uploadMode = replaceMode.enabled ? "overwrite" : "append";
@@ -565,57 +804,70 @@ export default function FileUpload({
       formData.append("sheetName", mappingData.sheetName);
     }
 
-    fetch("/api/data/upload", {
-      method: "POST",
-      body: formData,
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const errorText = await res.text();
-          throw new Error(`Upload failed: ${errorText}`);
-        }
-        return res.json();
-      })
-      .then(async (result) => {
-        console.log(
-          `[FileUpload] Successfully uploaded ${result.insertedCount} rows`
-        );
+    try {
+      const res = await fetch("/api/data/upload", {
+        method: "POST",
+        body: formData,
+      });
 
-        // If we're replacing a file, delete the old one after successful upload
-        if (replaceMode.enabled && replaceMode.fileIdToReplace) {
-          try {
-            const supabase = createClient();
-            const {
-              data: { user },
-            } = await supabase.auth.getUser();
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Upload failed: ${errorText}`);
+      }
 
-            if (user) {
-              const deleteResult = await deleteIndividualFile(
-                supabase,
-                user.id,
-                replaceMode.fileIdToReplace
+      const result = await res.json();
+      console.log(
+        `[FileUpload] Successfully uploaded ${result.insertedCount} rows`
+      );
+
+      // If we're replacing a file, delete the old one after successful upload
+      if (replaceMode.enabled && replaceMode.fileIdToReplace) {
+        try {
+          const supabase = createClient();
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+
+          if (user) {
+            const deleteResult = await deleteIndividualFile(
+              supabase,
+              user.id,
+              replaceMode.fileIdToReplace
+            );
+            if (deleteResult.success) {
+              console.log(
+                `[FileUpload] Successfully deleted old file ${replaceMode.fileIdToReplace}`
               );
-              if (deleteResult.success) {
-                console.log(
-                  `[FileUpload] Successfully deleted old file ${replaceMode.fileIdToReplace}`
-                );
-              } else {
-                console.warn(
-                  `[FileUpload] Failed to delete old file: ${deleteResult.error}`
-                );
-              }
+            } else {
+              console.warn(
+                `[FileUpload] Failed to delete old file: ${deleteResult.error}`
+              );
             }
-          } catch (err) {
-            console.error("[FileUpload] Error deleting old file:", err);
-            // Don't fail the upload if deletion fails
           }
+        } catch (err) {
+          console.error("[FileUpload] Error deleting old file:", err);
+          // Don't fail the upload if deletion fails
         }
+      }
 
+      if (isBatchMode) {
+        updateFileStatus(
+          queueIndex,
+          "completed",
+          undefined,
+          result.insertedCount
+        );
+        setBatchProgress((prev) => ({
+          ...prev,
+          completed: prev.completed + 1,
+        }));
+        setMappingData(null);
+        // Process next file
+        await processNextFile(queueIndex + 1, fileQueue);
+      } else {
         setUploadMessage(
           `✅ Successfully uploaded ${mappingData.file.name} (${result.insertedCount} rows)`
         );
-
-        // Refresh data status
         await refreshDataStatus();
         document.dispatchEvent(new CustomEvent("data-status:refresh"));
         setMappingData(null);
@@ -625,24 +877,28 @@ export default function FileUpload({
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
         }
-      })
-      .catch((err) => {
-        console.error("[FileUpload] Error:", err);
-        setUploadMessage(`❌ Upload failed: ${(err as Error).message}`);
-      })
-      .finally(() => {
         setIsProcessing(false);
-      });
+      }
+    } catch (err) {
+      console.error("[FileUpload] Error:", err);
+      if (isBatchMode) {
+        updateFileStatus(queueIndex, "error", (err as Error).message);
+        await processNextFile(queueIndex + 1, fileQueue);
+      } else {
+        setUploadMessage(`❌ Upload failed: ${(err as Error).message}`);
+        setIsProcessing(false);
+      }
+    }
   };
 
-  const handleMappingCancel = () => {
+  const handleMappingCancel = async () => {
     setShowMappingUI(false);
+
     setMappingData(null);
     setReplaceMode({ enabled: false, fileIdToReplace: undefined });
-    // Clear file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
+
+    // Clear the entire queue when canceling
+    clearQueue();
   };
 
   const handleSheetSelectionConfirm = async (
@@ -654,9 +910,18 @@ export default function FileUpload({
   ) => {
     if (!sheetData) return;
 
+    const queueIndex = sheetData.queueIndex;
+    const isBatchMode = queueIndex !== undefined && currentFileIndex !== null;
+
     setShowSheetSelection(false);
-    setIsProcessing(true);
-    setUploadMessage(null);
+    if (isBatchMode) {
+      updateFileStatus(queueIndex, "uploading");
+    } else {
+      setIsProcessing(true);
+      setUploadMessage(null);
+    }
+
+    let totalRows = 0;
 
     // Upload all sheets directly with their confirmed mappings
     for (let i = 0; i < sheetMappings.length; i++) {
@@ -684,15 +949,21 @@ export default function FileUpload({
         }
 
         const result = await res.json();
+        totalRows += result.insertedCount || 0;
         console.log(
           `[FileUpload] Successfully uploaded sheet "${mapping.sheetName}" (${result.insertedCount} rows)`
         );
       } catch (err) {
         console.error("[FileUpload] Error:", err);
-        setUploadMessage(
-          `❌ Upload failed for sheet "${mapping.sheetName}": ${(err as Error).message}`
-        );
-        setIsProcessing(false);
+        if (isBatchMode) {
+          updateFileStatus(queueIndex, "error", (err as Error).message);
+          await processNextFile(queueIndex + 1, fileQueue);
+        } else {
+          setUploadMessage(
+            `❌ Upload failed for sheet "${mapping.sheetName}": ${(err as Error).message}`
+          );
+          setIsProcessing(false);
+        }
         return;
       }
     }
@@ -728,18 +999,26 @@ export default function FileUpload({
     }
 
     // All sheets processed successfully
-    setUploadMessage(
-      `✅ Successfully uploaded ${sheetData.file.name} (${sheetMappings.length} sheet${sheetMappings.length !== 1 ? "s" : ""})`
-    );
-    await refreshDataStatus();
-    document.dispatchEvent(new CustomEvent("data-status:refresh"));
-    setSheetData(null);
-    setReplaceMode({ enabled: false, fileIdToReplace: undefined });
-    setIsProcessing(false);
+    if (isBatchMode) {
+      updateFileStatus(queueIndex, "completed", undefined, totalRows);
+      setBatchProgress((prev) => ({ ...prev, completed: prev.completed + 1 }));
+      setSheetData(null);
+      // Process next file
+      await processNextFile(queueIndex + 1, fileQueue);
+    } else {
+      setUploadMessage(
+        `✅ Successfully uploaded ${sheetData.file.name} (${sheetMappings.length} sheet${sheetMappings.length !== 1 ? "s" : ""})`
+      );
+      await refreshDataStatus();
+      document.dispatchEvent(new CustomEvent("data-status:refresh"));
+      setSheetData(null);
+      setReplaceMode({ enabled: false, fileIdToReplace: undefined });
+      setIsProcessing(false);
 
-    // Clear file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+      // Clear file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
@@ -865,30 +1144,134 @@ export default function FileUpload({
               )}
             </p>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              onChange={handleFileUpload}
-              disabled={isProcessing}
-              className="block w-full text-sm text-gray-500 dark:text-gray-400
-                file:mr-4 file:py-2 file:px-4
-                file:rounded-md file:border-0
-                file:text-sm file:font-semibold
-                file:bg-blue-50 dark:file:bg-blue-950/30 file:text-blue-700 dark:file:text-blue-300
-                hover:file:bg-blue-100 dark:hover:file:bg-blue-950/50
-                disabled:opacity-50 disabled:cursor-not-allowed"
-            />
+            <div className="space-y-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                multiple
+                onChange={handleFileUpload}
+                disabled={isProcessing}
+                className="hidden"
+                id="file-upload-input"
+              />
+              <Button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isProcessing}
+                className="w-full"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                {fileQueue.length > 0 ? "Add More Files" : "Select Files"}
+              </Button>
+            </div>
           </div>
 
-          {isProcessing && (
+          {isProcessing && fileQueue.length === 0 && (
             <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 dark:border-blue-400"></div>
               Processing...
             </div>
           )}
 
-          {uploadMessage && (
+          {fileQueue.length > 0 && (
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400 font-medium">
+                  Processing {batchProgress.completed} of {batchProgress.total}{" "}
+                  files
+                </span>
+                <span className="text-gray-500 dark:text-gray-500">
+                  {batchProgress.total > 0
+                    ? Math.round(
+                        (batchProgress.completed / batchProgress.total) * 100
+                      )
+                    : 0}
+                  %
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                <div
+                  className="bg-blue-600 dark:bg-blue-400 h-2 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${batchProgress.total > 0 ? (batchProgress.completed / batchProgress.total) * 100 : 0}%`,
+                  }}
+                />
+              </div>
+
+              <div className="space-y-1 max-h-64 overflow-y-auto border rounded-md p-2 bg-gray-50 dark:bg-gray-900/50">
+                {fileQueue.map((queuedFile, idx) => (
+                  <div
+                    key={queuedFile.id}
+                    className={`flex items-center justify-between p-2 rounded text-sm transition-colors ${
+                      idx === currentFileIndex
+                        ? "bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800"
+                        : "hover:bg-gray-100 dark:hover:bg-gray-800/50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <FileText className="h-4 w-4 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+                      <span className="truncate text-gray-700 dark:text-gray-300">
+                        {queuedFile.file.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {queuedFile.status === "parsing" ||
+                      queuedFile.status === "mapping" ||
+                      queuedFile.status === "uploading" ? (
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 dark:border-blue-400" />
+                      ) : queuedFile.status === "completed" ? (
+                        <span className="text-green-600 dark:text-green-400">
+                          ✓
+                        </span>
+                      ) : queuedFile.status === "error" ? (
+                        <span className="text-red-600 dark:text-red-400">
+                          ✗
+                        </span>
+                      ) : queuedFile.status === "skipped" ? (
+                        <span className="text-gray-400 dark:text-gray-600">
+                          −
+                        </span>
+                      ) : null}
+                      <span
+                        className={`text-xs ${
+                          queuedFile.status === "completed"
+                            ? "text-green-600 dark:text-green-400"
+                            : queuedFile.status === "error"
+                              ? "text-red-600 dark:text-red-400"
+                              : queuedFile.status === "skipped"
+                                ? "text-gray-500 dark:text-gray-500"
+                                : "text-gray-600 dark:text-gray-400"
+                        }`}
+                      >
+                        {queuedFile.status === "completed" &&
+                        queuedFile.rowCount
+                          ? `${queuedFile.rowCount.toLocaleString()} rows`
+                          : queuedFile.status === "error"
+                            ? queuedFile.error || "Error"
+                            : queuedFile.status}
+                      </span>
+                      {idx === currentFileIndex &&
+                        queuedFile.status !== "completed" &&
+                        queuedFile.status !== "error" &&
+                        queuedFile.status !== "skipped" && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => skipFile(idx)}
+                            className="h-6 px-2 text-xs"
+                          >
+                            Skip
+                          </Button>
+                        )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {uploadMessage && fileQueue.length === 0 && (
             <div
               className={`text-sm p-3 rounded-md ${
                 uploadMessage.startsWith("✅")
@@ -927,13 +1310,12 @@ export default function FileUpload({
           fileName={sheetData.file.name}
           sheets={sheetData.sheets}
           onConfirm={handleSheetSelectionConfirm}
-          onCancel={() => {
+          onCancel={async () => {
             setShowSheetSelection(false);
             setSheetData(null);
-            if (fileInputRef.current) {
-              fileInputRef.current.value = "";
-            }
             setReplaceMode({ enabled: false, fileIdToReplace: undefined });
+            // Clear the entire queue when canceling
+            clearQueue();
           }}
         />
       )}

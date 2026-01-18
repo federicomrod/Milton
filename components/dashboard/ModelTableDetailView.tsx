@@ -229,9 +229,9 @@ export default function ModelTableDetailView({
                 </Badge>
               </h4>
               <div className="space-y-1">
-                {primaryKeyFields.map((field) => (
+                {primaryKeyFields.map((field, index) => (
                   <div
-                    key={field.name}
+                    key={`primary-${field.name}-${index}`}
                     className="flex items-center justify-between p-2 bg-muted/50 rounded text-sm"
                   >
                     <span className="font-mono">{field.name}</span>
@@ -253,9 +253,9 @@ export default function ModelTableDetailView({
                 </Badge>
               </h4>
               <div className="space-y-1">
-                {requiredFields.map((field) => (
+                {requiredFields.map((field, index) => (
                   <div
-                    key={field.name}
+                    key={`required-${field.name}-${index}`}
                     className="flex items-center justify-between p-2 bg-red-50 dark:bg-red-950/20 rounded text-sm border border-red-200 dark:border-red-900/50"
                   >
                     <span className="font-mono">{field.name}</span>
@@ -277,9 +277,9 @@ export default function ModelTableDetailView({
                 </Badge>
               </h4>
               <div className="space-y-1">
-                {optionalFields.map((field) => (
+                {optionalFields.map((field, index) => (
                   <div
-                    key={field.name}
+                    key={`optional-${field.name}-${index}`}
                     className="flex items-center justify-between p-2 bg-muted/50 rounded text-sm"
                   >
                     <span className="font-mono">{field.name}</span>

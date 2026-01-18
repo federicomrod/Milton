@@ -1,13 +1,8 @@
 "use client";
 
-import React, {
-  useEffect,
-  useState,
-  useCallback,
-  useRef,
-  useMemo,
-} from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useToast } from "../ui/use-toast";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { createClient } from "@/lib/supabase/client";
 import {
   proposalToGraph,
@@ -16,9 +11,6 @@ import {
   removeField,
   renameField,
   addRelationship,
-  removeRelationship,
-  upsertFileMapping,
-  autoLinkDatasetsToModel,
 } from "@/lib/model/transform";
 import {
   listCustomDatasets,
@@ -34,35 +26,6 @@ import {
   getBusinessModelTemplates,
   BusinessTypeDefinition,
 } from "@/lib/business-model-templates";
-
-// Helper to mark a table as linked in the model
-function markTableLinked(
-  m: any,
-  tableName: string,
-  datasetId: string,
-  datasetName: string
-) {
-  const clone = JSON.parse(JSON.stringify(m));
-  const idx =
-    clone.recommendedTables?.findIndex(
-      (t: any) =>
-        t &&
-        typeof t.name === "string" &&
-        t.name.toLowerCase() === tableName.toLowerCase()
-    ) ?? -1;
-  if (idx >= 0) {
-    const tbl = clone.recommendedTables[idx];
-    tbl.isLinked = true;
-    tbl.linkedDatasetId = datasetId ?? tbl.linkedDatasetId;
-    tbl.linkedMeta = {
-      ...(tbl.linkedMeta || {}),
-      datasetId: datasetId ?? tbl.linkedMeta?.datasetId,
-      datasetName: datasetName ?? tbl.linkedMeta?.datasetName,
-    };
-    clone.recommendedTables[idx] = tbl;
-  }
-  return clone;
-}
 
 // Temporary type aliases to satisfy TypeScript when using dynamic require for ReactFlow
 type Node = any;
@@ -343,9 +306,20 @@ export default function DataModelBuilder({
     if (!user) return;
     try {
       const rows = await listCustomDatasets(user.id);
-      setDatasets(rows);
-    } catch (e) {
-      console.error("Failed to load datasets:", e);
+      setDatasets(rows || []);
+    } catch (e: any) {
+      // Silently handle errors - table might not exist yet or user might not have datasets
+      // Only log if it's not a "table doesn't exist" type error
+      if (
+        e?.code !== "42P01" &&
+        e?.message?.includes("does not exist") === false
+      ) {
+        console.warn(
+          "[DataModelBuilder] Failed to load datasets:",
+          e?.message || e
+        );
+      }
+      setDatasets([]);
     }
   };
 
@@ -389,12 +363,23 @@ export default function DataModelBuilder({
           .single();
 
         if (company) {
+          // First, try to load from canonical_model in business_models table
           const { data } = await supabase
             .from("business_models")
-            .select("model_json")
+            .select("canonical_model, model_json")
             .eq("company_id", company.id)
             .single();
-          loaded = data?.model_json ?? null;
+
+          if (data?.canonical_model) {
+            loaded = data.canonical_model as ModelProposal;
+            console.log("[DataModelBuilder] Loaded model from canonical_model");
+          } else if (data?.model_json) {
+            // Fall back to deprecated model_json
+            loaded = data.model_json as ModelProposal;
+            console.log(
+              "[DataModelBuilder] Loaded model from model_json (deprecated)"
+            );
+          }
         }
       }
 
@@ -403,6 +388,7 @@ export default function DataModelBuilder({
         if (local) {
           try {
             loaded = JSON.parse(local);
+            console.log("[DataModelBuilder] Loaded model from localStorage");
           } catch (e) {
             console.error("Failed to parse localStorage model JSON", e);
           }
@@ -567,12 +553,17 @@ export default function DataModelBuilder({
           .single();
 
         if (company) {
+          // Save to canonical_model in business_models table (preferred)
           const { error } = await supabase
             .from("business_models")
-            .update({ model_json: model })
+            .update({
+              canonical_model: model,
+              model_json: model, // Keep for backwards compatibility (deprecated)
+            })
             .eq("company_id", company.id);
+
           if (error) {
-            console.error("Failed to save model to Supabase:", error);
+            console.error("Failed to save model to business_models:", error);
           }
         }
       }
@@ -756,10 +747,15 @@ export default function DataModelBuilder({
             .single();
 
           if (company) {
+            // Save to canonical_model in business_models table (preferred)
             const { error } = await supabase
               .from("business_models")
-              .update({ model_json: model })
+              .update({
+                canonical_model: model,
+                model_json: model, // Keep for backwards compatibility (deprecated)
+              })
               .eq("company_id", company.id);
+
             if (error) {
               console.error("Auto-save failed:", error);
             }
@@ -843,49 +839,22 @@ export default function DataModelBuilder({
         </div>
 
         <div className="flex gap-3">
-          <button
-            onClick={handleAskMiltonProposeModel}
-            disabled={!businessType || isAiProposing}
-            className={`px-3 py-1 text-white rounded text-sm ${
-              !businessType || isAiProposing
-                ? "bg-indigo-300 cursor-not-allowed"
-                : "bg-indigo-600 hover:bg-indigo-700"
-            }`}
-            title={
-              !businessType
-                ? "Select a business type first"
-                : "Ask Milton to generate a data model"
-            }
-          >
-            {isAiProposing
-              ? "🤖 Milton is thinking…"
-              : "🤖 Ask Milton to propose model"}
-          </button>
-          <button
-            onClick={handleUploadData}
-            className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700"
-          >
-            Upload Data Files
-          </button>
-          <button
-            onClick={() =>
-              miltonEventsAPI.publish("dashboard.generate", {
-                businessModel: selectedModel,
-              })
-            }
-            className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
-          >
-            Generate Dashboard
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className={`px-3 py-1 text-white rounded ${
-              saving ? "bg-blue-300" : "bg-blue-600 hover:bg-blue-700"
-            }`}
-          >
-            {saving ? "Saving…" : "Save Model"}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                disabled={true}
+                className="px-3 py-1 text-white rounded text-sm bg-indigo-300 cursor-not-allowed"
+              >
+                Ask Milton to propose a model
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>
+                🚀 Coming soon! We're building something amazing for you - stay
+                tuned!
+              </p>
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -894,11 +863,19 @@ export default function DataModelBuilder({
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
           fitView
-          onNodeClick={onNodeClick}
+          // Disable all interactions for read-only mode
+          nodesDraggable={false}
+          nodesConnectable={false}
+          elementsSelectable={false}
+          panOnDrag={false}
+          panOnScroll={false}
+          zoomOnScroll={false}
+          zoomOnPinch={false}
+          zoomOnDoubleClick={false}
+          nodesFocusable={false}
+          edgesFocusable={false}
+          disableKeyboardA11y={true}
           className="h-full"
         >
           <MiniMap />

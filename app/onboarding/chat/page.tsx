@@ -106,20 +106,20 @@ export default function OnboardingChatPage() {
           localStorage.setItem("milton-model", JSON.stringify(result.proposal));
         }
 
-        // Archive chat and redirect to KPI selection
+        // Archive chat and redirect to model builder
         await completeOnboardingChat();
-        await updateOnboardingStatus("kpi_selection");
+        await updateOnboardingStatus("model");
 
         setMiltonMessages((prev) => [
           ...prev,
           {
             from: "milton",
-            text: `✅ I've created a data model with ${result.proposal?.recommendedTables?.length || 0} tables. Next, let's choose your key KPIs!`,
+            text: `✅ I've created a data model with ${result.proposal?.recommendedTables?.length || 0} tables. Let's review and customize it!`,
           },
         ]);
 
         setTimeout(() => {
-          router.push("/onboarding/kpi-selection");
+          router.push("/onboarding/model");
         }, 1500);
       } catch (err) {
         console.error("Error in business analysis:", err);

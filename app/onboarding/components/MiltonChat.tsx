@@ -602,6 +602,8 @@ export default function MiltonChat({
     dataSources?: string;
     systems?: string;
     businessDescription?: string;
+    businessType?: string;
+    selectedDataCategories?: Record<string, "yes" | "no" | "not_sure">;
   }) {
     if (hasFinishedRef.current) return;
     hasFinishedRef.current = true;
@@ -629,6 +631,8 @@ export default function MiltonChat({
         dataSources: nextAnswers.dataSources || "",
         systems: nextAnswers.systems || "",
         businessDescription: nextAnswers.businessDescription || "",
+        businessType: nextAnswers.businessType, // Pass through businessType
+        selectedDataCategories: nextAnswers.selectedDataCategories, // Pass through selectedDataCategories
       });
     } catch (err) {
       console.error("Error finishing onboarding:", err);
@@ -788,6 +792,7 @@ export default function MiltonChat({
                       setAnswers((a) => ({
                         ...a,
                         industry: businessType.label,
+                        businessType: value, // Set businessType with the ID
                       }));
                     }
                   }}

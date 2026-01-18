@@ -4,9 +4,13 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import FileUpload from "@/components/dashboard/file-upload";
 import { FileManagement } from "@/components/dashboard/file-management";
+import ModelTableListView from "@/components/dashboard/ModelTableListView";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { updateOnboardingStatus } from "@/lib/onboarding-status";
+import { createClient } from "@/lib/supabase/client";
+import { ModelProposal } from "@/lib/model/transform";
 
 export default function OnboardingUploadPage() {
   const router = useRouter();
@@ -22,6 +26,41 @@ export default function OnboardingUploadPage() {
     budget?: boolean;
   } | null>(null);
   const [hasUploaded, setHasUploaded] = useState(false);
+  const [model, setModel] = useState<ModelProposal | null>(null);
+
+  // Load model from business_models
+  useEffect(() => {
+    const loadModel = async () => {
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data: company } = await supabase
+          .from("companies")
+          .select("id")
+          .eq("created_by", user.id)
+          .single();
+
+        if (company) {
+          const { data } = await supabase
+            .from("business_models")
+            .select("canonical_model")
+            .eq("company_id", company.id)
+            .single();
+
+          if (data?.canonical_model) {
+            setModel(data.canonical_model as ModelProposal);
+          }
+        }
+      } catch (error) {
+        console.error("[OnboardingUpload] Error loading model:", error);
+      }
+    };
+    loadModel();
+  }, []);
 
   // Check data status
   const checkUploadedData = async () => {
@@ -90,9 +129,10 @@ export default function OnboardingUploadPage() {
   };
 
   const handleContinue = async () => {
-    // Don't update onboarding status - upload is optional
-    // Just redirect back to model page where user can continue
-    router.push("/onboarding/model");
+    // Update onboarding status to kpi_selection
+    await updateOnboardingStatus("kpi_selection");
+    // Redirect to KPI selection
+    router.push("/onboarding/kpi-selection");
   };
 
   // Load data status on mount
@@ -133,8 +173,26 @@ export default function OnboardingUploadPage() {
         </div>
 
         <div className="space-y-6">
-          <FileUpload onFileSelected={handleFileSelected} />
-          <FileManagement />
+          {model?.recommendedTables && model.recommendedTables.length > 0 ? (
+            <Tabs defaultValue="model-tables" className="w-full">
+              <TabsList>
+                <TabsTrigger value="model-tables">Model Tables</TabsTrigger>
+                <TabsTrigger value="legacy-upload">Legacy Upload</TabsTrigger>
+              </TabsList>
+              <TabsContent value="model-tables" className="mt-4">
+                <ModelTableListView model={model} />
+              </TabsContent>
+              <TabsContent value="legacy-upload" className="mt-4">
+                <FileUpload onFileSelected={handleFileSelected} />
+                <FileManagement />
+              </TabsContent>
+            </Tabs>
+          ) : (
+            <div className="space-y-6">
+              <FileUpload onFileSelected={handleFileSelected} />
+              <FileManagement />
+            </div>
+          )}
         </div>
 
         <div className="flex justify-between items-center mt-8 pt-6 border-t border-border">
@@ -147,11 +205,11 @@ export default function OnboardingUploadPage() {
           </Button>
           <div className="flex flex-col items-end gap-1">
             <Button onClick={handleContinue}>
-              Return to Model Customization
+              Continue to KPI Selection
               <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
             <p className="text-xs text-muted-foreground">
-              You can upload files here or continue in the model builder
+              You can upload files here or continue
             </p>
           </div>
         </div>

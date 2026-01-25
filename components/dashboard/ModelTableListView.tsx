@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Database, Upload, CheckCircle2 } from "lucide-react";
 import { ModelProposal } from "@/lib/model/transform";
-import { createClient } from "@/lib/supabase/client";
 import ModelTableDetailView from "./ModelTableDetailView";
 
 interface ModelTableListViewProps {
@@ -23,42 +22,62 @@ export default function ModelTableListView({
     Record<string, number>
   >({});
 
-  // Fetch data counts for each table (model_data is company-scoped)
+  // Fetch data counts for each table using the efficient /api/data/sources endpoint
   useEffect(() => {
     if (!model?.recommendedTables) return;
 
     const fetchCounts = async () => {
       try {
-        const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) return;
+        // Use the existing API endpoint that fetches all table counts in one request
+        const response = await fetch("/api/data/sources", {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
 
-        const { data: company } = await supabase
-          .from("companies")
-          .select("id")
-          .eq("created_by", user.id)
-          .single();
-        if (!company) {
+        if (!response.ok) {
+          console.warn(
+            "Failed to fetch data sources via API:",
+            response.status
+          );
+          // Fallback to empty counts if API fails
           setTableDataCounts({});
           return;
         }
 
-        const counts: Record<string, number> = {};
-        for (const table of model.recommendedTables || []) {
-          const { count } = await supabase
-            .from("model_data")
-            .select("*", { count: "exact", head: true })
-            .eq("company_id", company.id)
-            .eq("model_table_name", table.name);
+        const data = await response.json();
 
-          counts[table.name] = count || 0;
+        if (!data.dataSources || !Array.isArray(data.dataSources)) {
+          console.warn("Invalid data sources response:", data);
+          setTableDataCounts({});
+          return;
         }
+
+        // Convert API response to table counts format, filtering only for model tables
+        const modelTableNames = new Set(
+          model.recommendedTables.map((table) => table.name)
+        );
+
+        const counts: Record<string, number> = {};
+        data.dataSources.forEach((ds: any) => {
+          if (modelTableNames.has(ds.name)) {
+            counts[ds.name] = ds.count || 0;
+          }
+        });
+
+        // Ensure all model tables have a count (defaulting to 0)
+        model.recommendedTables.forEach((table) => {
+          if (!(table.name in counts)) {
+            counts[table.name] = 0;
+          }
+        });
 
         setTableDataCounts(counts);
       } catch (error) {
         console.error("[ModelTableListView] Error fetching counts:", error);
+        setTableDataCounts({});
       }
     };
 
@@ -94,32 +113,42 @@ export default function ModelTableListView({
           dataCount={tableDataCounts[selectedTable] || 0}
           onClose={handleCloseDetail}
           onUploadComplete={() => {
-            // Refresh counts after upload (model_data is company-scoped)
+            // Refresh counts after upload using the efficient API endpoint
             const fetchCounts = async () => {
               try {
-                const supabase = createClient();
-                const {
-                  data: { user },
-                } = await supabase.auth.getUser();
-                if (!user) return;
+                const response = await fetch("/api/data/sources", {
+                  method: "GET",
+                  credentials: "include",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                });
 
-                const { data: company } = await supabase
-                  .from("companies")
-                  .select("id")
-                  .eq("created_by", user.id)
-                  .single();
-                if (!company) return;
+                if (!response.ok) {
+                  console.warn(
+                    "Failed to refresh data sources:",
+                    response.status
+                  );
+                  return;
+                }
 
-                const { count } = await supabase
-                  .from("model_data")
-                  .select("*", { count: "exact", head: true })
-                  .eq("company_id", company.id)
-                  .eq("model_table_name", selectedTable);
+                const data = await response.json();
 
-                setTableDataCounts((prev) => ({
-                  ...prev,
-                  [selectedTable]: count || 0,
-                }));
+                if (!data.dataSources || !Array.isArray(data.dataSources)) {
+                  console.warn("Invalid data sources response:", data);
+                  return;
+                }
+
+                // Update only the count for the table that was uploaded to
+                const updatedTable = data.dataSources.find(
+                  (ds: any) => ds.name === selectedTable
+                );
+                if (updatedTable) {
+                  setTableDataCounts((prev) => ({
+                    ...prev,
+                    [selectedTable]: updatedTable.count || 0,
+                  }));
+                }
               } catch (error) {
                 console.error("Error refreshing count:", error);
               }
@@ -161,7 +190,7 @@ export default function ModelTableListView({
                     {table.name}
                   </CardTitle>
                   {hasData && (
-                    <Badge variant="secondary" className="ml-2">
+                    <Badge className="ml-2 bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300 border-transparent">
                       <CheckCircle2 className="h-3 w-3 mr-1" />
                       {dataCount} rows
                     </Badge>

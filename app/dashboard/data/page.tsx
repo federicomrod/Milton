@@ -569,15 +569,6 @@ export default function DataManagementPage() {
         {/* File Upload Section */}
         {model?.recommendedTables && model.recommendedTables.length > 0 ? (
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Upload className="h-5 w-5" />
-                Upload Data Files
-              </CardTitle>
-              <CardDescription>
-                Upload CSV or Excel files to import your data
-              </CardDescription>
-            </CardHeader>
             <CardContent>
               <ModelTableListView model={model} />
             </CardContent>

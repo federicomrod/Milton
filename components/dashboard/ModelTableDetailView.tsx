@@ -5,11 +5,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ArrowLeft, Upload, CheckCircle2, AlertCircle } from "lucide-react";
+import {
+  ArrowLeft,
+  Upload,
+  CheckCircle2,
+  AlertCircle,
+  Eye,
+} from "lucide-react";
 import { TableDef } from "@/lib/model/transform";
 import EnhancedDataMappingUI from "./data-mapping-confirmation";
 import SheetSelection from "./sheet-selection";
 import { ColumnMapping } from "@/types/schema";
+import DataPreview from "./DataPreview";
 
 interface ModelTableDetailViewProps {
   table: TableDef;
@@ -112,6 +119,7 @@ export default function ModelTableDetailView({
   };
 
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [showDataPreview, setShowDataPreview] = useState(false);
 
   const handleMappingConfirm = async (mappings: ColumnMapping[]) => {
     if (!mappingData || !uploadedFile) return;
@@ -174,6 +182,11 @@ export default function ModelTableDetailView({
       console.log("Upload successful:", result);
 
       onUploadComplete?.();
+      // Refresh data preview if it's currently shown
+      if (showDataPreview) {
+        setShowDataPreview(false);
+        setTimeout(() => setShowDataPreview(true), 100);
+      }
       setUploadStep("detail");
       setMappingData(null);
       setUploadedFile(null);
@@ -253,6 +266,11 @@ export default function ModelTableDetailView({
 
       console.log("All sheets uploaded successfully");
       onUploadComplete?.();
+      // Refresh data preview if it's currently shown
+      if (showDataPreview) {
+        setShowDataPreview(false);
+        setTimeout(() => setShowDataPreview(true), 100);
+      }
       setUploadStep("detail");
       setSheetData(null);
       setUploadedFile(null);
@@ -434,6 +452,38 @@ export default function ModelTableDetailView({
           )}
         </CardContent>
       </Card>
+
+      {/* Data Preview Section */}
+      {dataCount > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              Data Preview
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              View and explore the data that has been uploaded to this table.
+            </p>
+            {showDataPreview ? (
+              <DataPreview
+                tableName={table.name}
+                onClose={() => setShowDataPreview(false)}
+              />
+            ) : (
+              <Button
+                onClick={() => setShowDataPreview(true)}
+                variant="outline"
+                className="w-full"
+              >
+                <Eye className="h-4 w-4 mr-2" />
+                Show Data Preview ({dataCount} rows)
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Upload Section */}
       <Card>

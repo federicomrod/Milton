@@ -1,5 +1,5 @@
 // GET /api/kpis/series?kpiIds=uuid1,uuid2
-// Returns time-series data for KPIs that can be computed from user_model_data
+// Returns time-series data for KPIs that can be computed from model_data
 // (e.g. Active Members from members table).
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
@@ -26,6 +26,15 @@ export async function GET(req: NextRequest) {
 
     if (userError || !user) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
+    const { data: company, error: companyError } = await supabase
+      .from("companies")
+      .select("id")
+      .eq("created_by", user.id)
+      .single();
+    if (companyError || !company) {
+      return jsonNoStore({ series: {} });
     }
 
     const kpiIdsParam = req.nextUrl.searchParams.get("kpiIds") ?? "";
@@ -56,9 +65,9 @@ export async function GET(req: NextRequest) {
       const tablesToTry = ["members", "customers"];
       for (const table of tablesToTry) {
         const { data: rows, error } = await supabase
-          .from("user_model_data")
+          .from("model_data")
           .select("data")
-          .eq("user_id", user.id)
+          .eq("company_id", company.id)
           .ilike("model_table_name", table);
         if (!error && rows?.length) {
           for (const row of rows) {

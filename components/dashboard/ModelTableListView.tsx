@@ -23,7 +23,7 @@ export default function ModelTableListView({
     Record<string, number>
   >({});
 
-  // Fetch data counts for each table
+  // Fetch data counts for each table (model_data is company-scoped)
   useEffect(() => {
     if (!model?.recommendedTables) return;
 
@@ -35,14 +35,22 @@ export default function ModelTableListView({
         } = await supabase.auth.getUser();
         if (!user) return;
 
-        const counts: Record<string, number> = {};
+        const { data: company } = await supabase
+          .from("companies")
+          .select("id")
+          .eq("created_by", user.id)
+          .single();
+        if (!company) {
+          setTableDataCounts({});
+          return;
+        }
 
-        // Fetch counts for each table
+        const counts: Record<string, number> = {};
         for (const table of model.recommendedTables || []) {
           const { count } = await supabase
-            .from("user_model_data")
+            .from("model_data")
             .select("*", { count: "exact", head: true })
-            .eq("user_id", user.id)
+            .eq("company_id", company.id)
             .eq("model_table_name", table.name);
 
           counts[table.name] = count || 0;
@@ -86,7 +94,7 @@ export default function ModelTableListView({
           dataCount={tableDataCounts[selectedTable] || 0}
           onClose={handleCloseDetail}
           onUploadComplete={() => {
-            // Refresh counts after upload
+            // Refresh counts after upload (model_data is company-scoped)
             const fetchCounts = async () => {
               try {
                 const supabase = createClient();
@@ -95,10 +103,17 @@ export default function ModelTableListView({
                 } = await supabase.auth.getUser();
                 if (!user) return;
 
+                const { data: company } = await supabase
+                  .from("companies")
+                  .select("id")
+                  .eq("created_by", user.id)
+                  .single();
+                if (!company) return;
+
                 const { count } = await supabase
-                  .from("user_model_data")
+                  .from("model_data")
                   .select("*", { count: "exact", head: true })
-                  .eq("user_id", user.id)
+                  .eq("company_id", company.id)
                   .eq("model_table_name", selectedTable);
 
                 setTableDataCounts((prev) => ({

@@ -9,7 +9,7 @@ interface UploadModelTableRequest {
 }
 
 /**
- * Upload data to a model table using the unified user_model_data table
+ * Upload data to a model table using the unified model_data table
  */
 export async function POST(req: NextRequest) {
   try {
@@ -76,10 +76,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Insert data into user_model_data table
+    // Insert data into model_data table (company-scoped; no user_id)
     // Rows are already transformed by the client
     const insertData = rows.map((row) => ({
-      user_id: user.id,
       company_id: company.id,
       model_table_name: tableName,
       data: row,
@@ -87,7 +86,7 @@ export async function POST(req: NextRequest) {
     }));
 
     const { error: insertError } = await supabase
-      .from("user_model_data")
+      .from("model_data")
       .insert(insertData)
       .select("id");
 

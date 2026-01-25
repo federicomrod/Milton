@@ -41,6 +41,13 @@ export async function GET(request: NextRequest) {
 
     const userId = user.id;
 
+    const { data: company } = await supabase
+      .from("companies")
+      .select("id")
+      .eq("created_by", userId)
+      .single();
+    const companyId = company?.id ?? null;
+
     let [
       { count: bankCount, error: bankError },
       { count: crmCount, error: crmError },
@@ -59,10 +66,12 @@ export async function GET(request: NextRequest) {
         .from("budgets")
         .select("*", { count: "exact" })
         .eq("user_id", userId),
-      supabase
-        .from("user_model_data")
-        .select("*", { count: "exact" })
-        .eq("user_id", userId),
+      companyId
+        ? supabase
+            .from("model_data")
+            .select("*", { count: "exact" })
+            .eq("company_id", companyId)
+        : Promise.resolve({ count: 0, error: null }),
     ]);
 
     if (bankError || crmError || budgetError || modelDataError) {
@@ -86,7 +95,7 @@ export async function GET(request: NextRequest) {
         supabase.from("transactions").select("*", { count: "exact" }),
         supabase.from("crm_deals").select("*", { count: "exact" }),
         supabase.from("budgets").select("*", { count: "exact" }),
-        supabase.from("user_model_data").select("*", { count: "exact" }),
+        supabase.from("model_data").select("*", { count: "exact" }),
       ]);
       if ((bankCount ?? 0) === 0 && (globalBankCount ?? 0) > 0) {
         console.warn(

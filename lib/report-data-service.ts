@@ -50,6 +50,12 @@ export async function getReportData(
   userId: string,
   reportPeriod?: ReportPeriod
 ): Promise<ReportData> {
+  const { data: company } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("created_by", userId)
+    .single();
+
   // Step 1: Fetch transactions
   let txQuery = supabase
     .from("transactions")
@@ -122,16 +128,22 @@ export async function getReportData(
     sample: budgets?.slice(0, 2),
   });
 
-  // Step 4: Fetch user_model_data
-  const { data: modelData, error: modelError } = await supabase
-    .from("user_model_data")
-    .select("model_table_name, data")
-    .eq("user_id", userId);
+  // Step 4: Fetch model_data (company-scoped; no user_id)
+  let modelData: { model_table_name: string; data: unknown }[] | null = null;
+  let modelError: { message: string } | null = null;
+  if (company?.id) {
+    const result = await supabase
+      .from("model_data")
+      .select("model_table_name, data")
+      .eq("company_id", company.id);
+    modelData = result.data;
+    modelError = result.error;
+  }
 
   if (modelError) {
-    console.error("[getReportData] user_model_data fetch failed:", modelError);
+    console.error("[getReportData] model_data fetch failed:", modelError);
   } else if (modelData && modelData.length > 0) {
-    console.log("[getReportData] user_model_data fetched:", {
+    console.log("[getReportData] model_data fetched:", {
       count: modelData.length,
       tables: [...new Set(modelData.map((d) => d.model_table_name))],
     });
@@ -332,14 +344,7 @@ export async function getReportData(
     budgets || []
   );
 
-  // Step 4: Fetch user preferences from business_models
-  // Get company for user
-  const { data: company } = await supabase
-    .from("companies")
-    .select("id")
-    .eq("created_by", userId)
-    .single();
-
+  // Fetch user preferences from business_models (company already loaded at top)
   let modelRow = null;
   if (company) {
     const { data } = await supabase

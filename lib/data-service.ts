@@ -29,7 +29,7 @@ export const getUploadedFilesSummary = async (
     { name: "transactions", label: "Bank Transactions" },
     { name: "crm_deals", label: "CRM Data" },
     { name: "budgets", label: "Budget Data" },
-    { name: "user_model_data", label: "Model Data" },
+    { name: "model_data", label: "Model Data" },
   ];
 
   const results = await Promise.all(

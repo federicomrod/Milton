@@ -1,5 +1,5 @@
 /**
- * KPI series computation from user_model_data.
+ * KPI series computation from model_data.
  * Injects real data for KPIs that can be derived from model tables (e.g. Active Members from members).
  */
 

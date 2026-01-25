@@ -389,7 +389,7 @@ export function DashboardInsights() {
 
       const data = await response.json();
       const allGeneratedInsights = data.insights || [];
-      const maxInsights = 8;
+      const maxInsights = 5;
       const newInsights = count
         ? allGeneratedInsights.slice(0, Math.min(count, maxInsights))
         : allGeneratedInsights.slice(0, maxInsights);
@@ -449,7 +449,10 @@ export function DashboardInsights() {
       const savedInsights = await loadInsightsFromDB();
 
       if (savedInsights.length > 0) {
-        setInsights(savedInsights);
+        // Limit to max insights to respect the current limit
+        const maxInsights = 5;
+        const limitedInsights = savedInsights.slice(0, maxInsights);
+        setInsights(limitedInsights);
         setLoading(false);
       } else {
         // No insights in DB, generate new ones

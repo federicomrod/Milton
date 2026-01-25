@@ -154,9 +154,7 @@ export default function DataModelBuilder({
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const [datasets, setDatasets] = useState<any[]>([]);
-  const [isAiProposing, setIsAiProposing] = useState(false); // Track AI model generation
   const [businessModelTemplates, setBusinessModelTemplates] = useState<
     BusinessTypeDefinition[]
   >([]);
@@ -206,21 +204,6 @@ export default function DataModelBuilder({
       }
     })();
   }, []);
-
-  const handleModelChange = (value: string) => {
-    setSelectedModel(value);
-    console.log("[DataModelBuilder] Selected business model:", value);
-  };
-
-  const handleGenerateDashboard = () => {
-    const model = dbBusinessType || selectedModel || "";
-    miltonEventsAPI.publish("dashboard.generate", { businessModel: model });
-    console.log("[DataModelBuilder] Dashboard generation requested for", model);
-  };
-
-  const handleUploadData = () => {
-    fileInputRef.current?.click();
-  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -321,29 +304,6 @@ export default function DataModelBuilder({
       setDatasets([]);
     }
   };
-
-  const handlePreviewDataset = (ds: any) => {
-    // TODO: Implement dataset preview without client-side parsing
-    console.log("[DataModelBuilder] Preview dataset:", ds.dataset_name);
-    toast({
-      title: "Preview not available",
-      description: "Dataset preview will be implemented in a future update.",
-    });
-  };
-
-  const handleReplaceDataset = (ds: any) => {
-    // TODO: Implement dataset replacement flow
-    console.log("[DataModelBuilder] Replace dataset:", ds.dataset_name);
-    toast({
-      title: "Replace not available",
-      description:
-        "Dataset replacement will be implemented in a future update.",
-    });
-  };
-
-  const onNodeClick = useCallback((_: any, node: Node) => {
-    setSelectedTable(node.data.label);
-  }, []);
 
   // Load model from Supabase or localStorage
   useEffect(() => {
@@ -508,225 +468,6 @@ export default function DataModelBuilder({
     setNodes(mappedNodes);
     setEdges(mappedEdges);
   }, [model, selectedTable]);
-
-  const onConnect = useCallback(
-    (connection: Connection) => {
-      if (!model) return;
-      const fromTable = nodes.find((n) => n.id === connection.source)?.data
-        .label;
-      const toTable = nodes.find((n) => n.id === connection.target)?.data.label;
-      if (fromTable && toTable) {
-        const updated = addRelationship(model, {
-          from: `${fromTable}.id`,
-          to: `${toTable}.id`,
-          type: "one-to-many",
-        });
-        setModel(updated);
-      }
-    },
-    [model, nodes]
-  );
-
-  const onNodesChange = useCallback((changes: any) => {
-    setNodes((nds) => applyNodeChanges(changes, nds));
-  }, []);
-
-  const onEdgesChange = useCallback((changes: any) => {
-    setEdges((eds) => applyEdgeChanges(changes, eds));
-  }, []);
-
-  const handleSave = async () => {
-    if (!model) return;
-    setSaving(true);
-    try {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        // Get company for user
-        const { data: company } = await supabase
-          .from("companies")
-          .select("id")
-          .eq("created_by", user.id)
-          .single();
-
-        if (company) {
-          // Save to canonical_model in business_models table (preferred)
-          const { error } = await supabase
-            .from("business_models")
-            .update({
-              canonical_model: model,
-              model_json: model, // Keep for backwards compatibility (deprecated)
-            })
-            .eq("company_id", company.id);
-
-          if (error) {
-            console.error("Failed to save model to business_models:", error);
-          }
-        }
-      }
-      localStorage.setItem("milton-model", JSON.stringify(model));
-      window.dispatchEvent(new Event("model:updated"));
-      toast({
-        title: "Model saved",
-        description: "Your data model was saved successfully.",
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Apply a ModelProposal to the builder state
-  const applyModelProposal = (proposal: ModelProposal) => {
-    console.log("[DataModelBuilder] Applying AI-generated model proposal");
-
-    // Update the model state
-    setModel(proposal);
-
-    // Convert the proposal to ReactFlow nodes/edges
-    const graph = proposalToGraph(proposal);
-    setNodes(
-      graph.nodes.map((n) => ({
-        id: n.id,
-        type: "default",
-        position: n.position,
-        data: { label: n.label },
-      }))
-    );
-    setEdges(
-      graph.edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        type: "smoothstep",
-      }))
-    );
-
-    // Trigger auto-save
-    window.dispatchEvent(new Event("model:updated"));
-
-    toast({
-      title: "Model updated",
-      description: "Milton generated a new data model based on your files.",
-    });
-  };
-
-  // Ask Milton to propose a data model
-  const handleAskMiltonProposeModel = async () => {
-    if (!businessType) {
-      toast({
-        title: "Business type required",
-        description: "Please select a business type first.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      setIsAiProposing(true);
-
-      // 1. Fetch custom datasets (for sample rows)
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        toast({
-          title: "Authentication required",
-          description: "Please log in to use this feature.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const datasetRows = await listCustomDatasets(user.id);
-
-      // Adapt to analyzer input format
-      const analyzerDatasets = (datasetRows ?? [])
-        .filter((ds) => Array.isArray(ds.rows_json) && ds.rows_json.length > 0)
-        .map((ds) => ({
-          sourceName: ds.dataset_name ?? "Dataset",
-          tableHint: (ds.source_meta as any)?.sheetName ?? null,
-          sampleRows: ds.rows_json as Record<string, unknown>[],
-        }));
-
-      // Show confirmation if no datasets found
-      if (analyzerDatasets.length === 0) {
-        const proceed = window.confirm?.(
-          "No uploaded datasets with samples found. Milton will propose a generic model for your business type. Continue?"
-        );
-        if (!proceed) {
-          setIsAiProposing(false);
-          return;
-        }
-      }
-
-      // 2. Build input for analyzer
-      const input = {
-        businessType,
-        datasets: analyzerDatasets,
-        currentModel: model, // Pass current model for refinement
-      };
-
-      console.log(
-        "[DataModelBuilder] Calling AI Business Model Analyzer with",
-        {
-          businessType,
-          datasetsCount: analyzerDatasets.length,
-          hasCurrentModel: !!model,
-        }
-      );
-
-      // 3. Call the AI analyzer
-      const proposal = await callBusinessModelAnalyzer(input);
-
-      if (!proposal) {
-        toast({
-          title: "AI generation failed",
-          description: "Milton could not generate a model. Please try again.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // 4. Ask user to confirm replacement
-      const shouldApply =
-        window.confirm?.(
-          "Milton has generated a proposed data model based on your files. Replace your current model with this proposal?"
-        ) ?? true;
-
-      if (!shouldApply) {
-        toast({
-          title: "Cancelled",
-          description: "Model proposal was not applied.",
-        });
-        return;
-      }
-
-      // 5. Apply the proposal
-      applyModelProposal(proposal);
-
-      // Publish event for Milton chat
-      miltonEventsAPI.publish("chat", {
-        role: "milton",
-        content: `✅ I've generated a ${businessType.replace("_", " ")} data model with ${proposal.recommendedTables?.length ?? 0} tables. You can now upload your data files or adjust the schema.`,
-      });
-    } catch (err) {
-      console.error(
-        "[DataModelBuilder] Error calling business-model-analyzer",
-        err
-      );
-      toast({
-        title: "Error",
-        description:
-          (err as Error)?.message || "Failed to generate model proposal.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsAiProposing(false);
-    }
-  };
 
   // Auto-save on model changes (debounced)
   useEffect(() => {

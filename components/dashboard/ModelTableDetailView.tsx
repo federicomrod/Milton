@@ -11,12 +11,14 @@ import {
   CheckCircle2,
   AlertCircle,
   Eye,
+  Trash2,
 } from "lucide-react";
 import { TableDef } from "@/lib/model/transform";
 import EnhancedDataMappingUI from "./data-mapping-confirmation";
 import SheetSelection from "./sheet-selection";
 import { ColumnMapping } from "@/types/schema";
 import DataPreview from "./DataPreview";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface ModelTableDetailViewProps {
   table: TableDef;
@@ -120,6 +122,8 @@ export default function ModelTableDetailView({
 
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [showDataPreview, setShowDataPreview] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const handleMappingConfirm = async (mappings: ColumnMapping[]) => {
     if (!mappingData || !uploadedFile) return;
@@ -283,6 +287,46 @@ export default function ModelTableDetailView({
     }
   };
 
+  const handleDeleteData = async () => {
+    setIsDeleting(true);
+    try {
+      const response = await fetch("/api/data/delete-model-table", {
+        method: "DELETE",
+        body: JSON.stringify({
+          tableName: table.name,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText);
+      }
+
+      const result = await response.json();
+      console.log("Delete successful:", result);
+
+      // Close data preview if it's open
+      setShowDataPreview(false);
+
+      // Refresh the UI
+      console.log("Calling onUploadComplete to refresh counts");
+      await onUploadComplete?.();
+
+      // Reset upload step to detail
+      setUploadStep("detail");
+
+      console.log("Delete process completed");
+    } catch (error) {
+      console.error("Delete error:", error);
+      alert("Delete failed: " + (error as Error).message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   if (uploadStep === "sheets" && sheetData) {
     return (
       <SheetSelection
@@ -363,6 +407,38 @@ export default function ModelTableDetailView({
         ref={fileInputRef}
         onChange={handleFileSelect}
       />
+
+      {/* Data Preview Section */}
+      {dataCount > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              Data Preview
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              View and explore the data that has been uploaded to this table.
+            </p>
+            {showDataPreview ? (
+              <DataPreview
+                tableName={table.name}
+                onClose={() => setShowDataPreview(false)}
+              />
+            ) : (
+              <Button
+                onClick={() => setShowDataPreview(true)}
+                variant="outline"
+                className="w-full"
+              >
+                <Eye className="h-4 w-4 mr-2" />
+                Show Data Preview ({dataCount} entries)
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Field Information */}
       <Card>
@@ -453,38 +529,6 @@ export default function ModelTableDetailView({
         </CardContent>
       </Card>
 
-      {/* Data Preview Section */}
-      {dataCount > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Eye className="h-4 w-4" />
-              Data Preview
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-4">
-              View and explore the data that has been uploaded to this table.
-            </p>
-            {showDataPreview ? (
-              <DataPreview
-                tableName={table.name}
-                onClose={() => setShowDataPreview(false)}
-              />
-            ) : (
-              <Button
-                onClick={() => setShowDataPreview(true)}
-                variant="outline"
-                className="w-full"
-              >
-                <Eye className="h-4 w-4 mr-2" />
-                Show Data Preview ({dataCount} rows)
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
       {/* Upload Section */}
       <Card>
         <CardHeader>
@@ -506,6 +550,43 @@ export default function ModelTableDetailView({
           </Button>
         </CardContent>
       </Card>
+
+      {/* Delete Data Section */}
+      {dataCount > 0 && (
+        <Card className="border-red-200 dark:border-red-900">
+          <CardHeader>
+            <CardTitle className="text-base text-red-900 dark:text-red-100">
+              Delete All Data
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              Permanently delete all data from this table. This action cannot be
+              undone.
+            </p>
+            <Button
+              onClick={() => setDeleteDialogOpen(true)}
+              disabled={isDeleting}
+              variant="destructive"
+              className="w-full"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              {isDeleting ? "Deleting..." : "Delete All Data"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete All Data"
+        description={`Are you sure you want to delete all ${dataCount} rows from the "${table.name}" table? This action cannot be undone.`}
+        confirmText="Delete All Data"
+        cancelText="Cancel"
+        variant="destructive"
+        onConfirm={handleDeleteData}
+      />
     </div>
   );
 }

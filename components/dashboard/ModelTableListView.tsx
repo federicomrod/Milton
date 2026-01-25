@@ -113,7 +113,7 @@ export default function ModelTableListView({
           dataCount={tableDataCounts[selectedTable] || 0}
           onClose={handleCloseDetail}
           onUploadComplete={() => {
-            // Refresh counts after upload using the efficient API endpoint
+            // Refresh ALL counts after upload/delete using the efficient API endpoint
             const fetchCounts = async () => {
               try {
                 const response = await fetch("/api/data/sources", {
@@ -133,22 +133,34 @@ export default function ModelTableListView({
                 }
 
                 const data = await response.json();
+                console.log("Received data sources:", data.dataSources);
 
                 if (!data.dataSources || !Array.isArray(data.dataSources)) {
                   console.warn("Invalid data sources response:", data);
                   return;
                 }
 
-                // Update only the count for the table that was uploaded to
-                const updatedTable = data.dataSources.find(
-                  (ds: any) => ds.name === selectedTable
+                // Convert API response to table counts format, filtering only for model tables
+                const modelTableNames = new Set(
+                  model.recommendedTables.map((table) => table.name)
                 );
-                if (updatedTable) {
-                  setTableDataCounts((prev) => ({
-                    ...prev,
-                    [selectedTable]: updatedTable.count || 0,
-                  }));
-                }
+
+                const counts: Record<string, number> = {};
+                data.dataSources.forEach((ds: any) => {
+                  if (modelTableNames.has(ds.name)) {
+                    counts[ds.name] = ds.count || 0;
+                  }
+                });
+
+                // Ensure all model tables have a count (defaulting to 0)
+                model.recommendedTables.forEach((table) => {
+                  if (!(table.name in counts)) {
+                    counts[table.name] = 0;
+                  }
+                });
+
+                console.log("Setting new table counts:", counts);
+                setTableDataCounts(counts);
               } catch (error) {
                 console.error("Error refreshing count:", error);
               }

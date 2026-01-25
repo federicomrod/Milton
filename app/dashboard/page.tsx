@@ -25,6 +25,7 @@ type DataStatus = {
   bank?: boolean;
   crm?: boolean;
   budget?: boolean;
+  hasModelData?: boolean;
 } | null;
 
 export default function DashboardPage() {
@@ -113,88 +114,44 @@ export default function DashboardPage() {
     fetchData();
   }, []);
 
-  // Load selected KPIs and available KPIs (with caching)
+  // Load KPI selector pool (recommended + additional) and selected IDs from kpi-preferences.
+  // Load displayed selected KPIs from /api/kpis/selected (source of truth: business_models.selected_kpi_ids).
+  // No caching: users frequently save new KPIs.
   useEffect(() => {
     const loadKpis = async () => {
       try {
-        // Check cache first (5 minute expiry, same as API cache)
-        const cacheKey = "kpi-preferences-cache";
-        const cacheExpiry = 5 * 60 * 1000; // 5 minutes
-        const cached = sessionStorage.getItem(cacheKey);
-        if (cached) {
-          try {
-            const { data, timestamp } = JSON.parse(cached);
-            const age = Date.now() - timestamp;
-            if (age < cacheExpiry) {
-              // Use cached data
-              const kpiIds = (data.selectedKpiIds ?? []) as string[];
-              const recommended = (data.recommendedKpis ?? []) as DatabaseKpi[];
-              const additional = (data.additionalKpis ?? []) as DatabaseKpi[];
+        const [prefRes, selectedRes] = await Promise.all([
+          fetch("/api/onboarding/kpi-preferences", {
+            cache: "no-store",
+            credentials: "include",
+          }),
+          fetch("/api/kpis/selected", {
+            cache: "no-store",
+            credentials: "include",
+          }),
+        ]);
 
-              setSelectedKpiIds(kpiIds);
-              setRecommendedKpis(recommended);
-              setAdditionalKpis(additional);
-
-              const allKpis = [...recommended, ...additional];
-              const selected = allKpis.filter((kpi) => kpiIds.includes(kpi.id));
-              setSelectedKpis(selected);
-              // Mark KPIs as loaded since we're using cached data
-              kpisLoadedRef.current = true;
-              checkIfDataReady();
-              return; // Use cached data, skip API call
-            }
-          } catch (parseErr) {
-            // Cache invalid, continue to API call
-            sessionStorage.removeItem(cacheKey);
-          }
+        if (prefRes.ok) {
+          const data = await prefRes.json();
+          const kpiIds = (data.selectedKpiIds ?? []) as string[];
+          const recommended = (data.recommendedKpis ?? []) as DatabaseKpi[];
+          const additional = (data.additionalKpis ?? []) as DatabaseKpi[];
+          setSelectedKpiIds(kpiIds);
+          setRecommendedKpis(recommended);
+          setAdditionalKpis(additional);
         }
 
-        // Fetch from API
-        const res = await fetch("/api/onboarding/kpi-preferences");
-        if (!res.ok) {
-          // If no preferences found, use default 8 metrics from initial state
-          console.log(
-            "[DashboardPage] No saved KPI preferences, using defaults"
-          );
-          // Mark KPIs as loaded even if no preferences found
-          kpisLoadedRef.current = true;
-          checkIfDataReady();
-          return;
+        if (selectedRes.ok) {
+          const json = await selectedRes.json();
+          const list = Array.isArray(json?.selectedKpis)
+            ? json.selectedKpis
+            : [];
+          setSelectedKpis(list);
         }
-        const data = await res.json();
-
-        // Cache the response
-        try {
-          sessionStorage.setItem(
-            cacheKey,
-            JSON.stringify({
-              data,
-              timestamp: Date.now(),
-            })
-          );
-        } catch (storageErr) {
-          // Ignore storage errors (e.g., private browsing mode)
-        }
-
-        const kpiIds = (data.selectedKpiIds ?? []) as string[];
-        const recommended = (data.recommendedKpis ?? []) as DatabaseKpi[];
-        const additional = (data.additionalKpis ?? []) as DatabaseKpi[];
-
-        setSelectedKpiIds(kpiIds);
-        setRecommendedKpis(recommended);
-        setAdditionalKpis(additional);
-
-        // Filter to get only selected KPI objects
-        const allKpis = [...recommended, ...additional];
-        const selected = allKpis.filter((kpi) => kpiIds.includes(kpi.id));
-        setSelectedKpis(selected);
       } catch (err) {
-        // Silently fail, use defaults (initial state has 8 metrics)
-        console.error("[DashboardPage] Error loading KPI preferences:", err);
+        console.error("[DashboardPage] Error loading KPIs:", err);
       } finally {
-        // Mark KPIs as loaded
         kpisLoadedRef.current = true;
-        // Check if we can hide the loader
         checkIfDataReady();
       }
     };
@@ -217,9 +174,15 @@ export default function DashboardPage() {
 
   const handleKpisChange = (newKpiIds: string[]) => {
     setSelectedKpiIds(newKpiIds);
-    const allKpis = [...recommendedKpis, ...additionalKpis];
-    const selected = allKpis.filter((kpi) => newKpiIds.includes(kpi.id));
-    setSelectedKpis(selected);
+    // Refetch displayed KPIs from API (source of truth) so all saved IDs show, not just those in the template pool
+    fetch("/api/kpis/selected", { cache: "no-store", credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { selectedKpis: [] }))
+      .then((json) =>
+        setSelectedKpis(
+          Array.isArray(json?.selectedKpis) ? json.selectedKpis : []
+        )
+      )
+      .catch(() => {});
   };
 
   return (
@@ -251,7 +214,12 @@ export default function DashboardPage() {
 
           {/* Upload Invitation Section - Show if user hasn't uploaded data */}
           {dataStatus &&
-            !(dataStatus.bank || dataStatus.crm || dataStatus.budget) && (
+            !(
+              dataStatus.bank ||
+              dataStatus.crm ||
+              dataStatus.budget ||
+              dataStatus.hasModelData
+            ) && (
               <div className="mb-8">
                 <UploadInvitation />
               </div>
@@ -270,7 +238,10 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {dataStatus?.bank || dataStatus?.crm || dataStatus?.budget ? (
+            {dataStatus?.bank ||
+            dataStatus?.crm ||
+            dataStatus?.budget ||
+            dataStatus?.hasModelData ? (
               <>
                 <MetricsGrid selectedMetrics={selectedMetrics} />
                 <div className="mt-8">
@@ -285,7 +256,7 @@ export default function DashboardPage() {
                 </div>
               </>
             ) : (
-              <LockedPlaceholder message="Upload your financial data (bank transactions, CRM, or budget) in the 'Upload Financial Data' section above to see your key metrics and performance charts." />
+              <LockedPlaceholder message="Upload your data in the 'Upload' section above to see your key metrics and performance charts." />
             )}
 
             {/* KPIs Section */}

@@ -304,20 +304,23 @@ Rank these KPIs by relevance. Return the ranked KPI IDs as a JSON array, with th
     `[kpi-preferences] Returning: ${recommendedKpis.length} recommended, ${additionalKpis.length} additional, ${recommendedKpis.length + additionalKpis.length} total`
   );
 
+  // selected_kpi_ids is source of truth; return only valid UUIDs (ignore legacy slugs like "mrr")
+  const rawSelected = (data.selected_kpi_ids ?? []) as string[];
+  const uuidLike =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const selectedKpiIds = rawSelected.filter(
+    (id): id is string => typeof id === "string" && uuidLike.test(id)
+  );
+
   const response = NextResponse.json({
-    selectedKpiIds: (data.selected_kpi_ids ?? []) as string[],
+    selectedKpiIds,
     businessType,
     modelJson: data.model_json ?? null,
     recommendedKpis,
     additionalKpis,
   });
 
-  // Add caching headers to reduce API calls
-  // Cache for 5 minutes - data rarely changes
-  response.headers.set(
-    "Cache-Control",
-    "private, max-age=300, stale-while-revalidate=600"
-  );
+  response.headers.set("Cache-Control", "no-store");
 
   return response;
 }
@@ -334,9 +337,16 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const selectedKpiIds = Array.isArray(body?.selectedKpiIds)
+  const raw = Array.isArray(body?.selectedKpiIds)
     ? (body.selectedKpiIds as string[])
     : [];
+  // selected_kpi_ids must be UUIDs from the kpis table. Ignore non-UUIDs (e.g. "mrr", "arr")
+  // so MetricSelector or other callers cannot overwrite with metric slugs.
+  const uuidLike =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const selectedKpiIds = raw.filter(
+    (id): id is string => typeof id === "string" && uuidLike.test(id)
+  );
 
   // Get company for user
   const { data: company } = await supabase

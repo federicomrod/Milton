@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ArrowLeft, Upload, CheckCircle2, AlertCircle } from "lucide-react";
 import { TableDef } from "@/lib/model/transform";
 import EnhancedDataMappingUI from "./data-mapping-confirmation";
+import SheetSelection from "./sheet-selection";
 import { ColumnMapping } from "@/types/schema";
 
 interface ModelTableDetailViewProps {
@@ -25,8 +26,17 @@ export default function ModelTableDetailView({
 }: ModelTableDetailViewProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStep, setUploadStep] = useState<
-    "detail" | "mapping" | "processing"
+    "detail" | "sheets" | "mapping" | "processing"
   >("detail");
+  const [sheetData, setSheetData] = useState<{
+    file: File;
+    sheets: Array<{
+      name: string;
+      headers: string[];
+      sampleData: any[];
+      totalRows: number;
+    }>;
+  } | null>(null);
   const [mappingData, setMappingData] = useState<{
     headers: string[];
     sampleData: any[];
@@ -65,6 +75,16 @@ export default function ModelTableDetailView({
 
       const parseResult = await parseRes.json();
 
+      // If the file has sheets (Excel), go to sheet selection first
+      if (parseResult.sheets && parseResult.sheets.length > 0) {
+        setSheetData({
+          file,
+          sheets: parseResult.sheets,
+        });
+        setUploadStep("sheets");
+        return;
+      }
+
       // Generate auto-mappings based on model table fields
       const suggestedMappings = generateModelBasedMappings(
         parseResult.headers || [],
@@ -73,7 +93,7 @@ export default function ModelTableDetailView({
 
       setMappingData({
         headers: parseResult.headers || [],
-        sampleData: parseResult.sampleRows || [],
+        sampleData: parseResult.sampleData || parseResult.sampleRows || [],
         mappings: suggestedMappings,
       });
 
@@ -113,7 +133,11 @@ export default function ModelTableDetailView({
       }
 
       const parseResult = await parseRes.json();
-      const allRows = parseResult.rows || parseResult.sampleRows || [];
+      const allRows =
+        parseResult.rows ||
+        parseResult.sampleData ||
+        parseResult.sampleRows ||
+        [];
 
       // Transform all rows using mappings
       const transformedRows = allRows.map((row: any) => {
@@ -161,6 +185,108 @@ export default function ModelTableDetailView({
     }
   };
 
+  const handleSheetSelectionConfirm = async (
+    sheetMappings: Array<{
+      sheetName: string;
+      datasetType: string;
+      columnMappings: ColumnMapping[];
+    }>
+  ) => {
+    if (!sheetData) return;
+
+    setIsUploading(true);
+    setUploadStep("processing");
+
+    try {
+      // Process each selected sheet
+      for (const mapping of sheetMappings) {
+        // Parse the specific sheet
+        const formData = new FormData();
+        formData.append("file", sheetData.file);
+        formData.append("sheetName", mapping.sheetName);
+
+        const parseRes = await fetch("/api/data/parse", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!parseRes.ok) {
+          throw new Error(`Failed to parse sheet "${mapping.sheetName}"`);
+        }
+
+        const parseResult = await parseRes.json();
+        const allRows = parseResult.rows || parseResult.sampleData || [];
+
+        // Transform rows using the confirmed mappings
+        const transformedRows = allRows.map((row: any) => {
+          const transformed: Record<string, any> = {};
+          mapping.columnMappings.forEach((colMapping) => {
+            if (colMapping.standardField !== "unmapped") {
+              const originalValue = row[colMapping.originalColumn];
+              if (originalValue !== undefined && originalValue !== null) {
+                transformed[colMapping.standardField] = originalValue;
+              }
+            }
+          });
+          return transformed;
+        });
+
+        // Upload to model table
+        const response = await fetch("/api/data/upload-model-table", {
+          method: "POST",
+          body: JSON.stringify({
+            tableName: table.name,
+            rows: transformedRows,
+          }),
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(
+            `Upload failed for sheet "${mapping.sheetName}": ${errorText}`
+          );
+        }
+      }
+
+      console.log("All sheets uploaded successfully");
+      onUploadComplete?.();
+      setUploadStep("detail");
+      setSheetData(null);
+      setUploadedFile(null);
+    } catch (error) {
+      console.error("Sheet upload error:", error);
+      alert("Upload failed: " + (error as Error).message);
+      setUploadStep("detail");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  if (uploadStep === "sheets" && sheetData) {
+    return (
+      <SheetSelection
+        fileName={sheetData.file.name}
+        sheets={sheetData.sheets}
+        onConfirm={handleSheetSelectionConfirm}
+        onCancel={() => {
+          setUploadStep("detail");
+          setSheetData(null);
+        }}
+        targetModelTable={{
+          name: table.name,
+          fields: table.fields.map((f) => ({
+            name: f.name,
+            nullable: f.nullable,
+            type: f.type,
+          })),
+        }}
+      />
+    );
+  }
+
   if (uploadStep === "mapping" && mappingData) {
     return (
       <div className="space-y-4">
@@ -172,7 +298,7 @@ export default function ModelTableDetailView({
         </div>
         <EnhancedDataMappingUI
           fileName={`Upload to ${table.name}`}
-          fileType="transactions" // This will need to be dynamic based on table type
+          fileType="transactions"
           headers={mappingData.headers}
           sampleData={mappingData.sampleData}
           suggestedMappings={mappingData.mappings}
@@ -183,6 +309,12 @@ export default function ModelTableDetailView({
             setUploadStep("detail");
             setMappingData(null);
           }}
+          modelTableFields={table.fields.map((f) => ({
+            name: f.name,
+            nullable: f.nullable,
+            type: f.type,
+          }))}
+          modelTableName={table.name}
         />
       </div>
     );
@@ -198,7 +330,7 @@ export default function ModelTableDetailView({
           </Button>
           <h2 className="text-xl font-semibold">{table.name}</h2>
           {dataCount > 0 && (
-            <Badge variant="secondary">
+            <Badge className="bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300 border-transparent">
               <CheckCircle2 className="h-3 w-3 mr-1" />
               {dataCount} rows uploaded
             </Badge>
@@ -310,8 +442,9 @@ export default function ModelTableDetailView({
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground mb-4">
-            Upload a CSV or Excel file that matches this table structure. We'll
-            help you map the columns to the required and optional fields.
+            Upload a CSV or Excel file that matches this table structure.
+            We&apos;ll help you map the columns to the required and optional
+            fields.
           </p>
           <Button
             onClick={() => fileInputRef.current?.click()}

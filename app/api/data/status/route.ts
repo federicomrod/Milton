@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
       { count: bankCount, error: bankError },
       { count: crmCount, error: crmError },
       { count: budgetCount, error: budgetError },
+      { count: modelDataCount, error: modelDataError },
     ] = await Promise.all([
       supabase
         .from("transactions")
@@ -58,14 +59,19 @@ export async function GET(request: NextRequest) {
         .from("budgets")
         .select("*", { count: "exact" })
         .eq("user_id", userId),
+      supabase
+        .from("user_model_data")
+        .select("*", { count: "exact" })
+        .eq("user_id", userId),
     ]);
 
-    if (bankError || crmError || budgetError) {
+    if (bankError || crmError || budgetError || modelDataError) {
       return NextResponse.json({
         ok: false,
         bank: false,
         crm: false,
         budget: false,
+        hasModelData: false,
       });
     }
 
@@ -75,10 +81,12 @@ export async function GET(request: NextRequest) {
         { count: globalBankCount },
         { count: globalCrmCount },
         { count: globalBudgetCount },
+        { count: globalModelDataCount },
       ] = await Promise.all([
         supabase.from("transactions").select("*", { count: "exact" }),
         supabase.from("crm_deals").select("*", { count: "exact" }),
         supabase.from("budgets").select("*", { count: "exact" }),
+        supabase.from("user_model_data").select("*", { count: "exact" }),
       ]);
       if ((bankCount ?? 0) === 0 && (globalBankCount ?? 0) > 0) {
         console.warn(
@@ -98,6 +106,12 @@ export async function GET(request: NextRequest) {
         );
         budgetCount = globalBudgetCount;
       }
+      if ((modelDataCount ?? 0) === 0 && (globalModelDataCount ?? 0) > 0) {
+        console.warn(
+          "⚠️ DEV fallback: found global model data rows without user attribution"
+        );
+        modelDataCount = globalModelDataCount;
+      }
     }
 
     return NextResponse.json({
@@ -105,6 +119,7 @@ export async function GET(request: NextRequest) {
       bank: (bankCount ?? 0) > 0,
       crm: (crmCount ?? 0) > 0,
       budget: (budgetCount ?? 0) > 0,
+      hasModelData: (modelDataCount ?? 0) > 0,
     });
   } catch (err: any) {
     console.error("❌ /api/data/status failed:", err);

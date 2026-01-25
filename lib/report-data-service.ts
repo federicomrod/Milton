@@ -122,6 +122,117 @@ export async function getReportData(
     sample: budgets?.slice(0, 2),
   });
 
+  // Step 4: Fetch user_model_data
+  const { data: modelData, error: modelError } = await supabase
+    .from("user_model_data")
+    .select("model_table_name, data")
+    .eq("user_id", userId);
+
+  if (modelError) {
+    console.error("[getReportData] user_model_data fetch failed:", modelError);
+  } else if (modelData && modelData.length > 0) {
+    console.log("[getReportData] user_model_data fetched:", {
+      count: modelData.length,
+      tables: [...new Set(modelData.map((d) => d.model_table_name))],
+    });
+
+    // Map model data to standard types
+    for (const row of modelData) {
+      const tableName = row.model_table_name.toLowerCase();
+      const data = row.data as any;
+
+      if (
+        tableName.includes("transaction") ||
+        tableName.includes("payment") ||
+        tableName.includes("bank") ||
+        tableName.includes("income") ||
+        tableName.includes("expense") ||
+        tableName.includes("revenue")
+      ) {
+        // Map to TransactionData
+        const amount =
+          data.amount ?? data.value ?? data.price ?? data.total ?? 0;
+        const date =
+          data.date ??
+          data.payment_date ??
+          data.created_date ??
+          data.created_at ??
+          "";
+
+        // Filter by date if reportPeriod is provided
+        if (reportPeriod) {
+          if (date < reportPeriod.start || date > reportPeriod.end) continue;
+        }
+
+        transactions?.push({
+          id: data.id ?? `model_${Math.random().toString(36).substr(2, 9)}`,
+          date,
+          amount,
+          category: data.category ?? data.type ?? "Uncategorized",
+          name: data.name ?? data.description ?? tableName,
+          description: data.description ?? data.name ?? tableName,
+        });
+      } else if (
+        tableName.includes("deal") ||
+        tableName.includes("crm") ||
+        tableName.includes("opportunity") ||
+        tableName.includes("lead") ||
+        tableName.includes("pipeline") ||
+        tableName.includes("booking")
+      ) {
+        // Map to CrmDealData
+        const amount =
+          data.amount ?? data.value ?? data.price ?? data.total ?? 0;
+        const closingDate =
+          data.closing_date ??
+          data.close_date ??
+          data.date ??
+          data.payment_date ??
+          "";
+
+        // Filter by date if reportPeriod is provided
+        if (reportPeriod) {
+          if (
+            closingDate &&
+            (closingDate < reportPeriod.start || closingDate > reportPeriod.end)
+          )
+            continue;
+        }
+
+        crmDeals?.push({
+          id: data.id ?? `model_${Math.random().toString(36).substr(2, 9)}`,
+          deal_name:
+            data.deal_name ?? data.name ?? data.label ?? "Untitled Deal",
+          client_name:
+            data.client_name ?? data.customer_name ?? data.name ?? "",
+          amount,
+          phase: data.phase ?? data.stage ?? data.status ?? "Unknown",
+          closing_date: closingDate,
+          product: data.product ?? data.service ?? "",
+        });
+      } else if (
+        tableName.includes("budget") ||
+        tableName.includes("plan") ||
+        tableName.includes("forecast")
+      ) {
+        // Map to BudgetData
+        const value = data.value ?? data.amount ?? data.planned ?? 0;
+        const month = data.month ?? data.date ?? "";
+
+        // Filter by date if reportPeriod is provided
+        if (reportPeriod) {
+          if (month < reportPeriod.start || month > reportPeriod.end) continue;
+        }
+
+        budgets?.push({
+          month,
+          category: data.category ?? data.type ?? "General",
+          value,
+        });
+      }
+    }
+  }
+
   // --- Derive metrics ---
   // Ensure amounts are numbers (Supabase NUMERIC can return as string)
   const transactionsWithNumericAmounts =

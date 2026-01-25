@@ -52,7 +52,15 @@ export async function getSelectedKpis(companyId: string) {
       .in("id", kpiIds);
 
     if (kpisError) {
-      console.error("[getSelectedKpis] Error fetching KPIs:", kpisError);
+      const errDetail =
+        typeof kpisError === "object" && kpisError !== null
+          ? {
+              message: (kpisError as { message?: string }).message,
+              code: (kpisError as { code?: string }).code,
+              details: (kpisError as { details?: string }).details,
+            }
+          : kpisError;
+      console.error("[getSelectedKpis] Error fetching KPIs:", errDetail);
       return [];
     }
 

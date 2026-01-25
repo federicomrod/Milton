@@ -31,6 +31,13 @@ import {
 
 import { ColumnMapping } from "@/types/schema";
 
+/** When provided, mapping targets are the table's fields instead of fileType standards */
+export type ModelTableField = {
+  name: string;
+  nullable?: boolean;
+  type?: string;
+};
+
 interface DataMappingUIProps {
   fileName: string;
   fileType: "transactions" | "deals" | "budget";
@@ -42,6 +49,10 @@ interface DataMappingUIProps {
   onConfirm: (mappings: ColumnMapping[]) => void;
   onCancel: () => void;
   onReanalyze?: () => void;
+  /** Table fields for model-table uploads. When set, dropdown and validation use these instead of fileType. */
+  modelTableFields?: ModelTableField[];
+  /** When using modelTableFields, label for the badge (e.g. table name). */
+  modelTableName?: string;
 }
 
 const STANDARD_FIELDS = {
@@ -175,6 +186,38 @@ const STANDARD_FIELDS = {
   ],
 };
 
+function buildStandardFieldsFromTable(
+  modelTableFields: ModelTableField[]
+): Array<{
+  value: string;
+  label: string;
+  description: string;
+  required: boolean;
+}> {
+  return modelTableFields.map((f) => ({
+    value: f.name,
+    label: f.name,
+    description: f.type || "—",
+    required: !f.nullable,
+  }));
+}
+
+const EMPTY_COLUMN = "";
+
+function fieldToColumnToMappings(
+  fieldToColumn: Record<string, string>
+): ColumnMapping[] {
+  return Object.entries(fieldToColumn)
+    .filter(([, col]) => col !== EMPTY_COLUMN)
+    .map(([field, col]) => ({
+      originalColumn: col,
+      standardField: field,
+      confidence: 1,
+      dataType: "string" as const,
+      transformation: "none" as const,
+    }));
+}
+
 export default function EnhancedDataMappingUI({
   fileName,
   fileType,
@@ -186,80 +229,118 @@ export default function EnhancedDataMappingUI({
   onConfirm,
   onCancel,
   onReanalyze,
+  modelTableFields,
+  modelTableName,
 }: DataMappingUIProps) {
-  // Initialize mappings from suggestedMappings or create from headers
-  const initialMappings: ColumnMapping[] =
-    suggestedMappings.length > 0
-      ? suggestedMappings
-      : headers.map((header) => {
-          // Try to infer data type from sample data
-          const sampleValue = sampleData[0]?.[header];
-          let dataType: "string" | "number" | "date" | "currency" = "string";
+  const isModelTableMode = Boolean(
+    modelTableFields && modelTableFields.length > 0
+  );
+  const standardFields = isModelTableMode
+    ? buildStandardFieldsFromTable(modelTableFields!)
+    : STANDARD_FIELDS[fileType] || [];
 
-          if (sampleValue !== null && sampleValue !== undefined) {
-            if (typeof sampleValue === "number") {
-              dataType = "number";
-            } else if (typeof sampleValue === "string") {
-              // Check if it looks like a date
-              if (
-                /^\d{4}-\d{2}-\d{2}/.test(sampleValue) ||
-                /^\d{2}\/\d{2}\/\d{4}/.test(sampleValue)
-              ) {
-                dataType = "date";
-              } else if (
-                /[€$£¥]/.test(sampleValue) ||
-                /^\d+[.,]\d{2}$/.test(sampleValue)
-              ) {
-                dataType = "currency";
+  // Model-table mode: one row per target field, user picks which file column → field
+  const initialFieldToColumn = React.useMemo(() => {
+    if (!isModelTableMode || !modelTableFields) return {};
+    const out: Record<string, string> = {};
+    for (const f of modelTableFields) {
+      const found = suggestedMappings.find((m) => m.standardField === f.name);
+      out[f.name] = found?.originalColumn ?? EMPTY_COLUMN;
+    }
+    return out;
+  }, [isModelTableMode, modelTableFields, suggestedMappings]);
+
+  // Legacy mode: one row per file column, user picks target field
+  const initialMappings: ColumnMapping[] = React.useMemo(
+    () =>
+      suggestedMappings.length > 0
+        ? suggestedMappings
+        : headers.map((header) => {
+            const sampleValue = sampleData[0]?.[header];
+            let dataType: "string" | "number" | "date" | "currency" = "string";
+            if (sampleValue !== null && sampleValue !== undefined) {
+              if (typeof sampleValue === "number") dataType = "number";
+              else if (typeof sampleValue === "string") {
+                if (
+                  /^\d{4}-\d{2}-\d{2}/.test(sampleValue) ||
+                  /^\d{2}\/\d{2}\/\d{4}/.test(sampleValue)
+                )
+                  dataType = "date";
+                else if (
+                  /[€$£¥]/.test(sampleValue) ||
+                  /^\d+[.,]\d{2}$/.test(sampleValue)
+                )
+                  dataType = "currency";
               }
             }
-          }
+            return {
+              originalColumn: header,
+              standardField: "unmapped",
+              confidence: 0,
+              dataType,
+              transformation: "none" as const,
+            };
+          }),
+    [suggestedMappings, headers, sampleData]
+  );
 
-          return {
-            originalColumn: header,
-            standardField: "unmapped",
-            confidence: 0,
-            dataType,
-            transformation: "none" as const,
-          };
-        });
-
+  const [fieldToColumn, setFieldToColumn] =
+    useState<Record<string, string>>(initialFieldToColumn);
   const [mappings, setMappings] = useState<ColumnMapping[]>(initialMappings);
   const [activeTab, setActiveTab] = useState("mappings");
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
-  const standardFields = STANDARD_FIELDS[fileType] || [];
+  const effectiveMappings: ColumnMapping[] = isModelTableMode
+    ? fieldToColumnToMappings(fieldToColumn)
+    : mappings;
+
+  const updateFieldColumn = (field: string, column: string) => {
+    setFieldToColumn((prev) => ({ ...prev, [field]: column }));
+  };
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/immutability
     validateMappings();
-  }, [mappings]);
+  }, [mappings, fieldToColumn, isModelTableMode]);
 
   const validateMappings = () => {
-    const errors = [];
-    const mappedFields = mappings
-      .map((m) => m.standardField)
-      .filter((f) => f !== "unmapped");
-    const requiredFields = standardFields.filter((f) => f.required);
-
-    // Check for required fields
-    for (const required of requiredFields) {
-      if (!mappedFields.includes(required.value)) {
-        errors.push(`Required field "${required.label}" is not mapped`);
+    const errors: string[] = [];
+    if (isModelTableMode) {
+      const requiredFields = standardFields.filter((f) => f.required);
+      for (const r of requiredFields) {
+        if (!(fieldToColumn[r.value] ?? EMPTY_COLUMN).trim()) {
+          errors.push(`Required field "${r.label}" needs a source column`);
+        }
       }
+      const usedColumns = Object.values(fieldToColumn).filter(
+        (c) => c !== EMPTY_COLUMN
+      );
+      const duplicates = usedColumns.filter(
+        (c, i, arr) => arr.indexOf(c) !== i
+      );
+      if (duplicates.length > 0) {
+        errors.push(
+          `Column(s) used more than once: ${[...new Set(duplicates)].join(", ")}`
+        );
+      }
+    } else {
+      const mappedFields = mappings
+        .map((m) => m.standardField)
+        .filter((f) => f !== "unmapped");
+      const requiredFields = standardFields.filter((f) => f.required);
+      for (const required of requiredFields) {
+        if (!mappedFields.includes(required.value)) {
+          errors.push(`Required field "${required.label}" is not mapped`);
+        }
+      }
+      const allowMultiple = (f: string) =>
+        fileType === "budget" && f === "month";
+      const dups = mappedFields.filter(
+        (f, i, arr) =>
+          arr.indexOf(f) !== i && f !== "unmapped" && !allowMultiple(f)
+      );
+      if (dups.length > 0)
+        errors.push(`Duplicate mappings found: ${dups.join(", ")}`);
     }
-
-    // Check for duplicate mappings (allow multiple "month" mappings for budget files)
-    const duplicates = mappedFields.filter(
-      (field, index, arr) =>
-        arr.indexOf(field) !== index &&
-        field !== "unmapped" &&
-        !(fileType === "budget" && field === "month") // Allow multiple month mappings for budgets
-    );
-    if (duplicates.length > 0) {
-      errors.push(`Duplicate mappings found: ${duplicates.join(", ")}`);
-    }
-
     setValidationErrors(errors);
   };
 
@@ -312,11 +393,11 @@ export default function EnhancedDataMappingUI({
   };
 
   const previewMappedData = () => {
+    const m = effectiveMappings;
     return sampleData.slice(0, 15).map((row, index) => {
       const mapped: any = { _index: index + 1 };
-      mappings.forEach((mapping) => {
+      m.forEach((mapping) => {
         if (mapping.standardField !== "unmapped") {
-          // For multiple month columns, use original column name as key to avoid overwriting
           if (fileType === "budget" && mapping.standardField === "month") {
             mapped[mapping.originalColumn] = row[mapping.originalColumn] || "";
           } else {
@@ -330,18 +411,26 @@ export default function EnhancedDataMappingUI({
 
   const isValid = validationErrors.length === 0;
 
-  // Calculate current confidence from all mappings
-  // For manually mapped fields, use their confidence (1.0 if manually set)
-  // For unmapped fields, use 0
-  // This gives an overall confidence score
-  const currentConfidence =
-    mappings.length > 0
-      ? mappings.reduce((sum, m) => {
-          // If unmapped, contribute 0 to the average
-          if (m.standardField === "unmapped") return sum;
-          // Otherwise use the mapping's confidence
-          return sum + m.confidence;
-        }, 0) / mappings.length
+  const requiredCount = standardFields.filter((f) => f.required).length;
+  const requiredMappedCount = isModelTableMode
+    ? standardFields.filter(
+        (f) => f.required && (fieldToColumn[f.value] ?? "").trim()
+      ).length
+    : mappings.filter(
+        (m) =>
+          m.standardField !== "unmapped" &&
+          standardFields.find((s) => s.value === m.standardField)?.required
+      ).length;
+  const currentConfidence = isModelTableMode
+    ? requiredCount === 0
+      ? 1
+      : requiredMappedCount / requiredCount
+    : mappings.length > 0
+      ? mappings.reduce(
+          (sum, m) =>
+            m.standardField === "unmapped" ? sum : sum + m.confidence,
+          0
+        ) / mappings.length
       : 0;
 
   return (
@@ -352,7 +441,9 @@ export default function EnhancedDataMappingUI({
             <FileText className="h-5 w-5" />
             Data Mapping - {fileName}
             <Badge variant={currentConfidence > 0.8 ? "default" : "secondary"}>
-              {fileType.toUpperCase()}
+              {isModelTableMode && modelTableName
+                ? `Table: ${modelTableName}`
+                : fileType.toUpperCase()}
             </Badge>
           </DialogTitle>
         </DialogHeader>
@@ -455,91 +546,174 @@ export default function EnhancedDataMappingUI({
               value="mappings"
               className="flex-1 overflow-y-auto space-y-3 min-h-0"
             >
-              <div className="grid gap-3">
-                {mappings.map((mapping, index) => (
-                  <Card
-                    key={index}
-                    className={`${getConfidenceColor(mapping.confidence)} border-l-4`}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4 flex-1">
-                          <div className="min-w-0 flex-1">
-                            <div className="font-mono text-sm font-medium truncate">
-                              {mapping.originalColumn}
-                            </div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                              Data Type: {mapping.dataType}
-                            </div>
-                          </div>
-
-                          <ArrowRight className="h-4 w-4 text-gray-400 dark:text-gray-500 flex-shrink-0" />
-
-                          <div className="min-w-0 flex-1">
-                            <Select
-                              value={mapping.standardField}
-                              onValueChange={(value) =>
-                                updateMapping(mapping.originalColumn, value)
-                              }
-                            >
-                              <SelectTrigger className="w-full">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {standardFields.map((field) => (
-                                  <SelectItem
-                                    key={field.value}
-                                    value={field.value}
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <span
-                                        className={
-                                          field.required ? "font-medium" : ""
-                                        }
-                                      >
-                                        {field.label}
+              {isModelTableMode ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    For each target field, choose which file column to use.
+                    Required fields must have a column. You have{" "}
+                    <strong>{headers.length}</strong> column(s) available.
+                  </p>
+                  <div className="grid gap-3">
+                    {[...standardFields]
+                      .sort(
+                        (a, b) => (b.required ? 1 : 0) - (a.required ? 1 : 0)
+                      )
+                      .map((field) => {
+                        const selectedCol =
+                          fieldToColumn[field.value] ?? EMPTY_COLUMN;
+                        const isMapped = selectedCol !== EMPTY_COLUMN;
+                        return (
+                          <Card
+                            key={field.value}
+                            className={`border-l-4 ${field.required && !isMapped ? "border-l-amber-500 bg-amber-50/50 dark:bg-amber-950/20" : "border-l-green-500 bg-green-50/30 dark:bg-green-950/10"}`}
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-center justify-between gap-4 flex-wrap">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono text-sm font-medium">
+                                      {field.label}
+                                    </span>
+                                    {field.required && (
+                                      <span className="text-red-500 text-xs">
+                                        Required
                                       </span>
-                                      {field.required && (
-                                        <span className="text-red-500">*</span>
-                                      )}
-                                    </div>
-                                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                                      {field.description}
-                                    </div>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                                    )}
+                                  </div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                    {field.description}
+                                  </div>
+                                </div>
+                                <div className="min-w-[200px] flex-1 max-w-md">
+                                  <Select
+                                    value={selectedCol || "__none__"}
+                                    onValueChange={(v) =>
+                                      updateFieldColumn(
+                                        field.value,
+                                        v === "__none__" ? EMPTY_COLUMN : v
+                                      )
+                                    }
+                                  >
+                                    <SelectTrigger className="w-full">
+                                      <SelectValue placeholder="Select column…" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="__none__">
+                                        — None
+                                      </SelectItem>
+                                      {headers.map((h) => (
+                                        <SelectItem key={h} value={h}>
+                                          {h}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                {isMapped && (
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 self-center">
+                                    Sample:{" "}
+                                    {String(
+                                      sampleData[0]?.[selectedCol] ?? ""
+                                    ).slice(0, 24)}
+                                    {String(sampleData[0]?.[selectedCol] ?? "")
+                                      .length > 24
+                                      ? "…"
+                                      : ""}
+                                  </div>
+                                )}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {mappings.map((mapping, index) => (
+                    <Card
+                      key={index}
+                      className={`${getConfidenceColor(mapping.confidence)} border-l-4`}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4 flex-1">
+                            <div className="min-w-0 flex-1">
+                              <div className="font-mono text-sm font-medium truncate">
+                                {mapping.originalColumn}
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                Data Type: {mapping.dataType}
+                              </div>
+                            </div>
+
+                            <ArrowRight className="h-4 w-4 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+
+                            <div className="min-w-0 flex-1">
+                              <Select
+                                value={mapping.standardField}
+                                onValueChange={(value) =>
+                                  updateMapping(mapping.originalColumn, value)
+                                }
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {standardFields.map((f) => (
+                                    <SelectItem key={f.value} value={f.value}>
+                                      <div className="flex items-center gap-2">
+                                        <span
+                                          className={
+                                            f.required ? "font-medium" : ""
+                                          }
+                                        >
+                                          {f.label}
+                                        </span>
+                                        {f.required && (
+                                          <span className="text-red-500">
+                                            *
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                                        {f.description}
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {getConfidenceBadge(mapping.confidence)}
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {getConfidenceBadge(mapping.confidence)}
+                        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                            Sample values:
+                          </div>
+                          <div className="text-sm font-mono bg-white dark:!bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-700 max-h-16 overflow-y-auto">
+                            {sampleData.slice(0, 3).map((row, idx) => (
+                              <div key={idx} className="truncate">
+                                {row[mapping.originalColumn] || "(empty)"}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-
-                      {/* Sample Data Preview */}
-                      <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                          Sample values:
-                        </div>
-                        <div className="text-sm font-mono bg-white dark:!bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-700 max-h-16 overflow-y-auto">
-                          {sampleData.slice(0, 3).map((row, idx) => (
-                            <div key={idx} className="truncate">
-                              {row[mapping.originalColumn] || "(empty)"}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </TabsContent>
 
-            <TabsContent value="preview" className="flex-1 overflow-hidden">
-              <div className="h-full flex flex-col">
-                <div className="mb-4">
+            <TabsContent
+              value="preview"
+              className="flex-1 flex flex-col min-h-0 overflow-hidden"
+            >
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                <div className="mb-4 flex-shrink-0">
                   <h3 className="font-medium">Mapped Data Preview</h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
                     Preview of how your data will look after applying the
@@ -547,21 +721,14 @@ export default function EnhancedDataMappingUI({
                   </p>
                 </div>
 
-                <div
-                  className={`${
-                    previewMappedData().length < 15
-                      ? "h-fit max-h-full"
-                      : "flex-1"
-                  } overflow-auto border border-gray-200 dark:border-gray-700 rounded-lg`}
-                >
+                <div className="flex-1 min-h-0 overflow-auto border border-gray-200 dark:border-gray-700 rounded-lg">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 dark:!bg-gray-800 sticky top-0">
                       <tr>
                         <th className="p-2 text-left font-medium w-12">#</th>
-                        {mappings
+                        {effectiveMappings
                           .filter((m) => m.standardField !== "unmapped")
                           .map((mapping) => {
-                            // For multiple month columns, use original column as key
                             const key =
                               fileType === "budget" &&
                               mapping.standardField === "month"
@@ -590,10 +757,9 @@ export default function EnhancedDataMappingUI({
                           <td className="p-2 text-gray-500 dark:text-gray-400">
                             {row._index}
                           </td>
-                          {mappings
+                          {effectiveMappings
                             .filter((m) => m.standardField !== "unmapped")
                             .map((mapping) => {
-                              // For multiple month columns, use original column to get value
                               const key =
                                 fileType === "budget" &&
                                 mapping.standardField === "month"
@@ -615,7 +781,7 @@ export default function EnhancedDataMappingUI({
                     </tbody>
                   </table>
                 </div>
-                <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                <div className="mt-3 text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
                   Preview showing {previewMappedData().length} of{" "}
                   {sampleData.length} sample rows
                 </div>
@@ -635,12 +801,15 @@ export default function EnhancedDataMappingUI({
                     </div>
                     <div>
                       <span className="text-gray-600 dark:text-gray-400">
-                        Mapped Columns:
+                        {isModelTableMode
+                          ? "Mapped fields:"
+                          : "Mapped Columns:"}
                       </span>
                       <span className="ml-2 font-medium">
                         {
-                          mappings.filter((m) => m.standardField !== "unmapped")
-                            .length
+                          effectiveMappings.filter(
+                            (m) => m.standardField !== "unmapped"
+                          ).length
                         }
                       </span>
                     </div>
@@ -671,9 +840,11 @@ export default function EnhancedDataMappingUI({
                     {standardFields
                       .filter((f) => f.required)
                       .map((field) => {
-                        const isMapped = mappings.some(
-                          (m) => m.standardField === field.value
-                        );
+                        const isMapped = isModelTableMode
+                          ? Boolean((fieldToColumn[field.value] ?? "").trim())
+                          : effectiveMappings.some(
+                              (m) => m.standardField === field.value
+                            );
                         return (
                           <div
                             key={field.value}
@@ -736,14 +907,16 @@ export default function EnhancedDataMappingUI({
                 Save Template
               </Button>
               <Button
-                onClick={() => onConfirm(mappings)}
+                onClick={() => onConfirm(effectiveMappings)}
                 disabled={!isValid}
                 className="bg-blue-600 hover:bg-blue-700"
               >
                 <CheckCircle2 className="h-4 w-4 mr-1" />
                 Apply Mapping (
                 {
-                  mappings.filter((m) => m.standardField !== "unmapped").length
+                  effectiveMappings.filter(
+                    (m) => m.standardField !== "unmapped"
+                  ).length
                 }{" "}
                 fields)
               </Button>

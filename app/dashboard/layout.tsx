@@ -59,10 +59,14 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           if (businessModel?.business_type) {
             setBusinessModel(businessModel.business_type);
 
-            // Fetch selected KPIs instead of template KPIs
-            const { getSelectedKpis } =
-              await import("@/lib/kpi-recipe-service");
-            const selectedKpis = await getSelectedKpis(company.id);
+            // Fetch selected KPIs from API (source of truth: business_models.selected_kpi_ids)
+            const res = await fetch("/api/kpis/selected", {
+              credentials: "include",
+            });
+            const json = res.ok ? await res.json() : { selectedKpis: [] };
+            const selectedKpis = Array.isArray(json?.selectedKpis)
+              ? json.selectedKpis
+              : [];
             setSelectedKpis(selectedKpis);
             miltonEventsAPI.publish("business.context", {
               businessModel: businessModel.business_type,
@@ -123,9 +127,13 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             .single();
 
           if (company) {
-            const { getSelectedKpis } =
-              await import("@/lib/kpi-recipe-service");
-            const selectedKpis = await getSelectedKpis(company.id);
+            const res = await fetch("/api/kpis/selected", {
+              credentials: "include",
+            });
+            const json = res.ok ? await res.json() : { selectedKpis: [] };
+            const selectedKpis = Array.isArray(json?.selectedKpis)
+              ? json.selectedKpis
+              : [];
             setSelectedKpis(selectedKpis);
             miltonEventsAPI.publish("dashboard.data.ready", {
               kpis: [],

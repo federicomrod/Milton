@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart3, TrendingUp } from "lucide-react";
 import {
@@ -13,27 +14,33 @@ import {
 } from "recharts";
 import type { DatabaseKpi } from "@/lib/types/kpi";
 
+export interface KpiSeriesPoint {
+  period: string;
+  value: number;
+}
+
 interface KpisGridProps {
   selectedKpis: DatabaseKpi[];
 }
 
-// Check if we have data for a KPI (this will be replaced with actual data check later)
-const hasKpiData = (kpi: DatabaseKpi): boolean => {
-  // For now, we don't have data - this will be replaced when the new model table is developed
-  return false;
-};
-
-// Generate mock/placeholder chart data (will be replaced with real data)
-const generateChartData = (kpi: DatabaseKpi) => {
-  // Placeholder data - will be replaced with actual data from model table
-  return Array.from({ length: 6 }, (_, i) => ({
+const PLACEHOLDER_DATA: KpiSeriesPoint[] = Array.from(
+  { length: 6 },
+  (_, i) => ({
     period: `Period ${i + 1}`,
     value: 0,
-  }));
-};
+  })
+);
 
-const KpiChart = ({ kpi, hasData }: { kpi: DatabaseKpi; hasData: boolean }) => {
-  const chartData = generateChartData(kpi);
+const KpiChart = ({
+  kpi,
+  hasData,
+  chartData,
+}: {
+  kpi: DatabaseKpi;
+  hasData: boolean;
+  chartData: KpiSeriesPoint[];
+}) => {
+  const data = hasData && chartData.length > 0 ? chartData : PLACEHOLDER_DATA;
 
   if (!hasData) {
     return (
@@ -51,7 +58,7 @@ const KpiChart = ({ kpi, hasData }: { kpi: DatabaseKpi; hasData: boolean }) => {
 
   return (
     <ResponsiveContainer width="100%" height={256}>
-      <LineChart data={chartData}>
+      <LineChart data={data}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis
           dataKey="period"
@@ -81,6 +88,35 @@ const KpiChart = ({ kpi, hasData }: { kpi: DatabaseKpi; hasData: boolean }) => {
 };
 
 export function KpisGrid({ selectedKpis }: KpisGridProps) {
+  const [seriesByKpi, setSeriesByKpi] = useState<
+    Record<string, { data: KpiSeriesPoint[] }>
+  >({});
+
+  const kpiIdKey =
+    selectedKpis.length > 0
+      ? selectedKpis
+          .map((k) => k.id)
+          .slice()
+          .sort()
+          .join(",")
+      : "";
+
+  useEffect(() => {
+    if (!kpiIdKey) {
+      setSeriesByKpi({});
+      return;
+    }
+    fetch(`/api/kpis/series?kpiIds=${encodeURIComponent(kpiIdKey)}`, {
+      cache: "no-store",
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : { series: {} }))
+      .then((json: { series?: Record<string, { data: KpiSeriesPoint[] }> }) =>
+        setSeriesByKpi(json.series ?? {})
+      )
+      .catch(() => setSeriesByKpi({}));
+  }, [kpiIdKey]);
+
   if (selectedKpis.length === 0) {
     return (
       <div className="rounded-lg border border-dashed p-8 text-center">
@@ -96,7 +132,9 @@ export function KpisGrid({ selectedKpis }: KpisGridProps) {
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {selectedKpis.map((kpi) => {
-        const hasData = hasKpiData(kpi);
+        const s = seriesByKpi[kpi.id];
+        const chartData = s?.data ?? [];
+        const hasData = chartData.length > 0;
         return (
           <Card key={kpi.id} className="hover:shadow-md transition-shadow">
             <CardHeader className="pb-3">
@@ -108,9 +146,8 @@ export function KpisGrid({ selectedKpis }: KpisGridProps) {
               </p>
             </CardHeader>
             <CardContent>
-              {/* Chart */}
               <div>
-                <KpiChart kpi={kpi} hasData={hasData} />
+                <KpiChart kpi={kpi} hasData={hasData} chartData={chartData} />
               </div>
             </CardContent>
           </Card>

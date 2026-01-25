@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { TransactionData } from "@/lib/types/data";
+import { getReportData } from "@/lib/report-data-service";
 import {
   normalizeTransactions,
   calculateCashFlowMetrics,
@@ -36,20 +36,15 @@ export function useCashFlowData() {
           return;
         }
 
-        const { data, error } = await supabase
-          .from("transactions")
-          .select("id, date, amount, category, name, description")
-          .eq("user_id", user.id)
-          .order("date", { ascending: false });
+        const reportData = await getReportData(supabase, user.id);
 
-        if (error) {
-          console.error("Failed to load transactions:", error);
+        if (!reportData.transactions || reportData.transactions.length === 0) {
           setLoading(false);
           return;
         }
 
         // Normalize and calculate metrics
-        const txData = normalizeTransactions(data || []);
+        const txData = normalizeTransactions(reportData.transactions);
         const calculatedMetrics = calculateCashFlowMetrics(txData);
 
         setTransactions(txData);

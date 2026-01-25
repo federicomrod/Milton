@@ -17,7 +17,6 @@ import {
   deleteCustomDataset,
 } from "@/lib/model/dataset-service";
 import ColumnEditor from "@/components/dashboard/ColumnEditor";
-import LinkedUploadsSidebar from "@/components/dashboard/LinkedUploadsSidebar";
 import { useBusinessContext } from "@/lib/business-context";
 import { callBusinessModelAnalyzer } from "@/lib/ai/business-model-analyzer-client";
 
@@ -814,7 +813,7 @@ export default function DataModelBuilder({
       <div className="flex items-center justify-between p-4 border-b bg-gray-50">
         <div>
           <h2 className="text-lg font-semibold mb-1">Your Data Model</h2>
-          {isOnboarding && dbBusinessType ? (
+          {dbBusinessType && (
             <p className="text-sm text-gray-600">
               Business Type:{" "}
               <span className="font-medium">
@@ -822,19 +821,6 @@ export default function DataModelBuilder({
                   ?.label || dbBusinessType}
               </span>
             </p>
-          ) : (
-            <select
-              value={selectedModel}
-              onChange={(e) => handleModelChange(e.target.value)}
-              className="border p-1 rounded text-gray-800 text-sm max-w-xs inline-block"
-            >
-              <option value="">Select business model</option>
-              {businessModelTemplates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.label}
-                </option>
-              ))}
-            </select>
           )}
         </div>
 
@@ -882,30 +868,6 @@ export default function DataModelBuilder({
           <Controls />
           <Background />
         </ReactFlow>
-      </div>
-      {/* Linked Uploads Sidebar - restored to last fully working version with collapsibility and header */}
-      <div className="absolute left-0 top-0 h-full z-30">
-        <LinkedUploadsSidebar
-          datasets={datasets}
-          onPreview={handlePreviewDataset}
-          onReplace={handleReplaceDataset}
-          onDelete={async (ds) => {
-            try {
-              await deleteCustomDataset(ds.id);
-              toast({
-                title: "Dataset deleted",
-                description: `${ds.dataset_name} was removed.`,
-              });
-              await refreshDatasets();
-            } catch (err) {
-              toast({
-                title: "Error deleting dataset",
-                description: "Failed to remove dataset. Please try again.",
-                variant: "destructive",
-              });
-            }
-          }}
-        />
       </div>
       {/* Table field sidebar */}
       {selectedTable && (

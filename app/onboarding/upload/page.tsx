@@ -167,8 +167,9 @@ export default function OnboardingUploadPage() {
             Upload Your Data
           </h1>
           <p className="text-muted-foreground mt-2">
-            Upload your bank transactions, CRM data, and budget files. You can
-            skip this step and upload later if you prefer.
+            Upload files that match your data model. We'll help you map columns
+            to the correct tables and fields. You can skip this step and upload
+            later if you prefer.
           </p>
         </div>
 

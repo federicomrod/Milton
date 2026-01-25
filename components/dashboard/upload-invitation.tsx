@@ -9,13 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Upload,
-  ArrowRight,
-  FileText,
-  Database,
-  TrendingUp,
-} from "lucide-react";
+import { Upload, ArrowRight } from "lucide-react";
 
 export function UploadInvitation() {
   const router = useRouter();
@@ -29,46 +23,22 @@ export function UploadInvitation() {
           </div>
         </div>
         <CardTitle className="text-2xl md:text-3xl mb-2">
-          Upload Your Financial Data
+          Upload Your Data
         </CardTitle>
         <CardDescription className="text-base">
           Connect your data sources to unlock powerful insights and analytics
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="space-y-3">
-          <div className="flex items-start gap-3">
-            <div className="rounded-full bg-blue-100 p-1.5 mt-0.5">
-              <FileText className="h-4 w-4 text-blue-600" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-sm">Bank Transactions</h3>
-              <p className="text-sm text-muted-foreground">
-                Upload your bank statements and transaction history
-              </p>
-            </div>
+        <div className="flex items-center gap-3">
+          <div className="rounded-full bg-blue-100 p-1.5">
+            <Upload className="h-4 w-4 text-blue-600" />
           </div>
-          <div className="flex items-start gap-3">
-            <div className="rounded-full bg-blue-100 p-1.5 mt-0.5">
-              <Database className="h-4 w-4 text-blue-600" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-sm">CRM Data</h3>
-              <p className="text-sm text-muted-foreground">
-                Import your sales pipeline and deal information
-              </p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <div className="rounded-full bg-blue-100 p-1.5 mt-0.5">
-              <TrendingUp className="h-4 w-4 text-blue-600" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-sm">Budget Files</h3>
-              <p className="text-sm text-muted-foreground">
-                Add your budget plans and forecasts for analysis
-              </p>
-            </div>
+          <div>
+            <p className="text-sm text-muted-foreground">
+              Upload files that match your business data model. We'll help you
+              map the columns to the correct tables and fields.
+            </p>
           </div>
         </div>
         <div className="pt-4">

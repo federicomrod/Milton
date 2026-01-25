@@ -1117,15 +1117,15 @@ export default function FileUpload({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FileText className="h-5 w-5" />
-          Upload Financial Data
+          Upload Data
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
           <div>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-              Upload your bank transactions, CRM data, or budget files (CSV or
-              Excel).
+              Upload files that match your data model (CSV or Excel). We'll help
+              you map the columns to the correct tables and fields.
               {selectedUseCase && (
                 <span className="block mt-1 text-blue-600 dark:text-blue-400 font-medium">
                   Use case: {selectedUseCase}
@@ -1287,20 +1287,6 @@ export default function FileUpload({
             <p>
               <strong>Supported formats:</strong> CSV, XLSX, XLS
             </p>
-            <p>
-              <strong>File naming tips:</strong>
-            </p>
-            <ul className="list-disc list-inside ml-2 space-y-0.5">
-              <li>
-                Include &quot;bank&quot; or &quot;transactions&quot; for bank
-                data
-              </li>
-              <li>
-                Include &quot;crm&quot;, &quot;deals&quot;, or &quot;sales&quot;
-                for CRM data
-              </li>
-              <li>Include &quot;budget&quot; for budget data</li>
-            </ul>
           </div>
         </div>
       </CardContent>

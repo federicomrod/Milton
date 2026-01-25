@@ -12,6 +12,7 @@ import {
   User,
   Settings,
   Database,
+  Network,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -114,6 +115,16 @@ export function AppNavigation() {
                   >
                     <Database className="h-4 w-4" />
                     Data
+                  </Button>
+                </Link>
+                <Link href="/dashboard/model">
+                  <Button
+                    variant={isActive("/dashboard/model") ? "default" : "ghost"}
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <Network className="h-4 w-4" />
+                    Model
                   </Button>
                 </Link>
               </nav>

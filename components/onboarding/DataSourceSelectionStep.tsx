@@ -40,7 +40,6 @@ import {
 } from "lucide-react";
 import { updateOnboardingStatus } from "@/lib/onboarding-status";
 import { Separator } from "@/components/ui/separator";
-import FileUpload from "@/components/dashboard/file-upload";
 
 const CATEGORY_ICONS: Record<DataSourceCategory, React.ReactNode> = {
   online_banking: <CreditCard className="h-4 w-4" />,
@@ -326,10 +325,8 @@ export function DataSourceSelectionStep({
             Upload Data Files (Optional)
           </h2>
           <p className="text-sm text-muted-foreground mb-4">
-            You can upload your data files now, or skip this step and upload
-            them later in the Data Model Builder.
+            You can upload your data files later in the Data Model Builder.
           </p>
-          <FileUpload />
         </div>
       </div>
 

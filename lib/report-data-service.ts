@@ -38,6 +38,7 @@ export interface ReportData {
   budgets: BudgetData[];
   businessType: string | null;
   selectedKpiIds: string[];
+  hasModelData: boolean;
 }
 
 /**
@@ -56,77 +57,10 @@ export async function getReportData(
     .eq("created_by", userId)
     .single();
 
-  // Step 1: Fetch transactions
-  let txQuery = supabase
-    .from("transactions")
-    .select("id, date, amount, category, name, description")
-    .eq("user_id", userId)
-    .order("date", { ascending: false });
-
-  if (reportPeriod) {
-    txQuery = txQuery
-      .gte("date", reportPeriod.start)
-      .lte("date", reportPeriod.end);
-  }
-
-  const { data: transactions, error: txError } = await txQuery;
-  if (txError) {
-    throw new Error(`Transactions fetch failed: ${txError.message}`);
-  }
-
-  console.log("[getReportData] Transactions fetched:", {
-    count: transactions?.length || 0,
-    period: reportPeriod,
-    sample: transactions?.slice(0, 2),
-  });
-
-  // Step 2: Fetch CRM deals
-  let crmQuery = supabase
-    .from("crm_deals")
-    .select("id, amount, phase, closing_date, deal_name, client_name")
-    .eq("user_id", userId)
-    .order("amount", { ascending: false });
-
-  if (reportPeriod) {
-    crmQuery = crmQuery
-      .gte("closing_date", reportPeriod.start)
-      .lte("closing_date", reportPeriod.end);
-  }
-
-  const { data: crmDeals, error: crmError } = await crmQuery;
-  if (crmError) {
-    throw new Error(`CRM deals fetch failed: ${crmError.message}`);
-  }
-
-  console.log("[getReportData] CRM deals fetched:", {
-    count: crmDeals?.length || 0,
-    period: reportPeriod,
-    sample: crmDeals?.slice(0, 2),
-  });
-
-  // Step 3: Fetch budget data
-  let budgetQuery = supabase
-    .from("budgets")
-    .select("month, category, value")
-    .eq("user_id", userId)
-    .order("month", { ascending: false });
-
-  if (reportPeriod) {
-    budgetQuery = budgetQuery
-      .gte("month", reportPeriod.start)
-      .lte("month", reportPeriod.end);
-  }
-
-  const { data: budgets, error: budgetError } = await budgetQuery;
-  if (budgetError) {
-    throw new Error(`Budgets fetch failed: ${budgetError.message}`);
-  }
-
-  console.log("[getReportData] Budgets fetched:", {
-    count: budgets?.length || 0,
-    period: reportPeriod,
-    sample: budgets?.slice(0, 2),
-  });
+  // Legacy table data - now empty since replaced with model_data
+  const transactions: TransactionData[] = [];
+  const crmDeals: CrmDealData[] = [];
+  const budgets: BudgetData[] = [];
 
   // Step 4: Fetch model_data (company-scoped; no user_id)
   let modelData: { model_table_name: string; data: unknown }[] | null = null;
@@ -140,6 +74,7 @@ export async function getReportData(
     modelError = result.error;
   }
 
+  let hasModelData = false;
   if (modelError) {
     console.error("[getReportData] model_data fetch failed:", modelError);
   } else if (modelData && modelData.length > 0) {
@@ -147,6 +82,7 @@ export async function getReportData(
       count: modelData.length,
       tables: [...new Set(modelData.map((d) => d.model_table_name))],
     });
+    hasModelData = true;
 
     // Map model data to standard types
     for (const row of modelData) {
@@ -176,7 +112,7 @@ export async function getReportData(
           if (date < reportPeriod.start || date > reportPeriod.end) continue;
         }
 
-        transactions?.push({
+        transactions.push({
           id: data.id ?? `model_${Math.random().toString(36).substr(2, 9)}`,
           date,
           amount,
@@ -211,7 +147,7 @@ export async function getReportData(
             continue;
         }
 
-        crmDeals?.push({
+        crmDeals.push({
           id: data.id ?? `model_${Math.random().toString(36).substr(2, 9)}`,
           deal_name:
             data.deal_name ?? data.name ?? data.label ?? "Untitled Deal",
@@ -220,7 +156,6 @@ export async function getReportData(
           amount,
           phase: data.phase ?? data.stage ?? data.status ?? "Unknown",
           closing_date: closingDate,
-          product: data.product ?? data.service ?? "",
         });
       } else if (
         tableName.includes("budget") ||
@@ -236,7 +171,7 @@ export async function getReportData(
           if (month < reportPeriod.start || month > reportPeriod.end) continue;
         }
 
-        budgets?.push({
+        budgets.push({
           month,
           category: data.category ?? data.type ?? "General",
           value,
@@ -371,11 +306,12 @@ export async function getReportData(
   return {
     kpis: finalKPIs,
     budgetVariance: budgetSummary,
-    transactions: transactions || [],
-    crmDeals: crmDeals || [],
-    budgets: budgets || [],
+    transactions,
+    crmDeals,
+    budgets,
     businessType: (modelRow?.business_type ?? null) as string | null,
     selectedKpiIds: (modelRow?.selected_kpi_ids ?? []) as string[],
+    hasModelData,
   };
 }
 

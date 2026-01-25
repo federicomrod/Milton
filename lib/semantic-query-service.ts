@@ -89,62 +89,10 @@ export async function runSemanticQuery(
   const chartType = query.chartType || "bar";
 
   try {
-    if (query.metric === "revenue" || query.metric === "income") {
-      // Monthly revenue from transactions
-      const { data: rows, error } = await supabase
-        .from("transactions")
-        .select("amount, date")
-        .eq("user_id", userId);
-      if (error) throw error;
-
-      const monthly = rows.reduce((acc: Record<string, number>, row: any) => {
-        if (!row.date) return acc;
-        const month = new Date(row.date).toISOString().slice(0, 7);
-        acc[month] = (acc[month] || 0) + (Number(row.amount) || 0);
-        return acc;
-      }, {});
-
-      data = Object.entries(monthly).map(([label, value]) => ({
-        label,
-        value,
-      }));
-      text = `📊 Calculated monthly ${query.metric} based on transactions data.`;
-    } else if (query.metric === "expenses" || query.metric === "cost") {
-      // Monthly expenses from budgets
-      const { data: rows, error } = await supabase
-        .from("budgets")
-        .select("category, planned_amount, actual_amount, month")
-        .eq("user_id", userId);
-      if (error) throw error;
-
-      data = rows.map((r: any) => ({
-        label: r.month ?? "unknown",
-        value: Number(r.actual_amount || r.planned_amount || 0),
-      }));
-      text = "📊 Fetched monthly expenses from budget data.";
-    } else if (query.datasetType === "crm" || query.metric === "pipeline") {
-      // CRM pipeline value by month
-      const { data: deals, error } = await supabase
-        .from("crm_deals")
-        .select("value, close_date")
-        .eq("user_id", userId);
-      if (error) throw error;
-
-      const monthly = deals.reduce((acc: Record<string, number>, d: any) => {
-        if (!d.close_date) return acc;
-        const month = new Date(d.close_date).toISOString().slice(0, 7);
-        acc[month] = (acc[month] || 0) + (Number(d.value) || 0);
-        return acc;
-      }, {});
-
-      data = Object.entries(monthly).map(([label, value]) => ({
-        label,
-        value,
-      }));
-      text = "📊 Aggregated CRM pipeline value per month.";
-    } else {
-      text = "ℹ️ No specific metric found — returning empty dataset.";
-    }
+    // Data queries are now handled through the model_data system
+    text =
+      "ℹ️ Data queries are now handled through your data model. Upload data to your model tables first, then ask questions about your specific metrics and KPIs.";
+    data = [];
   } catch (err: any) {
     console.error("Semantic query error:", err);
     text = `❌ Failed to retrieve ${query.metric || query.datasetType || "data"} data.`;

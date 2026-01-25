@@ -19,56 +19,52 @@ export interface UploadedFile {
 }
 
 /**
- * Fetch uploaded file summaries from Supabase with accurate record counts
+ * Fetch model data table summaries via API endpoint for better performance
  */
 export const getUploadedFilesSummary = async (
   supabase: SupabaseClient,
   userId: string
 ): Promise<FileSummary[]> => {
-  const tables = [
-    { name: "transactions", label: "Bank Transactions" },
-    { name: "crm_deals", label: "CRM Data" },
-    { name: "budgets", label: "Budget Data" },
-    { name: "model_data", label: "Model Data" },
-  ];
+  try {
+    // Use the dedicated API endpoint for better performance
+    const response = await fetch("/api/data/sources", {
+      method: "GET",
+      credentials: "include", // Include cookies for authentication
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
 
-  const results = await Promise.all(
-    tables.map(async (t) => {
-      console.log(
-        `[getUploadedFilesSummary] Querying ${t.name} for user ${userId}`
-      );
-      const { count, error, data } = await supabase
-        .from(t.name)
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", userId);
+    if (!response.ok) {
+      console.warn("⚠️ Failed to fetch data sources via API:", response.status);
+      return [];
+    }
 
-      console.log(`[getUploadedFilesSummary] ${t.name} result:`, {
-        count,
-        error: error?.message,
-        hasData: !!data,
-      });
+    const data = await response.json();
 
-      if (error) {
-        console.warn(`⚠️ Could not count rows for ${t.name}:`, error.message);
-        return { ...t, count: 0, updated_at: null };
-      }
+    if (!data.dataSources || !Array.isArray(data.dataSources)) {
+      console.warn("⚠️ Invalid data sources response:", data);
+      return [];
+    }
 
-      const result = {
-        ...t,
-        count: count ?? 0,
-        updated_at: new Date().toISOString(),
-      };
-      console.log(`[getUploadedFilesSummary] ${t.name} final:`, result);
-      return result;
-    })
-  );
+    // Convert API response to FileSummary format
+    const results: FileSummary[] = data.dataSources.map((ds: any) => ({
+      name: ds.name,
+      label: ds.label,
+      count: ds.count,
+      updated_at: new Date().toISOString(),
+    }));
 
-  console.log(
-    "📊 Fetched file summaries:",
-    results.map((r) => `${r.name}=${r.count}`).join(", ")
-  );
+    console.log(
+      "📊 Fetched model table summaries:",
+      results.map((r) => `${r.name}=${r.count}`).join(", ")
+    );
 
-  return results;
+    return results;
+  } catch (error) {
+    console.error("Error fetching uploaded files summary:", error);
+    return [];
+  }
 };
 
 /**

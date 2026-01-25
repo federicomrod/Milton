@@ -41,11 +41,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import FileUpload from "@/components/dashboard/file-upload";
-import { FileManagement } from "@/components/dashboard/file-management";
 import ModelTableListView from "@/components/dashboard/ModelTableListView";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Separator } from "@/components/ui/separator";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Tooltip,
@@ -583,75 +579,27 @@ export default function DataManagementPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Tabs defaultValue="model-tables" className="w-full">
-                <TabsList>
-                  <TabsTrigger value="model-tables">Model Tables</TabsTrigger>
-                  <TabsTrigger value="legacy-upload">Legacy Upload</TabsTrigger>
-                </TabsList>
-                <TabsContent value="model-tables" className="mt-4">
-                  <ModelTableListView model={model} />
-                </TabsContent>
-                <TabsContent value="legacy-upload" className="mt-4">
-                  <FileUpload />
-                  <div className="mt-6">
-                    <FileManagement
-                      onReplaceClick={(type) => {
-                        // Map file type to dataset type and trigger upload
-                        const datasetType =
-                          type === "deals"
-                            ? "crm"
-                            : type === "budgets"
-                              ? "budget"
-                              : "bank";
-                        // Dispatch event that FileUpload can listen to
-                        window.dispatchEvent(
-                          new CustomEvent("file-upload:replace", {
-                            detail: { datasetType },
-                          })
-                        );
-                      }}
-                    />
-                  </div>
-                </TabsContent>
-              </Tabs>
+              <ModelTableListView model={model} />
             </CardContent>
           </Card>
         ) : (
-          <>
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Upload className="h-5 w-5" />
-                  Upload Data Files
-                </CardTitle>
-                <CardDescription>
-                  Upload CSV or Excel files to import your data
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <FileUpload />
-              </CardContent>
-            </Card>
-
-            {/* File Management Section */}
-            <FileManagement
-              onReplaceClick={(type) => {
-                // Map file type to dataset type and trigger upload
-                const datasetType =
-                  type === "deals"
-                    ? "crm"
-                    : type === "budgets"
-                      ? "budget"
-                      : "bank";
-                // Dispatch event that FileUpload can listen to
-                window.dispatchEvent(
-                  new CustomEvent("file-upload:replace", {
-                    detail: { datasetType },
-                  })
-                );
-              }}
-            />
-          </>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Upload className="h-5 w-5" />
+                Data Model Setup Required
+              </CardTitle>
+              <CardDescription>
+                Configure your business data model first to start uploading data
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Go to the Model Builder to define your data tables and
+                relationships before uploading data.
+              </p>
+            </CardContent>
+          </Card>
         )}
       </div>
 

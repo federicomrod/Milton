@@ -48,86 +48,35 @@ export async function GET(request: NextRequest) {
       .single();
     const companyId = company?.id ?? null;
 
-    let [
-      { count: bankCount, error: bankError },
-      { count: crmCount, error: crmError },
-      { count: budgetCount, error: budgetError },
-      { count: modelDataCount, error: modelDataError },
-    ] = await Promise.all([
-      supabase
-        .from("transactions")
-        .select("*", { count: "exact" })
-        .eq("user_id", userId),
-      supabase
-        .from("crm_deals")
-        .select("*", { count: "exact" })
-        .eq("user_id", userId),
-      supabase
-        .from("budgets")
-        .select("*", { count: "exact" })
-        .eq("user_id", userId),
-      companyId
-        ? supabase
-            .from("model_data")
-            .select("*", { count: "exact" })
-            .eq("company_id", companyId)
-        : Promise.resolve({ count: 0, error: null }),
-    ]);
+    // Only check model_data since legacy tables are replaced
+    const { count: modelDataCount, error: modelDataError } = companyId
+      ? await supabase
+          .from("model_data")
+          .select("*", { count: "exact" })
+          .eq("company_id", companyId)
+      : { count: 0, error: null };
 
-    if (bankError || crmError || budgetError || modelDataError) {
+    if (modelDataError) {
       return NextResponse.json({
         ok: false,
-        bank: false,
-        crm: false,
-        budget: false,
         hasModelData: false,
       });
     }
 
-    // DEV fallback: detect orphaned data and still report readiness
+    // DEV fallback: detect orphaned model_data
     if (process.env.NODE_ENV === "development") {
-      const [
-        { count: globalBankCount },
-        { count: globalCrmCount },
-        { count: globalBudgetCount },
-        { count: globalModelDataCount },
-      ] = await Promise.all([
-        supabase.from("transactions").select("*", { count: "exact" }),
-        supabase.from("crm_deals").select("*", { count: "exact" }),
-        supabase.from("budgets").select("*", { count: "exact" }),
-        supabase.from("model_data").select("*", { count: "exact" }),
-      ]);
-      if ((bankCount ?? 0) === 0 && (globalBankCount ?? 0) > 0) {
-        console.warn(
-          "⚠️ DEV fallback: found global transaction rows without user attribution"
-        );
-        bankCount = globalBankCount;
-      }
-      if ((crmCount ?? 0) === 0 && (globalCrmCount ?? 0) > 0) {
-        console.warn(
-          "⚠️ DEV fallback: found global CRM rows without user attribution"
-        );
-        crmCount = globalCrmCount;
-      }
-      if ((budgetCount ?? 0) === 0 && (globalBudgetCount ?? 0) > 0) {
-        console.warn(
-          "⚠️ DEV fallback: found global budget rows without user attribution"
-        );
-        budgetCount = globalBudgetCount;
-      }
+      const { count: globalModelDataCount } = await supabase
+        .from("model_data")
+        .select("*", { count: "exact" });
       if ((modelDataCount ?? 0) === 0 && (globalModelDataCount ?? 0) > 0) {
         console.warn(
-          "⚠️ DEV fallback: found global model data rows without user attribution"
+          "⚠️ DEV fallback: found global model data rows without company attribution"
         );
-        modelDataCount = globalModelDataCount;
       }
     }
 
     return NextResponse.json({
       ok: true,
-      bank: (bankCount ?? 0) > 0,
-      crm: (crmCount ?? 0) > 0,
-      budget: (budgetCount ?? 0) > 0,
       hasModelData: (modelDataCount ?? 0) > 0,
     });
   } catch (err: any) {

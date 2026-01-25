@@ -34,7 +34,6 @@ import {
   generateMonthOptions,
 } from "@/lib/utils/report-utils";
 import { DataAvailabilityAlert } from "./reports/DataAvailabilityAlert";
-import { ReportSectionSelector } from "./reports/ReportSectionSelector";
 import { ReportPreview } from "./reports/ReportPreview";
 
 export function ReportsTab() {
@@ -46,42 +45,9 @@ export function ReportsTab() {
     "idle" | "generating" | "success" | "error"
   >("idle");
   const [error, setError] = useState<string | null>(null);
-  const [expandedSections, setExpandedSections] = useState<
-    Record<string, boolean>
-  >({
-    overview: true,
-    financial: false,
-    sales: false,
-    cashflow: false,
-  });
 
   const handleConfigChange = (field: keyof ReportConfig, value: unknown) => {
     setConfig((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleCardSelectionChange = (
-    section:
-      | "overviewCards"
-      | "financialCards"
-      | "salesCards"
-      | "cashFlowCards",
-    card: string,
-    value: boolean
-  ) => {
-    setConfig((prev) => ({
-      ...prev,
-      [section]: {
-        ...prev[section],
-        [card]: value,
-      },
-    }));
-  };
-
-  const toggleSection = (section: string) => {
-    setExpandedSections((prev) => ({
-      ...prev,
-      [section]: !prev[section],
-    }));
   };
 
   const generatePDF = async () => {
@@ -259,14 +225,18 @@ export function ReportsTab() {
             </Select>
           </div>
 
-          {/* Section Selection with Card Details */}
-          <ReportSectionSelector
-            config={config}
-            expandedSections={expandedSections}
-            onConfigChange={handleConfigChange}
-            onCardSelectionChange={handleCardSelectionChange}
-            onToggleSection={toggleSection}
-          />
+          {/* Section Selection - Yet to be developed */}
+          <div className="border border-dashed border-gray-300 rounded-lg p-6 bg-gray-50/50">
+            <div className="text-center">
+              <div className="text-sm font-medium text-gray-900 mb-2">
+                Section Selection - Yet to be developed
+              </div>
+              <p className="text-sm text-gray-600">
+                Will offer selection of Key metrics, performance charts, KPIs,
+                Analysis handmade for the business model of the company
+              </p>
+            </div>
+          </div>
 
           {/* Status Messages */}
           {generationStatus === "generating" && (
@@ -308,32 +278,22 @@ export function ReportsTab() {
             </Alert>
           )}
 
-          {/* Generate Button */}
-          <Button
-            onClick={generatePDF}
-            disabled={
-              isGenerating ||
-              !dataStatus.hasAnyData ||
-              (!config.includeOverview &&
-                !config.includeFinancial &&
-                !config.includeSales &&
-                !config.includeCashFlow)
-            }
-            className="w-full"
-            size="lg"
-          >
-            {isGenerating ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Generating PDF...
-              </>
-            ) : (
-              <>
-                <FileDown className="mr-2 h-4 w-4" />
-                Generate PDF Report
-              </>
-            )}
-          </Button>
+          {/* Generate Button - Disabled until section selection is developed */}
+          <div className="space-y-2">
+            <Button
+              onClick={generatePDF}
+              disabled={true}
+              className="w-full"
+              size="lg"
+            >
+              <FileDown className="mr-2 h-4 w-4" />
+              Generate PDF Report (Coming Soon)
+            </Button>
+            <p className="text-xs text-center text-muted-foreground">
+              PDF generation will be enabled once section selection is fully
+              developed
+            </p>
+          </div>
         </CardContent>
       </Card>
 

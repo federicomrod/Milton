@@ -1,21 +1,25 @@
 // lib/hooks/useReportData.ts
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { getUploadedFilesSummary } from "@/lib/data-service";
+import { getUploadedFilesSummary, type FileSummary } from "@/lib/data-service";
 
 export interface DataStatus {
+  modelTables: FileSummary[];
   hasTransactions: boolean;
   hasCRMData: boolean;
   hasBudgetData: boolean;
+  hasMembers: boolean;
   hasAnyData: boolean;
 }
 
 export function useReportData() {
   const [isClient, setIsClient] = useState(false);
   const [dataStatus, setDataStatus] = useState<DataStatus>({
+    modelTables: [],
     hasTransactions: false,
     hasCRMData: false,
     hasBudgetData: false,
+    hasMembers: false,
     hasAnyData: false,
   });
 
@@ -29,9 +33,11 @@ export function useReportData() {
     // Early return if not on client side
     if (typeof window === "undefined") {
       return {
+        modelTables: [],
         hasTransactions: false,
         hasCRMData: false,
         hasBudgetData: false,
+        hasMembers: false,
         hasAnyData: false,
       };
     }
@@ -44,34 +50,63 @@ export function useReportData() {
 
       if (!user) {
         return {
+          modelTables: [],
           hasTransactions: false,
           hasCRMData: false,
           hasBudgetData: false,
+          hasMembers: false,
           hasAnyData: false,
         };
       }
 
-      const summaries = await getUploadedFilesSummary(supabase, user.id);
+      const modelTables = await getUploadedFilesSummary(supabase, user.id);
 
-      const hasTransactions =
-        (summaries.find((s) => s.name === "transactions")?.count ?? 0) > 0;
-      const hasCRMData =
-        (summaries.find((s) => s.name === "crm_deals")?.count ?? 0) > 0;
-      const hasBudgetData =
-        (summaries.find((s) => s.name === "budgets")?.count ?? 0) > 0;
+      // Check for different types of data based on table names
+      const hasTransactions = modelTables.some(
+        (t) =>
+          [
+            "transactions",
+            "payments",
+            "bank",
+            "revenue",
+            "expenses",
+            "payroll",
+          ].includes(t.name) && t.count > 0
+      );
+      const hasCRMData = modelTables.some(
+        (t) =>
+          [
+            "deals",
+            "crm",
+            "opportunities",
+            "leads",
+            "customers",
+            "sales",
+          ].includes(t.name) && t.count > 0
+      );
+      const hasBudgetData = modelTables.some(
+        (t) => ["budgets", "budget", "forecast"].includes(t.name) && t.count > 0
+      );
+      const hasMembers = modelTables.some(
+        (t) => ["members", "customers"].includes(t.name) && t.count > 0
+      );
 
       return {
+        modelTables,
         hasTransactions,
         hasCRMData,
         hasBudgetData,
-        hasAnyData: hasTransactions || hasCRMData || hasBudgetData,
+        hasMembers,
+        hasAnyData: modelTables.some((t) => t.count > 0),
       };
     } catch (error) {
       console.error("Error checking data availability:", error);
       return {
+        modelTables: [],
         hasTransactions: false,
         hasCRMData: false,
         hasBudgetData: false,
+        hasMembers: false,
         hasAnyData: false,
       };
     }

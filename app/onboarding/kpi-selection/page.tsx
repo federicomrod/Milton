@@ -60,14 +60,14 @@ export default function OnboardingKpisPage() {
       </div>
 
       <div className="rounded-2xl border bg-background p-4 md:p-6">
-        <KpiSelectionStep redirectTo="/onboarding/data-sources" />
+        <KpiSelectionStep redirectTo="/dashboard" />
       </div>
 
       <div className="flex justify-between">
         <Button
           type="button"
           variant="ghost"
-          onClick={() => router.push("/onboarding/chat")}
+          onClick={() => router.push("/onboarding/upload")}
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back

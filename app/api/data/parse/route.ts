@@ -239,6 +239,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       headers,
       sampleData,
+      rows: jsonData,
       totalRows: jsonData.length,
       fileName: file.name,
       sheets, // Include sheets array for Excel files

@@ -38,16 +38,18 @@ import {
   AlertCircle,
   Trash2,
   Upload,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
-import FileUpload from "@/components/dashboard/file-upload";
-import { FileManagement } from "@/components/dashboard/file-management";
-import { Separator } from "@/components/ui/separator";
+import ModelTableListView from "@/components/dashboard/ModelTableListView";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { createClient } from "@/lib/supabase/client";
+import { ModelProposal } from "@/lib/model/transform";
 import { useRef } from "react";
 
 const CATEGORY_ICONS: Record<DataSourceCategory, React.ReactNode> = {
@@ -76,9 +78,46 @@ export default function DataManagementPage() {
     type: "success" | "error";
     text: string;
   } | null>(null);
+  const [isDeclaredDataSourcesExpanded, setIsDeclaredDataSourcesExpanded] =
+    useState(false);
+  const [model, setModel] = useState<ModelProposal | null>(null);
 
   useEffect(() => {
     loadDataSources();
+  }, []);
+
+  // Load model from business_models
+  useEffect(() => {
+    const loadModel = async () => {
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data: company } = await supabase
+          .from("companies")
+          .select("id")
+          .eq("created_by", user.id)
+          .single();
+
+        if (company) {
+          const { data } = await supabase
+            .from("business_models")
+            .select("canonical_model")
+            .eq("company_id", company.id)
+            .single();
+
+          if (data?.canonical_model) {
+            setModel(data.canonical_model as ModelProposal);
+          }
+        }
+      } catch (error) {
+        console.error("[DataManagement] Error loading model:", error);
+      }
+    };
+    loadModel();
   }, []);
 
   const loadDataSources = async () => {
@@ -263,57 +302,108 @@ export default function DataManagementPage() {
       <div className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Database className="h-5 w-5" />
-              Declared Data Sources
-            </CardTitle>
-            <CardDescription>
-              Select which tools or systems you use to track your data. This
-              helps us understand your data structure.
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                <CardTitle>Declared Data Sources</CardTitle>
+              </div>
+              <button
+                onClick={() =>
+                  setIsDeclaredDataSourcesExpanded(
+                    !isDeclaredDataSourcesExpanded
+                  )
+                }
+                className="p-1 hover:bg-muted rounded-md transition-colors"
+                aria-label={
+                  isDeclaredDataSourcesExpanded ? "Collapse" : "Expand"
+                }
+              >
+                {isDeclaredDataSourcesExpanded ? (
+                  <ChevronUp className="h-5 w-5" />
+                ) : (
+                  <ChevronDown className="h-5 w-5" />
+                )}
+              </button>
+            </div>
+            {isDeclaredDataSourcesExpanded && (
+              <CardDescription>
+                Select which tools or systems you use to track your data. This
+                helps us understand your data structure.
+              </CardDescription>
+            )}
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
-              {Object.entries(toolsByCategory).map(([category, tools]) => (
-                <div key={category} className="space-y-3">
-                  <div className="flex items-center gap-2 font-medium">
-                    {CATEGORY_ICONS[category as DataSourceCategory]}
-                    {CATEGORY_LABELS[category as DataSourceCategory]}
-                  </div>
-                  <div className="space-y-2 pl-6">
-                    {tools.map((tool) => {
-                      const key = `${tool.category}:${tool.id}`;
-                      const isSelected = selectedTools.has(key);
-                      const isDisabled = tool.id !== "sheets_excel";
+          {isDeclaredDataSourcesExpanded && (
+            <CardContent className="space-y-6">
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                {Object.entries(toolsByCategory).map(([category, tools]) => (
+                  <div key={category} className="space-y-3">
+                    <div className="flex items-center gap-2 font-medium">
+                      {CATEGORY_ICONS[category as DataSourceCategory]}
+                      {CATEGORY_LABELS[category as DataSourceCategory]}
+                    </div>
+                    <div className="space-y-2 pl-6">
+                      {tools.map((tool) => {
+                        const key = `${tool.category}:${tool.id}`;
+                        const isSelected = selectedTools.has(key);
+                        const isDisabled = tool.id !== "sheets_excel";
 
-                      if (isDisabled) {
+                        if (isDisabled) {
+                          return (
+                            <div
+                              key={tool.id}
+                              className="flex items-center space-x-2"
+                            >
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span>
+                                    <Checkbox
+                                      id={key}
+                                      checked={isSelected}
+                                      disabled={isDisabled}
+                                      onCheckedChange={() =>
+                                        toggleTool(tool.category, tool.id)
+                                      }
+                                    />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" align="start">
+                                  <p>
+                                    We don&apos;t support this integration yet
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                              <Label
+                                htmlFor={key}
+                                className="cursor-not-allowed opacity-50 font-normal flex-1"
+                              >
+                                {tool.name}
+                              </Label>
+                              {tool.hasIntegration && (
+                                <Badge variant="outline" className="text-xs">
+                                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                                  Integration Available
+                                </Badge>
+                              )}
+                            </div>
+                          );
+                        }
+
                         return (
                           <div
                             key={tool.id}
                             className="flex items-center space-x-2"
                           >
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>
-                                  <Checkbox
-                                    id={key}
-                                    checked={isSelected}
-                                    disabled={isDisabled}
-                                    onCheckedChange={() =>
-                                      toggleTool(tool.category, tool.id)
-                                    }
-                                  />
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" align="start">
-                                <p>
-                                  We don&apos;t support this integration yet
-                                </p>
-                              </TooltipContent>
-                            </Tooltip>
+                            <Checkbox
+                              id={key}
+                              checked={isSelected}
+                              disabled={isDisabled}
+                              onCheckedChange={() =>
+                                toggleTool(tool.category, tool.id)
+                              }
+                            />
                             <Label
                               htmlFor={key}
-                              className="cursor-not-allowed opacity-50 font-normal flex-1"
+                              className="cursor-pointer font-normal flex-1"
                             >
                               {tool.name}
                             </Label>
@@ -325,142 +415,114 @@ export default function DataManagementPage() {
                             )}
                           </div>
                         );
-                      }
-
-                      return (
-                        <div
-                          key={tool.id}
-                          className="flex items-center space-x-2"
+                      })}
+                      <div className="flex items-center space-x-2 cursor-not-allowed opacity-50">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span>
+                              <Checkbox
+                                id={`${category}:other`}
+                                checked={selectedTools.has(`${category}:other`)}
+                                disabled
+                                onCheckedChange={() =>
+                                  toggleTool(
+                                    category as DataSourceCategory,
+                                    "other"
+                                  )
+                                }
+                              />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" align="start">
+                            <p>We don&apos;t support this integration yet</p>
+                          </TooltipContent>
+                        </Tooltip>
+                        <Label
+                          htmlFor={`${category}:other`}
+                          className="cursor-not-allowed font-normal"
                         >
-                          <Checkbox
-                            id={key}
-                            checked={isSelected}
-                            disabled={isDisabled}
-                            onCheckedChange={() =>
-                              toggleTool(tool.category, tool.id)
-                            }
-                          />
-                          <Label
-                            htmlFor={key}
-                            className="cursor-pointer font-normal flex-1"
-                          >
-                            {tool.name}
-                          </Label>
-                          {tool.hasIntegration && (
-                            <Badge variant="outline" className="text-xs">
-                              <CheckCircle2 className="h-3 w-3 mr-1" />
-                              Integration Available
-                            </Badge>
-                          )}
-                        </div>
-                      );
-                    })}
-                    <div className="flex items-center space-x-2 cursor-not-allowed opacity-50">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span>
-                            <Checkbox
-                              id={`${category}:other`}
-                              checked={selectedTools.has(`${category}:other`)}
-                              disabled
-                              onCheckedChange={() =>
-                                toggleTool(
-                                  category as DataSourceCategory,
-                                  "other"
-                                )
-                              }
-                            />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" align="start">
-                          <p>We don&apos;t support this integration yet</p>
-                        </TooltipContent>
-                      </Tooltip>
-                      <Label
-                        htmlFor={`${category}:other`}
-                        className="cursor-not-allowed font-normal"
-                      >
-                        Other
-                      </Label>
+                          Other
+                        </Label>
+                      </div>
+                      {selectedTools.has(`${category}:other`) && (
+                        <Input
+                          placeholder="Please specify..."
+                          value={otherTexts[category] || ""}
+                          onChange={(e) =>
+                            setOtherTexts((prev) => ({
+                              ...prev,
+                              [category]: e.target.value,
+                            }))
+                          }
+                          className="ml-2 max-w-xs"
+                          disabled
+                        />
+                      )}
                     </div>
-                    {selectedTools.has(`${category}:other`) && (
-                      <Input
-                        placeholder="Please specify..."
-                        value={otherTexts[category] || ""}
-                        onChange={(e) =>
-                          setOtherTexts((prev) => ({
-                            ...prev,
-                            [category]: e.target.value,
-                          }))
-                        }
-                        className="ml-2 max-w-xs"
-                        disabled
-                      />
+                  </div>
+                ))}
+              </div>
+
+              {selectedTools.size > 0 && (
+                <div
+                  className={
+                    hasIntegrations
+                      ? "bg-blue-50 border border-blue-200 rounded-lg p-4"
+                      : "bg-amber-50 border border-amber-200 rounded-lg p-4"
+                  }
+                >
+                  <div className="flex items-start gap-3">
+                    {hasIntegrations ? (
+                      <>
+                        <CheckCircle2 className="h-5 w-5 text-blue-600 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="font-medium text-blue-900">
+                            Integrations Available
+                          </p>
+                          <p className="text-sm text-blue-700 mt-1">
+                            Some of your selected tools have available
+                            integrations. Integrations will be available in a
+                            future update.
+                          </p>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="font-medium text-amber-900">
+                            Manual Upload Required
+                          </p>
+                          <p className="text-sm text-amber-700 mt-1">
+                            No integrations are currently available for your
+                            selected tools. You can upload files manually in the
+                            Data Model Builder.
+                          </p>
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
-              ))}
-            </div>
+              )}
 
-            {selectedTools.size > 0 && (
-              <div
-                className={
-                  hasIntegrations
-                    ? "bg-blue-50 border border-blue-200 rounded-lg p-4"
-                    : "bg-amber-50 border border-amber-200 rounded-lg p-4"
-                }
-              >
-                <div className="flex items-start gap-3">
-                  {hasIntegrations ? (
-                    <>
-                      <CheckCircle2 className="h-5 w-5 text-blue-600 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="font-medium text-blue-900">
-                          Integrations Available
-                        </p>
-                        <p className="text-sm text-blue-700 mt-1">
-                          Some of your selected tools have available
-                          integrations. Integrations will be available in a
-                          future update.
-                        </p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="font-medium text-amber-900">
-                          Manual Upload Required
-                        </p>
-                        <p className="text-sm text-amber-700 mt-1">
-                          No integrations are currently available for your
-                          selected tools. You can upload files manually in the
-                          Data Model Builder.
-                        </p>
-                      </div>
-                    </>
-                  )}
+              {message && (
+                <div
+                  className={`p-3 rounded-lg ${message.type === "success" ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"}`}
+                >
+                  {message.text}
                 </div>
-              </div>
-            )}
+              )}
 
-            {message && (
-              <div
-                className={`p-3 rounded-lg ${message.type === "success" ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"}`}
+              <Button
+                onClick={handleSave}
+                disabled={saving || !hasChanges}
+                className="w-full"
+                size="lg"
               >
-                {message.text}
-              </div>
-            )}
-
-            <Button
-              onClick={handleSave}
-              disabled={saving || !hasChanges}
-              className="w-full"
-              size="lg"
-            >
-              {saving ? "Saving..." : "Save Data Sources"}
-            </Button>
-          </CardContent>
+                {saving ? "Saving..." : "Save Data Sources"}
+              </Button>
+            </CardContent>
+          )}
         </Card>
 
         {/* Current Sources List */}
@@ -505,35 +567,31 @@ export default function DataManagementPage() {
         )}
 
         {/* File Upload Section */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="h-5 w-5" />
-              Upload Data Files
-            </CardTitle>
-            <CardDescription>
-              Upload CSV or Excel files to import your data
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FileUpload />
-          </CardContent>
-        </Card>
-
-        {/* File Management Section */}
-        <FileManagement
-          onReplaceClick={(type) => {
-            // Map file type to dataset type and trigger upload
-            const datasetType =
-              type === "deals" ? "crm" : type === "budgets" ? "budget" : "bank";
-            // Dispatch event that FileUpload can listen to
-            window.dispatchEvent(
-              new CustomEvent("file-upload:replace", {
-                detail: { datasetType },
-              })
-            );
-          }}
-        />
+        {model?.recommendedTables && model.recommendedTables.length > 0 ? (
+          <Card>
+            <CardContent>
+              <ModelTableListView model={model} />
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Upload className="h-5 w-5" />
+                Data Model Setup Required
+              </CardTitle>
+              <CardDescription>
+                Configure your business data model first to start uploading data
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Go to the Model Builder to define your data tables and
+                relationships before uploading data.
+              </p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <ConfirmDialog

@@ -178,31 +178,11 @@ export function MetricSelector({
     );
   };
 
-  const handleSave = async () => {
-    // Update local state
+  const handleSave = () => {
+    // Key metrics (mrr, arr, cashBalance, etc.) are local UI preferences only.
+    // Do NOT write to kpi-preferences: that endpoint persists selected_kpi_ids
+    // (UUIDs from the kpis table), not these metric slugs.
     onMetricsChange(tempSelection);
-
-    // Save to API
-    try {
-      const res = await fetch("/api/onboarding/kpi-preferences", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          selectedKpiIds: tempSelection,
-        }),
-      });
-
-      if (!res.ok) {
-        console.error("[MetricSelector] Failed to save preferences");
-        // Still update local state even if API save fails
-      }
-    } catch (err) {
-      console.error("[MetricSelector] Error saving preferences:", err);
-      // Still update local state even if API save fails
-    }
-
     setOpen(false);
   };
 

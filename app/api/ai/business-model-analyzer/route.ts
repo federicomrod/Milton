@@ -185,10 +185,96 @@ export async function POST(req: NextRequest) {
 
     let systemPrompt: string;
     let userPrompt: string;
+    let parsed: AIOnboardingResponse | AIRefinementResponse | null = null;
 
     if (isOnboardingMode) {
-      systemPrompt = buildOnboardingSystemPrompt();
-      userPrompt = buildOnboardingUserPrompt(body.answers!);
+      // In onboarding mode, use template data instead of AI
+      const businessType = body.answers!.businessType;
+
+      if (!businessType) {
+        console.error(
+          "[business-model-analyzer] No businessType provided in answers:",
+          body.answers
+        );
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Missing businessType in answers. Please select a business type.",
+          },
+          { status: 400 }
+        );
+      }
+
+      console.log(
+        "[business-model-analyzer] Using template for business type:",
+        businessType
+      );
+
+      // Fetch the business model template
+      const { data: template, error: templateError } = await supabase
+        .from("business_model_templates")
+        .select("required_tables_data, required_relationships")
+        .eq("key", businessType)
+        .single();
+
+      if (templateError || !template) {
+        console.error(
+          "[business-model-analyzer] Template fetch error:",
+          templateError
+        );
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Template not found for business type: ${businessType}`,
+          },
+          { status: 404 }
+        );
+      }
+
+      // Transform template data to ModelProposal format
+      // Template structure: { table_name, fields: string[], required_fields: string[], description }
+      const recommendedTables = (template.required_tables_data || []).map(
+        (table: any) => {
+          const tableName = table.name || table.table_name;
+          const fieldNames = table.fields || [];
+          const requiredFields = table.required_fields || [];
+
+          return {
+            name: tableName,
+            fields: fieldNames.map((fieldName: string) => {
+              // Check if field is required (in required_fields array)
+              const isRequired = requiredFields.includes(fieldName);
+
+              return {
+                name: fieldName,
+                nullable: !isRequired,
+              };
+            }),
+          };
+        }
+      );
+
+      const relationships = (template.required_relationships || []).map(
+        (rel: any) => ({
+          from: rel.from || `${rel.from_table}.${rel.from_field}`,
+          to: rel.to || `${rel.to_table}.${rel.to_field}`,
+          type: rel.type,
+        })
+      );
+
+      parsed = {
+        dataModel: {
+          businessType,
+          recommendedTables,
+          relationships,
+        },
+      };
+
+      console.log("[business-model-analyzer] Template model generated:", {
+        tables: recommendedTables.length,
+        relationships: relationships.length,
+      });
     } else {
       if (!body.businessType) {
         return NextResponse.json(
@@ -202,48 +288,47 @@ export async function POST(req: NextRequest) {
         body.datasets || [],
         body.currentModel
       );
-    }
 
-    console.log("[business-model-analyzer] Calling OpenAI...");
+      console.log("[business-model-analyzer] Calling OpenAI...");
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    });
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      });
 
-    const raw = completion.choices?.[0]?.message?.content ?? "";
-    console.log("[business-model-analyzer] Response length:", raw.length);
+      const raw = completion.choices?.[0]?.message?.content ?? "";
+      console.log("[business-model-analyzer] Response length:", raw.length);
 
-    // Helper function to strip JSON comments
-    const stripJsonComments = (jsonString: string): string => {
-      // Remove single-line comments (// ...)
-      let cleaned = jsonString.replace(/\/\/.*$/gm, "");
-      // Remove multi-line comments (/* ... */)
-      cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, "");
-      return cleaned;
-    };
+      // Helper function to strip JSON comments
+      const stripJsonComments = (jsonString: string): string => {
+        // Remove single-line comments (// ...)
+        let cleaned = jsonString.replace(/\/\/.*$/gm, "");
+        // Remove multi-line comments (/* ... */)
+        cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, "");
+        return cleaned;
+      };
 
-    // Parse response
-    let parsed: AIOnboardingResponse | AIRefinementResponse | null = null;
-    try {
-      const cleaned = stripJsonComments(raw)
-        .trim()
-        .replace(/^```json\s*/i, "")
-        .replace(/^```\s*/i, "")
-        .replace(/```$/i, "")
-        .trim();
-      parsed = JSON.parse(cleaned);
-    } catch (err) {
-      console.error("[business-model-analyzer] JSON parse failed:", err);
-      console.error("[business-model-analyzer] Raw:", raw);
-      return NextResponse.json(
-        { success: false, error: "Failed to parse AI response" },
-        { status: 500 }
-      );
+      // Parse response
+      try {
+        const cleaned = stripJsonComments(raw)
+          .trim()
+          .replace(/^```json\s*/i, "")
+          .replace(/^```\s*/i, "")
+          .replace(/```$/i, "")
+          .trim();
+        parsed = JSON.parse(cleaned);
+      } catch (err) {
+        console.error("[business-model-analyzer] JSON parse failed:", err);
+        console.error("[business-model-analyzer] Raw:", raw);
+        return NextResponse.json(
+          { success: false, error: "Failed to parse AI response" },
+          { status: 500 }
+        );
+      }
     }
 
     if (!parsed?.dataModel?.recommendedTables) {
@@ -294,14 +379,15 @@ export async function POST(req: NextRequest) {
           ? { sources: String(dataSources) }
           : {};
 
-        // Save business model with data_readiness (systems) and data_sources (dataSources) in the same upsert
+        // Save business model with canonical_model, data_readiness (systems) and data_sources (dataSources) in the same upsert
         const { error: saveError } = await supabase
           .from("business_models")
           .upsert(
             {
               company_id: company.id,
               business_type: businessType,
-              model_json: parsed.dataModel,
+              canonical_model: parsed.dataModel,
+              model_json: parsed.dataModel, // Keep for backwards compatibility (deprecated)
               onboarding_answers: body.answers,
               data_readiness: dataReadiness,
               data_sources: dataSourcesObj,

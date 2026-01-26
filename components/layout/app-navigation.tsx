@@ -12,6 +12,7 @@ import {
   User,
   Settings,
   Database,
+  Network,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -68,8 +69,8 @@ export function AppNavigation() {
               </h1>
             </Link>
 
-            {/* Main Navigation - only show if authenticated */}
-            {isAuthenticated && (
+            {/* Main Navigation - only show if authenticated and not on root */}
+            {isAuthenticated && pathname !== "/" && (
               <nav className="hidden md:flex items-center gap-1">
                 <Link href="/dashboard">
                   <Button
@@ -124,39 +125,60 @@ export function AppNavigation() {
                     Data
                   </Button>
                 </Link>
+                <Link href="/dashboard/model">
+                  <Button
+                    variant={isActive("/dashboard/model") ? "default" : "ghost"}
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <Network className="h-4 w-4" />
+                    Model
+                  </Button>
+                </Link>
               </nav>
             )}
           </div>
 
           <div className="flex items-center gap-2">
             {isAuthenticated ? (
-              <>
-                <Link href="/dashboard/account">
-                  <Button
-                    variant={
-                      isActive("/dashboard/account") ? "default" : "ghost"
-                    }
-                    size="sm"
-                    className="gap-2"
-                  >
-                    <User className="h-4 w-4" />
-                    Account
+              pathname === "/" ? (
+                // On root page, show only "Go to App" button
+                <Link href="/dashboard">
+                  <Button size="sm" variant="default" className="gap-2">
+                    <LayoutDashboard className="h-4 w-4" />
+                    Go to App
                   </Button>
                 </Link>
-                <Link href="/dashboard/settings">
-                  <Button
-                    variant={
-                      isActive("/dashboard/settings") ? "default" : "ghost"
-                    }
-                    size="sm"
-                    className="gap-2"
-                  >
-                    <Settings className="h-4 w-4" />
-                    Settings
-                  </Button>
-                </Link>
-                <LogoutButton />
-              </>
+              ) : (
+                // On other pages, show Account, Settings, Logout
+                <>
+                  <Link href="/dashboard/account">
+                    <Button
+                      variant={
+                        isActive("/dashboard/account") ? "default" : "ghost"
+                      }
+                      size="sm"
+                      className="gap-2"
+                    >
+                      <User className="h-4 w-4" />
+                      Account
+                    </Button>
+                  </Link>
+                  <Link href="/dashboard/settings">
+                    <Button
+                      variant={
+                        isActive("/dashboard/settings") ? "default" : "ghost"
+                      }
+                      size="sm"
+                      className="gap-2"
+                    >
+                      <Settings className="h-4 w-4" />
+                      Settings
+                    </Button>
+                  </Link>
+                  <LogoutButton />
+                </>
+              )
             ) : (
               <>
                 <Link href="/auth/login">

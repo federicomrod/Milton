@@ -103,7 +103,8 @@ export function KpisGrid({ selectedKpis }: KpisGridProps) {
 
   useEffect(() => {
     if (!kpiIdKey) {
-      setSeriesByKpi({});
+      // Use setTimeout to avoid synchronous setState in effect
+      setTimeout(() => setSeriesByKpi({}), 0);
       return;
     }
     fetch(`/api/kpis/series?kpiIds=${encodeURIComponent(kpiIdKey)}`, {

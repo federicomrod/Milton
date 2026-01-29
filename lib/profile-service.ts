@@ -131,10 +131,20 @@ export async function updateCompany(
   if (userError) console.error("Auth error (updateCompany):", userError);
   if (!user) throw new Error("User not authenticated");
 
+  // Filter out fields that don't exist in the companies table
+  const {
+    industry,
+    id,
+    created_by,
+    created_at,
+    updated_at,
+    ...validCompanyData
+  } = companyData as any;
+
   const { data: company, error: companyError } = await supabase
     .from("companies")
     .update({
-      ...companyData,
+      ...validCompanyData,
       updated_at: new Date().toISOString(),
     })
     .eq("created_by", user.id)

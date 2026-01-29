@@ -27,6 +27,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { getReportData } from "@/lib/report-data-service";
 import { useBusinessContext } from "@/lib/business-context";
+import { useUserPreferences } from "@/lib/context/UserPreferencesContext";
 
 interface Insight {
   id?: string;
@@ -48,6 +49,7 @@ export function DashboardInsights() {
   const [showRefreshDialog, setShowRefreshDialog] = useState(false);
   const [isCardCollapsed, setIsCardCollapsed] = useState(false);
   const { businessType } = useBusinessContext();
+  const { prefs } = useUserPreferences();
 
   // Load insights from database
   const loadInsightsFromDB = async () => {
@@ -330,7 +332,7 @@ export function DashboardInsights() {
           0
         );
 
-      // Prepare metrics for AI
+      // Prepare metrics for AI - focus on universal financial metrics and KPIs only
       const metrics = {
         mrr: Math.round(mrr),
         arr: Math.round(mrr * 12),
@@ -338,8 +340,6 @@ export function DashboardInsights() {
         burnRate: Math.round(Math.max(0, netBurn)),
         runway: runway,
         contractedRevenue: Math.round(contractedRevenue),
-        openDeals: crmDeals.filter((d) => d.phase !== "Closed Won").length,
-        totalDeals: crmDeals.length,
         revenue: reportData.kpis.revenue || 0,
         expenses: reportData.kpis.expenses || 0,
         netIncome: reportData.kpis.netIncome || 0,
@@ -377,6 +377,8 @@ export function DashboardInsights() {
           metrics,
           businessType: businessType || reportData.businessType,
           kpis: reportData.kpis,
+          currency: prefs.currency || "EUR",
+          numberFormat: prefs.number_format || "1,000.00",
         }),
       });
 

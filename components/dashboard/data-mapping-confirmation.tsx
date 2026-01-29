@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -298,11 +298,7 @@ export default function EnhancedDataMappingUI({
     setFieldToColumn((prev) => ({ ...prev, [field]: column }));
   };
 
-  useEffect(() => {
-    validateMappings();
-  }, [mappings, fieldToColumn, isModelTableMode]);
-
-  const validateMappings = () => {
+  const validateMappings = useCallback(() => {
     const errors: string[] = [];
     if (isModelTableMode) {
       const requiredFields = standardFields.filter((f) => f.required);
@@ -342,7 +338,15 @@ export default function EnhancedDataMappingUI({
         errors.push(`Duplicate mappings found: ${dups.join(", ")}`);
     }
     setValidationErrors(errors);
-  };
+  }, [mappings, fieldToColumn, isModelTableMode, standardFields, fileType]);
+
+  useEffect(() => {
+    // Use setTimeout to avoid synchronous setState in effect
+    const timer = setTimeout(() => {
+      validateMappings();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [validateMappings]);
 
   const updateMapping = (originalColumn: string, standardField: string) => {
     setMappings((prev) =>

@@ -20,16 +20,19 @@ export function PipelineSummaryCards({
   currency,
   numberFormat,
 }: PipelineSummaryCardsProps) {
+  // Pipeline value should only include ACTIVE deals (exclude closed won and closed lost)
   const totalPipelineValue = allDeals
     .filter((d) => {
       const normalizedStage = normalizeStage(d.stage || "");
-      return normalizedStage !== "No Deal";
+      // Only include active pipeline stages, exclude closed deals
+      return normalizedStage !== "No Deal" && normalizedStage !== "Deal";
     })
     .reduce((sum, d) => sum + Number(d.amount || 0), 0);
 
   const activeDeals = allDeals.filter((d) => {
     const normalizedStage = normalizeStage(d.stage || "");
-    return normalizedStage !== "No Deal";
+    // Only count active deals, exclude closed deals
+    return normalizedStage !== "No Deal" && normalizedStage !== "Deal";
   }).length;
 
   const closedWon = allDeals.filter((d) => {

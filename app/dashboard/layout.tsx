@@ -179,7 +179,11 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   useEffect(() => {
-    refreshDataStatus();
+    // Use setTimeout to avoid synchronous setState in effect
+    const timer = setTimeout(() => {
+      refreshDataStatus();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [refreshDataStatus]);
 
   // Listen for custom event to force-refresh data status when uploads complete

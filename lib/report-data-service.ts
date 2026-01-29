@@ -1,6 +1,6 @@
 // lib/report-data-service.ts
 import { SupabaseClient } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/client";
+import { normalizeStage } from "@/lib/utils/pipeline-utils";
 import type {
   TransactionData,
   BudgetData,
@@ -57,21 +57,42 @@ export async function getReportData(
     .eq("created_by", userId)
     .single();
 
-  // Legacy table data - now empty since replaced with model_data
+  // Initialize empty arrays (legacy tables removed, only using model_data)
   const transactions: TransactionData[] = [];
   const crmDeals: CrmDealData[] = [];
   const budgets: BudgetData[] = [];
 
-  // Step 4: Fetch model_data (company-scoped; no user_id)
-  let modelData: { model_table_name: string; data: unknown }[] | null = null;
+  // Fetch model_data (company-scoped; no user_id) with pagination
+  let modelData: { model_table_name: string; data: unknown }[] = [];
   let modelError: { message: string } | null = null;
   if (company?.id) {
-    const result = await supabase
-      .from("model_data")
-      .select("model_table_name, data")
-      .eq("company_id", company.id);
-    modelData = result.data;
-    modelError = result.error;
+    // Fetch with pagination to get all records (Supabase default limit is 1000)
+    let from = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const result = await supabase
+        .from("model_data")
+        .select("model_table_name, data")
+        .eq("company_id", company.id)
+        .range(from, from + pageSize - 1)
+        .order("id", { ascending: true });
+
+      if (result.error) {
+        modelError = result.error;
+        hasMore = false;
+        break;
+      }
+
+      if (result.data && result.data.length > 0) {
+        modelData = [...modelData, ...result.data];
+        from += pageSize;
+        hasMore = result.data.length === pageSize; // If we got a full page, there might be more
+      } else {
+        hasMore = false;
+      }
+    }
   }
 
   let hasModelData = false;
@@ -255,17 +276,23 @@ export async function getReportData(
     })),
   });
 
-  const pipelineValue = crmDealsWithNumericAmounts.reduce(
-    (sum, d) => sum + d.amount,
-    0
-  );
-  const openDeals = crmDealsWithNumericAmounts.filter(
-    (d) =>
-      d.phase !== "Deal" &&
-      d.phase !== "No Deal" &&
-      d.phase !== "Closed Won" &&
-      d.phase !== "Closed Lost"
-  ).length;
+  // Pipeline value should only include ACTIVE deals (exclude closed won and closed lost)
+  // Use normalizeStage to ensure consistency with PipelineSummaryCards component
+  const pipelineValue = crmDealsWithNumericAmounts
+    .filter((d) => {
+      // Check both phase and stage fields, normalize to standard display names
+      const normalizedStage = normalizeStage(d.stage || d.phase || "");
+      // Only include active pipeline stages, exclude closed deals
+      return normalizedStage !== "Deal" && normalizedStage !== "No Deal";
+    })
+    .reduce((sum, d) => sum + d.amount, 0);
+
+  const openDeals = crmDealsWithNumericAmounts.filter((d) => {
+    // Check both phase and stage fields, normalize to standard display names
+    const normalizedStage = normalizeStage(d.stage || d.phase || "");
+    // Only count active deals, exclude closed deals
+    return normalizedStage !== "Deal" && normalizedStage !== "No Deal";
+  }).length;
 
   console.log("[getReportData] CRM metrics:", {
     pipelineValue,

@@ -32,13 +32,31 @@ export default function DashboardPage() {
   const { businessType } = useBusinessContext();
   // Core KPIs that always show
   const coreKpiIds = ["mrr", "arr", "cashBalance", "burnRate"];
-  const [selectedMetrics, setSelectedMetrics] = useState<string[]>([
+  const defaultMetrics = [
     ...coreKpiIds,
     "contracted",
     "ltmRevenue",
     "netMargin",
     "customers",
-  ]);
+  ];
+
+  // Load selected metrics from localStorage on mount
+  const [selectedMetrics, setSelectedMetrics] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("dashboard-selected-metrics");
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          // Ensure core metrics are always included
+          const withCore = [...new Set([...coreKpiIds, ...parsed])];
+          return withCore;
+        } catch (e) {
+          console.error("Error parsing saved metrics:", e);
+        }
+      }
+    }
+    return defaultMetrics;
+  });
   const [dataStatus, setDataStatus] = useState<DataStatus>(null);
 
   // KPI state
@@ -232,7 +250,16 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2">
                 <MetricSelector
                   selectedMetrics={selectedMetrics}
-                  onMetricsChange={(metrics) => setSelectedMetrics(metrics)}
+                  onMetricsChange={(metrics) => {
+                    setSelectedMetrics(metrics);
+                    // Persist to localStorage
+                    if (typeof window !== "undefined") {
+                      localStorage.setItem(
+                        "dashboard-selected-metrics",
+                        JSON.stringify(metrics)
+                      );
+                    }
+                  }}
                   businessType={businessType}
                 />
               </div>

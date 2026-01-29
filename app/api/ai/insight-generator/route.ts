@@ -14,7 +14,8 @@ interface Insight {
  */
 export async function POST(req: Request) {
   try {
-    const { metrics, businessType, kpis } = await req.json();
+    const { metrics, businessType, kpis, currency, numberFormat } =
+      await req.json();
 
     if (!metrics && !kpis) {
       return NextResponse.json(
@@ -23,22 +24,65 @@ export async function POST(req: Request) {
       );
     }
 
+    // Get currency symbol
+    const currencyCode = currency || "EUR";
+    const currencySymbol =
+      currencyCode === "EUR"
+        ? "€"
+        : currencyCode === "USD"
+          ? "$"
+          : currencyCode === "GBP"
+            ? "£"
+            : currencyCode === "CHF"
+              ? "CHF"
+              : "€";
+
+    // Determine number format based on preference
+    const numFormat = numberFormat || "1,000.00";
+    // For USD, default is 1,000.00 (commas), for EUR it could be 1.000,00 (dots) or 1,000.00 (commas)
+    const useCommas = numFormat === "1,000.00";
+    const thousandsSeparator = useCommas ? "," : ".";
+    const decimalSeparator = useCommas ? "." : ",";
+
+    // Format example for the prompt
+    const formatExample = useCommas
+      ? `${currencySymbol}1,234,567`
+      : `${currencySymbol}1.234.567`;
+
     // Build comprehensive context for AI
     const context = {
       businessType: businessType || "Unknown",
       metrics: metrics || {},
       kpis: kpis || {},
+      currency: currencyCode,
+      currencySymbol,
+      thousandsSeparator,
+      decimalSeparator,
+      formatExample,
     };
 
-    const systemPrompt = `You are Milton, an expert AI financial advisor and business analyst. Your role is to provide actionable, insightful analysis of business KPIs and financial metrics. You analyze data like a senior CFO would, identifying trends, risks, opportunities, and actionable recommendations.`;
+    const systemPrompt = `You are Milton, an expert AI financial advisor and business analyst. Your role is to provide actionable, insightful analysis of business KPIs and financial metrics. You analyze data like a senior CFO would, identifying trends, risks, opportunities, and actionable recommendations.
+
+Focus on universal financial metrics: cash flow, revenue, expenses, profitability, burn rate, and runway. Provide insights that are applicable across all business types.`;
 
     const userPrompt = `Analyze the following business data and generate 4-5 concise, actionable insights. Each insight should be:
 - Specific and data-driven
 - Actionable (what should be done)
 - Contextual to the business type
-- Focused on improvement opportunities or highlighting strengths
+- Focused on financial health, cash flow, profitability, and growth opportunities
+
+IMPORTANT: When displaying currency amounts, ALWAYS use ${context.currencySymbol} (${context.currency}) as the currency symbol. Do NOT use dollar signs ($) or other currency symbols. All monetary values should be formatted with ${context.currencySymbol}.
+
+CRITICAL: Always format numbers with thousands separators. Use "${context.thousandsSeparator}" as the thousands separator. Examples:
+- ${context.formatExample} (for 1234567)
+- ${context.currencySymbol}93${context.thousandsSeparator}600 (for 93600)
+- ${context.currencySymbol}1${context.thousandsSeparator}800${context.thousandsSeparator}000 (for 1800000)
+Do NOT write numbers without separators (e.g., ${context.currencySymbol}93600 is wrong, write ${context.currencySymbol}93${context.thousandsSeparator}600 instead).
 
 Business Type: ${context.businessType}
+Currency: ${context.currency} (${context.currencySymbol})
+
+Focus on financial metrics and KPIs only. Do not reference entity-specific counts (deals, bookings, etc.) unless they are directly relevant to financial performance.
 
 Key Metrics:
 ${JSON.stringify(context.metrics, null, 2)}
@@ -66,9 +110,11 @@ Categories:
 Focus on:
 1. Cash runway and burn rate analysis
 2. Revenue trends and growth opportunities
-3. Pipeline and sales performance
-4. Cost optimization opportunities
-5. Financial health indicators
+3. Cost optimization opportunities
+4. Financial health indicators
+5. Profitability and margin analysis
+
+Provide insights based on the financial metrics and KPIs provided. Focus on actionable financial advice rather than entity-specific details.
 
 Return ONLY the JSON object, no additional text.`;
 

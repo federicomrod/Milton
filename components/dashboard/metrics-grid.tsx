@@ -113,9 +113,6 @@ export function MetricsGrid({
     quickRatio: null,
   });
 
-  // Log when component mounts
-  console.log("MetricsGrid: Component mounted/rendered");
-
   // Safe helper functions with proper null/undefined checks
   const safeToString = (value: unknown): string => {
     if (value === null || value === undefined) return "";
@@ -194,8 +191,6 @@ export function MetricsGrid({
   };
 
   useEffect(() => {
-    console.log("MetricsGrid: useEffect triggered");
-
     const fetchData = async () => {
       try {
         console.log("MetricsGrid: Starting calculation...");
@@ -210,8 +205,6 @@ export function MetricsGrid({
           console.error("MetricsGrid: Error getting user:", userError);
           return;
         }
-
-        console.log("MetricsGrid: User found:", user.id);
 
         // Use the same service that MiltonChat uses
         const reportData = await getReportData(supabase, user.id);
@@ -256,14 +249,7 @@ export function MetricsGrid({
           }))
           .filter(validateDeal);
 
-        console.log(
-          `MetricsGrid: Processed ${transactions.length} valid transactions and ${crmDeals.length} valid CRM deals`
-        );
-
         if (transactions.length === 0) {
-          console.log(
-            "MetricsGrid: No valid transactions found, using default metrics"
-          );
           setMetrics({
             mrr: 0,
             arr: 0,

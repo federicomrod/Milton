@@ -99,10 +99,6 @@ export async function getReportData(
   if (modelError) {
     console.error("[getReportData] model_data fetch failed:", modelError);
   } else if (modelData && modelData.length > 0) {
-    console.log("[getReportData] model_data fetched:", {
-      count: modelData.length,
-      tables: [...new Set(modelData.map((d) => d.model_table_name))],
-    });
     hasModelData = true;
 
     // Map model data to standard types
@@ -210,15 +206,6 @@ export async function getReportData(
         typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0,
     })) || [];
 
-  console.log("[getReportData] Transactions with numeric amounts:", {
-    count: transactionsWithNumericAmounts.length,
-    sampleAmounts: transactionsWithNumericAmounts.slice(0, 5).map((t) => ({
-      amount: t.amount,
-      type: typeof t.amount,
-      date: t.date,
-    })),
-  });
-
   const totalRevenue = transactionsWithNumericAmounts
     .filter((t) => t.amount > 0)
     .reduce((sum, t) => sum + t.amount, 0);
@@ -226,17 +213,6 @@ export async function getReportData(
   const totalExpenses = transactionsWithNumericAmounts
     .filter((t) => t.amount < 0)
     .reduce((sum, t) => sum + Math.abs(t.amount), 0);
-
-  console.log("[getReportData] Calculated metrics:", {
-    totalRevenue,
-    totalExpenses,
-    revenueTransactions: transactionsWithNumericAmounts.filter(
-      (t) => t.amount > 0
-    ).length,
-    expenseTransactions: transactionsWithNumericAmounts.filter(
-      (t) => t.amount < 0
-    ).length,
-  });
 
   const monthsDuration = reportPeriod
     ? getMonthsDiff(reportPeriod.start, reportPeriod.end)
@@ -253,28 +229,12 @@ export async function getReportData(
   );
   const cashRunway = burnRate > 0 ? Math.round(netCash / burnRate) : 0;
 
-  console.log("[getReportData] Cash metrics:", {
-    netCash,
-    burnRate,
-    cashRunway,
-    monthsDuration,
-  });
-
   // --- CRM metrics ---
   // Ensure amounts are numbers for CRM deals too
   const crmDealsWithNumericAmounts = (crmDeals || []).map((d) => ({
     ...d,
     amount: typeof d.amount === "string" ? parseFloat(d.amount) : d.amount || 0,
   }));
-
-  console.log("[getReportData] CRM deals with numeric amounts:", {
-    count: crmDealsWithNumericAmounts.length,
-    sampleAmounts: crmDealsWithNumericAmounts.slice(0, 5).map((d) => ({
-      amount: d.amount,
-      type: typeof d.amount,
-      phase: d.phase,
-    })),
-  });
 
   // Pipeline value should only include ACTIVE deals (exclude closed won and closed lost)
   // Use normalizeStage to ensure consistency with PipelineSummaryCards component
@@ -293,12 +253,6 @@ export async function getReportData(
     // Only count active deals, exclude closed deals
     return normalizedStage !== "Deal" && normalizedStage !== "No Deal";
   }).length;
-
-  console.log("[getReportData] CRM metrics:", {
-    pipelineValue,
-    openDeals,
-    totalDeals: crmDealsWithNumericAmounts.length,
-  });
 
   // --- Budget variance ---
   const budgetSummary = computeBudgetVariance(
@@ -326,9 +280,6 @@ export async function getReportData(
     pipelineValue,
     openDeals,
   };
-
-  console.log("[getReportData] Final KPIs:", finalKPIs);
-  console.log("[getReportData] Budget variance:", budgetSummary);
 
   return {
     kpis: finalKPIs,

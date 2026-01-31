@@ -60,24 +60,52 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             setBusinessModel(businessModel.business_type);
 
             // Fetch selected KPIs from API (source of truth: business_models.selected_kpi_ids)
-            const res = await fetch("/api/kpis/selected", {
+            const selectedRes = await fetch("/api/kpis/selected", {
               credentials: "include",
             });
-            const json = res.ok ? await res.json() : { selectedKpis: [] };
-            const selectedKpis = Array.isArray(json?.selectedKpis)
-              ? json.selectedKpis
+            const selectedJson = selectedRes.ok
+              ? await selectedRes.json()
+              : { selectedKpis: [] };
+            const selectedKpis = Array.isArray(selectedJson?.selectedKpis)
+              ? selectedJson.selectedKpis
               : [];
             setSelectedKpis(selectedKpis);
+
+            // Calculate KPI values - use a wider date range to include older data
+            const fromDate = new Date(
+              Date.now() - 2 * 365 * 24 * 60 * 60 * 1000
+            )
+              .toISOString()
+              .split("T")[0]; // 2 years ago
+            const toDate = new Date().toISOString().split("T")[0]; // today
+
+            const calculateRes = await fetch("/api/kpis/calculate", {
+              method: "POST",
+              credentials: "include",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                from_date: fromDate,
+                to_date: toDate,
+              }),
+            });
+            const calculateJson = calculateRes.ok
+              ? await calculateRes.json()
+              : { calculatedKpis: [] };
+            const calculatedKpis = Array.isArray(calculateJson?.calculatedKpis)
+              ? calculateJson.calculatedKpis
+              : [];
+
             miltonEventsAPI.publish("business.context", {
               businessModel: businessModel.business_type,
               selectedKpis: selectedKpis,
             });
-            console.log(
-              "[DashboardLayout] Loaded selected KPIs for company",
-              company.id,
-              selectedKpis.length,
-              "KPIs"
-            );
+            miltonEventsAPI.publish("dashboard.data.ready", {
+              kpis: calculatedKpis,
+              selectedKpis: selectedKpis,
+              businessModel: businessModel.business_type,
+            });
           }
         }
       } catch (error) {
@@ -107,10 +135,6 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     const unsubscribe = miltonEventsAPI.subscribe(
       "dashboard.generate",
       async (payload) => {
-        console.log(
-          "[DashboardLayout] Dashboard generation triggered for:",
-          payload.businessModel
-        );
         try {
           const {
             data: { user },
@@ -127,16 +151,46 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
             .single();
 
           if (company) {
-            const res = await fetch("/api/kpis/selected", {
+            // Get selected KPIs
+            const selectedRes = await fetch("/api/kpis/selected", {
               credentials: "include",
             });
-            const json = res.ok ? await res.json() : { selectedKpis: [] };
-            const selectedKpis = Array.isArray(json?.selectedKpis)
-              ? json.selectedKpis
+            const selectedJson = selectedRes.ok
+              ? await selectedRes.json()
+              : { selectedKpis: [] };
+            const selectedKpis = Array.isArray(selectedJson?.selectedKpis)
+              ? selectedJson.selectedKpis
               : [];
             setSelectedKpis(selectedKpis);
+
+            // Calculate KPI values - use a wider date range to include older data
+            const fromDate = new Date(
+              Date.now() - 2 * 365 * 24 * 60 * 60 * 1000
+            )
+              .toISOString()
+              .split("T")[0]; // 2 years ago
+            const toDate = new Date().toISOString().split("T")[0]; // today
+
+            const calculateRes = await fetch("/api/kpis/calculate", {
+              method: "POST",
+              credentials: "include",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                from_date: fromDate,
+                to_date: toDate,
+              }),
+            });
+            const calculateJson = calculateRes.ok
+              ? await calculateRes.json()
+              : { calculatedKpis: [] };
+            const calculatedKpis = Array.isArray(calculateJson?.calculatedKpis)
+              ? calculateJson.calculatedKpis
+              : [];
+
             miltonEventsAPI.publish("dashboard.data.ready", {
-              kpis: [],
+              kpis: calculatedKpis,
               selectedKpis: selectedKpis,
               businessModel: payload.businessModel,
             });
@@ -192,10 +246,6 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     window.addEventListener("data-status:refresh", handler);
     return () => window.removeEventListener("data-status:refresh", handler);
   }, [refreshDataStatus]);
-
-  useEffect(() => {
-    console.log("Data readiness from API:", dataStatus);
-  }, [dataStatus]);
 
   const pathname = usePathname();
   const router = useRouter();

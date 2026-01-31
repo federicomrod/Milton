@@ -40,23 +40,9 @@ export default function DashboardPage() {
     "customers",
   ];
 
-  // Load selected metrics from localStorage on mount
-  const [selectedMetrics, setSelectedMetrics] = useState<string[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("dashboard-selected-metrics");
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          // Ensure core metrics are always included
-          const withCore = [...new Set([...coreKpiIds, ...parsed])];
-          return withCore;
-        } catch (e) {
-          console.error("Error parsing saved metrics:", e);
-        }
-      }
-    }
-    return defaultMetrics;
-  });
+  // Load selected metrics from database
+  const [selectedMetrics, setSelectedMetrics] =
+    useState<string[]>(defaultMetrics);
   const [dataStatus, setDataStatus] = useState<DataStatus>(null);
 
   // KPI state
@@ -79,6 +65,53 @@ export default function DashboardPage() {
       setTimeout(() => {
         setIsLoading(false);
       }, 500);
+    }
+  };
+
+  // Load selected metrics from database
+  const loadSelectedMetrics = async () => {
+    try {
+      const response = await fetch("/api/metrics");
+      if (response.ok) {
+        const metrics = await response.json();
+        // Convert metric objects to slugs for the MetricsGrid component
+        const metricSlugs = metrics.map((metric: any) => metric.slug);
+        // Ensure core metrics are always included
+        const withCore = [...new Set([...coreKpiIds, ...metricSlugs])];
+        setSelectedMetrics(withCore);
+      } else {
+        // Fallback to default metrics if API fails
+        setSelectedMetrics(defaultMetrics);
+      }
+    } catch (error) {
+      console.error("Failed to load selected metrics:", error);
+      setSelectedMetrics(defaultMetrics);
+    }
+  };
+
+  // Save selected metrics to database
+  const saveSelectedMetrics = async (metrics: string[]) => {
+    try {
+      // Get metric UUIDs for the selected slugs
+      const response = await fetch("/api/metrics/available");
+      if (response.ok) {
+        const availableMetrics = await response.json();
+        // Find the metric IDs for the selected slugs
+        const selectedMetricIds = availableMetrics
+          .filter((metric: any) => metrics.includes(metric.slug))
+          .map((metric: any) => metric.id);
+
+        // Save the metric IDs to the database
+        await fetch("/api/metrics", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ metricIds: selectedMetricIds }),
+        });
+      }
+    } catch (error) {
+      console.error("Failed to save selected metrics:", error);
     }
   };
 
@@ -177,6 +210,11 @@ export default function DashboardPage() {
     loadKpis();
   }, []);
 
+  // Load selected metrics from database
+  useEffect(() => {
+    loadSelectedMetrics();
+  }, []);
+
   // Set timeout to hide loader after 10 seconds
   useEffect(() => {
     timeoutRef.current = setTimeout(() => {
@@ -250,15 +288,10 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2">
                 <MetricSelector
                   selectedMetrics={selectedMetrics}
-                  onMetricsChange={(metrics) => {
+                  onMetricsChange={async (metrics) => {
                     setSelectedMetrics(metrics);
-                    // Persist to localStorage
-                    if (typeof window !== "undefined") {
-                      localStorage.setItem(
-                        "dashboard-selected-metrics",
-                        JSON.stringify(metrics)
-                      );
-                    }
+                    // Persist to database
+                    await saveSelectedMetrics(metrics);
                   }}
                   businessType={businessType}
                 />

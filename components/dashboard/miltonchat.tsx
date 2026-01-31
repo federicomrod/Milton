@@ -75,7 +75,7 @@ export default function MiltonChat({ onClose }: MiltonChatProps = {}) {
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
-    const userMsgId = Date.now().toString();
+    const userMsgId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     currentUserMsgIdRef.current = userMsgId;
 
     const userMsg = {
@@ -143,7 +143,7 @@ export default function MiltonChat({ onClose }: MiltonChatProps = {}) {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let assistantMessage = "";
-      const assistantMsgId = (Date.now() + 1).toString();
+      const assistantMsgId = `assistant-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       currentAssistantMsgIdRef.current = assistantMsgId;
 
       // Add assistant message placeholder
@@ -327,10 +327,10 @@ export default function MiltonChat({ onClose }: MiltonChatProps = {}) {
                 description="Ask Milton about your data..."
               />
             ) : (
-              messages.map((message: any) => (
+              messages.map((message: any, index: number) => (
                 <Message
                   from={message.role === "user" ? "user" : "assistant"}
-                  key={message.id}
+                  key={message.id || `message-${index}`}
                 >
                   <MessageContent>
                     {message.content ? (

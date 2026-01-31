@@ -651,19 +651,14 @@ export default function MiltonChat({
 
     if (step === "goals") {
       setAnswers((a) => ({ ...a, goals: input }));
-      console.log("📝 Goals answer:", input);
     } else if (step === "revenue") {
       setAnswers((a) => ({ ...a, revenue: input }));
-      console.log("📝 Revenue answer:", input);
     } else if (step === "data") {
       setAnswers((a) => ({ ...a, dataSources: input }));
-      console.log("📝 Data sources answer:", input);
     } else if (step === "systems") {
       setAnswers((a) => ({ ...a, systems: input }));
-      console.log("📝 Systems answer:", input);
     } else if (step === "business_context") {
       setAnswers((a) => ({ ...a, businessContext: input || "Not specified" }));
-      console.log("📝 Business context answer:", input || "Not specified");
     }
     // Confirm step is now handled by button click, not form submit
 

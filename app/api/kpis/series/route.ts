@@ -57,6 +57,7 @@ export async function GET(req: NextRequest) {
 
     const series: Record<string, { data: KpiSeriesPoint[] }> = {};
 
+    // Handle Active Members KPIs (existing logic)
     const activeMembersKpis = kpis.filter((k) =>
       isActiveMembersKpi(k.name, k.formula ?? null)
     );
@@ -88,9 +89,69 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Handle all other KPIs (not Active Members) by calling the calculation API
+    // Get selected KPIs from business_models to know which ones the user actually wants
+    const { data: businessModel, error: modelError } = await supabase
+      .from("business_models")
+      .select("selected_kpi_ids")
+      .eq("company_id", company.id)
+      .single();
+
+    const selectedKpiIds = (businessModel?.selected_kpi_ids as string[]) || [];
+
+    // Calculate any selected KPI that isn't already handled by the Active Members logic above
+    const alreadyHandledKpiIds = activeMembersKpis.map((k) => k.id);
+    const kpisNeedingCalculation = kpis.filter(
+      (k) =>
+        selectedKpiIds.includes(k.id) && !alreadyHandledKpiIds.includes(k.id)
+    );
+    if (kpisNeedingCalculation.length > 0) {
+      try {
+        // Call the KPI calculation API
+        const calculateRes = await fetch(
+          `${req.nextUrl.origin}/api/kpis/calculate`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              // Forward the user's session
+              Cookie: req.headers.get("cookie") || "",
+            },
+            body: JSON.stringify({
+              from_date: new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000)
+                .toISOString()
+                .split("T")[0], // 2 years ago
+              to_date: new Date().toISOString().split("T")[0], // today
+            }),
+          }
+        );
+
+        if (calculateRes.ok) {
+          const calculateData = await calculateRes.json();
+          const calculatedKpis = calculateData.calculatedKpis || [];
+
+          // Map the calculated data to the series format
+          for (const calculatedKpi of calculatedKpis) {
+            if (
+              calculatedKpi.historicalData &&
+              Array.isArray(calculatedKpi.historicalData)
+            ) {
+              series[calculatedKpi.id] = {
+                data: calculatedKpi.historicalData.map((point: any) => ({
+                  period: point.period,
+                  value: point.value,
+                })),
+              };
+            }
+          }
+        }
+      } catch (error) {
+        // Handle error silently
+      }
+    }
+
     return jsonNoStore({ series });
   } catch (err) {
-    console.error("[api/kpis/series] Unexpected error:", err);
     return jsonNoStore({ series: {} });
   }
 }

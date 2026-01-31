@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -19,142 +19,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { KPI_TEMPLATES } from "@/lib/kpi-templates";
-
-interface MetricOption {
-  id: string;
-  title: string;
-  description: string;
-  defaultEnabled: boolean;
-  category?: "core" | "ltm" | "advanced";
-}
-
-const availableMetrics: MetricOption[] = [
-  // Core Metrics
-  {
-    id: "mrr",
-    title: "MRR",
-    description: "Monthly Recurring Revenue",
-    defaultEnabled: true,
-    category: "core",
-  },
-  {
-    id: "arr",
-    title: "ARR",
-    description: "Annual Recurring Revenue",
-    defaultEnabled: true,
-    category: "core",
-  },
-  {
-    id: "cashBalance",
-    title: "Cash Balance",
-    description: "Total cash on hand",
-    defaultEnabled: true,
-    category: "core",
-  },
-  {
-    id: "burnRate",
-    title: "Net Burn",
-    description: "Monthly net cash burn",
-    defaultEnabled: true,
-    category: "core",
-  },
-  {
-    id: "contracted",
-    title: "Contracted",
-    description: "Pipeline in negotiation/closed",
-    defaultEnabled: true,
-    category: "core",
-  },
-  {
-    id: "grossMargin",
-    title: "Gross Margin",
-    description: "Revenue after COGS",
-    defaultEnabled: true,
-    category: "core",
-  },
-  {
-    id: "netMargin",
-    title: "Net Margin",
-    description: "Income as % of sales",
-    defaultEnabled: true,
-    category: "core",
-  },
-  {
-    id: "customers",
-    title: "Customers",
-    description: "Active customer count",
-    defaultEnabled: true,
-    category: "core",
-  },
-
-  // LTM Metrics
-  {
-    id: "ltmRevenue",
-    title: "LTM Avg Revenue",
-    description: "Last 12 months avg monthly revenue",
-    defaultEnabled: true,
-    category: "ltm",
-  },
-  {
-    id: "burnRateLTM",
-    title: "LTM Avg Burn",
-    description: "Last 12 months avg monthly burn",
-    defaultEnabled: false,
-    category: "ltm",
-  },
-  {
-    id: "burnVariance",
-    title: "Burn vs LTM",
-    description: "Current burn vs LTM average (%)",
-    defaultEnabled: false,
-    category: "ltm",
-  },
-
-  // Advanced Metrics
-  {
-    id: "cac",
-    title: "CAC",
-    description: "Customer Acquisition Cost",
-    defaultEnabled: false,
-    category: "advanced",
-  },
-  {
-    id: "ltv",
-    title: "LTV",
-    description: "Customer Lifetime Value",
-    defaultEnabled: false,
-    category: "advanced",
-  },
-  {
-    id: "churn",
-    title: "Churn Rate",
-    description: "Monthly customer churn %",
-    defaultEnabled: false,
-    category: "advanced",
-  },
-  {
-    id: "nps",
-    title: "NPS",
-    description: "Net Promoter Score",
-    defaultEnabled: false,
-    category: "advanced",
-  },
-  {
-    id: "runway",
-    title: "Runway",
-    description: "Months of cash runway",
-    defaultEnabled: false,
-    category: "advanced",
-  },
-  {
-    id: "quickRatio",
-    title: "Quick Ratio",
-    description: "Growth efficiency metric",
-    defaultEnabled: false,
-    category: "advanced",
-  },
-];
+import { MetricOption } from "@/lib/types/metric";
+import { Loader2 } from "lucide-react";
 
 interface MetricSelectorProps {
   selectedMetrics: string[];
@@ -169,6 +35,42 @@ export function MetricSelector({
 }: MetricSelectorProps) {
   const [open, setOpen] = useState(false);
   const [tempSelection, setTempSelection] = useState<string[]>(selectedMetrics);
+  const [availableMetrics, setAvailableMetrics] = useState<MetricOption[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Fetch available metrics when dialog opens
+  useEffect(() => {
+    if (open && availableMetrics.length === 0) {
+      fetchAvailableMetrics();
+    }
+  }, [open]);
+
+  // Update temp selection when selectedMetrics changes
+  useEffect(() => {
+    setTempSelection(selectedMetrics);
+  }, [selectedMetrics]);
+
+  const fetchAvailableMetrics = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch("/api/metrics/available");
+      if (response.ok) {
+        const metrics = await response.json();
+        // Convert from database format to MetricOption format
+        const metricOptions: MetricOption[] = metrics.map((metric: any) => ({
+          id: metric.slug, // Use slug as id for backward compatibility
+          title: metric.name,
+          description: metric.description || "",
+          category: metric.category,
+        }));
+        setAvailableMetrics(metricOptions);
+      }
+    } catch (error) {
+      console.error("Failed to fetch available metrics:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleToggleMetric = (metricId: string) => {
     setTempSelection((prev) =>
@@ -178,11 +80,15 @@ export function MetricSelector({
     );
   };
 
-  const handleSave = () => {
-    // Key metrics (mrr, arr, cashBalance, etc.) are local UI preferences only.
-    // Do NOT write to kpi-preferences: that endpoint persists selected_kpi_ids
-    // (UUIDs from the kpis table), not these metric slugs.
-    onMetricsChange(tempSelection);
+  const handleSave = async () => {
+    // Get the metric UUIDs for the selected metric slugs
+    const selectedMetricSlugs = tempSelection;
+    const selectedMetricIds = availableMetrics
+      .filter((metric) => selectedMetricSlugs.includes(metric.id))
+      .map((metric) => metric.id); // In this case, we're still using slugs
+
+    // Call the onMetricsChange callback with the selected metric slugs
+    onMetricsChange(selectedMetricSlugs);
     setOpen(false);
   };
 
@@ -193,71 +99,6 @@ export function MetricSelector({
 
   const getCategoryMetrics = (category: string) => {
     return availableMetrics.filter((metric) => metric.category === category);
-  };
-
-  const recommendedKpis = businessType
-    ? (KPI_TEMPLATES[businessType] ?? [])
-    : [];
-
-  const renderRecommendedKpis = () => {
-    if (!recommendedKpis.length) return null;
-
-    return (
-      <div className="space-y-3">
-        <div>
-          <h4 className="font-medium text-sm">
-            Recommended KPIs for Your Business
-          </h4>
-          <p className="text-xs text-muted-foreground">
-            Based on your business type, these KPIs are highly relevant
-          </p>
-        </div>
-        <div className="grid grid-cols-1 gap-3">
-          {recommendedKpis.map((kpi) => {
-            const isSelected = tempSelection.includes(kpi.id);
-            return (
-              <Card
-                key={kpi.id}
-                className={`cursor-pointer transition-all ${
-                  isSelected
-                    ? "border-primary bg-primary/10"
-                    : "border-border hover:border-primary/50"
-                }`}
-                onClick={() => handleToggleMetric(kpi.id)}
-              >
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CardTitle className="text-sm">{kpi.label}</CardTitle>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/20 text-primary font-semibold">
-                        Recommended
-                      </span>
-                    </div>
-                    <Checkbox
-                      checked={isSelected}
-                      onCheckedChange={() => handleToggleMetric(kpi.id)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">
-                    {kpi.description}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    {kpi.trendGoal === "increase"
-                      ? "↑ Higher is better"
-                      : kpi.trendGoal === "decrease"
-                        ? "↓ Lower is better"
-                        : "→ Keep stable"}
-                  </p>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-    );
   };
 
   const renderMetricCategory = (
@@ -320,27 +161,30 @@ export function MetricSelector({
         </DialogHeader>
 
         <div className="space-y-6 py-4">
-          {/* Recommended KPIs section */}
-          {renderRecommendedKpis()}
-
-          {/* Existing categories */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {renderMetricCategory(
-              "Core Metrics",
-              "core",
-              "Essential KPIs for tracking business performance"
-            )}
-            {renderMetricCategory(
-              "LTM Comparisons",
-              "ltm",
-              "12-month rolling averages for trend analysis"
-            )}
-            {renderMetricCategory(
-              "Advanced Analytics",
-              "advanced",
-              "Deeper insights requiring additional data"
-            )}
-          </div>
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+              <span className="ml-2">Loading metrics...</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {renderMetricCategory(
+                "Core Metrics",
+                "core",
+                "Essential for tracking business performance"
+              )}
+              {renderMetricCategory(
+                "LTM Comparisons",
+                "ltm",
+                "12-month rolling averages for trend analysis"
+              )}
+              {renderMetricCategory(
+                "Advanced Analytics",
+                "advanced",
+                "Deeper insights requiring additional data"
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex justify-between items-center pt-4 border-t border-border">

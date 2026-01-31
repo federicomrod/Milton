@@ -58,7 +58,9 @@ export default function OnboardingModelPage() {
 
           const { data: template, error: templateError } = await supabase
             .from("business_model_templates")
-            .select("required_tables_data, required_relationships")
+            .select(
+              "required_tables_data, required_relationships, suggested_metrics"
+            )
             .eq("key", businessModel.business_type)
             .single();
 
@@ -126,17 +128,20 @@ export default function OnboardingModelPage() {
           // Save canonical_model to business_models
           const { error: updateError } = await supabase
             .from("business_models")
-            .update({ canonical_model: canonicalModel })
+            .update({
+              canonical_model: canonicalModel,
+              metrics: template.suggested_metrics || [],
+            })
             .eq("company_id", company.id);
 
           if (updateError) {
             console.error(
-              "[OnboardingModelPage] Failed to save canonical_model:",
+              "[OnboardingModelPage] Failed to save canonical_model and metrics:",
               updateError
             );
           } else {
             console.log(
-              "[OnboardingModelPage] Successfully copied canonical_model from template"
+              "[OnboardingModelPage] Successfully copied canonical_model and metrics from template"
             );
           }
         }

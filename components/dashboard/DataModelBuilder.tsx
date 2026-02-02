@@ -64,7 +64,7 @@ const FITNESS_STUDIO_DEFAULT_MODEL: ModelProposal = {
         { name: "customer_id", type: "string", primaryKey: true },
         { name: "name", type: "string" },
         { name: "email", type: "string" },
-        { name: "phone", type: "string", nullable: true },
+        { name: "phone", type: "string", required: false },
         { name: "join_date", type: "date" },
         { name: "status", type: "string" }, // active / inactive / cancelled
       ],
@@ -87,7 +87,7 @@ const FITNESS_STUDIO_DEFAULT_MODEL: ModelProposal = {
         { name: "name", type: "string" },
         { name: "email", type: "string" },
         { name: "hourly_rate", type: "number" },
-        { name: "specialization", type: "string", nullable: true },
+        { name: "specialization", type: "string", required: false },
       ],
     },
     {
@@ -125,12 +125,12 @@ const FITNESS_STUDIO_DEFAULT_MODEL: ModelProposal = {
         {
           name: "booking_id",
           type: "string",
-          nullable: true,
+          required: false,
           references: { table: "Bookings", field: "booking_id" },
         },
         { name: "amount", type: "number" },
         { name: "payment_date", type: "date" },
-        { name: "payment_method", type: "string", nullable: true },
+        { name: "payment_method", type: "string", required: false },
       ],
     },
   ],

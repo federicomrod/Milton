@@ -54,9 +54,9 @@ export default function ModelTableDetailView({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const requiredFields = table.fields.filter(
-    (f) => !f.nullable && !f.primaryKey
+    (f) => f.required && !f.primaryKey
   );
-  const optionalFields = table.fields.filter((f) => f.nullable);
+  const optionalFields = table.fields.filter((f) => !f.required);
   const primaryKeyFields = table.fields.filter((f) => f.primaryKey);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -341,7 +341,7 @@ export default function ModelTableDetailView({
           name: table.name,
           fields: table.fields.map((f) => ({
             name: f.name,
-            nullable: f.nullable,
+            required: f.required,
             type: f.type,
           })),
         }}
@@ -373,7 +373,7 @@ export default function ModelTableDetailView({
           }}
           modelTableFields={table.fields.map((f) => ({
             name: f.name,
-            nullable: f.nullable,
+            required: f.required,
             type: f.type,
           }))}
           modelTableName={table.name}

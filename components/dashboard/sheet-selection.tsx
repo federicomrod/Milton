@@ -429,7 +429,7 @@ function buildStandardFieldsFromTable(
     value: f.name,
     label: f.name,
     description: f.type || "—",
-    required: !f.nullable,
+    required: f.required ?? false,
   }));
 }
 

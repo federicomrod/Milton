@@ -54,3 +54,27 @@ export interface NormalizedBudget {
   category: string;
   value: number;
 }
+
+// Data Tables - Centralized table definitions
+export interface DataTableField {
+  name: string;
+  type: string;
+  required: boolean;
+  primaryKey?: boolean;
+  references?: { table: string; field?: string };
+  defaultValue?: unknown;
+}
+
+export interface DataTable {
+  id: string;
+  slug: string;
+  name: string;
+  description?: string;
+  fields: DataTableField[];
+  business_model_template_key?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// User Roles
+export type UserRole = "user" | "admin";

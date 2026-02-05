@@ -19,7 +19,6 @@ import { useToast } from "@/components/ui/use-toast";
 import { Save, ArrowLeft } from "lucide-react";
 import { TemplateDataTablesEditor } from "@/components/management/template-data-tables-editor";
 import { TemplateKpisEditor } from "@/components/management/template-kpis-editor";
-import { TemplateMetricsEditor } from "@/components/management/template-metrics-editor";
 
 interface Template {
   key: string;
@@ -28,7 +27,6 @@ interface Template {
   required_table_ids?: string[];
   required_relationships?: any[];
   kpi_ids?: string[];
-  suggested_metrics?: string[];
   filters?: any[];
   mvp_guardrails?: any;
   data_categories?: any[];
@@ -49,7 +47,6 @@ export default function TemplateEditorPage() {
     required_table_ids: [],
     required_relationships: [],
     kpi_ids: [],
-    suggested_metrics: [],
     filters: [],
     mvp_guardrails: {},
     data_categories: [],
@@ -178,7 +175,6 @@ export default function TemplateEditorPage() {
           <TabsTrigger value="basic">Basic Info</TabsTrigger>
           <TabsTrigger value="tables">Data Tables</TabsTrigger>
           <TabsTrigger value="kpis">KPIs</TabsTrigger>
-          <TabsTrigger value="metrics">Metrics</TabsTrigger>
         </TabsList>
 
         <TabsContent value="basic">
@@ -247,15 +243,6 @@ export default function TemplateEditorPage() {
           <TemplateKpisEditor
             selectedKpiIds={template.kpi_ids || []}
             onChange={(kpiIds) => updateTemplate({ kpi_ids: kpiIds })}
-          />
-        </TabsContent>
-
-        <TabsContent value="metrics">
-          <TemplateMetricsEditor
-            selectedMetricIds={template.suggested_metrics || []}
-            onChange={(metricIds) =>
-              updateTemplate({ suggested_metrics: metricIds })
-            }
           />
         </TabsContent>
       </Tabs>

@@ -2,9 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { MetricsGrid } from "@/components/dashboard/metrics-grid";
 import { FinancialCharts } from "@/components/dashboard/financial-charts";
-import { MetricSelector } from "@/components/dashboard/metric-selector";
 import { DashboardInsights } from "@/components/dashboard/dashboard-insights";
 import { useBusinessContext } from "@/lib/business-context";
 import { UploadInvitation } from "@/components/dashboard/upload-invitation";
@@ -30,19 +28,7 @@ type DataStatus = {
 
 export default function DashboardPage() {
   const { businessType } = useBusinessContext();
-  // Core KPIs that always show
-  const coreKpiIds = ["mrr", "arr", "cashBalance", "burnRate"];
-  const defaultMetrics = [
-    ...coreKpiIds,
-    "contracted",
-    "ltmRevenue",
-    "netMargin",
-    "customers",
-  ];
 
-  // Load selected metrics from database
-  const [selectedMetrics, setSelectedMetrics] =
-    useState<string[]>(defaultMetrics);
   const [dataStatus, setDataStatus] = useState<DataStatus>(null);
 
   // KPI state
@@ -65,53 +51,6 @@ export default function DashboardPage() {
       setTimeout(() => {
         setIsLoading(false);
       }, 500);
-    }
-  };
-
-  // Load selected metrics from database
-  const loadSelectedMetrics = async () => {
-    try {
-      const response = await fetch("/api/metrics");
-      if (response.ok) {
-        const metrics = await response.json();
-        // Convert metric objects to slugs for the MetricsGrid component
-        const metricSlugs = metrics.map((metric: any) => metric.slug);
-        // Ensure core metrics are always included
-        const withCore = [...new Set([...coreKpiIds, ...metricSlugs])];
-        setSelectedMetrics(withCore);
-      } else {
-        // Fallback to default metrics if API fails
-        setSelectedMetrics(defaultMetrics);
-      }
-    } catch (error) {
-      console.error("Failed to load selected metrics:", error);
-      setSelectedMetrics(defaultMetrics);
-    }
-  };
-
-  // Save selected metrics to database
-  const saveSelectedMetrics = async (metrics: string[]) => {
-    try {
-      // Get metric UUIDs for the selected slugs
-      const response = await fetch("/api/metrics/available");
-      if (response.ok) {
-        const availableMetrics = await response.json();
-        // Find the metric IDs for the selected slugs
-        const selectedMetricIds = availableMetrics
-          .filter((metric: any) => metrics.includes(metric.slug))
-          .map((metric: any) => metric.id);
-
-        // Save the metric IDs to the database
-        await fetch("/api/metrics", {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ metricIds: selectedMetricIds }),
-        });
-      }
-    } catch (error) {
-      console.error("Failed to save selected metrics:", error);
     }
   };
 
@@ -210,11 +149,6 @@ export default function DashboardPage() {
     loadKpis();
   }, []);
 
-  // Load selected metrics from database
-  useEffect(() => {
-    loadSelectedMetrics();
-  }, []);
-
   // Set timeout to hide loader after 10 seconds
   useEffect(() => {
     timeoutRef.current = setTimeout(() => {
@@ -285,17 +219,6 @@ export default function DashboardPage() {
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Key Metrics</h2>
-              <div className="flex items-center gap-2">
-                <MetricSelector
-                  selectedMetrics={selectedMetrics}
-                  onMetricsChange={async (metrics) => {
-                    setSelectedMetrics(metrics);
-                    // Persist to database
-                    await saveSelectedMetrics(metrics);
-                  }}
-                  businessType={businessType}
-                />
-              </div>
             </div>
 
             {dataStatus?.bank ||
@@ -303,7 +226,6 @@ export default function DashboardPage() {
             dataStatus?.budget ||
             dataStatus?.hasModelData ? (
               <>
-                <MetricsGrid selectedMetrics={selectedMetrics} />
                 <div className="mt-8">
                   <DashboardInsights />
                 </div>

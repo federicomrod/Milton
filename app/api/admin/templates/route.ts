@@ -68,7 +68,6 @@ export async function POST(req: NextRequest) {
       filters,
       mvp_guardrails,
       data_categories,
-      suggested_metrics,
     } = body;
 
     // Validation
@@ -105,7 +104,6 @@ export async function POST(req: NextRequest) {
         filters: filters || [],
         mvp_guardrails: mvp_guardrails || {},
         data_categories: data_categories || [],
-        suggested_metrics: suggested_metrics || [],
       })
       .select()
       .single();

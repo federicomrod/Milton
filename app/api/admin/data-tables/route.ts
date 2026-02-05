@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { isUserAdminServer } from "@/lib/profile-service-server";
 import { NextRequest, NextResponse } from "next/server";
-import { createDataTable, getDataTables } from "@/lib/data-table-service";
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();

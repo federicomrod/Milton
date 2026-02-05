@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Target,
-  BarChart3,
   FileText,
   Table,
   ChevronLeft,
@@ -23,11 +22,6 @@ const navigation = [
     name: "KPIs",
     href: "/management/kpis",
     icon: Target,
-  },
-  {
-    name: "Metrics",
-    href: "/management/metrics",
-    icon: BarChart3,
   },
   {
     name: "Templates",

@@ -76,7 +76,6 @@ export async function PUT(
       filters,
       mvp_guardrails,
       data_categories,
-      suggested_metrics,
     } = body;
 
     const { data, error } = await supabase
@@ -90,7 +89,6 @@ export async function PUT(
         filters,
         mvp_guardrails,
         data_categories,
-        suggested_metrics,
       })
       .eq("key", key)
       .select()

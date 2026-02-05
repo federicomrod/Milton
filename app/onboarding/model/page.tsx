@@ -7,6 +7,8 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import DataModelBuilder from "@/components/dashboard/DataModelBuilder";
 import { updateOnboardingStatus } from "@/lib/onboarding-status";
 import { createClient } from "@/lib/supabase/client";
+import { getDataTablesByIds } from "@/lib/data-table-service";
+import type { DataTable, DataTableField } from "@/lib/types/data";
 
 export default function OnboardingModelPage() {
   const router = useRouter();
@@ -59,7 +61,7 @@ export default function OnboardingModelPage() {
           const { data: template, error: templateError } = await supabase
             .from("business_model_templates")
             .select(
-              "required_tables_data, required_relationships, suggested_metrics"
+              "required_tables_data, required_table_ids, required_relationships"
             )
             .eq("key", businessModel.business_type)
             .single();
@@ -86,31 +88,55 @@ export default function OnboardingModelPage() {
             return;
           }
 
-          // Transform template data to ModelProposal format
-          // Template structure: { table_name, fields: string[], required_fields: string[], description }
-          const recommendedTables = (template.required_tables_data || []).map(
-            (table: any) => {
-              const tableName = table.name || table.table_name;
-              const fieldNames = table.fields || [];
-              const requiredFields = table.required_fields || [];
+          // Fetch data tables using new ID-based approach or fall back to legacy inline data
+          let recommendedTables: any[] = [];
 
-              const fields = fieldNames.map((fieldName: string) => {
-                // Check if field is required (in required_fields array)
-                const isRequired = requiredFields.includes(fieldName);
+          if (
+            template.required_table_ids &&
+            template.required_table_ids.length > 0
+          ) {
+            // NEW: Fetch tables from centralized data_tables
+            const dataTables = await getDataTablesByIds(
+              template.required_table_ids
+            );
+            recommendedTables = dataTables.map((table: DataTable) => ({
+              name: table.name,
+              fields: table.fields.map((field: DataTableField) => ({
+                name: field.name,
+                type: field.type,
+                required: field.required,
+                primaryKey: field.primaryKey,
+                references: field.references,
+              })),
+            }));
+          } else if (
+            template.required_tables_data &&
+            template.required_tables_data.length > 0
+          ) {
+            // LEGACY: Use inline table definitions (for backwards compatibility)
+            recommendedTables = (template.required_tables_data || []).map(
+              (table: any) => {
+                const tableName = table.name || table.table_name;
+                const fieldNames = table.fields || [];
+                const requiredFields = table.required_fields || [];
+
+                const fields = fieldNames.map((fieldName: string) => {
+                  const isRequired = requiredFields.includes(fieldName);
+                  return {
+                    name: fieldName,
+                    required: isRequired,
+                  };
+                });
 
                 return {
-                  name: fieldName,
-                  nullable: !isRequired,
+                  name: tableName,
+                  fields,
                 };
-              });
+              }
+            );
+          }
 
-              return {
-                name: tableName,
-                fields,
-              };
-            }
-          );
-
+          // Parse relationships (support both old string-based and new ID-based formats)
           const relationships = (template.required_relationships || []).map(
             (rel: any) => ({
               from: rel.from || `${rel.from_table}.${rel.from_field}`,
@@ -130,7 +156,6 @@ export default function OnboardingModelPage() {
             .from("business_models")
             .update({
               canonical_model: canonicalModel,
-              metrics: template.suggested_metrics || [],
             })
             .eq("company_id", company.id);
 

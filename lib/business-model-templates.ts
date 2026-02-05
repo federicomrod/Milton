@@ -9,13 +9,13 @@ export interface BusinessModelTemplate {
   name: string;
   description?: string;
   // New structure fields
-  required_tables_data?: any[]; // JSONB array of required tables/data sources
-  required_relationships?: any[]; // JSONB array of required relationships
+  required_tables_data?: any[]; // DEPRECATED: Legacy JSONB array of required tables/data sources
+  required_table_ids?: string[]; // JSONB array of data_tables IDs
+  required_relationships?: any[]; // JSONB array of required relationships (uses table IDs)
   kpi_ids?: string[]; // JSONB array of KPI IDs referencing separate KPIs table
   filters?: any[]; // JSONB array of filter definitions
   mvp_guardrails?: Record<string, any>; // JSONB object containing MVP guardrails
   data_categories?: any[]; // JSONB array of data categories
-  suggested_metrics?: any[]; // JSONB array of suggested metrics
   created_at?: string;
   updated_at?: string;
 }

@@ -7,6 +7,7 @@ import type {
   BudgetData,
   CrmDealData,
 } from "@/lib/types/data";
+import { getDataTablesByIds } from "@/lib/data-table-service";
 
 export interface DashboardKpi {
   id: string;
@@ -456,25 +457,45 @@ export async function buildDashboardContextForUser(
         const { data: template } = await client
           .from("business_model_templates")
           .select(
-            "key, name, description, required_tables_data, required_relationships, data_categories"
+            "key, name, description, required_tables_data, required_table_ids, required_relationships, data_categories"
           )
           .eq("key", businessModel.business_type)
           .single();
 
         if (template) {
-          // Parse required_tables_data
+          // Fetch data tables using new ID-based approach or fall back to legacy inline data
           let requiredTables: any[] = [];
-          try {
-            if (typeof template.required_tables_data === "string") {
-              requiredTables = JSON.parse(template.required_tables_data);
-            } else if (Array.isArray(template.required_tables_data)) {
-              requiredTables = template.required_tables_data;
-            }
-          } catch (e) {
-            console.error(
-              "[buildDashboardContextForUser] Failed to parse required_tables_data:",
-              e
+
+          if (
+            template.required_table_ids &&
+            template.required_table_ids.length > 0
+          ) {
+            // NEW: Fetch tables from centralized data_tables
+            const dataTables = await getDataTablesByIds(
+              template.required_table_ids
             );
+            requiredTables = dataTables.map((table) => ({
+              table_name: table.name,
+              fields: table.fields.map((f) => f.name),
+              required_fields: table.fields
+                .filter((f) => f.required)
+                .map((f) => f.name),
+              description: table.description,
+            }));
+          } else if (template.required_tables_data) {
+            // LEGACY: Use inline table definitions
+            try {
+              if (typeof template.required_tables_data === "string") {
+                requiredTables = JSON.parse(template.required_tables_data);
+              } else if (Array.isArray(template.required_tables_data)) {
+                requiredTables = template.required_tables_data;
+              }
+            } catch (e) {
+              console.error(
+                "[buildDashboardContextForUser] Failed to parse required_tables_data:",
+                e
+              );
+            }
           }
 
           // Parse relationships

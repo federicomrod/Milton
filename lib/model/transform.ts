@@ -29,8 +29,8 @@ export type FieldType =
 export interface FieldDef {
   name: string;
   type?: FieldType;
-  // optional metadata (nullable, pk, etc.)
-  nullable?: boolean;
+  // optional metadata (required, pk, etc.)
+  required?: boolean;
   primaryKey?: boolean;
   defaultValue?: unknown;
   // if this is a foreign key field, capture the target

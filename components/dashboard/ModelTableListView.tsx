@@ -186,9 +186,9 @@ export default function ModelTableListView({
           const dataCount = tableDataCounts[table.name] || 0;
           const hasData = dataCount > 0;
           const requiredFields = table.fields.filter(
-            (f) => !f.nullable && !f.primaryKey
+            (f) => f.required && !f.primaryKey
           );
-          const optionalFields = table.fields.filter((f) => f.nullable);
+          const optionalFields = table.fields.filter((f) => !f.required);
 
           return (
             <Card

@@ -11,6 +11,7 @@ import type {
   AnalyzerDatasetSample,
 } from "@/lib/ai/business-model-analyzer-types";
 import type { ModelProposal } from "@/lib/model/transform";
+import { getDataTablesByIds } from "@/lib/data-table-service";
 
 // ============================================================================
 // ONBOARDING MODE - Generate model from user answers
@@ -214,7 +215,9 @@ export async function POST(req: NextRequest) {
       // Fetch the business model template
       const { data: template, error: templateError } = await supabase
         .from("business_model_templates")
-        .select("required_tables_data, required_relationships")
+        .select(
+          "required_tables_data, required_table_ids, required_relationships"
+        )
         .eq("key", businessType)
         .single();
 
@@ -232,29 +235,53 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Transform template data to ModelProposal format
-      // Template structure: { table_name, fields: string[], required_fields: string[], description }
-      const recommendedTables = (template.required_tables_data || []).map(
-        (table: any) => {
-          const tableName = table.name || table.table_name;
-          const fieldNames = table.fields || [];
-          const requiredFields = table.required_fields || [];
+      // Fetch data tables using new ID-based approach or fall back to legacy inline data
+      let recommendedTables: any[] = [];
 
-          return {
-            name: tableName,
-            fields: fieldNames.map((fieldName: string) => {
-              // Check if field is required (in required_fields array)
-              const isRequired = requiredFields.includes(fieldName);
+      if (
+        template.required_table_ids &&
+        template.required_table_ids.length > 0
+      ) {
+        // NEW: Fetch tables from centralized data_tables
+        const dataTables = await getDataTablesByIds(
+          template.required_table_ids
+        );
+        recommendedTables = dataTables.map((table) => ({
+          name: table.name,
+          fields: table.fields.map((field) => ({
+            name: field.name,
+            type: field.type,
+            required: field.required,
+            primaryKey: field.primaryKey,
+            references: field.references,
+          })),
+        }));
+      } else if (
+        template.required_tables_data &&
+        template.required_tables_data.length > 0
+      ) {
+        // LEGACY: Use inline table definitions (for backwards compatibility)
+        recommendedTables = (template.required_tables_data || []).map(
+          (table: any) => {
+            const tableName = table.name || table.table_name;
+            const fieldNames = table.fields || [];
+            const requiredFields = table.required_fields || [];
 
-              return {
-                name: fieldName,
-                nullable: !isRequired,
-              };
-            }),
-          };
-        }
-      );
+            return {
+              name: tableName,
+              fields: fieldNames.map((fieldName: string) => {
+                const isRequired = requiredFields.includes(fieldName);
+                return {
+                  name: fieldName,
+                  required: isRequired,
+                };
+              }),
+            };
+          }
+        );
+      }
 
+      // Parse relationships (support both old string-based and new ID-based formats)
       const relationships = (template.required_relationships || []).map(
         (rel: any) => ({
           from: rel.from || `${rel.from_table}.${rel.from_field}`,

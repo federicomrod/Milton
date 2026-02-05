@@ -1,9 +1,12 @@
 "use client";
 import { createClient } from "@/lib/supabase/client";
 
+import type { UserRole } from "@/lib/types/data";
+
 export interface UserProfile {
   user_id: string;
   id?: string;
+  role: UserRole;
   timezone?: string;
   currency?: string;
   date_format?: string;
@@ -162,4 +165,54 @@ export async function updateCompany(
   }
 
   return company as Company;
+}
+
+/**
+ * Check if a user has admin role
+ */
+export async function isUserAdmin(userId?: string): Promise<boolean> {
+  const supabase = createClient();
+  const userIdToCheck = userId || (await supabase.auth.getUser()).data.user?.id;
+
+  if (!userIdToCheck) {
+    return false;
+  }
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("user_id", userIdToCheck)
+    .single();
+
+  if (error) {
+    console.error("Error checking admin status:", error.message);
+    return false;
+  }
+
+  return data?.role === "admin";
+}
+
+/**
+ * Get the role of a user
+ */
+export async function getUserRole(userId?: string): Promise<UserRole> {
+  const supabase = createClient();
+  const userIdToCheck = userId || (await supabase.auth.getUser()).data.user?.id;
+
+  if (!userIdToCheck) {
+    return "user";
+  }
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("user_id", userIdToCheck)
+    .single();
+
+  if (error) {
+    console.error("Error fetching user role:", error.message);
+    return "user";
+  }
+
+  return (data?.role as UserRole) || "user";
 }

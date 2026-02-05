@@ -135,9 +135,6 @@ export default function DashboardView(
 
   return (
     <div className="p-4 space-y-6">
-      {/* Header */}
-      <h2 className="text-lg font-semibold">Key Metrics</h2>
-
       {/* Key Metrics Row */}
       {visibleKpiIds.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

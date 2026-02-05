@@ -34,7 +34,7 @@ import { ColumnMapping } from "@/types/schema";
 /** When provided, mapping targets are the table's fields instead of fileType standards */
 export type ModelTableField = {
   name: string;
-  nullable?: boolean;
+  required?: boolean;
   type?: string;
 };
 
@@ -198,7 +198,7 @@ function buildStandardFieldsFromTable(
     value: f.name,
     label: f.name,
     description: f.type || "—",
-    required: !f.nullable,
+    required: f.required ?? false,
   }));
 }
 

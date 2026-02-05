@@ -2,11 +2,22 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { KPI_TEMPLATES, type KpiTemplate } from "@/lib/kpi-templates";
+// KPI templates removed - using database-driven KPIs instead
 import {
   evaluateKpiAvailability,
   type KpiAvailability,
 } from "@/lib/kpi-availability";
+
+// Local interface for KPI templates (replacing removed KpiTemplate)
+interface LocalKpiTemplate {
+  id: string;
+  label: string;
+  description: string;
+  category?: string;
+  trendGoal: "increase" | "decrease" | "stable";
+  formula?: string;
+  priority?: "high" | "low";
+}
 import type { ModelProposal } from "@/lib/ai/business-model-analyzer-types";
 import type { DatabaseKpi } from "@/lib/types/kpi";
 import { Button } from "@/components/ui/button";
@@ -64,7 +75,7 @@ export function KpiSelectionStep({
             []) as DatabaseKpi[];
 
           // Process cached data same as fresh data
-          let templates: KpiTemplate[] = [];
+          let templates: LocalKpiTemplate[] = [];
           if (recommendedKpis.length > 0 || additionalKpis.length > 0) {
             const allKpis = [...recommendedKpis, ...additionalKpis];
             templates = allKpis.map((kpi) => ({
@@ -79,7 +90,7 @@ export function KpiSelectionStep({
                 : ("low" as const),
             }));
           } else {
-            templates = KPI_TEMPLATES[businessType] ?? [];
+            templates = [];
           }
 
           const availability = evaluateKpiAvailability(
@@ -143,7 +154,7 @@ export function KpiSelectionStep({
         });
 
         // Use KPIs from database (recommended + additional) if available
-        let templates: KpiTemplate[] = [];
+        let templates: LocalKpiTemplate[] = [];
         if (recommendedKpis.length > 0 || additionalKpis.length > 0) {
           // Convert database KPIs to template format
           const allKpis = [...recommendedKpis, ...additionalKpis];
@@ -160,7 +171,7 @@ export function KpiSelectionStep({
           }));
         } else {
           // Fall back to templates (shouldn't happen in normal flow)
-          templates = KPI_TEMPLATES[businessType] ?? [];
+          templates = [];
         }
 
         const availability = evaluateKpiAvailability(
@@ -293,8 +304,8 @@ export function KpiSelectionStep({
   const additionalKpis = state.additionalKpis ?? [];
 
   // Use KPIs from database (recommended + additional) if available
-  let recommendedTemplates: KpiTemplate[] = [];
-  let additionalTemplates: KpiTemplate[] = [];
+  let recommendedTemplates: LocalKpiTemplate[] = [];
+  let additionalTemplates: LocalKpiTemplate[] = [];
 
   if (recommendedKpis.length > 0) {
     recommendedTemplates = recommendedKpis.map((kpi) => ({
@@ -325,18 +336,16 @@ export function KpiSelectionStep({
   const allDatabaseTemplates = [
     ...recommendedTemplates,
     ...additionalTemplates,
-  ] as KpiTemplate[];
+  ] as LocalKpiTemplate[];
 
   // Fallback to templates if no database KPIs (shouldn't happen in normal flow)
   const fallbackTemplates =
-    allDatabaseTemplates.length > 0
-      ? allDatabaseTemplates
-      : (KPI_TEMPLATES[businessType] ?? []);
+    allDatabaseTemplates.length > 0 ? allDatabaseTemplates : [];
 
   const availabilityById = new Map<string, KpiAvailability>();
   availabilities.forEach((a) => availabilityById.set(a.id, a));
 
-  const renderKpiCard = (tpl: KpiTemplate) => {
+  const renderKpiCard = (tpl: LocalKpiTemplate) => {
     const availability = availabilityById.get(tpl.id);
     const status = availability?.status ?? "available";
     const isSelected = selectedIds.includes(tpl.id);

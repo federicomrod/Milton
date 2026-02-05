@@ -442,7 +442,7 @@ export async function buildDashboardContextForUser(
     let businessModelTemplate:
       | DashboardContext["businessModelTemplate"]
       | undefined;
-    let modelTablesData: Record<string, any[]> = {};
+    const modelTablesData: Record<string, any[]> = {};
 
     if (company) {
       // Get business model to find the template key
@@ -457,7 +457,7 @@ export async function buildDashboardContextForUser(
         const { data: template } = await client
           .from("business_model_templates")
           .select(
-            "key, name, description, required_tables_data, required_table_ids, required_relationships, data_categories"
+            "key, name, description, required_tables_data, required_table_ids, required_relationships"
           )
           .eq("key", businessModel.business_type)
           .single();
@@ -513,21 +513,6 @@ export async function buildDashboardContextForUser(
             );
           }
 
-          // Parse data categories
-          let dataCategories: any[] = [];
-          try {
-            if (typeof template.data_categories === "string") {
-              dataCategories = JSON.parse(template.data_categories);
-            } else if (Array.isArray(template.data_categories)) {
-              dataCategories = template.data_categories;
-            }
-          } catch (e) {
-            console.error(
-              "[buildDashboardContextForUser] Failed to parse data_categories:",
-              e
-            );
-          }
-
           businessModelTemplate = {
             key: template.key,
             name: template.name,
@@ -544,10 +529,6 @@ export async function buildDashboardContextForUser(
               from_field: r.from_field,
               to_field: r.to_field,
               relationship_type: r.relationship_type,
-            })),
-            dataCategories: dataCategories.map((c: any) => ({
-              id: c.id,
-              name: c.name,
             })),
           };
         }

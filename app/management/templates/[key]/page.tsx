@@ -32,7 +32,6 @@ interface Template {
   kpi_ids?: string[];
   filters?: any[];
   mvp_guardrails?: any;
-  data_categories?: any[];
 }
 
 export default function TemplateEditorPage() {
@@ -52,7 +51,6 @@ export default function TemplateEditorPage() {
     kpi_ids: [],
     filters: [],
     mvp_guardrails: {},
-    data_categories: [],
   });
 
   useEffect(() => {
@@ -258,6 +256,7 @@ export default function TemplateEditorPage() {
           <TemplateKpisEditor
             selectedKpiIds={template.kpi_ids || []}
             onChange={(kpiIds) => updateTemplate({ kpi_ids: kpiIds })}
+            selectedTableIds={template.required_table_ids || []}
           />
         </TabsContent>
 

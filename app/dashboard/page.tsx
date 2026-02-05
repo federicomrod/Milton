@@ -2,14 +2,11 @@
 
 import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { FinancialCharts } from "@/components/dashboard/financial-charts";
-import { DashboardInsights } from "@/components/dashboard/dashboard-insights";
-import { useBusinessContext } from "@/lib/business-context";
 import { UploadInvitation } from "@/components/dashboard/upload-invitation";
 import { KpiSelector } from "@/components/dashboard/kpi-selector";
 import { KpisGrid } from "@/components/dashboard/kpis-grid";
 import { Loader2 } from "lucide-react";
-import type { DatabaseKpi } from "@/lib/types/kpi";
+import type { DatabaseKpi, SelectedKpi } from "@/lib/types/kpi";
 
 // Helper component for locked/missing data placeholders
 const LockedPlaceholder = ({ message }: { message: string }) => (
@@ -27,18 +24,15 @@ type DataStatus = {
 } | null;
 
 export default function DashboardPage() {
-  const { businessType } = useBusinessContext();
-
   const [dataStatus, setDataStatus] = useState<DataStatus>(null);
 
   // KPI state
-  const [selectedKpiIds, setSelectedKpiIds] = useState<string[]>([]);
-  const [selectedKpis, setSelectedKpis] = useState<DatabaseKpi[]>([]);
+  const [selectedKpiIds, setSelectedKpiIds] = useState<SelectedKpi[]>([]);
+  const [selectedKpis, setSelectedKpis] = useState<
+    Array<{ kpi: DatabaseKpi; display_type: "card" | "chart" }>
+  >([]);
   const [recommendedKpis, setRecommendedKpis] = useState<DatabaseKpi[]>([]);
   const [additionalKpis, setAdditionalKpis] = useState<DatabaseKpi[]>([]);
-  const [companyBusinessType, setCompanyBusinessType] = useState<string | null>(
-    null
-  );
   const [isLoading, setIsLoading] = useState(true);
   const dataLoadedRef = useRef(false);
   const kpisLoadedRef = useRef(false);
@@ -64,26 +58,6 @@ export default function DashboardPage() {
         } = await supabase.auth.getUser();
 
         if (user) {
-          // Get company
-          const { data: company } = await supabase
-            .from("companies")
-            .select("id")
-            .eq("created_by", user.id)
-            .single();
-
-          if (company) {
-            // Get business model for company
-            const { data: businessModel } = await supabase
-              .from("business_models")
-              .select("business_type")
-              .eq("company_id", company.id)
-              .single();
-
-            if (businessModel?.business_type) {
-              setCompanyBusinessType(businessModel.business_type);
-            }
-          }
-
           // Fetch data status
           const statusRes = await fetch("/api/data/status");
           if (statusRes.ok) {
@@ -123,7 +97,7 @@ export default function DashboardPage() {
 
         if (prefRes.ok) {
           const data = await prefRes.json();
-          const kpiIds = (data.selectedKpiIds ?? []) as string[];
+          const kpiIds = (data.selectedKpiIds ?? []) as SelectedKpi[];
           const recommended = (data.recommendedKpis ?? []) as DatabaseKpi[];
           const additional = (data.additionalKpis ?? []) as DatabaseKpi[];
           setSelectedKpiIds(kpiIds);
@@ -162,8 +136,8 @@ export default function DashboardPage() {
     };
   }, []);
 
-  const handleKpisChange = (newKpiIds: string[]) => {
-    setSelectedKpiIds(newKpiIds);
+  const handleKpisChange = (newSelectedKpis: SelectedKpi[]) => {
+    setSelectedKpiIds(newSelectedKpis);
     // Refetch displayed KPIs from API (source of truth) so all saved IDs show, not just those in the template pool
     fetch("/api/kpis/selected", { cache: "no-store", credentials: "include" })
       .then((r) => (r.ok ? r.json() : { selectedKpis: [] }))
@@ -191,7 +165,7 @@ export default function DashboardPage() {
       <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
           {/* Show business type badge */}
-          {companyBusinessType && (
+          {/* {companyBusinessType && (
             <div className="mb-6 flex items-center gap-2">
               <span className="text-sm text-muted-foreground">
                 Business Type:
@@ -200,62 +174,34 @@ export default function DashboardPage() {
                 {companyBusinessType}
               </span>
             </div>
-          )}
+          )} */}
 
           {/* Upload Invitation Section - Show if user hasn't uploaded data */}
-          {dataStatus &&
-            !(
-              dataStatus.bank ||
-              dataStatus.crm ||
-              dataStatus.budget ||
-              dataStatus.hasModelData
-            ) && (
-              <div className="mb-8">
-                <UploadInvitation />
-              </div>
-            )}
+          {dataStatus && !dataStatus.hasModelData && (
+            <div className="mb-8">
+              <UploadInvitation />
+            </div>
+          )}
 
-          {/* Overview Section - Key Metrics and Performance Charts */}
+          {/* KPIs Section - Unified Metrics and KPIs */}
           <div className="space-y-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Key Metrics</h2>
+              <h2 className="text-lg font-semibold">
+                Key Performance Indicators
+              </h2>
+              <KpiSelector
+                selectedKpiIds={selectedKpiIds}
+                onKpisChange={handleKpisChange}
+                recommendedKpis={recommendedKpis}
+                additionalKpis={additionalKpis}
+              />
             </div>
 
-            {dataStatus?.bank ||
-            dataStatus?.crm ||
-            dataStatus?.budget ||
-            dataStatus?.hasModelData ? (
-              <>
-                <div className="mt-8">
-                  <DashboardInsights />
-                </div>
-                <div className="space-y-4 mt-8">
-                  <h2 className="text-lg font-semibold">Performance Charts</h2>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <FinancialCharts type="mrr-vs-plan" />
-                    <FinancialCharts type="burn-rate" />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <LockedPlaceholder message="Upload your data in the 'Upload' section above to see your key metrics and performance charts." />
-            )}
-
-            {/* KPIs Section */}
-            <div className="mt-8 space-y-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">
-                  Key Performance Indicators
-                </h2>
-                <KpiSelector
-                  selectedKpiIds={selectedKpiIds}
-                  onKpisChange={handleKpisChange}
-                  recommendedKpis={recommendedKpis}
-                  additionalKpis={additionalKpis}
-                />
-              </div>
+            {dataStatus?.hasModelData ? (
               <KpisGrid selectedKpis={selectedKpis} />
-            </div>
+            ) : (
+              <LockedPlaceholder message="Upload your data in the 'Upload' section above to see your KPIs and metrics." />
+            )}
           </div>
         </div>
       </div>

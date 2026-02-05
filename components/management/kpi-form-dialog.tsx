@@ -36,7 +36,6 @@ interface FormData {
   name: string;
   definition: string;
   required_data: string[];
-  flexibility: Record<string, any>;
 }
 
 export function KpiFormDialog({
@@ -56,14 +55,12 @@ export function KpiFormDialog({
     handleSubmit,
     watch,
     reset,
-    setValue,
     formState: { errors },
   } = useForm<FormData>({
     defaultValues: {
       name: "",
       definition: "",
       required_data: [],
-      flexibility: {},
     },
   });
 
@@ -82,7 +79,6 @@ export function KpiFormDialog({
         name: kpi.name,
         definition: kpi.definition,
         required_data: kpi.required_data || [],
-        flexibility: kpi.flexibility || {},
       });
       setSelectedTables(kpi.required_data || []);
       setFlexibilityJson(JSON.stringify(kpi.flexibility || {}, null, 2));
@@ -91,7 +87,6 @@ export function KpiFormDialog({
         name: "",
         definition: "",
         required_data: [],
-        flexibility: {},
       });
       setSelectedTables([]);
       setFlexibilityJson("{}");
@@ -249,20 +244,10 @@ export function KpiFormDialog({
                 value={flexibilityJson}
                 onChange={(e) => {
                   setFlexibilityJson(e.target.value);
-                  try {
-                    const parsed = JSON.parse(e.target.value || "{}");
-                    setValue("flexibility", parsed);
-                  } catch (error) {
-                    // Invalid JSON, keep the current value
-                  }
                 }}
                 placeholder='{"allowed": {"aggregation": "Period total"}, "not_allowed": ["Custom definitions"]}'
                 rows={4}
-                className={errors.flexibility ? "border-destructive" : ""}
               />
-              {errors.flexibility && (
-                <p className="text-sm text-destructive">Invalid JSON format</p>
-              )}
               <p className="text-xs text-muted-foreground">
                 JSON configuration defining what operations are allowed or not
                 allowed for this KPI

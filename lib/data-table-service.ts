@@ -102,6 +102,13 @@ export async function getAllDataTables(): Promise<DataTable[]> {
 }
 
 /**
+ * Alias for getAllDataTables (for consistency)
+ */
+export async function getDataTables(): Promise<DataTable[]> {
+  return getAllDataTables();
+}
+
+/**
  * Get multiple data tables by their IDs
  */
 export async function getDataTablesByIds(ids: string[]): Promise<DataTable[]> {
@@ -169,23 +176,25 @@ export async function createDataTable(
 export async function updateDataTable(
   id: string,
   updates: Partial<Omit<DataTable, "id" | "created_at" | "updated_at">>
-): Promise<boolean> {
+): Promise<DataTable | null> {
   try {
     const supabase = createClient();
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("data_tables")
       .update(updates)
-      .eq("id", id);
+      .eq("id", id)
+      .select()
+      .single();
 
     if (error) {
       console.error("[updateDataTable] error:", error);
-      return false;
+      return null;
     }
 
-    return true;
+    return data as DataTable;
   } catch (err) {
     console.error("[updateDataTable] unexpected error:", err);
-    return false;
+    return null;
   }
 }
 
@@ -193,20 +202,18 @@ export async function updateDataTable(
  * Delete a data table (admin only)
  * RLS policies enforce admin-only access
  */
-export async function deleteDataTable(id: string): Promise<boolean> {
+export async function deleteDataTable(id: string): Promise<void> {
   try {
     const supabase = createClient();
     const { error } = await supabase.from("data_tables").delete().eq("id", id);
 
     if (error) {
       console.error("[deleteDataTable] error:", error);
-      return false;
+      throw error;
     }
-
-    return true;
   } catch (err) {
     console.error("[deleteDataTable] unexpected error:", err);
-    return false;
+    throw err;
   }
 }
 

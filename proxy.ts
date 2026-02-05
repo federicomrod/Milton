@@ -111,8 +111,24 @@ export async function proxy(request: NextRequest) {
 
   // Check onboarding status for protected routes (dashboard, analytics, etc.)
   // Skip this check if user is already on onboarding-required page
+  // Also skip for management routes (admin-only) and for admin users
+  const isAdmin = await (async () => {
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("user_id", user.id)
+        .single();
+      return profile?.role === "admin";
+    } catch {
+      return false;
+    }
+  })();
+
   if (
     pathname !== "/onboarding-required" &&
+    !pathname.startsWith("/management") &&
+    !isAdmin && // Skip onboarding check for admin users
     (pathname.startsWith("/dashboard") ||
       pathname.startsWith("/analytics") ||
       pathname.startsWith("/reporting"))
@@ -126,7 +142,7 @@ export async function proxy(request: NextRequest) {
         .single();
 
       console.log(
-        `[Proxy] User ${user.id} accessing ${pathname}, onboarding_status: ${company?.onboarding_status}`
+        `[Proxy] User ${user.id} accessing ${pathname}, onboarding_status: ${company?.onboarding_status}, is_admin: ${isAdmin}`
       );
 
       // If onboarding is not complete, redirect to onboarding-required page

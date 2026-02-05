@@ -13,12 +13,14 @@ import {
   Settings,
   Database,
   Network,
+  Shield,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 export function AppNavigation() {
   const pathname = usePathname();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -29,11 +31,24 @@ export function AppNavigation() {
           data: { user },
         } = await supabase.auth.getUser();
         setIsAuthenticated(!!user);
+
+        // Check if user is admin
+        if (user) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("role")
+            .eq("user_id", user.id)
+            .single();
+          setIsAdmin(profile?.role === "admin");
+        } else {
+          setIsAdmin(false);
+        }
       } catch (error) {
         // If Supabase is not configured (e.g., in tests or CI without env vars),
         // treat user as not authenticated
         console.warn("Auth check failed, assuming not authenticated:", error);
         setIsAuthenticated(false);
+        setIsAdmin(false);
       } finally {
         setLoading(false);
       }
@@ -54,7 +69,14 @@ export function AppNavigation() {
   // Or redirect to login if needed
   const isActive = (path: string) => {
     if (path === "/dashboard" && pathname === "/dashboard") return true;
-    if (path !== "/dashboard" && pathname?.startsWith(path)) return true;
+    if (path === "/management" && pathname?.startsWith("/management"))
+      return true;
+    if (
+      path !== "/dashboard" &&
+      path !== "/management" &&
+      pathname?.startsWith(path)
+    )
+      return true;
     return false;
   };
 
@@ -69,74 +91,92 @@ export function AppNavigation() {
               </h1>
             </Link>
 
-            {/* Main Navigation - only show if authenticated and not on root */}
-            {isAuthenticated && pathname !== "/" && (
-              <nav className="hidden md:flex items-center gap-1">
-                <Link href="/dashboard">
-                  <Button
-                    variant={
-                      isActive("/dashboard") && pathname === "/dashboard"
-                        ? "default"
-                        : "ghost"
-                    }
-                    size="sm"
-                    className="gap-2"
-                  >
-                    <LayoutDashboard className="h-4 w-4" />
-                    Dashboard
-                  </Button>
-                </Link>
-                <Link href="/dashboard/analytics">
-                  <Button
-                    variant={
-                      isActive("/dashboard/analytics") ? "default" : "ghost"
-                    }
-                    size="sm"
-                    className="gap-2"
-                  >
-                    <BarChart className="h-4 w-4" />
-                    Analytics
-                  </Button>
-                </Link>
-                <Link href="/dashboard/reporting">
-                  <Button
-                    variant={
-                      isActive("/dashboard/reporting") ? "default" : "ghost"
-                    }
-                    size="sm"
-                    className="gap-2"
-                  >
-                    <FileText className="h-4 w-4" />
-                    Reporting
-                  </Button>
-                </Link>
-                <Link href="/dashboard/data">
-                  <Button
-                    variant={
-                      isActive("/dashboard/data") ||
-                      isActive("/dashboard/upload")
-                        ? "default"
-                        : "ghost"
-                    }
-                    size="sm"
-                    className="gap-2"
-                  >
-                    <Database className="h-4 w-4" />
-                    Data
-                  </Button>
-                </Link>
-                <Link href="/dashboard/model">
-                  <Button
-                    variant={isActive("/dashboard/model") ? "default" : "ghost"}
-                    size="sm"
-                    className="gap-2"
-                  >
-                    <Network className="h-4 w-4" />
-                    Model
-                  </Button>
-                </Link>
-              </nav>
-            )}
+            {/* Main Navigation - only show if authenticated and not on root or management pages */}
+            {isAuthenticated &&
+              pathname !== "/" &&
+              !pathname.startsWith("/management") && (
+                <nav className="hidden md:flex items-center gap-1">
+                  <Link href="/dashboard">
+                    <Button
+                      variant={
+                        isActive("/dashboard") && pathname === "/dashboard"
+                          ? "default"
+                          : "ghost"
+                      }
+                      size="sm"
+                      className="gap-2"
+                    >
+                      <LayoutDashboard className="h-4 w-4" />
+                      Dashboard
+                    </Button>
+                  </Link>
+                  <Link href="/dashboard/analytics">
+                    <Button
+                      variant={
+                        isActive("/dashboard/analytics") ? "default" : "ghost"
+                      }
+                      size="sm"
+                      className="gap-2"
+                    >
+                      <BarChart className="h-4 w-4" />
+                      Analytics
+                    </Button>
+                  </Link>
+                  <Link href="/dashboard/reporting">
+                    <Button
+                      variant={
+                        isActive("/dashboard/reporting") ? "default" : "ghost"
+                      }
+                      size="sm"
+                      className="gap-2"
+                    >
+                      <FileText className="h-4 w-4" />
+                      Reporting
+                    </Button>
+                  </Link>
+                  <Link href="/dashboard/data">
+                    <Button
+                      variant={
+                        isActive("/dashboard/data") ||
+                        isActive("/dashboard/upload")
+                          ? "default"
+                          : "ghost"
+                      }
+                      size="sm"
+                      className="gap-2"
+                    >
+                      <Database className="h-4 w-4" />
+                      Data
+                    </Button>
+                  </Link>
+                  <Link href="/dashboard/model">
+                    <Button
+                      variant={
+                        isActive("/dashboard/model") ? "default" : "ghost"
+                      }
+                      size="sm"
+                      className="gap-2"
+                    >
+                      <Network className="h-4 w-4" />
+                      Model
+                    </Button>
+                  </Link>
+
+                  {/* Management button for admin users */}
+                  {isAdmin && (
+                    <Link href="/management/dashboard">
+                      <Button
+                        variant={isActive("/management") ? "default" : "ghost"}
+                        size="sm"
+                        className="gap-2"
+                      >
+                        <Shield className="h-4 w-4" />
+                        Management
+                      </Button>
+                    </Link>
+                  )}
+                </nav>
+              )}
           </div>
 
           <div className="flex items-center gap-2">

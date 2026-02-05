@@ -36,12 +36,28 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Get table ID from table name by querying data_tables
+    const { data: tableDef } = await supabase
+      .from("data_tables")
+      .select("id")
+      .eq("name", tableName)
+      .single();
+
+    if (!tableDef) {
+      return NextResponse.json(
+        { error: `Table "${tableName}" not found` },
+        { status: 404 }
+      );
+    }
+
+    const tableId = tableDef.id;
+
     // Get total count
     const { count: totalCount, error: countError } = await supabase
       .from("model_data")
       .select("*", { count: "exact", head: true })
       .eq("company_id", company.id)
-      .eq("model_table_name", tableName);
+      .eq("model_table_id", tableId);
 
     if (countError) {
       console.error("Error counting rows:", countError);
@@ -59,7 +75,7 @@ export async function GET(req: NextRequest) {
       .from("model_data")
       .select("data, created_at")
       .eq("company_id", company.id)
-      .eq("model_table_name", tableName)
+      .eq("model_table_id", tableId)
       .range(from, to)
       .order("created_at", { ascending: false });
 

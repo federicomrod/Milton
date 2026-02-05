@@ -457,20 +457,20 @@ export async function buildDashboardContextForUser(
         const { data: template } = await client
           .from("business_model_templates")
           .select(
-            "key, name, description, required_tables_data, required_table_ids, required_relationships"
+            "key, name, description, required_table_ids, required_relationships"
           )
           .eq("key", businessModel.business_type)
           .single();
 
         if (template) {
-          // Fetch data tables using new ID-based approach or fall back to legacy inline data
+          // Fetch data tables using new ID-based approach
           let requiredTables: any[] = [];
 
           if (
             template.required_table_ids &&
             template.required_table_ids.length > 0
           ) {
-            // NEW: Fetch tables from centralized data_tables
+            // Fetch tables from centralized data_tables
             const dataTables = await getDataTablesByIds(
               template.required_table_ids
             );
@@ -482,20 +482,6 @@ export async function buildDashboardContextForUser(
                 .map((f) => f.name),
               description: table.description,
             }));
-          } else if (template.required_tables_data) {
-            // LEGACY: Use inline table definitions
-            try {
-              if (typeof template.required_tables_data === "string") {
-                requiredTables = JSON.parse(template.required_tables_data);
-              } else if (Array.isArray(template.required_tables_data)) {
-                requiredTables = template.required_tables_data;
-              }
-            } catch (e) {
-              console.error(
-                "[buildDashboardContextForUser] Failed to parse required_tables_data:",
-                e
-              );
-            }
           }
 
           // Parse relationships
@@ -545,7 +531,7 @@ export async function buildDashboardContextForUser(
       while (hasMore) {
         const { data: modelDataPage, error: modelDataError } = await client
           .from("model_data")
-          .select("model_table_name, data")
+          .select("model_table_id, data")
           .eq("company_id", company.id)
           .range(from, from + pageSize - 1)
           .order("id", { ascending: true });
@@ -571,9 +557,22 @@ export async function buildDashboardContextForUser(
       const modelData = allModelData;
 
       if (modelData && modelData.length > 0) {
+        // Get table name mappings for the IDs
+        const tableIds = [
+          ...new Set(modelData.map((row) => row.model_table_id)),
+        ];
+        const { getDataTablesByIds } = await import("@/lib/data-table-service");
+        const tableDefinitions = await getDataTablesByIds(tableIds);
+        const idToNameMap: Record<string, string> = {};
+        tableDefinitions.forEach((table) => {
+          idToNameMap[table.id] = table.name;
+        });
+
         // Group data by table name
         for (const row of modelData) {
-          const tableName = row.model_table_name;
+          const tableName =
+            idToNameMap[row.model_table_id] ||
+            `unknown_table_${row.model_table_id}`;
           if (!modelTablesData[tableName]) {
             modelTablesData[tableName] = [];
           }

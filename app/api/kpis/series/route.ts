@@ -64,12 +64,23 @@ export async function GET(req: NextRequest) {
     if (activeMembersKpis.length > 0) {
       let members: MemberRecord[] = [];
       const tablesToTry = ["members", "customers"];
-      for (const table of tablesToTry) {
+
+      for (const tableName of tablesToTry) {
+        // Get table ID for this table name
+        const { data: tableDef } = await supabase
+          .from("data_tables")
+          .select("id")
+          .eq("name", tableName)
+          .single();
+
+        if (!tableDef) continue;
+
         const { data: rows, error } = await supabase
           .from("model_data")
           .select("data")
           .eq("company_id", company.id)
-          .ilike("model_table_name", table);
+          .eq("model_table_id", tableDef.id);
+
         if (!error && rows?.length) {
           for (const row of rows) {
             const d = row.data as unknown;

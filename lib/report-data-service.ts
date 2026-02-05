@@ -1,6 +1,7 @@
 // lib/report-data-service.ts
 import { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeStage } from "@/lib/utils/pipeline-utils";
+import { getDataTablesByIds } from "@/lib/data-table-service";
 import type {
   TransactionData,
   BudgetData,
@@ -74,7 +75,7 @@ export async function getReportData(
     while (hasMore) {
       const result = await supabase
         .from("model_data")
-        .select("model_table_name, data")
+        .select("model_table_id, data")
         .eq("company_id", company.id)
         .range(from, from + pageSize - 1)
         .order("id", { ascending: true });
@@ -86,7 +87,25 @@ export async function getReportData(
       }
 
       if (result.data && result.data.length > 0) {
-        modelData = [...modelData, ...result.data];
+        // Get table IDs and convert to names
+        const tableIds = [
+          ...new Set(result.data.map((row) => row.model_table_id)),
+        ];
+        const tableDefinitions = await getDataTablesByIds(tableIds);
+        const idToNameMap: Record<string, string> = {};
+        tableDefinitions.forEach((table) => {
+          idToNameMap[table.id] = table.name;
+        });
+
+        // Convert data to use table names
+        const convertedData = result.data.map((row) => ({
+          model_table_name:
+            idToNameMap[row.model_table_id] ||
+            `unknown_table_${row.model_table_id}`,
+          data: row.data,
+        }));
+
+        modelData = [...modelData, ...convertedData];
         from += pageSize;
         hasMore = result.data.length === pageSize; // If we got a full page, there might be more
       } else {

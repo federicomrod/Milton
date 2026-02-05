@@ -215,9 +215,7 @@ export async function POST(req: NextRequest) {
       // Fetch the business model template
       const { data: template, error: templateError } = await supabase
         .from("business_model_templates")
-        .select(
-          "required_tables_data, required_table_ids, required_relationships"
-        )
+        .select("required_table_ids, required_relationships")
         .eq("key", businessType)
         .single();
 
@@ -235,14 +233,14 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Fetch data tables using new ID-based approach or fall back to legacy inline data
+      // Fetch data tables using new ID-based approach
       let recommendedTables: any[] = [];
 
       if (
         template.required_table_ids &&
         template.required_table_ids.length > 0
       ) {
-        // NEW: Fetch tables from centralized data_tables
+        // Fetch tables from centralized data_tables
         const dataTables = await getDataTablesByIds(
           template.required_table_ids
         );
@@ -256,29 +254,6 @@ export async function POST(req: NextRequest) {
             references: field.references,
           })),
         }));
-      } else if (
-        template.required_tables_data &&
-        template.required_tables_data.length > 0
-      ) {
-        // LEGACY: Use inline table definitions (for backwards compatibility)
-        recommendedTables = (template.required_tables_data || []).map(
-          (table: any) => {
-            const tableName = table.name || table.table_name;
-            const fieldNames = table.fields || [];
-            const requiredFields = table.required_fields || [];
-
-            return {
-              name: tableName,
-              fields: fieldNames.map((fieldName: string) => {
-                const isRequired = requiredFields.includes(fieldName);
-                return {
-                  name: fieldName,
-                  required: isRequired,
-                };
-              }),
-            };
-          }
-        );
       }
 
       // Parse relationships (support both old string-based and new ID-based formats)

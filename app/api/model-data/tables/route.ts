@@ -1,5 +1,5 @@
 // GET /api/model-data/tables
-// Returns list of available model table names for the current user
+// Returns list of available model table IDs for the current user
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
@@ -27,22 +27,22 @@ export async function GET() {
       return NextResponse.json({ error: "company_not_found" }, { status: 404 });
     }
 
-    // Get distinct model_table_name values for this company
+    // Get distinct model_table_id values for this company
     const { data: tables, error: tablesError } = await supabase
       .from("model_data")
-      .select("model_table_name")
+      .select("model_table_id")
       .eq("company_id", company.id);
 
     if (tablesError) {
-      return NextResponse.json({ tables: [] });
+      return NextResponse.json({ tableIds: [] });
     }
 
-    // Extract unique table names
-    const uniqueTables = Array.from(
-      new Set(tables?.map((row) => row.model_table_name) || [])
+    // Extract unique table IDs
+    const uniqueTableIds = Array.from(
+      new Set(tables?.map((row) => row.model_table_id) || [])
     );
 
-    return NextResponse.json({ tables: uniqueTables });
+    return NextResponse.json({ tableIds: uniqueTableIds });
   } catch (err) {
     return NextResponse.json(
       { error: "Internal server error", tables: [] },

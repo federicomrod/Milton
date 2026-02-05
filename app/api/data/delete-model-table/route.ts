@@ -42,6 +42,22 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
+    // Get table ID from table name by querying data_tables
+    const { data: dataTableDef } = await supabase
+      .from("data_tables")
+      .select("id")
+      .eq("name", tableName)
+      .single();
+
+    if (!dataTableDef) {
+      return NextResponse.json(
+        { error: `Table "${tableName}" not found` },
+        { status: 404 }
+      );
+    }
+
+    const tableId = dataTableDef.id;
+
     // Verify the table exists in the model
     const { data: businessModel } = await supabase
       .from("business_models")
@@ -73,7 +89,7 @@ export async function DELETE(req: NextRequest) {
       .from("model_data")
       .delete()
       .eq("company_id", company.id)
-      .eq("model_table_name", tableName)
+      .eq("model_table_id", tableId)
       .select("id");
 
     if (deleteError) {

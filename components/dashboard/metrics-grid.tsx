@@ -209,13 +209,6 @@ export function MetricsGrid({
         // Use the same service that MiltonChat uses
         const reportData = await getReportData(supabase, user.id);
 
-        console.log("MetricsGrid: Report data loaded:", {
-          transactionsCount: reportData.transactions?.length || 0,
-          crmDealsCount: reportData.crmDeals?.length || 0,
-          revenue: reportData.kpis.revenue,
-          expenses: reportData.kpis.expenses,
-        });
-
         // Convert Supabase data to expected format with validation
         const transactions: Transaction[] = (reportData.transactions || [])
           .map((tx: TransactionData) => ({

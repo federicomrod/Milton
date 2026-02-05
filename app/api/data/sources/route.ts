@@ -32,48 +32,63 @@ export async function GET() {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
-    // Define known table types
-    const knownTables = [
-      "members",
-      "transactions",
-      "classes",
-      "bookings",
-      "instructors",
-      "customers",
-      "deals",
-      "payments",
-      "budget",
-      "forecast",
-      "sales",
-      "revenue",
-      "expenses",
-      "payroll",
-      "inventory",
-      "products",
-      "suppliers",
-    ];
+    // Get business model template to find required tables
+    const { data: businessModel } = await supabase
+      .from("business_models")
+      .select("business_type")
+      .eq("company_id", company.id)
+      .single();
+
+    let requiredTableIds: string[] = [];
+
+    if (businessModel?.business_type) {
+      const { data: template } = await supabase
+        .from("business_model_templates")
+        .select("required_table_ids")
+        .eq("key", businessModel.business_type)
+        .single();
+
+      if (template?.required_table_ids) {
+        requiredTableIds = template.required_table_ids;
+      }
+    }
+
+    // If no template or no required tables, return empty
+    if (requiredTableIds.length === 0) {
+      return NextResponse.json({ dataSources: [] });
+    }
+
+    // Get table definitions for the required table IDs
+    const { data: tableDefinitions } = await supabase
+      .from("data_tables")
+      .select("id, name")
+      .in("id", requiredTableIds);
+
+    if (!tableDefinitions || tableDefinitions.length === 0) {
+      return NextResponse.json({ dataSources: [] });
+    }
 
     const dataSources: DataSourceInfo[] = [];
 
-    // Query all table counts in parallel for better performance
-    const countPromises = knownTables.map(async (tableName) => {
+    // Query data counts for each required table
+    const countPromises = tableDefinitions.map(async (tableDef) => {
       try {
         const { count, error } = await supabase
           .from("model_data")
           .select("*", { count: "exact", head: true })
           .eq("company_id", company.id)
-          .eq("model_table_name", tableName);
+          .eq("model_table_id", tableDef.id);
 
-        if (!error && count && count > 0) {
+        if (!error) {
           return {
-            name: tableName,
-            label: getTableDisplayName(tableName),
-            count,
+            name: tableDef.name,
+            label: getTableDisplayName(tableDef.name),
+            count: count || 0,
           };
         }
         return null;
       } catch (err) {
-        console.warn(`⚠️ Error counting ${tableName}:`, err);
+        console.warn(`⚠️ Error counting ${tableDef.name}:`, err);
         return null;
       }
     });

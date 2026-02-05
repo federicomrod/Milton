@@ -76,11 +76,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Get table ID from table name by querying data_tables
+    const { data: dataTableDef } = await supabase
+      .from("data_tables")
+      .select("id")
+      .eq("name", tableName)
+      .single();
+
+    if (!dataTableDef) {
+      return NextResponse.json(
+        { error: `Table "${tableName}" not found in data tables` },
+        { status: 404 }
+      );
+    }
+
+    const tableId = dataTableDef.id;
+
     // Insert data into model_data table (company-scoped; no user_id)
     // Rows are already transformed by the client
     const insertData = rows.map((row) => ({
       company_id: company.id,
-      model_table_name: tableName,
+      model_table_id: tableId,
       data: row,
       indexed_fields: extractIndexedFields(row, tableName),
     }));

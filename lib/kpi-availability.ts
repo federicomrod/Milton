@@ -1,8 +1,5 @@
 // lib/kpi-availability.ts
-// Evaluates which KPIs can be calculated based on the data model
-
-import type { ModelProposal } from "@/lib/ai/business-model-analyzer-types";
-import type { KpiTemplate } from "@/lib/kpi-templates";
+// Simplified KPI availability - now handled by database KPI required_data field
 
 export type KpiAvailabilityStatus = "available" | "requiresData";
 
@@ -12,81 +9,17 @@ export interface KpiAvailability {
   reason?: string;
 }
 
-function modelHasTable(
-  model: ModelProposal | null | undefined,
-  tableId: string
-): boolean {
-  if (!model) return false;
-  return (
-    model.recommendedTables?.some(
-      (t) => t.name?.toLowerCase() === tableId.toLowerCase()
-    ) ?? false
-  );
-}
-
+// Simplified function - availability is now determined by template KPI editor
+// based on database KPI required_data field
 export function evaluateKpiAvailability(
   businessType: string,
-  model: ModelProposal | null | undefined,
-  templates: KpiTemplate[]
+  model: any,
+  templates: any[]
 ): KpiAvailability[] {
-  return templates.map((tpl) => {
-    // Very simple v1 rules. We can refine later.
-    if (businessType === "fitness_studio") {
-      if (
-        tpl.id === "class_utilization" ||
-        tpl.id === "avg_attendance_per_class"
-      ) {
-        const ok =
-          modelHasTable(model, "bookings") && modelHasTable(model, "classes");
-        return ok
-          ? { id: tpl.id, status: "available" }
-          : {
-              id: tpl.id,
-              status: "requiresData",
-              reason: "Requires bookings linked to classes (with capacity).",
-            };
-      }
-
-      if (tpl.id === "cancellation_rate") {
-        const ok = modelHasTable(model, "bookings");
-        return ok
-          ? { id: tpl.id, status: "available" }
-          : {
-              id: tpl.id,
-              status: "requiresData",
-              reason:
-                "Requires a bookings table with status/cancellation info.",
-            };
-      }
-
-      if (tpl.id === "instructor_margin") {
-        const ok =
-          modelHasTable(model, "bookings") &&
-          modelHasTable(model, "instructors");
-        return ok
-          ? { id: tpl.id, status: "available" }
-          : {
-              id: tpl.id,
-              status: "requiresData",
-              reason:
-                "Requires instructors and bookings linked to them plus their cost.",
-            };
-      }
-
-      if (tpl.id === "pack_membership_sales") {
-        const ok = modelHasTable(model, "payments");
-        return ok
-          ? { id: tpl.id, status: "available" }
-          : {
-              id: tpl.id,
-              status: "requiresData",
-              reason: "Requires a payments or membership sales table.",
-            };
-      }
-    }
-
-    // For SaaS and Agency, or unhandled fitness KPIs: assume available for now
-    // In v2, we can add more sophisticated checks
-    return { id: tpl.id, status: "available" };
-  });
+  // Return all templates as available since availability is now checked
+  // in the template editor based on selected data tables
+  return templates.map((tpl) => ({
+    id: tpl.id,
+    status: "available" as const,
+  }));
 }

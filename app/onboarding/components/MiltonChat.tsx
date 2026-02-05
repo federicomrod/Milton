@@ -28,9 +28,10 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import {
   getBusinessModelTemplates,
-  getDataCategoriesForBusinessType,
   type BusinessTypeDefinition,
 } from "@/lib/business-model-templates";
+import { getDataTablesForTemplate } from "@/lib/data-table-service";
+import { type DataTable } from "@/lib/types/data";
 
 const EMPLOYEE_RANGES = [
   { id: "1-5", label: "1-5 employees", value: "1-5" },
@@ -92,9 +93,7 @@ export default function MiltonChat({
   const [selectedEmployeeRange, setSelectedEmployeeRange] = useState<
     string | null
   >(null);
-  const [dataCategories, setDataCategories] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
+  const [dataTables, setDataTables] = useState<DataTable[]>([]);
   const [selectedDataCategories, setSelectedDataCategories] = useState<
     Record<string, "yes" | "no" | "not_sure">
   >({});
@@ -399,18 +398,17 @@ export default function MiltonChat({
     loadBusinessTypes();
   }, []);
 
-  // Load data categories when business type is selected
+  // Load data tables when business type is selected
   useEffect(() => {
-    const loadDataCategories = async () => {
+    const loadDataTables = async () => {
       if (selectedBusinessType) {
-        const categories =
-          await getDataCategoriesForBusinessType(selectedBusinessType);
-        setDataCategories(categories);
+        const tables = await getDataTablesForTemplate(selectedBusinessType);
+        setDataTables(tables);
         // Reset selected data categories when business type changes
         setSelectedDataCategories({});
       }
     };
-    loadDataCategories();
+    loadDataTables();
   }, [selectedBusinessType]);
 
   // Load existing chat on mount and restore state
@@ -680,7 +678,7 @@ export default function MiltonChat({
       case "revenue":
         return "e.g., Subscription fees, product sales";
       case "data":
-        return "Select data categories above...";
+        return "Select data tables above...";
       case "systems":
         return "e.g., Salesforce, Stripe, NetSuite";
       case "business_context":
@@ -891,31 +889,31 @@ export default function MiltonChat({
             ) : step === "data" ? (
               <div className="space-y-4">
                 <div className="text-sm text-muted-foreground mb-4">
-                  Select which data categories you currently track. You can
-                  select multiple and change this later.
+                  Select which data you currently track. You can select multiple
+                  and change this later.
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {dataCategories.map((category) => (
+                  {dataTables.map((table) => (
                     <div
-                      key={category.id}
+                      key={table.id}
                       className="flex items-center space-x-3 p-3 border rounded-lg"
                     >
                       <div className="flex-1">
-                        <div className="font-medium">{category.name}</div>
+                        <div className="font-medium">{table.name}</div>
                       </div>
                       <div className="flex space-x-2">
                         <Button
                           type="button"
                           size="sm"
                           variant={
-                            selectedDataCategories[category.id] === "yes"
+                            selectedDataCategories[table.id] === "yes"
                               ? "default"
                               : "outline"
                           }
                           onClick={() =>
                             setSelectedDataCategories((prev) => ({
                               ...prev,
-                              [category.id]: "yes",
+                              [table.id]: "yes",
                             }))
                           }
                           className="text-xs px-3 py-1"
@@ -926,14 +924,14 @@ export default function MiltonChat({
                           type="button"
                           size="sm"
                           variant={
-                            selectedDataCategories[category.id] === "no"
+                            selectedDataCategories[table.id] === "no"
                               ? "default"
                               : "outline"
                           }
                           onClick={() =>
                             setSelectedDataCategories((prev) => ({
                               ...prev,
-                              [category.id]: "no",
+                              [table.id]: "no",
                             }))
                           }
                           className="text-xs px-3 py-1"
@@ -944,14 +942,14 @@ export default function MiltonChat({
                           type="button"
                           size="sm"
                           variant={
-                            selectedDataCategories[category.id] === "not_sure"
+                            selectedDataCategories[table.id] === "not_sure"
                               ? "default"
                               : "outline"
                           }
                           onClick={() =>
                             setSelectedDataCategories((prev) => ({
                               ...prev,
-                              [category.id]: "not_sure",
+                              [table.id]: "not_sure",
                             }))
                           }
                           className="text-xs px-3 py-1"
@@ -965,27 +963,26 @@ export default function MiltonChat({
                 <Button
                   type="button"
                   onClick={() => {
-                    // Convert selected categories to a string for the answers
-                    const selectedCategoriesText = Object.entries(
+                    // Convert selected tables to a string for the answers
+                    const selectedTablesText = Object.entries(
                       selectedDataCategories
                     )
                       .filter(([, status]) => status === "yes")
                       .map(
                         ([id]) =>
-                          dataCategories.find((cat) => cat.id === id)?.name
+                          dataTables.find((table) => table.id === id)?.name
                       )
                       .filter(Boolean)
                       .join(", ");
                     setAnswers((a) => ({
                       ...a,
                       dataSources:
-                        selectedCategoriesText || "No data categories selected",
+                        selectedTablesText || "No data tables selected",
                     }));
 
                     // Add user response to chat
                     const userResponse =
-                      selectedCategoriesText ||
-                      "No specific data categories selected";
+                      selectedTablesText || "No specific data tables selected";
                     setMessages((prev) => [
                       ...prev,
                       { from: "user", text: userResponse },

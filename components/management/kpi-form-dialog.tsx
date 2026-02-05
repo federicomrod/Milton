@@ -115,11 +115,11 @@ export function KpiFormDialog({
     }
   };
 
-  const toggleTable = (tableName: string) => {
+  const toggleTable = (tableId: string) => {
     setSelectedTables((prev) =>
-      prev.includes(tableName)
-        ? prev.filter((t) => t !== tableName)
-        : [...prev, tableName]
+      prev.includes(tableId)
+        ? prev.filter((t) => t !== tableId)
+        : [...prev, tableId]
     );
   };
 
@@ -239,8 +239,8 @@ export function KpiFormDialog({
                     >
                       <input
                         type="checkbox"
-                        checked={selectedTables.includes(table.name)}
-                        onChange={() => toggleTable(table.name)}
+                        checked={selectedTables.includes(table.id)}
+                        onChange={() => toggleTable(table.id)}
                         className="rounded border-gray-300"
                       />
                       <span className="text-sm">{table.name}</span>
@@ -344,14 +344,17 @@ export function KpiFormDialog({
                   <div className="pt-4 border-t">
                     <p className="text-xs font-medium mb-2">Required Data:</p>
                     <div className="flex flex-wrap gap-2">
-                      {selectedTables.map((table) => (
-                        <span
-                          key={table}
-                          className="text-xs bg-secondary px-2 py-1 rounded"
-                        >
-                          {table}
-                        </span>
-                      ))}
+                      {selectedTables.map((tableId) => {
+                        const table = dataTables.find((t) => t.id === tableId);
+                        return (
+                          <span
+                            key={tableId}
+                            className="text-xs bg-secondary px-2 py-1 rounded"
+                          >
+                            {table ? table.name : tableId}
+                          </span>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

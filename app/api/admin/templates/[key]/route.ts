@@ -69,7 +69,6 @@ export async function PUT(
       kpi_ids,
       filters,
       mvp_guardrails,
-      data_categories,
     } = body;
 
     const { data, error } = await supabase
@@ -82,7 +81,6 @@ export async function PUT(
         kpi_ids,
         filters,
         mvp_guardrails,
-        data_categories,
       })
       .eq("key", key)
       .select()

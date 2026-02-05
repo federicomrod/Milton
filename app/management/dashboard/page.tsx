@@ -46,15 +46,6 @@ export default async function ManagementDashboard() {
       bgColor: "bg-blue-50",
     },
     {
-      title: "Metrics",
-      description: "Manage business metrics",
-      icon: BarChart3,
-      href: "/management/metrics",
-      count: counts.metrics,
-      color: "text-green-600",
-      bgColor: "bg-green-50",
-    },
-    {
       title: "Templates",
       description: "Manage business model templates",
       icon: FileText,

@@ -34,11 +34,11 @@ export function DeleteConfirmationDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription className="space-y-2">
-            <p>{description}</p>
+            {description}
             {impactWarning && (
-              <p className="text-destructive font-medium mt-2">
+              <div className="text-destructive font-medium mt-2">
                 ⚠️ {impactWarning}
-              </p>
+              </div>
             )}
           </AlertDialogDescription>
         </AlertDialogHeader>

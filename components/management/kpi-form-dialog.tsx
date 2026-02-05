@@ -36,6 +36,7 @@ interface FormData {
   name: string;
   definition: string;
   required_data: string[];
+  flexibility: Record<string, any>;
 }
 
 export function KpiFormDialog({
@@ -47,6 +48,7 @@ export function KpiFormDialog({
   const [loading, setLoading] = useState(false);
   const [dataTables, setDataTables] = useState<DataTable[]>([]);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
+  const [flexibilityJson, setFlexibilityJson] = useState<string>("{}");
   const { toast } = useToast();
 
   const {
@@ -61,6 +63,7 @@ export function KpiFormDialog({
       name: "",
       definition: "",
       required_data: [],
+      flexibility: {},
     },
   });
 
@@ -79,15 +82,19 @@ export function KpiFormDialog({
         name: kpi.name,
         definition: kpi.definition,
         required_data: kpi.required_data || [],
+        flexibility: kpi.flexibility || {},
       });
       setSelectedTables(kpi.required_data || []);
+      setFlexibilityJson(JSON.stringify(kpi.flexibility || {}, null, 2));
     } else {
       reset({
         name: "",
         definition: "",
         required_data: [],
+        flexibility: {},
       });
       setSelectedTables([]);
+      setFlexibilityJson("{}");
     }
   }, [kpi, reset, open]);
 
@@ -112,6 +119,19 @@ export function KpiFormDialog({
     setLoading(true);
 
     try {
+      // Parse flexibility JSON
+      let flexibility = {};
+      try {
+        flexibility = JSON.parse(flexibilityJson || "{}");
+      } catch (error) {
+        toast({
+          title: "Validation Error",
+          description: "Flexibility configuration must be valid JSON",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const url = kpi ? `/api/admin/kpis/${kpi.id}` : "/api/admin/kpis";
       const method = kpi ? "PUT" : "POST";
 
@@ -122,7 +142,7 @@ export function KpiFormDialog({
           name: data.name,
           definition: data.definition,
           required_data: selectedTables,
-          flexibility: {},
+          flexibility,
         }),
       });
 
@@ -219,6 +239,33 @@ export function KpiFormDialog({
               </div>
               <p className="text-xs text-muted-foreground">
                 Select tables required to calculate this KPI
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="flexibility">Flexibility Configuration</Label>
+              <Textarea
+                id="flexibility"
+                value={flexibilityJson}
+                onChange={(e) => {
+                  setFlexibilityJson(e.target.value);
+                  try {
+                    const parsed = JSON.parse(e.target.value || "{}");
+                    setValue("flexibility", parsed);
+                  } catch (error) {
+                    // Invalid JSON, keep the current value
+                  }
+                }}
+                placeholder='{"allowed": {"aggregation": "Period total"}, "not_allowed": ["Custom definitions"]}'
+                rows={4}
+                className={errors.flexibility ? "border-destructive" : ""}
+              />
+              {errors.flexibility && (
+                <p className="text-sm text-destructive">Invalid JSON format</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                JSON configuration defining what operations are allowed or not
+                allowed for this KPI
               </p>
             </div>
           </form>

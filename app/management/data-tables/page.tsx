@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Plus } from "lucide-react";
 import { DataTableFormDialog } from "@/components/management/data-table-form-dialog";
 import { DeleteConfirmationDialog } from "@/components/management/delete-confirmation-dialog";
+import { DataTableTemplatesCell } from "@/components/management/data-table-templates-cell";
 import { useToast } from "@/components/ui/use-toast";
 import type { DataTable } from "@/lib/types/data";
 
@@ -139,14 +140,9 @@ export default function DataTablesPage() {
       ),
     },
     {
-      key: "business_model_template_key",
-      label: "Template",
-      render: (table) =>
-        table.business_model_template_key ? (
-          <Badge>{table.business_model_template_key}</Badge>
-        ) : (
-          <span className="text-muted-foreground">Unassigned</span>
-        ),
+      key: "templates",
+      label: "Used By",
+      render: (table) => <DataTableTemplatesCell tableId={table.id} />,
     },
   ];
 

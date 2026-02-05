@@ -61,7 +61,7 @@ export default function OnboardingModelPage() {
           const { data: template, error: templateError } = await supabase
             .from("business_model_templates")
             .select(
-              "required_tables_data, required_table_ids, required_relationships, suggested_metrics"
+              "required_tables_data, required_table_ids, required_relationships"
             )
             .eq("key", businessModel.business_type)
             .single();
@@ -156,7 +156,6 @@ export default function OnboardingModelPage() {
             .from("business_models")
             .update({
               canonical_model: canonicalModel,
-              metrics: template.suggested_metrics || [],
             })
             .eq("company_id", company.id);
 

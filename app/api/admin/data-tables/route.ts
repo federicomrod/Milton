@@ -52,8 +52,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { slug, name, description, fields, business_model_template_key } =
-      body;
+    const { slug, name, description, fields } = body;
 
     // Validation
     if (!slug || !name || !fields || !Array.isArray(fields)) {
@@ -77,7 +76,6 @@ export async function POST(req: NextRequest) {
         name,
         description: description || null,
         fields: fields || [],
-        business_model_template_key: business_model_template_key || null,
       })
       .select()
       .single();

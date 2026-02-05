@@ -19,13 +19,16 @@ import { useToast } from "@/components/ui/use-toast";
 import { Save, ArrowLeft } from "lucide-react";
 import { TemplateDataTablesEditor } from "@/components/management/template-data-tables-editor";
 import { TemplateKpisEditor } from "@/components/management/template-kpis-editor";
+import { TemplateRelationshipsEditor } from "@/components/management/template-relationships-editor";
+import { TemplateModelPreview } from "@/components/management/template-model-preview";
+import type { DataTableRelationship } from "@/lib/types/data";
 
 interface Template {
   key: string;
   name: string;
   description?: string;
   required_table_ids?: string[];
-  required_relationships?: any[];
+  required_relationships?: DataTableRelationship[];
   kpi_ids?: string[];
   filters?: any[];
   mvp_guardrails?: any;
@@ -174,7 +177,9 @@ export default function TemplateEditorPage() {
         <TabsList>
           <TabsTrigger value="basic">Basic Info</TabsTrigger>
           <TabsTrigger value="tables">Data Tables</TabsTrigger>
+          <TabsTrigger value="relationships">Relationships</TabsTrigger>
           <TabsTrigger value="kpis">KPIs</TabsTrigger>
+          <TabsTrigger value="model">Model Preview</TabsTrigger>
         </TabsList>
 
         <TabsContent value="basic">
@@ -239,10 +244,27 @@ export default function TemplateEditorPage() {
           />
         </TabsContent>
 
+        <TabsContent value="relationships">
+          <TemplateRelationshipsEditor
+            relationships={template.required_relationships || []}
+            onChange={(relationships) =>
+              updateTemplate({ required_relationships: relationships })
+            }
+            selectedTableIds={template.required_table_ids || []}
+          />
+        </TabsContent>
+
         <TabsContent value="kpis">
           <TemplateKpisEditor
             selectedKpiIds={template.kpi_ids || []}
             onChange={(kpiIds) => updateTemplate({ kpi_ids: kpiIds })}
+          />
+        </TabsContent>
+
+        <TabsContent value="model">
+          <TemplateModelPreview
+            selectedTableIds={template.required_table_ids || []}
+            relationships={template.required_relationships || []}
           />
         </TabsContent>
       </Tabs>

@@ -21,7 +21,6 @@ interface Template {
   description?: string;
   kpi_ids?: string[];
   required_table_ids?: string[];
-  suggested_metrics?: string[];
 }
 
 export default function TemplatesPage() {
@@ -120,12 +119,6 @@ export default function TemplatesPage() {
                 <span className="text-muted-foreground">Data Tables:</span>
                 <Badge variant="secondary">
                   {template.required_table_ids?.length || 0}
-                </Badge>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Metrics:</span>
-                <Badge variant="secondary">
-                  {template.suggested_metrics?.length || 0}
                 </Badge>
               </div>
             </CardContent>

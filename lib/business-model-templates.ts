@@ -16,7 +16,6 @@ export interface BusinessModelTemplate {
   filters?: any[]; // JSONB array of filter definitions
   mvp_guardrails?: Record<string, any>; // JSONB object containing MVP guardrails
   data_categories?: any[]; // JSONB array of data categories
-  suggested_metrics?: any[]; // JSONB array of suggested metrics
   created_at?: string;
   updated_at?: string;
 }

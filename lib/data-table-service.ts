@@ -60,14 +60,38 @@ export async function getDataTablesForTemplate(
 ): Promise<DataTable[]> {
   try {
     const supabase = createClient();
+
+    // Get the template to find its required table IDs
+    const { data: template, error: templateError } = await supabase
+      .from("business_model_templates")
+      .select("required_table_ids")
+      .eq("key", templateKey)
+      .single();
+
+    if (templateError) {
+      console.error(
+        "[getDataTablesForTemplate] template error:",
+        templateError
+      );
+      return [];
+    }
+
+    if (
+      !template.required_table_ids ||
+      !Array.isArray(template.required_table_ids)
+    ) {
+      return [];
+    }
+
+    // Fetch the actual data tables
     const { data, error } = await supabase
       .from("data_tables")
       .select("*")
-      .eq("business_model_template_key", templateKey)
+      .in("id", template.required_table_ids)
       .order("name");
 
     if (error) {
-      console.error("[getDataTablesForTemplate] error:", error);
+      console.error("[getDataTablesForTemplate] data tables error:", error);
       return [];
     }
 
@@ -152,7 +176,6 @@ export async function createDataTable(
         name: table.name,
         description: table.description || null,
         fields: table.fields || [],
-        business_model_template_key: table.business_model_template_key || null,
       })
       .select()
       .single();
@@ -178,10 +201,13 @@ export async function updateDataTable(
   updates: Partial<Omit<DataTable, "id" | "created_at" | "updated_at">>
 ): Promise<DataTable | null> {
   try {
+    // Remove business_model_template_key from updates if it exists (for backward compatibility)
+    const { business_model_template_key, ...cleanUpdates } = updates as any;
+
     const supabase = createClient();
     const { data, error } = await supabase
       .from("data_tables")
-      .update(updates)
+      .update(cleanUpdates)
       .eq("id", id)
       .select()
       .single();

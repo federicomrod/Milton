@@ -23,8 +23,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { slug, name, description, fields, business_model_template_key } =
-      body;
+    const { slug, name, description, fields } = body;
 
     // Validation
     if (fields && (!Array.isArray(fields) || fields.length === 0)) {
@@ -41,7 +40,6 @@ export async function PUT(
         name,
         description: description || null,
         fields: fields || [],
-        business_model_template_key: business_model_template_key || null,
       })
       .eq("id", id)
       .select()

@@ -25,13 +25,7 @@ export async function GET(req: NextRequest) {
 
     if (error) throw error;
 
-    // Transform required_tables_data to required_table_ids for frontend compatibility
-    const transformedData = data?.map((template: any) => ({
-      ...template,
-      required_table_ids: template.required_tables_data || [],
-    }));
-
-    return NextResponse.json(transformedData);
+    return NextResponse.json(data);
   } catch (error: any) {
     console.error("Error fetching templates:", error);
     return NextResponse.json(
@@ -98,7 +92,7 @@ export async function POST(req: NextRequest) {
         key,
         name,
         description: description || null,
-        required_tables_data: required_table_ids || [],
+        required_table_ids: required_table_ids || [],
         required_relationships: required_relationships || [],
         kpi_ids: kpi_ids || [],
         filters: filters || [],
@@ -110,13 +104,7 @@ export async function POST(req: NextRequest) {
 
     if (error) throw error;
 
-    // Transform required_tables_data to required_table_ids for frontend compatibility
-    const transformedData = {
-      ...data,
-      required_table_ids: data.required_tables_data || [],
-    };
-
-    return NextResponse.json(transformedData, { status: 201 });
+    return NextResponse.json(data, { status: 201 });
   } catch (error: any) {
     console.error("Error creating template:", error);
     return NextResponse.json(

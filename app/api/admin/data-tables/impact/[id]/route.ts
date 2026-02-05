@@ -25,7 +25,7 @@ export async function GET(
     // Get the data table
     const { data: dataTable, error: dataTableError } = await supabase
       .from("data_tables")
-      .select("slug, business_model_template_key")
+      .select("slug")
       .eq("id", id)
       .single();
 

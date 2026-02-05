@@ -37,17 +37,10 @@ interface FormData {
   slug: string;
   name: string;
   description: string;
-  business_model_template_key: string;
   fields: DataTableField[];
 }
 
 const fieldTypes = ["string", "number", "date", "boolean"];
-const templateOptions = [
-  { value: "none", label: "None" },
-  { value: "saas", label: "SaaS" },
-  { value: "fitness_studio", label: "Fitness Studio" },
-  { value: "agency", label: "Agency" },
-];
 
 export function DataTableFormDialog({
   open,
@@ -71,7 +64,6 @@ export function DataTableFormDialog({
       slug: "",
       name: "",
       description: "",
-      business_model_template_key: "",
       fields: [
         { name: "", type: "string", required: false, primaryKey: false },
       ],
@@ -91,8 +83,6 @@ export function DataTableFormDialog({
         slug: dataTable.slug,
         name: dataTable.name,
         description: dataTable.description || "",
-        business_model_template_key:
-          dataTable.business_model_template_key || "none",
         fields:
           dataTable.fields.length > 0
             ? dataTable.fields
@@ -110,7 +100,6 @@ export function DataTableFormDialog({
         slug: "",
         name: "",
         description: "",
-        business_model_template_key: "none",
         fields: [
           { name: "", type: "string", required: false, primaryKey: false },
         ],
@@ -154,10 +143,6 @@ export function DataTableFormDialog({
           slug: data.slug,
           name: data.name,
           description: data.description || null,
-          business_model_template_key:
-            data.business_model_template_key === "none"
-              ? null
-              : data.business_model_template_key,
           fields: data.fields,
         }),
       });
@@ -239,27 +224,6 @@ export function DataTableFormDialog({
                 rows={2}
               />
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="template">Business Model Template</Label>
-              <Select
-                value={watch("business_model_template_key")}
-                onValueChange={(value) =>
-                  setValue("business_model_template_key", value)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a template (optional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {templateOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
           {/* Fields */}
@@ -339,12 +303,20 @@ export function DataTableFormDialog({
                     <Checkbox
                       id={`primary-${index}`}
                       checked={watchedFields[index]?.primaryKey || false}
-                      onCheckedChange={(checked) =>
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          // Uncheck all other primary keys first
+                          watchedFields.forEach((_, i) => {
+                            if (i !== index) {
+                              setValue(`fields.${i}.primaryKey`, false);
+                            }
+                          });
+                        }
                         setValue(
                           `fields.${index}.primaryKey`,
                           checked as boolean
-                        )
-                      }
+                        );
+                      }}
                     />
                     <Label
                       htmlFor={`primary-${index}`}

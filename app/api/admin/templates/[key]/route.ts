@@ -30,13 +30,7 @@ export async function GET(
 
     if (error) throw error;
 
-    // Transform required_tables_data to required_table_ids for frontend compatibility
-    const transformedData = {
-      ...data,
-      required_table_ids: data.required_tables_data || [],
-    };
-
-    return NextResponse.json(transformedData);
+    return NextResponse.json(data);
   } catch (error: any) {
     console.error("Error fetching template:", error);
     return NextResponse.json(
@@ -83,7 +77,7 @@ export async function PUT(
       .update({
         name,
         description: description || null,
-        required_tables_data: required_table_ids,
+        required_table_ids,
         required_relationships,
         kpi_ids,
         filters,
@@ -96,13 +90,7 @@ export async function PUT(
 
     if (error) throw error;
 
-    // Transform required_tables_data to required_table_ids for frontend compatibility
-    const transformedData = {
-      ...data,
-      required_table_ids: data.required_tables_data || [],
-    };
-
-    return NextResponse.json(transformedData);
+    return NextResponse.json(data);
   } catch (error: any) {
     console.error("Error updating template:", error);
     return NextResponse.json(

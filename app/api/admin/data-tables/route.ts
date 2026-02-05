@@ -19,8 +19,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const dataTables = await getDataTables();
-    return NextResponse.json(dataTables);
+    const { data, error } = await supabase
+      .from("data_tables")
+      .select("*")
+      .order("name");
+
+    if (error) throw error;
+
+    return NextResponse.json(data);
   } catch (error: any) {
     console.error("Error fetching data tables:", error);
     return NextResponse.json(
@@ -65,15 +71,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const dataTable = await createDataTable({
-      slug,
-      name,
-      description,
-      fields,
-      business_model_template_key,
-    });
+    const { data, error } = await supabase
+      .from("data_tables")
+      .insert({
+        slug,
+        name,
+        description: description || null,
+        fields: fields || [],
+        business_model_template_key: business_model_template_key || null,
+      })
+      .select()
+      .single();
 
-    return NextResponse.json(dataTable, { status: 201 });
+    if (error) throw error;
+
+    return NextResponse.json(data, { status: 201 });
   } catch (error: any) {
     console.error("Error creating data table:", error);
     return NextResponse.json(

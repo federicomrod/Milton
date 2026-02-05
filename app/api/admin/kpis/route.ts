@@ -52,7 +52,15 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { name, definition, required_data, flexibility } = body;
+    const {
+      name,
+      definition,
+      required_data,
+      flexibility,
+      formula,
+      is_published,
+      notes,
+    } = body;
 
     // Validation
     if (!name || !definition) {
@@ -69,6 +77,9 @@ export async function POST(req: NextRequest) {
         definition,
         required_data: required_data || [],
         flexibility: flexibility || {},
+        formula: formula || null,
+        is_published: is_published || false,
+        notes: notes || null,
       })
       .select()
       .single();

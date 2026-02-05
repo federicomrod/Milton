@@ -23,7 +23,15 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { name, definition, required_data, flexibility } = body;
+    const {
+      name,
+      definition,
+      required_data,
+      flexibility,
+      formula,
+      is_published,
+      notes,
+    } = body;
 
     const { data, error } = await supabase
       .from("kpis")
@@ -32,6 +40,9 @@ export async function PUT(
         definition,
         required_data: required_data || [],
         flexibility: flexibility || {},
+        formula: formula || null,
+        is_published: is_published ?? false,
+        notes: notes || null,
       })
       .eq("id", id)
       .select()

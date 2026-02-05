@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/components/ui/use-toast";
 import {
   Card,
@@ -36,6 +37,9 @@ interface FormData {
   name: string;
   definition: string;
   required_data: string[];
+  formula: string;
+  is_published: boolean;
+  notes: string;
 }
 
 export function KpiFormDialog({
@@ -61,6 +65,9 @@ export function KpiFormDialog({
       name: "",
       definition: "",
       required_data: [],
+      formula: "",
+      is_published: false,
+      notes: "",
     },
   });
 
@@ -79,6 +86,9 @@ export function KpiFormDialog({
         name: kpi.name,
         definition: kpi.definition,
         required_data: kpi.required_data || [],
+        formula: kpi.formula || "",
+        is_published: kpi.is_published || false,
+        notes: kpi.notes || "",
       });
       setSelectedTables(kpi.required_data || []);
       setFlexibilityJson(JSON.stringify(kpi.flexibility || {}, null, 2));
@@ -87,6 +97,9 @@ export function KpiFormDialog({
         name: "",
         definition: "",
         required_data: [],
+        formula: "",
+        is_published: false,
+        notes: "",
       });
       setSelectedTables([]);
       setFlexibilityJson("{}");
@@ -138,6 +151,9 @@ export function KpiFormDialog({
           definition: data.definition,
           required_data: selectedTables,
           flexibility,
+          formula: data.formula || null,
+          is_published: data.is_published || false,
+          notes: data.notes || null,
         }),
       });
 
@@ -251,6 +267,49 @@ export function KpiFormDialog({
               <p className="text-xs text-muted-foreground">
                 JSON configuration defining what operations are allowed or not
                 allowed for this KPI
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="formula">Formula</Label>
+              <Textarea
+                id="formula"
+                {...register("formula")}
+                placeholder="Describe the calculation formula for this KPI..."
+                rows={3}
+              />
+              <p className="text-xs text-muted-foreground">
+                Descriptive field for the formula (formulas are implemented
+                manually in the codebase)
+              </p>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="is_published"
+                {...register("is_published")}
+                checked={watch("is_published")}
+                onCheckedChange={(checked) => {
+                  reset({ ...watch(), is_published: checked as boolean });
+                }}
+              />
+              <Label htmlFor="is_published">Published</Label>
+              <p className="text-xs text-muted-foreground">
+                When enabled, this KPI will be available on the frontend for
+                users
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="notes">Internal Notes</Label>
+              <Textarea
+                id="notes"
+                {...register("notes")}
+                placeholder="Internal notes for the team..."
+                rows={3}
+              />
+              <p className="text-xs text-muted-foreground">
+                Private notes for the team (not visible to non-admin users)
               </p>
             </div>
           </form>

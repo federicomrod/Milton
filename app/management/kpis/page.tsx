@@ -16,6 +16,9 @@ interface Kpi {
   definition: string;
   required_data?: string[];
   flexibility?: Record<string, unknown>;
+  formula?: string;
+  is_published?: boolean;
+  notes?: string;
   created_at: string;
   updated_at: string;
 }
@@ -139,6 +142,15 @@ export default function KpisPage() {
           <span className="text-muted-foreground text-sm">—</span>
         );
       },
+    },
+    {
+      key: "is_published",
+      label: "Status",
+      render: (kpi) => (
+        <Badge variant={kpi.is_published ? "default" : "secondary"}>
+          {kpi.is_published ? "Published" : "Draft"}
+        </Badge>
+      ),
     },
   ];
 

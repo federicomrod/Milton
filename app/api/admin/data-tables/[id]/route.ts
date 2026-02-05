@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { isUserAdminServer } from "@/lib/profile-service-server";
 import { NextRequest, NextResponse } from "next/server";
-import { updateDataTable, deleteDataTable } from "@/lib/data-table-service";
 
 export async function PUT(
   req: NextRequest,
@@ -35,15 +34,22 @@ export async function PUT(
       );
     }
 
-    const dataTable = await updateDataTable(id, {
-      slug,
-      name,
-      description,
-      fields,
-      business_model_template_key,
-    });
+    const { data, error } = await supabase
+      .from("data_tables")
+      .update({
+        slug,
+        name,
+        description: description || null,
+        fields: fields || [],
+        business_model_template_key: business_model_template_key || null,
+      })
+      .eq("id", id)
+      .select()
+      .single();
 
-    return NextResponse.json(dataTable);
+    if (error) throw error;
+
+    return NextResponse.json(data);
   } catch (error: any) {
     console.error("Error updating data table:", error);
     return NextResponse.json(
@@ -73,7 +79,10 @@ export async function DELETE(
 
   try {
     const { id } = await params;
-    await deleteDataTable(id);
+    const { error } = await supabase.from("data_tables").delete().eq("id", id);
+
+    if (error) throw error;
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Error deleting data table:", error);

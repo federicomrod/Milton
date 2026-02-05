@@ -6,7 +6,7 @@ import { UploadInvitation } from "@/components/dashboard/upload-invitation";
 import { KpiSelector } from "@/components/dashboard/kpi-selector";
 import { KpisGrid } from "@/components/dashboard/kpis-grid";
 import { Loader2 } from "lucide-react";
-import type { DatabaseKpi, SelectedKpi } from "@/lib/types/kpi";
+import type { DatabaseKpi } from "@/lib/types/kpi";
 
 // Helper component for locked/missing data placeholders
 const LockedPlaceholder = ({ message }: { message: string }) => (
@@ -27,10 +27,8 @@ export default function DashboardPage() {
   const [dataStatus, setDataStatus] = useState<DataStatus>(null);
 
   // KPI state
-  const [selectedKpiIds, setSelectedKpiIds] = useState<SelectedKpi[]>([]);
-  const [selectedKpis, setSelectedKpis] = useState<
-    Array<{ kpi: DatabaseKpi; display_type: "card" | "chart" }>
-  >([]);
+  const [selectedKpiIds, setSelectedKpiIds] = useState<string[]>([]);
+  const [selectedKpis, setSelectedKpis] = useState<DatabaseKpi[]>([]);
   const [recommendedKpis, setRecommendedKpis] = useState<DatabaseKpi[]>([]);
   const [additionalKpis, setAdditionalKpis] = useState<DatabaseKpi[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -97,7 +95,7 @@ export default function DashboardPage() {
 
         if (prefRes.ok) {
           const data = await prefRes.json();
-          const kpiIds = (data.selectedKpiIds ?? []) as SelectedKpi[];
+          const kpiIds = (data.selectedKpiIds ?? []) as string[];
           const recommended = (data.recommendedKpis ?? []) as DatabaseKpi[];
           const additional = (data.additionalKpis ?? []) as DatabaseKpi[];
           setSelectedKpiIds(kpiIds);
@@ -136,7 +134,7 @@ export default function DashboardPage() {
     };
   }, []);
 
-  const handleKpisChange = (newSelectedKpis: SelectedKpi[]) => {
+  const handleKpisChange = (newSelectedKpis: string[]) => {
     setSelectedKpiIds(newSelectedKpis);
     // Refetch displayed KPIs from API (source of truth) so all saved IDs show, not just those in the template pool
     fetch("/api/kpis/selected", { cache: "no-store", credentials: "include" })

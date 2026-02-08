@@ -16,6 +16,8 @@ interface ChartProps {
     | "income-statement"
     | "variance-analysis"
     | "ytd-performance";
+  period?: "month" | "year" | "ytd" | "custom";
+  customDateRange?: { from: string; to: string };
 }
 
 const CHART_TITLES = {
@@ -26,8 +28,12 @@ const CHART_TITLES = {
   "ytd-performance": "Year-to-Date Performance",
 };
 
-export function FinancialCharts({ type }: ChartProps) {
-  const { data, loading } = useChartData(type);
+export function FinancialCharts({
+  type,
+  period = "month",
+  customDateRange,
+}: ChartProps) {
+  const { data, loading } = useChartData(type, period, customDateRange);
 
   const renderChart = () => {
     if (loading || data.length === 0) {

@@ -67,6 +67,8 @@ interface Metrics {
 
 interface MetricsGridProps {
   selectedMetrics?: string[];
+  period?: "month" | "year" | "ytd" | "custom";
+  customDateRange?: { from: string; to: string };
 }
 
 interface MetricCard {
@@ -91,6 +93,8 @@ export function MetricsGrid({
     "grossMargin",
     "customers",
   ],
+  period = "month",
+  customDateRange,
 }: MetricsGridProps) {
   const { prefs } = useUserPreferences();
   const [metrics, setMetrics] = useState<Metrics>({
@@ -265,46 +269,36 @@ export function MetricsGrid({
           return;
         }
 
-        // Use current date for calculations
-        const now = new Date();
+        // Calculate date range based on period
+        let toDate = new Date();
+        let fromDate = new Date();
 
-        // Calculate for most recent month with data (like updated upstream)
-        const latestTransaction = transactions
-          .map((t) => {
-            try {
-              return new Date(t.date);
-            } catch {
-              return new Date();
-            }
-          })
-          .sort((a, b) => b.getTime() - a.getTime())[0];
+        if (period === "year") {
+          fromDate = new Date(new Date().getFullYear() - 1, 0, 1); // January 1st of last year
+          toDate = new Date(new Date().getFullYear() - 1, 11, 31, 23, 59, 59); // December 31st of last year
+        } else if (period === "ytd") {
+          fromDate = new Date(new Date().getFullYear(), 0, 1); // January 1st of current year
+        } else if (period === "custom" && customDateRange) {
+          fromDate = new Date(customDateRange.from);
+          toDate = new Date(customDateRange.to);
+        } else {
+          // month - default to current month
+          fromDate = new Date(toDate.getFullYear(), toDate.getMonth(), 1);
+        }
 
-        const targetMonth = latestTransaction || now;
-        const monthStart = new Date(
-          targetMonth.getFullYear(),
-          targetMonth.getMonth(),
-          1
-        );
-        const monthEnd = new Date(
-          targetMonth.getFullYear(),
-          targetMonth.getMonth() + 1,
-          0,
-          23,
-          59,
-          59
-        );
+        // Set time components for accurate filtering
+        fromDate.setHours(0, 0, 0, 0);
+        toDate.setHours(23, 59, 59, 999);
 
         console.log(
-          `MetricsGrid: Calculating metrics for: ${targetMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })}`
+          `MetricsGrid: Calculating metrics for period: ${period} (${fromDate.toLocaleDateString()} to ${toDate.toLocaleDateString()})`
         );
 
-        // Filter transactions for the target month with safe date parsing
+        // Filter transactions for the selected period with safe date parsing
         const currentMonthTransactions = transactions.filter((t) => {
           try {
             const date = new Date(t.date);
-            return (
-              date >= monthStart && date <= monthEnd && !isNaN(date.getTime())
-            );
+            return date >= fromDate && date <= toDate && !isNaN(date.getTime());
           } catch {
             return false;
           }
@@ -380,13 +374,13 @@ export function MetricsGrid({
         const netBurn = monthlyExpenses - revenueForBurn;
 
         // Calculate LTM metrics with consistent date range
-        const yearAgo = new Date(targetMonth);
+        const yearAgo = new Date(toDate);
         yearAgo.setFullYear(yearAgo.getFullYear() - 1);
 
         const ltmTransactions = transactions.filter((t) => {
           try {
             const date = new Date(t.date);
-            return date > yearAgo && date <= monthEnd && !isNaN(date.getTime());
+            return date > yearAgo && date <= toDate && !isNaN(date.getTime());
           } catch {
             return false;
           }
@@ -542,7 +536,7 @@ export function MetricsGrid({
       }
     };
     fetchData();
-  }, []);
+  }, [period, customDateRange]);
 
   const formatCurrency = (value: number | null) => {
     if (value === null) return "N/A";

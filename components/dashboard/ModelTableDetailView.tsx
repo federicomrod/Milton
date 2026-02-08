@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,9 @@ import SheetSelection from "./sheet-selection";
 import { ColumnMapping } from "@/types/schema";
 import DataPreview from "./DataPreview";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { createClient } from "@/lib/supabase/client";
+import { getDataTableBySlug } from "@/lib/data-table-service";
+import type { DataTable } from "@/lib/types/data";
 
 interface ModelTableDetailViewProps {
   table: TableDef;
@@ -33,6 +36,41 @@ export default function ModelTableDetailView({
   onClose,
   onUploadComplete,
 }: ModelTableDetailViewProps) {
+  const [dataTable, setDataTable] = useState<DataTable | null>(null);
+
+  // Fetch the latest table definition from data_tables
+  useEffect(() => {
+    const fetchDataTable = async () => {
+      try {
+        // Convert table name to slug (lowercase, replace spaces with underscores)
+        const slug = table.name.toLowerCase().replace(/\s+/g, "_");
+        const fetchedTable = await getDataTableBySlug(slug);
+        if (fetchedTable) {
+          setDataTable(fetchedTable);
+        }
+      } catch (error) {
+        console.error(
+          "[ModelTableDetailView] Error fetching data table:",
+          error
+        );
+      }
+    };
+    fetchDataTable();
+  }, [table.name]);
+
+  // Use data_tables definition if available, otherwise fall back to canonical_model
+  const effectiveTable: TableDef = dataTable
+    ? {
+        name: dataTable.name,
+        fields: dataTable.fields.map((f) => ({
+          name: f.name,
+          type: f.type as any,
+          required: f.required,
+          primaryKey: f.primaryKey || false,
+          references: f.references || null,
+        })),
+      }
+    : table;
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStep, setUploadStep] = useState<
     "detail" | "sheets" | "mapping" | "processing"
@@ -53,11 +91,11 @@ export default function ModelTableDetailView({
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const requiredFields = table.fields.filter(
+  const requiredFields = effectiveTable.fields.filter(
     (f) => f.required && !f.primaryKey
   );
-  const optionalFields = table.fields.filter((f) => !f.required);
-  const primaryKeyFields = table.fields.filter((f) => f.primaryKey);
+  const optionalFields = effectiveTable.fields.filter((f) => !f.required);
+  const primaryKeyFields = effectiveTable.fields.filter((f) => f.primaryKey);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -97,7 +135,7 @@ export default function ModelTableDetailView({
       // Generate auto-mappings based on model table fields
       const suggestedMappings = generateModelBasedMappings(
         parseResult.headers || [],
-        table.fields
+        effectiveTable.fields
       );
 
       setMappingData({
@@ -338,8 +376,8 @@ export default function ModelTableDetailView({
           setSheetData(null);
         }}
         targetModelTable={{
-          name: table.name,
-          fields: table.fields.map((f) => ({
+          name: effectiveTable.name,
+          fields: effectiveTable.fields.map((f) => ({
             name: f.name,
             required: f.required,
             type: f.type,
@@ -371,12 +409,12 @@ export default function ModelTableDetailView({
             setUploadStep("detail");
             setMappingData(null);
           }}
-          modelTableFields={table.fields.map((f) => ({
+          modelTableFields={effectiveTable.fields.map((f) => ({
             name: f.name,
             required: f.required,
             type: f.type,
           }))}
-          modelTableName={table.name}
+          modelTableName={effectiveTable.name}
         />
       </div>
     );
@@ -518,7 +556,7 @@ export default function ModelTableDetailView({
             </div>
           )}
 
-          {table.fields.length === 0 && (
+          {effectiveTable.fields.length === 0 && (
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>

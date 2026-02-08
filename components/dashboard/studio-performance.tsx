@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import {
   ResponsiveContainer,
   LineChart,
@@ -24,8 +26,15 @@ import {
   Activity,
   XCircle,
   AlertTriangle,
+  Download,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  getFitnessStudioKpis,
+  getStudioPerformanceKpis,
+  getApiFieldForKpi,
+  type DatabaseKpi,
+} from "@/lib/fitness-studio-kpis";
 
 interface KpiData {
   activeMembers: number;
@@ -53,6 +62,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 export function StudioPerformance() {
   const [kpis, setKpis] = useState<KpiData | null>(null);
+  const [databaseKpis, setDatabaseKpis] = useState<DatabaseKpi[]>([]);
   const [memberCountData, setMemberCountData] = useState<ChartDataPoint[]>([]);
   const [newVsChurnedData, setNewVsChurnedData] = useState<ChartDataPoint[]>(
     []
@@ -64,61 +74,95 @@ export function StudioPerformance() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [period, setPeriod] = useState<"month" | "year" | "ytd" | "custom">(
+    "month"
+  );
+  const [customDateRange, setCustomDateRange] = useState<{
+    from: string;
+    to: string;
+  }>({
+    from: new Date(new Date().setMonth(new Date().getMonth() - 6))
+      .toISOString()
+      .split("T")[0],
+    to: new Date().toISOString().split("T")[0],
+  });
+
+  // Load database KPIs on mount
+  useEffect(() => {
+    const loadDatabaseKpis = async () => {
+      const allKpis = await getFitnessStudioKpis();
+      const studioKpis = getStudioPerformanceKpis(allKpis);
+      setDatabaseKpis(studioKpis);
+    };
+    loadDatabaseKpis();
+  }, []);
 
   useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      setError(null);
-      setWarnings([]);
+    loadData();
+  }, [period, customDateRange]);
 
-      try {
-        const fromDate = new Date();
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    setWarnings([]);
+
+    try {
+      let toDate = new Date();
+      let fromDate = new Date();
+
+      if (period === "year") {
+        fromDate = new Date(new Date().getFullYear() - 1, 0, 1); // January 1st of last year
+        toDate = new Date(new Date().getFullYear() - 1, 11, 31, 23, 59, 59); // December 31st of last year
+      } else if (period === "ytd") {
+        fromDate = new Date(new Date().getFullYear(), 0, 1); // January 1st of current year
+      } else if (period === "custom") {
+        fromDate = new Date(customDateRange.from);
+        toDate = new Date(customDateRange.to);
+      } else {
+        // month - default to last 6 months for charts, last month for KPIs
         fromDate.setMonth(fromDate.getMonth() - 6);
-        const toDate = new Date();
+      }
 
-        const fromDateStr = fromDate.toISOString().split("T")[0];
-        const toDateStr = toDate.toISOString().split("T")[0];
+      const fromDateStr = fromDate.toISOString().split("T")[0];
+      const toDateStr = toDate.toISOString().split("T")[0];
 
-        // Fetch KPIs
-        const kpisRes = await fetch(
-          `/api/analytics/fitness-studio/kpis?from_date=${fromDateStr}&to_date=${toDateStr}`,
+      // Fetch KPIs using the selected date range
+      const kpisRes = await fetch(
+        `/api/analytics/fitness-studio/kpis?from_date=${fromDateStr}&to_date=${toDateStr}`,
+        { cache: "no-store", credentials: "include" }
+      );
+      const kpisJson = await kpisRes.json();
+      setKpis(kpisJson.kpis || null);
+
+      if (!kpisJson.kpis || Object.keys(kpisJson.kpis).length === 0) {
+        setWarnings([
+          "No KPI data available. Please upload members, bookings, and transactions data.",
+        ]);
+      }
+
+      // Fetch charts
+      const charts = [
+        { type: "member-count", setter: setMemberCountData },
+        { type: "new-vs-churned", setter: setNewVsChurnedData },
+        { type: "revenue-per-member", setter: setRevenuePerMemberData },
+        { type: "utilization-heatmap", setter: setHeatmapData },
+      ];
+
+      for (const chart of charts) {
+        const chartRes = await fetch(
+          `/api/analytics/fitness-studio/charts?chart=${chart.type}&from_date=${fromDateStr}&to_date=${toDateStr}`,
           { cache: "no-store", credentials: "include" }
         );
-        const kpisJson = await kpisRes.json();
-        setKpis(kpisJson.kpis || null);
-
-        if (!kpisJson.kpis || Object.keys(kpisJson.kpis).length === 0) {
-          setWarnings([
-            "No KPI data available. Please upload members, bookings, and transactions data.",
-          ]);
-        }
-
-        // Fetch charts
-        const charts = [
-          { type: "member-count", setter: setMemberCountData },
-          { type: "new-vs-churned", setter: setNewVsChurnedData },
-          { type: "revenue-per-member", setter: setRevenuePerMemberData },
-          { type: "utilization-heatmap", setter: setHeatmapData },
-        ];
-
-        for (const chart of charts) {
-          const chartRes = await fetch(
-            `/api/analytics/fitness-studio/charts?chart=${chart.type}&from_date=${fromDateStr}&to_date=${toDateStr}`,
-            { cache: "no-store", credentials: "include" }
-          );
-          const chartJson = await chartRes.json();
-          chart.setter(chartJson.data || []);
-        }
-      } catch (err) {
-        console.error("Error loading studio performance data:", err);
-        setError("Failed to load data. Please try again.");
-      } finally {
-        setLoading(false);
+        const chartJson = await chartRes.json();
+        chart.setter(chartJson.data || []);
       }
-    };
-
-    loadData();
-  }, []);
+    } catch (err) {
+      console.error("Error loading studio performance data:", err);
+      setError("Failed to load data. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -185,147 +229,166 @@ export function StudioPerformance() {
         </Alert>
       )}
 
+      {/* Header with filters */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Studio Performance</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Track member metrics, revenue, and studio utilization
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <DateRangePicker
+            period={period}
+            customDateRange={customDateRange}
+            onPeriodChange={(value) => setPeriod(value)}
+            onCustomDateRangeChange={(range) => setCustomDateRange(range)}
+          />
+          <Button variant="outline" size="sm" className="gap-2">
+            <Download className="h-4 w-4" />
+            Export
+          </Button>
+        </div>
+      </div>
+
       {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Active Members
-            </CardTitle>
-            <Users className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
-              {kpis?.activeMembers?.toLocaleString() || "0"}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Members active on the last day of the month
-            </p>
-          </CardContent>
-        </Card>
+        {databaseKpis.map((dbKpi) => {
+          const apiField = getApiFieldForKpi(dbKpi.name);
+          if (!apiField) return null;
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              New Members (Monthly)
-            </CardTitle>
-            <UserPlus className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {kpis?.newMembers?.toLocaleString() || "0"}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              New members who joined this month
-            </p>
-          </CardContent>
-        </Card>
+          const value = (kpis as any)?.[apiField];
+          const kpiValue = value !== undefined && value !== null ? value : 0;
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Churn Rate</CardTitle>
-            <UserMinus
-              className={`h-4 w-4 ${(kpis?.churnRate || 0) > 5 ? "text-red-600" : "text-orange-600"}`}
-            />
-          </CardHeader>
-          <CardContent>
-            <div
-              className={`text-2xl font-bold ${(kpis?.churnRate || 0) > 5 ? "text-red-600" : "text-orange-600"}`}
-            >
-              {kpis?.churnRate?.toFixed(1) || "0.0"}%
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Monthly churn rate percentage
-            </p>
-          </CardContent>
-        </Card>
+          // Determine formatting and icon based on KPI name
+          let format: "number" | "percentage" | "currency" | "months" =
+            "number";
+          let icon = Users;
+          let iconColor = "text-blue-600";
+          let valueColor = "text-blue-600";
+          let suffix = "";
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Avg Member Tenure
-            </CardTitle>
-            <Clock className="h-4 w-4 text-purple-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-purple-600">
-              {kpis?.avgTenure?.toFixed(1) || "0.0"} mo
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Average tenure of active members
-            </p>
-          </CardContent>
-        </Card>
+          if (dbKpi.name.includes("Active Members")) {
+            icon = Users;
+            iconColor = "text-blue-600";
+            valueColor = "text-blue-600";
+            format = "number";
+          } else if (dbKpi.name.includes("New Members")) {
+            icon = UserPlus;
+            iconColor = "text-green-600";
+            valueColor = "text-green-600";
+            format = "number";
+          } else if (dbKpi.name.includes("Churn Rate")) {
+            icon = UserMinus;
+            iconColor = kpiValue > 5 ? "text-red-600" : "text-orange-600";
+            valueColor = kpiValue > 5 ? "text-red-600" : "text-orange-600";
+            format = "percentage";
+            suffix = "%";
+          } else if (dbKpi.name.includes("Member Tenure")) {
+            icon = Clock;
+            iconColor = "text-purple-600";
+            valueColor = "text-purple-600";
+            format = "months";
+            suffix = " mo";
+          } else if (dbKpi.name.includes("Revenue per Member")) {
+            icon = DollarSign;
+            iconColor = "text-green-600";
+            valueColor = "text-green-600";
+            format = "currency";
+          } else if (
+            dbKpi.name.includes("Utilization") ||
+            dbKpi.name.includes("Capacity")
+          ) {
+            icon = Activity;
+            iconColor =
+              kpiValue > 75
+                ? "text-green-600"
+                : kpiValue > 50
+                  ? "text-yellow-600"
+                  : "text-orange-600";
+            valueColor =
+              kpiValue > 75
+                ? "text-green-600"
+                : kpiValue > 50
+                  ? "text-yellow-600"
+                  : "text-orange-600";
+            format = "percentage";
+            suffix = "%";
+          } else if (dbKpi.name.includes("Cancellation")) {
+            icon = XCircle;
+            iconColor =
+              kpiValue > 20
+                ? "text-red-600"
+                : kpiValue > 10
+                  ? "text-orange-600"
+                  : "text-yellow-600";
+            valueColor =
+              kpiValue > 20
+                ? "text-red-600"
+                : kpiValue > 10
+                  ? "text-orange-600"
+                  : "text-yellow-600";
+            format = "percentage";
+            suffix = "%";
+          }
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Revenue per Member
-            </CardTitle>
-            <DollarSign className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              ${kpis?.revenuePerMember?.toFixed(2) || "0.00"}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Average revenue per active member (ARPM)
-            </p>
-          </CardContent>
-        </Card>
+          const IconComponent = icon;
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Utilization Rate
-            </CardTitle>
-            <Activity
-              className={`h-4 w-4 ${(kpis?.utilizationRate || 0) > 75 ? "text-green-600" : (kpis?.utilizationRate || 0) > 50 ? "text-yellow-600" : "text-orange-600"}`}
-            />
-          </CardHeader>
-          <CardContent>
-            <div
-              className={`text-2xl font-bold ${(kpis?.utilizationRate || 0) > 75 ? "text-green-600" : (kpis?.utilizationRate || 0) > 50 ? "text-yellow-600" : "text-orange-600"}`}
-            >
-              {kpis?.utilizationRate?.toFixed(1) || "0.0"}%
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Percentage of class capacity utilized
-            </p>
-          </CardContent>
-        </Card>
+          // Format the value
+          let formattedValue = "0";
+          if (format === "number") {
+            formattedValue = kpiValue.toLocaleString();
+          } else if (format === "percentage") {
+            formattedValue = kpiValue.toFixed(1);
+          } else if (format === "currency") {
+            formattedValue = `$${kpiValue.toFixed(2)}`;
+          } else if (format === "months") {
+            formattedValue = kpiValue.toFixed(1);
+          }
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Cancellation Rate
-            </CardTitle>
-            <XCircle
-              className={`h-4 w-4 ${(kpis?.cancellationRate || 0) > 20 ? "text-red-600" : (kpis?.cancellationRate || 0) > 10 ? "text-orange-600" : "text-yellow-600"}`}
-            />
-          </CardHeader>
-          <CardContent>
-            <div
-              className={`text-2xl font-bold ${(kpis?.cancellationRate || 0) > 20 ? "text-red-600" : (kpis?.cancellationRate || 0) > 10 ? "text-orange-600" : "text-yellow-600"}`}
-            >
-              {kpis?.cancellationRate?.toFixed(1) || "0.0"}%
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Percentage of bookings cancelled
-            </p>
-          </CardContent>
-        </Card>
+          return (
+            <Card key={dbKpi.id}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">
+                  {dbKpi.name
+                    .replace(" (End of Month)", "")
+                    .replace(" (ARPM)", "")}
+                </CardTitle>
+                <IconComponent className={`h-4 w-4 ${iconColor}`} />
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold ${valueColor}`}>
+                  {formattedValue}
+                  {format !== "currency" && suffix}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {dbKpi.definition}
+                </p>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {/* Charts */}
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Chart 1: Members Over Time */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Members Over Time</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {memberCountData.length > 0 ? (
+        {/* Left Column: Three charts stacked */}
+        <div className="space-y-4">
+          {/* Chart 1: Members Over Time */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Members Over Time</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {memberCountData.length === 0 && (
+                <Alert className="mb-4">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    No data available for the selected date range. Please adjust
+                    your filters or upload data for this period.
+                  </AlertDescription>
+                </Alert>
+              )}
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={memberCountData}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -341,55 +404,139 @@ export function StudioPerformance() {
                   />
                 </LineChart>
               </ResponsiveContainer>
-            ) : (
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                No data available
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        {/* Chart 2: New vs Churned Members */}
-        <Card>
-          <CardHeader>
-            <CardTitle>New vs Churned Members</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {newVsChurnedData.length > 0 ? (
+          {/* Chart 2: New vs Churned Members */}
+          <Card>
+            <CardHeader>
+              <CardTitle>New vs Churned Members</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {newVsChurnedData.length === 0 && (
+                <Alert className="mb-4">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    No data available for the selected date range. Please adjust
+                    your filters or upload data for this period.
+                  </AlertDescription>
+                </Alert>
+              )}
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={newVsChurnedData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="period" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
+                <BarChart
+                  data={newVsChurnedData}
+                  margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+                >
+                  <defs>
+                    <linearGradient
+                      id="newMembersGradient"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.9} />
+                      <stop
+                        offset="95%"
+                        stopColor="#059669"
+                        stopOpacity={0.8}
+                      />
+                    </linearGradient>
+                    <linearGradient
+                      id="churnedMembersGradient"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.9} />
+                      <stop
+                        offset="95%"
+                        stopColor="#dc2626"
+                        stopOpacity={0.8}
+                      />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#e5e7eb"
+                    opacity={0.4}
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="period"
+                    tick={{ fill: "#6b7280", fontSize: 11, fontWeight: 500 }}
+                    axisLine={{ stroke: "#d1d5db", strokeWidth: 1 }}
+                    tickLine={{ stroke: "#d1d5db" }}
+                  />
+                  <YAxis
+                    tick={{ fill: "#6b7280", fontSize: 11 }}
+                    axisLine={{ stroke: "#d1d5db", strokeWidth: 1 }}
+                    tickLine={{ stroke: "#d1d5db" }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "white",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "8px",
+                      boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+                      padding: "12px",
+                    }}
+                    labelStyle={{
+                      color: "#111827",
+                      fontWeight: 600,
+                      marginBottom: "4px",
+                    }}
+                    formatter={(value: number, name: string) => [
+                      value.toLocaleString(),
+                      name === "new_members"
+                        ? "New Members"
+                        : "Churned Members",
+                    ]}
+                  />
+                  <Legend
+                    wrapperStyle={{ paddingTop: "20px" }}
+                    iconType="circle"
+                    formatter={(value) => {
+                      if (value === "new_members") return "New Members";
+                      if (value === "churned_members") return "Churned Members";
+                      return value;
+                    }}
+                  />
                   <Bar
                     dataKey="new_members"
-                    fill="#10b981"
+                    fill="url(#newMembersGradient)"
                     name="New Members"
+                    radius={[8, 8, 0, 0]}
+                    maxBarSize={60}
                   />
                   <Bar
                     dataKey="churned_members"
-                    fill="#ef4444"
-                    name="Churned"
+                    fill="url(#churnedMembersGradient)"
+                    name="Churned Members"
+                    radius={[8, 8, 0, 0]}
+                    maxBarSize={60}
                   />
                 </BarChart>
               </ResponsiveContainer>
-            ) : (
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                No data available
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        {/* Chart 3: Revenue per Member Trend */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Revenue per Member Trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {revenuePerMemberData.length > 0 ? (
+          {/* Chart 3: Revenue per Member Trend */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Revenue per Member Trend</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {revenuePerMemberData.length === 0 && (
+                <Alert className="mb-4">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    No data available for the selected date range. Please adjust
+                    your filters or upload data for this period.
+                  </AlertDescription>
+                </Alert>
+              )}
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={revenuePerMemberData}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -407,25 +554,30 @@ export function StudioPerformance() {
                   />
                 </LineChart>
               </ResponsiveContainer>
-            ) : (
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                No data available
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
 
-        {/* Chart 4: Utilization Heatmap */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Utilization Heatmap</CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              Peak hours and class popularity by time of day
-            </p>
-          </CardHeader>
-          <CardContent>
-            {heatmapData.length > 0 ? (
-              <div className="overflow-x-auto">
+        {/* Right Column: Utilization Heatmap */}
+        <div className="flex">
+          <Card className="w-full flex flex-col">
+            <CardHeader className="pb-3">
+              <CardTitle>Utilization Heatmap</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Peak hours and class popularity by time of day
+              </p>
+            </CardHeader>
+            <CardContent className="pt-0 pb-4">
+              {heatmapData.length === 0 && (
+                <Alert className="mb-4">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    No data available for the selected date range. Please adjust
+                    your filters or upload data for this period.
+                  </AlertDescription>
+                </Alert>
+              )}
+              <div className="overflow-x-auto w-full">
                 <table className="w-full border-collapse">
                   <thead>
                     <tr>
@@ -473,13 +625,9 @@ export function StudioPerformance() {
                   </tbody>
                 </table>
               </div>
-            ) : (
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                No data available
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

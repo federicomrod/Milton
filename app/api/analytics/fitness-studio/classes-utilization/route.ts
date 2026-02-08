@@ -1,0 +1,901 @@
+// GET /api/analytics/fitness-studio/classes-utilization?from_date=...&to_date=...&period=month|week
+// Returns KPIs and tables for Classes & Utilization analytics
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+
+function jsonNoStore(data: Record<string, unknown>) {
+  const res = NextResponse.json(data);
+  res.headers.set("Cache-Control", "no-store");
+  return res;
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
+    const { data: company, error: companyError } = await supabase
+      .from("companies")
+      .select("id")
+      .eq("created_by", user.id)
+      .single();
+
+    if (companyError || !company) {
+      return jsonNoStore({ kpis: {}, topClasses: [], bottomClasses: [] });
+    }
+
+    // Get date range and period from query params
+    const period = req.nextUrl.searchParams.get("period") || "month";
+    const fromDateParam = req.nextUrl.searchParams.get("from_date");
+    const toDateParam = req.nextUrl.searchParams.get("to_date");
+
+    let fromDate: Date;
+    let toDate: Date;
+
+    if (fromDateParam && toDateParam) {
+      fromDate = new Date(fromDateParam);
+      toDate = new Date(toDateParam);
+    } else {
+      toDate = new Date();
+      fromDate = new Date();
+      if (period === "week") {
+        fromDate.setDate(fromDate.getDate() - 7);
+      } else {
+        fromDate.setMonth(fromDate.getMonth() - 1);
+      }
+    }
+
+    // Fetch all model_data for the company (with pagination)
+    let allModelData: { model_table_id: string; data: unknown }[] = [];
+    let from = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const result = await supabase
+        .from("model_data")
+        .select("model_table_id, data")
+        .eq("company_id", company.id)
+        .range(from, from + pageSize - 1)
+        .order("id", { ascending: true });
+
+      if (result.error) {
+        console.error(
+          "[classes-utilization] Error fetching model_data:",
+          result.error
+        );
+        break;
+      }
+
+      if (result.data && result.data.length > 0) {
+        allModelData = [...allModelData, ...result.data];
+        from += pageSize;
+        hasMore = result.data.length === pageSize;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    // Get table IDs and convert to names
+    const tableIds = [
+      ...new Set(allModelData.map((row) => row.model_table_id)),
+    ];
+    const idToNameMap: Record<string, string> = {};
+
+    if (tableIds.length > 0) {
+      const { data: tableDefinitions, error: tableError } = await supabase
+        .from("data_tables")
+        .select("id, name")
+        .in("id", tableIds);
+
+      if (!tableError && tableDefinitions) {
+        tableDefinitions.forEach((table) => {
+          idToNameMap[table.id] = table.name.toLowerCase();
+        });
+      }
+    }
+
+    // Filter data by table name
+    const bookingsData = allModelData.filter(
+      (row) => idToNameMap[row.model_table_id] === "bookings"
+    );
+    const classesData = allModelData.filter(
+      (row) => idToNameMap[row.model_table_id] === "classes"
+    );
+    const instructorsData = allModelData.filter(
+      (row) => idToNameMap[row.model_table_id] === "instructors"
+    );
+
+    // Parse data
+    const bookings: any[] = [];
+    if (bookingsData) {
+      for (const row of bookingsData) {
+        const d = row.data as unknown;
+        if (Array.isArray(d)) {
+          bookings.push(...d);
+        } else if (d && typeof d === "object") {
+          bookings.push(d);
+        }
+      }
+    }
+
+    const classes: any[] = [];
+    if (classesData) {
+      for (const row of classesData) {
+        const d = row.data as unknown;
+        if (Array.isArray(d)) {
+          classes.push(...d);
+        } else if (d && typeof d === "object") {
+          classes.push(d);
+        }
+      }
+    }
+
+    // Debug: Log sample data to see what fields are available
+    if (bookings.length > 0) {
+      console.log(
+        "[classes-utilization] Sample booking fields:",
+        Object.keys(bookings[0])
+      );
+      console.log(
+        "[classes-utilization] Sample booking:",
+        JSON.stringify(bookings[0], null, 2)
+      );
+    } else {
+      console.log("[classes-utilization] No bookings found");
+    }
+
+    if (classes.length > 0) {
+      console.log(
+        "[classes-utilization] Sample class fields:",
+        Object.keys(classes[0])
+      );
+      console.log(
+        "[classes-utilization] Sample class:",
+        JSON.stringify(classes[0], null, 2)
+      );
+    } else {
+      console.log("[classes-utilization] No classes found");
+    }
+
+    const instructors: any[] = [];
+    if (instructorsData) {
+      for (const row of instructorsData) {
+        const d = row.data as unknown;
+        if (Array.isArray(d)) {
+          instructors.push(...d);
+        } else if (d && typeof d === "object") {
+          instructors.push(d);
+        }
+      }
+    }
+
+    // Normalize dates to start/end of day for accurate filtering
+    const fromDateStart = new Date(fromDate);
+    fromDateStart.setHours(0, 0, 0, 0);
+    const toDateEnd = new Date(toDate);
+    toDateEnd.setHours(23, 59, 59, 999);
+
+    // Normalize field names - support both snake_case and Title Case
+    const normalizeBooking = (b: any) => {
+      return {
+        class_id: b.class_id || b["Class ID"] || b.classId,
+        customer_id:
+          b.customer_id || b["Member ID"] || b.customerId || b.member_id,
+        booking_id: b.booking_id || b["Booking ID"] || b.bookingId,
+        status:
+          b.status ||
+          b.attendance_status ||
+          b["Attendance Status"] ||
+          b.attendanceStatus,
+        price_paid: b.price_paid || b.price || b.Price || b.pricePaid,
+        class_start_at:
+          b.class_start_at ||
+          b.booking_time ||
+          b.date ||
+          b.class_date ||
+          b["Class Date"] ||
+          b["Booking Time"] ||
+          b["Date"],
+        // Keep original for debugging
+        _original: b,
+      };
+    };
+
+    const normalizedBookings = bookings.map(normalizeBooking);
+
+    // Create class lookup maps FIRST - support both snake_case and Title Case
+    const classMap = new Map();
+    classes.forEach((c: any) => {
+      // Support multiple ID field names: id, class_id, Class ID, etc.
+      const classId = c.id || c.class_id || c["Class ID"] || c.classId;
+      if (classId) {
+        // Normalize class data
+        const normalizedClass = {
+          class_id: classId,
+          capacity: c.capacity || c.Capacity || c["Capacity"] || 0,
+          class_name:
+            c.class_name ||
+            c["Class Name"] ||
+            c.className ||
+            c.name ||
+            c.Name ||
+            c.type ||
+            c.Type,
+          category:
+            c.category || c.Category || c["Category"] || c.type || c.Type,
+          // Store date if available - class_start_at is the date field!
+          date:
+            c.class_start_at ||
+            c.date ||
+            c["Class Date"] ||
+            c["Date"] ||
+            c.start_date ||
+            c["Start Date"] ||
+            c["class_start_at"],
+          // Keep original for reference
+          _original: c,
+        };
+        classMap.set(classId, normalizedClass);
+      }
+    });
+
+    console.log(
+      `[classes-utilization] Created classMap with ${classMap.size} classes`
+    );
+    if (classMap.size > 0) {
+      const firstClass = Array.from(classMap.values())[0];
+      console.log(
+        `[classes-utilization] Sample class in map:`,
+        JSON.stringify(firstClass, null, 2)
+      );
+    }
+
+    // Check if date is in Classes table instead
+    let dateFromClasses = false;
+    if (
+      normalizedBookings.length > 0 &&
+      !normalizedBookings[0].class_start_at
+    ) {
+      console.log(
+        "[classes-utilization] No date in bookings, checking classes table..."
+      );
+      // Check if any classes have dates
+      classMap.forEach((classData: any) => {
+        if (classData.date) {
+          dateFromClasses = true;
+        }
+      });
+      if (dateFromClasses) {
+        console.log(
+          "[classes-utilization] Found dates in classes table, using those for filtering"
+        );
+      } else {
+        console.log(
+          "[classes-utilization] No dates found in classes table either"
+        );
+        console.log(
+          "[classes-utilization] Sample class keys:",
+          classes.length > 0 ? Object.keys(classes[0]) : "No classes"
+        );
+      }
+    }
+
+    // Filter bookings by date range
+    let bookingsWithDates = 0;
+    let bookingsWithoutClass = 0;
+    let bookingsOutOfRange = 0;
+
+    const bookingsInRange = normalizedBookings.filter((b: any) => {
+      let startAtStr = b.class_start_at;
+
+      // If no date in booking, try to get it from the class
+      if (!startAtStr && b.class_id) {
+        const classData = classMap.get(b.class_id);
+        if (classData && (classData as any).date) {
+          startAtStr = (classData as any).date;
+          bookingsWithDates++;
+        } else {
+          bookingsWithoutClass++;
+          return false;
+        }
+      } else if (startAtStr) {
+        bookingsWithDates++;
+      } else {
+        return false;
+      }
+
+      if (!startAtStr) {
+        return false; // Skip bookings without dates for now
+      }
+
+      const startAt = new Date(startAtStr);
+      if (!startAt || isNaN(startAt.getTime())) {
+        return false;
+      }
+
+      const inRange = startAt >= fromDateStart && startAt <= toDateEnd;
+      if (!inRange) {
+        bookingsOutOfRange++;
+        // Log first few out of range for debugging
+        if (bookingsOutOfRange <= 3) {
+          console.log(
+            `[classes-utilization] Booking out of range: class_id=${b.class_id}, date=${startAtStr} (${startAt.toISOString()}), range=${fromDateStart.toISOString()} to ${toDateEnd.toISOString()}`
+          );
+        }
+      }
+      return inRange;
+    });
+
+    console.log(
+      `[classes-utilization] Bookings with dates: ${bookingsWithDates}, without class: ${bookingsWithoutClass}, out of range: ${bookingsOutOfRange}`
+    );
+
+    console.log(
+      `[classes-utilization] Total bookings: ${bookings.length}, Normalized: ${normalizedBookings.length}, In range: ${bookingsInRange.length}`
+    );
+    console.log(
+      `[classes-utilization] Date range: ${fromDateStart.toISOString()} to ${toDateEnd.toISOString()}`
+    );
+
+    // Show sample booking dates if none in range
+    if (bookingsInRange.length === 0 && normalizedBookings.length > 0) {
+      const sampleBooking = normalizedBookings[0];
+      console.log(
+        `[classes-utilization] Sample normalized booking:`,
+        JSON.stringify(sampleBooking, null, 2)
+      );
+    }
+
+    const instructorMap = new Map();
+    instructors.forEach((i: any) => {
+      if (i.instructor_id) {
+        instructorMap.set(i.instructor_id, i);
+      }
+    });
+
+    // Calculate KPIs
+    // KPI 1: Average Class Occupancy (%)
+    const classOccurrences = new Map<
+      string,
+      { filled: number; capacity: number }
+    >();
+
+    let occupancyBookingsWithoutClass = 0;
+    let occupancyBookingsWithoutDate = 0;
+    let occupancyBookingsProcessed = 0;
+
+    bookingsInRange.forEach((b: any) => {
+      occupancyBookingsProcessed++;
+      const classId = b.class_id;
+      const classData = classMap.get(classId);
+      if (!classData) {
+        occupancyBookingsWithoutClass++;
+        if (occupancyBookingsWithoutClass <= 3) {
+          console.log(
+            `[classes-utilization] Booking without class: class_id=${classId}, available classes: ${Array.from(classMap.keys()).slice(0, 5).join(", ")}`
+          );
+        }
+        return;
+      }
+
+      const capacity = classData.capacity || 0;
+      let startAtStr = b.class_start_at;
+      // If no date in booking, use date from class
+      if (!startAtStr && (classData as any).date) {
+        startAtStr = (classData as any).date;
+      }
+      if (!startAtStr) {
+        occupancyBookingsWithoutDate++;
+        if (occupancyBookingsWithoutDate <= 3) {
+          console.log(
+            `[classes-utilization] Booking without date: class_id=${classId}, classData.date=${(classData as any).date}`
+          );
+        }
+        return; // Skip if still no date
+      }
+      const key = `${classId}_${startAtStr}`;
+
+      if (!classOccurrences.has(key)) {
+        classOccurrences.set(key, { filled: 0, capacity });
+      }
+
+      const occurrence = classOccurrences.get(key)!;
+      const status = (b.status || "").toLowerCase();
+      if (status === "booked" || status === "attended") {
+        occurrence.filled += 1;
+      }
+    });
+
+    console.log(
+      `[classes-utilization] ClassOccurrences building: processed=${occupancyBookingsProcessed}, withoutClass=${occupancyBookingsWithoutClass}, withoutDate=${occupancyBookingsWithoutDate}, classOccurrences.size=${classOccurrences.size}`
+    );
+
+    let totalOccupancy = 0;
+    let occurrenceCount = 0;
+    classOccurrences.forEach((occ) => {
+      if (occ.capacity > 0) {
+        totalOccupancy += (occ.filled / occ.capacity) * 100;
+        occurrenceCount += 1;
+      }
+    });
+
+    const avgClassOccupancy =
+      occurrenceCount > 0 ? totalOccupancy / occurrenceCount : 0;
+
+    // KPI 2: Revenue per Class (average revenue per class occurrence)
+    const revenueByOccurrence = new Map<string, number>();
+    bookingsInRange.forEach((b: any) => {
+      const status = (b.status || "").toLowerCase();
+      if (status === "booked" || status === "attended") {
+        let startAtStr = b.class_start_at;
+        // If no date in booking, use date from class
+        if (!startAtStr && b.class_id) {
+          const classData = classMap.get(b.class_id);
+          if (classData && (classData as any).date) {
+            startAtStr = (classData as any).date;
+          }
+        }
+        if (!startAtStr) return; // Skip if still no date
+        const key = `${b.class_id}_${startAtStr}`;
+        const pricePaid =
+          typeof b.price_paid === "string"
+            ? parseFloat(b.price_paid)
+            : b.price_paid || 0;
+
+        const current = revenueByOccurrence.get(key) || 0;
+        revenueByOccurrence.set(key, current + pricePaid);
+      }
+    });
+
+    const totalRevenue = Array.from(revenueByOccurrence.values()).reduce(
+      (sum, rev) => sum + rev,
+      0
+    );
+    const revenuePerClass =
+      revenueByOccurrence.size > 0
+        ? totalRevenue / revenueByOccurrence.size
+        : 0;
+
+    // Also keep revenueByClass for top classes table
+    const revenueByClass = new Map<string, number>();
+    bookingsInRange.forEach((b: any) => {
+      const status = (b.status || "").toLowerCase();
+      if (status === "booked" || status === "attended") {
+        const classId = b.class_id;
+        // price_paid might be in bookings or might need to come from payments table
+        const pricePaid =
+          typeof b.price_paid === "string"
+            ? parseFloat(b.price_paid)
+            : b.price_paid ||
+              (typeof b.price === "string" ? parseFloat(b.price) : b.price) ||
+              0;
+
+        const current = revenueByClass.get(classId) || 0;
+        revenueByClass.set(classId, current + pricePaid);
+      }
+    });
+
+    // KPI 3: Cancellation Rate (%)
+    const finalBookings = bookingsInRange.filter((b: any) => {
+      const status = (b.status || "").toLowerCase();
+      return (
+        status === "attended" ||
+        status === "no_show" ||
+        status === "cancelled" ||
+        status === "booked"
+      );
+    });
+    const cancelled = bookingsInRange.filter((b: any) => {
+      const status = (b.status || "").toLowerCase();
+      return status === "cancelled";
+    }).length;
+    const cancellationRate =
+      finalBookings.length > 0 ? (cancelled / finalBookings.length) * 100 : 0;
+
+    // KPI 4: Capacity Utilization (%)
+    let totalFilledSpots = 0;
+    let totalCapacitySpots = 0;
+
+    classOccurrences.forEach((occ) => {
+      totalFilledSpots += occ.filled;
+      totalCapacitySpots += occ.capacity;
+    });
+
+    console.log(
+      `[classes-utilization] Capacity Utilization: totalFilledSpots=${totalFilledSpots}, totalCapacitySpots=${totalCapacitySpots}, classOccurrences.size=${classOccurrences.size}`
+    );
+
+    const capacityUtilization =
+      totalCapacitySpots > 0
+        ? (totalFilledSpots / totalCapacitySpots) * 100
+        : 0;
+
+    console.log(
+      `[classes-utilization] Capacity Utilization result: ${capacityUtilization}%`
+    );
+
+    // KPI 5: Average Class Size (average number of attendees per class occurrence)
+    let totalAttendees = 0;
+    let classOccurrenceCount = 0;
+    classOccurrences.forEach((occ) => {
+      totalAttendees += occ.filled;
+      classOccurrenceCount += 1;
+    });
+    const averageClassSize =
+      classOccurrenceCount > 0 ? totalAttendees / classOccurrenceCount : 0;
+
+    // Top Performing Classes (combines revenue and occupancy)
+    const occupancyByClass = new Map<
+      string,
+      { totalOccupancy: number; count: number }
+    >();
+
+    classOccurrences.forEach((occ, key) => {
+      const classId = key.split("_")[0];
+      const occupancy =
+        occ.capacity > 0 ? (occ.filled / occ.capacity) * 100 : 0;
+
+      if (!occupancyByClass.has(classId)) {
+        occupancyByClass.set(classId, { totalOccupancy: 0, count: 0 });
+      }
+
+      const classOcc = occupancyByClass.get(classId)!;
+      classOcc.totalOccupancy += occupancy;
+      classOcc.count += 1;
+    });
+
+    // Get schedule information from bookings - group by day and time
+    const classSchedules = new Map<string, Map<string, Set<string>>>(); // classId -> time -> days
+    bookingsInRange.forEach((b: any) => {
+      const classId = b.class_id;
+      const startAtStr = b.class_start_at || b.booking_time || b.date || null;
+      const startAt = startAtStr ? new Date(startAtStr) : null;
+      if (!startAt) return;
+
+      const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const dayName = dayNames[startAt.getDay()];
+      const hours = startAt.getHours();
+      const minutes = startAt.getMinutes();
+      const ampm = hours >= 12 ? "PM" : "AM";
+      const displayHour = hours > 12 ? hours - 12 : hours === 0 ? 12 : hours;
+      const timeStr = `${displayHour}:${minutes.toString().padStart(2, "0")} ${ampm}`;
+
+      if (!classSchedules.has(classId)) {
+        classSchedules.set(classId, new Map());
+      }
+      const timeMap = classSchedules.get(classId)!;
+      if (!timeMap.has(timeStr)) {
+        timeMap.set(timeStr, new Set());
+      }
+      timeMap.get(timeStr)!.add(dayName);
+    });
+
+    const topPerformingClasses = Array.from(revenueByClass.entries())
+      .map(([classId, revenue]) => {
+        const classData = classMap.get(classId);
+        const className =
+          classData?.class_name || classData?.name || "Unknown Class";
+        const instructorId = classData?.instructor_id;
+        const instructor = instructorId
+          ? instructorMap.get(instructorId)
+          : null;
+        const instructorName =
+          instructor?.instructor_name || instructor?.name || "Unknown";
+
+        const occ = occupancyByClass.get(classId);
+        const avgOccupancy =
+          occ && occ.count > 0
+            ? parseFloat((occ.totalOccupancy / occ.count).toFixed(2))
+            : 0;
+
+        // Format schedule - group days by time
+        const scheduleMap = classSchedules.get(classId) || new Map();
+        const scheduleParts: string[] = [];
+        scheduleMap.forEach((days, time) => {
+          const dayArray = Array.from(days);
+          if (dayArray.length > 0) {
+            const daysStr = dayArray.join(", ");
+            scheduleParts.push(`${daysStr} • ${time}`);
+          }
+        });
+        const schedule =
+          scheduleParts.length > 0
+            ? scheduleParts[0] // Show first schedule, could show more if needed
+            : "No schedule";
+
+        // Get initials for class icon
+        const initials = className
+          .split(" ")
+          .map((word: string) => word[0])
+          .join("")
+          .toUpperCase()
+          .slice(0, 2);
+
+        return {
+          class_id: classId,
+          class_name: className,
+          initials,
+          instructor_name: instructorName,
+          schedule,
+          occupancy: avgOccupancy,
+          revenue: parseFloat(revenue.toFixed(2)),
+          trend: "up" as "up" | "down", // Placeholder - would need historical data for real trend
+        };
+      })
+      .sort((a, b) => {
+        // Sort by revenue first, then by occupancy
+        if (Math.abs(a.revenue - b.revenue) > 10) {
+          return b.revenue - a.revenue;
+        }
+        return b.occupancy - a.occupancy;
+      })
+      .slice(0, 10);
+
+    // Occupancy by Class Type
+    const occupancyByType = new Map<
+      string,
+      { totalOccupancy: number; count: number }
+    >();
+
+    classOccurrences.forEach((occ, key) => {
+      const classId = key.split("_")[0];
+      const classData = classMap.get(classId);
+      if (!classData) return;
+
+      // Get class type from class_name or class_type field
+      const classType =
+        classData.class_type ||
+        (classData.class_name ? classData.class_name.split(" ")[0] : "Other");
+
+      const occupancy =
+        occ.capacity > 0 ? (occ.filled / occ.capacity) * 100 : 0;
+
+      if (!occupancyByType.has(classType)) {
+        occupancyByType.set(classType, { totalOccupancy: 0, count: 0 });
+      }
+
+      const typeOcc = occupancyByType.get(classType)!;
+      typeOcc.totalOccupancy += occupancy;
+      typeOcc.count += 1;
+    });
+
+    const occupancyByTypeArray = Array.from(occupancyByType.entries())
+      .map(([type, occ]) => ({
+        class_type: type,
+        occupancy:
+          occ.count > 0
+            ? parseFloat((occ.totalOccupancy / occ.count).toFixed(2))
+            : 0,
+      }))
+      .sort((a, b) => b.occupancy - a.occupancy);
+
+    // Hourly Utilization Rate (by weekday/weekend)
+    const hourlyUtilizationWeekday = new Map<
+      number,
+      { filled: number; capacity: number }
+    >();
+    const hourlyUtilizationWeekend = new Map<
+      number,
+      { filled: number; capacity: number }
+    >();
+
+    bookingsInRange.forEach((b: any) => {
+      const startAtStr = b.class_start_at || b.booking_time || b.date || null;
+      const startAt = startAtStr ? new Date(startAtStr) : null;
+      if (!startAt) return;
+
+      const hour = startAt.getHours();
+      const dayOfWeek = startAt.getDay(); // 0 = Sunday, 6 = Saturday
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+      const classData = classMap.get(b.class_id);
+      if (!classData) return;
+
+      const capacity = classData.capacity || 0;
+      const map = isWeekend
+        ? hourlyUtilizationWeekend
+        : hourlyUtilizationWeekday;
+
+      if (!map.has(hour)) {
+        map.set(hour, { filled: 0, capacity: 0 });
+      }
+
+      const hourData = map.get(hour)!;
+      hourData.capacity += capacity;
+
+      const status = (b.status || "").toLowerCase();
+      if (status === "booked" || status === "attended") {
+        hourData.filled += 1;
+      }
+    });
+
+    // Generate hourly data for 6am to 10pm (6 to 22)
+    const generateHourlyData = (
+      map: Map<number, { filled: number; capacity: number }>
+    ) => {
+      const hours = Array.from({ length: 17 }, (_, i) => i + 6); // 6 to 22
+      return hours.map((hour) => {
+        const data = map.get(hour) || { filled: 0, capacity: 0 };
+        const utilization =
+          data.capacity > 0
+            ? parseFloat(((data.filled / data.capacity) * 100).toFixed(2))
+            : 0;
+        return {
+          hour: hour,
+          hourLabel:
+            hour === 12 ? "12pm" : hour < 12 ? `${hour}am` : `${hour - 12}pm`,
+          utilization,
+        };
+      });
+    };
+
+    const hourlyWeekday = generateHourlyData(hourlyUtilizationWeekday);
+    const hourlyWeekend = generateHourlyData(hourlyUtilizationWeekend);
+
+    // Calculate trends by comparing with previous period
+    const periodDuration = toDateEnd.getTime() - fromDateStart.getTime();
+    const prevToDate = new Date(fromDateStart);
+    prevToDate.setHours(23, 59, 59, 999);
+    const prevFromDate = new Date(prevToDate.getTime() - periodDuration);
+    prevFromDate.setHours(0, 0, 0, 0);
+
+    // Fetch previous period data for trend calculation
+    const prevBookingsInRange = normalizedBookings.filter((b: any) => {
+      let startAtStr = b.class_start_at;
+      // If no date in booking, try to get it from the class
+      if (!startAtStr && b.class_id) {
+        const classData = classMap.get(b.class_id);
+        if (classData && (classData as any).date) {
+          startAtStr = (classData as any).date;
+        }
+      }
+      if (!startAtStr) return false;
+      const startAt = new Date(startAtStr);
+      if (!startAt || isNaN(startAt.getTime())) return false;
+      return startAt >= prevFromDate && startAt <= prevToDate;
+    });
+
+    // Calculate previous period KPIs
+    const prevClassOccurrences = new Map<
+      string,
+      { filled: number; capacity: number }
+    >();
+
+    prevBookingsInRange.forEach((b: any) => {
+      const classId = b.class_id;
+      const classData = classMap.get(classId);
+      if (!classData) return;
+
+      const capacity = classData.capacity || 0;
+      const startAtStr = b.class_start_at || b.booking_time || b.date || "";
+      const key = `${classId}_${startAtStr}`;
+
+      if (!prevClassOccurrences.has(key)) {
+        prevClassOccurrences.set(key, { filled: 0, capacity });
+      }
+
+      const occurrence = prevClassOccurrences.get(key)!;
+      const status = (b.status || "").toLowerCase();
+      if (status === "booked" || status === "attended") {
+        occurrence.filled += 1;
+      }
+    });
+
+    let prevTotalOccupancy = 0;
+    let prevOccurrenceCount = 0;
+    prevClassOccurrences.forEach((occ) => {
+      if (occ.capacity > 0) {
+        prevTotalOccupancy += (occ.filled / occ.capacity) * 100;
+        prevOccurrenceCount += 1;
+      }
+    });
+
+    const prevAvgClassOccupancy =
+      prevOccurrenceCount > 0 ? prevTotalOccupancy / prevOccurrenceCount : 0;
+
+    // Previous period revenue per class
+    const prevRevenueByOccurrence = new Map<string, number>();
+    prevBookingsInRange.forEach((b: any) => {
+      const status = (b.status || "").toLowerCase();
+      if (status === "booked" || status === "attended") {
+        const startAtStr = b.class_start_at || b.booking_time || b.date || "";
+        const key = `${b.class_id}_${startAtStr}`;
+        // price_paid might be in bookings or might need to come from payments table
+        const pricePaid =
+          typeof b.price_paid === "string"
+            ? parseFloat(b.price_paid)
+            : b.price_paid ||
+              (typeof b.price === "string" ? parseFloat(b.price) : b.price) ||
+              0;
+
+        const current = prevRevenueByOccurrence.get(key) || 0;
+        prevRevenueByOccurrence.set(key, current + pricePaid);
+      }
+    });
+
+    const prevTotalRevenue = Array.from(
+      prevRevenueByOccurrence.values()
+    ).reduce((sum, rev) => sum + rev, 0);
+    const prevRevenuePerClass =
+      prevRevenueByOccurrence.size > 0
+        ? prevTotalRevenue / prevRevenueByOccurrence.size
+        : 0;
+
+    // Previous period cancellation rate
+    const prevFinalBookings = prevBookingsInRange.filter((b: any) =>
+      (() => {
+        const status = (b.status || "").toLowerCase();
+        return (
+          status === "attended" ||
+          status === "no_show" ||
+          status === "cancelled" ||
+          status === "booked"
+        );
+      })()
+    );
+    const prevCancelled = prevBookingsInRange.filter((b: any) => {
+      const status = (b.status || "").toLowerCase();
+      return status === "cancelled";
+    }).length;
+    const prevCancellationRate =
+      prevFinalBookings.length > 0
+        ? (prevCancelled / prevFinalBookings.length) * 100
+        : 0;
+
+    // Calculate trend percentages
+    const occupancyTrend =
+      prevAvgClassOccupancy > 0
+        ? ((avgClassOccupancy - prevAvgClassOccupancy) /
+            prevAvgClassOccupancy) *
+          100
+        : 0;
+
+    const revenueTrend =
+      prevRevenuePerClass > 0
+        ? ((revenuePerClass - prevRevenuePerClass) / prevRevenuePerClass) * 100
+        : 0;
+
+    const cancellationTrend =
+      prevCancellationRate > 0
+        ? ((cancellationRate - prevCancellationRate) / prevCancellationRate) *
+          100
+        : cancellationRate > 0
+          ? 100 // If previous was 0 and current > 0, it's a 100% increase
+          : 0;
+
+    return jsonNoStore({
+      kpis: {
+        avgClassOccupancy: parseFloat(avgClassOccupancy.toFixed(2)),
+        averageClassSize: parseFloat(averageClassSize.toFixed(2)),
+        revenuePerClass: parseFloat(revenuePerClass.toFixed(2)),
+        cancellationRate: parseFloat(cancellationRate.toFixed(2)),
+        capacityUtilization: parseFloat(capacityUtilization.toFixed(2)),
+      },
+      trends: {
+        avgClassOccupancy: parseFloat(occupancyTrend.toFixed(1)),
+        revenuePerClass: parseFloat(revenueTrend.toFixed(1)),
+        cancellationRate: parseFloat(cancellationTrend.toFixed(1)),
+      },
+      topPerformingClasses: topPerformingClasses,
+      occupancyByType: occupancyByTypeArray,
+      hourlyUtilization: {
+        weekday: hourlyWeekday,
+        weekend: hourlyWeekend,
+      },
+    });
+  } catch (err) {
+    console.error(
+      "[api/analytics/fitness-studio/classes-utilization] Unexpected error:",
+      err
+    );
+    return jsonNoStore({ kpis: {}, topClasses: [], bottomClasses: [] });
+  }
+}

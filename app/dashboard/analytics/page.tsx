@@ -6,6 +6,7 @@ import { FinancialCharts } from "@/components/dashboard/financial-charts";
 import { SalesPipeline } from "@/components/dashboard/sales-pipeline";
 import { CashFlowAnalysis } from "@/components/dashboard/cash-flow-analysis";
 import { StudioPerformance } from "@/components/dashboard/studio-performance";
+import { ClassesUtilization } from "@/components/dashboard/classes-utilization";
 import { BarChart } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -183,7 +184,7 @@ export default function AnalyticsPage() {
             </TabsContent>
 
             <TabsContent value="classes" className="space-y-4">
-              <LockedPlaceholder message="Classes & Utilization analytics coming soon." />
+              <ClassesUtilization />
             </TabsContent>
 
             <TabsContent value="members" className="space-y-4">

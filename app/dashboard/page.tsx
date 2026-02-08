@@ -5,7 +5,12 @@ import { createClient } from "@/lib/supabase/client";
 import { UploadInvitation } from "@/components/dashboard/upload-invitation";
 import { KpiSelector } from "@/components/dashboard/kpi-selector";
 import { KpisGrid } from "@/components/dashboard/kpis-grid";
+import { MetricsGrid } from "@/components/dashboard/metrics-grid";
+import { DashboardInsights } from "@/components/dashboard/dashboard-insights";
+import { FinancialCharts } from "@/components/dashboard/financial-charts";
 import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import type { DatabaseKpi } from "@/lib/types/kpi";
 
 // Helper component for locked/missing data placeholders
@@ -35,6 +40,18 @@ export default function DashboardPage() {
   const dataLoadedRef = useRef(false);
   const kpisLoadedRef = useRef(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [period, setPeriod] = useState<"month" | "year" | "ytd" | "custom">(
+    "month"
+  );
+  const [customDateRange, setCustomDateRange] = useState<{
+    from: string;
+    to: string;
+  }>({
+    from: new Date(new Date().setMonth(new Date().getMonth() - 1))
+      .toISOString()
+      .split("T")[0],
+    to: new Date().toISOString().split("T")[0],
+  });
 
   // Helper function to check if all data is ready
   const checkIfDataReady = () => {
@@ -183,23 +200,68 @@ export default function DashboardPage() {
 
           {/* KPIs Section - Unified Metrics and KPIs */}
           <div className="space-y-6">
+            {/* Key Metrics Section */}
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">
-                Key Performance Indicators
-              </h2>
-              <KpiSelector
-                selectedKpiIds={selectedKpiIds}
-                onKpisChange={handleKpisChange}
-                recommendedKpis={recommendedKpis}
-                additionalKpis={additionalKpis}
+              <h2 className="text-lg font-semibold">Key Metrics</h2>
+              <DateRangePicker
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={(value) => setPeriod(value)}
+                onCustomDateRangeChange={(range) => setCustomDateRange(range)}
               />
             </div>
 
-            {dataStatus?.hasModelData ? (
-              <KpisGrid selectedKpis={selectedKpis} />
+            {dataStatus?.bank ||
+            dataStatus?.crm ||
+            dataStatus?.budget ||
+            dataStatus?.hasModelData ? (
+              <>
+                <MetricsGrid
+                  period={period}
+                  customDateRange={customDateRange}
+                />
+                <div className="mt-8">
+                  <DashboardInsights />
+                </div>
+                <div className="space-y-4 mt-8">
+                  <h2 className="text-lg font-semibold">Performance Charts</h2>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FinancialCharts
+                      type="mrr-vs-plan"
+                      period={period}
+                      customDateRange={customDateRange}
+                    />
+                    <FinancialCharts
+                      type="burn-rate"
+                      period={period}
+                      customDateRange={customDateRange}
+                    />
+                  </div>
+                </div>
+              </>
             ) : (
-              <LockedPlaceholder message="Upload your data in the 'Upload' section above to see your KPIs and metrics." />
+              <LockedPlaceholder message="Upload your data in the 'Upload' section above to see your key metrics and performance charts." />
             )}
+
+            {/* KPIs Section */}
+            <div className="mt-8 space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">
+                  Key Performance Indicators
+                </h2>
+                <KpiSelector
+                  selectedKpiIds={selectedKpiIds}
+                  onKpisChange={handleKpisChange}
+                  recommendedKpis={recommendedKpis}
+                  additionalKpis={additionalKpis}
+                />
+              </div>
+              {dataStatus?.hasModelData ? (
+                <KpisGrid selectedKpis={selectedKpis} />
+              ) : (
+                <LockedPlaceholder message="Upload your data in the 'Upload' section above to see your KPIs and metrics." />
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -11,7 +11,11 @@ import {
   type WaterfallData,
 } from "@/lib/chart-data-generators";
 
-export function useChartData(type: string) {
+export function useChartData(
+  type: string,
+  period: "month" | "year" | "ytd" | "custom" = "month",
+  customDateRange?: { from: string; to: string }
+) {
   const [data, setData] = useState<ChartData[] | WaterfallData[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -30,6 +34,23 @@ export function useChartData(type: string) {
           console.error("useChartData: Error getting user", userError);
           setLoading(false);
           return;
+        }
+
+        // Calculate date range based on period
+        let toDate = new Date();
+        let fromDate = new Date();
+
+        if (period === "year") {
+          fromDate = new Date(new Date().getFullYear() - 1, 0, 1); // January 1st of last year
+          toDate = new Date(new Date().getFullYear() - 1, 11, 31, 23, 59, 59); // December 31st of last year
+        } else if (period === "ytd") {
+          fromDate = new Date(new Date().getFullYear(), 0, 1); // January 1st of current year
+        } else if (period === "custom" && customDateRange) {
+          fromDate = new Date(customDateRange.from);
+          toDate = new Date(customDateRange.to);
+        } else {
+          // month - default to last 12 months for charts
+          fromDate.setMonth(fromDate.getMonth() - 12);
         }
 
         const reportData = await getReportData(supabase, user.id);
@@ -63,37 +84,47 @@ export function useChartData(type: string) {
           }
         }
 
+        // Filter transactions by date range
+        const filteredTransactions = (reportData.transactions || []).filter(
+          (t) => {
+            try {
+              const date = new Date(t.date);
+              return (
+                date >= fromDate && date <= toDate && !isNaN(date.getTime())
+              );
+            } catch {
+              return false;
+            }
+          }
+        );
+
         let chartData: ChartData[] | WaterfallData[] = [];
 
         switch (type) {
           case "mrr-vs-plan":
             chartData = generateMRRChartData(
-              reportData.transactions || [],
+              filteredTransactions,
               reportData.budgets || []
             );
             break;
           case "burn-rate":
-            chartData = generateBurnRateChartData(
-              reportData.transactions || []
-            );
+            chartData = generateBurnRateChartData(filteredTransactions);
             break;
           case "income-statement":
-            chartData = generateIncomeStatementData(
-              reportData.transactions || []
-            );
+            chartData = generateIncomeStatementData(filteredTransactions);
             console.log("[useChartData] Income statement:", {
-              transactionsCount: reportData.transactions?.length || 0,
+              transactionsCount: filteredTransactions.length,
               chartDataLength: chartData.length,
               chartData,
             });
             break;
           case "variance-analysis":
             chartData = generateVarianceAnalysisData(
-              reportData.transactions || [],
+              filteredTransactions,
               reportData.budgets || []
             );
             console.log("[useChartData] Variance analysis:", {
-              transactionsCount: reportData.transactions?.length || 0,
+              transactionsCount: filteredTransactions.length,
               budgetsCount: reportData.budgets?.length || 0,
               chartDataLength: chartData.length,
               chartData,
@@ -101,7 +132,7 @@ export function useChartData(type: string) {
             break;
           case "ytd-performance":
             chartData = generateYTDPerformanceData(
-              reportData.transactions || [],
+              filteredTransactions,
               reportData.budgets || []
             );
             break;
@@ -119,7 +150,7 @@ export function useChartData(type: string) {
     };
 
     loadData();
-  }, [type]);
+  }, [type, period, customDateRange]);
 
   return { data, loading };
 }

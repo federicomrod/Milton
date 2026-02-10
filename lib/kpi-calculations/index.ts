@@ -15,3 +15,8 @@ export { calculateRevenuePerClass } from "./calculateRevenuePerClass";
 export { calculateBurnRate } from "./calculateBurnRate";
 export { calculateNetIncome } from "./calculateNetIncome";
 export { calculateRunway } from "./calculateRunway";
+// Restaurant KPIs
+export { calculateTotalRevenue } from "./calculateTotalRevenue";
+export { calculateCovers } from "./calculateCovers";
+export { calculateAverageTicketSize } from "./calculateAverageTicketSize";
+export { calculatePrimeCostPercent } from "./calculatePrimeCostPercent";

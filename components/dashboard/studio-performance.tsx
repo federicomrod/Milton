@@ -60,7 +60,19 @@ interface ChartDataPoint {
 const WEEKDAY_LABELS = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
-export function StudioPerformance() {
+interface StudioPerformanceProps {
+  period: "month" | "year" | "ytd" | "custom";
+  customDateRange: { from: string; to: string };
+  onPeriodChange: (period: "month" | "year" | "ytd" | "custom") => void;
+  onCustomDateRangeChange: (range: { from: string; to: string }) => void;
+}
+
+export function StudioPerformance({
+  period,
+  customDateRange,
+  onPeriodChange,
+  onCustomDateRangeChange,
+}: StudioPerformanceProps) {
   const [kpis, setKpis] = useState<KpiData | null>(null);
   const [databaseKpis, setDatabaseKpis] = useState<DatabaseKpi[]>([]);
   const [memberCountData, setMemberCountData] = useState<ChartDataPoint[]>([]);
@@ -74,18 +86,6 @@ export function StudioPerformance() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [period, setPeriod] = useState<"month" | "year" | "ytd" | "custom">(
-    "month"
-  );
-  const [customDateRange, setCustomDateRange] = useState<{
-    from: string;
-    to: string;
-  }>({
-    from: new Date(new Date().setMonth(new Date().getMonth() - 6))
-      .toISOString()
-      .split("T")[0],
-    to: new Date().toISOString().split("T")[0],
-  });
 
   // Load database KPIs on mount
   useEffect(() => {
@@ -241,8 +241,8 @@ export function StudioPerformance() {
           <DateRangePicker
             period={period}
             customDateRange={customDateRange}
-            onPeriodChange={(value) => setPeriod(value)}
-            onCustomDateRangeChange={(range) => setCustomDateRange(range)}
+            onPeriodChange={onPeriodChange}
+            onCustomDateRangeChange={onCustomDateRangeChange}
           />
           <Button variant="outline" size="sm" className="gap-2">
             <Download className="h-4 w-4" />

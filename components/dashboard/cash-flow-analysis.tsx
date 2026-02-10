@@ -15,12 +15,24 @@ import { NetCashFlowChart } from "@/components/dashboard/cash-flow/NetCashFlowCh
 import { CategoryBreakdownChart } from "@/components/dashboard/cash-flow/CategoryBreakdownChart";
 import { CategoryNetImpact } from "@/components/dashboard/cash-flow/CategoryNetImpact";
 
-export function CashFlowAnalysis() {
+interface CashFlowAnalysisProps {
+  period?: "month" | "year" | "ytd" | "custom";
+  customDateRange?: { from: string; to: string };
+  onPeriodChange?: (period: "month" | "year" | "ytd" | "custom") => void;
+  onCustomDateRangeChange?: (range: { from: string; to: string }) => void;
+}
+
+export function CashFlowAnalysis({
+  period: propPeriod,
+  customDateRange: propCustomDateRange,
+  onPeriodChange: propOnPeriodChange,
+  onCustomDateRangeChange: propOnCustomDateRangeChange,
+}: CashFlowAnalysisProps = {}) {
   const { prefs } = useUserPreferences();
-  const [period, setPeriod] = useState<"month" | "year" | "ytd" | "custom">(
-    "month"
-  );
-  const [customDateRange, setCustomDateRange] = useState<{
+  const [localPeriod, setLocalPeriod] = useState<
+    "month" | "year" | "ytd" | "custom"
+  >("month");
+  const [localCustomDateRange, setLocalCustomDateRange] = useState<{
     from: string;
     to: string;
   }>({
@@ -29,6 +41,14 @@ export function CashFlowAnalysis() {
       .split("T")[0],
     to: new Date().toISOString().split("T")[0],
   });
+
+  // Use props if provided, otherwise use local state
+  const period = propPeriod ?? localPeriod;
+  const customDateRange = propCustomDateRange ?? localCustomDateRange;
+  const onPeriodChange = propOnPeriodChange ?? setLocalPeriod;
+  const onCustomDateRangeChange =
+    propOnCustomDateRangeChange ?? setLocalCustomDateRange;
+
   const { transactions, loading, metrics } = useCashFlowData(
     period,
     customDateRange
@@ -81,8 +101,8 @@ export function CashFlowAnalysis() {
           <DateRangePicker
             period={period}
             customDateRange={customDateRange}
-            onPeriodChange={(value) => setPeriod(value)}
-            onCustomDateRangeChange={(range) => setCustomDateRange(range)}
+            onPeriodChange={onPeriodChange}
+            onCustomDateRangeChange={onCustomDateRangeChange}
           />
           <Button variant="outline" size="sm" className="gap-2">
             <Download className="h-4 w-4" />

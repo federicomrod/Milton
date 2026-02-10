@@ -7,6 +7,9 @@ import { SalesPipeline } from "@/components/dashboard/sales-pipeline";
 import { CashFlowAnalysis } from "@/components/dashboard/cash-flow-analysis";
 import { StudioPerformance } from "@/components/dashboard/studio-performance";
 import { ClassesUtilization } from "@/components/dashboard/classes-utilization";
+import { RestaurantRevenueMenu } from "@/components/dashboard/restaurant-revenue-menu";
+import { RestaurantOperations } from "@/components/dashboard/restaurant-operations";
+import { RestaurantCashFlow } from "@/components/dashboard/restaurant-cash-flow";
 import { BarChart } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -28,6 +31,34 @@ export default function AnalyticsPage() {
   const [dataStatus, setDataStatus] = useState<DataStatus>(null);
   const [businessModel, setBusinessModel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Shared date state for restaurant analytics tabs
+  const [restaurantPeriod, setRestaurantPeriod] = useState<
+    "month" | "year" | "ytd" | "custom"
+  >("month");
+  const [restaurantCustomDateRange, setRestaurantCustomDateRange] = useState<{
+    from: string;
+    to: string;
+  }>({
+    from: new Date(new Date().setMonth(new Date().getMonth() - 1))
+      .toISOString()
+      .split("T")[0],
+    to: new Date().toISOString().split("T")[0],
+  });
+
+  // Shared date state for fitness studio analytics tabs
+  const [fitnessPeriod, setFitnessPeriod] = useState<
+    "month" | "year" | "ytd" | "custom"
+  >("month");
+  const [fitnessCustomDateRange, setFitnessCustomDateRange] = useState<{
+    from: string;
+    to: string;
+  }>({
+    from: new Date(new Date().setMonth(new Date().getMonth() - 6))
+      .toISOString()
+      .split("T")[0],
+    to: new Date().toISOString().split("T")[0],
+  });
 
   // Check if user has uploaded data via Supabase/API
   const checkUploadedData = async () => {
@@ -89,6 +120,7 @@ export default function AnalyticsPage() {
   }, []);
 
   const isFitnessStudio = businessModel === "fitness_studio";
+  const isRestaurant = businessModel === "restaurant";
 
   if (loading) {
     return (
@@ -119,12 +151,64 @@ export default function AnalyticsPage() {
           <p className="text-muted-foreground">
             {isFitnessStudio
               ? "Deep dive into your studio performance, members, classes, and financial metrics"
-              : "Deep dive into your financial performance, sales pipeline, and cash flow metrics"}
+              : isRestaurant
+                ? "Deep dive into your restaurant performance, revenue, operations, and cash flow metrics"
+                : "Deep dive into your financial performance, sales pipeline, and cash flow metrics"}
           </p>
         </div>
 
         {/* Analytics Tabs */}
-        {isFitnessStudio ? (
+        {isRestaurant ? (
+          <Tabs defaultValue="revenue-menu" className="space-y-4">
+            <TabsList className="grid w-full grid-cols-3 mb-6 shadow-sm">
+              <TabsTrigger
+                value="revenue-menu"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                Revenue & Menu
+              </TabsTrigger>
+              <TabsTrigger
+                value="operations"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                Operations
+              </TabsTrigger>
+              <TabsTrigger
+                value="cash-flow"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                Cash Flow
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="revenue-menu" className="space-y-4">
+              <RestaurantRevenueMenu
+                period={restaurantPeriod}
+                customDateRange={restaurantCustomDateRange}
+                onPeriodChange={setRestaurantPeriod}
+                onCustomDateRangeChange={setRestaurantCustomDateRange}
+              />
+            </TabsContent>
+
+            <TabsContent value="operations" className="space-y-4">
+              <RestaurantOperations
+                period={restaurantPeriod}
+                customDateRange={restaurantCustomDateRange}
+                onPeriodChange={setRestaurantPeriod}
+                onCustomDateRangeChange={setRestaurantCustomDateRange}
+              />
+            </TabsContent>
+
+            <TabsContent value="cash-flow" className="space-y-4">
+              <RestaurantCashFlow
+                period={restaurantPeriod}
+                customDateRange={restaurantCustomDateRange}
+                onPeriodChange={setRestaurantPeriod}
+                onCustomDateRangeChange={setRestaurantCustomDateRange}
+              />
+            </TabsContent>
+          </Tabs>
+        ) : isFitnessStudio ? (
           <Tabs defaultValue="studio-performance" className="space-y-4">
             <TabsList className="grid w-full grid-cols-6 mb-6 shadow-sm">
               <TabsTrigger
@@ -180,11 +264,21 @@ export default function AnalyticsPage() {
             </TabsContent>
 
             <TabsContent value="studio-performance" className="space-y-4">
-              <StudioPerformance />
+              <StudioPerformance
+                period={fitnessPeriod}
+                customDateRange={fitnessCustomDateRange}
+                onPeriodChange={setFitnessPeriod}
+                onCustomDateRangeChange={setFitnessCustomDateRange}
+              />
             </TabsContent>
 
             <TabsContent value="classes" className="space-y-4">
-              <ClassesUtilization />
+              <ClassesUtilization
+                period={fitnessPeriod}
+                customDateRange={fitnessCustomDateRange}
+                onPeriodChange={setFitnessPeriod}
+                onCustomDateRangeChange={setFitnessCustomDateRange}
+              />
             </TabsContent>
 
             <TabsContent value="members" className="space-y-4">
@@ -197,7 +291,12 @@ export default function AnalyticsPage() {
 
             <TabsContent value="cashflow" className="space-y-4">
               {dataStatus?.bank ? (
-                <CashFlowAnalysis />
+                <CashFlowAnalysis
+                  period={fitnessPeriod}
+                  customDateRange={fitnessCustomDateRange}
+                  onPeriodChange={setFitnessPeriod}
+                  onCustomDateRangeChange={setFitnessCustomDateRange}
+                />
               ) : (
                 <LockedPlaceholder message="To unlock Cash Flow Analysis, upload your bank transaction data on the Upload page." />
               )}

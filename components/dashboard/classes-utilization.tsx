@@ -77,7 +77,19 @@ interface OccupancyByType {
   occupancy: number;
 }
 
-export function ClassesUtilization() {
+interface ClassesUtilizationProps {
+  period: "month" | "year" | "ytd" | "custom";
+  customDateRange: { from: string; to: string };
+  onPeriodChange: (period: "month" | "year" | "ytd" | "custom") => void;
+  onCustomDateRangeChange: (range: { from: string; to: string }) => void;
+}
+
+export function ClassesUtilization({
+  period,
+  customDateRange,
+  onPeriodChange,
+  onCustomDateRangeChange,
+}: ClassesUtilizationProps) {
   const [kpis, setKpis] = useState<KpiData | null>(null);
   const [databaseKpis, setDatabaseKpis] = useState<DatabaseKpi[]>([]);
   const [trends, setTrends] = useState<TrendData | null>(null);
@@ -88,18 +100,6 @@ export function ClassesUtilization() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [period, setPeriod] = useState<"month" | "year" | "ytd" | "custom">(
-    "month"
-  );
-  const [customDateRange, setCustomDateRange] = useState<{
-    from: string;
-    to: string;
-  }>({
-    from: new Date(new Date().setMonth(new Date().getMonth() - 1))
-      .toISOString()
-      .split("T")[0],
-    to: new Date().toISOString().split("T")[0],
-  });
 
   // Load database KPIs on mount
   useEffect(() => {
@@ -212,8 +212,8 @@ export function ClassesUtilization() {
           <DateRangePicker
             period={period}
             customDateRange={customDateRange}
-            onPeriodChange={(value) => setPeriod(value)}
-            onCustomDateRangeChange={(range) => setCustomDateRange(range)}
+            onPeriodChange={onPeriodChange}
+            onCustomDateRangeChange={onCustomDateRangeChange}
           />
           <Button variant="outline" size="sm" className="gap-2">
             <Download className="h-4 w-4" />

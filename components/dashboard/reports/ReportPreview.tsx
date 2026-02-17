@@ -1,4 +1,6 @@
 // components/dashboard/reports/ReportPreview.tsx
+"use client";
+
 import {
   Card,
   CardContent,
@@ -13,14 +15,243 @@ interface ReportPreviewProps {
   config: ReportConfig;
 }
 
+function getEnabledCards(section: any): string[] {
+  if (!section?.enabled || !section?.cards) return [];
+  return Object.entries(section.cards)
+    .filter(([_, enabled]) => enabled === true)
+    .map(([key]) => key);
+}
+
+function getEnabledCharts(section: any): string[] {
+  if (!section?.enabled || !section?.charts) return [];
+  return Object.entries(section.charts)
+    .filter(([_, enabled]) => enabled === true)
+    .map(([key]) => key);
+}
+
+function getCardLabel(cardId: string, sectionId: string): string {
+  const labels: Record<string, Record<string, string>> = {
+    executiveOverview: {
+      activeMembers: "Active Members (end of period)",
+      monthlyRevenue: "Monthly Revenue",
+      netIncome: "Net Income",
+      utilizationRate: "Utilization Rate",
+      monthlyChurnRate: "Monthly Churn Rate",
+      cashRunway: "Cash Runway",
+    },
+    studioPerformance: {
+      activeMembers: "Active Members",
+      newMembers: "New Members",
+      churnRate: "Churn Rate",
+      avgMemberTenure: "Avg Member Tenure",
+      revenuePerMember: "Revenue per Member",
+      utilizationRate: "Utilization Rate",
+      cancellationRate: "Cancellation Rate",
+      noShowRate: "No-show Rate",
+    },
+    classesUtilization: {
+      totalClassesHeld: "Total Classes Held",
+      avgClassOccupancy: "Avg Class Occupancy",
+      capacityUtilization: "Capacity Utilization",
+      avgAttendeesPerClass: "Avg Attendees per Class",
+      revenuePerClass: "Revenue per Class",
+    },
+    members: {
+      totalMembers: "Total Members",
+      activeMembers: "Active Members",
+      netMemberGrowth: "Net Member Growth",
+      avgMemberTenure: "Avg Member Tenure",
+      engagementRate: "Engagement Rate",
+    },
+    instructors: {
+      activeInstructors: "Active Instructors",
+      classesTaught: "Classes Taught",
+      avgOccupancyPerInstructor: "Avg Occupancy per Instructor",
+      revenuePerInstructor: "Revenue per Instructor",
+      instructorCancellationRate: "Instructor Cancellation Rate",
+    },
+    financials: {
+      totalRevenue: "Total Revenue",
+      totalCosts: "Total Costs",
+      netIncome: "Net Income",
+      grossMargin: "Gross Margin",
+    },
+    cashFlow: {
+      netCashFlow: "Net Cash Flow",
+      burnRate: "Burn Rate",
+      runway: "Runway",
+    },
+  };
+  return labels[sectionId]?.[cardId] || cardId;
+}
+
+function getChartLabel(chartId: string, sectionId: string): string {
+  const labels: Record<string, Record<string, string>> = {
+    executiveOverview: {
+      membersOverTime: "Members Over Time (line)",
+      revenueTrend: "Revenue Trend (line)",
+    },
+    studioPerformance: {
+      newVsChurned: "Members: New vs Churned (grouped bar)",
+      churnRateTrend: "Churn Rate Trend (line)",
+      revenuePerMemberTrend: "Revenue per Member Trend (line)",
+      utilizationHeatmap: "Utilization Heatmap (weekday × hour)",
+    },
+    classesUtilization: {
+      occupancyTrend: "Occupancy Trend (line)",
+      utilizationTrend: "Utilization Trend (line)",
+      classOutcomes: "Class Outcomes (stacked bar)",
+      top10ClassesByOccupancy: "Top 10 Classes by Occupancy (horizontal bar)",
+      top10ClassesByRevenue: "Top 10 Classes by Revenue (horizontal bar)",
+    },
+    members: {
+      memberBaseOverTime: "Member Base Over Time (line)",
+      tenureDistribution: "Tenure Distribution (bar or donut)",
+      subscriptionTypeSplit: "Subscription Type Split (donut)",
+      genderSplit: "Gender Split (donut)",
+      ageBands: "Age Bands (bar)",
+      engagementDistribution: "Engagement Distribution (bar)",
+    },
+    instructors: {
+      instructorRankingByRevenue: "Instructor Ranking by Revenue (bar)",
+      instructorRankingByOccupancy: "Instructor Ranking by Occupancy (bar)",
+      classesTaughtPerInstructor: "Classes Taught per Instructor (bar)",
+      cancellationRateByInstructor: "Cancellation Rate by Instructor (bar)",
+    },
+    financials: {
+      revenueTrend: "Revenue Trend (line)",
+      netIncomeTrend: "Net Income Trend (line)",
+      revenueBreakdown: "Revenue Breakdown (donut)",
+      costBreakdown: "Cost Breakdown (horizontal bar)",
+      budgetVsActual: "Budget vs Actual (line)",
+    },
+    cashFlow: {
+      inflowsVsOutflows: "Inflows vs Outflows (grouped bar)",
+      netCashFlowTrend: "Net Cash Flow Trend (bar)",
+      cumulativeCashFlow: "Cumulative Cash Flow (line)",
+      outflowsByCategory: "Outflows by Category (horizontal bar)",
+    },
+  };
+  return labels[sectionId]?.[chartId] || chartId;
+}
+
+function getSectionTitle(sectionId: string): string {
+  const titles: Record<string, string> = {
+    executiveOverview: "Executive Overview",
+    studioPerformance: "Studio Performance",
+    classesUtilization: "Classes & Utilization",
+    members: "Members",
+    instructors: "Instructors",
+    financials: "Financials",
+    cashFlow: "Cash Flow",
+  };
+  return titles[sectionId] || sectionId;
+}
+
+function getSectionColor(sectionId: string): string {
+  const colors: Record<string, string> = {
+    executiveOverview: "from-blue-50 to-blue-100 border-blue-500",
+    studioPerformance: "from-green-50 to-green-100 border-green-500",
+    classesUtilization: "from-purple-50 to-purple-100 border-purple-500",
+    members: "from-orange-50 to-orange-100 border-orange-500",
+    instructors: "from-pink-50 to-pink-100 border-pink-500",
+    financials: "from-teal-50 to-teal-100 border-teal-500",
+    cashFlow: "from-indigo-50 to-indigo-100 border-indigo-500",
+  };
+  return colors[sectionId] || "from-gray-50 to-gray-100 border-gray-500";
+}
+
 export function ReportPreview({ config }: ReportPreviewProps) {
+  const isFitnessStudio =
+    config.businessModel &&
+    config.businessModel.toLowerCase().replace(/\s+/g, "_") ===
+      "fitness_studio";
+
+  // Calculate total slides
+  let slideCount = 1; // Cover slide
+  const sections = [
+    config.executiveOverview,
+    config.studioPerformance,
+    config.classesUtilization,
+    config.members,
+    config.instructors,
+    config.financials,
+    config.cashFlow,
+  ];
+
+  // Track slide numbers for each section
+  const sectionSlideNumbers: Record<string, number[]> = {};
+
+  sections.forEach((section, index) => {
+    if (section?.enabled) {
+      const enabledCards = getEnabledCards(section);
+      const enabledCharts = getEnabledCharts(section);
+
+      // PDF generator shows max 6 cards per slide (only first 6)
+      const cardsToShow = Math.min(enabledCards.length, 6);
+      const hasCards = cardsToShow > 0;
+
+      // Charts: first 2 can share page with cards, then 2 per additional page
+      const chartsOnFirstPage = Math.min(enabledCharts.length, 2);
+      const remainingCharts = Math.max(0, enabledCharts.length - 2);
+      const additionalChartSlides = Math.ceil(remainingCharts / 2);
+
+      // Calculate total slides for this section
+      let sectionSlides: number;
+      if (hasCards || enabledCharts.length > 0) {
+        // At least 1 slide (for cards, or first 2 charts, or both)
+        sectionSlides = 1 + additionalChartSlides;
+      } else {
+        sectionSlides = 0;
+      }
+
+      const sectionSlidesList: number[] = [];
+      for (let i = 0; i < sectionSlides; i++) {
+        sectionSlidesList.push(slideCount + i);
+      }
+
+      const sectionKeys = [
+        "executiveOverview",
+        "studioPerformance",
+        "classesUtilization",
+        "members",
+        "instructors",
+        "financials",
+        "cashFlow",
+      ];
+      sectionSlideNumbers[sectionKeys[index]] = sectionSlidesList;
+
+      slideCount += sectionSlides;
+    }
+  });
+
+  if (!isFitnessStudio) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Report Preview</CardTitle>
+          <CardDescription>
+            Preview will appear when Fitness Studio business model is selected
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Report Preview</CardTitle>
-        <CardDescription>
-          Preview of your report structure - functionality yet to be developed
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Report Preview</CardTitle>
+            <CardDescription>
+              Preview of your report structure and slides
+            </CardDescription>
+          </div>
+          <Badge variant="secondary" className="text-sm">
+            {slideCount} {slideCount === 1 ? "Slide" : "Slides"}
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
@@ -29,24 +260,225 @@ export function ReportPreview({ config }: ReportPreviewProps) {
             <div>
               <h3 className="font-semibold">Cover Slide</h3>
               <p className="text-sm text-gray-600">
-                {config.title} • {config.companyName}
+                {config.title} • {config.companyName} • {config.reportPeriod}
               </p>
             </div>
             <Badge variant="secondary">Always Included</Badge>
           </div>
 
-          {/* Placeholder for future sections */}
-          <div className="p-4 bg-gray-50 rounded-lg border-l-4 border-gray-300">
-            <div className="text-center">
-              <h3 className="font-semibold text-gray-700 mb-2">
-                Report Sections
-              </h3>
-              <p className="text-sm text-gray-600">
-                Section selection and detailed preview will be available when
-                this feature is fully developed.
+          {/* Sections */}
+          {config.executiveOverview?.enabled && (
+            <div
+              className={`p-4 bg-gradient-to-r ${getSectionColor(
+                "executiveOverview"
+              )} rounded-lg border-l-4`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">
+                  {getSectionTitle("executiveOverview")}
+                </h3>
+                <Badge variant="outline">
+                  {sectionSlideNumbers.executiveOverview?.length === 1
+                    ? `Slide ${sectionSlideNumbers.executiveOverview[0]}`
+                    : `Slides ${sectionSlideNumbers.executiveOverview?.[0]}-${sectionSlideNumbers.executiveOverview?.[sectionSlideNumbers.executiveOverview.length - 1]}`}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-sm">
+                {getEnabledCards(config.executiveOverview).map((cardId) => (
+                  <div key={cardId}>
+                    • {getCardLabel(cardId, "executiveOverview")}
+                  </div>
+                ))}
+                {getEnabledCharts(config.executiveOverview).map((chartId) => (
+                  <div key={chartId}>
+                    • {getChartLabel(chartId, "executiveOverview")}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {config.studioPerformance?.enabled && (
+            <div
+              className={`p-4 bg-gradient-to-r ${getSectionColor(
+                "studioPerformance"
+              )} rounded-lg border-l-4`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">
+                  {getSectionTitle("studioPerformance")}
+                </h3>
+                <Badge variant="outline">
+                  {sectionSlideNumbers.studioPerformance?.length === 1
+                    ? `Slide ${sectionSlideNumbers.studioPerformance[0]}`
+                    : `Slides ${sectionSlideNumbers.studioPerformance?.[0]}-${sectionSlideNumbers.studioPerformance?.[sectionSlideNumbers.studioPerformance.length - 1]}`}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-sm">
+                {getEnabledCards(config.studioPerformance).map((cardId) => (
+                  <div key={cardId}>
+                    • {getCardLabel(cardId, "studioPerformance")}
+                  </div>
+                ))}
+                {getEnabledCharts(config.studioPerformance).map((chartId) => (
+                  <div key={chartId}>
+                    • {getChartLabel(chartId, "studioPerformance")}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {config.classesUtilization?.enabled && (
+            <div
+              className={`p-4 bg-gradient-to-r ${getSectionColor(
+                "classesUtilization"
+              )} rounded-lg border-l-4`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">
+                  {getSectionTitle("classesUtilization")}
+                </h3>
+                <Badge variant="outline">
+                  {sectionSlideNumbers.classesUtilization?.length === 1
+                    ? `Slide ${sectionSlideNumbers.classesUtilization[0]}`
+                    : `Slides ${sectionSlideNumbers.classesUtilization?.[0]}-${sectionSlideNumbers.classesUtilization?.[sectionSlideNumbers.classesUtilization.length - 1]}`}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-sm">
+                {getEnabledCards(config.classesUtilization).map((cardId) => (
+                  <div key={cardId}>
+                    • {getCardLabel(cardId, "classesUtilization")}
+                  </div>
+                ))}
+                {getEnabledCharts(config.classesUtilization).map((chartId) => (
+                  <div key={chartId}>
+                    • {getChartLabel(chartId, "classesUtilization")}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {config.members?.enabled && (
+            <div
+              className={`p-4 bg-gradient-to-r ${getSectionColor(
+                "members"
+              )} rounded-lg border-l-4`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">{getSectionTitle("members")}</h3>
+                <Badge variant="outline">
+                  {sectionSlideNumbers.members?.length === 1
+                    ? `Slide ${sectionSlideNumbers.members[0]}`
+                    : `Slides ${sectionSlideNumbers.members?.[0]}-${sectionSlideNumbers.members?.[sectionSlideNumbers.members.length - 1]}`}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-sm">
+                {getEnabledCards(config.members).map((cardId) => (
+                  <div key={cardId}>• {getCardLabel(cardId, "members")}</div>
+                ))}
+                {getEnabledCharts(config.members).map((chartId) => (
+                  <div key={chartId}>• {getChartLabel(chartId, "members")}</div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {config.instructors?.enabled && (
+            <div
+              className={`p-4 bg-gradient-to-r ${getSectionColor(
+                "instructors"
+              )} rounded-lg border-l-4`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">
+                  {getSectionTitle("instructors")}
+                </h3>
+                <Badge variant="outline">
+                  {sectionSlideNumbers.instructors?.length === 1
+                    ? `Slide ${sectionSlideNumbers.instructors[0]}`
+                    : `Slides ${sectionSlideNumbers.instructors?.[0]}-${sectionSlideNumbers.instructors?.[sectionSlideNumbers.instructors.length - 1]}`}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-sm">
+                {getEnabledCards(config.instructors).map((cardId) => (
+                  <div key={cardId}>
+                    • {getCardLabel(cardId, "instructors")}
+                  </div>
+                ))}
+                {getEnabledCharts(config.instructors).map((chartId) => (
+                  <div key={chartId}>
+                    • {getChartLabel(chartId, "instructors")}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {config.financials?.enabled && (
+            <div
+              className={`p-4 bg-gradient-to-r ${getSectionColor(
+                "financials"
+              )} rounded-lg border-l-4`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">
+                  {getSectionTitle("financials")}
+                </h3>
+                <Badge variant="outline">
+                  {sectionSlideNumbers.financials?.length === 1
+                    ? `Slide ${sectionSlideNumbers.financials[0]}`
+                    : `Slides ${sectionSlideNumbers.financials?.[0]}-${sectionSlideNumbers.financials?.[sectionSlideNumbers.financials.length - 1]}`}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-sm">
+                {getEnabledCards(config.financials).map((cardId) => (
+                  <div key={cardId}>• {getCardLabel(cardId, "financials")}</div>
+                ))}
+                {getEnabledCharts(config.financials).map((chartId) => (
+                  <div key={chartId}>
+                    • {getChartLabel(chartId, "financials")}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {config.cashFlow?.enabled && (
+            <div
+              className={`p-4 bg-gradient-to-r ${getSectionColor(
+                "cashFlow"
+              )} rounded-lg border-l-4`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">{getSectionTitle("cashFlow")}</h3>
+                <Badge variant="outline">
+                  {sectionSlideNumbers.cashFlow?.length === 1
+                    ? `Slide ${sectionSlideNumbers.cashFlow[0]}`
+                    : `Slides ${sectionSlideNumbers.cashFlow?.[0]}-${sectionSlideNumbers.cashFlow?.[sectionSlideNumbers.cashFlow.length - 1]}`}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-sm">
+                {getEnabledCards(config.cashFlow).map((cardId) => (
+                  <div key={cardId}>• {getCardLabel(cardId, "cashFlow")}</div>
+                ))}
+                {getEnabledCharts(config.cashFlow).map((chartId) => (
+                  <div key={chartId}>
+                    • {getChartLabel(chartId, "cashFlow")}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {sections.every((s) => !s?.enabled) && (
+            <div className="p-4 bg-gray-50 rounded-lg border-l-4 border-gray-300">
+              <p className="text-sm text-gray-600 text-center">
+                No sections enabled. Enable sections above to see preview.
               </p>
             </div>
-          </div>
+          )}
         </div>
       </CardContent>
     </Card>

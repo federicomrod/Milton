@@ -9,6 +9,55 @@ function jsonNoStore(data: Record<string, unknown>) {
   return res;
 }
 
+function parseDate(dateStr: any): Date | null {
+  if (!dateStr) return null;
+  if (dateStr instanceof Date) return dateStr;
+  if (typeof dateStr !== "string") return null;
+
+  // Try YYYY-MM-DD HH:mm:ss format (with space separator)
+  if (dateStr.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)) {
+    return new Date(dateStr.replace(" ", "T"));
+  }
+
+  // Try YYYY-MM-DD format (date only)
+  if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    return new Date(dateStr + "T00:00:00");
+  }
+
+  // Try YYYY-MM-DD format (with other characters after)
+  if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+    const parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) {
+      return parsed;
+    }
+    return new Date(dateStr.split(" ")[0] + "T00:00:00");
+  }
+
+  // Try MM/DD/YY or MM/DD/YYYY format
+  if (dateStr.match(/^\d{1,2}\/\d{1,2}\/\d{2,4}/)) {
+    const parts = dateStr.split("/");
+    if (parts.length === 3) {
+      const month = parseInt(parts[0]) - 1;
+      const day = parseInt(parts[1]);
+      let year = parseInt(parts[2]);
+      if (year < 50) year += 2000;
+      else if (year < 100) year += 1900;
+      const parsed = new Date(year, month, day);
+      if (
+        parsed.getFullYear() === year &&
+        parsed.getMonth() === month &&
+        parsed.getDate() === day
+      ) {
+        return parsed;
+      }
+    }
+  }
+
+  // Fallback to standard Date parsing
+  const parsed = new Date(dateStr);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
@@ -83,21 +132,26 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Get table IDs and convert to names
+    // Get table IDs and convert to names, also fetch field definitions
     const tableIds = [
       ...new Set(allModelData.map((row) => row.model_table_id)),
     ];
     const idToNameMap: Record<string, string> = {};
+    const tableFieldsMap: Record<string, { fields: Array<{ name: string }> }> =
+      {};
 
     if (tableIds.length > 0) {
       const { data: tableDefinitions, error: tableError } = await supabase
         .from("data_tables")
-        .select("id, name")
+        .select("id, name, fields")
         .in("id", tableIds);
 
       if (!tableError && tableDefinitions) {
-        tableDefinitions.forEach((table) => {
+        tableDefinitions.forEach((table: any) => {
           idToNameMap[table.id] = table.name.toLowerCase();
+          tableFieldsMap[table.id] = {
+            fields: table.fields || [],
+          };
         });
       }
     }
@@ -183,64 +237,218 @@ export async function GET(req: NextRequest) {
     const toDateEnd = new Date(toDate);
     toDateEnd.setHours(23, 59, 59, 999);
 
-    // Normalize field names - support both snake_case and Title Case
+    // Get field names from data_tables definitions
+    const bookingsTableId = Object.keys(idToNameMap).find(
+      (id) => idToNameMap[id] === "bookings"
+    );
+    const classesTableId = Object.keys(idToNameMap).find(
+      (id) => idToNameMap[id] === "classes"
+    );
+
+    const bookingsFields = bookingsTableId
+      ? tableFieldsMap[bookingsTableId]?.fields || []
+      : [];
+    const classesFields = classesTableId
+      ? tableFieldsMap[classesTableId]?.fields || []
+      : [];
+
+    // Helper to get field value
+    const getFieldValue = (
+      obj: any,
+      fieldName: string,
+      fallbacks: string[] = []
+    ): any => {
+      if (obj[fieldName] !== undefined) return obj[fieldName];
+      const lowerFieldName = fieldName.toLowerCase();
+      for (const key in obj) {
+        if (key.toLowerCase() === lowerFieldName) {
+          return obj[key];
+        }
+      }
+      for (const fallback of fallbacks) {
+        if (obj[fallback] !== undefined) return obj[fallback];
+      }
+      return undefined;
+    };
+
+    // Normalize field names - use actual field names from data_tables
     const normalizeBooking = (b: any) => {
-      return {
-        class_id: b.class_id || b["Class ID"] || b.classId,
-        customer_id:
-          b.customer_id || b["Member ID"] || b.customerId || b.member_id,
-        booking_id: b.booking_id || b["Booking ID"] || b.bookingId,
-        status:
-          b.status ||
+      const classIdField = bookingsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("class") &&
+          (f.name.toLowerCase().includes("id") || f.name.toLowerCase() === "id")
+      )?.name;
+      const classId = classIdField
+        ? getFieldValue(b, classIdField, ["class_id", "Class ID"])
+        : b.class_id || b["Class ID"] || b.classId;
+
+      const memberIdField = bookingsFields.find(
+        (f) =>
+          (f.name.toLowerCase().includes("member") ||
+            f.name.toLowerCase().includes("customer")) &&
+          f.name.toLowerCase().includes("id")
+      )?.name;
+      const customerId = memberIdField
+        ? getFieldValue(b, memberIdField, [
+            "member_id",
+            "Member ID",
+            "customer_id",
+          ])
+        : b.customer_id || b["Member ID"] || b.customerId || b.member_id;
+
+      const bookingIdField = bookingsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("booking") &&
+          f.name.toLowerCase().includes("id")
+      )?.name;
+      const bookingId = bookingIdField
+        ? getFieldValue(b, bookingIdField, ["booking_id", "Booking ID"])
+        : b.booking_id || b["Booking ID"] || b.bookingId;
+
+      const statusField = bookingsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("status") ||
+          f.name.toLowerCase().includes("attendance")
+      )?.name;
+      const status = statusField
+        ? getFieldValue(b, statusField, [
+            "status",
+            "Status",
+            "Attendance Status",
+          ]) || ""
+        : b.status ||
           b.attendance_status ||
           b["Attendance Status"] ||
-          b.attendanceStatus,
-        price_paid: b.price_paid || b.price || b.Price || b.pricePaid,
-        class_start_at:
-          b.class_start_at ||
+          b.attendanceStatus ||
+          "";
+
+      const priceField = bookingsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("price") ||
+          f.name.toLowerCase().includes("amount")
+      )?.name;
+      const pricePaid = priceField
+        ? getFieldValue(b, priceField, [
+            "price_paid",
+            "Price Paid",
+            "price",
+            "Price",
+          ]) || 0
+        : b.price_paid || b.price || b.Price || b.pricePaid || 0;
+
+      const dateTimeField = bookingsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("time") ||
+          f.name.toLowerCase().includes("date") ||
+          f.name.toLowerCase().includes("&")
+      )?.name;
+      const classStartAt = dateTimeField
+        ? getFieldValue(b, dateTimeField, [
+            "Date & Time",
+            "date_time",
+            "class_start_at",
+            "booking_time",
+            "date",
+          ])
+        : b.class_start_at ||
           b.booking_time ||
           b.date ||
           b.class_date ||
           b["Class Date"] ||
           b["Booking Time"] ||
-          b["Date"],
-        // Keep original for debugging
+          b["Date"] ||
+          b["Date & Time"];
+
+      return {
+        class_id: classId,
+        customer_id: customerId,
+        booking_id: bookingId,
+        status,
+        price_paid: pricePaid,
+        class_start_at: classStartAt,
         _original: b,
       };
     };
 
     const normalizedBookings = bookings.map(normalizeBooking);
 
-    // Create class lookup maps FIRST - support both snake_case and Title Case
+    // Create class lookup maps FIRST - use actual field names from data_tables
     const classMap = new Map();
     classes.forEach((c: any) => {
-      // Support multiple ID field names: id, class_id, Class ID, etc.
-      const classId = c.id || c.class_id || c["Class ID"] || c.classId;
+      const classIdField = classesFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("class") &&
+          (f.name.toLowerCase().includes("id") || f.name.toLowerCase() === "id")
+      )?.name;
+      const classId = classIdField
+        ? getFieldValue(c, classIdField, ["id", "class_id", "Class ID"])
+        : c.id || c.class_id || c["Class ID"] || c.classId;
+
       if (classId) {
-        // Normalize class data
-        const normalizedClass = {
-          class_id: classId,
-          capacity: c.capacity || c.Capacity || c["Capacity"] || 0,
-          class_name:
-            c.class_name ||
+        const capacityField = classesFields.find((f) =>
+          f.name.toLowerCase().includes("capacity")
+        )?.name;
+        const capacity = capacityField
+          ? getFieldValue(c, capacityField, ["capacity", "Capacity"]) || 0
+          : c.capacity || c.Capacity || c["Capacity"] || 0;
+
+        const nameField = classesFields.find(
+          (f) =>
+            f.name.toLowerCase().includes("name") ||
+            f.name.toLowerCase().includes("type")
+        )?.name;
+        const className = nameField
+          ? getFieldValue(c, nameField, [
+              "class_name",
+              "Class Name",
+              "name",
+              "type",
+            ])
+          : c.class_name ||
             c["Class Name"] ||
             c.className ||
             c.name ||
             c.Name ||
             c.type ||
-            c.Type,
-          category:
-            c.category || c.Category || c["Category"] || c.type || c.Type,
-          // Store date if available - class_start_at is the date field!
-          date:
-            c.class_start_at ||
+            c.Type;
+
+        const categoryField = classesFields.find((f) =>
+          f.name.toLowerCase().includes("category")
+        )?.name;
+        const category = categoryField
+          ? getFieldValue(c, categoryField, ["category", "Category", "type"])
+          : c.category || c.Category || c["Category"] || c.type || c.Type;
+
+        const dateTimeField = classesFields.find(
+          (f) =>
+            f.name.toLowerCase().includes("time") ||
+            f.name.toLowerCase().includes("date") ||
+            f.name.toLowerCase().includes("starting")
+        )?.name;
+        const date = dateTimeField
+          ? getFieldValue(c, dateTimeField, [
+              "Class Starting Time",
+              "class_start_at",
+              "Date & Time",
+              "date_time",
+              "date",
+            ])
+          : c.class_start_at ||
+            c["Class Starting Time"] ||
             c.date ||
             c["Class Date"] ||
             c["Date"] ||
             c.start_date ||
             c["Start Date"] ||
-            c["class_start_at"],
-          // Keep original for reference
+            c["Date & Time"];
+
+        // Normalize class data
+        const normalizedClass = {
+          class_id: classId,
+          capacity,
+          class_name: className,
+          category,
+          date,
           _original: c,
         };
         classMap.set(classId, normalizedClass);
@@ -316,7 +524,7 @@ export async function GET(req: NextRequest) {
         return false; // Skip bookings without dates for now
       }
 
-      const startAt = new Date(startAtStr);
+      const startAt = parseDate(startAtStr);
       if (!startAt || isNaN(startAt.getTime())) {
         return false;
       }

@@ -2,14 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FinancialsAnalytics } from "@/components/dashboard/financials-analytics";
 import { FinancialCharts } from "@/components/dashboard/financial-charts";
 import { SalesPipeline } from "@/components/dashboard/sales-pipeline";
 import { CashFlowAnalysis } from "@/components/dashboard/cash-flow-analysis";
 import { StudioPerformance } from "@/components/dashboard/studio-performance";
 import { ClassesUtilization } from "@/components/dashboard/classes-utilization";
+import { MembersAnalytics } from "@/components/dashboard/members-analytics";
+import { InstructorsAnalytics } from "@/components/dashboard/instructors-analytics";
 import { RestaurantRevenueMenu } from "@/components/dashboard/restaurant-revenue-menu";
 import { RestaurantOperations } from "@/components/dashboard/restaurant-operations";
 import { RestaurantCashFlow } from "@/components/dashboard/restaurant-cash-flow";
+import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { BarChart } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -250,17 +254,12 @@ export default function AnalyticsPage() {
             </TabsList>
 
             <TabsContent value="financial" className="space-y-4">
-              {dataStatus?.budget ? (
-                <>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <FinancialCharts type="income-statement" />
-                    <FinancialCharts type="variance-analysis" />
-                  </div>
-                  <FinancialCharts type="ytd-performance" />
-                </>
-              ) : (
-                <LockedPlaceholder message="To unlock Financial Analysis, upload your budget data on the Upload page." />
-              )}
+              <FinancialsAnalytics
+                period={fitnessPeriod}
+                customDateRange={fitnessCustomDateRange}
+                onPeriodChange={setFitnessPeriod}
+                onCustomDateRangeChange={setFitnessCustomDateRange}
+              />
             </TabsContent>
 
             <TabsContent value="studio-performance" className="space-y-4">
@@ -282,11 +281,21 @@ export default function AnalyticsPage() {
             </TabsContent>
 
             <TabsContent value="members" className="space-y-4">
-              <LockedPlaceholder message="Members analytics coming soon." />
+              <MembersAnalytics
+                period={fitnessPeriod}
+                customDateRange={fitnessCustomDateRange}
+                onPeriodChange={setFitnessPeriod}
+                onCustomDateRangeChange={setFitnessCustomDateRange}
+              />
             </TabsContent>
 
             <TabsContent value="instructors" className="space-y-4">
-              <LockedPlaceholder message="Instructors analytics coming soon." />
+              <InstructorsAnalytics
+                period={fitnessPeriod}
+                customDateRange={fitnessCustomDateRange}
+                onPeriodChange={setFitnessPeriod}
+                onCustomDateRangeChange={setFitnessCustomDateRange}
+              />
             </TabsContent>
 
             <TabsContent value="cashflow" className="space-y-4">

@@ -262,23 +262,52 @@ export function generateVarianceAnalysisData(
   budget: BudgetData[]
 ): ChartData[] {
   const normalized = normalizeAmounts(transactions || []);
-  const currentMonth = new Date();
-  const monthKey = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, "0")}`;
+
+  // If no transactions, return empty
+  if (normalized.length === 0) {
+    console.log("[generateVarianceAnalysisData] No transactions provided");
+    return [];
+  }
+
+  // Use the latest month from the transactions instead of always using current month
+  // This allows the chart to work with any date range
+  const transactionDates = normalized
+    .map((t) => new Date(t.date))
+    .filter((d) => !isNaN(d.getTime()))
+    .sort((a, b) => b.getTime() - a.getTime());
+
+  if (transactionDates.length === 0) {
+    console.log("[generateVarianceAnalysisData] No valid transaction dates");
+    return [];
+  }
+
+  // Use the most recent month from the transactions
+  const latestTransactionDate = transactionDates[0];
+  const targetMonth = new Date(
+    latestTransactionDate.getFullYear(),
+    latestTransactionDate.getMonth(),
+    1
+  );
+  const monthKey = `${targetMonth.getFullYear()}-${String(targetMonth.getMonth() + 1).padStart(2, "0")}`;
 
   const monthTransactions = normalized.filter((t) => {
     const date = new Date(t.date);
     return (
-      date.getMonth() === currentMonth.getMonth() &&
-      date.getFullYear() === currentMonth.getFullYear()
+      date.getMonth() === targetMonth.getMonth() &&
+      date.getFullYear() === targetMonth.getFullYear()
     );
   });
 
-  const actualRevenue = monthTransactions
+  // If no transactions in the target month, use all transactions as fallback
+  const transactionsToUse =
+    monthTransactions.length > 0 ? monthTransactions : normalized;
+
+  const actualRevenue = transactionsToUse
     .filter((t) => t.amount > 0)
     .reduce((sum, t) => sum + t.amount, 0);
 
   const actualExpenses = Math.abs(
-    monthTransactions
+    transactionsToUse
       .filter((t) => t.amount < 0)
       .reduce((sum, t) => sum + t.amount, 0)
   );
@@ -322,8 +351,8 @@ export function generateVarianceAnalysisData(
 
   const variances: ChartData[] = [];
 
-  // Always show revenue if we have any budget or actual data
-  if (budgetRevenue > 0 || actualRevenue > 0) {
+  // Always show revenue if we have actual data (even without budget)
+  if (actualRevenue > 0) {
     variances.push({
       metric: "Revenue",
       budget: budgetRevenue,
@@ -336,8 +365,8 @@ export function generateVarianceAnalysisData(
     });
   }
 
-  // Always show expenses if we have any budget or actual data
-  if (budgetExpenses > 0 || actualExpenses > 0) {
+  // Always show expenses if we have actual data (even without budget)
+  if (actualExpenses > 0) {
     variances.push({
       metric: "Operating Expenses",
       budget: budgetExpenses,
@@ -348,6 +377,28 @@ export function generateVarianceAnalysisData(
           ? ((actualExpenses / budgetExpenses - 1) * 100).toFixed(1)
           : "N/A",
     });
+  }
+
+  // If we have budget but no actuals, still show the budget
+  if (actualRevenue === 0 && actualExpenses === 0) {
+    if (budgetRevenue > 0) {
+      variances.push({
+        metric: "Revenue",
+        budget: budgetRevenue,
+        actual: 0,
+        variance: -budgetRevenue,
+        variancePercent: "N/A",
+      });
+    }
+    if (budgetExpenses > 0) {
+      variances.push({
+        metric: "Operating Expenses",
+        budget: budgetExpenses,
+        actual: 0,
+        variance: -budgetExpenses,
+        variancePercent: "N/A",
+      });
+    }
   }
 
   // If we have budgets but no matching categories, try to use all budgets
@@ -448,15 +499,15 @@ export function generateYTDPerformanceData(
   budget: BudgetData[]
 ): ChartData[] {
   const normalized = normalizeAmounts(transactions);
-  const currentYear = new Date().getFullYear();
   const ytdData: ChartData[] = [];
 
   if (normalized.length === 0) {
     // Return empty data for YTD if no transactions
-    for (let month = 0; month <= new Date().getMonth(); month++) {
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth();
+    for (let month = 0; month <= currentMonth; month++) {
       const monthDate = new Date(currentYear, month, 1);
       const monthName = monthDate.toLocaleString("default", { month: "short" });
-      const monthKey = `${currentYear}-${String(month + 1).padStart(2, "0")}`;
       ytdData.push({
         month: monthName,
         actual: 0,
@@ -468,14 +519,36 @@ export function generateYTDPerformanceData(
     return ytdData;
   }
 
-  for (let month = 0; month <= new Date().getMonth(); month++) {
-    const monthDate = new Date(currentYear, month, 1);
+  // Find the year from the transactions (use the most recent year)
+  const transactionYears = normalized
+    .map((t) => {
+      const date = new Date(t.date);
+      return isNaN(date.getTime()) ? null : date.getFullYear();
+    })
+    .filter((year): year is number => year !== null)
+    .sort((a, b) => b - a);
+
+  if (transactionYears.length === 0) {
+    return ytdData;
+  }
+
+  const targetYear = transactionYears[0]; // Use most recent year
+  const currentDate = new Date();
+  const isCurrentYear = targetYear === currentDate.getFullYear();
+
+  // Determine how many months to show
+  // If it's the current year, show up to current month
+  // Otherwise, show all 12 months
+  const maxMonth = isCurrentYear ? currentDate.getMonth() : 11;
+
+  for (let month = 0; month <= maxMonth; month++) {
+    const monthDate = new Date(targetYear, month, 1);
     const monthName = monthDate.toLocaleString("default", { month: "short" });
-    const monthKey = `${currentYear}-${String(month + 1).padStart(2, "0")}`;
+    const monthKey = `${targetYear}-${String(month + 1).padStart(2, "0")}`;
 
     const monthTransactions = normalized.filter((t) => {
       const date = new Date(t.date);
-      return date.getMonth() === month && date.getFullYear() === currentYear;
+      return date.getMonth() === month && date.getFullYear() === targetYear;
     });
 
     const revenue = monthTransactions
@@ -483,7 +556,7 @@ export function generateYTDPerformanceData(
       .reduce((sum, t) => sum + t.amount, 0);
 
     // Get budget for this month
-    const monthBudget = budget.filter((b: BudgetData) =>
+    const monthBudget = (budget || []).filter((b: BudgetData) =>
       (b.month || "").startsWith(monthKey)
     );
 
@@ -512,6 +585,21 @@ export function generateYTDPerformanceData(
         plannedRevenue,
     });
   }
+
+  console.log("[generateYTDPerformanceData] Result:", {
+    targetYear,
+    maxMonth,
+    transactionsCount: normalized.length,
+    ytdDataCount: ytdData.length,
+    totalActual: ytdData.reduce(
+      (sum, d) => sum + ((d.actual as number) || 0),
+      0
+    ),
+    totalBudget: ytdData.reduce(
+      (sum, d) => sum + ((d.budget as number) || 0),
+      0
+    ),
+  });
 
   return ytdData;
 }

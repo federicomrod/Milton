@@ -19,6 +19,7 @@ import {
   getApiFieldForKpi,
   type DatabaseKpi,
 } from "@/lib/fitness-studio-kpis";
+import { KpiCard } from "@/components/dashboard/kpi-card";
 import {
   Table,
   TableBody,
@@ -309,18 +310,6 @@ export function ClassesUtilization({
             suffix = "%";
           }
 
-          const IconComponent = icon;
-
-          // Format the value
-          let formattedValue = "0";
-          if (format === "number") {
-            formattedValue = kpiValue.toLocaleString();
-          } else if (format === "percentage") {
-            formattedValue = kpiValue.toFixed(1);
-          } else if (format === "currency") {
-            formattedValue = `$${kpiValue.toFixed(2)}`;
-          }
-
           // Determine if trend should be shown (only for certain KPIs)
           const showTrend =
             trendValue !== undefined &&
@@ -329,61 +318,36 @@ export function ClassesUtilization({
               apiField === "revenuePerClass" ||
               apiField === "cancellationRate");
 
+          // Build trend description if available
+          let trendDescription: string | undefined = undefined;
+          if (showTrend) {
+            if (apiField === "cancellationRate") {
+              // For cancellation rate, negative trend is good
+              trendDescription =
+                trendValue! < 0
+                  ? `↓ ${Math.abs(trendValue!).toFixed(1)}%`
+                  : `↑ +${trendValue!.toFixed(1)}%`;
+            } else {
+              // For other KPIs, positive trend is good
+              trendDescription =
+                trendValue! > 0
+                  ? `↑ +${trendValue!.toFixed(1)}%`
+                  : `↓ ${trendValue!.toFixed(1)}%`;
+            }
+          }
+
           return (
-            <Card key={dbKpi.id}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  {dbKpi.name}
-                </CardTitle>
-                <IconComponent className={`h-4 w-4 ${iconColor}`} />
-              </CardHeader>
-              <CardContent>
-                <div className={`text-2xl font-bold ${valueColor}`}>
-                  {formattedValue}
-                  {format !== "currency" && suffix}
-                </div>
-                {showTrend && (
-                  <div className="flex items-center gap-1 mt-1">
-                    {apiField === "cancellationRate" ? (
-                      // For cancellation rate, negative trend is good
-                      trendValue! < 0 ? (
-                        <>
-                          <TrendingDown className="h-3 w-3 text-green-600" />
-                          <span className="text-xs text-green-600">
-                            {trendValue!.toFixed(1)}%
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <TrendingUp className="h-3 w-3 text-red-600" />
-                          <span className="text-xs text-red-600">
-                            +{trendValue!.toFixed(1)}%
-                          </span>
-                        </>
-                      )
-                    ) : // For other KPIs, positive trend is good
-                    trendValue! > 0 ? (
-                      <>
-                        <TrendingUp className="h-3 w-3 text-green-600" />
-                        <span className="text-xs text-green-600">
-                          +{trendValue!.toFixed(1)}%
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <TrendingDown className="h-3 w-3 text-red-600" />
-                        <span className="text-xs text-red-600">
-                          {trendValue!.toFixed(1)}%
-                        </span>
-                      </>
-                    )}
-                  </div>
-                )}
-                <p className="text-xs text-muted-foreground mt-1">
-                  {dbKpi.definition}
-                </p>
-              </CardContent>
-            </Card>
+            <KpiCard
+              key={dbKpi.id}
+              kpi={dbKpi}
+              value={kpiValue}
+              icon={icon}
+              iconColor={iconColor}
+              valueColor={valueColor}
+              suffix={suffix}
+              description={trendDescription}
+              fetchFromApi={false}
+            />
           );
         })}
       </div>

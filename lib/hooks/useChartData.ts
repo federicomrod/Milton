@@ -1,15 +1,5 @@
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { getReportData } from "@/lib/report-data-service";
-import {
-  generateMRRChartData,
-  generateBurnRateChartData,
-  generateVarianceAnalysisData,
-  generateYTDPerformanceData,
-  generateIncomeStatementData,
-  type ChartData,
-  type WaterfallData,
-} from "@/lib/chart-data-generators";
+import type { ChartData, WaterfallData } from "@/lib/chart-data-generators";
 
 export function useChartData(
   type: string,
@@ -23,18 +13,6 @@ export function useChartData(
     const loadData = async () => {
       try {
         setLoading(true);
-
-        const supabase = createClient();
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          console.error("useChartData: Error getting user", userError);
-          setLoading(false);
-          return;
-        }
 
         // Calculate date range based on period
         let toDate = new Date();
@@ -53,94 +31,45 @@ export function useChartData(
           fromDate.setMonth(fromDate.getMonth() - 12);
         }
 
-        const reportData = await getReportData(supabase, user.id);
+        const fromDateStr = fromDate.toISOString().split("T")[0];
+        const toDateStr = toDate.toISOString().split("T")[0];
 
-        // For variance-analysis and ytd-performance, we need budgets OR transactions
-        // For other charts, we need transactions
-        const needsTransactions = ![
-          "variance-analysis",
-          "ytd-performance",
-        ].includes(type);
+        // Map chart type to API chart type
+        const apiChartType =
+          type === "income-statement"
+            ? "income-statement"
+            : type === "variance-analysis"
+              ? "variance-analysis"
+              : type === "ytd-performance"
+                ? "ytd-performance"
+                : null;
 
-        if (
-          needsTransactions &&
-          (!reportData.transactions || reportData.transactions.length === 0)
-        ) {
-          setData([]);
-          setLoading(false);
-          return;
-        }
+        // Only fetch from API for fitness studio financial charts
+        // Other chart types (mrr-vs-plan, burn-rate) can use the old method if needed
+        if (apiChartType) {
+          const response = await fetch(
+            `/api/analytics/fitness-studio/financials?chart=${apiChartType}&from_date=${fromDateStr}&to_date=${toDateStr}`,
+            { cache: "no-store", credentials: "include" }
+          );
 
-        // For variance-analysis, check if we have at least budgets or transactions
-        if (type === "variance-analysis") {
-          const hasTransactions =
-            reportData.transactions && reportData.transactions.length > 0;
-          const hasBudgets =
-            reportData.budgets && reportData.budgets.length > 0;
-          if (!hasTransactions && !hasBudgets) {
+          if (!response.ok) {
+            console.error(
+              `[useChartData] API error for ${type}:`,
+              response.status
+            );
             setData([]);
             setLoading(false);
             return;
           }
+
+          const json = await response.json();
+          setData(json.data || []);
+          setLoading(false);
+          return;
         }
 
-        // Filter transactions by date range
-        const filteredTransactions = (reportData.transactions || []).filter(
-          (t) => {
-            try {
-              const date = new Date(t.date);
-              return (
-                date >= fromDate && date <= toDate && !isNaN(date.getTime())
-              );
-            } catch {
-              return false;
-            }
-          }
-        );
-
-        let chartData: ChartData[] | WaterfallData[] = [];
-
-        switch (type) {
-          case "mrr-vs-plan":
-            chartData = generateMRRChartData(
-              filteredTransactions,
-              reportData.budgets || []
-            );
-            break;
-          case "burn-rate":
-            chartData = generateBurnRateChartData(filteredTransactions);
-            break;
-          case "income-statement":
-            chartData = generateIncomeStatementData(filteredTransactions);
-            console.log("[useChartData] Income statement:", {
-              transactionsCount: filteredTransactions.length,
-              chartDataLength: chartData.length,
-              chartData,
-            });
-            break;
-          case "variance-analysis":
-            chartData = generateVarianceAnalysisData(
-              filteredTransactions,
-              reportData.budgets || []
-            );
-            console.log("[useChartData] Variance analysis:", {
-              transactionsCount: filteredTransactions.length,
-              budgetsCount: reportData.budgets?.length || 0,
-              chartDataLength: chartData.length,
-              chartData,
-            });
-            break;
-          case "ytd-performance":
-            chartData = generateYTDPerformanceData(
-              filteredTransactions,
-              reportData.budgets || []
-            );
-            break;
-          default:
-            chartData = [];
-        }
-
-        setData(chartData);
+        // For other chart types, return empty for now (they may not be used in fitness studio)
+        setData([]);
         setLoading(false);
       } catch (error) {
         console.error("useChartData: Error loading data", error);

@@ -95,21 +95,26 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Get table IDs and convert to names
+    // Get table IDs and convert to names, also fetch field definitions
     const tableIds = [
       ...new Set(allModelData.map((row) => row.model_table_id)),
     ];
     const idToNameMap: Record<string, string> = {};
+    const tableFieldsMap: Record<string, { fields: Array<{ name: string }> }> =
+      {};
 
     if (tableIds.length > 0) {
       const { data: tableDefinitions, error: tableError } = await supabase
         .from("data_tables")
-        .select("id, name")
+        .select("id, name, fields")
         .in("id", tableIds);
 
       if (!tableError && tableDefinitions) {
-        tableDefinitions.forEach((table) => {
+        tableDefinitions.forEach((table: any) => {
           idToNameMap[table.id] = table.name.toLowerCase();
+          tableFieldsMap[table.id] = {
+            fields: table.fields || [],
+          };
         });
       }
     }
@@ -168,171 +173,359 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Get field names from data_tables definitions
+    const ordersTableId = Object.keys(idToNameMap).find(
+      (id) =>
+        idToNameMap[id]?.includes("order") || idToNameMap[id]?.includes("sale")
+    );
+    const reservationsTableId = Object.keys(idToNameMap).find(
+      (id) =>
+        idToNameMap[id]?.includes("reservation") ||
+        idToNameMap[id]?.includes("booking")
+    );
+    const tablesTableId = Object.keys(idToNameMap).find(
+      (id) =>
+        idToNameMap[id]?.includes("table") || idToNameMap[id]?.includes("seat")
+    );
+
+    const ordersFields = ordersTableId
+      ? tableFieldsMap[ordersTableId]?.fields || []
+      : [];
+    const reservationsFields = reservationsTableId
+      ? tableFieldsMap[reservationsTableId]?.fields || []
+      : [];
+    const tablesFields = tablesTableId
+      ? tableFieldsMap[tablesTableId]?.fields || []
+      : [];
+
+    // Helper to get field value
+    const getFieldValue = (
+      obj: any,
+      fieldName: string,
+      fallbacks: string[] = []
+    ): any => {
+      if (obj[fieldName] !== undefined) return obj[fieldName];
+      const lowerFieldName = fieldName.toLowerCase();
+      for (const key in obj) {
+        if (key.toLowerCase() === lowerFieldName) {
+          return obj[key];
+        }
+      }
+      for (const fallback of fallbacks) {
+        if (obj[fallback] !== undefined) return obj[fallback];
+      }
+      return undefined;
+    };
+
     // Helper functions
-    const parseDate = (dateStr: string | null | undefined): Date | null => {
+    const parseDate = (dateStr: any): Date | null => {
       if (!dateStr) return null;
-
-      // Handle YYYY-MM-DD HH:MM format (from test data)
-      if (dateStr.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/)) {
-        return new Date(dateStr.replace(" ", "T") + ":00");
+      if (typeof dateStr === "string") {
+        // Handle YYYY-MM-DD HH:mm:ss format
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)) {
+          return new Date(dateStr.replace(" ", "T"));
+        }
+        // Handle YYYY-MM-DD HH:MM format (from test data)
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/)) {
+          return new Date(dateStr.replace(" ", "T") + ":00");
+        }
+        // Handle YYYY-MM-DD format
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          return new Date(dateStr + "T00:00:00");
+        }
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+          const parsed = new Date(dateStr);
+          if (!isNaN(parsed.getTime())) {
+            return parsed;
+          }
+          return new Date(dateStr.split(" ")[0] + "T00:00:00");
+        }
       }
-
-      // Handle YYYY-MM-DD format
-      if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-        return new Date(dateStr + "T00:00:00");
-      }
-
       // Try standard Date parsing
       const parsed = new Date(dateStr);
       return isNaN(parsed.getTime()) ? null : parsed;
     };
 
     const normalizeOrder = (o: any) => {
-      // Extract time from "Date & Time" if present
-      const dateTimeField = o["Date & Time"] || o["Date &amp; Time"];
-      let date =
-        o.date ||
-        o.order_date ||
-        o.sale_date ||
-        o.created_at ||
-        o["Date"] ||
-        o["Order Date"] ||
-        dateTimeField;
-      let time = o.time || o.order_time || o["Time"] || o["Order Time"] || null;
+      // Get field names from data_tables
+      const dateTimeField = ordersFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("time") ||
+          f.name.toLowerCase().includes("date") ||
+          f.name.toLowerCase().includes("&")
+      )?.name;
+      const dateTimeValue = dateTimeField
+        ? getFieldValue(o, dateTimeField, [
+            "Date & Time",
+            "date_time",
+            "order_date",
+            "date",
+          ])
+        : o["Date & Time"] || o["Date &amp; Time"] || null;
+
+      const dateField = ordersFields.find((f) =>
+        f.name.toLowerCase().includes("date")
+      )?.name;
+      let date = dateField
+        ? getFieldValue(o, dateField, [
+            "date",
+            "Date",
+            "order_date",
+            "sale_date",
+            "created_at",
+          ]) || dateTimeValue
+        : o.date ||
+          o.order_date ||
+          o.sale_date ||
+          o.created_at ||
+          o["Date"] ||
+          o["Order Date"] ||
+          dateTimeValue;
+
+      const timeField = ordersFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("time") &&
+          !f.name.toLowerCase().includes("date")
+      )?.name;
+      let time = timeField
+        ? getFieldValue(o, timeField, [
+            "time",
+            "Time",
+            "order_time",
+            "Order Time",
+          ])
+        : o.time || o.order_time || o["Time"] || o["Order Time"] || null;
 
       // If we have "Date & Time", extract time portion
-      if (dateTimeField && !time && dateTimeField.match(/\s+\d{2}:\d{2}/)) {
-        const timeMatch = dateTimeField.match(/\s+(\d{2}:\d{2})/);
+      if (dateTimeValue && !time && dateTimeValue.match(/\s+\d{2}:\d{2}/)) {
+        const timeMatch = dateTimeValue.match(/\s+(\d{2}:\d{2})/);
         if (timeMatch) {
           time = timeMatch[1];
         }
       }
 
-      return {
-        order_id: o.order_id || o.orderId || o.id || o["Order ID"] || o.ID,
-        date,
-        time,
-        covers:
-          typeof (
-            o.covers ||
-            o.guests ||
-            o.party_size ||
-            o["Covers"] ||
-            o["Guests"]
-          ) === "string"
-            ? parseFloat(
-                o.covers ||
-                  o.guests ||
-                  o.party_size ||
-                  o["Covers"] ||
-                  o["Guests"] ||
-                  "0"
-              )
-            : o.covers ||
-              o.guests ||
-              o.party_size ||
-              o["Covers"] ||
-              o["Guests"] ||
-              0,
-        table_id:
-          o.table_id ||
+      const orderIdField = ordersFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("order") &&
+          f.name.toLowerCase().includes("id")
+      )?.name;
+      const order_id = orderIdField
+        ? getFieldValue(o, orderIdField, ["order_id", "Order ID", "id", "ID"])
+        : o.order_id || o.orderId || o.id || o["Order ID"] || o.ID;
+
+      const coversField = ordersFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("cover") ||
+          f.name.toLowerCase().includes("guest") ||
+          f.name.toLowerCase().includes("party")
+      )?.name;
+      const coversRaw = coversField
+        ? getFieldValue(o, coversField, [
+            "covers",
+            "Covers",
+            "guests",
+            "Guests",
+            "party_size",
+          ])
+        : o.covers || o.guests || o.party_size || o["Covers"] || o["Guests"];
+      const covers =
+        typeof coversRaw === "string"
+          ? parseFloat(coversRaw || "0")
+          : coversRaw || 0;
+
+      const tableIdField = ordersFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("table") &&
+          f.name.toLowerCase().includes("id")
+      )?.name;
+      const table_id = tableIdField
+        ? getFieldValue(o, tableIdField, [
+            "table_id",
+            "Table ID",
+            "table",
+            "Table",
+          ]) || null
+        : o.table_id ||
           o.tableId ||
           o.table ||
           o["Table ID"] ||
           o["Table"] ||
-          null,
-        duration:
-          typeof (
-            o.duration ||
-            o.table_time ||
-            o["Duration"] ||
-            o["Table Time"]
-          ) === "string"
-            ? parseFloat(
-                o.duration ||
-                  o.table_time ||
-                  o["Duration"] ||
-                  o["Table Time"] ||
-                  "0"
-              )
-            : o.duration ||
-              o.table_time ||
-              o["Duration"] ||
-              o["Table Time"] ||
-              0,
+          null;
+
+      const durationField = ordersFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("duration") ||
+          f.name.toLowerCase().includes("table_time")
+      )?.name;
+      const durationRaw = durationField
+        ? getFieldValue(o, durationField, [
+            "duration",
+            "Duration",
+            "table_time",
+            "Table Time",
+          ])
+        : o.duration || o.table_time || o["Duration"] || o["Table Time"];
+      const duration =
+        typeof durationRaw === "string"
+          ? parseFloat(durationRaw || "0")
+          : durationRaw || 0;
+
+      return {
+        order_id,
+        date,
+        time,
+        covers,
+        table_id,
+        duration,
       };
     };
 
     const normalizeReservation = (r: any) => {
-      // Extract time from "Date & Time" if present
-      const dateTimeField = r["Date & Time"] || r["Date &amp; Time"];
-      let date =
-        r.date ||
-        r.reservation_date ||
-        r.created_at ||
-        r["Date"] ||
-        r["Reservation Date"] ||
-        dateTimeField;
-      let time =
-        r.time ||
-        r.reservation_time ||
-        r["Time"] ||
-        r["Reservation Time"] ||
-        null;
+      // Get field names from data_tables
+      const dateTimeField = reservationsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("time") ||
+          f.name.toLowerCase().includes("date") ||
+          f.name.toLowerCase().includes("&")
+      )?.name;
+      const dateTimeValue = dateTimeField
+        ? getFieldValue(r, dateTimeField, [
+            "Date & Time",
+            "date_time",
+            "reservation_date",
+            "date",
+          ])
+        : r["Date & Time"] || r["Date &amp; Time"] || null;
+
+      const dateField = reservationsFields.find((f) =>
+        f.name.toLowerCase().includes("date")
+      )?.name;
+      let date = dateField
+        ? getFieldValue(r, dateField, [
+            "date",
+            "Date",
+            "reservation_date",
+            "created_at",
+          ]) || dateTimeValue
+        : r.date ||
+          r.reservation_date ||
+          r.created_at ||
+          r["Date"] ||
+          r["Reservation Date"] ||
+          dateTimeValue;
+
+      const timeField = reservationsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("time") &&
+          !f.name.toLowerCase().includes("date")
+      )?.name;
+      let time = timeField
+        ? getFieldValue(r, timeField, [
+            "time",
+            "Time",
+            "reservation_time",
+            "Reservation Time",
+          ])
+        : r.time ||
+          r.reservation_time ||
+          r["Time"] ||
+          r["Reservation Time"] ||
+          null;
 
       // If we have "Date & Time", extract time portion
-      if (dateTimeField && !time && dateTimeField.match(/\s+\d{2}:\d{2}/)) {
-        const timeMatch = dateTimeField.match(/\s+(\d{2}:\d{2})/);
+      if (dateTimeValue && !time && dateTimeValue.match(/\s+\d{2}:\d{2}/)) {
+        const timeMatch = dateTimeValue.match(/\s+(\d{2}:\d{2})/);
         if (timeMatch) {
           time = timeMatch[1];
         }
       }
 
-      return {
-        reservation_id:
-          r.reservation_id ||
+      const reservationIdField = reservationsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("reservation") &&
+          f.name.toLowerCase().includes("id")
+      )?.name;
+      const reservation_id = reservationIdField
+        ? getFieldValue(r, reservationIdField, [
+            "reservation_id",
+            "Reservation ID",
+            "id",
+            "ID",
+          ])
+        : r.reservation_id ||
           r.reservationId ||
           r.id ||
           r["Reservation ID"] ||
-          r.ID,
-        date,
-        time,
-        party_size:
-          typeof (
-            r.party_size ||
-            r.guests ||
-            r.covers ||
-            r["Party Size"] ||
-            r["Guests"]
-          ) === "string"
-            ? parseFloat(
-                r.party_size ||
-                  r.guests ||
-                  r.covers ||
-                  r["Party Size"] ||
-                  r["Guests"] ||
-                  "0"
-              )
-            : r.party_size ||
-              r.guests ||
-              r.covers ||
-              r["Party Size"] ||
-              r["Guests"] ||
-              0,
-        status:
-          (
+          r.ID;
+
+      const partySizeField = reservationsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("party") ||
+          f.name.toLowerCase().includes("guest") ||
+          f.name.toLowerCase().includes("cover")
+      )?.name;
+      const partySizeRaw = partySizeField
+        ? getFieldValue(r, partySizeField, [
+            "party_size",
+            "Party Size",
+            "guests",
+            "Guests",
+            "covers",
+          ])
+        : r.party_size ||
+          r.guests ||
+          r.covers ||
+          r["Party Size"] ||
+          r["Guests"];
+      const party_size =
+        typeof partySizeRaw === "string"
+          ? parseFloat(partySizeRaw || "0")
+          : partySizeRaw || 0;
+
+      const statusField = reservationsFields.find((f) =>
+        f.name.toLowerCase().includes("status")
+      )?.name;
+      const status = statusField
+        ? (
+            getFieldValue(r, statusField, [
+              "status",
+              "Status",
+              "Status (booked, seated, no-show, cancelled)",
+            ]) || ""
+          ).toLowerCase() || "confirmed"
+        : (
             r.status ||
             r["Status (booked, seated, no-show, cancelled)"] ||
             r["Status"] ||
             ""
-          ).toLowerCase() || "confirmed",
-        table_id:
-          r.table_id ||
+          ).toLowerCase() || "confirmed";
+
+      const tableIdField = reservationsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("table") &&
+          f.name.toLowerCase().includes("id")
+      )?.name;
+      const table_id = tableIdField
+        ? getFieldValue(r, tableIdField, [
+            "table_id",
+            "Table ID",
+            "table",
+            "Table",
+          ]) || null
+        : r.table_id ||
           r.tableId ||
           r.table ||
           r["Table ID"] ||
           r["Table"] ||
-          null,
+          null;
+
+      return {
+        reservation_id,
+        date,
+        time,
+        party_size,
+        status,
+        table_id,
       };
     };
 
@@ -433,17 +626,27 @@ export async function GET(req: NextRequest) {
       }));
 
     // Table Utilization
-    // Calculate total table capacity
+    // Calculate total table capacity - use actual field names from data_tables
     let totalTableCapacity = 0;
     if (tables.length > 0) {
+      const capacityField = tablesFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("capacity") ||
+          f.name.toLowerCase().includes("seat")
+      )?.name;
       totalTableCapacity = tables.reduce((sum, t: any) => {
+        const capacityRaw = capacityField
+          ? getFieldValue(t, capacityField, [
+              "capacity",
+              "Capacity",
+              "seats",
+              "Seats",
+            ])
+          : t.capacity || t.seats || t["Capacity"] || t["Seats"];
         const capacity =
-          typeof (t.capacity || t.seats || t["Capacity"] || t["Seats"]) ===
-          "string"
-            ? parseFloat(
-                t.capacity || t.seats || t["Capacity"] || t["Seats"] || "0"
-              )
-            : t.capacity || t.seats || t["Capacity"] || t["Seats"] || 0;
+          typeof capacityRaw === "string"
+            ? parseFloat(capacityRaw || "0")
+            : capacityRaw || 0;
         return sum + capacity;
       }, 0);
     }

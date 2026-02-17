@@ -96,21 +96,26 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Get table IDs and convert to names
+    // Get table IDs and convert to names, also fetch field definitions
     const tableIds = [
       ...new Set(allModelData.map((row) => row.model_table_id)),
     ];
     const idToNameMap: Record<string, string> = {};
+    const tableFieldsMap: Record<string, { fields: Array<{ name: string }> }> =
+      {};
 
     if (tableIds.length > 0) {
       const { data: tableDefinitions, error: tableError } = await supabase
         .from("data_tables")
-        .select("id, name")
+        .select("id, name, fields")
         .in("id", tableIds);
 
       if (!tableError && tableDefinitions) {
-        tableDefinitions.forEach((table) => {
+        tableDefinitions.forEach((table: any) => {
           idToNameMap[table.id] = table.name.toLowerCase();
+          tableFieldsMap[table.id] = {
+            fields: table.fields || [],
+          };
         });
       }
     }
@@ -155,66 +160,183 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Get field names from data_tables definitions
+    const transactionsTableId = Object.keys(idToNameMap).find(
+      (id) =>
+        idToNameMap[id]?.includes("transaction") ||
+        idToNameMap[id]?.includes("payment") ||
+        idToNameMap[id]?.includes("expense") ||
+        idToNameMap[id]?.includes("income") ||
+        idToNameMap[id]?.includes("bank")
+    );
+    const ordersTableId = Object.keys(idToNameMap).find(
+      (id) =>
+        idToNameMap[id]?.includes("order") || idToNameMap[id]?.includes("sale")
+    );
+
+    const transactionsFields = transactionsTableId
+      ? tableFieldsMap[transactionsTableId]?.fields || []
+      : [];
+    const ordersFields = ordersTableId
+      ? tableFieldsMap[ordersTableId]?.fields || []
+      : [];
+
+    // Helper to get field value
+    const getFieldValue = (
+      obj: any,
+      fieldName: string,
+      fallbacks: string[] = []
+    ): any => {
+      if (obj[fieldName] !== undefined) return obj[fieldName];
+      const lowerFieldName = fieldName.toLowerCase();
+      for (const key in obj) {
+        if (key.toLowerCase() === lowerFieldName) {
+          return obj[key];
+        }
+      }
+      for (const fallback of fallbacks) {
+        if (obj[fallback] !== undefined) return obj[fallback];
+      }
+      return undefined;
+    };
+
     // Helper functions
-    const parseDate = (dateStr: string | null | undefined): Date | null => {
+    const parseDate = (dateStr: any): Date | null => {
       if (!dateStr) return null;
-      if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-        return new Date(dateStr + "T00:00:00");
+      if (typeof dateStr === "string") {
+        // Handle YYYY-MM-DD HH:mm:ss format
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)) {
+          return new Date(dateStr.replace(" ", "T"));
+        }
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          return new Date(dateStr + "T00:00:00");
+        }
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+          const parsed = new Date(dateStr);
+          if (!isNaN(parsed.getTime())) {
+            return parsed;
+          }
+          return new Date(dateStr.split(" ")[0] + "T00:00:00");
+        }
       }
       const parsed = new Date(dateStr);
       return isNaN(parsed.getTime()) ? null : parsed;
     };
 
     const normalizeTransaction = (t: any) => {
-      return {
-        date:
-          t.date ||
+      const dateField = transactionsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("date") ||
+          f.name.toLowerCase().includes("time")
+      )?.name;
+      const date = dateField
+        ? getFieldValue(t, dateField, [
+            "date",
+            "Date",
+            "transaction_date",
+            "payment_date",
+            "created_at",
+          ])
+        : t.date ||
           t.transaction_date ||
           t.payment_date ||
           t.created_at ||
-          t["Date"],
-        amount:
-          typeof (t.amount || t.value || t["Amount"]) === "string"
-            ? parseFloat(t.amount || t.value || t["Amount"] || "0")
-            : t.amount || t.value || t["Amount"] || 0,
-        category:
-          t.category || t.type || t["Category"] || t["Type"] || "Uncategorized",
-        description:
-          t.description || t.name || t["Description"] || t["Name"] || "",
+          t["Date"];
+
+      const amountField = transactionsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("amount") ||
+          f.name.toLowerCase().includes("value")
+      )?.name;
+      const amountRaw = amountField
+        ? getFieldValue(t, amountField, ["amount", "Amount", "value", "Value"])
+        : t.amount || t.value || t["Amount"];
+      const amount =
+        typeof amountRaw === "string"
+          ? parseFloat(amountRaw || "0")
+          : amountRaw || 0;
+
+      const categoryField = transactionsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("category") ||
+          f.name.toLowerCase().includes("type")
+      )?.name;
+      const category = categoryField
+        ? getFieldValue(t, categoryField, [
+            "category",
+            "Category",
+            "type",
+            "Type",
+          ]) || "Uncategorized"
+        : t.category || t.type || t["Category"] || t["Type"] || "Uncategorized";
+
+      const descriptionField = transactionsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("description") ||
+          f.name.toLowerCase().includes("name")
+      )?.name;
+      const description = descriptionField
+        ? getFieldValue(t, descriptionField, [
+            "description",
+            "Description",
+            "name",
+            "Name",
+          ]) || ""
+        : t.description || t.name || t["Description"] || t["Name"] || "";
+
+      return {
+        date,
+        amount,
+        category,
+        description,
       };
     };
 
     const normalizeOrder = (o: any) => {
-      return {
-        date:
-          o.date ||
+      const dateField = ordersFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("date") ||
+          f.name.toLowerCase().includes("time")
+      )?.name;
+      const date = dateField
+        ? getFieldValue(o, dateField, [
+            "date",
+            "Date",
+            "order_date",
+            "sale_date",
+            "created_at",
+            "Order Date",
+          ])
+        : o.date ||
           o.order_date ||
           o.sale_date ||
           o.created_at ||
           o["Date"] ||
-          o["Order Date"],
-        total:
-          typeof (
-            o.total ||
-            o.amount ||
-            o.revenue ||
-            o["Total"] ||
-            o["Amount"]
-          ) === "string"
-            ? parseFloat(
-                o.total ||
-                  o.amount ||
-                  o.revenue ||
-                  o["Total"] ||
-                  o["Amount"] ||
-                  "0"
-              )
-            : o.total ||
-              o.amount ||
-              o.revenue ||
-              o["Total"] ||
-              o["Amount"] ||
-              0,
+          o["Order Date"];
+
+      const totalField = ordersFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("total") ||
+          f.name.toLowerCase().includes("amount") ||
+          f.name.toLowerCase().includes("revenue")
+      )?.name;
+      const totalRaw = totalField
+        ? getFieldValue(o, totalField, [
+            "total",
+            "Total",
+            "amount",
+            "Amount",
+            "revenue",
+          ])
+        : o.total || o.amount || o.revenue || o["Total"] || o["Amount"];
+      const total =
+        typeof totalRaw === "string"
+          ? parseFloat(totalRaw || "0")
+          : totalRaw || 0;
+
+      return {
+        date,
+        total,
       };
     };
 

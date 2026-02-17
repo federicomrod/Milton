@@ -35,6 +35,7 @@ import {
   getApiFieldForKpi,
   type DatabaseKpi,
 } from "@/lib/fitness-studio-kpis";
+import { KpiCard } from "@/components/dashboard/kpi-card";
 
 interface KpiData {
   activeMembers: number;
@@ -260,41 +261,34 @@ export function StudioPerformance({
           const value = (kpis as any)?.[apiField];
           const kpiValue = value !== undefined && value !== null ? value : 0;
 
-          // Determine formatting and icon based on KPI name
-          let format: "number" | "percentage" | "currency" | "months" =
-            "number";
+          // Determine icon and colors based on KPI name
           let icon = Users;
           let iconColor = "text-blue-600";
           let valueColor = "text-blue-600";
-          let suffix = "";
+          let suffix: string | undefined = undefined;
 
           if (dbKpi.name.includes("Active Members")) {
             icon = Users;
             iconColor = "text-blue-600";
             valueColor = "text-blue-600";
-            format = "number";
           } else if (dbKpi.name.includes("New Members")) {
             icon = UserPlus;
             iconColor = "text-green-600";
             valueColor = "text-green-600";
-            format = "number";
           } else if (dbKpi.name.includes("Churn Rate")) {
             icon = UserMinus;
             iconColor = kpiValue > 5 ? "text-red-600" : "text-orange-600";
             valueColor = kpiValue > 5 ? "text-red-600" : "text-orange-600";
-            format = "percentage";
             suffix = "%";
           } else if (dbKpi.name.includes("Member Tenure")) {
             icon = Clock;
             iconColor = "text-purple-600";
             valueColor = "text-purple-600";
-            format = "months";
             suffix = " mo";
           } else if (dbKpi.name.includes("Revenue per Member")) {
             icon = DollarSign;
             iconColor = "text-green-600";
             valueColor = "text-green-600";
-            format = "currency";
           } else if (
             dbKpi.name.includes("Utilization") ||
             dbKpi.name.includes("Capacity")
@@ -312,7 +306,6 @@ export function StudioPerformance({
                 : kpiValue > 50
                   ? "text-yellow-600"
                   : "text-orange-600";
-            format = "percentage";
             suffix = "%";
           } else if (dbKpi.name.includes("Cancellation")) {
             icon = XCircle;
@@ -328,44 +321,20 @@ export function StudioPerformance({
                 : kpiValue > 10
                   ? "text-orange-600"
                   : "text-yellow-600";
-            format = "percentage";
             suffix = "%";
           }
 
-          const IconComponent = icon;
-
-          // Format the value
-          let formattedValue = "0";
-          if (format === "number") {
-            formattedValue = kpiValue.toLocaleString();
-          } else if (format === "percentage") {
-            formattedValue = kpiValue.toFixed(1);
-          } else if (format === "currency") {
-            formattedValue = `$${kpiValue.toFixed(2)}`;
-          } else if (format === "months") {
-            formattedValue = kpiValue.toFixed(1);
-          }
-
           return (
-            <Card key={dbKpi.id}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  {dbKpi.name
-                    .replace(" (End of Month)", "")
-                    .replace(" (ARPM)", "")}
-                </CardTitle>
-                <IconComponent className={`h-4 w-4 ${iconColor}`} />
-              </CardHeader>
-              <CardContent>
-                <div className={`text-2xl font-bold ${valueColor}`}>
-                  {formattedValue}
-                  {format !== "currency" && suffix}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {dbKpi.definition}
-                </p>
-              </CardContent>
-            </Card>
+            <KpiCard
+              key={dbKpi.id}
+              kpi={dbKpi}
+              value={kpiValue}
+              icon={icon}
+              iconColor={iconColor}
+              valueColor={valueColor}
+              suffix={suffix}
+              fetchFromApi={false}
+            />
           );
         })}
       </div>

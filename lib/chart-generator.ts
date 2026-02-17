@@ -4,7 +4,7 @@ import type { ReportData } from "@/lib/report-data-service";
 const QUICKCHART_BASE = "https://quickchart.io/chart";
 
 // Convert a Chart.js config into a base64 PNG via QuickChart
-async function fetchChartBase64(config: any): Promise<string | null> {
+export async function fetchChartBase64(config: any): Promise<string | null> {
   try {
     const url = `${QUICKCHART_BASE}?c=${encodeURIComponent(JSON.stringify(config))}&backgroundColor=white&format=png`;
     const res = await fetch(url);

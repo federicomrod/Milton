@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarChart3, Loader2 } from "lucide-react";
+import { BarChart3, Loader2, LucideIcon } from "lucide-react";
 import type { DatabaseKpi } from "@/lib/types/kpi";
 import { useUserPreferences } from "@/lib/context/UserPreferencesContext";
 import {
@@ -11,7 +11,7 @@ import {
   formatPercentage,
 } from "@/lib/utils/formatters";
 
-type KpiFormat = "number" | "currency" | "percentage";
+type KpiFormat = "number" | "currency" | "percentage" | "months";
 
 // Dynamic KPI display format based on KPI name (reused from kpis-grid.tsx)
 const getKpiDisplayFormat = (kpiName: string): KpiFormat => {
@@ -38,14 +38,17 @@ const getKpiDisplayFormat = (kpiName: string): KpiFormat => {
     name?.includes("profit")
   ) {
     return "currency";
+  } else if (name?.includes("tenure") || name?.includes("months")) {
+    return "months";
   } else if (
     name?.includes("count") ||
     name?.includes("number") ||
     name?.includes("members") ||
     name?.includes("classes") ||
     name?.includes("size") ||
-    name?.includes("tenure") ||
-    name?.includes("runway")
+    name?.includes("runway") ||
+    name?.includes("covers") ||
+    name?.includes("age")
   ) {
     return "number";
   }
@@ -55,24 +58,55 @@ const getKpiDisplayFormat = (kpiName: string): KpiFormat => {
 
 interface KpiCardProps {
   kpi: DatabaseKpi;
+  // Optional: if provided, use this value instead of fetching from API
+  value?: number | null;
+  // Optional: custom icon component
+  icon?: LucideIcon;
+  // Optional: custom icon color class
+  iconColor?: string;
+  // Optional: custom value color class
+  valueColor?: string;
+  // Optional: custom suffix (e.g., " mo", "%")
+  suffix?: string;
+  // Optional: additional description text below the value
+  description?: string;
+  // Optional: whether to fetch from API (default: true if value not provided)
+  fetchFromApi?: boolean;
   hasRequiredData?: boolean;
   missingTables?: string[];
 }
 
 export function KpiCard({
   kpi,
+  value: providedValue,
+  icon: IconComponent,
+  iconColor: providedIconColor,
+  valueColor: providedValueColor,
+  suffix: providedSuffix,
+  description,
+  fetchFromApi = true,
   hasRequiredData = true,
   missingTables = [],
 }: KpiCardProps) {
   const { prefs } = useUserPreferences();
-  const [currentValue, setCurrentValue] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [currentValue, setCurrentValue] = useState<number | null>(
+    providedValue ?? null
+  );
+  const [loading, setLoading] = useState(
+    fetchFromApi && providedValue === undefined
+  );
   const [error, setError] = useState<string | null>(null);
 
   const format = getKpiDisplayFormat(kpi.name);
 
-  // Fetch current KPI value
+  // Fetch current KPI value from API if needed
   useEffect(() => {
+    // If value is provided, don't fetch
+    if (providedValue !== undefined || !fetchFromApi) {
+      setLoading(false);
+      return;
+    }
+
     const fetchValue = async () => {
       try {
         setLoading(true);
@@ -119,7 +153,14 @@ export function KpiCard({
     } else {
       setLoading(false);
     }
-  }, [kpi.id, kpi.name, hasRequiredData]);
+  }, [kpi.id, kpi.name, hasRequiredData, providedValue, fetchFromApi]);
+
+  // Update currentValue when providedValue changes
+  useEffect(() => {
+    if (providedValue !== undefined) {
+      setCurrentValue(providedValue);
+    }
+  }, [providedValue]);
 
   const formatValue = (value: number | null): string => {
     if (value === null || value === undefined) {
@@ -129,13 +170,22 @@ export function KpiCard({
     if (format === "currency") {
       return formatCurrency(value, prefs.currency, prefs.number_format);
     } else if (format === "percentage") {
+      // For percentage format, value is already a percentage (0-100), not decimal
+      // If a custom suffix is provided, format as number and let suffix handle the %
+      // Otherwise, use formatPercentage which includes the %
+      if (providedSuffix !== undefined) {
+        return value.toFixed(1);
+      }
       return formatPercentage(value / 100);
+    } else if (format === "months") {
+      return value.toFixed(1);
     } else {
       return formatNumber(value, prefs.number_format);
     }
   };
 
-  const getColorClass = (): string => {
+  const getIconColor = (): string => {
+    if (providedIconColor) return providedIconColor;
     if (!hasRequiredData) {
       return "text-muted-foreground";
     }
@@ -147,11 +197,39 @@ export function KpiCard({
     return "text-gray-700";
   };
 
+  const getValueColor = (): string => {
+    if (providedValueColor) return providedValueColor;
+    if (!hasRequiredData) {
+      return "text-muted-foreground";
+    }
+    if (format === "currency") {
+      return "text-green-600";
+    } else if (format === "percentage") {
+      return "text-blue-600";
+    }
+    return "text-gray-700";
+  };
+
+  const getSuffix = (): string => {
+    if (providedSuffix !== undefined) return providedSuffix;
+    if (format === "percentage") return "%";
+    if (format === "months") return " mo";
+    return "";
+  };
+
+  const DisplayIcon = IconComponent || BarChart3;
+
+  // Clean up KPI name for display
+  const displayName = kpi.name
+    .replace(" (End of Month)", "")
+    .replace(" (ARPM)", "")
+    .trim();
+
   return (
     <Card className="hover:shadow-md transition-shadow">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{kpi.name}</CardTitle>
-        <BarChart3 className={`h-4 w-4 ${getColorClass()}`} />
+        <CardTitle className="text-sm font-medium">{displayName}</CardTitle>
+        <DisplayIcon className={`h-4 w-4 ${getIconColor()}`} />
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -161,7 +239,7 @@ export function KpiCard({
           </div>
         ) : !hasRequiredData ? (
           <div className="space-y-1">
-            <div className={`text-2xl font-bold ${getColorClass()}`}>—</div>
+            <div className={`text-2xl font-bold ${getValueColor()}`}>—</div>
             <p className="text-xs text-muted-foreground">
               Required data tables missing
             </p>
@@ -171,17 +249,35 @@ export function KpiCard({
           </div>
         ) : error ? (
           <div className="space-y-1">
-            <div className={`text-2xl font-bold ${getColorClass()}`}>—</div>
+            <div className={`text-2xl font-bold ${getValueColor()}`}>—</div>
             <p className="text-xs text-muted-foreground">{error}</p>
           </div>
         ) : (
           <div className="space-y-1">
-            <div className={`text-2xl font-bold ${getColorClass()}`}>
+            <div className={`text-2xl font-bold ${getValueColor()}`}>
               {formatValue(currentValue)}
+              {/* 
+                Add suffix unless:
+                - currency (already in formatCurrency)
+                - percentage when using formatPercentage (already includes %)
+                But DO add suffix when a custom suffix is provided for percentage
+              */}
+              {format === "currency"
+                ? null
+                : format === "percentage" && providedSuffix === undefined
+                  ? null
+                  : getSuffix()}
             </div>
-            <p className="text-xs text-muted-foreground line-clamp-2">
-              {kpi.definition}
-            </p>
+            {description && (
+              <p className="text-xs text-muted-foreground mt-1">
+                {description}
+              </p>
+            )}
+            {kpi.definition && (
+              <p className="text-xs text-muted-foreground line-clamp-2">
+                {kpi.definition}
+              </p>
+            )}
           </div>
         )}
       </CardContent>

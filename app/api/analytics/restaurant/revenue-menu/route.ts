@@ -95,21 +95,26 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Get table IDs and convert to names
+    // Get table IDs and convert to names, also fetch field definitions
     const tableIds = [
       ...new Set(allModelData.map((row) => row.model_table_id)),
     ];
     const idToNameMap: Record<string, string> = {};
+    const tableFieldsMap: Record<string, { fields: Array<{ name: string }> }> =
+      {};
 
     if (tableIds.length > 0) {
       const { data: tableDefinitions, error: tableError } = await supabase
         .from("data_tables")
-        .select("id, name")
+        .select("id, name, fields")
         .in("id", tableIds);
 
       if (!tableError && tableDefinitions) {
-        tableDefinitions.forEach((table) => {
+        tableDefinitions.forEach((table: any) => {
           idToNameMap[table.id] = table.name.toLowerCase();
+          tableFieldsMap[table.id] = {
+            fields: table.fields || [],
+          };
         });
       }
     }
@@ -177,76 +182,191 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Get field names from data_tables definitions
+    const ordersTableId = Object.keys(idToNameMap).find(
+      (id) =>
+        idToNameMap[id] === "orders" ||
+        idToNameMap[id]?.includes("order") ||
+        idToNameMap[id]?.includes("sale")
+    );
+    const orderItemsTableId = Object.keys(idToNameMap).find(
+      (id) =>
+        idToNameMap[id] === "order items" ||
+        idToNameMap[id]?.includes("order item") ||
+        (idToNameMap[id]?.includes("order") &&
+          idToNameMap[id]?.includes("item"))
+    );
+    const menuItemsTableId = Object.keys(idToNameMap).find(
+      (id) =>
+        idToNameMap[id] === "menu items" ||
+        idToNameMap[id]?.includes("menu item") ||
+        (idToNameMap[id]?.includes("menu") &&
+          !idToNameMap[id]?.includes("order"))
+    );
+
+    const ordersFields = ordersTableId
+      ? tableFieldsMap[ordersTableId]?.fields || []
+      : [];
+    const orderItemsFields = orderItemsTableId
+      ? tableFieldsMap[orderItemsTableId]?.fields || []
+      : [];
+    const menuItemsFields = menuItemsTableId
+      ? tableFieldsMap[menuItemsTableId]?.fields || []
+      : [];
+
+    // Helper to get field value
+    const getFieldValue = (
+      obj: any,
+      fieldName: string,
+      fallbacks: string[] = []
+    ): any => {
+      if (obj[fieldName] !== undefined) return obj[fieldName];
+      const lowerFieldName = fieldName.toLowerCase();
+      for (const key in obj) {
+        if (key.toLowerCase() === lowerFieldName) {
+          return obj[key];
+        }
+      }
+      for (const fallback of fallbacks) {
+        if (obj[fallback] !== undefined) return obj[fallback];
+      }
+      return undefined;
+    };
+
     // Helper functions
-    const parseDate = (dateStr: string | null | undefined): Date | null => {
+    const parseDate = (dateStr: any): Date | null => {
       if (!dateStr) return null;
-
-      // Handle YYYY-MM-DD HH:MM format (from test data)
-      if (dateStr.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/)) {
-        return new Date(dateStr.replace(" ", "T") + ":00");
+      if (typeof dateStr === "string") {
+        // Handle YYYY-MM-DD HH:mm:ss format
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)) {
+          return new Date(dateStr.replace(" ", "T"));
+        }
+        // Handle YYYY-MM-DD HH:MM format (from test data)
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/)) {
+          return new Date(dateStr.replace(" ", "T") + ":00");
+        }
+        // Handle YYYY-MM-DD format
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          return new Date(dateStr + "T00:00:00");
+        }
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+          const parsed = new Date(dateStr);
+          if (!isNaN(parsed.getTime())) {
+            return parsed;
+          }
+          return new Date(dateStr.split(" ")[0] + "T00:00:00");
+        }
       }
-
-      // Handle YYYY-MM-DD format
-      if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-        return new Date(dateStr + "T00:00:00");
-      }
-
       // Try standard Date parsing
       const parsed = new Date(dateStr);
       return isNaN(parsed.getTime()) ? null : parsed;
     };
 
     const normalizeOrder = (o: any) => {
-      return {
-        order_id: o.order_id || o.orderId || o.id || o["Order ID"] || o.ID,
-        date:
-          o.date ||
+      const orderIdField = ordersFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("order") &&
+          f.name.toLowerCase().includes("id")
+      )?.name;
+      const order_id = orderIdField
+        ? getFieldValue(o, orderIdField, ["order_id", "Order ID", "id", "ID"])
+        : o.order_id || o.orderId || o.id || o["Order ID"] || o.ID;
+
+      const dateField = ordersFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("date") ||
+          f.name.toLowerCase().includes("time")
+      )?.name;
+      const date = dateField
+        ? getFieldValue(o, dateField, [
+            "date",
+            "Date",
+            "order_date",
+            "sale_date",
+            "created_at",
+            "Date & Time",
+          ])
+        : o.date ||
           o.order_date ||
           o.sale_date ||
           o.created_at ||
           o["Date"] ||
           o["Order Date"] ||
           o["Date & Time"] ||
-          o["Date &amp; Time"],
-        total:
-          typeof (
-            o.total ||
-            o.amount ||
-            o.revenue ||
-            o["Total"] ||
-            o["Amount"] ||
-            o["Total Amount"]
-          ) === "string"
-            ? parseFloat(
-                o.total ||
-                  o.amount ||
-                  o.revenue ||
-                  o["Total"] ||
-                  o["Amount"] ||
-                  o["Total Amount"] ||
-                  "0"
-              )
-            : o.total ||
-              o.amount ||
-              o.revenue ||
-              o["Total"] ||
-              o["Amount"] ||
-              o["Total Amount"] ||
-              0,
-        channel:
-          o.channel ||
+          o["Date &amp; Time"];
+
+      const totalField = ordersFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("total") ||
+          f.name.toLowerCase().includes("amount") ||
+          f.name.toLowerCase().includes("revenue")
+      )?.name;
+      const totalRaw = totalField
+        ? getFieldValue(o, totalField, [
+            "total",
+            "Total",
+            "amount",
+            "Amount",
+            "revenue",
+            "Total Amount",
+          ])
+        : o.total ||
+          o.amount ||
+          o.revenue ||
+          o["Total"] ||
+          o["Amount"] ||
+          o["Total Amount"];
+      const total =
+        typeof totalRaw === "string"
+          ? parseFloat(totalRaw || "0")
+          : totalRaw || 0;
+
+      const channelField = ordersFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("channel") ||
+          f.name.toLowerCase().includes("type")
+      )?.name;
+      const channel = channelField
+        ? getFieldValue(o, channelField, [
+            "channel",
+            "Channel",
+            "order_type",
+            "Order Type",
+            "type",
+            "Channel (Dine-in, Takeaway, etc.)",
+          ]) || "dine-in"
+        : o.channel ||
           o.order_type ||
           o.type ||
           o["Channel"] ||
           o["Order Type"] ||
           o["Channel (Dine-in, Takeaway, etc.)"] ||
-          "dine-in",
-        category:
-          o.category ||
+          "dine-in";
+
+      const categoryField = ordersFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("category") ||
+          f.name.toLowerCase().includes("menu_category")
+      )?.name;
+      const category = categoryField
+        ? getFieldValue(o, categoryField, [
+            "category",
+            "Category",
+            "menu_category",
+            "Menu Category",
+          ]) || "Other"
+        : o.category ||
           o.menu_category ||
           o["Category"] ||
           o["Menu Category"] ||
-          "Other",
+          "Other";
+
+      return {
+        order_id,
+        date,
+        total,
+        channel,
+        category,
       };
     };
 
@@ -326,51 +446,113 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.revenue - a.revenue);
 
     // Menu Item Performance
-    // Link Order Items to Orders by Order ID
+    // Link Order Items to Orders by Order ID - use actual field names from data_tables
     const normalizeOrderItem = (oi: any) => {
-      return {
-        order_id: oi.order_id || oi.orderId || oi["Order ID"] || oi.ID,
-        item_id: oi.item_id || oi.itemId || oi["Item ID"] || "",
-        item_name:
-          oi.item_name ||
+      const orderIdField = orderItemsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("order") &&
+          f.name.toLowerCase().includes("id")
+      )?.name;
+      const order_id = orderIdField
+        ? getFieldValue(oi, orderIdField, ["order_id", "Order ID", "id", "ID"])
+        : oi.order_id || oi.orderId || oi["Order ID"] || oi.ID;
+
+      const itemIdField = orderItemsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("item") &&
+          f.name.toLowerCase().includes("id")
+      )?.name;
+      const item_id = itemIdField
+        ? getFieldValue(oi, itemIdField, ["item_id", "Item ID"]) || ""
+        : oi.item_id || oi.itemId || oi["Item ID"] || "";
+
+      const itemNameField = orderItemsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("item") &&
+          (f.name.toLowerCase().includes("name") ||
+            f.name.toLowerCase() === "name")
+      )?.name;
+      const item_name = itemNameField
+        ? getFieldValue(oi, itemNameField, [
+            "item_name",
+            "Item Name",
+            "name",
+            "Name",
+          ]) || "Unknown"
+        : oi.item_name ||
           oi.itemName ||
           oi["Item Name"] ||
           oi.name ||
           oi.Name ||
-          "Unknown",
-        quantity:
-          typeof (oi.quantity || oi.qty || oi["Quantity"] || oi["Qty"]) ===
-          "string"
-            ? parseFloat(
-                oi.quantity || oi.qty || oi["Quantity"] || oi["Qty"] || "1"
-              )
-            : oi.quantity || oi.qty || oi["Quantity"] || oi["Qty"] || 1,
-        net_amount:
-          typeof (
-            oi.net_amount ||
-            oi.amount ||
-            oi["Net Amount"] ||
-            oi.price ||
-            oi["Unit Price"]
-          ) === "string"
-            ? parseFloat(
-                oi.net_amount ||
-                  oi.amount ||
-                  oi["Net Amount"] ||
-                  oi.price ||
-                  oi["Unit Price"] ||
-                  "0"
-              )
-            : oi.net_amount ||
-              oi.amount ||
-              oi["Net Amount"] ||
-              oi.price ||
-              oi["Unit Price"] ||
-              0,
-        unit_price:
-          typeof (oi.unit_price || oi["Unit Price"] || oi.price) === "string"
-            ? parseFloat(oi.unit_price || oi["Unit Price"] || oi.price || "0")
-            : oi.unit_price || oi["Unit Price"] || oi.price || 0,
+          "Unknown";
+
+      const quantityField = orderItemsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("quantity") ||
+          f.name.toLowerCase().includes("qty")
+      )?.name;
+      const quantityRaw = quantityField
+        ? getFieldValue(oi, quantityField, [
+            "quantity",
+            "Quantity",
+            "qty",
+            "Qty",
+          ])
+        : oi.quantity || oi.qty || oi["Quantity"] || oi["Qty"];
+      const quantity =
+        typeof quantityRaw === "string"
+          ? parseFloat(quantityRaw || "1")
+          : quantityRaw || 1;
+
+      const netAmountField = orderItemsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("net") ||
+          f.name.toLowerCase().includes("amount") ||
+          f.name.toLowerCase().includes("price")
+      )?.name;
+      const netAmountRaw = netAmountField
+        ? getFieldValue(oi, netAmountField, [
+            "net_amount",
+            "Net Amount",
+            "amount",
+            "price",
+            "Unit Price",
+          ])
+        : oi.net_amount ||
+          oi.amount ||
+          oi["Net Amount"] ||
+          oi.price ||
+          oi["Unit Price"];
+      const net_amount =
+        typeof netAmountRaw === "string"
+          ? parseFloat(netAmountRaw || "0")
+          : netAmountRaw || 0;
+
+      const unitPriceField = orderItemsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("unit") ||
+          (f.name.toLowerCase().includes("price") &&
+            !f.name.toLowerCase().includes("net"))
+      )?.name;
+      const unitPriceRaw = unitPriceField
+        ? getFieldValue(oi, unitPriceField, [
+            "unit_price",
+            "Unit Price",
+            "price",
+          ])
+        : oi.unit_price || oi["Unit Price"] || oi.price;
+      const unit_price =
+        typeof unitPriceRaw === "string"
+          ? parseFloat(unitPriceRaw || "0")
+          : unitPriceRaw || 0;
+
+      return {
+        order_id,
+        item_id,
+        item_name,
+        quantity,
+        net_amount,
+        unit_price,
       };
     };
 
@@ -411,43 +593,59 @@ export async function GET(req: NextRequest) {
       });
     });
 
-    // Also check menu items table for COGS/margin data
+    // Also check menu items table for COGS/margin data - use actual field names from data_tables
     const menuItemMap = new Map<string, any>();
+    const menuItemNameField = menuItemsFields.find(
+      (f) =>
+        f.name.toLowerCase().includes("item") &&
+        (f.name.toLowerCase().includes("name") ||
+          f.name.toLowerCase() === "name")
+    )?.name;
     menuItems.forEach((item: any) => {
-      const itemName =
-        item.name ||
-        item.item_name ||
-        item.menu_item ||
-        item["Item Name"] ||
-        item["Name"] ||
-        "";
+      const itemName = menuItemNameField
+        ? getFieldValue(item, menuItemNameField, [
+            "name",
+            "Name",
+            "item_name",
+            "Item Name",
+            "menu_item",
+          ]) || ""
+        : item.name ||
+          item.item_name ||
+          item.menu_item ||
+          item["Item Name"] ||
+          item["Name"] ||
+          "";
       if (itemName) {
         menuItemMap.set(itemName.toLowerCase(), item);
       }
     });
 
+    const cogsField = menuItemsFields.find(
+      (f) =>
+        f.name.toLowerCase().includes("cogs") ||
+        f.name.toLowerCase().includes("cost")
+    )?.name;
+
     const topItems = Array.from(itemRevenue.values())
       .map((item) => {
         const menuItem = menuItemMap.get(item.name.toLowerCase());
-        const cogs =
-          typeof (
-            menuItem?.cogs ||
-            menuItem?.cost ||
-            menuItem?.["COGS"] ||
-            menuItem?.["Cost"]
-          ) === "string"
-            ? parseFloat(
-                menuItem?.cogs ||
-                  menuItem?.cost ||
-                  menuItem?.["COGS"] ||
-                  menuItem?.["Cost"] ||
-                  "0"
-              )
+        const cogsRaw =
+          cogsField && menuItem
+            ? getFieldValue(menuItem, cogsField, [
+                "cogs",
+                "COGS",
+                "cost",
+                "Cost",
+              ])
             : menuItem?.cogs ||
               menuItem?.cost ||
               menuItem?.["COGS"] ||
-              menuItem?.["Cost"] ||
-              0;
+              menuItem?.["Cost"];
+        const cogs =
+          typeof cogsRaw === "string"
+            ? parseFloat(cogsRaw || "0")
+            : cogsRaw || 0;
         const margin =
           item.revenue > 0 && cogs > 0
             ? item.revenue - cogs * item.quantity
@@ -478,25 +676,22 @@ export async function GET(req: NextRequest) {
     const bottomItems = Array.from(itemRevenue.values())
       .map((item) => {
         const menuItem = menuItemMap.get(item.name.toLowerCase());
-        const cogs =
-          typeof (
-            menuItem?.cogs ||
-            menuItem?.cost ||
-            menuItem?.["COGS"] ||
-            menuItem?.["Cost"]
-          ) === "string"
-            ? parseFloat(
-                menuItem?.cogs ||
-                  menuItem?.cost ||
-                  menuItem?.["COGS"] ||
-                  menuItem?.["Cost"] ||
-                  "0"
-              )
+        const cogsRaw =
+          cogsField && menuItem
+            ? getFieldValue(menuItem, cogsField, [
+                "cogs",
+                "COGS",
+                "cost",
+                "Cost",
+              ])
             : menuItem?.cogs ||
               menuItem?.cost ||
               menuItem?.["COGS"] ||
-              menuItem?.["Cost"] ||
-              0;
+              menuItem?.["Cost"];
+        const cogs =
+          typeof cogsRaw === "string"
+            ? parseFloat(cogsRaw || "0")
+            : cogsRaw || 0;
         const margin =
           item.revenue > 0 && cogs > 0
             ? item.revenue - cogs * item.quantity

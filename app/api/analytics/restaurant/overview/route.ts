@@ -285,21 +285,26 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Get table IDs and convert to names
+    // Get table IDs and convert to names, also fetch field definitions
     const tableIds = [
       ...new Set(allModelData.map((row) => row.model_table_id)),
     ];
     const idToNameMap: Record<string, string> = {};
+    const tableFieldsMap: Record<string, { fields: Array<{ name: string }> }> =
+      {};
 
     if (tableIds.length > 0) {
       const { data: tableDefinitions } = await supabase
         .from("data_tables")
-        .select("id, name")
+        .select("id, name, fields")
         .in("id", tableIds);
 
       if (tableDefinitions) {
-        tableDefinitions.forEach((table) => {
+        tableDefinitions.forEach((table: any) => {
           idToNameMap[table.id] = table.name.toLowerCase();
+          tableFieldsMap[table.id] = {
+            fields: table.fields || [],
+          };
         });
       }
     }
@@ -323,39 +328,132 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Helper to parse dates
-    const parseDate = (dateStr: string | null | undefined): Date | null => {
-      if (!dateStr) return null;
-      if (dateStr.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/)) {
-        return new Date(dateStr.replace(" ", "T") + ":00");
+    // Get field names from data_tables for transactions
+    const transactionsTableId = Object.keys(idToNameMap).find(
+      (id) =>
+        idToNameMap[id]?.includes("transaction") ||
+        idToNameMap[id]?.includes("expense") ||
+        idToNameMap[id]?.includes("payment")
+    );
+    const transactionsFields = transactionsTableId
+      ? tableFieldsMap[transactionsTableId]?.fields || []
+      : [];
+
+    // Helper to get field value
+    const getFieldValue = (
+      obj: any,
+      fieldName: string,
+      fallbacks: string[] = []
+    ): any => {
+      if (obj[fieldName] !== undefined) return obj[fieldName];
+      const lowerFieldName = fieldName.toLowerCase();
+      for (const key in obj) {
+        if (key.toLowerCase() === lowerFieldName) {
+          return obj[key];
+        }
       }
-      if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-        return new Date(dateStr + "T00:00:00");
+      for (const fallback of fallbacks) {
+        if (obj[fallback] !== undefined) return obj[fallback];
+      }
+      return undefined;
+    };
+
+    // Helper to parse dates
+    const parseDate = (dateStr: any): Date | null => {
+      if (!dateStr) return null;
+      if (typeof dateStr === "string") {
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)) {
+          return new Date(dateStr.replace(" ", "T"));
+        }
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/)) {
+          return new Date(dateStr.replace(" ", "T") + ":00");
+        }
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          return new Date(dateStr + "T00:00:00");
+        }
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+          const parsed = new Date(dateStr);
+          if (!isNaN(parsed.getTime())) {
+            return parsed;
+          }
+          return new Date(dateStr.split(" ")[0] + "T00:00:00");
+        }
       }
       const parsed = new Date(dateStr);
       return isNaN(parsed.getTime()) ? null : parsed;
     };
 
-    // Normalize transaction
+    // Normalize transaction - use actual field names from data_tables
     const normalizeTransaction = (t: any) => {
-      return {
-        date:
-          t.date ||
+      const dateField = transactionsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("date") ||
+          f.name.toLowerCase().includes("time")
+      )?.name;
+      const date = dateField
+        ? getFieldValue(t, dateField, [
+            "date",
+            "Date",
+            "transaction_date",
+            "payment_date",
+            "created_at",
+          ])
+        : t.date ||
           t.transaction_date ||
           t.payment_date ||
           t.created_at ||
-          t["Date"],
-        amount:
-          typeof (t.amount || t.value || t["Amount"]) === "string"
-            ? parseFloat(t.amount || t.value || t["Amount"] || "0")
-            : t.amount || t.value || t["Amount"] || 0,
-        category: (t.category || t.type || t["Category"] || "").toLowerCase(),
-        description: (
-          t.description ||
-          t.name ||
-          t["Description"] ||
-          ""
-        ).toLowerCase(),
+          t["Date"];
+
+      const amountField = transactionsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("amount") ||
+          f.name.toLowerCase().includes("value")
+      )?.name;
+      const amountRaw = amountField
+        ? getFieldValue(t, amountField, ["amount", "Amount", "value", "Value"])
+        : t.amount || t.value || t["Amount"];
+      const amount =
+        typeof amountRaw === "string"
+          ? parseFloat(amountRaw || "0")
+          : amountRaw || 0;
+
+      const categoryField = transactionsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("category") ||
+          f.name.toLowerCase().includes("type")
+      )?.name;
+      const category = categoryField
+        ? (
+            getFieldValue(t, categoryField, [
+              "category",
+              "Category",
+              "type",
+              "Type",
+            ]) || ""
+          ).toLowerCase()
+        : (t.category || t.type || t["Category"] || "").toLowerCase();
+
+      const descriptionField = transactionsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("description") ||
+          f.name.toLowerCase().includes("name")
+      )?.name;
+      const description = descriptionField
+        ? (
+            getFieldValue(t, descriptionField, [
+              "description",
+              "Description",
+              "name",
+              "Name",
+            ]) || ""
+          ).toLowerCase()
+        : (t.description || t.name || t["Description"] || "").toLowerCase();
+
+      return {
+        date,
+        amount,
+        category,
+        description,
       };
     };
 

@@ -69,21 +69,26 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Get table IDs and convert to names
+    // Get table IDs and convert to names, also fetch field definitions
     const tableIds = [
       ...new Set(allModelData.map((row) => row.model_table_id)),
     ];
     const idToNameMap: Record<string, string> = {};
+    const tableFieldsMap: Record<string, { fields: Array<{ name: string }> }> =
+      {};
 
     if (tableIds.length > 0) {
       const { data: tableDefinitions, error: tableError } = await supabase
         .from("data_tables")
-        .select("id, name")
+        .select("id, name, fields")
         .in("id", tableIds);
 
       if (!tableError && tableDefinitions) {
-        tableDefinitions.forEach((table) => {
+        tableDefinitions.forEach((table: any) => {
           idToNameMap[table.id] = table.name.toLowerCase();
+          tableFieldsMap[table.id] = {
+            fields: table.fields || [],
+          };
         });
       }
     }
@@ -156,12 +161,31 @@ export async function GET(req: NextRequest) {
     // or execute the SQL queries directly via Supabase
 
     // Helper function to parse dates in various formats (MM/DD/YY, YYYY-MM-DD, etc.)
-    const parseDate = (dateStr: string | null | undefined): Date | null => {
+    const parseDate = (dateStr: any): Date | null => {
       if (!dateStr) return null;
+      if (dateStr instanceof Date) return dateStr;
+      if (typeof dateStr !== "string") return null;
 
-      // Try YYYY-MM-DD format first
-      if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+      // Try YYYY-MM-DD HH:mm:ss format (with space separator)
+      if (dateStr.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)) {
+        // Convert space to T for ISO format
+        return new Date(dateStr.replace(" ", "T"));
+      }
+
+      // Try YYYY-MM-DD format (date only)
+      if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
         return new Date(dateStr + "T00:00:00");
+      }
+
+      // Try YYYY-MM-DD format (with other characters after)
+      if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+        // Try parsing as-is first (might have time)
+        const parsed = new Date(dateStr);
+        if (!isNaN(parsed.getTime())) {
+          return parsed;
+        }
+        // Fallback to date only
+        return new Date(dateStr.split(" ")[0] + "T00:00:00");
       }
 
       // Try MM/DD/YY or MM/DD/YYYY format
@@ -184,9 +208,14 @@ export async function GET(req: NextRequest) {
     };
 
     // KPI 1: Active Members (End of Month) - simplified to current active
+    // Handle both lowercase and capitalized field names
     const activeMembers = members.filter((m: any) => {
-      const joinDate = parseDate(m.join_date);
-      const cancelDate = parseDate(m.cancel_date || m.cancelDate);
+      const joinDate = parseDate(
+        m.join_date || m.joinDate || m["Join Date"] || m["join_date"]
+      );
+      const cancelDate = parseDate(
+        m.cancel_date || m.cancelDate || m["Cancel Date"] || m["cancel_date"]
+      );
       if (!joinDate) return false;
       const now = new Date();
       return joinDate <= now && (!cancelDate || cancelDate > now);
@@ -194,7 +223,9 @@ export async function GET(req: NextRequest) {
 
     // KPI 2: New monthly members
     const newMembers = members.filter((m: any) => {
-      const joinDate = parseDate(m.join_date);
+      const joinDate = parseDate(
+        m.join_date || m.joinDate || m["Join Date"] || m["join_date"]
+      );
       if (!joinDate) return false;
       const from = new Date(fromDate + "T00:00:00");
       const to = new Date(toDate + "T23:59:59");
@@ -207,12 +238,10 @@ export async function GET(req: NextRequest) {
     const periodTo = new Date(toDate + "T23:59:59");
 
     const churnedMembers = members.filter((m: any) => {
-      // First, try to use cancel_date if available
-      const cancelDate = m.cancel_date
-        ? parseDate(m.cancel_date)
-        : m.cancelDate
-          ? parseDate(m.cancelDate)
-          : null;
+      // Handle both lowercase and capitalized field names
+      const cancelDate = parseDate(
+        m.cancel_date || m.cancelDate || m["Cancel Date"] || m["cancel_date"]
+      );
 
       if (cancelDate && !isNaN(cancelDate.getTime())) {
         return cancelDate >= periodFrom && cancelDate <= periodTo;
@@ -229,12 +258,12 @@ export async function GET(req: NextRequest) {
     // Use active members at the START of the period for churn rate calculation
     const periodStart = new Date(fromDate + "T00:00:00");
     const activeMembersAtStart = members.filter((m: any) => {
-      const joinDate = m.join_date ? parseDate(m.join_date) : null;
-      const cancelDate = m.cancel_date
-        ? parseDate(m.cancel_date)
-        : m.cancelDate
-          ? parseDate(m.cancelDate)
-          : null;
+      const joinDate = parseDate(
+        m.join_date || m.joinDate || m["Join Date"] || m["join_date"]
+      );
+      const cancelDate = parseDate(
+        m.cancel_date || m.cancelDate || m["Cancel Date"] || m["cancel_date"]
+      );
       if (!joinDate || isNaN(joinDate.getTime())) return false;
       // Member was active at the start of the period if:
       // - They joined before or during the period start
@@ -249,12 +278,12 @@ export async function GET(req: NextRequest) {
     // Use active members at end of period as well
     const periodEnd = new Date(toDate + "T23:59:59");
     const activeMembersAtEnd = members.filter((m: any) => {
-      const joinDate = m.join_date ? parseDate(m.join_date) : null;
-      const cancelDate = m.cancel_date
-        ? parseDate(m.cancel_date)
-        : m.cancelDate
-          ? parseDate(m.cancelDate)
-          : null;
+      const joinDate = parseDate(
+        m.join_date || m.joinDate || m["Join Date"] || m["join_date"]
+      );
+      const cancelDate = parseDate(
+        m.cancel_date || m.cancelDate || m["Cancel Date"] || m["cancel_date"]
+      );
       if (!joinDate || isNaN(joinDate.getTime())) return false;
       return (
         joinDate <= periodEnd &&
@@ -274,19 +303,31 @@ export async function GET(req: NextRequest) {
 
     // KPI 5: Average Member Tenure (Months) - simplified
     const activeMembersWithTenure = members.filter((m: any) => {
-      const joinDate = parseDate(m.join_date);
-      const cancelDate = parseDate(m.cancel_date || m.cancelDate);
+      const joinDate = parseDate(
+        m.join_date || m.joinDate || m["Join Date"] || m["join_date"]
+      );
+      const cancelDate = parseDate(
+        m.cancel_date || m.cancelDate || m["Cancel Date"] || m["cancel_date"]
+      );
       if (!joinDate) return false;
       const now = new Date();
       return joinDate <= now && (!cancelDate || cancelDate > now);
     });
 
+    const now = new Date();
     const avgTenure =
       activeMembersWithTenure.length > 0
         ? activeMembersWithTenure.reduce((sum: number, m: any) => {
-            const joinDate = parseDate(m.join_date);
-            const cancelDate = parseDate(m.cancel_date || m.cancelDate);
-            const endDate = cancelDate || new Date();
+            const joinDate = parseDate(
+              m.join_date || m.joinDate || m["Join Date"] || m["join_date"]
+            );
+            const cancelDate = parseDate(
+              m.cancel_date ||
+                m.cancelDate ||
+                m["Cancel Date"] ||
+                m["cancel_date"]
+            );
+            const endDate = cancelDate || now;
             if (!joinDate) return sum;
             const months =
               (endDate.getTime() - joinDate.getTime()) /
@@ -325,63 +366,170 @@ export async function GET(req: NextRequest) {
       activeMembers > 0 ? totalRevenue / activeMembers : 0;
 
     // KPI 7: Utilization Rate (%)
-    // Normalize class data - handle various field name formats
+    // Get field names from data_tables definitions
+    const classesTableId = Object.keys(idToNameMap).find(
+      (id) => idToNameMap[id] === "classes"
+    );
+    const bookingsTableId = Object.keys(idToNameMap).find(
+      (id) => idToNameMap[id] === "bookings"
+    );
+
+    const classesFields = classesTableId
+      ? tableFieldsMap[classesTableId]?.fields || []
+      : [];
+    const bookingsFields = bookingsTableId
+      ? tableFieldsMap[bookingsTableId]?.fields || []
+      : [];
+
+    // Helper to get field value
+    const getFieldValue = (
+      obj: any,
+      fieldName: string,
+      fallbacks: string[] = []
+    ): any => {
+      if (obj[fieldName] !== undefined) return obj[fieldName];
+      const lowerFieldName = fieldName.toLowerCase();
+      for (const key in obj) {
+        if (key.toLowerCase() === lowerFieldName) {
+          return obj[key];
+        }
+      }
+      for (const fallback of fallbacks) {
+        if (obj[fallback] !== undefined) return obj[fallback];
+      }
+      return undefined;
+    };
+
+    // Normalize class data - use actual field names from data_tables
     const normalizeClass = (c: any) => {
-      const classId =
-        c.id ||
-        c.class_id ||
-        c.classId ||
-        c.class_ID ||
-        c["Class ID"] ||
-        c["classId"];
-      const capacity = c.capacity || c.Capacity || 0;
-      const classStartAt =
-        c.class_start_at ||
-        c.class_date_time ||
-        c.date_time ||
-        c.date ||
-        c["Class Date"] ||
-        c["class_start_at"];
+      const classIdField = classesFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("class") &&
+          (f.name.toLowerCase().includes("id") || f.name.toLowerCase() === "id")
+      )?.name;
+      const classId = classIdField
+        ? getFieldValue(c, classIdField, ["id", "class_id", "Class ID"])
+        : c.id || c.class_id || c["Class ID"];
+
+      const capacityField = classesFields.find((f) =>
+        f.name.toLowerCase().includes("capacity")
+      )?.name;
+      const capacity = capacityField
+        ? getFieldValue(c, capacityField, ["capacity", "Capacity"]) || 0
+        : c.capacity || c.Capacity || c["Capacity"] || 0;
+
+      const dateTimeField = classesFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("time") ||
+          f.name.toLowerCase().includes("date") ||
+          f.name.toLowerCase().includes("starting")
+      )?.name;
+      const classStartAt = dateTimeField
+        ? getFieldValue(c, dateTimeField, [
+            "class_start_at",
+            "Class Starting Time",
+            "Date & Time",
+            "date_time",
+          ])
+        : c["Class Starting Time"] ||
+          c.class_start_at ||
+          c["Date & Time"] ||
+          c.date_time;
+
       return { classId, capacity, classStartAt };
     };
 
-    // Normalize booking data - handle various field name formats
+    // Normalize booking data - use actual field names from data_tables
     const normalizeBooking = (b: any) => {
-      const classId =
-        b.class_id ||
-        b.classId ||
-        b.class_ID ||
-        b.class ||
-        b["Class ID"] ||
-        b["Class ID"];
-      const status =
-        b.status ||
-        b.attendance_status ||
-        b["Attendance Status"] ||
-        b["Status"] ||
-        "";
+      const classIdField = bookingsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("class") &&
+          (f.name.toLowerCase().includes("id") || f.name.toLowerCase() === "id")
+      )?.name;
+      const classId = classIdField
+        ? getFieldValue(b, classIdField, ["class_id", "Class ID"])
+        : b.class_id || b["Class ID"];
+
+      const statusField = bookingsFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("status") ||
+          f.name.toLowerCase().includes("attendance")
+      )?.name;
+      const status = statusField
+        ? getFieldValue(b, statusField, [
+            "status",
+            "Status",
+            "Attendance Status",
+          ]) || ""
+        : b.status || b["Status"] || b["Attendance Status"] || "";
+
       return { classId, status };
     };
 
     // Create a map of class_id -> class data (including date/time and capacity)
     const classMap = new Map();
+    let classesWithDates = 0;
     classes.forEach((c: any) => {
       const normalized = normalizeClass(c);
       if (!normalized.classId) return;
 
+      // Use parseDate to handle various date formats
       const classStartAt = normalized.classStartAt
-        ? new Date(normalized.classStartAt)
+        ? parseDate(normalized.classStartAt)
         : null;
 
+      // Store class data even if no date (we'll get date from bookings)
       if (classStartAt && !isNaN(classStartAt.getTime())) {
+        classesWithDates++;
         classMap.set(String(normalized.classId), {
           capacity: normalized.capacity,
           startAt: classStartAt,
+          date: normalized.classStartAt, // Keep original for fallback
+        });
+      } else {
+        // Still store class for capacity lookup
+        classMap.set(String(normalized.classId), {
+          capacity: normalized.capacity,
+          startAt: null,
+          date: normalized.classStartAt,
         });
       }
     });
 
-    // Filter bookings and get their class date/time from Classes table
+    console.log(
+      `[kpis] Created classMap with ${classMap.size} classes (${classesWithDates} with dates)`
+    );
+    if (classes.length > 0 && classesWithDates === 0) {
+      console.log(`[kpis] Sample class keys:`, Object.keys(classes[0]));
+      console.log(`[kpis] Sample class date fields:`, {
+        "Class Starting Time": classes[0]["Class Starting Time"],
+        class_start_at: classes[0].class_start_at,
+        "Date & Time": classes[0]["Date & Time"],
+        date_time: classes[0].date_time,
+        "Class Date": classes[0]["Class Date"],
+        allKeys: Object.keys(classes[0]),
+      });
+      console.log(
+        `[kpis] Classes fields from data_tables:`,
+        classesFields.map((f) => f.name)
+      );
+      const sampleNormalized = normalizeClass(classes[0]);
+      console.log(`[kpis] Sample normalized class:`, {
+        classId: sampleNormalized.classId,
+        classStartAt: sampleNormalized.classStartAt,
+        parsed: parseDate(sampleNormalized.classStartAt),
+      });
+    }
+
+    // Get date field from bookings
+    const bookingDateField = bookingsFields.find(
+      (f) =>
+        f.name.toLowerCase().includes("time") ||
+        f.name.toLowerCase().includes("date") ||
+        f.name.toLowerCase().includes("&")
+    )?.name;
+
+    // Filter bookings and get their class date/time (from booking first, then class)
     const bookingsInRange = bookings.filter((b: any) => {
       const normalized = normalizeBooking(b);
       if (!normalized.classId) return false;
@@ -418,24 +566,52 @@ export async function GET(req: NextRequest) {
 
         const normalizedMatching = normalizeClass(matchingClass);
         const classStartAt = normalizedMatching.classStartAt
-          ? new Date(normalizedMatching.classStartAt)
+          ? parseDate(normalizedMatching.classStartAt)
           : null;
-
-        if (!classStartAt || isNaN(classStartAt.getTime())) return false;
 
         classData = {
           capacity: normalizedMatching.capacity,
           startAt: classStartAt,
+          date: normalizedMatching.classStartAt,
         };
         classMap.set(String(normalizedMatching.classId), classData);
       }
 
-      if (!classData || !classData.startAt) return false;
+      // Try to get date from booking first, then from class
+      let startAt: Date | null = null;
+
+      if (bookingDateField) {
+        const bookingDate = getFieldValue(b, bookingDateField, [
+          "Date & Time",
+          "date_time",
+          "class_start_at",
+          "booking_time",
+        ]);
+        if (bookingDate) {
+          startAt = parseDate(bookingDate);
+        }
+      }
+
+      // If booking doesn't have date, try class date
+      if (!startAt && classData.date) {
+        startAt = parseDate(classData.date);
+      }
+
+      // If still no date, use classData.startAt (already parsed)
+      if (!startAt && classData.startAt) {
+        startAt = classData.startAt;
+      }
+
+      if (!startAt || isNaN(startAt.getTime())) return false;
 
       const from = new Date(fromDate + "T00:00:00");
       const to = new Date(toDate + "T23:59:59");
-      return classData.startAt >= from && classData.startAt <= to;
+      return startAt >= from && startAt <= to;
     });
+
+    console.log(
+      `[kpis] Bookings in range: ${bookingsInRange.length} out of ${bookings.length} total bookings`
+    );
 
     const bookedSpots = bookingsInRange.filter((b: any) => {
       const normalized = normalizeBooking(b);
@@ -460,21 +636,63 @@ export async function GET(req: NextRequest) {
     // KPI 8: Cancellation Rate (%)
     const finalBookings = bookingsInRange.filter((b: any) => {
       const normalized = normalizeBooking(b);
-      const status = normalized.status.toLowerCase();
+      const status = normalized.status.toLowerCase().trim();
       return (
         status === "attended" ||
         status === "no_show" ||
+        status === "no-show" ||
+        status === "noshow" ||
         status === "cancelled" ||
+        status === "canceled" ||
         status === "booked"
       );
     });
     const cancelled = bookingsInRange.filter((b: any) => {
       const normalized = normalizeBooking(b);
-      const status = normalized.status.toLowerCase();
-      return status === "cancelled";
+      const status = normalized.status.toLowerCase().trim();
+      return status === "cancelled" || status === "canceled";
     }).length;
+
+    console.log(`[kpis] Cancellation rate calculation:`, {
+      totalBookingsInRange: bookingsInRange.length,
+      finalBookings: finalBookings.length,
+      cancelled,
+      sampleStatuses: bookingsInRange.slice(0, 10).map((b: any) => {
+        const normalized = normalizeBooking(b);
+        return normalized.status;
+      }),
+    });
+
     const cancellationRate =
       finalBookings.length > 0 ? (cancelled / finalBookings.length) * 100 : 0;
+
+    // Calculate total revenue and expenses from transactions
+    const expenseTransactions = transactions.filter((t: any) => {
+      const amount =
+        typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0;
+      const category = (t.category || "").toLowerCase();
+      const date = t.date ? new Date(t.date) : null;
+      if (!date) return false;
+      const from = new Date(fromDate);
+      const to = new Date(toDate);
+      return amount < 0 && date >= from && date < to;
+    });
+
+    const totalExpenses = Math.abs(
+      expenseTransactions.reduce((sum: number, t: any) => {
+        const amount =
+          typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0;
+        return sum + amount;
+      }, 0)
+    );
+
+    const netIncome = totalRevenue - totalExpenses;
+    const monthsDuration = Math.max(
+      1,
+      (new Date(toDate).getTime() - new Date(fromDate).getTime()) /
+        (1000 * 60 * 60 * 24 * 30)
+    );
+    const burnRate = totalExpenses / monthsDuration;
 
     return jsonNoStore({
       kpis: {
@@ -486,6 +704,10 @@ export async function GET(req: NextRequest) {
         revenuePerMember: parseFloat(revenuePerMember.toFixed(2)),
         utilizationRate: parseFloat(utilizationRate.toFixed(2)),
         cancellationRate: parseFloat(cancellationRate.toFixed(2)),
+        totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+        totalCosts: parseFloat(totalExpenses.toFixed(2)),
+        netIncome: parseFloat(netIncome.toFixed(2)),
+        burnRate: parseFloat(burnRate.toFixed(2)),
       },
     });
   } catch (err) {

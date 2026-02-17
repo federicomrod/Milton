@@ -7,6 +7,7 @@ import { MRRChart } from "@/components/dashboard/charts/MRRChart";
 import { BurnRateChart } from "@/components/dashboard/charts/BurnRateChart";
 import { VarianceAnalysisChart } from "@/components/dashboard/charts/VarianceAnalysisChart";
 import { YTDPerformanceChart } from "@/components/dashboard/charts/YTDPerformanceChart";
+import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import type { ChartData, WaterfallData } from "@/lib/chart-data-generators";
 
 interface ChartProps {
@@ -18,6 +19,9 @@ interface ChartProps {
     | "ytd-performance";
   period?: "month" | "year" | "ytd" | "custom";
   customDateRange?: { from: string; to: string };
+  onPeriodChange?: (period: "month" | "year" | "ytd" | "custom") => void;
+  onCustomDateRangeChange?: (range: { from: string; to: string }) => void;
+  showDatePicker?: boolean;
 }
 
 const CHART_TITLES = {
@@ -32,11 +36,14 @@ export function FinancialCharts({
   type,
   period = "month",
   customDateRange,
+  onPeriodChange,
+  onCustomDateRangeChange,
+  showDatePicker = false,
 }: ChartProps) {
-  const { data, loading } = useChartData(type, period, customDateRange);
+  const { data } = useChartData(type, period, customDateRange);
 
   const renderChart = () => {
-    if (loading || data.length === 0) {
+    if (data.length === 0) {
       return (
         <div className="flex items-center justify-center h-64">
           <p className="text-gray-500">
@@ -65,7 +72,20 @@ export function FinancialCharts({
   return (
     <Card data-chart={type}>
       <CardHeader>
-        <CardTitle>{CHART_TITLES[type]}</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle>{CHART_TITLES[type]}</CardTitle>
+          {showDatePicker &&
+            onPeriodChange &&
+            onCustomDateRangeChange &&
+            customDateRange && (
+              <DateRangePicker
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={onPeriodChange}
+                onCustomDateRangeChange={onCustomDateRangeChange}
+              />
+            )}
+        </div>
       </CardHeader>
       <CardContent>{renderChart()}</CardContent>
     </Card>

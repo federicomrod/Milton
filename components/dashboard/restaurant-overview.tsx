@@ -11,6 +11,8 @@ import {
   Percent,
 } from "lucide-react";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
+import { KpiCard } from "@/components/dashboard/kpi-card";
+import type { DatabaseKpi } from "@/lib/types/kpi";
 
 interface KpiData {
   totalRevenue: number;
@@ -183,101 +185,98 @@ export function RestaurantOverview() {
 
       {/* Priority 1 KPIs */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/* Total Revenue */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-            <DollarSign className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(kpis.totalRevenue)}
-            </div>
-            {trends && <TrendIndicator trend={trends.totalRevenue} />}
-            <p className="text-xs text-muted-foreground mt-1">
-              Revenue for the period
-            </p>
-          </CardContent>
-        </Card>
+        <KpiCard
+          kpi={{
+            id: "total-revenue",
+            name: "Total Revenue",
+            definition: "Revenue for the period",
+          }}
+          value={kpis.totalRevenue}
+          icon={DollarSign}
+          iconColor="text-green-600"
+          valueColor="text-green-600"
+          description={
+            trends && trends.totalRevenue !== 0
+              ? trends.totalRevenue > 0
+                ? `↑ +${trends.totalRevenue.toFixed(1)}%`
+                : `↓ ${trends.totalRevenue.toFixed(1)}%`
+              : undefined
+          }
+          fetchFromApi={false}
+        />
 
-        {/* Covers */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Covers</CardTitle>
-            <Users className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
-              {kpis.covers.toLocaleString()}
-            </div>
-            {trends && <TrendIndicator trend={trends.covers} />}
-            <p className="text-xs text-muted-foreground mt-1">Guests served</p>
-          </CardContent>
-        </Card>
+        <KpiCard
+          kpi={{
+            id: "covers",
+            name: "Covers",
+            definition: "Guests served",
+          }}
+          value={kpis.covers}
+          icon={Users}
+          iconColor="text-blue-600"
+          valueColor="text-blue-600"
+          description={
+            trends && trends.covers !== 0
+              ? trends.covers > 0
+                ? `↑ +${trends.covers.toFixed(1)}%`
+                : `↓ ${trends.covers.toFixed(1)}%`
+              : undefined
+          }
+          fetchFromApi={false}
+        />
 
-        {/* Average Ticket Size */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Avg Ticket Size
-            </CardTitle>
-            <Receipt className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(kpis.averageTicketSize)}
-            </div>
-            {trends && <TrendIndicator trend={trends.averageTicketSize} />}
-            <p className="text-xs text-muted-foreground mt-1">
-              Revenue per cover
-            </p>
-          </CardContent>
-        </Card>
+        <KpiCard
+          kpi={{
+            id: "average-ticket-size",
+            name: "Avg Ticket Size",
+            definition: "Revenue per cover",
+          }}
+          value={kpis.averageTicketSize}
+          icon={Receipt}
+          iconColor="text-green-600"
+          valueColor="text-green-600"
+          description={
+            trends && trends.averageTicketSize !== 0
+              ? trends.averageTicketSize > 0
+                ? `↑ +${trends.averageTicketSize.toFixed(1)}%`
+                : `↓ ${trends.averageTicketSize.toFixed(1)}%`
+              : undefined
+          }
+          fetchFromApi={false}
+        />
 
-        {/* Prime Cost % */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Prime Cost %</CardTitle>
-            <Percent
-              className={`h-4 w-4 ${
-                kpis.primeCostPercent < 60
-                  ? "text-green-600"
-                  : kpis.primeCostPercent < 65
-                    ? "text-yellow-600"
-                    : "text-red-600"
-              }`}
-            />
-          </CardHeader>
-          <CardContent>
-            <div
-              className={`text-2xl font-bold ${
-                kpis.primeCostPercent < 60
-                  ? "text-green-600"
-                  : kpis.primeCostPercent < 65
-                    ? "text-yellow-600"
-                    : "text-red-600"
-              }`}
-            >
-              {formatPercent(kpis.primeCostPercent)}
-            </div>
-            {trends && (
-              <div className="flex items-center gap-1 text-sm mt-1">
-                {trends.primeCostPercent > 0 ? (
-                  <span className="text-red-600">
-                    +{trends.primeCostPercent.toFixed(1)}pp
-                  </span>
-                ) : (
-                  <span className="text-green-600">
-                    {trends.primeCostPercent.toFixed(1)}pp
-                  </span>
-                )}
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground mt-1">
-              COGS + Labor / Revenue
-            </p>
-          </CardContent>
-        </Card>
+        <KpiCard
+          kpi={{
+            id: "prime-cost-percent",
+            name: "Prime Cost %",
+            definition: "COGS + Labor / Revenue",
+          }}
+          value={kpis.primeCostPercent}
+          icon={Percent}
+          iconColor={
+            kpis.primeCostPercent < 60
+              ? "text-green-600"
+              : kpis.primeCostPercent < 65
+                ? "text-yellow-600"
+                : "text-red-600"
+          }
+          valueColor={
+            kpis.primeCostPercent < 60
+              ? "text-green-600"
+              : kpis.primeCostPercent < 65
+                ? "text-yellow-600"
+                : "text-red-600"
+          }
+          suffix="%"
+          description={
+            trends && trends.primeCostPercent !== 0
+              ? trends.primeCostPercent > 0
+                ? `+${trends.primeCostPercent.toFixed(1)}pp`
+                : `${trends.primeCostPercent.toFixed(1)}pp`
+              : undefined
+          }
+          fetchFromApi={false}
+        />
       </div>
 
       {/* Prime Cost Breakdown */}

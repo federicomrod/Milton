@@ -37,6 +37,7 @@ import { useReportData } from "@/lib/hooks/useReportData";
 import {
   DEFAULT_REPORT_CONFIG,
   DEFAULT_FITNESS_STUDIO_CONFIG,
+  DEFAULT_RESTAURANT_CONFIG,
   type ReportConfig,
 } from "@/lib/types/report";
 import {
@@ -124,6 +125,11 @@ export function ReportsTab() {
             if (normalizedModel === "fitness_studio") {
               setConfig({
                 ...DEFAULT_FITNESS_STUDIO_CONFIG,
+                businessModel: model,
+              });
+            } else if (normalizedModel === "restaurant") {
+              setConfig({
+                ...DEFAULT_RESTAURANT_CONFIG,
                 businessModel: model,
               });
             }
@@ -217,7 +223,10 @@ export function ReportsTab() {
     const isFitnessStudio =
       businessModel &&
       businessModel.toLowerCase().replace(/\s+/g, "_") === "fitness_studio";
-    const totalSteps = isFitnessStudio ? 4 : 5; // Fitness studio: data, KPIs, charts, PDF | SaaS: data, KPIs, insights, charts, PDF
+    const isRestaurant =
+      businessModel &&
+      businessModel.toLowerCase().replace(/\s+/g, "_") === "restaurant";
+    const totalSteps = 5; // All reports: data, KPIs, insights, charts, PDF
 
     try {
       // Step 1: Fetching report data
@@ -272,8 +281,9 @@ export function ReportsTab() {
         periodRange || undefined
       );
 
-      // Step 2: Fetching fitness studio KPIs (if applicable)
+      // Step 2: Fetching fitness studio or restaurant KPIs (if applicable)
       let fitnessStudioData: any = null;
+      let restaurantData: any = null;
       if (isFitnessStudio) {
         setGenerationProgress({
           currentStep: 2,
@@ -356,9 +366,84 @@ export function ReportsTab() {
             toDate,
           };
         }
+      } else if (isRestaurant) {
+        setGenerationProgress({
+          currentStep: 2,
+          totalSteps,
+          stepName: "Fetching restaurant KPIs...",
+        });
+
+        try {
+          // Fetch restaurant data from all endpoints
+          const [overviewRes, revenueMenuRes, operationsRes, cashFlowRes] =
+            await Promise.all([
+              fetch(
+                `/api/analytics/restaurant/overview?from_date=${fromDate}&to_date=${toDate}&period=month`,
+                { cache: "no-store", credentials: "include" }
+              ),
+              fetch(
+                `/api/analytics/restaurant/revenue-menu?from_date=${fromDate}&to_date=${toDate}&period=month`,
+                { cache: "no-store", credentials: "include" }
+              ),
+              fetch(
+                `/api/analytics/restaurant/operations?from_date=${fromDate}&to_date=${toDate}&period=month`,
+                { cache: "no-store", credentials: "include" }
+              ),
+              fetch(
+                `/api/analytics/restaurant/cash-flow?from_date=${fromDate}&to_date=${toDate}&period=month`,
+                { cache: "no-store", credentials: "include" }
+              ),
+            ]);
+
+          // Merge KPIs from all sources
+          const allKpis: any = {};
+
+          if (overviewRes.ok) {
+            const overviewData = await overviewRes.json();
+            Object.assign(allKpis, overviewData.kpis || {});
+          }
+
+          if (operationsRes.ok) {
+            const operationsData = await operationsRes.json();
+            if (operationsData.tableUtilization) {
+              allKpis.tableUtilization =
+                operationsData.tableUtilization.utilizationPercent;
+            }
+            if (operationsData.reservationsEffectiveness) {
+              allKpis.reservationsEffectiveness =
+                operationsData.reservationsEffectiveness;
+            }
+          }
+
+          if (cashFlowRes.ok) {
+            const cashFlowData = await cashFlowRes.json();
+            allKpis.netCashFlow = cashFlowData.netCashFlow || 0;
+            allKpis.burnRate = cashFlowData.burnRate;
+            allKpis.cashBalance = cashFlowData.cashBalance;
+            allKpis.cashRunway = cashFlowData.cashRunway;
+          }
+
+          console.log("[ReportsTab] Fetched restaurant KPIs:", {
+            keys: Object.keys(allKpis),
+            sampleValues: Object.entries(allKpis).slice(0, 5),
+          });
+
+          restaurantData = {
+            kpis: allKpis,
+            fromDate,
+            toDate,
+          };
+        } catch (error) {
+          console.error("[ReportsTab] Failed to fetch restaurant data:", error);
+          restaurantData = {
+            kpis: {},
+            fromDate,
+            toDate,
+          };
+        }
       }
 
-      // Step 3: Generate AI insights (only for SaaS reports, not fitness studio)
+      // Step 3: Generate AI insights
       let insights: {
         overview?: string[];
         financial?: string[];
@@ -366,8 +451,46 @@ export function ReportsTab() {
         cashflow?: string[];
       } = {};
 
-      // Skip insights generation for fitness studio reports (not used in PDF)
-      if (!isFitnessStudio) {
+      if (isFitnessStudio) {
+        setGenerationProgress({
+          currentStep: 3,
+          totalSteps,
+          stepName: "Generating insights...",
+        });
+
+        try {
+          const { generateFitnessStudioInsights } =
+            await import("@/lib/ai/fitness-studio-insights");
+          const kpis = fitnessStudioData?.kpis || {};
+          insights = await generateFitnessStudioInsights(kpis);
+        } catch (insightError) {
+          console.warn(
+            "[ReportsTab] Insights generation failed, proceeding without insights:",
+            insightError
+          );
+          // Continue with empty insights if generation fails
+        }
+      } else if (isRestaurant) {
+        setGenerationProgress({
+          currentStep: 3,
+          totalSteps,
+          stepName: "Generating insights...",
+        });
+
+        try {
+          const { generateRestaurantInsights } =
+            await import("@/lib/ai/restaurant-insights");
+          const kpis = restaurantData?.kpis || {};
+          insights = await generateRestaurantInsights(kpis);
+        } catch (insightError) {
+          console.warn(
+            "[ReportsTab] Insights generation failed, proceeding without insights:",
+            insightError
+          );
+          // Continue with empty insights if generation fails
+        }
+      } else {
+        // Generate AI insights for SaaS reports
         setGenerationProgress({
           currentStep: 3,
           totalSteps,
@@ -394,14 +517,10 @@ export function ReportsTab() {
           );
           // Continue with empty insights if OpenAI fails
         }
-      } else {
-        console.log(
-          "[ReportsTab] Skipping AI insights generation for fitness studio report"
-        );
       }
 
       // Step 4: Generate chart images
-      const chartStep = isFitnessStudio ? 3 : 4;
+      const chartStep = 4;
       setGenerationProgress({
         currentStep: chartStep,
         totalSteps,
@@ -432,7 +551,7 @@ export function ReportsTab() {
         insights,
         chartImages,
         config,
-        fitnessStudioData
+        isRestaurant ? restaurantData : fitnessStudioData
       );
 
       setGenerationStatus("success");
@@ -1076,16 +1195,258 @@ export function ReportsTab() {
               </div>
             )}
 
-          {/* Non-fitness studio message */}
+          {/* Restaurant Sections */}
+          {businessModel &&
+            businessModel.toLowerCase().replace(/\s+/g, "_") === "restaurant" &&
+            !loadingBusinessModel && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Info className="h-4 w-4" />
+                  <span>
+                    Select sections and cards to include in your PDF report
+                  </span>
+                </div>
+
+                {/* Executive Overview */}
+                {config.restaurantOverview && (
+                  <ReportSection
+                    id="restaurantOverview"
+                    title="Executive Overview"
+                    description="Key metrics and high-level performance summary"
+                    enabled={config.restaurantOverview.enabled}
+                    cards={[
+                      {
+                        id: "totalRevenue",
+                        label: "Total Revenue",
+                        enabled: config.restaurantOverview.cards.totalRevenue,
+                      },
+                      {
+                        id: "covers",
+                        label: "Covers",
+                        enabled: config.restaurantOverview.cards.covers,
+                      },
+                      {
+                        id: "averageTicketSize",
+                        label: "Average Ticket Size",
+                        enabled:
+                          config.restaurantOverview.cards.averageTicketSize,
+                      },
+                      {
+                        id: "primeCostPercent",
+                        label: "Prime Cost %",
+                        enabled:
+                          config.restaurantOverview.cards.primeCostPercent,
+                      },
+                      {
+                        id: "totalCOGS",
+                        label: "Total COGS",
+                        enabled: config.restaurantOverview.cards.totalCOGS,
+                      },
+                      {
+                        id: "totalLabor",
+                        label: "Total Labor",
+                        enabled: config.restaurantOverview.cards.totalLabor,
+                      },
+                      {
+                        id: "primeCost",
+                        label: "Prime Cost",
+                        enabled: config.restaurantOverview.cards.primeCost,
+                      },
+                    ]}
+                    charts={[
+                      {
+                        id: "salesTrend",
+                        label: "Sales Trend (line)",
+                        enabled: config.restaurantOverview.charts.salesTrend,
+                      },
+                    ]}
+                    onToggleSection={(enabled) =>
+                      handleToggleSection("restaurantOverview", enabled)
+                    }
+                    onToggleCard={(cardId, enabled) =>
+                      handleToggleCard("restaurantOverview", cardId, enabled)
+                    }
+                    onToggleChart={(chartId, enabled) =>
+                      handleToggleChart("restaurantOverview", chartId, enabled)
+                    }
+                    slideNumber={2}
+                  />
+                )}
+
+                {/* Revenue & Menu Performance */}
+                {config.revenueMenu && (
+                  <ReportSection
+                    id="revenueMenu"
+                    title="Revenue & Menu Performance"
+                    description="Sales trends, category breakdown, and menu item performance"
+                    enabled={config.revenueMenu.enabled}
+                    cards={[]}
+                    charts={[
+                      {
+                        id: "salesTrends",
+                        label: "Sales Trends (line)",
+                        enabled: config.revenueMenu.charts.salesTrends,
+                      },
+                      {
+                        id: "categoryBreakdown",
+                        label: "Revenue by Category (donut)",
+                        enabled: config.revenueMenu.charts.categoryBreakdown,
+                      },
+                      {
+                        id: "channelBreakdown",
+                        label: "Revenue by Channel (bar)",
+                        enabled: config.revenueMenu.charts.channelBreakdown,
+                      },
+                      {
+                        id: "topItems",
+                        label: "Top Performing Items (table)",
+                        enabled: config.revenueMenu.charts.topItems,
+                      },
+                      {
+                        id: "bottomItems",
+                        label: "Bottom Performing Items (table)",
+                        enabled: config.revenueMenu.charts.bottomItems,
+                      },
+                    ]}
+                    onToggleSection={(enabled) =>
+                      handleToggleSection("revenueMenu", enabled)
+                    }
+                    onToggleCard={(cardId, enabled) =>
+                      handleToggleCard("revenueMenu", cardId, enabled)
+                    }
+                    onToggleChart={(chartId, enabled) =>
+                      handleToggleChart("revenueMenu", chartId, enabled)
+                    }
+                    slideNumber={3}
+                  />
+                )}
+
+                {/* Operations */}
+                {config.operations && (
+                  <ReportSection
+                    id="operations"
+                    title="Operations"
+                    description="Covers, table utilization, and reservations"
+                    enabled={config.operations.enabled}
+                    cards={[
+                      {
+                        id: "tableUtilization",
+                        label: "Table Utilization",
+                        enabled: config.operations.cards.tableUtilization,
+                      },
+                      {
+                        id: "reservationsEffectiveness",
+                        label: "Reservations Effectiveness",
+                        enabled:
+                          config.operations.cards.reservationsEffectiveness,
+                      },
+                    ]}
+                    charts={[
+                      {
+                        id: "coversByDay",
+                        label: "Covers by Day of Week (bar)",
+                        enabled: config.operations.charts.coversByDay,
+                      },
+                      {
+                        id: "coversByHour",
+                        label: "Covers by Hour (line)",
+                        enabled: config.operations.charts.coversByHour,
+                      },
+                      {
+                        id: "peakTimes",
+                        label: "Peak Times (list)",
+                        enabled: config.operations.charts.peakTimes,
+                      },
+                    ]}
+                    onToggleSection={(enabled) =>
+                      handleToggleSection("operations", enabled)
+                    }
+                    onToggleCard={(cardId, enabled) =>
+                      handleToggleCard("operations", cardId, enabled)
+                    }
+                    onToggleChart={(chartId, enabled) =>
+                      handleToggleChart("operations", chartId, enabled)
+                    }
+                    slideNumber={4}
+                  />
+                )}
+
+                {/* Cash Flow */}
+                {config.restaurantCashFlow && (
+                  <ReportSection
+                    id="restaurantCashFlow"
+                    title="Cash Flow"
+                    description="Cash trends and runway"
+                    enabled={config.restaurantCashFlow.enabled}
+                    cards={[
+                      {
+                        id: "netCashFlow",
+                        label: "Net Cash Flow",
+                        enabled: config.restaurantCashFlow.cards.netCashFlow,
+                      },
+                      {
+                        id: "burnRate",
+                        label: "Burn Rate",
+                        enabled: config.restaurantCashFlow.cards.burnRate,
+                      },
+                      {
+                        id: "cashBalance",
+                        label: "Cash Balance",
+                        enabled: config.restaurantCashFlow.cards.cashBalance,
+                      },
+                      {
+                        id: "cashRunway",
+                        label: "Cash Runway (if available)",
+                        enabled: config.restaurantCashFlow.cards.cashRunway,
+                      },
+                    ]}
+                    charts={[
+                      {
+                        id: "cashFlowOverview",
+                        label: "Cash Flow Overview (bar)",
+                        enabled:
+                          config.restaurantCashFlow.charts.cashFlowOverview,
+                      },
+                      {
+                        id: "inflowsByCategory",
+                        label: "Inflows by Category (table)",
+                        enabled:
+                          config.restaurantCashFlow.charts.inflowsByCategory,
+                      },
+                      {
+                        id: "outflowsByCategory",
+                        label: "Outflows by Category (table)",
+                        enabled:
+                          config.restaurantCashFlow.charts.outflowsByCategory,
+                      },
+                    ]}
+                    onToggleSection={(enabled) =>
+                      handleToggleSection("restaurantCashFlow", enabled)
+                    }
+                    onToggleCard={(cardId, enabled) =>
+                      handleToggleCard("restaurantCashFlow", cardId, enabled)
+                    }
+                    onToggleChart={(chartId, enabled) =>
+                      handleToggleChart("restaurantCashFlow", chartId, enabled)
+                    }
+                    slideNumber={5}
+                  />
+                )}
+              </div>
+            )}
+
+          {/* Non-supported business model message */}
           {businessModel &&
             businessModel.toLowerCase().replace(/\s+/g, "_") !==
               "fitness_studio" &&
+            businessModel.toLowerCase().replace(/\s+/g, "_") !== "restaurant" &&
             !loadingBusinessModel && (
               <Alert>
                 <Info className="h-4 w-4" />
                 <AlertDescription>
-                  Reporting is currently tailored for Fitness Studio business
-                  models. Other business models will be supported soon.
+                  Reporting is currently tailored for Fitness Studio and
+                  Restaurant business models. Other business models will be
+                  supported soon.
                 </AlertDescription>
               </Alert>
             )}
@@ -1160,8 +1521,10 @@ export function ReportsTab() {
               disabled={
                 isGenerating ||
                 !businessModel ||
-                businessModel.toLowerCase().replace(/\s+/g, "_") !==
-                  "fitness_studio" ||
+                (businessModel.toLowerCase().replace(/\s+/g, "_") !==
+                  "fitness_studio" &&
+                  businessModel.toLowerCase().replace(/\s+/g, "_") !==
+                    "restaurant") ||
                 !dataStatus.hasAnyData
               }
               className="w-full"
@@ -1181,10 +1544,12 @@ export function ReportsTab() {
             </Button>
             {businessModel &&
               businessModel.toLowerCase().replace(/\s+/g, "_") !==
-                "fitness_studio" && (
+                "fitness_studio" &&
+              businessModel.toLowerCase().replace(/\s+/g, "_") !==
+                "restaurant" && (
                 <p className="text-xs text-center text-muted-foreground">
-                  PDF generation is only available for Fitness Studio business
-                  models
+                  PDF generation is only available for Fitness Studio and
+                  Restaurant business models
                 </p>
               )}
           </div>

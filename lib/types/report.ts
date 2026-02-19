@@ -121,6 +121,59 @@ export interface ReportConfig {
       outflowsByCategory: boolean;
     };
   };
+  // Restaurant sections
+  restaurantOverview?: {
+    enabled: boolean;
+    cards: {
+      totalRevenue: boolean;
+      covers: boolean;
+      averageTicketSize: boolean;
+      primeCostPercent: boolean;
+      totalCOGS: boolean;
+      totalLabor: boolean;
+      primeCost: boolean;
+    };
+    charts: {
+      salesTrend: boolean;
+    };
+  };
+  revenueMenu?: {
+    enabled: boolean;
+    cards: Record<string, boolean>;
+    charts: {
+      salesTrends: boolean;
+      categoryBreakdown: boolean;
+      channelBreakdown: boolean;
+      topItems: boolean;
+      bottomItems: boolean;
+    };
+  };
+  operations?: {
+    enabled: boolean;
+    cards: {
+      tableUtilization: boolean;
+      reservationsEffectiveness: boolean;
+    };
+    charts: {
+      coversByDay: boolean;
+      coversByHour: boolean;
+      peakTimes: boolean;
+    };
+  };
+  restaurantCashFlow?: {
+    enabled: boolean;
+    cards: {
+      netCashFlow: boolean;
+      burnRate: boolean;
+      cashBalance: boolean;
+      cashRunway: boolean;
+    };
+    charts: {
+      cashFlowOverview: boolean;
+      inflowsByCategory: boolean;
+      outflowsByCategory: boolean;
+    };
+  };
 }
 
 export const DEFAULT_REPORT_CONFIG: ReportConfig = {
@@ -258,6 +311,71 @@ export const DEFAULT_FITNESS_STUDIO_CONFIG: ReportConfig = {
       inflowsVsOutflows: true,
       netCashFlowTrend: true,
       cumulativeCashFlow: true,
+      outflowsByCategory: true,
+    },
+  },
+};
+
+export const DEFAULT_RESTAURANT_CONFIG: ReportConfig = {
+  title: "Monthly Business Report",
+  companyName: "Your Company",
+  reportPeriod: (() => {
+    const now = new Date();
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return `${lastMonth.toLocaleDateString("en-US", {
+      month: "long",
+    })} ${lastMonth.getFullYear()}`;
+  })(),
+  businessModel: "restaurant",
+  restaurantOverview: {
+    enabled: true,
+    cards: {
+      totalRevenue: true,
+      covers: true,
+      averageTicketSize: true,
+      primeCostPercent: true,
+      totalCOGS: true,
+      totalLabor: true,
+      primeCost: true,
+    },
+    charts: {
+      salesTrend: true,
+    },
+  },
+  revenueMenu: {
+    enabled: true,
+    cards: {},
+    charts: {
+      salesTrends: true,
+      categoryBreakdown: true,
+      channelBreakdown: true,
+      topItems: true,
+      bottomItems: true,
+    },
+  },
+  operations: {
+    enabled: true,
+    cards: {
+      tableUtilization: true,
+      reservationsEffectiveness: true,
+    },
+    charts: {
+      coversByDay: true,
+      coversByHour: true,
+      peakTimes: true,
+    },
+  },
+  restaurantCashFlow: {
+    enabled: true,
+    cards: {
+      netCashFlow: true,
+      burnRate: true,
+      cashBalance: true,
+      cashRunway: true,
+    },
+    charts: {
+      cashFlowOverview: true,
+      inflowsByCategory: true,
       outflowsByCategory: true,
     },
   },

@@ -25,6 +25,7 @@ export interface ReportInsights {
   financial?: string[];
   pipeline?: string[];
   cashflow?: string[];
+  operations?: string[];
 }
 
 export interface ChartImages {
@@ -85,10 +86,13 @@ export async function generateReportSlides(
 ): Promise<void> {
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
 
-  // Check if this is a fitness studio report
+  // Check if this is a fitness studio or restaurant report
   const isFitnessStudio =
     config?.businessModel === "fitness_studio" ||
     reportConfig?.businessModel === "fitness_studio";
+  const isRestaurant =
+    config?.businessModel === "restaurant" ||
+    reportConfig?.businessModel === "restaurant";
 
   if (isFitnessStudio && reportConfig) {
     // Generate fitness studio report
@@ -100,6 +104,17 @@ export async function generateReportSlides(
       chartImages,
       reportConfig,
       fitnessStudioData
+    );
+  } else if (isRestaurant && reportConfig) {
+    // Generate restaurant report
+    await generateRestaurantReport(
+      doc,
+      data,
+      config,
+      insights,
+      chartImages,
+      reportConfig,
+      fitnessStudioData // Reuse the same data structure for restaurant data
     );
   } else {
     // Generate standard SaaS report
@@ -157,7 +172,8 @@ async function generateFitnessStudioReport(
       reportConfig.executiveOverview,
       data,
       config,
-      fitnessStudioData
+      fitnessStudioData,
+      insights
     );
   }
 
@@ -172,7 +188,8 @@ async function generateFitnessStudioReport(
       reportConfig.studioPerformance,
       data,
       config,
-      fitnessStudioData
+      fitnessStudioData,
+      insights
     );
   }
 
@@ -187,7 +204,8 @@ async function generateFitnessStudioReport(
       reportConfig.classesUtilization,
       data,
       config,
-      fitnessStudioData
+      fitnessStudioData,
+      insights
     );
   }
 
@@ -202,7 +220,8 @@ async function generateFitnessStudioReport(
       reportConfig.members,
       data,
       config,
-      fitnessStudioData
+      fitnessStudioData,
+      insights
     );
   }
 
@@ -217,7 +236,8 @@ async function generateFitnessStudioReport(
       reportConfig.instructors,
       data,
       config,
-      fitnessStudioData
+      fitnessStudioData,
+      insights
     );
   }
 
@@ -232,7 +252,8 @@ async function generateFitnessStudioReport(
       reportConfig.financials,
       data,
       config,
-      fitnessStudioData
+      fitnessStudioData,
+      insights
     );
   }
 
@@ -247,7 +268,90 @@ async function generateFitnessStudioReport(
       reportConfig.cashFlow,
       data,
       config,
-      fitnessStudioData
+      fitnessStudioData,
+      insights
+    );
+  }
+}
+
+/**
+ * Generate restaurant PDF report with enabled sections
+ */
+async function generateRestaurantReport(
+  doc: jsPDF,
+  data: ReportData,
+  config?: ReportConfig,
+  insights?: ReportInsights,
+  chartImages?: ChartImages,
+  reportConfig?: ReportConfigType,
+  restaurantData?: any
+): Promise<void> {
+  // Cover slide
+  drawCoverSlide(doc, config, reportConfig);
+
+  let slideNumber = 2;
+
+  // Executive Overview
+  if (reportConfig?.restaurantOverview?.enabled) {
+    doc.addPage();
+    drawHeader(doc, config, slideNumber);
+    await drawRestaurantSection(
+      doc,
+      "Executive Overview",
+      slideNumber++,
+      reportConfig.restaurantOverview,
+      data,
+      config,
+      restaurantData,
+      insights
+    );
+  }
+
+  // Revenue & Menu Performance
+  if (reportConfig?.revenueMenu?.enabled) {
+    doc.addPage();
+    drawHeader(doc, config, slideNumber);
+    await drawRestaurantSection(
+      doc,
+      "Revenue & Menu Performance",
+      slideNumber++,
+      reportConfig.revenueMenu,
+      data,
+      config,
+      restaurantData,
+      insights
+    );
+  }
+
+  // Operations
+  if (reportConfig?.operations?.enabled) {
+    doc.addPage();
+    drawHeader(doc, config, slideNumber);
+    await drawRestaurantSection(
+      doc,
+      "Operations",
+      slideNumber++,
+      reportConfig.operations,
+      data,
+      config,
+      restaurantData,
+      insights
+    );
+  }
+
+  // Cash Flow
+  if (reportConfig?.restaurantCashFlow?.enabled) {
+    doc.addPage();
+    drawHeader(doc, config, slideNumber);
+    await drawRestaurantSection(
+      doc,
+      "Cash Flow",
+      slideNumber++,
+      reportConfig.restaurantCashFlow,
+      data,
+      config,
+      restaurantData,
+      insights
     );
   }
 }
@@ -337,7 +441,8 @@ async function drawFitnessStudioSection(
   section: any,
   data: ReportData,
   config?: ReportConfig,
-  fitnessStudioData?: any
+  fitnessStudioData?: any,
+  insights?: ReportInsights
 ): Promise<void> {
   // Professional section header
   const headerY = 60;
@@ -669,6 +774,463 @@ async function drawFitnessStudioSection(
       );
     }
   }
+
+  // Right panel with insights
+  const insightKey = getInsightKeyForSection(sectionTitle);
+  const sectionInsights = insights?.[insightKey as keyof ReportInsights] as
+    | string[]
+    | undefined;
+
+  // Calculate panel position - place it on the right side
+  const panelY = 85; // Start after header
+  const panelH = layout.pageH - panelY - 50; // Fill available space
+
+  // Use shorter title for long section names to fit in panel
+  const shortTitle =
+    sectionTitle.length > 20
+      ? "Key Insights"
+      : `${sectionTitle} – Key Insights`;
+
+  drawCommentPanel(
+    doc,
+    col.rightX,
+    panelY,
+    col.rightW,
+    panelH,
+    shortTitle,
+    sectionInsights
+  );
+}
+
+/**
+ * Draw a restaurant section with actual data
+ * Similar structure to drawFitnessStudioSection but for restaurant data
+ */
+async function drawRestaurantSection(
+  doc: jsPDF,
+  sectionTitle: string,
+  slideNumber: number,
+  section: any,
+  data: ReportData,
+  config?: ReportConfig,
+  restaurantData?: any,
+  insights?: ReportInsights
+): Promise<void> {
+  // Professional section header
+  const headerY = 60;
+
+  // Section number and title
+  doc.setFont(theme.fontBold, "bold");
+  doc.setFontSize(18);
+  doc.setTextColor(theme.text);
+  doc.text(`${slideNumber}. ${sectionTitle}`, col.leftX, headerY);
+
+  // Underline
+  doc.setDrawColor(30, 64, 175); // Navy blue
+  doc.setLineWidth(2);
+  const textWidth = doc.getTextWidth(`${slideNumber}. ${sectionTitle}`);
+  doc.line(col.leftX, headerY + 5, col.leftX + textWidth, headerY + 5);
+
+  // Get enabled cards
+  const enabledCards = Object.entries(section.cards || {})
+    .filter(([_, enabled]) => enabled === true)
+    .map(([key]) => key);
+
+  // Get enabled charts
+  const enabledCharts = Object.entries(section.charts || {})
+    .filter(([_, enabled]) => enabled === true)
+    .map(([key]) => key);
+
+  const kpis = restaurantData?.kpis || {};
+
+  // Debug logging
+  console.log(`[drawRestaurantSection] ${sectionTitle}:`, {
+    enabledCards: enabledCards.length,
+    enabledCharts: enabledCharts.length,
+    kpisAvailable: Object.keys(kpis).length,
+    kpisKeys: Object.keys(kpis),
+  });
+
+  // Render KPIs in a grid (max 6 per slide, 2 columns, 3 rows)
+  if (enabledCards.length > 0) {
+    const cardLabels: Record<string, string> = {
+      // Restaurant Overview
+      totalRevenue: "Total Revenue",
+      covers: "Covers",
+      averageTicketSize: "Average Ticket Size",
+      primeCostPercent: "Prime Cost %",
+      totalCOGS: "Total COGS",
+      totalLabor: "Total Labor",
+      primeCost: "Prime Cost",
+      // Operations
+      tableUtilization: "Table Utilization",
+      reservationsEffectiveness: "Reservations Effectiveness",
+      // Cash Flow
+      netCashFlow: "Net Cash Flow",
+      burnRate: "Burn Rate",
+      cashBalance: "Cash Balance",
+      cashRunway: "Cash Runway",
+    };
+
+    const rows: string[][] = [];
+    const cardsToShow = enabledCards.slice(0, 6); // Max 6 per slide
+
+    // Create rows with 2 KPIs per row
+    for (let i = 0; i < cardsToShow.length; i += 2) {
+      const card1 = cardsToShow[i];
+      const card2 = cardsToShow[i + 1];
+
+      if (card1) {
+        const value = getRestaurantKpiValue(kpis, card1);
+        const label = cardLabels[card1] || card1;
+        const formattedValue = formatRestaurantKpiValue(card1, value, config);
+        rows.push([label, formattedValue]);
+      }
+
+      if (card2) {
+        const value = getRestaurantKpiValue(kpis, card2);
+        const label = cardLabels[card2] || card2;
+        const formattedValue = formatRestaurantKpiValue(card2, value, config);
+        rows.push([label, formattedValue]);
+      }
+    }
+
+    // Draw professional KPI table
+    if (rows.length > 0) {
+      autoTable(doc, {
+        startY: 85,
+        head: [["Metric", "Value"]],
+        body: rows,
+        theme: "striped",
+        margin: { left: col.leftX, right: layout.marginX },
+        tableWidth: col.leftW,
+        styles: {
+          font: theme.font,
+          halign: "left",
+          fontSize: 10,
+          cellPadding: { top: 7, right: 10, bottom: 7, left: 10 },
+          lineColor: theme.border,
+          lineWidth: 0.5,
+        },
+        headStyles: {
+          fillColor: [30, 64, 175],
+          textColor: [255, 255, 255],
+          fontStyle: "bold",
+          fontSize: 11,
+          cellPadding: { top: 8, right: 10, bottom: 8, left: 10 },
+        },
+        alternateRowStyles: {
+          fillColor: [249, 250, 251],
+        },
+        bodyStyles: {
+          fillColor: [255, 255, 255],
+        },
+        columnStyles: {
+          0: {
+            fontStyle: "bold",
+            cellWidth: col.leftW * 0.65,
+            textColor: [17, 24, 39],
+          },
+          1: {
+            halign: "right",
+            cellWidth: col.leftW * 0.35,
+            textColor: [30, 64, 175],
+            fontStyle: "bold",
+          },
+        },
+      });
+    }
+  }
+
+  // Render charts (if any enabled) - professional styling
+  if (enabledCharts.length > 0) {
+    const finalY = (doc as any).lastAutoTable?.finalY || 200;
+    let currentChartY = finalY + 20;
+    const chartW = col.leftW;
+    // Calculate chart height based on number of charts (max 2 per page, stack vertically)
+    const chartsPerPage = 2;
+    const chartH = Math.min(
+      (layout.pageH - currentChartY - 50) /
+        Math.min(enabledCharts.length, chartsPerPage),
+      250
+    );
+
+    // Import restaurant chart fetching
+    const { fetchRestaurantChart } =
+      await import("@/lib/restaurant-report-data");
+
+    // Render all enabled charts
+    if (restaurantData?.fromDate && restaurantData?.toDate) {
+      for (let i = 0; i < enabledCharts.length; i++) {
+        const chartType = enabledCharts[i];
+
+        // Check if we need a new page (every 2 charts)
+        if (i > 0 && i % chartsPerPage === 0) {
+          doc.addPage();
+          drawHeader(doc, config, slideNumber);
+          // Redraw section header
+          doc.setFont(theme.fontBold, "bold");
+          doc.setFontSize(18);
+          doc.setTextColor(theme.text);
+          doc.text(`${slideNumber}. ${sectionTitle}`, col.leftX, 60);
+          doc.setDrawColor(30, 64, 175);
+          doc.setLineWidth(2);
+          const textWidth = doc.getTextWidth(`${slideNumber}. ${sectionTitle}`);
+          doc.line(col.leftX, 65, col.leftX + textWidth, 65);
+          currentChartY = 85;
+        }
+
+        // Chart title above chart
+        doc.setFont(theme.fontBold, "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(theme.text);
+        const chartTitle = chartType
+          .replace(/([A-Z])/g, " $1")
+          .replace(/^./, (str) => str.toUpperCase())
+          .trim();
+        doc.text(chartTitle, col.leftX, currentChartY - 5);
+
+        // Chart container - clean border
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(theme.border);
+        doc.setLineWidth(0.5);
+        doc.rect(col.leftX, currentChartY, chartW, chartH, "FD");
+
+        try {
+          const chartData = await fetchRestaurantChart(
+            chartType,
+            restaurantData.fromDate,
+            restaurantData.toDate
+          );
+
+          // If chartData is null, it means the chart type is not yet implemented
+          if (chartData === null) {
+            drawChartPlaceholder(
+              doc,
+              col.leftX + 5,
+              currentChartY + 5,
+              chartW - 10,
+              chartH - 10,
+              `Chart "${chartTitle}" coming soon`
+            );
+          } else if (chartData && chartData.length > 0) {
+            // Generate chart image using QuickChart
+            const { fetchChartBase64 } = await import("@/lib/chart-generator");
+            const chartConfig = createRestaurantChartConfig(
+              chartType,
+              chartData
+            );
+            if (chartConfig) {
+              const chartImage = await fetchChartBase64(chartConfig);
+
+              if (chartImage) {
+                // Add chart image with proper padding
+                doc.addImage(
+                  chartImage,
+                  "PNG",
+                  col.leftX + 5,
+                  currentChartY + 5,
+                  chartW - 10,
+                  chartH - 10
+                );
+              } else {
+                drawChartPlaceholder(
+                  doc,
+                  col.leftX + 5,
+                  currentChartY + 5,
+                  chartW - 10,
+                  chartH - 10,
+                  `Chart image generation failed`
+                );
+              }
+            } else {
+              drawChartPlaceholder(
+                doc,
+                col.leftX + 5,
+                currentChartY + 5,
+                chartW - 10,
+                chartH - 10,
+                `Unable to generate chart config`
+              );
+            }
+          } else {
+            drawChartPlaceholder(
+              doc,
+              col.leftX + 5,
+              currentChartY + 5,
+              chartW - 10,
+              chartH - 10,
+              `No data available`
+            );
+          }
+        } catch (error) {
+          console.error(
+            `[drawRestaurantSection] Error rendering chart ${chartType}:`,
+            error
+          );
+          drawChartPlaceholder(
+            doc,
+            col.leftX + 5,
+            currentChartY + 5,
+            chartW - 10,
+            chartH - 10,
+            "Chart unavailable"
+          );
+        }
+
+        // Move to next chart position
+        currentChartY += chartH + 20;
+      }
+    } else {
+      // No date range available, show placeholder
+      doc.setFont(theme.font, "normal");
+      doc.setFontSize(11);
+      doc.setTextColor(theme.lightText);
+      doc.text(
+        `Charts: ${enabledCharts.join(", ")}`,
+        col.leftX + 10,
+        currentChartY + chartH / 2
+      );
+    }
+  }
+
+  // Right panel with insights
+  const insightKey = getInsightKeyForSection(sectionTitle);
+  const sectionInsights = insights?.[insightKey as keyof ReportInsights] as
+    | string[]
+    | undefined;
+
+  // Calculate panel position - place it on the right side
+  const panelY = 85; // Start after header
+  const panelH = layout.pageH - panelY - 50; // Fill available space
+
+  // Use shorter title for long section names to fit in panel
+  const shortTitle =
+    sectionTitle.length > 20
+      ? "Key Insights"
+      : `${sectionTitle} – Key Insights`;
+
+  drawCommentPanel(
+    doc,
+    col.rightX,
+    panelY,
+    col.rightW,
+    panelH,
+    shortTitle,
+    sectionInsights
+  );
+}
+
+/**
+ * Map section title to insight key
+ */
+function getInsightKeyForSection(sectionTitle: string): keyof ReportInsights {
+  const mapping: Record<string, keyof ReportInsights> = {
+    "Executive Overview": "overview",
+    "Studio Performance": "overview",
+    "Classes & Utilization": "overview",
+    Members: "overview",
+    Instructors: "overview",
+    Financials: "financial",
+    "Cash Flow": "cashflow",
+    "Revenue & Menu Performance": "financial",
+    Operations: "operations",
+  };
+  return mapping[sectionTitle] || "overview";
+}
+
+/**
+ * Get KPI value for restaurant metrics
+ */
+function getRestaurantKpiValue(
+  kpis: any,
+  cardId: string
+): number | string | null {
+  const mapping: Record<string, string | string[]> = {
+    totalRevenue: ["totalRevenue", "revenue"],
+    covers: "covers",
+    averageTicketSize: ["averageTicketSize", "avgTicketSize"],
+    primeCostPercent: ["primeCostPercent", "primeCost"],
+    totalCOGS: ["totalCOGS", "cogs"],
+    totalLabor: ["totalLabor", "labor"],
+    primeCost: "primeCost",
+    tableUtilization: ["tableUtilization", "utilization"],
+    reservationsEffectiveness: ["reservationsEffectiveness", "reservations"],
+    netCashFlow: ["netCashFlow", "cashFlow"],
+    burnRate: "burnRate",
+    cashBalance: ["cashBalance", "balance"],
+    cashRunway: ["cashRunway", "runway"],
+  };
+
+  const keyOrKeys = mapping[cardId];
+  if (!keyOrKeys) {
+    return null;
+  }
+
+  const keysToTry = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
+
+  for (const key of keysToTry) {
+    const value = kpis?.[key];
+    if (value !== undefined && value !== null && value !== "") {
+      return typeof value === "number" ? value : String(value);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Format restaurant KPI value for display
+ */
+function formatRestaurantKpiValue(
+  cardId: string,
+  value: number | string | null,
+  config?: ReportConfig
+): string {
+  if (value === null || value === undefined) {
+    return "N/A";
+  }
+
+  const currency = config?.currency || "USD";
+  const numberFormat = config?.numberFormat || "en-US";
+
+  // Percentage KPIs
+  if (
+    cardId.includes("Percent") ||
+    cardId.includes("percent") ||
+    cardId === "primeCostPercent"
+  ) {
+    const numValue = typeof value === "string" ? parseFloat(value) : value;
+    if (isNaN(numValue)) return "N/A";
+    return `${numValue.toFixed(1)}%`;
+  }
+
+  // Currency KPIs
+  if (
+    cardId.includes("Revenue") ||
+    cardId.includes("Cost") ||
+    cardId.includes("Labor") ||
+    cardId.includes("Cash") ||
+    cardId.includes("Balance") ||
+    cardId.includes("Ticket") ||
+    cardId === "netCashFlow" ||
+    cardId === "burnRate" ||
+    cardId === "cashBalance" ||
+    cardId === "totalRevenue" ||
+    cardId === "totalCOGS" ||
+    cardId === "totalLabor" ||
+    cardId === "primeCost" ||
+    cardId === "averageTicketSize"
+  ) {
+    const numValue = typeof value === "string" ? parseFloat(value) : value;
+    if (isNaN(numValue)) return "N/A";
+    return formatCurrencyUtil(numValue, currency, numberFormat);
+  }
+
+  // Number KPIs
+  const numValue = typeof value === "string" ? parseFloat(value) : value;
+  if (isNaN(numValue)) return "N/A";
+  return formatNumberUtil(numValue, numberFormat);
 }
 
 /* ---------------- Header ---------------- */
@@ -1112,16 +1674,18 @@ function drawCommentPanel(
   doc.setDrawColor(210, 210, 210);
   doc.rect(x, y, w, h);
 
-  // Title
+  // Title - wrap if too long
   doc.setFont("Helvetica", "bold");
   doc.setFontSize(12);
   doc.setTextColor("#222222");
-  doc.text(title, x + 14, y + 22);
+  const titleMaxWidth = w - 28;
+  const titleLines = doc.splitTextToSize(title, titleMaxWidth);
+  doc.text(titleLines, x + 14, y + 22);
 
   // Bullets
   doc.setFont("Helvetica", "normal");
   doc.setFontSize(11);
-  const bodyY = y + 42;
+  const bodyY = y + 22 + titleLines.length * 14 + 8; // Adjust based on title height
   const maxWidth = w - 28;
   let cursor = bodyY;
   const items = (
@@ -1131,7 +1695,9 @@ function drawCommentPanel(
   ).slice(0, 4);
 
   for (const b of items) {
-    const lines = doc.splitTextToSize("• " + b, maxWidth);
+    // Truncate long insights to max 120 characters per bullet
+    const truncatedBullet = b.length > 120 ? b.substring(0, 117) + "..." : b;
+    const lines = doc.splitTextToSize("• " + truncatedBullet, maxWidth);
     doc.text(lines, x + 14, cursor);
     cursor += lines.length * 14 + 6;
     if (cursor > y + h - 20) break;
@@ -1744,6 +2310,389 @@ function createFitnessStudioChartConfig(
       },
     };
   }
+}
+
+/**
+ * Create chart config for restaurant charts
+ * Handles different data structures for different chart types
+ */
+function createRestaurantChartConfig(chartType: string, chartData: any[]): any {
+  if (!chartData || chartData.length === 0) {
+    return null;
+  }
+
+  // Sales Trends (line chart)
+  if (chartType === "salesTrend" || chartType === "salesTrends") {
+    const labels = chartData.map((d) => {
+      const date = d.date || "";
+      if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        const dateObj = new Date(date);
+        const monthNames = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        return `${monthNames[dateObj.getMonth()]} ${dateObj.getDate()}`;
+      }
+      return date;
+    });
+    const revenue = chartData.map((d) => d.revenue || 0);
+
+    return {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Revenue",
+            data: revenue,
+            borderColor: "#0A84FF",
+            backgroundColor: "rgba(10, 132, 255, 0.1)",
+            fill: true,
+            tension: 0.4,
+          },
+        ],
+      },
+      options: {
+        plugins: {
+          legend: { position: "bottom" },
+          title: { display: true, text: "Sales Trends" },
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function (value: any) {
+                return "$" + value.toLocaleString();
+              },
+            },
+          },
+        },
+      },
+    };
+  }
+
+  // Category Breakdown (pie/donut chart)
+  if (chartType === "categoryBreakdown") {
+    const labels = chartData.map((d) => d.category || "");
+    const data = chartData.map((d) => d.revenue || 0);
+
+    return {
+      type: "doughnut",
+      data: {
+        labels,
+        datasets: [
+          {
+            data,
+            backgroundColor: [
+              "#0088FE",
+              "#00C49F",
+              "#FFBB28",
+              "#FF8042",
+              "#8884d8",
+              "#82CA9D",
+              "#FFC658",
+              "#FF7C7C",
+            ],
+          },
+        ],
+      },
+      options: {
+        plugins: {
+          legend: { position: "bottom" },
+          title: { display: true, text: "Revenue by Category" },
+          tooltip: {
+            callbacks: {
+              label: function (context: any) {
+                const label = context.label || "";
+                const value = context.parsed || 0;
+                const total = context.dataset.data.reduce(
+                  (a: number, b: number) => a + b,
+                  0
+                );
+                const percentage = ((value / total) * 100).toFixed(1);
+                return `${label}: $${value.toLocaleString()} (${percentage}%)`;
+              },
+            },
+          },
+        },
+      },
+    };
+  }
+
+  // Channel Breakdown (bar chart)
+  if (chartType === "channelBreakdown") {
+    const labels = chartData.map((d) => d.channel || "");
+    const data = chartData.map((d) => d.revenue || 0);
+
+    return {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Revenue",
+            data,
+            backgroundColor: "#0088FE",
+          },
+        ],
+      },
+      options: {
+        plugins: {
+          legend: { position: "bottom" },
+          title: { display: true, text: "Revenue by Channel" },
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function (value: any) {
+                return "$" + value.toLocaleString();
+              },
+            },
+          },
+        },
+      },
+    };
+  }
+
+  // Covers by Day (bar chart)
+  if (chartType === "coversByDay") {
+    const labels = chartData.map((d) => d.day || "");
+    const covers = chartData.map((d) => d.covers || 0);
+
+    return {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Covers",
+            data: covers,
+            backgroundColor: "#0088FE",
+          },
+        ],
+      },
+      options: {
+        plugins: {
+          legend: { position: "bottom" },
+          title: { display: true, text: "Covers by Day of Week" },
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+          },
+        },
+      },
+    };
+  }
+
+  // Covers by Hour (line chart)
+  if (chartType === "coversByHour") {
+    const labels = chartData.map((d) => d.hourLabel || "");
+    const covers = chartData.map((d) => d.covers || 0);
+
+    return {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Covers",
+            data: covers,
+            borderColor: "#0088FE",
+            backgroundColor: "rgba(0, 136, 254, 0.1)",
+            fill: true,
+            tension: 0.4,
+          },
+        ],
+      },
+      options: {
+        plugins: {
+          legend: { position: "bottom" },
+          title: { display: true, text: "Covers by Hour" },
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+          },
+        },
+      },
+    };
+  }
+
+  // Cash Flow Overview (bar chart)
+  if (chartType === "cashFlowOverview") {
+    const labels = chartData.map((d) => d.category || "");
+    const amounts = chartData.map((d) => d.amount || 0);
+
+    return {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Amount",
+            data: amounts,
+            backgroundColor: chartData.map((d, i) => {
+              if (d.category === "Net Cash Flow") {
+                return d.amount >= 0 ? "#00C49F" : "#FF8042";
+              }
+              return d.category === "Inflows" ? "#00C49F" : "#FF8042";
+            }),
+          },
+        ],
+      },
+      options: {
+        plugins: {
+          legend: { position: "bottom" },
+          title: { display: true, text: "Cash Flow Overview" },
+        },
+        scales: {
+          y: {
+            ticks: {
+              callback: function (value: any) {
+                return "$" + value.toLocaleString();
+              },
+            },
+          },
+        },
+      },
+    };
+  }
+
+  // Top/Bottom Items - for now, show as placeholder (table format would be better)
+  if (chartType === "topItems" || chartType === "bottomItems") {
+    // Convert to bar chart showing top 10 items by revenue
+    const labels = chartData
+      .slice(0, 10)
+      .map((d) => (d.name || "").substring(0, 20));
+    const revenue = chartData.slice(0, 10).map((d) => d.revenue || 0);
+
+    return {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Revenue",
+            data: revenue,
+            backgroundColor: "#0088FE",
+          },
+        ],
+      },
+      options: {
+        indexAxis: "y",
+        plugins: {
+          legend: { position: "bottom" },
+          title: {
+            display: true,
+            text:
+              chartType === "topItems"
+                ? "Top Performing Items"
+                : "Bottom Performing Items",
+          },
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            ticks: {
+              callback: function (value: any) {
+                return "$" + value.toLocaleString();
+              },
+            },
+          },
+        },
+      },
+    };
+  }
+
+  // Peak Times - show as bar chart
+  if (chartType === "peakTimes") {
+    const labels = chartData.map((d) => d.hourLabel || "");
+    const covers = chartData.map((d) => d.covers || 0);
+
+    return {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Covers",
+            data: covers,
+            backgroundColor: "#FF8042",
+          },
+        ],
+      },
+      options: {
+        plugins: {
+          legend: { position: "bottom" },
+          title: { display: true, text: "Peak Times" },
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+          },
+        },
+      },
+    };
+  }
+
+  // Inflows/Outflows by Category (bar chart)
+  if (chartType === "inflowsByCategory" || chartType === "outflowsByCategory") {
+    const labels = chartData.map((d) => d.category || "");
+    const amounts = chartData.map((d) => d.amount || 0);
+
+    return {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: chartType === "inflowsByCategory" ? "Inflows" : "Outflows",
+            data: amounts,
+            backgroundColor:
+              chartType === "inflowsByCategory" ? "#00C49F" : "#FF8042",
+          },
+        ],
+      },
+      options: {
+        indexAxis: "y",
+        plugins: {
+          legend: { position: "bottom" },
+          title: {
+            display: true,
+            text:
+              chartType === "inflowsByCategory"
+                ? "Inflows by Category"
+                : "Outflows by Category",
+          },
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            ticks: {
+              callback: function (value: any) {
+                return "$" + value.toLocaleString();
+              },
+            },
+          },
+        },
+      },
+    };
+  }
+
+  // Default: return null for unsupported chart types
+  return null;
 }
 
 /**

@@ -81,6 +81,25 @@ function getCardLabel(cardId: string, sectionId: string): string {
       burnRate: "Burn Rate",
       runway: "Runway",
     },
+    restaurantOverview: {
+      totalRevenue: "Total Revenue",
+      covers: "Covers",
+      averageTicketSize: "Average Ticket Size",
+      primeCostPercent: "Prime Cost %",
+      totalCOGS: "Total COGS",
+      totalLabor: "Total Labor",
+      primeCost: "Prime Cost",
+    },
+    operations: {
+      tableUtilization: "Table Utilization",
+      reservationsEffectiveness: "Reservations Effectiveness",
+    },
+    restaurantCashFlow: {
+      netCashFlow: "Net Cash Flow",
+      burnRate: "Burn Rate",
+      cashBalance: "Cash Balance",
+      cashRunway: "Cash Runway",
+    },
   };
   return labels[sectionId]?.[cardId] || cardId;
 }
@@ -131,6 +150,26 @@ function getChartLabel(chartId: string, sectionId: string): string {
       cumulativeCashFlow: "Cumulative Cash Flow (line)",
       outflowsByCategory: "Outflows by Category (horizontal bar)",
     },
+    restaurantOverview: {
+      salesTrend: "Sales Trend (line)",
+    },
+    revenueMenu: {
+      salesTrends: "Sales Trends (line)",
+      categoryBreakdown: "Revenue by Category (donut)",
+      channelBreakdown: "Revenue by Channel (bar)",
+      topItems: "Top Performing Items (table)",
+      bottomItems: "Bottom Performing Items (table)",
+    },
+    operations: {
+      coversByDay: "Covers by Day of Week (bar)",
+      coversByHour: "Covers by Hour (line)",
+      peakTimes: "Peak Times (list)",
+    },
+    restaurantCashFlow: {
+      cashFlowOverview: "Cash Flow Overview (bar)",
+      inflowsByCategory: "Inflows by Category (table)",
+      outflowsByCategory: "Outflows by Category (table)",
+    },
   };
   return labels[sectionId]?.[chartId] || chartId;
 }
@@ -144,6 +183,10 @@ function getSectionTitle(sectionId: string): string {
     instructors: "Instructors",
     financials: "Financials",
     cashFlow: "Cash Flow",
+    restaurantOverview: "Executive Overview",
+    revenueMenu: "Revenue & Menu Performance",
+    operations: "Operations",
+    restaurantCashFlow: "Cash Flow",
   };
   return titles[sectionId] || sectionId;
 }
@@ -157,6 +200,10 @@ function getSectionColor(sectionId: string): string {
     instructors: "from-pink-50 to-pink-100 border-pink-500",
     financials: "from-teal-50 to-teal-100 border-teal-500",
     cashFlow: "from-indigo-50 to-indigo-100 border-indigo-500",
+    restaurantOverview: "from-blue-50 to-blue-100 border-blue-500",
+    revenueMenu: "from-amber-50 to-amber-100 border-amber-500",
+    operations: "from-emerald-50 to-emerald-100 border-emerald-500",
+    restaurantCashFlow: "from-indigo-50 to-indigo-100 border-indigo-500",
   };
   return colors[sectionId] || "from-gray-50 to-gray-100 border-gray-500";
 }
@@ -166,18 +213,28 @@ export function ReportPreview({ config }: ReportPreviewProps) {
     config.businessModel &&
     config.businessModel.toLowerCase().replace(/\s+/g, "_") ===
       "fitness_studio";
+  const isRestaurant =
+    config.businessModel &&
+    config.businessModel.toLowerCase().replace(/\s+/g, "_") === "restaurant";
 
   // Calculate total slides
   let slideCount = 1; // Cover slide
-  const sections = [
-    config.executiveOverview,
-    config.studioPerformance,
-    config.classesUtilization,
-    config.members,
-    config.instructors,
-    config.financials,
-    config.cashFlow,
-  ];
+  const sections = isRestaurant
+    ? [
+        config.restaurantOverview,
+        config.revenueMenu,
+        config.operations,
+        config.restaurantCashFlow,
+      ]
+    : [
+        config.executiveOverview,
+        config.studioPerformance,
+        config.classesUtilization,
+        config.members,
+        config.instructors,
+        config.financials,
+        config.cashFlow,
+      ];
 
   // Track slide numbers for each section
   const sectionSlideNumbers: Record<string, number[]> = {};
@@ -210,28 +267,36 @@ export function ReportPreview({ config }: ReportPreviewProps) {
         sectionSlidesList.push(slideCount + i);
       }
 
-      const sectionKeys = [
-        "executiveOverview",
-        "studioPerformance",
-        "classesUtilization",
-        "members",
-        "instructors",
-        "financials",
-        "cashFlow",
-      ];
+      const sectionKeys = isRestaurant
+        ? [
+            "restaurantOverview",
+            "revenueMenu",
+            "operations",
+            "restaurantCashFlow",
+          ]
+        : [
+            "executiveOverview",
+            "studioPerformance",
+            "classesUtilization",
+            "members",
+            "instructors",
+            "financials",
+            "cashFlow",
+          ];
       sectionSlideNumbers[sectionKeys[index]] = sectionSlidesList;
 
       slideCount += sectionSlides;
     }
   });
 
-  if (!isFitnessStudio) {
+  if (!isFitnessStudio && !isRestaurant) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Report Preview</CardTitle>
           <CardDescription>
-            Preview will appear when Fitness Studio business model is selected
+            Preview will appear when Fitness Studio or Restaurant business model
+            is selected
           </CardDescription>
         </CardHeader>
       </Card>
@@ -466,6 +531,129 @@ export function ReportPreview({ config }: ReportPreviewProps) {
                 {getEnabledCharts(config.cashFlow).map((chartId) => (
                   <div key={chartId}>
                     • {getChartLabel(chartId, "cashFlow")}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Restaurant Sections */}
+          {config.restaurantOverview?.enabled && (
+            <div
+              className={`p-4 bg-gradient-to-r ${getSectionColor(
+                "restaurantOverview"
+              )} rounded-lg border-l-4`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">
+                  {getSectionTitle("restaurantOverview")}
+                </h3>
+                <Badge variant="outline">
+                  {sectionSlideNumbers.restaurantOverview?.length === 1
+                    ? `Slide ${sectionSlideNumbers.restaurantOverview[0]}`
+                    : `Slides ${sectionSlideNumbers.restaurantOverview?.[0]}-${sectionSlideNumbers.restaurantOverview?.[sectionSlideNumbers.restaurantOverview.length - 1]}`}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-sm">
+                {getEnabledCards(config.restaurantOverview).map((cardId) => (
+                  <div key={cardId}>
+                    • {getCardLabel(cardId, "restaurantOverview")}
+                  </div>
+                ))}
+                {getEnabledCharts(config.restaurantOverview).map((chartId) => (
+                  <div key={chartId}>
+                    • {getChartLabel(chartId, "restaurantOverview")}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {config.revenueMenu?.enabled && (
+            <div
+              className={`p-4 bg-gradient-to-r ${getSectionColor(
+                "revenueMenu"
+              )} rounded-lg border-l-4`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">
+                  {getSectionTitle("revenueMenu")}
+                </h3>
+                <Badge variant="outline">
+                  {sectionSlideNumbers.revenueMenu?.length === 1
+                    ? `Slide ${sectionSlideNumbers.revenueMenu[0]}`
+                    : `Slides ${sectionSlideNumbers.revenueMenu?.[0]}-${sectionSlideNumbers.revenueMenu?.[sectionSlideNumbers.revenueMenu.length - 1]}`}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-sm">
+                {getEnabledCards(config.revenueMenu).map((cardId) => (
+                  <div key={cardId}>
+                    • {getCardLabel(cardId, "revenueMenu")}
+                  </div>
+                ))}
+                {getEnabledCharts(config.revenueMenu).map((chartId) => (
+                  <div key={chartId}>
+                    • {getChartLabel(chartId, "revenueMenu")}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {config.operations?.enabled && (
+            <div
+              className={`p-4 bg-gradient-to-r ${getSectionColor(
+                "operations"
+              )} rounded-lg border-l-4`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">
+                  {getSectionTitle("operations")}
+                </h3>
+                <Badge variant="outline">
+                  {sectionSlideNumbers.operations?.length === 1
+                    ? `Slide ${sectionSlideNumbers.operations[0]}`
+                    : `Slides ${sectionSlideNumbers.operations?.[0]}-${sectionSlideNumbers.operations?.[sectionSlideNumbers.operations.length - 1]}`}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-sm">
+                {getEnabledCards(config.operations).map((cardId) => (
+                  <div key={cardId}>• {getCardLabel(cardId, "operations")}</div>
+                ))}
+                {getEnabledCharts(config.operations).map((chartId) => (
+                  <div key={chartId}>
+                    • {getChartLabel(chartId, "operations")}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {config.restaurantCashFlow?.enabled && (
+            <div
+              className={`p-4 bg-gradient-to-r ${getSectionColor(
+                "restaurantCashFlow"
+              )} rounded-lg border-l-4`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">
+                  {getSectionTitle("restaurantCashFlow")}
+                </h3>
+                <Badge variant="outline">
+                  {sectionSlideNumbers.restaurantCashFlow?.length === 1
+                    ? `Slide ${sectionSlideNumbers.restaurantCashFlow[0]}`
+                    : `Slides ${sectionSlideNumbers.restaurantCashFlow?.[0]}-${sectionSlideNumbers.restaurantCashFlow?.[sectionSlideNumbers.restaurantCashFlow.length - 1]}`}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-sm">
+                {getEnabledCards(config.restaurantCashFlow).map((cardId) => (
+                  <div key={cardId}>
+                    • {getCardLabel(cardId, "restaurantCashFlow")}
+                  </div>
+                ))}
+                {getEnabledCharts(config.restaurantCashFlow).map((chartId) => (
+                  <div key={chartId}>
+                    • {getChartLabel(chartId, "restaurantCashFlow")}
                   </div>
                 ))}
               </div>

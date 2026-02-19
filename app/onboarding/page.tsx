@@ -18,7 +18,7 @@ export default function OnboardingPage() {
         data_sources: "/onboarding/data-sources",
         kpi_selection: "/onboarding/kpi-selection",
         upload: "/onboarding/upload",
-        model: "/onboarding/model",
+        model: "/onboarding/upload", // Skip model page, redirect to upload
         completed: "/dashboard",
       };
 

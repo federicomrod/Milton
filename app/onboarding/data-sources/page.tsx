@@ -42,7 +42,7 @@ export default function OnboardingDataSourcesPage() {
   }, [router]);
 
   const handleComplete = () => {
-    router.push("/onboarding/model");
+    router.push("/onboarding/upload");
   };
 
   if (!isReady) {

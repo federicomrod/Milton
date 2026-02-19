@@ -117,7 +117,7 @@ export function DataSourceSelectionStep({
       });
 
       await upsertUserDataSources(selections);
-      await updateOnboardingStatus("model");
+      await updateOnboardingStatus("upload");
       onComplete();
     } catch (err) {
       setError("Failed to save data sources. Please try again.");

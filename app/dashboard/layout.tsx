@@ -255,6 +255,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
     // Skip redirect for pages that don't require data
     if (pathname.startsWith("/dashboard/model")) return; // Data Model Builder
+    if (pathname.startsWith("/dashboard/scenarios")) return; // Scenarios (list, compare, detail, edit)
     if (pathname.startsWith("/dashboard/analytics")) return; // Analytics page
     if (pathname.startsWith("/dashboard/reporting")) return; // Reporting page
     if (pathname.startsWith("/dashboard/account")) return; // Account page

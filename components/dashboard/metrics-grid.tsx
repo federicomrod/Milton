@@ -15,6 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useUserPreferences } from "@/lib/context/UserPreferencesContext";
+import { useUser } from "@/lib/context/UserContext";
 import {
   formatCurrency as formatCurrencyUtil,
   formatNumber,
@@ -96,6 +97,7 @@ export function MetricsGrid({
   period = "month",
   customDateRange,
 }: MetricsGridProps) {
+  const { user } = useUser();
   const { prefs } = useUserPreferences();
   const [metrics, setMetrics] = useState<Metrics>({
     mrr: 0,
@@ -199,17 +201,12 @@ export function MetricsGrid({
       try {
         console.log("MetricsGrid: Starting calculation...");
 
-        const supabase = createClient();
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          console.error("MetricsGrid: Error getting user:", userError);
+        if (!user) {
+          console.log("MetricsGrid: No user available yet");
           return;
         }
 
+        const supabase = createClient();
         // Use the same service that MiltonChat uses
         const reportData = await getReportData(supabase, user.id);
 
@@ -536,7 +533,7 @@ export function MetricsGrid({
       }
     };
     fetchData();
-  }, [period, customDateRange]);
+  }, [period, customDateRange, user]);
 
   const formatCurrency = (value: number | null) => {
     if (value === null) return "N/A";

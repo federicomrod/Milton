@@ -49,7 +49,8 @@ export async function GET(req: NextRequest) {
     const { data: kpis, error: kpisError } = await supabase
       .from("kpis")
       .select("id, name, formula")
-      .in("id", kpiIds);
+      .in("id", kpiIds)
+      .eq("is_published", true);
 
     if (kpisError || !kpis?.length) {
       return jsonNoStore({ series: {} });

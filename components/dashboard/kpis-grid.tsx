@@ -19,6 +19,8 @@ import {
   formatNumber,
   formatPercentage,
 } from "@/lib/utils/formatters";
+import { KpiCard } from "@/components/dashboard/kpi-card";
+import type { KpiDisplayMode } from "@/components/dashboard/kpi-selector";
 
 export interface KpiSeriesPoint {
   period: string;
@@ -27,11 +29,11 @@ export interface KpiSeriesPoint {
 
 interface KpisGridProps {
   selectedKpis: DatabaseKpi[];
+  displayModes?: Record<string, KpiDisplayMode>;
 }
 
 type KpiFormat = "number" | "currency" | "percentage";
 
-// Dynamic KPI display format based on KPI name
 const getKpiDisplayFormat = (kpiName: string): KpiFormat => {
   const name = kpiName?.toLowerCase().trim();
 
@@ -56,19 +58,9 @@ const getKpiDisplayFormat = (kpiName: string): KpiFormat => {
     name?.includes("profit")
   ) {
     return "currency";
-  } else if (
-    name?.includes("count") ||
-    name?.includes("number") ||
-    name?.includes("members") ||
-    name?.includes("classes") ||
-    name?.includes("size") ||
-    name?.includes("tenure") ||
-    name?.includes("runway")
-  ) {
-    return "number";
   }
 
-  return "number"; // default
+  return "number";
 };
 
 const PLACEHOLDER_DATA: KpiSeriesPoint[] = Array.from(
@@ -86,7 +78,7 @@ const KpiChart = ({
   currency,
   numberFormat,
   hasRequiredData = true,
-  missingTables = [],
+  missingTableNames = [],
 }: {
   kpi: DatabaseKpi;
   hasData: boolean;
@@ -94,7 +86,7 @@ const KpiChart = ({
   currency: string;
   numberFormat: string;
   hasRequiredData?: boolean;
-  missingTables?: string[];
+  missingTableNames?: string[];
 }) => {
   const data = hasData && chartData.length > 0 ? chartData : PLACEHOLDER_DATA;
   const display = { format: getKpiDisplayFormat(kpi.name) };
@@ -123,7 +115,7 @@ const KpiChart = ({
         <p className="text-xs text-muted-foreground/60 text-center mt-1 px-4">
           {hasRequiredData
             ? "Required data collection is in development"
-            : `Upload data for: ${missingTables.join(", ")}`}
+            : `Upload data for: ${missingTableNames.join(", ")}`}
         </p>
       </div>
     );
@@ -171,14 +163,15 @@ const KpiChart = ({
   );
 };
 
-export function KpisGrid({ selectedKpis }: KpisGridProps) {
+export function KpisGrid({ selectedKpis, displayModes = {} }: KpisGridProps) {
   const { prefs } = useUserPreferences();
   const [seriesByKpi, setSeriesByKpi] = useState<
     Record<string, { data: KpiSeriesPoint[] }>
   >({});
-  const [availableTables, setAvailableTables] = useState<Set<string>>(
+  const [availableTableIds, setAvailableTableIds] = useState<Set<string>>(
     new Set()
   );
+  const [tableNames, setTableNames] = useState<Record<string, string>>({});
 
   const kpiIdKey =
     selectedKpis.length > 0
@@ -189,9 +182,9 @@ export function KpisGrid({ selectedKpis }: KpisGridProps) {
           .join(",")
       : "";
 
+  // Fetch KPI series data
   useEffect(() => {
     if (!kpiIdKey) {
-      // Use setTimeout to avoid synchronous setState in effect
       setTimeout(() => setSeriesByKpi({}), 0);
       return;
     }
@@ -206,71 +199,130 @@ export function KpisGrid({ selectedKpis }: KpisGridProps) {
       .catch(() => setSeriesByKpi({}));
   }, [kpiIdKey]);
 
-  // Fetch available tables
+  // Fetch available table IDs (fixing the tableIds key from the API)
   useEffect(() => {
     fetch("/api/model-data/tables", {
       cache: "no-store",
       credentials: "include",
     })
-      .then((r) => (r.ok ? r.json() : { tables: [] }))
-      .then((json: { tables?: string[] }) => {
-        setAvailableTables(new Set(json.tables ?? []));
+      .then((r) => (r.ok ? r.json() : { tableIds: [] }))
+      .then((json: { tableIds?: string[] }) => {
+        setAvailableTableIds(new Set(json.tableIds ?? []));
       })
-      .catch(() => setAvailableTables(new Set()));
+      .catch(() => setAvailableTableIds(new Set()));
   }, []);
+
+  // Fetch human-readable names for all required_data table IDs
+  useEffect(() => {
+    const allIds = [
+      ...new Set(selectedKpis.flatMap((kpi) => kpi.required_data ?? [])),
+    ];
+    if (allIds.length === 0) return;
+
+    fetch(`/api/data/table-names?ids=${encodeURIComponent(allIds.join(","))}`, {
+      cache: "no-store",
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : { names: {} }))
+      .then((json: { names?: Record<string, string> }) =>
+        setTableNames(json.names ?? {})
+      )
+      .catch(() => {});
+  }, [kpiIdKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (selectedKpis.length === 0) {
     return (
       <div className="rounded-lg border border-dashed p-8 text-center">
         <BarChart3 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
         <p className="text-sm text-muted-foreground">
-          No KPIs selected. Click "Select KPIs" to choose which KPIs you want to
-          track.
+          No KPIs selected. Click &quot;Select KPIs&quot; to choose which KPIs
+          you want to track.
         </p>
       </div>
     );
   }
 
+  const resolveTableNames = (ids: string[]) =>
+    ids.map((id) => tableNames[id] || id);
+
+  // Separate KPIs into card and chart groups based on display modes
+  const cardKpis = selectedKpis.filter((kpi) => {
+    const modes = displayModes[kpi.id] ?? ["card"];
+    return modes.includes("card");
+  });
+
+  const chartKpis = selectedKpis.filter((kpi) => {
+    const modes = displayModes[kpi.id] ?? ["card"];
+    return modes.includes("chart");
+  });
+
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-      {selectedKpis.map((kpi) => {
-        const s = seriesByKpi[kpi.id];
-        const chartData = s?.data ?? [];
-        const hasData = chartData.length > 0;
+    <div className="space-y-6">
+      {/* Card KPIs */}
+      {cardKpis.length > 0 && (
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          {cardKpis.map((kpi) => {
+            const requiredTables = kpi.required_data ?? [];
+            const missingIds = requiredTables.filter(
+              (id) => !availableTableIds.has(id)
+            );
+            const hasRequiredData = missingIds.length === 0;
 
-        // Check if required data tables are available
-        const requiredTables = kpi.required_data || [];
-        const missingTables = requiredTables.filter(
-          (table) => !availableTables.has(table)
-        );
-        const hasRequiredData = missingTables.length === 0;
+            return (
+              <KpiCard
+                key={`card-${kpi.id}`}
+                kpi={kpi}
+                hasRequiredData={hasRequiredData}
+                missingTables={resolveTableNames(missingIds)}
+              />
+            );
+          })}
+        </div>
+      )}
 
-        return (
-          <Card key={kpi.id} className="hover:shadow-md transition-shadow">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold">
-                {kpi.name}
-              </CardTitle>
-              <p className="text-sm text-muted-foreground line-clamp-2">
-                {kpi.definition}
-              </p>
-            </CardHeader>
-            <CardContent>
-              <div>
-                <KpiChart
-                  kpi={kpi}
-                  hasData={hasData}
-                  chartData={chartData}
-                  currency={prefs.currency}
-                  numberFormat={prefs.number_format}
-                  hasRequiredData={hasRequiredData}
-                  missingTables={missingTables}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })}
+      {/* Chart KPIs */}
+      {chartKpis.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2">
+          {chartKpis.map((kpi) => {
+            const s = seriesByKpi[kpi.id];
+            const chartData = s?.data ?? [];
+            const hasData = chartData.length > 0;
+
+            const requiredTables = kpi.required_data ?? [];
+            const missingIds = requiredTables.filter(
+              (id) => !availableTableIds.has(id)
+            );
+            const hasRequiredData = missingIds.length === 0;
+
+            return (
+              <Card
+                key={`chart-${kpi.id}`}
+                className="hover:shadow-md transition-shadow"
+              >
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-semibold">
+                    {kpi.name}
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground line-clamp-2">
+                    {kpi.definition}
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <KpiChart
+                    kpi={kpi}
+                    hasData={hasData}
+                    chartData={chartData}
+                    currency={prefs.currency}
+                    numberFormat={prefs.number_format}
+                    hasRequiredData={hasRequiredData}
+                    missingTableNames={resolveTableNames(missingIds)}
+                  />
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

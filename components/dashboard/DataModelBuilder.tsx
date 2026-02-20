@@ -18,6 +18,7 @@ import {
 } from "@/lib/model/dataset-service";
 import ColumnEditor from "@/components/dashboard/ColumnEditor";
 import { useBusinessContext } from "@/lib/business-context";
+import { useUser } from "@/lib/context/UserContext";
 import { callBusinessModelAnalyzer } from "@/lib/ai/business-model-analyzer-client";
 
 import { miltonEventsAPI } from "@/lib/milton-events";
@@ -150,6 +151,7 @@ interface DataModelBuilderProps {
 export default function DataModelBuilder({
   isOnboarding = false,
 }: DataModelBuilderProps) {
+  const { user } = useUser();
   const [model, setModel] = useState<ModelProposal | null>(null);
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
@@ -172,11 +174,9 @@ export default function DataModelBuilder({
   useEffect(() => {
     (async () => {
       try {
-        const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
         if (!user) return;
+
+        const supabase = createClient();
 
         const { data: company } = await supabase
           .from("companies")
@@ -203,7 +203,7 @@ export default function DataModelBuilder({
         );
       }
     })();
-  }, []);
+  }, [user]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -281,11 +281,9 @@ export default function DataModelBuilder({
   };
 
   const refreshDatasets = async () => {
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
     if (!user) return;
+
+    const supabase = createClient();
     try {
       const rows = await listCustomDatasets(user.id);
       setDatasets(rows || []);
@@ -308,37 +306,34 @@ export default function DataModelBuilder({
   // Load model from Supabase or localStorage
   useEffect(() => {
     async function loadModel() {
+      if (!user) return;
+
       const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
       let loaded: ModelProposal | null = null;
-      if (user) {
-        // Get company for user
-        const { data: company } = await supabase
-          .from("companies")
-          .select("id")
-          .eq("created_by", user.id)
+      // Get company for user
+      const { data: company } = await supabase
+        .from("companies")
+        .select("id")
+        .eq("created_by", user.id)
+        .single();
+
+      if (company) {
+        // First, try to load from canonical_model in business_models table
+        const { data } = await supabase
+          .from("business_models")
+          .select("canonical_model, model_json")
+          .eq("company_id", company.id)
           .single();
 
-        if (company) {
-          // First, try to load from canonical_model in business_models table
-          const { data } = await supabase
-            .from("business_models")
-            .select("canonical_model, model_json")
-            .eq("company_id", company.id)
-            .single();
-
-          if (data?.canonical_model) {
-            loaded = data.canonical_model as ModelProposal;
-            console.log("[DataModelBuilder] Loaded model from canonical_model");
-          } else if (data?.model_json) {
-            // Fall back to deprecated model_json
-            loaded = data.model_json as ModelProposal;
-            console.log(
-              "[DataModelBuilder] Loaded model from model_json (deprecated)"
-            );
-          }
+        if (data?.canonical_model) {
+          loaded = data.canonical_model as ModelProposal;
+          console.log("[DataModelBuilder] Loaded model from canonical_model");
+        } else if (data?.model_json) {
+          // Fall back to deprecated model_json
+          loaded = data.model_json as ModelProposal;
+          console.log(
+            "[DataModelBuilder] Loaded model from model_json (deprecated)"
+          );
         }
       }
 
@@ -365,8 +360,9 @@ export default function DataModelBuilder({
       if (loaded) setModel(loaded);
       refreshDatasets();
     }
+
     loadModel();
-  }, [businessType]);
+  }, [businessType, user]);
 
   // Fetch business model templates from database
   useEffect(() => {
@@ -471,36 +467,32 @@ export default function DataModelBuilder({
 
   // Auto-save on model changes (debounced)
   useEffect(() => {
-    if (!model) return;
+    if (!model || !user) return;
     const timer = setTimeout(async () => {
       try {
         const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (user) {
-          // Get company for user
-          const { data: company } = await supabase
-            .from("companies")
-            .select("id")
-            .eq("created_by", user.id)
-            .single();
+        // Get company for user
+        const { data: company } = await supabase
+          .from("companies")
+          .select("id")
+          .eq("created_by", user.id)
+          .single();
 
-          if (company) {
-            // Save to canonical_model in business_models table (preferred)
-            const { error } = await supabase
-              .from("business_models")
-              .update({
-                canonical_model: model,
-                model_json: model, // Keep for backwards compatibility (deprecated)
-              })
-              .eq("company_id", company.id);
+        if (company) {
+          // Save to canonical_model in business_models table (preferred)
+          const { error } = await supabase
+            .from("business_models")
+            .update({
+              canonical_model: model,
+              model_json: model, // Keep for backwards compatibility (deprecated)
+            })
+            .eq("company_id", company.id);
 
-            if (error) {
-              console.error("Auto-save failed:", error);
-            }
+          if (error) {
+            console.error("Auto-save failed:", error);
           }
         }
+
         localStorage.setItem("milton-model", JSON.stringify(model));
         // Silent auto-save: no toasts or banners
       } catch (e) {
@@ -508,7 +500,7 @@ export default function DataModelBuilder({
       }
     }, 1500); // 1.5s debounce
     return () => clearTimeout(timer);
-  }, [model]);
+  }, [model, user]);
 
   if (
     !model ||

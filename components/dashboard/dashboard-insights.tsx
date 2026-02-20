@@ -28,6 +28,7 @@ import { createClient } from "@/lib/supabase/client";
 import { getReportData } from "@/lib/report-data-service";
 import { useBusinessContext } from "@/lib/business-context";
 import { useUserPreferences } from "@/lib/context/UserPreferencesContext";
+import { useUser } from "@/lib/context/UserContext";
 
 interface Insight {
   id?: string;
@@ -47,22 +48,19 @@ export function DashboardInsights() {
     new Set()
   );
   const [showRefreshDialog, setShowRefreshDialog] = useState(false);
-  const [isCardCollapsed, setIsCardCollapsed] = useState(false);
+  const [isCardCollapsed, setIsCardCollapsed] = useState(true);
   const { businessType } = useBusinessContext();
   const { prefs } = useUserPreferences();
+  const { user } = useUser();
 
   // Load insights from database
   const loadInsightsFromDB = async () => {
     try {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
       if (!user) {
         return [];
       }
 
+      const supabase = createClient();
       const { data, error } = await supabase
         .from("dashboard_insights")
         .select("*")
@@ -74,7 +72,7 @@ export function DashboardInsights() {
         return [];
       }
 
-      return (data || []).map((insight) => ({
+      return (data || []).map((insight: any) => ({
         id: insight.id,
         title: insight.title,
         description: insight.description,
@@ -92,14 +90,11 @@ export function DashboardInsights() {
     replaceAll: boolean = true
   ) => {
     try {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
       if (!user) {
         return;
       }
+
+      const supabase = createClient();
 
       if (replaceAll) {
         // Delete all existing insights for this user
@@ -153,16 +148,13 @@ export function DashboardInsights() {
     setError(null);
 
     try {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
       if (!user) {
         setError("Not authenticated");
         setLoading(false);
         return;
       }
+
+      const supabase = createClient();
 
       // Fetch report data to get KPIs
       const reportData = await getReportData(supabase, user.id);
@@ -561,16 +553,18 @@ export function DashboardInsights() {
             </span>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-center py-12">
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <span className="text-sm text-muted-foreground font-medium">
-                Generating insights...
-              </span>
+        {!isCardCollapsed && (
+          <CardContent>
+            <div className="flex items-center justify-center py-12">
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <span className="text-sm text-muted-foreground font-medium">
+                  Generating insights...
+                </span>
+              </div>
             </div>
-          </div>
-        </CardContent>
+          </CardContent>
+        )}
       </Card>
     );
   }
@@ -588,23 +582,25 @@ export function DashboardInsights() {
             </span>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="py-8 text-center">
-            <AlertTriangle className="h-10 w-10 text-destructive mx-auto mb-3 opacity-50" />
-            <p className="text-sm text-muted-foreground mb-4 font-medium">
-              {error}
-            </p>
-            <Button
-              onClick={handleRefreshClick}
-              variant="outline"
-              size="sm"
-              className="gap-2"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Try Again
-            </Button>
-          </div>
-        </CardContent>
+        {!isCardCollapsed && (
+          <CardContent>
+            <div className="py-8 text-center">
+              <AlertTriangle className="h-10 w-10 text-destructive mx-auto mb-3 opacity-50" />
+              <p className="text-sm text-muted-foreground mb-4 font-medium">
+                {error}
+              </p>
+              <Button
+                onClick={handleRefreshClick}
+                variant="outline"
+                size="sm"
+                className="gap-2"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Try Again
+              </Button>
+            </div>
+          </CardContent>
+        )}
       </Card>
     );
   }
@@ -622,15 +618,17 @@ export function DashboardInsights() {
             </span>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="py-8 text-center">
-            <Info className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-50" />
-            <p className="text-sm text-muted-foreground font-medium">
-              No insights available. Upload financial data to get AI-powered
-              insights.
-            </p>
-          </div>
-        </CardContent>
+        {!isCardCollapsed && (
+          <CardContent>
+            <div className="py-8 text-center">
+              <Info className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-50" />
+              <p className="text-sm text-muted-foreground font-medium">
+                No insights available. Upload financial data to get AI-powered
+                insights.
+              </p>
+            </div>
+          </CardContent>
+        )}
       </Card>
     );
   }

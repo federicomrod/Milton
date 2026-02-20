@@ -1,19 +1,18 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { UploadInvitation } from "@/components/dashboard/upload-invitation";
 import { KpiSelector } from "@/components/dashboard/kpi-selector";
+import type { KpiDisplayMode } from "@/components/dashboard/kpi-selector";
 import { KpisGrid } from "@/components/dashboard/kpis-grid";
-import { MetricsGrid } from "@/components/dashboard/metrics-grid";
 import { DashboardInsights } from "@/components/dashboard/dashboard-insights";
-import { FinancialCharts } from "@/components/dashboard/financial-charts";
 import { Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import type { DatabaseKpi } from "@/lib/types/kpi";
+import { useUser } from "@/lib/context/UserContext";
 
-// Helper component for locked/missing data placeholders
+const DISPLAY_MODES_STORAGE_KEY = "kpi-display-modes";
+
 const LockedPlaceholder = ({ message }: { message: string }) => (
   <div className="rounded border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
     💡 {message}
@@ -30,16 +29,21 @@ type DataStatus = {
 
 export default function DashboardPage() {
   const [dataStatus, setDataStatus] = useState<DataStatus>(null);
+  const { user } = useUser();
 
-  // KPI state
   const [selectedKpiIds, setSelectedKpiIds] = useState<string[]>([]);
   const [selectedKpis, setSelectedKpis] = useState<DatabaseKpi[]>([]);
   const [recommendedKpis, setRecommendedKpis] = useState<DatabaseKpi[]>([]);
   const [additionalKpis, setAdditionalKpis] = useState<DatabaseKpi[]>([]);
+  const [kpiDisplayModes, setKpiDisplayModes] = useState<
+    Record<string, KpiDisplayMode>
+  >({});
+
   const [isLoading, setIsLoading] = useState(true);
   const dataLoadedRef = useRef(false);
   const kpisLoadedRef = useRef(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const [period, setPeriod] = useState<"month" | "year" | "ytd" | "custom">(
     "month"
   );
@@ -53,49 +57,48 @@ export default function DashboardPage() {
     to: new Date().toISOString().split("T")[0],
   });
 
-  // Helper function to check if all data is ready
+  // Load display modes from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(DISPLAY_MODES_STORAGE_KEY);
+      if (stored) {
+        setKpiDisplayModes(JSON.parse(stored));
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }, []);
+
   const checkIfDataReady = () => {
     if (dataLoadedRef.current && kpisLoadedRef.current) {
-      // Add a small delay to allow child components (MetricsGrid, FinancialCharts) to start loading
-      setTimeout(() => {
-        setIsLoading(false);
-      }, 500);
+      setTimeout(() => setIsLoading(false), 500);
     }
   };
 
-  // Fetch company business model and data status
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
         if (user) {
-          // Fetch data status
-          const statusRes = await fetch("/api/data/status");
+          const statusRes = await fetch("/api/data/status", {
+            credentials: "include",
+          });
           if (statusRes.ok) {
             const statusData = await statusRes.json();
+            console.log("[BROWSER LOG] /api/data/status response:", statusData);
             setDataStatus(statusData);
           }
         }
       } catch (error) {
         console.error("Error fetching data:", error);
       } finally {
-        // Mark data as loaded
         dataLoadedRef.current = true;
-        // Check if we can hide the loader
         checkIfDataReady();
       }
     };
 
     fetchData();
-  }, []);
+  }, [user]);
 
-  // Load KPI selector pool (recommended + additional) and selected IDs from kpi-preferences.
-  // Load displayed selected KPIs from /api/kpis/selected (source of truth: business_models.selected_kpi_ids).
-  // No caching: users frequently save new KPIs.
   useEffect(() => {
     const loadKpis = async () => {
       try {
@@ -138,22 +141,15 @@ export default function DashboardPage() {
     loadKpis();
   }, []);
 
-  // Set timeout to hide loader after 10 seconds
   useEffect(() => {
-    timeoutRef.current = setTimeout(() => {
-      setIsLoading(false);
-    }, 10000);
-
+    timeoutRef.current = setTimeout(() => setIsLoading(false), 10000);
     return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
 
   const handleKpisChange = (newSelectedKpis: string[]) => {
     setSelectedKpiIds(newSelectedKpis);
-    // Refetch displayed KPIs from API (source of truth) so all saved IDs show, not just those in the template pool
     fetch("/api/kpis/selected", { cache: "no-store", credentials: "include" })
       .then((r) => (r.ok ? r.json() : { selectedKpis: [] }))
       .then((json) =>
@@ -164,9 +160,17 @@ export default function DashboardPage() {
       .catch(() => {});
   };
 
+  const handleDisplayModesChange = (modes: Record<string, KpiDisplayMode>) => {
+    setKpiDisplayModes(modes);
+    try {
+      localStorage.setItem(DISPLAY_MODES_STORAGE_KEY, JSON.stringify(modes));
+    } catch {
+      // ignore storage errors
+    }
+  };
+
   return (
     <>
-      {/* Loading Overlay - Fixed to viewport */}
       {isLoading && (
         <div className="fixed inset-0 bg-background/90 backdrop-blur-md z-50 flex items-center justify-center">
           <div className="flex flex-col items-center gap-6">
@@ -178,90 +182,45 @@ export default function DashboardPage() {
         </div>
       )}
       <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
-          {/* Show business type badge */}
-          {/* {companyBusinessType && (
-            <div className="mb-6 flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">
-                Business Type:
-              </span>
-              <span className="text-sm font-medium text-primary">
-                {companyBusinessType}
-              </span>
-            </div>
-          )} */}
+        <div className="px-4 py-6 sm:px-0 space-y-6">
+          {/* Upload invitation when no data */}
+          {dataStatus && !dataStatus.hasModelData && <UploadInvitation />}
 
-          {/* Upload Invitation Section - Show if user hasn't uploaded data */}
-          {dataStatus && !dataStatus.hasModelData && (
-            <div className="mb-8">
-              <UploadInvitation />
-            </div>
-          )}
-
-          {/* KPIs Section - Unified Metrics and KPIs */}
-          <div className="space-y-6">
-            {/* Key Metrics Section */}
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Key Metrics</h2>
-              <DateRangePicker
-                period={period}
-                customDateRange={customDateRange}
-                onPeriodChange={(value) => setPeriod(value)}
-                onCustomDateRangeChange={(range) => setCustomDateRange(range)}
-              />
-            </div>
-
-            {dataStatus?.bank ||
-            dataStatus?.crm ||
-            dataStatus?.budget ||
-            dataStatus?.hasModelData ? (
-              <>
-                <MetricsGrid
+          {/* KPIs Section */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <h2 className="text-lg font-semibold">
+                Key Performance Indicators
+              </h2>
+              <div className="flex items-center gap-3">
+                <DateRangePicker
                   period={period}
                   customDateRange={customDateRange}
+                  onPeriodChange={(value) => setPeriod(value)}
+                  onCustomDateRangeChange={(range) => setCustomDateRange(range)}
                 />
-                <div className="mt-8">
-                  <DashboardInsights />
-                </div>
-                <div className="space-y-4 mt-8">
-                  <h2 className="text-lg font-semibold">Performance Charts</h2>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <FinancialCharts
-                      type="mrr-vs-plan"
-                      period={period}
-                      customDateRange={customDateRange}
-                    />
-                    <FinancialCharts
-                      type="burn-rate"
-                      period={period}
-                      customDateRange={customDateRange}
-                    />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <LockedPlaceholder message="Upload your data in the 'Upload' section above to see your key metrics and performance charts." />
-            )}
-
-            {/* KPIs Section */}
-            <div className="mt-8 space-y-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">
-                  Key Performance Indicators
-                </h2>
                 <KpiSelector
                   selectedKpiIds={selectedKpiIds}
                   onKpisChange={handleKpisChange}
                   recommendedKpis={recommendedKpis}
                   additionalKpis={additionalKpis}
+                  kpiDisplayModes={kpiDisplayModes}
+                  onDisplayModesChange={handleDisplayModesChange}
                 />
               </div>
-              {dataStatus?.hasModelData ? (
-                <KpisGrid selectedKpis={selectedKpis} />
-              ) : (
-                <LockedPlaceholder message="Upload your data in the 'Upload' section above to see your KPIs and metrics." />
-              )}
             </div>
+
+            {dataStatus?.hasModelData ? (
+              <>
+                <DashboardInsights />
+                <KpisGrid
+                  selectedKpis={selectedKpis}
+                  displayModes={kpiDisplayModes}
+                />
+              </>
+            ) : (
+              <LockedPlaceholder message="Upload your data in the 'Upload' section above to see your KPIs." />
+            )}
           </div>
         </div>
       </div>

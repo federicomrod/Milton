@@ -112,11 +112,12 @@ export async function GET() {
       const kpiIds = template.kpi_ids as string[];
 
       if (kpiIds.length > 0) {
-        // Fetch KPIs from kpis table (single query)
+        // Fetch KPIs from kpis table (single query) - only published ones
         const { data: kpis, error: kpisError } = await supabase
           .from("kpis")
           .select("*")
-          .in("id", kpiIds);
+          .in("id", kpiIds)
+          .eq("is_published", true);
 
         if (kpisError) {
           console.error(`[kpi-preferences] Error fetching KPIs:`, kpisError);
@@ -304,13 +305,47 @@ Rank these KPIs by relevance. Return the ranked KPI IDs as a JSON array, with th
     `[kpi-preferences] Returning: ${recommendedKpis.length} recommended, ${additionalKpis.length} additional, ${recommendedKpis.length + additionalKpis.length} total`
   );
 
-  // selected_kpi_ids is source of truth; return only valid UUIDs (ignore legacy slugs like "mrr")
+  // selected_kpi_ids is source of truth; return only valid UUIDs that are still published (ignore legacy slugs like "mrr")
   const rawSelected = (data.selected_kpi_ids ?? []) as string[];
   const uuidLike =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const selectedKpiIds = rawSelected.filter(
+  const validSelectedKpiIds = rawSelected.filter(
     (id): id is string => typeof id === "string" && uuidLike.test(id)
   );
+
+  // Filter selected KPIs to only include those that are still published
+  let selectedKpiIds: string[] = [];
+  if (validSelectedKpiIds.length > 0) {
+    const { data: publishedSelectedKpis } = await supabase
+      .from("kpis")
+      .select("id")
+      .in("id", validSelectedKpiIds)
+      .eq("is_published", true);
+
+    selectedKpiIds = publishedSelectedKpis?.map((kpi) => kpi.id) ?? [];
+
+    // Clean up the business model if there are draft KPIs that were previously selected
+    if (selectedKpiIds.length !== validSelectedKpiIds.length) {
+      console.log(
+        `[kpi-preferences] Cleaning up ${validSelectedKpiIds.length - selectedKpiIds.length} draft KPIs from selected_kpi_ids`
+      );
+      try {
+        const { error: updateError } = await supabase
+          .from("business_models")
+          .update({ selected_kpi_ids: selectedKpiIds })
+          .eq("company_id", company.id);
+
+        if (updateError) {
+          console.warn(
+            "[kpi-preferences] Failed to clean up draft KPIs from business model:",
+            updateError
+          );
+        }
+      } catch (err) {
+        console.warn("[kpi-preferences] Error cleaning up draft KPIs:", err);
+      }
+    }
+  }
 
   const response = NextResponse.json({
     selectedKpiIds,
@@ -320,7 +355,12 @@ Rank these KPIs by relevance. Return the ranked KPI IDs as a JSON array, with th
     additionalKpis,
   });
 
-  response.headers.set("Cache-Control", "no-store");
+  response.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Expires", "0");
 
   return response;
 }
@@ -344,9 +384,28 @@ export async function POST(req: NextRequest) {
   // so MetricSelector or other callers cannot overwrite with metric slugs.
   const uuidLike =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const selectedKpiIds = raw.filter(
+  const validUuidKpiIds = raw.filter(
     (id): id is string => typeof id === "string" && uuidLike.test(id)
   );
+
+  // Validate that all selected KPIs are published
+  let selectedKpiIds: string[] = [];
+  if (validUuidKpiIds.length > 0) {
+    const { data: publishedKpis } = await supabase
+      .from("kpis")
+      .select("id")
+      .in("id", validUuidKpiIds)
+      .eq("is_published", true);
+
+    selectedKpiIds = publishedKpis?.map((kpi) => kpi.id) ?? [];
+
+    // Log if any draft KPIs were filtered out
+    if (selectedKpiIds.length !== validUuidKpiIds.length) {
+      console.log(
+        `[kpi-preferences] Filtered out ${validUuidKpiIds.length - selectedKpiIds.length} draft KPIs from selection`
+      );
+    }
+  }
 
   // Get company for user
   const { data: company } = await supabase

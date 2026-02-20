@@ -27,6 +27,7 @@ import {
   Info,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { useUser } from "@/lib/context/UserContext";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { generateReportSlides } from "@/lib/pdf-generator-slides";
 import { getReportData } from "@/lib/report-data-service";
@@ -51,6 +52,7 @@ import { MonthYearPicker } from "./reports/MonthYearPicker";
 
 export function ReportsTab() {
   const { prefs } = useUserPreferences();
+  const { user } = useUser();
   const { isClient, dataStatus } = useReportData();
   const [businessModel, setBusinessModel] = useState<string | null>(null);
   const [loadingBusinessModel, setLoadingBusinessModel] = useState(true);
@@ -70,15 +72,12 @@ export function ReportsTab() {
   useEffect(() => {
     const fetchBusinessModel = async () => {
       try {
-        const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
         if (!user) {
           setLoadingBusinessModel(false);
           return;
         }
+
+        const supabase = createClient();
 
         const { data: company, error: companyError } = await supabase
           .from("companies")
@@ -143,7 +142,7 @@ export function ReportsTab() {
     };
 
     fetchBusinessModel();
-  }, []);
+  }, [user]);
 
   const handleConfigChange = (field: keyof ReportConfig, value: unknown) => {
     setConfig((prev) => ({ ...prev, [field]: value }));
@@ -236,15 +235,11 @@ export function ReportsTab() {
         stepName: "Fetching report data...",
       });
 
-      const supabase = createClient();
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-
-      if (authError || !user) {
+      if (!user) {
         throw new Error("No authenticated user found. Please log in.");
       }
+
+      const supabase = createClient();
 
       const periodRange = parsePeriodLabel(config.reportPeriod);
 

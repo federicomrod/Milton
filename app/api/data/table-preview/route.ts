@@ -36,10 +36,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Get table ID from table name by querying data_tables
+    // Get table ID and field definitions from data_tables
     const { data: tableDef } = await supabase
       .from("data_tables")
-      .select("id")
+      .select("id, fields")
       .eq("name", tableName)
       .single();
 
@@ -97,10 +97,33 @@ export async function GET(req: NextRequest) {
       }
     });
 
+    // Order columns: PKs first, then required fields, then rest alphabetically
+    const fields: Array<{
+      name: string;
+      primaryKey?: boolean;
+      required?: boolean;
+    }> = tableDef.fields || [];
+    const pkNames = new Set(
+      fields.filter((f) => f.primaryKey).map((f) => f.name)
+    );
+    const requiredNames = new Set(
+      fields.filter((f) => f.required && !f.primaryKey).map((f) => f.name)
+    );
+
+    const allCols = Array.from(columnNames);
+    const pkCols = allCols.filter((c) => pkNames.has(c)).sort();
+    const reqCols = allCols
+      .filter((c) => requiredNames.has(c) && !pkNames.has(c))
+      .sort();
+    const restCols = allCols
+      .filter((c) => !pkNames.has(c) && !requiredNames.has(c))
+      .sort();
+    const sortedColumns = [...pkCols, ...reqCols, ...restCols];
+
     // Transform data for frontend consumption
     const transformedRows =
       rows?.map((row, index) => ({
-        id: from + index + 1, // Row number for display
+        id: from + index + 1,
         ...row.data,
         _created_at: row.created_at,
       })) || [];
@@ -109,7 +132,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       rows: transformedRows,
-      columns: Array.from(columnNames).sort(),
+      columns: sortedColumns,
+      pkColumns: Array.from(pkNames),
       pagination: {
         page,
         pageSize,

@@ -52,6 +52,7 @@ export async function POST(req: Request) {
       name: string;
       headers: string[];
       sampleData: Record<string, unknown>[];
+      rows: Record<string, unknown>[];
       totalRows: number;
     }> = [];
 
@@ -96,6 +97,7 @@ export async function POST(req: Request) {
           name: "Sheet1",
           headers,
           sampleData,
+          rows: jsonData,
           totalRows: jsonData.length,
         },
       ];
@@ -147,6 +149,7 @@ export async function POST(req: Request) {
           name: sheetName,
           headers: sheetHeaders,
           sampleData: processedData.slice(0, 10),
+          rows: processedData,
           totalRows: processedData.length,
         };
       });

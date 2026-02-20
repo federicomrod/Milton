@@ -111,6 +111,7 @@ export default function ModelTableListView({
         <ModelTableDetailView
           table={table}
           dataCount={tableDataCounts[selectedTable] || 0}
+          allTableDataCounts={tableDataCounts}
           onClose={handleCloseDetail}
           onUploadComplete={() => {
             // Refresh ALL counts after upload/delete using the efficient API endpoint

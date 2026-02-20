@@ -12,6 +12,8 @@ import {
   AlertCircle,
   Eye,
   Trash2,
+  Sparkles,
+  X,
 } from "lucide-react";
 import { TableDef } from "@/lib/model/transform";
 import EnhancedDataMappingUI from "./data-mapping-confirmation";
@@ -26,6 +28,7 @@ import type { DataTable } from "@/lib/types/data";
 interface ModelTableDetailViewProps {
   table: TableDef;
   dataCount: number;
+  allTableDataCounts: Record<string, number>;
   onClose: () => void;
   onUploadComplete?: () => void;
 }
@@ -33,6 +36,7 @@ interface ModelTableDetailViewProps {
 export default function ModelTableDetailView({
   table,
   dataCount,
+  allTableDataCounts,
   onClose,
   onUploadComplete,
 }: ModelTableDetailViewProps) {
@@ -68,6 +72,7 @@ export default function ModelTableDetailView({
           required: f.required,
           primaryKey: f.primaryKey || false,
           references: f.references || null,
+          allowedValues: f.allowedValues,
         })),
       }
     : table;
@@ -81,12 +86,14 @@ export default function ModelTableDetailView({
       name: string;
       headers: string[];
       sampleData: any[];
+      rows: any[];
       totalRows: number;
     }>;
   } | null>(null);
   const [mappingData, setMappingData] = useState<{
     headers: string[];
     sampleData: any[];
+    allRows: any[];
     mappings: ColumnMapping[];
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -96,6 +103,29 @@ export default function ModelTableDetailView({
   );
   const optionalFields = effectiveTable.fields.filter((f) => !f.required);
   const primaryKeyFields = effectiveTable.fields.filter((f) => f.primaryKey);
+
+  // Determine which referenced tables have no data yet.
+  // Normalize names so that "membership_plans" matches "Membership Plans".
+  const missingDependencies = (() => {
+    const normalize = (n: string) => n.toLowerCase().replace(/[\s_-]+/g, "_");
+    const countsByNorm = new Map<string, { original: string; count: number }>();
+    for (const [name, count] of Object.entries(allTableDataCounts)) {
+      countsByNorm.set(normalize(name), { original: name, count });
+    }
+
+    return effectiveTable.fields
+      .filter((f) => f.references?.table)
+      .map((f) => f.references!.table)
+      .filter((refTable, i, arr) => arr.indexOf(refTable) === i)
+      .filter((refTable) => {
+        const entry = countsByNorm.get(normalize(refTable));
+        return !entry || entry.count === 0;
+      })
+      .map((refTable) => {
+        const entry = countsByNorm.get(normalize(refTable));
+        return entry ? entry.original : refTable;
+      });
+  })();
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -141,6 +171,7 @@ export default function ModelTableDetailView({
       setMappingData({
         headers: parseResult.headers || [],
         sampleData: parseResult.sampleData || parseResult.sampleRows || [],
+        allRows: parseResult.rows || parseResult.sampleData || [],
         mappings: suggestedMappings,
       });
 
@@ -162,14 +193,21 @@ export default function ModelTableDetailView({
   const [showDataPreview, setShowDataPreview] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{
+    insertedCount: number;
+    generatedIdsCount: number;
+    resolvedRefsCount: number;
+  } | null>(null);
 
-  const handleMappingConfirm = async (mappings: ColumnMapping[]) => {
+  const handleMappingConfirm = async (
+    mappings: ColumnMapping[],
+    valueMappings?: Record<string, Record<string, string>>
+  ) => {
     if (!mappingData || !uploadedFile) return;
 
     setIsUploading(true);
 
     try {
-      // Parse the full file to get all rows (not just sample)
       const formData = new FormData();
       formData.append("file", uploadedFile);
 
@@ -189,7 +227,6 @@ export default function ModelTableDetailView({
         parseResult.sampleRows ||
         [];
 
-      // Transform all rows using mappings
       const transformedRows = allRows.map((row: any) => {
         const transformed: Record<string, any> = {};
         mappings.forEach((mapping) => {
@@ -200,6 +237,16 @@ export default function ModelTableDetailView({
             }
           }
         });
+        if (valueMappings) {
+          for (const [fieldName, fieldMap] of Object.entries(valueMappings)) {
+            if (transformed[fieldName] !== undefined) {
+              const orig = String(transformed[fieldName]);
+              if (fieldMap[orig] !== undefined) {
+                transformed[fieldName] = fieldMap[orig];
+              }
+            }
+          }
+        }
         return transformed;
       });
 
@@ -215,16 +262,23 @@ export default function ModelTableDetailView({
         },
       });
 
+      const result = await response.json();
+
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText);
+        throw new Error(result.error || "Upload failed");
       }
 
-      const result = await response.json();
       console.log("Upload successful:", result);
 
+      if (result.generatedIdsCount > 0 || result.resolvedRefsCount > 0) {
+        setUploadResult({
+          insertedCount: result.insertedCount,
+          generatedIdsCount: result.generatedIdsCount || 0,
+          resolvedRefsCount: result.resolvedRefsCount || 0,
+        });
+      }
+
       onUploadComplete?.();
-      // Refresh data preview if it's currently shown
       if (showDataPreview) {
         setShowDataPreview(false);
         setTimeout(() => setShowDataPreview(true), 100);
@@ -245,6 +299,7 @@ export default function ModelTableDetailView({
       sheetName: string;
       datasetType: string;
       columnMappings: ColumnMapping[];
+      valueMappings?: Record<string, Record<string, string>>;
     }>
   ) => {
     if (!sheetData) return;
@@ -253,6 +308,10 @@ export default function ModelTableDetailView({
     setUploadStep("processing");
 
     try {
+      let totalGenerated = 0;
+      let totalResolved = 0;
+      let totalInserted = 0;
+
       // Process each selected sheet
       for (const mapping of sheetMappings) {
         // Parse the specific sheet
@@ -272,7 +331,6 @@ export default function ModelTableDetailView({
         const parseResult = await parseRes.json();
         const allRows = parseResult.rows || parseResult.sampleData || [];
 
-        // Transform rows using the confirmed mappings
         const transformedRows = allRows.map((row: any) => {
           const transformed: Record<string, any> = {};
           mapping.columnMappings.forEach((colMapping) => {
@@ -283,6 +341,18 @@ export default function ModelTableDetailView({
               }
             }
           });
+          if (mapping.valueMappings) {
+            for (const [fieldName, fieldMap] of Object.entries(
+              mapping.valueMappings
+            )) {
+              if (transformed[fieldName] !== undefined) {
+                const orig = String(transformed[fieldName]);
+                if (fieldMap[orig] !== undefined) {
+                  transformed[fieldName] = fieldMap[orig];
+                }
+              }
+            }
+          }
           return transformed;
         });
 
@@ -298,17 +368,29 @@ export default function ModelTableDetailView({
           },
         });
 
+        const sheetResult = await response.json();
+
         if (!response.ok) {
-          const errorText = await response.text();
           throw new Error(
-            `Upload failed for sheet "${mapping.sheetName}": ${errorText}`
+            sheetResult.error ||
+              `Upload failed for sheet "${mapping.sheetName}"`
           );
         }
+        totalGenerated += sheetResult.generatedIdsCount || 0;
+        totalResolved += sheetResult.resolvedRefsCount || 0;
+        totalInserted += sheetResult.insertedCount || 0;
+      }
+
+      if (totalGenerated > 0 || totalResolved > 0) {
+        setUploadResult({
+          insertedCount: totalInserted,
+          generatedIdsCount: totalGenerated,
+          resolvedRefsCount: totalResolved,
+        });
       }
 
       console.log("All sheets uploaded successfully");
       onUploadComplete?.();
-      // Refresh data preview if it's currently shown
       if (showDataPreview) {
         setShowDataPreview(false);
         setTimeout(() => setShowDataPreview(true), 100);
@@ -381,8 +463,12 @@ export default function ModelTableDetailView({
             name: f.name,
             required: f.required,
             type: f.type,
+            primaryKey: f.primaryKey,
+            references: f.references,
+            allowedValues: f.allowedValues,
           })),
         }}
+        missingDependencies={missingDependencies}
       />
     );
   }
@@ -401,6 +487,7 @@ export default function ModelTableDetailView({
           fileType="transactions"
           headers={mappingData.headers}
           sampleData={mappingData.sampleData}
+          allRows={mappingData.allRows}
           suggestedMappings={mappingData.mappings}
           confidence={0.8}
           issues={[]}
@@ -413,8 +500,12 @@ export default function ModelTableDetailView({
             name: f.name,
             required: f.required,
             type: f.type,
+            primaryKey: f.primaryKey,
+            references: f.references,
+            allowedValues: f.allowedValues,
           }))}
           modelTableName={effectiveTable.name}
+          missingDependencies={missingDependencies}
         />
       </div>
     );
@@ -445,6 +536,43 @@ export default function ModelTableDetailView({
         ref={fileInputRef}
         onChange={handleFileSelect}
       />
+
+      {uploadResult && (
+        <Alert className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30">
+          <Sparkles className="h-4 w-4 text-blue-600" />
+          <AlertDescription className="flex items-center justify-between">
+            <span>
+              Successfully uploaded {uploadResult.insertedCount} rows.
+              {uploadResult.generatedIdsCount > 0 && (
+                <>
+                  {" "}
+                  <strong>
+                    {uploadResult.generatedIdsCount} unique IDs
+                  </strong>{" "}
+                  auto-generated.
+                </>
+              )}
+              {uploadResult.resolvedRefsCount > 0 && (
+                <>
+                  {" "}
+                  <strong>
+                    {uploadResult.resolvedRefsCount} references
+                  </strong>{" "}
+                  linked from related tables.
+                </>
+              )}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 ml-2"
+              onClick={() => setUploadResult(null)}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Data Preview Section */}
       {dataCount > 0 && (

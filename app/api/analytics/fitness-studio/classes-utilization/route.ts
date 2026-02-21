@@ -10,8 +10,13 @@ function jsonNoStore(data: Record<string, unknown>) {
 }
 
 function parseDate(dateStr: any): Date | null {
-  if (!dateStr) return null;
-  if (dateStr instanceof Date) return dateStr;
+  if (dateStr == null) return null;
+  if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
+  if (typeof dateStr === "number") {
+    if (dateStr > 1e12) return new Date(dateStr);
+    if (dateStr > 1000) return new Date((dateStr - 25569) * 86400 * 1000);
+    return null;
+  }
   if (typeof dateStr !== "string") return null;
 
   // Try YYYY-MM-DD HH:mm:ss format (with space separator)
@@ -251,6 +256,12 @@ export async function GET(req: NextRequest) {
     const classesFields = classesTableId
       ? tableFieldsMap[classesTableId]?.fields || []
       : [];
+    const instructorsTableId = Object.keys(idToNameMap).find(
+      (id) => idToNameMap[id] === "instructors"
+    );
+    const instructorsFields = instructorsTableId
+      ? tableFieldsMap[instructorsTableId]?.fields || []
+      : [];
 
     // Helper to get field value
     const getFieldValue = (
@@ -392,25 +403,32 @@ export async function GET(req: NextRequest) {
           ? getFieldValue(c, capacityField, ["capacity", "Capacity"]) || 0
           : c.capacity || c.Capacity || c["Capacity"] || 0;
 
-        const nameField = classesFields.find(
-          (f) =>
-            f.name.toLowerCase().includes("name") ||
-            f.name.toLowerCase().includes("type")
-        )?.name;
+        // Prefer "Class Name" over "Type ID" for display
+        const nameField =
+          classesFields.find(
+            (f) =>
+              f.name.toLowerCase().includes("class") &&
+              f.name.toLowerCase().includes("name")
+          )?.name ??
+          classesFields.find(
+            (f) =>
+              f.name.toLowerCase().includes("name") &&
+              !f.name.toLowerCase().includes("type")
+          )?.name ??
+          classesFields.find(
+            (f) =>
+              f.name.toLowerCase().includes("name") ||
+              f.name.toLowerCase().includes("type")
+          )?.name;
         const className = nameField
-          ? getFieldValue(c, nameField, [
-              "class_name",
-              "Class Name",
-              "name",
-              "type",
-            ])
-          : c.class_name ||
-            c["Class Name"] ||
-            c.className ||
-            c.name ||
-            c.Name ||
-            c.type ||
-            c.Type;
+          ? getFieldValue(c, nameField, ["class_name", "Class Name", "name"])
+          : (c.class_name ??
+            c["Class Name"] ??
+            c.className ??
+            c.name ??
+            c.Name ??
+            c.type ??
+            c.Type);
 
         const categoryField = classesFields.find((f) =>
           f.name.toLowerCase().includes("category")
@@ -442,6 +460,19 @@ export async function GET(req: NextRequest) {
             c["Start Date"] ||
             c["Date & Time"];
 
+        const instructorIdField = classesFields.find(
+          (f) =>
+            f.name.toLowerCase().includes("instructor") &&
+            (f.name.toLowerCase().includes("id") ||
+              f.name.toLowerCase() === "id")
+        )?.name;
+        const instructorId = instructorIdField
+          ? getFieldValue(c, instructorIdField, [
+              "instructor_id",
+              "Instructor ID",
+            ])
+          : (c.instructor_id ?? c["Instructor ID"]);
+
         // Normalize class data
         const normalizedClass = {
           class_id: classId,
@@ -449,6 +480,7 @@ export async function GET(req: NextRequest) {
           class_name: className,
           category,
           date,
+          instructor_id: instructorId,
           _original: c,
         };
         classMap.set(classId, normalizedClass);
@@ -562,10 +594,21 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const instructorMap = new Map();
+    const instructorMap = new Map<string, any>();
+    const instructorIdField = instructorsFields.find(
+      (f) =>
+        f.name.toLowerCase().includes("instructor") &&
+        (f.name.toLowerCase().includes("id") || f.name.toLowerCase() === "id")
+    )?.name;
     instructors.forEach((i: any) => {
-      if (i.instructor_id) {
-        instructorMap.set(i.instructor_id, i);
+      const id = instructorIdField
+        ? getFieldValue(i, instructorIdField, [
+            "instructor_id",
+            "Instructor ID",
+          ])
+        : (i.instructor_id ?? i["Instructor ID"]);
+      if (id != null && id !== "") {
+        instructorMap.set(String(id), i);
       }
     });
 
@@ -594,7 +637,7 @@ export async function GET(req: NextRequest) {
         return;
       }
 
-      const capacity = classData.capacity || 0;
+      const capacity = Number(classData.capacity) || 0;
       let startAtStr = b.class_start_at;
       // If no date in booking, use date from class
       if (!startAtStr && (classData as any).date) {
@@ -714,7 +757,7 @@ export async function GET(req: NextRequest) {
 
     classOccurrences.forEach((occ) => {
       totalFilledSpots += occ.filled;
-      totalCapacitySpots += occ.capacity;
+      totalCapacitySpots += Number(occ.capacity) || 0;
     });
 
     console.log(
@@ -791,12 +834,56 @@ export async function GET(req: NextRequest) {
         const classData = classMap.get(classId);
         const className =
           classData?.class_name || classData?.name || "Unknown Class";
-        const instructorId = classData?.instructor_id;
-        const instructor = instructorId
-          ? instructorMap.get(instructorId)
+        const instructorId = classData?.instructor_id
+          ? String(classData.instructor_id)
+          : null;
+        let instructor = instructorId ? instructorMap.get(instructorId) : null;
+        if (!instructor && instructorId) {
+          for (const [k, v] of instructorMap.entries()) {
+            if (
+              String(k).toLowerCase() === String(instructorId).toLowerCase()
+            ) {
+              instructor = v;
+              break;
+            }
+          }
+        }
+        const instructorNameField = instructorsFields.find(
+          (f) =>
+            f.name.toLowerCase().includes("name") &&
+            !f.name.toLowerCase().includes("last")
+        )?.name;
+        const instructorLastNameField = instructorsFields.find(
+          (f) =>
+            f.name.toLowerCase().includes("last") &&
+            f.name.toLowerCase().includes("name")
+        )?.name;
+        const firstName = instructor
+          ? instructorNameField
+            ? getFieldValue(instructor, instructorNameField, [
+                "Name",
+                "name",
+                "instructor_name",
+              ])
+            : (instructor.Name ?? instructor.name ?? instructor.instructor_name)
+          : null;
+        const lastName = instructor
+          ? instructorLastNameField
+            ? getFieldValue(instructor, instructorLastNameField, [
+                "Last Name",
+                "last_name",
+                "lastName",
+              ])
+            : (instructor["Last Name"] ??
+              instructor.last_name ??
+              instructor.lastName)
           : null;
         const instructorName =
-          instructor?.instructor_name || instructor?.name || "Unknown";
+          firstName != null && firstName !== ""
+            ? lastName != null && lastName !== ""
+              ? `${firstName} ${lastName}`.trim()
+              : String(firstName)
+            : (instructor?.instructor_name ?? instructor?.name ?? "Unknown");
 
         const occ = occupancyByClass.get(classId);
         const avgOccupancy =

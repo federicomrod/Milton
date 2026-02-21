@@ -162,8 +162,15 @@ export async function GET(req: NextRequest) {
 
     // Helper function to parse dates in various formats (MM/DD/YY, YYYY-MM-DD, etc.)
     const parseDate = (dateStr: any): Date | null => {
-      if (!dateStr) return null;
-      if (dateStr instanceof Date) return dateStr;
+      if (dateStr == null) return null;
+      if (dateStr instanceof Date)
+        return isNaN(dateStr.getTime()) ? null : dateStr;
+      if (typeof dateStr === "number") {
+        // Unix timestamp (ms) or Excel serial (days since 1899-12-30)
+        if (dateStr > 1e12) return new Date(dateStr); // ms
+        if (dateStr > 1000) return new Date((dateStr - 25569) * 86400 * 1000); // Excel serial
+        return null;
+      }
       if (typeof dateStr !== "string") return null;
 
       // Try YYYY-MM-DD HH:mm:ss format (with space separator)
@@ -336,15 +343,62 @@ export async function GET(req: NextRequest) {
           }, 0) / activeMembersWithTenure.length
         : 0;
 
-    // KPI 6: Revenue per Member (ARPM)
+    // KPI 6: Revenue per Member (ARPM) – use data_tables field names for transactions
+    const transactionsTableId = Object.keys(idToNameMap).find(
+      (id) => idToNameMap[id] === "transactions"
+    );
+    const transactionsFields = transactionsTableId
+      ? tableFieldsMap[transactionsTableId]?.fields || []
+      : [];
+    const getTxVal = (
+      t: any,
+      fieldName: string,
+      fallbacks: string[] = []
+    ): any => {
+      if (t[fieldName] !== undefined) return t[fieldName];
+      const lower = fieldName.toLowerCase();
+      for (const k in t) {
+        if (k.toLowerCase() === lower) return t[k];
+      }
+      for (const f of fallbacks) {
+        if (t[f] !== undefined) return t[f];
+      }
+      return undefined;
+    };
+    const txDateField = transactionsFields.find((f) =>
+      f.name.toLowerCase().includes("date")
+    )?.name;
+    const txAmountField = transactionsFields.find(
+      (f) =>
+        f.name.toLowerCase().includes("amount") ||
+        f.name.toLowerCase().includes("value") ||
+        f.name.toLowerCase().includes("price")
+    )?.name;
+    const txCategoryField = transactionsFields.find(
+      (f) =>
+        f.name.toLowerCase().includes("category") ||
+        f.name.toLowerCase().includes("type")
+    )?.name;
+
     const revenueTransactions = transactions.filter((t: any) => {
+      const amountRaw = txAmountField
+        ? getTxVal(t, txAmountField, ["amount", "Amount", "value", "Value"])
+        : (t.amount ?? t.Amount ?? t.value ?? t.Value ?? 0);
       const amount =
-        typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0;
-      const category = (t.category || "").toLowerCase();
-      const date = t.date ? new Date(t.date) : null;
-      if (!date) return false;
-      const from = new Date(fromDate);
-      const to = new Date(toDate);
+        typeof amountRaw === "string"
+          ? parseFloat(amountRaw)
+          : Number(amountRaw) || 0;
+      const categoryRaw = txCategoryField
+        ? getTxVal(t, txCategoryField, ["category", "Category", "type", "Type"])
+        : (t.category ?? t.Category ?? "");
+      const category = String(categoryRaw || "").toLowerCase();
+      const dateRaw = txDateField
+        ? getTxVal(t, txDateField, ["date", "Date", "payment_date"])
+        : (t.date ?? t.Date ?? t.payment_date);
+      const date = dateRaw ? parseDate(dateRaw) : null;
+      if (!date || isNaN(date.getTime())) return false;
+      const from = new Date(fromDate + "T00:00:00");
+      const to = new Date(toDate + "T23:59:59");
       return (
         amount > 0 &&
         (category.includes("membership") ||
@@ -352,13 +406,18 @@ export async function GET(req: NextRequest) {
           category.includes("class pack") ||
           category.includes("revenue")) &&
         date >= from &&
-        date < to
+        date <= to
       );
     });
 
     const totalRevenue = revenueTransactions.reduce((sum: number, t: any) => {
+      const amountRaw = txAmountField
+        ? getTxVal(t, txAmountField, ["amount", "Amount", "value", "Value"])
+        : (t.amount ?? t.Amount ?? 0);
       const amount =
-        typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0;
+        typeof amountRaw === "string"
+          ? parseFloat(amountRaw)
+          : Number(amountRaw) || 0;
       return sum + amount;
     }, 0);
 
@@ -619,16 +678,63 @@ export async function GET(req: NextRequest) {
       return status === "booked" || status === "attended";
     }).length;
 
-    // Calculate total capacity from classes in the date range
-    const classesInRange = Array.from(classMap.values()).filter((classData) => {
-      const from = new Date(fromDate);
-      const to = new Date(toDate);
-      return classData.startAt >= from && classData.startAt < to;
+    // Total capacity: sum capacity of every class occurrence (row) with startAt in range.
+    // (Multiple rows can share the same Class ID; each row is one occurrence.)
+    const from = new Date(fromDate + "T00:00:00");
+    const to = new Date(toDate + "T23:59:59");
+    let totalCapacity = 0;
+    classes.forEach((c: any) => {
+      const normalized = normalizeClass(c);
+      const cap = Number(normalized.capacity) || 0;
+      if (!normalized.classId || cap <= 0) return;
+      const startAt = normalized.classStartAt
+        ? parseDate(normalized.classStartAt)
+        : null;
+      if (
+        !startAt ||
+        isNaN(startAt.getTime()) ||
+        startAt < from ||
+        startAt > to
+      )
+        return;
+      totalCapacity += cap;
     });
 
-    const totalCapacity = classesInRange.reduce((sum: number, classData) => {
-      return sum + (classData.capacity || 0);
-    }, 0);
+    // Fallback: when no class rows have dates in range (e.g. Excel date format, or wrong period),
+    // derive capacity from bookings in range (unique class occurrence × capacity from classMap).
+    if (totalCapacity === 0 && bookingsInRange.length > 0) {
+      const seenKey = new Set<string>();
+      bookingsInRange.forEach((b: any) => {
+        const normalized = normalizeBooking(b);
+        const bookingDate =
+          bookingDateField &&
+          getFieldValue(b, bookingDateField, [
+            "Date & Time",
+            "date_time",
+            "class_start_at",
+            "booking_time",
+          ]);
+        const startAt = parseDate(bookingDate);
+        if (!startAt || !normalized.classId) return;
+        const classIdStr = String(normalized.classId);
+        let classData = classMap.get(classIdStr);
+        if (!classData) {
+          for (const [k, v] of classMap.entries()) {
+            if (String(k).toLowerCase() === classIdStr.toLowerCase()) {
+              classData = v;
+              break;
+            }
+          }
+        }
+        if (!classData) return;
+        const cap = Number(classData.capacity) || 0;
+        if (cap <= 0) return;
+        const key = `${classIdStr}|${startAt.getTime()}`;
+        if (seenKey.has(key)) return;
+        seenKey.add(key);
+        totalCapacity += cap;
+      });
+    }
 
     const utilizationRate =
       totalCapacity > 0 ? (bookedSpots / totalCapacity) * 100 : 0;
@@ -666,22 +772,34 @@ export async function GET(req: NextRequest) {
     const cancellationRate =
       finalBookings.length > 0 ? (cancelled / finalBookings.length) * 100 : 0;
 
-    // Calculate total revenue and expenses from transactions
+    // Calculate total revenue and expenses from transactions (same field resolution as revenue)
     const expenseTransactions = transactions.filter((t: any) => {
+      const amountRaw = txAmountField
+        ? getTxVal(t, txAmountField, ["amount", "Amount", "value", "Value"])
+        : (t.amount ?? t.Amount ?? 0);
       const amount =
-        typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0;
-      const category = (t.category || "").toLowerCase();
-      const date = t.date ? new Date(t.date) : null;
-      if (!date) return false;
-      const from = new Date(fromDate);
-      const to = new Date(toDate);
-      return amount < 0 && date >= from && date < to;
+        typeof amountRaw === "string"
+          ? parseFloat(amountRaw)
+          : Number(amountRaw) || 0;
+      const dateRaw = txDateField
+        ? getTxVal(t, txDateField, ["date", "Date", "payment_date"])
+        : (t.date ?? t.Date ?? t.payment_date);
+      const date = dateRaw ? parseDate(dateRaw) : null;
+      if (!date || isNaN(date.getTime())) return false;
+      const from = new Date(fromDate + "T00:00:00");
+      const to = new Date(toDate + "T23:59:59");
+      return amount < 0 && date >= from && date <= to;
     });
 
     const totalExpenses = Math.abs(
       expenseTransactions.reduce((sum: number, t: any) => {
+        const amountRaw = txAmountField
+          ? getTxVal(t, txAmountField, ["amount", "Amount", "value", "Value"])
+          : (t.amount ?? t.Amount ?? 0);
         const amount =
-          typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0;
+          typeof amountRaw === "string"
+            ? parseFloat(amountRaw)
+            : Number(amountRaw) || 0;
         return sum + amount;
       }, 0)
     );

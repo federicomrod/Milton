@@ -194,19 +194,29 @@ export function StudioPerformance({
 
   heatmapData.forEach((point) => {
     if (
-      point.weekday_iso &&
+      point.weekday_iso != null &&
       point.hour_of_day !== undefined &&
       point.utilization !== undefined
     ) {
-      const day = point.weekday_iso - 1; // Convert 1-7 to 0-6
-      const hour = point.hour_of_day;
-      if (day >= 0 && day < 7 && hour >= 0 && hour < 24) {
-        heatmapMatrix[day][hour] = point.utilization;
+      const day = Number(point.weekday_iso) - 1; // Convert 1-7 (Mon-Sun) to 0-6
+      const hour = Number(point.hour_of_day);
+      const util = Number(point.utilization);
+      if (
+        day >= 0 &&
+        day < 7 &&
+        hour >= 0 &&
+        hour < 24 &&
+        !Number.isNaN(util)
+      ) {
+        heatmapMatrix[day][hour] = Math.min(100, Math.max(0, util));
       }
     }
   });
 
-  const maxUtilization = Math.max(...heatmapMatrix.flat(), 1);
+  const flat = heatmapMatrix.flat();
+  const maxUtilization = flat.some((v) => v > 0)
+    ? Math.max(...flat.filter((v) => Number.isFinite(v)))
+    : 1;
 
   const getHeatmapColor = (value: number) => {
     const intensity = value / maxUtilization;

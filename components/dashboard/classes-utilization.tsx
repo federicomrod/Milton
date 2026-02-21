@@ -396,7 +396,13 @@ export function ClassesUtilization({
                 axisLine={{ stroke: "#d1d5db", strokeWidth: 1 }}
               />
               <YAxis
-                domain={[0, 100]}
+                domain={[
+                  0,
+                  Math.max(
+                    1,
+                    ...occupancyByType.map((d) => Number(d.occupancy) || 0)
+                  ),
+                ]}
                 tick={{ fill: "#6b7280", fontSize: 11 }}
                 axisLine={{ stroke: "#d1d5db", strokeWidth: 1 }}
                 tickFormatter={(value) => `${value}%`}

@@ -1,0 +1,220 @@
+ID,Counterparty ID,Date,Amount,Currency,Direction (inflow / outflow),Category,Payment Method,Source
+P00001,M0032,2025-09-20,112,EUR,inflow,Class pack,Card,Studio
+P00002,M0016,2025-08-25,71,EUR,inflow,Class pack,Bank,Studio
+P00003,M0026,2025-09-14,64,EUR,inflow,Class pack,Cash,Studio
+P00004,M0064,2025-09-22,45,EUR,inflow,Membership,Bank,Studio
+P00005,M0069,2025-09-14,59,EUR,inflow,Revenue,Card,Studio
+P00006,M0042,2025-09-11,63,EUR,inflow,Class pack,Card,Studio
+P00007,M0035,2025-09-15,108,EUR,inflow,Revenue,Cash,Studio
+P00008,M0054,2025-08-28,120,EUR,inflow,Drop-in,Card,Studio
+P00009,M0039,2025-08-29,69,EUR,inflow,Class pack,Bank,Studio
+P00010,M0041,2025-08-29,68,EUR,inflow,Drop-in,Cash,Studio
+P00011,M0062,2025-09-02,71,EUR,inflow,Membership,Card,Studio
+P00012,M0055,2025-09-14,118,EUR,inflow,Class pack,Bank,Studio
+P00013,M0025,2025-09-16,110,EUR,inflow,Revenue,Cash,Studio
+P00014,M0006,2025-09-14,78,EUR,inflow,Membership,Cash,Studio
+P00015,M0028,2025-09-12,88,EUR,inflow,Revenue,Bank,Studio
+P00016,M0025,2025-09-21,106,EUR,inflow,Revenue,Cash,Studio
+P00017,M0061,2025-09-11,80,EUR,inflow,Revenue,Card,Studio
+P00018,M0055,2025-09-05,93,EUR,inflow,Class pack,Card,Studio
+P00019,M0041,2025-08-27,72,EUR,inflow,Class pack,Cash,Studio
+P00020,M0026,2025-09-21,29,EUR,inflow,Revenue,Card,Studio
+P00021,M0035,2025-09-20,38,EUR,inflow,Membership,Bank,Studio
+P00022,M0068,2025-08-27,37,EUR,inflow,Revenue,Card,Studio
+P00023,M0001,2025-09-11,40,EUR,inflow,Membership,Card,Studio
+P00024,M0025,2025-08-31,71,EUR,inflow,Membership,Cash,Studio
+P00025,M0002,2025-09-02,41,EUR,inflow,Drop-in,Bank,Studio
+P00026,M0070,2025-09-02,55,EUR,inflow,Membership,Bank,Studio
+P00027,M0036,2025-09-08,53,EUR,inflow,Class pack,Card,Studio
+P00028,,2025-09-18,-3227,EUR,outflow,Utilities,Bank,Bank
+P00029,,2025-09-11,-873,EUR,outflow,Marketing,Bank,Bank
+P00030,,2025-09-10,-2870,EUR,outflow,Rent,Bank,Bank
+P00031,,2025-09-12,-3271,EUR,outflow,Rent,Bank,Bank
+P00032,,2025-09-15,-1096,EUR,outflow,Supplies,Bank,Bank
+P00033,,2025-09-15,-2963,EUR,outflow,Insurance,Bank,Bank
+P00034,,2025-09-14,-1569,EUR,outflow,Payroll,Bank,Bank
+P00035,M0017,2025-10-01,49,EUR,inflow,Revenue,Card,Studio
+P00036,M0014,2025-10-17,115,EUR,inflow,Drop-in,Cash,Studio
+P00037,M0051,2025-10-15,74,EUR,inflow,Revenue,Card,Studio
+P00038,M0027,2025-09-24,95,EUR,inflow,Membership,Bank,Studio
+P00039,M0069,2025-10-21,70,EUR,inflow,Class pack,Cash,Studio
+P00040,M0030,2025-10-13,72,EUR,inflow,Drop-in,Cash,Studio
+P00041,M0050,2025-10-18,118,EUR,inflow,Drop-in,Cash,Studio
+P00042,M0001,2025-10-11,51,EUR,inflow,Drop-in,Bank,Studio
+P00043,M0025,2025-09-29,112,EUR,inflow,Membership,Bank,Studio
+P00044,M0005,2025-10-20,72,EUR,inflow,Class pack,Card,Studio
+P00045,M0005,2025-09-30,101,EUR,inflow,Membership,Card,Studio
+P00046,M0054,2025-10-15,70,EUR,inflow,Membership,Cash,Studio
+P00047,M0014,2025-10-22,56,EUR,inflow,Revenue,Cash,Studio
+P00048,M0054,2025-10-13,69,EUR,inflow,Revenue,Bank,Studio
+P00049,M0061,2025-09-30,74,EUR,inflow,Membership,Bank,Studio
+P00050,M0053,2025-10-01,77,EUR,inflow,Membership,Bank,Studio
+P00051,M0066,2025-10-03,112,EUR,inflow,Revenue,Bank,Studio
+P00052,M0025,2025-09-29,53,EUR,inflow,Drop-in,Bank,Studio
+P00053,M0051,2025-10-14,116,EUR,inflow,Membership,Card,Studio
+P00054,M0009,2025-10-22,58,EUR,inflow,Revenue,Cash,Studio
+P00055,M0055,2025-10-19,89,EUR,inflow,Drop-in,Bank,Studio
+P00056,M0069,2025-10-13,41,EUR,inflow,Membership,Bank,Studio
+P00057,M0010,2025-10-18,110,EUR,inflow,Revenue,Card,Studio
+P00058,M0012,2025-10-03,77,EUR,inflow,Membership,Cash,Studio
+P00059,M0066,2025-10-21,115,EUR,inflow,Drop-in,Cash,Studio
+P00060,M0057,2025-10-20,86,EUR,inflow,Revenue,Bank,Studio
+P00061,M0054,2025-10-13,72,EUR,inflow,Revenue,Cash,Studio
+P00062,M0004,2025-10-18,108,EUR,inflow,Revenue,Cash,Studio
+P00063,M0042,2025-10-18,103,EUR,inflow,Revenue,Bank,Studio
+P00064,,2025-10-09,-1732,EUR,outflow,Insurance,Bank,Bank
+P00065,,2025-09-26,-528,EUR,outflow,Equipment,Bank,Bank
+P00066,,2025-10-14,-2888,EUR,outflow,Supplies,Bank,Bank
+P00067,,2025-09-26,-782,EUR,outflow,Marketing,Bank,Bank
+P00068,,2025-10-03,-2043,EUR,outflow,Insurance,Bank,Bank
+P00069,,2025-10-04,-1772,EUR,outflow,Marketing,Bank,Bank
+P00070,,2025-10-04,-1118,EUR,outflow,Marketing,Bank,Bank
+P00071,,2025-10-11,-1584,EUR,outflow,Equipment,Bank,Bank
+P00072,,2025-10-20,-2836,EUR,outflow,Supplies,Bank,Bank
+P00073,,2025-09-30,-777,EUR,outflow,Supplies,Bank,Bank
+P00074,M0028,2025-11-03,32,EUR,inflow,Drop-in,Bank,Studio
+P00075,M0045,2025-11-05,110,EUR,inflow,Membership,Cash,Studio
+P00076,M0006,2025-11-05,60,EUR,inflow,Revenue,Card,Studio
+P00077,M0001,2025-11-03,40,EUR,inflow,Revenue,Bank,Studio
+P00078,M0016,2025-11-08,104,EUR,inflow,Class pack,Bank,Studio
+P00079,M0027,2025-11-18,95,EUR,inflow,Class pack,Cash,Studio
+P00080,M0060,2025-10-24,92,EUR,inflow,Class pack,Card,Studio
+P00081,M0031,2025-11-04,120,EUR,inflow,Membership,Card,Studio
+P00082,M0045,2025-11-03,40,EUR,inflow,Class pack,Card,Studio
+P00083,M0046,2025-10-26,58,EUR,inflow,Class pack,Bank,Studio
+P00084,M0036,2025-11-13,46,EUR,inflow,Membership,Cash,Studio
+P00085,M0037,2025-11-01,69,EUR,inflow,Revenue,Cash,Studio
+P00086,M0047,2025-11-20,117,EUR,inflow,Membership,Bank,Studio
+P00087,M0047,2025-11-06,78,EUR,inflow,Class pack,Bank,Studio
+P00088,M0007,2025-11-20,86,EUR,inflow,Membership,Cash,Studio
+P00089,M0039,2025-11-09,82,EUR,inflow,Drop-in,Card,Studio
+P00090,M0064,2025-11-18,75,EUR,inflow,Class pack,Card,Studio
+P00091,M0054,2025-11-14,100,EUR,inflow,Drop-in,Card,Studio
+P00092,M0027,2025-10-26,59,EUR,inflow,Revenue,Card,Studio
+P00093,M0060,2025-11-04,81,EUR,inflow,Revenue,Bank,Studio
+P00094,M0072,2025-10-28,25,EUR,inflow,Class pack,Card,Studio
+P00095,M0065,2025-11-18,107,EUR,inflow,Membership,Card,Studio
+P00096,M0026,2025-11-16,104,EUR,inflow,Class pack,Bank,Studio
+P00097,M0068,2025-10-29,78,EUR,inflow,Class pack,Bank,Studio
+P00098,M0032,2025-11-13,60,EUR,inflow,Class pack,Bank,Studio
+P00099,M0017,2025-10-30,107,EUR,inflow,Drop-in,Card,Studio
+P00100,M0050,2025-11-08,106,EUR,inflow,Class pack,Cash,Studio
+P00101,M0067,2025-10-25,38,EUR,inflow,Drop-in,Cash,Studio
+P00102,M0033,2025-11-20,31,EUR,inflow,Class pack,Card,Studio
+P00103,M0041,2025-11-19,67,EUR,inflow,Revenue,Card,Studio
+P00104,M0022,2025-10-29,50,EUR,inflow,Revenue,Cash,Studio
+P00105,M0059,2025-11-05,72,EUR,inflow,Class pack,Bank,Studio
+P00106,,2025-11-19,-2121,EUR,outflow,Payroll,Bank,Bank
+P00107,,2025-11-09,-3108,EUR,outflow,Supplies,Bank,Bank
+P00108,,2025-11-18,-1832,EUR,outflow,Payroll,Bank,Bank
+P00109,,2025-11-17,-3176,EUR,outflow,Payroll,Bank,Bank
+P00110,,2025-10-29,-1167,EUR,outflow,Utilities,Bank,Bank
+P00111,,2025-11-07,-3351,EUR,outflow,Insurance,Bank,Bank
+P00112,,2025-11-06,-3094,EUR,outflow,Marketing,Bank,Bank
+P00113,M0017,2025-12-04,43,EUR,inflow,Membership,Bank,Studio
+P00114,M0066,2025-12-11,81,EUR,inflow,Membership,Card,Studio
+P00115,M0016,2025-12-21,83,EUR,inflow,Revenue,Cash,Studio
+P00116,M0066,2025-12-19,56,EUR,inflow,Class pack,Cash,Studio
+P00117,M0032,2025-12-09,103,EUR,inflow,Drop-in,Bank,Studio
+P00118,M0005,2025-12-13,64,EUR,inflow,Class pack,Bank,Studio
+P00119,M0026,2025-11-24,65,EUR,inflow,Membership,Cash,Studio
+P00120,M0064,2025-12-16,76,EUR,inflow,Class pack,Card,Studio
+P00121,M0028,2025-11-27,40,EUR,inflow,Class pack,Card,Studio
+P00122,M0019,2025-12-18,59,EUR,inflow,Revenue,Cash,Studio
+P00123,M0046,2025-11-25,57,EUR,inflow,Class pack,Card,Studio
+P00124,M0024,2025-11-24,96,EUR,inflow,Revenue,Cash,Studio
+P00125,M0072,2025-12-12,67,EUR,inflow,Drop-in,Bank,Studio
+P00126,M0061,2025-12-19,97,EUR,inflow,Drop-in,Card,Studio
+P00127,M0030,2025-11-28,34,EUR,inflow,Membership,Bank,Studio
+P00128,M0070,2025-11-28,59,EUR,inflow,Class pack,Cash,Studio
+P00129,M0025,2025-12-13,111,EUR,inflow,Drop-in,Card,Studio
+P00130,M0046,2025-12-04,31,EUR,inflow,Drop-in,Bank,Studio
+P00131,M0043,2025-12-10,73,EUR,inflow,Drop-in,Card,Studio
+P00132,M0011,2025-12-02,68,EUR,inflow,Membership,Bank,Studio
+P00133,M0029,2025-12-21,60,EUR,inflow,Drop-in,Bank,Studio
+P00134,M0004,2025-12-11,61,EUR,inflow,Revenue,Bank,Studio
+P00135,M0039,2025-12-02,39,EUR,inflow,Revenue,Bank,Studio
+P00136,M0004,2025-11-23,74,EUR,inflow,Revenue,Bank,Studio
+P00137,M0030,2025-11-26,97,EUR,inflow,Revenue,Cash,Studio
+P00138,M0020,2025-11-29,83,EUR,inflow,Revenue,Cash,Studio
+P00139,M0017,2025-11-24,82,EUR,inflow,Drop-in,Cash,Studio
+P00140,M0009,2025-12-01,47,EUR,inflow,Membership,Card,Studio
+P00141,M0016,2025-12-02,52,EUR,inflow,Drop-in,Card,Studio
+P00142,M0025,2025-11-24,78,EUR,inflow,Drop-in,Card,Studio
+P00143,M0030,2025-12-15,107,EUR,inflow,Class pack,Cash,Studio
+P00144,M0026,2025-12-15,109,EUR,inflow,Drop-in,Card,Studio
+P00145,,2025-12-20,-1340,EUR,outflow,Rent,Bank,Bank
+P00146,,2025-12-03,-2729,EUR,outflow,Equipment,Bank,Bank
+P00147,,2025-11-28,-2414,EUR,outflow,Payroll,Bank,Bank
+P00148,,2025-12-19,-1214,EUR,outflow,Supplies,Bank,Bank
+P00149,,2025-12-03,-1123,EUR,outflow,Rent,Bank,Bank
+P00150,,2025-12-07,-610,EUR,outflow,Utilities,Bank,Bank
+P00151,,2025-12-19,-2518,EUR,outflow,Payroll,Bank,Bank
+P00152,,2025-12-19,-633,EUR,outflow,Supplies,Bank,Bank
+P00153,M0055,2026-01-11,56,EUR,inflow,Drop-in,Bank,Studio
+P00154,M0060,2025-12-23,40,EUR,inflow,Revenue,Bank,Studio
+P00155,M0050,2025-12-25,54,EUR,inflow,Revenue,Card,Studio
+P00156,M0027,2025-12-26,73,EUR,inflow,Membership,Bank,Studio
+P00157,M0059,2026-01-19,89,EUR,inflow,Revenue,Card,Studio
+P00158,M0024,2026-01-07,98,EUR,inflow,Class pack,Cash,Studio
+P00159,M0021,2026-01-03,69,EUR,inflow,Drop-in,Bank,Studio
+P00160,M0013,2025-12-28,63,EUR,inflow,Revenue,Card,Studio
+P00161,M0035,2025-12-27,34,EUR,inflow,Revenue,Bank,Studio
+P00162,M0049,2026-01-18,107,EUR,inflow,Membership,Bank,Studio
+P00163,M0042,2026-01-20,51,EUR,inflow,Class pack,Card,Studio
+P00164,M0059,2025-12-31,35,EUR,inflow,Class pack,Cash,Studio
+P00165,M0007,2026-01-05,105,EUR,inflow,Revenue,Cash,Studio
+P00166,M0021,2026-01-02,50,EUR,inflow,Revenue,Card,Studio
+P00167,M0009,2026-01-14,82,EUR,inflow,Revenue,Bank,Studio
+P00168,M0060,2026-01-01,31,EUR,inflow,Drop-in,Cash,Studio
+P00169,M0006,2025-12-31,95,EUR,inflow,Class pack,Card,Studio
+P00170,M0041,2026-01-11,52,EUR,inflow,Revenue,Bank,Studio
+P00171,M0006,2025-12-26,33,EUR,inflow,Drop-in,Card,Studio
+P00172,M0071,2025-12-25,85,EUR,inflow,Drop-in,Cash,Studio
+P00173,M0035,2026-01-07,72,EUR,inflow,Revenue,Bank,Studio
+P00174,M0066,2026-01-17,32,EUR,inflow,Membership,Card,Studio
+P00175,M0044,2026-01-19,96,EUR,inflow,Membership,Cash,Studio
+P00176,M0056,2025-12-27,95,EUR,inflow,Class pack,Card,Studio
+P00177,M0004,2026-01-11,35,EUR,inflow,Membership,Bank,Studio
+P00178,M0037,2026-01-17,66,EUR,inflow,Drop-in,Cash,Studio
+P00179,M0030,2026-01-11,55,EUR,inflow,Class pack,Card,Studio
+P00180,M0010,2026-01-07,63,EUR,inflow,Class pack,Bank,Studio
+P00181,M0071,2026-01-01,101,EUR,inflow,Class pack,Card,Studio
+P00182,M0064,2025-12-28,30,EUR,inflow,Membership,Cash,Studio
+P00183,,2026-01-01,-2179,EUR,outflow,Insurance,Bank,Bank
+P00184,,2026-01-16,-2251,EUR,outflow,Payroll,Bank,Bank
+P00185,,2026-01-08,-1676,EUR,outflow,Utilities,Bank,Bank
+P00186,,2026-01-20,-882,EUR,outflow,Utilities,Bank,Bank
+P00187,,2026-01-06,-2633,EUR,outflow,Payroll,Bank,Bank
+P00188,M0063,2026-02-03,50,EUR,inflow,Drop-in,Cash,Studio
+P00189,M0048,2026-01-30,80,EUR,inflow,Drop-in,Card,Studio
+P00190,M0054,2026-02-07,52,EUR,inflow,Membership,Cash,Studio
+P00191,M0046,2026-02-05,47,EUR,inflow,Membership,Bank,Studio
+P00192,M0067,2026-01-26,98,EUR,inflow,Drop-in,Card,Studio
+P00193,M0012,2026-01-31,30,EUR,inflow,Revenue,Cash,Studio
+P00194,M0027,2026-01-31,60,EUR,inflow,Membership,Card,Studio
+P00195,M0059,2026-02-09,90,EUR,inflow,Drop-in,Card,Studio
+P00196,M0019,2026-02-06,83,EUR,inflow,Membership,Card,Studio
+P00197,M0071,2026-01-31,77,EUR,inflow,Class pack,Cash,Studio
+P00198,M0017,2026-01-26,37,EUR,inflow,Membership,Bank,Studio
+P00199,M0011,2026-02-18,95,EUR,inflow,Class pack,Card,Studio
+P00200,M0044,2026-02-04,98,EUR,inflow,Membership,Card,Studio
+P00201,M0063,2026-02-16,83,EUR,inflow,Drop-in,Bank,Studio
+P00202,M0039,2026-01-23,70,EUR,inflow,Revenue,Bank,Studio
+P00203,M0018,2026-02-14,112,EUR,inflow,Class pack,Bank,Studio
+P00204,M0042,2026-02-16,66,EUR,inflow,Membership,Card,Studio
+P00205,M0030,2026-02-16,113,EUR,inflow,Revenue,Cash,Studio
+P00206,M0022,2026-02-17,106,EUR,inflow,Membership,Bank,Studio
+P00207,M0048,2026-01-28,119,EUR,inflow,Drop-in,Bank,Studio
+P00208,M0010,2026-01-22,93,EUR,inflow,Drop-in,Bank,Studio
+P00209,M0031,2026-02-03,53,EUR,inflow,Membership,Card,Studio
+P00210,M0029,2026-01-28,59,EUR,inflow,Revenue,Cash,Studio
+P00211,M0010,2026-02-15,80,EUR,inflow,Revenue,Bank,Studio
+P00212,M0020,2026-02-13,78,EUR,inflow,Class pack,Cash,Studio
+P00213,M0071,2026-01-27,110,EUR,inflow,Class pack,Cash,Studio
+P00214,,2026-02-17,-892,EUR,outflow,Insurance,Bank,Bank
+P00215,,2026-01-26,-3165,EUR,outflow,Equipment,Bank,Bank
+P00216,,2026-02-05,-1451,EUR,outflow,Marketing,Bank,Bank
+P00217,,2026-02-04,-2056,EUR,outflow,Marketing,Bank,Bank
+P00218,,2026-02-11,-664,EUR,outflow,Utilities,Bank,Bank
+P00219,,2026-02-12,-3144,EUR,outflow,Payroll,Bank,Bank

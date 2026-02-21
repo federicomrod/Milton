@@ -1,0 +1,16 @@
+Nome do Plano,Preço,Período de Faturação,Duração do Contrato (Meses),Estado,Moeda,Preço Mensal Equivalente,Data de Início,Data de Fim,Dias de Teste,Categoria do Plano,Nível de Acesso,Aulas por Período (0=ilimitado)
+Básico Mensal,29.99,Mensal,1,Em Vigor,EUR,29.99,2024-01-01,,0,Básico,Limitado,8
+Standard Mensal,49.99,Mensal,1,Ativo,EUR,49.99,2024-01-01,,7,Standard,Limitado,20
+Premium Mensal,79.99,Mensal,1,Ativo,EUR,79.99,2024-01-01,,14,Premium,Completo,0
+Básico Anual,299.88,Anual,12,Ativo,EUR,24.99,2024-01-01,,0,Básico,Limitado,8
+Standard Anual,479.88,Anual,12,Ativo,EUR,39.99,2024-01-01,,14,Standard,Limitado,20
+Premium Anual,719.88,Anual,12,Ativo,EUR,59.99,2024-01-01,,30,Premium,Completo,0
+Tarifa Estudante,24.99,Mensal,6,Ativo,EUR,24.99,2024-03-01,,7,Standard,Limitado,15
+Tarifa Sénior,34.99,Mensal,1,Ativo,EUR,34.99,2024-02-01,,14,Standard,Limitado,12
+Pacote Família,129.99,Mensal,12,Ativo,EUR,129.99,2024-01-15,,14,Premium,Completo,0
+Fitness Empresarial,19.99,Mensal,12,Ativo,EUR,19.99,2024-04-01,,0,Básico,Limitado,10
+Cartão 10 Sessões,89.00,Trimestral,3,Ativo,EUR,29.67,2024-01-01,,0,Standard,Limitado,10
+Período Experimental,0.00,Mensal,1,Ativo,EUR,0.00,2024-06-01,2024-06-30,30,Básico,Limitado,4
+Yoga Especial,59.99,Mensal,3,Inativo,EUR,59.99,2024-01-01,2024-09-30,7,Standard,Limitado,12
+Cartão de Verão,149.99,Trimestral,3,Descontinuado,EUR,50.00,2024-06-01,2024-08-31,0,Standard,Limitado,0
+Wellness Plus,99.99,Mensal,6,Ativo,EUR,99.99,2024-05-01,,14,Premium,Completo,0

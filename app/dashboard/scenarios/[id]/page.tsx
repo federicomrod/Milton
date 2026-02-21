@@ -12,6 +12,7 @@ import type { ScenarioChartMetric } from "@/components/dashboard/scenarios/resul
 import { ScenarioChangesList } from "@/components/dashboard/scenarios/results/ScenarioChangesList";
 import type { ScenarioChangeItem } from "@/components/dashboard/scenarios/results/ScenarioChangesList";
 import type { PlanningScenarioRow } from "@/lib/types/scenario";
+import { baselineKpisToScenarioKpis } from "@/lib/scenario-baseline-kpis";
 
 const defaultKpis: ScenarioKPI[] = [
   {
@@ -90,6 +91,7 @@ export default function ScenarioDetailPage() {
   const [selectedMetric, setSelectedMetric] =
     useState<ScenarioChartMetric>("revenue");
   const [scenario, setScenario] = useState<PlanningScenarioRow | null>(null);
+  const [baselineKpis, setBaselineKpis] = useState<ScenarioKPI[] | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -124,6 +126,27 @@ export default function ScenarioDetailPage() {
     })();
   }, [id, router]);
 
+  // When we have a scenario but no projected KPIs, fetch baseline from report data
+  useEffect(() => {
+    if (!scenario) return;
+    const hasProjectedKpis =
+      scenario.projected_results?.kpis &&
+      scenario.projected_results.kpis.length > 0;
+    if (hasProjectedKpis) return;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/report-data", { credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && json.kpis) {
+          setBaselineKpis(baselineKpisToScenarioKpis(json.kpis));
+        }
+      } catch {
+        // Keep baselineKpis null → fall back to defaultKpis
+      }
+    })();
+  }, [scenario]);
+
   const handleEditAssumptions = () => {
     router.push(`/dashboard/scenarios/${id}/edit`);
   };
@@ -136,7 +159,7 @@ export default function ScenarioDetailPage() {
     scenario?.projected_results?.kpis &&
     scenario.projected_results.kpis.length > 0
       ? scenario.projected_results.kpis
-      : defaultKpis;
+      : (baselineKpis ?? defaultKpis);
 
   const changes: ScenarioChangeItem[] =
     scenario?.projected_results?.changes &&

@@ -13,8 +13,17 @@ import {
 import {
   parseDriverOverrides,
   type PlanningScenarioRow,
+  type ProjectedResultsSnapshot,
 } from "@/lib/types/scenario";
 import type { DriverSection } from "@/lib/scenario-drivers";
+import {
+  baselineKpisToScenarioKpis,
+  formatProjectedKPIs,
+  projectedKPIsToSnapshotKpis,
+} from "@/lib/scenario-baseline-kpis";
+import { projectKPIsFromDrivers } from "@/lib/scenario-projection";
+import type { KPIMetrics } from "@/lib/report-data-service";
+import type { ImpactPreviewKPI } from "@/components/dashboard/scenarios/ImpactPreview";
 
 export default function ScenarioEditPage() {
   const params = useParams();
@@ -22,6 +31,17 @@ export default function ScenarioEditPage() {
   const id = params.id as string;
   const [businessType, setBusinessType] = useState<string | null>(null);
   const [scenario, setScenario] = useState<PlanningScenarioRow | null>(null);
+  const [baselineKpis, setBaselineKpis] = useState<ImpactPreviewKPI[] | null>(
+    null
+  );
+  const [baselineKpisNumeric, setBaselineKpisNumeric] =
+    useState<KPIMetrics | null>(null);
+  const [driverBaselinesFromKpis, setDriverBaselinesFromKpis] = useState<Record<
+    string,
+    number
+  > | null>(null);
+  const [pendingProjectedResults, setPendingProjectedResults] =
+    useState<ProjectedResultsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -77,6 +97,56 @@ export default function ScenarioEditPage() {
     })();
   }, [id]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/report-data", { credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && json.kpis) {
+          setBaselineKpisNumeric(json.kpis);
+          const formatted = baselineKpisToScenarioKpis(json.kpis);
+          setBaselineKpis(
+            formatted.map((k) => ({
+              label: k.title,
+              value: k.value,
+              delta: k.delta,
+              deltaPercentage: k.deltaPercent,
+              isPositive: k.isPositive,
+            }))
+          );
+        }
+      } catch {
+        // Leave baselineKpis null; editor will use mock
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (businessType !== "fitness_studio") return;
+    (async () => {
+      try {
+        const to = new Date();
+        const from = new Date();
+        from.setMonth(from.getMonth() - 1);
+        const fromStr = from.toISOString().split("T")[0];
+        const toStr = to.toISOString().split("T")[0];
+        const res = await fetch(
+          `/api/analytics/fitness-studio/kpis?from_date=${fromStr}&to_date=${toStr}`,
+          { credentials: "include" }
+        );
+        const json = await res.json().catch(() => ({}));
+        const kpis = json.kpis;
+        if (res.ok && kpis && typeof kpis.activeMembers === "number") {
+          setDriverBaselinesFromKpis({
+            "total-members": kpis.activeMembers,
+          });
+        }
+      } catch {
+        // Leave driverBaselinesFromKpis null; template baselines will be used
+      }
+    })();
+  }, [businessType]);
+
   const templateSections =
     businessType != null
       ? getDriverSectionsForBusinessModel(businessType)
@@ -84,7 +154,11 @@ export default function ScenarioEditPage() {
   const overrides = scenario
     ? parseDriverOverrides(scenario.driver_overrides)
     : [];
-  const initialSections = mergeDriverOverrides(templateSections, overrides);
+  const initialSections = mergeDriverOverrides(
+    templateSections,
+    overrides,
+    driverBaselinesFromKpis
+  );
 
   const handleSave = useCallback(
     async (name: string, sections: DriverSection[]) => {
@@ -111,6 +185,28 @@ export default function ScenarioEditPage() {
     currentName?: string
   ) => {
     if (!id) return;
+    if (baselineKpisNumeric) {
+      const projected = projectKPIsFromDrivers(baselineKpisNumeric, sections);
+      const formatted = formatProjectedKPIs(baselineKpisNumeric, projected);
+      const kpis = projectedKPIsToSnapshotKpis(formatted);
+      const changes = sections.flatMap((section) =>
+        section.drivers
+          .filter((d) => d.value !== d.baseline)
+          .map((d) => {
+            const fmt = (v: number, u: string) =>
+              u === "%" ? `${v}%` : u ? `${v} ${u}`.trim() : String(v);
+            return {
+              driver: d.label,
+              category: section.title,
+              baseline: fmt(d.baseline, d.unit),
+              scenario: fmt(d.value, d.unit),
+            };
+          })
+      );
+      setPendingProjectedResults({ kpis, changes });
+    } else {
+      setPendingProjectedResults(null);
+    }
     const body: { driver_overrides: DriverSection[]; name?: string } = {
       driver_overrides: sections,
     };
@@ -136,9 +232,10 @@ export default function ScenarioEditPage() {
       credentials: "include",
       body: JSON.stringify({
         status: "Projected",
-        projected_results: {},
+        projected_results: pendingProjectedResults ?? {},
       }),
     });
+    setPendingProjectedResults(null);
     router.push(`/dashboard/scenarios/${id}`);
   };
 
@@ -194,6 +291,8 @@ export default function ScenarioEditPage() {
             : "Draft"
         }
         initialSections={initialSections}
+        baselineKpis={baselineKpis}
+        baselineKpisNumeric={baselineKpisNumeric}
         onSave={handleSave}
         onSaveDriverOverrides={handleSaveDriverOverrides}
         onSimulationComplete={handleSimulationComplete}

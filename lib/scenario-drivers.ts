@@ -49,27 +49,40 @@ function cloneSections(sections: DriverSection[]): DriverSection[] {
   }));
 }
 
-/** Merge saved driver_overrides onto template; template provides full structure and baselines */
+/**
+ * Merge saved driver_overrides onto template; template provides full structure and baselines.
+ * When driverBaselinesFromKpis is provided (e.g. from fitness studio KPIs), those values
+ * override the template baseline and initial value for matching driver ids (unless the user
+ * has a saved override for that driver).
+ */
 export function mergeDriverOverrides(
   template: DriverSection[],
-  overrides: DriverSection[]
+  overrides: DriverSection[],
+  driverBaselinesFromKpis?: Record<string, number> | null
 ): DriverSection[] {
   const overrideBySectionId = new Map(overrides.map((s) => [s.id, s]));
+  const kpiBaselines = driverBaselinesFromKpis ?? {};
   return cloneSections(
     template.map((section) => {
       const overrideSection = overrideBySectionId.get(section.id);
-      if (!overrideSection) return section;
-      const overrideByDriverId = new Map(
-        overrideSection.drivers.map((d) => [d.id, d])
-      );
+      const overrideByDriverId = overrideSection
+        ? new Map(overrideSection.drivers.map((d) => [d.id, d]))
+        : new Map<string, Driver>();
       return {
         ...section,
         drivers: section.drivers.map((driver) => {
           const overrideDriver = overrideByDriverId.get(driver.id);
-          if (!overrideDriver) return driver;
+          const kpiValue = kpiBaselines[driver.id];
+          const baseline = kpiValue != null ? kpiValue : driver.baseline;
+          const value = overrideDriver
+            ? overrideDriver.value
+            : kpiValue != null
+              ? kpiValue
+              : driver.value;
           return {
             ...driver,
-            value: overrideDriver.value,
+            baseline,
+            value,
           };
         }),
       };

@@ -4,8 +4,18 @@ import { TrendingUp, TrendingDown } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
+export interface ImpactPreviewKPI {
+  label: string;
+  value: string;
+  delta: string;
+  deltaPercentage: string;
+  isPositive: boolean;
+}
+
 interface ImpactPreviewProps {
   hasChanges: boolean;
+  /** Baseline KPIs from GET /api/report-data; when provided, used instead of mock */
+  baselineKpis?: ImpactPreviewKPI[] | null;
 }
 
 interface KPICardProps {
@@ -49,38 +59,43 @@ function KPICard({
   );
 }
 
-export function ImpactPreview({ hasChanges }: ImpactPreviewProps) {
-  // Mock data - in real app these would be calculated from driver changes
-  const kpis = [
-    {
-      label: "Revenue",
-      value: "€2.4M",
-      delta: "+€240K",
-      deltaPercentage: "+11%",
-      isPositive: true,
-    },
-    {
-      label: "Costs",
-      value: "€1.6M",
-      delta: "+€160K",
-      deltaPercentage: "+11%",
-      isPositive: false,
-    },
-    {
-      label: "Net Income",
-      value: "€800K",
-      delta: "+€80K",
-      deltaPercentage: "+11%",
-      isPositive: true,
-    },
-    {
-      label: "Cash Runway",
-      value: "18 months",
-      delta: "+2 months",
-      deltaPercentage: "+12%",
-      isPositive: true,
-    },
-  ];
+const MOCK_KPIS: ImpactPreviewKPI[] = [
+  {
+    label: "Revenue",
+    value: "€2.4M",
+    delta: "+€240K",
+    deltaPercentage: "+11%",
+    isPositive: true,
+  },
+  {
+    label: "Costs",
+    value: "€1.6M",
+    delta: "+€160K",
+    deltaPercentage: "+11%",
+    isPositive: false,
+  },
+  {
+    label: "Net Income",
+    value: "€800K",
+    delta: "+€80K",
+    deltaPercentage: "+11%",
+    isPositive: true,
+  },
+  {
+    label: "Cash Runway",
+    value: "18 months",
+    delta: "+2 months",
+    deltaPercentage: "+12%",
+    isPositive: true,
+  },
+];
+
+export function ImpactPreview({
+  hasChanges,
+  baselineKpis,
+}: ImpactPreviewProps) {
+  const kpis =
+    baselineKpis && baselineKpis.length > 0 ? baselineKpis : MOCK_KPIS;
 
   if (!hasChanges) {
     return (

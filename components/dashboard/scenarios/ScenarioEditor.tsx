@@ -13,6 +13,9 @@ import {
   getDriverSectionsForBusinessModel,
   type DriverSection as DriverSectionType,
 } from "@/lib/scenario-drivers";
+import type { KPIMetrics } from "@/lib/report-data-service";
+import { projectKPIsFromDrivers } from "@/lib/scenario-projection";
+import { formatProjectedKPIs } from "@/lib/scenario-baseline-kpis";
 
 export type ScenarioEditorStatus = "Draft" | "Projected" | "Ready";
 
@@ -35,6 +38,16 @@ interface ScenarioEditorProps {
   ) => void | Promise<void>;
   /** Called when simulation finishes successfully; e.g. navigate to results */
   onSimulationComplete?: () => void;
+  /** Baseline KPIs for Impact Preview when no driver changes (from GET /api/report-data, formatted) */
+  baselineKpis?: Array<{
+    label: string;
+    value: string;
+    delta: string;
+    deltaPercentage: string;
+    isPositive: boolean;
+  }> | null;
+  /** Raw baseline KPIs (numeric) to recalculate projected KPIs when drivers change */
+  baselineKpisNumeric?: KPIMetrics | null;
 }
 
 function getStatusVariant(
@@ -60,6 +73,8 @@ export function ScenarioEditor({
   onSave,
   onSaveDriverOverrides,
   onSimulationComplete,
+  baselineKpis,
+  baselineKpisNumeric,
 }: ScenarioEditorProps) {
   const templateSections = useMemo(
     () => getDriverSectionsForBusinessModel(businessType),
@@ -77,6 +92,12 @@ export function ScenarioEditor({
   useEffect(() => {
     setName(scenarioName);
   }, [scenarioName]);
+
+  useEffect(() => {
+    if (!hasChanges && initialSections !== sections) {
+      setSections(initialSections);
+    }
+  }, [initialSections, hasChanges]);
 
   const handleDriverChange = (
     sectionId: string,
@@ -159,6 +180,15 @@ export function ScenarioEditor({
     onSimulationComplete?.();
   };
 
+  const projectedKpis = useMemo(() => {
+    if (!hasChanges || !baselineKpisNumeric) return null;
+    const projected = projectKPIsFromDrivers(baselineKpisNumeric, sections);
+    return formatProjectedKPIs(baselineKpisNumeric, projected);
+  }, [hasChanges, baselineKpisNumeric, sections]);
+
+  const impactPreviewKpis =
+    hasChanges && projectedKpis ? projectedKpis : baselineKpis;
+
   return (
     <div className="flex flex-col min-h-screen bg-background">
       {/* Header */}
@@ -222,7 +252,10 @@ export function ScenarioEditor({
                 </p>
               </div>
               <Separator />
-              <ImpactPreview hasChanges={hasChanges} />
+              <ImpactPreview
+                hasChanges={hasChanges}
+                baselineKpis={impactPreviewKpis}
+              />
             </Card>
 
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">

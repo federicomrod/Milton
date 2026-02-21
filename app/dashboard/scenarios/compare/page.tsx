@@ -11,7 +11,16 @@ import type { KPIComparisonRow } from "@/components/dashboard/scenarios/compare/
 import { VisualComparison } from "@/components/dashboard/scenarios/compare/VisualComparison";
 import { DriverDifferences } from "@/components/dashboard/scenarios/compare/DriverDifferences";
 import type { DriverRow } from "@/components/dashboard/scenarios/compare/DriverDifferences";
-import type { PlanningScenarioRow } from "@/lib/types/scenario";
+import {
+  parseDriverOverrides,
+  type PlanningScenarioRow,
+} from "@/lib/types/scenario";
+import type { KPIMetrics } from "@/lib/report-data-service";
+import {
+  getDriverSectionsForBusinessModel,
+  mergeDriverOverrides,
+} from "@/lib/scenario-drivers";
+import { projectKPIsFromDrivers } from "@/lib/scenario-projection";
 
 const COMPARE_COLORS = [
   "#3b82f6",
@@ -30,49 +39,6 @@ function scenariosFromApi(rows: PlanningScenarioRow[]): CompareScenario[] {
     color: COMPARE_COLORS[i % COMPARE_COLORS.length],
   }));
 }
-
-const KPI_DATA: KPIComparisonRow[] = [
-  {
-    name: "Revenue",
-    key: "revenue",
-    values: {
-      baseline: 2_400_000,
-      "scenario-a": 2_650_000,
-      "scenario-b": 2_100_000,
-      "scenario-c": 2_850_000,
-    },
-  },
-  {
-    name: "Costs",
-    key: "costs",
-    values: {
-      baseline: 1_800_000,
-      "scenario-a": 1_900_000,
-      "scenario-b": 1_650_000,
-      "scenario-c": 2_100_000,
-    },
-  },
-  {
-    name: "Net Income",
-    key: "netIncome",
-    values: {
-      baseline: 600_000,
-      "scenario-a": 750_000,
-      "scenario-b": 450_000,
-      "scenario-c": 750_000,
-    },
-  },
-  {
-    name: "Cash Runway",
-    key: "runway",
-    values: {
-      baseline: 18,
-      "scenario-a": 22,
-      "scenario-b": 14,
-      "scenario-c": 20,
-    },
-  },
-];
 
 const CHART_DATA_RAW: Record<string, number | string>[] = [
   {
@@ -185,6 +151,11 @@ const DRIVERS_MOCK_NAMES = [
 export default function CompareScenariosPage() {
   const router = useRouter();
   const [scenarios, setScenarios] = useState<CompareScenario[]>([]);
+  const [baselineKpis, setBaselineKpis] = useState<KPIMetrics | null>(null);
+  const [businessType, setBusinessType] = useState<string | null>(null);
+  const [scenarioDetails, setScenarioDetails] = useState<
+    Record<string, PlanningScenarioRow>
+  >({});
   const [loading, setLoading] = useState(true);
   const [selectedScenarios, setSelectedScenarios] = useState<string[]>([]);
 
@@ -217,6 +188,59 @@ export default function CompareScenariosPage() {
     }
   }, [scenarios]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/report-data", { credentials: "include" });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && json.kpis) setBaselineKpis(json.kpis);
+      } catch {
+        // Keep baselineKpis null; grid will use mock for all columns
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/business-type", {
+          credentials: "include",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && json.businessType != null)
+          setBusinessType(json.businessType);
+      } catch {
+        // Leave businessType null; projection will fall back to template
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (selectedScenarios.length === 0) {
+      setScenarioDetails({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const details: Record<string, PlanningScenarioRow> = {};
+      await Promise.all(
+        selectedScenarios.map(async (id) => {
+          const res = await fetch(`/api/scenarios/${id}`, {
+            credentials: "include",
+          });
+          const data = await res.json().catch(() => ({}));
+          if (cancelled) return;
+          if (res.ok && data.scenario)
+            details[id] = data.scenario as PlanningScenarioRow;
+        })
+      );
+      if (!cancelled) setScenarioDetails(details);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedScenarios]);
+
   const activeScenarios = useMemo(
     () => scenarios.filter((s) => selectedScenarios.includes(s.id)),
     [scenarios, selectedScenarios]
@@ -227,26 +251,47 @@ export default function CompareScenariosPage() {
   const kpiDataForKeyedScenarios = useMemo((): KPIComparisonRow[] => {
     const ids = activeScenarios.map((s) => s.id);
     if (ids.length === 0) return [];
+    const baselineIdFirst = scenarios[0]?.id;
+    const template = getDriverSectionsForBusinessModel(businessType);
     const mockByIndex = [
       [2_400_000, 2_650_000, 2_100_000, 2_850_000],
       [1_800_000, 1_900_000, 1_650_000, 2_100_000],
       [600_000, 750_000, 450_000, 750_000],
       [18, 22, 14, 20],
     ];
-    const keys: { name: string; key: string }[] = [
-      { name: "Revenue", key: "revenue" },
-      { name: "Costs", key: "costs" },
-      { name: "Net Income", key: "netIncome" },
-      { name: "Cash Runway", key: "runway" },
+    const rows: {
+      name: string;
+      key: string;
+      baselineMetric: keyof KPIMetrics;
+    }[] = [
+      { name: "Revenue", key: "revenue", baselineMetric: "revenue" },
+      { name: "Costs", key: "costs", baselineMetric: "expenses" },
+      { name: "Net Income", key: "netIncome", baselineMetric: "netIncome" },
+      { name: "Cash Runway", key: "runway", baselineMetric: "cashRunway" },
     ];
-    return keys.map(({ name, key }, rowIdx) => ({
+    return rows.map(({ name, key, baselineMetric }, rowIdx) => ({
       name,
       key,
       values: Object.fromEntries(
-        ids.map((id, i) => [id, mockByIndex[rowIdx][Math.min(i, 3)] ?? 0])
+        ids.map((id, i) => {
+          if (baselineKpis && businessType != null) {
+            const row = scenarioDetails[id];
+            if (row != null) {
+              const overrides = parseDriverOverrides(row.driver_overrides);
+              const sections = mergeDriverOverrides(template, overrides);
+              const projected = projectKPIsFromDrivers(baselineKpis, sections);
+              const value = projected[baselineMetric] as number;
+              return [id, value];
+            }
+          }
+          if (baselineKpis && id === baselineIdFirst) {
+            return [id, baselineKpis[baselineMetric] as number];
+          }
+          return [id, mockByIndex[rowIdx][Math.min(i, 3)] ?? 0];
+        })
       ),
     }));
-  }, [activeScenarios]);
+  }, [activeScenarios, scenarios, baselineKpis, businessType, scenarioDetails]);
 
   const transformedChartData = useMemo(() => {
     const scenarioKeys = ["baseline", "scenarioa", "scenariob", "scenarioc"];

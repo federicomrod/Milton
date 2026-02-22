@@ -44,8 +44,13 @@ function isSingleMonth(fromDate: Date, toDate: Date): boolean {
 }
 
 function parseDate(dateStr: any): Date | null {
-  if (!dateStr) return null;
-  if (dateStr instanceof Date) return dateStr;
+  if (dateStr == null) return null;
+  if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
+  if (typeof dateStr === "number") {
+    if (dateStr > 1e12) return new Date(dateStr);
+    if (dateStr > 1000) return new Date((dateStr - 25569) * 86400 * 1000);
+    return null;
+  }
   if (typeof dateStr !== "string") return null;
 
   // Try YYYY-MM-DD HH:mm:ss format (with space separator)
@@ -342,8 +347,43 @@ export async function GET(req: NextRequest) {
       }
 
       case "revenue-per-member": {
-        // Chart 4: Revenue per Member Trend (ARPM)
-        // Use daily data if single month, otherwise monthly
+        // Chart 4: Revenue per Member Trend (ARPM) – use data_tables field names for transactions
+        const txTableId = Object.keys(idToNameMap).find(
+          (id) => idToNameMap[id] === "transactions"
+        );
+        const txFields = txTableId
+          ? tableFieldsMap[txTableId]?.fields || []
+          : [];
+        const getTxVal = (
+          t: any,
+          fieldName: string,
+          fallbacks: string[] = []
+        ): any => {
+          if (fieldName && t[fieldName] !== undefined) return t[fieldName];
+          const lower = (fieldName || "").toLowerCase();
+          for (const k in t) {
+            if (k.toLowerCase() === lower) return t[k];
+          }
+          for (const f of fallbacks) {
+            if (t[f] !== undefined) return t[f];
+          }
+          return undefined;
+        };
+        const txDateF = txFields.find((f) =>
+          f.name.toLowerCase().includes("date")
+        )?.name;
+        const txAmountF = txFields.find(
+          (f) =>
+            f.name.toLowerCase().includes("amount") ||
+            f.name.toLowerCase().includes("value") ||
+            f.name.toLowerCase().includes("price")
+        )?.name;
+        const txCategoryF = txFields.find(
+          (f) =>
+            f.name.toLowerCase().includes("category") ||
+            f.name.toLowerCase().includes("type")
+        )?.name;
+
         const useDaily = isSingleMonth(from, to);
         const periods = useDaily
           ? generateDays(from, to)
@@ -369,8 +409,6 @@ export async function GET(req: NextRequest) {
             periodEndForMembers.setHours(23, 59, 59, 999);
           }
 
-          // Active members at end of period
-          // Handle both lowercase and capitalized field names
           const activeMembers = members.filter((m: any) => {
             const joinDateStr =
               m.join_date || m.joinDate || m["Join Date"] || m["join_date"];
@@ -388,16 +426,29 @@ export async function GET(req: NextRequest) {
             );
           }).length;
 
-          // Revenue in period
           const revenue = transactions
             .filter((t: any) => {
-              const date = t.date ? new Date(t.date) : null;
+              const dateRaw = txDateF
+                ? getTxVal(t, txDateF, ["date", "Date", "payment_date"])
+                : (t.date ?? t.Date ?? t.payment_date);
+              const date = dateRaw ? parseDate(dateRaw) : null;
+              const amountRaw = txAmountF
+                ? getTxVal(t, txAmountF, ["amount", "Amount", "value", "Value"])
+                : (t.amount ?? t.Amount ?? 0);
               const amount =
-                typeof t.amount === "string"
-                  ? parseFloat(t.amount)
-                  : t.amount || 0;
-              const category = (t.category || "").toLowerCase();
-              if (!date) return false;
+                typeof amountRaw === "string"
+                  ? parseFloat(amountRaw)
+                  : Number(amountRaw) || 0;
+              const categoryRaw = txCategoryF
+                ? getTxVal(t, txCategoryF, [
+                    "category",
+                    "Category",
+                    "type",
+                    "Type",
+                  ])
+                : (t.category ?? t.Category ?? "");
+              const category = String(categoryRaw || "").toLowerCase();
+              if (!date || isNaN(date.getTime())) return false;
               return (
                 amount > 0 &&
                 (category.includes("membership") ||
@@ -409,10 +460,13 @@ export async function GET(req: NextRequest) {
               );
             })
             .reduce((sum: number, t: any) => {
+              const amountRaw = txAmountF
+                ? getTxVal(t, txAmountF, ["amount", "Amount", "value", "Value"])
+                : (t.amount ?? t.Amount ?? 0);
               const amount =
-                typeof t.amount === "string"
-                  ? parseFloat(t.amount)
-                  : t.amount || 0;
+                typeof amountRaw === "string"
+                  ? parseFloat(amountRaw)
+                  : Number(amountRaw) || 0;
               return sum + amount;
             }, 0);
 
@@ -784,10 +838,11 @@ export async function GET(req: NextRequest) {
           // Create a unique key for this class occurrence (class_id + date/time)
           const occurrenceKey = `${normalized.classId}_${startAt.toISOString()}`;
 
+          const cap = Number(classData.capacity) || 0;
           if (!classOccurrences.has(occurrenceKey)) {
             classOccurrences.set(occurrenceKey, {
               filled: 0,
-              capacity: classData.capacity || 0,
+              capacity: cap,
               weekday,
               hour,
             });
@@ -813,18 +868,16 @@ export async function GET(req: NextRequest) {
             heatmapData[key] = { booked: 0, capacity: 0, occurrences: 0 };
           }
 
-          // Sum up filled spots and capacity across all occurrences
           heatmapData[key].booked += occurrence.filled;
-          heatmapData[key].capacity += occurrence.capacity;
+          heatmapData[key].capacity += Number(occurrence.capacity) || 0;
           heatmapData[key].occurrences += 1;
         });
 
         chartData = Object.entries(heatmapData).map(([key, value]) => {
           const [weekday, hour] = key.split("-").map(Number);
-          const utilization =
-            value.capacity > 0
-              ? parseFloat(((value.booked / value.capacity) * 100).toFixed(2))
-              : 0;
+          const capacity = Number(value.capacity) || 0;
+          const rawUtil = capacity > 0 ? (value.booked / capacity) * 100 : 0;
+          const utilization = Math.min(100, parseFloat(rawUtil.toFixed(2)));
           return {
             weekday_iso: weekday,
             hour_of_day: hour,

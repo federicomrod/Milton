@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -28,6 +28,8 @@ import {
   ArrowRight,
   Brain,
   AlertTriangle,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ColumnMapping } from "@/types/schema";
@@ -37,6 +39,7 @@ interface SheetInfo {
   name: string;
   headers: string[];
   sampleData: Record<string, unknown>[];
+  rows?: Record<string, unknown>[];
   totalRows: number;
 }
 
@@ -48,6 +51,7 @@ interface SheetSelectionProps {
       sheetName: string;
       datasetType: "bank" | "crm" | "budget" | string;
       columnMappings: ColumnMapping[];
+      valueMappings?: Record<string, Record<string, string>>;
     }>
   ) => void;
   onCancel: () => void;
@@ -56,6 +60,8 @@ interface SheetSelectionProps {
     name: string;
     fields: ModelTableField[];
   };
+  /** Tables that this table depends on but have no data yet. Blocks upload when non-empty. */
+  missingDependencies?: string[];
 }
 
 const STANDARD_FIELDS = {
@@ -424,12 +430,25 @@ function buildStandardFieldsFromTable(
   label: string;
   description: string;
   required: boolean;
+  autoGenerable: boolean;
+  isPrimaryKey: boolean;
+  isReference: boolean;
+  referencesTable?: string;
+  allowedValues?: string[];
 }> {
   return modelTableFields.map((f) => ({
     value: f.name,
     label: f.name,
-    description: f.type || "—",
+    description:
+      f.allowedValues && f.allowedValues.length > 0
+        ? `Values: ${f.allowedValues.join(", ")}`
+        : f.type || "—",
     required: f.required ?? false,
+    autoGenerable: f.primaryKey === true || !!f.references,
+    isPrimaryKey: f.primaryKey === true,
+    isReference: !!f.references,
+    referencesTable: f.references?.table,
+    allowedValues: f.allowedValues,
   }));
 }
 
@@ -439,6 +458,7 @@ export default function SheetSelection({
   onConfirm,
   onCancel,
   targetModelTable,
+  missingDependencies = [],
 }: SheetSelectionProps) {
   const [sheetMappings, setSheetMappings] = useState<
     Record<string, "bank" | "crm" | "budget" | string | null>
@@ -705,6 +725,138 @@ export default function SheetSelection({
   // Validation
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
+  // Value normalization state
+  const [valueMappings, setValueMappings] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  const [isNormalizing, setIsNormalizing] = useState(false);
+  const lastNormKey = useRef("");
+  const normVersion = useRef(0);
+
+  const fieldsWithAllowedValues = useMemo(() => {
+    if (!targetModelTable || currentSheetType !== targetModelTable.name)
+      return [] as Array<{
+        value: string;
+        label: string;
+        allowedValues: string[];
+      }>;
+    return standardFields.filter(
+      (f): f is typeof f & { allowedValues: string[] } =>
+        "allowedValues" in f &&
+        Array.isArray((f as any).allowedValues) &&
+        (f as any).allowedValues.length > 0 &&
+        currentMappings.some(
+          (m) => m.standardField === f.value && m.standardField !== "unmapped"
+        )
+    );
+  }, [standardFields, currentMappings, targetModelTable, currentSheetType]);
+
+  const sheetDataForNormalization =
+    currentSheet?.rows && currentSheet.rows.length > 0
+      ? currentSheet.rows
+      : (currentSheet?.sampleData ?? []);
+
+  const uniqueValuesPerField = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    if (!currentSheet) return out;
+    for (const field of fieldsWithAllowedValues) {
+      const mapping = currentMappings.find(
+        (m) => m.standardField === field.value
+      );
+      if (!mapping) continue;
+      const vals = [
+        ...new Set(
+          sheetDataForNormalization
+            .map((row) => row[mapping.originalColumn])
+            .filter(
+              (v) => v !== undefined && v !== null && String(v).trim() !== ""
+            )
+            .map((v) => String(v))
+        ),
+      ];
+      out[field.value] = vals;
+    }
+    return out;
+  }, [fieldsWithAllowedValues, currentMappings, sheetDataForNormalization]);
+
+  useEffect(() => {
+    const key = fieldsWithAllowedValues
+      .map((f) => {
+        const m = currentMappings.find((cm) => cm.standardField === f.value);
+        return `${f.value}:${m?.originalColumn || ""}`;
+      })
+      .sort()
+      .join("|");
+
+    if (key === lastNormKey.current) return;
+    lastNormKey.current = key;
+
+    if (fieldsWithAllowedValues.length === 0) {
+      setValueMappings({});
+      return;
+    }
+
+    const fieldsToNormalize = fieldsWithAllowedValues.filter((f) => {
+      const vals = uniqueValuesPerField[f.value] || [];
+      if (vals.length === 0) return false;
+      const allowed = new Set(f.allowedValues!.map((v) => v.toLowerCase()));
+      return vals.some((v) => !allowed.has(v.toLowerCase()));
+    });
+
+    if (fieldsToNormalize.length === 0) {
+      const identity: Record<string, Record<string, string>> = {};
+      for (const f of fieldsWithAllowedValues) {
+        const vals = uniqueValuesPerField[f.value] || [];
+        const map: Record<string, string> = {};
+        for (const v of vals) {
+          const match = f.allowedValues!.find(
+            (a) => a.toLowerCase() === v.toLowerCase()
+          );
+          if (match) map[v] = match;
+        }
+        if (Object.keys(map).length > 0) identity[f.value] = map;
+      }
+      setValueMappings(identity);
+      return;
+    }
+
+    const version = ++normVersion.current;
+    const normalize = async () => {
+      setIsNormalizing(true);
+      try {
+        const res = await fetch("/api/data/normalize-values", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fields: fieldsToNormalize.map((f) => ({
+              fieldName: f.value,
+              tableName: targetModelTable?.name || "",
+              allowedValues: f.allowedValues,
+              uniqueValues: uniqueValuesPerField[f.value],
+            })),
+          }),
+        });
+        if (normVersion.current === version && res.ok) {
+          const data = await res.json();
+          if (data.mappings) {
+            setValueMappings((prev) => ({ ...prev, ...data.mappings }));
+          }
+        }
+      } catch (err) {
+        console.error("[sheet-selection] Normalization error:", err);
+      } finally {
+        if (normVersion.current === version) setIsNormalizing(false);
+      }
+    };
+    normalize();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    fieldsWithAllowedValues,
+    uniqueValuesPerField,
+    currentMappings,
+    targetModelTable,
+  ]);
+
   const validationErrorsComputed = React.useMemo(() => {
     if (!currentSheet || !currentSheetType || currentMappings.length === 0) {
       return [];
@@ -714,7 +866,9 @@ export default function SheetSelection({
     const mappedFields = currentMappings
       .map((m) => m.standardField)
       .filter((f) => f !== "unmapped");
-    const requiredFields = standardFields.filter((f) => f.required);
+    const requiredFields = standardFields.filter(
+      (f) => f.required && !("autoGenerable" in f && f.autoGenerable)
+    );
 
     for (const required of requiredFields) {
       if (!mappedFields.includes(required.value)) {
@@ -790,10 +944,13 @@ export default function SheetSelection({
     if (currentMappings.length === 0) return 0;
 
     if (targetModelTable && currentSheetType === targetModelTable.name) {
-      const requiredFields = standardFields.filter((f) => f.required);
+      const requiredFields = standardFields.filter(
+        (f: { required: boolean; autoGenerable?: boolean }) =>
+          f.required && !f.autoGenerable
+      );
       if (requiredFields.length === 0) return 1.0;
 
-      const mappedRequired = requiredFields.filter((f) =>
+      const mappedRequired = requiredFields.filter((f: { value: string }) =>
         currentMappings.some(
           (m) => m.standardField === f.value && f.value !== "unmapped"
         )
@@ -837,6 +994,8 @@ export default function SheetSelection({
         sheetName,
         datasetType: datasetType as "bank" | "crm" | "budget" | string,
         columnMappings: columnMappings[sheetName] || [],
+        valueMappings:
+          Object.keys(valueMappings).length > 0 ? valueMappings : undefined,
       }));
 
     if (mappings.length === 0) {
@@ -862,7 +1021,9 @@ export default function SheetSelection({
                 : "budget") as "transactions" | "deals" | "budget"
           ] || [];
 
-      const requiredFields = mappingStandardFields.filter((f) => f.required);
+      const requiredFields = mappingStandardFields.filter(
+        (f) => f.required && !("autoGenerable" in f && f.autoGenerable)
+      );
       const mappedFields = mapping.columnMappings
         .map((m) => m.standardField)
         .filter((f) => f !== "unmapped");
@@ -872,7 +1033,6 @@ export default function SheetSelection({
           alert(
             `Sheet "${mapping.sheetName}" is missing required field "${required.label}". Please complete the mapping.`
           );
-          // Switch to that sheet
           setSelectedSheet(mapping.sheetName);
           setActiveTab("mappings");
           return;
@@ -912,13 +1072,15 @@ export default function SheetSelection({
                 : "budget") as "transactions" | "deals" | "budget"
           ] || [];
 
-      const requiredFields = standardFields.filter((f) => f.required);
+      const requiredFields = standardFields.filter(
+        (f: { required: boolean; autoGenerable?: boolean }) =>
+          f.required && !f.autoGenerable
+      );
       const mappings = columnMappings[sheetName] || [];
       const mappedFields = mappings
         .map((m) => m.standardField)
         .filter((f) => f !== "unmapped");
 
-      // Check if all required fields are mapped
       for (const required of requiredFields) {
         if (!mappedFields.includes(required.value)) {
           return false;
@@ -983,12 +1145,13 @@ export default function SheetSelection({
                         ] || [];
 
                     const requiredFields = standardFields.filter(
-                      (f) => f.required
+                      (f: { required: boolean; autoGenerable?: boolean }) =>
+                        f.required && !f.autoGenerable
                     );
                     const mappedFields = (columnMappings[sheet.name] || [])
                       .map((m) => m.standardField)
                       .filter((f) => f !== "unmapped");
-                    return requiredFields.every((rf) =>
+                    return requiredFields.every((rf: { value: string }) =>
                       mappedFields.includes(rf.value)
                     );
                   })();
@@ -1201,6 +1364,29 @@ export default function SheetSelection({
                       return null;
                     })()}
 
+                  {/* Missing Dependencies Info */}
+                  {missingDependencies.length > 0 && (
+                    <Alert className="mt-4 mx-4 flex-shrink-0 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30">
+                      <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      <AlertDescription>
+                        <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                          {missingDependencies.map((t) => `"${t}"`).join(", ")}{" "}
+                          {missingDependencies.length === 1 ? "has" : "have"} no
+                          data yet
+                        </p>
+                        <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                          Foreign key references to{" "}
+                          {missingDependencies.length === 1
+                            ? "this table"
+                            : "these tables"}{" "}
+                          won&apos;t be linked automatically. You can still
+                          upload now and the references will be resolved when
+                          the dependent data is available.
+                        </p>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
                   {/* Validation Errors */}
                   {validationErrors.length > 0 && (
                     <Alert className="mt-4 mx-4 flex-shrink-0">
@@ -1244,30 +1430,45 @@ export default function SheetSelection({
                       <div className="space-y-4">
                         <p className="text-sm text-gray-600 dark:text-gray-400">
                           For each target field, choose which file column to
-                          use. Required fields must have a column. You have{" "}
+                          use. Required fields must have a column. Fields marked
+                          &quot;Auto-generated&quot; will receive unique IDs
+                          automatically if not mapped. You have{" "}
                           <strong>{currentSheet.headers.length}</strong>{" "}
                           column(s) available.
                         </p>
                         <div className="grid gap-3">
                           {[...standardFields]
-                            .sort(
-                              (a, b) =>
-                                (b.required ? 1 : 0) - (a.required ? 1 : 0)
-                            )
+                            .sort((a, b) => {
+                              const aPk =
+                                "isPrimaryKey" in a && a.isPrimaryKey ? 1 : 0;
+                              const bPk =
+                                "isPrimaryKey" in b && b.isPrimaryKey ? 1 : 0;
+                              if (aPk !== bPk) return bPk - aPk;
+                              if (a.required !== b.required)
+                                return (
+                                  (b.required ? 1 : 0) - (a.required ? 1 : 0)
+                                );
+                              return 0;
+                            })
                             .map((field) => {
                               const mapping = currentMappings.find(
                                 (m) => m.standardField === field.value
                               );
                               const selectedCol = mapping?.originalColumn || "";
                               const isMapped = !!mapping;
+                              const isAutoGen =
+                                "autoGenerable" in field && field.autoGenerable;
+                              const showAutoGen = isAutoGen && !isMapped;
 
                               return (
                                 <Card
                                   key={field.value}
                                   className={`border-l-4 ${
-                                    field.required && !isMapped
-                                      ? "border-l-amber-500 bg-amber-50/50 dark:bg-amber-950/20"
-                                      : "border-l-green-500 bg-green-50/30 dark:bg-green-950/10"
+                                    showAutoGen
+                                      ? "border-l-blue-400 bg-blue-50/30 dark:bg-blue-950/10"
+                                      : field.required && !isMapped
+                                        ? "border-l-amber-500 bg-amber-50/50 dark:bg-amber-950/20"
+                                        : "border-l-green-500 bg-green-50/30 dark:bg-green-950/10"
                                   }`}
                                 >
                                   <CardContent className="p-4">
@@ -1277,14 +1478,27 @@ export default function SheetSelection({
                                           <span className="font-mono text-sm font-medium">
                                             {field.label}
                                           </span>
-                                          {field.required && (
+                                          {showAutoGen ? (
+                                            <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 text-xs">
+                                              <Sparkles className="h-3 w-3" />
+                                              {"isReference" in field &&
+                                              field.isReference
+                                                ? `Linked from ${(field as any).referencesTable}`
+                                                : "Auto-generated"}
+                                            </span>
+                                          ) : field.required && !isMapped ? (
                                             <span className="text-red-500 text-xs">
                                               Required
                                             </span>
-                                          )}
+                                          ) : null}
                                         </div>
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                          {field.description}
+                                          {showAutoGen
+                                            ? "isReference" in field &&
+                                              field.isReference
+                                              ? `Will be matched from existing ${(field as any).referencesTable} data`
+                                              : "A unique ID will be generated automatically if no column is mapped"
+                                            : field.description}
                                         </div>
                                       </div>
                                       <div className="min-w-[200px] flex-1 max-w-md">
@@ -1336,6 +1550,121 @@ export default function SheetSelection({
                               );
                             })}
                         </div>
+
+                        {/* Value Normalization Section */}
+                        {(Object.keys(valueMappings).some(
+                          (k) =>
+                            Object.keys(valueMappings[k]).length > 0 &&
+                            Object.entries(valueMappings[k]).some(
+                              ([orig, canonical]) => orig !== canonical
+                            )
+                        ) ||
+                          isNormalizing) && (
+                          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Brain className="h-4 w-4 text-purple-500" />
+                              <h3 className="text-sm font-medium">
+                                Value Normalization
+                              </h3>
+                              {isNormalizing && (
+                                <Loader2 className="h-3 w-3 animate-spin text-purple-500" />
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                              Some fields expect specific values. Your data will
+                              be automatically normalized to match. You can
+                              adjust below.
+                            </p>
+                            {Object.entries(valueMappings).map(
+                              ([fieldName, mapping]) => {
+                                const field = standardFields.find(
+                                  (f) =>
+                                    f.value === fieldName &&
+                                    "allowedValues" in f &&
+                                    f.allowedValues
+                                );
+                                if (!field || !("allowedValues" in field))
+                                  return null;
+                                const changedEntries = Object.entries(
+                                  mapping
+                                ).filter(
+                                  ([orig, canonical]) => orig !== canonical
+                                );
+                                if (changedEntries.length === 0) return null;
+                                return (
+                                  <Card
+                                    key={fieldName}
+                                    className="mb-3 border-purple-200 dark:border-purple-800 bg-purple-50/20 dark:bg-purple-950/10"
+                                  >
+                                    <CardContent className="p-4">
+                                      <div className="flex items-center gap-2 mb-3">
+                                        <span className="font-mono text-sm font-medium">
+                                          {field.label}
+                                        </span>
+                                        <Badge
+                                          variant="outline"
+                                          className="text-xs text-purple-600 dark:text-purple-400 border-purple-300 dark:border-purple-700"
+                                        >
+                                          {changedEntries.length} value
+                                          {changedEntries.length !== 1
+                                            ? "s"
+                                            : ""}{" "}
+                                          normalized
+                                        </Badge>
+                                      </div>
+                                      <div className="space-y-2">
+                                        {changedEntries.map(
+                                          ([original, canonical]) => (
+                                            <div
+                                              key={original}
+                                              className="flex items-center gap-3"
+                                            >
+                                              <span className="font-mono text-sm text-gray-600 dark:text-gray-400 w-36 truncate flex-shrink-0">
+                                                {original}
+                                              </span>
+                                              <ArrowRight className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                                              <Select
+                                                value={canonical}
+                                                onValueChange={(v) =>
+                                                  setValueMappings((prev) => ({
+                                                    ...prev,
+                                                    [fieldName]: {
+                                                      ...prev[fieldName],
+                                                      [original]: v,
+                                                    },
+                                                  }))
+                                                }
+                                              >
+                                                <SelectTrigger className="w-36 h-8 text-sm">
+                                                  <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent className="!z-[10000]">
+                                                  {(
+                                                    field as any
+                                                  ).allowedValues?.map(
+                                                    (av: string) => (
+                                                      <SelectItem
+                                                        key={av}
+                                                        value={av}
+                                                      >
+                                                        {av}
+                                                      </SelectItem>
+                                                    )
+                                                  )}
+                                                </SelectContent>
+                                              </Select>
+                                              <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
+                                            </div>
+                                          )
+                                        )}
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                );
+                              }
+                            )}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="grid gap-3">
@@ -1588,6 +1917,8 @@ export default function SheetSelection({
                               const isMapped = currentMappings.some(
                                 (m) => m.standardField === field.value
                               );
+                              const isAutoGen =
+                                "autoGenerable" in field && field.autoGenerable;
                               return (
                                 <div
                                   key={field.value}
@@ -1595,6 +1926,8 @@ export default function SheetSelection({
                                 >
                                   {isMapped ? (
                                     <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                  ) : isAutoGen ? (
+                                    <Sparkles className="h-4 w-4 text-blue-500" />
                                   ) : (
                                     <AlertTriangle className="h-4 w-4 text-red-500" />
                                   )}
@@ -1602,13 +1935,21 @@ export default function SheetSelection({
                                     className={
                                       isMapped
                                         ? "text-green-700 dark:text-green-400"
-                                        : "text-red-700 dark:text-red-400"
+                                        : isAutoGen
+                                          ? "text-blue-700 dark:text-blue-400"
+                                          : "text-red-700 dark:text-red-400"
                                     }
                                   >
                                     {field.label}
                                   </span>
                                   <span className="text-gray-500 dark:text-gray-400 text-sm">
-                                    - {field.description}
+                                    -{" "}
+                                    {isAutoGen && !isMapped
+                                      ? "isReference" in field &&
+                                        field.isReference
+                                        ? `Will be matched from ${(field as any).referencesTable}`
+                                        : "Will be auto-generated"
+                                      : field.description}
                                   </span>
                                 </div>
                               );
@@ -1653,7 +1994,9 @@ export default function SheetSelection({
             </span>
             <Button
               onClick={handleConfirm}
-              disabled={!allMappingsValid || selectedCount === 0}
+              disabled={
+                !allMappingsValid || selectedCount === 0 || isNormalizing
+              }
               className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <CheckCircle2 className="h-4 w-4 mr-1" />

@@ -67,7 +67,23 @@ const FITNESS_STUDIO_DEFAULT_MODEL: ModelProposal = {
         { name: "email", type: "string" },
         { name: "phone", type: "string", required: false },
         { name: "join_date", type: "date" },
-        { name: "status", type: "string" }, // active / inactive / cancelled
+        {
+          name: "status",
+          type: "string",
+          allowedValues: ["active", "inactive", "cancelled"],
+        },
+        {
+          name: "subscription_type",
+          type: "string",
+          required: false,
+          allowedValues: ["Monthly", "Yearly", "Drop-in", "Class Pack"],
+        },
+        {
+          name: "gender",
+          type: "string",
+          required: false,
+          allowedValues: ["Male", "Female", "Other"],
+        },
       ],
     },
     {
@@ -75,7 +91,7 @@ const FITNESS_STUDIO_DEFAULT_MODEL: ModelProposal = {
       fields: [
         { name: "class_id", type: "string", primaryKey: true },
         { name: "class_name", type: "string" },
-        { name: "category", type: "string" }, // yoga / pilates / fitness
+        { name: "category", type: "string" },
         { name: "capacity", type: "integer" },
         { name: "duration_minutes", type: "integer" },
         { name: "price", type: "number" },
@@ -111,7 +127,11 @@ const FITNESS_STUDIO_DEFAULT_MODEL: ModelProposal = {
           references: { table: "Instructors", field: "instructor_id" },
         },
         { name: "booking_time", type: "date" },
-        { name: "status", type: "string" }, // booked / attended / cancelled / no-show
+        {
+          name: "status",
+          type: "string",
+          allowedValues: ["booked", "attended", "cancelled", "no_show"],
+        },
       ],
     },
     {
@@ -141,6 +161,143 @@ const FITNESS_STUDIO_DEFAULT_MODEL: ModelProposal = {
     { from: "Bookings.instructor_id", to: "Instructors.instructor_id" },
     { from: "Payments.customer_id", to: "Customers.customer_id" },
     { from: "Payments.booking_id", to: "Bookings.booking_id" },
+  ],
+};
+
+// Restaurant default model - used when business type is restaurant and no model exists
+const RESTAURANT_DEFAULT_MODEL: ModelProposal = {
+  businessType: "restaurant",
+  recommendedTables: [
+    {
+      name: "Tables",
+      fields: [
+        { name: "table_id", type: "string", primaryKey: true },
+        { name: "name", type: "string" },
+        { name: "location", type: "string", required: false },
+        { name: "capacity", type: "integer" },
+        {
+          name: "status",
+          type: "string",
+          required: false,
+          allowedValues: ["available", "occupied", "reserved"],
+        },
+      ],
+    },
+    {
+      name: "Menu Items",
+      fields: [
+        { name: "item_id", type: "string", primaryKey: true },
+        { name: "name", type: "string" },
+        { name: "category", type: "string" },
+        { name: "price", type: "number" },
+        { name: "cogs", type: "number", required: false },
+        { name: "description", type: "string", required: false },
+      ],
+    },
+    {
+      name: "Orders",
+      fields: [
+        { name: "order_id", type: "string", primaryKey: true },
+        {
+          name: "table_id",
+          type: "string",
+          references: { table: "Tables", field: "table_id" },
+        },
+        { name: "order_date", type: "date" },
+        { name: "covers", type: "integer", required: false },
+        { name: "total_amount", type: "number" },
+        {
+          name: "channel",
+          type: "string",
+          required: false,
+          allowedValues: ["dine-in", "takeaway"],
+        },
+        {
+          name: "status",
+          type: "string",
+          required: false,
+          allowedValues: ["open", "completed", "cancelled"],
+        },
+      ],
+    },
+    {
+      name: "Order Items",
+      fields: [
+        { name: "order_item_id", type: "string", primaryKey: true },
+        {
+          name: "order_id",
+          type: "string",
+          references: { table: "Orders", field: "order_id" },
+        },
+        {
+          name: "item_id",
+          type: "string",
+          references: { table: "Menu Items", field: "item_id" },
+        },
+        { name: "quantity", type: "integer" },
+        { name: "unit_price", type: "number" },
+        { name: "subtotal", type: "number", required: false },
+      ],
+    },
+    {
+      name: "Reservations",
+      fields: [
+        { name: "reservation_id", type: "string", primaryKey: true },
+        {
+          name: "table_id",
+          type: "string",
+          required: false,
+          references: { table: "Tables", field: "table_id" },
+        },
+        { name: "reservation_date", type: "date" },
+        { name: "party_size", type: "integer" },
+        {
+          name: "status",
+          type: "string",
+          allowedValues: ["confirmed", "seated", "no-show", "cancelled"],
+        },
+        { name: "customer_name", type: "string", required: false },
+        { name: "customer_phone", type: "string", required: false },
+      ],
+    },
+    {
+      name: "Employees",
+      fields: [
+        { name: "employee_id", type: "string", primaryKey: true },
+        { name: "name", type: "string" },
+        { name: "role", type: "string", required: false },
+        { name: "department", type: "string", required: false },
+        {
+          name: "employment_type",
+          type: "string",
+          required: false,
+          allowedValues: ["full-time", "part-time", "contract"],
+        },
+        { name: "hire_date", type: "date", required: false },
+      ],
+    },
+    {
+      name: "Transactions",
+      fields: [
+        { name: "transaction_id", type: "string", primaryKey: true },
+        { name: "transaction_date", type: "date" },
+        { name: "amount", type: "number" },
+        { name: "category", type: "string" },
+        { name: "description", type: "string", required: false },
+        {
+          name: "type",
+          type: "string",
+          required: false,
+          allowedValues: ["inflow", "outflow"],
+        },
+      ],
+    },
+  ],
+  relationships: [
+    { from: "Orders.table_id", to: "Tables.table_id" },
+    { from: "Order Items.order_id", to: "Orders.order_id" },
+    { from: "Order Items.item_id", to: "Menu Items.item_id" },
+    { from: "Reservations.table_id", to: "Tables.table_id" },
   ],
 };
 
@@ -349,12 +506,17 @@ export default function DataModelBuilder({
         }
       }
 
-      // If still no model, use fitness default if business type is fitness_studio
+      // If still no model, use hardcoded defaults for known business types
       if (!loaded && businessType === "fitness_studio") {
         console.log(
           "[DataModelBuilder] No existing model found, using fitness studio default"
         );
         loaded = FITNESS_STUDIO_DEFAULT_MODEL;
+      } else if (!loaded && businessType === "restaurant") {
+        console.log(
+          "[DataModelBuilder] No existing model found, using restaurant default"
+        );
+        loaded = RESTAURANT_DEFAULT_MODEL;
       }
 
       if (loaded) setModel(loaded);

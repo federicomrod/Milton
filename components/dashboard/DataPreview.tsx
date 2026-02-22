@@ -36,6 +36,7 @@ interface DataPreviewProps {
 interface TableData {
   rows: Record<string, any>[];
   columns: string[];
+  pkColumns?: string[];
   pagination: {
     page: number;
     pageSize: number;
@@ -158,7 +159,8 @@ export default function DataPreview({ tableName, onClose }: DataPreviewProps) {
     );
   }
 
-  const { rows, columns, pagination } = data;
+  const { rows, columns, pkColumns = [], pagination } = data;
+  const pkSet = new Set(pkColumns);
   const startRow = (pagination.page - 1) * pagination.pageSize + 1;
   const endRow = Math.min(
     pagination.page * pagination.pageSize,
@@ -252,22 +254,32 @@ export default function DataPreview({ tableName, onClose }: DataPreviewProps) {
             <Table>
               <TableHeader className="sticky top-0 bg-background">
                 <TableRow>
-                  <TableHead className="w-16">#</TableHead>
                   {columns.map((column) => (
-                    <TableHead key={column} className="min-w-[120px]">
+                    <TableHead
+                      key={column}
+                      className={`min-w-[120px] ${pkSet.has(column) ? "font-semibold bg-primary/5" : ""}`}
+                    >
                       {column}
+                      {pkSet.has(column) && (
+                        <Badge
+                          variant="outline"
+                          className="ml-1.5 text-[10px] px-1 py-0 font-normal"
+                        >
+                          PK
+                        </Badge>
+                      )}
                     </TableHead>
                   ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      {row.id}
-                    </TableCell>
+                {rows.map((row, rowIdx) => (
+                  <TableRow key={rowIdx}>
                     {columns.map((column) => (
-                      <TableCell key={column} className="max-w-[200px]">
+                      <TableCell
+                        key={column}
+                        className={`max-w-[200px] ${pkSet.has(column) ? "font-mono text-xs bg-primary/5" : ""}`}
+                      >
                         <div
                           className="truncate"
                           title={formatCellValue(row[column])}

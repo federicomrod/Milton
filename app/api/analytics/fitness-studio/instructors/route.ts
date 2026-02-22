@@ -224,11 +224,23 @@ export async function GET(req: NextRequest) {
         f.name.toLowerCase().includes("class") &&
         (f.name.toLowerCase().includes("id") || f.name.toLowerCase() === "id")
     )?.name;
-    const classNameField = classesFields.find(
-      (f) =>
-        f.name.toLowerCase().includes("name") ||
-        f.name.toLowerCase().includes("type")
-    )?.name;
+    // Prefer "Class Name" over "Type ID" for display
+    const classNameField =
+      classesFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("class") &&
+          f.name.toLowerCase().includes("name")
+      )?.name ??
+      classesFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("name") &&
+          !f.name.toLowerCase().includes("type")
+      )?.name ??
+      classesFields.find(
+        (f) =>
+          f.name.toLowerCase().includes("name") ||
+          f.name.toLowerCase().includes("type")
+      )?.name;
     const classInstructorIdField = classesFields.find(
       (f) =>
         f.name.toLowerCase().includes("instructor") &&
@@ -352,7 +364,6 @@ export async function GET(req: NextRequest) {
               "class_name",
               "Class Name",
               "name",
-              "type",
             ]) || "Unknown"
           : c.class_name ||
             c["Class Name"] ||
@@ -374,9 +385,18 @@ export async function GET(req: NextRequest) {
             c["Instructor"] ||
             "";
 
-        const capacity = classCapacityField
-          ? getFieldValue(c, classCapacityField, ["capacity", "Capacity"]) || 0
-          : c.capacity || c.Capacity || c["Capacity"] || 0;
+        const capacityRaw = classCapacityField
+          ? getFieldValue(c, classCapacityField, [
+              "capacity",
+              "Capacity",
+              "Max Participants",
+              "Max Capacity",
+            ])
+          : undefined;
+        const capacity = Math.max(
+          0,
+          Number(capacityRaw ?? c.capacity ?? c.Capacity ?? c["Capacity"]) || 0
+        );
 
         const date = classDateField
           ? getFieldValue(c, classDateField, [
@@ -404,7 +424,11 @@ export async function GET(req: NextRequest) {
           date,
           _original: c,
         };
-        classMap.set(classId, normalized);
+        const existing = classMap.get(classId);
+        // Prefer non-zero capacity when multiple rows exist per class (e.g. one per occurrence)
+        if (!existing || (capacity > 0 && !(existing.capacity > 0))) {
+          classMap.set(classId, normalized);
+        }
       }
     });
 
@@ -609,13 +633,14 @@ export async function GET(req: NextRequest) {
       const occurrences = classOccurrencesByInstructor.get(instructorId)!;
       const key = `${b.class_id}_${startAtStr}`;
 
+      const occurrenceCapacity = Math.max(0, Number(classData.capacity) || 0);
       if (!occurrences.has(key)) {
         occurrences.set(key, {
           filled: 0,
-          capacity: classData.capacity || 0,
+          capacity: occurrenceCapacity,
         });
         metrics.classesTaught += 1;
-        metrics.totalCapacity += classData.capacity || 0;
+        metrics.totalCapacity += occurrenceCapacity;
       }
 
       const occurrence = occurrences.get(key)!;

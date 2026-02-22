@@ -39,7 +39,7 @@ You MUST respond with ONLY valid JSON matching this structure:
       {
         "name": "TableName",
         "fields": [
-          { "name": "field_name", "type": "string|number|integer|boolean|date", "primaryKey": true|false, "nullable": true|false, "references": { "table": "OtherTable", "field": "field_name" } | null }
+          { "name": "field_name", "type": "string|number|integer|boolean|date", "primaryKey": true|false, "nullable": true|false, "references": { "table": "OtherTable", "field": "field_name" } | null, "allowedValues": ["value1","value2"] | null }
         ]
       }
     ],
@@ -48,6 +48,8 @@ You MUST respond with ONLY valid JSON matching this structure:
     ]
   }
 }
+
+For string fields that represent a status, category, or any enumerated type, include "allowedValues" with the canonical lowercase English values (e.g. ["active","inactive","cancelled"]). Leave allowedValues null for free-text fields.
 
 Output ONLY the JSON, no explanations, no markdown.`;
 }
@@ -91,7 +93,7 @@ You MUST respond with ONLY valid JSON matching this structure:
       {
         "name": "TableName",
         "fields": [
-          { "name": "field_name", "type": "string|number|integer|boolean|date", "primaryKey": true|false, "nullable": true|false, "references": { "table": "OtherTable", "field": "field_name" } | null }
+          { "name": "field_name", "type": "string|number|integer|boolean|date", "primaryKey": true|false, "nullable": true|false, "references": { "table": "OtherTable", "field": "field_name" } | null, "allowedValues": ["value1","value2"] | null }
         ]
       }
     ],
@@ -100,6 +102,8 @@ You MUST respond with ONLY valid JSON matching this structure:
     ]
   }
 }
+
+For string fields that represent a status, category, or any enumerated type, include "allowedValues" with the canonical lowercase English values. Leave allowedValues null for free-text fields.
 
 Output ONLY the JSON, no markdown.`;
 }

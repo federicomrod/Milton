@@ -63,6 +63,7 @@ export interface DataTableField {
   primaryKey?: boolean;
   references?: { table: string; field?: string };
   defaultValue?: unknown;
+  allowedValues?: string[];
 }
 
 export interface DataTable {

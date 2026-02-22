@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { generateUniqueIds, resolveReferences } from "@/lib/ai/generate-ids";
+import { normalizeFieldValues } from "@/lib/ai/normalize-values";
+import type { DataTableField } from "@/lib/types/data";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +12,10 @@ interface UploadModelTableRequest {
 }
 
 /**
- * Upload data to a model table using the unified model_data table
+ * Upload data to a model table using the unified model_data table.
+ *
+ * When rows are missing values for primary-key fields the server will
+ * auto-generate unique, human-readable IDs using AI (with fallbacks).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -76,10 +82,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get table ID from table name by querying data_tables
+    // Get table definition (including fields with primaryKey metadata)
     const { data: dataTableDef } = await supabase
       .from("data_tables")
-      .select("id")
+      .select("id, fields")
       .eq("name", tableName)
       .single();
 
@@ -91,9 +97,191 @@ export async function POST(req: NextRequest) {
     }
 
     const tableId = dataTableDef.id;
+    const tableFields: DataTableField[] = Array.isArray(dataTableDef.fields)
+      ? dataTableDef.fields
+      : [];
+
+    // --- Auto-generate missing primary keys ---
+    const pkFields = tableFields.filter((f) => f.primaryKey);
+    let generatedIdsCount = 0;
+
+    if (pkFields.length > 0) {
+      for (const pkField of pkFields) {
+        const rowsMissingPk = rows.filter(
+          (r) =>
+            r[pkField.name] === undefined ||
+            r[pkField.name] === null ||
+            String(r[pkField.name]).trim() === ""
+        );
+
+        if (rowsMissingPk.length === 0) continue;
+
+        console.log(
+          `[Upload Model Table] ${rowsMissingPk.length}/${rows.length} rows missing PK "${pkField.name}" – generating IDs`
+        );
+
+        // Collect existing IDs for this PK field from already-uploaded data
+        const { data: existingRows } = await supabase
+          .from("model_data")
+          .select("data")
+          .eq("company_id", company.id)
+          .eq("model_table_id", tableId)
+          .limit(500);
+
+        const existingIds = (existingRows ?? [])
+          .map((r: { data: Record<string, unknown> }) =>
+            r.data?.[pkField.name] != null ? String(r.data[pkField.name]) : null
+          )
+          .filter(Boolean) as string[];
+
+        // Also collect IDs from rows in this batch that already have a value
+        const batchExistingIds = rows
+          .filter(
+            (r) =>
+              r[pkField.name] !== undefined &&
+              r[pkField.name] !== null &&
+              String(r[pkField.name]).trim() !== ""
+          )
+          .map((r) => String(r[pkField.name]));
+
+        const allExistingIds = [...existingIds, ...batchExistingIds];
+
+        const { ids, method } = await generateUniqueIds({
+          tableName,
+          primaryKeyField: pkField.name,
+          rowCount: rowsMissingPk.length,
+          sampleData: rows.slice(0, 5),
+          existingIds: allExistingIds,
+        });
+
+        console.log(
+          `[Upload Model Table] Generated ${ids.length} IDs via "${method}" for "${pkField.name}"`
+        );
+
+        // Assign generated IDs to the rows that are missing them
+        let idIndex = 0;
+        for (const row of rows) {
+          if (
+            row[pkField.name] === undefined ||
+            row[pkField.name] === null ||
+            String(row[pkField.name]).trim() === ""
+          ) {
+            row[pkField.name] = ids[idIndex++];
+            generatedIdsCount++;
+          }
+        }
+      }
+    }
+
+    // --- Resolve missing foreign-key references ---
+    const fkFields = tableFields.filter(
+      (f) => !f.primaryKey && f.references?.table
+    );
+    let resolvedRefsCount = 0;
+
+    for (const fkField of fkFields) {
+      const hasMissing = rows.some(
+        (r) =>
+          r[fkField.name] === undefined ||
+          r[fkField.name] === null ||
+          String(r[fkField.name]).trim() === ""
+      );
+      if (!hasMissing) continue;
+
+      console.log(
+        `[Upload Model Table] Resolving FK "${fkField.name}" → "${fkField.references!.table}"`
+      );
+
+      const { resolvedCount, method, missingDependency } =
+        await resolveReferences({
+          supabase,
+          companyId: company.id,
+          fieldName: fkField.name,
+          referencedTableName: fkField.references!.table,
+          referencedField: fkField.references!.field,
+          rows,
+        });
+
+      if (missingDependency) {
+        console.log(
+          `[Upload Model Table] Referenced table "${missingDependency}" has no data — FK "${fkField.name}" will keep original values; upload proceeding`
+        );
+        continue;
+      }
+
+      if (resolvedCount > 0) {
+        console.log(
+          `[Upload Model Table] Resolved ${resolvedCount} FK values via "${method}" for "${fkField.name}"`
+        );
+        resolvedRefsCount += resolvedCount;
+      }
+    }
+
+    // --- Normalize categorical field values (case-correction + AI fallback) ---
+    const fieldsNeedingAINorm: Array<{
+      field: DataTableField;
+      unmatchedValues: string[];
+    }> = [];
+
+    for (const field of tableFields) {
+      if (!field.allowedValues || field.allowedValues.length === 0) continue;
+      const allowedLower = new Map(
+        field.allowedValues.map((v) => [v.toLowerCase(), v])
+      );
+      const unmatched = new Set<string>();
+      for (const row of rows) {
+        if (row[field.name] !== undefined && row[field.name] !== null) {
+          const val = String(row[field.name]);
+          const match = allowedLower.get(val.toLowerCase());
+          if (match) {
+            if (match !== val) row[field.name] = match;
+          } else {
+            unmatched.add(val);
+          }
+        }
+      }
+      if (unmatched.size > 0) {
+        fieldsNeedingAINorm.push({
+          field,
+          unmatchedValues: Array.from(unmatched),
+        });
+      }
+    }
+
+    if (fieldsNeedingAINorm.length > 0) {
+      try {
+        console.log(
+          `[Upload Model Table] AI-normalizing ${fieldsNeedingAINorm.length} field(s) with unmatched values`
+        );
+        const aiResult = await normalizeFieldValues(
+          fieldsNeedingAINorm.map((f) => ({
+            fieldName: f.field.name,
+            tableName,
+            allowedValues: f.field.allowedValues!,
+            uniqueValues: f.unmatchedValues,
+          }))
+        );
+        for (const { field } of fieldsNeedingAINorm) {
+          const fieldMap = aiResult.mappings[field.name];
+          if (!fieldMap) continue;
+          for (const row of rows) {
+            if (row[field.name] !== undefined && row[field.name] !== null) {
+              const val = String(row[field.name]);
+              if (fieldMap[val]) {
+                row[field.name] = fieldMap[val];
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error(
+          "[Upload Model Table] Server-side AI normalization failed:",
+          err
+        );
+      }
+    }
 
     // Insert data into model_data table (company-scoped; no user_id)
-    // Rows are already transformed by the client
     const insertData = rows.map((row) => ({
       company_id: company.id,
       model_table_id: tableId,
@@ -117,6 +305,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       insertedCount: insertData.length,
+      generatedIdsCount,
+      resolvedRefsCount,
       tableName,
     });
   } catch (error: unknown) {

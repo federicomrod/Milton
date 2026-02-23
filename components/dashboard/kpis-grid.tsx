@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarChart3, TrendingUp } from "lucide-react";
+import { BarChart3 } from "lucide-react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -22,14 +22,10 @@ import {
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import type { KpiDisplayMode } from "@/components/dashboard/kpi-selector";
 
-export interface KpiSeriesPoint {
-  period: string;
-  value: number;
-}
-
 interface KpisGridProps {
   selectedKpis: DatabaseKpi[];
   displayModes?: Record<string, KpiDisplayMode>;
+  analyticsKpiData?: Record<string, number | null>;
 }
 
 type KpiFormat = "number" | "currency" | "percentage";
@@ -63,34 +59,25 @@ const getKpiDisplayFormat = (kpiName: string): KpiFormat => {
   return "number";
 };
 
-const PLACEHOLDER_DATA: KpiSeriesPoint[] = Array.from(
-  { length: 6 },
-  (_, i) => ({
-    period: `Period ${i + 1}`,
-    value: 0,
-  })
-);
+// Placeholder data for charts when analytics doesn't provide series
+const PLACEHOLDER_DATA = Array.from({ length: 6 }, (_, i) => ({
+  period: `Period ${i + 1}`,
+  value: 0,
+}));
 
 const KpiChart = ({
   kpi,
-  hasData,
-  chartData,
+  analyticsValue,
   currency,
   numberFormat,
-  hasRequiredData = true,
-  missingTableNames = [],
 }: {
   kpi: DatabaseKpi;
-  hasData: boolean;
-  chartData: KpiSeriesPoint[];
+  analyticsValue: number | null;
   currency: string;
   numberFormat: string;
-  hasRequiredData?: boolean;
-  missingTableNames?: string[];
 }) => {
-  const data = hasData && chartData.length > 0 ? chartData : PLACEHOLDER_DATA;
   const display = { format: getKpiDisplayFormat(kpi.name) };
-  const maxValue = data.reduce((max, d) => Math.max(max, d.value), 0);
+  const maxValue = Math.max(Math.abs(analyticsValue || 0), 1);
   const percentageBasis = maxValue > 1.5 ? 100 : 1;
 
   const formatValue = (value: number) => {
@@ -103,27 +90,15 @@ const KpiChart = ({
     return formatNumber(value, numberFormat);
   };
 
-  if (!hasData) {
-    return (
-      <div className="h-64 flex flex-col items-center justify-center bg-muted/30 rounded-lg border border-dashed border-muted-foreground/20">
-        <TrendingUp className="h-12 w-12 text-muted-foreground/40 mb-2" />
-        <p className="text-sm text-muted-foreground text-center px-4">
-          {hasRequiredData
-            ? "Data not available yet"
-            : "Required data tables missing"}
-        </p>
-        <p className="text-xs text-muted-foreground/60 text-center mt-1 px-4">
-          {hasRequiredData
-            ? "Required data collection is in development"
-            : `Upload data for: ${missingTableNames.join(", ")}`}
-        </p>
-      </div>
-    );
-  }
+  // Create a simple chart with current value vs placeholder
+  const chartData = [
+    { period: "Current", value: analyticsValue || 0 },
+    ...PLACEHOLDER_DATA.slice(1),
+  ];
 
   return (
     <ResponsiveContainer width="100%" height={256}>
-      <LineChart data={data}>
+      <LineChart data={chartData}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis
           dataKey="period"
@@ -163,87 +138,24 @@ const KpiChart = ({
   );
 };
 
-export function KpisGrid({ selectedKpis, displayModes = {} }: KpisGridProps) {
+export function KpisGrid({
+  selectedKpis,
+  displayModes = {},
+  analyticsKpiData = {},
+}: KpisGridProps) {
   const { prefs } = useUserPreferences();
-  const [seriesByKpi, setSeriesByKpi] = useState<
-    Record<string, { data: KpiSeriesPoint[] }>
-  >({});
-  const [availableTableIds, setAvailableTableIds] = useState<Set<string>>(
-    new Set()
-  );
-  const [tableNames, setTableNames] = useState<Record<string, string>>({});
-
-  const kpiIdKey =
-    selectedKpis.length > 0
-      ? selectedKpis
-          .map((k) => k.id)
-          .slice()
-          .sort()
-          .join(",")
-      : "";
-
-  // Fetch KPI series data
-  useEffect(() => {
-    if (!kpiIdKey) {
-      setTimeout(() => setSeriesByKpi({}), 0);
-      return;
-    }
-    fetch(`/api/kpis/series?kpiIds=${encodeURIComponent(kpiIdKey)}`, {
-      cache: "no-store",
-      credentials: "include",
-    })
-      .then((r) => (r.ok ? r.json() : { series: {} }))
-      .then((json: { series?: Record<string, { data: KpiSeriesPoint[] }> }) =>
-        setSeriesByKpi(json.series ?? {})
-      )
-      .catch(() => setSeriesByKpi({}));
-  }, [kpiIdKey]);
-
-  // Fetch available table IDs (fixing the tableIds key from the API)
-  useEffect(() => {
-    fetch("/api/model-data/tables", {
-      cache: "no-store",
-      credentials: "include",
-    })
-      .then((r) => (r.ok ? r.json() : { tableIds: [] }))
-      .then((json: { tableIds?: string[] }) => {
-        setAvailableTableIds(new Set(json.tableIds ?? []));
-      })
-      .catch(() => setAvailableTableIds(new Set()));
-  }, []);
-
-  // Fetch human-readable names for all required_data table IDs
-  useEffect(() => {
-    const allIds = [
-      ...new Set(selectedKpis.flatMap((kpi) => kpi.required_data ?? [])),
-    ];
-    if (allIds.length === 0) return;
-
-    fetch(`/api/data/table-names?ids=${encodeURIComponent(allIds.join(","))}`, {
-      cache: "no-store",
-      credentials: "include",
-    })
-      .then((r) => (r.ok ? r.json() : { names: {} }))
-      .then((json: { names?: Record<string, string> }) =>
-        setTableNames(json.names ?? {})
-      )
-      .catch(() => {});
-  }, [kpiIdKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (selectedKpis.length === 0) {
     return (
       <div className="rounded-lg border border-dashed p-8 text-center">
         <BarChart3 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
         <p className="text-sm text-muted-foreground">
-          No KPIs selected. Click &quot;Select KPIs&quot; to choose which KPIs
-          you want to track.
+          No KPIs selected. Click "Select KPIs" to choose which KPIs you want to
+          track.
         </p>
       </div>
     );
   }
-
-  const resolveTableNames = (ids: string[]) =>
-    ids.map((id) => tableNames[id] || id);
 
   // Separate KPIs into card and chart groups based on display modes
   const cardKpis = selectedKpis.filter((kpi) => {
@@ -260,20 +172,18 @@ export function KpisGrid({ selectedKpis, displayModes = {} }: KpisGridProps) {
     <div className="space-y-6">
       {/* Card KPIs */}
       {cardKpis.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {cardKpis.map((kpi) => {
-            const requiredTables = kpi.required_data ?? [];
-            const missingIds = requiredTables.filter(
-              (id) => !availableTableIds.has(id)
-            );
-            const hasRequiredData = missingIds.length === 0;
+            const analyticsValue = analyticsKpiData[kpi.id];
 
             return (
               <KpiCard
                 key={`card-${kpi.id}`}
                 kpi={kpi}
-                hasRequiredData={hasRequiredData}
-                missingTables={resolveTableNames(missingIds)}
+                value={analyticsValue ?? null}
+                hasRequiredData={true}
+                missingTables={[]}
+                fetchFromApi={false}
               />
             );
           })}
@@ -284,15 +194,7 @@ export function KpisGrid({ selectedKpis, displayModes = {} }: KpisGridProps) {
       {chartKpis.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2">
           {chartKpis.map((kpi) => {
-            const s = seriesByKpi[kpi.id];
-            const chartData = s?.data ?? [];
-            const hasData = chartData.length > 0;
-
-            const requiredTables = kpi.required_data ?? [];
-            const missingIds = requiredTables.filter(
-              (id) => !availableTableIds.has(id)
-            );
-            const hasRequiredData = missingIds.length === 0;
+            const analyticsValue = analyticsKpiData[kpi.id];
 
             return (
               <Card
@@ -310,12 +212,9 @@ export function KpisGrid({ selectedKpis, displayModes = {} }: KpisGridProps) {
                 <CardContent>
                   <KpiChart
                     kpi={kpi}
-                    hasData={hasData}
-                    chartData={chartData}
+                    analyticsValue={analyticsValue}
                     currency={prefs.currency}
                     numberFormat={prefs.number_format}
-                    hasRequiredData={hasRequiredData}
-                    missingTableNames={resolveTableNames(missingIds)}
                   />
                 </CardContent>
               </Card>

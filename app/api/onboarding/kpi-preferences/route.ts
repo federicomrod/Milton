@@ -407,6 +407,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Handle display modes
+  const displayModes = body?.kpiDisplayModes || {};
+
   // Get company for user
   const { data: company } = await supabase
     .from("companies")
@@ -418,9 +421,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "company_not_found" }, { status: 404 });
   }
 
+  const updateData: any = { selected_kpi_ids: selectedKpiIds };
+  if (displayModes && Object.keys(displayModes).length > 0) {
+    updateData.kpi_display_modes = displayModes;
+  }
+
   const { error } = await supabase
     .from("business_models")
-    .update({ selected_kpi_ids: selectedKpiIds })
+    .update(updateData)
     .eq("company_id", company.id);
 
   if (error) {

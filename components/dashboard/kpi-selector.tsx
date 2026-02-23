@@ -58,14 +58,26 @@ export function KpiSelector({
   );
   const [tableNames, setTableNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     setTempSelection(selectedKpiIds);
-  }, [selectedKpiIds]);
-
-  useEffect(() => {
-    setTempDisplayModes(kpiDisplayModes);
-  }, [kpiDisplayModes]);
+    setTempDisplayModes((prev) => {
+      const newModes = { ...kpiDisplayModes };
+      // Ensure all selected KPIs have at least a default display mode
+      selectedKpiIds.forEach((kpiId) => {
+        if (
+          !newModes[kpiId] ||
+          !Array.isArray(newModes[kpiId]) ||
+          newModes[kpiId].length === 0
+        ) {
+          newModes[kpiId] = ["card"];
+        }
+      });
+      return newModes;
+    });
+  }, [selectedKpiIds, kpiDisplayModes]);
 
   // Fetch table status data and names when dialog opens
   useEffect(() => {
@@ -116,7 +128,7 @@ export function KpiSelector({
       .catch(() => {
         setLoading(false);
       });
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const getMissingTableNames = (kpi: DatabaseKpi): string[] => {
     const required = kpi.required_data ?? [];
@@ -170,40 +182,52 @@ export function KpiSelector({
       const current = Array.isArray(prev[kpiId]) ? prev[kpiId] : [];
       const isSelected = current.includes(mode);
 
-      // If deselecting, always allow
       if (isSelected) {
+        // Deselecting: always allow, but ensure at least one mode is selected
         const next = current.filter((m) => m !== mode);
-        // Ensure at least one mode is selected
         return { ...prev, [kpiId]: next.length > 0 ? next : [mode] };
+      } else {
+        // Selecting: check current limits
+        const currentCardCount = tempSelection.reduce((count, id) => {
+          const modes = id === kpiId ? [...current, mode] : prev[id];
+          return (
+            count + (Array.isArray(modes) && modes.includes("card") ? 1 : 0)
+          );
+        }, 0);
+        const currentChartCount = tempSelection.reduce((count, id) => {
+          const modes = id === kpiId ? [...current, mode] : prev[id];
+          return (
+            count + (Array.isArray(modes) && modes.includes("chart") ? 1 : 0)
+          );
+        }, 0);
+
+        if (mode === "card" && currentCardCount > MAX_CARDS) return prev;
+        if (mode === "chart" && currentChartCount > MAX_CHARTS) return prev;
+
+        const next = [...current, mode];
+        return { ...prev, [kpiId]: next };
       }
-
-      // If selecting, check limits
-      if (mode === "card" && cardCount >= MAX_CARDS) return prev;
-      if (mode === "chart" && chartCount >= MAX_CHARTS) return prev;
-
-      const next = [...current, mode];
-      return { ...prev, [kpiId]: next };
     });
   };
 
   const handleSave = async () => {
+    if (hasExceededLimits) return;
+
+    setSaving(true);
+    setSaveError(null);
+
     try {
-      const res = await fetch("/api/onboarding/kpi-preferences", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedKpiIds: tempSelection }),
-      });
-
-      if (!res.ok) {
-        console.error("Failed to save KPI preferences");
-        return;
-      }
-
+      // Save KPI selection and display modes
       onKpisChange(tempSelection);
       onDisplayModesChange?.(tempDisplayModes);
       setOpen(false);
     } catch (err) {
       console.error("Error saving KPI preferences:", err);
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to save KPI preferences"
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -227,6 +251,9 @@ export function KpiSelector({
 
   const MAX_CARDS = 8;
   const MAX_CHARTS = 4;
+
+  // Check if current selection exceeds limits
+  const hasExceededLimits = cardCount > MAX_CARDS || chartCount > MAX_CHARTS;
 
   const renderKpiCard = (kpi: DatabaseKpi, isRecommended: boolean) => {
     const isSelected = tempSelection.includes(kpi.id);
@@ -371,6 +398,7 @@ export function KpiSelector({
           maxHeight: "85vh",
           width: "75vw",
         }}
+        suppressHydrationWarning
       >
         <DialogHeader>
           <DialogTitle>Select Your KPIs</DialogTitle>
@@ -441,24 +469,50 @@ export function KpiSelector({
         </div>
 
         <div className="flex justify-between items-center pt-4 border-t border-border">
-          <div className="flex gap-4 text-sm text-muted-foreground">
-            <span>
+          <div className="flex gap-4 text-sm">
+            <span
+              className={
+                tempSelection.length === 0 ? "text-muted-foreground" : ""
+              }
+            >
               {tempSelection.length} KPI{tempSelection.length !== 1 ? "s" : ""}{" "}
               selected
             </span>
-            <span>
+            <span
+              className={
+                cardCount > MAX_CARDS
+                  ? "text-destructive"
+                  : "text-muted-foreground"
+              }
+            >
               Cards: {cardCount}/{MAX_CARDS}
             </span>
-            <span>
+            <span
+              className={
+                chartCount > MAX_CHARTS
+                  ? "text-destructive"
+                  : "text-muted-foreground"
+              }
+            >
               Charts: {chartCount}/{MAX_CHARTS}
             </span>
+            {hasExceededLimits && (
+              <span className="text-destructive text-xs">
+                Please reduce selection to meet limits
+              </span>
+            )}
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={handleCancel}>
+            <Button variant="outline" onClick={handleCancel} disabled={saving}>
               Cancel
             </Button>
-            <Button onClick={handleSave}>Save Changes</Button>
+            <Button onClick={handleSave} disabled={hasExceededLimits || saving}>
+              {saving ? "Saving..." : "Save Changes"}
+            </Button>
           </div>
+          {saveError && (
+            <div className="text-sm text-destructive mt-2">{saveError}</div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

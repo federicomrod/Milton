@@ -22,7 +22,10 @@ import type { ModelProposal } from "@/lib/ai/business-model-analyzer-types";
 import type { DatabaseKpi } from "@/lib/types/kpi";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { LayoutDashboard, TrendingUp, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { KpiDisplayMode } from "@/components/dashboard/kpi-selector";
 
 type ApiState =
   | { status: "loading" }
@@ -31,12 +34,25 @@ type ApiState =
       businessType: string;
       model: ModelProposal | null;
       selected: string[];
+      kpiDisplayModes?: Record<string, KpiDisplayMode>;
       recommendedKpis?: DatabaseKpi[];
       additionalKpis?: DatabaseKpi[];
     }
   | { status: "error"; message: string };
 
-const MIN_SELECTED = 3;
+const MIN_CARDS = 4;
+const MIN_CHARTS = 2;
+const MAX_CARDS = 8;
+const MAX_CHARTS = 4;
+
+const DISPLAY_MODE_OPTIONS: {
+  value: "card" | "chart";
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
+  { value: "card", label: "Card", icon: LayoutDashboard },
+  { value: "chart", label: "Chart", icon: TrendingUp },
+];
 
 interface KpiSelectionStepProps {
   redirectTo?: string;
@@ -48,6 +64,9 @@ export function KpiSelectionStep({
   const router = useRouter();
   const [state, setState] = useState<ApiState>({ status: "loading" });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [kpiDisplayModes, setKpiDisplayModes] = useState<
+    Record<string, KpiDisplayMode>
+  >({});
   const [availabilities, setAvailabilities] = useState<KpiAvailability[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -69,6 +88,10 @@ export function KpiSelectionStep({
           const businessType = cachedData.businessType as string;
           const model = (cachedData.modelJson ?? null) as ModelProposal | null;
           const selected = (cachedData.selectedKpiIds ?? []) as string[];
+          const displayModes = (cachedData.kpiDisplayModes ?? {}) as Record<
+            string,
+            KpiDisplayMode
+          >;
           const recommendedKpis = (cachedData.recommendedKpis ??
             []) as DatabaseKpi[];
           const additionalKpis = (cachedData.additionalKpis ??
@@ -101,11 +124,13 @@ export function KpiSelectionStep({
 
           setAvailabilities(availability);
           setSelectedIds(selected.length ? selected : []);
+          setKpiDisplayModes(displayModes);
           setState({
             status: "ready",
             businessType,
             model,
             selected,
+            kpiDisplayModes: displayModes,
             recommendedKpis,
             additionalKpis,
           });
@@ -144,6 +169,10 @@ export function KpiSelectionStep({
         const businessType = data.businessType as string;
         const model = (data.modelJson ?? null) as ModelProposal | null;
         const selected = (data.selectedKpiIds ?? []) as string[];
+        const displayModes = (data.kpiDisplayModes ?? {}) as Record<
+          string,
+          KpiDisplayMode
+        >;
         const recommendedKpis = (data.recommendedKpis ?? []) as DatabaseKpi[];
         const additionalKpis = (data.additionalKpis ?? []) as DatabaseKpi[];
 
@@ -182,11 +211,13 @@ export function KpiSelectionStep({
 
         setAvailabilities(availability);
         setSelectedIds(selected.length ? selected : []);
+        setKpiDisplayModes(displayModes);
         setState({
           status: "ready",
           businessType,
           model,
           selected,
+          kpiDisplayModes: displayModes,
           recommendedKpis,
           additionalKpis,
         });
@@ -211,19 +242,91 @@ export function KpiSelectionStep({
       const newSelection = prev.includes(id)
         ? prev.filter((x) => x !== id)
         : [...prev, id];
-      // Clear validation error when user makes a selection
-      if (newSelection.length >= MIN_SELECTED) {
-        setValidationError(null);
+
+      // Handle display modes
+      if (prev.includes(id)) {
+        // Unselecting: clear display modes
+        setKpiDisplayModes((modes) => {
+          const newModes = { ...modes };
+          delete newModes[id];
+          return newModes;
+        });
+      } else {
+        // Selecting: set default display mode
+        setKpiDisplayModes((modes) => ({
+          ...modes,
+          [id]: ["card"],
+        }));
       }
+
       return newSelection;
+    });
+  };
+
+  const updateKpiDisplayModes = (newModes: Record<string, KpiDisplayMode>) => {
+    setKpiDisplayModes(newModes);
+  };
+
+  const getMissingTableNames = (kpi: DatabaseKpi): string[] => {
+    // For onboarding, we'll assume all KPIs are available since data requirements
+    // are checked at the data-sources step. Return empty array to indicate all available.
+    return [];
+  };
+
+  const handleSetDisplayMode = (
+    kpiId: string,
+    mode: "card" | "chart",
+    e: React.MouseEvent
+  ) => {
+    e.stopPropagation();
+    setKpiDisplayModes((prev) => {
+      const current = Array.isArray(prev[kpiId]) ? prev[kpiId] : [];
+      const isSelected = current.includes(mode);
+
+      if (isSelected) {
+        // Deselecting: always allow, but ensure at least one mode is selected
+        const next = current.filter((m) => m !== mode);
+        return { ...prev, [kpiId]: next.length > 0 ? next : [mode] };
+      } else {
+        // Selecting: check current limits
+        const currentCardCount = selectedIds.reduce((count, id) => {
+          const modes = id === kpiId ? [...current, mode] : prev[id];
+          return (
+            count + (Array.isArray(modes) && modes.includes("card") ? 1 : 0)
+          );
+        }, 0);
+        const currentChartCount = selectedIds.reduce((count, id) => {
+          const modes = id === kpiId ? [...current, mode] : prev[id];
+          return (
+            count + (Array.isArray(modes) && modes.includes("chart") ? 1 : 0)
+          );
+        }, 0);
+
+        if (mode === "card" && currentCardCount > MAX_CARDS) return prev;
+        if (mode === "chart" && currentChartCount > MAX_CHARTS) return prev;
+
+        const next = [...current, mode];
+        return { ...prev, [kpiId]: next };
+      }
     });
   };
 
   const handleContinue = async () => {
     if (state.status !== "ready") return;
-    if (selectedIds.length < MIN_SELECTED) {
+
+    // Calculate current counts
+    const cardCount = selectedIds.reduce((count, kpiId) => {
+      const modes = kpiDisplayModes[kpiId];
+      return count + (Array.isArray(modes) && modes.includes("card") ? 1 : 0);
+    }, 0);
+    const chartCount = selectedIds.reduce((count, kpiId) => {
+      const modes = kpiDisplayModes[kpiId];
+      return count + (Array.isArray(modes) && modes.includes("chart") ? 1 : 0);
+    }, 0);
+
+    if (cardCount < MIN_CARDS || chartCount < MIN_CHARTS) {
       setValidationError(
-        `Please select at least ${MIN_SELECTED} KPIs to continue.`
+        `Please select at least ${MIN_CARDS} cards and ${MIN_CHARTS} charts to continue.`
       );
       // Scroll to bottom to show the error
       setTimeout(() => {
@@ -242,7 +345,10 @@ export function KpiSelectionStep({
       const res = await fetch("/api/onboarding/kpi-preferences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedKpiIds: selectedIds }),
+        body: JSON.stringify({
+          selectedKpiIds: selectedIds,
+          kpiDisplayModes: kpiDisplayModes,
+        }),
       });
 
       if (!res.ok) {
@@ -345,42 +451,155 @@ export function KpiSelectionStep({
   const availabilityById = new Map<string, KpiAvailability>();
   availabilities.forEach((a) => availabilityById.set(a.id, a));
 
-  const renderKpiCard = (tpl: LocalKpiTemplate) => {
-    const availability = availabilityById.get(tpl.id);
-    const status = availability?.status ?? "available";
-    const isSelected = selectedIds.includes(tpl.id);
+  // Calculate current counts for validation and display
+  const cardCount = selectedIds.reduce((count, kpiId) => {
+    const modes = kpiDisplayModes[kpiId];
+    return count + (Array.isArray(modes) && modes.includes("card") ? 1 : 0);
+  }, 0);
+  const chartCount = selectedIds.reduce((count, kpiId) => {
+    const modes = kpiDisplayModes[kpiId];
+    return count + (Array.isArray(modes) && modes.includes("chart") ? 1 : 0);
+  }, 0);
+
+  const renderKpiCard = (kpi: DatabaseKpi, isRecommended: boolean) => {
+    const isSelected = selectedIds.includes(kpi.id);
+    const currentModes =
+      Array.isArray(kpiDisplayModes[kpi.id]) &&
+      kpiDisplayModes[kpi.id].length > 0
+        ? kpiDisplayModes[kpi.id]
+        : ["card"];
+    const missingTableNames = getMissingTableNames(kpi);
+    // Truly locked = missing data AND not selected (can't select without data)
+    const isLocked = missingTableNames.length > 0 && !isSelected;
 
     return (
       <Card
-        key={tpl.id}
+        key={kpi.id}
         className={cn(
-          "cursor-pointer transition-colors border",
-          isSelected
-            ? "border-primary bg-primary/5"
-            : "hover:border-primary/60",
-          status === "requiresData" ? "opacity-80" : ""
+          "transition-all",
+          isLocked
+            ? "opacity-75 cursor-not-allowed border-border/50 bg-muted/30 hover:bg-muted/40"
+            : isSelected
+              ? "cursor-pointer border-primary bg-muted/50"
+              : "cursor-pointer border-border hover:border-primary/50"
         )}
-        onClick={() => toggleKpi(tpl.id, status)}
+        onClick={() => !isLocked && toggleKpi(kpi.id, "available")}
       >
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-sm font-semibold">{tpl.label}</CardTitle>
-          <p className="text-xs text-muted-foreground">{tpl.description}</p>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 flex-wrap flex-1">
+              <CardTitle
+                className={cn("text-sm", isLocked && "text-foreground/80")}
+              >
+                {kpi.name}
+              </CardTitle>
+              {isRecommended && !isLocked && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/20 text-primary font-semibold">
+                  Recommended
+                </span>
+              )}
+            </div>
+            <Checkbox
+              checked={isSelected}
+              disabled={isLocked}
+              onCheckedChange={() =>
+                !isLocked && toggleKpi(kpi.id, "available")
+              }
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
         </CardHeader>
-        <CardContent className="flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>
-            {tpl.trendGoal === "increase"
-              ? "Higher is better"
-              : tpl.trendGoal === "decrease"
-                ? "Lower is better"
-                : "Keep stable"}
-          </span>
-          <span
+        <CardContent className="space-y-3">
+          <p
             className={cn(
-              status === "requiresData" ? "text-yellow-600" : "text-green-600"
+              "text-xs text-muted-foreground",
+              isLocked && "text-muted-foreground/80"
             )}
           >
-            {status === "available" ? "Available" : "Needs more data"}
-          </span>
+            {kpi.definition}
+          </p>
+          {kpi.formula && !isLocked && (
+            <p className="text-[11px] text-muted-foreground font-mono">
+              {kpi.formula}
+            </p>
+          )}
+
+          {/* Missing data warning */}
+          {missingTableNames.length > 0 && (
+            <div className="flex items-start gap-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+              <div className="space-y-0.5">
+                <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                  Data not available
+                </p>
+                <p className="text-[11px] text-amber-600/80 dark:text-amber-500/80">
+                  Upload required: {missingTableNames.join(", ")}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Display mode toggles (only for selected KPIs with data available) */}
+          {isSelected && missingTableNames.length === 0 && (
+            <div
+              className="flex gap-1.5 pt-2"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {DISPLAY_MODE_OPTIONS.map(({ value, label, icon: Icon }) => {
+                const isModeSelected = currentModes.includes(value);
+                const isAtLimit =
+                  (value === "card" &&
+                    selectedIds.reduce((count, id) => {
+                      const modes = kpiDisplayModes[id];
+                      return (
+                        count +
+                        (Array.isArray(modes) && modes.includes("card") ? 1 : 0)
+                      );
+                    }, 0) >= MAX_CARDS &&
+                    !isModeSelected) ||
+                  (value === "chart" &&
+                    selectedIds.reduce((count, id) => {
+                      const modes = kpiDisplayModes[id];
+                      return (
+                        count +
+                        (Array.isArray(modes) && modes.includes("chart")
+                          ? 1
+                          : 0)
+                      );
+                    }, 0) >= MAX_CHARTS &&
+                    !isModeSelected);
+                return (
+                  <button
+                    key={value}
+                    onClick={(e) => handleSetDisplayMode(kpi.id, value, e)}
+                    disabled={isAtLimit}
+                    className={cn(
+                      "relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200",
+                      "border shadow-sm",
+                      isModeSelected
+                        ? "bg-primary text-primary-foreground border-primary shadow-md ring-2 ring-primary/20"
+                        : isAtLimit
+                          ? "bg-muted text-muted-foreground/50 border-muted cursor-not-allowed opacity-50"
+                          : "bg-card text-muted-foreground border-border hover:border-primary/30 hover:text-foreground hover:bg-accent/50 hover:shadow-md"
+                    )}
+                  >
+                    <Icon
+                      className={cn(
+                        "h-3.5 w-3.5",
+                        isModeSelected
+                          ? "text-primary-foreground"
+                          : "text-muted-foreground"
+                      )}
+                    />
+                    {label}
+                    {isModeSelected && (
+                      <div className="absolute inset-0 rounded-md bg-primary/5 ring-1 ring-primary/10" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
     );
@@ -392,16 +611,16 @@ export function KpiSelectionStep({
         <h1 className="text-xl font-semibold">Choose your key KPIs</h1>
         <p className="text-sm text-muted-foreground">
           Based on your business type and the data you connected, Milton
-          recommends the following KPIs. Select at least {MIN_SELECTED} you care
-          most about.
+          recommends the following KPIs. Select at least {MIN_CARDS} cards and{" "}
+          {MIN_CHARTS} charts to display on your dashboard.
         </p>
       </div>
 
-      {/* Show KPIs - prefer split view, but show all if split failed */}
-      {allDatabaseTemplates.length > 0 ? (
+      {/* Show KPIs */}
+      {allDatabaseKpis.length > 0 ? (
         <>
           {/* Recommended KPIs Section */}
-          {recommendedTemplates.length > 0 && (
+          {recommendedKpis.length > 0 && (
             <div className="space-y-3">
               <div>
                 <h2 className="text-lg font-semibold">Recommended for You</h2>
@@ -410,13 +629,13 @@ export function KpiSelectionStep({
                 </p>
               </div>
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {recommendedTemplates.map(renderKpiCard)}
+                {recommendedKpis.map((kpi) => renderKpiCard(kpi, true))}
               </div>
             </div>
           )}
 
           {/* Additional KPIs Section */}
-          {additionalTemplates.length > 0 && (
+          {additionalKpis.length > 0 && (
             <div className="space-y-3">
               <div>
                 <h2 className="text-lg font-semibold">Additional KPIs</h2>
@@ -425,15 +644,15 @@ export function KpiSelectionStep({
                 </p>
               </div>
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {additionalTemplates.map(renderKpiCard)}
+                {additionalKpis.map((kpi) => renderKpiCard(kpi, false))}
               </div>
             </div>
           )}
 
           {/* If we have database KPIs but split failed, show all together */}
-          {recommendedTemplates.length === 0 &&
-            additionalTemplates.length === 0 &&
-            allDatabaseTemplates.length > 0 && (
+          {recommendedKpis.length === 0 &&
+            additionalKpis.length === 0 &&
+            allDatabaseKpis.length > 0 && (
               <div className="space-y-3">
                 <div>
                   <h2 className="text-lg font-semibold">Recommended KPIs</h2>
@@ -442,16 +661,11 @@ export function KpiSelectionStep({
                   </p>
                 </div>
                 <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                  {allDatabaseTemplates.map(renderKpiCard)}
+                  {allDatabaseKpis.map((kpi) => renderKpiCard(kpi, false))}
                 </div>
               </div>
             )}
         </>
-      ) : fallbackTemplates.length > 0 ? (
-        /* Fallback: Show all KPIs from suggestions or templates */
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {fallbackTemplates.map(renderKpiCard)}
-        </div>
       ) : (
         /* No KPIs available */
         <div className="rounded-lg border border-dashed p-8 text-center">
@@ -462,6 +676,34 @@ export function KpiSelectionStep({
       )}
 
       <div className="space-y-3">
+        {/* Selection Summary */}
+        <div className="flex gap-4 text-sm">
+          <span
+            className={selectedIds.length === 0 ? "text-muted-foreground" : ""}
+          >
+            {selectedIds.length} KPI{selectedIds.length !== 1 ? "s" : ""}{" "}
+            selected
+          </span>
+          <span
+            className={
+              cardCount >= MIN_CARDS
+                ? "text-muted-foreground"
+                : "text-destructive"
+            }
+          >
+            Cards: {cardCount}/{MIN_CARDS}
+          </span>
+          <span
+            className={
+              chartCount >= MIN_CHARTS
+                ? "text-muted-foreground"
+                : "text-destructive"
+            }
+          >
+            Charts: {chartCount}/{MIN_CHARTS}
+          </span>
+        </div>
+
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <p className="text-xs text-muted-foreground">
             You can adjust your KPIs later in your dashboard settings.
@@ -478,9 +720,6 @@ export function KpiSelectionStep({
           <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3">
             <p className="text-sm text-destructive font-medium">
               {validationError}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Selected: {selectedIds.length} / {MIN_SELECTED} required
             </p>
           </div>
         )}

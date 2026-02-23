@@ -349,6 +349,7 @@ Rank these KPIs by relevance. Return the ranked KPI IDs as a JSON array, with th
 
   const response = NextResponse.json({
     selectedKpiIds,
+    kpiDisplayModes: (data as any).kpi_display_modes ?? {},
     businessType,
     modelJson: data.model_json ?? null,
     recommendedKpis,

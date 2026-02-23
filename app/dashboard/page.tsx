@@ -12,6 +12,7 @@ import type { DatabaseKpi } from "@/lib/types/kpi";
 import { useUser } from "@/lib/context/UserContext";
 import { fetchDashboardKpis } from "@/lib/dashboard-kpis";
 import { createClient } from "@/lib/supabase/client";
+import { useDateRange } from "@/lib/hooks/useDateRange";
 
 const DISPLAY_MODES_STORAGE_KEY = "kpi-display-modes";
 
@@ -48,20 +49,11 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const dataLoadedRef = useRef(false);
   const kpisLoadedRef = useRef(false);
+  const analyticsLoadedRef = useRef(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const [period, setPeriod] = useState<"month" | "year" | "ytd" | "custom">(
-    "month"
-  );
-  const [customDateRange, setCustomDateRange] = useState<{
-    from: string;
-    to: string;
-  }>({
-    from: new Date(new Date().setMonth(new Date().getMonth() - 1))
-      .toISOString()
-      .split("T")[0],
-    to: new Date().toISOString().split("T")[0],
-  });
+  const { period, customDateRange, setPeriod, setCustomDateRange } =
+    useDateRange();
 
   // Load display modes from localStorage on mount
   useEffect(() => {
@@ -76,23 +68,27 @@ export default function DashboardPage() {
   }, []);
 
   const checkIfDataReady = () => {
-    if (dataLoadedRef.current && kpisLoadedRef.current) {
+    if (
+      dataLoadedRef.current &&
+      kpisLoadedRef.current &&
+      analyticsLoadedRef.current
+    ) {
       setTimeout(() => setIsLoading(false), 500);
     }
   };
 
   useEffect(() => {
     const fetchData = async () => {
+      // Wait for user to be available before marking data as loaded
+      if (!user) return;
       try {
-        if (user) {
-          const statusRes = await fetch("/api/data/status", {
-            credentials: "include",
-          });
-          if (statusRes.ok) {
-            const statusData = await statusRes.json();
-            console.log("[BROWSER LOG] /api/data/status response:", statusData);
-            setDataStatus(statusData);
-          }
+        const statusRes = await fetch("/api/data/status", {
+          credentials: "include",
+        });
+        if (statusRes.ok) {
+          const statusData = await statusRes.json();
+          console.log("[BROWSER LOG] /api/data/status response:", statusData);
+          setDataStatus(statusData);
         }
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -107,104 +103,72 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const loadKpis = async () => {
+      if (!user) return;
       try {
-        // Get business model and selected KPIs
         const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
 
-        if (user) {
-          const { data: company } = await supabase
-            .from("companies")
-            .select("id")
-            .eq("created_by", user.id)
+        const { data: company } = await supabase
+          .from("companies")
+          .select("id")
+          .eq("created_by", user.id)
+          .single();
+
+        if (company) {
+          const { data: businessModel } = await supabase
+            .from("business_models")
+            .select("business_type, selected_kpi_ids")
+            .eq("company_id", company.id)
             .single();
 
-          if (company) {
-            const { data: businessModel } = await supabase
-              .from("business_models")
-              .select("business_type, selected_kpi_ids")
-              .eq("company_id", company.id)
-              .single();
+          if (businessModel) {
+            setBusinessType(businessModel.business_type);
 
-            if (businessModel) {
-              setBusinessType(businessModel.business_type);
+            const rawKpiIds =
+              (businessModel.selected_kpi_ids as string[]) || [];
+            const uuidRegex =
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+            const validKpiIds = rawKpiIds.filter((id) => uuidRegex.test(id));
+            setSelectedKpiIds(validKpiIds);
 
-              // Get selected KPI IDs - filter out legacy non-UUID identifiers
-              const rawKpiIds =
-                (businessModel.selected_kpi_ids as string[]) || [];
-              const uuidRegex =
-                /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-              const validKpiIds = rawKpiIds.filter((id) => uuidRegex.test(id));
-              setSelectedKpiIds(validKpiIds);
-
-              // Fetch KPI definitions for selected KPIs
-              if (validKpiIds.length > 0) {
-                console.log(
-                  "[Dashboard] Loading KPIs - valid IDs:",
-                  validKpiIds
-                );
-
-                const { data: kpis } = await supabase
-                  .from("kpis")
-                  .select("*")
-                  .in("id", validKpiIds);
-
-                console.log(
-                  "[Dashboard] Found KPIs:",
-                  kpis?.length || 0,
-                  kpis?.map((k) => k.name)
-                );
-                setSelectedKpis(kpis || []);
-              } else {
-                console.log("[Dashboard] No valid KPI IDs found");
-                setSelectedKpis([]);
-              }
-
-              // Get all available KPIs
-              const { data: allKpis } = await supabase
+            if (validKpiIds.length > 0) {
+              const { data: kpis } = await supabase
                 .from("kpis")
                 .select("*")
-                .eq("is_published", true)
-                .order("name");
+                .in("id", validKpiIds);
 
-              if (allKpis) {
-                // For fitness studio, show key KPIs as recommended
-                let recommendedKpis, additionalKpis;
-                if (businessType === "fitness_studio") {
-                  const keyFitnessKpis = [
-                    "Active Members (End of Month)",
-                    "New Members",
-                    "Churn Rate",
-                    "Member Tenure",
-                    "Revenue per Member (ARPM)",
-                  ];
+              setSelectedKpis(kpis || []);
+            } else {
+              setSelectedKpis([]);
+            }
 
-                  recommendedKpis = allKpis.filter((kpi) =>
-                    keyFitnessKpis.includes(kpi.name)
-                  );
-                  additionalKpis = allKpis.filter(
-                    (kpi) => !keyFitnessKpis.includes(kpi.name)
-                  );
-                } else {
-                  // For other business types, show first 5 as recommended
-                  recommendedKpis = allKpis.slice(0, 5);
-                  additionalKpis = allKpis.slice(5);
-                }
+            const { data: allKpis } = await supabase
+              .from("kpis")
+              .select("*")
+              .eq("is_published", true)
+              .order("name");
 
-                console.log(
-                  "[Dashboard] Recommended KPIs:",
-                  recommendedKpis.map((k) => k.name)
+            if (allKpis) {
+              let recommendedKpis, additionalKpis;
+              if (businessModel.business_type === "fitness_studio") {
+                const keyFitnessKpis = [
+                  "Active Members (End of Month)",
+                  "New Members",
+                  "Churn Rate",
+                  "Member Tenure",
+                  "Revenue per Member (ARPM)",
+                ];
+                recommendedKpis = allKpis.filter((kpi) =>
+                  keyFitnessKpis.includes(kpi.name)
                 );
-                console.log(
-                  "[Dashboard] Additional KPIs:",
-                  additionalKpis.length
+                additionalKpis = allKpis.filter(
+                  (kpi) => !keyFitnessKpis.includes(kpi.name)
                 );
-
-                setRecommendedKpis(recommendedKpis);
-                setAdditionalKpis(additionalKpis);
+              } else {
+                recommendedKpis = allKpis.slice(0, 5);
+                additionalKpis = allKpis.slice(5);
               }
+              setRecommendedKpis(recommendedKpis);
+              setAdditionalKpis(additionalKpis);
             }
           }
         }
@@ -217,41 +181,35 @@ export default function DashboardPage() {
     };
 
     loadKpis();
-  }, []);
+  }, [user]);
 
   // Fetch analytics KPI data when date range changes
   useEffect(() => {
     const loadAnalyticsData = async () => {
       if (businessType && selectedKpiIds.length > 0) {
-        console.log(
-          "[Dashboard] Loading analytics data for business type:",
-          businessType,
-          "KPIs:",
-          selectedKpiIds.length,
-          "IDs:",
-          selectedKpiIds
-        );
-        const data = await fetchDashboardKpis(
-          period,
-          customDateRange,
-          selectedKpiIds
-        );
-        console.log(
-          "[Dashboard] Analytics data received for",
-          Object.keys(data).length,
-          "KPIs:",
-          Object.keys(data)
-        );
-        setAnalyticsKpiData(data);
-      } else {
-        console.log(
-          "[Dashboard] Skipping analytics load - businessType:",
-          businessType,
-          "selectedKpiIds:",
-          selectedKpiIds
-        );
+        // Real fetch — mark done after data arrives
+        try {
+          const data = await fetchDashboardKpis(
+            period,
+            customDateRange,
+            selectedKpiIds
+          );
+          setAnalyticsKpiData(data);
+        } catch (err) {
+          console.error("[Dashboard] Error loading analytics data:", err);
+          setAnalyticsKpiData({});
+        }
+        analyticsLoadedRef.current = true;
+        checkIfDataReady();
+      } else if (kpisLoadedRef.current) {
+        // KPIs have been loaded but none are selected — nothing to fetch, we're done
         setAnalyticsKpiData({});
+        analyticsLoadedRef.current = true;
+        checkIfDataReady();
       }
+      // If kpisLoadedRef is not set yet, KPI definitions haven't arrived —
+      // don't mark analytics done; loadKpis will trigger this effect again
+      // once businessType / selectedKpiIds are populated.
     };
 
     loadAnalyticsData();
@@ -371,7 +329,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {dataStatus?.hasModelData ? (
+            {dataStatus === null ? null : dataStatus.hasModelData ? (
               <>
                 <DashboardInsights />
                 <KpisGrid

@@ -62,6 +62,15 @@ export function DateRangePicker({
       },
     },
     {
+      label: "Last 90 days",
+      value: "custom",
+      getRange: () => {
+        const from = new Date(now);
+        from.setDate(from.getDate() - 90);
+        return { from: formatDate(from), to: formatDate(now) };
+      },
+    },
+    {
       label: "This Month",
       value: "month",
       getRange: () => {

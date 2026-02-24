@@ -305,15 +305,13 @@ Rank these KPIs by relevance. Return the ranked KPI IDs as a JSON array, with th
     `[kpi-preferences] Returning: ${recommendedKpis.length} recommended, ${additionalKpis.length} additional, ${recommendedKpis.length + additionalKpis.length} total`
   );
 
-  // selected_kpi_ids can be either:
-  // - Old format: string[] (array of KPI IDs)
-  // - New format: Array<{id: string, displayType: string}> (array of objects)
+  // selected_kpi_ids format: Array<{id: string, displayTypes: string[]}>
   const rawSelected = (data.selected_kpi_ids ?? []) as any[];
   const uuidLike =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
   let selectedKpiIds: string[] = [];
-  let kpiDisplayModes: Record<string, any> = {};
+  let kpiDisplayModes: Record<string, string[]> = {};
 
   // Handle new format: Array<{id: string, displayTypes: string[]}>
   if (
@@ -323,42 +321,25 @@ Rank these KPIs by relevance. Return the ranked KPI IDs as a JSON array, with th
   ) {
     const selections = rawSelected as Array<{
       id: string;
-      displayTypes?: string[];
-      displayType?: string;
+      displayTypes: string[];
     }>;
     const validSelections = selections.filter(
       (item) =>
         typeof item.id === "string" &&
         uuidLike.test(item.id) &&
-        // New format: displayTypes array
-        ((Array.isArray(item.displayTypes) &&
-          item.displayTypes.every((type) =>
-            ["card", "chart"].includes(type)
-          )) ||
-          // Old format: single displayType string (backward compatibility)
-          (typeof item.displayType === "string" &&
-            ["card", "chart"].includes(item.displayType)))
+        Array.isArray(item.displayTypes) &&
+        item.displayTypes.every((type) => ["card", "chart"].includes(type))
     );
 
     // Extract IDs and build display modes
     selectedKpiIds = validSelections.map((item) => item.id);
     kpiDisplayModes = validSelections.reduce(
       (acc, item) => {
-        // Handle both old and new formats
-        const displayTypes =
-          item.displayTypes ||
-          (item.displayType ? [item.displayType] : ["card"]);
-        acc[item.id] = displayTypes;
+        acc[item.id] = item.displayTypes;
         return acc;
       },
-      {} as Record<string, any>
+      {} as Record<string, string[]>
     );
-  } else {
-    // Handle old format: string[] (backward compatibility)
-    const validSelectedKpiIds = rawSelected.filter(
-      (id): id is string => typeof id === "string" && uuidLike.test(id)
-    );
-    selectedKpiIds = validSelectedKpiIds;
   }
 
   // Filter selected KPIs to only include those that are still published

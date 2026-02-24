@@ -52,23 +52,20 @@ export async function POST(request: Request) {
       .eq("company_id", company.id)
       .single();
 
-    // Handle both old format (string[]) and new format (Array<{id, displayTypes}>)
+    // Handle new format: Array<{id: string, displayTypes: string[]}>
     const rawSelected = (businessModel?.selected_kpi_ids as any[]) || [];
     let selectedKpiIds: string[] = [];
 
-    if (rawSelected.length > 0) {
-      if (typeof rawSelected[0] === "string") {
-        // Old format: array of strings
-        selectedKpiIds = rawSelected as string[];
-      } else if (typeof rawSelected[0] === "object" && rawSelected[0]?.id) {
-        // New format: array of objects
-        const selections = rawSelected as Array<{
-          id: string;
-          displayTypes?: string[];
-          displayType?: string;
-        }>;
-        selectedKpiIds = selections.map((item) => item.id);
-      }
+    if (
+      rawSelected.length > 0 &&
+      typeof rawSelected[0] === "object" &&
+      rawSelected[0]?.id
+    ) {
+      const selections = rawSelected as Array<{
+        id: string;
+        displayTypes: string[];
+      }>;
+      selectedKpiIds = selections.map((item) => item.id);
     }
 
     console.log(`[KPI Calculate] Selected KPI IDs:`, selectedKpiIds);

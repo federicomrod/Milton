@@ -127,16 +127,25 @@ export default function DashboardPage() {
             }
           } else {
             // Fallback: load all published KPIs
-            const { data: allKpis } = await supabase
+            console.log("[Dashboard] Loading fallback KPIs");
+            const { data: allKpis, error: kpisError } = await supabase
               .from("kpis")
               .select("*")
               .eq("is_published", true)
               .order("name");
 
+            console.log(
+              "[Dashboard] Fallback KPIs result:",
+              allKpis?.length,
+              "Error:",
+              kpisError
+            );
+
             if (allKpis && allKpis.length > 0) {
               setRecommendedKpis([]);
               setAdditionalKpis(allKpis);
             } else {
+              console.log("[Dashboard] No KPIs loaded, setting empty arrays");
               setRecommendedKpis([]);
               setAdditionalKpis([]);
             }
@@ -303,9 +312,6 @@ export default function DashboardPage() {
                   additionalKpis={additionalKpis}
                   kpiDisplayModes={kpiDisplayModes}
                   onDisplayModesChange={handleDisplayModesChange}
-                  disabled={
-                    recommendedKpis.length === 0 && additionalKpis.length === 0
-                  }
                 />
               </div>
             </div>

@@ -59,22 +59,17 @@ export async function GET() {
       return jsonNoStore({ selectedKpis: [] });
     }
 
-    // Handle both old format (string[]) and new format (Array<{id, displayTypes}>)
+    // Handle new format: Array<{id: string, displayTypes: string[]}>
     let kpiIds: string[] = [];
 
-    if (typeof rawSelected[0] === "string") {
-      // Old format: array of strings
-      const uuidLike =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-      kpiIds = rawSelected.filter(
-        (id) => typeof id === "string" && uuidLike.test(id)
-      );
-    } else if (typeof rawSelected[0] === "object" && rawSelected[0]?.id) {
-      // New format: array of objects
+    if (
+      rawSelected.length > 0 &&
+      typeof rawSelected[0] === "object" &&
+      rawSelected[0]?.id
+    ) {
       const selections = rawSelected as Array<{
         id: string;
-        displayTypes?: string[];
-        displayType?: string;
+        displayTypes: string[];
       }>;
       const uuidLike =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

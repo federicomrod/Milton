@@ -1,4 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { getModelDataRows } from "./getModelDataRows";
+import { classAcc, bookingAcc, toPeriod } from "./fieldAccessors";
 
 export async function calculateClassAttendanceRate(
   supabase: SupabaseClient,
@@ -6,7 +8,6 @@ export async function calculateClassAttendanceRate(
   fromDate: string,
   toDate: string
 ) {
-  // Get company ID
   const { data: company } = await supabase
     .from("companies")
     .select("id")
@@ -15,71 +16,46 @@ export async function calculateClassAttendanceRate(
 
   if (!company) throw new Error("Company not found");
 
-  // Get bookings and classes data
-  const [bookingsData, classesData] = await Promise.all([
-    supabase
-      .from("model_data")
-      .select("data")
-      .eq("company_id", company.id)
-      .eq("model_table_name", "bookings"),
-    supabase
-      .from("model_data")
-      .select("data")
-      .eq("company_id", company.id)
-      .eq("model_table_name", "classes"),
+  const [bookings, classes] = await Promise.all([
+    getModelDataRows(supabase, company.id, "bookings"),
+    getModelDataRows(supabase, company.id, "classes"),
   ]);
 
-  const bookings =
-    bookingsData.data?.flatMap((row: any) => row.data || []) || [];
-  const classes = classesData.data?.flatMap((row: any) => row.data || []) || [];
+  const classLookup = new Map(classes.map((c: any) => [classAcc.id(c), c]));
 
-  // Create class lookup
-  const classLookup = new Map(classes.map((cls: any) => [cls.id, cls]));
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  const monthlyStats: Record<string, { attended: number; booked: number }> = {};
 
-  // Filter bookings by date range
-  const filteredBookings = bookings.filter((booking: any) => {
-    const classData = classLookup.get(booking.class_id);
-    if (!classData || !classData.date_time) {
-      return false;
-    }
-    const bookingDate = new Date(classData.date_time);
-    return bookingDate >= new Date(fromDate) && bookingDate < new Date(toDate);
-  });
-
-  // Calculate attendance rate by month
-  // Formula: (attended bookings) / (attended + booked bookings) * 100
-  const monthlyStats: { [key: string]: { attended: number; booked: number } } =
-    {};
-
-  filteredBookings.forEach((booking: any) => {
-    const classData = classLookup.get(booking.class_id);
+  bookings.forEach((b: any) => {
+    const classData = classLookup.get(bookingAcc.classId(b));
     if (!classData) return;
+    const dt = classAcc.dateTime(classData);
+    if (!dt || dt < from || dt >= to) return;
 
-    const period = new Date(classData.date_time).toISOString().substring(0, 7);
-    if (!monthlyStats[period]) {
+    const period = toPeriod(dt);
+    if (!monthlyStats[period])
       monthlyStats[period] = { attended: 0, booked: 0 };
-    }
 
-    if (booking.attendance_status === "attended") {
-      monthlyStats[period].attended++;
-    } else if (booking.attendance_status === "booked") {
-      monthlyStats[period].booked++;
-    }
+    const status = bookingAcc.attendanceStatus(b);
+    if (status === "attended") monthlyStats[period].attended++;
+    else if (status === "booked") monthlyStats[period].booked++;
   });
 
   const historicalData = Object.entries(monthlyStats)
     .map(([period, stats]) => {
-      const totalBooked = stats.attended + stats.booked;
+      const total = stats.attended + stats.booked;
       return {
-        period: `${period}-01`,
-        value: totalBooked > 0 ? (stats.attended / totalBooked) * 100 : 0,
+        period,
+        value: total > 0 ? (stats.attended / total) * 100 : 0,
       };
     })
-    .sort(
-      (a, b) => new Date(a.period).getTime() - new Date(b.period).getTime()
-    );
+    .sort((a, b) => a.period.localeCompare(b.period));
 
-  const currentValue = historicalData.length > 0 ? historicalData[0].value : 0;
+  const currentValue =
+    historicalData.length > 0
+      ? historicalData[historicalData.length - 1].value
+      : 0;
 
   return { currentValue, historicalData };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, startTransition } from "react";
 
 export type DateRangePeriod = "month" | "year" | "ytd" | "custom";
 
@@ -11,17 +11,19 @@ export interface DateRange {
 
 const STORAGE_KEY = "dashboard-date-range";
 
-const getDefaultDateRange = (): DateRange => ({
-  period: "custom",
-  customDateRange: {
-    from: new Date(new Date().setDate(new Date().getDate() - 90))
-      .toISOString()
-      .split("T")[0],
-    to: new Date().toISOString().split("T")[0],
-  },
-});
+function getDefaultDateRange(): DateRange {
+  return {
+    period: "custom",
+    customDateRange: {
+      from: new Date(new Date().setDate(new Date().getDate() - 90))
+        .toISOString()
+        .split("T")[0],
+      to: new Date().toISOString().split("T")[0],
+    },
+  };
+}
 
-const readFromStorage = (): DateRange | null => {
+function readFromStorage(): DateRange | null {
   try {
     const stored = sessionStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -35,28 +37,37 @@ const readFromStorage = (): DateRange | null => {
       }
     }
   } catch {
-    // ignore
+    // sessionStorage is unavailable (SSR or private mode)
   }
   return null;
-};
+}
 
 export function useDateRange() {
+  // Initialize with the same default the server renders — avoids SSR/client
+  // hydration mismatch because sessionStorage is not available on the server.
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
+  const [hydrated, setHydrated] = useState(false);
 
-  // Hydrate from sessionStorage on mount (avoids SSR mismatch)
+  // After mount, restore any previously saved range from sessionStorage.
+  // Wrapped in startTransition so the setState call is inside a callback,
+  // satisfying react-hooks/set-state-in-effect (eslint-plugin-react-hooks v7+).
   useEffect(() => {
     const stored = readFromStorage();
-    if (stored) setDateRange(stored);
+    startTransition(() => {
+      if (stored) setDateRange(stored);
+      setHydrated(true);
+    });
   }, []);
 
-  // Persist to sessionStorage whenever the range changes
+  // Persist changes to sessionStorage (only after hydration to avoid SSR noise).
   useEffect(() => {
+    if (!hydrated) return;
     try {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(dateRange));
     } catch {
       // ignore storage errors
     }
-  }, [dateRange]);
+  }, [dateRange, hydrated]);
 
   const setPeriod = (period: DateRangePeriod) => {
     setDateRange((prev) => ({ ...prev, period }));

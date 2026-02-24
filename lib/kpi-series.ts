@@ -2,13 +2,22 @@
  * KPI series computation from model_data.
  * Injects real data for KPIs that can be derived from model tables (e.g. Active Members from members).
  */
+import {
+  readField,
+  parseFlexibleDate,
+} from "./kpi-calculations/fieldAccessors";
 
 export interface MemberRecord {
   id?: string;
   name?: string;
   status?: string;
+  /** snake_case variant */
   join_date?: number | string;
+  /** Title Case variant (uploaded CSVs) */
+  "Join Date"?: string;
   status_change_date?: number | string;
+  /** Title Case cancel date (uploaded CSVs) */
+  "Cancel Date"?: string;
   [key: string]: unknown;
 }
 
@@ -42,21 +51,49 @@ export function parseDatePoint(
  * Active Members formula:
  * COUNT(members WHERE join_date <= :date_point AND
  *   (status = 'active' OR
- *    (status IN ('paused', 'cancelled') AND status_change_date > :date_point)))
+ *    (status IN ('paused', 'cancelled') AND cancel/status_change_date > :date_point)))
+ *
+ * Handles both snake_case field names (normalised data) and Title Case field names
+ * (uploaded CSV data: "Join Date", "Cancel Date", "Status").
  */
 export function isActiveMemberAt(
   member: MemberRecord,
   datePointMs: number
 ): boolean {
-  const joinMs = parseDatePoint(member.join_date);
-  if (joinMs === null || joinMs > datePointMs) return false;
+  // Read join date — try snake_case first, then "Join Date" from CSV uploads
+  const joinDateRaw = readField(member, "join_date", "Join Date");
+  const joinDate =
+    parseFlexibleDate(joinDateRaw) ??
+    (joinDateRaw != null ? new Date(parseDatePoint(joinDateRaw) ?? NaN) : null);
+  if (
+    !joinDate ||
+    isNaN(joinDate.getTime()) ||
+    joinDate.getTime() > datePointMs
+  )
+    return false;
 
-  const status = (member.status ?? "").toString().toLowerCase();
+  // Read status — handles both "status" (snake_case) and "Status" (Title Case)
+  const status = (
+    (readField(member, "status", "Status") ?? "") as string
+  ).toLowerCase();
   if (status === "active") return true;
 
   if (status === "paused" || status === "cancelled") {
-    const changeMs = parseDatePoint(member.status_change_date);
-    return changeMs !== null && changeMs > datePointMs;
+    // Cancellation date — may live in "cancel_date", "Cancel Date", or "status_change_date"
+    const cancelRaw = readField(
+      member,
+      "cancel_date",
+      "Cancel Date",
+      "status_change_date"
+    );
+    const cancelDate =
+      parseFlexibleDate(cancelRaw) ??
+      (cancelRaw != null ? new Date(parseDatePoint(cancelRaw) ?? NaN) : null);
+    return (
+      cancelDate != null &&
+      !isNaN(cancelDate.getTime()) &&
+      cancelDate.getTime() > datePointMs
+    );
   }
 
   return false;

@@ -125,21 +125,27 @@ export function DateRangePicker({
     },
   ];
 
+  /**
+   * Formats a stored "YYYY-MM-DD" string for display without timezone shift.
+   * Parsing bare ISO date strings with `new Date()` treats them as UTC midnight,
+   * which shows the previous day in UTC− timezones. Appending "T00:00:00" forces
+   * local-time interpretation so the displayed date always matches the stored value.
+   */
+  const formatStoredDate = (
+    dateStr: string,
+    opts: Intl.DateTimeFormatOptions
+  ) => new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", opts);
+
   const getDisplayText = () => {
     if (period === "year") return "Last Year";
     if (period === "ytd") return "Year to Date";
     if (period === "custom") {
-      const fromDate = new Date(customDateRange.from);
-      const toDate = new Date(customDateRange.to);
-      return `${fromDate.toLocaleDateString("en-US", {
+      const opts: Intl.DateTimeFormatOptions = {
         month: "short",
         day: "numeric",
         year: "numeric",
-      })} - ${toDate.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      })}`;
+      };
+      return `${formatStoredDate(customDateRange.from, opts)} - ${formatStoredDate(customDateRange.to, opts)}`;
     }
     // month
     const from = new Date(now.getFullYear(), now.getMonth(), 1);

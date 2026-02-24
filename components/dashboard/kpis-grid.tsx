@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, startTransition } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart3 } from "lucide-react";
 import {
@@ -26,9 +26,13 @@ interface KpisGridProps {
   selectedKpis: DatabaseKpi[];
   displayModes?: Record<string, KpiDisplayMode>;
   analyticsKpiData?: Record<string, number | null>;
+  period?: string;
+  customDateRange?: { from: string; to: string };
 }
 
 type KpiFormat = "number" | "currency" | "percentage";
+
+type SeriesPoint = { period: string; value: number };
 
 const getKpiDisplayFormat = (kpiName: string): KpiFormat => {
   const name = kpiName?.toLowerCase().trim();
@@ -59,20 +63,113 @@ const getKpiDisplayFormat = (kpiName: string): KpiFormat => {
   return "number";
 };
 
-// Placeholder data for charts when analytics doesn't provide series
-const PLACEHOLDER_DATA = Array.from({ length: 6 }, (_, i) => ({
-  period: `Period ${i + 1}`,
-  value: 0,
-}));
+const MONTH_ABBR = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+// Handles "YYYY-MM", "YYYY-MM-01", "YYYY-MM-DD" — all map to "Mon 'YY"
+const formatPeriodLabel = (period: string): string => {
+  const match = period.match(/^(\d{4})-(\d{2})/);
+  if (match) {
+    const [, year, month] = match;
+    return `${MONTH_ABBR[Number(month) - 1]} '${year.slice(2)}`;
+  }
+  return period;
+};
+
+/** Returns every "YYYY-MM" month string from `from` to `to` (inclusive). */
+function getAllMonthsInRange(from: string, to: string): string[] {
+  const [fromYear, fromMonth] = from.split("-").map(Number);
+  const [toYear, toMonth] = to.split("-").map(Number);
+  const months: string[] = [];
+  for (
+    let d = new Date(fromYear, fromMonth - 1, 1);
+    d <= new Date(toYear, toMonth - 1, 1);
+    d.setMonth(d.getMonth() + 1)
+  ) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    months.push(`${y}-${m}`);
+  }
+  return months;
+}
+
+/**
+ * Ensures every month in the range has a data point.
+ * Missing months are filled with 0. Handles "YYYY-MM", "YYYY-MM-01", "YYYY-MM-DD"
+ * period formats by normalising to "YYYY-MM" before merging.
+ */
+function fillMonthGaps(
+  data: SeriesPoint[],
+  from: string,
+  to: string
+): SeriesPoint[] {
+  const allMonths = getAllMonthsInRange(from, to);
+  const byMonth = new Map(data.map((p) => [p.period.substring(0, 7), p.value]));
+  return allMonths.map((month) => ({
+    period: month,
+    value: byMonth.get(month) ?? 0,
+  }));
+}
+
+/** Converts a period preset + optional custom range into concrete from/to date strings. */
+function resolveDateRange(
+  period: string | undefined,
+  customDateRange: { from: string; to: string } | undefined
+): { from: string; to: string } {
+  const today = new Date().toISOString().split("T")[0];
+
+  if (period === "custom" || !period) {
+    return (
+      customDateRange ?? {
+        from: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split("T")[0],
+        to: today,
+      }
+    );
+  }
+  if (period === "ytd") {
+    return { from: `${new Date().getFullYear()}-01-01`, to: today };
+  }
+  if (period === "year") {
+    const y = new Date().getFullYear() - 1;
+    return { from: `${y}-01-01`, to: `${y}-12-31` };
+  }
+  // "month" — last 6 months for broader coverage
+  return {
+    from: new Date(new Date().setMonth(new Date().getMonth() - 6))
+      .toISOString()
+      .split("T")[0],
+    to: today,
+  };
+}
 
 const KpiChart = ({
   kpi,
   analyticsValue,
+  seriesData,
+  resolvedFrom,
+  resolvedTo,
   currency,
   numberFormat,
 }: {
   kpi: DatabaseKpi;
   analyticsValue: number | null;
+  seriesData?: SeriesPoint[];
+  resolvedFrom: string;
+  resolvedTo: string;
   currency: string;
   numberFormat: string;
 }) => {
@@ -90,11 +187,17 @@ const KpiChart = ({
     return formatNumber(value, numberFormat);
   };
 
-  // Create a simple chart with current value vs placeholder
-  const chartData = [
-    { period: "Current", value: analyticsValue || 0 },
-    ...PLACEHOLDER_DATA.slice(1),
-  ];
+  // Use filled series data if available; otherwise build a zero-filled skeleton
+  // for every month in the range so the chart always shows a full timeline.
+  const filledData: SeriesPoint[] =
+    seriesData && seriesData.length > 0
+      ? seriesData
+      : fillMonthGaps([], resolvedFrom, resolvedTo);
+
+  const chartData = filledData.map((p) => ({
+    period: formatPeriodLabel(p.period),
+    value: p.value,
+  }));
 
   return (
     <ResponsiveContainer width="100%" height={256}>
@@ -142,8 +245,45 @@ export function KpisGrid({
   selectedKpis,
   displayModes = {},
   analyticsKpiData = {},
+  period,
+  customDateRange,
 }: KpisGridProps) {
   const { prefs } = useUserPreferences();
+  const [seriesData, setSeriesData] = useState<Record<string, SeriesPoint[]>>(
+    {}
+  );
+
+  const chartKpis = selectedKpis.filter((kpi) => {
+    const modes = displayModes[kpi.id] ?? ["card"];
+    return modes.includes("chart");
+  });
+  const chartKpiIdsStr = chartKpis.map((k) => k.id).join(",");
+
+  // Resolve the actual date range from both period preset and custom range
+  const { from: resolvedFrom, to: resolvedTo } = resolveDateRange(
+    period,
+    customDateRange
+  );
+  const dateParams = `&from_date=${resolvedFrom}&to_date=${resolvedTo}`;
+
+  useEffect(() => {
+    if (!chartKpiIdsStr) {
+      startTransition(() => setSeriesData({}));
+      return;
+    }
+    fetch(`/api/kpis/series?kpiIds=${chartKpiIdsStr}${dateParams}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const mapped: Record<string, SeriesPoint[]> = {};
+        for (const [id, val] of Object.entries(data.series || {})) {
+          const raw = (val as { data: SeriesPoint[] }).data;
+          // Fill every month in the selected range so the X-axis is always complete
+          mapped[id] = fillMonthGaps(raw, resolvedFrom, resolvedTo);
+        }
+        setSeriesData(mapped);
+      })
+      .catch(() => {});
+  }, [chartKpiIdsStr, dateParams]);
 
   if (selectedKpis.length === 0) {
     return (
@@ -157,15 +297,9 @@ export function KpisGrid({
     );
   }
 
-  // Separate KPIs into card and chart groups based on display modes
   const cardKpis = selectedKpis.filter((kpi) => {
     const modes = displayModes[kpi.id] ?? ["card"];
     return modes.includes("card");
-  });
-
-  const chartKpis = selectedKpis.filter((kpi) => {
-    const modes = displayModes[kpi.id] ?? ["card"];
-    return modes.includes("chart");
   });
 
   return (
@@ -213,6 +347,9 @@ export function KpisGrid({
                   <KpiChart
                     kpi={kpi}
                     analyticsValue={analyticsValue}
+                    seriesData={seriesData[kpi.id]}
+                    resolvedFrom={resolvedFrom}
+                    resolvedTo={resolvedTo}
                     currency={prefs.currency}
                     numberFormat={prefs.number_format}
                   />

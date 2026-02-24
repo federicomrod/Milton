@@ -27,9 +27,9 @@ const LockedPlaceholder = ({ message }: { message: string }) => (
 
 type DataStatus = {
   ok?: boolean;
-  bank?: boolean;
-  crm?: boolean;
-  budget?: boolean;
+  hasModelData?: boolean;
+  tablesWithData?: { id: string; name: string; recordCount: number }[];
+  totalRecords?: number;
 } | null;
 
 export default function AnalyticsPage() {
@@ -276,7 +276,7 @@ export default function AnalyticsPage() {
             </TabsContent>
 
             <TabsContent value="cashflow" className="space-y-4">
-              {dataStatus?.bank ? (
+              {dataStatus?.hasModelData ? (
                 <CashFlowAnalysis
                   period={period}
                   customDateRange={customDateRange}
@@ -312,7 +312,7 @@ export default function AnalyticsPage() {
             </TabsList>
 
             <TabsContent value="financial" className="space-y-4">
-              {dataStatus?.budget ? (
+              {dataStatus?.hasModelData ? (
                 <>
                   <div className="grid gap-4 md:grid-cols-2">
                     <FinancialCharts type="income-statement" />
@@ -326,7 +326,7 @@ export default function AnalyticsPage() {
             </TabsContent>
 
             <TabsContent value="sales" className="space-y-4">
-              {dataStatus?.crm ? (
+              {dataStatus?.hasModelData ? (
                 <SalesPipeline />
               ) : (
                 <LockedPlaceholder message="To unlock your Sales Pipeline, upload your CRM data on the Upload page." />
@@ -334,7 +334,7 @@ export default function AnalyticsPage() {
             </TabsContent>
 
             <TabsContent value="cashflow" className="space-y-4">
-              {dataStatus?.bank ? (
+              {dataStatus?.hasModelData ? (
                 <CashFlowAnalysis />
               ) : (
                 <LockedPlaceholder message="To unlock Cash Flow Analysis, upload your bank transaction data on the Upload page." />

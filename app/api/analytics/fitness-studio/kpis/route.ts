@@ -298,15 +298,13 @@ export async function GET(req: NextRequest) {
       );
     }).length;
 
-    // Use the larger of start or end, or average if both are > 0
-    // This handles cases where all members joined during the period
-    const avgActiveMembers =
-      activeMembersAtStart > 0 && activeMembersAtEnd > 0
-        ? (activeMembersAtStart + activeMembersAtEnd) / 2
-        : Math.max(activeMembersAtStart, activeMembersAtEnd);
-
+    // Per KPI definition: "members that left as % of members at the beginning of the window"
     const churnRate =
-      avgActiveMembers > 0 ? (churnedMembers / avgActiveMembers) * 100 : 0;
+      activeMembersAtStart > 0
+        ? (churnedMembers / activeMembersAtStart) * 100
+        : activeMembersAtEnd > 0
+          ? (churnedMembers / activeMembersAtEnd) * 100
+          : 0;
 
     // KPI 5: Average Member Tenure (Months) - simplified
     const activeMembersWithTenure = members.filter((m: any) => {
@@ -380,6 +378,43 @@ export async function GET(req: NextRequest) {
         f.name.toLowerCase().includes("type")
     )?.name;
 
+    // Find the direction field (e.g. "Direction (inflow / outflow)")
+    const txDirectionField = transactionsFields.find(
+      (f) =>
+        f.name.toLowerCase().includes("direction") ||
+        f.name.toLowerCase() === "flow"
+    )?.name;
+
+    /**
+     * Returns the direction of a transaction.
+     * Handles uploaded data with an explicit direction field (e.g. "Direction (inflow / outflow)")
+     * as well as legacy data that uses negative amounts for outflows.
+     */
+    const getTxDirection = (t: any): "inflow" | "outflow" | "unknown" => {
+      const dirRaw = txDirectionField
+        ? getTxVal(t, txDirectionField, [
+            "direction",
+            "Direction (inflow / outflow)",
+          ])
+        : (t["Direction (inflow / outflow)"] ?? t.direction ?? t.type ?? "");
+      const dir = String(dirRaw || "").toLowerCase();
+      if (
+        dir.includes("outflow") ||
+        dir === "out" ||
+        dir === "expense" ||
+        dir === "debit"
+      )
+        return "outflow";
+      if (
+        dir.includes("inflow") ||
+        dir === "in" ||
+        dir === "revenue" ||
+        dir === "credit"
+      )
+        return "inflow";
+      return "unknown";
+    };
+
     const revenueTransactions = transactions.filter((t: any) => {
       const amountRaw = txAmountField
         ? getTxVal(t, txAmountField, ["amount", "Amount", "value", "Value"])
@@ -388,10 +423,7 @@ export async function GET(req: NextRequest) {
         typeof amountRaw === "string"
           ? parseFloat(amountRaw)
           : Number(amountRaw) || 0;
-      const categoryRaw = txCategoryField
-        ? getTxVal(t, txCategoryField, ["category", "Category", "type", "Type"])
-        : (t.category ?? t.Category ?? "");
-      const category = String(categoryRaw || "").toLowerCase();
+      if (amount <= 0) return false;
       const dateRaw = txDateField
         ? getTxVal(t, txDateField, ["date", "Date", "payment_date"])
         : (t.date ?? t.Date ?? t.payment_date);
@@ -399,14 +431,21 @@ export async function GET(req: NextRequest) {
       if (!date || isNaN(date.getTime())) return false;
       const from = new Date(fromDate + "T00:00:00");
       const to = new Date(toDate + "T23:59:59");
+      if (date < from || date > to) return false;
+      const direction = getTxDirection(t);
+      if (direction === "outflow") return false;
+      // When direction is explicit, all inflows count as revenue.
+      // When direction is unknown (legacy signed-amount data), require category.
+      if (direction === "inflow") return true;
+      const categoryRaw = txCategoryField
+        ? getTxVal(t, txCategoryField, ["category", "Category", "type", "Type"])
+        : (t.category ?? t.Category ?? "");
+      const category = String(categoryRaw || "").toLowerCase();
       return (
-        amount > 0 &&
-        (category.includes("membership") ||
-          category.includes("drop-in") ||
-          category.includes("class pack") ||
-          category.includes("revenue")) &&
-        date >= from &&
-        date <= to
+        category.includes("membership") ||
+        category.includes("drop-in") ||
+        category.includes("class pack") ||
+        category.includes("revenue")
       );
     });
 
@@ -772,7 +811,8 @@ export async function GET(req: NextRequest) {
     const cancellationRate =
       finalBookings.length > 0 ? (cancelled / finalBookings.length) * 100 : 0;
 
-    // Calculate total revenue and expenses from transactions (same field resolution as revenue)
+    // Calculate total expenses from transactions using direction field (outflows),
+    // falling back to negative amounts for legacy data without a direction field.
     const expenseTransactions = transactions.filter((t: any) => {
       const amountRaw = txAmountField
         ? getTxVal(t, txAmountField, ["amount", "Amount", "value", "Value"])
@@ -781,6 +821,7 @@ export async function GET(req: NextRequest) {
         typeof amountRaw === "string"
           ? parseFloat(amountRaw)
           : Number(amountRaw) || 0;
+      if (amount === 0) return false;
       const dateRaw = txDateField
         ? getTxVal(t, txDateField, ["date", "Date", "payment_date"])
         : (t.date ?? t.Date ?? t.payment_date);
@@ -788,21 +829,24 @@ export async function GET(req: NextRequest) {
       if (!date || isNaN(date.getTime())) return false;
       const from = new Date(fromDate + "T00:00:00");
       const to = new Date(toDate + "T23:59:59");
-      return amount < 0 && date >= from && date <= to;
+      if (date < from || date > to) return false;
+      const direction = getTxDirection(t);
+      if (direction === "outflow") return true;
+      if (direction === "inflow") return false;
+      // Legacy signed-amount data: outflow = negative amount
+      return amount < 0;
     });
 
-    const totalExpenses = Math.abs(
-      expenseTransactions.reduce((sum: number, t: any) => {
-        const amountRaw = txAmountField
-          ? getTxVal(t, txAmountField, ["amount", "Amount", "value", "Value"])
-          : (t.amount ?? t.Amount ?? 0);
-        const amount =
-          typeof amountRaw === "string"
-            ? parseFloat(amountRaw)
-            : Number(amountRaw) || 0;
-        return sum + amount;
-      }, 0)
-    );
+    const totalExpenses = expenseTransactions.reduce((sum: number, t: any) => {
+      const amountRaw = txAmountField
+        ? getTxVal(t, txAmountField, ["amount", "Amount", "value", "Value"])
+        : (t.amount ?? t.Amount ?? 0);
+      const amount =
+        typeof amountRaw === "string"
+          ? parseFloat(amountRaw)
+          : Number(amountRaw) || 0;
+      return sum + Math.abs(amount);
+    }, 0);
 
     const netIncome = totalRevenue - totalExpenses;
     const monthsDuration = Math.max(
@@ -811,6 +855,17 @@ export async function GET(req: NextRequest) {
         (1000 * 60 * 60 * 24 * 30)
     );
     const burnRate = totalExpenses / monthsDuration;
+
+    // Revenue per class: total revenue ÷ number of class occurrences in the period
+    const classesInRange = classes.filter((c: any) => {
+      const { classStartAt } = normalizeClass(c);
+      const startAt = classStartAt ? parseDate(classStartAt) : null;
+      return (
+        startAt && !isNaN(startAt.getTime()) && startAt >= from && startAt <= to
+      );
+    });
+    const revenuePerClass =
+      classesInRange.length > 0 ? totalRevenue / classesInRange.length : 0;
 
     return jsonNoStore({
       kpis: {
@@ -826,6 +881,7 @@ export async function GET(req: NextRequest) {
         totalCosts: parseFloat(totalExpenses.toFixed(2)),
         netIncome: parseFloat(netIncome.toFixed(2)),
         burnRate: parseFloat(burnRate.toFixed(2)),
+        revenuePerClass: parseFloat(revenuePerClass.toFixed(2)),
       },
     });
   } catch (err) {

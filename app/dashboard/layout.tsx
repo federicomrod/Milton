@@ -11,9 +11,9 @@ import { miltonEventsAPI } from "@/lib/milton-events";
 
 type DataStatus = {
   ok?: boolean;
-  bank?: boolean;
-  crm?: boolean;
-  budget?: boolean;
+  hasModelData?: boolean;
+  tablesWithData?: { id: string; name: string; recordCount: number }[];
+  totalRecords?: number;
 } | null;
 
 const DashboardContent = ({ children }: { children: React.ReactNode }) => {
@@ -261,23 +261,11 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
     // Only redirect if user is NOT already on dashboard
     if (pathname === "/dashboard") return;
 
-    if (
-      dataStatus?.ok &&
-      !dataStatus.bank &&
-      !dataStatus.crm &&
-      !dataStatus.budget
-    ) {
+    if (dataStatus?.ok && !dataStatus.hasModelData) {
       console.log("Redirecting user to /dashboard due to missing data...");
       router.replace("/dashboard");
     }
-  }, [
-    pathname,
-    dataStatus?.ok,
-    dataStatus?.bank,
-    dataStatus?.crm,
-    dataStatus?.budget,
-    router,
-  ]);
+  }, [pathname, dataStatus?.ok, dataStatus?.hasModelData, router]);
 
   return (
     <BusinessProvider>

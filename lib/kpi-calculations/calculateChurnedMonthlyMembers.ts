@@ -1,4 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { getModelDataRows } from "./getModelDataRows";
+import { memberAcc, toPeriod } from "./fieldAccessors";
 
 export async function calculateChurnedMonthlyMembers(
   supabase: SupabaseClient,
@@ -6,59 +8,46 @@ export async function calculateChurnedMonthlyMembers(
   fromDate: string,
   toDate: string
 ) {
-  // Get company ID
-  const { data: company, error: companyError } = await supabase
+  const { data: company } = await supabase
     .from("companies")
     .select("id")
     .eq("created_by", userId)
     .single();
 
-  if (companyError || !company) {
-    throw new Error("Company not found");
-  }
+  if (!company) throw new Error("Company not found");
 
-  // Get members data from model_data
-  const { data: membersData, error } = await supabase
-    .from("model_data")
-    .select("data")
-    .eq("company_id", company.id)
-    .eq("model_table_name", "members");
+  const members = await getModelDataRows(
+    supabase,
+    company.id,
+    "members",
+    "customers"
+  );
 
-  if (error || !membersData) {
-    return { currentValue: 0, historicalData: [] };
-  }
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  const monthlyStats: Record<string, number> = {};
 
-  // Flatten the data
-  const members = membersData.flatMap((row: any) => row.data || []);
+  members.forEach((m: any) => {
+    const cancelDate =
+      memberAcc.cancelDate(m) ??
+      (memberAcc.status(m) === "cancelled"
+        ? memberAcc.statusChangeDate(m)
+        : null);
 
-  // Group by month and count churned members (cancel_date in that month)
-  const monthlyStats: { [key: string]: number } = {};
-
-  members.forEach((member: any) => {
-    if (member.cancel_date) {
-      const cancelDate = new Date(member.cancel_date);
-      const period = cancelDate.toISOString().substring(0, 7); // YYYY-MM
-
-      // Only count if cancel date is within our range
-      if (cancelDate >= new Date(fromDate) && cancelDate < new Date(toDate)) {
-        if (!monthlyStats[period]) {
-          monthlyStats[period] = 0;
-        }
-        monthlyStats[period]++;
-      }
+    if (cancelDate && cancelDate >= from && cancelDate < to) {
+      const period = toPeriod(cancelDate);
+      monthlyStats[period] = (monthlyStats[period] ?? 0) + 1;
     }
   });
 
   const historicalData = Object.entries(monthlyStats)
-    .map(([period, count]) => ({
-      period: `${period}-01`,
-      value: count,
-    }))
-    .sort(
-      (a, b) => new Date(a.period).getTime() - new Date(b.period).getTime()
-    );
+    .map(([period, count]) => ({ period, value: count }))
+    .sort((a, b) => a.period.localeCompare(b.period));
 
-  const currentValue = historicalData.length > 0 ? historicalData[0].value : 0;
+  const currentValue =
+    historicalData.length > 0
+      ? historicalData[historicalData.length - 1].value
+      : 0;
 
   return { currentValue, historicalData };
 }

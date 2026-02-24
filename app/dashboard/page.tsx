@@ -336,6 +336,8 @@ export default function DashboardPage() {
                   selectedKpis={selectedKpis}
                   displayModes={kpiDisplayModes}
                   analyticsKpiData={analyticsKpiData}
+                  period={period}
+                  customDateRange={customDateRange}
                 />
               </>
             ) : (

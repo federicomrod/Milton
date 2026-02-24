@@ -1,4 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { getModelDataRows } from "./getModelDataRows";
+import { classAcc, bookingAcc, toPeriod } from "./fieldAccessors";
 
 export async function calculateAverageClassSize(
   supabase: SupabaseClient,
@@ -6,7 +8,6 @@ export async function calculateAverageClassSize(
   fromDate: string,
   toDate: string
 ) {
-  // Get company ID
   const { data: company } = await supabase
     .from("companies")
     .select("id")
@@ -15,75 +16,50 @@ export async function calculateAverageClassSize(
 
   if (!company) throw new Error("Company not found");
 
-  // Get bookings and classes data
-  const [bookingsData, classesData] = await Promise.all([
-    supabase
-      .from("model_data")
-      .select("data")
-      .eq("company_id", company.id)
-      .eq("model_table_name", "bookings"),
-    supabase
-      .from("model_data")
-      .select("data")
-      .eq("company_id", company.id)
-      .eq("model_table_name", "classes"),
+  const [bookings, classes] = await Promise.all([
+    getModelDataRows(supabase, company.id, "bookings"),
+    getModelDataRows(supabase, company.id, "classes"),
   ]);
 
-  const bookings =
-    bookingsData.data?.flatMap((row: any) => row.data || []) || [];
-  const classes = classesData.data?.flatMap((row: any) => row.data || []) || [];
-
-  // Create class lookup
-  const classLookup = new Map(classes.map((cls: any) => [cls.id, cls]));
-
-  // Group attendees by class
-  const classAttendeeCounts: {
-    [key: string]: { attendees: number; date: string };
-  } = {};
-
-  bookings.forEach((booking: any) => {
-    if (booking.attendance_status === "attended") {
-      const classId = booking.class_id;
-      const classData = classLookup.get(classId);
-
-      if (classData && classData.date_time) {
-        const key = `${classId}-${classData.date_time}`;
-        if (!classAttendeeCounts[key]) {
-          classAttendeeCounts[key] = {
-            attendees: 0,
-            date: classData.date_time,
-          };
-        }
-        classAttendeeCounts[key].attendees++;
-      }
-    }
+  // Count attended bookings per class ID
+  const attendedPerClass = new Map<string, number>();
+  bookings.forEach((b: any) => {
+    if (bookingAcc.attendanceStatus(b) !== "attended") return;
+    const cid = bookingAcc.classId(b);
+    attendedPerClass.set(cid, (attendedPerClass.get(cid) ?? 0) + 1);
   });
 
-  // Calculate average by month
-  const monthlyStats: { [key: string]: number[] } = {};
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  const monthlyStats: Record<string, number[]> = {};
 
-  Object.values(classAttendeeCounts).forEach(({ attendees, date }) => {
-    const period = new Date(date).toISOString().substring(0, 7);
-    if (!monthlyStats[period]) {
-      monthlyStats[period] = [];
-    }
-    monthlyStats[period].push(attendees);
+  classes.forEach((c: any) => {
+    const dt = classAcc.dateTime(c);
+    if (!dt || dt < from || dt >= to) return;
+
+    const cid = classAcc.id(c);
+    const attended = attendedPerClass.get(cid) ?? 0;
+    if (attended === 0) return; // skip classes with no attendees
+
+    const period = toPeriod(dt);
+    if (!monthlyStats[period]) monthlyStats[period] = [];
+    monthlyStats[period].push(attended);
   });
 
   const historicalData = Object.entries(monthlyStats)
-    .map(([period, attendeeCounts]) => ({
-      period: `${period}-01`,
+    .map(([period, counts]) => ({
+      period,
       value:
-        attendeeCounts.length > 0
-          ? attendeeCounts.reduce((sum, count) => sum + count, 0) /
-            attendeeCounts.length
+        counts.length > 0
+          ? counts.reduce((s, c) => s + c, 0) / counts.length
           : 0,
     }))
-    .sort(
-      (a, b) => new Date(a.period).getTime() - new Date(b.period).getTime()
-    );
+    .sort((a, b) => a.period.localeCompare(b.period));
 
-  const currentValue = historicalData.length > 0 ? historicalData[0].value : 0;
+  const currentValue =
+    historicalData.length > 0
+      ? historicalData[historicalData.length - 1].value
+      : 0;
 
   return { currentValue, historicalData };
 }

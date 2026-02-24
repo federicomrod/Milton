@@ -161,7 +161,14 @@ export const DASHBOARD_KPI_MAPPINGS: Record<string, Record<string, string>> = {
     "Member Tenure": "avgTenure",
     "Revenue per Member (ARPM)": "revenuePerMember",
     "Studio Utilization": "utilizationRate",
+    "Utilization Rate": "utilizationRate",
+    "Occupancy Rate": "utilizationRate",
     "Cancellation Rate": "cancellationRate",
+    "Revenue per Class": "revenuePerClass",
+    "Total Expenses": "totalCosts",
+    "Total Revenue": "totalRevenue",
+    "Net Income": "netIncome",
+    "Burn Rate": "burnRate",
   },
   restaurant: {
     // Add restaurant KPI mappings when restaurant analytics API is implemented

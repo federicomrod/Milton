@@ -14,12 +14,20 @@ export async function calculateMonthlyChurnRate(
     calculateActiveMembers(supabase, userId, fromDate, toDate),
   ]);
 
-  // Create lookup maps for easier merging
+  // Normalize periods to "YYYY-MM" — churned returns "YYYY-MM-01", active returns "YYYY-MM"
+  const normalizePeriod = (p: string) => p.substring(0, 7);
+
   const churnedMap = new Map(
-    churnedResult.historicalData.map((item) => [item.period, item.value])
+    churnedResult.historicalData.map((item) => [
+      normalizePeriod(item.period),
+      item.value,
+    ])
   );
   const activeMap = new Map(
-    activeResult.historicalData.map((item) => [item.period, item.value])
+    activeResult.historicalData.map((item) => [
+      normalizePeriod(item.period),
+      item.value,
+    ])
   );
 
   // Get all unique periods
@@ -38,7 +46,10 @@ export async function calculateMonthlyChurnRate(
       (a, b) => new Date(a.period).getTime() - new Date(b.period).getTime()
     );
 
-  const currentValue = historicalData.length > 0 ? historicalData[0].value : 0;
+  const currentValue =
+    historicalData.length > 0
+      ? historicalData[historicalData.length - 1].value
+      : 0;
 
   return { currentValue, historicalData };
 }

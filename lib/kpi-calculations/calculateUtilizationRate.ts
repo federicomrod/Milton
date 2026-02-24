@@ -1,4 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { getModelDataRows } from "./getModelDataRows";
+import { classAcc, bookingAcc, toPeriod } from "./fieldAccessors";
 
 export async function calculateUtilizationRate(
   supabase: SupabaseClient,
@@ -6,7 +8,6 @@ export async function calculateUtilizationRate(
   fromDate: string,
   toDate: string
 ) {
-  // Get company ID
   const { data: company } = await supabase
     .from("companies")
     .select("id")
@@ -15,62 +16,51 @@ export async function calculateUtilizationRate(
 
   if (!company) throw new Error("Company not found");
 
-  // Get bookings and classes data
-  const [bookingsData, classesData] = await Promise.all([
-    supabase
-      .from("model_data")
-      .select("data")
-      .eq("company_id", company.id)
-      .eq("model_table_name", "bookings"),
-    supabase
-      .from("model_data")
-      .select("data")
-      .eq("company_id", company.id)
-      .eq("model_table_name", "classes"),
+  const [classes, bookings] = await Promise.all([
+    getModelDataRows(supabase, company.id, "classes"),
+    getModelDataRows(supabase, company.id, "bookings"),
   ]);
 
-  const bookings =
-    bookingsData.data?.flatMap((row: any) => row.data || []) || [];
-  const classes = classesData.data?.flatMap((row: any) => row.data || []) || [];
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
 
-  // Create class lookup
-  const classLookup = new Map(classes.map((cls: any) => [cls.id, cls]));
+  // Count attended+booked bookings per class, then aggregate by month
+  const classBookingCounts = new Map<string, number>();
+  bookings.forEach((b: any) => {
+    const status = bookingAcc.attendanceStatus(b);
+    if (status !== "attended" && status !== "booked") return;
+    const cid = bookingAcc.classId(b);
+    classBookingCounts.set(cid, (classBookingCounts.get(cid) ?? 0) + 1);
+  });
 
-  // Calculate utilization by month
-  const monthlyStats: { [key: string]: { booked: number; capacity: number } } =
-    {};
+  const monthlyStats: Record<string, { booked: number; capacity: number }> = {};
 
-  bookings.forEach((booking: any) => {
-    const classData = classLookup.get(booking.class_id);
-    if (!classData || !classData.date_time) return;
+  classes.forEach((c: any) => {
+    const dt = classAcc.dateTime(c);
+    const cap = classAcc.capacity(c);
+    if (!dt || cap <= 0) return;
+    if (dt < from || dt >= to) return;
 
-    const period = new Date(classData.date_time).toISOString().substring(0, 7);
-    if (!monthlyStats[period]) {
+    const period = toPeriod(dt);
+    if (!monthlyStats[period])
       monthlyStats[period] = { booked: 0, capacity: 0 };
-    }
 
-    if (
-      booking.attendance_status === "attended" ||
-      booking.attendance_status === "booked"
-    ) {
-      monthlyStats[period].booked++;
-    }
-
-    if (classData.capacity) {
-      monthlyStats[period].capacity += classData.capacity;
-    }
+    const cid = classAcc.id(c);
+    monthlyStats[period].booked += classBookingCounts.get(cid) ?? 0;
+    monthlyStats[period].capacity += cap;
   });
 
   const historicalData = Object.entries(monthlyStats)
     .map(([period, stats]) => ({
-      period: `${period}-01`,
+      period,
       value: stats.capacity > 0 ? (stats.booked / stats.capacity) * 100 : 0,
     }))
-    .sort(
-      (a, b) => new Date(a.period).getTime() - new Date(b.period).getTime()
-    );
+    .sort((a, b) => a.period.localeCompare(b.period));
 
-  const currentValue = historicalData.length > 0 ? historicalData[0].value : 0;
+  const currentValue =
+    historicalData.length > 0
+      ? historicalData[historicalData.length - 1].value
+      : 0;
 
   return { currentValue, historicalData };
 }

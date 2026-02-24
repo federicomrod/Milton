@@ -1,4 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { getModelDataRows } from "./getModelDataRows";
+import { txAcc, toPeriod } from "./fieldAccessors";
 
 export async function calculateRunway(
   supabase: SupabaseClient,
@@ -6,7 +8,6 @@ export async function calculateRunway(
   fromDate: string,
   toDate: string
 ) {
-  // Get company ID
   const { data: company } = await supabase
     .from("companies")
     .select("id")
@@ -15,122 +16,80 @@ export async function calculateRunway(
 
   if (!company) throw new Error("Company not found");
 
-  // Get transactions data
-  console.log(
-    `[calculateRunway] Querying for company_id: ${company.id}, model_table_name: 'transactions'`
+  const transactions = await getModelDataRows(
+    supabase,
+    company.id,
+    "transactions",
+    "transaction"
   );
-  const { data: transactionsData, error } = await supabase
-    .from("model_data")
-    .select("data")
-    .eq("company_id", company.id)
-    .eq("model_table_name", "transactions");
 
-  console.log(`[calculateRunway] Query result:`, {
-    error,
-    dataLength: transactionsData?.length,
-    firstRow: transactionsData?.[0],
-  });
+  if (!transactions.length) return { currentValue: 0, historicalData: [] };
 
-  if (error || !(transactionsData as any)?.length) {
-    console.log(`[calculateRunway] No transactions data found, error:`, error);
-    return { currentValue: 0, historicalData: [] };
-  }
-
-  // Flatten the data - each row.data is already the transaction object
-  const transactions = (transactionsData as any)
-    .map((row: any) => row.data)
-    .filter(Boolean);
-  console.log(`[calculateRunway] Found ${transactions.length} transactions`);
-  console.log(`[calculateRunway] Sample transaction:`, transactions[0]);
-
-  // Calculate cash balance over time
-  // First, sort transactions by date
-  const sortedTransactions = transactions
-    .filter((tx: any) => tx.amount && tx.date && tx.type)
+  // Running balance over all transactions (not limited to range)
+  let balance = 0;
+  const sorted = transactions
+    .filter((t: any) => txAcc.date(t) && txAcc.type(t))
     .sort(
-      (a: any, b: any) =>
-        new Date(a.date).getTime() - new Date(b.date).getTime()
+      (a: any, b: any) => txAcc.date(a)!.getTime() - txAcc.date(b)!.getTime()
     );
 
-  // Calculate running balance
-  let balance = 0;
-  const balanceHistory: { date: Date; balance: number }[] = [];
-
-  sortedTransactions.forEach((tx: any) => {
-    const amount = parseFloat(tx.amount) || 0;
-    if (tx.type === "inflow") {
-      balance += amount;
-    } else if (tx.type === "outflow") {
-      balance -= amount;
-    }
-    balanceHistory.push({
-      date: new Date(tx.date),
-      balance: balance,
-    });
+  sorted.forEach((t: any) => {
+    const amount = txAcc.amount(t);
+    const type = txAcc.type(t);
+    if (type === "inflow") balance += amount;
+    else if (type === "outflow") balance -= amount;
   });
 
-  // Calculate monthly burn rate (average outflow over last 3 months)
-  const monthlyStats: { [key: string]: { inflows: number; outflows: number } } =
+  // Monthly stats within range to calculate burn
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  const monthlyStats: Record<string, { inflows: number; outflows: number }> =
     {};
 
-  transactions.forEach((tx: any) => {
-    if (tx.amount && tx.date && tx.type) {
-      const txDate = new Date(tx.date);
-      const period = txDate.toISOString().substring(0, 7);
+  transactions.forEach((t: any) => {
+    const txDate = txAcc.date(t);
+    const amount = txAcc.amount(t);
+    const type = txAcc.type(t);
+    if (!txDate || !type) return;
+    if (txDate < from || txDate >= to) return;
 
-      if (txDate >= new Date(fromDate) && txDate < new Date(toDate)) {
-        if (!monthlyStats[period]) {
-          monthlyStats[period] = { inflows: 0, outflows: 0 };
-        }
-
-        const amount = parseFloat(tx.amount) || 0;
-        if (tx.type === "inflow") {
-          monthlyStats[period].inflows += amount;
-        } else if (tx.type === "outflow") {
-          monthlyStats[period].outflows += amount;
-        }
-      }
-    }
+    const period = toPeriod(txDate);
+    if (!monthlyStats[period])
+      monthlyStats[period] = { inflows: 0, outflows: 0 };
+    if (type === "inflow") monthlyStats[period].inflows += amount;
+    else if (type === "outflow") monthlyStats[period].outflows += amount;
   });
 
-  // Get last 3 months of burn data
   const burnRates = Object.values(monthlyStats)
-    .slice(-3)
-    .map((stats) => stats.outflows - stats.inflows)
-    .filter((burn) => burn > 0); // Only positive burn (net outflows)
+    .map((s) => s.outflows - s.inflows)
+    .filter((b) => b > 0)
+    .slice(-3);
 
-  const averageBurn =
+  const avgBurn =
     burnRates.length > 0
-      ? burnRates.reduce((sum, burn) => sum + burn, 0) / burnRates.length
+      ? burnRates.reduce((s, b) => s + b, 0) / burnRates.length
       : 0;
 
-  // Get current balance (latest balance from history)
-  const currentBalance =
-    balanceHistory.length > 0
-      ? balanceHistory[balanceHistory.length - 1].balance
-      : 0;
+  const runway = avgBurn > 0 ? balance / avgBurn : 0;
 
-  // Calculate runway in months
-  const runway = averageBurn > 0 ? currentBalance / averageBurn : 0;
-
-  // For historical data, we could show runway over time
-  // But for simplicity, we'll show the same value for each month
-  const startDate = new Date(fromDate);
-  const endDate = new Date(toDate);
-  const months = [];
+  // Parse year/month directly from ISO string — avoids UTC→local shift bugs
+  const [fromYear, fromMonth] = fromDate.split("-").map(Number);
+  const [toYear, toMonth] = toDate.split("-").map(Number);
+  const months: Date[] = [];
 
   for (
-    let d = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-    d < endDate;
+    let d = new Date(fromYear, fromMonth - 1, 1);
+    d < new Date(toYear, toMonth - 1, 1);
     d.setMonth(d.getMonth() + 1)
   ) {
     months.push(new Date(d));
   }
 
-  const historicalData = months.map((month) => ({
-    period: month.toISOString().substring(0, 10),
-    value: runway,
-  }));
+  const historicalData = months.map((month) => {
+    const y = month.getFullYear();
+    const m = String(month.getMonth() + 1).padStart(2, "0");
+    return { period: `${y}-${m}`, value: runway };
+  });
 
   return { currentValue: runway, historicalData };
 }

@@ -305,34 +305,96 @@ Rank these KPIs by relevance. Return the ranked KPI IDs as a JSON array, with th
     `[kpi-preferences] Returning: ${recommendedKpis.length} recommended, ${additionalKpis.length} additional, ${recommendedKpis.length + additionalKpis.length} total`
   );
 
-  // selected_kpi_ids is source of truth; return only valid UUIDs that are still published (ignore legacy slugs like "mrr")
-  const rawSelected = (data.selected_kpi_ids ?? []) as string[];
+  // selected_kpi_ids can be either:
+  // - Old format: string[] (array of KPI IDs)
+  // - New format: Array<{id: string, displayType: string}> (array of objects)
+  const rawSelected = (data.selected_kpi_ids ?? []) as any[];
   const uuidLike =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const validSelectedKpiIds = rawSelected.filter(
-    (id): id is string => typeof id === "string" && uuidLike.test(id)
-  );
+
+  let selectedKpiIds: string[] = [];
+  let kpiDisplayModes: Record<string, any> = {};
+
+  // Handle new format: Array<{id: string, displayTypes: string[]}>
+  if (
+    rawSelected.length > 0 &&
+    typeof rawSelected[0] === "object" &&
+    rawSelected[0]?.id
+  ) {
+    const selections = rawSelected as Array<{
+      id: string;
+      displayTypes?: string[];
+      displayType?: string;
+    }>;
+    const validSelections = selections.filter(
+      (item) =>
+        typeof item.id === "string" &&
+        uuidLike.test(item.id) &&
+        // New format: displayTypes array
+        ((Array.isArray(item.displayTypes) &&
+          item.displayTypes.every((type) =>
+            ["card", "chart"].includes(type)
+          )) ||
+          // Old format: single displayType string (backward compatibility)
+          (typeof item.displayType === "string" &&
+            ["card", "chart"].includes(item.displayType)))
+    );
+
+    // Extract IDs and build display modes
+    selectedKpiIds = validSelections.map((item) => item.id);
+    kpiDisplayModes = validSelections.reduce(
+      (acc, item) => {
+        // Handle both old and new formats
+        const displayTypes =
+          item.displayTypes ||
+          (item.displayType ? [item.displayType] : ["card"]);
+        acc[item.id] = displayTypes;
+        return acc;
+      },
+      {} as Record<string, any>
+    );
+  } else {
+    // Handle old format: string[] (backward compatibility)
+    const validSelectedKpiIds = rawSelected.filter(
+      (id): id is string => typeof id === "string" && uuidLike.test(id)
+    );
+    selectedKpiIds = validSelectedKpiIds;
+  }
 
   // Filter selected KPIs to only include those that are still published
-  let selectedKpiIds: string[] = [];
-  if (validSelectedKpiIds.length > 0) {
+  if (selectedKpiIds.length > 0) {
     const { data: publishedSelectedKpis } = await supabase
       .from("kpis")
       .select("id")
-      .in("id", validSelectedKpiIds)
+      .in("id", selectedKpiIds)
       .eq("is_published", true);
 
-    selectedKpiIds = publishedSelectedKpis?.map((kpi) => kpi.id) ?? [];
+    const publishedIds = new Set(
+      publishedSelectedKpis?.map((kpi) => kpi.id) ?? []
+    );
+
+    // Filter both IDs and display modes
+    selectedKpiIds = selectedKpiIds.filter((id) => publishedIds.has(id));
+    kpiDisplayModes = Object.fromEntries(
+      Object.entries(kpiDisplayModes).filter(([id]) => publishedIds.has(id))
+    );
 
     // Clean up the business model if there are draft KPIs that were previously selected
-    if (selectedKpiIds.length !== validSelectedKpiIds.length) {
+    const originalCount = rawSelected.length;
+    if (selectedKpiIds.length !== originalCount) {
       console.log(
-        `[kpi-preferences] Cleaning up ${validSelectedKpiIds.length - selectedKpiIds.length} draft KPIs from selected_kpi_ids`
+        `[kpi-preferences] Cleaning up ${originalCount - selectedKpiIds.length} draft KPIs from selected_kpi_ids`
       );
       try {
+        // Convert back to new format for storage
+        const cleanedSelections = selectedKpiIds.map((id) => ({
+          id,
+          displayTypes: kpiDisplayModes[id] || ["card"],
+        }));
+
         const { error: updateError } = await supabase
           .from("business_models")
-          .update({ selected_kpi_ids: selectedKpiIds })
+          .update({ selected_kpi_ids: cleanedSelections })
           .eq("company_id", company.id);
 
         if (updateError) {
@@ -349,7 +411,7 @@ Rank these KPIs by relevance. Return the ranked KPI IDs as a JSON array, with th
 
   const response = NextResponse.json({
     selectedKpiIds,
-    kpiDisplayModes: (data as any).kpi_display_modes ?? {},
+    kpiDisplayModes,
     businessType,
     modelJson: data.model_json ?? null,
     recommendedKpis,
@@ -378,38 +440,52 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
+
+  // New format: selectedKpiIds is Array<{id: string, displayTypes: string[]}>
   const raw = Array.isArray(body?.selectedKpiIds)
-    ? (body.selectedKpiIds as string[])
+    ? (body.selectedKpiIds as Array<{ id: string; displayTypes: string[] }>)
     : [];
-  // selected_kpi_ids must be UUIDs from the kpis table. Ignore non-UUIDs (e.g. "mrr", "arr")
-  // so MetricSelector or other callers cannot overwrite with metric slugs.
+
+  // Validate format and extract valid KPI IDs
   const uuidLike =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const validUuidKpiIds = raw.filter(
-    (id): id is string => typeof id === "string" && uuidLike.test(id)
+
+  const validKpiSelections = raw.filter(
+    (item): item is { id: string; displayTypes: string[] } =>
+      typeof item === "object" &&
+      item !== null &&
+      typeof item.id === "string" &&
+      Array.isArray(item.displayTypes) &&
+      uuidLike.test(item.id) &&
+      item.displayTypes.every((type) => ["card", "chart"].includes(type))
   );
 
+  // Extract just the IDs for validation against published KPIs
+  const kpiIds = validKpiSelections.map((item) => item.id);
+
   // Validate that all selected KPIs are published
-  let selectedKpiIds: string[] = [];
-  if (validUuidKpiIds.length > 0) {
+  let validSelections: Array<{ id: string; displayTypes: string[] }> = [];
+  if (kpiIds.length > 0) {
     const { data: publishedKpis } = await supabase
       .from("kpis")
       .select("id")
-      .in("id", validUuidKpiIds)
+      .in("id", kpiIds)
       .eq("is_published", true);
 
-    selectedKpiIds = publishedKpis?.map((kpi) => kpi.id) ?? [];
+    const publishedKpiIds = new Set(publishedKpis?.map((kpi) => kpi.id) ?? []);
+
+    // Filter selections to only include published KPIs
+    validSelections = validKpiSelections.filter((selection) =>
+      publishedKpiIds.has(selection.id)
+    );
 
     // Log if any draft KPIs were filtered out
-    if (selectedKpiIds.length !== validUuidKpiIds.length) {
+    if (validSelections.length !== validKpiSelections.length) {
       console.log(
-        `[kpi-preferences] Filtered out ${validUuidKpiIds.length - selectedKpiIds.length} draft KPIs from selection`
+        `[kpi-preferences] Filtered out ${validKpiSelections.length - validSelections.length} draft KPIs from selection`
       );
     }
   }
-
-  // Handle display modes
-  const displayModes = body?.kpiDisplayModes || {};
 
   // Get company for user
   const { data: company } = await supabase
@@ -422,14 +498,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "company_not_found" }, { status: 404 });
   }
 
-  const updateData: any = { selected_kpi_ids: selectedKpiIds };
-  if (displayModes && Object.keys(displayModes).length > 0) {
-    updateData.kpi_display_modes = displayModes;
-  }
-
+  // Store the combined format directly
   const { error } = await supabase
     .from("business_models")
-    .update(updateData)
+    .update({ selected_kpi_ids: validSelections })
     .eq("company_id", company.id);
 
   if (error) {

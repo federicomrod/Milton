@@ -54,18 +54,38 @@ export async function GET() {
       return jsonNoStore({ selectedKpis: [] });
     }
 
-    const rawIds = (businessModel?.selected_kpi_ids ?? []) as string[];
-    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+    const rawSelected = (businessModel?.selected_kpi_ids ?? []) as any[];
+    if (!Array.isArray(rawSelected) || rawSelected.length === 0) {
       return jsonNoStore({ selectedKpis: [] });
     }
 
-    // Only pass valid UUIDs to the query; ignore legacy slugs (e.g. "mrr", "arr")
-    // that may have been written by MetricSelector before it was fixed.
-    const uuidLike =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    const kpiIds = rawIds.filter(
-      (id) => typeof id === "string" && uuidLike.test(id)
-    );
+    // Handle both old format (string[]) and new format (Array<{id, displayTypes}>)
+    let kpiIds: string[] = [];
+
+    if (typeof rawSelected[0] === "string") {
+      // Old format: array of strings
+      const uuidLike =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      kpiIds = rawSelected.filter(
+        (id) => typeof id === "string" && uuidLike.test(id)
+      );
+    } else if (typeof rawSelected[0] === "object" && rawSelected[0]?.id) {
+      // New format: array of objects
+      const selections = rawSelected as Array<{
+        id: string;
+        displayTypes?: string[];
+        displayType?: string;
+      }>;
+      const uuidLike =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      kpiIds = selections
+        .filter((item) => typeof item.id === "string" && uuidLike.test(item.id))
+        .map((item) => item.id);
+    }
+
+    if (kpiIds.length === 0) {
+      return jsonNoStore({ selectedKpis: [] });
+    }
     if (kpiIds.length === 0) {
       return jsonNoStore({ selectedKpis: [] });
     }

@@ -14,8 +14,6 @@ import { fetchDashboardKpis } from "@/lib/dashboard-kpis";
 import { createClient } from "@/lib/supabase/client";
 import { useDateRange } from "@/lib/hooks/useDateRange";
 
-const DISPLAY_MODES_STORAGE_KEY = "kpi-display-modes";
-
 const LockedPlaceholder = ({ message }: { message: string }) => (
   <div className="rounded border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
     💡 {message}
@@ -54,18 +52,6 @@ export default function DashboardPage() {
 
   const { period, customDateRange, setPeriod, setCustomDateRange } =
     useDateRange();
-
-  // Load display modes from localStorage on mount
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(DISPLAY_MODES_STORAGE_KEY);
-      if (stored) {
-        setKpiDisplayModes(JSON.parse(stored));
-      }
-    } catch {
-      // ignore parse errors
-    }
-  }, []);
 
   const checkIfDataReady = () => {
     if (
@@ -114,61 +100,45 @@ export default function DashboardPage() {
           .single();
 
         if (company) {
-          const { data: businessModel } = await supabase
-            .from("business_models")
-            .select("business_type, selected_kpi_ids")
-            .eq("company_id", company.id)
-            .single();
+          // Fetch KPI preferences from the API (includes both selected KPIs and recommended/additional KPIs)
+          const response = await fetch("/api/onboarding/kpi-preferences", {
+            cache: "no-store",
+            credentials: "include",
+          });
 
-          if (businessModel) {
-            setBusinessType(businessModel.business_type);
+          if (response.ok) {
+            const data = await response.json();
+            setSelectedKpiIds(data.selectedKpiIds || []);
+            setKpiDisplayModes(data.kpiDisplayModes || {});
+            setBusinessType(data.businessType);
+            setRecommendedKpis(data.recommendedKpis || []);
+            setAdditionalKpis(data.additionalKpis || []);
 
-            const rawKpiIds =
-              (businessModel.selected_kpi_ids as string[]) || [];
-            const uuidRegex =
-              /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-            const validKpiIds = rawKpiIds.filter((id) => uuidRegex.test(id));
-            setSelectedKpiIds(validKpiIds);
-
-            if (validKpiIds.length > 0) {
+            // Load selected KPIs
+            if (data.selectedKpiIds && data.selectedKpiIds.length > 0) {
               const { data: kpis } = await supabase
                 .from("kpis")
                 .select("*")
-                .in("id", validKpiIds);
+                .in("id", data.selectedKpiIds);
 
               setSelectedKpis(kpis || []);
             } else {
               setSelectedKpis([]);
             }
-
+          } else {
+            // Fallback: load all published KPIs
             const { data: allKpis } = await supabase
               .from("kpis")
               .select("*")
               .eq("is_published", true)
               .order("name");
 
-            if (allKpis) {
-              let recommendedKpis, additionalKpis;
-              if (businessModel.business_type === "fitness_studio") {
-                const keyFitnessKpis = [
-                  "Active Members (End of Month)",
-                  "New Members",
-                  "Churn Rate",
-                  "Member Tenure",
-                  "Revenue per Member (ARPM)",
-                ];
-                recommendedKpis = allKpis.filter((kpi) =>
-                  keyFitnessKpis.includes(kpi.name)
-                );
-                additionalKpis = allKpis.filter(
-                  (kpi) => !keyFitnessKpis.includes(kpi.name)
-                );
-              } else {
-                recommendedKpis = allKpis.slice(0, 5);
-                additionalKpis = allKpis.slice(5);
-              }
-              setRecommendedKpis(recommendedKpis);
-              setAdditionalKpis(additionalKpis);
+            if (allKpis && allKpis.length > 0) {
+              setRecommendedKpis([]);
+              setAdditionalKpis(allKpis);
+            } else {
+              setRecommendedKpis([]);
+              setAdditionalKpis([]);
             }
           }
         }
@@ -229,19 +199,39 @@ export default function DashboardPage() {
   }, []);
 
   const handleKpisChange = async (newSelectedKpis: string[]) => {
+    // Filter out non-UUID legacy identifiers
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const validKpiIds = newSelectedKpis.filter((id) => uuidRegex.test(id));
+
+    setSelectedKpiIds(validKpiIds);
+
+    // Reload selected KPIs from database
+    if (validKpiIds.length > 0) {
+      const supabase = createClient();
+      const { data: kpis } = await supabase
+        .from("kpis")
+        .select("*")
+        .in("id", validKpiIds);
+
+      setSelectedKpis(kpis || []);
+    } else {
+      setSelectedKpis([]);
+    }
+  };
+
+  const handleDisplayModesChange = async (
+    modes: Record<string, KpiDisplayMode>
+  ) => {
+    // Only save display modes for currently selected KPIs to database
+    const selectedKpiModes = Object.fromEntries(
+      selectedKpiIds.map((id) => [id, modes[id] || ["card"]])
+    );
+
+    setKpiDisplayModes((prev) => ({ ...prev, ...selectedKpiModes }));
+
+    // Save to database in the new combined format
     try {
-      console.log("[handleKpisChange] New selected KPIs:", newSelectedKpis);
-
-      // Filter out non-UUID legacy identifiers
-      const uuidRegex =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-      const validKpiIds = newSelectedKpis.filter((id) => uuidRegex.test(id));
-
-      console.log("[handleKpisChange] Valid KPI IDs:", validKpiIds);
-
-      setSelectedKpiIds(validKpiIds);
-
-      // Save to business model
       const supabase = createClient();
       const {
         data: { user },
@@ -255,36 +245,24 @@ export default function DashboardPage() {
           .single();
 
         if (company) {
+          // Convert display modes to the combined format - only for selected KPIs
+          const selectedKpisWithDisplayTypes = selectedKpiIds.map((id) => ({
+            id,
+            displayTypes: selectedKpiModes[id] || ["card"],
+          }));
+
           await supabase
             .from("business_models")
-            .update({ selected_kpi_ids: validKpiIds })
+            .update({ selected_kpi_ids: selectedKpisWithDisplayTypes })
             .eq("company_id", company.id);
+
+          console.log(
+            "[handleDisplayModesChange] Saved display modes to database"
+          );
         }
       }
-
-      // Reload selected KPIs from database
-      if (validKpiIds.length > 0) {
-        const { data: kpis } = await supabase
-          .from("kpis")
-          .select("*")
-          .in("id", validKpiIds);
-
-        console.log("[handleKpisChange] Reloaded KPIs:", kpis);
-        setSelectedKpis(kpis || []);
-      } else {
-        setSelectedKpis([]);
-      }
     } catch (error) {
-      console.error("Error saving KPI selection:", error);
-    }
-  };
-
-  const handleDisplayModesChange = (modes: Record<string, KpiDisplayMode>) => {
-    setKpiDisplayModes(modes);
-    try {
-      localStorage.setItem(DISPLAY_MODES_STORAGE_KEY, JSON.stringify(modes));
-    } catch {
-      // ignore storage errors
+      console.error("Error saving display modes to database:", error);
     }
   };
 
@@ -325,6 +303,9 @@ export default function DashboardPage() {
                   additionalKpis={additionalKpis}
                   kpiDisplayModes={kpiDisplayModes}
                   onDisplayModesChange={handleDisplayModesChange}
+                  disabled={
+                    recommendedKpis.length === 0 && additionalKpis.length === 0
+                  }
                 />
               </div>
             </div>

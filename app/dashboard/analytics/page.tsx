@@ -190,7 +190,7 @@ export default function AnalyticsPage() {
             </TabsContent>
           </Tabs>
         ) : isFitnessStudio ? (
-          <Tabs defaultValue="studio-performance" className="space-y-4">
+          <Tabs defaultValue="financial" className="space-y-4">
             <TabsList className="grid w-full grid-cols-6 mb-6 shadow-sm">
               <TabsTrigger
                 value="financial"

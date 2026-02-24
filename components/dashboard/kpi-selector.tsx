@@ -30,6 +30,7 @@ interface KpiSelectorProps {
   additionalKpis?: DatabaseKpi[];
   kpiDisplayModes?: Record<string, KpiDisplayMode>;
   onDisplayModesChange?: (modes: Record<string, KpiDisplayMode>) => void;
+  disabled?: boolean;
 }
 
 const DISPLAY_MODE_OPTIONS: {
@@ -48,6 +49,7 @@ export function KpiSelector({
   additionalKpis = [],
   kpiDisplayModes = {},
   onDisplayModesChange,
+  disabled = false,
 }: KpiSelectorProps) {
   const [open, setOpen] = useState(false);
   const [tempSelection, setTempSelection] = useState<string[]>(selectedKpiIds);
@@ -63,20 +65,7 @@ export function KpiSelector({
 
   useEffect(() => {
     setTempSelection(selectedKpiIds);
-    setTempDisplayModes((prev) => {
-      const newModes = { ...kpiDisplayModes };
-      // Ensure all selected KPIs have at least a default display mode
-      selectedKpiIds.forEach((kpiId) => {
-        if (
-          !newModes[kpiId] ||
-          !Array.isArray(newModes[kpiId]) ||
-          newModes[kpiId].length === 0
-        ) {
-          newModes[kpiId] = ["card"];
-        }
-      });
-      return newModes;
-    });
+    setTempDisplayModes(kpiDisplayModes);
   }, [selectedKpiIds, kpiDisplayModes]);
 
   // Fetch table status data and names when dialog opens
@@ -217,7 +206,26 @@ export function KpiSelector({
     setSaveError(null);
 
     try {
-      // Save KPI selection and display modes
+      // Save KPI selection and display modes to the database
+      const selections = tempSelection.map((kpiId) => ({
+        id: kpiId,
+        displayTypes: tempDisplayModes[kpiId] || ["card"],
+      }));
+
+      const response = await fetch("/api/onboarding/kpi-preferences", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ selectedKpiIds: selections }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save KPI preferences");
+      }
+
+      // Update parent component
       onKpisChange(tempSelection);
       onDisplayModesChange?.(tempDisplayModes);
       setOpen(false);
@@ -386,7 +394,12 @@ export function KpiSelector({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          disabled={disabled}
+        >
           <Settings2 className="h-4 w-4" />
           Select KPIs
         </Button>

@@ -342,12 +342,17 @@ export function KpiSelectionStep({
 
     try {
       setIsSaving(true);
+      // Combine selected KPIs with their display modes
+      const selectedKpisWithDisplayTypes = selectedIds.map((id) => ({
+        id,
+        displayTypes: kpiDisplayModes[id] || ["card"], // Default to ['card'] if not set
+      }));
+
       const res = await fetch("/api/onboarding/kpi-preferences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          selectedKpiIds: selectedIds,
-          kpiDisplayModes: kpiDisplayModes,
+          selectedKpiIds: selectedKpisWithDisplayTypes,
         }),
       });
 

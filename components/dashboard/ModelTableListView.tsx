@@ -186,9 +186,7 @@ export default function ModelTableListView({
         {model.recommendedTables.map((table) => {
           const dataCount = tableDataCounts[table.name] || 0;
           const hasData = dataCount > 0;
-          const requiredFields = table.fields.filter(
-            (f) => f.required && !f.primaryKey
-          );
+          const requiredFields = table.fields.filter((f) => f.required);
           const optionalFields = table.fields.filter((f) => !f.required);
 
           return (

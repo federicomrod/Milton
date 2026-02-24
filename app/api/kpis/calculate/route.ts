@@ -52,7 +52,22 @@ export async function POST(request: Request) {
       .eq("company_id", company.id)
       .single();
 
-    const selectedKpiIds = (businessModel?.selected_kpi_ids as string[]) || [];
+    // Handle new format: Array<{id: string, displayTypes: string[]}>
+    const rawSelected = (businessModel?.selected_kpi_ids as any[]) || [];
+    let selectedKpiIds: string[] = [];
+
+    if (
+      rawSelected.length > 0 &&
+      typeof rawSelected[0] === "object" &&
+      rawSelected[0]?.id
+    ) {
+      const selections = rawSelected as Array<{
+        id: string;
+        displayTypes: string[];
+      }>;
+      selectedKpiIds = selections.map((item) => item.id);
+    }
+
     console.log(`[KPI Calculate] Selected KPI IDs:`, selectedKpiIds);
 
     // Get KPI definitions for selected KPIs (only published ones)

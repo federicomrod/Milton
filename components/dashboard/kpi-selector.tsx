@@ -30,6 +30,7 @@ interface KpiSelectorProps {
   additionalKpis?: DatabaseKpi[];
   kpiDisplayModes?: Record<string, KpiDisplayMode>;
   onDisplayModesChange?: (modes: Record<string, KpiDisplayMode>) => void;
+  disabled?: boolean;
 }
 
 const DISPLAY_MODE_OPTIONS: {
@@ -48,7 +49,15 @@ export function KpiSelector({
   additionalKpis = [],
   kpiDisplayModes = {},
   onDisplayModesChange,
+  disabled = false,
 }: KpiSelectorProps) {
+  console.log("[KpiSelector] Props:", {
+    selectedKpiIds: selectedKpiIds?.length,
+    recommendedKpis: recommendedKpis?.length,
+    additionalKpis: additionalKpis?.length,
+    disabled,
+  });
+
   const [open, setOpen] = useState(false);
   const [tempSelection, setTempSelection] = useState<string[]>(selectedKpiIds);
   const [tempDisplayModes, setTempDisplayModes] =
@@ -63,20 +72,7 @@ export function KpiSelector({
 
   useEffect(() => {
     setTempSelection(selectedKpiIds);
-    setTempDisplayModes((prev) => {
-      const newModes = { ...kpiDisplayModes };
-      // Ensure all selected KPIs have at least a default display mode
-      selectedKpiIds.forEach((kpiId) => {
-        if (
-          !newModes[kpiId] ||
-          !Array.isArray(newModes[kpiId]) ||
-          newModes[kpiId].length === 0
-        ) {
-          newModes[kpiId] = ["card"];
-        }
-      });
-      return newModes;
-    });
+    setTempDisplayModes(kpiDisplayModes);
   }, [selectedKpiIds, kpiDisplayModes]);
 
   // Fetch table status data and names when dialog opens
@@ -217,7 +213,26 @@ export function KpiSelector({
     setSaveError(null);
 
     try {
-      // Save KPI selection and display modes
+      // Save KPI selection and display modes to the database
+      const selections = tempSelection.map((kpiId) => ({
+        id: kpiId,
+        displayTypes: tempDisplayModes[kpiId] || ["card"],
+      }));
+
+      const response = await fetch("/api/onboarding/kpi-preferences", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ selectedKpiIds: selections }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save KPI preferences");
+      }
+
+      // Update parent component
       onKpisChange(tempSelection);
       onDisplayModesChange?.(tempDisplayModes);
       setOpen(false);
@@ -386,7 +401,12 @@ export function KpiSelector({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          disabled={disabled}
+        >
           <Settings2 className="h-4 w-4" />
           Select KPIs
         </Button>
@@ -447,6 +467,63 @@ export function KpiSelector({
                   </div>
                 </div>
               )}
+
+              {/* Currently Selected KPIs (when no definitions available) */}
+              {recommendedKpis.length === 0 &&
+                additionalKpis.length === 0 &&
+                tempSelection.length > 0 && (
+                  <div className="space-y-3">
+                    <div>
+                      <h4 className="font-medium text-sm">
+                        Currently Selected KPIs
+                      </h4>
+                      <p className="text-xs text-muted-foreground">
+                        These KPIs are selected but their definitions are not
+                        currently available
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      {tempSelection.map((kpiId) => (
+                        <div
+                          key={kpiId}
+                          className="flex items-center justify-between p-3 border rounded-lg"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium">
+                              KPI ID: {kpiId}
+                            </span>
+                            {tempDisplayModes[kpiId] &&
+                              tempDisplayModes[kpiId].length > 0 && (
+                                <div className="flex gap-1">
+                                  {tempDisplayModes[kpiId].map((mode) => (
+                                    <span
+                                      key={mode}
+                                      className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded"
+                                    >
+                                      {mode}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              handleToggleKpi({
+                                id: kpiId,
+                                name: `KPI ${kpiId}`,
+                                definition: "Definition not available",
+                              } as DatabaseKpi)
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
               {/* All Available KPIs (if no recommended/additional split) */}
               {recommendedKpis.length === 0 &&

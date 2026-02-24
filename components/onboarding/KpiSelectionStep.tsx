@@ -34,7 +34,7 @@ type ApiState =
       businessType: string;
       model: ModelProposal | null;
       selected: string[];
-      kpiDisplayModes?: Record<string, KpiDisplayMode>;
+      kpiDisplayModes: Record<string, KpiDisplayMode>;
       recommendedKpis?: DatabaseKpi[];
       additionalKpis?: DatabaseKpi[];
     }
@@ -87,11 +87,23 @@ export function KpiSelectionStep({
           // Use cached data
           const businessType = cachedData.businessType as string;
           const model = (cachedData.modelJson ?? null) as ModelProposal | null;
-          const selected = (cachedData.selectedKpiIds ?? []) as string[];
-          const displayModes = (cachedData.kpiDisplayModes ?? {}) as Record<
-            string,
-            KpiDisplayMode
-          >;
+
+          // Handle new format: Array<{id: string, displayTypes: string[]}>
+          const rawSelected = (cachedData.selectedKpiIds ?? []) as Array<{
+            id: string;
+            displayTypes: string[];
+          }>;
+          const selected = rawSelected.map((item) => item.id);
+          const displayModes = rawSelected.reduce(
+            (acc, item) => {
+              acc[item.id] = item.displayTypes.filter(
+                (type) => type === "card" || type === "chart"
+              ) as KpiDisplayMode;
+              return acc;
+            },
+            {} as Record<string, KpiDisplayMode>
+          );
+
           const recommendedKpis = (cachedData.recommendedKpis ??
             []) as DatabaseKpi[];
           const additionalKpis = (cachedData.additionalKpis ??
@@ -168,11 +180,23 @@ export function KpiSelectionStep({
         }
         const businessType = data.businessType as string;
         const model = (data.modelJson ?? null) as ModelProposal | null;
-        const selected = (data.selectedKpiIds ?? []) as string[];
-        const displayModes = (data.kpiDisplayModes ?? {}) as Record<
-          string,
-          KpiDisplayMode
-        >;
+
+        // Handle new format: Array<{id: string, displayTypes: string[]}>
+        const rawSelected = (data.selectedKpiIds ?? []) as Array<{
+          id: string;
+          displayTypes: string[];
+        }>;
+        const selected = rawSelected.map((item) => item.id);
+        const displayModes = rawSelected.reduce(
+          (acc, item) => {
+            acc[item.id] = item.displayTypes.filter(
+              (type) => type === "card" || type === "chart"
+            ) as KpiDisplayMode;
+            return acc;
+          },
+          {} as Record<string, KpiDisplayMode>
+        );
+
         const recommendedKpis = (data.recommendedKpis ?? []) as DatabaseKpi[];
         const additionalKpis = (data.additionalKpis ?? []) as DatabaseKpi[];
 
@@ -263,11 +287,7 @@ export function KpiSelectionStep({
     });
   };
 
-  const updateKpiDisplayModes = (newModes: Record<string, KpiDisplayMode>) => {
-    setKpiDisplayModes(newModes);
-  };
-
-  const getMissingTableNames = (kpi: DatabaseKpi): string[] => {
+  const getMissingTableNames = (): string[] => {
     // For onboarding, we'll assume all KPIs are available since data requirements
     // are checked at the data-sources step. Return empty array to indicate all available.
     return [];
@@ -342,12 +362,17 @@ export function KpiSelectionStep({
 
     try {
       setIsSaving(true);
+      // Combine selected KPIs with their display modes
+      const selectedKpisWithDisplayTypes = selectedIds.map((id) => ({
+        id,
+        displayTypes: kpiDisplayModes[id] || ["card"], // Default to ['card'] if not set
+      }));
+
       const res = await fetch("/api/onboarding/kpi-preferences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          selectedKpiIds: selectedIds,
-          kpiDisplayModes: kpiDisplayModes,
+          selectedKpiIds: selectedKpisWithDisplayTypes,
         }),
       });
 
@@ -405,48 +430,13 @@ export function KpiSelectionStep({
     );
   }
 
-  const { businessType } = state;
   const recommendedKpis = state.recommendedKpis ?? [];
   const additionalKpis = state.additionalKpis ?? [];
 
-  // Use KPIs from database (recommended + additional) if available
-  let recommendedTemplates: LocalKpiTemplate[] = [];
-  let additionalTemplates: LocalKpiTemplate[] = [];
-
-  if (recommendedKpis.length > 0) {
-    recommendedTemplates = recommendedKpis.map((kpi) => ({
-      id: kpi.id,
-      label: kpi.name,
-      description: kpi.definition,
-      category: "General",
-      trendGoal: "increase" as const,
-      formula: kpi.formula || undefined,
-      priority: "high" as const,
-    }));
-  }
-
-  if (additionalKpis && additionalKpis.length > 0) {
-    additionalTemplates = additionalKpis.map((kpi) => ({
-      id: kpi.id,
-      label: kpi.name,
-      description: kpi.definition,
-      category: "General",
-      trendGoal: "increase" as const,
-      formula: kpi.formula || undefined,
-      priority: "low" as const,
-    }));
-  }
-
   // Combine all database KPIs - use these even if split failed
   const allDatabaseKpis = [...recommendedKpis, ...additionalKpis];
-  const allDatabaseTemplates = [
-    ...recommendedTemplates,
-    ...additionalTemplates,
-  ] as LocalKpiTemplate[];
 
   // Fallback to templates if no database KPIs (shouldn't happen in normal flow)
-  const fallbackTemplates =
-    allDatabaseTemplates.length > 0 ? allDatabaseTemplates : [];
 
   const availabilityById = new Map<string, KpiAvailability>();
   availabilities.forEach((a) => availabilityById.set(a.id, a));
@@ -468,7 +458,7 @@ export function KpiSelectionStep({
       kpiDisplayModes[kpi.id].length > 0
         ? kpiDisplayModes[kpi.id]
         : ["card"];
-    const missingTableNames = getMissingTableNames(kpi);
+    const missingTableNames = getMissingTableNames();
     // Truly locked = missing data AND not selected (can't select without data)
     const isLocked = missingTableNames.length > 0 && !isSelected;
 

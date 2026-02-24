@@ -1,4 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { getModelDataRows } from "./getModelDataRows";
+import { memberAcc } from "./fieldAccessors";
 
 export async function calculateAverageMemberTenure(
   supabase: SupabaseClient,
@@ -6,73 +8,72 @@ export async function calculateAverageMemberTenure(
   fromDate: string,
   toDate: string
 ) {
-  // Get company ID
-  const { data: company, error: companyError } = await supabase
+  const { data: company } = await supabase
     .from("companies")
     .select("id")
     .eq("created_by", userId)
     .single();
 
-  if (companyError || !company) {
-    throw new Error("Company not found");
-  }
+  if (!company) throw new Error("Company not found");
 
-  // Get members data from model_data
-  const { data: membersData, error } = await supabase
-    .from("model_data")
-    .select("data")
-    .eq("company_id", company.id)
-    .eq("model_table_name", "members");
+  const members = await getModelDataRows(
+    supabase,
+    company.id,
+    "members",
+    "customers"
+  );
 
-  if (error || !membersData) {
-    return { currentValue: 0, historicalData: [] };
-  }
-
-  // Flatten the data
-  const members = membersData.flatMap((row: any) => row.data || []);
-
-  // Calculate tenure for each member (in months)
-  const tenures: number[] = [];
-
-  members.forEach((member: any) => {
-    if (member.join_date) {
-      const joinDate = new Date(member.join_date);
-      const endDate = member.cancel_date
-        ? new Date(member.cancel_date)
-        : new Date(); // Use current date if still active
-
-      if (endDate >= joinDate) {
-        const tenureMs = endDate.getTime() - joinDate.getTime();
-        const tenureMonths = tenureMs / (1000 * 60 * 60 * 24 * 30.44); // Average days per month
-        tenures.push(tenureMonths);
-      }
-    }
-  });
-
-  // Calculate average tenure (this is a single value, not time-series)
-  const averageTenure =
-    tenures.length > 0
-      ? tenures.reduce((sum, tenure) => sum + tenure, 0) / tenures.length
-      : 0;
-
-  // For historical data, we'll show the same value for each month in range
-  // (since tenure is calculated across all members)
-  const startDate = new Date(fromDate);
-  const endDate = new Date(toDate);
-  const months = [];
+  // Parse year/month directly from ISO string — avoids UTC→local shift bugs
+  const [fromYear, fromMonth] = fromDate.split("-").map(Number);
+  const [toYear, toMonth] = toDate.split("-").map(Number);
+  const months: Date[] = [];
 
   for (
-    let d = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-    d < endDate;
+    let d = new Date(fromYear, fromMonth - 1, 1);
+    d < new Date(toYear, toMonth - 1, 1);
     d.setMonth(d.getMonth() + 1)
   ) {
     months.push(new Date(d));
   }
 
-  const historicalData = months.map((month) => ({
-    period: month.toISOString().substring(0, 10),
-    value: averageTenure,
-  }));
+  const MS_PER_MONTH = 1000 * 60 * 60 * 24 * 30.44;
 
-  return { currentValue: averageTenure, historicalData };
+  const historicalData = months.map((month) => {
+    const monthEnd = new Date(
+      month.getFullYear(),
+      month.getMonth() + 1,
+      0,
+      23,
+      59,
+      59
+    );
+
+    const tenures = members
+      .filter((m: any) => {
+        const joinDate = memberAcc.joinDate(m);
+        const cancelDate = memberAcc.cancelDate(m);
+        if (!joinDate) return false;
+        return joinDate <= monthEnd && (!cancelDate || cancelDate > monthEnd);
+      })
+      .map((m: any) => {
+        const joinMs = memberAcc.joinDate(m)!.getTime();
+        return (monthEnd.getTime() - joinMs) / MS_PER_MONTH;
+      });
+
+    const avg =
+      tenures.length > 0
+        ? tenures.reduce((s: number, v: number) => s + v, 0) / tenures.length
+        : 0;
+
+    const y = month.getFullYear();
+    const mo = String(month.getMonth() + 1).padStart(2, "0");
+    return { period: `${y}-${mo}`, value: avg };
+  });
+
+  const currentValue =
+    historicalData.length > 0
+      ? historicalData[historicalData.length - 1].value
+      : 0;
+
+  return { currentValue, historicalData };
 }

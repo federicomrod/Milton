@@ -16,6 +16,7 @@ import { RestaurantCashFlow } from "@/components/dashboard/restaurant-cash-flow"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { BarChart } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { useDateRange } from "@/lib/hooks/useDateRange";
 
 // Helper component for locked/missing data placeholders
 const LockedPlaceholder = ({ message }: { message: string }) => (
@@ -26,9 +27,9 @@ const LockedPlaceholder = ({ message }: { message: string }) => (
 
 type DataStatus = {
   ok?: boolean;
-  bank?: boolean;
-  crm?: boolean;
-  budget?: boolean;
+  hasModelData?: boolean;
+  tablesWithData?: { id: string; name: string; recordCount: number }[];
+  totalRecords?: number;
 } | null;
 
 export default function AnalyticsPage() {
@@ -36,33 +37,9 @@ export default function AnalyticsPage() {
   const [businessModel, setBusinessModel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Shared date state for restaurant analytics tabs
-  const [restaurantPeriod, setRestaurantPeriod] = useState<
-    "month" | "year" | "ytd" | "custom"
-  >("month");
-  const [restaurantCustomDateRange, setRestaurantCustomDateRange] = useState<{
-    from: string;
-    to: string;
-  }>({
-    from: new Date(new Date().setMonth(new Date().getMonth() - 1))
-      .toISOString()
-      .split("T")[0],
-    to: new Date().toISOString().split("T")[0],
-  });
-
-  // Shared date state for fitness studio analytics tabs
-  const [fitnessPeriod, setFitnessPeriod] = useState<
-    "month" | "year" | "ytd" | "custom"
-  >("month");
-  const [fitnessCustomDateRange, setFitnessCustomDateRange] = useState<{
-    from: string;
-    to: string;
-  }>({
-    from: new Date(new Date().setMonth(new Date().getMonth() - 6))
-      .toISOString()
-      .split("T")[0],
-    to: new Date().toISOString().split("T")[0],
-  });
+  // Shared date state across all analytics
+  const { period, customDateRange, setPeriod, setCustomDateRange } =
+    useDateRange();
 
   // Check if user has uploaded data via Supabase/API
   const checkUploadedData = async () => {
@@ -187,28 +164,28 @@ export default function AnalyticsPage() {
 
             <TabsContent value="revenue-menu" className="space-y-4">
               <RestaurantRevenueMenu
-                period={restaurantPeriod}
-                customDateRange={restaurantCustomDateRange}
-                onPeriodChange={setRestaurantPeriod}
-                onCustomDateRangeChange={setRestaurantCustomDateRange}
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={setPeriod}
+                onCustomDateRangeChange={setCustomDateRange}
               />
             </TabsContent>
 
             <TabsContent value="operations" className="space-y-4">
               <RestaurantOperations
-                period={restaurantPeriod}
-                customDateRange={restaurantCustomDateRange}
-                onPeriodChange={setRestaurantPeriod}
-                onCustomDateRangeChange={setRestaurantCustomDateRange}
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={setPeriod}
+                onCustomDateRangeChange={setCustomDateRange}
               />
             </TabsContent>
 
             <TabsContent value="cash-flow" className="space-y-4">
               <RestaurantCashFlow
-                period={restaurantPeriod}
-                customDateRange={restaurantCustomDateRange}
-                onPeriodChange={setRestaurantPeriod}
-                onCustomDateRangeChange={setRestaurantCustomDateRange}
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={setPeriod}
+                onCustomDateRangeChange={setCustomDateRange}
               />
             </TabsContent>
           </Tabs>
@@ -255,56 +232,56 @@ export default function AnalyticsPage() {
 
             <TabsContent value="financial" className="space-y-4">
               <FinancialsAnalytics
-                period={fitnessPeriod}
-                customDateRange={fitnessCustomDateRange}
-                onPeriodChange={setFitnessPeriod}
-                onCustomDateRangeChange={setFitnessCustomDateRange}
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={setPeriod}
+                onCustomDateRangeChange={setCustomDateRange}
               />
             </TabsContent>
 
             <TabsContent value="studio-performance" className="space-y-4">
               <StudioPerformance
-                period={fitnessPeriod}
-                customDateRange={fitnessCustomDateRange}
-                onPeriodChange={setFitnessPeriod}
-                onCustomDateRangeChange={setFitnessCustomDateRange}
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={setPeriod}
+                onCustomDateRangeChange={setCustomDateRange}
               />
             </TabsContent>
 
             <TabsContent value="classes" className="space-y-4">
               <ClassesUtilization
-                period={fitnessPeriod}
-                customDateRange={fitnessCustomDateRange}
-                onPeriodChange={setFitnessPeriod}
-                onCustomDateRangeChange={setFitnessCustomDateRange}
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={setPeriod}
+                onCustomDateRangeChange={setCustomDateRange}
               />
             </TabsContent>
 
             <TabsContent value="members" className="space-y-4">
               <MembersAnalytics
-                period={fitnessPeriod}
-                customDateRange={fitnessCustomDateRange}
-                onPeriodChange={setFitnessPeriod}
-                onCustomDateRangeChange={setFitnessCustomDateRange}
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={setPeriod}
+                onCustomDateRangeChange={setCustomDateRange}
               />
             </TabsContent>
 
             <TabsContent value="instructors" className="space-y-4">
               <InstructorsAnalytics
-                period={fitnessPeriod}
-                customDateRange={fitnessCustomDateRange}
-                onPeriodChange={setFitnessPeriod}
-                onCustomDateRangeChange={setFitnessCustomDateRange}
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={setPeriod}
+                onCustomDateRangeChange={setCustomDateRange}
               />
             </TabsContent>
 
             <TabsContent value="cashflow" className="space-y-4">
-              {dataStatus?.bank ? (
+              {dataStatus?.hasModelData ? (
                 <CashFlowAnalysis
-                  period={fitnessPeriod}
-                  customDateRange={fitnessCustomDateRange}
-                  onPeriodChange={setFitnessPeriod}
-                  onCustomDateRangeChange={setFitnessCustomDateRange}
+                  period={period}
+                  customDateRange={customDateRange}
+                  onPeriodChange={setPeriod}
+                  onCustomDateRangeChange={setCustomDateRange}
                 />
               ) : (
                 <LockedPlaceholder message="To unlock Cash Flow Analysis, upload your bank transaction data on the Upload page." />
@@ -335,7 +312,7 @@ export default function AnalyticsPage() {
             </TabsList>
 
             <TabsContent value="financial" className="space-y-4">
-              {dataStatus?.budget ? (
+              {dataStatus?.hasModelData ? (
                 <>
                   <div className="grid gap-4 md:grid-cols-2">
                     <FinancialCharts type="income-statement" />
@@ -349,7 +326,7 @@ export default function AnalyticsPage() {
             </TabsContent>
 
             <TabsContent value="sales" className="space-y-4">
-              {dataStatus?.crm ? (
+              {dataStatus?.hasModelData ? (
                 <SalesPipeline />
               ) : (
                 <LockedPlaceholder message="To unlock your Sales Pipeline, upload your CRM data on the Upload page." />
@@ -357,7 +334,7 @@ export default function AnalyticsPage() {
             </TabsContent>
 
             <TabsContent value="cashflow" className="space-y-4">
-              {dataStatus?.bank ? (
+              {dataStatus?.hasModelData ? (
                 <CashFlowAnalysis />
               ) : (
                 <LockedPlaceholder message="To unlock Cash Flow Analysis, upload your bank transaction data on the Upload page." />

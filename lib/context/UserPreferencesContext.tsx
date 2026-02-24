@@ -9,6 +9,7 @@ import {
   ReactNode,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useUser } from "@/lib/context/UserContext";
 
 interface UserPreferences {
   currency: string;
@@ -30,6 +31,7 @@ const UserPreferencesContext = createContext<UserPreferencesContextType | null>(
 );
 
 export function UserPreferencesProvider({ children }: { children: ReactNode }) {
+  const { user } = useUser();
   const [prefs, setPrefs] = useState<UserPreferences>({
     currency: "EUR",
     date_format: "DD/MM/YYYY",
@@ -41,15 +43,12 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
 
   const fetchPrefs = useCallback(async () => {
     try {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
       if (!user) {
         setLoading(false);
         return;
       }
+
+      const supabase = createClient();
 
       const { data, error } = await supabase
         .from("profiles")
@@ -81,50 +80,39 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     fetchPrefs();
 
     // ✅ Live subscription to profile changes in Supabase
+    if (!user) return;
+
     const supabase = createClient();
 
-    const setupSubscription = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const channel = supabase
-        .channel("profile-updates")
-        .on(
-          "postgres_changes",
-          {
-            event: "UPDATE",
-            schema: "public",
-            table: "profiles",
-            filter: `user_id=eq.${user.id}`,
-          },
-          (payload) => {
-            console.log("📡 Profile updated in real-time:", payload.new);
-            if (payload.new) {
-              setPrefs((prev) => ({
-                currency: payload.new.currency || prev.currency,
-                date_format: payload.new.date_format || prev.date_format,
-                number_format: payload.new.number_format || prev.number_format,
-                timezone: payload.new.timezone || prev.timezone,
-                theme: payload.new.theme || prev.theme,
-              }));
-            }
+    const channel = supabase
+      .channel("profile-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          console.log("📡 Profile updated in real-time:", payload.new);
+          if (payload.new) {
+            setPrefs((prev) => ({
+              currency: payload.new.currency || prev.currency,
+              date_format: payload.new.date_format || prev.date_format,
+              number_format: payload.new.number_format || prev.number_format,
+              timezone: payload.new.timezone || prev.timezone,
+              theme: payload.new.theme || prev.theme,
+            }));
           }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    };
-
-    const cleanup = setupSubscription();
+        }
+      )
+      .subscribe();
 
     return () => {
-      cleanup.then((cleanupFn) => cleanupFn?.());
+      supabase.removeChannel(channel);
     };
-  }, [fetchPrefs]);
+  }, [fetchPrefs, user]);
 
   return (
     <UserPreferencesContext.Provider

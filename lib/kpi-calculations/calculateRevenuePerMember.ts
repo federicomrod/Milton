@@ -1,4 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { getModelDataRows } from "./getModelDataRows";
+import { memberAcc, txAcc, toPeriod } from "./fieldAccessors";
 
 export async function calculateRevenuePerMember(
   supabase: SupabaseClient,
@@ -6,7 +8,6 @@ export async function calculateRevenuePerMember(
   fromDate: string,
   toDate: string
 ) {
-  // Get company ID
   const { data: company } = await supabase
     .from("companies")
     .select("id")
@@ -15,56 +16,53 @@ export async function calculateRevenuePerMember(
 
   if (!company) throw new Error("Company not found");
 
-  // Get transactions and members data
-  const [transactionsData, membersData] = await Promise.all([
-    supabase
-      .from("model_data")
-      .select("data")
-      .eq("company_id", company.id)
-      .eq("model_table_name", "transactions"),
-    supabase
-      .from("model_data")
-      .select("data")
-      .eq("company_id", company.id)
-      .eq("model_table_name", "members"),
+  const [transactions, members] = await Promise.all([
+    getModelDataRows(supabase, company.id, "transactions"),
+    getModelDataRows(supabase, company.id, "members", "customers"),
   ]);
 
-  const transactions =
-    transactionsData.data?.flatMap((row: any) => row.data || []) || [];
-  const members = membersData.data?.flatMap((row: any) => row.data || []) || [];
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
 
-  // Calculate monthly revenue and active members
-  const monthlyData: { [key: string]: { revenue: number; members: number } } =
-    {};
-
-  // Process transactions
-  transactions.forEach((tx: any) => {
-    if (tx.amount > 0 && tx.date) {
-      const period = new Date(tx.date).toISOString().substring(0, 7);
-      if (!monthlyData[period]) {
-        monthlyData[period] = { revenue: 0, members: 0 };
-      }
-      monthlyData[period].revenue += tx.amount;
-    }
+  // Monthly revenue (inflows only)
+  const monthlyRevenue: Record<string, number> = {};
+  transactions.forEach((t: any) => {
+    const txDate = txAcc.date(t);
+    const amount = txAcc.amount(t);
+    const type = txAcc.type(t);
+    if (!txDate || amount <= 0 || type !== "inflow") return;
+    if (txDate < from || txDate >= to) return;
+    const period = toPeriod(txDate);
+    monthlyRevenue[period] = (monthlyRevenue[period] ?? 0) + amount;
   });
 
-  // Process members (simplified - count all active members)
-  const activeMembers = members.filter((member: any) => {
-    const cancelDate = member.cancel_date ? new Date(member.cancel_date) : null;
-    return !cancelDate || cancelDate > new Date();
-  }).length;
+  // Active members per month-end
+  const monthlyActiveMembers: Record<string, number> = {};
+  Object.keys(monthlyRevenue).forEach((period) => {
+    const [y, mo] = period.split("-").map(Number);
+    const monthEnd = new Date(y, mo, 0, 23, 59, 59);
+    monthlyActiveMembers[period] = members.filter((m: any) => {
+      const joinDate = memberAcc.joinDate(m);
+      const cancelDate = memberAcc.cancelDate(m);
+      if (!joinDate) return false;
+      return joinDate <= monthEnd && (!cancelDate || cancelDate > monthEnd);
+    }).length;
+  });
 
-  // Calculate ARPM for each month
-  const historicalData = Object.entries(monthlyData)
-    .map(([period, data]) => ({
-      period: `${period}-01`,
-      value: activeMembers > 0 ? data.revenue / activeMembers : 0,
+  const historicalData = Object.entries(monthlyRevenue)
+    .map(([period, revenue]) => ({
+      period,
+      value:
+        (monthlyActiveMembers[period] ?? 0) > 0
+          ? revenue / monthlyActiveMembers[period]
+          : 0,
     }))
-    .sort(
-      (a, b) => new Date(a.period).getTime() - new Date(b.period).getTime()
-    );
+    .sort((a, b) => a.period.localeCompare(b.period));
 
-  const currentValue = historicalData.length > 0 ? historicalData[0].value : 0;
+  const currentValue =
+    historicalData.length > 0
+      ? historicalData[historicalData.length - 1].value
+      : 0;
 
   return { currentValue, historicalData };
 }

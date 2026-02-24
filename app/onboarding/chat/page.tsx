@@ -106,20 +106,20 @@ export default function OnboardingChatPage() {
           localStorage.setItem("milton-model", JSON.stringify(result.proposal));
         }
 
-        // Archive chat and redirect to model builder
+        // Archive chat and redirect to upload page
         await completeOnboardingChat();
-        await updateOnboardingStatus("model");
+        await updateOnboardingStatus("upload");
 
         setMiltonMessages((prev) => [
           ...prev,
           {
             from: "milton",
-            text: `✅ I've created a data model with ${result.proposal?.recommendedTables?.length || 0} tables. Let's review and customize it!`,
+            text: `✅ I've analyzed your business. Let's upload your data to get started!`,
           },
         ]);
 
         setTimeout(() => {
-          router.push("/onboarding/model");
+          router.push("/onboarding/upload");
         }, 1500);
       } catch (err) {
         console.error("Error in business analysis:", err);

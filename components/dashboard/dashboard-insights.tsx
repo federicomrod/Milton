@@ -28,6 +28,7 @@ import { createClient } from "@/lib/supabase/client";
 import { getReportData } from "@/lib/report-data-service";
 import { useBusinessContext } from "@/lib/business-context";
 import { useUserPreferences } from "@/lib/context/UserPreferencesContext";
+import { useUser } from "@/lib/context/UserContext";
 
 interface Insight {
   id?: string;
@@ -47,22 +48,75 @@ export function DashboardInsights() {
     new Set()
   );
   const [showRefreshDialog, setShowRefreshDialog] = useState(false);
-  const [isCardCollapsed, setIsCardCollapsed] = useState(false);
+  const [isCardCollapsed, setIsCardCollapsed] = useState(true);
   const { businessType } = useBusinessContext();
   const { prefs } = useUserPreferences();
+  const { user } = useUser();
+
+  // Get current analytics KPIs that are displayed on dashboard
+  const getCurrentAnalyticsKpis = async () => {
+    try {
+      if (!user) return null;
+
+      // Get business model
+      const supabase = createClient();
+      const { data: company } = await supabase
+        .from("companies")
+        .select("id")
+        .eq("created_by", user.id)
+        .single();
+
+      if (!company) return null;
+
+      const { data: businessModelData } = await supabase
+        .from("business_models")
+        .select("business_type")
+        .eq("company_id", company.id)
+        .single();
+
+      const businessModel = businessModelData?.business_type;
+      if (!businessModel) return null;
+
+      // Calculate date range (similar to dashboard page)
+      const fromDate = new Date(new Date().setMonth(new Date().getMonth() - 1))
+        .toISOString()
+        .split("T")[0];
+      const toDate = new Date().toISOString().split("T")[0];
+
+      let analyticsUrl = "";
+      if (businessModel === "fitness_studio") {
+        analyticsUrl = `/api/analytics/fitness-studio/kpis?from_date=${fromDate}&to_date=${toDate}`;
+      } else if (businessModel === "restaurant") {
+        analyticsUrl = `/api/analytics/restaurant/overview?from_date=${fromDate}&to_date=${toDate}`;
+      }
+
+      if (analyticsUrl) {
+        const response = await fetch(analyticsUrl, {
+          cache: "no-store",
+          credentials: "include",
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          return data.kpis || data;
+        }
+      }
+
+      return null;
+    } catch (err) {
+      console.error("[getCurrentAnalyticsKpis] Error:", err);
+      return null;
+    }
+  };
 
   // Load insights from database
   const loadInsightsFromDB = async () => {
     try {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
       if (!user) {
         return [];
       }
 
+      const supabase = createClient();
       const { data, error } = await supabase
         .from("dashboard_insights")
         .select("*")
@@ -74,7 +128,7 @@ export function DashboardInsights() {
         return [];
       }
 
-      return (data || []).map((insight) => ({
+      return (data || []).map((insight: any) => ({
         id: insight.id,
         title: insight.title,
         description: insight.description,
@@ -92,14 +146,11 @@ export function DashboardInsights() {
     replaceAll: boolean = true
   ) => {
     try {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
       if (!user) {
         return;
       }
+
+      const supabase = createClient();
 
       if (replaceAll) {
         // Delete all existing insights for this user
@@ -153,213 +204,67 @@ export function DashboardInsights() {
     setError(null);
 
     try {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
       if (!user) {
         setError("Not authenticated");
         setLoading(false);
         return;
       }
 
-      // Fetch report data to get KPIs
+      const supabase = createClient();
+
+      // Get analytics KPIs that are displayed on the dashboard
+      // These are the KPIs that users see and interact with
+      const analyticsKpis = await getCurrentAnalyticsKpis();
+
+      if (!analyticsKpis) {
+        setError("Unable to fetch analytics data for insights generation");
+        setLoading(false);
+        return;
+      }
+
+      // Fetch report data to get additional KPIs
       const reportData = await getReportData(supabase, user.id);
 
-      // Calculate metrics similar to MetricsGrid
-      const transactions = reportData.transactions || [];
-      const crmDeals = reportData.crmDeals || [];
-
-      // Calculate key metrics
-      const now = new Date();
-      const latestTransaction = transactions
-        .map((t) => {
-          try {
-            return new Date(t.date);
-          } catch {
-            return new Date();
-          }
-        })
-        .sort((a, b) => b.getTime() - a.getTime())[0];
-
-      const targetMonth = latestTransaction || now;
-      const monthStart = new Date(
-        targetMonth.getFullYear(),
-        targetMonth.getMonth(),
-        1
-      );
-      const monthEnd = new Date(
-        targetMonth.getFullYear(),
-        targetMonth.getMonth() + 1,
-        0,
-        23,
-        59,
-        59
-      );
-
-      const currentMonthTransactions = transactions.filter((t) => {
-        try {
-          const date = new Date(t.date);
-          return (
-            date >= monthStart && date <= monthEnd && !isNaN(date.getTime())
-          );
-        } catch {
-          return false;
-        }
-      });
-
-      const transactionsToUse =
-        currentMonthTransactions.length > 0
-          ? currentMonthTransactions
-          : transactions;
-
-      // Calculate metrics
-      const isRevenue = (category: string) => {
-        const cat = category?.toLowerCase() || "";
-        return [
-          "subscription",
-          "consulting",
-          "service",
-          "sales",
-          "revenue",
-        ].some((r) => cat.includes(r));
-      };
-
-      const isRecurringRevenue = (category: string) => {
-        const cat = category?.toLowerCase() || "";
-        return ["subscription", "monthly", "recurring", "mrr"].some((r) =>
-          cat.includes(r)
-        );
-      };
-
-      const recurringRevenue = transactionsToUse
-        .filter(
-          (t) =>
-            (typeof t.amount === "string"
-              ? parseFloat(t.amount)
-              : t.amount || 0) > 0 && isRecurringRevenue(t.category || "")
-        )
-        .reduce(
-          (sum, t) =>
-            sum +
-            (typeof t.amount === "string"
-              ? parseFloat(t.amount)
-              : t.amount || 0),
-          0
-        );
-
-      const totalMonthlyRevenue = transactionsToUse
-        .filter(
-          (t) =>
-            (typeof t.amount === "string"
-              ? parseFloat(t.amount)
-              : t.amount || 0) > 0 && isRevenue(t.category || "")
-        )
-        .reduce(
-          (sum, t) =>
-            sum +
-            (typeof t.amount === "string"
-              ? parseFloat(t.amount)
-              : t.amount || 0),
-          0
-        );
-
-      const allPositiveTransactions = transactionsToUse
-        .filter(
-          (t) =>
-            (typeof t.amount === "string"
-              ? parseFloat(t.amount)
-              : t.amount || 0) > 0
-        )
-        .reduce(
-          (sum, t) =>
-            sum +
-            (typeof t.amount === "string"
-              ? parseFloat(t.amount)
-              : t.amount || 0),
-          0
-        );
-
-      const mrr =
-        recurringRevenue > 0
-          ? recurringRevenue
-          : totalMonthlyRevenue > 0
-            ? totalMonthlyRevenue
-            : allPositiveTransactions;
-
-      const monthlyExpenses = Math.abs(
-        transactionsToUse
-          .filter(
-            (t) =>
-              (typeof t.amount === "string"
-                ? parseFloat(t.amount)
-                : t.amount || 0) < 0
-          )
-          .reduce(
-            (sum, t) =>
-              sum +
-              (typeof t.amount === "string"
-                ? parseFloat(t.amount)
-                : t.amount || 0),
-            0
-          )
-      );
-
-      const totalCash = transactions.reduce(
-        (sum, t) =>
-          sum +
-          (typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0),
-        0
-      );
-
-      const netBurn = monthlyExpenses - mrr;
-      const runway =
-        netBurn > 0 && totalCash > 0 ? Math.round(totalCash / netBurn) : 0;
-
-      const contractedRevenue = crmDeals
-        .filter((d) =>
-          ["Negotiation", "Deal", "Closed", "Contract", "Closed Won"].includes(
-            d.phase || ""
-          )
-        )
-        .reduce(
-          (sum, d) =>
-            sum +
-            (typeof d.amount === "string"
-              ? parseFloat(d.amount)
-              : d.amount || 0),
-          0
-        );
-
-      // Prepare metrics for AI - focus on universal financial metrics and KPIs only
+      // Prepare metrics for AI using the analytics KPIs as primary source
       const metrics = {
-        mrr: Math.round(mrr),
-        arr: Math.round(mrr * 12),
-        cashBalance: Math.round(totalCash),
-        burnRate: Math.round(Math.max(0, netBurn)),
-        runway: runway,
-        contractedRevenue: Math.round(contractedRevenue),
-        revenue: reportData.kpis.revenue || 0,
-        expenses: reportData.kpis.expenses || 0,
-        netIncome: reportData.kpis.netIncome || 0,
+        // Use analytics KPIs as the primary source of truth
+        activeMembers: analyticsKpis.activeMembers || 0,
+        newMembers: analyticsKpis.newMembers || 0,
+        churnRate: analyticsKpis.churnRate || 0,
+        utilizationRate: analyticsKpis.utilizationRate || 0,
+        revenuePerMember: analyticsKpis.revenuePerMember || 0,
+        totalRevenue:
+          analyticsKpis.totalRevenue || reportData.kpis.revenue || 0,
+        totalCosts: analyticsKpis.totalCosts || reportData.kpis.expenses || 0,
+        netIncome: analyticsKpis.netIncome || reportData.kpis.netIncome || 0,
+        burnRate: analyticsKpis.burnRate || reportData.kpis.burnRate || 0,
+        // Include general business metrics as fallback
+        cashBalance: reportData.kpis.cashRunway
+          ? reportData.kpis.cashRunway *
+            (analyticsKpis.burnRate || reportData.kpis.burnRate || 0)
+          : 0,
+        runway: reportData.kpis.cashRunway || 0,
+        contractedRevenue: reportData.kpis.pipelineValue || 0,
         pipelineValue: reportData.kpis.pipelineValue || 0,
       };
 
       // Only generate insights if we have meaningful data
       const hasData =
-        metrics.mrr > 0 ||
-        metrics.cashBalance !== 0 ||
+        metrics.activeMembers > 0 ||
+        metrics.newMembers > 0 ||
+        metrics.totalRevenue > 0 ||
+        metrics.totalCosts > 0 ||
+        metrics.netIncome !== 0 ||
         metrics.burnRate > 0 ||
-        metrics.revenue > 0 ||
-        metrics.expenses > 0;
+        metrics.churnRate > 0 ||
+        metrics.utilizationRate > 0;
 
       if (!hasData) {
         setInsights([
           {
-            title: "Upload Data to Get Insights",
+            title: "No Data Available for Insights",
             description:
-              "Start uploading your financial data (transactions, CRM deals, or budgets) to receive AI-powered insights and recommendations.",
+              "Your analytics data doesn't contain meaningful metrics yet. Try uploading more data or checking your data sources.",
             category: "info",
           },
         ]);
@@ -561,16 +466,18 @@ export function DashboardInsights() {
             </span>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-center py-12">
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <span className="text-sm text-muted-foreground font-medium">
-                Generating insights...
-              </span>
+        {!isCardCollapsed && (
+          <CardContent>
+            <div className="flex items-center justify-center py-12">
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <span className="text-sm text-muted-foreground font-medium">
+                  Generating insights...
+                </span>
+              </div>
             </div>
-          </div>
-        </CardContent>
+          </CardContent>
+        )}
       </Card>
     );
   }
@@ -588,23 +495,25 @@ export function DashboardInsights() {
             </span>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="py-8 text-center">
-            <AlertTriangle className="h-10 w-10 text-destructive mx-auto mb-3 opacity-50" />
-            <p className="text-sm text-muted-foreground mb-4 font-medium">
-              {error}
-            </p>
-            <Button
-              onClick={handleRefreshClick}
-              variant="outline"
-              size="sm"
-              className="gap-2"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Try Again
-            </Button>
-          </div>
-        </CardContent>
+        {!isCardCollapsed && (
+          <CardContent>
+            <div className="py-8 text-center">
+              <AlertTriangle className="h-10 w-10 text-destructive mx-auto mb-3 opacity-50" />
+              <p className="text-sm text-muted-foreground mb-4 font-medium">
+                {error}
+              </p>
+              <Button
+                onClick={handleRefreshClick}
+                variant="outline"
+                size="sm"
+                className="gap-2"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Try Again
+              </Button>
+            </div>
+          </CardContent>
+        )}
       </Card>
     );
   }
@@ -622,15 +531,17 @@ export function DashboardInsights() {
             </span>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="py-8 text-center">
-            <Info className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-50" />
-            <p className="text-sm text-muted-foreground font-medium">
-              No insights available. Upload financial data to get AI-powered
-              insights.
-            </p>
-          </div>
-        </CardContent>
+        {!isCardCollapsed && (
+          <CardContent>
+            <div className="py-8 text-center">
+              <Info className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-50" />
+              <p className="text-sm text-muted-foreground font-medium">
+                No insights available. Upload financial data to get AI-powered
+                insights.
+              </p>
+            </div>
+          </CardContent>
+        )}
       </Card>
     );
   }
@@ -681,11 +592,7 @@ export function DashboardInsights() {
           </Button>
         </div>
       </CardHeader>
-      <div
-        className={`overflow-hidden transition-all duration-300 ease-in-out ${
-          isCardCollapsed ? "max-h-0 opacity-0" : "max-h-[5000px] opacity-100"
-        }`}
-      >
+      {!isCardCollapsed && (
         <CardContent className="pt-0">
           {visibleInsights.length === 0 ? (
             <div className="py-8 text-center">
@@ -796,7 +703,7 @@ export function DashboardInsights() {
             </div>
           )}
         </CardContent>
-      </div>
+      )}
 
       <Dialog open={showRefreshDialog} onOpenChange={setShowRefreshDialog}>
         <DialogContent>

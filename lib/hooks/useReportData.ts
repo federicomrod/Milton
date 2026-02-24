@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getUploadedFilesSummary, type FileSummary } from "@/lib/data-service";
+import { useUser } from "@/lib/context/UserContext";
 
 export interface DataStatus {
   modelTables: FileSummary[];
@@ -13,6 +14,7 @@ export interface DataStatus {
 }
 
 export function useReportData() {
+  const { user } = useUser();
   const [isClient, setIsClient] = useState(false);
   const [dataStatus, setDataStatus] = useState<DataStatus>({
     modelTables: [],
@@ -43,11 +45,6 @@ export function useReportData() {
     }
 
     try {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
       if (!user) {
         return {
           modelTables: [],
@@ -58,6 +55,8 @@ export function useReportData() {
           hasAnyData: false,
         };
       }
+
+      const supabase = createClient();
 
       const modelTables = await getUploadedFilesSummary(supabase, user.id);
 
@@ -128,7 +127,7 @@ export function useReportData() {
     };
 
     loadDataStatus();
-  }, [isClient]);
+  }, [isClient, user]);
 
   return { isClient, dataStatus };
 }

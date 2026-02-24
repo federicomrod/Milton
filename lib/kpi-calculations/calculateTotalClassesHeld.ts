@@ -1,4 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { getModelDataRows } from "./getModelDataRows";
+import { classAcc, toPeriod } from "./fieldAccessors";
 
 export async function calculateTotalClassesHeld(
   supabase: SupabaseClient,
@@ -6,61 +8,35 @@ export async function calculateTotalClassesHeld(
   fromDate: string,
   toDate: string
 ) {
-  // Get company ID
-  const { data: company, error: companyError } = await supabase
+  const { data: company } = await supabase
     .from("companies")
     .select("id")
     .eq("created_by", userId)
     .single();
 
-  if (companyError || !company) {
-    throw new Error("Company not found");
-  }
+  if (!company) throw new Error("Company not found");
 
-  // Get classes data from model_data
-  const { data: classesData, error } = await supabase
-    .from("model_data")
-    .select("data")
-    .eq("company_id", company.id)
-    .eq("model_table_name", "classes");
+  const classes = await getModelDataRows(supabase, company.id, "classes");
 
-  if (error || !classesData) {
-    return { currentValue: 0, historicalData: [] };
-  }
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  const monthlyStats: Record<string, number> = {};
 
-  // Flatten the data
-  const classes = (classesData as any).data.flatMap(
-    (row: any) => row.data || []
-  );
-
-  // Group by month and count classes
-  const monthlyStats: { [key: string]: number } = {};
-
-  classes.forEach((cls: any) => {
-    if (cls.date_time) {
-      const classDate = new Date(cls.date_time);
-      const period = classDate.toISOString().substring(0, 7); // YYYY-MM
-
-      // Only count if class date is within our range
-      if (classDate >= new Date(fromDate) && classDate < new Date(toDate)) {
-        if (!monthlyStats[period]) {
-          monthlyStats[period] = 0;
-        }
-        monthlyStats[period]++;
-      }
-    }
+  classes.forEach((c: any) => {
+    const dt = classAcc.dateTime(c);
+    if (!dt || dt < from || dt >= to) return;
+    const period = toPeriod(dt);
+    monthlyStats[period] = (monthlyStats[period] ?? 0) + 1;
   });
 
   const historicalData = Object.entries(monthlyStats)
-    .map(([period, count]) => ({
-      period: `${period}-01`,
-      value: count,
-    }))
-    .sort(
-      (a, b) => new Date(a.period).getTime() - new Date(b.period).getTime()
-    );
+    .map(([period, count]) => ({ period, value: count }))
+    .sort((a, b) => a.period.localeCompare(b.period));
 
-  const currentValue = historicalData.length > 0 ? historicalData[0].value : 0;
+  const currentValue =
+    historicalData.length > 0
+      ? historicalData[historicalData.length - 1].value
+      : 0;
 
   return { currentValue, historicalData };
 }

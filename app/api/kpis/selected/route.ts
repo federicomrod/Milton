@@ -6,7 +6,12 @@ import { createClient } from "@/lib/supabase/server";
 
 function jsonNoStore(data: { selectedKpis: unknown[] }) {
   const res = NextResponse.json(data);
-  res.headers.set("Cache-Control", "no-store");
+  res.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
   return res;
 }
 
@@ -68,7 +73,8 @@ export async function GET() {
     const { data: kpis, error: kpisError } = await supabase
       .from("kpis")
       .select("*")
-      .in("id", kpiIds);
+      .in("id", kpiIds)
+      .eq("is_published", true);
 
     if (kpisError) {
       console.error(

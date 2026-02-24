@@ -6,22 +6,24 @@ import MiltonChat from "@/components/dashboard/miltonchat";
 import { createClient } from "@/lib/supabase/client";
 import { DataStatusProvider } from "@/lib/context/DataStatusContext";
 import { BusinessProvider } from "@/lib/business-context";
+import { useUser } from "@/lib/context/UserContext";
 import { miltonEventsAPI } from "@/lib/milton-events";
 
 type DataStatus = {
   ok?: boolean;
-  bank?: boolean;
-  crm?: boolean;
-  budget?: boolean;
+  hasModelData?: boolean;
+  tablesWithData?: { id: string; name: string; recordCount: number }[];
+  totalRecords?: number;
 } | null;
 
-const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
+const DashboardContent = ({ children }: { children: React.ReactNode }) => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [dataStatus, setDataStatus] = useState<DataStatus>(null);
   const [businessModel, setBusinessModel] = useState<string>("");
   const [selectedKpis, setSelectedKpis] = useState<any[]>([]);
   const supabase = useMemo(() => createClient(), []);
   const [sessionReady, setSessionReady] = useState(false);
+  const { user } = useUser();
 
   const ensureSession = useCallback(async () => {
     const {
@@ -36,9 +38,6 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     (async () => {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
         if (!user) return;
 
         // Get company
@@ -115,7 +114,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         );
       }
     })();
-  }, [supabase]);
+  }, [user, supabase]);
 
   // Hydrate session and set sessionReady
   useEffect(() => {
@@ -136,9 +135,6 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       "dashboard.generate",
       async (payload) => {
         try {
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
           if (!user) {
             console.warn("[DashboardLayout] No user authenticated");
             return;
@@ -202,7 +198,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       }
     );
     return () => unsubscribe();
-  }, [sessionReady, supabase]);
+  }, [sessionReady, supabase, user]);
 
   const refreshDataStatus = useCallback(async () => {
     try {
@@ -261,18 +257,15 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     if (pathname.startsWith("/dashboard/settings")) return; // Settings page
     if (pathname.startsWith("/dashboard/upload")) return; // Upload page
     if (pathname.startsWith("/dashboard/data")) return; // Data Management page
-    if (pathname === "/dashboard") return; // Already on dashboard, no redirect needed
 
-    if (
-      dataStatus?.ok &&
-      !dataStatus.bank &&
-      !dataStatus.crm &&
-      !dataStatus.budget
-    ) {
+    // Only redirect if user is NOT already on dashboard
+    if (pathname === "/dashboard") return;
+
+    if (dataStatus?.ok && !dataStatus.hasModelData) {
       console.log("Redirecting user to /dashboard due to missing data...");
       router.replace("/dashboard");
     }
-  }, [pathname, dataStatus, router]);
+  }, [pathname, dataStatus?.ok, dataStatus?.hasModelData, router]);
 
   return (
     <BusinessProvider>
@@ -320,6 +313,10 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       </DataStatusProvider>
     </BusinessProvider>
   );
+};
+
+const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
+  return <DashboardContent>{children}</DashboardContent>;
 };
 
 export default DashboardLayout;

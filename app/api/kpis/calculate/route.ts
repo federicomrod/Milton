@@ -55,11 +55,12 @@ export async function POST(request: Request) {
     const selectedKpiIds = (businessModel?.selected_kpi_ids as string[]) || [];
     console.log(`[KPI Calculate] Selected KPI IDs:`, selectedKpiIds);
 
-    // Get KPI definitions for selected KPIs
+    // Get KPI definitions for selected KPIs (only published ones)
     const { data: kpis, error: kpisError } = await supabase
       .from("kpis")
       .select("*")
-      .in("id", selectedKpiIds);
+      .in("id", selectedKpiIds)
+      .eq("is_published", true);
 
     console.log(`[KPI Calculate] Found ${kpis?.length || 0} KPI definitions`);
 

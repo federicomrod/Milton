@@ -1,4 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { getModelDataRows } from "./getModelDataRows";
+import { classAcc, bookingAcc, toPeriod } from "./fieldAccessors";
 
 export async function calculateNoShowRate(
   supabase: SupabaseClient,
@@ -6,81 +8,49 @@ export async function calculateNoShowRate(
   fromDate: string,
   toDate: string
 ) {
-  // Get company ID
-  const { data: company, error: companyError } = await supabase
+  const { data: company } = await supabase
     .from("companies")
     .select("id")
     .eq("created_by", userId)
     .single();
 
-  if (companyError || !company) {
-    throw new Error("Company not found");
-  }
+  if (!company) throw new Error("Company not found");
 
-  // Get bookings and classes data from model_data
-  const [bookingsData, classesData] = await Promise.all([
-    supabase
-      .from("model_data")
-      .select("data")
-      .eq("company_id", company.id)
-      .eq("model_table_name", "bookings"),
-    supabase
-      .from("model_data")
-      .select("data")
-      .eq("company_id", company.id)
-      .eq("model_table_name", "classes"),
+  const [bookings, classes] = await Promise.all([
+    getModelDataRows(supabase, company.id, "bookings"),
+    getModelDataRows(supabase, company.id, "classes"),
   ]);
 
-  if (!bookingsData.data || !classesData.data) {
-    return { currentValue: 0, historicalData: [] };
-  }
+  const classLookup = new Map(classes.map((c: any) => [classAcc.id(c), c]));
 
-  // Flatten the data arrays
-  const bookings = bookingsData.data.flatMap((row: any) => row.data || []);
-  const classes = classesData.data.flatMap((row: any) => row.data || []);
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  const monthlyStats: Record<string, { total: number; noShows: number }> = {};
 
-  // Create class lookup by ID
-  const classLookup = new Map(classes.map((cls: any) => [cls.id, cls]));
-
-  // Filter bookings by date range
-  const filteredBookings = bookings.filter((booking: any) => {
-    const classData = classLookup.get(booking.class_id);
-    if (!classData || !classData.date_time) {
-      return false;
-    }
-    const bookingDate = new Date(classData.date_time);
-    return bookingDate >= new Date(fromDate) && bookingDate < new Date(toDate);
-  });
-
-  // Group by month and calculate no-show rate
-  const monthlyStats: { [key: string]: { total: number; noShows: number } } =
-    {};
-
-  filteredBookings.forEach((booking: any) => {
-    const classData = classLookup.get(booking.class_id);
+  bookings.forEach((b: any) => {
+    const classData = classLookup.get(bookingAcc.classId(b));
     if (!classData) return;
+    const dt = classAcc.dateTime(classData);
+    if (!dt || dt < from || dt >= to) return;
 
-    const period = new Date(classData.date_time).toISOString().substring(0, 7);
-    if (!monthlyStats[period]) {
-      monthlyStats[period] = { total: 0, noShows: 0 };
-    }
+    const period = toPeriod(dt);
+    if (!monthlyStats[period]) monthlyStats[period] = { total: 0, noShows: 0 };
     monthlyStats[period].total++;
-    if (booking.attendance_status === "no_show") {
+    if (bookingAcc.attendanceStatus(b) === "no_show")
       monthlyStats[period].noShows++;
-    }
   });
 
-  // Calculate rates
   const historicalData = Object.entries(monthlyStats)
     .map(([period, stats]) => ({
-      period: `${period}-01`,
+      period,
       value: stats.total > 0 ? (stats.noShows / stats.total) * 100 : 0,
     }))
-    .sort(
-      (a, b) => new Date(a.period).getTime() - new Date(b.period).getTime()
-    );
+    .sort((a, b) => a.period.localeCompare(b.period));
 
-  const currentValue = historicalData.length > 0 ? historicalData[0].value : 0;
+  const currentValue =
+    historicalData.length > 0
+      ? historicalData[historicalData.length - 1].value
+      : 0;
 
   return { currentValue, historicalData };
 }

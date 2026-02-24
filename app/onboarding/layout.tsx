@@ -60,8 +60,7 @@ export default function OnboardingLayout({
           "chat",
           "kpi_selection",
           "data_sources",
-          "model",
-          "upload", // Upload is optional, not part of main flow
+          "upload", // Skip model, go directly to upload
         ];
 
         // Map paths to statuses
@@ -84,7 +83,7 @@ export default function OnboardingLayout({
           data_sources: "/onboarding/data-sources",
           kpi_selection: "/onboarding/kpi-selection",
           upload: "/onboarding/upload", // Upload is optional
-          model: "/onboarding/model",
+          model: "/onboarding/upload", // Skip model, redirect to upload
           completed: "/dashboard",
         };
 

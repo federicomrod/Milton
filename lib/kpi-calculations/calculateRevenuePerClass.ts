@@ -1,4 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { getModelDataRows } from "./getModelDataRows";
+import { classAcc, txAcc, toPeriod } from "./fieldAccessors";
 
 export async function calculateRevenuePerClass(
   supabase: SupabaseClient,
@@ -6,87 +8,60 @@ export async function calculateRevenuePerClass(
   fromDate: string,
   toDate: string
 ) {
-  // Get company ID
-  const { data: company, error: companyError } = await supabase
+  const { data: company } = await supabase
     .from("companies")
     .select("id")
     .eq("created_by", userId)
     .single();
 
-  if (companyError || !company) {
-    throw new Error("Company not found");
-  }
+  if (!company) throw new Error("Company not found");
 
-  // Get transactions and classes data
-  const [transactionsData, classesData] = await Promise.all([
-    supabase
-      .from("model_data")
-      .select("data")
-      .eq("company_id", company.id)
-      .eq("model_table_name", "transactions"),
-    supabase
-      .from("model_data")
-      .select("data")
-      .eq("company_id", company.id)
-      .eq("model_table_name", "classes"),
+  const [transactions, classes] = await Promise.all([
+    getModelDataRows(supabase, company.id, "transactions"),
+    getModelDataRows(supabase, company.id, "classes"),
   ]);
 
-  if (!transactionsData.data || !classesData.data) {
-    return { currentValue: 0, historicalData: [] };
-  }
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
 
-  const transactions = transactionsData.data.flatMap(
-    (row: any) => row.data || []
-  );
-  const classes = classesData.data.flatMap((row: any) => row.data || []);
-
-  // Group transactions by month
-  const monthlyRevenue: { [key: string]: number } = {};
-  transactions.forEach((tx: any) => {
-    if (tx.amount > 0 && tx.date) {
-      const txDate = new Date(tx.date);
-      const period = txDate.toISOString().substring(0, 7);
-
-      if (txDate >= new Date(fromDate) && txDate < new Date(toDate)) {
-        if (!monthlyRevenue[period]) {
-          monthlyRevenue[period] = 0;
-        }
-        monthlyRevenue[period] += tx.amount;
-      }
-    }
+  const monthlyRevenue: Record<string, number> = {};
+  transactions.forEach((t: any) => {
+    const txDate = txAcc.date(t);
+    const amount = txAcc.amount(t);
+    const type = txAcc.type(t);
+    if (!txDate || amount <= 0 || type !== "inflow") return;
+    if (txDate < from || txDate >= to) return;
+    const period = toPeriod(txDate);
+    monthlyRevenue[period] = (monthlyRevenue[period] ?? 0) + amount;
   });
 
-  // Count classes by month
-  const monthlyClasses: { [key: string]: number } = {};
-  classes.forEach((cls: any) => {
-    if (cls.date_time) {
-      const classDate = new Date(cls.date_time);
-      const period = classDate.toISOString().substring(0, 7);
-
-      if (classDate >= new Date(fromDate) && classDate < new Date(toDate)) {
-        if (!monthlyClasses[period]) {
-          monthlyClasses[period] = 0;
-        }
-        monthlyClasses[period]++;
-      }
-    }
+  const monthlyClasses: Record<string, number> = {};
+  classes.forEach((c: any) => {
+    const dt = classAcc.dateTime(c);
+    if (!dt || dt < from || dt >= to) return;
+    const period = toPeriod(dt);
+    monthlyClasses[period] = (monthlyClasses[period] ?? 0) + 1;
   });
 
-  // Calculate revenue per class for each month
-  const historicalData = Object.keys({ ...monthlyRevenue, ...monthlyClasses })
-    .map((period) => {
-      const revenue = monthlyRevenue[period] || 0;
-      const classCount = monthlyClasses[period] || 0;
-      return {
-        period: `${period}-01`,
-        value: classCount > 0 ? revenue / classCount : 0,
-      };
-    })
-    .sort(
-      (a, b) => new Date(a.period).getTime() - new Date(b.period).getTime()
-    );
+  const allPeriods = new Set([
+    ...Object.keys(monthlyRevenue),
+    ...Object.keys(monthlyClasses),
+  ]);
 
-  const currentValue = historicalData.length > 0 ? historicalData[0].value : 0;
+  const historicalData = Array.from(allPeriods)
+    .map((period) => ({
+      period,
+      value:
+        (monthlyClasses[period] ?? 0) > 0
+          ? (monthlyRevenue[period] ?? 0) / monthlyClasses[period]
+          : 0,
+    }))
+    .sort((a, b) => a.period.localeCompare(b.period));
+
+  const currentValue =
+    historicalData.length > 0
+      ? historicalData[historicalData.length - 1].value
+      : 0;
 
   return { currentValue, historicalData };
 }

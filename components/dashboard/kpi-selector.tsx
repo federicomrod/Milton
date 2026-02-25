@@ -51,13 +51,6 @@ export function KpiSelector({
   onDisplayModesChange,
   disabled = false,
 }: KpiSelectorProps) {
-  console.log("[KpiSelector] Props:", {
-    selectedKpiIds: selectedKpiIds?.length,
-    recommendedKpis: recommendedKpis?.length,
-    additionalKpis: additionalKpis?.length,
-    disabled,
-  });
-
   const [open, setOpen] = useState(false);
   const [tempSelection, setTempSelection] = useState<string[]>(selectedKpiIds);
   const [tempDisplayModes, setTempDisplayModes] =

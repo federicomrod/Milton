@@ -30,7 +30,7 @@ type DataStatus = {
 
 export default function DashboardPage() {
   const [dataStatus, setDataStatus] = useState<DataStatus>(null);
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
 
   const [selectedKpiIds, setSelectedKpiIds] = useState<string[]>([]);
   const [selectedKpis, setSelectedKpis] = useState<DatabaseKpi[]>([]);
@@ -66,7 +66,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchData = async () => {
       // Wait for user to be available before marking data as loaded
-      if (!user) return;
+      if (!user || userLoading) return;
       try {
         const statusRes = await fetch("/api/data/status", {
           credentials: "include",
@@ -85,11 +85,11 @@ export default function DashboardPage() {
     };
 
     fetchData();
-  }, [user]);
+  }, [user, userLoading]);
 
   useEffect(() => {
     const loadKpis = async () => {
-      if (!user) return;
+      if (!user || userLoading) return;
       try {
         const supabase = createClient();
 
@@ -100,55 +100,140 @@ export default function DashboardPage() {
           .single();
 
         if (company) {
-          // Fetch KPI preferences from the API (includes both selected KPIs and recommended/additional KPIs)
-          const response = await fetch("/api/onboarding/kpi-preferences", {
-            cache: "no-store",
-            credentials: "include",
-          });
+          // Get business model to determine business type, selected KPIs, and ranked KPIs
+          const { data: businessModel } = await supabase
+            .from("business_models")
+            .select("business_type, selected_kpi_ids, ranked_kpi_ids")
+            .eq("company_id", company.id)
+            .single();
 
-          if (response.ok) {
-            const data = await response.json();
-            setSelectedKpiIds(data.selectedKpiIds || []);
-            setKpiDisplayModes(data.kpiDisplayModes || {});
-            setBusinessType(data.businessType);
-            setRecommendedKpis(data.recommendedKpis || []);
-            setAdditionalKpis(data.additionalKpis || []);
+          let selectedKpiIds: string[] = [];
+          let kpiDisplayModes: Record<string, any> = {};
+          let businessType: string | null = null;
 
-            // Load selected KPIs
-            if (data.selectedKpiIds && data.selectedKpiIds.length > 0) {
-              const { data: kpis } = await supabase
+          if (businessModel) {
+            businessType = businessModel.business_type;
+            setBusinessType(businessType);
+
+            // Parse selected KPIs and display modes
+            const rawSelected = businessModel.selected_kpi_ids as any[];
+            if (
+              rawSelected &&
+              rawSelected.length > 0 &&
+              typeof rawSelected[0] === "object"
+            ) {
+              const selections = rawSelected as Array<{
+                id: string;
+                displayTypes: string[];
+              }>;
+              selectedKpiIds = selections.map((item) => item.id);
+              kpiDisplayModes = selections.reduce(
+                (acc, item) => {
+                  acc[item.id] = item.displayTypes.filter(
+                    (type) => type === "card" || type === "chart"
+                  );
+                  return acc;
+                },
+                {} as Record<string, any>
+              );
+            }
+          }
+
+          setSelectedKpiIds(selectedKpiIds);
+          setKpiDisplayModes(kpiDisplayModes);
+
+          // Load selected KPIs
+          if (selectedKpiIds.length > 0) {
+            const { data: selectedKpisData } = await supabase
+              .from("kpis")
+              .select("*")
+              .in("id", selectedKpiIds);
+            setSelectedKpis(selectedKpisData || []);
+          } else {
+            setSelectedKpis([]);
+          }
+
+          // Load all template KPIs for the business type, sorted by ranked order when available
+          if (businessType) {
+            const { data: template } = await supabase
+              .from("business_model_templates")
+              .select("kpi_ids")
+              .eq("key", businessType)
+              .single();
+
+            if (template?.kpi_ids && Array.isArray(template.kpi_ids)) {
+              const { data: templateKpis } = await supabase
                 .from("kpis")
                 .select("*")
-                .in("id", data.selectedKpiIds);
+                .in("id", template.kpi_ids)
+                .eq("is_published", true);
 
-              setSelectedKpis(kpis || []);
+              if (templateKpis && templateKpis.length > 0) {
+                console.log(
+                  "[Dashboard] Template KPIs loaded:",
+                  templateKpis.length
+                );
+
+                // Sort by ranked order if available, otherwise use template order
+                let sortedKpis = templateKpis;
+                if (
+                  businessModel?.ranked_kpi_ids &&
+                  Array.isArray(businessModel.ranked_kpi_ids)
+                ) {
+                  // Create a map of KPI ID to rank position
+                  const rankMap = new Map();
+                  businessModel.ranked_kpi_ids.forEach((id, index) => {
+                    rankMap.set(id, index);
+                  });
+
+                  // Sort KPIs: ranked first (by rank order), then unranked
+                  sortedKpis = templateKpis.sort((a, b) => {
+                    const aRank = rankMap.get(a.id);
+                    const bRank = rankMap.get(b.id);
+
+                    if (aRank !== undefined && bRank !== undefined) {
+                      return aRank - bRank; // Both ranked, sort by rank
+                    } else if (aRank !== undefined) {
+                      return -1; // a is ranked, b is not
+                    } else if (bRank !== undefined) {
+                      return 1; // b is ranked, a is not
+                    } else {
+                      return 0; // Neither ranked, maintain order
+                    }
+                  });
+                }
+
+                console.log(
+                  "[Dashboard] Sorted KPIs:",
+                  sortedKpis.map((k) => k.name)
+                );
+                setRecommendedKpis(sortedKpis.slice(0, 6));
+                setAdditionalKpis(sortedKpis.slice(6));
+              } else {
+                loadFallbackKpis();
+              }
             } else {
-              setSelectedKpis([]);
+              loadFallbackKpis();
             }
           } else {
-            // Fallback: load all published KPIs
-            console.log("[Dashboard] Loading fallback KPIs");
-            const { data: allKpis, error: kpisError } = await supabase
+            loadFallbackKpis();
+          }
+
+          function loadFallbackKpis() {
+            // No business type, use all published KPIs
+            supabase
               .from("kpis")
               .select("*")
               .eq("is_published", true)
-              .order("name");
-
-            console.log(
-              "[Dashboard] Fallback KPIs result:",
-              allKpis?.length,
-              "Error:",
-              kpisError
-            );
-
-            if (allKpis && allKpis.length > 0) {
-              setRecommendedKpis([]);
-              setAdditionalKpis(allKpis);
-            } else {
-              console.log("[Dashboard] No KPIs loaded, setting empty arrays");
-              setRecommendedKpis([]);
-              setAdditionalKpis([]);
-            }
+              .order("name")
+              .then(({ data: allKpis }) => {
+                console.log(
+                  "[Dashboard] Using fallback all KPIs:",
+                  allKpis?.length || 0
+                );
+                setRecommendedKpis(allKpis?.slice(0, 5) || []);
+                setAdditionalKpis(allKpis?.slice(5) || []);
+              });
           }
         }
       } catch (err) {
@@ -160,7 +245,7 @@ export default function DashboardPage() {
     };
 
     loadKpis();
-  }, [user]);
+  }, [user, userLoading]);
 
   // Fetch analytics KPI data when date range changes
   useEffect(() => {
@@ -277,12 +362,12 @@ export default function DashboardPage() {
 
   return (
     <>
-      {isLoading && (
+      {(isLoading || userLoading) && (
         <div className="fixed inset-0 bg-background/90 backdrop-blur-md z-50 flex items-center justify-center">
           <div className="flex flex-col items-center gap-6">
             <Loader2 className="h-16 w-16 animate-spin text-primary" />
             <p className="text-lg font-medium text-foreground">
-              Loading dashboard...
+              {userLoading ? "Loading user data..." : "Loading dashboard..."}
             </p>
           </div>
         </div>

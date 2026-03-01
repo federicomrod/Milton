@@ -45,10 +45,14 @@ export default function DashboardPage() {
   const [businessType, setBusinessType] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const dataLoadedRef = useRef(false);
   const kpisLoadedRef = useRef(false);
   const analyticsLoadedRef = useRef(false);
+  const gotBusinessModelRef = useRef(false);
+  const retryCountRef = useRef(0);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const MAX_RETRIES = 2;
 
   const { period, customDateRange, setPeriod, setCustomDateRange } =
     useDateRange();
@@ -59,7 +63,27 @@ export default function DashboardPage() {
       kpisLoadedRef.current &&
       analyticsLoadedRef.current
     ) {
-      setTimeout(() => setIsLoading(false), 500);
+      if (
+        (!gotBusinessModelRef.current || !dataStatus?.hasModelData) &&
+        retryCountRef.current < MAX_RETRIES
+      ) {
+        // All phases finished but no business model was found OR no data is available yet
+        // — session may not have been fully initialised on first login or data is still loading
+        retryCountRef.current += 1;
+        dataLoadedRef.current = false;
+        kpisLoadedRef.current = false;
+        analyticsLoadedRef.current = false;
+        gotBusinessModelRef.current = false;
+        setDataStatus(null); // Reset data status so it gets refetched
+        setSelectedKpiIds([]); // Reset state to ensure clean re-fetch
+        setSelectedKpis([]);
+        setRecommendedKpis([]);
+        setAdditionalKpis([]);
+        setAnalyticsKpiData({});
+        setTimeout(() => setLoadAttempt((n) => n + 1), 800);
+      } else {
+        setTimeout(() => setIsLoading(false), 500);
+      }
     }
   };
 
@@ -85,11 +109,12 @@ export default function DashboardPage() {
     };
 
     fetchData();
-  }, [user, userLoading]);
+  }, [user, userLoading, loadAttempt]);
 
   useEffect(() => {
     const loadKpis = async () => {
       if (!user || userLoading) return;
+      gotBusinessModelRef.current = false;
       try {
         const supabase = createClient();
 
@@ -112,30 +137,53 @@ export default function DashboardPage() {
           let businessType: string | null = null;
 
           if (businessModel) {
+            gotBusinessModelRef.current = true;
             businessType = businessModel.business_type;
             setBusinessType(businessType);
 
-            // Parse selected KPIs and display modes
+            const uuidRegex =
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+            // Parse selected KPIs and display modes — handles both:
+            // - New format: [{id, displayTypes}]
+            // - Old format: ["uuid1", "uuid2"] plain UUID strings
             const rawSelected = businessModel.selected_kpi_ids as any[];
-            if (
-              rawSelected &&
-              rawSelected.length > 0 &&
-              typeof rawSelected[0] === "object"
-            ) {
-              const selections = rawSelected as Array<{
-                id: string;
-                displayTypes: string[];
-              }>;
-              selectedKpiIds = selections.map((item) => item.id);
-              kpiDisplayModes = selections.reduce(
-                (acc, item) => {
-                  acc[item.id] = item.displayTypes.filter(
-                    (type) => type === "card" || type === "chart"
-                  );
-                  return acc;
-                },
-                {} as Record<string, any>
-              );
+            if (rawSelected && rawSelected.length > 0) {
+              if (
+                typeof rawSelected[0] === "object" &&
+                rawSelected[0] !== null
+              ) {
+                const selections = rawSelected as Array<{
+                  id: string;
+                  displayTypes: string[];
+                }>;
+                selectedKpiIds = selections
+                  .map((item) => item.id)
+                  .filter((id) => uuidRegex.test(id));
+                kpiDisplayModes = selections.reduce(
+                  (acc, item) => {
+                    if (uuidRegex.test(item.id)) {
+                      acc[item.id] = item.displayTypes.filter(
+                        (type) => type === "card" || type === "chart"
+                      );
+                    }
+                    return acc;
+                  },
+                  {} as Record<string, any>
+                );
+              } else if (typeof rawSelected[0] === "string") {
+                // Old format: plain UUID strings, default display mode to "card"
+                selectedKpiIds = rawSelected.filter(
+                  (id) => typeof id === "string" && uuidRegex.test(id)
+                );
+                kpiDisplayModes = selectedKpiIds.reduce(
+                  (acc, id) => {
+                    acc[id] = ["card"];
+                    return acc;
+                  },
+                  {} as Record<string, any>
+                );
+              }
             }
           }
 
@@ -165,8 +213,7 @@ export default function DashboardPage() {
               const { data: templateKpis } = await supabase
                 .from("kpis")
                 .select("*")
-                .in("id", template.kpi_ids)
-                .eq("is_published", true);
+                .in("id", template.kpi_ids);
 
               if (templateKpis && templateKpis.length > 0) {
                 console.log(
@@ -245,7 +292,7 @@ export default function DashboardPage() {
     };
 
     loadKpis();
-  }, [user, userLoading]);
+  }, [user, userLoading, loadAttempt]);
 
   // Fetch analytics KPI data when date range changes
   useEffect(() => {

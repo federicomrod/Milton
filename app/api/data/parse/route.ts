@@ -20,6 +20,7 @@ export async function POST(req: Request) {
 
     const formData = await req.formData();
     const file = formData.get("file");
+    const requestedSheetName = formData.get("sheetName") as string | null;
 
     if (!(file instanceof File)) {
       return NextResponse.json(
@@ -154,25 +155,27 @@ export async function POST(req: Request) {
         };
       });
 
-      // Use first sheet for legacy compatibility
-      if (sheets.length > 0) {
-        const firstSheetName = sheets[0].name;
-        const firstWorksheet = workbook.Sheets[firstSheetName];
-        const firstSheetData = XLSX.utils.sheet_to_json(firstWorksheet, {
+      // Use the requested sheet (by name) or fall back to the first sheet
+      const targetSheet = requestedSheetName
+        ? (sheets.find((s) => s.name === requestedSheetName) ?? sheets[0])
+        : sheets[0];
+
+      if (targetSheet) {
+        const targetWorksheet = workbook.Sheets[targetSheet.name];
+        const targetSheetData = XLSX.utils.sheet_to_json(targetWorksheet, {
           raw: true,
           defval: "",
         }) as Record<string, unknown>[];
 
-        // Apply date formatting to first sheet data
-        jsonData = firstSheetData.map((row, rowIdx) => {
+        // Apply date formatting to the target sheet data
+        jsonData = targetSheetData.map((row, rowIdx) => {
           const newRow = { ...row };
-          sheets[0].headers.forEach((header, colIdx) => {
+          targetSheet.headers.forEach((header, colIdx) => {
             const cellAddress = XLSX.utils.encode_cell({
               r: rowIdx + 1,
               c: colIdx,
             });
-            const cell = firstWorksheet[cellAddress];
-            // If cell has formatted text that looks like a date, use it
+            const cell = targetWorksheet[cellAddress];
             if (
               cell &&
               cell.w &&
@@ -183,7 +186,7 @@ export async function POST(req: Request) {
           });
           return newRow;
         });
-        headers = sheets[0].headers;
+        headers = targetSheet.headers;
       } else {
         return NextResponse.json(
           { error: "File contains no sheets" },

@@ -27,6 +27,8 @@ interface CashFlowAnalysisProps {
   customDateRange?: { from: string; to: string };
   onPeriodChange?: (period: "month" | "year" | "ytd" | "custom") => void;
   onCustomDateRangeChange?: (range: { from: string; to: string }) => void;
+  /** Analytics API segment (fitness-studio vs b2b-saas). Default fitness-studio. */
+  segment?: "fitness-studio" | "b2b-saas";
 }
 
 export function CashFlowAnalysis({
@@ -34,6 +36,7 @@ export function CashFlowAnalysis({
   customDateRange: propCustomDateRange,
   onPeriodChange: propOnPeriodChange,
   onCustomDateRangeChange: propOnCustomDateRangeChange,
+  segment = "fitness-studio",
 }: CashFlowAnalysisProps = {}) {
   const { prefs } = useUserPreferences();
   const [localPeriod, setLocalPeriod] = useState<
@@ -43,7 +46,7 @@ export function CashFlowAnalysis({
     from: string;
     to: string;
   }>({
-    from: new Date(new Date().setMonth(new Date().getMonth() - 1))
+    from: new Date(new Date().setDate(new Date().getDate() - 90))
       .toISOString()
       .split("T")[0],
     to: new Date().toISOString().split("T")[0],
@@ -58,7 +61,8 @@ export function CashFlowAnalysis({
 
   const { transactions, loading, metrics } = useCashFlowData(
     period,
-    customDateRange
+    customDateRange,
+    segment
   );
 
   if (loading) {
@@ -136,13 +140,54 @@ export function CashFlowAnalysis({
         </div>
       </div>
 
-      {/* Summary Cards */}
+      {/* Summary Cards: Net Cash Flow, Burn Rate, Cash Balance, Runway */}
       <div className="grid gap-4 md:grid-cols-4">
         <KpiCard
           kpi={
             {
-              id: "current-balance",
-              name: "Current Balance",
+              id: "net-cash-flow",
+              name: "Net Cash Flow",
+              definition: "Total net cash flow for the selected period",
+            } as DatabaseKpi
+          }
+          value={Math.round(
+            metrics.monthlyFlow.reduce((s, m) => s + m.netFlow, 0)
+          )}
+          icon={TrendingUp}
+          iconColor={
+            metrics.monthlyFlow.reduce((s, m) => s + m.netFlow, 0) >= 0
+              ? "text-green-600"
+              : "text-red-600"
+          }
+          valueColor={
+            metrics.monthlyFlow.reduce((s, m) => s + m.netFlow, 0) >= 0
+              ? "text-green-600"
+              : "text-red-600"
+          }
+          fetchFromApi={false}
+        />
+
+        <KpiCard
+          kpi={
+            {
+              id: "burn-rate",
+              name: "Burn Rate",
+              definition: "Average monthly burn rate",
+            } as DatabaseKpi
+          }
+          value={Math.round(metrics.burnRate)}
+          icon={TrendingDown}
+          iconColor="text-red-600"
+          valueColor="text-red-600"
+          description="Monthly average"
+          fetchFromApi={false}
+        />
+
+        <KpiCard
+          kpi={
+            {
+              id: "cash-balance",
+              name: "Cash Balance",
               definition: "Current cash balance",
             } as DatabaseKpi
           }
@@ -154,22 +199,6 @@ export function CashFlowAnalysis({
           valueColor={
             metrics.currentBalance >= 0 ? "text-green-600" : "text-red-600"
           }
-          fetchFromApi={false}
-        />
-
-        <KpiCard
-          kpi={
-            {
-              id: "burn-rate",
-              name: "3-Month Avg Burn",
-              definition: "Average monthly burn rate over last 3 months",
-            } as DatabaseKpi
-          }
-          value={Math.round(metrics.burnRate)}
-          icon={TrendingDown}
-          iconColor="text-red-600"
-          valueColor="text-red-600"
-          description="Last 3 months average"
           fetchFromApi={false}
         />
 
@@ -217,37 +246,6 @@ export function CashFlowAnalysis({
             fetchFromApi={false}
           />
         )}
-
-        <KpiCard
-          kpi={
-            {
-              id: "last-month-net",
-              name: "Last Month Net",
-              definition: "Net cash flow for the last month",
-            } as DatabaseKpi
-          }
-          value={
-            metrics.monthlyFlow.length > 0
-              ? Math.round(
-                  metrics.monthlyFlow[metrics.monthlyFlow.length - 1].netFlow
-                )
-              : 0
-          }
-          icon={TrendingUp}
-          iconColor={
-            metrics.monthlyFlow.length > 0 &&
-            metrics.monthlyFlow[metrics.monthlyFlow.length - 1].netFlow >= 0
-              ? "text-green-600"
-              : "text-red-600"
-          }
-          valueColor={
-            metrics.monthlyFlow.length > 0 &&
-            metrics.monthlyFlow[metrics.monthlyFlow.length - 1].netFlow >= 0
-              ? "text-green-600"
-              : "text-red-600"
-          }
-          fetchFromApi={false}
-        />
       </div>
 
       {/* Cash Balance Over Time */}

@@ -56,7 +56,7 @@ export async function calculateTotalRevenue(
     }
   }
 
-  // Filter orders data
+  // Collect revenue-like rows from orders, invoices (AR), and subscriptions
   const ordersData = allModelData.filter((row) => {
     const tableName = idToNameMap[row.model_table_id] || "";
     return (
@@ -65,68 +65,91 @@ export async function calculateTotalRevenue(
       tableName.includes("sale")
     );
   });
+  const invoicesData = allModelData.filter((row) => {
+    const tableName = idToNameMap[row.model_table_id] || "";
+    return tableName.includes("invoice");
+  });
+  const subscriptionsData = allModelData.filter((row) => {
+    const tableName = idToNameMap[row.model_table_id] || "";
+    return tableName.includes("subscription");
+  });
 
-  // Parse orders
   const orders: any[] = [];
   for (const row of ordersData) {
     const d = row.data as unknown;
-    if (Array.isArray(d)) {
-      orders.push(...d);
-    } else if (d && typeof d === "object") {
-      orders.push(d);
+    if (Array.isArray(d)) orders.push(...d);
+    else if (d && typeof d === "object") orders.push(d);
+  }
+  for (const row of invoicesData) {
+    const d = row.data as any;
+    if (
+      d &&
+      typeof d === "object" &&
+      (d["Type (AR = sales, AP = bill)"] === "AR" ||
+        d.Type === "AR" ||
+        d.type === "AR")
+    ) {
+      orders.push({
+        date: d["Issue Date"] ?? d.issue_date ?? d.date,
+        total: d["Total Amount"] ?? d.total_amount ?? d.total ?? d.amount ?? 0,
+      });
+    }
+  }
+  for (const row of subscriptionsData) {
+    const d = row.data as any;
+    if (d && typeof d === "object") {
+      const mrr =
+        d["Monthly Recurring Revenue"] ??
+        d.monthly_recurring_revenue ??
+        d.mrr ??
+        0;
+      const start = d["Start Date"] ?? d.start_date ?? d.date;
+      if (mrr && start) {
+        orders.push({
+          date: start,
+          total: typeof mrr === "number" ? mrr : parseFloat(String(mrr)) || 0,
+        });
+      }
     }
   }
 
-  // Helper to parse dates
   const parseDate = (dateStr: string | null | undefined): Date | null => {
     if (!dateStr) return null;
-    if (dateStr.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/)) {
-      return new Date(dateStr.replace(" ", "T") + ":00");
+    if (String(dateStr).match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/)) {
+      return new Date(String(dateStr).replace(" ", "T") + ":00");
     }
-    if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-      return new Date(dateStr + "T00:00:00");
+    if (String(dateStr).match(/^\d{4}-\d{2}-\d{2}/)) {
+      return new Date(String(dateStr) + "T00:00:00");
     }
-    const parsed = new Date(dateStr);
+    const parsed = new Date(String(dateStr));
     return isNaN(parsed.getTime()) ? null : parsed;
   };
 
-  // Normalize order
   const normalizeOrder = (o: any) => {
+    const totalRaw =
+      o.total ??
+      o.amount ??
+      o.revenue ??
+      o["Total"] ??
+      o["Amount"] ??
+      o["Total Amount"];
+    const total =
+      typeof totalRaw === "string"
+        ? parseFloat(totalRaw) || 0
+        : Number(totalRaw) || 0;
     return {
       date:
-        o.date ||
-        o.order_date ||
-        o.sale_date ||
-        o.created_at ||
-        o["Date"] ||
-        o["Order Date"] ||
-        o["Date & Time"] ||
-        o["Date &amp; Time"],
-      total:
-        typeof (
-          o.total ||
-          o.amount ||
-          o.revenue ||
-          o["Total"] ||
-          o["Amount"] ||
-          o["Total Amount"]
-        ) === "string"
-          ? parseFloat(
-              o.total ||
-                o.amount ||
-                o.revenue ||
-                o["Total"] ||
-                o["Amount"] ||
-                o["Total Amount"] ||
-                "0"
-            )
-          : o.total ||
-            o.amount ||
-            o.revenue ||
-            o["Total"] ||
-            o["Amount"] ||
-            o["Total Amount"] ||
-            0,
+        o.date ??
+        o.order_date ??
+        o.sale_date ??
+        o.created_at ??
+        o["Date"] ??
+        o["Issue Date"] ??
+        o["Order Date"] ??
+        o["Date & Time"] ??
+        o["Date &amp; Time"] ??
+        o["Start Date"],
+      total,
     };
   };
 

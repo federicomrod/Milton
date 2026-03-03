@@ -82,12 +82,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get table definition (including fields with primaryKey metadata)
-    const { data: dataTableDef } = await supabase
+    // Get table definition (case-insensitive name match so "Crm" / "CRM" both work)
+    const { data: dataTablesMatch } = await supabase
       .from("data_tables")
-      .select("id, fields")
-      .eq("name", tableName)
-      .single();
+      .select("id, fields, name")
+      .ilike("name", tableName);
+
+    const dataTableDef =
+      Array.isArray(dataTablesMatch) && dataTablesMatch.length > 0
+        ? (dataTablesMatch.find(
+            (t: { name: string }) =>
+              t.name.toLowerCase() === (tableName || "").toLowerCase()
+          ) ?? dataTablesMatch[0])
+        : null;
 
     if (!dataTableDef) {
       return NextResponse.json(

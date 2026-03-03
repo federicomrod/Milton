@@ -2,13 +2,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { getReportData } from "@/lib/report-data-service";
 import type { Deal } from "@/lib/types/pipeline";
-import { calculatePipelineMetrics } from "@/lib/pipeline-data-generators";
 import type { PipelineMetrics } from "@/lib/types/pipeline";
 
-export function usePipelineData() {
+export interface PipelineDateRange {
+  from: string;
+  to: string;
+}
+
+// Same pattern as fitness-studio/restaurant: fetch from analytics API (server-side data).
+const PIPELINE_API = "/api/analytics/b2b-saas/pipeline";
+
+export function usePipelineData(dateRange?: PipelineDateRange | null) {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [allDeals, setAllDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,57 +25,92 @@ export function usePipelineData() {
     topDeals: [],
     pipelineForecast: [],
     funnelData: [],
+    totalPipelineValue: 0,
+    weightedPipelineValue: 0,
+    activeCustomers: 0,
+    dealConversionRate: 0,
+    clientConcentrationPercent: 0,
   });
+  const [totalRevenue, setTotalRevenue] = useState<number>(0);
 
   useEffect(() => {
     const loadCRMData = async () => {
       try {
-        const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) {
+        setLoading(true);
+        const from =
+          dateRange?.from ||
+          new Date(new Date().setFullYear(new Date().getFullYear() - 10))
+            .toISOString()
+            .split("T")[0];
+        const to = dateRange?.to || new Date().toISOString().split("T")[0];
+        const url = `${PIPELINE_API}?from_date=${encodeURIComponent(from)}&to_date=${encodeURIComponent(to)}`;
+        const res = await fetch(url, {
+          cache: "no-store",
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          setDeals([]);
+          setAllDeals([]);
+          setMetrics({
+            pipelineByPhase: [],
+            dealsByProduct: [],
+            averageSalesCycle: 0,
+            conversionRates: [],
+            topDeals: [],
+            pipelineForecast: [],
+            funnelData: [],
+            totalPipelineValue: 0,
+            weightedPipelineValue: 0,
+            activeCustomers: 0,
+            dealConversionRate: 0,
+            clientConcentrationPercent: 0,
+          });
+          setTotalRevenue(0);
           setLoading(false);
           return;
         }
 
-        const reportData = await getReportData(supabase, user.id);
-
-        const dealsData: Deal[] = (reportData.crmDeals || []) as Deal[];
-
-        console.log(`[usePipelineData] Loaded ${dealsData.length} CRM deals`);
-
-        // Log stage distribution for debugging
-        const stageCounts = dealsData.reduce(
-          (acc, deal) => {
-            const stage = deal.stage || deal.phase || "unknown";
-            acc[stage] = (acc[stage] || 0) + 1;
-            return acc;
-          },
-          {} as Record<string, number>
-        );
-        console.log(`[usePipelineData] Stage distribution:`, stageCounts);
+        const json = await res.json();
+        const dealsData: Deal[] = Array.isArray(json.deals) ? json.deals : [];
+        const defaultMetrics = {
+          pipelineByPhase: [],
+          dealsByProduct: [],
+          averageSalesCycle: 0,
+          conversionRates: [],
+          topDeals: [],
+          pipelineForecast: [],
+          funnelData: [],
+          totalPipelineValue: 0,
+          weightedPipelineValue: 0,
+          activeCustomers: 0,
+          dealConversionRate: 0,
+          clientConcentrationPercent: 0,
+        };
+        const calculatedMetrics = { ...defaultMetrics, ...json.metrics };
 
         setAllDeals(dealsData);
         setDeals(dealsData);
-
-        // Calculate metrics
-        const calculatedMetrics = calculatePipelineMetrics(dealsData);
         setMetrics(calculatedMetrics);
-        setLoading(false);
+        setTotalRevenue(Number(json.totalRevenue) || 0);
       } catch (error) {
         console.error("Error loading CRM data:", error);
+        setDeals([]);
+        setAllDeals([]);
+        setLoading(false);
+      } finally {
         setLoading(false);
       }
     };
 
     loadCRMData();
-  }, []);
+  }, [dateRange?.from, dateRange?.to]);
 
   return {
     deals,
     allDeals,
     loading,
     metrics,
+    totalRevenue,
   };
 }

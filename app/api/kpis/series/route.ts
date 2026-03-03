@@ -1,38 +1,13 @@
 // GET /api/kpis/series?kpiIds=uuid1,uuid2&from_date=2024-01-01&to_date=2024-12-31
-// Returns time-series data for KPIs that can be computed from model_data.
+// Returns time-series data for KPIs. All series come from the unified layer via /api/kpis/calculate (historicalData).
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import {
-  computeActiveMembersSeries,
-  isActiveMembersKpi,
-  type MemberRecord,
-  type KpiSeriesPoint,
-} from "@/lib/kpi-series";
-import { getModelDataRows } from "@/lib/kpi-calculations/getModelDataRows";
+import type { KpiSeriesPoint } from "@/lib/kpi-series";
 
 function jsonNoStore(data: Record<string, unknown>) {
   const res = NextResponse.json(data);
   res.headers.set("Cache-Control", "no-store");
   return res;
-}
-
-/** Converts a date range into "YYYY-MM" period strings. */
-function getPeriodsInRange(fromDate: string, toDate: string): string[] {
-  // Parse year/month from the ISO string directly to avoid UTC→local day-shift bugs
-  const [fromYear, fromMonth] = fromDate.split("-").map(Number);
-  const [toYear, toMonth] = toDate.split("-").map(Number);
-
-  const periods: string[] = [];
-  for (
-    let d = new Date(fromYear, fromMonth - 1, 1);
-    d <= new Date(toYear, toMonth - 1, 1);
-    d.setMonth(d.getMonth() + 1)
-  ) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    periods.push(`${y}-${m}`);
-  }
-  return periods;
 }
 
 export async function GET(req: NextRequest) {
@@ -87,73 +62,40 @@ export async function GET(req: NextRequest) {
 
     const series: Record<string, { data: KpiSeriesPoint[] }> = {};
 
-    // Active Members — computed directly from member records
-    const activeMembersKpis = kpis.filter((k) =>
-      isActiveMembersKpi(k.name, k.formula ?? null)
-    );
-    if (activeMembersKpis.length > 0) {
-      const members = await getModelDataRows(
-        supabase,
-        company.id,
-        "members",
-        "customers"
-      );
-      const periods = getPeriodsInRange(fromDate, toDate);
-      const activeSeries = computeActiveMembersSeries(
-        members as MemberRecord[],
+    // All KPIs — use unified layer via calculate API (same formula as dashboard cards and analytics)
+    try {
+      const calculateRes = await fetch(
+        `${req.nextUrl.origin}/api/kpis/calculate`,
         {
-          periods,
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: req.headers.get("cookie") || "",
+          },
+          body: JSON.stringify({ from_date: fromDate, to_date: toDate }),
         }
       );
-      for (const k of activeMembersKpis) {
-        series[k.id] = { data: activeSeries };
-      }
-    }
 
-    // All other KPIs — delegate to the calculate API
-    const alreadyHandledIds = new Set(activeMembersKpis.map((k) => k.id));
-    const kpisNeedingCalculation = kpis.filter(
-      (k) => !alreadyHandledIds.has(k.id)
-    );
+      if (calculateRes.ok) {
+        const calculateData = await calculateRes.json();
+        const calculatedKpis: any[] = calculateData.calculatedKpis || [];
 
-    if (kpisNeedingCalculation.length > 0) {
-      try {
-        const calculateRes = await fetch(
-          `${req.nextUrl.origin}/api/kpis/calculate`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Cookie: req.headers.get("cookie") || "",
-            },
-            body: JSON.stringify({ from_date: fromDate, to_date: toDate }),
-          }
-        );
-
-        if (calculateRes.ok) {
-          const calculateData = await calculateRes.json();
-          const calculatedKpis: any[] = calculateData.calculatedKpis || [];
-
-          for (const calculatedKpi of calculatedKpis) {
-            // Skip KPIs already handled by dedicated logic above (e.g. Active Members)
-            if (alreadyHandledIds.has(calculatedKpi.id)) continue;
-
-            if (
-              Array.isArray(calculatedKpi.historicalData) &&
-              calculatedKpi.historicalData.length > 0
-            ) {
-              series[calculatedKpi.id] = {
-                data: calculatedKpi.historicalData.map((point: any) => ({
-                  period: point.period,
-                  value: point.value,
-                })),
-              };
-            }
+        for (const calculatedKpi of calculatedKpis) {
+          if (
+            Array.isArray(calculatedKpi.historicalData) &&
+            calculatedKpi.historicalData.length > 0
+          ) {
+            series[calculatedKpi.id] = {
+              data: calculatedKpi.historicalData.map((point: any) => ({
+                period: point.period,
+                value: point.value,
+              })),
+            };
           }
         }
-      } catch {
-        // silently skip
       }
+    } catch {
+      // silently skip
     }
 
     return jsonNoStore({ series });

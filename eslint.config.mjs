@@ -17,6 +17,26 @@ export default typescriptEslint.config(
   },
   js.configs.recommended,
   ...typescriptEslint.configs.recommended,
+  // Node scripts (require, __dirname, console) — avoid no-undef errors
+  {
+    files: ["scripts/**/*.js"],
+    languageOptions: {
+      globals: {
+        require: "readonly",
+        __dirname: "readonly",
+        __filename: "readonly",
+        module: "readonly",
+        exports: "writable",
+        process: "readonly",
+        console: "readonly",
+        Buffer: "readonly",
+      },
+    },
+    rules: {
+      "no-undef": "off",
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
   {
     files: ["**/*.{js,jsx,ts,tsx}"],
     plugins: {

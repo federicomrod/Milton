@@ -15,8 +15,11 @@ export { calculateRevenuePerClass } from "./calculateRevenuePerClass";
 export { calculateBurnRate } from "./calculateBurnRate";
 export { calculateNetIncome } from "./calculateNetIncome";
 export { calculateRunway } from "./calculateRunway";
-// Restaurant KPIs
 export { calculateTotalRevenue } from "./calculateTotalRevenue";
+export { calculateTotalExpenses } from "./calculateTotalExpenses";
+export { calculateMRR } from "./calculateMRR";
+export { calculateGrossMargin } from "./calculateGrossMargin";
+// Restaurant KPIs
 export { calculateCovers } from "./calculateCovers";
 export { calculateAverageTicketSize } from "./calculateAverageTicketSize";
 export { calculatePrimeCostPercent } from "./calculatePrimeCostPercent";

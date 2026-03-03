@@ -60,17 +60,19 @@ export async function calculateRunway(
     else if (type === "outflow") monthlyStats[period].outflows += amount;
   });
 
-  const burnRates = Object.values(monthlyStats)
-    .map((s) => s.outflows - s.inflows)
-    .filter((b) => b > 0)
-    .slice(-3);
+  const monthlyNet = Object.values(monthlyStats).map(
+    (s) => s.outflows - s.inflows
+  );
+  const burnRates = monthlyNet.filter((b) => b > 0).slice(-3);
 
   const avgBurn =
     burnRates.length > 0
       ? burnRates.reduce((s, b) => s + b, 0) / burnRates.length
       : 0;
 
-  const runway = avgBurn > 0 ? balance / avgBurn : 0;
+  // When avgBurn <= 0 (positive cash flow), runway is effectively infinite.
+  // Return a sentinel (e.g. 999) so the UI can show "∞" (cash-flow-analysis uses > 100).
+  const runway = avgBurn > 0 ? Math.round(balance / avgBurn) : 999;
 
   // Parse year/month directly from ISO string — avoids UTC→local shift bugs
   const [fromYear, fromMonth] = fromDate.split("-").map(Number);

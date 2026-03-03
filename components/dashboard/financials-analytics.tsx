@@ -74,17 +74,20 @@ export function FinancialsAnalytics({
           type="income-statement"
           period={period}
           customDateRange={customDateRange}
+          data={incomeStatement.data}
         />
         <FinancialCharts
           type="variance-analysis"
           period={period}
           customDateRange={customDateRange}
+          data={varianceAnalysis.data}
         />
       </div>
       <FinancialCharts
         type="ytd-performance"
         period={period}
         customDateRange={customDateRange}
+        data={ytdPerformance.data}
       />
     </div>
   );

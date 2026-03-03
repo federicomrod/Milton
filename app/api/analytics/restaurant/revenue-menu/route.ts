@@ -1,7 +1,12 @@
 // GET /api/analytics/restaurant/revenue-menu?from_date=...&to_date=...&period=month|week
-// Returns Revenue & Menu Performance analytics
+// Returns Revenue & Menu Performance analytics. Summary KPIs from kpi-calculations layer.
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  calculateTotalRevenue,
+  calculateCovers,
+  calculateAverageTicketSize,
+} from "@/lib/kpi-calculations";
 
 function jsonNoStore(data: Record<string, unknown>) {
   const res = NextResponse.json(data);
@@ -719,12 +724,34 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => a.revenue - b.revenue)
       .slice(0, 10);
 
+    const fromDateStr = fromDateStart.toISOString().slice(0, 10);
+    const toDateStr = toDateEnd.toISOString().slice(0, 10);
+    const [revenueRes, coversRes, ticketRes] = await Promise.all([
+      calculateTotalRevenue(supabase, user!.id, fromDateStr, toDateStr).catch(
+        () => ({ currentValue: 0 })
+      ),
+      calculateCovers(supabase, user!.id, fromDateStr, toDateStr).catch(() => ({
+        currentValue: 0,
+      })),
+      calculateAverageTicketSize(
+        supabase,
+        user!.id,
+        fromDateStr,
+        toDateStr
+      ).catch(() => ({ currentValue: 0 })),
+    ]);
+
     return jsonNoStore({
       salesTrends,
       categoryBreakdown,
       channelBreakdown,
       topItems,
       bottomItems,
+      kpis: {
+        totalRevenue: revenueRes.currentValue ?? 0,
+        covers: coversRes.currentValue ?? 0,
+        averageTicketSize: ticketRes.currentValue ?? 0,
+      },
     });
   } catch (err) {
     console.error(
@@ -737,6 +764,7 @@ export async function GET(req: NextRequest) {
       channelBreakdown: [],
       topItems: [],
       bottomItems: [],
+      kpis: { totalRevenue: 0, covers: 0, averageTicketSize: 0 },
     });
   }
 }

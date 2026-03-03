@@ -91,7 +91,7 @@ export async function getReportData(
         const tableIds = [
           ...new Set(result.data.map((row) => row.model_table_id)),
         ];
-        const tableDefinitions = await getDataTablesByIds(tableIds);
+        const tableDefinitions = await getDataTablesByIds(tableIds, supabase);
         const idToNameMap: Record<string, string> = {};
         tableDefinitions.forEach((table) => {
           idToNameMap[table.id] = table.name;
@@ -133,11 +133,17 @@ export async function getReportData(
         tableName.includes("expense") ||
         tableName.includes("revenue")
       ) {
-        // Map to TransactionData
+        // Map to TransactionData (support data_tables field names e.g. "Amount", "Date")
         const amount =
-          data.amount ?? data.value ?? data.price ?? data.total ?? 0;
+          data.amount ??
+          data.Amount ??
+          data.value ??
+          data.price ??
+          data.total ??
+          0;
         const date =
           data.date ??
+          data.Date ??
           data.payment_date ??
           data.created_date ??
           data.created_at ??
@@ -164,12 +170,18 @@ export async function getReportData(
         tableName.includes("pipeline") ||
         tableName.includes("booking")
       ) {
-        // Map to CrmDealData
+        // Map to CrmDealData (support both camelCase and data_tables field names e.g. "Deal Name", "Deal Phase")
         const amount =
-          data.amount ?? data.value ?? data.price ?? data.total ?? 0;
+          data.amount ??
+          data.Amount ??
+          data.value ??
+          data.price ??
+          data.total ??
+          0;
         const closingDate =
           data.closing_date ??
           data.close_date ??
+          data["Deal Closing Date"] ??
           data.date ??
           data.payment_date ??
           "";
@@ -183,15 +195,42 @@ export async function getReportData(
             continue;
         }
 
+        const phase =
+          data.phase ??
+          data["Deal Phase"] ??
+          data.stage ??
+          data.status ??
+          "Unknown";
+        const createdDate =
+          data.created_date ??
+          data["Deal Start Date"] ??
+          data.deal_start_date ??
+          data.first_appointment ??
+          closingDate;
         crmDeals.push({
-          id: data.id ?? `model_${Math.random().toString(36).substr(2, 9)}`,
+          id:
+            data.id ??
+            data["Deal ID"] ??
+            `model_${Math.random().toString(36).substr(2, 9)}`,
           deal_name:
-            data.deal_name ?? data.name ?? data.label ?? "Untitled Deal",
+            data.deal_name ??
+            data["Deal Name"] ??
+            data.name ??
+            data.label ??
+            "Untitled Deal",
           client_name:
-            data.client_name ?? data.customer_name ?? data.name ?? "",
+            data.client_name ??
+            data["Client Name"] ??
+            data.customer_name ??
+            data.name ??
+            "",
           amount,
-          phase: data.phase ?? data.stage ?? data.status ?? "Unknown",
+          phase,
+          stage: phase,
           closing_date: closingDate,
+          close_date: closingDate,
+          created_date: createdDate,
+          product: data.product ?? data["Product"] ?? data.product_name ?? null,
         });
       } else if (
         tableName.includes("budget") ||

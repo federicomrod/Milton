@@ -1,0 +1,7 @@
+"Employee ID","First Name","Last Name","Email","Role Title","Department","Employment Type","Status","Start_date","End_date"
+"E001","Jordan","Smith","jordan.smith@company.com","CEO","Leadership","Full-time","Active","2022-01-01",""
+"E002","Casey","Lee","casey.lee@company.com","CTO","Engineering","Full-time","Active","2022-03-15",""
+"E003","Morgan","Brown","morgan.brown@company.com","Head of Sales","Sales","Full-time","Active","2022-06-01",""
+"E004","Riley","Davis","riley.davis@company.com","Software Engineer","Engineering","Full-time","Active","2023-01-10",""
+"E005","Quinn","Wilson","quinn.wilson@company.com","Account Executive","Sales","Full-time","Active","2023-04-01",""
+"E006","Alex","Martinez","alex.martinez@company.com","Customer Success","CS","Full-time","Active","2023-07-01",""

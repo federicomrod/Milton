@@ -1,8 +1,9 @@
 // components/dashboard/sales-pipeline.tsx
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { usePipelineData } from "@/lib/hooks/usePipelineData";
 import { useUserPreferences } from "@/lib/context/UserPreferencesContext";
 import type {
@@ -23,9 +24,46 @@ import { PipelineSummaryCards } from "@/components/dashboard/pipeline/PipelineSu
 import { TopDealsList } from "@/components/dashboard/pipeline/TopDealsList";
 import { ColorPaletteDialog } from "@/components/dashboard/pipeline/ColorPaletteDialog";
 
-export function SalesPipeline() {
+export type PipelineDateRangePeriod = "month" | "year" | "ytd" | "custom";
+
+export interface SalesPipelineProps {
+  period?: PipelineDateRangePeriod;
+  customDateRange?: { from: string; to: string };
+  onPeriodChange?: (period: PipelineDateRangePeriod) => void;
+  onCustomDateRangeChange?: (range: { from: string; to: string }) => void;
+}
+
+export function SalesPipeline({
+  period,
+  customDateRange,
+  onPeriodChange,
+  onCustomDateRangeChange,
+}: SalesPipelineProps = {}) {
   const { prefs } = useUserPreferences();
-  const { deals, allDeals, loading, metrics } = usePipelineData();
+
+  const dateRange = useMemo(() => {
+    if (!period && !customDateRange) return undefined;
+    const now = new Date();
+    const format = (d: Date) => d.toISOString().split("T")[0];
+    if (period === "custom" && customDateRange?.from && customDateRange?.to)
+      return { from: customDateRange.from, to: customDateRange.to };
+    if (period === "year") {
+      const from = new Date(now);
+      from.setFullYear(from.getFullYear() - 1);
+      return { from: format(from), to: format(now) };
+    }
+    if (period === "ytd") {
+      const from = new Date(now.getFullYear(), 0, 1);
+      return { from: format(from), to: format(now) };
+    }
+    // month: last 90 days (same default as date picker for all business models)
+    const from = new Date(now);
+    from.setDate(from.getDate() - 90);
+    return { from: format(from), to: format(now) };
+  }, [period, customDateRange]);
+
+  const { deals, allDeals, loading, metrics, totalRevenue } =
+    usePipelineData(dateRange);
   const [colorMode, setColorMode] = useState<"individual" | "corporate">(
     "individual"
   );
@@ -64,16 +102,14 @@ export function SalesPipeline() {
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Sales Pipeline</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-center h-64">
-            <p className="text-muted-foreground">Loading pipeline data...</p>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
+          <p className="text-sm text-muted-foreground">
+            Loading pipeline data...
+          </p>
+        </div>
+      </div>
     );
   }
 
@@ -96,19 +132,32 @@ export function SalesPipeline() {
 
   return (
     <div className="space-y-6">
-      {/* Header with Color Selector */}
-      <div className="flex justify-between items-center">
+      {/* Header with Date Range (when controlled) and Color Selector */}
+      <div className="flex flex-wrap justify-between items-center gap-4">
         <h2 className="text-2xl font-bold">Sales Pipeline</h2>
-        <ColorPaletteDialog
-          isOpen={isColorDialogOpen}
-          onOpenChange={setIsColorDialogOpen}
-          currentColors={currentColors}
-          colorMode={colorMode}
-          corporateColor={corporateColor}
-          onApplyPalette={applyColorPalette}
-          onApplyCorporateColor={applyCorporateColor}
-          onReset={resetToDefault}
-        />
+        <div className="flex items-center gap-2">
+          {period != null &&
+            customDateRange != null &&
+            onPeriodChange &&
+            onCustomDateRangeChange && (
+              <DateRangePicker
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={onPeriodChange}
+                onCustomDateRangeChange={onCustomDateRangeChange}
+              />
+            )}
+          <ColorPaletteDialog
+            isOpen={isColorDialogOpen}
+            onOpenChange={setIsColorDialogOpen}
+            currentColors={currentColors}
+            colorMode={colorMode}
+            corporateColor={corporateColor}
+            onApplyPalette={applyColorPalette}
+            onApplyCorporateColor={applyCorporateColor}
+            onReset={resetToDefault}
+          />
+        </div>
       </div>
 
       {/* Currency Format Dropdown */}
@@ -129,8 +178,8 @@ export function SalesPipeline() {
 
       {/* Summary Cards */}
       <PipelineSummaryCards
-        allDeals={allDeals}
         metrics={metrics}
+        totalRevenue={totalRevenue}
         currency={prefs.currency}
         numberFormat={prefs.number_format}
       />

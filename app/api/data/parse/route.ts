@@ -5,6 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 import * as XLSX from "xlsx";
 import { normalizeDateValue } from "@/lib/utils";
 
+/** Returns true for cell formatted-text values that look like a date (with or without time). */
+function isDateFormattedText(w: string): boolean {
+  return /^\d{1,2}[./]\d{1,2}[./]\d{2,4}/.test(w);
+}
+
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
@@ -125,7 +130,9 @@ export async function POST(req: Request) {
           sheetHeaders = Object.keys(sheetData[0]);
         }
 
-        // For Excel files, try to get formatted text for date cells
+        // For Excel files, normalize date cells using formatted text (cell.w)
+        // cell.w is the human-readable formatted string Excel would display
+        // (e.g. "22/1/2025 00:00:00"), whereas the raw value is the serial number
         const processedData = sheetData.map((row, rowIdx) => {
           const newRow = { ...row };
           sheetHeaders.forEach((header, colIdx) => {
@@ -134,13 +141,22 @@ export async function POST(req: Request) {
               c: colIdx,
             });
             const cell = worksheet[cellAddress];
-            // If cell has formatted text that looks like a date, use it
-            if (
+            if (cell && cell.w && isDateFormattedText(cell.w)) {
+              // Normalize to ISO string so downstream code always sees a real date
+              const iso = normalizeDateValue(cell.w);
+              newRow[header] = iso ?? cell.w;
+            } else if (
               cell &&
-              cell.w &&
-              /^\d{1,2}[./]\d{1,2}[./]\d{2,4}$/.test(cell.w)
+              typeof newRow[header] === "number" &&
+              (newRow[header] as number) > 1 &&
+              (newRow[header] as number) < 100000 &&
+              cell.t === "n" &&
+              cell.z &&
+              /[ymd]/i.test(cell.z)
             ) {
-              newRow[header] = cell.w;
+              // Fallback: raw numeric value that Excel has formatted as a date
+              const iso = normalizeDateValue(newRow[header]);
+              if (iso) newRow[header] = iso;
             }
           });
           return newRow;
@@ -167,7 +183,7 @@ export async function POST(req: Request) {
           defval: "",
         }) as Record<string, unknown>[];
 
-        // Apply date formatting to the target sheet data
+        // Apply date normalization to the target sheet data
         jsonData = targetSheetData.map((row, rowIdx) => {
           const newRow = { ...row };
           targetSheet.headers.forEach((header, colIdx) => {
@@ -176,12 +192,20 @@ export async function POST(req: Request) {
               c: colIdx,
             });
             const cell = targetWorksheet[cellAddress];
-            if (
+            if (cell && cell.w && isDateFormattedText(cell.w)) {
+              const iso = normalizeDateValue(cell.w);
+              newRow[header] = iso ?? cell.w;
+            } else if (
               cell &&
-              cell.w &&
-              /^\d{1,2}[./]\d{1,2}[./]\d{2,4}$/.test(cell.w)
+              typeof newRow[header] === "number" &&
+              (newRow[header] as number) > 1 &&
+              (newRow[header] as number) < 100000 &&
+              cell.t === "n" &&
+              cell.z &&
+              /[ymd]/i.test(cell.z)
             ) {
-              newRow[header] = cell.w;
+              const iso = normalizeDateValue(newRow[header]);
+              if (iso) newRow[header] = iso;
             }
           });
           return newRow;

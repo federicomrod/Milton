@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { normalizeDateValue } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -450,6 +451,27 @@ function buildStandardFieldsFromTable(
     referencesTable: f.references?.table,
     allowedValues: f.allowedValues,
   }));
+}
+
+/**
+ * Format a raw cell value for display in the mapping preview.
+ * For date/datetime fields, converts Excel serial numbers and datetime strings
+ * to a readable "22 Jan 2025" style label.
+ */
+function formatSampleValue(value: unknown, fieldType?: string): string {
+  if (value === null || value === undefined || value === "") return "(empty)";
+  if (fieldType === "date" || fieldType === "datetime") {
+    const iso = normalizeDateValue(value);
+    if (iso) {
+      const d = new Date(iso);
+      return d.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+    }
+  }
+  return String(value);
 }
 
 export default function SheetSelection({
@@ -1530,18 +1552,25 @@ export default function SheetSelection({
                                       {isMapped && (
                                         <div className="text-xs text-gray-500 dark:text-gray-400 self-center">
                                           Sample:{" "}
-                                          {String(
-                                            currentSheet.sampleData[0]?.[
-                                              selectedCol
-                                            ] ?? ""
-                                          ).slice(0, 24)}
-                                          {String(
-                                            currentSheet.sampleData[0]?.[
-                                              selectedCol
-                                            ] ?? ""
-                                          ).length > 24
-                                            ? "…"
-                                            : ""}
+                                          {(() => {
+                                            const raw =
+                                              currentSheet.sampleData[0]?.[
+                                                selectedCol
+                                              ];
+                                            // field.description holds the type string when no allowedValues
+                                            const fieldType =
+                                              field.description === "date" ||
+                                              field.description === "datetime"
+                                                ? field.description
+                                                : undefined;
+                                            const display = formatSampleValue(
+                                              raw,
+                                              fieldType
+                                            );
+                                            return display.length > 28
+                                              ? display.slice(0, 28) + "…"
+                                              : display;
+                                          })()}
                                         </div>
                                       )}
                                     </div>

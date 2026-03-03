@@ -24,6 +24,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { createClient } from "@/lib/supabase/client";
 import { getDataTableBySlug } from "@/lib/data-table-service";
 import type { DataTable } from "@/lib/types/data";
+import { normalizeDateValue } from "@/lib/utils";
 
 interface ModelTableDetailViewProps {
   table: TableDef;
@@ -233,7 +234,18 @@ export default function ModelTableDetailView({
           if (mapping.standardField !== "unmapped") {
             const originalValue = row[mapping.originalColumn];
             if (originalValue !== undefined && originalValue !== null) {
-              transformed[mapping.standardField] = originalValue;
+              const fieldDef = effectiveTable.fields.find(
+                (f) => f.name === mapping.standardField
+              );
+              if (
+                fieldDef &&
+                (fieldDef.type === "date" || fieldDef.type === "datetime")
+              ) {
+                transformed[mapping.standardField] =
+                  normalizeDateValue(originalValue) ?? originalValue;
+              } else {
+                transformed[mapping.standardField] = originalValue;
+              }
             }
           }
         });
@@ -337,7 +349,18 @@ export default function ModelTableDetailView({
             if (colMapping.standardField !== "unmapped") {
               const originalValue = row[colMapping.originalColumn];
               if (originalValue !== undefined && originalValue !== null) {
-                transformed[colMapping.standardField] = originalValue;
+                const fieldDef = effectiveTable.fields.find(
+                  (f) => f.name === colMapping.standardField
+                );
+                if (
+                  fieldDef &&
+                  (fieldDef.type === "date" || fieldDef.type === "datetime")
+                ) {
+                  transformed[colMapping.standardField] =
+                    normalizeDateValue(originalValue) ?? originalValue;
+                } else {
+                  transformed[colMapping.standardField] = originalValue;
+                }
               }
             }
           });

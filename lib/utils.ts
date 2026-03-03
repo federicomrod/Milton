@@ -49,6 +49,29 @@ export function normalizeDateValue(value: any): string | null {
         }
       }
 
+      // DD/MM/YYYY HH:MM:SS or DD.MM.YYYY HH:MM:SS (datetime string with time component)
+      // e.g. "22/1/2025 00:00:00" or "22.01.2025 14:30:00"
+      const datetimeMatch = trimmed.match(
+        /^(\d{1,2})[./](\d{1,2})[./](\d{2,4})\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/
+      );
+      if (datetimeMatch) {
+        const day = parseInt(datetimeMatch[1], 10);
+        const month = parseInt(datetimeMatch[2], 10) - 1;
+        let year = parseInt(datetimeMatch[3], 10);
+        if (year < 100) {
+          year = year <= 30 ? 2000 + year : 1900 + year;
+        }
+        const hours = parseInt(datetimeMatch[4], 10);
+        const minutes = parseInt(datetimeMatch[5], 10);
+        const seconds = datetimeMatch[6] ? parseInt(datetimeMatch[6], 10) : 0;
+        const date = new Date(
+          Date.UTC(year, month, day, hours, minutes, seconds)
+        );
+        if (!isNaN(date.getTime())) {
+          return date.toISOString();
+        }
+      }
+
       // DD/MM/YY or DD/MM/YYYY (e.g., "01/03/25" or "01/03/2025")
       // Also handles ambiguous dates like "1/2/25" - prefer DD/MM/YY format
       const slashDateMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);

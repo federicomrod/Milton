@@ -15,7 +15,19 @@ export async function createClient(
     );
   }
 
-  const store = cookieStore || (await cookies());
+  // If no cookieStore is provided, try to get it from the current request context
+  let store: ReadonlyRequestCookies;
+  try {
+    store = cookieStore || (await cookies());
+  } catch (error) {
+    // In some contexts (like during build), cookies() might not be available
+    // Create a dummy cookie store that always returns undefined
+    store = {
+      get: () => undefined,
+      getAll: () => [],
+      has: () => false,
+    } as any;
+  }
 
   return createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
@@ -24,16 +36,20 @@ export async function createClient(
       },
       set(name: string, value: string, options: CookieOptions) {
         try {
-          store.set({ name, value, ...options });
+          if (store.set) {
+            store.set({ name, value, ...options });
+          }
         } catch (error) {
-          // Handle error in Server Component
+          // Handle error in Server Component or when cookies aren't available
         }
       },
       remove(name: string, options: CookieOptions) {
         try {
-          store.set({ name, value: "", ...options });
+          if (store.set) {
+            store.set({ name, value: "", ...options });
+          }
         } catch (error) {
-          // Handle error in Server Component
+          // Handle error in Server Component or when cookies aren't available
         }
       },
     },

@@ -12,9 +12,11 @@ export async function GET() {
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
+      console.log("[api/user] Auth error:", userError?.message || "No user");
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
 
+    console.log("[api/user] Found user:", user.id);
     return NextResponse.json({ user });
   } catch (err) {
     console.error("[api/user] Unexpected error:", err);

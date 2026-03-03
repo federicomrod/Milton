@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { UploadInvitation } from "@/components/dashboard/upload-invitation";
 import { KpiSelector } from "@/components/dashboard/kpi-selector";
 import type { KpiDisplayMode } from "@/components/dashboard/kpi-selector";
 import { KpisGrid } from "@/components/dashboard/kpis-grid";
 import { DashboardInsights } from "@/components/dashboard/dashboard-insights";
-import { Loader2 } from "lucide-react";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import type { DatabaseKpi } from "@/lib/types/kpi";
 import { useUser } from "@/lib/context/UserContext";
@@ -44,77 +43,33 @@ export default function DashboardPage() {
   >({});
   const [businessType, setBusinessType] = useState<string | null>(null);
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  const dataLoadedRef = useRef(false);
-  const kpisLoadedRef = useRef(false);
-  const analyticsLoadedRef = useRef(false);
-  const gotBusinessModelRef = useRef(false);
-  const retryCountRef = useRef(0);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const MAX_RETRIES = 2;
-
   const { period, customDateRange, setPeriod, setCustomDateRange } =
     useDateRange();
 
-  const checkIfDataReady = () => {
-    if (
-      dataLoadedRef.current &&
-      kpisLoadedRef.current &&
-      analyticsLoadedRef.current
-    ) {
-      if (
-        (!gotBusinessModelRef.current || !dataStatus?.hasModelData) &&
-        retryCountRef.current < MAX_RETRIES
-      ) {
-        // All phases finished but no business model was found OR no data is available yet
-        // — session may not have been fully initialised on first login or data is still loading
-        retryCountRef.current += 1;
-        dataLoadedRef.current = false;
-        kpisLoadedRef.current = false;
-        analyticsLoadedRef.current = false;
-        gotBusinessModelRef.current = false;
-        setDataStatus(null); // Reset data status so it gets refetched
-        setSelectedKpiIds([]); // Reset state to ensure clean re-fetch
-        setSelectedKpis([]);
-        setRecommendedKpis([]);
-        setAdditionalKpis([]);
-        setAnalyticsKpiData({});
-        setTimeout(() => setLoadAttempt((n) => n + 1), 800);
-      } else {
-        setTimeout(() => setIsLoading(false), 500);
-      }
-    }
-  };
-
   useEffect(() => {
     const fetchData = async () => {
-      // Wait for user to be available before marking data as loaded
       if (!user || userLoading) return;
+
       try {
         const statusRes = await fetch("/api/data/status", {
           credentials: "include",
         });
         if (statusRes.ok) {
           const statusData = await statusRes.json();
-          console.log("[BROWSER LOG] /api/data/status response:", statusData);
           setDataStatus(statusData);
         }
       } catch (error) {
         console.error("Error fetching data:", error);
-      } finally {
-        dataLoadedRef.current = true;
-        checkIfDataReady();
       }
     };
 
     fetchData();
-  }, [user, userLoading, loadAttempt]);
+  }, [user, userLoading]);
 
   useEffect(() => {
     const loadKpis = async () => {
       if (!user || userLoading) return;
-      gotBusinessModelRef.current = false;
+
       try {
         const supabase = createClient();
 
@@ -137,7 +92,6 @@ export default function DashboardPage() {
           let businessType: string | null = null;
 
           if (businessModel) {
-            gotBusinessModelRef.current = true;
             businessType = businessModel.business_type;
             setBusinessType(businessType);
 
@@ -216,11 +170,6 @@ export default function DashboardPage() {
                 .in("id", template.kpi_ids);
 
               if (templateKpis && templateKpis.length > 0) {
-                console.log(
-                  "[Dashboard] Template KPIs loaded:",
-                  templateKpis.length
-                );
-
                 // Sort by ranked order if available, otherwise use template order
                 let sortedKpis = templateKpis;
                 if (
@@ -250,10 +199,6 @@ export default function DashboardPage() {
                   });
                 }
 
-                console.log(
-                  "[Dashboard] Sorted KPIs:",
-                  sortedKpis.map((k) => k.name)
-                );
                 setRecommendedKpis(sortedKpis.slice(0, 6));
                 setAdditionalKpis(sortedKpis.slice(6));
               } else {
@@ -274,10 +219,6 @@ export default function DashboardPage() {
               .eq("is_published", true)
               .order("name")
               .then(({ data: allKpis }) => {
-                console.log(
-                  "[Dashboard] Using fallback all KPIs:",
-                  allKpis?.length || 0
-                );
                 setRecommendedKpis(allKpis?.slice(0, 5) || []);
                 setAdditionalKpis(allKpis?.slice(5) || []);
               });
@@ -285,20 +226,16 @@ export default function DashboardPage() {
         }
       } catch (err) {
         console.error("[DashboardPage] Error loading KPIs:", err);
-      } finally {
-        kpisLoadedRef.current = true;
-        checkIfDataReady();
       }
     };
 
     loadKpis();
-  }, [user, userLoading, loadAttempt]);
+  }, [user, userLoading]);
 
   // Fetch analytics KPI data when date range changes
   useEffect(() => {
     const loadAnalyticsData = async () => {
       if (businessType && selectedKpiIds.length > 0) {
-        // Real fetch — mark done after data arrives
         try {
           const data = await fetchDashboardKpis(
             period,
@@ -310,17 +247,9 @@ export default function DashboardPage() {
           console.error("[Dashboard] Error loading analytics data:", err);
           setAnalyticsKpiData({});
         }
-        analyticsLoadedRef.current = true;
-        checkIfDataReady();
-      } else if (kpisLoadedRef.current) {
-        // KPIs have been loaded but none are selected — nothing to fetch, we're done
+      } else {
         setAnalyticsKpiData({});
-        analyticsLoadedRef.current = true;
-        checkIfDataReady();
       }
-      // If kpisLoadedRef is not set yet, KPI definitions haven't arrived —
-      // don't mark analytics done; loadKpis will trigger this effect again
-      // once businessType / selectedKpiIds are populated.
     };
 
     loadAnalyticsData();
@@ -330,14 +259,7 @@ export default function DashboardPage() {
     customDateRange.to,
     businessType,
     selectedKpiIds,
-  ]);
-
-  useEffect(() => {
-    timeoutRef.current = setTimeout(() => setIsLoading(false), 10000);
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, []);
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKpisChange = async (newSelectedKpis: string[]) => {
     // Filter out non-UUID legacy identifiers
@@ -408,63 +330,51 @@ export default function DashboardPage() {
   };
 
   return (
-    <>
-      {(isLoading || userLoading) && (
-        <div className="fixed inset-0 bg-background/90 backdrop-blur-md z-50 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-6">
-            <Loader2 className="h-16 w-16 animate-spin text-primary" />
-            <p className="text-lg font-medium text-foreground">
-              {userLoading ? "Loading user data..." : "Loading dashboard..."}
-            </p>
-          </div>
-        </div>
-      )}
-      <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0 space-y-6">
-          {/* Upload invitation when no data */}
-          {dataStatus && !dataStatus.hasModelData && <UploadInvitation />}
+    <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <div className="px-4 py-6 sm:px-0 space-y-6">
+        {/* Upload invitation when no data */}
+        {dataStatus && !dataStatus.hasModelData && <UploadInvitation />}
 
-          {/* KPIs Section */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <h2 className="text-lg font-semibold">
-                Key Performance Indicators
-              </h2>
-              <div className="flex items-center gap-3">
-                <DateRangePicker
-                  period={period}
-                  customDateRange={customDateRange}
-                  onPeriodChange={(value) => setPeriod(value)}
-                  onCustomDateRangeChange={(range) => setCustomDateRange(range)}
-                />
-                <KpiSelector
-                  selectedKpiIds={selectedKpiIds}
-                  onKpisChange={handleKpisChange}
-                  recommendedKpis={recommendedKpis}
-                  additionalKpis={additionalKpis}
-                  kpiDisplayModes={kpiDisplayModes}
-                  onDisplayModesChange={handleDisplayModesChange}
-                />
-              </div>
+        {/* KPIs Section */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <h2 className="text-lg font-semibold">
+              Key Performance Indicators
+            </h2>
+            <div className="flex items-center gap-3">
+              <DateRangePicker
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={(value) => setPeriod(value)}
+                onCustomDateRangeChange={(range) => setCustomDateRange(range)}
+              />
+              <KpiSelector
+                selectedKpiIds={selectedKpiIds}
+                onKpisChange={handleKpisChange}
+                recommendedKpis={recommendedKpis}
+                additionalKpis={additionalKpis}
+                kpiDisplayModes={kpiDisplayModes}
+                onDisplayModesChange={handleDisplayModesChange}
+              />
             </div>
-
-            {dataStatus === null ? null : dataStatus.hasModelData ? (
-              <>
-                <DashboardInsights />
-                <KpisGrid
-                  selectedKpis={selectedKpis}
-                  displayModes={kpiDisplayModes}
-                  analyticsKpiData={analyticsKpiData}
-                  period={period}
-                  customDateRange={customDateRange}
-                />
-              </>
-            ) : (
-              <LockedPlaceholder message="Upload your data in the 'Upload' section above to see your KPIs." />
-            )}
           </div>
+
+          {dataStatus === null ? null : dataStatus.hasModelData ? (
+            <>
+              <DashboardInsights />
+              <KpisGrid
+                selectedKpis={selectedKpis}
+                displayModes={kpiDisplayModes}
+                analyticsKpiData={analyticsKpiData}
+                period={period}
+                customDateRange={customDateRange}
+              />
+            </>
+          ) : (
+            <LockedPlaceholder message="Upload your data in the 'Upload' section above to see your KPIs." />
+          )}
         </div>
       </div>
-    </>
+    </div>
   );
 }

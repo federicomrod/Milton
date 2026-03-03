@@ -84,12 +84,10 @@ export function LoginForm() {
                   } else {
                     router.push("/onboarding");
                   }
-                  router.refresh();
                 } catch (err) {
                   console.error("Error checking onboarding status:", err);
                   // Fallback to dashboard on error
                   router.push("/dashboard");
-                  router.refresh();
                 }
               } else {
                 setError("Authentication failed. Please try again.");
@@ -178,7 +176,7 @@ export function LoginForm() {
         } else {
           router.push("/onboarding");
         }
-        router.refresh();
+        // Removed router.refresh() as it may cause session issues
       } catch (err) {
         console.error("Error checking onboarding status:", err);
         // Fallback to dashboard on error

@@ -283,50 +283,12 @@ export default function DashboardPage() {
     }
   };
 
-  const handleDisplayModesChange = async (
-    modes: Record<string, KpiDisplayMode>
-  ) => {
-    // Only save display modes for currently selected KPIs to database
-    const selectedKpiModes = Object.fromEntries(
-      selectedKpiIds.map((id) => [id, modes[id] || ["card"]])
-    );
-
-    setKpiDisplayModes((prev) => ({ ...prev, ...selectedKpiModes }));
-
-    // Save to database in the new combined format
-    try {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (user) {
-        const { data: company } = await supabase
-          .from("companies")
-          .select("id")
-          .eq("created_by", user.id)
-          .single();
-
-        if (company) {
-          // Convert display modes to the combined format - only for selected KPIs
-          const selectedKpisWithDisplayTypes = selectedKpiIds.map((id) => ({
-            id,
-            displayTypes: selectedKpiModes[id] || ["card"],
-          }));
-
-          await supabase
-            .from("business_models")
-            .update({ selected_kpi_ids: selectedKpisWithDisplayTypes })
-            .eq("company_id", company.id);
-
-          console.log(
-            "[handleDisplayModesChange] Saved display modes to database"
-          );
-        }
-      }
-    } catch (error) {
-      console.error("Error saving display modes to database:", error);
-    }
+  const handleDisplayModesChange = (modes: Record<string, KpiDisplayMode>) => {
+    // The kpi-selector already persists both KPI IDs and display modes to the
+    // DB via the POST /api/onboarding/kpi-preferences call in handleSave.
+    // We only need to update local state here — writing to the DB again with
+    // the stale selectedKpiIds closure would overwrite the correct new data.
+    setKpiDisplayModes((prev) => ({ ...prev, ...modes }));
   };
 
   return (

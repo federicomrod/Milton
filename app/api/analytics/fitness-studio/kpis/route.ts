@@ -106,6 +106,9 @@ export async function GET(req: NextRequest) {
     const transactionsData = allModelData.filter(
       (row) => idToNameMap[row.model_table_id] === "transactions"
     );
+    const invoicesData = allModelData.filter(
+      (row) => idToNameMap[row.model_table_id] === "invoices"
+    );
 
     // Parse data
     const members: any[] = [];
@@ -152,6 +155,18 @@ export async function GET(req: NextRequest) {
           transactions.push(...d);
         } else if (d && typeof d === "object") {
           transactions.push(d);
+        }
+      }
+    }
+
+    const invoices: any[] = [];
+    if (invoicesData) {
+      for (const row of invoicesData) {
+        const d = row.data as unknown;
+        if (Array.isArray(d)) {
+          invoices.push(...d);
+        } else if (d && typeof d === "object") {
+          invoices.push(d);
         }
       }
     }
@@ -856,6 +871,81 @@ export async function GET(req: NextRequest) {
     );
     const burnRate = totalExpenses / monthsDuration;
 
+    // Net Cash Flow: total inflows - total outflows.
+    // Also count paid invoices as inflows (users may store revenue in an invoices table
+    // rather than as transaction inflows).
+    const invoicesTableId = Object.keys(idToNameMap).find(
+      (id) => idToNameMap[id] === "invoices"
+    );
+    const invoicesFields = invoicesTableId
+      ? tableFieldsMap[invoicesTableId]?.fields || []
+      : [];
+
+    const getInvVal = (
+      inv: any,
+      fieldName: string,
+      fallbacks: string[] = []
+    ): any => {
+      if (inv[fieldName] !== undefined) return inv[fieldName];
+      const lower = fieldName.toLowerCase();
+      for (const k in inv) {
+        if (k.toLowerCase() === lower) return inv[k];
+      }
+      for (const f of fallbacks) {
+        if (inv[f] !== undefined) return inv[f];
+      }
+      return undefined;
+    };
+
+    const invDateField = invoicesFields.find((f) =>
+      f.name.toLowerCase().includes("date")
+    )?.name;
+    const invAmountField = invoicesFields.find(
+      (f) =>
+        f.name.toLowerCase().includes("amount") ||
+        f.name.toLowerCase().includes("total") ||
+        f.name.toLowerCase().includes("value")
+    )?.name;
+    const invStatusField = invoicesFields.find((f) =>
+      f.name.toLowerCase().includes("status")
+    )?.name;
+
+    const paidInvoicesTotal = invoices.reduce((sum: number, inv: any) => {
+      const status = String(
+        invStatusField
+          ? getInvVal(inv, invStatusField, ["status", "Status"])
+          : (inv.status ?? inv.Status ?? "")
+      ).toLowerCase();
+      if (status !== "paid") return sum;
+
+      const dateRaw = invDateField
+        ? getInvVal(inv, invDateField, ["date", "Date", "invoice_date"])
+        : (inv.date ?? inv.Date ?? inv.invoice_date);
+      const date = dateRaw ? parseDate(dateRaw) : null;
+      if (!date || isNaN(date.getTime()) || date < from || date > to)
+        return sum;
+
+      const amountRaw = invAmountField
+        ? getInvVal(inv, invAmountField, ["amount", "Amount", "total", "Total"])
+        : (inv.amount ??
+          inv.Amount ??
+          inv.total ??
+          inv.Total ??
+          inv["Total Amount"] ??
+          0);
+      const amount =
+        typeof amountRaw === "string"
+          ? parseFloat(amountRaw)
+          : Number(amountRaw) || 0;
+      return sum + Math.abs(amount);
+    }, 0);
+
+    // Use paid invoices as inflows if they exist; otherwise fall back to transaction inflows.
+    // This avoids double-counting when revenue is stored in one place only.
+    const totalInflows =
+      paidInvoicesTotal > 0 ? paidInvoicesTotal : totalRevenue;
+    const netCashFlow = totalInflows - totalExpenses;
+
     // Revenue per class: total revenue ÷ number of class occurrences in the period
     const classesInRange = classes.filter((c: any) => {
       const { classStartAt } = normalizeClass(c);
@@ -866,6 +956,17 @@ export async function GET(req: NextRequest) {
     });
     const revenuePerClass =
       classesInRange.length > 0 ? totalRevenue / classesInRange.length : 0;
+
+    // Total Classes Held: distinct (class_id, class_start_at) occurrences in the period
+    const seenClassOccurrences = new Set<string>();
+    classesInRange.forEach((c: any) => {
+      const { classId, classStartAt } = normalizeClass(c);
+      if (!classId) return;
+      const startAt = classStartAt ? parseDate(classStartAt) : null;
+      const key = `${classId}|${startAt ? startAt.getTime() : classStartAt}`;
+      seenClassOccurrences.add(key);
+    });
+    const totalClassesHeld = seenClassOccurrences.size;
 
     return jsonNoStore({
       kpis: {
@@ -880,8 +981,10 @@ export async function GET(req: NextRequest) {
         totalRevenue: parseFloat(totalRevenue.toFixed(2)),
         totalCosts: parseFloat(totalExpenses.toFixed(2)),
         netIncome: parseFloat(netIncome.toFixed(2)),
+        netCashFlow: parseFloat(netCashFlow.toFixed(2)),
         burnRate: parseFloat(burnRate.toFixed(2)),
         revenuePerClass: parseFloat(revenuePerClass.toFixed(2)),
+        totalClassesHeld,
       },
     });
   } catch (err) {

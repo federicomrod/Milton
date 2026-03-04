@@ -14,6 +14,7 @@ export { calculateAverageClassOccupancy } from "./calculateAverageClassOccupancy
 export { calculateRevenuePerClass } from "./calculateRevenuePerClass";
 export { calculateBurnRate } from "./calculateBurnRate";
 export { calculateNetIncome } from "./calculateNetIncome";
+export { calculateNetCashFlow } from "./calculateNetCashFlow";
 export { calculateRunway } from "./calculateRunway";
 // Restaurant KPIs
 export { calculateTotalRevenue } from "./calculateTotalRevenue";

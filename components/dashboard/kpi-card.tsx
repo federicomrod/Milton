@@ -133,9 +133,19 @@ export function KpiCard({
           Array.isArray(series.data) &&
           series.data.length > 0
         ) {
-          // Get the most recent value
-          const latestPoint = series.data[series.data.length - 1];
-          setCurrentValue(latestPoint.value ?? null);
+          // For "Total" KPIs, sum all values in the series
+          const isTotalKpi = kpi.name.toLowerCase().includes("total");
+          if (isTotalKpi) {
+            const totalValue = series.data.reduce(
+              (sum: number, point: any) => sum + (point.value || 0),
+              0
+            );
+            setCurrentValue(totalValue);
+          } else {
+            // Get the most recent value for other KPIs
+            const latestPoint = series.data[series.data.length - 1];
+            setCurrentValue(latestPoint.value ?? null);
+          }
         } else {
           setCurrentValue(null);
         }

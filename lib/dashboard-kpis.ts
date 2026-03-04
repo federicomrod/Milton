@@ -195,7 +195,9 @@ export const DASHBOARD_KPI_MAPPINGS: Record<string, Record<string, string>> = {
     "Total Expenses": "totalCosts",
     "Total Revenue": "totalRevenue",
     "Net Income": "netIncome",
+    "Net Cash Flow": "netCashFlow",
     "Burn Rate": "burnRate",
+    "Total Classes Held": "totalClassesHeld",
   },
   restaurant: {
     // Add restaurant KPI mappings when restaurant analytics API is implemented

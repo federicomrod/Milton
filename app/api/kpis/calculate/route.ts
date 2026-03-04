@@ -19,6 +19,7 @@ import {
   calculateRevenuePerClass,
   calculateBurnRate,
   calculateNetIncome,
+  calculateNetCashFlow,
   calculateRunway,
 } from "@/lib/kpi-calculations";
 
@@ -265,6 +266,19 @@ export async function POST(request: Request) {
           ) {
             console.log(`[KPI Calculate] Matched Net Income for: ${kpi.name}`);
             result = await calculateNetIncome(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("net cash flow") ||
+            kpiName?.includes("cash flow")
+          ) {
+            console.log(
+              `[KPI Calculate] Matched Net Cash Flow for: ${kpi.name}`
+            );
+            result = await calculateNetCashFlow(
               supabase,
               user.id,
               fromDate,

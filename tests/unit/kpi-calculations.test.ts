@@ -571,14 +571,18 @@ describe("calculateTotalClassesHeld", () => {
     expect(historicalData.length).toBe(4);
   });
 
-  it("currentValue reflects the last month", async () => {
+  it("currentValue reflects the total across all months", async () => {
     const { currentValue, historicalData } = await calculateTotalClassesHeld(
       supabase,
       MOCK_USER_ID,
       FROM,
       TO
     );
-    expect(currentValue).toBe(historicalData[historicalData.length - 1].value);
+    const expectedTotal = historicalData.reduce(
+      (sum, point) => sum + point.value,
+      0
+    );
+    expect(currentValue).toBe(expectedTotal);
   });
 });
 

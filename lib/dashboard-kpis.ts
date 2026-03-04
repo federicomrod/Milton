@@ -70,29 +70,53 @@ export async function fetchDashboardKpis(
     }
 
     // Call appropriate analytics API based on business model
-    let apiUrl: string;
+    let analyticsData: Record<string, number> = {};
+
     if (businessType === "fitness_studio") {
-      apiUrl = `/api/analytics/fitness-studio/kpis?from_date=${fromDate}&to_date=${toDate}`;
+      const [kpisRes, classesRes] = await Promise.all([
+        fetch(
+          `/api/analytics/fitness-studio/kpis?from_date=${fromDate}&to_date=${toDate}`,
+          { cache: "no-store", credentials: "include" }
+        ),
+        fetch(
+          `/api/analytics/fitness-studio/classes-utilization?from_date=${fromDate}&to_date=${toDate}`,
+          { cache: "no-store", credentials: "include" }
+        ),
+      ]);
+
+      if (kpisRes.ok) {
+        const kpisJson = await kpisRes.json();
+        analyticsData = { ...analyticsData, ...(kpisJson.kpis || {}) };
+      } else {
+        console.error(`Failed to fetch fitness-studio KPIs:`, kpisRes.status);
+      }
+
+      if (classesRes.ok) {
+        const classesJson = await classesRes.json();
+        analyticsData = {
+          ...analyticsData,
+          ...(classesJson.kpis || {}),
+        };
+      } else {
+        console.error(
+          `Failed to fetch classes-utilization KPIs:`,
+          classesRes.status
+        );
+      }
     } else if (businessType === "restaurant") {
-      apiUrl = `/api/analytics/restaurant/kpis?from_date=${fromDate}&to_date=${toDate}`;
+      const response = await fetch(
+        `/api/analytics/restaurant/kpis?from_date=${fromDate}&to_date=${toDate}`,
+        { cache: "no-store", credentials: "include" }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        analyticsData = data.kpis || {};
+      } else {
+        console.error(`Failed to fetch restaurant KPIs:`, response.status);
+      }
     } else {
-      // For other business types, return empty for now
-      // They would need their own analytics APIs
       return {};
     }
-
-    const response = await fetch(apiUrl, {
-      cache: "no-store",
-      credentials: "include",
-    });
-
-    if (!response.ok) {
-      console.error(`Failed to fetch KPIs from ${apiUrl}:`, response.status);
-      return {};
-    }
-
-    const data = await response.json();
-    const analyticsData = data.kpis || {};
 
     // If we have selected KPIs, map analytics fields to KPI IDs
     if (selectedKpiIds.length > 0 && businessType) {
@@ -163,6 +187,9 @@ export const DASHBOARD_KPI_MAPPINGS: Record<string, Record<string, string>> = {
     "Studio Utilization": "utilizationRate",
     "Utilization Rate": "utilizationRate",
     "Occupancy Rate": "utilizationRate",
+    "Capacity Utilization": "capacityUtilization",
+    "Average Class Occupancy": "avgClassOccupancy",
+    "Class Attendance Rate": "avgClassOccupancy",
     "Cancellation Rate": "cancellationRate",
     "Revenue per Class": "revenuePerClass",
     "Total Expenses": "totalCosts",

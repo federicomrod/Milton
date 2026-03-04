@@ -170,13 +170,13 @@ export function KpiCard({
     if (format === "currency") {
       return formatCurrency(value, prefs.currency, prefs.number_format);
     } else if (format === "percentage") {
-      // For percentage format, value is already a percentage (0-100), not decimal
-      // If a custom suffix is provided, format as number and let suffix handle the %
-      // Otherwise, use formatPercentage which includes the %
+      // For percentage format, value is already a percentage (0-100), not decimal.
+      // Safeguard: if value > 100, treat as double-scaled (e.g. 1800 instead of 18).
+      const normalized = value > 100 ? value / 100 : value;
       if (providedSuffix !== undefined) {
-        return value.toFixed(1);
+        return normalized.toFixed(1);
       }
-      return formatPercentage(value / 100);
+      return formatPercentage(normalized / 100);
     } else if (format === "months") {
       return value.toFixed(1);
     } else {

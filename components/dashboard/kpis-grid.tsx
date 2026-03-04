@@ -174,15 +174,21 @@ const KpiChart = ({
   numberFormat: string;
 }) => {
   const display = { format: getKpiDisplayFormat(kpi.name) };
-  const maxValue = Math.max(Math.abs(analyticsValue || 0), 1);
-  const percentageBasis = maxValue > 1.5 ? 100 : 1;
+  // Percentage KPIs (churn, cancellation, utilization, etc.) always use 0-100 scale
+  const percentageBasis = display.format === "percentage" ? 100 : 1;
+  const maxValue =
+    display.format === "percentage"
+      ? 100
+      : Math.max(Math.abs(analyticsValue || 0), 1);
 
   const formatValue = (value: number) => {
     if (display.format === "currency") {
       return formatCurrency(value, currency, numberFormat);
     }
     if (display.format === "percentage") {
-      return formatPercentage(value / percentageBasis);
+      // Safeguard: if value > 100, treat as double-scaled (e.g. 1800 instead of 18).
+      const normalized = value > 100 ? value / 100 : value;
+      return formatPercentage(normalized / percentageBasis);
     }
     return formatNumber(value, numberFormat);
   };

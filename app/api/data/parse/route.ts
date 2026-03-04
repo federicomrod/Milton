@@ -141,22 +141,22 @@ export async function POST(req: Request) {
               c: colIdx,
             });
             const cell = worksheet[cellAddress];
-            if (cell && cell.w && isDateFormattedText(cell.w)) {
-              // Normalize to ISO string so downstream code always sees a real date
-              const iso = normalizeDateValue(cell.w);
-              newRow[header] = iso ?? cell.w;
-            } else if (
+            // Prefer Excel serial number over cell.w - the serial is the unambiguous
+            // source of truth; cell.w can be locale-dependent (e.g. "01/12" = Jan 12 US vs Dec 1 EU)
+            const hasExcelSerial =
               cell &&
               typeof newRow[header] === "number" &&
               (newRow[header] as number) > 1 &&
               (newRow[header] as number) < 100000 &&
               cell.t === "n" &&
               cell.z &&
-              /[ymd]/i.test(cell.z)
-            ) {
-              // Fallback: raw numeric value that Excel has formatted as a date
+              /[ymd]/i.test(cell.z);
+            if (hasExcelSerial) {
               const iso = normalizeDateValue(newRow[header]);
               if (iso) newRow[header] = iso;
+            } else if (cell && cell.w && isDateFormattedText(cell.w)) {
+              const iso = normalizeDateValue(cell.w);
+              newRow[header] = iso ?? cell.w;
             }
           });
           return newRow;
@@ -192,20 +192,20 @@ export async function POST(req: Request) {
               c: colIdx,
             });
             const cell = targetWorksheet[cellAddress];
-            if (cell && cell.w && isDateFormattedText(cell.w)) {
-              const iso = normalizeDateValue(cell.w);
-              newRow[header] = iso ?? cell.w;
-            } else if (
+            const hasExcelSerial =
               cell &&
               typeof newRow[header] === "number" &&
               (newRow[header] as number) > 1 &&
               (newRow[header] as number) < 100000 &&
               cell.t === "n" &&
               cell.z &&
-              /[ymd]/i.test(cell.z)
-            ) {
+              /[ymd]/i.test(cell.z);
+            if (hasExcelSerial) {
               const iso = normalizeDateValue(newRow[header]);
               if (iso) newRow[header] = iso;
+            } else if (cell && cell.w && isDateFormattedText(cell.w)) {
+              const iso = normalizeDateValue(cell.w);
+              newRow[header] = iso ?? cell.w;
             }
           });
           return newRow;

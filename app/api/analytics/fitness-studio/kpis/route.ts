@@ -864,12 +864,8 @@ export async function GET(req: NextRequest) {
     }, 0);
 
     const netIncome = totalRevenue - totalExpenses;
-    const monthsDuration = Math.max(
-      1,
-      (new Date(toDate).getTime() - new Date(fromDate).getTime()) /
-        (1000 * 60 * 60 * 24 * 30)
-    );
-    const burnRate = totalExpenses / monthsDuration;
+    // Burn Rate: total outflows (expenses) for the period
+    const burnRate = totalExpenses;
 
     // Net Cash Flow: total inflows - total outflows.
     // Also count paid invoices as inflows (users may store revenue in an invoices table

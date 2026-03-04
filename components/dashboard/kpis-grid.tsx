@@ -48,6 +48,10 @@ const getKpiDisplayFormat = (kpiName: string): KpiFormat => {
     name?.includes("occupancy") ||
     name?.includes("cancellation")
   ) {
+    // Special case: burn rate should be currency, not percentage
+    if (name?.includes("burn rate")) {
+      return "currency";
+    }
     return "percentage";
   } else if (
     name?.includes("revenue") ||

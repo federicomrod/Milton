@@ -936,7 +936,7 @@ describe("calculateBurnRate", () => {
     expect(historicalData.length).toBe(4);
   });
 
-  it("value = outflows - inflows per month (negative when profitable)", async () => {
+  it("value = outflows per month (burn rate = cash outflows only)", async () => {
     const { historicalData } = await calculateBurnRate(
       supabase,
       MOCK_USER_ID,
@@ -946,9 +946,9 @@ describe("calculateBurnRate", () => {
     const byMonth = Object.fromEntries(
       historicalData.map((p) => [ym(p.period), p.value])
     );
-    expect(byMonth["2024-01"]).toBeCloseTo(-3000); // 2000 - 5000
-    expect(byMonth["2024-03"]).toBeCloseTo(2500); // 4500 - 2000
-    expect(byMonth["2024-04"]).toBeCloseTo(2000); // 3500 - 1500
+    expect(byMonth["2024-01"]).toBeCloseTo(2000); // outflows only
+    expect(byMonth["2024-03"]).toBeCloseTo(4500); // outflows only
+    expect(byMonth["2024-04"]).toBeCloseTo(3500); // outflows only
   });
 
   it("returns 0 for empty transactions", async () => {

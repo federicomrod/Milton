@@ -51,6 +51,7 @@ import {
 
 interface KpiData {
   avgClassOccupancy: number;
+  averageClassSize?: number;
   revenuePerClass: number;
   cancellationRate: number;
   capacityUtilization: number;

@@ -9,6 +9,7 @@ import {
   type KpiSeriesPoint,
 } from "@/lib/kpi-series";
 import { getModelDataRows } from "@/lib/kpi-calculations/getModelDataRows";
+import { calculateRevenueGrowthRate } from "@/lib/kpi-calculations/calculateRevenueGrowthRate";
 
 function jsonNoStore(data: Record<string, unknown>) {
   const res = NextResponse.json(data);
@@ -110,8 +111,76 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Average Class Size — use classes-utilization API (same source as the card)
+    const averageClassSizeKpis = kpis.filter((k) =>
+      k.name?.toLowerCase().includes("average class size")
+    );
+    if (averageClassSizeKpis.length > 0) {
+      try {
+        const origin = req.nextUrl.origin;
+        const classesRes = await fetch(
+          `${origin}/api/analytics/fitness-studio/classes-utilization?from_date=${fromDate}&to_date=${toDate}`,
+          {
+            headers: { Cookie: req.headers.get("cookie") || "" },
+          }
+        );
+        if (classesRes.ok) {
+          const classesJson = await classesRes.json();
+          const byPeriod = classesJson.averageClassSizeByPeriod;
+          if (Array.isArray(byPeriod) && byPeriod.length > 0) {
+            const data: KpiSeriesPoint[] = byPeriod.map(
+              (p: { period: string; value: number }) => ({
+                period: p.period,
+                value: p.value,
+              })
+            );
+            for (const k of averageClassSizeKpis) {
+              series[k.id] = { data };
+            }
+          }
+        }
+      } catch {
+        // silently skip
+      }
+    }
+
+    // Revenue Growth Rate — compute directly (avoids server-to-server auth issues)
+    const revenueGrowthRateKpis = kpis.filter(
+      (k) =>
+        k.name?.toLowerCase().includes("revenue growth rate") ||
+        k.name?.toLowerCase().includes("revenue growth")
+    );
+    if (revenueGrowthRateKpis.length > 0 && user) {
+      try {
+        const result = await calculateRevenueGrowthRate(
+          supabase,
+          user.id,
+          fromDate,
+          toDate
+        );
+        if (
+          Array.isArray(result.historicalData) &&
+          result.historicalData.length > 0
+        ) {
+          const data: KpiSeriesPoint[] = result.historicalData.map((p) => ({
+            period: p.period,
+            value: p.value,
+          }));
+          for (const k of revenueGrowthRateKpis) {
+            series[k.id] = { data };
+          }
+        }
+      } catch {
+        // silently skip
+      }
+    }
+
     // All other KPIs — delegate to the calculate API
-    const alreadyHandledIds = new Set(activeMembersKpis.map((k) => k.id));
+    const alreadyHandledIds = new Set([
+      ...activeMembersKpis.map((k) => k.id),
+      ...averageClassSizeKpis.map((k) => k.id),
+      ...revenueGrowthRateKpis.map((k) => k.id),
+    ]);
     const kpisNeedingCalculation = kpis.filter(
       (k) => !alreadyHandledIds.has(k.id)
     );

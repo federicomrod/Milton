@@ -107,10 +107,17 @@ export const bookingAcc = {
   /**
    * Returns a normalised lowercase attendance status.
    * "No-show" and "no_show" both become "no_show".
+   * Also reads "status" / "Status" so "Booked" / "Attended" are recognized.
    */
   attendanceStatus: (r: any): string => {
     const raw = (
-      readField(r, "attendance_status", "Attendance Status") ?? ""
+      readField(
+        r,
+        "attendance_status",
+        "Attendance Status",
+        "status",
+        "Status"
+      ) ?? ""
     ).toLowerCase();
     return raw.replace(/-/g, "_"); // "no-show" → "no_show"
   },

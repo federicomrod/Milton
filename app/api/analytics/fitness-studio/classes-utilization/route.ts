@@ -616,7 +616,7 @@ export async function GET(req: NextRequest) {
     // KPI 1: Average Class Occupancy (%)
     const classOccurrences = new Map<
       string,
-      { filled: number; capacity: number }
+      { filled: number; capacity: number; period: string | null }
     >();
 
     let occupancyBookingsWithoutClass = 0;
@@ -653,9 +653,14 @@ export async function GET(req: NextRequest) {
         return; // Skip if still no date
       }
       const key = `${classId}_${startAtStr}`;
+      const startAt = parseDate(startAtStr);
+      const period =
+        startAt && !isNaN(startAt.getTime())
+          ? `${startAt.getFullYear()}-${String(startAt.getMonth() + 1).padStart(2, "0")}`
+          : null;
 
       if (!classOccurrences.has(key)) {
-        classOccurrences.set(key, { filled: 0, capacity });
+        classOccurrences.set(key, { filled: 0, capacity, period });
       }
 
       const occurrence = classOccurrences.get(key)!;
@@ -776,12 +781,33 @@ export async function GET(req: NextRequest) {
     // KPI 5: Average Class Size (average number of attendees per class occurrence)
     let totalAttendees = 0;
     let classOccurrenceCount = 0;
+    const averageClassSizeByPeriodMap = new Map<
+      string,
+      { totalFilled: number; count: number }
+    >();
     classOccurrences.forEach((occ) => {
       totalAttendees += occ.filled;
       classOccurrenceCount += 1;
+      if (occ.period) {
+        const p = averageClassSizeByPeriodMap.get(occ.period) ?? {
+          totalFilled: 0,
+          count: 0,
+        };
+        p.totalFilled += occ.filled;
+        p.count += 1;
+        averageClassSizeByPeriodMap.set(occ.period, p);
+      }
     });
     const averageClassSize =
       classOccurrenceCount > 0 ? totalAttendees / classOccurrenceCount : 0;
+    const averageClassSizeByPeriod = Array.from(
+      averageClassSizeByPeriodMap.entries()
+    )
+      .map(([period, { totalFilled, count }]) => ({
+        period,
+        value: count > 0 ? parseFloat((totalFilled / count).toFixed(2)) : 0,
+      }))
+      .sort((a, b) => a.period.localeCompare(b.period));
 
     // Top Performing Classes (combines revenue and occupancy)
     const occupancyByClass = new Map<
@@ -1179,6 +1205,7 @@ export async function GET(req: NextRequest) {
         revenuePerClass: parseFloat(revenueTrend.toFixed(1)),
         cancellationRate: parseFloat(cancellationTrend.toFixed(1)),
       },
+      averageClassSizeByPeriod,
       topPerformingClasses: topPerformingClasses,
       occupancyByType: occupancyByTypeArray,
       hourlyUtilization: {

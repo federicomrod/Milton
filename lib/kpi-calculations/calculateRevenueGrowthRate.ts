@@ -57,12 +57,17 @@ function getInvVal(inv: any, ...keys: string[]): any {
 }
 
 /**
- * Revenue Growth Rate KPI (based on paid invoices only):
- * - Card: growth from beginning to end of selected date range
- * - Chart: month-over-month growth % for each month in range
+ * Revenue Growth Rate KPI (paid invoices only).
  *
- * Resolves date/status/amount columns from the actual invoice data so it works
- * regardless of how columns are named in data_tables or the file.
+ * Baseline = first month in the range that has revenue ("beginning value").
+ * If the range starts with months that have no revenue, we skip to the first month with revenue
+ * so the chart and card can show real growth %.
+ *
+ * Card: (revenue in last month with revenue − revenue in first month with revenue) / latter × 100.
+ *
+ * Chart: One point per month. Each point = growth from that baseline to the month:
+ *        (revenue that month − baseline revenue) / baseline revenue × 100.
+ *        First month with revenue = 0%. Months before that = 0%. Later months = + or − %.
  */
 export async function calculateRevenueGrowthRate(
   supabase: SupabaseClient,
@@ -137,29 +142,39 @@ export async function calculateRevenueGrowthRate(
     if (orderedMonths.length === 0)
       return { currentValue: null, historicalData: [] };
 
-    const revenueFirst = monthlyRevenue[orderedMonths[0]] ?? 0;
-    const revenueLast =
-      monthlyRevenue[orderedMonths[orderedMonths.length - 1]] ?? 0;
+    // Baseline = first month in range that has revenue (so chart shows real % when first months are empty)
+    const firstMonthWithRevenue = orderedMonths.find(
+      (m) => (monthlyRevenue[m] ?? 0) > 0
+    );
+    const baselineRevenue = firstMonthWithRevenue
+      ? (monthlyRevenue[firstMonthWithRevenue] ?? 0)
+      : 0;
+    const lastMonthWithRevenue = [...orderedMonths]
+      .reverse()
+      .find((m) => (monthlyRevenue[m] ?? 0) > 0);
+    const revenueLast = lastMonthWithRevenue
+      ? (monthlyRevenue[lastMonthWithRevenue] ?? 0)
+      : 0;
 
     const currentValue =
-      revenueFirst > 0
-        ? ((revenueLast - revenueFirst) / revenueFirst) * 100
+      baselineRevenue > 0
+        ? ((revenueLast - baselineRevenue) / baselineRevenue) * 100
         : revenueLast > 0
           ? null
           : 0;
 
-    // Chart: growth vs first month in range (so 0% at starting month, positive above, negative below)
-    const revFirst = monthlyRevenue[orderedMonths[0]] ?? 0;
-    const historicalData: { period: string; value: number }[] = [];
-    for (let i = 0; i < orderedMonths.length; i++) {
-      const period = orderedMonths[i];
-      const revThis = monthlyRevenue[period] ?? 0;
-      const value = revFirst > 0 ? ((revThis - revFirst) / revFirst) * 100 : 0;
-      historicalData.push({
-        period,
-        value: Math.round(value * 100) / 100,
+    const historicalData: { period: string; value: number }[] =
+      orderedMonths.map((period) => {
+        const revThis = monthlyRevenue[period] ?? 0;
+        const value =
+          baselineRevenue > 0
+            ? ((revThis - baselineRevenue) / baselineRevenue) * 100
+            : 0;
+        return {
+          period,
+          value: Math.round(value * 100) / 100,
+        };
       });
-    }
 
     return {
       currentValue:

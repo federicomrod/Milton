@@ -23,6 +23,7 @@ export const KPI_NAME_TO_API_FIELD: Record<string, string> = {
   "Member Tenure": "avgTenure",
   "Revenue per Member (ARPM)": "revenuePerMember",
   "Capacity Utilization": "capacityUtilization",
+  "Average Class Size": "averageClassSize",
   "Studio Utilization": "utilizationRate",
   "Cancellation Rate": "cancellationRate",
   "Class Attendance Rate": "avgClassOccupancy", // This is "Avg. class occupancy"
@@ -124,6 +125,7 @@ export function getClassesUtilizationKpis(kpis: DatabaseKpi[]): DatabaseKpi[] {
   const classesUtilizationKpiNames = [
     "Class Attendance Rate", // This is "Avg. class occupancy"
     "Average Class Occupancy", // Alternative name
+    "Average Class Size", // Total attended spots ÷ nº of class occurrences
     "Revenue per Class",
     "Cancellation Rate",
     "Capacity Utilization",

@@ -188,6 +188,7 @@ export const DASHBOARD_KPI_MAPPINGS: Record<string, Record<string, string>> = {
     "Utilization Rate": "utilizationRate",
     "Occupancy Rate": "utilizationRate",
     "Capacity Utilization": "capacityUtilization",
+    "Average Class Size": "averageClassSize",
     "Average Class Occupancy": "avgClassOccupancy",
     "Class Attendance Rate": "avgClassOccupancy",
     "Cancellation Rate": "cancellationRate",

@@ -21,29 +21,31 @@ export async function calculateAverageClassSize(
     getModelDataRows(supabase, company.id, "classes"),
   ]);
 
-  // Count attended bookings per class ID
-  const attendedPerClass = new Map<string, number>();
+  // Count filled spots (booked or attended) per class occurrence ID — same definition as classes-utilization API
+  const filledPerClass = new Map<string, number>();
   bookings.forEach((b: any) => {
-    if (bookingAcc.attendanceStatus(b) !== "attended") return;
+    const status = bookingAcc.attendanceStatus(b);
+    if (status !== "attended" && status !== "booked") return;
     const cid = bookingAcc.classId(b);
-    attendedPerClass.set(cid, (attendedPerClass.get(cid) ?? 0) + 1);
+    filledPerClass.set(cid, (filledPerClass.get(cid) ?? 0) + 1);
   });
 
   const from = new Date(fromDate);
-  const to = new Date(toDate);
+  const toEnd = new Date(toDate);
+  toEnd.setHours(23, 59, 59, 999); // include full end date like classes-utilization API
   const monthlyStats: Record<string, number[]> = {};
 
   classes.forEach((c: any) => {
     const dt = classAcc.dateTime(c);
-    if (!dt || dt < from || dt >= to) return;
+    if (!dt || dt < from || dt > toEnd) return;
 
     const cid = classAcc.id(c);
-    const attended = attendedPerClass.get(cid) ?? 0;
-    if (attended === 0) return; // skip classes with no attendees
+    const filled = filledPerClass.get(cid) ?? 0;
+    if (filled === 0) return; // skip occurrences with no filled spots
 
     const period = toPeriod(dt);
     if (!monthlyStats[period]) monthlyStats[period] = [];
-    monthlyStats[period].push(attended);
+    monthlyStats[period].push(filled);
   });
 
   const historicalData = Object.entries(monthlyStats)

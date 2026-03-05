@@ -980,16 +980,20 @@ export async function GET(req: NextRequest) {
       invoiceRevenueByMonth[period] =
         (invoiceRevenueByMonth[period] ?? 0) + Math.abs(amount);
     });
-    const fromMonth = fromDate.substring(0, 7);
-    const toMonth = toDate.substring(0, 7);
-    const invRevenueFirst = invoiceRevenueByMonth[fromMonth] ?? 0;
-    const invRevenueLast = invoiceRevenueByMonth[toMonth] ?? 0;
-    if (invRevenueFirst > 0) {
-      revenueGrowthRate = parseFloat(
-        (((invRevenueLast - invRevenueFirst) / invRevenueFirst) * 100).toFixed(
-          2
-        )
-      );
+    const sortedMonths = Object.keys(invoiceRevenueByMonth).sort();
+    if (sortedMonths.length >= 2) {
+      const firstMonth = sortedMonths[0];
+      const lastMonth = sortedMonths[sortedMonths.length - 1];
+      const invRevenueFirst = invoiceRevenueByMonth[firstMonth] ?? 0;
+      const invRevenueLast = invoiceRevenueByMonth[lastMonth] ?? 0;
+      if (invRevenueFirst > 0) {
+        revenueGrowthRate = parseFloat(
+          (
+            ((invRevenueLast - invRevenueFirst) / invRevenueFirst) *
+            100
+          ).toFixed(2)
+        );
+      }
     }
 
     // Use paid invoices as inflows if they exist; otherwise fall back to transaction inflows.

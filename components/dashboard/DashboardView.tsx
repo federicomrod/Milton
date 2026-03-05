@@ -56,6 +56,7 @@ export default function DashboardView(
               net_income: 0,
               active_members: null,
               revenue_per_member: null,
+              revenue_growth_rate: null,
               no_show_rate: null,
               utilization_rate: null,
               average_class_size: null,
@@ -94,6 +95,9 @@ export default function DashboardView(
                   ) {
                     // Average Class Size
                     chartPoint.average_class_size = dataPoint.value;
+                  } else if (kpi.name === "Revenue Growth Rate") {
+                    // Revenue Growth Rate (month-over-month %)
+                    chartPoint.revenue_growth_rate = dataPoint.value;
                   } else {
                     // Traditional financial KPIs
                     chartPoint.revenue = kpi.revenue ?? 0;
@@ -154,9 +158,10 @@ export default function DashboardView(
                 </div>
                 <div className="mt-2 text-2xl font-semibold text-gray-800">
                   {displayValue !== null && displayValue !== undefined
-                    ? kpiInfo?.format === "percentage"
-                      ? `${displayValue.toFixed(1)}%`
-                      : displayValue.toFixed?.(1) || displayValue
+                    ? kpiInfo?.format === "percentage" ||
+                      kpiInfo?.name === "Revenue Growth Rate"
+                      ? `${Number(displayValue).toFixed(1)}%`
+                      : (displayValue.toFixed?.(1) ?? displayValue)
                     : "—"}
                 </div>
                 <div className="mt-1 text-[11px] text-gray-400">
@@ -169,87 +174,142 @@ export default function DashboardView(
       )}
 
       {/* KPI Trends Chart */}
-      {chartData.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-lg font-semibold">
-            Key KPI Trends {businessModel && `(${businessModel})`}
-          </h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="label" />
-              <YAxis />
-              <Tooltip />
-              {/* Show different lines for different KPI types - always show if KPI exists */}
-              {kpiData.some(
-                (kpi: any) => kpi.id === "5d7de7ca-9821-422e-a492-407b4d3f16c3"
-              ) && (
-                <Line
-                  type="monotone"
-                  dataKey="active_members"
-                  stroke="#3b82f6"
-                  name="Active Members"
-                  connectNulls={false}
-                />
-              )}
-              {kpiData.some(
-                (kpi: any) => kpi.id === "be8c439e-6e06-4bae-b5bb-30535ffef17d"
-              ) && (
-                <Line
-                  type="monotone"
-                  dataKey="revenue_per_member"
-                  stroke="#10b981"
-                  name="Revenue per Member (€)"
-                  connectNulls={false}
-                />
-              )}
-              {kpiData.some(
-                (kpi: any) => kpi.id === "b52b4415-9de4-4e05-8c57-c90e1b9ddd80"
-              ) && (
-                <Line
-                  type="monotone"
-                  dataKey="no_show_rate"
-                  stroke="#f59e0b"
-                  name="No Show Rate (%)"
-                  connectNulls={false}
-                />
-              )}
-              {kpiData.some(
-                (kpi: any) => kpi.id === "1ef40bd2-611d-4a9d-a3e6-eff7f0438578"
-              ) && (
-                <Line
-                  type="monotone"
-                  dataKey="utilization_rate"
-                  stroke="#8b5cf6"
-                  name="Utilization Rate (%)"
-                  connectNulls={false}
-                />
-              )}
-              {kpiData.some(
-                (kpi: any) => kpi.id === "c66a6894-da48-4e0c-bfe0-b24d9133980a"
-              ) && (
-                <Line
-                  type="monotone"
-                  dataKey="average_class_size"
-                  stroke="#ef4444"
-                  name="Average Class Size"
-                  connectNulls={false}
-                />
-              )}
-              {/* Fallback for traditional KPIs */}
-              {chartData.some((d: any) => d.net_income !== undefined) && (
-                <Line
-                  type="monotone"
-                  dataKey="net_income"
-                  stroke="#6b7280"
-                  name="Net Income"
-                  connectNulls={false}
-                />
-              )}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+      {chartData.length > 0 &&
+        (() => {
+          const hasRevenueGrowthRate = kpiData.some(
+            (kpi: any) => kpi.name === "Revenue Growth Rate"
+          );
+          // Only use revenue_growth_rate from chart data for the growth Y-axis domain
+          const growthValues = chartData
+            .map((d: any) => {
+              const v = d.revenue_growth_rate;
+              if (v == null) return NaN;
+              const n = typeof v === "number" ? v : Number(v);
+              return Number.isFinite(n) ? n : NaN;
+            })
+            .filter((n: number) => !Number.isNaN(n));
+          const dataMin =
+            growthValues.length > 0 ? Math.min(...growthValues) : 0;
+          const dataMax =
+            growthValues.length > 0 ? Math.max(...growthValues) : 0;
+          const domainMin = Math.min(0, dataMin);
+          const domainMax = Math.max(0, dataMax);
+          const range = domainMax - domainMin;
+          const padding = Math.max(1, range * 0.1);
+          // Domain: we want bottom = min, top = max (0% at axis, positive above, negative below).
+          // Recharts right YAxis maps domain[0] to top and domain[1] to bottom, so pass [max, min].
+          const minVal = range === 0 ? -10 : domainMin - padding;
+          const maxVal = range === 0 ? 10 : domainMax + padding;
+          const growthDomain: [number, number] = [maxVal, minVal];
+          return (
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold">
+                Key KPI Trends {businessModel && `(${businessModel})`}
+              </h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={chartData} margin={{ right: 50 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="label" />
+                  <YAxis />
+                  {hasRevenueGrowthRate && (
+                    <YAxis
+                      yAxisId="revenueGrowth"
+                      orientation="right"
+                      domain={growthDomain}
+                      reversed={false}
+                      tickFormatter={(v) => `${v}%`}
+                      allowDataOverflow={true}
+                    />
+                  )}
+                  <Tooltip />
+                  {/* Show different lines for different KPI types - always show if KPI exists */}
+                  {kpiData.some(
+                    (kpi: any) =>
+                      kpi.id === "5d7de7ca-9821-422e-a492-407b4d3f16c3"
+                  ) && (
+                    <Line
+                      type="monotone"
+                      dataKey="active_members"
+                      stroke="#3b82f6"
+                      name="Active Members"
+                      connectNulls={false}
+                    />
+                  )}
+                  {kpiData.some(
+                    (kpi: any) =>
+                      kpi.id === "be8c439e-6e06-4bae-b5bb-30535ffef17d"
+                  ) && (
+                    <Line
+                      type="monotone"
+                      dataKey="revenue_per_member"
+                      stroke="#10b981"
+                      name="Revenue per Member (€)"
+                      connectNulls={false}
+                    />
+                  )}
+                  {kpiData.some(
+                    (kpi: any) =>
+                      kpi.id === "b52b4415-9de4-4e05-8c57-c90e1b9ddd80"
+                  ) && (
+                    <Line
+                      type="monotone"
+                      dataKey="no_show_rate"
+                      stroke="#f59e0b"
+                      name="No Show Rate (%)"
+                      connectNulls={false}
+                    />
+                  )}
+                  {kpiData.some(
+                    (kpi: any) =>
+                      kpi.id === "1ef40bd2-611d-4a9d-a3e6-eff7f0438578"
+                  ) && (
+                    <Line
+                      type="monotone"
+                      dataKey="utilization_rate"
+                      stroke="#8b5cf6"
+                      name="Utilization Rate (%)"
+                      connectNulls={false}
+                    />
+                  )}
+                  {kpiData.some(
+                    (kpi: any) =>
+                      kpi.id === "c66a6894-da48-4e0c-bfe0-b24d9133980a"
+                  ) && (
+                    <Line
+                      type="monotone"
+                      dataKey="average_class_size"
+                      stroke="#ef4444"
+                      name="Average Class Size"
+                      connectNulls={false}
+                    />
+                  )}
+                  {kpiData.some(
+                    (kpi: any) => kpi.name === "Revenue Growth Rate"
+                  ) && (
+                    <Line
+                      type="monotone"
+                      dataKey="revenue_growth_rate"
+                      stroke="#0d9488"
+                      name="Revenue Growth Rate (%)"
+                      connectNulls={false}
+                      yAxisId="revenueGrowth"
+                    />
+                  )}
+                  {/* Fallback for traditional KPIs */}
+                  {chartData.some((d: any) => d.net_income !== undefined) && (
+                    <Line
+                      type="monotone"
+                      dataKey="net_income"
+                      stroke="#6b7280"
+                      name="Net Income"
+                      connectNulls={false}
+                    />
+                  )}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          );
+        })()}
     </div>
   );
 }

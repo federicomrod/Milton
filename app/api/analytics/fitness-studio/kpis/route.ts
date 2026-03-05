@@ -475,6 +475,9 @@ export async function GET(req: NextRequest) {
       return sum + amount;
     }, 0);
 
+    // Revenue Growth Rate is computed from paid invoices (see invoice block below)
+    let revenueGrowthRate: number | null = null;
+
     const revenuePerMember =
       activeMembers > 0 ? totalRevenue / activeMembers : 0;
 
@@ -936,6 +939,59 @@ export async function GET(req: NextRequest) {
       return sum + Math.abs(amount);
     }, 0);
 
+    // Revenue Growth Rate: from paid invoices only (beginning vs end of picked range)
+    const invoiceRevenueByMonth: Record<string, number> = {};
+    invoices.forEach((inv: any) => {
+      const status = String(
+        invStatusField
+          ? getInvVal(inv, invStatusField, ["status", "Status"])
+          : (inv.status ?? inv.Status ?? "")
+      ).toLowerCase();
+      if (status !== "paid") return;
+      const dateRaw = invDateField
+        ? getInvVal(inv, invDateField, [
+            "date",
+            "Date",
+            "invoice_date",
+            "Issue Date",
+          ])
+        : (inv.date ?? inv.Date ?? inv.invoice_date ?? inv["Issue Date"]);
+      const date = dateRaw ? parseDate(dateRaw) : null;
+      if (!date || isNaN(date.getTime()) || date < from || date > to) return;
+      const period = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      const amountRaw = invAmountField
+        ? getInvVal(inv, invAmountField, [
+            "amount",
+            "Amount",
+            "total",
+            "Total",
+            "Total Amount",
+          ])
+        : (inv.amount ??
+          inv.Amount ??
+          inv.total ??
+          inv.Total ??
+          inv["Total Amount"] ??
+          0);
+      const amount =
+        typeof amountRaw === "string"
+          ? parseFloat(amountRaw)
+          : Number(amountRaw) || 0;
+      invoiceRevenueByMonth[period] =
+        (invoiceRevenueByMonth[period] ?? 0) + Math.abs(amount);
+    });
+    const fromMonth = fromDate.substring(0, 7);
+    const toMonth = toDate.substring(0, 7);
+    const invRevenueFirst = invoiceRevenueByMonth[fromMonth] ?? 0;
+    const invRevenueLast = invoiceRevenueByMonth[toMonth] ?? 0;
+    if (invRevenueFirst > 0) {
+      revenueGrowthRate = parseFloat(
+        (((invRevenueLast - invRevenueFirst) / invRevenueFirst) * 100).toFixed(
+          2
+        )
+      );
+    }
+
     // Use paid invoices as inflows if they exist; otherwise fall back to transaction inflows.
     // This avoids double-counting when revenue is stored in one place only.
     const totalInflows =
@@ -975,6 +1031,7 @@ export async function GET(req: NextRequest) {
         utilizationRate: parseFloat(utilizationRate.toFixed(2)),
         cancellationRate: parseFloat(cancellationRate.toFixed(2)),
         totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+        revenueGrowthRate,
         totalCosts: parseFloat(totalExpenses.toFixed(2)),
         netIncome: parseFloat(netIncome.toFixed(2)),
         netCashFlow: parseFloat(netCashFlow.toFixed(2)),

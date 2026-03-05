@@ -194,6 +194,7 @@ export const DASHBOARD_KPI_MAPPINGS: Record<string, Record<string, string>> = {
     "Revenue per Class": "revenuePerClass",
     "Total Expenses": "totalCosts",
     "Total Revenue": "totalRevenue",
+    "Revenue Growth Rate": "revenueGrowthRate",
     "Net Income": "netIncome",
     "Net Cash Flow": "netCashFlow",
     "Burn Rate": "burnRate",

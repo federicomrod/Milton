@@ -21,6 +21,7 @@ import {
   calculateNetIncome,
   calculateNetCashFlow,
   calculateRunway,
+  calculateRevenueGrowthRate,
 } from "@/lib/kpi-calculations";
 
 export async function POST(request: Request) {
@@ -287,6 +288,16 @@ export async function POST(request: Request) {
           } else if (kpiName?.includes("runway")) {
             console.log(`[KPI Calculate] Matched Runway for: ${kpi.name}`);
             result = await calculateRunway(supabase, user.id, fromDate, toDate);
+          } else if (
+            kpiName?.includes("revenue growth rate") ||
+            kpiName?.includes("revenue growth")
+          ) {
+            result = await calculateRevenueGrowthRate(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
           } else {
             console.log(
               `[KPI Calculate] No calculation function found for KPI: ${kpi.name} (${kpi.id})`
@@ -303,6 +314,7 @@ export async function POST(request: Request) {
           return {
             ...kpi,
             currentValue: null,
+            historicalData: [],
             error:
               calcError instanceof Error
                 ? calcError.message

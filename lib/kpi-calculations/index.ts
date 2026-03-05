@@ -16,6 +16,7 @@ export { calculateBurnRate } from "./calculateBurnRate";
 export { calculateNetIncome } from "./calculateNetIncome";
 export { calculateNetCashFlow } from "./calculateNetCashFlow";
 export { calculateRunway } from "./calculateRunway";
+export { calculateRevenueGrowthRate } from "./calculateRevenueGrowthRate";
 // Restaurant KPIs
 export { calculateTotalRevenue } from "./calculateTotalRevenue";
 export { calculateCovers } from "./calculateCovers";

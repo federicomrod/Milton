@@ -30,7 +30,6 @@ export default function DashboardView(
     const unsubscribe = miltonEventsAPI.subscribe(
       "dashboard.data.ready",
       (payload) => {
-        console.log("[DashboardView] ===== DASHBOARD DATA RECEIVED =====");
         setBusinessModel(payload.businessModel);
         setKpiData(payload.kpis || []);
         if (payload.kpis?.length > 0) {

@@ -136,32 +136,18 @@ export async function fetchDashboardKpis(
           .in("id", validKpiIds);
 
         if (kpis) {
-          console.log(
-            "[fetchDashboardKpis] Found KPIs:",
-            kpis.map((k) => ({ id: k.id, name: k.name }))
-          );
-          console.log("[fetchDashboardKpis] Analytics data:", analyticsData);
-          console.log("[fetchDashboardKpis] Mappings:", mappings);
-
           kpis.forEach((kpi) => {
             const apiField = mappings[kpi.name];
             const value = analyticsData[apiField];
-            console.log(
-              `[fetchDashboardKpis] KPI "${kpi.name}" (ID: ${kpi.id}) -> API field "${apiField}" -> value: ${value}`
-            );
             if (apiField && value !== undefined) {
               result[kpi.id] = value;
             } else {
-              console.log(
-                `[fetchDashboardKpis] No mapping or data found for KPI "${kpi.name}"`
-              );
               result[kpi.id] = null;
             }
           });
         }
       }
 
-      console.log("[fetchDashboardKpis] Final result:", result);
       return result;
     }
 
@@ -192,6 +178,7 @@ export const DASHBOARD_KPI_MAPPINGS: Record<string, Record<string, string>> = {
     "Average Class Occupancy": "avgClassOccupancy",
     "Class Attendance Rate": "avgClassOccupancy",
     "Cancellation Rate": "cancellationRate",
+    "No Show Rate": "noShowRate",
     "Revenue per Class": "revenuePerClass",
     "Total Expenses": "totalCosts",
     "Total Revenue": "totalRevenue",

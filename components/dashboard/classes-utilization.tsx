@@ -54,6 +54,7 @@ interface KpiData {
   averageClassSize?: number;
   revenuePerClass: number;
   cancellationRate: number;
+  noShowRate?: number;
   capacityUtilization: number;
 }
 
@@ -234,15 +235,6 @@ export function ClassesUtilization({
           const kpiValue = value !== undefined && value !== null ? value : 0;
 
           // Debug log for Capacity Utilization
-          if (
-            dbKpi.name.includes("Capacity Utilization") ||
-            dbKpi.name.includes("Table Utilization")
-          ) {
-            console.log(
-              `[classes-utilization] KPI: ${dbKpi.name}, apiField: ${apiField}, value: ${value}, kpiValue: ${kpiValue}`
-            );
-          }
-
           // Get trend value if available
           const trendField = apiField as keyof TrendData;
           const trendValue = trends?.[trendField];
@@ -274,6 +266,22 @@ export function ClassesUtilization({
             iconColor = "text-green-600";
             valueColor = "text-green-600";
             format = "currency";
+          } else if (dbKpi.name.includes("No Show")) {
+            icon = XCircle;
+            iconColor =
+              kpiValue > 20
+                ? "text-red-600"
+                : kpiValue > 10
+                  ? "text-orange-600"
+                  : "text-yellow-600";
+            valueColor =
+              kpiValue > 20
+                ? "text-red-600"
+                : kpiValue > 10
+                  ? "text-orange-600"
+                  : "text-yellow-600";
+            format = "percentage";
+            suffix = "%";
           } else if (dbKpi.name.includes("Cancellation")) {
             icon = XCircle;
             iconColor =

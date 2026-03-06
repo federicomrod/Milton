@@ -289,8 +289,8 @@ export function KpisGrid({
     period,
     customDateRange
   );
-  const dateParams = `&from_date=${resolvedFrom}&to_date=${resolvedTo}`;
 
+  // Only re-fetch when these stable values change (not chartKpis/dateParams which are new every render)
   useEffect(() => {
     if (!chartKpiIdsStr) {
       startTransition(() => setSeriesData({}));
@@ -299,6 +299,7 @@ export function KpisGrid({
     const averageClassSizeKpis = chartKpis.filter((k) =>
       k.name?.toLowerCase().includes("average class size")
     );
+    const dateParams = `&from_date=${resolvedFrom}&to_date=${resolvedTo}`;
 
     // Always request all chart KPIs from series API (so Revenue Growth Rate and others get data)
     const fetchSeries = fetch(
@@ -341,7 +342,7 @@ export function KpisGrid({
         startTransition(() => setSeriesData(mapped));
       })
       .catch(() => {});
-  }, [chartKpiIdsStr, dateParams, chartKpis, resolvedFrom, resolvedTo]);
+  }, [chartKpiIdsStr, resolvedFrom, resolvedTo]);
 
   if (selectedKpis.length === 0) {
     return (

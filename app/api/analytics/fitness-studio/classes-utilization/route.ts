@@ -197,33 +197,6 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Debug: Log sample data to see what fields are available
-    if (bookings.length > 0) {
-      console.log(
-        "[classes-utilization] Sample booking fields:",
-        Object.keys(bookings[0])
-      );
-      console.log(
-        "[classes-utilization] Sample booking:",
-        JSON.stringify(bookings[0], null, 2)
-      );
-    } else {
-      console.log("[classes-utilization] No bookings found");
-    }
-
-    if (classes.length > 0) {
-      console.log(
-        "[classes-utilization] Sample class fields:",
-        Object.keys(classes[0])
-      );
-      console.log(
-        "[classes-utilization] Sample class:",
-        JSON.stringify(classes[0], null, 2)
-      );
-    } else {
-      console.log("[classes-utilization] No classes found");
-    }
-
     const instructors: any[] = [];
     if (instructorsData) {
       for (const row of instructorsData) {
@@ -487,52 +460,7 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    console.log(
-      `[classes-utilization] Created classMap with ${classMap.size} classes`
-    );
-    if (classMap.size > 0) {
-      const firstClass = Array.from(classMap.values())[0];
-      console.log(
-        `[classes-utilization] Sample class in map:`,
-        JSON.stringify(firstClass, null, 2)
-      );
-    }
-
-    // Check if date is in Classes table instead
-    let dateFromClasses = false;
-    if (
-      normalizedBookings.length > 0 &&
-      !normalizedBookings[0].class_start_at
-    ) {
-      console.log(
-        "[classes-utilization] No date in bookings, checking classes table..."
-      );
-      // Check if any classes have dates
-      classMap.forEach((classData: any) => {
-        if (classData.date) {
-          dateFromClasses = true;
-        }
-      });
-      if (dateFromClasses) {
-        console.log(
-          "[classes-utilization] Found dates in classes table, using those for filtering"
-        );
-      } else {
-        console.log(
-          "[classes-utilization] No dates found in classes table either"
-        );
-        console.log(
-          "[classes-utilization] Sample class keys:",
-          classes.length > 0 ? Object.keys(classes[0]) : "No classes"
-        );
-      }
-    }
-
     // Filter bookings by date range
-    let bookingsWithDates = 0;
-    let bookingsWithoutClass = 0;
-    let bookingsOutOfRange = 0;
-
     const bookingsInRange = normalizedBookings.filter((b: any) => {
       let startAtStr = b.class_start_at;
 
@@ -541,14 +469,10 @@ export async function GET(req: NextRequest) {
         const classData = classMap.get(b.class_id);
         if (classData && (classData as any).date) {
           startAtStr = (classData as any).date;
-          bookingsWithDates++;
         } else {
-          bookingsWithoutClass++;
           return false;
         }
-      } else if (startAtStr) {
-        bookingsWithDates++;
-      } else {
+      } else if (!startAtStr) {
         return false;
       }
 
@@ -561,38 +485,8 @@ export async function GET(req: NextRequest) {
         return false;
       }
 
-      const inRange = startAt >= fromDateStart && startAt <= toDateEnd;
-      if (!inRange) {
-        bookingsOutOfRange++;
-        // Log first few out of range for debugging
-        if (bookingsOutOfRange <= 3) {
-          console.log(
-            `[classes-utilization] Booking out of range: class_id=${b.class_id}, date=${startAtStr} (${startAt.toISOString()}), range=${fromDateStart.toISOString()} to ${toDateEnd.toISOString()}`
-          );
-        }
-      }
-      return inRange;
+      return startAt >= fromDateStart && startAt <= toDateEnd;
     });
-
-    console.log(
-      `[classes-utilization] Bookings with dates: ${bookingsWithDates}, without class: ${bookingsWithoutClass}, out of range: ${bookingsOutOfRange}`
-    );
-
-    console.log(
-      `[classes-utilization] Total bookings: ${bookings.length}, Normalized: ${normalizedBookings.length}, In range: ${bookingsInRange.length}`
-    );
-    console.log(
-      `[classes-utilization] Date range: ${fromDateStart.toISOString()} to ${toDateEnd.toISOString()}`
-    );
-
-    // Show sample booking dates if none in range
-    if (bookingsInRange.length === 0 && normalizedBookings.length > 0) {
-      const sampleBooking = normalizedBookings[0];
-      console.log(
-        `[classes-utilization] Sample normalized booking:`,
-        JSON.stringify(sampleBooking, null, 2)
-      );
-    }
 
     const instructorMap = new Map<string, any>();
     const instructorIdField = instructorsFields.find(
@@ -619,21 +513,10 @@ export async function GET(req: NextRequest) {
       { filled: number; capacity: number; period: string | null }
     >();
 
-    let occupancyBookingsWithoutClass = 0;
-    let occupancyBookingsWithoutDate = 0;
-    let occupancyBookingsProcessed = 0;
-
     bookingsInRange.forEach((b: any) => {
-      occupancyBookingsProcessed++;
       const classId = b.class_id;
       const classData = classMap.get(classId);
       if (!classData) {
-        occupancyBookingsWithoutClass++;
-        if (occupancyBookingsWithoutClass <= 3) {
-          console.log(
-            `[classes-utilization] Booking without class: class_id=${classId}, available classes: ${Array.from(classMap.keys()).slice(0, 5).join(", ")}`
-          );
-        }
         return;
       }
 
@@ -644,12 +527,6 @@ export async function GET(req: NextRequest) {
         startAtStr = (classData as any).date;
       }
       if (!startAtStr) {
-        occupancyBookingsWithoutDate++;
-        if (occupancyBookingsWithoutDate <= 3) {
-          console.log(
-            `[classes-utilization] Booking without date: class_id=${classId}, classData.date=${(classData as any).date}`
-          );
-        }
         return; // Skip if still no date
       }
       const key = `${classId}_${startAtStr}`;
@@ -669,10 +546,6 @@ export async function GET(req: NextRequest) {
         occurrence.filled += 1;
       }
     });
-
-    console.log(
-      `[classes-utilization] ClassOccurrences building: processed=${occupancyBookingsProcessed}, withoutClass=${occupancyBookingsWithoutClass}, withoutDate=${occupancyBookingsWithoutDate}, classOccurrences.size=${classOccurrences.size}`
-    );
 
     let totalOccupancy = 0;
     let occurrenceCount = 0;
@@ -756,6 +629,32 @@ export async function GET(req: NextRequest) {
     const cancellationRate =
       finalBookings.length > 0 ? (cancelled / finalBookings.length) * 100 : 0;
 
+    // No Show Rate (%): no_show / (attended + no_show) — booked spots where member did not attend
+    // Read status from normalized b.status or raw row (Excel uses "Attendance Status" / "No-Show")
+    const getBookingStatus = (b: any): string => {
+      const raw =
+        b.status ??
+        b._original?.["Attendance Status"] ??
+        b._original?.attendance_status ??
+        b._original?.Status ??
+        b._original?.status ??
+        "";
+      return String(raw)
+        .toLowerCase()
+        .replace(/-/g, "_")
+        .replace(/\s+/g, "_")
+        .trim();
+    };
+    let attendedCount = 0;
+    let noShowCount = 0;
+    bookingsInRange.forEach((b: any) => {
+      const status = getBookingStatus(b);
+      if (status === "attended") attendedCount += 1;
+      else if (status === "no_show" || status === "noshow") noShowCount += 1;
+    });
+    const noShowDenom = attendedCount + noShowCount;
+    const noShowRate = noShowDenom > 0 ? (noShowCount / noShowDenom) * 100 : 0;
+
     // KPI 4: Capacity Utilization (%)
     let totalFilledSpots = 0;
     let totalCapacitySpots = 0;
@@ -765,18 +664,10 @@ export async function GET(req: NextRequest) {
       totalCapacitySpots += Number(occ.capacity) || 0;
     });
 
-    console.log(
-      `[classes-utilization] Capacity Utilization: totalFilledSpots=${totalFilledSpots}, totalCapacitySpots=${totalCapacitySpots}, classOccurrences.size=${classOccurrences.size}`
-    );
-
     const capacityUtilization =
       totalCapacitySpots > 0
         ? (totalFilledSpots / totalCapacitySpots) * 100
         : 0;
-
-    console.log(
-      `[classes-utilization] Capacity Utilization result: ${capacityUtilization}%`
-    );
 
     // KPI 5: Average Class Size (average number of attendees per class occurrence)
     let totalAttendees = 0;
@@ -1199,6 +1090,7 @@ export async function GET(req: NextRequest) {
         revenuePerClass: parseFloat(revenuePerClass.toFixed(2)),
         cancellationRate: parseFloat(cancellationRate.toFixed(2)),
         capacityUtilization: parseFloat(capacityUtilization.toFixed(2)),
+        noShowRate: parseFloat(noShowRate.toFixed(2)),
       },
       trends: {
         avgClassOccupancy: parseFloat(occupancyTrend.toFixed(1)),

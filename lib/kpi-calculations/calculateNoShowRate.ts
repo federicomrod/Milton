@@ -25,7 +25,9 @@ export async function calculateNoShowRate(
 
   const from = new Date(fromDate);
   const to = new Date(toDate);
-  const monthlyStats: Record<string, { total: number; noShows: number }> = {};
+  // no_show / (attended + no_show) per month
+  const monthlyStats: Record<string, { attended: number; noShows: number }> =
+    {};
 
   bookings.forEach((b: any) => {
     const classData = classLookup.get(bookingAcc.classId(b));
@@ -33,18 +35,24 @@ export async function calculateNoShowRate(
     const dt = classAcc.dateTime(classData);
     if (!dt || dt < from || dt >= to) return;
 
+    const status = bookingAcc.attendanceStatus(b);
+    if (status !== "attended" && status !== "no_show") return;
+
     const period = toPeriod(dt);
-    if (!monthlyStats[period]) monthlyStats[period] = { total: 0, noShows: 0 };
-    monthlyStats[period].total++;
-    if (bookingAcc.attendanceStatus(b) === "no_show")
-      monthlyStats[period].noShows++;
+    if (!monthlyStats[period])
+      monthlyStats[period] = { attended: 0, noShows: 0 };
+    if (status === "attended") monthlyStats[period].attended += 1;
+    else monthlyStats[period].noShows += 1;
   });
 
   const historicalData = Object.entries(monthlyStats)
-    .map(([period, stats]) => ({
-      period,
-      value: stats.total > 0 ? (stats.noShows / stats.total) * 100 : 0,
-    }))
+    .map(([period, stats]) => {
+      const denom = stats.attended + stats.noShows;
+      return {
+        period,
+        value: denom > 0 ? (stats.noShows / denom) * 100 : 0,
+      };
+    })
     .sort((a, b) => a.period.localeCompare(b.period));
 
   const currentValue =

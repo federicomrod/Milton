@@ -87,7 +87,7 @@ export function DashboardInsights() {
       if (businessModel === "fitness_studio") {
         analyticsUrl = `/api/analytics/fitness-studio/kpis?from_date=${fromDate}&to_date=${toDate}`;
       } else if (businessModel === "restaurant") {
-        analyticsUrl = `/api/analytics/restaurant/overview?from_date=${fromDate}&to_date=${toDate}`;
+        analyticsUrl = `/api/analytics/restaurant/kpis?from_date=${fromDate}&to_date=${toDate}`;
       }
 
       if (analyticsUrl) {
@@ -225,30 +225,44 @@ export function DashboardInsights() {
       // Fetch report data to get additional KPIs
       const reportData = await getReportData(supabase, user.id);
 
-      // Prepare metrics for AI using the analytics KPIs as primary source
+      const isRestaurant =
+        (businessType || reportData.businessType) === "restaurant";
+
+      // Prepare metrics for AI: fitness-studio keys + restaurant keys so both work
       const metrics = {
-        // Use analytics KPIs as the primary source of truth
         activeMembers: analyticsKpis.activeMembers || 0,
         newMembers: analyticsKpis.newMembers || 0,
         churnRate: analyticsKpis.churnRate || 0,
         utilizationRate: analyticsKpis.utilizationRate || 0,
         revenuePerMember: analyticsKpis.revenuePerMember || 0,
         totalRevenue:
-          analyticsKpis.totalRevenue || reportData.kpis.revenue || 0,
-        totalCosts: analyticsKpis.totalCosts || reportData.kpis.expenses || 0,
-        netIncome: analyticsKpis.netIncome || reportData.kpis.netIncome || 0,
-        burnRate: analyticsKpis.burnRate || reportData.kpis.burnRate || 0,
-        // Include general business metrics as fallback
+          analyticsKpis.totalRevenue ?? reportData.kpis.revenue ?? 0,
+        totalCosts: analyticsKpis.totalCosts ?? reportData.kpis.expenses ?? 0,
+        netIncome: analyticsKpis.netIncome ?? reportData.kpis.netIncome ?? 0,
+        burnRate: analyticsKpis.burnRate ?? reportData.kpis.burnRate ?? 0,
         cashBalance: reportData.kpis.cashRunway
           ? reportData.kpis.cashRunway *
-            (analyticsKpis.burnRate || reportData.kpis.burnRate || 0)
+            (analyticsKpis.burnRate ?? reportData.kpis.burnRate ?? 0)
           : 0,
         runway: reportData.kpis.cashRunway || 0,
         contractedRevenue: reportData.kpis.pipelineValue || 0,
         pipelineValue: reportData.kpis.pipelineValue || 0,
+        // Restaurant-specific (so AI and hasData can use them)
+        covers: analyticsKpis.covers ?? 0,
+        averageTicketSize:
+          analyticsKpis.averageTicketSize ??
+          analyticsKpis.averageOrderValue ??
+          0,
+        averageOrderValue:
+          analyticsKpis.averageOrderValue ??
+          analyticsKpis.averageTicketSize ??
+          0,
+        primeCostPercent: analyticsKpis.primeCostPercent ?? 0,
+        netCashFlow:
+          analyticsKpis.netCashFlow ?? reportData.kpis.netIncome ?? 0,
       };
 
-      // Only generate insights if we have meaningful data
+      // Only generate insights if we have meaningful data (fitness + restaurant)
       const hasData =
         metrics.activeMembers > 0 ||
         metrics.newMembers > 0 ||
@@ -257,11 +271,17 @@ export function DashboardInsights() {
         metrics.netIncome !== 0 ||
         metrics.burnRate > 0 ||
         metrics.churnRate > 0 ||
-        metrics.utilizationRate > 0;
+        metrics.utilizationRate > 0 ||
+        (isRestaurant &&
+          (metrics.covers > 0 ||
+            metrics.averageOrderValue > 0 ||
+            metrics.primeCostPercent > 0 ||
+            metrics.netCashFlow !== 0));
 
       if (!hasData) {
         setInsights([
           {
+            id: "no-data-placeholder",
             title: "No Data Available for Insights",
             description:
               "Your analytics data doesn't contain meaningful metrics yet. Try uploading more data or checking your data sources.",

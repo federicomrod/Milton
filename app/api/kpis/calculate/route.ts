@@ -22,6 +22,7 @@ import {
   calculateNetCashFlow,
   calculateRunway,
   calculateRevenueGrowthRate,
+  calculateAverageOrderValue,
 } from "@/lib/kpi-calculations";
 
 export async function POST(request: Request) {
@@ -70,7 +71,10 @@ export async function POST(request: Request) {
       selectedKpiIds = selections.map((item) => item.id);
     }
 
-    console.log(`[KPI Calculate] Selected KPI IDs:`, selectedKpiIds);
+    console.log(
+      `[KPI Calculate] Selected KPI IDs (from business_models):`,
+      selectedKpiIds
+    );
 
     // Get KPI definitions for selected KPIs (only published ones)
     const { data: kpis, error: kpisError } = await supabase
@@ -79,7 +83,10 @@ export async function POST(request: Request) {
       .in("id", selectedKpiIds)
       .eq("is_published", true);
 
-    console.log(`[KPI Calculate] Found ${kpis?.length || 0} KPI definitions`);
+    console.log(
+      `[KPI Calculate] Found ${kpis?.length || 0} KPI definitions:`,
+      (kpis || []).map((k) => ({ id: k.id, name: k.name }))
+    );
 
     if (kpisError) {
       return NextResponse.json({ calculatedKpis: [] });
@@ -298,6 +305,22 @@ export async function POST(request: Request) {
               fromDate,
               toDate
             );
+          } else if (
+            kpiName?.includes("average order value") ||
+            kpiName?.includes("aov")
+          ) {
+            console.log(
+              `[KPI Calculate] Matched Average Order Value (AOV) for: ${kpi.name} (${kpi.id})`
+            );
+            result = await calculateAverageOrderValue(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+            console.log(
+              `[KPI Calculate] AOV result: currentValue=${result?.currentValue}, historicalData.length=${result?.historicalData?.length ?? 0}`
+            );
           } else {
             console.log(
               `[KPI Calculate] No calculation function found for KPI: ${kpi.name} (${kpi.id})`
@@ -311,6 +334,10 @@ export async function POST(request: Request) {
             historicalData: result.historicalData || [],
           };
         } catch (calcError) {
+          console.error(
+            `[KPI Calculate] Error for KPI ${kpi.name} (${kpi.id}):`,
+            calcError
+          );
           return {
             ...kpi,
             currentValue: null,

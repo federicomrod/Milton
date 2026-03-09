@@ -175,7 +175,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // All other KPIs — delegate to the calculate API
+    // All other KPIs (including AOV) — delegate to the calculate API, same as card
     const alreadyHandledIds = new Set([
       ...activeMembersKpis.map((k) => k.id),
       ...averageClassSizeKpis.map((k) => k.id),
@@ -183,6 +183,26 @@ export async function GET(req: NextRequest) {
     ]);
     const kpisNeedingCalculation = kpis.filter(
       (k) => !alreadyHandledIds.has(k.id)
+    );
+
+    // DEBUG: chart series flow
+    const aovInRequest = kpis.find(
+      (k) =>
+        k.name?.toLowerCase().includes("average order value") ||
+        k.name?.toLowerCase().includes("aov")
+    );
+    console.log("[KPI Series] Requested kpiIds:", kpiIds);
+    console.log(
+      "[KPI Series] KPI names:",
+      kpis.map((k) => ({ id: k.id, name: k.name }))
+    );
+    console.log(
+      "[KPI Series] AOV in request:",
+      aovInRequest ? { id: aovInRequest.id, name: aovInRequest.name } : "none"
+    );
+    console.log(
+      "[KPI Series] KPIs needing calculation (delegated to calculate API):",
+      kpisNeedingCalculation.map((k) => k.name)
     );
 
     if (kpisNeedingCalculation.length > 0) {
@@ -199,9 +219,27 @@ export async function GET(req: NextRequest) {
           }
         );
 
+        console.log(
+          "[KPI Series] Calculate API status:",
+          calculateRes.status,
+          calculateRes.ok
+        );
+
         if (calculateRes.ok) {
           const calculateData = await calculateRes.json();
           const calculatedKpis: any[] = calculateData.calculatedKpis || [];
+
+          console.log(
+            "[KPI Series] Calculate returned KPIs:",
+            calculatedKpis.map((k: any) => ({
+              id: k.id,
+              name: k.name,
+              currentValue: k.currentValue,
+              historicalDataLen: Array.isArray(k.historicalData)
+                ? k.historicalData.length
+                : 0,
+            }))
+          );
 
           for (const calculatedKpi of calculatedKpis) {
             // Skip KPIs already handled by dedicated logic above (e.g. Active Members)
@@ -217,11 +255,32 @@ export async function GET(req: NextRequest) {
                   value: point.value,
                 })),
               };
+            } else if (
+              (calculatedKpi.name
+                ?.toLowerCase()
+                .includes("average order value") ||
+                calculatedKpi.name?.toLowerCase().includes("aov")) &&
+              Array.isArray(calculatedKpi.historicalData)
+            ) {
+              console.log(
+                "[KPI Series] AOV has empty historicalData:",
+                calculatedKpi.id,
+                "currentValue:",
+                calculatedKpi.currentValue
+              );
             }
           }
+
+          console.log("[KPI Series] Final series keys:", Object.keys(series));
+        } else {
+          const errText = await calculateRes.text();
+          console.log(
+            "[KPI Series] Calculate API error body:",
+            errText.slice(0, 200)
+          );
         }
-      } catch {
-        // silently skip
+      } catch (e) {
+        console.log("[KPI Series] Calculate API fetch failed:", e);
       }
     }
 

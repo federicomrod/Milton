@@ -21,4 +21,6 @@ export { calculateRevenueGrowthRate } from "./calculateRevenueGrowthRate";
 export { calculateTotalRevenue } from "./calculateTotalRevenue";
 export { calculateCovers } from "./calculateCovers";
 export { calculateAverageTicketSize } from "./calculateAverageTicketSize";
+export { calculateAverageOrderValue } from "./calculateAverageOrderValue";
 export { calculatePrimeCostPercent } from "./calculatePrimeCostPercent";
+export { aovFromCapturedOrders } from "./aovFromCapturedOrders";

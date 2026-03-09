@@ -189,7 +189,14 @@ export const DASHBOARD_KPI_MAPPINGS: Record<string, Record<string, string>> = {
     "Total Classes Held": "totalClassesHeld",
   },
   restaurant: {
-    // Add restaurant KPI mappings when restaurant analytics API is implemented
+    "Total Revenue": "totalRevenue",
+    "Covers (Guests Served)": "covers",
+    Covers: "covers",
+    "Average Ticket Size": "averageTicketSize",
+    "Average Order Value (AOV)": "averageOrderValue",
+    "Average Order Value": "averageOrderValue",
+    "Prime Cost %": "primeCostPercent",
+    "Net Cash Flow": "netCashFlow",
   },
 };
 

@@ -35,7 +35,9 @@ export async function POST(req: Request) {
             ? "£"
             : currencyCode === "CHF"
               ? "CHF"
-              : "€";
+              : currencyCode === "MXN"
+                ? "MX$"
+                : "€";
 
     // Determine number format based on preference
     const numFormat = numberFormat || "1,000.00";

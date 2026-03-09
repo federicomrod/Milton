@@ -34,7 +34,7 @@ import {
   Building2,
 } from "lucide-react";
 
-const currencies = ["EUR", "USD", "GBP", "CHF"];
+const currencies = ["EUR", "USD", "GBP", "CHF", "MXN"];
 const dateFormats = ["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"];
 const numberFormats = ["1,000.00", "1.000,00"];
 const themes = ["light", "dark", "system"];
@@ -344,6 +344,7 @@ function getCurrencySymbol(currency: string): string {
     USD: "$",
     GBP: "£",
     CHF: "CHF",
+    MXN: "MX$",
   };
   return symbols[currency] || currency;
 }

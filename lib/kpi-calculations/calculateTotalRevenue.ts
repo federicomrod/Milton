@@ -1,5 +1,10 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 
+/**
+ * Total Revenue = Sum of order totals in the date range.
+ * Formula: Σ (each order's Total Amount) for orders where date is in [fromDate, toDate].
+ * Uses Orders table; fields: "Total Amount", "Date & Time" (or equivalents).
+ */
 export async function calculateTotalRevenue(
   supabase: SupabaseClient,
   userId: string,
@@ -77,56 +82,82 @@ export async function calculateTotalRevenue(
     }
   }
 
-  // Helper to parse dates
-  const parseDate = (dateStr: string | null | undefined): Date | null => {
-    if (!dateStr) return null;
-    if (dateStr.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/)) {
-      return new Date(dateStr.replace(" ", "T") + ":00");
+  const getVal = (obj: any, fallbacks: string[]): any => {
+    for (const fb of fallbacks) {
+      if (obj[fb] !== undefined && obj[fb] != null) return obj[fb];
+      const lower = fb.toLowerCase();
+      for (const key in obj) {
+        if (key.toLowerCase() === lower) return obj[key];
+      }
     }
-    if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-      return new Date(dateStr + "T00:00:00");
-    }
-    const parsed = new Date(dateStr);
-    return isNaN(parsed.getTime()) ? null : parsed;
+    return undefined;
   };
 
-  // Normalize order
+  const parseDate = (dateStr: any): Date | null => {
+    if (dateStr == null || dateStr === "") return null;
+    if (typeof dateStr === "number") {
+      const ms = dateStr > 1e12 ? dateStr : dateStr * 1000;
+      const p = new Date(ms);
+      return isNaN(p.getTime()) ? null : p;
+    }
+    if (typeof dateStr === "string") {
+      const s = dateStr.trim();
+      if (s.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/))
+        return new Date(s.replace(" ", "T") + ":00");
+      if (s.match(/^\d{4}-\d{2}-\d{2}/))
+        return new Date(s.substring(0, 10) + "T00:00:00");
+      const p = new Date(s);
+      if (!isNaN(p.getTime())) return p;
+    }
+    const p = new Date(dateStr);
+    return isNaN(p.getTime()) ? null : p;
+  };
+
+  const parseAmount = (val: any): number => {
+    if (val == null) return 0;
+    if (typeof val === "number" && !isNaN(val)) return val;
+    const s = String(val)
+      .trim()
+      .replace(/[$€£,\s]/g, "");
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const dateFallbacks = [
+    "Date & Time",
+    "Date &amp; Time",
+    "date",
+    "Date",
+    "order_date",
+    "Order Date",
+    "sale_date",
+    "created_at",
+  ];
+  const totalFallbacks = [
+    "Total Amount",
+    "Total",
+    "Amount",
+    "total",
+    "amount",
+    "revenue",
+    "Revenue",
+  ];
+
+  // Normalize order: extract date and total using field fallbacks
   const normalizeOrder = (o: any) => {
+    let dateStr = getVal(o, dateFallbacks);
+    if (dateStr == null) {
+      for (const k of Object.keys(o)) {
+        if (/date|time/i.test(k) && o[k]) {
+          dateStr = o[k];
+          break;
+        }
+      }
+    }
+    const totalVal = getVal(o, totalFallbacks);
     return {
-      date:
-        o.date ||
-        o.order_date ||
-        o.sale_date ||
-        o.created_at ||
-        o["Date"] ||
-        o["Order Date"] ||
-        o["Date & Time"] ||
-        o["Date &amp; Time"],
-      total:
-        typeof (
-          o.total ||
-          o.amount ||
-          o.revenue ||
-          o["Total"] ||
-          o["Amount"] ||
-          o["Total Amount"]
-        ) === "string"
-          ? parseFloat(
-              o.total ||
-                o.amount ||
-                o.revenue ||
-                o["Total"] ||
-                o["Amount"] ||
-                o["Total Amount"] ||
-                "0"
-            )
-          : o.total ||
-            o.amount ||
-            o.revenue ||
-            o["Total"] ||
-            o["Amount"] ||
-            o["Total Amount"] ||
-            0,
+      date: dateStr,
+      total: parseAmount(totalVal),
     };
   };
 

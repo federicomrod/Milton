@@ -2,6 +2,7 @@
 // Returns Cash Flow analytics (inflows/outflows, burn, cash balance/runway)
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { calculateNetCashFlow } from "@/lib/kpi-calculations/calculateNetCashFlow";
 
 function jsonNoStore(data: Record<string, unknown>) {
   const res = NextResponse.json(data);
@@ -373,8 +374,23 @@ export async function GET(req: NextRequest) {
         .reduce((sum, t) => sum + Math.abs(t.amount), 0)
     );
 
-    // Net cash flow
-    const netCashFlow = totalInflows - totalOutflows;
+    // Net cash flow: use same calculation as Dashboard KPI (Transactions + Invoices)
+    // so Dashboard card and Cash Flow tab show the same value
+    let netCashFlow = totalInflows - totalOutflows;
+    try {
+      const fromDateStr =
+        fromDateParam || fromDateStart.toISOString().slice(0, 10);
+      const toDateStr = toDateParam || toDateEnd.toISOString().slice(0, 10);
+      const ncfResult = await calculateNetCashFlow(
+        supabase,
+        user!.id,
+        fromDateStr,
+        toDateStr
+      );
+      netCashFlow = ncfResult.currentValue ?? netCashFlow;
+    } catch {
+      // fallback to local calculation
+    }
 
     // Inflows by category
     const inflowsByCategory = new Map<string, number>();

@@ -10,6 +10,7 @@ import { calculateAverageTicketSize } from "@/lib/kpi-calculations/calculateAver
 import { calculatePrimeCostPercent } from "@/lib/kpi-calculations/calculatePrimeCostPercent";
 import { calculateNetCashFlow } from "@/lib/kpi-calculations/calculateNetCashFlow";
 import { calculateMenuItemMargin } from "@/lib/kpi-calculations/calculateMenuItemMargin";
+import { calculateOrderCount } from "@/lib/kpi-calculations/calculateOrderCount";
 import {
   aovFromCapturedOrders,
   CAPTURED_ORDER_STATUSES,
@@ -315,6 +316,18 @@ export async function GET(req: NextRequest) {
       // no transactions or company; keep 0
     }
     let grossMargin = 0;
+    let orderCount = 0;
+    try {
+      const orderCountResult = await calculateOrderCount(
+        supabase,
+        user.id,
+        fromDate,
+        toDate
+      );
+      orderCount = orderCountResult.currentValue ?? 0;
+    } catch {
+      // no orders; keep 0
+    }
     try {
       const marginResult = await calculateMenuItemMargin(
         supabase,
@@ -338,6 +351,7 @@ export async function GET(req: NextRequest) {
         netCashFlow: parseFloat(netCashFlow.toFixed(2)),
         menuItemMargin: parseFloat(menuItemMargin.toFixed(2)),
         grossMargin: parseFloat(grossMargin.toFixed(2)),
+        orderCount: Math.round(orderCount),
       },
     };
 

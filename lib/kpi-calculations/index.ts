@@ -24,4 +24,5 @@ export { calculateAverageTicketSize } from "./calculateAverageTicketSize";
 export { calculateAverageOrderValue } from "./calculateAverageOrderValue";
 export { calculatePrimeCostPercent } from "./calculatePrimeCostPercent";
 export { calculateMenuItemMargin } from "./calculateMenuItemMargin";
+export { calculateOrderCount } from "./calculateOrderCount";
 export { aovFromCapturedOrders } from "./aovFromCapturedOrders";

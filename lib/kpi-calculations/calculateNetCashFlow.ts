@@ -23,8 +23,8 @@ export async function calculateNetCashFlow(
   );
   const invoices = await getModelDataRows(supabase, company.id, "invoices");
 
-  const from = new Date(fromDate);
-  const to = new Date(toDate);
+  const from = new Date(fromDate + "T00:00:00");
+  const toEnd = new Date(toDate + "T23:59:59.999");
   const monthlyStats: Record<string, { inflows: number; outflows: number }> =
     {};
 
@@ -99,7 +99,7 @@ export async function calculateNetCashFlow(
   // Process transactions
   transactions.forEach((t: any) => {
     const date = parseDate(t.date || t.Date || t.transaction_date);
-    if (!date || date < from || date >= to) return;
+    if (!date || date < from || date > toEnd) return;
 
     const period = toPeriod(date);
     if (!monthlyStats[period]) {
@@ -138,7 +138,7 @@ export async function calculateNetCashFlow(
     if (status !== "paid") return;
 
     const date = parseDate(inv.date || inv.Date || inv.invoice_date);
-    if (!date || date < from || date >= to) return;
+    if (!date || date < from || date > toEnd) return;
 
     const period = toPeriod(date);
     if (!monthlyStats[period]) {

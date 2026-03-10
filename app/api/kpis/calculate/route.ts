@@ -24,6 +24,8 @@ import {
   calculateRevenueGrowthRate,
   calculateAverageOrderValue,
   calculateMenuItemMargin,
+  calculateOrderCount,
+  calculateTotalRevenue,
 } from "@/lib/kpi-calculations";
 
 export async function POST(request: Request) {
@@ -297,6 +299,16 @@ export async function POST(request: Request) {
             console.log(`[KPI Calculate] Matched Runway for: ${kpi.name}`);
             result = await calculateRunway(supabase, user.id, fromDate, toDate);
           } else if (
+            kpiName?.includes("total revenue") ||
+            kpiName?.toLowerCase() === "total revenue"
+          ) {
+            result = await calculateTotalRevenue(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
             kpiName?.includes("revenue growth rate") ||
             kpiName?.includes("revenue growth")
           ) {
@@ -321,6 +333,18 @@ export async function POST(request: Request) {
             );
             console.log(
               `[KPI Calculate] AOV result: currentValue=${result?.currentValue}, historicalData.length=${result?.historicalData?.length ?? 0}`
+            );
+          } else if (
+            kpiName?.toLowerCase() === "orders" ||
+            kpiName?.includes("number of orders") ||
+            kpiName?.includes("# of orders") ||
+            (kpiName?.includes("orders") && kpiName?.includes("count"))
+          ) {
+            result = await calculateOrderCount(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
             );
           } else if (
             kpiName?.includes("menu item margin") ||

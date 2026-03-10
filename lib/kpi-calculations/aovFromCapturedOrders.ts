@@ -64,7 +64,11 @@ export async function aovFromCapturedOrders(
 
   const ordersData = allModelData.filter((row) => {
     const name = idToNameMap[row.model_table_id] || "";
-    return name === "orders" || name.includes("order") || name.includes("sale");
+    return (
+      name === "orders" ||
+      (name.includes("order") && !name.includes("item")) ||
+      name.includes("sale")
+    );
   });
   const orders: any[] = [];
   for (const row of ordersData) {
@@ -73,12 +77,14 @@ export async function aovFromCapturedOrders(
     else if (d && typeof d === "object") orders.push(d);
   }
 
-  const ordersTableId = Object.keys(idToNameMap).find(
-    (id) =>
-      idToNameMap[id] === "orders" ||
-      idToNameMap[id]?.includes("order") ||
-      idToNameMap[id]?.includes("sale")
-  );
+  const ordersTableId =
+    Object.keys(idToNameMap).find((id) => idToNameMap[id] === "orders") ??
+    Object.keys(idToNameMap).find(
+      (id) =>
+        (idToNameMap[id]?.includes("order") &&
+          !idToNameMap[id]?.includes("item")) ||
+        idToNameMap[id]?.includes("sale")
+    );
   const fields = ordersTableId
     ? tableFieldsMap[ordersTableId]?.fields || []
     : [];
@@ -361,7 +367,11 @@ export async function aovFromCapturedOrdersWithHistorical(
 
   const ordersData = allModelData.filter((row) => {
     const name = idToNameMap[row.model_table_id] || "";
-    return name === "orders" || name.includes("order") || name.includes("sale");
+    return (
+      name === "orders" ||
+      (name.includes("order") && !name.includes("item")) ||
+      name.includes("sale")
+    );
   });
   const orders: any[] = [];
   for (const row of ordersData) {
@@ -370,12 +380,14 @@ export async function aovFromCapturedOrdersWithHistorical(
     else if (d && typeof d === "object") orders.push(d);
   }
 
-  const ordersTableId = Object.keys(idToNameMap).find(
-    (id) =>
-      idToNameMap[id] === "orders" ||
-      idToNameMap[id]?.includes("order") ||
-      idToNameMap[id]?.includes("sale")
-  );
+  const ordersTableId =
+    Object.keys(idToNameMap).find((id) => idToNameMap[id] === "orders") ??
+    Object.keys(idToNameMap).find(
+      (id) =>
+        (idToNameMap[id]?.includes("order") &&
+          !idToNameMap[id]?.includes("item")) ||
+        idToNameMap[id]?.includes("sale")
+    );
   const fields = ordersTableId
     ? tableFieldsMap[ordersTableId]?.fields || []
     : [];

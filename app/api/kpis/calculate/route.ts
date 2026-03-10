@@ -23,6 +23,7 @@ import {
   calculateRunway,
   calculateRevenueGrowthRate,
   calculateAverageOrderValue,
+  calculateMenuItemMargin,
 } from "@/lib/kpi-calculations";
 
 export async function POST(request: Request) {
@@ -320,6 +321,16 @@ export async function POST(request: Request) {
             );
             console.log(
               `[KPI Calculate] AOV result: currentValue=${result?.currentValue}, historicalData.length=${result?.historicalData?.length ?? 0}`
+            );
+          } else if (
+            kpiName?.includes("menu item margin") ||
+            kpiName?.includes("gross margin")
+          ) {
+            result = await calculateMenuItemMargin(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
             );
           } else {
             console.log(

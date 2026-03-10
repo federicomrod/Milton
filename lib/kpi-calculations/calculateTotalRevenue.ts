@@ -56,12 +56,12 @@ export async function calculateTotalRevenue(
     }
   }
 
-  // Filter orders data
+  // Filter orders data (exclude Order Items - name must not include "item")
   const ordersData = allModelData.filter((row) => {
     const tableName = idToNameMap[row.model_table_id] || "";
     return (
       tableName === "orders" ||
-      tableName.includes("order") ||
+      (tableName.includes("order") && !tableName.includes("item")) ||
       tableName.includes("sale")
     );
   });

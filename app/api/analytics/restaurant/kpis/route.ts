@@ -9,6 +9,7 @@ import { calculateCovers } from "@/lib/kpi-calculations/calculateCovers";
 import { calculateAverageTicketSize } from "@/lib/kpi-calculations/calculateAverageTicketSize";
 import { calculatePrimeCostPercent } from "@/lib/kpi-calculations/calculatePrimeCostPercent";
 import { calculateNetCashFlow } from "@/lib/kpi-calculations/calculateNetCashFlow";
+import { calculateMenuItemMargin } from "@/lib/kpi-calculations/calculateMenuItemMargin";
 import {
   aovFromCapturedOrders,
   CAPTURED_ORDER_STATUSES,
@@ -301,6 +302,7 @@ export async function GET(req: NextRequest) {
     }
 
     let netCashFlow = 0;
+    let menuItemMargin = 0;
     try {
       const netCashFlowResult = await calculateNetCashFlow(
         supabase,
@@ -312,6 +314,19 @@ export async function GET(req: NextRequest) {
     } catch {
       // no transactions or company; keep 0
     }
+    let grossMargin = 0;
+    try {
+      const marginResult = await calculateMenuItemMargin(
+        supabase,
+        user.id,
+        fromDate,
+        toDate
+      );
+      menuItemMargin = marginResult.currentValue ?? 0;
+      grossMargin = menuItemMargin; // same formula: (Total_Sales - Cost) / Total_Sales × 100
+    } catch {
+      // no order items / menu items with COGS; keep 0
+    }
 
     const payload: Record<string, unknown> = {
       kpis: {
@@ -321,6 +336,8 @@ export async function GET(req: NextRequest) {
         averageOrderValue: parseFloat(averageTicketSize.toFixed(2)),
         primeCostPercent: parseFloat(primeCostPercent.toFixed(2)),
         netCashFlow: parseFloat(netCashFlow.toFixed(2)),
+        menuItemMargin: parseFloat(menuItemMargin.toFixed(2)),
+        grossMargin: parseFloat(grossMargin.toFixed(2)),
       },
     };
 

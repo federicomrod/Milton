@@ -197,6 +197,8 @@ export const DASHBOARD_KPI_MAPPINGS: Record<string, Record<string, string>> = {
     "Average Order Value": "averageOrderValue",
     "Prime Cost %": "primeCostPercent",
     "Net Cash Flow": "netCashFlow",
+    "Menu Item Margin": "menuItemMargin",
+    "Gross Margin": "grossMargin",
   },
 };
 

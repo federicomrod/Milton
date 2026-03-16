@@ -26,3 +26,10 @@ export { calculatePrimeCostPercent } from "./calculatePrimeCostPercent";
 export { calculateMenuItemMargin } from "./calculateMenuItemMargin";
 export { calculateOrderCount } from "./calculateOrderCount";
 export { aovFromCapturedOrders } from "./aovFromCapturedOrders";
+// E-Commerce KPIs
+export { calculateContributionMarginAfterMarketing } from "./calculateContributionMarginAfterMarketing";
+export { calculateCustomerAcquisitionCost } from "./calculateCustomerAcquisitionCost";
+export { calculateCacPaybackPeriod } from "./calculateCacPaybackPeriod";
+export { calculateMarketingEfficiency } from "./calculateMarketingEfficiency";
+export { calculateProductProfitability } from "./calculateProductProfitability";
+export { calculateGrowthQualityScore } from "./calculateGrowthQualityScore";

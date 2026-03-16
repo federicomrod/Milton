@@ -59,6 +59,13 @@ export default function DashboardView(
               no_show_rate: null,
               utilization_rate: null,
               average_class_size: null,
+              // E-Commerce KPIs
+              cmam: null,
+              cac: null,
+              cac_payback: null,
+              marketing_efficiency: null,
+              product_profitability: null,
+              growth_quality_score: null,
             });
           });
 
@@ -97,6 +104,40 @@ export default function DashboardView(
                   } else if (kpi.name === "Revenue Growth Rate") {
                     // Revenue Growth Rate (month-over-month %)
                     chartPoint.revenue_growth_rate = dataPoint.value;
+                  } else if (
+                    kpi.name
+                      ?.toLowerCase()
+                      .includes("contribution margin after marketing") ||
+                    kpi.name?.toLowerCase().includes("cmam")
+                  ) {
+                    chartPoint.cmam = dataPoint.value;
+                  } else if (
+                    kpi.name
+                      ?.toLowerCase()
+                      .includes("customer acquisition cost") &&
+                    !kpi.name?.toLowerCase().includes("payback")
+                  ) {
+                    chartPoint.cac = dataPoint.value;
+                  } else if (
+                    kpi.name?.toLowerCase().includes("cac payback") ||
+                    kpi.name?.toLowerCase().includes("payback period")
+                  ) {
+                    chartPoint.cac_payback = dataPoint.value;
+                  } else if (
+                    kpi.name?.toLowerCase().includes("marketing efficiency") ||
+                    kpi.name?.toLowerCase().includes("roas")
+                  ) {
+                    chartPoint.marketing_efficiency = dataPoint.value;
+                  } else if (
+                    kpi.name?.toLowerCase().includes("product profitability") ||
+                    kpi.name?.toLowerCase().includes("product margin")
+                  ) {
+                    chartPoint.product_profitability = dataPoint.value;
+                  } else if (
+                    kpi.name?.toLowerCase().includes("growth quality score") ||
+                    kpi.name?.toLowerCase().includes("growth quality")
+                  ) {
+                    chartPoint.growth_quality_score = dataPoint.value;
                   } else {
                     // Traditional financial KPIs
                     chartPoint.revenue = kpi.revenue ?? 0;
@@ -158,7 +199,14 @@ export default function DashboardView(
                 <div className="mt-2 text-2xl font-semibold text-gray-800">
                   {displayValue !== null && displayValue !== undefined
                     ? kpiInfo?.format === "percentage" ||
-                      kpiInfo?.name === "Revenue Growth Rate"
+                      kpiInfo?.name === "Revenue Growth Rate" ||
+                      kpiInfo?.name
+                        ?.toLowerCase()
+                        .includes("contribution margin after marketing") ||
+                      kpiInfo?.name?.toLowerCase().includes("cmam") ||
+                      kpiInfo?.name
+                        ?.toLowerCase()
+                        .includes("product profitability")
                       ? `${Number(displayValue).toFixed(1)}%`
                       : (displayValue.toFixed?.(1) ?? displayValue)
                     : "—"}
@@ -292,6 +340,95 @@ export default function DashboardView(
                       name="Revenue Growth Rate (%)"
                       connectNulls={false}
                       yAxisId="revenueGrowth"
+                    />
+                  )}
+                  {/* E-Commerce KPIs */}
+                  {kpiData.some(
+                    (kpi: any) =>
+                      kpi.name
+                        ?.toLowerCase()
+                        .includes("contribution margin after marketing") ||
+                      kpi.name?.toLowerCase().includes("cmam")
+                  ) && (
+                    <Line
+                      type="monotone"
+                      dataKey="cmam"
+                      stroke="#059669"
+                      name="CMAM (%)"
+                      connectNulls={false}
+                    />
+                  )}
+                  {kpiData.some(
+                    (kpi: any) =>
+                      kpi.name
+                        ?.toLowerCase()
+                        .includes("customer acquisition cost") &&
+                      !kpi.name?.toLowerCase().includes("payback")
+                  ) && (
+                    <Line
+                      type="monotone"
+                      dataKey="cac"
+                      stroke="#dc2626"
+                      name="CAC"
+                      connectNulls={false}
+                    />
+                  )}
+                  {kpiData.some(
+                    (kpi: any) =>
+                      kpi.name?.toLowerCase().includes("cac payback") ||
+                      kpi.name?.toLowerCase().includes("payback period")
+                  ) && (
+                    <Line
+                      type="monotone"
+                      dataKey="cac_payback"
+                      stroke="#ea580c"
+                      name="CAC Payback (months)"
+                      connectNulls={false}
+                    />
+                  )}
+                  {kpiData.some(
+                    (kpi: any) =>
+                      kpi.name
+                        ?.toLowerCase()
+                        .includes("marketing efficiency") ||
+                      kpi.name?.toLowerCase().includes("roas")
+                  ) && (
+                    <Line
+                      type="monotone"
+                      dataKey="marketing_efficiency"
+                      stroke="#7c3aed"
+                      name="Marketing Efficiency (ROAS)"
+                      connectNulls={false}
+                    />
+                  )}
+                  {kpiData.some(
+                    (kpi: any) =>
+                      kpi.name
+                        ?.toLowerCase()
+                        .includes("product profitability") ||
+                      kpi.name?.toLowerCase().includes("product margin")
+                  ) && (
+                    <Line
+                      type="monotone"
+                      dataKey="product_profitability"
+                      stroke="#2563eb"
+                      name="Product Profitability (%)"
+                      connectNulls={false}
+                    />
+                  )}
+                  {kpiData.some(
+                    (kpi: any) =>
+                      kpi.name
+                        ?.toLowerCase()
+                        .includes("growth quality score") ||
+                      kpi.name?.toLowerCase().includes("growth quality")
+                  ) && (
+                    <Line
+                      type="monotone"
+                      dataKey="growth_quality_score"
+                      stroke="#0891b2"
+                      name="Growth Quality Score"
+                      connectNulls={false}
                     />
                   )}
                   {/* Fallback for traditional KPIs */}

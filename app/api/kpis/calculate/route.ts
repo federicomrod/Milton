@@ -26,6 +26,12 @@ import {
   calculateMenuItemMargin,
   calculateOrderCount,
   calculateTotalRevenue,
+  calculateContributionMarginAfterMarketing,
+  calculateCustomerAcquisitionCost,
+  calculateCacPaybackPeriod,
+  calculateMarketingEfficiency,
+  calculateProductProfitability,
+  calculateGrowthQualityScore,
 } from "@/lib/kpi-calculations";
 
 export async function POST(request: Request) {
@@ -351,6 +357,66 @@ export async function POST(request: Request) {
             kpiName?.includes("gross margin")
           ) {
             result = await calculateMenuItemMargin(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("contribution margin after marketing") ||
+            kpiName?.includes("cmam")
+          ) {
+            result = await calculateContributionMarginAfterMarketing(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("cac payback") ||
+            kpiName?.includes("payback period")
+          ) {
+            result = await calculateCacPaybackPeriod(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("customer acquisition cost") ||
+            (kpiName?.includes("cac") && !kpiName?.includes("payback"))
+          ) {
+            result = await calculateCustomerAcquisitionCost(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("marketing efficiency") ||
+            kpiName?.includes("roas")
+          ) {
+            result = await calculateMarketingEfficiency(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("product profitability") ||
+            kpiName?.includes("product margin")
+          ) {
+            result = await calculateProductProfitability(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("growth quality score") ||
+            kpiName?.includes("growth quality")
+          ) {
+            result = await calculateGrowthQualityScore(
               supabase,
               user.id,
               fromDate,

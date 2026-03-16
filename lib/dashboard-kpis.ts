@@ -115,7 +115,29 @@ export async function fetchDashboardKpis(
         console.error(`Failed to fetch restaurant KPIs:`, response.status);
       }
     } else {
-      return {};
+      // E-Commerce (ecom) and other business types: use unified /api/kpis/calculate
+      const response = await fetch("/api/kpis/calculate", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from_date: fromDate,
+          to_date: toDate,
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const calculated = (data.calculatedKpis || []) as Array<{
+          id: string;
+          currentValue: number | null;
+        }>;
+        calculated.forEach((kpi) => {
+          if (kpi.id != null && kpi.currentValue != null) {
+            analyticsData[kpi.id] = kpi.currentValue;
+          }
+        });
+      }
     }
 
     // If we have selected KPIs, map analytics fields to KPI IDs
@@ -137,9 +159,11 @@ export async function fetchDashboardKpis(
 
         if (kpis) {
           kpis.forEach((kpi) => {
-            const apiField = mappings[kpi.name];
-            const value = analyticsData[apiField];
-            if (apiField && value !== undefined) {
+            // When no mappings (e.g. ecom), analyticsData is already keyed by KPI id from /api/kpis/calculate
+            const value = mappings
+              ? (analyticsData[mappings[kpi.name]] ?? analyticsData[kpi.id])
+              : analyticsData[kpi.id];
+            if (value !== undefined && value !== null) {
               result[kpi.id] = value;
             } else {
               result[kpi.id] = null;

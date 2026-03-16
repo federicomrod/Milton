@@ -70,15 +70,51 @@ export async function calculateTotalRevenue(
       tableName.includes("sale")
     );
   });
+  const invoicesData = allModelData.filter((row) => {
+    const tableName = idToNameMap[row.model_table_id] || "";
+    return tableName.includes("invoice");
+  });
+  const subscriptionsData = allModelData.filter((row) => {
+    const tableName = idToNameMap[row.model_table_id] || "";
+    return tableName.includes("subscription");
+  });
 
-  // Parse orders
   const orders: any[] = [];
   for (const row of ordersData) {
     const d = row.data as unknown;
-    if (Array.isArray(d)) {
-      orders.push(...d);
-    } else if (d && typeof d === "object") {
-      orders.push(d);
+    if (Array.isArray(d)) orders.push(...d);
+    else if (d && typeof d === "object") orders.push(d);
+  }
+  for (const row of invoicesData) {
+    const d = row.data as any;
+    if (
+      d &&
+      typeof d === "object" &&
+      (d["Type (AR = sales, AP = bill)"] === "AR" ||
+        d.Type === "AR" ||
+        d.type === "AR")
+    ) {
+      orders.push({
+        date: d["Issue Date"] ?? d.issue_date ?? d.date,
+        total: d["Total Amount"] ?? d.total_amount ?? d.total ?? d.amount ?? 0,
+      });
+    }
+  }
+  for (const row of subscriptionsData) {
+    const d = row.data as any;
+    if (d && typeof d === "object") {
+      const mrr =
+        d["Monthly Recurring Revenue"] ??
+        d.monthly_recurring_revenue ??
+        d.mrr ??
+        0;
+      const start = d["Start Date"] ?? d.start_date ?? d.date;
+      if (mrr && start) {
+        orders.push({
+          date: start,
+          total: typeof mrr === "number" ? mrr : parseFloat(String(mrr)) || 0,
+        });
+      }
     }
   }
 

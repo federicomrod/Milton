@@ -43,7 +43,7 @@ export function RestaurantOverview() {
     from: string;
     to: string;
   }>({
-    from: new Date(new Date().setMonth(new Date().getMonth() - 1))
+    from: new Date(new Date().setDate(new Date().getDate() - 90))
       .toISOString()
       .split("T")[0],
     to: new Date().toISOString().split("T")[0],

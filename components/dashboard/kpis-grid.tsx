@@ -151,9 +151,9 @@ function resolveDateRange(
     const y = new Date().getFullYear() - 1;
     return { from: `${y}-01-01`, to: `${y}-12-31` };
   }
-  // "month" — last 6 months for broader coverage
+  // "month" — last 90 days (same default as date picker for all business models)
   return {
-    from: new Date(new Date().setMonth(new Date().getMonth() - 6))
+    from: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
       .toISOString()
       .split("T")[0],
     to: today,

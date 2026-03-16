@@ -77,8 +77,8 @@ export function DashboardInsights() {
       const businessModel = businessModelData?.business_type;
       if (!businessModel) return null;
 
-      // Calculate date range (similar to dashboard page)
-      const fromDate = new Date(new Date().setMonth(new Date().getMonth() - 1))
+      // Calculate date range (90 days default for all business models)
+      const fromDate = new Date(new Date().setDate(new Date().getDate() - 90))
         .toISOString()
         .split("T")[0];
       const toDate = new Date().toISOString().split("T")[0];

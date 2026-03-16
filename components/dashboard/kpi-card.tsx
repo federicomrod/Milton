@@ -18,7 +18,7 @@ const getKpiDisplayFormat = (kpiName: string): KpiFormat => {
   const name = kpiName?.toLowerCase().trim();
 
   if (
-    name?.includes("rate") ||
+    (name?.includes("rate") && !name?.includes("burn")) ||
     name?.includes("percentage") ||
     name?.includes("utilization") ||
     name?.includes("no show") ||

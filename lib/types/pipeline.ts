@@ -42,4 +42,14 @@ export interface PipelineMetrics {
     percentage: string;
     avgDealSize: number;
   }>;
+  /** Total pipeline value (active deals only) */
+  totalPipelineValue: number;
+  /** Weighted pipeline value (amount * stage probability) */
+  weightedPipelineValue: number;
+  /** Unique clients with active deals */
+  activeCustomers: number;
+  /** Win rate: closed won / (closed won + closed lost) as 0–100 */
+  dealConversionRate: number;
+  /** Top client's share of pipeline value as 0–100 */
+  clientConcentrationPercent: number;
 }

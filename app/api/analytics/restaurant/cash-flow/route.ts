@@ -1,8 +1,12 @@
 // GET /api/analytics/restaurant/cash-flow?from_date=...&to_date=...&period=month|week
-// Returns Cash Flow analytics (inflows/outflows, burn, cash balance/runway)
+// Returns Cash Flow analytics. Burn rate and runway from unified kpi-calculations layer.
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { calculateNetCashFlow } from "@/lib/kpi-calculations/calculateNetCashFlow";
+import {
+  calculateNetCashFlow,
+  calculateRunway,
+  calculateBurnRate,
+} from "@/lib/kpi-calculations";
 
 function jsonNoStore(data: Record<string, unknown>) {
   const res = NextResponse.json(data);
@@ -438,30 +442,31 @@ export async function GET(req: NextRequest) {
       }))
       .sort((a, b) => b.amount - a.amount);
 
-    // Burn Rate (monthly expenses)
-    const daysInRange = Math.max(
-      1,
-      Math.ceil(
-        (toDateEnd.getTime() - fromDateStart.getTime()) / (1000 * 60 * 60 * 24)
-      )
-    );
-    const monthsInRange = daysInRange / 30;
-    const burnRate =
-      monthsInRange > 0
-        ? parseFloat((totalOutflows / monthsInRange).toFixed(2))
-        : null;
-
     // Cash Balance (if available in transactions - sum all transactions)
-    // This would ideally come from a balance sheet or account balance field
-    // For now, calculate from all transactions (not just in range)
     const allTransactions = transactions.map(normalizeTransaction);
     const cashBalance = allTransactions.reduce((sum, t) => sum + t.amount, 0);
 
-    // Cash Runway (months until cash runs out)
-    const cashRunway =
-      burnRate && burnRate > 0 && cashBalance > 0
-        ? parseFloat((cashBalance / burnRate).toFixed(1))
+    const fromDateStr = fromDateStart.toISOString().slice(0, 10);
+    const toDateStr = toDateEnd.toISOString().slice(0, 10);
+    const [runwayRes, burnRes] = await Promise.all([
+      calculateRunway(supabase, user!.id, fromDateStr, toDateStr).catch(() => ({
+        currentValue: null,
+      })),
+      calculateBurnRate(supabase, user!.id, fromDateStr, toDateStr).catch(
+        () => ({ currentValue: null })
+      ),
+    ]);
+
+    const burnRate =
+      burnRes.currentValue != null
+        ? parseFloat(Number(burnRes.currentValue).toFixed(2))
         : null;
+    const cashRunway =
+      runwayRes.currentValue != null
+        ? parseFloat(Number(runwayRes.currentValue).toFixed(1))
+        : burnRate != null && burnRate > 0 && cashBalance > 0
+          ? parseFloat((cashBalance / burnRate).toFixed(1))
+          : null;
 
     return jsonNoStore({
       inflows,

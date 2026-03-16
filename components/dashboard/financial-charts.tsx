@@ -22,6 +22,10 @@ interface ChartProps {
   onPeriodChange?: (period: "month" | "year" | "ytd" | "custom") => void;
   onCustomDateRangeChange?: (range: { from: string; to: string }) => void;
   showDatePicker?: boolean;
+  /** Analytics API segment (fitness-studio vs b2b-saas). Default fitness-studio. */
+  segment?: "fitness-studio" | "b2b-saas";
+  /** When provided, use this data instead of fetching (avoids double fetch and empty flash). */
+  data?: ChartData[] | WaterfallData[];
 }
 
 const CHART_TITLES = {
@@ -39,11 +43,19 @@ export function FinancialCharts({
   onPeriodChange,
   onCustomDateRangeChange,
   showDatePicker = false,
+  segment = "fitness-studio",
+  data: dataProp,
 }: ChartProps) {
-  const { data } = useChartData(type, period, customDateRange);
+  const { data: dataFromHook } = useChartData(
+    dataProp !== undefined ? "" : type,
+    period,
+    customDateRange,
+    segment
+  );
+  const data = dataProp !== undefined ? dataProp : dataFromHook;
 
   const renderChart = () => {
-    if (data.length === 0) {
+    if (!data || data.length === 0) {
       return (
         <div className="flex items-center justify-center h-64">
           <p className="text-gray-500">

@@ -1,7 +1,13 @@
 // GET /api/analytics/fitness-studio/members?from_date=...&to_date=...
-// Returns KPIs and chart data for members analytics
+// Returns KPIs and chart data for members analytics. Member KPIs from unified kpi-calculations layer.
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  calculateActiveMembers,
+  calculateNewMonthlyMembers,
+  calculateChurnedMonthlyMembers,
+  calculateAverageMemberTenure,
+} from "@/lib/kpi-calculations";
 
 function jsonNoStore(data: Record<string, unknown>) {
   const res = NextResponse.json(data);
@@ -95,6 +101,26 @@ export async function GET(req: NextRequest) {
     const toDate =
       req.nextUrl.searchParams.get("to_date") ||
       new Date().toISOString().split("T")[0];
+
+    // Member KPIs from unified layer (used below for activeMembers, newMembers, churnedMembers, avgTenure)
+    const [activeRes, newRes, churnedRes, tenureRes] = await Promise.all([
+      calculateActiveMembers(supabase, user.id, fromDate, toDate).catch(() => ({
+        currentValue: 0,
+      })),
+      calculateNewMonthlyMembers(supabase, user.id, fromDate, toDate).catch(
+        () => ({ currentValue: 0 })
+      ),
+      calculateChurnedMonthlyMembers(supabase, user.id, fromDate, toDate).catch(
+        () => ({ currentValue: 0 })
+      ),
+      calculateAverageMemberTenure(supabase, user.id, fromDate, toDate).catch(
+        () => ({ currentValue: 0 })
+      ),
+    ]);
+    const layerActiveMembers = activeRes.currentValue ?? 0;
+    const layerNewMembers = newRes.currentValue ?? 0;
+    const layerChurnedMembers = churnedRes.currentValue ?? 0;
+    const layerAvgTenure = tenureRes.currentValue ?? 0;
 
     console.log("[members-analytics] Date range:", { fromDate, toDate });
 
@@ -328,63 +354,11 @@ export async function GET(req: NextRequest) {
           f.name.toLowerCase().includes("time"))
     )?.name;
 
-    const activeMembers = members.filter((m: any) => {
-      const joinDateStr = joinDateField
-        ? getFieldValue(m, joinDateField, [
-            "join_date",
-            "joinDate",
-            "Join Date",
-          ])
-        : m.join_date || m.joinDate || m["Join Date"] || m["join_date"];
-      const cancelDateStr = cancelDateField
-        ? getFieldValue(m, cancelDateField, [
-            "cancel_date",
-            "cancelDate",
-            "Cancel Date",
-          ])
-        : m.cancel_date || m.cancelDate || m["Cancel Date"] || m["cancel_date"];
+    const activeMembers = layerActiveMembers;
 
-      const joinDate = parseDate(joinDateStr);
-      const cancelDate = parseDate(cancelDateStr);
-
-      if (!joinDate) {
-        // Log members without join dates for debugging
-        if (members.indexOf(m) < 3) {
-          console.log("[members-analytics] Member without join_date:", {
-            memberId: m.id || m.ID || m["ID"],
-            availableFields: Object.keys(m),
-            joinDateStr,
-          });
-        }
-        return false;
-      }
-
-      // Member is active if:
-      // 1. They joined on or before now
-      // 2. They haven't cancelled, OR they cancelled after now
-      const isActive =
-        joinDate <= activeMembersPeriodEnd &&
-        (!cancelDate || cancelDate > activeMembersPeriodEnd);
-
-      return isActive;
-    }).length;
-
-    console.log("[members-analytics] Active members calculation:", {
+    console.log("[members-analytics] Active members (from layer):", {
       totalMembers,
       activeMembers,
-      periodEnd: periodEnd.toISOString(),
-      now: now.toISOString(),
-      sampleJoinDates: members.slice(0, 5).map((m) => ({
-        raw: m.join_date || m.joinDate || m["Join Date"],
-        parsed: parseDate(
-          m.join_date || m.joinDate || m["Join Date"]
-        )?.toISOString(),
-        cancelRaw: m.cancel_date || m.cancelDate || m["Cancel Date"],
-        cancelParsed: parseDate(
-          m.cancel_date || m.cancelDate || m["Cancel Date"]
-        )?.toISOString(),
-        status: m.status || m.Status,
-      })),
     });
 
     const inactiveMembers = totalMembers - activeMembers;
@@ -573,69 +547,13 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // KPI 5: Net Growth (New - Churn)
-    const newMembers = members.filter((m: any) => {
-      const joinDateStr = joinDateField
-        ? getFieldValue(m, joinDateField, [
-            "join_date",
-            "joinDate",
-            "Join Date",
-          ])
-        : m.join_date || m.joinDate || m["Join Date"] || m["join_date"];
-      const joinDate = parseDate(joinDateStr);
-      if (!joinDate) return false;
-      return joinDate >= periodFrom && joinDate <= periodTo;
-    }).length;
-
-    const churnedMembers = members.filter((m: any) => {
-      const cancelDateStr = cancelDateField
-        ? getFieldValue(m, cancelDateField, [
-            "cancel_date",
-            "cancelDate",
-            "Cancel Date",
-          ])
-        : m.cancel_date || m.cancelDate || m["Cancel Date"] || m["cancel_date"];
-      const cancelDate = parseDate(
-        m.cancel_date || m.cancelDate || m["Cancel Date"] || m["cancel_date"]
-      );
-      if (!cancelDate) return false;
-      return cancelDate >= periodFrom && cancelDate <= periodTo;
-    }).length;
-
+    // KPI 5: Net Growth (New - Churn) — newMembers, churnedMembers from layer
+    const newMembers = layerNewMembers;
+    const churnedMembers = layerChurnedMembers;
     const netGrowth = newMembers - churnedMembers;
 
-    // KPI 6: Average Tenure (Months)
-    const activeMembersWithTenure = members.filter((m: any) => {
-      const joinDate = parseDate(
-        m.join_date || m.joinDate || m["Join Date"] || m["join_date"]
-      );
-      const cancelDate = parseDate(
-        m.cancel_date || m.cancelDate || m["Cancel Date"] || m["cancel_date"]
-      );
-      if (!joinDate) return false;
-      return joinDate <= periodEnd && (!cancelDate || cancelDate > periodEnd);
-    });
-
-    const avgTenure =
-      activeMembersWithTenure.length > 0
-        ? activeMembersWithTenure.reduce((sum: number, m: any) => {
-            const joinDate = parseDate(
-              m.join_date || m.joinDate || m["Join Date"] || m["join_date"]
-            );
-            const cancelDate = parseDate(
-              m.cancel_date ||
-                m.cancelDate ||
-                m["Cancel Date"] ||
-                m["cancel_date"]
-            );
-            const endDate = cancelDate || now;
-            if (!joinDate) return sum;
-            const months =
-              (endDate.getTime() - joinDate.getTime()) /
-              (1000 * 60 * 60 * 24 * 30);
-            return sum + months;
-          }, 0) / activeMembersWithTenure.length
-        : 0;
+    // KPI 6: Average Tenure (Months) — from layer
+    const avgTenure = layerAvgTenure;
 
     // Chart 1: Tenure Distribution
     const tenureDistribution = {

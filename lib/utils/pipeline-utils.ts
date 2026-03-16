@@ -46,24 +46,37 @@ export const normalizeStage = (value: string): string => {
     return value;
   }
 
-  // Try to match by partial string matching
+  // Try to match by partial string matching (order matters: check closed won/lost first)
+  if (normalized.includes("no deal") || normalized.includes("lost")) {
+    return "No Deal";
+  }
+  if (
+    normalized.includes("won") ||
+    (normalized.includes("closed") && !normalized.includes("lost"))
+  ) {
+    return "Deal";
+  }
   if (normalized.includes("lead") || normalized.includes("generation")) {
     return "Lead Generation";
   }
   if (normalized.includes("first") && normalized.includes("contact")) {
     return "First Contact";
   }
-  if (normalized.includes("qualification") || normalized.includes("qualify")) {
+  if (normalized.includes("proposal")) {
+    return "First Contact";
+  }
+  if (
+    normalized.includes("qualification") ||
+    normalized.includes("qualify") ||
+    normalized.includes("qualified")
+  ) {
     return "Need Qualification";
   }
   if (normalized.includes("negotiation") || normalized.includes("negotiate")) {
     return "Negotiation";
   }
-  if (normalized.includes("deal") && !normalized.includes("no")) {
+  if (normalized.includes("deal")) {
     return "Deal";
-  }
-  if (normalized.includes("no deal") || normalized.includes("lost")) {
-    return "No Deal";
   }
 
   // Default fallback

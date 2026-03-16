@@ -1,7 +1,14 @@
 // GET /api/analytics/fitness-studio/classes-utilization?from_date=...&to_date=...&period=month|week
-// Returns KPIs and tables for Classes & Utilization analytics
+// Returns KPIs and tables for Classes & Utilization analytics. KPI values from unified kpi-calculations layer.
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  calculateAverageClassOccupancy,
+  calculateRevenuePerClass,
+  calculateCancellationRate,
+  calculateUtilizationRate,
+  calculateAverageClassSize,
+} from "@/lib/kpi-calculations";
 
 function jsonNoStore(data: Record<string, unknown>) {
   const res = NextResponse.json(data);
@@ -556,7 +563,9 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    const avgClassOccupancy =
+    // KPI from layer below; keep local computation for reference
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- replaced by layer
+    const _avgClassOccupancy =
       occurrenceCount > 0 ? totalOccupancy / occurrenceCount : 0;
 
     // KPI 2: Revenue per Class (average revenue per class occurrence)
@@ -588,7 +597,8 @@ export async function GET(req: NextRequest) {
       (sum, rev) => sum + rev,
       0
     );
-    const revenuePerClass =
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- replaced by layer
+    const _revenuePerClass =
       revenueByOccurrence.size > 0
         ? totalRevenue / revenueByOccurrence.size
         : 0;
@@ -626,7 +636,8 @@ export async function GET(req: NextRequest) {
       const status = (b.status || "").toLowerCase();
       return status === "cancelled";
     }).length;
-    const cancellationRate =
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- replaced by layer
+    const _cancellationRate =
       finalBookings.length > 0 ? (cancelled / finalBookings.length) * 100 : 0;
 
     // No Show Rate (%): no_show / (attended + no_show) — booked spots where member did not attend
@@ -689,7 +700,8 @@ export async function GET(req: NextRequest) {
         averageClassSizeByPeriodMap.set(occ.period, p);
       }
     });
-    const averageClassSize =
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- replaced by layer
+    const _averageClassSize =
       classOccurrenceCount > 0 ? totalAttendees / classOccurrenceCount : 0;
     const averageClassSizeByPeriod = Array.from(
       averageClassSizeByPeriodMap.entries()
@@ -959,145 +971,110 @@ export async function GET(req: NextRequest) {
     const prevFromDate = new Date(prevToDate.getTime() - periodDuration);
     prevFromDate.setHours(0, 0, 0, 0);
 
-    // Fetch previous period data for trend calculation
-    const prevBookingsInRange = normalizedBookings.filter((b: any) => {
-      let startAtStr = b.class_start_at;
-      // If no date in booking, try to get it from the class
-      if (!startAtStr && b.class_id) {
-        const classData = classMap.get(b.class_id);
-        if (classData && (classData as any).date) {
-          startAtStr = (classData as any).date;
-        }
-      }
-      if (!startAtStr) return false;
-      const startAt = new Date(startAtStr);
-      if (!startAt || isNaN(startAt.getTime())) return false;
-      return startAt >= prevFromDate && startAt <= prevToDate;
-    });
+    // KPI values and trends from unified kpi-calculations layer
+    const fromDateStr = fromDateStart.toISOString().slice(0, 10);
+    const toDateStr = toDateEnd.toISOString().slice(0, 10);
+    const prevFromDateStr = prevFromDate.toISOString().slice(0, 10);
+    const prevToDateStr = prevToDate.toISOString().slice(0, 10);
 
-    // Calculate previous period KPIs
-    const prevClassOccurrences = new Map<
-      string,
-      { filled: number; capacity: number }
-    >();
+    const layerResults = await Promise.all([
+      calculateAverageClassOccupancy(
+        supabase,
+        user!.id,
+        fromDateStr,
+        toDateStr
+      ).catch(() => ({ currentValue: 0 })),
+      calculateRevenuePerClass(
+        supabase,
+        user!.id,
+        fromDateStr,
+        toDateStr
+      ).catch(() => ({ currentValue: 0 })),
+      calculateCancellationRate(
+        supabase,
+        user!.id,
+        fromDateStr,
+        toDateStr
+      ).catch(() => ({ currentValue: 0 })),
+      calculateUtilizationRate(
+        supabase,
+        user!.id,
+        fromDateStr,
+        toDateStr
+      ).catch(() => ({ currentValue: 0 })),
+      calculateAverageClassSize(
+        supabase,
+        user!.id,
+        fromDateStr,
+        toDateStr
+      ).catch(() => ({ currentValue: 0 })),
+      calculateAverageClassOccupancy(
+        supabase,
+        user!.id,
+        prevFromDateStr,
+        prevToDateStr
+      ).catch(() => ({ currentValue: 0 })),
+      calculateRevenuePerClass(
+        supabase,
+        user!.id,
+        prevFromDateStr,
+        prevToDateStr
+      ).catch(() => ({ currentValue: 0 })),
+      calculateCancellationRate(
+        supabase,
+        user!.id,
+        prevFromDateStr,
+        prevToDateStr
+      ).catch(() => ({ currentValue: 0 })),
+      calculateUtilizationRate(
+        supabase,
+        user!.id,
+        prevFromDateStr,
+        prevToDateStr
+      ).catch(() => ({ currentValue: 0 })),
+      calculateAverageClassSize(
+        supabase,
+        user!.id,
+        prevFromDateStr,
+        prevToDateStr
+      ).catch(() => ({ currentValue: 0 })),
+    ]);
 
-    prevBookingsInRange.forEach((b: any) => {
-      const classId = b.class_id;
-      const classData = classMap.get(classId);
-      if (!classData) return;
+    const [
+      currOcc,
+      currRev,
+      currCanc,
+      currUtil,
+      currSize,
+      prevOcc,
+      prevRev,
+      prevCanc,
+    ] = layerResults.map((r) => r.currentValue ?? 0).slice(0, 8);
+    const trendPct = (curr: number, prev: number) =>
+      prev > 0 ? ((curr - prev) / prev) * 100 : curr > 0 ? 100 : 0;
 
-      const capacity = classData.capacity || 0;
-      const startAtStr = b.class_start_at || b.booking_time || b.date || "";
-      const key = `${classId}_${startAtStr}`;
-
-      if (!prevClassOccurrences.has(key)) {
-        prevClassOccurrences.set(key, { filled: 0, capacity });
-      }
-
-      const occurrence = prevClassOccurrences.get(key)!;
-      const status = (b.status || "").toLowerCase();
-      if (status === "booked" || status === "attended") {
-        occurrence.filled += 1;
-      }
-    });
-
-    let prevTotalOccupancy = 0;
-    let prevOccurrenceCount = 0;
-    prevClassOccurrences.forEach((occ) => {
-      if (occ.capacity > 0) {
-        prevTotalOccupancy += (occ.filled / occ.capacity) * 100;
-        prevOccurrenceCount += 1;
-      }
-    });
-
-    const prevAvgClassOccupancy =
-      prevOccurrenceCount > 0 ? prevTotalOccupancy / prevOccurrenceCount : 0;
-
-    // Previous period revenue per class
-    const prevRevenueByOccurrence = new Map<string, number>();
-    prevBookingsInRange.forEach((b: any) => {
-      const status = (b.status || "").toLowerCase();
-      if (status === "booked" || status === "attended") {
-        const startAtStr = b.class_start_at || b.booking_time || b.date || "";
-        const key = `${b.class_id}_${startAtStr}`;
-        // price_paid might be in bookings or might need to come from payments table
-        const pricePaid =
-          typeof b.price_paid === "string"
-            ? parseFloat(b.price_paid)
-            : b.price_paid ||
-              (typeof b.price === "string" ? parseFloat(b.price) : b.price) ||
-              0;
-
-        const current = prevRevenueByOccurrence.get(key) || 0;
-        prevRevenueByOccurrence.set(key, current + pricePaid);
-      }
-    });
-
-    const prevTotalRevenue = Array.from(
-      prevRevenueByOccurrence.values()
-    ).reduce((sum, rev) => sum + rev, 0);
-    const prevRevenuePerClass =
-      prevRevenueByOccurrence.size > 0
-        ? prevTotalRevenue / prevRevenueByOccurrence.size
-        : 0;
-
-    // Previous period cancellation rate
-    const prevFinalBookings = prevBookingsInRange.filter((b: any) =>
-      (() => {
-        const status = (b.status || "").toLowerCase();
-        return (
-          status === "attended" ||
-          status === "no_show" ||
-          status === "cancelled" ||
-          status === "booked"
-        );
-      })()
-    );
-    const prevCancelled = prevBookingsInRange.filter((b: any) => {
-      const status = (b.status || "").toLowerCase();
-      return status === "cancelled";
-    }).length;
-    const prevCancellationRate =
-      prevFinalBookings.length > 0
-        ? (prevCancelled / prevFinalBookings.length) * 100
-        : 0;
-
-    // Calculate trend percentages
-    const occupancyTrend =
-      prevAvgClassOccupancy > 0
-        ? ((avgClassOccupancy - prevAvgClassOccupancy) /
-            prevAvgClassOccupancy) *
-          100
-        : 0;
-
-    const revenueTrend =
-      prevRevenuePerClass > 0
-        ? ((revenuePerClass - prevRevenuePerClass) / prevRevenuePerClass) * 100
-        : 0;
-
-    const cancellationTrend =
-      prevCancellationRate > 0
-        ? ((cancellationRate - prevCancellationRate) / prevCancellationRate) *
-          100
-        : cancellationRate > 0
-          ? 100 // If previous was 0 and current > 0, it's a 100% increase
-          : 0;
+    const layerKpis = {
+      avgClassOccupancy: parseFloat(Number(currOcc).toFixed(2)),
+      averageClassSize: parseFloat(Number(currSize).toFixed(2)),
+      revenuePerClass: parseFloat(Number(currRev).toFixed(2)),
+      cancellationRate: parseFloat(Number(currCanc).toFixed(2)),
+      capacityUtilization: parseFloat(Number(currUtil).toFixed(2)),
+    };
+    const layerTrends = {
+      avgClassOccupancy: parseFloat(
+        trendPct(currOcc as number, prevOcc as number).toFixed(1)
+      ),
+      revenuePerClass: parseFloat(
+        trendPct(currRev as number, prevRev as number).toFixed(1)
+      ),
+      cancellationRate: parseFloat(
+        trendPct(currCanc as number, prevCanc as number).toFixed(1)
+      ),
+    };
 
     return jsonNoStore({
-      kpis: {
-        avgClassOccupancy: parseFloat(avgClassOccupancy.toFixed(2)),
-        averageClassSize: parseFloat(averageClassSize.toFixed(2)),
-        revenuePerClass: parseFloat(revenuePerClass.toFixed(2)),
-        cancellationRate: parseFloat(cancellationRate.toFixed(2)),
-        capacityUtilization: parseFloat(capacityUtilization.toFixed(2)),
-        noShowRate: parseFloat(noShowRate.toFixed(2)),
-      },
-      trends: {
-        avgClassOccupancy: parseFloat(occupancyTrend.toFixed(1)),
-        revenuePerClass: parseFloat(revenueTrend.toFixed(1)),
-        cancellationRate: parseFloat(cancellationTrend.toFixed(1)),
-      },
-      averageClassSizeByPeriod,
+      kpis: { ...layerKpis, noShowRate: parseFloat(noShowRate.toFixed(2)) },
+      trends: layerTrends,
       topPerformingClasses: topPerformingClasses,
       occupancyByType: occupancyByTypeArray,
       hourlyUtilization: {

@@ -1,8 +1,9 @@
 // GET /api/analytics/fitness-studio/cash-flow?from_date=...&to_date=...&period=month|year|ytd|custom
-// Returns Cash Flow transactions for fitness studio
+// Returns Cash Flow transactions and (when available) runway/burn from unified kpi-calculations layer.
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { TransactionData } from "@/lib/types/data";
+import { calculateRunway, calculateBurnRate } from "@/lib/kpi-calculations";
 
 function jsonNoStore(data: Record<string, unknown>) {
   const res = NextResponse.json(data);
@@ -305,7 +306,22 @@ export async function GET(req: NextRequest) {
       return txDate >= fromDate && txDate <= toDate;
     });
 
-    return jsonNoStore({ transactions: filteredTransactions });
+    const fromDateStr = fromDate.toISOString().slice(0, 10);
+    const toDateStr = toDate.toISOString().slice(0, 10);
+    const [runwayRes, burnRes] = await Promise.all([
+      calculateRunway(supabase, user!.id, fromDateStr, toDateStr).catch(() => ({
+        currentValue: null,
+      })),
+      calculateBurnRate(supabase, user!.id, fromDateStr, toDateStr).catch(
+        () => ({ currentValue: null })
+      ),
+    ]);
+
+    return jsonNoStore({
+      transactions: filteredTransactions,
+      runwayMonths: runwayRes.currentValue ?? undefined,
+      burnRate: burnRes.currentValue ?? undefined,
+    });
   } catch (err) {
     console.error(
       "[api/analytics/fitness-studio/cash-flow] Unexpected error:",

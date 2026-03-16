@@ -22,10 +22,15 @@ import {
   calculateNetCashFlow,
   calculateRunway,
   calculateRevenueGrowthRate,
+  calculateTotalRevenue,
+  calculateTotalExpenses,
+  calculateMRR,
   calculateAverageOrderValue,
   calculateMenuItemMargin,
   calculateOrderCount,
-  calculateTotalRevenue,
+  calculateCovers,
+  calculateAverageTicketSize,
+  calculatePrimeCostPercent,
   calculateContributionMarginAfterMarketing,
   calculateCustomerAcquisitionCost,
   calculateCacPaybackPeriod,
@@ -304,11 +309,18 @@ export async function POST(request: Request) {
           } else if (kpiName?.includes("runway")) {
             console.log(`[KPI Calculate] Matched Runway for: ${kpi.name}`);
             result = await calculateRunway(supabase, user.id, fromDate, toDate);
-          } else if (
-            kpiName?.includes("total revenue") ||
-            kpiName?.toLowerCase() === "total revenue"
-          ) {
+          } else if (kpiName?.includes("total revenue")) {
             result = await calculateTotalRevenue(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("total expenses") ||
+            kpiName?.includes("total costs")
+          ) {
+            result = await calculateTotalExpenses(
               supabase,
               user.id,
               fromDate,
@@ -324,6 +336,11 @@ export async function POST(request: Request) {
               fromDate,
               toDate
             );
+          } else if (
+            kpiName?.includes("mrr") ||
+            kpiName?.includes("monthly recurring revenue")
+          ) {
+            result = await calculateMRR(supabase, user.id, fromDate, toDate);
           } else if (
             kpiName?.includes("average order value") ||
             kpiName?.includes("aov")
@@ -341,12 +358,37 @@ export async function POST(request: Request) {
               `[KPI Calculate] AOV result: currentValue=${result?.currentValue}, historicalData.length=${result?.historicalData?.length ?? 0}`
             );
           } else if (
+            kpiName?.includes("average ticket size") ||
+            kpiName?.includes("average ticket")
+          ) {
+            result = await calculateAverageTicketSize(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
             kpiName?.toLowerCase() === "orders" ||
             kpiName?.includes("number of orders") ||
             kpiName?.includes("# of orders") ||
             (kpiName?.includes("orders") && kpiName?.includes("count"))
           ) {
             result = await calculateOrderCount(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("covers") ||
+            kpiName?.includes("guests served")
+          ) {
+            result = await calculateCovers(supabase, user.id, fromDate, toDate);
+          } else if (
+            kpiName?.includes("prime cost") ||
+            kpiName?.includes("prime cost %")
+          ) {
+            result = await calculatePrimeCostPercent(
               supabase,
               user.id,
               fromDate,

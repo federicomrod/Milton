@@ -9,10 +9,68 @@ import {
 export function calculatePipelineMetrics(dealsData: Deal[]): PipelineMetrics {
   const allDeals = dealsData;
 
+  const getStage = (d: Deal) => (d.stage ?? d.phase ?? "").trim();
+  const getCloseDate = (d: Deal) => d.close_date ?? d.closing_date ?? "";
+
+  // Active deals (exclude closed won and closed lost)
+  const activeDealsList = allDeals.filter((d) => {
+    const norm = normalizeStage(getStage(d));
+    return norm !== "No Deal" && norm !== "Deal";
+  });
+  const totalPipelineValue = activeDealsList.reduce(
+    (sum, d) => sum + Number(d.amount || 0),
+    0
+  );
+  const weightedPipelineValue = activeDealsList.reduce(
+    (sum, d) =>
+      sum +
+      Number(d.amount || 0) * (PHASE_WEIGHTS[normalizeStage(getStage(d))] ?? 0),
+    0
+  );
+  const activeCustomers = new Set(
+    activeDealsList
+      .map((d) =>
+        String(d.client_name ?? (d as any).company ?? "")
+          .trim()
+          .toLowerCase()
+      )
+      .filter((s) => s !== "")
+  ).size;
+  const closedWonList = allDeals.filter((d) => {
+    const norm = normalizeStage(getStage(d));
+    return norm === "Deal" && getCloseDate(d);
+  });
+  const closedLostList = allDeals.filter((d) => {
+    const norm = normalizeStage(getStage(d));
+    return norm === "No Deal" && getCloseDate(d);
+  });
+  const totalClosed = closedWonList.length + closedLostList.length;
+  const dealConversionRate =
+    totalClosed === 0
+      ? 0
+      : Math.round((closedWonList.length / totalClosed) * 1000) / 10;
+  const clientValueByClient = activeDealsList.reduce<Record<string, number>>(
+    (acc, d) => {
+      const key =
+        String(d.client_name ?? (d as any).company ?? "").trim() || "Unknown";
+      acc[key] = (acc[key] || 0) + Number(d.amount || 0);
+      return acc;
+    },
+    {}
+  );
+  const sortedClients = Object.entries(clientValueByClient).sort(
+    (a, b) => b[1] - a[1]
+  );
+  const topClientValue = sortedClients[0]?.[1] ?? 0;
+  const clientConcentrationPercent =
+    totalPipelineValue > 0 && topClientValue > 0
+      ? Math.round((topClientValue / totalPipelineValue) * 1000) / 10
+      : 0;
+
   // Pipeline by phase
   const phaseData = PHASE_ORDER.map((phase) => {
     const phaseDeals = allDeals.filter(
-      (d) => normalizeStage(d.stage || "") === phase
+      (d) => normalizeStage(getStage(d)) === phase
     );
 
     return {
@@ -32,7 +90,7 @@ export function calculatePipelineMetrics(dealsData: Deal[]): PipelineMetrics {
 
   const funnelData = activePhasesData.map((phase) => {
     const phaseDeals = allDeals.filter(
-      (d) => normalizeStage(d.stage || "") === phase
+      (d) => normalizeStage(getStage(d)) === phase
     );
     const count = phaseDeals.length;
     const totalDeals = allDeals.length;
@@ -55,11 +113,12 @@ export function calculatePipelineMetrics(dealsData: Deal[]): PipelineMetrics {
   // Aggregate closed deals by product
   const productTotals = allDeals
     .filter((d) => {
-      const normalizedStage = normalizeStage(d.stage || "");
-      return normalizedStage === "Deal" && d.product;
+      const normalizedStage = normalizeStage(getStage(d));
+      return normalizedStage === "Deal" && (d.product ?? (d as any).Product);
     })
     .reduce<Record<string, number>>((acc, deal) => {
-      const key = (deal.product || "Unspecified").trim() || "Unspecified";
+      const product = deal.product ?? (deal as any).Product ?? "Unspecified";
+      const key = String(product).trim() || "Unspecified";
       acc[key] = (acc[key] || 0) + Number(deal.amount || 0);
       return acc;
     }, {});
@@ -77,12 +136,19 @@ export function calculatePipelineMetrics(dealsData: Deal[]): PipelineMetrics {
   }
 
   const closedDeals = dealsData.filter((d) => {
-    const normalizedStage = normalizeStage(d.stage || "");
-    return normalizedStage === "Deal" && d.close_date && d.created_date;
+    const normalizedStage = normalizeStage(getStage(d));
+    const closeDate = getCloseDate(d);
+    const createdDate = d.created_date ?? (d as any).first_appointment ?? "";
+    return normalizedStage === "Deal" && closeDate && createdDate;
   });
 
   const salesCycles = closedDeals
-    .map((d) => daysBetween(d.created_date, d.close_date))
+    .map((d) =>
+      daysBetween(
+        d.created_date ?? (d as any).first_appointment,
+        d.close_date ?? d.closing_date
+      )
+    )
     .filter((n): n is number => n != null && !Number.isNaN(n) && n > 0);
 
   const avgSalesCycle =
@@ -127,10 +193,11 @@ export function calculatePipelineMetrics(dealsData: Deal[]): PipelineMetrics {
 
       // Add deals to appropriate month and phase
       allDeals.forEach((deal) => {
-        if (deal.close_date) {
-          const dealDate = new Date(deal.close_date);
+        const closeDate = getCloseDate(deal);
+        if (closeDate) {
+          const dealDate = new Date(closeDate);
           const dealYearMonth = `${dealDate.getFullYear()}-${String(dealDate.getMonth() + 1).padStart(2, "0")}`;
-          const normPhase = normalizeStage(deal.stage || "");
+          const normPhase = normalizeStage(getStage(deal));
           if (
             dealYearMonth === yearMonth &&
             normPhase !== "No Deal" &&
@@ -162,11 +229,11 @@ export function calculatePipelineMetrics(dealsData: Deal[]): PipelineMetrics {
   })();
 
   // Top 10 deals (closed deals only)
-  // Filter for deals with stage "Deal" (normalized display name) or "deal" (lowercase)
   const topDeals = [...allDeals]
     .filter((d) => {
-      const normalizedStage = normalizeStage(d.stage || "");
-      const hasCloseDate = d.close_date && d.close_date.trim() !== "";
+      const normalizedStage = normalizeStage(getStage(d));
+      const closeDate = getCloseDate(d);
+      const hasCloseDate = closeDate && String(closeDate).trim() !== "";
       const hasAmount = d.amount && Number(d.amount) > 0;
       return normalizedStage === "Deal" && hasCloseDate && hasAmount;
     })
@@ -178,7 +245,7 @@ export function calculatePipelineMetrics(dealsData: Deal[]): PipelineMetrics {
         (d.id ? `Deal ${String(d.id).slice(0, 8)}` : "Unnamed Deal"),
       client: d.client_name || d.company || "(No Client)",
       amount: Number(d.amount) || 0,
-      phase: normalizeStage(d.stage || ""),
+      phase: normalizeStage(getStage(d)),
       id: d.id,
     }));
 
@@ -190,5 +257,10 @@ export function calculatePipelineMetrics(dealsData: Deal[]): PipelineMetrics {
     conversionRates: [],
     topDeals: topDeals,
     pipelineForecast: pipelineForecast,
+    totalPipelineValue,
+    weightedPipelineValue,
+    activeCustomers,
+    dealConversionRate,
+    clientConcentrationPercent,
   };
 }

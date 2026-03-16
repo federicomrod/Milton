@@ -1,7 +1,8 @@
 // GET /api/analytics/restaurant/operations?from_date=...&to_date=...&period=month|week
-// Returns Operations analytics (covers, table utilization, peak times, reservations)
+// Returns Operations analytics (covers, table utilization, peak times, reservations). Total covers from kpi-calculations layer.
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { calculateCovers } from "@/lib/kpi-calculations";
 
 function jsonNoStore(data: Record<string, unknown>) {
   const res = NextResponse.json(data);
@@ -734,12 +735,24 @@ export async function GET(req: NextRequest) {
           }
         : null;
 
+    const fromDateStr = fromDateStart.toISOString().slice(0, 10);
+    const toDateStr = toDateEnd.toISOString().slice(0, 10);
+    const coversRes = await calculateCovers(
+      supabase,
+      user!.id,
+      fromDateStr,
+      toDateStr
+    ).catch(() => ({ currentValue: 0 }));
+
     return jsonNoStore({
       coversByDay: coversByDayArray,
       coversByHour: coversByHourArray,
       tableUtilization,
       peakTimes,
       reservationsEffectiveness,
+      kpis: {
+        totalCovers: coversRes.currentValue ?? totalCovers,
+      },
     });
   } catch (err) {
     console.error(
@@ -752,6 +765,7 @@ export async function GET(req: NextRequest) {
       tableUtilization: null,
       peakTimes: [],
       reservationsEffectiveness: null,
+      kpis: { totalCovers: 0 },
     });
   }
 }

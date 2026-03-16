@@ -2,94 +2,122 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatCurrency as formatCurrencyUtil } from "@/lib/utils/formatters";
-import { normalizeStage } from "@/lib/utils/pipeline-utils";
-import type { Deal } from "@/lib/types/pipeline";
+import {
+  formatCurrency as formatCurrencyUtil,
+  formatPercentage,
+} from "@/lib/utils/formatters";
 import type { PipelineMetrics } from "@/lib/types/pipeline";
+import {
+  DollarSign,
+  BarChart3,
+  Users,
+  PieChart,
+  TrendingUp,
+  type LucideIcon,
+} from "lucide-react";
 
 interface PipelineSummaryCardsProps {
-  allDeals: Deal[];
   metrics: PipelineMetrics;
+  totalRevenue: number;
   currency: string;
   numberFormat?: string;
 }
 
 export function PipelineSummaryCards({
-  allDeals,
   metrics,
+  totalRevenue,
   currency,
   numberFormat,
 }: PipelineSummaryCardsProps) {
-  // Pipeline value should only include ACTIVE deals (exclude closed won and closed lost)
-  const totalPipelineValue = allDeals
-    .filter((d) => {
-      const normalizedStage = normalizeStage(d.stage || "");
-      // Only include active pipeline stages, exclude closed deals
-      return normalizedStage !== "No Deal" && normalizedStage !== "Deal";
-    })
-    .reduce((sum, d) => sum + Number(d.amount || 0), 0);
+  const arpa =
+    metrics.activeCustomers > 0 ? totalRevenue / metrics.activeCustomers : 0;
 
-  const activeDeals = allDeals.filter((d) => {
-    const normalizedStage = normalizeStage(d.stage || "");
-    // Only count active deals, exclude closed deals
-    return normalizedStage !== "No Deal" && normalizedStage !== "Deal";
-  }).length;
-
-  const closedWon = allDeals.filter((d) => {
-    const normalizedStage = normalizeStage(d.stage || "");
-    return normalizedStage === "Deal" && d.close_date;
-  }).length;
-
-  const closedLost = allDeals.filter((d) => {
-    const normalizedStage = normalizeStage(d.stage || "");
-    return normalizedStage === "No Deal" && d.close_date;
-  }).length;
-
-  const total = closedWon + closedLost;
-  const winRate = total === 0 ? "0.0" : ((closedWon / total) * 100).toFixed(1);
+  const cards: {
+    title: string;
+    value: string;
+    description?: string;
+    icon: LucideIcon;
+    iconColor: string;
+    valueColor: string;
+  }[] = [
+    {
+      title: "Pipeline Value",
+      value: formatCurrencyUtil(
+        metrics.totalPipelineValue,
+        currency,
+        numberFormat
+      ),
+      icon: DollarSign,
+      iconColor: "text-green-600",
+      valueColor: "text-green-600",
+    },
+    {
+      title: "Weighted Pipeline",
+      value: formatCurrencyUtil(
+        metrics.weightedPipelineValue,
+        currency,
+        numberFormat
+      ),
+      icon: BarChart3,
+      iconColor: "text-blue-600",
+      valueColor: "text-blue-600",
+    },
+    {
+      title: "Active Customers",
+      value: String(metrics.activeCustomers),
+      icon: Users,
+      iconColor: "text-violet-600",
+      valueColor: "text-violet-600",
+    },
+    {
+      title: "Revenue per Customer (ARPA)",
+      value: arpa > 0 ? formatCurrencyUtil(arpa, currency, numberFormat) : "—",
+      icon: DollarSign,
+      iconColor: "text-amber-600",
+      valueColor: "text-amber-600",
+    },
+    {
+      title: "Client Concentration",
+      value: formatPercentage(metrics.clientConcentrationPercent / 100),
+      description: "Top client share of pipeline",
+      icon: PieChart,
+      iconColor: "text-rose-600",
+      valueColor: "text-rose-600",
+    },
+    {
+      title: "Deal Conversion Rate",
+      value: `${metrics.dealConversionRate}%`,
+      icon: TrendingUp,
+      iconColor: "text-emerald-600",
+      valueColor: "text-emerald-600",
+    },
+  ];
 
   return (
-    <div className="grid gap-4 md:grid-cols-4">
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">
-            Total Pipeline Value
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">
-            {formatCurrencyUtil(totalPipelineValue, currency, numberFormat)}
-          </div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Active Deals</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{activeDeals}</div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">
-            Avg. Sales Cycle
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">
-            {metrics.averageSalesCycle} days
-          </div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Win Rate</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{winRate}%</div>
-        </CardContent>
-      </Card>
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      {cards.map((card) => {
+        const Icon = card.icon;
+        return (
+          <Card key={card.title} className="hover:shadow-md transition-shadow">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                {card.title}
+              </CardTitle>
+              <Icon className={`h-4 w-4 ${card.iconColor}`} />
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${card.valueColor}`}>
+                {card.value}
+              </div>
+              {card.description && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {card.description}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }

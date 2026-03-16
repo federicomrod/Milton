@@ -3,10 +3,12 @@
 // Now uses database KPI definitions from business_model_templates
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { calculateTotalRevenue } from "@/lib/kpi-calculations/calculateTotalRevenue";
-import { calculateCovers } from "@/lib/kpi-calculations/calculateCovers";
-import { calculateAverageTicketSize } from "@/lib/kpi-calculations/calculateAverageTicketSize";
-import { calculatePrimeCostPercent } from "@/lib/kpi-calculations/calculatePrimeCostPercent";
+import {
+  calculateTotalRevenue,
+  calculateCovers,
+  calculateAverageTicketSize,
+  calculatePrimeCostPercent,
+} from "@/lib/kpi-calculations";
 
 function jsonNoStore(data: Record<string, unknown>) {
   const res = NextResponse.json(data);

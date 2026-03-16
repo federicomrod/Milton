@@ -17,8 +17,11 @@ export { calculateNetIncome } from "./calculateNetIncome";
 export { calculateNetCashFlow } from "./calculateNetCashFlow";
 export { calculateRunway } from "./calculateRunway";
 export { calculateRevenueGrowthRate } from "./calculateRevenueGrowthRate";
-// Restaurant KPIs
 export { calculateTotalRevenue } from "./calculateTotalRevenue";
+export { calculateTotalExpenses } from "./calculateTotalExpenses";
+export { calculateMRR } from "./calculateMRR";
+export { calculateGrossMargin } from "./calculateGrossMargin";
+// Restaurant KPIs
 export { calculateCovers } from "./calculateCovers";
 export { calculateAverageTicketSize } from "./calculateAverageTicketSize";
 export { calculateAverageOrderValue } from "./calculateAverageOrderValue";

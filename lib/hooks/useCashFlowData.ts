@@ -10,9 +10,12 @@ import {
 } from "@/lib/cash-flow-data-generators";
 import type { TransactionData } from "@/lib/types/data";
 
+const SEGMENT_DEFAULT = "fitness-studio";
+
 export function useCashFlowData(
   period: "month" | "year" | "ytd" | "custom" = "month",
-  customDateRange?: { from: string; to: string }
+  customDateRange?: { from: string; to: string },
+  segment: "fitness-studio" | "b2b-saas" = SEGMENT_DEFAULT
 ) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,9 +52,10 @@ export function useCashFlowData(
         const fromDateStr = fromDate.toISOString().split("T")[0];
         const toDateStr = toDate.toISOString().split("T")[0];
 
-        // Fetch transactions from API
+        // Same pattern as fitness/restaurant: fetch from analytics API (server-side data)
+        const base = `/api/analytics/${segment}/cash-flow`;
         const response = await fetch(
-          `/api/analytics/fitness-studio/cash-flow?period=${period}&from_date=${fromDateStr}&to_date=${toDateStr}`,
+          `${base}?period=${period}&from_date=${fromDateStr}&to_date=${toDateStr}`,
           { cache: "no-store", credentials: "include" }
         );
 
@@ -75,8 +79,16 @@ export function useCashFlowData(
         // Normalize transactions
         const txData = normalizeTransactions(transactionData);
 
-        // Calculate metrics with filtered data
+        // Calculate metrics with filtered data (currentBalance, monthlyFlow, categoryBreakdown)
         const calculatedMetrics = calculateCashFlowMetrics(txData);
+
+        // Use runway and burn rate from unified KPI layer when API provides them
+        if (json.runwayMonths != null) {
+          calculatedMetrics.runwayMonths = Number(json.runwayMonths);
+        }
+        if (json.burnRate != null) {
+          calculatedMetrics.burnRate = Number(json.burnRate);
+        }
 
         setTransactions(txData);
         setMetrics(calculatedMetrics);
@@ -96,7 +108,7 @@ export function useCashFlowData(
     };
 
     loadTransactionData();
-  }, [period, customDateRange]);
+  }, [period, customDateRange, segment]);
 
   return {
     transactions,

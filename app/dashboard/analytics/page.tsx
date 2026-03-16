@@ -13,7 +13,7 @@ import { InstructorsAnalytics } from "@/components/dashboard/instructors-analyti
 import { RestaurantRevenueMenu } from "@/components/dashboard/restaurant-revenue-menu";
 import { RestaurantOperations } from "@/components/dashboard/restaurant-operations";
 import { RestaurantCashFlow } from "@/components/dashboard/restaurant-cash-flow";
-import { DateRangePicker } from "@/components/dashboard/date-range-picker";
+import { B2BSaaSFinancials } from "@/components/dashboard/b2b-saas-financials";
 import { BarChart } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useDateRange } from "@/lib/hooks/useDateRange";
@@ -30,6 +30,9 @@ type DataStatus = {
   hasModelData?: boolean;
   tablesWithData?: { id: string; name: string; recordCount: number }[];
   totalRecords?: number;
+  bank?: boolean;
+  crm?: boolean;
+  budget?: boolean;
 } | null;
 
 export default function AnalyticsPage() {
@@ -40,6 +43,20 @@ export default function AnalyticsPage() {
   // Shared date state across all analytics
   const { period, customDateRange, setPeriod, setCustomDateRange } =
     useDateRange();
+
+  // Shared date state for B2B SaaS analytics tabs
+  const [b2bSaasPeriod, setB2bSaasPeriod] = useState<
+    "month" | "year" | "ytd" | "custom"
+  >("month");
+  const [b2bSaasCustomDateRange, setB2bSaasCustomDateRange] = useState<{
+    from: string;
+    to: string;
+  }>({
+    from: new Date(new Date().setDate(new Date().getDate() - 90))
+      .toISOString()
+      .split("T")[0],
+    to: new Date().toISOString().split("T")[0],
+  });
 
   // Check if user has uploaded data via Supabase/API
   const checkUploadedData = async () => {
@@ -53,7 +70,7 @@ export default function AnalyticsPage() {
 
       const json = await res.json();
       setDataStatus(json);
-    } catch (err) {
+    } catch {
       setDataStatus(null);
     }
   };
@@ -100,8 +117,16 @@ export default function AnalyticsPage() {
     fetchBusinessModel();
   }, []);
 
+  // Refetch status when uploads complete (e.g. after returning from Upload page)
+  useEffect(() => {
+    const handler = () => checkUploadedData();
+    window.addEventListener("data-status:refresh", handler);
+    return () => window.removeEventListener("data-status:refresh", handler);
+  }, []);
+
   const isFitnessStudio = businessModel === "fitness_studio";
   const isRestaurant = businessModel === "restaurant";
+  const isB2BSaaS = businessModel === "b2b_saas";
 
   if (loading) {
     return (
@@ -134,7 +159,9 @@ export default function AnalyticsPage() {
               ? "Deep dive into your studio performance, members, classes, and financial metrics"
               : isRestaurant
                 ? "Deep dive into your restaurant performance, revenue, operations, and cash flow metrics"
-                : "Deep dive into your financial performance, sales pipeline, and cash flow metrics"}
+                : isB2BSaaS
+                  ? "Recurring revenue, pipeline, profitability, and cash runway from your CRM, subscriptions, and transactions"
+                  : "Deep dive into your financial performance, sales pipeline, and cash flow metrics"}
           </p>
         </div>
 
@@ -285,6 +312,82 @@ export default function AnalyticsPage() {
                 />
               ) : (
                 <LockedPlaceholder message="To unlock Cash Flow Analysis, upload your bank transaction data on the Upload page." />
+              )}
+            </TabsContent>
+          </Tabs>
+        ) : isB2BSaaS ? (
+          <Tabs defaultValue="pipeline" className="space-y-4">
+            <TabsList className="grid w-full grid-cols-3 mb-6 shadow-sm">
+              <TabsTrigger
+                value="pipeline"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                Sales Pipeline
+              </TabsTrigger>
+              <TabsTrigger
+                value="financials"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                Financials
+              </TabsTrigger>
+              <TabsTrigger
+                value="cashflow"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                Cash & Runway
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="pipeline" className="space-y-4">
+              <SalesPipeline
+                period={b2bSaasPeriod}
+                customDateRange={b2bSaasCustomDateRange}
+                onPeriodChange={setB2bSaasPeriod}
+                onCustomDateRangeChange={setB2bSaasCustomDateRange}
+              />
+            </TabsContent>
+
+            <TabsContent value="financials" className="space-y-4">
+              <B2BSaaSFinancials
+                period={b2bSaasPeriod}
+                customDateRange={b2bSaasCustomDateRange}
+                onPeriodChange={setB2bSaasPeriod}
+                onCustomDateRangeChange={setB2bSaasCustomDateRange}
+                showBudgetCharts={!!dataStatus?.budget}
+                budgetCharts={
+                  dataStatus?.budget ? (
+                    <>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <FinancialCharts
+                          type="income-statement"
+                          segment="b2b-saas"
+                        />
+                        <FinancialCharts
+                          type="variance-analysis"
+                          segment="b2b-saas"
+                        />
+                      </div>
+                      <FinancialCharts
+                        type="ytd-performance"
+                        segment="b2b-saas"
+                      />
+                    </>
+                  ) : undefined
+                }
+              />
+            </TabsContent>
+
+            <TabsContent value="cashflow" className="space-y-4">
+              {dataStatus?.bank ? (
+                <CashFlowAnalysis
+                  period={b2bSaasPeriod}
+                  customDateRange={b2bSaasCustomDateRange}
+                  onPeriodChange={setB2bSaasPeriod}
+                  onCustomDateRangeChange={setB2bSaasCustomDateRange}
+                  segment="b2b-saas"
+                />
+              ) : (
+                <LockedPlaceholder message="To unlock Cash & Runway, upload your transaction data on the Upload page." />
               )}
             </TabsContent>
           </Tabs>

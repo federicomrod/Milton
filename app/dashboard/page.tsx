@@ -323,7 +323,10 @@ export default function DashboardPage() {
 
           {dataStatus === null ? null : dataStatus.hasModelData ? (
             <>
-              <DashboardInsights />
+              <DashboardInsights
+                period={period}
+                customDateRange={customDateRange}
+              />
               <KpisGrid
                 selectedKpis={selectedKpis}
                 displayModes={kpiDisplayModes}

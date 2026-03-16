@@ -4,7 +4,8 @@ import type { ChartData, WaterfallData } from "@/lib/chart-data-generators";
 export function useChartData(
   type: string,
   period: "month" | "year" | "ytd" | "custom" = "month",
-  customDateRange?: { from: string; to: string }
+  customDateRange?: { from: string; to: string },
+  segment: "fitness-studio" | "b2b-saas" = "fitness-studio"
 ) {
   const [data, setData] = useState<ChartData[] | WaterfallData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,11 +45,11 @@ export function useChartData(
                 ? "ytd-performance"
                 : null;
 
-        // Only fetch from API for fitness studio financial charts
-        // Other chart types (mrr-vs-plan, burn-rate) can use the old method if needed
+        // Same pattern as fitness/restaurant: fetch from analytics API (server-side data)
         if (apiChartType) {
+          const base = `/api/analytics/${segment}/financials`;
           const response = await fetch(
-            `/api/analytics/fitness-studio/financials?chart=${apiChartType}&from_date=${fromDateStr}&to_date=${toDateStr}`,
+            `${base}?chart=${apiChartType}&from_date=${fromDateStr}&to_date=${toDateStr}`,
             { cache: "no-store", credentials: "include" }
           );
 
@@ -79,7 +80,7 @@ export function useChartData(
     };
 
     loadData();
-  }, [type, period, customDateRange]);
+  }, [type, period, customDateRange, segment]);
 
   return { data, loading };
 }

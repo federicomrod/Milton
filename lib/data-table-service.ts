@@ -133,15 +133,19 @@ export async function getDataTables(): Promise<DataTable[]> {
 }
 
 /**
- * Get multiple data tables by their IDs
+ * Get multiple data tables by their IDs.
+ * Pass an optional Supabase client when calling from server (e.g. API routes) so auth context is correct.
  */
-export async function getDataTablesByIds(ids: string[]): Promise<DataTable[]> {
+export async function getDataTablesByIds(
+  ids: string[],
+  supabaseInstance?: Awaited<ReturnType<typeof createClient>>
+): Promise<DataTable[]> {
   if (!ids || ids.length === 0) {
     return [];
   }
 
   try {
-    const supabase = createClient();
+    const supabase = supabaseInstance ?? createClient();
     const { data, error } = await supabase
       .from("data_tables")
       .select("*")

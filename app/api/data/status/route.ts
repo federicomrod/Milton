@@ -32,6 +32,9 @@ export async function GET(request: NextRequest) {
             { id: "dev-sample-2", name: "Sample Table 2", recordCount: 50 },
           ],
           totalRecords: 150,
+          bank: true,
+          crm: true,
+          budget: true,
         });
       }
       return NextResponse.json({
@@ -39,6 +42,9 @@ export async function GET(request: NextRequest) {
         hasModelData: false,
         tablesWithData: [],
         totalRecords: 0,
+        bank: false,
+        crm: false,
+        budget: false,
       });
     }
 
@@ -95,6 +101,40 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Derive bank/crm/budget from table names for analytics UI (tables must have records)
+    const bankNames = [
+      "transactions",
+      "revenue",
+      "income",
+      "expense",
+      "payments",
+      "financial",
+      "classes",
+    ];
+    const crmNames = [
+      "customers",
+      "clients",
+      "crm",
+      "deal",
+      "deals",
+      "leads",
+      "contacts",
+      "members",
+    ];
+    const budgetNames = ["budget", "forecast", "planning", "projections"];
+    const match = (name: string, list: string[]) =>
+      list.some((n) => (name || "").toLowerCase().includes(n.toLowerCase()));
+    let bank = false;
+    let crm = false;
+    let budget = false;
+    for (const t of tablesWithData) {
+      if ((t.recordCount ?? 0) <= 0) continue;
+      const name = (t.name || "").toLowerCase();
+      if (match(name, bankNames)) bank = true;
+      if (match(name, crmNames)) crm = true;
+      if (match(name, budgetNames)) budget = true;
+    }
+
     // DEV fallback: detect orphaned model_data
     if (process.env.NODE_ENV === "development") {
       const { count: globalModelDataCount } = await supabase
@@ -112,6 +152,9 @@ export async function GET(request: NextRequest) {
       hasModelData: modelDataCount > 0,
       tablesWithData,
       totalRecords: modelDataCount,
+      bank,
+      crm,
+      budget,
     };
 
     console.log("[BROWSER LOG] /api/data/status response:", responseData);
@@ -126,6 +169,9 @@ export async function GET(request: NextRequest) {
         hasModelData: false,
         tablesWithData: [],
         totalRecords: 0,
+        bank: false,
+        crm: false,
+        budget: false,
       },
       { status: 500 }
     );

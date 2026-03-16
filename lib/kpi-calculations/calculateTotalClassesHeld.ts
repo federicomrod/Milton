@@ -33,10 +33,10 @@ export async function calculateTotalClassesHeld(
     .map(([period, count]) => ({ period, value: count }))
     .sort((a, b) => a.period.localeCompare(b.period));
 
-  const currentValue =
-    historicalData.length > 0
-      ? historicalData[historicalData.length - 1].value
-      : 0;
+  const currentValue = historicalData.reduce(
+    (sum, point) => sum + point.value,
+    0
+  );
 
   return { currentValue, historicalData };
 }

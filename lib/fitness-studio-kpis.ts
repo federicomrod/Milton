@@ -23,8 +23,10 @@ export const KPI_NAME_TO_API_FIELD: Record<string, string> = {
   "Member Tenure": "avgTenure",
   "Revenue per Member (ARPM)": "revenuePerMember",
   "Capacity Utilization": "capacityUtilization",
+  "Average Class Size": "averageClassSize",
   "Studio Utilization": "utilizationRate",
   "Cancellation Rate": "cancellationRate",
+  "No Show Rate": "noShowRate",
   "Class Attendance Rate": "avgClassOccupancy", // This is "Avg. class occupancy"
   "Average Class Occupancy": "avgClassOccupancy", // Alternative name
   "Revenue per Class": "revenuePerClass",
@@ -59,6 +61,7 @@ export async function getFitnessStudioKpis(): Promise<DatabaseKpi[]> {
       "Capacity Utilization",
       "Studio Utilization",
       "Cancellation Rate",
+      "No Show",
       "Class Attendance",
       "Average Class Size",
       "Revenue per Class",
@@ -124,8 +127,10 @@ export function getClassesUtilizationKpis(kpis: DatabaseKpi[]): DatabaseKpi[] {
   const classesUtilizationKpiNames = [
     "Class Attendance Rate", // This is "Avg. class occupancy"
     "Average Class Occupancy", // Alternative name
+    "Average Class Size", // Total attended spots ÷ nº of class occurrences
     "Revenue per Class",
     "Cancellation Rate",
+    "No Show Rate", // no_show / (attended + no_show) per month
     "Capacity Utilization",
   ];
 

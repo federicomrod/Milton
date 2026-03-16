@@ -1,0 +1,11 @@
+ID,Name,Category,Unit Cost,Price,Sub-Category,Status
+PROD-001,T-Shirt Classic,Apparel,12.00,29.99,Tops,Active
+PROD-002,Denim Jacket,Apparel,22.00,49.99,Outerwear,Active
+PROD-003,Wool Scarf,Accessories,8.50,24.99,Scarves,Active
+PROD-004,Cotton Hoodie,Apparel,18.00,44.99,Tops,Active
+PROD-005,Leather Belt,Accessories,14.00,34.99,Belts,Active
+PROD-006,Summer Dress,Apparel,25.00,59.99,Dresses,Active
+PROD-007,Canvas Sneakers,Footwear,28.00,69.99,Sneakers,Active
+PROD-008,Winter Beanie,Accessories,5.50,14.99,Hats,Active
+PROD-009,Chino Trousers,Apparel,20.00,49.99,Bottoms,Active
+PROD-010,Crossbody Bag,Accessories,32.00,79.99,Bags,Active

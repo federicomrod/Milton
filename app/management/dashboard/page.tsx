@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { AdminHeader } from "@/components/management/admin-header";
+
+export const dynamic = "force-dynamic";
 import {
   Card,
   CardContent,
@@ -9,14 +11,17 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Target, BarChart3, FileText, Table, ArrowRight } from "lucide-react";
+import { Target, FileText, Table, ArrowRight } from "lucide-react";
 
 async function getRecordCounts() {
   const supabase = await createClient();
 
   const [kpisResult, metricsResult, templatesResult, dataTablesResult] =
     await Promise.all([
-      supabase.from("kpis").select("id", { count: "exact", head: true }),
+      supabase
+        .from("kpis")
+        .select("id", { count: "exact", head: true })
+        .eq("is_published", true),
       supabase.from("metrics").select("id", { count: "exact", head: true }),
       supabase
         .from("business_model_templates")

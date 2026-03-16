@@ -17,11 +17,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const url = new URL(req.url);
+  const showDrafts = url.searchParams.get("show_drafts") === "true";
+
   try {
-    const { data, error } = await supabase
-      .from("kpis")
-      .select("*")
-      .order("name");
+    let query = supabase.from("kpis").select("*").order("name");
+
+    if (!showDrafts) {
+      query = query.eq("is_published", true);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
 

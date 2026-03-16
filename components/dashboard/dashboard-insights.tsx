@@ -37,7 +37,48 @@ interface Insight {
   category: "positive" | "warning" | "info" | "action";
 }
 
-export function DashboardInsights() {
+/** Same date range logic as fetchDashboardKpis so insights match the KPI cards. */
+function resolveInsightsDateRange(
+  period: string | undefined,
+  customDateRange: { from: string; to: string } | undefined
+): { fromDate: string; toDate: string } {
+  if (period === "custom" && customDateRange?.from && customDateRange?.to) {
+    return { fromDate: customDateRange.from, toDate: customDateRange.to };
+  }
+  if (period === "year") {
+    const y = new Date().getFullYear() - 1;
+    return {
+      fromDate: `${y}-01-01`,
+      toDate: `${y}-12-31`,
+    };
+  }
+  if (period === "ytd") {
+    return {
+      fromDate: `${new Date().getFullYear()}-01-01`,
+      toDate: new Date().toISOString().split("T")[0],
+    };
+  }
+  // month or default: same as fetchDashboardKpis (last 6 months)
+  const from = new Date();
+  from.setMonth(from.getMonth() - 6);
+  return {
+    fromDate: from.toISOString().split("T")[0],
+    toDate: new Date().toISOString().split("T")[0],
+  };
+}
+
+type DateRangePeriod = "month" | "year" | "ytd" | "custom";
+
+interface DashboardInsightsProps {
+  /** When provided, insights use the same date range as the KPI cards. */
+  period?: DateRangePeriod;
+  customDateRange?: { from: string; to: string };
+}
+
+export function DashboardInsights({
+  period,
+  customDateRange,
+}: DashboardInsightsProps = {}) {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +94,7 @@ export function DashboardInsights() {
   const { prefs } = useUserPreferences();
   const { user } = useUser();
 
-  // Get current analytics KPIs that are displayed on dashboard
+  // Get current analytics KPIs that are displayed on dashboard (same date range as cards when period/customDateRange passed)
   const getCurrentAnalyticsKpis = async () => {
     try {
       if (!user) return null;
@@ -77,17 +118,17 @@ export function DashboardInsights() {
       const businessModel = businessModelData?.business_type;
       if (!businessModel) return null;
 
-      // Calculate date range (90 days default for all business models)
-      const fromDate = new Date(new Date().setDate(new Date().getDate() - 90))
-        .toISOString()
-        .split("T")[0];
-      const toDate = new Date().toISOString().split("T")[0];
+      // Use same date range as dashboard cards when provided; otherwise last 6 months (match fetchDashboardKpis default)
+      const { fromDate, toDate } =
+        period != null && customDateRange != null
+          ? resolveInsightsDateRange(period, customDateRange)
+          : resolveInsightsDateRange("month", undefined);
 
       let analyticsUrl = "";
       if (businessModel === "fitness_studio") {
         analyticsUrl = `/api/analytics/fitness-studio/kpis?from_date=${fromDate}&to_date=${toDate}`;
       } else if (businessModel === "restaurant") {
-        analyticsUrl = `/api/analytics/restaurant/overview?from_date=${fromDate}&to_date=${toDate}`;
+        analyticsUrl = `/api/analytics/restaurant/kpis?from_date=${fromDate}&to_date=${toDate}`;
       }
 
       if (analyticsUrl) {
@@ -99,6 +140,56 @@ export function DashboardInsights() {
         if (response.ok) {
           const data = await response.json();
           return data.kpis || data;
+        }
+      }
+
+      // E-Commerce: use unified KPI calculate API and normalize to metrics shape
+      if (businessModel === "ecom") {
+        const response = await fetch("/api/kpis/calculate", {
+          method: "POST",
+          cache: "no-store",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from_date: fromDate,
+            to_date: toDate,
+          }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const list = (data.calculatedKpis || []) as Array<{
+            name?: string;
+            currentValue?: number | null;
+          }>;
+          const byName: Record<string, number> = {};
+          list.forEach((k) => {
+            const name = (k.name || "").trim();
+            const val = k.currentValue;
+            if (name && val != null && !Number.isNaN(Number(val))) {
+              byName[name] = Number(val);
+            }
+          });
+          return {
+            totalRevenue: byName["Total Revenue"] ?? 0,
+            contributionMarginAfterMarketing:
+              byName["Contribution Margin after Marketing (CMAM)"] ??
+              byName["Contribution Margin after Marketing"] ??
+              0,
+            customerAcquisitionCost:
+              byName["Customer Acquisition Cost (CAC)"] ??
+              byName["Customer Acquisition Cost"] ??
+              0,
+            cacPaybackPeriod: byName["CAC Payback Period"] ?? 0,
+            marketingEfficiency: byName["Marketing Efficiency"] ?? 0,
+            productProfitability: byName["Product Profitability"] ?? 0,
+            growthQualityScore: byName["Growth Quality Score"] ?? 0,
+            averageOrderValue:
+              byName["Average Order Value (AOV)"] ??
+              byName["Average Order Value"] ??
+              0,
+            orderCount: byName["Number of Orders"] ?? byName["Orders"] ?? 0,
+            ...byName,
+          };
         }
       }
 
@@ -225,30 +316,61 @@ export function DashboardInsights() {
       // Fetch report data to get additional KPIs
       const reportData = await getReportData(supabase, user.id);
 
-      // Prepare metrics for AI using the analytics KPIs as primary source
+      const isRestaurant =
+        (businessType || reportData.businessType) === "restaurant";
+      const isEcom = (businessType || reportData.businessType) === "ecom";
+
+      // Prepare metrics for AI: fitness-studio + restaurant + ecom keys
       const metrics = {
-        // Use analytics KPIs as the primary source of truth
         activeMembers: analyticsKpis.activeMembers || 0,
         newMembers: analyticsKpis.newMembers || 0,
         churnRate: analyticsKpis.churnRate || 0,
         utilizationRate: analyticsKpis.utilizationRate || 0,
         revenuePerMember: analyticsKpis.revenuePerMember || 0,
         totalRevenue:
-          analyticsKpis.totalRevenue || reportData.kpis.revenue || 0,
-        totalCosts: analyticsKpis.totalCosts || reportData.kpis.expenses || 0,
-        netIncome: analyticsKpis.netIncome || reportData.kpis.netIncome || 0,
-        burnRate: analyticsKpis.burnRate || reportData.kpis.burnRate || 0,
-        // Include general business metrics as fallback
+          analyticsKpis.totalRevenue ?? reportData.kpis.revenue ?? 0,
+        totalCosts: analyticsKpis.totalCosts ?? reportData.kpis.expenses ?? 0,
+        netIncome: analyticsKpis.netIncome ?? reportData.kpis.netIncome ?? 0,
+        burnRate: analyticsKpis.burnRate ?? reportData.kpis.burnRate ?? 0,
         cashBalance: reportData.kpis.cashRunway
           ? reportData.kpis.cashRunway *
-            (analyticsKpis.burnRate || reportData.kpis.burnRate || 0)
+            (analyticsKpis.burnRate ?? reportData.kpis.burnRate ?? 0)
           : 0,
         runway: reportData.kpis.cashRunway || 0,
         contractedRevenue: reportData.kpis.pipelineValue || 0,
         pipelineValue: reportData.kpis.pipelineValue || 0,
+        // Restaurant-specific (so AI and hasData can use them)
+        covers: analyticsKpis.covers ?? 0,
+        averageTicketSize:
+          analyticsKpis.averageTicketSize ??
+          analyticsKpis.averageOrderValue ??
+          0,
+        averageOrderValue:
+          analyticsKpis.averageOrderValue ??
+          analyticsKpis.averageTicketSize ??
+          0,
+        primeCostPercent: analyticsKpis.primeCostPercent ?? 0,
+        netCashFlow:
+          analyticsKpis.netCashFlow ?? reportData.kpis.netIncome ?? 0,
+        // E-Commerce-specific (so AI and hasData can use them)
+        contributionMarginAfterMarketing:
+          (analyticsKpis as Record<string, unknown>)
+            .contributionMarginAfterMarketing ?? 0,
+        customerAcquisitionCost:
+          (analyticsKpis as Record<string, unknown>).customerAcquisitionCost ??
+          0,
+        cacPaybackPeriod:
+          (analyticsKpis as Record<string, unknown>).cacPaybackPeriod ?? 0,
+        marketingEfficiency:
+          (analyticsKpis as Record<string, unknown>).marketingEfficiency ?? 0,
+        productProfitability:
+          (analyticsKpis as Record<string, unknown>).productProfitability ?? 0,
+        growthQualityScore:
+          (analyticsKpis as Record<string, unknown>).growthQualityScore ?? 0,
+        orderCount: (analyticsKpis as Record<string, unknown>).orderCount ?? 0,
       };
 
-      // Only generate insights if we have meaningful data
+      // Only generate insights if we have meaningful data (fitness + restaurant + ecom)
       const hasData =
         metrics.activeMembers > 0 ||
         metrics.newMembers > 0 ||
@@ -257,11 +379,27 @@ export function DashboardInsights() {
         metrics.netIncome !== 0 ||
         metrics.burnRate > 0 ||
         metrics.churnRate > 0 ||
-        metrics.utilizationRate > 0;
+        metrics.utilizationRate > 0 ||
+        (isRestaurant &&
+          (metrics.covers > 0 ||
+            metrics.averageOrderValue > 0 ||
+            metrics.primeCostPercent > 0 ||
+            metrics.netCashFlow !== 0)) ||
+        (isEcom &&
+          (metrics.totalRevenue > 0 ||
+            Number(
+              (metrics as Record<string, unknown>)
+                .contributionMarginAfterMarketing
+            ) > 0 ||
+            Number(
+              (metrics as Record<string, unknown>).customerAcquisitionCost
+            ) > 0 ||
+            Number((metrics as Record<string, unknown>).orderCount) > 0));
 
       if (!hasData) {
         setInsights([
           {
+            id: "no-data-placeholder",
             title: "No Data Available for Insights",
             description:
               "Your analytics data doesn't contain meaningful metrics yet. Try uploading more data or checking your data sources.",
@@ -485,15 +623,41 @@ export function DashboardInsights() {
   if (error) {
     return (
       <Card className="overflow-hidden">
-        <CardHeader className="bg-transparent pb-3">
-          <CardTitle className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-lg bg-primary/10">
-              <Lightbulb className="h-5 w-5 text-primary" />
+        <CardHeader className="bg-transparent pb-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <CardTitle className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-primary/10">
+                  <Lightbulb className="h-5 w-5 text-primary" />
+                </div>
+                <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-tight">
+                  AI Insights
+                </span>
+              </CardTitle>
+              <button
+                onClick={() => setIsCardCollapsed(!isCardCollapsed)}
+                className="ml-2 flex items-center justify-center h-7 w-7 rounded hover:bg-primary/10 transition-colors"
+                aria-label={isCardCollapsed ? "Expand" : "Collapse"}
+              >
+                {isCardCollapsed ? (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground transition-colors" />
+                ) : (
+                  <ChevronUp className="h-4 w-4 text-muted-foreground transition-colors" />
+                )}
+              </button>
             </div>
-            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-tight">
-              AI Insights
-            </span>
-          </CardTitle>
+            <Button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRefreshClick();
+              }}
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0 hover:bg-primary/10 transition-colors"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </div>
         </CardHeader>
         {!isCardCollapsed && (
           <CardContent>
@@ -521,15 +685,41 @@ export function DashboardInsights() {
   if (insights.length === 0) {
     return (
       <Card className="overflow-hidden">
-        <CardHeader className="bg-transparent pb-3">
-          <CardTitle className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-lg bg-primary/10">
-              <Lightbulb className="h-5 w-5 text-primary" />
+        <CardHeader className="bg-transparent pb-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <CardTitle className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-primary/10">
+                  <Lightbulb className="h-5 w-5 text-primary" />
+                </div>
+                <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-tight">
+                  AI Insights
+                </span>
+              </CardTitle>
+              <button
+                onClick={() => setIsCardCollapsed(!isCardCollapsed)}
+                className="ml-2 flex items-center justify-center h-7 w-7 rounded hover:bg-primary/10 transition-colors"
+                aria-label={isCardCollapsed ? "Expand" : "Collapse"}
+              >
+                {isCardCollapsed ? (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground transition-colors" />
+                ) : (
+                  <ChevronUp className="h-4 w-4 text-muted-foreground transition-colors" />
+                )}
+              </button>
             </div>
-            <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-tight">
-              AI Insights
-            </span>
-          </CardTitle>
+            <Button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRefreshClick();
+              }}
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0 hover:bg-primary/10 transition-colors"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </div>
         </CardHeader>
         {!isCardCollapsed && (
           <CardContent>

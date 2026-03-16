@@ -560,7 +560,9 @@ export function MetricsGrid({
       return metric.value !== null ? formatCurrency(metric.value) : "N/A";
     } else if (metric.format === "percentage") {
       return metric.value !== null
-        ? formatPercentage(metric.value / 100)
+        ? formatPercentage(
+            (metric.value > 100 ? metric.value / 100 : metric.value) / 100
+          )
         : "N/A";
     } else if (metric.format === "number") {
       return metric.value !== null

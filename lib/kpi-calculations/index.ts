@@ -14,7 +14,9 @@ export { calculateAverageClassOccupancy } from "./calculateAverageClassOccupancy
 export { calculateRevenuePerClass } from "./calculateRevenuePerClass";
 export { calculateBurnRate } from "./calculateBurnRate";
 export { calculateNetIncome } from "./calculateNetIncome";
+export { calculateNetCashFlow } from "./calculateNetCashFlow";
 export { calculateRunway } from "./calculateRunway";
+export { calculateRevenueGrowthRate } from "./calculateRevenueGrowthRate";
 export { calculateTotalRevenue } from "./calculateTotalRevenue";
 export { calculateTotalExpenses } from "./calculateTotalExpenses";
 export { calculateMRR } from "./calculateMRR";
@@ -22,4 +24,15 @@ export { calculateGrossMargin } from "./calculateGrossMargin";
 // Restaurant KPIs
 export { calculateCovers } from "./calculateCovers";
 export { calculateAverageTicketSize } from "./calculateAverageTicketSize";
+export { calculateAverageOrderValue } from "./calculateAverageOrderValue";
 export { calculatePrimeCostPercent } from "./calculatePrimeCostPercent";
+export { calculateMenuItemMargin } from "./calculateMenuItemMargin";
+export { calculateOrderCount } from "./calculateOrderCount";
+export { aovFromCapturedOrders } from "./aovFromCapturedOrders";
+// E-Commerce KPIs
+export { calculateContributionMarginAfterMarketing } from "./calculateContributionMarginAfterMarketing";
+export { calculateCustomerAcquisitionCost } from "./calculateCustomerAcquisitionCost";
+export { calculateCacPaybackPeriod } from "./calculateCacPaybackPeriod";
+export { calculateMarketingEfficiency } from "./calculateMarketingEfficiency";
+export { calculateProductProfitability } from "./calculateProductProfitability";
+export { calculateGrowthQualityScore } from "./calculateGrowthQualityScore";

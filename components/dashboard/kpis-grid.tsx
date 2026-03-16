@@ -48,6 +48,10 @@ const getKpiDisplayFormat = (kpiName: string): KpiFormat => {
     name?.includes("occupancy") ||
     name?.includes("cancellation")
   ) {
+    // Special case: burn rate should be currency, not percentage
+    if (name?.includes("burn rate")) {
+      return "currency";
+    }
     return "percentage";
   } else if (
     name?.includes("revenue") ||
@@ -174,15 +178,24 @@ const KpiChart = ({
   numberFormat: string;
 }) => {
   const display = { format: getKpiDisplayFormat(kpi.name) };
-  const maxValue = Math.max(Math.abs(analyticsValue || 0), 1);
-  const percentageBasis = maxValue > 1.5 ? 100 : 1;
+  const isRevenueGrowthRate = kpi.name
+    ?.toLowerCase()
+    .includes("revenue growth");
+  // Revenue Growth Rate can be negative; use auto domain. Other percentage KPIs use 0-100.
+  const percentageBasis = display.format === "percentage" ? 100 : 1;
+  const maxValue =
+    display.format === "percentage" && !isRevenueGrowthRate
+      ? 100
+      : Math.max(Math.abs(analyticsValue || 0), 1);
 
   const formatValue = (value: number) => {
     if (display.format === "currency") {
       return formatCurrency(value, currency, numberFormat);
     }
     if (display.format === "percentage") {
-      return formatPercentage(value / percentageBasis);
+      // Safeguard: if value > 100, treat as double-scaled (e.g. 1800 instead of 18).
+      const normalized = value > 100 ? value / 100 : value;
+      return formatPercentage(normalized / percentageBasis);
     }
     return formatNumber(value, numberFormat);
   };
@@ -199,6 +212,22 @@ const KpiChart = ({
     value: p.value,
   }));
 
+  // Revenue Growth Rate: domain = just below lowest to just above highest in the chart data
+  const yDomain = (() => {
+    if (display.format === "percentage" && !isRevenueGrowthRate) {
+      return [0, percentageBasis];
+    }
+    if (isRevenueGrowthRate && filledData.length > 0) {
+      const values = filledData.map((p) => p.value);
+      const dataMin = Math.min(...values);
+      const dataMax = Math.max(...values);
+      const range = dataMax - dataMin || 1;
+      const padding = Math.max(range * 0.1, 5);
+      return [dataMin - padding, dataMax + padding];
+    }
+    return ["auto", "auto"];
+  })();
+
   return (
     <ResponsiveContainer width="100%" height={256}>
       <LineChart data={chartData}>
@@ -213,11 +242,7 @@ const KpiChart = ({
           stroke="#6b7280"
           fontSize={12}
           tickLine={false}
-          domain={
-            display.format === "percentage"
-              ? [0, percentageBasis]
-              : ["auto", "auto"]
-          }
+          domain={yDomain}
           tickFormatter={(value) => formatValue(Number(value))}
         />
         <Tooltip
@@ -264,26 +289,60 @@ export function KpisGrid({
     period,
     customDateRange
   );
-  const dateParams = `&from_date=${resolvedFrom}&to_date=${resolvedTo}`;
 
+  // Only re-fetch when these stable values change (not chartKpis/dateParams which are new every render)
   useEffect(() => {
     if (!chartKpiIdsStr) {
       startTransition(() => setSeriesData({}));
       return;
     }
-    fetch(`/api/kpis/series?kpiIds=${chartKpiIdsStr}${dateParams}`)
-      .then((r) => r.json())
-      .then((data) => {
+    const averageClassSizeKpis = chartKpis.filter((k) =>
+      k.name?.toLowerCase().includes("average class size")
+    );
+    const dateParams = `&from_date=${resolvedFrom}&to_date=${resolvedTo}`;
+
+    // Always request all chart KPIs from series API (so Revenue Growth Rate and others get data)
+    const fetchSeries = fetch(
+      `/api/kpis/series?kpiIds=${chartKpiIdsStr}${dateParams}`,
+      { credentials: "include" }
+    ).then((r) => r.json());
+
+    const fetchAverageClassSizeSeries =
+      averageClassSizeKpis.length > 0
+        ? fetch(
+            `/api/analytics/fitness-studio/classes-utilization?from_date=${resolvedFrom}&to_date=${resolvedTo}`,
+            { credentials: "include" }
+          )
+            .then((r) => r.json())
+            .then((json) => ({ json, kpis: averageClassSizeKpis }))
+        : null;
+
+    Promise.all([
+      fetchSeries,
+      fetchAverageClassSizeSeries ?? Promise.resolve(null),
+    ])
+      .then(([data, avgClassResult]) => {
         const mapped: Record<string, SeriesPoint[]> = {};
-        for (const [id, val] of Object.entries(data.series || {})) {
-          const raw = (val as { data: SeriesPoint[] }).data;
-          // Fill every month in the selected range so the X-axis is always complete
+        for (const [id, val] of Object.entries(data?.series || {})) {
+          const raw = (val as { data: SeriesPoint[] })?.data ?? [];
           mapped[id] = fillMonthGaps(raw, resolvedFrom, resolvedTo);
         }
-        setSeriesData(mapped);
+        // Overlay Average Class Size from client fetch (same source as card)
+        if (
+          avgClassResult?.json?.averageClassSizeByPeriod &&
+          avgClassResult.kpis.length > 0
+        ) {
+          const raw = avgClassResult.json
+            .averageClassSizeByPeriod as SeriesPoint[];
+          const filled = fillMonthGaps(raw, resolvedFrom, resolvedTo);
+          for (const k of avgClassResult.kpis) {
+            mapped[k.id] = filled;
+          }
+        }
+        startTransition(() => setSeriesData(mapped));
       })
       .catch(() => {});
-  }, [chartKpiIdsStr, dateParams]);
+  }, [chartKpiIdsStr, resolvedFrom, resolvedTo]);
 
   if (selectedKpis.length === 0) {
     return (

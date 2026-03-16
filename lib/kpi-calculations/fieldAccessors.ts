@@ -106,13 +106,24 @@ export const bookingAcc = {
   classId: (r: any): string => readField(r, "class_id", "Class ID") ?? "",
   /**
    * Returns a normalised lowercase attendance status.
-   * "No-show" and "no_show" both become "no_show".
+   * "No-show", "no_show", "No show" all become "no_show".
+   * Also reads "status" / "Status" so "Booked" / "Attended" are recognized.
    */
   attendanceStatus: (r: any): string => {
     const raw = (
-      readField(r, "attendance_status", "Attendance Status") ?? ""
-    ).toLowerCase();
-    return raw.replace(/-/g, "_"); // "no-show" → "no_show"
+      readField(
+        r,
+        "attendance_status",
+        "Attendance Status",
+        "status",
+        "Status"
+      ) ?? ""
+    )
+      .toLowerCase()
+      .replace(/-/g, "_")
+      .replace(/\s+/g, "_")
+      .trim();
+    return raw;
   },
 };
 

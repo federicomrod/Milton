@@ -168,6 +168,7 @@ export function getCurrencySymbol(currency: string): string {
     USD: "$",
     GBP: "£",
     CHF: "CHF",
+    MXN: "MX$",
   };
   return symbols[currency] || currency;
 }
@@ -181,6 +182,7 @@ function getLocaleFromCurrency(currency: string): string {
     USD: "en-US",
     GBP: "en-GB",
     CHF: "de-CH",
+    MXN: "es-MX",
   };
   return locales[currency] || "en-US";
 }

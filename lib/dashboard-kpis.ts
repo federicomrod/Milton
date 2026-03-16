@@ -70,29 +70,75 @@ export async function fetchDashboardKpis(
     }
 
     // Call appropriate analytics API based on business model
-    let apiUrl: string;
+    let analyticsData: Record<string, number> = {};
+
     if (businessType === "fitness_studio") {
-      apiUrl = `/api/analytics/fitness-studio/kpis?from_date=${fromDate}&to_date=${toDate}`;
+      const [kpisRes, classesRes] = await Promise.all([
+        fetch(
+          `/api/analytics/fitness-studio/kpis?from_date=${fromDate}&to_date=${toDate}`,
+          { cache: "no-store", credentials: "include" }
+        ),
+        fetch(
+          `/api/analytics/fitness-studio/classes-utilization?from_date=${fromDate}&to_date=${toDate}`,
+          { cache: "no-store", credentials: "include" }
+        ),
+      ]);
+
+      if (kpisRes.ok) {
+        const kpisJson = await kpisRes.json();
+        analyticsData = { ...analyticsData, ...(kpisJson.kpis || {}) };
+      } else {
+        console.error(`Failed to fetch fitness-studio KPIs:`, kpisRes.status);
+      }
+
+      if (classesRes.ok) {
+        const classesJson = await classesRes.json();
+        analyticsData = {
+          ...analyticsData,
+          ...(classesJson.kpis || {}),
+        };
+      } else {
+        console.error(
+          `Failed to fetch classes-utilization KPIs:`,
+          classesRes.status
+        );
+      }
     } else if (businessType === "restaurant") {
-      apiUrl = `/api/analytics/restaurant/kpis?from_date=${fromDate}&to_date=${toDate}`;
+      const response = await fetch(
+        `/api/analytics/restaurant/kpis?from_date=${fromDate}&to_date=${toDate}`,
+        { cache: "no-store", credentials: "include" }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        analyticsData = data.kpis || {};
+      } else {
+        console.error(`Failed to fetch restaurant KPIs:`, response.status);
+      }
     } else {
-      // For other business types, return empty for now
-      // They would need their own analytics APIs
-      return {};
+      // E-Commerce (ecom) and other business types: use unified /api/kpis/calculate
+      const response = await fetch("/api/kpis/calculate", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from_date: fromDate,
+          to_date: toDate,
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const calculated = (data.calculatedKpis || []) as Array<{
+          id: string;
+          currentValue: number | null;
+        }>;
+        calculated.forEach((kpi) => {
+          if (kpi.id != null && kpi.currentValue != null) {
+            analyticsData[kpi.id] = kpi.currentValue;
+          }
+        });
+      }
     }
-
-    const response = await fetch(apiUrl, {
-      cache: "no-store",
-      credentials: "include",
-    });
-
-    if (!response.ok) {
-      console.error(`Failed to fetch KPIs from ${apiUrl}:`, response.status);
-      return {};
-    }
-
-    const data = await response.json();
-    const analyticsData = data.kpis || {};
 
     // If we have selected KPIs, map analytics fields to KPI IDs
     if (selectedKpiIds.length > 0 && businessType) {
@@ -112,32 +158,20 @@ export async function fetchDashboardKpis(
           .in("id", validKpiIds);
 
         if (kpis) {
-          console.log(
-            "[fetchDashboardKpis] Found KPIs:",
-            kpis.map((k) => ({ id: k.id, name: k.name }))
-          );
-          console.log("[fetchDashboardKpis] Analytics data:", analyticsData);
-          console.log("[fetchDashboardKpis] Mappings:", mappings);
-
           kpis.forEach((kpi) => {
-            const apiField = mappings[kpi.name];
-            const value = analyticsData[apiField];
-            console.log(
-              `[fetchDashboardKpis] KPI "${kpi.name}" (ID: ${kpi.id}) -> API field "${apiField}" -> value: ${value}`
-            );
-            if (apiField && value !== undefined) {
+            // When no mappings (e.g. ecom), analyticsData is already keyed by KPI id from /api/kpis/calculate
+            const value = mappings
+              ? (analyticsData[mappings[kpi.name]] ?? analyticsData[kpi.id])
+              : analyticsData[kpi.id];
+            if (value !== undefined && value !== null) {
               result[kpi.id] = value;
             } else {
-              console.log(
-                `[fetchDashboardKpis] No mapping or data found for KPI "${kpi.name}"`
-              );
               result[kpi.id] = null;
             }
           });
         }
       }
 
-      console.log("[fetchDashboardKpis] Final result:", result);
       return result;
     }
 
@@ -163,15 +197,35 @@ export const DASHBOARD_KPI_MAPPINGS: Record<string, Record<string, string>> = {
     "Studio Utilization": "utilizationRate",
     "Utilization Rate": "utilizationRate",
     "Occupancy Rate": "utilizationRate",
+    "Capacity Utilization": "capacityUtilization",
+    "Average Class Size": "averageClassSize",
+    "Average Class Occupancy": "avgClassOccupancy",
+    "Class Attendance Rate": "avgClassOccupancy",
     "Cancellation Rate": "cancellationRate",
+    "No Show Rate": "noShowRate",
     "Revenue per Class": "revenuePerClass",
     "Total Expenses": "totalCosts",
     "Total Revenue": "totalRevenue",
+    "Revenue Growth Rate": "revenueGrowthRate",
     "Net Income": "netIncome",
+    "Net Cash Flow": "netCashFlow",
     "Burn Rate": "burnRate",
+    "Total Classes Held": "totalClassesHeld",
   },
   restaurant: {
-    // Add restaurant KPI mappings when restaurant analytics API is implemented
+    "Total Revenue": "totalRevenue",
+    "Covers (Guests Served)": "covers",
+    Covers: "covers",
+    "Number of Orders": "orderCount",
+    "# of Orders": "orderCount",
+    Orders: "orderCount",
+    "Average Ticket Size": "averageTicketSize",
+    "Average Order Value (AOV)": "averageOrderValue",
+    "Average Order Value": "averageOrderValue",
+    "Prime Cost %": "primeCostPercent",
+    "Net Cash Flow": "netCashFlow",
+    "Menu Item Margin": "menuItemMargin",
+    "Gross Margin": "grossMargin",
   },
 };
 

@@ -52,32 +52,12 @@ export async function GET(req: NextRequest) {
 
     const tableId = tableDef.id;
 
-    // Get total count
-    const { count: totalCount, error: countError } = await supabase
-      .from("model_data")
-      .select("*", { count: "exact", head: true })
-      .eq("company_id", company.id)
-      .eq("model_table_id", tableId);
-
-    if (countError) {
-      console.error("Error counting rows:", countError);
-      return NextResponse.json(
-        { error: "Failed to count rows" },
-        { status: 500 }
-      );
-    }
-
-    // Get paginated data
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
-
-    const { data: rows, error: dataError } = await supabase
+    // Fetch all rows so we can sort by the PK field before paginating
+    const { data: allRows, error: dataError } = await supabase
       .from("model_data")
       .select("data, created_at")
       .eq("company_id", company.id)
-      .eq("model_table_id", tableId)
-      .range(from, to)
-      .order("created_at", { ascending: false });
+      .eq("model_table_id", tableId);
 
     if (dataError) {
       console.error("Error fetching data:", dataError);
@@ -87,8 +67,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const rows = allRows || [];
+
     // Extract column names from the first few rows to determine schema
-    const sampleRows = rows?.slice(0, 5) || [];
+    const sampleRows = rows.slice(0, 5);
     const columnNames = new Set<string>();
 
     sampleRows.forEach((row) => {
@@ -120,15 +102,36 @@ export async function GET(req: NextRequest) {
       .sort();
     const sortedColumns = [...pkCols, ...reqCols, ...restCols];
 
-    // Transform data for frontend consumption
-    const transformedRows =
-      rows?.map((row, index) => ({
-        id: from + index + 1,
-        ...row.data,
-        _created_at: row.created_at,
-      })) || [];
+    // Sort all rows by the first column (PK field) using natural/alphanumeric sort
+    const sortKey = sortedColumns[0];
+    if (sortKey) {
+      rows.sort((a, b) => {
+        const aVal = String(
+          (a.data as Record<string, unknown>)?.[sortKey] ?? ""
+        );
+        const bVal = String(
+          (b.data as Record<string, unknown>)?.[sortKey] ?? ""
+        );
+        return aVal.localeCompare(bVal, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      });
+    }
 
-    const totalPages = Math.ceil((totalCount || 0) / pageSize);
+    // Paginate after sorting
+    const totalCount = rows.length;
+    const from = (page - 1) * pageSize;
+    const pageRows = rows.slice(from, from + pageSize);
+
+    // Transform data for frontend consumption
+    const transformedRows = pageRows.map((row, index) => ({
+      id: from + index + 1,
+      ...row.data,
+      _created_at: row.created_at,
+    }));
+
+    const totalPages = Math.ceil(totalCount / pageSize);
 
     return NextResponse.json({
       rows: transformedRows,
@@ -137,7 +140,7 @@ export async function GET(req: NextRequest) {
       pagination: {
         page,
         pageSize,
-        totalCount: totalCount || 0,
+        totalCount,
         totalPages,
         hasNext: page < totalPages,
         hasPrev: page > 1,

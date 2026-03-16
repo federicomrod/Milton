@@ -5,6 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 import * as XLSX from "xlsx";
 import { normalizeDateValue } from "@/lib/utils";
 
+/** Returns true for cell formatted-text values that look like a date (with or without time). */
+function isDateFormattedText(w: string): boolean {
+  return /^\d{1,2}[./]\d{1,2}[./]\d{2,4}/.test(w);
+}
+
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
@@ -20,6 +25,7 @@ export async function POST(req: Request) {
 
     const formData = await req.formData();
     const file = formData.get("file");
+    const requestedSheetName = formData.get("sheetName") as string | null;
 
     if (!(file instanceof File)) {
       return NextResponse.json(
@@ -124,7 +130,9 @@ export async function POST(req: Request) {
           sheetHeaders = Object.keys(sheetData[0]);
         }
 
-        // For Excel files, try to get formatted text for date cells
+        // For Excel files, normalize date cells using formatted text (cell.w)
+        // cell.w is the human-readable formatted string Excel would display
+        // (e.g. "22/1/2025 00:00:00"), whereas the raw value is the serial number
         const processedData = sheetData.map((row, rowIdx) => {
           const newRow = { ...row };
           sheetHeaders.forEach((header, colIdx) => {
@@ -133,13 +141,22 @@ export async function POST(req: Request) {
               c: colIdx,
             });
             const cell = worksheet[cellAddress];
-            // If cell has formatted text that looks like a date, use it
-            if (
+            // Prefer Excel serial number over cell.w - the serial is the unambiguous
+            // source of truth; cell.w can be locale-dependent (e.g. "01/12" = Jan 12 US vs Dec 1 EU)
+            const hasExcelSerial =
               cell &&
-              cell.w &&
-              /^\d{1,2}[./]\d{1,2}[./]\d{2,4}$/.test(cell.w)
-            ) {
-              newRow[header] = cell.w;
+              typeof newRow[header] === "number" &&
+              (newRow[header] as number) > 1 &&
+              (newRow[header] as number) < 100000 &&
+              cell.t === "n" &&
+              cell.z &&
+              /[ymd]/i.test(cell.z);
+            if (hasExcelSerial) {
+              const iso = normalizeDateValue(newRow[header]);
+              if (iso) newRow[header] = iso;
+            } else if (cell && cell.w && isDateFormattedText(cell.w)) {
+              const iso = normalizeDateValue(cell.w);
+              newRow[header] = iso ?? cell.w;
             }
           });
           return newRow;
@@ -154,36 +171,46 @@ export async function POST(req: Request) {
         };
       });
 
-      // Use first sheet for legacy compatibility
-      if (sheets.length > 0) {
-        const firstSheetName = sheets[0].name;
-        const firstWorksheet = workbook.Sheets[firstSheetName];
-        const firstSheetData = XLSX.utils.sheet_to_json(firstWorksheet, {
+      // Use the requested sheet (by name) or fall back to the first sheet
+      const targetSheet = requestedSheetName
+        ? (sheets.find((s) => s.name === requestedSheetName) ?? sheets[0])
+        : sheets[0];
+
+      if (targetSheet) {
+        const targetWorksheet = workbook.Sheets[targetSheet.name];
+        const targetSheetData = XLSX.utils.sheet_to_json(targetWorksheet, {
           raw: true,
           defval: "",
         }) as Record<string, unknown>[];
 
-        // Apply date formatting to first sheet data
-        jsonData = firstSheetData.map((row, rowIdx) => {
+        // Apply date normalization to the target sheet data
+        jsonData = targetSheetData.map((row, rowIdx) => {
           const newRow = { ...row };
-          sheets[0].headers.forEach((header, colIdx) => {
+          targetSheet.headers.forEach((header, colIdx) => {
             const cellAddress = XLSX.utils.encode_cell({
               r: rowIdx + 1,
               c: colIdx,
             });
-            const cell = firstWorksheet[cellAddress];
-            // If cell has formatted text that looks like a date, use it
-            if (
+            const cell = targetWorksheet[cellAddress];
+            const hasExcelSerial =
               cell &&
-              cell.w &&
-              /^\d{1,2}[./]\d{1,2}[./]\d{2,4}$/.test(cell.w)
-            ) {
-              newRow[header] = cell.w;
+              typeof newRow[header] === "number" &&
+              (newRow[header] as number) > 1 &&
+              (newRow[header] as number) < 100000 &&
+              cell.t === "n" &&
+              cell.z &&
+              /[ymd]/i.test(cell.z);
+            if (hasExcelSerial) {
+              const iso = normalizeDateValue(newRow[header]);
+              if (iso) newRow[header] = iso;
+            } else if (cell && cell.w && isDateFormattedText(cell.w)) {
+              const iso = normalizeDateValue(cell.w);
+              newRow[header] = iso ?? cell.w;
             }
           });
           return newRow;
         });
-        headers = sheets[0].headers;
+        headers = targetSheet.headers;
       } else {
         return NextResponse.json(
           { error: "File contains no sheets" },

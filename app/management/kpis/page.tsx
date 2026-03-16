@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { AdminHeader } from "@/components/management/admin-header";
 import { AdminTable, ColumnDef } from "@/components/management/admin-table";
 import { Button } from "@/components/ui/button";
@@ -31,15 +31,15 @@ export default function KpisPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [kpiToDelete, setKpiToDelete] = useState<Kpi | null>(null);
   const [impactData, setImpactData] = useState<any>(null);
+  const [showDrafts, setShowDrafts] = useState(false);
   const { toast } = useToast();
 
-  useEffect(() => {
-    fetchKpis();
-  }, []);
-
-  const fetchKpis = async () => {
+  const fetchKpis = useCallback(async () => {
     try {
-      const response = await fetch("/api/admin/kpis");
+      const url = showDrafts
+        ? "/api/admin/kpis?show_drafts=true"
+        : "/api/admin/kpis";
+      const response = await fetch(url);
       if (!response.ok) throw new Error("Failed to fetch KPIs");
       const data = await response.json();
       setKpis(data);
@@ -52,7 +52,12 @@ export default function KpisPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [showDrafts, toast]);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchKpis();
+  }, [fetchKpis]);
 
   const handleCreate = () => {
     setSelectedKpi(null);
@@ -169,17 +174,29 @@ export default function KpisPage() {
   return (
     <div>
       <AdminHeader
-        title="KPIs"
-        description="Manage key performance indicators and their definitions"
+        title={`KPIs (${kpis.length})`}
+        description={
+          showDrafts
+            ? "Manage all key performance indicators (including drafts)"
+            : "Manage published key performance indicators"
+        }
         breadcrumbs={[
           { label: "Management", href: "/management/dashboard" },
           { label: "KPIs" },
         ]}
         action={
-          <Button onClick={handleCreate}>
-            <Plus className="h-4 w-4 mr-2" />
-            Create KPI
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant={showDrafts ? "default" : "outline"}
+              onClick={() => setShowDrafts(!showDrafts)}
+            >
+              {showDrafts ? "Hide Drafts" : "Show Drafts"}
+            </Button>
+            <Button onClick={handleCreate}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create KPI
+            </Button>
+          </div>
         }
       />
 
@@ -189,7 +206,11 @@ export default function KpisPage() {
         onEdit={handleEdit}
         onDelete={handleDelete}
         searchableFields={["name", "definition"]}
-        emptyMessage="No KPIs found. Create your first KPI to get started."
+        emptyMessage={
+          showDrafts
+            ? "No KPIs found. Create your first KPI to get started."
+            : "No published KPIs found. Create a KPI and set it as published to see it here."
+        }
         getRowKey={(kpi) => kpi.id}
       />
 

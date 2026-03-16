@@ -1,5 +1,10 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 
+/**
+ * Total Revenue = Sum of order totals in the date range.
+ * Formula: Σ (each order's Total Amount) for orders where date is in [fromDate, toDate].
+ * Uses Orders table; fields: "Total Amount", "Date & Time" (or equivalents).
+ */
 export async function calculateTotalRevenue(
   supabase: SupabaseClient,
   userId: string,
@@ -56,12 +61,12 @@ export async function calculateTotalRevenue(
     }
   }
 
-  // Collect revenue-like rows from orders, invoices (AR), and subscriptions
+  // Filter orders data (exclude Order Items - name must not include "item")
   const ordersData = allModelData.filter((row) => {
     const tableName = idToNameMap[row.model_table_id] || "";
     return (
       tableName === "orders" ||
-      tableName.includes("order") ||
+      (tableName.includes("order") && !tableName.includes("item")) ||
       tableName.includes("sale")
     );
   });
@@ -113,43 +118,82 @@ export async function calculateTotalRevenue(
     }
   }
 
-  const parseDate = (dateStr: string | null | undefined): Date | null => {
-    if (!dateStr) return null;
-    if (String(dateStr).match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/)) {
-      return new Date(String(dateStr).replace(" ", "T") + ":00");
+  const getVal = (obj: any, fallbacks: string[]): any => {
+    for (const fb of fallbacks) {
+      if (obj[fb] !== undefined && obj[fb] != null) return obj[fb];
+      const lower = fb.toLowerCase();
+      for (const key in obj) {
+        if (key.toLowerCase() === lower) return obj[key];
+      }
     }
-    if (String(dateStr).match(/^\d{4}-\d{2}-\d{2}/)) {
-      return new Date(String(dateStr) + "T00:00:00");
-    }
-    const parsed = new Date(String(dateStr));
-    return isNaN(parsed.getTime()) ? null : parsed;
+    return undefined;
   };
 
+  const parseDate = (dateStr: any): Date | null => {
+    if (dateStr == null || dateStr === "") return null;
+    if (typeof dateStr === "number") {
+      const ms = dateStr > 1e12 ? dateStr : dateStr * 1000;
+      const p = new Date(ms);
+      return isNaN(p.getTime()) ? null : p;
+    }
+    if (typeof dateStr === "string") {
+      const s = dateStr.trim();
+      if (s.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/))
+        return new Date(s.replace(" ", "T") + ":00");
+      if (s.match(/^\d{4}-\d{2}-\d{2}/))
+        return new Date(s.substring(0, 10) + "T00:00:00");
+      const p = new Date(s);
+      if (!isNaN(p.getTime())) return p;
+    }
+    const p = new Date(dateStr);
+    return isNaN(p.getTime()) ? null : p;
+  };
+
+  const parseAmount = (val: any): number => {
+    if (val == null) return 0;
+    if (typeof val === "number" && !isNaN(val)) return val;
+    const s = String(val)
+      .trim()
+      .replace(/[$€£,\s]/g, "");
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const dateFallbacks = [
+    "Date & Time",
+    "Date &amp; Time",
+    "date",
+    "Date",
+    "order_date",
+    "Order Date",
+    "sale_date",
+    "created_at",
+  ];
+  const totalFallbacks = [
+    "Total Amount",
+    "Total",
+    "Amount",
+    "total",
+    "amount",
+    "revenue",
+    "Revenue",
+  ];
+
+  // Normalize order: extract date and total using field fallbacks
   const normalizeOrder = (o: any) => {
-    const totalRaw =
-      o.total ??
-      o.amount ??
-      o.revenue ??
-      o["Total"] ??
-      o["Amount"] ??
-      o["Total Amount"];
-    const total =
-      typeof totalRaw === "string"
-        ? parseFloat(totalRaw) || 0
-        : Number(totalRaw) || 0;
+    let dateStr = getVal(o, dateFallbacks);
+    if (dateStr == null) {
+      for (const k of Object.keys(o)) {
+        if (/date|time/i.test(k) && o[k]) {
+          dateStr = o[k];
+          break;
+        }
+      }
+    }
+    const totalVal = getVal(o, totalFallbacks);
     return {
-      date:
-        o.date ??
-        o.order_date ??
-        o.sale_date ??
-        o.created_at ??
-        o["Date"] ??
-        o["Issue Date"] ??
-        o["Order Date"] ??
-        o["Date & Time"] ??
-        o["Date &amp; Time"] ??
-        o["Start Date"],
-      total,
+      date: dateStr,
+      total: parseAmount(totalVal),
     };
   };
 

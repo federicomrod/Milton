@@ -1,0 +1,31 @@
+ID,First Order Date,Acquisition Channel,E-Mail,Address,Postal Code,Country,First Name,Last Name,Last Order Date,Birthday
+CUST-001,2025-11-02,Organic,john.doe@example.com,123 Main St,SW1A 1AA,UK,John,Doe,2026-03-15,1990-05-20
+CUST-002,2025-11-05,Paid Search,jane@example.com,456 Oak Ave,10001,USA,Jane,Smith,2026-02-28,1985-11-08
+CUST-003,2025-11-08,Organic,maria.garcia@example.com,78 Calle Mayor,28013,Spain,Maria,Garcia,2026-01-20,1992-03-14
+CUST-004,2025-11-12,Facebook,pierre.dupont@example.com,15 Rue de Rivoli,75001,France,Pierre,Dupont,2026-03-10,1988-07-22
+CUST-005,2025-11-15,Google Ads,lisa.mueller@example.com,Bahnhofstrasse 42,8001,Germany,Lisa,Mueller,2026-02-14,1995-01-09
+CUST-006,2025-11-18,Organic,alex.brown@example.com,22 Queen St,M1 1AB,UK,Alex,Brown,2026-03-01,1982-12-03
+CUST-007,2025-11-20,Instagram,sophie.martin@example.com,90 Via Roma,20121,Italy,Sophie,Martin,2026-01-15,1991-08-17
+CUST-008,2025-11-22,Paid Search,david.wilson@example.com,5 Fifth Ave,10011,USA,David,Wilson,2026-03-20,1979-04-25
+CUST-009,2025-11-25,Organic,emma.jones@example.com,44 High Street,BS1 4DJ,UK,Emma,Jones,2026-02-08,1993-09-11
+CUST-010,2025-11-28,Google Ads,james.taylor@example.com,100 Broadway,10012,USA,James,Taylor,2026-01-30,1987-06-30
+CUST-011,2025-12-01,Organic,olivia.white@example.com,7 King Road,L1 8HQ,UK,Olivia,White,2026-03-12,1994-02-18
+CUST-012,2025-12-05,Facebook,william.harris@example.com,200 Park Ave,10166,USA,William,Harris,2026-02-20,1980-10-05
+CUST-013,2025-12-08,Organic,ava.martinez@example.com,Carrer de Balmes 120,08008,Spain,Ava,Martinez,2026-03-05,1996-11-27
+CUST-014,2025-12-12,Paid Search,noah.anderson@example.com,33 George St,EH2 2HN,UK,Noah,Anderson,2026-01-25,1984-03-08
+CUST-015,2025-12-15,Instagram,isabella.thomas@example.com,88 Madison Ave,10028,USA,Isabella,Thomas,2026-02-18,1990-07-14
+CUST-016,2025-12-18,Organic,lucas.jackson@example.com,12 Gran Via,28013,Spain,Lucas,Jackson,2026-03-22,1989-12-21
+CUST-017,2025-12-20,Google Ads,charlotte.lee@example.com,55 Regent St,W1B 5RA,UK,Charlotte,Lee,2026-02-02,1997-04-03
+CUST-018,2026-01-05,Organic,benjamin.clark@example.com,400 West End Ave,10024,USA,Benjamin,Clark,2026-03-18,1983-08-29
+CUST-019,2026-01-10,Facebook,amelia.lewis@example.com,20 Oxford St,W1D 1BS,UK,Amelia,Lewis,2026-02-25,1992-01-16
+CUST-020,2026-01-15,Paid Search,henry.walker@example.com,Paseo de Gracia 92,08008,Spain,Henry,Walker,2026-03-08,1986-05-22
+CUST-021,2026-01-18,Organic,mia.hall@example.com,250 Canal St,10013,USA,Mia,Hall,2026-01-28,1994-10-09
+CUST-022,2026-01-22,Instagram,alexander.young@example.com,18 Princes St,EH2 2DG,UK,Alexander,Young,2026-03-25,1981-02-12
+CUST-023,2026-01-25,Organic,harper.king@example.com,75 Champs-Elysees,75008,France,Harper,King,2026-02-15,1995-06-07
+CUST-024,2026-02-01,Google Ads,evelyn.wright@example.com,900 Michigan Ave,60611,USA,Evelyn,Wright,2026-03-28,1988-09-24
+CUST-025,2026-02-08,Organic,daniel.scott@example.com,30 Buchanan St,G1 3AP,UK,Daniel,Scott,2026-03-10,1990-11-30
+CUST-026,2026-02-12,Facebook,elizabeth.green@example.com,Calle Serrano 45,28001,Spain,Elizabeth,Green,2026-02-28,1987-04-17
+CUST-027,2026-02-15,Paid Search,sebastian.adams@example.com,1200 Sunset Blvd,90069,USA,Sebastian,Adams,2026-03-15,1993-07-02
+CUST-028,2026-02-20,Organic,abigail.baker@example.com,42 New Bond St,W1S 2RR,UK,Abigail,Baker,2026-03-20,1985-12-19
+CUST-029,2026-03-01,Organic,nathan.nelson@example.com,500 Fifth Ave,10110,USA,Nathan,Nelson,2026-03-25,1991-03-05
+CUST-030,2026-03-10,Google Ads,emily.carter@example.com,8 Kensington High St,W8 4PT,UK,Emily,Carter,2026-03-28,1996-08-11

@@ -19,13 +19,24 @@ import {
   calculateRevenuePerClass,
   calculateBurnRate,
   calculateNetIncome,
+  calculateNetCashFlow,
   calculateRunway,
+  calculateRevenueGrowthRate,
   calculateTotalRevenue,
   calculateTotalExpenses,
   calculateMRR,
+  calculateAverageOrderValue,
+  calculateMenuItemMargin,
+  calculateOrderCount,
   calculateCovers,
   calculateAverageTicketSize,
   calculatePrimeCostPercent,
+  calculateContributionMarginAfterMarketing,
+  calculateCustomerAcquisitionCost,
+  calculateCacPaybackPeriod,
+  calculateMarketingEfficiency,
+  calculateProductProfitability,
+  calculateGrowthQualityScore,
 } from "@/lib/kpi-calculations";
 
 export async function POST(request: Request) {
@@ -74,7 +85,10 @@ export async function POST(request: Request) {
       selectedKpiIds = selections.map((item) => item.id);
     }
 
-    console.log(`[KPI Calculate] Selected KPI IDs:`, selectedKpiIds);
+    console.log(
+      `[KPI Calculate] Selected KPI IDs (from business_models):`,
+      selectedKpiIds
+    );
 
     // Get KPI definitions for selected KPIs (only published ones)
     const { data: kpis, error: kpisError } = await supabase
@@ -83,7 +97,10 @@ export async function POST(request: Request) {
       .in("id", selectedKpiIds)
       .eq("is_published", true);
 
-    console.log(`[KPI Calculate] Found ${kpis?.length || 0} KPI definitions`);
+    console.log(
+      `[KPI Calculate] Found ${kpis?.length || 0} KPI definitions:`,
+      (kpis || []).map((k) => ({ id: k.id, name: k.name }))
+    );
 
     if (kpisError) {
       return NextResponse.json({ calculatedKpis: [] });
@@ -276,6 +293,19 @@ export async function POST(request: Request) {
               fromDate,
               toDate
             );
+          } else if (
+            kpiName?.includes("net cash flow") ||
+            kpiName?.includes("cash flow")
+          ) {
+            console.log(
+              `[KPI Calculate] Matched Net Cash Flow for: ${kpi.name}`
+            );
+            result = await calculateNetCashFlow(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
           } else if (kpiName?.includes("runway")) {
             console.log(`[KPI Calculate] Matched Runway for: ${kpi.name}`);
             result = await calculateRunway(supabase, user.id, fromDate, toDate);
@@ -297,15 +327,53 @@ export async function POST(request: Request) {
               toDate
             );
           } else if (
+            kpiName?.includes("revenue growth rate") ||
+            kpiName?.includes("revenue growth")
+          ) {
+            result = await calculateRevenueGrowthRate(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
             kpiName?.includes("mrr") ||
             kpiName?.includes("monthly recurring revenue")
           ) {
             result = await calculateMRR(supabase, user.id, fromDate, toDate);
           } else if (
+            kpiName?.includes("average order value") ||
+            kpiName?.includes("aov")
+          ) {
+            console.log(
+              `[KPI Calculate] Matched Average Order Value (AOV) for: ${kpi.name} (${kpi.id})`
+            );
+            result = await calculateAverageOrderValue(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+            console.log(
+              `[KPI Calculate] AOV result: currentValue=${result?.currentValue}, historicalData.length=${result?.historicalData?.length ?? 0}`
+            );
+          } else if (
             kpiName?.includes("average ticket size") ||
             kpiName?.includes("average ticket")
           ) {
             result = await calculateAverageTicketSize(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.toLowerCase() === "orders" ||
+            kpiName?.includes("number of orders") ||
+            kpiName?.includes("# of orders") ||
+            (kpiName?.includes("orders") && kpiName?.includes("count"))
+          ) {
+            result = await calculateOrderCount(
               supabase,
               user.id,
               fromDate,
@@ -326,6 +394,76 @@ export async function POST(request: Request) {
               fromDate,
               toDate
             );
+          } else if (
+            kpiName?.includes("menu item margin") ||
+            kpiName?.includes("gross margin")
+          ) {
+            result = await calculateMenuItemMargin(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("contribution margin after marketing") ||
+            kpiName?.includes("cmam")
+          ) {
+            result = await calculateContributionMarginAfterMarketing(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("cac payback") ||
+            kpiName?.includes("payback period")
+          ) {
+            result = await calculateCacPaybackPeriod(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("customer acquisition cost") ||
+            (kpiName?.includes("cac") && !kpiName?.includes("payback"))
+          ) {
+            result = await calculateCustomerAcquisitionCost(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("marketing efficiency") ||
+            kpiName?.includes("roas")
+          ) {
+            result = await calculateMarketingEfficiency(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("product profitability") ||
+            kpiName?.includes("product margin")
+          ) {
+            result = await calculateProductProfitability(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
+          } else if (
+            kpiName?.includes("growth quality score") ||
+            kpiName?.includes("growth quality")
+          ) {
+            result = await calculateGrowthQualityScore(
+              supabase,
+              user.id,
+              fromDate,
+              toDate
+            );
           } else {
             console.log(
               `[KPI Calculate] No calculation function found for KPI: ${kpi.name} (${kpi.id})`
@@ -339,9 +477,14 @@ export async function POST(request: Request) {
             historicalData: result.historicalData || [],
           };
         } catch (calcError) {
+          console.error(
+            `[KPI Calculate] Error for KPI ${kpi.name} (${kpi.id}):`,
+            calcError
+          );
           return {
             ...kpi,
             currentValue: null,
+            historicalData: [],
             error:
               calcError instanceof Error
                 ? calcError.message

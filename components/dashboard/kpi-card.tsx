@@ -28,6 +28,10 @@ const getKpiDisplayFormat = (kpiName: string): KpiFormat => {
     name?.includes("occupancy") ||
     name?.includes("cancellation")
   ) {
+    // Special case: burn rate should be currency, not percentage
+    if (name?.includes("burn rate")) {
+      return "currency";
+    }
     return "percentage";
   } else if (
     name?.includes("revenue") ||
@@ -133,9 +137,19 @@ export function KpiCard({
           Array.isArray(series.data) &&
           series.data.length > 0
         ) {
-          // Get the most recent value
-          const latestPoint = series.data[series.data.length - 1];
-          setCurrentValue(latestPoint.value ?? null);
+          // For "Total" KPIs, sum all values in the series
+          const isTotalKpi = kpi.name.toLowerCase().includes("total");
+          if (isTotalKpi) {
+            const totalValue = series.data.reduce(
+              (sum: number, point: any) => sum + (point.value || 0),
+              0
+            );
+            setCurrentValue(totalValue);
+          } else {
+            // Get the most recent value for other KPIs
+            const latestPoint = series.data[series.data.length - 1];
+            setCurrentValue(latestPoint.value ?? null);
+          }
         } else {
           setCurrentValue(null);
         }
@@ -170,13 +184,13 @@ export function KpiCard({
     if (format === "currency") {
       return formatCurrency(value, prefs.currency, prefs.number_format);
     } else if (format === "percentage") {
-      // For percentage format, value is already a percentage (0-100), not decimal
-      // If a custom suffix is provided, format as number and let suffix handle the %
-      // Otherwise, use formatPercentage which includes the %
+      // For percentage format, value is already a percentage (0-100), not decimal.
+      // Safeguard: if value > 100, treat as double-scaled (e.g. 1800 instead of 18).
+      const normalized = value > 100 ? value / 100 : value;
       if (providedSuffix !== undefined) {
-        return value.toFixed(1);
+        return normalized.toFixed(1);
       }
-      return formatPercentage(value / 100);
+      return formatPercentage(normalized / 100);
     } else if (format === "months") {
       return value.toFixed(1);
     } else {

@@ -49,8 +49,42 @@ export function normalizeDateValue(value: any): string | null {
         }
       }
 
-      // DD/MM/YY or DD/MM/YYYY (e.g., "01/03/25" or "01/03/2025")
-      // Also handles ambiguous dates like "1/2/25" - prefer DD/MM/YY format
+      // MM/DD/YYYY HH:MM:SS or DD.MM.YYYY HH:MM:SS (datetime with time)
+      // Ambiguous: prefer MM/DD (US/Excel default) so "01/12/2025 00:00:00" = Jan 12
+      const datetimeMatch = trimmed.match(
+        /^(\d{1,2})[./](\d{1,2})[./](\d{2,4})\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/
+      );
+      if (datetimeMatch) {
+        let day: number, month: number;
+        const p1 = parseInt(datetimeMatch[1], 10);
+        const p2 = parseInt(datetimeMatch[2], 10);
+        if (p1 > 12) {
+          day = p1;
+          month = p2 - 1;
+        } else if (p2 > 12) {
+          month = p1 - 1;
+          day = p2;
+        } else {
+          month = p1 - 1;
+          day = p2;
+        }
+        let year = parseInt(datetimeMatch[3], 10);
+        if (year < 100) {
+          year = year <= 30 ? 2000 + year : 1900 + year;
+        }
+        const hours = parseInt(datetimeMatch[4], 10);
+        const minutes = parseInt(datetimeMatch[5], 10);
+        const seconds = datetimeMatch[6] ? parseInt(datetimeMatch[6], 10) : 0;
+        const date = new Date(
+          Date.UTC(year, month, day, hours, minutes, seconds)
+        );
+        if (!isNaN(date.getTime())) {
+          return date.toISOString();
+        }
+      }
+
+      // DD/MM/YY or MM/DD/YYYY (e.g., "01/03/25" or "01/12/2025")
+      // Smart detection: if one number > 12, it's the day; else prefer MM/DD (US/Excel default)
       const slashDateMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
       if (slashDateMatch) {
         const first = parseInt(slashDateMatch[1], 10);
@@ -60,21 +94,17 @@ export function normalizeDateValue(value: any): string | null {
           year = year <= 30 ? 2000 + year : 1900 + year;
         }
 
-        // Smart detection: if first number > 12, it must be DD/MM format
-        // If both are <= 12, prefer DD/MM/YY (European format) over MM/DD/YY
         let day: number, month: number;
         if (first > 12) {
-          // First number is definitely day (DD/MM format)
           day = first;
           month = second - 1;
         } else if (second > 12) {
-          // Second number is definitely day (MM/DD format)
           month = first - 1;
           day = second;
         } else {
-          // Both <= 12, ambiguous - prefer DD/MM/YY format (European)
-          day = first;
-          month = second - 1;
+          // Both <= 12, ambiguous - prefer MM/DD (US/Excel) so "01/12/2025" = Jan 12
+          month = first - 1;
+          day = second;
         }
 
         const date = new Date(Date.UTC(year, month, day));

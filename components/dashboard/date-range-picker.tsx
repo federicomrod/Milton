@@ -39,6 +39,11 @@ export function DateRangePicker({
   const [isOpen, setIsOpen] = useState(false);
   const [tempCustomRange, setTempCustomRange] = useState(customDateRange);
 
+  const openPicker = () => {
+    setTempCustomRange(customDateRange);
+    setIsOpen(true);
+  };
+
   const now = new Date();
   const formatDate = (date: Date) => date.toISOString().split("T")[0];
 
@@ -192,7 +197,7 @@ export function DateRangePicker({
         variant="outline"
         size="sm"
         className={cn("gap-2 font-normal", className)}
-        onClick={() => setIsOpen(true)}
+        onClick={openPicker}
       >
         <Clock className="h-4 w-4" />
         <span className="hidden sm:inline">{getDisplayText()}</span>

@@ -1,14 +1,7 @@
 // GET /api/analytics/fitness-studio/classes-utilization?from_date=...&to_date=...&period=month|week
-// Returns KPIs and tables for Classes & Utilization analytics. KPI values from unified kpi-calculations layer.
+// Returns KPIs and tables for Classes & Utilization analytics
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import {
-  calculateAverageClassOccupancy,
-  calculateRevenuePerClass,
-  calculateCancellationRate,
-  calculateUtilizationRate,
-  calculateAverageClassSize,
-} from "@/lib/kpi-calculations";
 
 function jsonNoStore(data: Record<string, unknown>) {
   const res = NextResponse.json(data);
@@ -202,33 +195,6 @@ export async function GET(req: NextRequest) {
           classes.push(d);
         }
       }
-    }
-
-    // Debug: Log sample data to see what fields are available
-    if (bookings.length > 0) {
-      console.log(
-        "[classes-utilization] Sample booking fields:",
-        Object.keys(bookings[0])
-      );
-      console.log(
-        "[classes-utilization] Sample booking:",
-        JSON.stringify(bookings[0], null, 2)
-      );
-    } else {
-      console.log("[classes-utilization] No bookings found");
-    }
-
-    if (classes.length > 0) {
-      console.log(
-        "[classes-utilization] Sample class fields:",
-        Object.keys(classes[0])
-      );
-      console.log(
-        "[classes-utilization] Sample class:",
-        JSON.stringify(classes[0], null, 2)
-      );
-    } else {
-      console.log("[classes-utilization] No classes found");
     }
 
     const instructors: any[] = [];
@@ -494,52 +460,7 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    console.log(
-      `[classes-utilization] Created classMap with ${classMap.size} classes`
-    );
-    if (classMap.size > 0) {
-      const firstClass = Array.from(classMap.values())[0];
-      console.log(
-        `[classes-utilization] Sample class in map:`,
-        JSON.stringify(firstClass, null, 2)
-      );
-    }
-
-    // Check if date is in Classes table instead
-    let dateFromClasses = false;
-    if (
-      normalizedBookings.length > 0 &&
-      !normalizedBookings[0].class_start_at
-    ) {
-      console.log(
-        "[classes-utilization] No date in bookings, checking classes table..."
-      );
-      // Check if any classes have dates
-      classMap.forEach((classData: any) => {
-        if (classData.date) {
-          dateFromClasses = true;
-        }
-      });
-      if (dateFromClasses) {
-        console.log(
-          "[classes-utilization] Found dates in classes table, using those for filtering"
-        );
-      } else {
-        console.log(
-          "[classes-utilization] No dates found in classes table either"
-        );
-        console.log(
-          "[classes-utilization] Sample class keys:",
-          classes.length > 0 ? Object.keys(classes[0]) : "No classes"
-        );
-      }
-    }
-
     // Filter bookings by date range
-    let bookingsWithDates = 0;
-    let bookingsWithoutClass = 0;
-    let bookingsOutOfRange = 0;
-
     const bookingsInRange = normalizedBookings.filter((b: any) => {
       let startAtStr = b.class_start_at;
 
@@ -548,14 +469,10 @@ export async function GET(req: NextRequest) {
         const classData = classMap.get(b.class_id);
         if (classData && (classData as any).date) {
           startAtStr = (classData as any).date;
-          bookingsWithDates++;
         } else {
-          bookingsWithoutClass++;
           return false;
         }
-      } else if (startAtStr) {
-        bookingsWithDates++;
-      } else {
+      } else if (!startAtStr) {
         return false;
       }
 
@@ -568,38 +485,8 @@ export async function GET(req: NextRequest) {
         return false;
       }
 
-      const inRange = startAt >= fromDateStart && startAt <= toDateEnd;
-      if (!inRange) {
-        bookingsOutOfRange++;
-        // Log first few out of range for debugging
-        if (bookingsOutOfRange <= 3) {
-          console.log(
-            `[classes-utilization] Booking out of range: class_id=${b.class_id}, date=${startAtStr} (${startAt.toISOString()}), range=${fromDateStart.toISOString()} to ${toDateEnd.toISOString()}`
-          );
-        }
-      }
-      return inRange;
+      return startAt >= fromDateStart && startAt <= toDateEnd;
     });
-
-    console.log(
-      `[classes-utilization] Bookings with dates: ${bookingsWithDates}, without class: ${bookingsWithoutClass}, out of range: ${bookingsOutOfRange}`
-    );
-
-    console.log(
-      `[classes-utilization] Total bookings: ${bookings.length}, Normalized: ${normalizedBookings.length}, In range: ${bookingsInRange.length}`
-    );
-    console.log(
-      `[classes-utilization] Date range: ${fromDateStart.toISOString()} to ${toDateEnd.toISOString()}`
-    );
-
-    // Show sample booking dates if none in range
-    if (bookingsInRange.length === 0 && normalizedBookings.length > 0) {
-      const sampleBooking = normalizedBookings[0];
-      console.log(
-        `[classes-utilization] Sample normalized booking:`,
-        JSON.stringify(sampleBooking, null, 2)
-      );
-    }
 
     const instructorMap = new Map<string, any>();
     const instructorIdField = instructorsFields.find(
@@ -623,24 +510,13 @@ export async function GET(req: NextRequest) {
     // KPI 1: Average Class Occupancy (%)
     const classOccurrences = new Map<
       string,
-      { filled: number; capacity: number }
+      { filled: number; capacity: number; period: string | null }
     >();
 
-    let occupancyBookingsWithoutClass = 0;
-    let occupancyBookingsWithoutDate = 0;
-    let occupancyBookingsProcessed = 0;
-
     bookingsInRange.forEach((b: any) => {
-      occupancyBookingsProcessed++;
       const classId = b.class_id;
       const classData = classMap.get(classId);
       if (!classData) {
-        occupancyBookingsWithoutClass++;
-        if (occupancyBookingsWithoutClass <= 3) {
-          console.log(
-            `[classes-utilization] Booking without class: class_id=${classId}, available classes: ${Array.from(classMap.keys()).slice(0, 5).join(", ")}`
-          );
-        }
         return;
       }
 
@@ -651,18 +527,17 @@ export async function GET(req: NextRequest) {
         startAtStr = (classData as any).date;
       }
       if (!startAtStr) {
-        occupancyBookingsWithoutDate++;
-        if (occupancyBookingsWithoutDate <= 3) {
-          console.log(
-            `[classes-utilization] Booking without date: class_id=${classId}, classData.date=${(classData as any).date}`
-          );
-        }
         return; // Skip if still no date
       }
       const key = `${classId}_${startAtStr}`;
+      const startAt = parseDate(startAtStr);
+      const period =
+        startAt && !isNaN(startAt.getTime())
+          ? `${startAt.getFullYear()}-${String(startAt.getMonth() + 1).padStart(2, "0")}`
+          : null;
 
       if (!classOccurrences.has(key)) {
-        classOccurrences.set(key, { filled: 0, capacity });
+        classOccurrences.set(key, { filled: 0, capacity, period });
       }
 
       const occurrence = classOccurrences.get(key)!;
@@ -671,10 +546,6 @@ export async function GET(req: NextRequest) {
         occurrence.filled += 1;
       }
     });
-
-    console.log(
-      `[classes-utilization] ClassOccurrences building: processed=${occupancyBookingsProcessed}, withoutClass=${occupancyBookingsWithoutClass}, withoutDate=${occupancyBookingsWithoutDate}, classOccurrences.size=${classOccurrences.size}`
-    );
 
     let totalOccupancy = 0;
     let occurrenceCount = 0;
@@ -685,9 +556,7 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    // KPI from layer below; keep local computation for reference
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- replaced by layer
-    const _avgClassOccupancy =
+    const avgClassOccupancy =
       occurrenceCount > 0 ? totalOccupancy / occurrenceCount : 0;
 
     // KPI 2: Revenue per Class (average revenue per class occurrence)
@@ -719,8 +588,7 @@ export async function GET(req: NextRequest) {
       (sum, rev) => sum + rev,
       0
     );
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- replaced by layer
-    const _revenuePerClass =
+    const revenuePerClass =
       revenueByOccurrence.size > 0
         ? totalRevenue / revenueByOccurrence.size
         : 0;
@@ -758,9 +626,34 @@ export async function GET(req: NextRequest) {
       const status = (b.status || "").toLowerCase();
       return status === "cancelled";
     }).length;
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- replaced by layer
-    const _cancellationRate =
+    const cancellationRate =
       finalBookings.length > 0 ? (cancelled / finalBookings.length) * 100 : 0;
+
+    // No Show Rate (%): no_show / (attended + no_show) — booked spots where member did not attend
+    // Read status from normalized b.status or raw row (Excel uses "Attendance Status" / "No-Show")
+    const getBookingStatus = (b: any): string => {
+      const raw =
+        b.status ??
+        b._original?.["Attendance Status"] ??
+        b._original?.attendance_status ??
+        b._original?.Status ??
+        b._original?.status ??
+        "";
+      return String(raw)
+        .toLowerCase()
+        .replace(/-/g, "_")
+        .replace(/\s+/g, "_")
+        .trim();
+    };
+    let attendedCount = 0;
+    let noShowCount = 0;
+    bookingsInRange.forEach((b: any) => {
+      const status = getBookingStatus(b);
+      if (status === "attended") attendedCount += 1;
+      else if (status === "no_show" || status === "noshow") noShowCount += 1;
+    });
+    const noShowDenom = attendedCount + noShowCount;
+    const noShowRate = noShowDenom > 0 ? (noShowCount / noShowDenom) * 100 : 0;
 
     // KPI 4: Capacity Utilization (%)
     let totalFilledSpots = 0;
@@ -771,29 +664,41 @@ export async function GET(req: NextRequest) {
       totalCapacitySpots += Number(occ.capacity) || 0;
     });
 
-    console.log(
-      `[classes-utilization] Capacity Utilization: totalFilledSpots=${totalFilledSpots}, totalCapacitySpots=${totalCapacitySpots}, classOccurrences.size=${classOccurrences.size}`
-    );
-
     const capacityUtilization =
       totalCapacitySpots > 0
         ? (totalFilledSpots / totalCapacitySpots) * 100
         : 0;
 
-    console.log(
-      `[classes-utilization] Capacity Utilization result: ${capacityUtilization}%`
-    );
-
     // KPI 5: Average Class Size (average number of attendees per class occurrence)
     let totalAttendees = 0;
     let classOccurrenceCount = 0;
+    const averageClassSizeByPeriodMap = new Map<
+      string,
+      { totalFilled: number; count: number }
+    >();
     classOccurrences.forEach((occ) => {
       totalAttendees += occ.filled;
       classOccurrenceCount += 1;
+      if (occ.period) {
+        const p = averageClassSizeByPeriodMap.get(occ.period) ?? {
+          totalFilled: 0,
+          count: 0,
+        };
+        p.totalFilled += occ.filled;
+        p.count += 1;
+        averageClassSizeByPeriodMap.set(occ.period, p);
+      }
     });
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- replaced by layer
-    const _averageClassSize =
+    const averageClassSize =
       classOccurrenceCount > 0 ? totalAttendees / classOccurrenceCount : 0;
+    const averageClassSizeByPeriod = Array.from(
+      averageClassSizeByPeriodMap.entries()
+    )
+      .map(([period, { totalFilled, count }]) => ({
+        period,
+        value: count > 0 ? parseFloat((totalFilled / count).toFixed(2)) : 0,
+      }))
+      .sort((a, b) => a.period.localeCompare(b.period));
 
     // Top Performing Classes (combines revenue and occupancy)
     const occupancyByClass = new Map<
@@ -1054,110 +959,145 @@ export async function GET(req: NextRequest) {
     const prevFromDate = new Date(prevToDate.getTime() - periodDuration);
     prevFromDate.setHours(0, 0, 0, 0);
 
-    // KPI values and trends from unified kpi-calculations layer
-    const fromDateStr = fromDateStart.toISOString().slice(0, 10);
-    const toDateStr = toDateEnd.toISOString().slice(0, 10);
-    const prevFromDateStr = prevFromDate.toISOString().slice(0, 10);
-    const prevToDateStr = prevToDate.toISOString().slice(0, 10);
+    // Fetch previous period data for trend calculation
+    const prevBookingsInRange = normalizedBookings.filter((b: any) => {
+      let startAtStr = b.class_start_at;
+      // If no date in booking, try to get it from the class
+      if (!startAtStr && b.class_id) {
+        const classData = classMap.get(b.class_id);
+        if (classData && (classData as any).date) {
+          startAtStr = (classData as any).date;
+        }
+      }
+      if (!startAtStr) return false;
+      const startAt = new Date(startAtStr);
+      if (!startAt || isNaN(startAt.getTime())) return false;
+      return startAt >= prevFromDate && startAt <= prevToDate;
+    });
 
-    const layerResults = await Promise.all([
-      calculateAverageClassOccupancy(
-        supabase,
-        user!.id,
-        fromDateStr,
-        toDateStr
-      ).catch(() => ({ currentValue: 0 })),
-      calculateRevenuePerClass(
-        supabase,
-        user!.id,
-        fromDateStr,
-        toDateStr
-      ).catch(() => ({ currentValue: 0 })),
-      calculateCancellationRate(
-        supabase,
-        user!.id,
-        fromDateStr,
-        toDateStr
-      ).catch(() => ({ currentValue: 0 })),
-      calculateUtilizationRate(
-        supabase,
-        user!.id,
-        fromDateStr,
-        toDateStr
-      ).catch(() => ({ currentValue: 0 })),
-      calculateAverageClassSize(
-        supabase,
-        user!.id,
-        fromDateStr,
-        toDateStr
-      ).catch(() => ({ currentValue: 0 })),
-      calculateAverageClassOccupancy(
-        supabase,
-        user!.id,
-        prevFromDateStr,
-        prevToDateStr
-      ).catch(() => ({ currentValue: 0 })),
-      calculateRevenuePerClass(
-        supabase,
-        user!.id,
-        prevFromDateStr,
-        prevToDateStr
-      ).catch(() => ({ currentValue: 0 })),
-      calculateCancellationRate(
-        supabase,
-        user!.id,
-        prevFromDateStr,
-        prevToDateStr
-      ).catch(() => ({ currentValue: 0 })),
-      calculateUtilizationRate(
-        supabase,
-        user!.id,
-        prevFromDateStr,
-        prevToDateStr
-      ).catch(() => ({ currentValue: 0 })),
-      calculateAverageClassSize(
-        supabase,
-        user!.id,
-        prevFromDateStr,
-        prevToDateStr
-      ).catch(() => ({ currentValue: 0 })),
-    ]);
+    // Calculate previous period KPIs
+    const prevClassOccurrences = new Map<
+      string,
+      { filled: number; capacity: number }
+    >();
 
-    const [
-      currOcc,
-      currRev,
-      currCanc,
-      currUtil,
-      currSize,
-      prevOcc,
-      prevRev,
-      prevCanc,
-    ] = layerResults.map((r) => r.currentValue ?? 0).slice(0, 8);
-    const trendPct = (curr: number, prev: number) =>
-      prev > 0 ? ((curr - prev) / prev) * 100 : curr > 0 ? 100 : 0;
+    prevBookingsInRange.forEach((b: any) => {
+      const classId = b.class_id;
+      const classData = classMap.get(classId);
+      if (!classData) return;
 
-    const layerKpis = {
-      avgClassOccupancy: parseFloat(Number(currOcc).toFixed(2)),
-      averageClassSize: parseFloat(Number(currSize).toFixed(2)),
-      revenuePerClass: parseFloat(Number(currRev).toFixed(2)),
-      cancellationRate: parseFloat(Number(currCanc).toFixed(2)),
-      capacityUtilization: parseFloat(Number(currUtil).toFixed(2)),
-    };
-    const layerTrends = {
-      avgClassOccupancy: parseFloat(
-        trendPct(currOcc as number, prevOcc as number).toFixed(1)
-      ),
-      revenuePerClass: parseFloat(
-        trendPct(currRev as number, prevRev as number).toFixed(1)
-      ),
-      cancellationRate: parseFloat(
-        trendPct(currCanc as number, prevCanc as number).toFixed(1)
-      ),
-    };
+      const capacity = classData.capacity || 0;
+      const startAtStr = b.class_start_at || b.booking_time || b.date || "";
+      const key = `${classId}_${startAtStr}`;
+
+      if (!prevClassOccurrences.has(key)) {
+        prevClassOccurrences.set(key, { filled: 0, capacity });
+      }
+
+      const occurrence = prevClassOccurrences.get(key)!;
+      const status = (b.status || "").toLowerCase();
+      if (status === "booked" || status === "attended") {
+        occurrence.filled += 1;
+      }
+    });
+
+    let prevTotalOccupancy = 0;
+    let prevOccurrenceCount = 0;
+    prevClassOccurrences.forEach((occ) => {
+      if (occ.capacity > 0) {
+        prevTotalOccupancy += (occ.filled / occ.capacity) * 100;
+        prevOccurrenceCount += 1;
+      }
+    });
+
+    const prevAvgClassOccupancy =
+      prevOccurrenceCount > 0 ? prevTotalOccupancy / prevOccurrenceCount : 0;
+
+    // Previous period revenue per class
+    const prevRevenueByOccurrence = new Map<string, number>();
+    prevBookingsInRange.forEach((b: any) => {
+      const status = (b.status || "").toLowerCase();
+      if (status === "booked" || status === "attended") {
+        const startAtStr = b.class_start_at || b.booking_time || b.date || "";
+        const key = `${b.class_id}_${startAtStr}`;
+        // price_paid might be in bookings or might need to come from payments table
+        const pricePaid =
+          typeof b.price_paid === "string"
+            ? parseFloat(b.price_paid)
+            : b.price_paid ||
+              (typeof b.price === "string" ? parseFloat(b.price) : b.price) ||
+              0;
+
+        const current = prevRevenueByOccurrence.get(key) || 0;
+        prevRevenueByOccurrence.set(key, current + pricePaid);
+      }
+    });
+
+    const prevTotalRevenue = Array.from(
+      prevRevenueByOccurrence.values()
+    ).reduce((sum, rev) => sum + rev, 0);
+    const prevRevenuePerClass =
+      prevRevenueByOccurrence.size > 0
+        ? prevTotalRevenue / prevRevenueByOccurrence.size
+        : 0;
+
+    // Previous period cancellation rate
+    const prevFinalBookings = prevBookingsInRange.filter((b: any) =>
+      (() => {
+        const status = (b.status || "").toLowerCase();
+        return (
+          status === "attended" ||
+          status === "no_show" ||
+          status === "cancelled" ||
+          status === "booked"
+        );
+      })()
+    );
+    const prevCancelled = prevBookingsInRange.filter((b: any) => {
+      const status = (b.status || "").toLowerCase();
+      return status === "cancelled";
+    }).length;
+    const prevCancellationRate =
+      prevFinalBookings.length > 0
+        ? (prevCancelled / prevFinalBookings.length) * 100
+        : 0;
+
+    // Calculate trend percentages
+    const occupancyTrend =
+      prevAvgClassOccupancy > 0
+        ? ((avgClassOccupancy - prevAvgClassOccupancy) /
+            prevAvgClassOccupancy) *
+          100
+        : 0;
+
+    const revenueTrend =
+      prevRevenuePerClass > 0
+        ? ((revenuePerClass - prevRevenuePerClass) / prevRevenuePerClass) * 100
+        : 0;
+
+    const cancellationTrend =
+      prevCancellationRate > 0
+        ? ((cancellationRate - prevCancellationRate) / prevCancellationRate) *
+          100
+        : cancellationRate > 0
+          ? 100 // If previous was 0 and current > 0, it's a 100% increase
+          : 0;
 
     return jsonNoStore({
-      kpis: layerKpis,
-      trends: layerTrends,
+      kpis: {
+        avgClassOccupancy: parseFloat(avgClassOccupancy.toFixed(2)),
+        averageClassSize: parseFloat(averageClassSize.toFixed(2)),
+        revenuePerClass: parseFloat(revenuePerClass.toFixed(2)),
+        cancellationRate: parseFloat(cancellationRate.toFixed(2)),
+        capacityUtilization: parseFloat(capacityUtilization.toFixed(2)),
+        noShowRate: parseFloat(noShowRate.toFixed(2)),
+      },
+      trends: {
+        avgClassOccupancy: parseFloat(occupancyTrend.toFixed(1)),
+        revenuePerClass: parseFloat(revenueTrend.toFixed(1)),
+        cancellationRate: parseFloat(cancellationTrend.toFixed(1)),
+      },
+      averageClassSizeByPeriod,
       topPerformingClasses: topPerformingClasses,
       occupancyByType: occupancyByTypeArray,
       hourlyUtilization: {

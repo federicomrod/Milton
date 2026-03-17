@@ -1,180 +1,103 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import {
-  ArrowRight,
-  BarChart3,
-  Brain,
-  FileText,
-  Zap,
-  Shield,
-  TrendingUp,
-} from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
-function LandingPage() {
+export default function HomePage() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
-      {/* Hero Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-16">
-        <div className="text-center">
-          <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-6">
-            Your AI Finance Co-Pilot
-            <span className="block text-blue-600 mt-2">for Startups</span>
-          </h1>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-8">
-            Milton transforms your financial data into actionable insights.
-            Upload your transactions, CRM data, and budgets—get instant
-            dashboards and AI-powered analysis that helps you make better
-            decisions, faster.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/auth/signup">
-              <Button size="lg" className="text-lg px-8 py-6">
-                Get started
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
-            </Link>
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white flex flex-col">
+      {/* Inline header — no async auth check, no flicker */}
+      <header className="w-full border-b border-gray-100 bg-white/80 backdrop-blur-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Image src="/Milton_Logo.png" alt="Milton" width={26} height={26} />
+            <span className="text-lg font-bold text-gray-900">milton.</span>
+          </div>
+          <div className="flex items-center gap-2">
             <Link href="/auth/login">
-              <Button size="lg" variant="outline" className="text-lg px-8 py-6">
+              <Button size="sm" variant="ghost">
                 Sign in
               </Button>
             </Link>
+            <Link href="/auth/signup">
+              <Button size="sm">Get started</Button>
+            </Link>
           </div>
         </div>
-      </section>
+      </header>
 
-      {/* Features Grid */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-            Everything you need to master your finances
-          </h2>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Built for founders who need clarity, not complexity
-          </p>
+      {/* Hero */}
+      <section className="flex-1 flex flex-col items-center justify-center px-4 text-center py-24">
+        <div className="flex items-center gap-3 mb-8">
+          <Image src="/Milton_Logo.png" alt="Milton" width={60} height={60} />
+          <span className="text-5xl font-bold text-gray-900">milton.</span>
         </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-          <div className="p-6 rounded-lg border border-gray-200 bg-white hover:shadow-lg transition-shadow">
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
-              <Brain className="h-6 w-6 text-blue-600" />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              AI-Powered Insights
-            </h3>
-            <p className="text-gray-600">
-              Milton analyzes your financial data and provides intelligent
-              insights, helping you understand trends and opportunities.
-            </p>
-          </div>
-
-          <div className="p-6 rounded-lg border border-gray-200 bg-white hover:shadow-lg transition-shadow">
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
-              <BarChart3 className="h-6 w-6 text-green-600" />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              Instant Dashboards
-            </h3>
-            <p className="text-gray-600">
-              Upload your data and get real-time visualizations. Cash flow,
-              revenue, expenses—all in one place, automatically organized.
-            </p>
-          </div>
-
-          <div className="p-6 rounded-lg border border-gray-200 bg-white hover:shadow-lg transition-shadow">
-            <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
-              <Zap className="h-6 w-6 text-purple-600" />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              Lightning Fast
-            </h3>
-            <p className="text-gray-600">
-              No complex setup. Upload your files and start getting insights in
-              minutes, not days.
-            </p>
-          </div>
-
-          <div className="p-6 rounded-lg border border-gray-200 bg-white hover:shadow-lg transition-shadow">
-            <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mb-4">
-              <FileText className="h-6 w-6 text-orange-600" />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              Smart Data Import
-            </h3>
-            <p className="text-gray-600">
-              Works with bank statements, CRM exports, spreadsheets. Milton
-              automatically recognizes and categorizes your data.
-            </p>
-          </div>
-
-          <div className="p-6 rounded-lg border border-gray-200 bg-white hover:shadow-lg transition-shadow">
-            <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mb-4">
-              <TrendingUp className="h-6 w-6 text-red-600" />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              KPI Tracking
-            </h3>
-            <p className="text-gray-600">
-              Monitor your key metrics in real-time. Revenue, burn rate,
-              runway—all calculated and visualized automatically.
-            </p>
-          </div>
-
-          <div className="p-6 rounded-lg border border-gray-200 bg-white hover:shadow-lg transition-shadow">
-            <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center mb-4">
-              <Shield className="h-6 w-6 text-indigo-600" />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              Investor Ready
-            </h3>
-            <p className="text-gray-600">
-              Generate professional reports and presentations. Keep your
-              investors informed with data-driven insights.
-            </p>
-          </div>
+        <h1 className="text-3xl md:text-4xl font-bold text-gray-900 max-w-2xl mb-6 leading-tight">
+          Your accountant tells you what happened. Milton tells you{" "}
+          <span className="text-blue-600">what&apos;s happening</span> and{" "}
+          <span className="text-blue-600">what to do next.</span>
+        </h1>
+        <div className="flex flex-wrap justify-center gap-2 mb-6">
+          {["Real-time KPIs", "Margin analysis", "AI insights", "No setup"].map(
+            (label) => (
+              <span
+                key={label}
+                className="px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-sm font-medium"
+              >
+                {label}
+              </span>
+            )
+          )}
         </div>
-      </section>
 
-      {/* CTA Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl p-12 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-            Ready to take control of your finances?
-          </h2>
-          <p className="text-lg text-gray-600 mb-8 max-w-2xl mx-auto">
-            Join startups that trust Milton to make smarter financial decisions
-          </p>
+        <p className="text-lg text-gray-500 max-w-xl mb-10 leading-relaxed">
+          Upload a spreadsheet. Get your KPIs, margin analysis, and AI-powered
+          insights in under an hour. No setup. No analysts. No waiting.
+        </p>
+
+        <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Link href="/auth/signup">
-            <Button
-              size="lg"
-              className="text-lg px-8 py-6 bg-blue-600 hover:bg-blue-700"
-            >
-              Get started
-              <ArrowRight className="ml-2 h-5 w-5" />
+            <Button size="lg" className="text-base px-8">
+              Get started — it&apos;s free
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </Link>
+          <Link href="/auth/login">
+            <Button size="lg" variant="outline" className="text-base px-8">
+              Sign in
             </Button>
           </Link>
         </div>
+
+        <p className="mt-6 text-sm text-gray-400">
+          No credit card required · Setup in &lt;1 hour
+        </p>
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-gray-200 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="flex flex-col md:flex-row justify-between items-center">
-            <div className="mb-4 md:mb-0">
-              <span className="text-xl font-bold text-gray-900">Milton</span>
-              <p className="text-sm text-gray-600 mt-2">
-                Your AI Finance Co-Pilot
-              </p>
+      <footer className="border-t border-gray-100 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Image
+                src="/Milton_Logo.png"
+                alt="Milton"
+                width={20}
+                height={20}
+              />
+              <span className="text-sm font-bold text-gray-900">milton.</span>
             </div>
             <div className="flex gap-6">
               <Link
                 href="/auth/login"
-                className="text-sm text-gray-600 hover:text-gray-900"
+                className="text-sm text-gray-400 hover:text-gray-900 transition-colors"
               >
                 Log in
               </Link>
               <Link
                 href="/auth/signup"
-                className="text-sm text-gray-600 hover:text-gray-900"
+                className="text-sm text-gray-400 hover:text-gray-900 transition-colors"
               >
                 Sign up
               </Link>
@@ -184,8 +107,4 @@ function LandingPage() {
       </footer>
     </div>
   );
-}
-
-export default function HomePage() {
-  return <LandingPage />;
 }

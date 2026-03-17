@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -56,11 +57,12 @@ export function AppNavigation() {
     checkAuth();
   }, [pathname]);
 
-  // Don't show navigation on auth pages, onboarding-required page, or while loading
+  // Don't show navigation on auth pages, onboarding-required page, root page, or while loading
   if (
     loading ||
     pathname?.startsWith("/auth/") ||
-    pathname === "/onboarding-required"
+    pathname === "/onboarding-required" ||
+    pathname === "/"
   ) {
     return null;
   }
@@ -86,9 +88,17 @@ export function AppNavigation() {
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center gap-6">
             <Link href={isAuthenticated ? "/dashboard" : "/"}>
-              <h1 className="text-xl font-semibold text-foreground cursor-pointer hover:text-primary transition-colors">
-                Milton
-              </h1>
+              <div className="flex items-center gap-2 cursor-pointer">
+                <Image
+                  src="/Milton_Logo.png"
+                  alt="Milton"
+                  width={28}
+                  height={28}
+                />
+                <span className="text-xl font-bold text-foreground">
+                  milton.
+                </span>
+              </div>
             </Link>
 
             {/* Main Navigation - only show if authenticated and not on root or management pages */}

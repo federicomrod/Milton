@@ -17,8 +17,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Milton - Financial Insights",
-  description: "Comprehensive financial analytics and reporting platform",
+  title: "Milton",
+  description: "AI-native analytics for SMBs",
+  icons: {
+    icon: "/milton-icon.svg",
+  },
 };
 
 export default function RootLayout({

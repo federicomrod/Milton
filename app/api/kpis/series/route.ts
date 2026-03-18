@@ -36,9 +36,35 @@ function getPeriodsInRange(fromDate: string, toDate: string): string[] {
   return periods;
 }
 
+function getAccessToken(req: NextRequest): string | undefined {
+  const auth = req.headers.get("Authorization");
+  const token = auth?.replace(/^Bearer\s+/i, "").trim();
+  return token || undefined;
+}
+
+/** Base URL for internal fetches — use explicit env in production (req.nextUrl can be wrong behind proxy). */
+function getApiBaseUrl(req: NextRequest): string {
+  const fromEnv =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") || "https";
+  if (host) return `${proto}://${host}`.replace(/\/$/, "");
+  return req.nextUrl.origin;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
+    const token = getAccessToken(req);
+    if (token) {
+      await supabase.auth.setSession({
+        access_token: token,
+        refresh_token: "",
+      });
+    }
     const {
       data: { user },
       error: userError,
@@ -117,11 +143,16 @@ export async function GET(req: NextRequest) {
     );
     if (averageClassSizeKpis.length > 0) {
       try {
-        const origin = req.nextUrl.origin;
+        const baseUrl = getApiBaseUrl(req);
+        const cookie = req.headers.get("cookie") || "";
+        const auth = req.headers.get("authorization") || "";
         const classesRes = await fetch(
-          `${origin}/api/analytics/fitness-studio/classes-utilization?from_date=${fromDate}&to_date=${toDate}`,
+          `${baseUrl}/api/analytics/fitness-studio/classes-utilization?from_date=${fromDate}&to_date=${toDate}`,
           {
-            headers: { Cookie: req.headers.get("cookie") || "" },
+            headers: {
+              Cookie: cookie,
+              ...(auth ? { Authorization: auth } : {}),
+            },
           }
         );
         if (classesRes.ok) {
@@ -207,17 +238,18 @@ export async function GET(req: NextRequest) {
 
     if (kpisNeedingCalculation.length > 0) {
       try {
-        const calculateRes = await fetch(
-          `${req.nextUrl.origin}/api/kpis/calculate`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Cookie: req.headers.get("cookie") || "",
-            },
-            body: JSON.stringify({ from_date: fromDate, to_date: toDate }),
-          }
-        );
+        const baseUrl = getApiBaseUrl(req);
+        const cookie = req.headers.get("cookie") || "";
+        const auth = req.headers.get("authorization") || "";
+        const calculateRes = await fetch(`${baseUrl}/api/kpis/calculate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: cookie,
+            ...(auth ? { Authorization: auth } : {}),
+          },
+          body: JSON.stringify({ from_date: fromDate, to_date: toDate }),
+        });
 
         console.log(
           "[KPI Series] Calculate API status:",

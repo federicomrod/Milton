@@ -214,7 +214,7 @@ export function AppNavigation() {
                       Account
                     </Button>
                   </Link>
-                  <Link href="/dashboard/settings">
+                  <Link href="/dashboard/settings" prefetch={false}>
                     <Button
                       variant={
                         isActive("/dashboard/settings") ? "default" : "ghost"

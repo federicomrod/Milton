@@ -1,13 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
-import { getReportData } from "@/lib/report-data-service";
+import { getReportData, type ReportPeriod } from "@/lib/report-data-service";
 import { getCurrencySymbol } from "@/lib/utils/formatters";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type {
-  TransactionData,
-  BudgetData,
-  CrmDealData,
-} from "@/lib/types/data";
+import type { TransactionData, CrmDealData } from "@/lib/types/data";
 import { getDataTablesByIds } from "@/lib/data-table-service";
+import { fetchDashboardKpisServer } from "@/lib/dashboard-kpis-server";
 
 export interface DashboardKpi {
   id: string;
@@ -82,6 +79,8 @@ export interface DashboardContext {
       aggregations?: Record<string, any>; // Field-level aggregations (e.g., status counts)
     }
   >;
+  // When provided, KPIs are filtered to this date range (matches dashboard date picker)
+  reportPeriod?: { start: string; end: string };
 }
 
 // Map format to unit string
@@ -414,10 +413,18 @@ function calculateAllMetrics(
   };
 }
 
+export interface BuildDashboardContextOptions {
+  reportPeriod?: ReportPeriod;
+  /** Use unified calculation layer (same as dashboard) for KPI values */
+  kpiCalculation?: { cookieHeader: string | null; baseUrl: string };
+}
+
 export async function buildDashboardContextForUser(
   userId: string,
-  supabase?: SupabaseClient
+  supabase?: SupabaseClient,
+  options?: BuildDashboardContextOptions
 ): Promise<DashboardContext> {
+  const reportPeriod = options?.reportPeriod;
   // Use provided supabase client or create a new one
   const client = supabase || (await createClient());
 
@@ -588,77 +595,253 @@ export async function buildDashboardContextForUser(
       }
     }
 
-    // Get report data using existing service (for backward compatibility)
-    const reportData = await getReportData(client, userId);
+    // Get report data for dataAvailability, monthlyRevenue, transactionSummary
+    const reportData = await getReportData(client, userId, reportPeriod);
 
-    // Build KPI summary from report data
+    // Build KPI summary: use unified calculation layer when available (matches dashboard values)
     const kpis: DashboardKpi[] = [];
 
-    // Core financial KPIs from reportData.kpis
-    if (reportData.kpis) {
-      if (reportData.kpis.revenue != null) {
-        kpis.push({
-          id: "revenue",
-          label: "Revenue",
-          currentValue: reportData.kpis.revenue,
-          unit: userCurrencySymbol,
-        });
+    if (options?.kpiCalculation && reportPeriod) {
+      // Use same APIs as dashboard (fitness/restaurant analytics, kpis/calculate)
+      const calculated = await fetchDashboardKpisServer({
+        supabase: client,
+        userId,
+        fromDate: reportPeriod.start,
+        toDate: reportPeriod.end,
+        cookieHeader: options.kpiCalculation.cookieHeader,
+        baseUrl: options.kpiCalculation.baseUrl,
+      });
+      const kpiIds = Object.keys(calculated);
+      if (kpiIds.length > 0) {
+        const { data: kpiDefs } = await client
+          .from("kpis")
+          .select("id, name, format")
+          .in("id", kpiIds);
+        const formatToUnit = (f?: string) =>
+          f === "currency"
+            ? userCurrencySymbol
+            : f === "percentage"
+              ? "%"
+              : undefined;
+        for (const kpi of kpiDefs || []) {
+          const val = calculated[kpi.id];
+          kpis.push({
+            id: kpi.id,
+            label: kpi.name || kpi.id,
+            currentValue: val ?? null,
+            unit: formatToUnit(kpi.format) ?? userCurrencySymbol,
+          });
+        }
       }
-      if (reportData.kpis.expenses != null) {
-        kpis.push({
-          id: "expenses",
-          label: "Expenses",
-          currentValue: reportData.kpis.expenses,
-          unit: userCurrencySymbol,
-        });
+    } else {
+      // Fallback: build from report data (legacy path)
+      // Core financial KPIs from reportData.kpis
+      if (reportData.kpis) {
+        if (reportData.kpis.revenue != null) {
+          kpis.push({
+            id: "revenue",
+            label: "Revenue",
+            currentValue: reportData.kpis.revenue,
+            unit: userCurrencySymbol,
+          });
+        }
+        if (reportData.kpis.expenses != null) {
+          kpis.push({
+            id: "expenses",
+            label: "Expenses",
+            currentValue: reportData.kpis.expenses,
+            unit: userCurrencySymbol,
+          });
+        }
+        if (reportData.kpis.netIncome != null) {
+          kpis.push({
+            id: "net_income",
+            label: "Net Income",
+            currentValue: reportData.kpis.netIncome,
+            unit: userCurrencySymbol,
+          });
+        }
+        if (reportData.kpis.burnRate != null) {
+          kpis.push({
+            id: "burn_rate",
+            label: "Monthly Burn Rate",
+            currentValue: reportData.kpis.burnRate,
+            unit: userCurrencySymbol,
+          });
+        }
+        if (reportData.kpis.cashRunway != null) {
+          kpis.push({
+            id: "cash_runway",
+            label: "Cash Runway",
+            currentValue: reportData.kpis.cashRunway,
+            unit: "months",
+          });
+        }
+        if (reportData.kpis.pipelineValue != null) {
+          kpis.push({
+            id: "pipeline_value",
+            label: "Pipeline Value",
+            currentValue: reportData.kpis.pipelineValue,
+            unit: userCurrencySymbol,
+          });
+        }
+        if (reportData.kpis.openDeals != null) {
+          kpis.push({
+            id: "open_deals",
+            label: "Open Deals",
+            currentValue: reportData.kpis.openDeals,
+            unit: "count",
+          });
+        }
       }
-      if (reportData.kpis.netIncome != null) {
-        kpis.push({
-          id: "net_income",
-          label: "Net Income",
-          currentValue: reportData.kpis.netIncome,
-          unit: userCurrencySymbol,
-        });
-      }
-      if (reportData.kpis.burnRate != null) {
-        kpis.push({
-          id: "burn_rate",
-          label: "Monthly Burn Rate",
-          currentValue: reportData.kpis.burnRate,
-          unit: userCurrencySymbol,
-        });
-      }
-      if (reportData.kpis.cashRunway != null) {
-        kpis.push({
-          id: "cash_runway",
-          label: "Cash Runway",
-          currentValue: reportData.kpis.cashRunway,
-          unit: "months",
-        });
-      }
-      if (reportData.kpis.pipelineValue != null) {
-        kpis.push({
-          id: "pipeline_value",
-          label: "Pipeline Value",
-          currentValue: reportData.kpis.pipelineValue,
-          unit: userCurrencySymbol,
-        });
-      }
-      if (reportData.kpis.openDeals != null) {
-        kpis.push({
-          id: "open_deals",
-          label: "Open Deals",
-          currentValue: reportData.kpis.openDeals,
-          unit: "count",
-        });
-      }
-    }
 
-    // Aggregate monthly revenue from transactions
+      // Calculate LTM Avg Revenue (only for reportData-based KPIs path)
+      const now = new Date();
+      const targetMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const yearAgo = new Date(targetMonth);
+      yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+      const monthEnd = new Date(
+        targetMonth.getFullYear(),
+        targetMonth.getMonth() + 1,
+        0,
+        23,
+        59,
+        59
+      );
+
+      const ltmTransactions = (reportData.transactions || []).filter(
+        (t: TransactionData) => {
+          try {
+            const date = new Date(t.date);
+            return (
+              date >= yearAgo && date <= monthEnd && !isNaN(date.getTime())
+            );
+          } catch {
+            return false;
+          }
+        }
+      );
+
+      const ltmTotalRevenue = ltmTransactions
+        .filter((t: TransactionData) => {
+          const amt =
+            typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0;
+          return amt > 0;
+        })
+        .reduce((sum: number, t: TransactionData) => {
+          const amt =
+            typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0;
+          return sum + amt;
+        }, 0);
+
+      const ltmAvgRevenue = ltmTotalRevenue / 12;
+
+      // Add LTM Avg Revenue to KPIs if we have data
+      if (ltmAvgRevenue > 0) {
+        kpis.push({
+          id: "ltm_avg_revenue",
+          label: "LTM Avg Revenue",
+          currentValue: ltmAvgRevenue,
+          unit: userCurrencySymbol,
+        });
+      }
+
+      // Calculate all metrics using the same logic as the dashboard
+      const allMetrics = calculateAllMetrics(
+        reportData.transactions || [],
+        reportData.crmDeals || []
+      );
+
+      // Add all calculated metrics to KPIs
+      kpis.push({
+        id: "mrr",
+        label: "Monthly Recurring Revenue (MRR)",
+        currentValue: allMetrics.mrr,
+        unit: userCurrencySymbol,
+      });
+
+      kpis.push({
+        id: "arr",
+        label: "Annual Recurring Revenue (ARR)",
+        currentValue: allMetrics.arr,
+        unit: userCurrencySymbol,
+      });
+
+      kpis.push({
+        id: "cash_balance",
+        label: "Cash Balance",
+        currentValue: allMetrics.cashBalance,
+        unit: userCurrencySymbol,
+      });
+
+      kpis.push({
+        id: "burn_rate",
+        label: "Net Burn Rate",
+        currentValue: allMetrics.burnRate,
+        unit: userCurrencySymbol,
+      });
+
+      kpis.push({
+        id: "burn_rate_ltm",
+        label: "LTM Average Burn Rate",
+        currentValue: allMetrics.burnRateLTM,
+        unit: userCurrencySymbol,
+      });
+
+      kpis.push({
+        id: "burn_variance",
+        label: "Burn vs LTM (%)",
+        currentValue: allMetrics.burnVariance,
+        unit: "%",
+      });
+
+      kpis.push({
+        id: "ltm_revenue",
+        label: "LTM Average Revenue",
+        currentValue: allMetrics.ltmRevenue,
+        unit: userCurrencySymbol,
+      });
+
+      kpis.push({
+        id: "contracted_revenue",
+        label: "Contracted Revenue",
+        currentValue: allMetrics.contractedRevenue,
+        unit: userCurrencySymbol,
+      });
+
+      kpis.push({
+        id: "gross_margin",
+        label: "Gross Margin",
+        currentValue: allMetrics.grossMargin,
+        unit: "%",
+      });
+
+      kpis.push({
+        id: "net_margin",
+        label: "Net Margin",
+        currentValue: allMetrics.netMargin,
+        unit: "%",
+      });
+
+      kpis.push({
+        id: "customer_count",
+        label: "Customer Count",
+        currentValue: allMetrics.customerCount,
+        unit: "count",
+      });
+
+      kpis.push({
+        id: "runway",
+        label: "Cash Runway",
+        currentValue: allMetrics.runway,
+        unit: "months",
+      });
+    } // end else (reportData-based KPIs)
+
+    // Aggregate monthly revenue (always computed, used for trend context)
     const monthlyRevenue: Record<string, number> = {};
     if (reportData.transactions && Array.isArray(reportData.transactions)) {
       for (const tx of reportData.transactions) {
-        // Ensure amount is a number
         const amount =
           typeof tx.amount === "string"
             ? parseFloat(tx.amount)
@@ -671,146 +854,6 @@ export async function buildDashboardContextForUser(
         }
       }
     }
-
-    // Calculate LTM Avg Revenue (Last Twelve Months Average)
-    const now = new Date();
-    const targetMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const yearAgo = new Date(targetMonth);
-    yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-    const monthEnd = new Date(
-      targetMonth.getFullYear(),
-      targetMonth.getMonth() + 1,
-      0,
-      23,
-      59,
-      59
-    );
-
-    const ltmTransactions = (reportData.transactions || []).filter(
-      (t: TransactionData) => {
-        try {
-          const date = new Date(t.date);
-          return date >= yearAgo && date <= monthEnd && !isNaN(date.getTime());
-        } catch {
-          return false;
-        }
-      }
-    );
-
-    const ltmTotalRevenue = ltmTransactions
-      .filter((t: TransactionData) => {
-        const amt =
-          typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0;
-        return amt > 0;
-      })
-      .reduce((sum: number, t: TransactionData) => {
-        const amt =
-          typeof t.amount === "string" ? parseFloat(t.amount) : t.amount || 0;
-        return sum + amt;
-      }, 0);
-
-    const ltmAvgRevenue = ltmTotalRevenue / 12;
-
-    // Add LTM Avg Revenue to KPIs if we have data
-    if (ltmAvgRevenue > 0) {
-      kpis.push({
-        id: "ltm_avg_revenue",
-        label: "LTM Avg Revenue",
-        currentValue: ltmAvgRevenue,
-        unit: userCurrencySymbol,
-      });
-    }
-
-    // Calculate all metrics using the same logic as the dashboard
-    const allMetrics = calculateAllMetrics(
-      reportData.transactions || [],
-      reportData.crmDeals || []
-    );
-
-    // Add all calculated metrics to KPIs
-    kpis.push({
-      id: "mrr",
-      label: "Monthly Recurring Revenue (MRR)",
-      currentValue: allMetrics.mrr,
-      unit: userCurrencySymbol,
-    });
-
-    kpis.push({
-      id: "arr",
-      label: "Annual Recurring Revenue (ARR)",
-      currentValue: allMetrics.arr,
-      unit: userCurrencySymbol,
-    });
-
-    kpis.push({
-      id: "cash_balance",
-      label: "Cash Balance",
-      currentValue: allMetrics.cashBalance,
-      unit: userCurrencySymbol,
-    });
-
-    kpis.push({
-      id: "burn_rate",
-      label: "Net Burn Rate",
-      currentValue: allMetrics.burnRate,
-      unit: userCurrencySymbol,
-    });
-
-    kpis.push({
-      id: "burn_rate_ltm",
-      label: "LTM Average Burn Rate",
-      currentValue: allMetrics.burnRateLTM,
-      unit: userCurrencySymbol,
-    });
-
-    kpis.push({
-      id: "burn_variance",
-      label: "Burn vs LTM (%)",
-      currentValue: allMetrics.burnVariance,
-      unit: "%",
-    });
-
-    kpis.push({
-      id: "ltm_revenue",
-      label: "LTM Average Revenue",
-      currentValue: allMetrics.ltmRevenue,
-      unit: userCurrencySymbol,
-    });
-
-    kpis.push({
-      id: "contracted_revenue",
-      label: "Contracted Revenue",
-      currentValue: allMetrics.contractedRevenue,
-      unit: userCurrencySymbol,
-    });
-
-    kpis.push({
-      id: "gross_margin",
-      label: "Gross Margin",
-      currentValue: allMetrics.grossMargin,
-      unit: "%",
-    });
-
-    kpis.push({
-      id: "net_margin",
-      label: "Net Margin",
-      currentValue: allMetrics.netMargin,
-      unit: "%",
-    });
-
-    kpis.push({
-      id: "customer_count",
-      label: "Customer Count",
-      currentValue: allMetrics.customerCount,
-      unit: "count",
-    });
-
-    kpis.push({
-      id: "runway",
-      label: "Cash Runway",
-      currentValue: allMetrics.runway,
-      unit: "months",
-    });
 
     // Process model tables data to create summaries and aggregations
     // Process ALL tables that have data, not just those in requiredTables
@@ -1049,6 +1092,7 @@ export async function buildDashboardContextForUser(
         Object.keys(processedModelTablesData).length > 0
           ? processedModelTablesData
           : undefined, // Add actual data summaries
+      reportPeriod: reportPeriod ?? undefined, // Date range for KPI values (matches dashboard picker)
     };
   } catch (error) {
     console.error("[buildDashboardContextForUser] Error:", error);

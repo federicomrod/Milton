@@ -529,6 +529,7 @@ export default function SheetSelection({
   const [activeTab, setActiveTab] = useState<
     "mappings" | "preview" | "validation"
   >("mappings");
+  const [isAiMappingLoading, setIsAiMappingLoading] = useState(false);
 
   const currentSheet = sheets.find((s) => s.name === selectedSheet);
   const currentSheetType = currentSheet
@@ -743,6 +744,98 @@ export default function SheetSelection({
       STANDARD_FIELDS[fileType as "transactions" | "deals" | "budget"] || []
     );
   }, [fileType, targetModelTable, currentSheetType]);
+
+  const runAiMapping = React.useCallback(async () => {
+    if (!currentSheet || !currentSheetType) return;
+    const targetFields =
+      targetModelTable && currentSheetType === targetModelTable.name
+        ? targetModelTable.fields.map((f) => ({
+            name: f.name,
+            type: f.type,
+            required: f.required,
+          }))
+        : standardFields.map((s) => ({
+            name: s.value,
+            type: s.description,
+            required: s.required,
+          }));
+    if (!targetFields.length) return;
+    setIsAiMappingLoading(true);
+    try {
+      const res = await fetch("/api/ai/column-mapper", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          headers: currentSheet.headers,
+          sampleRows: (currentSheet.rows && currentSheet.rows.length > 0
+            ? currentSheet.rows
+            : currentSheet.sampleData
+          ).slice(0, 5),
+          targetFields,
+          tableName:
+            targetModelTable && currentSheetType === targetModelTable.name
+              ? targetModelTable.name
+              : fileType,
+        }),
+      });
+      if (!res.ok) throw new Error("AI mapping request failed");
+      const data = await res.json();
+      const suggested = Array.isArray(data.mappings) ? data.mappings : [];
+      const converted: ColumnMapping[] = currentSheet.headers.map((header) => {
+        const m = suggested.find(
+          (s: ColumnMapping) => s.originalColumn === header
+        );
+        const sampleValue = currentSheet.sampleData[0]?.[header];
+        let dataType: "string" | "number" | "date" | "currency" = "string";
+        if (sampleValue !== null && sampleValue !== undefined) {
+          if (typeof sampleValue === "number") dataType = "number";
+          else if (typeof sampleValue === "string") {
+            if (
+              /^\d{4}-\d{2}-\d{2}/.test(sampleValue) ||
+              /^\d{2}\/\d{2}\/\d{4}/.test(sampleValue)
+            )
+              dataType = "date";
+            else if (
+              /[€$£¥]/.test(sampleValue) ||
+              /^\d+[.,]\d{2}$/.test(sampleValue)
+            )
+              dataType = "currency";
+          }
+        }
+        return {
+          originalColumn: header,
+          standardField:
+            m?.standardField && m.standardField !== "unmapped"
+              ? m.standardField
+              : "unmapped",
+          confidence: m?.confidence ?? 0,
+          dataType:
+            (m?.dataType as "string" | "number" | "date" | "currency") ??
+            dataType,
+          transformation:
+            (m?.transformation as ColumnMapping["transformation"]) ?? "none",
+        };
+      });
+      setColumnMappings((prev) => ({
+        ...prev,
+        [currentSheet.name]: converted,
+      }));
+    } catch (err) {
+      console.error("[sheet-selection] AI mapping error:", err);
+      setValidationErrors((prev) => [
+        ...prev,
+        "AI mapping failed. You can map columns manually.",
+      ]);
+    } finally {
+      setIsAiMappingLoading(false);
+    }
+  }, [
+    currentSheet,
+    currentSheetType,
+    targetModelTable,
+    standardFields,
+    fileType,
+  ]);
 
   // Validation
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -1352,6 +1445,20 @@ export default function SheetSelection({
                         {currentSheet.sampleData.length} sample rows
                       </div>
                     </div>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={runAiMapping}
+                      disabled={isAiMappingLoading}
+                      className="bg-primary"
+                    >
+                      {isAiMappingLoading ? (
+                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4 mr-1" />
+                      )}
+                      AI Mapping
+                    </Button>
                   </div>
 
                   {/* Wide-format Budget Info */}

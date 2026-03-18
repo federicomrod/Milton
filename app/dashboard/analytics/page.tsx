@@ -14,6 +14,10 @@ import { RestaurantRevenueMenu } from "@/components/dashboard/restaurant-revenue
 import { RestaurantOperations } from "@/components/dashboard/restaurant-operations";
 import { RestaurantCashFlow } from "@/components/dashboard/restaurant-cash-flow";
 import { B2BSaaSFinancials } from "@/components/dashboard/b2b-saas-financials";
+import { EcommerceRevenueProducts } from "@/components/dashboard/ecommerce-revenue-products";
+import { EcommerceMarketingAcquisition } from "@/components/dashboard/ecommerce-marketing-acquisition";
+import { EcommerceProductPerformance } from "@/components/dashboard/ecommerce-product-performance";
+import { EcommerceCustomers } from "@/components/dashboard/ecommerce-customers";
 import { BarChart } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useDateRange } from "@/lib/hooks/useDateRange";
@@ -127,6 +131,7 @@ export default function AnalyticsPage() {
   const isFitnessStudio = businessModel === "fitness_studio";
   const isRestaurant = businessModel === "restaurant";
   const isB2BSaaS = businessModel === "b2b_saas";
+  const isEcommerce = businessModel === "ecom" || businessModel === "ecommerce";
 
   if (loading) {
     return (
@@ -161,7 +166,9 @@ export default function AnalyticsPage() {
                 ? "Deep dive into your restaurant performance, revenue, operations, and cash flow metrics"
                 : isB2BSaaS
                   ? "Recurring revenue, pipeline, profitability, and cash runway from your CRM, subscriptions, and transactions"
-                  : "Deep dive into your financial performance, sales pipeline, and cash flow metrics"}
+                  : isEcommerce
+                    ? "Revenue, product performance, marketing ROI, and customer acquisition metrics"
+                    : "Deep dive into your financial performance, sales pipeline, and cash flow metrics"}
           </p>
         </div>
 
@@ -388,6 +395,98 @@ export default function AnalyticsPage() {
                 />
               ) : (
                 <LockedPlaceholder message="To unlock Cash & Runway, upload your transaction data on the Upload page." />
+              )}
+            </TabsContent>
+          </Tabs>
+        ) : isEcommerce ? (
+          <Tabs defaultValue="revenue-products" className="space-y-4">
+            <TabsList className="grid w-full grid-cols-5 mb-6 shadow-sm">
+              <TabsTrigger
+                value="revenue-products"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                Revenue & Products
+              </TabsTrigger>
+              <TabsTrigger
+                value="marketing"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                Marketing & Acquisition
+              </TabsTrigger>
+              <TabsTrigger
+                value="products"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                Product Performance
+              </TabsTrigger>
+              <TabsTrigger
+                value="customers"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                Customers
+              </TabsTrigger>
+              <TabsTrigger
+                value="cashflow"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              >
+                Cash Flow
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="revenue-products" className="space-y-4">
+              {dataStatus?.hasModelData ? (
+                <EcommerceRevenueProducts
+                  period={period}
+                  customDateRange={customDateRange}
+                  onPeriodChange={setPeriod}
+                  onCustomDateRangeChange={setCustomDateRange}
+                />
+              ) : (
+                <LockedPlaceholder message="To unlock Revenue & Products, upload your Orders, Order Items, and Products data on the Upload page." />
+              )}
+            </TabsContent>
+
+            <TabsContent value="marketing" className="space-y-4">
+              <EcommerceMarketingAcquisition
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={setPeriod}
+                onCustomDateRangeChange={setCustomDateRange}
+              />
+            </TabsContent>
+
+            <TabsContent value="products" className="space-y-4">
+              {dataStatus?.hasModelData ? (
+                <EcommerceProductPerformance
+                  period={period}
+                  customDateRange={customDateRange}
+                  onPeriodChange={setPeriod}
+                  onCustomDateRangeChange={setCustomDateRange}
+                />
+              ) : (
+                <LockedPlaceholder message="To unlock Product Performance, upload your Orders, Order Items, and Products data on the Upload page." />
+              )}
+            </TabsContent>
+
+            <TabsContent value="customers" className="space-y-4">
+              <EcommerceCustomers
+                period={period}
+                customDateRange={customDateRange}
+                onPeriodChange={setPeriod}
+                onCustomDateRangeChange={setCustomDateRange}
+              />
+            </TabsContent>
+
+            <TabsContent value="cashflow" className="space-y-4">
+              {dataStatus?.bank ? (
+                <CashFlowAnalysis
+                  period={period}
+                  customDateRange={customDateRange}
+                  onPeriodChange={setPeriod}
+                  onCustomDateRangeChange={setCustomDateRange}
+                />
+              ) : (
+                <LockedPlaceholder message="To unlock Cash Flow, upload your bank transaction data on the Upload page." />
               )}
             </TabsContent>
           </Tabs>

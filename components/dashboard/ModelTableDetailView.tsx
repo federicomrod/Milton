@@ -43,15 +43,21 @@ export default function ModelTableDetailView({
 }: ModelTableDetailViewProps) {
   const [dataTable, setDataTable] = useState<DataTable | null>(null);
 
-  // Fetch the latest table definition from data_tables
+  // Fetch the latest table definition from data_tables.
+  // Used only to enrich allowedValues / references metadata — the
+  // canonical_model field list is always preferred so that stale or
+  // mis-configured DB rows cannot leak a different table's schema.
   useEffect(() => {
     const fetchDataTable = async () => {
       try {
-        // Convert table name to slug (lowercase, replace spaces with underscores)
         const slug = table.name.toLowerCase().replace(/\s+/g, "_");
         const fetchedTable = await getDataTableBySlug(slug);
         if (fetchedTable) {
           setDataTable(fetchedTable);
+        } else {
+          console.warn(
+            `[ModelTableDetailView] No data_tables entry for "${table.name}" (slug="${slug}"); using canonical fields`
+          );
         }
       } catch (error) {
         console.error(
@@ -63,9 +69,32 @@ export default function ModelTableDetailView({
     fetchDataTable();
   }, [table.name]);
 
-  // Use data_tables definition if available, otherwise fall back to canonical_model
-  const effectiveTable: TableDef = dataTable
-    ? {
+  // Prefer canonical_model fields (from table prop) — prevents schema leakage
+  // from stale DB entries. Only fall back to DB when canonical has no fields.
+  const effectiveTable: TableDef = (() => {
+    const canonicalHasFields = table.fields && table.fields.length > 0;
+    if (canonicalHasFields) {
+      if (dataTable) {
+        // Enrich allowedValues from DB where canonical doesn't define them
+        const dbFieldMap = new Map(dataTable.fields.map((f) => [f.name, f]));
+        return {
+          ...table,
+          fields: table.fields.map((f) => {
+            const dbField = dbFieldMap.get(f.name);
+            return {
+              ...f,
+              allowedValues: f.allowedValues?.length
+                ? f.allowedValues
+                : (dbField?.allowedValues ?? f.allowedValues),
+            };
+          }),
+        };
+      }
+      return table;
+    }
+    // Canonical has no fields — use DB definition if available
+    if (dataTable) {
+      return {
         name: dataTable.name,
         fields: dataTable.fields.map((f) => ({
           name: f.name,
@@ -75,8 +104,10 @@ export default function ModelTableDetailView({
           references: f.references || null,
           allowedValues: f.allowedValues,
         })),
-      }
-    : table;
+      };
+    }
+    return table;
+  })();
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStep, setUploadStep] = useState<
     "detail" | "sheets" | "mapping" | "processing"

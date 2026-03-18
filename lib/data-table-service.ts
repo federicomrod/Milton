@@ -27,7 +27,9 @@ export async function getDataTable(id: string): Promise<DataTable | null> {
 }
 
 /**
- * Get a single data table by slug
+ * Get a single data table by slug.
+ * Falls back to a name-based lookup when the slug is not found, since slugs
+ * stored in the DB may differ from the derived slug (e.g. hyphens vs underscores).
  */
 export async function getDataTableBySlug(
   slug: string
@@ -41,13 +43,33 @@ export async function getDataTableBySlug(
       .single();
 
     if (error) {
-      console.error("[getDataTableBySlug] error:", error);
-      return null;
+      console.error(
+        `[getDataTableBySlug] slug="${slug}" not found via slug lookup:`,
+        error.message || error
+      );
+      // Fall back: try matching by name (slug often equals the table name)
+      const { data: byName, error: nameError } = await supabase
+        .from("data_tables")
+        .select("*")
+        .eq("name", slug)
+        .single();
+
+      if (nameError) {
+        console.error(
+          `[getDataTableBySlug] slug="${slug}" not found via name fallback either:`,
+          nameError.message || nameError
+        );
+        return null;
+      }
+      console.log(
+        `[getDataTableBySlug] slug="${slug}" resolved via name fallback`
+      );
+      return byName as DataTable;
     }
 
     return data as DataTable;
   } catch (err) {
-    console.error("[getDataTableBySlug] unexpected error:", err);
+    console.error(`[getDataTableBySlug] slug="${slug}" unexpected error:`, err);
     return null;
   }
 }
@@ -133,19 +155,15 @@ export async function getDataTables(): Promise<DataTable[]> {
 }
 
 /**
- * Get multiple data tables by their IDs.
- * Pass an optional Supabase client when calling from server (e.g. API routes) so auth context is correct.
+ * Get multiple data tables by their IDs
  */
-export async function getDataTablesByIds(
-  ids: string[],
-  supabaseInstance?: Awaited<ReturnType<typeof createClient>>
-): Promise<DataTable[]> {
+export async function getDataTablesByIds(ids: string[]): Promise<DataTable[]> {
   if (!ids || ids.length === 0) {
     return [];
   }
 
   try {
-    const supabase = supabaseInstance ?? createClient();
+    const supabase = createClient();
     const { data, error } = await supabase
       .from("data_tables")
       .select("*")

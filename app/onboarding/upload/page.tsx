@@ -75,10 +75,10 @@ export default function OnboardingUploadPage() {
         <div className="flex justify-between items-center mt-8 pt-6 border-t border-border">
           <Button
             variant="ghost"
-            onClick={() => router.push("/onboarding/chat")}
+            onClick={() => router.push("/onboarding/data-sources")}
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Chat
+            Back to Data Sources
           </Button>
           <div className="flex flex-col items-end gap-1">
             <Button onClick={handleContinue}>

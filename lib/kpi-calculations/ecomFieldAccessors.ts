@@ -93,9 +93,23 @@ export function toPeriod(date: Date): string {
 
 /** E-Com Customers: ID, First Order Date, Acquisition Channel, E-Mail, ... */
 export const ecomCustomerAcc = {
-  id: (r: any) => readField(r, "ID") ?? "",
+  id: (r: any) => readField(r, "ID", "id") ?? "",
   firstOrderDate: (r: any) =>
-    parseFlexibleDate(readField(r, "First Order Date")),
+    parseFlexibleDate(
+      readFieldFlexible(
+        r,
+        "First Order Date",
+        "first_order_date",
+        "FirstOrderDate"
+      )
+    ),
+  acquisitionChannel: (r: any) =>
+    (
+      readField(r, "Acquisition Channel", "acquisition_channel", "Channel") ??
+      "Unknown"
+    )
+      .toString()
+      .trim(),
 };
 
 /** E-Com Orders: ID, Order Date, Customer ID, Total Revenue, Discount, ... */
@@ -140,15 +154,26 @@ export const ecomMarketingAcc = {
     parseFlexibleDate(
       readFieldFlexible(r, "Date", "date", "Spend Date", "spend_date")
     ),
+  channel: (r: any) =>
+    (readField(r, "Channel", "channel") ?? "Other").toString().trim() ||
+    "Other",
   spend: (r: any) =>
     readNumByKeys(r, "Spend", "spend", "Amount", "amount", "Cost"),
 };
 
 /** E-Com Products: ID, Name, Category, Unit Cost, Price, Sub-Category, Status */
 export const ecomProductAcc = {
-  id: (r: any) => readField(r, "ID") ?? "",
-  unitCost: (r: any) => parseNum(readField(r, "Unit Cost")),
-  price: (r: any) => parseNum(readField(r, "Price")),
+  id: (r: any) => readField(r, "ID", "id") ?? "",
+  name: (r: any) =>
+    (readField(r, "Name", "name", "Product Name", "product_name") ?? "Unknown")
+      .toString()
+      .trim(),
+  category: (r: any) =>
+    (readField(r, "Category", "category", "Sub-Category") ?? "Other")
+      .toString()
+      .trim(),
+  unitCost: (r: any) => parseNum(readField(r, "Unit Cost", "unit_cost")),
+  price: (r: any) => parseNum(readField(r, "Price", "price")),
 };
 
 /** Transactions: ID, Counterparty ID, Date, Amount, Direction (inflow / outflow), ... */

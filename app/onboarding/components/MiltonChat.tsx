@@ -33,6 +33,44 @@ import {
 import { getDataTablesForTemplate } from "@/lib/data-table-service";
 import { type DataTable } from "@/lib/types/data";
 
+/**
+ * Business type labels whose revenue model is self-evident from the type itself.
+ * For these, we skip the "How does your company generate revenue?" question
+ * because the answer adds no value to the data model configuration.
+ */
+const OBVIOUS_REVENUE_KEYWORDS = [
+  "restaurant",
+  "cafe",
+  "café",
+  "bar",
+  "pub",
+  "bistro",
+  "pizzeria",
+  "bakery",
+  "retail",
+  "shop",
+  "store",
+  "grocery",
+  "supermarket",
+  "gym",
+  "fitness",
+  "yoga",
+  "pilates",
+  "studio",
+  "salon",
+  "spa",
+  "barbershop",
+  "hotel",
+  "hostel",
+  "laundry",
+  "food",
+];
+
+function hasObviousRevenue(businessTypeLabel: string): boolean {
+  const lower = businessTypeLabel.toLowerCase();
+  return OBVIOUS_REVENUE_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
 const EMPLOYEE_RANGES = [
   { id: "1-5", label: "1-5 employees", value: "1-5" },
   { id: "6-10", label: "6-10 employees", value: "6-10" },
@@ -202,8 +240,12 @@ export default function MiltonChat({
           const goalsResponse = msgs[goalsQuestionIndex + 1];
           if (goalsResponse && goalsResponse.from === "user") {
             restoredAnswers.goals = goalsResponse.text;
-            // If goals is answered, advance to revenue
-            restoredStep = "revenue";
+            // If goals is answered, advance; skip revenue for obvious business types
+            const btMatch = businessTypes.find(
+              (bt) => bt.id === restoredBusinessType
+            );
+            restoredStep =
+              btMatch && hasObviousRevenue(btMatch.label) ? "data" : "revenue";
           } else {
             // Question exists but no answer - stay at goals
             restoredStep = "goals";
@@ -502,11 +544,30 @@ export default function MiltonChat({
         },
       ]);
     } else if (step === "goals") {
-      setStep("revenue");
-      setMessages((prev) => [
-        ...prev,
-        { from: "milton", text: "How does your company generate revenue?" },
-      ]);
+      const businessType = businessTypes.find(
+        (bt) => bt.id === selectedBusinessType
+      );
+      if (businessType && hasObviousRevenue(businessType.label)) {
+        // Revenue model is implied by the business type — skip the question
+        setAnswers((a) => ({
+          ...a,
+          revenue: `${businessType.label} sales (inferred from business type)`,
+        }));
+        setStep("data");
+        setMessages((prev) => [
+          ...prev,
+          {
+            from: "milton",
+            text: "What kind of data do you already track or have in files?",
+          },
+        ]);
+      } else {
+        setStep("revenue");
+        setMessages((prev) => [
+          ...prev,
+          { from: "milton", text: "How does your company generate revenue?" },
+        ]);
+      }
     } else if (step === "revenue") {
       setStep("data");
       setMessages((prev) => [
@@ -555,11 +616,16 @@ export default function MiltonChat({
       const businessTypeLabel =
         businessTypes.find((bt) => bt.id === selectedBusinessType)?.label ||
         "Unknown";
+      const revenueWasInferred = answersRef.current.revenue?.includes(
+        "inferred from business type"
+      );
       const summary = [
         `Business Type: ${businessTypeLabel}`,
         `Employees: ${answersRef.current.employees || "Not specified"}`,
         `Goals: ${answersRef.current.goals || "Not specified"}`,
-        `Revenue Model: ${answersRef.current.revenue || "Not specified"}`,
+        ...(!revenueWasInferred
+          ? [`Revenue Model: ${answersRef.current.revenue || "Not specified"}`]
+          : []),
         `Data Sources: ${answersRef.current.dataSources || "Not specified"}`,
         `Systems: ${answersRef.current.systems || "Not specified"}`,
         ...(answersRef.current.businessContext &&

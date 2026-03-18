@@ -91,7 +91,7 @@ export async function getReportData(
         const tableIds = [
           ...new Set(result.data.map((row) => row.model_table_id)),
         ];
-        const tableDefinitions = await getDataTablesByIds(tableIds, supabase);
+        const tableDefinitions = await getDataTablesByIds(tableIds);
         const idToNameMap: Record<string, string> = {};
         tableDefinitions.forEach((table) => {
           idToNameMap[table.id] = table.name;

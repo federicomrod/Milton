@@ -38,6 +38,9 @@ export interface FieldDef {
 
 export interface TableDef {
   name: string;
+  /** Human-readable label shown in end-user UI (e.g. "Orders" instead of "ecom_orders").
+   *  Falls back to `name` when absent, so existing models are unaffected. */
+  displayName?: string;
   fields: FieldDef[];
   // optional: file linkage metadata for ingestion
   fileMapping?: {
@@ -45,6 +48,11 @@ export interface TableDef {
     // map incoming column -> field name
     columnMap?: Record<string, string>;
   };
+}
+
+/** Returns the label to display in user-facing UI for a table. */
+export function getTableDisplayName(table: TableDef): string {
+  return table.displayName ?? table.name;
 }
 
 export interface RelationshipDef {

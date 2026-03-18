@@ -15,6 +15,8 @@ const isCI = !!process.env.CI;
  */
 export default defineConfig({
   testDir: "./tests",
+  /* Only run Playwright E2E specs; exclude Vitest unit tests (*.test.ts) */
+  testMatch: /.*\.spec\.(ts|tsx)$/,
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */

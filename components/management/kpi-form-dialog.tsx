@@ -235,15 +235,24 @@ export function KpiFormDialog({
                   dataTables.map((table) => (
                     <label
                       key={table.id}
-                      className="flex items-center space-x-2 cursor-pointer hover:bg-accent p-2 rounded"
+                      className="flex items-start space-x-2 cursor-pointer hover:bg-accent p-2 rounded"
                     >
                       <input
                         type="checkbox"
                         checked={selectedTables.includes(table.id)}
                         onChange={() => toggleTable(table.id)}
-                        className="rounded border-gray-300"
+                        className="rounded border-gray-300 mt-0.5 flex-shrink-0"
                       />
-                      <span className="text-sm">{table.name}</span>
+                      <div>
+                        <span className="text-sm font-medium">
+                          {table.name}
+                        </span>
+                        {table.description && (
+                          <p className="text-xs text-muted-foreground leading-snug">
+                            {table.description}
+                          </p>
+                        )}
+                      </div>
                     </label>
                   ))
                 )}

@@ -7,11 +7,16 @@ import type { KpiDisplayMode } from "@/components/dashboard/kpi-selector";
 import { KpisGrid } from "@/components/dashboard/kpis-grid";
 import { DashboardInsights } from "@/components/dashboard/dashboard-insights";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
+import { DashboardCustomizeModal } from "@/components/dashboard/DashboardCustomizeModal";
 import type { DatabaseKpi } from "@/lib/types/kpi";
 import { useUser } from "@/lib/context/UserContext";
 import { fetchDashboardKpis } from "@/lib/dashboard-kpis";
 import { createClient } from "@/lib/supabase/client";
 import { useDateRange } from "@/lib/hooks/useDateRange";
+import { useDashboardTheme } from "@/lib/hooks/useDashboardTheme";
+import { useUserPreferences } from "@/lib/context/UserPreferencesContext";
+import { getCurrencySymbol } from "@/lib/utils/formatters";
+import { useDashboardKpis } from "@/lib/context/DashboardKpisContext";
 
 const LockedPlaceholder = ({ message }: { message: string }) => (
   <div className="rounded border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
@@ -45,6 +50,11 @@ export default function DashboardPage() {
 
   const { period, customDateRange, setPeriod, setCustomDateRange } =
     useDateRange();
+  const { prefs } = useUserPreferences();
+  const { setDashboardKpis } = useDashboardKpis();
+
+  // Apply persisted color theme on mount
+  useDashboardTheme();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -144,13 +154,19 @@ export default function DashboardPage() {
           setSelectedKpiIds(selectedKpiIds);
           setKpiDisplayModes(kpiDisplayModes);
 
-          // Load selected KPIs
+          // Load selected KPIs — preserve order from selected_kpi_ids
           if (selectedKpiIds.length > 0) {
             const { data: selectedKpisData } = await supabase
               .from("kpis")
               .select("*")
               .in("id", selectedKpiIds);
-            setSelectedKpis(selectedKpisData || []);
+            const kpiMap = new Map(
+              (selectedKpisData || []).map((k) => [k.id, k])
+            );
+            const ordered = selectedKpiIds
+              .map((id) => kpiMap.get(id))
+              .filter((k): k is DatabaseKpi => k !== undefined);
+            setSelectedKpis(ordered);
           } else {
             setSelectedKpis([]);
           }
@@ -261,6 +277,25 @@ export default function DashboardPage() {
     selectedKpiIds,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Pass KPI name + value to Milton so it cites the exact same numbers as the dashboard cards
+  useEffect(() => {
+    if (Object.keys(analyticsKpiData).length === 0 || selectedKpis.length === 0)
+      return;
+    const currencySymbol = getCurrencySymbol(prefs.currency);
+    const formatToUnit = (f?: string) =>
+      f === "currency" ? currencySymbol : f === "percentage" ? "%" : "";
+    const kpis = selectedKpis
+      .filter((k) => k.id in analyticsKpiData)
+      .map((k) => ({
+        name: k.name,
+        value: analyticsKpiData[k.id],
+        unit: formatToUnit((k as { format?: string }).format) || currencySymbol,
+      }));
+    if (kpis.length > 0) {
+      setDashboardKpis(kpis);
+    }
+  }, [analyticsKpiData, selectedKpis, prefs.currency, setDashboardKpis]);
+
   const handleKpisChange = async (newSelectedKpis: string[]) => {
     // Filter out non-UUID legacy identifiers
     const uuidRegex =
@@ -291,6 +326,35 @@ export default function DashboardPage() {
     setKpiDisplayModes((prev) => ({ ...prev, ...modes }));
   };
 
+  const handleOrderSaved = async (orderedKpis: DatabaseKpi[]) => {
+    setSelectedKpis(orderedKpis);
+    setSelectedKpiIds(orderedKpis.map((k) => k.id));
+    if (!user) return;
+    try {
+      const supabase = createClient();
+      const { data: company } = await supabase
+        .from("companies")
+        .select("id")
+        .eq("created_by", user.id)
+        .single();
+      if (company) {
+        const selections = orderedKpis.map((k) => ({
+          id: k.id,
+          displayTypes: kpiDisplayModes[k.id] || ["card"],
+        }));
+        await supabase
+          .from("business_models")
+          .update({
+            selected_kpi_ids: selections,
+            ranked_kpi_ids: orderedKpis.map((k) => k.id),
+          })
+          .eq("company_id", company.id);
+      }
+    } catch (err) {
+      console.error("[Dashboard] Error saving KPI order:", err);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
       <div className="px-4 py-6 sm:px-0 space-y-6">
@@ -317,6 +381,11 @@ export default function DashboardPage() {
                 additionalKpis={additionalKpis}
                 kpiDisplayModes={kpiDisplayModes}
                 onDisplayModesChange={handleDisplayModesChange}
+              />
+              <DashboardCustomizeModal
+                selectedKpis={selectedKpis}
+                kpiDisplayModes={kpiDisplayModes}
+                onOrderSaved={handleOrderSaved}
               />
             </div>
           </div>

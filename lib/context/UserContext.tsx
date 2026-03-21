@@ -1,6 +1,14 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+} from "react";
+import { createClient } from "@/lib/supabase/client";
 
 interface User {
   id: string;
@@ -23,8 +31,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  // useRef avoids stale closure issues in the recursive retry setTimeout
+  const retryCountRef = useRef(0);
 
-  const fetchUser = async () => {
+  const fetchUser = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -34,13 +44,14 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
       if (!response.ok) {
         if (response.status === 401) {
-          // If unauthorized and we haven't retried too many times, wait a bit and retry
-          if (retryCount < 3) {
+          if (retryCountRef.current < 3) {
+            const next = retryCountRef.current + 1;
             console.log(
-              `[UserContext] User fetch failed (401), retrying (${retryCount + 1}/3)...`
+              `[UserContext] User fetch failed (401), retrying (${next}/3)...`
             );
-            setRetryCount((prev) => prev + 1);
-            setTimeout(() => fetchUser(), 1000 * (retryCount + 1)); // Exponential backoff
+            retryCountRef.current = next;
+            setRetryCount(next);
+            setTimeout(() => fetchUser(), 1000 * next);
             return;
           }
           setUser(null);
@@ -52,22 +63,42 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
       const data = await response.json();
       setUser(data.user || null);
-      setRetryCount(0); // Reset retry count on success
+      retryCountRef.current = 0;
+      setRetryCount(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
       setUser(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchUser();
-  }, []);
 
-  const refetch = async () => {
+    const supabase = createClient();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN") {
+        retryCountRef.current = 0;
+        setRetryCount(0);
+        fetchUser();
+      } else if (event === "SIGNED_OUT") {
+        setUser(null);
+        setLoading(false);
+        setError(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [fetchUser]);
+
+  const refetch = useCallback(async () => {
+    retryCountRef.current = 0;
+    setRetryCount(0);
     await fetchUser();
-  };
+  }, [fetchUser]);
 
   return (
     <UserContext.Provider value={{ user, loading, error, refetch, retryCount }}>

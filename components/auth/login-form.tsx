@@ -17,24 +17,48 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
 
+async function getPostLoginRedirect(
+  supabase: ReturnType<typeof createClient>
+): Promise<string> {
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return "/onboarding";
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("user_id", user.id)
+      .single();
+
+    if (profile?.role === "admin") return "/management/dashboard";
+
+    const { isOnboardingComplete } = await import("@/lib/onboarding-status");
+    const complete = await isOnboardingComplete();
+    return complete ? "/dashboard" : "/onboarding";
+  } catch {
+    return "/dashboard";
+  }
+}
+
 export function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
 
-  // Handle error from URL (e.g., from auth callback)
+  const urlError = searchParams.get("error");
+  const [error, setError] = useState<string | null>(urlError || null);
+  const [loading, setLoading] = useState(false);
+
+  // Clear the error query param from the URL on mount (side-effect only, no setState)
   useEffect(() => {
-    const urlError = searchParams.get("error");
     if (urlError) {
-      setError(urlError);
-      // Clear the error from URL
       window.history.replaceState(null, "", window.location.pathname);
     }
-  }, [searchParams]);
+  }, []);
 
   // Handle magic link authentication from URL hash
   useEffect(() => {
@@ -73,22 +97,7 @@ export function LoginForm() {
                 // Clear the hash from URL
                 window.history.replaceState(null, "", window.location.pathname);
 
-                // Check if onboarding is complete, redirect accordingly
-                try {
-                  const { isOnboardingComplete } =
-                    await import("@/lib/onboarding-status");
-                  const complete = await isOnboardingComplete();
-
-                  if (complete) {
-                    router.push("/dashboard");
-                  } else {
-                    router.push("/onboarding");
-                  }
-                } catch (err) {
-                  console.error("Error checking onboarding status:", err);
-                  // Fallback to dashboard on error
-                  router.push("/dashboard");
-                }
+                router.push(await getPostLoginRedirect(supabase));
               } else {
                 setError("Authentication failed. Please try again.");
                 setLoading(false);
@@ -112,22 +121,8 @@ export function LoginForm() {
 
               if (session) {
                 window.history.replaceState(null, "", window.location.pathname);
-                try {
-                  const { isOnboardingComplete } =
-                    await import("@/lib/onboarding-status");
-                  const complete = await isOnboardingComplete();
-
-                  if (complete) {
-                    router.push("/dashboard");
-                  } else {
-                    router.push("/onboarding");
-                  }
-                  router.refresh();
-                } catch (err) {
-                  console.error("Error checking onboarding status:", err);
-                  router.push("/dashboard");
-                  router.refresh();
-                }
+                router.push(await getPostLoginRedirect(supabase));
+                router.refresh();
               } else {
                 setError("Authentication failed. Please try again.");
                 setLoading(false);
@@ -165,24 +160,7 @@ export function LoginForm() {
       setError(error.message);
       setLoading(false);
     } else {
-      // Check if onboarding is complete, redirect accordingly
-      try {
-        const { isOnboardingComplete } =
-          await import("@/lib/onboarding-status");
-        const complete = await isOnboardingComplete();
-
-        if (complete) {
-          router.push("/dashboard");
-        } else {
-          router.push("/onboarding");
-        }
-        // Removed router.refresh() as it may cause session issues
-      } catch (err) {
-        console.error("Error checking onboarding status:", err);
-        // Fallback to dashboard on error
-        router.push("/dashboard");
-        router.refresh();
-      }
+      router.push(await getPostLoginRedirect(supabase));
     }
   };
 

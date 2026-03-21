@@ -25,6 +25,20 @@ export async function GET(request: NextRequest) {
       } = await supabase.auth.getUser();
 
       if (user) {
+        // Check if admin — admins always go to management dashboard
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("user_id", user.id)
+          .single();
+
+        if (profile?.role === "admin") {
+          console.log(
+            "[auth/callback] Admin user, going to management dashboard"
+          );
+          return NextResponse.redirect(`${origin}/management/dashboard`);
+        }
+
         // Check onboarding status
         const { data: company } = await supabase
           .from("companies")

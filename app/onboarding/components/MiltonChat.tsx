@@ -93,7 +93,6 @@ interface MiltonChatProps {
     goals: string;
     revenue: string;
     dataSources: string;
-    systems: string;
     businessDescription: string;
     businessType?: string;
     selectedDataCategories?: Record<string, "yes" | "no" | "not_sure">;
@@ -116,7 +115,6 @@ export default function MiltonChat({
     | "goals"
     | "revenue"
     | "data"
-    | "systems"
     | "business_context"
     | "confirm"
     | "done"
@@ -141,7 +139,6 @@ export default function MiltonChat({
     goals?: string;
     revenue?: string;
     dataSources?: string;
-    systems?: string;
     businessContext?: string;
     businessDescription?: string;
     businessType?: string;
@@ -280,29 +277,11 @@ export default function MiltonChat({
           const dataResponse = msgs[dataQuestionIndex + 1];
           if (dataResponse && dataResponse.from === "user") {
             restoredAnswers.dataSources = dataResponse.text;
-            // If data is answered, advance to systems
-            restoredStep = "systems";
+            // If data is answered, advance to business_context
+            restoredStep = "business_context";
           } else {
             // Question exists but no answer - stay at data
             restoredStep = "data";
-          }
-        }
-
-        // Check for systems question
-        const systemsQuestionIndex = msgs.findIndex(
-          (m) =>
-            m.from === "milton" &&
-            m.text.includes("Do you use any software systems")
-        );
-        if (systemsQuestionIndex !== -1) {
-          const systemsResponse = msgs[systemsQuestionIndex + 1];
-          if (systemsResponse && systemsResponse.from === "user") {
-            restoredAnswers.systems = systemsResponse.text;
-            // If systems is answered, advance to confirm
-            restoredStep = "confirm";
-          } else {
-            // Question exists but no answer - stay at systems
-            restoredStep = "systems";
           }
         }
 
@@ -366,12 +345,6 @@ export default function MiltonChat({
               m.from === "milton" &&
               m.text.includes("What kind of data do you already track")
           );
-        case "systems":
-          return !messages.some(
-            (m) =>
-              m.from === "milton" &&
-              m.text.includes("Do you use any software systems")
-          );
         case "business_context":
           return !messages.some(
             (m) =>
@@ -411,10 +384,6 @@ export default function MiltonChat({
         case "data":
           questionText =
             "What kind of data do you already track or have in files?";
-          break;
-        case "systems":
-          questionText =
-            "Do you use any software systems like a CRM, Stripe, or ERP?";
           break;
       }
       // Only add if the question text is set and the last message isn't already this question
@@ -578,15 +547,6 @@ export default function MiltonChat({
         },
       ]);
     } else if (step === "data") {
-      setStep("systems");
-      setMessages((prev) => [
-        ...prev,
-        {
-          from: "milton",
-          text: "Do you use any software systems like a CRM, Stripe, or ERP?",
-        },
-      ]);
-    } else if (step === "systems") {
       setStep("business_context");
       setMessages((prev) => [
         ...prev,
@@ -599,7 +559,7 @@ export default function MiltonChat({
       setStep("confirm");
 
       // Log all collected answers for debugging
-      console.log("📋 Onboarding answers collected at systems step:", {
+      console.log("📋 Onboarding answers collected:", {
         businessType: selectedBusinessType,
         businessTypeLabel: businessTypes.find(
           (bt) => bt.id === selectedBusinessType
@@ -608,7 +568,6 @@ export default function MiltonChat({
         goals: answersRef.current.goals,
         revenue: answersRef.current.revenue,
         dataSources: answersRef.current.dataSources,
-        systems: answersRef.current.systems,
         allAnswers: answersRef.current,
       });
 
@@ -627,7 +586,6 @@ export default function MiltonChat({
           ? [`Revenue Model: ${answersRef.current.revenue || "Not specified"}`]
           : []),
         `Data Sources: ${answersRef.current.dataSources || "Not specified"}`,
-        `Systems: ${answersRef.current.systems || "Not specified"}`,
         ...(answersRef.current.businessContext &&
         answersRef.current.businessContext !== "Not specified"
           ? [`Business Context: ${answersRef.current.businessContext}`]
@@ -664,7 +622,6 @@ export default function MiltonChat({
     goals?: string;
     revenue?: string;
     dataSources?: string;
-    systems?: string;
     businessDescription?: string;
     businessType?: string;
     selectedDataCategories?: Record<string, "yes" | "no" | "not_sure">;
@@ -693,7 +650,6 @@ export default function MiltonChat({
         goals: nextAnswers.goals || "",
         revenue: nextAnswers.revenue || "",
         dataSources: nextAnswers.dataSources || "",
-        systems: nextAnswers.systems || "",
         businessDescription: nextAnswers.businessDescription || "",
         businessType: nextAnswers.businessType, // Pass through businessType
         selectedDataCategories: nextAnswers.selectedDataCategories, // Pass through selectedDataCategories
@@ -719,8 +675,6 @@ export default function MiltonChat({
       setAnswers((a) => ({ ...a, revenue: input }));
     } else if (step === "data") {
       setAnswers((a) => ({ ...a, dataSources: input }));
-    } else if (step === "systems") {
-      setAnswers((a) => ({ ...a, systems: input }));
     } else if (step === "business_context") {
       setAnswers((a) => ({ ...a, businessContext: input || "Not specified" }));
     }
@@ -745,8 +699,6 @@ export default function MiltonChat({
         return "e.g., Subscription fees, product sales";
       case "data":
         return "Select data tables above...";
-      case "systems":
-        return "e.g., Salesforce, Stripe, NetSuite";
       case "business_context":
         return "e.g., We specialize in B2B SaaS for manufacturing companies...";
       default:
@@ -772,7 +724,7 @@ export default function MiltonChat({
     const businessTypeLabel = selectedBusinessType
       ? businessTypes.find((bt) => bt.id === selectedBusinessType)?.label
       : answers.industry || "Unknown";
-    const businessDescription = `Business Type: ${businessTypeLabel}, Employees: ${answers.employees}, Goals: ${answers.goals}, Revenue: ${answers.revenue}, Data: ${answers.dataSources}, Systems: ${answers.systems}`;
+    const businessDescription = `Business Type: ${businessTypeLabel}, Employees: ${answers.employees}, Goals: ${answers.goals}, Revenue: ${answers.revenue}, Data: ${answers.dataSources}`;
     const next = {
       ...answers,
       businessDescription,

@@ -50,7 +50,6 @@ export default function OnboardingChatPage() {
       goals: string;
       revenue: string;
       dataSources: string;
-      systems: string;
       businessContext?: string;
       businessDescription: string;
       businessType?: string;
@@ -81,7 +80,6 @@ export default function OnboardingChatPage() {
               goals: answers.goals,
               revenue: answers.revenue,
               dataSources: answers.dataSources,
-              systems: answers.systems,
               selectedDataCategories: answers.selectedDataCategories,
             },
           }),

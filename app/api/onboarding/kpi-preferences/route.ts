@@ -200,15 +200,18 @@ Rank these KPIs by relevance. Return the ranked KPI IDs as a JSON array, with th
                 rankedKpiIds = kpiIds;
               }
 
-              // Filter to only include IDs that exist in our KPIs
-              const validRankedIds = rankedKpiIds.filter(
-                (id) => kpis?.some((kpi) => kpi.id === id) ?? false
+              // Filter to only include IDs that exist in our published KPIs
+              const publishedKpiIds = new Set(
+                (kpis ?? []).map((kpi) => kpi.id)
+              );
+              const validRankedIds = rankedKpiIds.filter((id) =>
+                publishedKpiIds.has(id)
               );
 
-              // Add any missing KPIs to the end
-              const remainingIds = kpiIds.filter(
-                (id) => !validRankedIds.includes(id)
-              );
+              // Add any published KPIs not ranked by AI to the end
+              const remainingIds = (kpis ?? [])
+                .map((kpi) => kpi.id)
+                .filter((id) => !validRankedIds.includes(id));
               const finalRankedIds = [...validRankedIds, ...remainingIds];
 
               // Save ranked KPI IDs to database for caching (prevents repeated AI calls)

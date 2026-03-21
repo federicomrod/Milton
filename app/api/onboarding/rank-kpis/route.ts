@@ -55,11 +55,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Fetch KPIs from kpis table
+    // Fetch only published KPIs from kpis table
     const { data: kpis, error: kpisError } = await supabase
       .from("kpis")
       .select("*")
-      .in("id", kpiIds);
+      .in("id", kpiIds)
+      .eq("is_published", true);
 
     if (kpisError || !kpis) {
       console.error("[rank-kpis] KPIs error:", kpisError);
@@ -139,13 +140,14 @@ Rank these KPIs by relevance. Return the ranked KPI IDs as a JSON array, with th
       rankedKpiIds = kpiIds;
     }
 
-    // Filter to only include IDs that exist in our KPIs
-    const validRankedIds = rankedKpiIds.filter((id) =>
-      kpis.some((kpi) => kpi.id === id)
-    );
+    // Filter to only include IDs that exist in our published KPIs
+    const publishedKpiIds = new Set(kpis.map((kpi) => kpi.id));
+    const validRankedIds = rankedKpiIds.filter((id) => publishedKpiIds.has(id));
 
-    // Add any missing KPIs to the end
-    const remainingIds = kpiIds.filter((id) => !validRankedIds.includes(id));
+    // Add any published KPIs not ranked by AI to the end
+    const remainingIds = kpis
+      .map((kpi) => kpi.id)
+      .filter((id) => !validRankedIds.includes(id));
     const finalRankedIds = [...validRankedIds, ...remainingIds];
 
     // Create a map of KPIs by ID

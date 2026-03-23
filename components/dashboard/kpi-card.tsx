@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart3, Loader2, LucideIcon } from "lucide-react";
 import type { DatabaseKpi } from "@/lib/types/kpi";
 import { useUserPreferences } from "@/lib/context/UserPreferencesContext";
+import { KpiTargetPopover } from "@/components/dashboard/kpi-target-popover";
 import {
   formatCurrency,
   formatNumber,
@@ -78,6 +79,10 @@ interface KpiCardProps {
   fetchFromApi?: boolean;
   hasRequiredData?: boolean;
   missingTables?: string[];
+  // KPI targets
+  modelId?: string;
+  period?: string;
+  customDateRange?: { from: string; to: string };
 }
 
 export function KpiCard({
@@ -91,6 +96,9 @@ export function KpiCard({
   fetchFromApi = true,
   hasRequiredData = true,
   missingTables = [],
+  modelId,
+  period,
+  customDateRange,
 }: KpiCardProps) {
   const { prefs } = useUserPreferences();
   const [currentValue, setCurrentValue] = useState<number | null>(
@@ -243,7 +251,19 @@ export function KpiCard({
     <Card className="hover:shadow-md transition-shadow">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">{displayName}</CardTitle>
-        <DisplayIcon className={`h-4 w-4 ${getIconColor()}`} />
+        <div className="flex items-center gap-1.5">
+          {modelId && (
+            <KpiTargetPopover
+              kpiId={kpi.id}
+              kpiName={displayName}
+              modelId={modelId}
+              period={period}
+              customDateRange={customDateRange}
+              format={format}
+            />
+          )}
+          <DisplayIcon className={`h-4 w-4 ${getIconColor()}`} />
+        </div>
       </CardHeader>
       <CardContent>
         {loading ? (

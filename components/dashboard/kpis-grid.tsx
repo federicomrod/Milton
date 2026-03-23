@@ -28,6 +28,7 @@ interface KpisGridProps {
   analyticsKpiData?: Record<string, number | null>;
   period?: string;
   customDateRange?: { from: string; to: string };
+  modelId?: string;
 }
 
 type KpiFormat = "number" | "currency" | "percentage";
@@ -272,6 +273,7 @@ export function KpisGrid({
   analyticsKpiData = {},
   period,
   customDateRange,
+  modelId,
 }: KpisGridProps) {
   const { prefs } = useUserPreferences();
   const [seriesData, setSeriesData] = useState<Record<string, SeriesPoint[]>>(
@@ -377,6 +379,9 @@ export function KpisGrid({
                 hasRequiredData={true}
                 missingTables={[]}
                 fetchFromApi={false}
+                modelId={modelId}
+                period={period}
+                customDateRange={customDateRange}
               />
             );
           })}

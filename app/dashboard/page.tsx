@@ -47,6 +47,7 @@ export default function DashboardPage() {
     Record<string, number | null>
   >({});
   const [businessType, setBusinessType] = useState<string | null>(null);
+  const [businessModelId, setBusinessModelId] = useState<string | null>(null);
 
   const { period, customDateRange, setPeriod, setCustomDateRange } =
     useDateRange();
@@ -93,7 +94,7 @@ export default function DashboardPage() {
           // Get business model to determine business type, selected KPIs, and ranked KPIs
           const { data: businessModel } = await supabase
             .from("business_models")
-            .select("business_type, selected_kpi_ids, ranked_kpi_ids")
+            .select("id, business_type, selected_kpi_ids, ranked_kpi_ids")
             .eq("company_id", company.id)
             .single();
 
@@ -104,6 +105,7 @@ export default function DashboardPage() {
           if (businessModel) {
             businessType = businessModel.business_type;
             setBusinessType(businessType);
+            setBusinessModelId(businessModel.id);
 
             const uuidRegex =
               /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -402,6 +404,7 @@ export default function DashboardPage() {
                 analyticsKpiData={analyticsKpiData}
                 period={period}
                 customDateRange={customDateRange}
+                modelId={businessModelId ?? undefined}
               />
             </>
           ) : (

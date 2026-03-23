@@ -11,6 +11,7 @@ import {
   formatNumber,
   formatPercentage,
 } from "@/lib/utils/formatters";
+import { getTargetsForKpi } from "@/lib/kpi-targets";
 
 type KpiFormat = "number" | "currency" | "percentage" | "months";
 
@@ -61,6 +62,18 @@ const getKpiDisplayFormat = (kpiName: string): KpiFormat => {
   return "number"; // default
 };
 
+const isLowerBetter = (kpiName: string): boolean => {
+  const n = kpiName.toLowerCase();
+  return (
+    n.includes("expense") ||
+    n.includes("cost") ||
+    n.includes("burn") ||
+    n.includes("churn") ||
+    n.includes("no-show") ||
+    n.includes("no show")
+  );
+};
+
 interface KpiCardProps {
   kpi: DatabaseKpi;
   // Optional: if provided, use this value instead of fetching from API
@@ -108,6 +121,7 @@ export function KpiCard({
     fetchFromApi && providedValue === undefined
   );
   const [error, setError] = useState<string | null>(null);
+  const [targetValue, setTargetValue] = useState<number | null>(null);
 
   const format = getKpiDisplayFormat(kpi.name);
 
@@ -183,6 +197,29 @@ export function KpiCard({
       setCurrentValue(providedValue);
     }
   }, [providedValue]);
+
+  // Fetch target for this KPI and find the most recent one within the date range
+  useEffect(() => {
+    if (!modelId) return;
+
+    const today = new Date().toISOString().split("T")[0];
+    let to = today;
+    if (period === "year") {
+      const y = new Date().getFullYear() - 1;
+      to = `${y}-12-31`;
+    } else if (period === "custom" && customDateRange) {
+      to = customDateRange.to;
+    }
+
+    getTargetsForKpi(modelId, kpi.id)
+      .then((targets) => {
+        const candidate = targets
+          .filter((t) => t.period.substring(0, 10) <= to)
+          .sort((a, b) => b.period.localeCompare(a.period))[0];
+        setTargetValue(candidate?.value ?? null);
+      })
+      .catch(() => setTargetValue(null));
+  }, [modelId, kpi.id, period, customDateRange?.from, customDateRange?.to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const formatValue = (value: number | null): string => {
     if (value === null || value === undefined) {
@@ -302,6 +339,36 @@ export function KpiCard({
                   ? null
                   : getSuffix()}
             </div>
+            {targetValue !== null &&
+              currentValue !== null &&
+              (() => {
+                const diff = currentValue - targetValue;
+                const pct =
+                  targetValue !== 0 ? (diff / Math.abs(targetValue)) * 100 : 0;
+                const lowerBetter = isLowerBetter(kpi.name);
+                const isGood = lowerBetter ? diff < 0 : diff > 0;
+                const arrow = isGood ? "▲" : "▼";
+                const colorClass = isGood ? "text-green-600" : "text-red-600";
+                const sign = pct >= 0 ? "+" : "";
+                const targetFormatted =
+                  formatValue(targetValue) +
+                  (format === "currency"
+                    ? ""
+                    : format === "percentage" && providedSuffix === undefined
+                      ? ""
+                      : getSuffix());
+                return (
+                  <div className="mt-1 space-y-0.5">
+                    <p className={`text-xs font-medium ${colorClass}`}>
+                      {arrow} {sign}
+                      {pct.toFixed(1)}% vs target
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      (Target: {targetFormatted})
+                    </p>
+                  </div>
+                );
+              })()}
             {description && (
               <p className="text-xs text-muted-foreground mt-1">
                 {description}

@@ -8,6 +8,7 @@ import { KpisGrid } from "@/components/dashboard/kpis-grid";
 import { DashboardInsights } from "@/components/dashboard/dashboard-insights";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { DashboardCustomizeModal } from "@/components/dashboard/DashboardCustomizeModal";
+import { ManageTargetsModal } from "@/components/dashboard/ManageTargetsModal";
 import type { DatabaseKpi } from "@/lib/types/kpi";
 import { useUser } from "@/lib/context/UserContext";
 import { fetchDashboardKpis } from "@/lib/dashboard-kpis";
@@ -384,6 +385,14 @@ export default function DashboardPage() {
                 kpiDisplayModes={kpiDisplayModes}
                 onDisplayModesChange={handleDisplayModesChange}
               />
+              {businessModelId && selectedKpis.length > 0 && (
+                <ManageTargetsModal
+                  modelId={businessModelId}
+                  selectedKpis={selectedKpis}
+                  period={period}
+                  customDateRange={customDateRange}
+                />
+              )}
               <DashboardCustomizeModal
                 selectedKpis={selectedKpis}
                 kpiDisplayModes={kpiDisplayModes}

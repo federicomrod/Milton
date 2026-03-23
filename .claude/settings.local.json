@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc --noEmit)",
+      "Bash(grep -r \"Card\\\\|CardHeader\\\\|CardTitle\\\\|CardContent\" /Users/Federico/Milton26/Repository0903/milton/components/dashboard/*.tsx)",
+      "Bash(xargs ls -lh)",
+      "Read(//Users/federico/Milton26/Repository0903/milton/**)",
+      "Read(//Users/federico/Milton26/Repository0903/milton-marketing/**)",
+      "Bash(npm run build)",
+      "Bash(git restore --staged .claude/settings.local.json)",
+      "Bash(git add README.md)"
+    ]
+  }
+}

@@ -1,6 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+/** GET /api/business-type – return current company business type */
+export async function GET() {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return NextResponse.json({ businessType: null }, { status: 401 });
+    }
+    const { data: company } = await supabase
+      .from("companies")
+      .select("id")
+      .eq("created_by", user.id)
+      .single();
+    if (!company) {
+      return NextResponse.json({ businessType: null });
+    }
+    const { data: businessModel } = await supabase
+      .from("business_models")
+      .select("business_type")
+      .eq("company_id", company.id)
+      .single();
+    const businessType = (businessModel?.business_type as string) ?? null;
+    return NextResponse.json({ businessType });
+  } catch (err) {
+    console.error("[business-type] GET error", err);
+    return NextResponse.json({ businessType: null }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { businessType } = await req.json();

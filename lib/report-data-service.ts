@@ -1,7 +1,6 @@
 // lib/report-data-service.ts
 import { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeStage } from "@/lib/utils/pipeline-utils";
-import { getDataTablesByIds } from "@/lib/data-table-service";
 import type {
   TransactionData,
   BudgetData,
@@ -87,15 +86,23 @@ export async function getReportData(
       }
 
       if (result.data && result.data.length > 0) {
-        // Get table IDs and convert to names
+        // Resolve table names using the same supabase client (server session)
+        // so RLS/auth is consistent. getDataTablesByIds() uses the browser client
+        // and can return no rows server-side, leaving all names as "unknown_table_*"
+        // and thus no transactions → KPIs stay 0.
         const tableIds = [
           ...new Set(result.data.map((row) => row.model_table_id)),
         ];
-        const tableDefinitions = await getDataTablesByIds(tableIds);
+        const { data: tableDefinitions } = await supabase
+          .from("data_tables")
+          .select("id, name")
+          .in("id", tableIds);
         const idToNameMap: Record<string, string> = {};
-        tableDefinitions.forEach((table) => {
-          idToNameMap[table.id] = table.name;
-        });
+        (tableDefinitions || []).forEach(
+          (table: { id: string; name: string }) => {
+            idToNameMap[table.id] = table.name ?? "";
+          }
+        );
 
         // Convert data to use table names
         const convertedData = result.data.map((row) => ({
@@ -155,7 +162,10 @@ export async function getReportData(
         }
 
         transactions.push({
-          id: data.id ?? `model_${Math.random().toString(36).substr(2, 9)}`,
+          id:
+            data.id ??
+            data.ID ??
+            `model_${Math.random().toString(36).substr(2, 9)}`,
           date,
           amount,
           category: data.category ?? data.type ?? "Uncategorized",
@@ -285,7 +295,9 @@ export async function getReportData(
     (sum, t) => sum + t.amount,
     0
   );
-  const cashRunway = burnRate > 0 ? Math.round(netCash / burnRate) : 0;
+  const runwayMonths = burnRate > 0 && netCash > 0 ? netCash / burnRate : 0;
+  const cashRunway =
+    runwayMonths > 0 ? Math.max(1, Math.round(runwayMonths)) : 0;
 
   // --- CRM metrics ---
   // Ensure amounts are numbers for CRM deals too

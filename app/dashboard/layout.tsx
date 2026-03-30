@@ -6,6 +6,7 @@ import MiltonChat from "@/components/dashboard/miltonchat";
 import { createClient } from "@/lib/supabase/client";
 import { DataStatusProvider } from "@/lib/context/DataStatusContext";
 import { DashboardKpisProvider } from "@/lib/context/DashboardKpisContext";
+import { ComparisonProvider } from "@/lib/context/ComparisonContext";
 import { BusinessProvider } from "@/lib/business-context";
 import { useUser } from "@/lib/context/UserContext";
 import { miltonEventsAPI } from "@/lib/milton-events";
@@ -252,6 +253,7 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
 
     // Skip redirect for pages that don't require data
     if (pathname.startsWith("/dashboard/model")) return; // Data Model Builder
+    if (pathname.startsWith("/dashboard/scenarios")) return; // Scenarios (list, compare, detail, edit)
     if (pathname.startsWith("/dashboard/analytics")) return; // Analytics page
     if (pathname.startsWith("/dashboard/reporting")) return; // Reporting page
     if (pathname.startsWith("/dashboard/account")) return; // Account page
@@ -272,46 +274,48 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
     <BusinessProvider>
       <DataStatusProvider value={{ refreshDataStatus }}>
         <DashboardKpisProvider>
-          <div style={{ position: "relative", minHeight: "100vh" }}>
-            {children}
-            {/* Chat Toggle Button - Hide when chat is open */}
-            {!isChatOpen && (
-              <button
-                aria-label="Open Milton Chat"
-                onClick={() => setIsChatOpen(true)}
+          <ComparisonProvider>
+            <div style={{ position: "relative", minHeight: "100vh" }}>
+              {children}
+              {/* Chat Toggle Button - Hide when chat is open */}
+              {!isChatOpen && (
+                <button
+                  aria-label="Open Milton Chat"
+                  onClick={() => setIsChatOpen(true)}
+                  style={{
+                    position: "fixed",
+                    right: 32,
+                    bottom: 32,
+                    zIndex: 10050,
+                    width: 56,
+                    height: 56,
+                    borderRadius: "50%",
+                    background: "#fff",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                    border: "none",
+                    fontSize: 28,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  💬
+                </button>
+              )}
+              {/* Sliding Chat Panel */}
+              <div
+                className="fixed top-0 right-0 h-screen w-[33.333vw] max-w-[420px] min-w-[320px] bg-background shadow-[0_0_24px_rgba(0,0,0,0.2)] z-[10000] flex flex-col transition-transform duration-300 ease-out"
                 style={{
-                  position: "fixed",
-                  right: 32,
-                  bottom: 32,
-                  zIndex: 10050,
-                  width: 56,
-                  height: 56,
-                  borderRadius: "50%",
-                  background: "#fff",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-                  border: "none",
-                  fontSize: 28,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
+                  transform: isChatOpen ? "translateX(0)" : "translateX(100%)",
                 }}
               >
-                💬
-              </button>
-            )}
-            {/* Sliding Chat Panel */}
-            <div
-              className="fixed top-0 right-0 h-screen w-[33.333vw] max-w-[420px] min-w-[320px] bg-background shadow-[0_0_24px_rgba(0,0,0,0.2)] z-[10000] flex flex-col transition-transform duration-300 ease-out"
-              style={{
-                transform: isChatOpen ? "translateX(0)" : "translateX(100%)",
-              }}
-            >
-              <div className="chat-panel p-4 h-full flex flex-col overflow-hidden">
-                <MiltonChat onClose={() => setIsChatOpen(false)} />
+                <div className="chat-panel p-4 h-full flex flex-col overflow-hidden">
+                  <MiltonChat onClose={() => setIsChatOpen(false)} />
+                </div>
               </div>
             </div>
-          </div>
+          </ComparisonProvider>
         </DashboardKpisProvider>
       </DataStatusProvider>
     </BusinessProvider>

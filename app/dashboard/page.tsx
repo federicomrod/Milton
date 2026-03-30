@@ -8,7 +8,11 @@ import { KpisGrid } from "@/components/dashboard/kpis-grid";
 import { DashboardInsights } from "@/components/dashboard/dashboard-insights";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { DashboardCustomizeModal } from "@/components/dashboard/DashboardCustomizeModal";
+<<<<<<< feature/02-kpi-targets
 import { ManageTargetsModal } from "@/components/dashboard/ManageTargetsModal";
+=======
+import { ComparisonSelector } from "@/components/dashboard/comparison-selector";
+>>>>>>> main
 import type { DatabaseKpi } from "@/lib/types/kpi";
 import { useUser } from "@/lib/context/UserContext";
 import { fetchDashboardKpis } from "@/lib/dashboard-kpis";
@@ -377,6 +381,7 @@ export default function DashboardPage() {
                 onPeriodChange={(value) => setPeriod(value)}
                 onCustomDateRangeChange={(range) => setCustomDateRange(range)}
               />
+              <ComparisonSelector modelId={businessModelId} />
               <KpiSelector
                 selectedKpiIds={selectedKpiIds}
                 onKpisChange={handleKpisChange}

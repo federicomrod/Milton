@@ -15,6 +15,7 @@ import {
   Database,
   Network,
   Shield,
+  GitBranch,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -169,6 +170,18 @@ export function AppNavigation() {
                     >
                       <Network className="h-4 w-4" />
                       Model
+                    </Button>
+                  </Link>
+                  <Link href="/dashboard/scenarios">
+                    <Button
+                      variant={
+                        isActive("/dashboard/scenarios") ? "default" : "ghost"
+                      }
+                      size="sm"
+                      className="gap-2"
+                    >
+                      <GitBranch className="h-4 w-4" />
+                      Scenarios
                     </Button>
                   </Link>
 

@@ -8,14 +8,18 @@ import { Button } from "@/components/ui/button";
 import { LogoutButton } from "@/components/dashboard/logout-button";
 import {
   LayoutDashboard,
-  BarChart,
-  FileText,
   User,
   Settings,
-  Database,
-  Network,
   Shield,
-  GitBranch,
+  Flame,
+  Upload,
+  Target,
+  BookOpen,
+  Carrot,
+  Receipt,
+  Sparkles,
+  ChevronDown,
+  Archive,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -58,12 +62,16 @@ export function AppNavigation() {
     checkAuth();
   }, [pathname]);
 
-  // Don't show navigation on auth pages, onboarding-required page, root page, or while loading
+  // Don't show navigation on auth pages, onboarding-required page, root page, or while loading.
+  // Also suppress on the restaurant cockpit and all of its sub-routes — those use the
+  // dedicated left-sidebar shell (components/restaurant/RestaurantShell.tsx) and would
+  // otherwise stack a redundant top nav above it.
   if (
     loading ||
     pathname?.startsWith("/auth/") ||
     pathname === "/onboarding-required" ||
-    pathname === "/"
+    pathname === "/" ||
+    pathname?.startsWith("/dashboard/restaurant")
   ) {
     return null;
   }
@@ -83,12 +91,88 @@ export function AppNavigation() {
     return false;
   };
 
+  // ---- Nav structure --------------------------------------------------
+  //
+  // Milton is now a restaurant cockpit; the primary nav is restaurant-first.
+  // Legacy CFO-style routes (Analytics / Reporting / Data Uploads / Model /
+  // Scenarios) are still reachable but moved behind a "Legacy" dropdown so
+  // they don't dominate the visual hierarchy. We do NOT delete those routes
+  // — they still serve existing data and old links — they just stop being
+  // primary navigation.
+  const primaryNav: {
+    href: string;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    /** Hash to scroll to inside /dashboard/restaurant — only used for the
+     *  Sales Analytics / Targets shortcuts. */
+    sectionHash?: string;
+  }[] = [
+    { href: "/dashboard/restaurant", label: "Cockpit", icon: LayoutDashboard },
+    {
+      href: "/dashboard/restaurant/upload",
+      label: "Import POS Sales",
+      icon: Upload,
+    },
+    {
+      href: "/dashboard/restaurant",
+      label: "Sales Analytics",
+      icon: Flame,
+      sectionHash: "channels",
+    },
+    {
+      href: "/dashboard/restaurant",
+      label: "Targets",
+      icon: Target,
+      sectionHash: "targets",
+    },
+    {
+      href: "/dashboard/restaurant/menu",
+      label: "Menu & Recipes",
+      icon: BookOpen,
+    },
+    {
+      href: "/dashboard/restaurant/ingredients",
+      label: "Ingredients",
+      icon: Carrot,
+    },
+    {
+      href: "/dashboard/restaurant/invoices",
+      label: "Supplier Invoices",
+      icon: Receipt,
+    },
+    { href: "/dashboard/restaurant/agents", label: "Agents", icon: Sparkles },
+  ];
+
+  const legacyNav: { href: string; label: string }[] = [
+    { href: "/dashboard", label: "Legacy Dashboard" },
+    { href: "/dashboard/analytics", label: "Analytics" },
+    { href: "/dashboard/reporting", label: "Reporting" },
+    { href: "/dashboard/data", label: "Data Uploads" },
+    { href: "/dashboard/model", label: "Model (Paused)" },
+    { href: "/dashboard/scenarios", label: "Scenarios" },
+  ];
+
+  // Highlight rule: section-shortcut links (those that share a base href
+  // with another primary item) should ONLY light up when the URL hash
+  // matches their sectionHash. The plain Cockpit link lights up for any
+  // /dashboard/restaurant URL without a sectionHash already claiming it.
+  const isPrimaryActive = (item: (typeof primaryNav)[number]): boolean => {
+    if (item.sectionHash) return false; // hash routes don't show server-side active state
+    if (item.href === "/dashboard/restaurant") {
+      // "Cockpit" — active on exactly /dashboard/restaurant (not sub-routes)
+      return pathname === "/dashboard/restaurant";
+    }
+    return (
+      pathname === item.href || (pathname?.startsWith(item.href + "/") ?? false)
+    );
+  };
+
   return (
     <header className="bg-background shadow-sm border-b border-border sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
-          <div className="flex items-center gap-6">
-            <Link href={isAuthenticated ? "/dashboard" : "/"}>
+      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-10">
+        <div className="flex justify-between items-center h-16 gap-4">
+          <div className="flex items-center gap-6 min-w-0">
+            <Link href={isAuthenticated ? "/dashboard/restaurant" : "/"}>
               <div className="flex items-center gap-2 cursor-pointer">
                 <Image
                   src="/Milton_Logo.png"
@@ -102,88 +186,62 @@ export function AppNavigation() {
               </div>
             </Link>
 
-            {/* Main Navigation - only show if authenticated and not on root or management pages */}
+            {/* Main Navigation - restaurant-first; legacy items live in
+                a dropdown so the primary row stays readable. */}
             {isAuthenticated &&
               pathname !== "/" &&
               !pathname.startsWith("/management") && (
-                <nav className="hidden md:flex items-center gap-1">
-                  <Link href="/dashboard">
+                <nav className="hidden lg:flex items-center gap-1 overflow-x-auto">
+                  {primaryNav.map((item) => {
+                    const Icon = item.icon;
+                    const active = isPrimaryActive(item);
+                    const href = item.sectionHash
+                      ? `${item.href}#${item.sectionHash}`
+                      : item.href;
+                    return (
+                      <Link key={item.label} href={href}>
+                        <Button
+                          variant={active ? "default" : "ghost"}
+                          size="sm"
+                          className="gap-2 whitespace-nowrap"
+                        >
+                          <Icon className="h-4 w-4" />
+                          {item.label}
+                        </Button>
+                      </Link>
+                    );
+                  })}
+
+                  {/* Legacy dropdown — hover-based on desktop, focus on
+                      keyboard. Renders inline via the `group` pattern so
+                      we don't need a portal/popover dependency. */}
+                  <div className="relative group">
                     <Button
-                      variant={
-                        isActive("/dashboard") && pathname === "/dashboard"
-                          ? "default"
-                          : "ghost"
-                      }
+                      variant="ghost"
                       size="sm"
-                      className="gap-2"
+                      className="gap-2 whitespace-nowrap text-muted-foreground"
                     >
-                      <LayoutDashboard className="h-4 w-4" />
-                      Dashboard
+                      <Archive className="h-4 w-4" />
+                      Legacy
+                      <ChevronDown className="h-3 w-3 opacity-70" />
                     </Button>
-                  </Link>
-                  <Link href="/dashboard/analytics">
-                    <Button
-                      variant={
-                        isActive("/dashboard/analytics") ? "default" : "ghost"
-                      }
-                      size="sm"
-                      className="gap-2"
-                    >
-                      <BarChart className="h-4 w-4" />
-                      Analytics
-                    </Button>
-                  </Link>
-                  <Link href="/dashboard/reporting">
-                    <Button
-                      variant={
-                        isActive("/dashboard/reporting") ? "default" : "ghost"
-                      }
-                      size="sm"
-                      className="gap-2"
-                    >
-                      <FileText className="h-4 w-4" />
-                      Reporting
-                    </Button>
-                  </Link>
-                  <Link href="/dashboard/data">
-                    <Button
-                      variant={
-                        isActive("/dashboard/data") ||
-                        isActive("/dashboard/upload")
-                          ? "default"
-                          : "ghost"
-                      }
-                      size="sm"
-                      className="gap-2"
-                    >
-                      <Database className="h-4 w-4" />
-                      Data
-                    </Button>
-                  </Link>
-                  <Link href="/dashboard/model">
-                    <Button
-                      variant={
-                        isActive("/dashboard/model") ? "default" : "ghost"
-                      }
-                      size="sm"
-                      className="gap-2"
-                    >
-                      <Network className="h-4 w-4" />
-                      Model
-                    </Button>
-                  </Link>
-                  <Link href="/dashboard/scenarios">
-                    <Button
-                      variant={
-                        isActive("/dashboard/scenarios") ? "default" : "ghost"
-                      }
-                      size="sm"
-                      className="gap-2"
-                    >
-                      <GitBranch className="h-4 w-4" />
-                      Scenarios
-                    </Button>
-                  </Link>
+                    <div className="absolute right-0 top-full mt-1 hidden group-hover:block group-focus-within:block bg-background border border-border rounded-md shadow-md min-w-[200px] py-1 z-50">
+                      {legacyNav.map((item) => (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          className={
+                            "block px-3 py-2 text-sm hover:bg-muted " +
+                            (pathname === item.href
+                              ? "text-foreground font-medium"
+                              : "text-muted-foreground")
+                          }
+                        >
+                          {item.label}
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
 
                   {/* Management button for admin users */}
                   {isAdmin && (
@@ -191,7 +249,7 @@ export function AppNavigation() {
                       <Button
                         variant={isActive("/management") ? "default" : "ghost"}
                         size="sm"
-                        className="gap-2"
+                        className="gap-2 whitespace-nowrap"
                       >
                         <Shield className="h-4 w-4" />
                         Management

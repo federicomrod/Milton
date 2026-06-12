@@ -260,6 +260,16 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
     if (pathname.startsWith("/dashboard/settings")) return; // Settings page
     if (pathname.startsWith("/dashboard/upload")) return; // Upload page
     if (pathname.startsWith("/dashboard/data")) return; // Data Management page
+    // TODO(restaurant-pivot): restaurant pivot uses pos_sales_items, not the
+    // legacy model_data path. Exempt restaurant routes from the "no model data
+    // → bounce to /dashboard" redirect that was the second hop in the chain
+    // /dashboard/restaurant/upload → /dashboard → /onboarding-required.
+    if (pathname.startsWith("/dashboard/restaurant")) {
+      console.log(
+        `[DashboardLayout] restaurant pivot route ${pathname} exempt from model-data redirect`
+      );
+      return;
+    }
 
     // Only redirect if user is NOT already on dashboard
     if (pathname === "/dashboard") return;

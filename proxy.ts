@@ -37,6 +37,21 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // TODO(restaurant-pivot): dev-only bypass for the mock restaurant cockpit.
+  // proxy.ts is the active middleware (compiled from the former middleware.ts).
+  // process.env.NODE_ENV is "production" in prod builds, so this branch is
+  // provably dead in production — no weakening of prod auth.
+  // Remove this block once real Supabase integration is wired up for this route.
+  if (
+    process.env.NODE_ENV === "development" &&
+    pathname.startsWith("/dashboard/restaurant")
+  ) {
+    console.log(
+      `[Proxy] DEV bypass for restaurant route, pathname=${pathname}`
+    );
+    return NextResponse.next();
+  }
+
   let response = NextResponse.next({
     request: {
       headers: request.headers,
@@ -106,9 +121,24 @@ export async function proxy(request: NextRequest) {
     }
   })();
 
+  // TODO(restaurant-pivot): /dashboard/restaurant/* is exempt from the legacy
+  // onboarding-completion gate. The old onboarding flow (business-type dropdown,
+  // generic data model) does not apply to the restaurant pilot — users land
+  // directly in the restaurant cockpit and POS upload. Authentication is still
+  // enforced for these routes (the `if (!user) redirect to /auth/login` check
+  // earlier in this file). Remove this exemption once the restaurant onboarding
+  // is wired in.
+  const isRestaurantPivotRoute = pathname.startsWith("/dashboard/restaurant");
+  if (isRestaurantPivotRoute) {
+    console.log(
+      `[Proxy] PROD bypass: restaurant pivot route pathname=${pathname} skips onboarding gate`
+    );
+  }
+
   if (
     pathname !== "/onboarding-required" &&
     !pathname.startsWith("/management") &&
+    !isRestaurantPivotRoute &&
     !isAdmin && // Skip onboarding check for admin users
     (pathname.startsWith("/dashboard") ||
       pathname.startsWith("/analytics") ||

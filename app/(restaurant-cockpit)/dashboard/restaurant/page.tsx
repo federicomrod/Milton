@@ -65,6 +65,7 @@ import {
 import { CockpitTabs } from "@/components/restaurant/cockpit/CockpitTabs";
 import { MenuProfitabilityTable } from "@/components/restaurant/cockpit/MenuProfitabilityTable";
 import { BriefingCard } from "@/components/restaurant/BriefingCard";
+import { RestaurantSetupChecklist } from "@/components/restaurant/RestaurantSetupChecklist";
 import {
   MOCK_MENU_ITEMS,
   MOCK_RECIPES,
@@ -286,16 +287,27 @@ function LiveRestaurantView({
       <div className="space-y-6">
         <PageHeader mode="live" />
 
-        {/* Live-mode banner */}
-        <div className="rounded-md border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20 p-3 text-sm text-green-900 dark:text-green-200 flex items-start gap-2">
-          <Info className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>
-            {data.rowCount.toLocaleString("es-MX")} POS sale row
-            {data.rowCount === 1 ? "" : "s"} loaded from Supabase. Items with
-            missing recipes or unit mismatches are flagged rather than
-            estimated.
-          </span>
-        </div>
+        {/* Live-mode banner — adapts to costing state */}
+        {profitability && profitability.kpis.cost_coverage_pct === 0 ? (
+          <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 p-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+            <Info className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              Sales data is loaded ({data.rowCount.toLocaleString("es-MX")} row
+              {data.rowCount === 1 ? "" : "s"}). Costing is pending until
+              ingredient costs and recipes are linked.
+            </span>
+          </div>
+        ) : (
+          <div className="rounded-md border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20 p-3 text-sm text-green-900 dark:text-green-200 flex items-start gap-2">
+            <Info className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              {data.rowCount.toLocaleString("es-MX")} POS sale row
+              {data.rowCount === 1 ? "" : "s"} loaded from Supabase. Items with
+              missing recipes or unit mismatches are flagged rather than
+              estimated.
+            </span>
+          </div>
+        )}
 
         <CockpitTabs tabs={tabs} defaultTab="overview" />
       </div>
@@ -316,6 +328,10 @@ function OverviewTab({
 }) {
   return (
     <div className="space-y-8">
+      <RestaurantSetupChecklist
+        setupCounts={profitability.setupCounts}
+        dataQuality={profitability.dataQuality}
+      />
       <BriefingCard />
       <ProfitabilityKpisSection data={profitability} />
 

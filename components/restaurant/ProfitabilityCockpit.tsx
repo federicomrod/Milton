@@ -284,8 +284,8 @@ export function SupplierTrendsSection({ data }: { data: ProfitabilityData }) {
           <CardContent className="p-0">
             {data.ingredientPriceTrends.length === 0 ? (
               <p className="text-sm text-muted-foreground px-4 py-3">
-                No ingredients with at least two cost entries yet. Upload
-                another cost file or add manual entries.
+                Supplier price trends will appear after at least two cost
+                entries for the same ingredient.
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -553,18 +553,26 @@ export function ItemsNeedingAttention({ data }: { data: ProfitabilityData }) {
     pushIf(r, `low margin ${pct(r.cost.gross_margin_pct)}`);
 
   if (items.length === 0) {
+    const noCoverage = data.kpis.cost_coverage_pct === 0;
     return (
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-green-600" />
-            Everything in order
+            {noCoverage ? (
+              <Info className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+            )}
+            {noCoverage
+              ? "Margins are not available yet"
+              : "Everything in order"}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            No items need urgent attention. Run a fresh costing cycle if your
-            menu changed.
+            {noCoverage
+              ? "Import ingredient costs and create recipes to unlock food cost and gross margin."
+              : "No items need urgent attention. Run a fresh costing cycle if your menu changed."}
           </p>
         </CardContent>
       </Card>
@@ -622,8 +630,8 @@ export function SupplierPriceAlerts({ data }: { data: ProfitabilityData }) {
       <CardContent>
         {top.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Supplier price trends will appear once at least two cost entries
-            exist for the same ingredient.
+            Supplier price trends will appear after at least two cost entries
+            for the same ingredient.
           </p>
         ) : (
           <ul className="space-y-2">

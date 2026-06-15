@@ -105,6 +105,17 @@ export interface DataQualityCounts {
   supplier_linked_ingredients: number;
 }
 
+/** Row counts used by the first-time setup checklist on the cockpit. */
+export interface SetupCounts {
+  pos_sales_count: number;
+  cost_entries_count: number;
+  menu_items_count: number;
+  mappings_count: number;
+  recipe_inputs_count: number;
+  supplier_invoices_count: number;
+  agent_runs_count: number;
+}
+
 export interface ProfitabilityData {
   kpis: ProfitabilityKpis;
   marginRows: MenuMarginRow[];
@@ -117,6 +128,7 @@ export interface ProfitabilityData {
   dataQuality: DataQualityCounts;
   /** Total spend across all cost entries — used by the supplier-spend chart. */
   total_supplier_spend: number;
+  setupCounts: SetupCounts;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +164,8 @@ export async function fetchProfitabilityData(
     costEntriesRes,
     suppliersRes,
     supplierIngredientsRes,
+    supplierInvoicesCountRes,
+    agentRunsCountRes,
   ] = await Promise.all([
     supabase
       .from("pos_sales_items")
@@ -207,6 +221,15 @@ export async function fetchProfitabilityData(
       .from("supplier_ingredients")
       .select("supplier_id, ingredient_id")
       .eq("company_id", companyId),
+    // Lightweight count-only queries for the setup checklist.
+    supabase
+      .from("supplier_invoices")
+      .select("*", { count: "exact", head: true })
+      .eq("company_id", companyId),
+    supabase
+      .from("agent_runs")
+      .select("*", { count: "exact", head: true })
+      .eq("company_id", companyId),
   ]);
 
   // Soft-fail per table.
@@ -224,6 +247,8 @@ export async function fetchProfitabilityData(
   errLog("ingredient_cost_entries", costEntriesRes.error);
   errLog("suppliers", suppliersRes.error);
   errLog("supplier_ingredients", supplierIngredientsRes.error);
+  errLog("supplier_invoices_count", supplierInvoicesCountRes.error);
+  errLog("agent_runs_count", agentRunsCountRes.error);
 
   // ----- Costing engine setup -----
   const menuItems = (menuItemsRes.data ?? []) as {
@@ -630,6 +655,16 @@ export async function fetchProfitabilityData(
     supplier_linked_ingredients: supplierLinkedIngredients,
   };
 
+  const setupCounts: SetupCounts = {
+    pos_sales_count: posRows.length,
+    cost_entries_count: costEntries.length,
+    menu_items_count: menuItems.length,
+    mappings_count: mappings.length,
+    recipe_inputs_count: recipeInputs.length,
+    supplier_invoices_count: supplierInvoicesCountRes.count ?? 0,
+    agent_runs_count: agentRunsCountRes.count ?? 0,
+  };
+
   return {
     kpis,
     marginRows,
@@ -641,5 +676,6 @@ export async function fetchProfitabilityData(
     topSupplierSpend,
     dataQuality,
     total_supplier_spend: totalSupplierSpend,
+    setupCounts,
   };
 }

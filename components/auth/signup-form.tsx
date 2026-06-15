@@ -97,7 +97,8 @@ export function SignupForm() {
       <CardHeader>
         <CardTitle>Create an account</CardTitle>
         <CardDescription>
-          Start your financial analytics journey
+          Set up your restaurant control tower — sales, food costs, suppliers,
+          recipes, and actions in one place.
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSignup}>
@@ -108,11 +109,11 @@ export function SignupForm() {
             </Alert>
           )}
           <div className="space-y-2">
-            <Label htmlFor="company">Company Name</Label>
+            <Label htmlFor="company">Restaurant Name</Label>
             <Input
               id="company"
               type="text"
-              placeholder="Acme Inc."
+              placeholder="Joe's Diner"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
               required

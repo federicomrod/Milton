@@ -20,11 +20,13 @@ import Link from "next/link";
 async function getPostLoginRedirect(
   supabase: ReturnType<typeof createClient>
 ): Promise<string> {
+  // Restaurant pivot: non-admin users always land in the restaurant cockpit.
+  // The legacy onboarding gate no longer applies to the restaurant pilot.
   try {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return "/onboarding";
+    if (!user) return "/dashboard/restaurant";
 
     const { data: profile } = await supabase
       .from("profiles")
@@ -34,11 +36,9 @@ async function getPostLoginRedirect(
 
     if (profile?.role === "admin") return "/management/dashboard";
 
-    const { isOnboardingComplete } = await import("@/lib/onboarding-status");
-    const complete = await isOnboardingComplete();
-    return complete ? "/dashboard" : "/onboarding";
+    return "/dashboard/restaurant";
   } catch {
-    return "/dashboard";
+    return "/dashboard/restaurant";
   }
 }
 
@@ -169,7 +169,9 @@ export function LoginForm() {
     <Card className="w-full max-w-md">
       <CardHeader>
         <CardTitle>Welcome back</CardTitle>
-        <CardDescription>Log in to your Startup CFO account</CardDescription>
+        <CardDescription>
+          Log in to your restaurant profitability workspace
+        </CardDescription>
       </CardHeader>
       <form onSubmit={handleLogin}>
         <CardContent className="space-y-4">

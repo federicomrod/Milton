@@ -1,30 +1,25 @@
 "use client";
 
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { Database } from "lucide-react";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
+// Restaurant pivot: the old onboarding model-builder is retired. This route is
+// public (the proxy's redirect doesn't cover it), so we bounce client-side to
+// the restaurant cockpit. The page is kept (not deleted) to avoid breaking any
+// direct links or imports.
 export default function OnboardingModelPage() {
-  return (
-    <main className="min-h-screen bg-background max-w-6xl mx-auto px-4 py-8 space-y-6">
-      <div className="rounded-2xl border bg-background p-6 md:p-8">
-        {/* TODO(restaurant-pivot): re-enable model builder after ingestion paths are consolidated. */}
-        <h1 className="text-xl font-semibold mb-2">Data Model (Paused)</h1>
-        <p className="text-sm text-muted-foreground mb-6">
-          The old Data Model Builder is currently paused during the restaurant
-          pivot.
-        </p>
-        <p className="text-sm text-foreground mb-6">
-          Use Data Uploads instead.
-        </p>
+  const router = useRouter();
 
-        <Button asChild className="gap-2">
-          <Link href="/dashboard/data">
-            <Database className="h-4 w-4" />
-            Go To Data Uploads
-          </Link>
-        </Button>
+  useEffect(() => {
+    router.replace("/dashboard/restaurant");
+  }, [router]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+        <p className="text-muted-foreground">Redirecting…</p>
       </div>
-    </main>
+    </div>
   );
 }

@@ -105,6 +105,22 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
+  // Restaurant pivot: send authenticated users away from the legacy product
+  // home and the paused model-builder straight to the restaurant cockpit.
+  // Placed BEFORE the onboarding gate so pilot users (who never completed the
+  // old onboarding) don't bounce through /onboarding-required first.
+  // Exact matches only — legacy sub-pages (analytics, reporting, data,
+  // scenarios) stay reachable if visited directly; they're just out of nav.
+  const LEGACY_HOME_REDIRECTS = ["/dashboard", "/dashboard/model"];
+  if (LEGACY_HOME_REDIRECTS.includes(pathname)) {
+    console.log(
+      `[Proxy] Restaurant pivot: redirecting legacy ${pathname} -> /dashboard/restaurant`
+    );
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard/restaurant";
+    return NextResponse.redirect(url);
+  }
+
   // Check onboarding status for protected routes (dashboard, analytics, etc.)
   // Skip this check if user is already on onboarding-required page
   // Also skip for management routes (admin-only) and for admin users

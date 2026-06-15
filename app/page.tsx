@@ -34,26 +34,28 @@ export default function HomePage() {
         </div>
 
         <h1 className="text-3xl md:text-4xl font-bold text-gray-900 max-w-2xl mb-6 leading-tight">
-          Your accountant tells you what happened. Milton tells you{" "}
-          <span className="text-blue-600">what&apos;s happening</span> and{" "}
-          <span className="text-blue-600">what to do next.</span>
+          The AI operating system for{" "}
+          <span className="text-blue-600">restaurant profitability.</span>
         </h1>
         <div className="flex flex-wrap justify-center gap-2 mb-6">
-          {["Real-time KPIs", "Margin analysis", "AI insights", "No setup"].map(
-            (label) => (
-              <span
-                key={label}
-                className="px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-sm font-medium"
-              >
-                {label}
-              </span>
-            )
-          )}
+          {[
+            "POS sales",
+            "Food costs",
+            "Suppliers & invoices",
+            "Recipe margins",
+          ].map((label) => (
+            <span
+              key={label}
+              className="px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-sm font-medium"
+            >
+              {label}
+            </span>
+          ))}
         </div>
 
         <p className="text-lg text-gray-500 max-w-xl mb-10 leading-relaxed">
-          Upload a spreadsheet. Get your KPIs, margin analysis, and AI-powered
-          insights in under an hour. No setup. No analysts. No waiting.
+          Track sales, food costs, suppliers, recipes, and the actions that
+          protect your margin — all in one restaurant control tower.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center">

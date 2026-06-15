@@ -10,8 +10,10 @@
 //     main column scrolls. Below `lg` we render a slim top bar instead —
 //     a real mobile drawer is out of scope for this milestone.
 //   - Navigation is split into Main / Operations / Automation / Admin.
-//     Legacy CFO-style routes live in a collapsed bottom section so they
-//     stay reachable but stop dominating the visual hierarchy.
+//     The restaurant pilot intentionally omits the old CFO-style routes
+//     (analytics, reporting, data uploads, model, scenarios) from the nav.
+//     Those pages still exist and are reachable if visited directly, but
+//     they are no longer surfaced anywhere in the restaurant UI.
 //   - The shell is route-aware: each item highlights via `usePathname()`
 //     against its own `match` predicate, so e.g. `/dashboard/restaurant`
 //     doesn't light up "Menu & Recipes".
@@ -22,7 +24,7 @@
 
 "use client";
 
-import { type ComponentType, useState } from "react";
+import { type ComponentType } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -36,9 +38,7 @@ import {
   Sparkles,
   Settings,
   User,
-  Archive,
   ChevronDown,
-  ChevronRight,
   Building2,
   MessageSquareText,
 } from "lucide-react";
@@ -153,15 +153,6 @@ const PRIMARY_GROUPS: NavGroup[] = [
   },
 ];
 
-const LEGACY_ITEMS: NavItem[] = [
-  { href: "/dashboard", label: "Legacy Dashboard", icon: Archive },
-  { href: "/dashboard/analytics", label: "Old Analytics", icon: Archive },
-  { href: "/dashboard/reporting", label: "Reporting", icon: Archive },
-  { href: "/dashboard/data", label: "Data Uploads", icon: Archive },
-  { href: "/dashboard/model", label: "Model (Paused)", icon: Archive },
-  { href: "/dashboard/scenarios", label: "Scenarios", icon: Archive },
-];
-
 function defaultMatch(item: NavItem, pathname: string): boolean {
   if (item.match) return item.match(pathname);
   return pathname === item.href || pathname.startsWith(item.href + "/");
@@ -187,7 +178,6 @@ export function RestaurantShell({ children }: { children: React.ReactNode }) {
           {PRIMARY_GROUPS.map((group) => (
             <SidebarGroup key={group.label} group={group} pathname={pathname} />
           ))}
-          <LegacyGroup pathname={pathname} />
         </nav>
         <SidebarFooter />
       </aside>
@@ -292,41 +282,6 @@ function SidebarLink({ item, pathname }: { item: NavItem; pathname: string }) {
         )}
       </Link>
     </li>
-  );
-}
-
-/** Collapsed-by-default "Legacy" group containing the old CFO-style routes. */
-function LegacyGroup({ pathname }: { pathname: string }) {
-  // Auto-expand when the user is currently on a legacy route so they see
-  // where they are.
-  const hasActiveLegacy = LEGACY_ITEMS.some((i) => defaultMatch(i, pathname));
-  const [open, setOpen] = useState<boolean>(hasActiveLegacy);
-
-  return (
-    <div className="space-y-1">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground"
-        aria-expanded={open}
-      >
-        <span className="flex items-center gap-1.5">
-          {open ? (
-            <ChevronDown className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
-          )}
-          Legacy
-        </span>
-      </button>
-      {open && (
-        <ul className="space-y-0.5">
-          {LEGACY_ITEMS.map((item) => (
-            <SidebarLink key={item.label} item={item} pathname={pathname} />
-          ))}
-        </ul>
-      )}
-    </div>
   );
 }
 

@@ -18,8 +18,6 @@ import {
   Carrot,
   Receipt,
   Sparkles,
-  ChevronDown,
-  Archive,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -94,11 +92,11 @@ export function AppNavigation() {
   // ---- Nav structure --------------------------------------------------
   //
   // Milton is now a restaurant cockpit; the primary nav is restaurant-first.
-  // Legacy CFO-style routes (Analytics / Reporting / Data Uploads / Model /
-  // Scenarios) are still reachable but moved behind a "Legacy" dropdown so
-  // they don't dominate the visual hierarchy. We do NOT delete those routes
-  // — they still serve existing data and old links — they just stop being
-  // primary navigation.
+  // The old CFO-style routes (Analytics / Reporting / Data Uploads / Model /
+  // Scenarios) are intentionally NOT surfaced in the nav for the restaurant
+  // pilot. We do NOT delete those routes — they still serve existing data
+  // and are reachable if visited directly — they just no longer appear in
+  // any navigation.
   const primaryNav: {
     href: string;
     label: string;
@@ -141,15 +139,6 @@ export function AppNavigation() {
       icon: Receipt,
     },
     { href: "/dashboard/restaurant/agents", label: "Agents", icon: Sparkles },
-  ];
-
-  const legacyNav: { href: string; label: string }[] = [
-    { href: "/dashboard", label: "Legacy Dashboard" },
-    { href: "/dashboard/analytics", label: "Analytics" },
-    { href: "/dashboard/reporting", label: "Reporting" },
-    { href: "/dashboard/data", label: "Data Uploads" },
-    { href: "/dashboard/model", label: "Model (Paused)" },
-    { href: "/dashboard/scenarios", label: "Scenarios" },
   ];
 
   // Highlight rule: section-shortcut links (those that share a base href
@@ -212,37 +201,6 @@ export function AppNavigation() {
                     );
                   })}
 
-                  {/* Legacy dropdown — hover-based on desktop, focus on
-                      keyboard. Renders inline via the `group` pattern so
-                      we don't need a portal/popover dependency. */}
-                  <div className="relative group">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="gap-2 whitespace-nowrap text-muted-foreground"
-                    >
-                      <Archive className="h-4 w-4" />
-                      Legacy
-                      <ChevronDown className="h-3 w-3 opacity-70" />
-                    </Button>
-                    <div className="absolute right-0 top-full mt-1 hidden group-hover:block group-focus-within:block bg-background border border-border rounded-md shadow-md min-w-[200px] py-1 z-50">
-                      {legacyNav.map((item) => (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          className={
-                            "block px-3 py-2 text-sm hover:bg-muted " +
-                            (pathname === item.href
-                              ? "text-foreground font-medium"
-                              : "text-muted-foreground")
-                          }
-                        >
-                          {item.label}
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-
                   {/* Management button for admin users */}
                   {isAdmin && (
                     <Link href="/management/dashboard">
@@ -264,7 +222,7 @@ export function AppNavigation() {
             {isAuthenticated ? (
               pathname === "/" ? (
                 // On root page, show only "Go to App" button
-                <Link href="/dashboard">
+                <Link href="/dashboard/restaurant">
                   <Button size="sm" variant="default" className="gap-2">
                     <LayoutDashboard className="h-4 w-4" />
                     Go to App

@@ -19,13 +19,12 @@ export async function GET(request: NextRequest) {
     if (!error && data?.session) {
       console.log("[auth/callback] Session created successfully");
 
-      // Check if onboarding is complete to determine redirect
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
       if (user) {
-        // Check if admin — admins always go to management dashboard
+        // Admins always go to the management dashboard.
         const { data: profile } = await supabase
           .from("profiles")
           .select("role")
@@ -38,25 +37,13 @@ export async function GET(request: NextRequest) {
           );
           return NextResponse.redirect(`${origin}/management/dashboard`);
         }
-
-        // Check onboarding status
-        const { data: company } = await supabase
-          .from("companies")
-          .select("onboarding_status")
-          .eq("created_by", user.id)
-          .single();
-
-        if (company?.onboarding_status === "completed") {
-          console.log(
-            "[auth/callback] Onboarding complete, going to dashboard"
-          );
-          return NextResponse.redirect(`${origin}/dashboard`);
-        }
       }
 
-      // New user: redirect to onboarding chat
-      console.log("[auth/callback] New user, going to onboarding");
-      return NextResponse.redirect(`${origin}/onboarding/chat`);
+      // Restaurant pivot: every non-admin user lands in the restaurant cockpit.
+      // The legacy onboarding chat / model-builder is no longer part of the
+      // signup flow, so we never route users there anymore.
+      console.log("[auth/callback] Routing to restaurant cockpit");
+      return NextResponse.redirect(`${origin}/dashboard/restaurant`);
     }
 
     console.error("[auth/callback] Error exchanging code:", error);

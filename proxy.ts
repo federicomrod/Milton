@@ -137,17 +137,27 @@ export async function proxy(request: NextRequest) {
     }
   })();
 
-  // TODO(restaurant-pivot): /dashboard/restaurant/* is exempt from the legacy
-  // onboarding-completion gate. The old onboarding flow (business-type dropdown,
-  // generic data model) does not apply to the restaurant pilot — users land
-  // directly in the restaurant cockpit and POS upload. Authentication is still
-  // enforced for these routes (the `if (!user) redirect to /auth/login` check
-  // earlier in this file). Remove this exemption once the restaurant onboarding
-  // is wired in.
-  const isRestaurantPivotRoute = pathname.startsWith("/dashboard/restaurant");
+  // Restaurant pivot: these routes skip the legacy onboarding-completion gate.
+  //
+  // WHY the exemption is broader than just /dashboard/restaurant:
+  //   - /dashboard/settings and /dashboard/account are linked from the
+  //     restaurant sidebar (RestaurantShell). Without the exemption they hit
+  //     the onboarding gate and bounce to /onboarding-required.
+  //   - The gate queries companies.created_by = user.id. bootstrap_restaurant_user
+  //     creates companies WITHOUT created_by (confirmed: that column doesn't exist
+  //     in the restaurant schema — ownership is via company_memberships). So the
+  //     query always returns null → onboarding_status undefined → gate fires for
+  //     EVERY non-restaurant route, including account and settings.
+  //
+  // Authentication is still enforced for all these routes — the
+  // `if (!user) redirect to /auth/login` check above still applies.
+  const isRestaurantPivotRoute =
+    pathname.startsWith("/dashboard/restaurant") ||
+    pathname.startsWith("/dashboard/settings") ||
+    pathname.startsWith("/dashboard/account");
   if (isRestaurantPivotRoute) {
     console.log(
-      `[Proxy] PROD bypass: restaurant pivot route pathname=${pathname} skips onboarding gate`
+      `[Proxy] PROD bypass: restaurant pilot route pathname=${pathname} skips onboarding gate`
     );
   }
 

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(req: Request) {
@@ -23,57 +22,94 @@ export async function POST(req: Request) {
       );
     }
 
-    // Use admin client to bypass RLS and create profile and company
-    // We trust the userId since it comes from a successful signup
-    // Database foreign key constraints will protect against invalid userIds
+    // All writes use the admin client (service role key) so RLS never blocks
+    // bootstrap. The service role key is server-only — never sent to the client.
     const adminClient = createAdminClient();
 
-    // Create profile (upsert to handle if it already exists)
-    // Note: company_name is not stored in profiles - it's in companies table
+    // ── 1. Profile ─────────────────────────────────────────────────────────
+    // profiles.id is the PK and must equal the Supabase auth user id.
+    // profiles.user_id is a secondary unique column kept for legacy lookups.
+    // upsert on user_id so a retry after a partial failure doesn't crash.
     const { error: profileError } = await adminClient.from("profiles").upsert(
       {
-        user_id: userId,
+        id: userId, // PK — required, must equal auth uid
+        user_id: userId, // unique secondary column for legacy lookups
       },
-      {
-        onConflict: "user_id",
-      }
+      { onConflict: "user_id" }
     );
 
     if (profileError) {
-      console.error("Profile creation error:", profileError);
+      console.error("[signup-complete] Profile upsert error:", profileError);
       return NextResponse.json(
         { error: `Failed to create profile: ${profileError.message}` },
         { status: 500 }
       );
     }
 
-    // Create company
-    const { data: company, error: companyError } = await adminClient
-      .from("companies")
-      .insert({
-        name: companyName,
-        created_by: userId,
-      })
-      .select("id")
-      .single();
+    // ── 2. Company (find-or-create) ────────────────────────────────────────
+    // Check for an existing company first so retries are idempotent.
+    let companyId: string;
 
-    if (companyError) {
-      console.error("Company creation error:", companyError);
-      return NextResponse.json(
-        { error: `Failed to create company: ${companyError.message}` },
-        { status: 500 }
-      );
+    const { data: existingCompany } = await adminClient
+      .from("companies")
+      .select("id")
+      .eq("created_by", userId)
+      .maybeSingle();
+
+    if (existingCompany?.id) {
+      companyId = existingCompany.id;
+    } else {
+      const { data: newCompany, error: companyError } = await adminClient
+        .from("companies")
+        .insert({ name: companyName, created_by: userId })
+        .select("id")
+        .single();
+
+      if (companyError || !newCompany) {
+        console.error("[signup-complete] Company insert error:", companyError);
+        return NextResponse.json(
+          {
+            error: `Failed to create company: ${companyError?.message ?? "unknown"}`,
+          },
+          { status: 500 }
+        );
+      }
+      companyId = newCompany.id;
     }
 
-    return NextResponse.json({
-      success: true,
-      companyId: company.id,
-    });
-  } catch (error: any) {
-    console.error("Signup complete API error:", error);
-    return NextResponse.json(
-      { error: error?.message || "Internal server error" },
-      { status: 500 }
-    );
+    // ── 3. Company membership ──────────────────────────────────────────────
+    // RLS policies on restaurant tables use is_company_member(company_id),
+    // which checks company_memberships. Insert if not already present.
+    // Non-fatal: company resolution via companies.created_by still works
+    // even without a membership row, but the membership is needed for RLS.
+    const { data: existingMembership } = await adminClient
+      .from("company_memberships")
+      .select("user_id")
+      .eq("user_id", userId)
+      .eq("company_id", companyId)
+      .maybeSingle();
+
+    if (!existingMembership) {
+      const { error: membershipError } = await adminClient
+        .from("company_memberships")
+        .insert({ user_id: userId, company_id: companyId, role: "owner" });
+
+      if (membershipError) {
+        // Log but don't fail — the user can still access the restaurant dashboard
+        // via the companies.created_by fallback. A missing membership only blocks
+        // certain RLS-gated writes (targets, cost entries, etc.).
+        console.warn(
+          "[signup-complete] company_memberships insert warning:",
+          membershipError.message
+        );
+      }
+    }
+
+    return NextResponse.json({ success: true, companyId });
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Internal server error";
+    console.error("[signup-complete] Unexpected error:", message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

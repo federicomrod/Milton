@@ -66,8 +66,9 @@ export function SignupForm() {
         );
       }
 
-      // Proceed to onboarding
-      router.push("/onboarding");
+      // Restaurant MVP: go directly to the restaurant dashboard.
+      // The legacy onboarding model-builder is not part of the restaurant flow.
+      router.push("/dashboard/restaurant");
       router.refresh();
     } catch (err: unknown) {
       console.error("Signup error:", err);

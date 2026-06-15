@@ -27,23 +27,58 @@ export async function POST(req: Request) {
     const adminClient = createAdminClient();
 
     // ── 1. Profile ─────────────────────────────────────────────────────────
-    // profiles.id is the PK and must equal the Supabase auth user id.
-    // profiles.user_id is a secondary unique column kept for legacy lookups.
-    // upsert on user_id so a retry after a partial failure doesn't crash.
-    const { error: profileError } = await adminClient.from("profiles").upsert(
-      {
-        id: userId, // PK — required, must equal auth uid
-        user_id: userId, // unique secondary column for legacy lookups
-      },
-      { onConflict: "user_id" }
+    // profiles.id IS the primary key and MUST equal the Supabase auth user id.
+    // We intentionally avoid upsert + onConflict here: if user_id lacks a unique
+    // constraint in Postgres, PostgREST may generate an INSERT that omits the id
+    // field from the actual SQL, causing the NOT NULL violation we are fixing.
+    //
+    // Pattern: check by real PK (id) → insert only when absent.
+    // If a duplicate-key error is returned (concurrent signup), treat as success.
+
+    const profilePayload = {
+      id: userId, // PK — profiles.id must equal auth.users.id
+      user_id: userId, // secondary lookup column
+      role: "user", // safe default; keeps role NOT NULL if column requires it
+    };
+    console.log(
+      "[signup-complete] signup user id:",
+      userId,
+      "profile payload keys:",
+      Object.keys(profilePayload)
     );
 
-    if (profileError) {
-      console.error("[signup-complete] Profile upsert error:", profileError);
-      return NextResponse.json(
-        { error: `Failed to create profile: ${profileError.message}` },
-        { status: 500 }
-      );
+    // Check by actual PK so we never rely on user_id having a unique index.
+    const { data: existingProfile } = await adminClient
+      .from("profiles")
+      .select("id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (!existingProfile) {
+      const { error: profileError } = await adminClient
+        .from("profiles")
+        .insert(profilePayload);
+
+      if (profileError) {
+        // 23505 = unique_violation — another request already created the row.
+        // Treat as success; the profile exists.
+        if ((profileError as { code?: string }).code === "23505") {
+          console.log(
+            "[signup-complete] Profile already exists (race), continuing."
+          );
+        } else {
+          console.error(
+            "[signup-complete] Profile insert error:",
+            profileError
+          );
+          return NextResponse.json(
+            { error: `Failed to create profile: ${profileError.message}` },
+            { status: 500 }
+          );
+        }
+      }
+    } else {
+      console.log("[signup-complete] Profile already exists for user:", userId);
     }
 
     // ── 2. Company (find-or-create) ────────────────────────────────────────

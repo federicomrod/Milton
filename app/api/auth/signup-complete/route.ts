@@ -1,3 +1,30 @@
+// app/api/auth/signup-complete/route.ts
+//
+// POST /api/auth/signup-complete
+//   Body: { userId: string, companyName: string }
+//
+// Creates the profile, company, and company_membership rows for a new user.
+//
+// ROOT CAUSE OF RECURRING BUG — why we now use adminClient.rpc():
+//
+//   Supabase exposes its database through PostgREST. PostgREST builds a schema
+//   cache at startup that classifies primary-key columns as "read-only" when
+//   it considers them server-generated. When PostgREST receives a payload like
+//   { id, user_id, role } it silently strips "id" before building the INSERT,
+//   producing: INSERT INTO profiles (user_id, role) VALUES (...)
+//   That leaves id as NULL → NOT NULL constraint violation →
+//   "null value in column 'id' of relation 'profiles'"
+//
+//   Confirmed by inspecting the compiled .next bundle: the JS payload was
+//   correct (id was present), but the error persisted — meaning PostgREST
+//   was stripping it on the way to Postgres.
+//
+//   Fix: call a SECURITY DEFINER function via rpc(). The function body runs
+//   inside Postgres directly — PostgREST cannot filter its column list.
+//
+// REQUIRED SQL — run once in Supabase SQL Editor:
+//   See supabase/migrations/011_bootstrap_restaurant_user.sql
+
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -22,69 +49,65 @@ export async function POST(req: Request) {
       );
     }
 
-    // All writes use the admin client (service role key) so RLS never blocks
-    // bootstrap. The service role key is server-only — never sent to the client.
-    const adminClient = createAdminClient();
-
-    // ── 1. Profile ─────────────────────────────────────────────────────────
-    // profiles.id IS the primary key and MUST equal the Supabase auth user id.
-    // We intentionally avoid upsert + onConflict here: if user_id lacks a unique
-    // constraint in Postgres, PostgREST may generate an INSERT that omits the id
-    // field from the actual SQL, causing the NOT NULL violation we are fixing.
-    //
-    // Pattern: check by real PK (id) → insert only when absent.
-    // If a duplicate-key error is returned (concurrent signup), treat as success.
-
-    const profilePayload = {
-      id: userId, // PK — profiles.id must equal auth.users.id
-      user_id: userId, // secondary lookup column
-      role: "user", // safe default; keeps role NOT NULL if column requires it
-    };
     console.log(
       "[signup-complete] signup user id:",
       userId,
-      "profile payload keys:",
-      Object.keys(profilePayload)
+      "| profile payload id: yes (sent via RPC, not REST insert)"
     );
 
-    // Check by actual PK so we never rely on user_id having a unique index.
-    const { data: existingProfile } = await adminClient
-      .from("profiles")
-      .select("id")
-      .eq("id", userId)
-      .maybeSingle();
+    const adminClient = createAdminClient();
 
-    if (!existingProfile) {
-      const { error: profileError } = await adminClient
-        .from("profiles")
-        .insert(profilePayload);
+    // ── Primary path: RPC ─────────────────────────────────────────────────
+    // bootstrap_restaurant_user() executes raw SQL inside Postgres.
+    // PostgREST cannot strip the `id` column from a function body.
+    const { data: rpcData, error: rpcError } = await adminClient.rpc(
+      "bootstrap_restaurant_user",
+      { p_user_id: userId, p_company_name: companyName }
+    );
 
-      if (profileError) {
-        // 23505 = unique_violation — another request already created the row.
-        // Treat as success; the profile exists.
-        if ((profileError as { code?: string }).code === "23505") {
-          console.log(
-            "[signup-complete] Profile already exists (race), continuing."
-          );
-        } else {
-          console.error(
-            "[signup-complete] Profile insert error:",
-            profileError
-          );
-          return NextResponse.json(
-            { error: `Failed to create profile: ${profileError.message}` },
-            { status: 500 }
-          );
-        }
-      }
-    } else {
-      console.log("[signup-complete] Profile already exists for user:", userId);
+    if (!rpcError) {
+      const companyId =
+        (rpcData as { company_id?: string } | null)?.company_id ?? null;
+      console.log(
+        "[signup-complete] Bootstrap complete via RPC. company_id:",
+        companyId
+      );
+      return NextResponse.json({ success: true, companyId });
     }
 
-    // ── 2. Company (find-or-create) ────────────────────────────────────────
-    // Check for an existing company first so retries are idempotent.
-    let companyId: string;
+    // ── Fallback path ────────────────────────────────────────────────────
+    // The RPC function doesn't exist yet (migration 011 not applied).
+    // This fallback suffers the PostgREST id-stripping bug on some projects.
+    // Apply supabase/migrations/011_bootstrap_restaurant_user.sql to resolve.
+    console.warn(
+      "[signup-complete] RPC not found (migration 011 pending), falling back.",
+      rpcError.message
+    );
 
+    // Profile — attempt direct insert; id IS in the payload but PostgREST
+    // may strip it. This fallback is here so signup doesn't 500 in the
+    // window before the migration is applied.
+    const { error: profileError } = await adminClient
+      .from("profiles")
+      .insert({ id: userId, user_id: userId, role: "user" });
+
+    if (profileError) {
+      const code = (profileError as { code?: string }).code;
+      if (code !== "23505") {
+        // 23505 = duplicate key → profile already exists, carry on.
+        console.error(
+          "[signup-complete] Fallback profile insert error:",
+          profileError
+        );
+        return NextResponse.json(
+          { error: `Failed to create profile: ${profileError.message}` },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Company (find-or-create)
+    let companyId: string;
     const { data: existingCompany } = await adminClient
       .from("companies")
       .select("id")
@@ -99,9 +122,11 @@ export async function POST(req: Request) {
         .insert({ name: companyName, created_by: userId })
         .select("id")
         .single();
-
       if (companyError || !newCompany) {
-        console.error("[signup-complete] Company insert error:", companyError);
+        console.error(
+          "[signup-complete] Fallback company insert error:",
+          companyError
+        );
         return NextResponse.json(
           {
             error: `Failed to create company: ${companyError?.message ?? "unknown"}`,
@@ -112,11 +137,7 @@ export async function POST(req: Request) {
       companyId = newCompany.id;
     }
 
-    // ── 3. Company membership ──────────────────────────────────────────────
-    // RLS policies on restaurant tables use is_company_member(company_id),
-    // which checks company_memberships. Insert if not already present.
-    // Non-fatal: company resolution via companies.created_by still works
-    // even without a membership row, but the membership is needed for RLS.
+    // Membership (non-fatal if it fails)
     const { data: existingMembership } = await adminClient
       .from("company_memberships")
       .select("user_id")
@@ -128,19 +149,15 @@ export async function POST(req: Request) {
       const { error: membershipError } = await adminClient
         .from("company_memberships")
         .insert({ user_id: userId, company_id: companyId, role: "owner" });
-
       if (membershipError) {
-        // Log but don't fail — the user can still access the restaurant dashboard
-        // via the companies.created_by fallback. A missing membership only blocks
-        // certain RLS-gated writes (targets, cost entries, etc.).
         console.warn(
-          "[signup-complete] company_memberships insert warning:",
+          "[signup-complete] Fallback membership insert warning:",
           membershipError.message
         );
       }
     }
 
-    return NextResponse.json({ success: true, companyId });
+    return NextResponse.json({ success: true, companyId, via: "fallback" });
   } catch (error: unknown) {
     const message =
       error instanceof Error ? error.message : "Internal server error";

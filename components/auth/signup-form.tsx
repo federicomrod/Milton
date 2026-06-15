@@ -38,12 +38,25 @@ export function SignupForm() {
         password,
       });
 
+      // Temporary diagnostics — safe to keep in production (no secrets logged).
+      console.log("[signup] signUp result:", {
+        userPresent: !!authData?.user,
+        userId: authData?.user?.id ? "present" : "missing",
+        sessionPresent: !!authData?.session,
+        authErrorMessage: authError?.message ?? null,
+      });
+
       if (authError) {
+        // authError here means supabase.auth.signUp() itself failed — most
+        // commonly because a Supabase DB trigger on auth.users raised an
+        // exception (e.g. profile insert missing `id`). Fix: apply migration 011.
         throw authError;
       }
 
       if (!authData.user) {
-        throw new Error("No user data returned");
+        throw new Error(
+          "Signup did not return a user id. Check email confirmation settings."
+        );
       }
 
       // Create profile and company via API endpoint (uses admin client to bypass RLS)

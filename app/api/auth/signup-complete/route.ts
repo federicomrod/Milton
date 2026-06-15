@@ -65,99 +65,32 @@ export async function POST(req: Request) {
       { p_user_id: userId, p_company_name: companyName }
     );
 
-    if (!rpcError) {
-      const companyId =
-        (rpcData as { company_id?: string } | null)?.company_id ?? null;
-      console.log(
-        "[signup-complete] Bootstrap complete via RPC. company_id:",
-        companyId
+    if (rpcError) {
+      // Surface the real Postgres error (code + message + hint) so it is
+      // visible in Vercel logs and can be diagnosed without guessing.
+      // Common cause: migration 011 not yet applied in Supabase.
+      console.error("[signup-complete] RPC error:", {
+        message: rpcError.message,
+        code: (rpcError as { code?: string }).code,
+        details: (rpcError as { details?: string }).details,
+        hint: (rpcError as { hint?: string }).hint,
+      });
+      return NextResponse.json(
+        {
+          error: `Bootstrap failed: ${rpcError.message}`,
+          hint: "Apply supabase/migrations/011_bootstrap_restaurant_user.sql in the Supabase SQL Editor.",
+        },
+        { status: 500 }
       );
-      return NextResponse.json({ success: true, companyId });
     }
 
-    // ── Fallback path ────────────────────────────────────────────────────
-    // The RPC function doesn't exist yet (migration 011 not applied).
-    // This fallback suffers the PostgREST id-stripping bug on some projects.
-    // Apply supabase/migrations/011_bootstrap_restaurant_user.sql to resolve.
-    console.warn(
-      "[signup-complete] RPC not found (migration 011 pending), falling back.",
-      rpcError.message
+    const companyId =
+      (rpcData as { company_id?: string } | null)?.company_id ?? null;
+    console.log(
+      "[signup-complete] Bootstrap complete via RPC. company_id:",
+      companyId
     );
-
-    // Profile — attempt direct insert; id IS in the payload but PostgREST
-    // may strip it. This fallback is here so signup doesn't 500 in the
-    // window before the migration is applied.
-    const { error: profileError } = await adminClient
-      .from("profiles")
-      .insert({ id: userId, user_id: userId, role: "user" });
-
-    if (profileError) {
-      const code = (profileError as { code?: string }).code;
-      if (code !== "23505") {
-        // 23505 = duplicate key → profile already exists, carry on.
-        console.error(
-          "[signup-complete] Fallback profile insert error:",
-          profileError
-        );
-        return NextResponse.json(
-          { error: `Failed to create profile: ${profileError.message}` },
-          { status: 500 }
-        );
-      }
-    }
-
-    // Company (find-or-create)
-    let companyId: string;
-    const { data: existingCompany } = await adminClient
-      .from("companies")
-      .select("id")
-      .eq("created_by", userId)
-      .maybeSingle();
-
-    if (existingCompany?.id) {
-      companyId = existingCompany.id;
-    } else {
-      const { data: newCompany, error: companyError } = await adminClient
-        .from("companies")
-        .insert({ name: companyName, created_by: userId })
-        .select("id")
-        .single();
-      if (companyError || !newCompany) {
-        console.error(
-          "[signup-complete] Fallback company insert error:",
-          companyError
-        );
-        return NextResponse.json(
-          {
-            error: `Failed to create company: ${companyError?.message ?? "unknown"}`,
-          },
-          { status: 500 }
-        );
-      }
-      companyId = newCompany.id;
-    }
-
-    // Membership (non-fatal if it fails)
-    const { data: existingMembership } = await adminClient
-      .from("company_memberships")
-      .select("user_id")
-      .eq("user_id", userId)
-      .eq("company_id", companyId)
-      .maybeSingle();
-
-    if (!existingMembership) {
-      const { error: membershipError } = await adminClient
-        .from("company_memberships")
-        .insert({ user_id: userId, company_id: companyId, role: "owner" });
-      if (membershipError) {
-        console.warn(
-          "[signup-complete] Fallback membership insert warning:",
-          membershipError.message
-        );
-      }
-    }
-
-    return NextResponse.json({ success: true, companyId, via: "fallback" });
+    return NextResponse.json({ success: true, companyId });
   } catch (error: unknown) {
     const message =
       error instanceof Error ? error.message : "Internal server error";

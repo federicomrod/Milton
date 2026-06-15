@@ -162,8 +162,18 @@ function defaultMatch(item: NavItem, pathname: string): boolean {
 // Shell
 // ---------------------------------------------------------------------------
 
+// Deployment verification marker — bump this string whenever you need to
+// confirm in production which build is live. Visible in the browser console
+// on every restaurant page; harmless (no UI impact). The "no-legacy-nav"
+// suffix documents that this build has the LEGACY sidebar section removed.
+const SHELL_BUILD_MARKER = "RestaurantShell build: 2026-06-15-no-legacy-nav";
+
 export function RestaurantShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "";
+
+  if (typeof window !== "undefined") {
+    console.log(`[Milton] ${SHELL_BUILD_MARKER}`);
+  }
 
   return (
     <div className="min-h-screen flex bg-muted/30">

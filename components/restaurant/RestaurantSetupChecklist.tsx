@@ -1,3 +1,4 @@
+"use client";
 // components/restaurant/RestaurantSetupChecklist.tsx
 //
 // Control-tower readiness panel shown near the top of the cockpit when the
@@ -12,15 +13,30 @@
 //   missing — step not started at all
 //
 // "Ask Milton" is always shown as an exploration CTA, not a checkable step.
+//
+// Collapse behaviour:
+//   - Default: expanded when fewer than 4 steps are done; collapsed otherwise.
+//   - User can toggle at any time; state is persisted to localStorage.
+//   - Collapsed view shows title + progress bar + step count.
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { CheckCircle2, Circle, AlertCircle, ArrowRight } from "lucide-react";
+import {
+  CheckCircle2,
+  Circle,
+  AlertCircle,
+  ArrowRight,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type {
   SetupCounts,
   DataQualityCounts,
 } from "@/lib/restaurant/profitability-server";
+
+const LS_KEY = "restaurantSetupChecklistCollapsed";
 
 type StepStatus = "done" | "review" | "missing";
 
@@ -148,6 +164,35 @@ export function RestaurantSetupChecklist({
   const steps = deriveSteps(setupCounts, dataQuality);
   const doneCount = steps.filter((s) => s.status === "done").length;
 
+  // Smart default: collapse when mostly done (≥4/6). Expanded when fresh setup.
+  const smartDefault = doneCount >= 4;
+
+  // Initialize without reading localStorage to avoid SSR/hydration mismatch.
+  const [collapsed, setCollapsed] = useState(smartDefault);
+
+  // After mount, override with persisted user preference if one exists.
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(LS_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (stored !== null) setCollapsed(stored === "true");
+    } catch {
+      // localStorage unavailable (private mode, etc.) — keep smart default.
+    }
+  }, []);
+
+  function toggle() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(LS_KEY, String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }
+
   if (doneCount === steps.length) return null;
 
   const progressPct = Math.round((doneCount / steps.length) * 100);
@@ -155,111 +200,141 @@ export function RestaurantSetupChecklist({
   return (
     <Card className="border-orange-200 dark:border-orange-900/50 bg-orange-50/30 dark:bg-orange-950/10">
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 min-w-0">
             <CardTitle className="text-base font-semibold">
               Set up your restaurant control tower
             </CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              Complete these steps to unlock recipe margins, supplier alerts,
-              and Milton recommendations.
-            </p>
+            {collapsed ? (
+              <p className="text-xs text-muted-foreground mt-1">
+                {doneCount}/{steps.length} steps complete
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground mt-1">
+                Complete these steps to unlock recipe margins, supplier alerts,
+                and Milton recommendations.
+              </p>
+            )}
           </div>
+
           <div className="flex items-center gap-2 shrink-0">
-            <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full bg-orange-500 rounded-full transition-all"
-                style={{ width: `${progressPct}%` }}
-              />
+            {/* Progress bar + count */}
+            <div className="flex items-center gap-1.5">
+              <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-orange-500 rounded-full transition-all"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+              <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+                {doneCount}/{steps.length}
+              </span>
             </div>
-            <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
-              {doneCount}/{steps.length}
-            </span>
+
+            {/* Collapse toggle */}
+            <button
+              onClick={toggle}
+              aria-label={
+                collapsed
+                  ? "Expand setup checklist"
+                  : "Collapse setup checklist"
+              }
+              className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            >
+              {collapsed ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronUp className="h-4 w-4" />
+              )}
+            </button>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="pt-0">
-        <ul className="divide-y divide-border/60">
-          {steps.map((step) => (
-            <li
-              key={step.id}
-              className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
-            >
-              <span className="mt-0.5">
-                <StatusIcon status={step.status} />
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span
-                    className={
-                      "text-sm font-medium " +
-                      (step.status === "done"
-                        ? "text-muted-foreground line-through decoration-muted-foreground/40"
-                        : "text-foreground")
-                    }
-                  >
-                    {step.label}
-                  </span>
-                  <span
-                    className={
-                      "text-xs font-medium " + statusClass(step.status)
-                    }
-                  >
-                    {statusLabel(step.status)}
-                  </span>
+
+      {!collapsed && (
+        <CardContent className="pt-0">
+          <ul className="divide-y divide-border/60">
+            {steps.map((step) => (
+              <li
+                key={step.id}
+                className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
+              >
+                <span className="mt-0.5">
+                  <StatusIcon status={step.status} />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className={
+                        "text-sm font-medium " +
+                        (step.status === "done"
+                          ? "text-muted-foreground line-through decoration-muted-foreground/40"
+                          : "text-foreground")
+                      }
+                    >
+                      {step.label}
+                    </span>
+                    <span
+                      className={
+                        "text-xs font-medium " + statusClass(step.status)
+                      }
+                    >
+                      {statusLabel(step.status)}
+                    </span>
+                  </div>
+                  {step.status !== "done" && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {step.description}
+                    </p>
+                  )}
                 </div>
                 {step.status !== "done" && (
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {step.description}
-                  </p>
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 h-7 text-xs gap-1"
+                  >
+                    <Link href={step.href}>
+                      {step.cta}
+                      <ArrowRight className="h-3 w-3" />
+                    </Link>
+                  </Button>
                 )}
-              </div>
-              {step.status !== "done" && (
-                <Button
-                  asChild
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 h-7 text-xs gap-1"
-                >
-                  <Link href={step.href}>
-                    {step.cta}
-                    <ArrowRight className="h-3 w-3" />
-                  </Link>
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
+              </li>
+            ))}
+          </ul>
 
-        {/* Ask Milton — always shown as the final CTA regardless of checklist state */}
-        <div className="mt-3 pt-3 border-t border-border/60 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-start gap-3">
-            <span className="mt-0.5">
-              <Circle className="h-4 w-4 text-orange-400 shrink-0" />
-            </span>
-            <div>
-              <span className="text-sm font-medium">
-                Ask Milton your first question
+          {/* Ask Milton — always shown as the final CTA regardless of checklist state */}
+          <div className="mt-3 pt-3 border-t border-border/60 flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5">
+                <Circle className="h-4 w-4 text-orange-400 shrink-0" />
               </span>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Explore insights, get recommendations, or ask about margins,
-                suppliers, and trends.
-              </p>
+              <div>
+                <span className="text-sm font-medium">
+                  Ask Milton your first question
+                </span>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Explore insights, get recommendations, or ask about margins,
+                  suppliers, and trends.
+                </p>
+              </div>
             </div>
+            <Button
+              asChild
+              variant="default"
+              size="sm"
+              className="shrink-0 h-7 text-xs gap-1 bg-orange-600 hover:bg-orange-700"
+            >
+              <Link href="/dashboard/restaurant/briefing">
+                Ask Milton
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+            </Button>
           </div>
-          <Button
-            asChild
-            variant="default"
-            size="sm"
-            className="shrink-0 h-7 text-xs gap-1 bg-orange-600 hover:bg-orange-700"
-          >
-            <Link href="/dashboard/restaurant/briefing">
-              Ask Milton
-              <ArrowRight className="h-3 w-3" />
-            </Link>
-          </Button>
-        </div>
-      </CardContent>
+        </CardContent>
+      )}
     </Card>
   );
 }

@@ -258,6 +258,71 @@ export interface POSSalesItem {
   channel?: "dine_in" | "takeaway" | "delivery" | "online";
 }
 
+/**
+ * 1:1 shape of the `pos_sales_items` table, verified against production
+ * Supabase (Issue #1 — canonical sales model foundation). This is the row
+ * as it actually exists in the database — distinct from POSSalesItem
+ * above, which is a normalized DTO the calculation helpers consume
+ * (coalesced revenue, required location/menu-item ids, narrower channel
+ * vocabulary).
+ */
+export interface PosSalesItemRow {
+  id: string;
+  company_id: string;
+  location_id: string | null;
+  menu_item_id: string | null;
+  sale_date: string; // date, no time component
+  order_id: string;
+  check_id: string | null;
+  raw_item_name: string;
+  quantity: number;
+  gross_revenue: number;
+  net_revenue: number | null;
+  discount_amount: number | null;
+  tax_amount: number | null;
+  currency: string;
+  sales_channel: string | null;
+  // Ingestion mechanism — how the row entered Supabase. Distinct from
+  // pos_source below (which system the sale originated from).
+  source_type: "manual" | "csv" | "xlsx" | "api";
+  created_at: string;
+  payment_type: string | null;
+  category: string | null;
+  sub_category: string | null;
+
+  // --- Canonical sales fields added by migration 012 (Issue #1) ---
+
+  /**
+   * Originating POS/business system, e.g. "revel", "odoo". Deliberately
+   * free text with no CHECK constraint — onboarding a new POS source
+   * should never require a schema migration.
+   */
+  pos_source: string;
+  /**
+   * External order-LINE identifier from the source system, distinct from
+   * order_id (which identifies the order/check as a whole). Null for
+   * sources such as Revel that don't expose a separate line id.
+   */
+  external_line_id: string | null;
+  /**
+   * Unit selling price as reported by the source, before discount. Null
+   * for legacy rows and sources that don't report it separately; readers
+   * should fall back to gross_revenue / quantity in that case.
+   */
+  unit_price: number | null;
+  /**
+   * Precise order timestamp from the source, when available. sale_date
+   * (date-only) remains the field every existing query/aggregate uses.
+   */
+  order_placed_at: string | null;
+  /**
+   * Source-specific identifiers/context with no dedicated column (e.g.
+   * Odoo pos.order id, pos.session id, order state). Never used to
+   * silently discard information the source provides.
+   */
+  source_metadata: Record<string, unknown> | null;
+}
+
 // --- KPIs ---
 
 export interface RestaurantKPI {

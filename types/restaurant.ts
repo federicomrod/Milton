@@ -323,6 +323,25 @@ export interface PosSalesItemRow {
   source_metadata: Record<string, unknown> | null;
 }
 
+/**
+ * Non-secret per-restaurant connection config for POS sources that need
+ * live API access (added by migration 013, GitHub Issue #3). Never holds
+ * a credential/secret — for the Odoo sandbox implementation the API key
+ * lives in a server-side environment variable, not this table.
+ */
+export interface RestaurantPosConnection {
+  id: string;
+  company_id: string;
+  pos_source: string;
+  base_url: string;
+  database_name: string;
+  username: string;
+  timezone: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // --- KPIs ---
 
 export interface RestaurantKPI {

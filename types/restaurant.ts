@@ -33,6 +33,11 @@ export interface RestaurantBrand {
   company_id: string;
   name: string;
   cuisine_type?: string;
+  // Onboarding profile answer (migration 014). Unconstrained text at the
+  // DB level by design — see lib/restaurant/onboarding-copy.ts's
+  // ConceptType union and normalizeConceptType() for the actual allowed
+  // values and validation.
+  concept_type?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -47,6 +52,10 @@ export interface RestaurantLocation {
   country?: string;
   currency: string;
   is_active: boolean;
+  // Onboarding profile answer (migration 014) — the declared POS system
+  // at signup time, not the real connection (see RestaurantPosConnection).
+  // Unconstrained text; see PosSystemChoice / normalizePosSystemChoice().
+  primary_pos?: string | null;
   created_at: string;
   updated_at: string;
 }

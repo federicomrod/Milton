@@ -152,6 +152,64 @@ export function currencyForCountry(countryCode: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Server-side validation — the option lists above are the source of truth
+// for what's allowed. These are the only guard against a malformed/invalid
+// payload now that the persisted columns carry no DB-level CHECK
+// constraint (deliberately additive-only migration). Each normalizer
+// accepts `unknown` (raw JSON body input) and returns either a known-good
+// value or, for the scalar fields, null — never throws, never trusts the
+// input's shape.
+// ---------------------------------------------------------------------------
+
+export function normalizeConceptType(value: unknown): ConceptType | null {
+  return CONCEPT_TYPE_OPTIONS.some((o) => o.value === value)
+    ? (value as ConceptType)
+    : null;
+}
+
+export function normalizeLocationCountBucket(
+  value: unknown
+): LocationCountBucket | null {
+  return LOCATION_COUNT_OPTIONS.some((o) => o.value === value)
+    ? (value as LocationCountBucket)
+    : null;
+}
+
+export function normalizePosSystemChoice(
+  value: unknown
+): PosSystemChoice | null {
+  return POS_SYSTEM_OPTIONS.some((o) => o.value === value)
+    ? (value as PosSystemChoice)
+    : null;
+}
+
+/**
+ * Filters `value` down to known priority keys, drops duplicates, and caps
+ * the result at MAX_PRIORITIES — taking the first MAX_PRIORITIES valid,
+ * distinct entries in submission order. A non-array input (missing,
+ * malformed, wrong type) normalizes to an empty array rather than an
+ * error, matching "priorities are optional" in the wizard itself.
+ */
+export function normalizePriorities(value: unknown): PriorityKey[] {
+  if (!Array.isArray(value)) return [];
+  const validKeys = new Set<string>(PRIORITY_OPTIONS.map((o) => o.value));
+  const result: PriorityKey[] = [];
+  const seen = new Set<PriorityKey>();
+  for (const entry of value) {
+    if (result.length >= MAX_PRIORITIES) break;
+    if (
+      typeof entry === "string" &&
+      validKeys.has(entry) &&
+      !seen.has(entry as PriorityKey)
+    ) {
+      seen.add(entry as PriorityKey);
+      result.push(entry as PriorityKey);
+    }
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Step 4 — recommended first action, personalized by POS choice.
 // ---------------------------------------------------------------------------
 

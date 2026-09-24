@@ -7,31 +7,46 @@
 // server-side via authAndCompany(), same pattern as every other restaurant
 // route. Writes go through the normal RLS-backed client (no service role).
 //
-// What this route persists (see the onboarding copy/report for why the
-// rest — concept type, location-count bucket, POS choice, priorities —
-// is NOT durably stored yet: no existing column represents them, and a
-// new migration for those was intentionally deferred for review rather
-// than written here):
-//   - the company's first restaurant_brands row, if none exists yet
+// What this route persists (migration 014 — see the architecture audit
+// for why these live where they do, not all on `companies`):
+//   - the company's first restaurant_brands row, if none exists yet,
+//     including its declared concept_type
 //   - the company's first restaurant_locations row, if none exists yet
 //     (country + a currency derived from country; name reuses the
-//     restaurant's own name since this is its one known/flagship location)
-//   - companies.onboarding_status = 'completed'
+//     restaurant's own name since this is its one known/flagship location),
+//     including its declared primary_pos
+//   - companies.location_count_range, companies.priorities,
+//     companies.onboarding_status = 'completed'
 //
-// Idempotent: safe to call more than once (e.g. a retried submit) —
-// brand/location creation is skipped if a row already exists for the
-// company, matching the task's explicit "do not create fake/duplicate
-// location rows" requirement.
+// Every submitted value is validated server-side against the fixed option
+// lists in lib/restaurant/onboarding-copy.ts before being written — the
+// columns themselves carry no CHECK constraint (deliberately additive-only
+// migration), so this route is the only guard against a malformed payload.
+//
+// Idempotent AND retry-safe: brand/location existence is checked first;
+// if a row already exists (e.g. a retried submit after a partial
+// failure), it is UPDATEd with the current submission's concept_type /
+// primary_pos rather than left stale — never a second, duplicate row.
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { currencyForCountry } from "@/lib/restaurant/onboarding-copy";
+import {
+  currencyForCountry,
+  normalizeConceptType,
+  normalizeLocationCountBucket,
+  normalizePosSystemChoice,
+  normalizePriorities,
+} from "@/lib/restaurant/onboarding-copy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 interface RequestBody {
   country?: string | null;
+  conceptType?: unknown;
+  locationCount?: unknown;
+  posSystem?: unknown;
+  priorities?: unknown;
 }
 
 export async function POST(req: NextRequest) {
@@ -44,14 +59,17 @@ export async function POST(req: NextRequest) {
     try {
       body = (await req.json()) as RequestBody;
     } catch {
-      // Empty/invalid body is fine — country is the only field this route
-      // actually needs; everything else in the wizard's payload is used
-      // client-side only for now (see file header).
+      // Empty/invalid body is fine — every field below normalizes to a
+      // safe default (null / empty array) when absent or malformed.
     }
     const country =
       typeof body.country === "string" && body.country.trim()
         ? body.country.trim()
         : null;
+    const conceptType = normalizeConceptType(body.conceptType);
+    const locationCount = normalizeLocationCountBucket(body.locationCount);
+    const posSystem = normalizePosSystemChoice(body.posSystem);
+    const priorities = normalizePriorities(body.priorities);
 
     const { data: companyRow, error: companyError } = await supabase
       .from("companies")
@@ -83,10 +101,26 @@ export async function POST(req: NextRequest) {
 
     if (existingBrand?.id) {
       brandId = existingBrand.id;
+      // Retry-safe: refresh the declared concept type on the existing
+      // brand rather than leaving it stale from a prior partial attempt.
+      const { error: brandUpdateError } = await supabase
+        .from("restaurant_brands")
+        .update({ concept_type: conceptType })
+        .eq("id", brandId);
+      if (brandUpdateError) {
+        console.error(
+          "[onboarding/complete] restaurant_brands update failed:",
+          brandUpdateError.message
+        );
+      }
     } else {
       const { data: newBrand, error: brandInsertError } = await supabase
         .from("restaurant_brands")
-        .insert({ company_id: companyId, name: restaurantName })
+        .insert({
+          company_id: companyId,
+          name: restaurantName,
+          concept_type: conceptType,
+        })
         .select("id")
         .single();
       if (brandInsertError) {
@@ -115,7 +149,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!existingLocation && brandId) {
+    if (existingLocation?.id) {
+      // Retry-safe: refresh the declared POS system on the existing
+      // location rather than leaving it stale from a prior partial attempt.
+      const { error: locationUpdateError } = await supabase
+        .from("restaurant_locations")
+        .update({ primary_pos: posSystem })
+        .eq("id", existingLocation.id);
+      if (locationUpdateError) {
+        console.error(
+          "[onboarding/complete] restaurant_locations update failed:",
+          locationUpdateError.message
+        );
+      }
+    } else if (brandId) {
       const { error: locationInsertError } = await supabase
         .from("restaurant_locations")
         .insert({
@@ -124,6 +171,7 @@ export async function POST(req: NextRequest) {
           name: restaurantName,
           country: country,
           currency: country ? currencyForCountry(country) : "USD",
+          primary_pos: posSystem,
           is_active: true,
         });
       if (locationInsertError) {
@@ -136,14 +184,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // --- Mark onboarding complete (best-effort; never blocks the response) -
+    // --- Company-level profile fields + mark onboarding complete -----------
+    // Best-effort; never blocks the response. Always reflects the current
+    // submission — location_count_range/priorities are a full replace,
+    // not a merge, matching how the wizard sends its current state each
+    // time (never a partial diff).
     const { error: statusError } = await supabase
       .from("companies")
-      .update({ onboarding_status: "completed" })
+      .update({
+        onboarding_status: "completed",
+        location_count_range: locationCount,
+        priorities,
+      })
       .eq("id", companyId);
     if (statusError) {
       console.error(
-        "[onboarding/complete] onboarding_status update failed:",
+        "[onboarding/complete] companies profile update failed:",
         statusError.message
       );
     }

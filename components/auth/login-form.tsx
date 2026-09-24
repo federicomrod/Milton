@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,6 +36,20 @@ async function getPostLoginRedirect(
       .single();
 
     if (profile?.role === "admin") return "/management/dashboard";
+
+    // Send restaurant users who haven't finished the onboarding wizard
+    // there first, same check as app/auth/callback/route.ts.
+    const companyId = await resolveCompanyIdForUser(supabase, user.id);
+    if (companyId) {
+      const { data: company } = await supabase
+        .from("companies")
+        .select("onboarding_status")
+        .eq("id", companyId)
+        .maybeSingle();
+      if (company?.onboarding_status !== "completed") {
+        return "/onboarding/restaurant";
+      }
+    }
 
     return "/dashboard/restaurant";
   } catch {

@@ -2,6 +2,7 @@
 // Handles email confirmation and OAuth callbacks from Supabase
 
 import { createClient } from "@/lib/supabase/server";
+import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -37,11 +38,34 @@ export async function GET(request: NextRequest) {
           );
           return NextResponse.redirect(`${origin}/management/dashboard`);
         }
+
+        // Restaurant pivot: every non-admin user lands in the restaurant
+        // cockpit — unless they haven't finished the new restaurant
+        // onboarding wizard yet, in which case send them there first.
+        // Looked up via company_memberships (resolveCompanyIdForUser), NOT
+        // companies.created_by — see proxy.ts's own comment on why that
+        // column doesn't reliably identify restaurant-pivot companies.
+        try {
+          const companyId = await resolveCompanyIdForUser(supabase, user.id);
+          if (companyId) {
+            const { data: company } = await supabase
+              .from("companies")
+              .select("onboarding_status")
+              .eq("id", companyId)
+              .maybeSingle();
+            if (company?.onboarding_status !== "completed") {
+              console.log(
+                "[auth/callback] Onboarding not complete, routing to onboarding wizard"
+              );
+              return NextResponse.redirect(`${origin}/onboarding/restaurant`);
+            }
+          }
+        } catch (err) {
+          // Never block login over an onboarding-status check failure.
+          console.error("[auth/callback] Onboarding status check failed:", err);
+        }
       }
 
-      // Restaurant pivot: every non-admin user lands in the restaurant cockpit.
-      // The legacy onboarding chat / model-builder is no longer part of the
-      // signup flow, so we never route users there anymore.
       console.log("[auth/callback] Routing to restaurant cockpit");
       return NextResponse.redirect(`${origin}/dashboard/restaurant`);
     }

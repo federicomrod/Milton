@@ -25,7 +25,11 @@ import {
   buildBriefingContext,
   type BriefingContext,
 } from "@/lib/restaurant/briefing-context";
-import { fetchProfitabilityData } from "@/lib/restaurant/profitability-server";
+import {
+  fetchProfitabilityData,
+  filterMenuItemsForSelection,
+  type ProfitabilitySelection,
+} from "@/lib/restaurant/profitability-server";
 
 // ---------------------------------------------------------------------------
 // Extra shapes layered on top of BriefingContext
@@ -117,6 +121,14 @@ export interface AskMiltonExpensiveIngredient {
 }
 
 export interface AskMiltonContext {
+  /**
+   * Multi-Restaurant UX v1: tells the model (and the deterministic
+   * fallback) whether this context is scoped to one selected restaurant
+   * or consolidated across the whole company — see `restaurant_name` for
+   * which one. Mirrors `briefing.restaurant_name` for convenience so the
+   * model doesn't have to infer scope from that field alone.
+   */
+  context_scope: AskMiltonContextScope;
   briefing: BriefingContext;
   menu: {
     /** Top 5 items with complete costing, sorted by gross_margin_pct desc. */
@@ -154,9 +166,29 @@ export interface AskMiltonContext {
   };
 }
 
+export interface AskMiltonContextScope {
+  mode: "consolidated" | "single_restaurant";
+  restaurant_name: string;
+}
+
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Pure — no I/O, directly unit-testable. Tells the model (and the
+ * deterministic fallback) whether the rest of the context is scoped to
+ * one restaurant or consolidated across the whole company.
+ */
+export function resolveContextScope(
+  selected: ProfitabilitySelection | null | undefined,
+  restaurantName: string
+): AskMiltonContextScope {
+  return {
+    mode: selected ? "single_restaurant" : "consolidated",
+    restaurant_name: restaurantName,
+  };
+}
 
 function roundInt(n: number | null | undefined): number | null {
   if (n === null || n === undefined || !Number.isFinite(n)) return null;
@@ -172,9 +204,20 @@ function round1(n: number | null | undefined): number | null {
 // Builder
 // ---------------------------------------------------------------------------
 
+/**
+ * @param selected Multi-Restaurant UX v1: when set, scopes sales/KPIs/
+ *   profitability/menu context to that restaurant (see `context_scope`
+ *   and `filterMenuItemsForSelection`). Must already be validated by the
+ *   caller against the resolved company — see
+ *   lib/restaurant/restaurant-context-server.ts. null/undefined preserves
+ *   today's company-wide consolidated behavior. Ingredients/costs/
+ *   suppliers/invoices/agent data remain company-wide regardless (out of
+ *   scope — same as the rest of Multi-Restaurant UX v1).
+ */
 export async function buildAskMiltonContext(
   supabase: SupabaseClient,
-  companyId: string
+  companyId: string,
+  selected?: ProfitabilitySelection | null
 ): Promise<AskMiltonContext> {
   // Run all data fetches in parallel. fetchProfitabilityData fires its own
   // internal Promise.all (12 sub-queries) concurrently with the others here,
@@ -200,8 +243,8 @@ export async function buildAskMiltonContext(
     componentRecipeInputsRes,
     menuItemsRes,
   ] = await Promise.all([
-    buildBriefingContext(supabase, companyId),
-    fetchProfitabilityData(supabase, companyId),
+    buildBriefingContext(supabase, companyId, selected),
+    fetchProfitabilityData(supabase, companyId, selected),
     supabase
       .from("suppliers")
       .select("id, name, is_active, categories")
@@ -270,7 +313,10 @@ export async function buildAskMiltonContext(
       .select("component_recipe_id, input_type, ingredient_id, component_id")
       .eq("company_id", companyId),
     // all menu items for usage map (profData only includes POS-mapped items)
-    supabase.from("menu_items").select("id, name").eq("company_id", companyId),
+    supabase
+      .from("menu_items")
+      .select("id, name, brand_id")
+      .eq("company_id", companyId),
   ]);
 
   const fallbackCurrency = briefing.currency;
@@ -570,7 +616,7 @@ export async function buildAskMiltonContext(
     ingredient_id: string | null;
     component_id: string | null;
   };
-  type MenuItemRow = { id: string; name: string };
+  type MenuItemRow = { id: string; name: string; brand_id: string | null };
 
   const recipes = (recipesRes.data ?? []) as RecipeRow[];
   const recipeInputs = (recipeInputsRes.data ?? []) as RecipeInputRow[];
@@ -578,7 +624,14 @@ export async function buildAskMiltonContext(
   const componentRecipes = (componentRecipesRes.data ?? []) as CompRecipeRow[];
   const componentRecipeInputs = (componentRecipeInputsRes.data ??
     []) as CompRecipeInputRow[];
-  const menuItemRows = (menuItemsRes.data ?? []) as MenuItemRow[];
+  // Scoped the same way the cockpit's profitability view is (Multi-
+  // Restaurant UX v1): a selected restaurant's own brand's items plus
+  // legacy brand-less items — never another brand's exclusive dishes
+  // leaking into the ingredient-usage map below.
+  const menuItemRows = filterMenuItemsForSelection(
+    (menuItemsRes.data ?? []) as MenuItemRow[],
+    selected
+  );
 
   // Index lookups
   const recipeToMenuItem = new Map<string, string>(); // recipe_id → menu_item_id
@@ -604,7 +657,12 @@ export async function buildAskMiltonContext(
   for (const ri of recipeInputs) {
     const menuItemId = ri.recipe_id ? recipeToMenuItem.get(ri.recipe_id) : null;
     if (!menuItemId) continue;
-    const menuItemName = menuItemNameById.get(menuItemId) ?? menuItemId;
+    // menuItemNameById is already scoped to the current selection — a
+    // recipe belonging to an out-of-scope (different brand's) menu item
+    // is skipped entirely rather than falling back to a raw id, so no
+    // other restaurant's dish ever surfaces here.
+    const menuItemName = menuItemNameById.get(menuItemId);
+    if (!menuItemName) continue;
 
     if (ri.input_type === "ingredient" && ri.ingredient_id) {
       let set = ingredientDirectMenuItems.get(ri.ingredient_id);
@@ -761,6 +819,7 @@ export async function buildAskMiltonContext(
   }
 
   return {
+    context_scope: resolveContextScope(selected, briefing.restaurant_name),
     briefing,
     menu: {
       most_profitable_items: mostProfitable,

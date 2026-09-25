@@ -38,6 +38,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { withLocationParam } from "@/components/restaurant/RestaurantShell";
 
 // ---------------------------------------------------------------------------
 // Types — locally declared to avoid pulling server-only modules client-side.
@@ -138,8 +139,23 @@ export function AskMiltonWorkspace() {
   return (
     <div className="space-y-6">
       <ExecutiveBriefingPanel />
-      <ChatWorkspace />
+      {/* ChatWorkspace calls useSearchParams() (for ?location=), which
+          requires a Suspense boundary — the fallback resolves instantly
+          on the client. */}
+      <Suspense fallback={<ChatWorkspaceSkeleton />}>
+        <ChatWorkspace />
+      </Suspense>
     </div>
+  );
+}
+
+function ChatWorkspaceSkeleton() {
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="p-6 text-sm text-muted-foreground">
+        Loading Ask Milton...
+      </CardContent>
+    </Card>
   );
 }
 
@@ -353,6 +369,18 @@ function ChatWorkspace() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  // Multi-Restaurant UX v1: scope every chat turn's context to the
+  // currently selected restaurant (or consolidated when none is selected).
+  const locationId = useSearchParams().get("location");
+
+  // Switching restaurants mid-conversation starts a fresh thread — old
+  // turns were answered under a different (now stale) restaurant context,
+  // and re-sending them as `conversation` history could bleed one
+  // restaurant's answers into another's. A plain page load also has no
+  // turns yet, so this is a no-op on first mount.
+  useEffect(() => {
+    setTurns([]);
+  }, [locationId]);
 
   // Auto-scroll on new turns.
   useEffect(() => {
@@ -379,7 +407,10 @@ function ChatWorkspace() {
       setInput("");
       setPending(true);
       try {
-        const res = await fetch("/api/restaurant/ask-milton", {
+        const url = locationId
+          ? `/api/restaurant/ask-milton?location=${encodeURIComponent(locationId)}`
+          : "/api/restaurant/ask-milton";
+        const res = await fetch(url, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
@@ -407,7 +438,7 @@ function ChatWorkspace() {
         setPending(false);
       }
     },
-    [pending, turns]
+    [pending, turns, locationId]
   );
 
   const onSubmit = (e: FormEvent) => {
@@ -559,6 +590,12 @@ function MessageBubble({
   onFollowup: (q: string) => void;
   disabled: boolean;
 }) {
+  // Multi-Restaurant UX v1: links surfaced inside an answer (related_links,
+  // suggested action chips) must carry the current selection forward too —
+  // otherwise following one silently drops back to consolidated. Read
+  // unconditionally, before any early return (rules of hooks).
+  const locationId = useSearchParams().get("location");
+
   if (turn.role === "user") {
     return (
       <div className="flex items-start gap-3 justify-end">
@@ -611,7 +648,7 @@ function MessageBubble({
             {a.related_links.map((l, i) => (
               <Link
                 key={i}
-                href={l.href}
+                href={withLocationParam(l.href, locationId)}
                 className="inline-flex items-center gap-1 text-xs rounded-full border border-border bg-background px-2.5 py-1 hover:bg-muted hover:border-orange-300 dark:hover:border-orange-800 transition-colors"
               >
                 {l.label}
@@ -716,6 +753,7 @@ function SuggestedActionChip({
 }) {
   const [state, setState] = useState<ChipActionState>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const locationId = useSearchParams().get("location");
 
   const handleConfirm = async () => {
     setState("loading");
@@ -748,7 +786,7 @@ function SuggestedActionChip({
   if (!action.creates_agent_action && action.target_route) {
     return (
       <Link
-        href={action.target_route}
+        href={withLocationParam(action.target_route, locationId)}
         className="inline-flex items-center gap-1.5 text-xs rounded-full border border-border bg-background px-2.5 py-1 hover:bg-muted hover:border-orange-300 dark:hover:border-orange-800 transition-colors"
       >
         <ExternalLink className="h-3 w-3 text-muted-foreground" />

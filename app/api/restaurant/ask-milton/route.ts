@@ -27,6 +27,7 @@ import {
   buildAskMiltonContext,
   type AskMiltonContext,
 } from "@/lib/restaurant/ask-milton-context";
+import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import {
   ASK_MILTON_SYSTEM_PROMPT,
   buildAskMiltonUserPrompt,
@@ -182,6 +183,23 @@ export async function POST(req: NextRequest) {
 
   const conversation = parseConversation(body.conversation);
 
+  // Multi-Restaurant UX v1: an optional `?location=` narrows Ask Milton's
+  // answer context to one restaurant. Validated against the caller's OWN
+  // company before being trusted — an id for another company (or
+  // garbage) simply never matches and silently falls back to the
+  // consolidated (company-wide) context. Same resolver the dashboard and
+  // briefing routes use — no second context system.
+  const requestedLocationId = req.nextUrl.searchParams.get("location");
+  let selected: { locationId: string; brandId: string | null } | null = null;
+  if (requestedLocationId) {
+    const context = await resolveRestaurantContext(
+      supabase,
+      companyId,
+      requestedLocationId
+    );
+    selected = context.selected;
+  }
+
   // Detect intent and resolve any follow-up references before building
   // context — intent detection is pure string matching (no I/O), so it
   // runs instantly and lets us build context before resolving entities
@@ -190,7 +208,7 @@ export async function POST(req: NextRequest) {
 
   let ctx: AskMiltonContext;
   try {
-    ctx = await buildAskMiltonContext(supabase, companyId);
+    ctx = await buildAskMiltonContext(supabase, companyId, selected);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("[ask-milton] context build failed:", msg);

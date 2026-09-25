@@ -18,16 +18,26 @@
 //     against its own `match` predicate, so e.g. `/dashboard/restaurant`
 //     doesn't light up "Menu & Recipes".
 //
+// Multi-Restaurant UX v1: the sidebar brand area is a real switcher —
+// "All Restaurants" (consolidated, no `?location=` param) or one of the
+// company's own restaurant_locations (`?location=<uuid>`). It only ever
+// shows RESTAURANT NAMES, never brand/location ids or internal jargon —
+// see the `locations` prop, which the layout resolves server-side scoped
+// to the caller's own company. The current selection is read client-side
+// via `useSearchParams()` (layouts don't receive searchParams in the App
+// Router) and is carried along when navigating between sidebar links, so
+// it survives normal in-app navigation.
+//
 // Performance:
-//   - Pure client component. No data fetching; that lives in the routes
-//     it wraps.
+//   - Pure client component. No data fetching (beyond the switcher's own
+//     "add restaurant" POST); the rest lives in the routes it wraps.
 
 "use client";
 
-import { type ComponentType } from "react";
+import { type ComponentType, Suspense, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard,
   Upload,
@@ -41,8 +51,18 @@ import {
   ChevronDown,
   Building2,
   MessageSquareText,
+  Check,
+  Plus,
 } from "lucide-react";
 import { LogoutButton } from "@/components/dashboard/logout-button";
+import { AddRestaurantDialog } from "@/components/restaurant/AddRestaurantDialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // ---------------------------------------------------------------------------
 // Nav model
@@ -158,19 +178,100 @@ function defaultMatch(item: NavItem, pathname: string): boolean {
   return pathname === item.href || pathname.startsWith(item.href + "/");
 }
 
+/**
+ * Carries the current `?location=` selection along to another nav item's
+ * href, inserted before any hash fragment the item's own href already has
+ * (only "Targets" does, today).
+ */
+function withLocationParam(href: string, locationId: string | null): string {
+  if (!locationId) return href;
+  const [pathAndQuery, hash] = href.split("#");
+  const separator = pathAndQuery.includes("?") ? "&" : "?";
+  const withParam = `${pathAndQuery}${separator}location=${encodeURIComponent(locationId)}`;
+  return hash ? `${withParam}#${hash}` : withParam;
+}
+
 // ---------------------------------------------------------------------------
 // Shell
 // ---------------------------------------------------------------------------
 
 // Deployment verification marker — bump this string whenever you need to
 // confirm in production which build is live. Visible in the browser console
-// on every restaurant page; harmless (no UI impact). The "no-legacy-nav"
-// suffix documents that this build has the LEGACY sidebar section removed.
-const SHELL_BUILD_MARKER = "RestaurantShell build: 2026-06-15-no-legacy-nav";
+// on every restaurant page; harmless (no UI impact).
+const SHELL_BUILD_MARKER =
+  "RestaurantShell build: 2026-09-25-multi-restaurant-switcher";
 
-export function RestaurantShell({ children }: { children: React.ReactNode }) {
+export interface RestaurantShellLocation {
+  id: string;
+  name: string;
+}
+
+export function RestaurantShell({
+  children,
+  locations = [],
+}: {
+  children: React.ReactNode;
+  /** The caller's own company's restaurant_locations — resolved server-side
+   *  by the layout, scoped to that company. Names only, never brand/location
+   *  jargon exposed further than this. */
+  locations?: RestaurantShellLocation[];
+}) {
   const pathname = usePathname() ?? "";
+  // useSearchParams() requires a Suspense boundary (Next.js app router
+  // requirement for CSR bailout during prerendering) — isolated into
+  // SearchParamsReader below so the fallback path here never calls it.
+  return (
+    <Suspense
+      fallback={
+        <RestaurantShellBody
+          pathname={pathname}
+          locations={locations}
+          currentLocationId={null}
+        >
+          {children}
+        </RestaurantShellBody>
+      }
+    >
+      <SearchParamsReader pathname={pathname} locations={locations}>
+        {children}
+      </SearchParamsReader>
+    </Suspense>
+  );
+}
 
+function SearchParamsReader({
+  children,
+  locations,
+  pathname,
+}: {
+  children: React.ReactNode;
+  locations: RestaurantShellLocation[];
+  pathname: string;
+}) {
+  const searchParams = useSearchParams();
+  const currentLocationId = searchParams.get("location");
+  return (
+    <RestaurantShellBody
+      pathname={pathname}
+      locations={locations}
+      currentLocationId={currentLocationId}
+    >
+      {children}
+    </RestaurantShellBody>
+  );
+}
+
+function RestaurantShellBody({
+  children,
+  locations,
+  currentLocationId,
+  pathname,
+}: {
+  children: React.ReactNode;
+  locations: RestaurantShellLocation[];
+  currentLocationId: string | null;
+  pathname: string;
+}) {
   if (typeof window !== "undefined") {
     console.log(`[Milton] ${SHELL_BUILD_MARKER}`);
   }
@@ -180,13 +281,22 @@ export function RestaurantShell({ children }: { children: React.ReactNode }) {
       {/* Sidebar — visible at lg+. Below that, we collapse it and surface
           a slim top bar (rendered further down). */}
       <aside className="hidden lg:flex lg:flex-col w-64 shrink-0 border-r border-border bg-background sticky top-0 h-screen">
-        <SidebarBrand />
+        <SidebarBrand
+          locations={locations}
+          currentLocationId={currentLocationId}
+          pathname={pathname}
+        />
         <nav
           aria-label="Restaurant navigation"
           className="flex-1 overflow-y-auto px-3 py-4 space-y-6"
         >
           {PRIMARY_GROUPS.map((group) => (
-            <SidebarGroup key={group.label} group={group} pathname={pathname} />
+            <SidebarGroup
+              key={group.label}
+              group={group}
+              pathname={pathname}
+              currentLocationId={currentLocationId}
+            />
           ))}
         </nav>
         <SidebarFooter />
@@ -219,28 +329,75 @@ export function RestaurantShell({ children }: { children: React.ReactNode }) {
 // Sidebar pieces
 // ---------------------------------------------------------------------------
 
-function SidebarBrand() {
-  // Restaurant selector is a placeholder for the multi-location future. For
-  // now we just show the brand + a non-interactive "switcher" affordance.
+function SidebarBrand({
+  locations,
+  currentLocationId,
+  pathname,
+}: {
+  locations: RestaurantShellLocation[];
+  currentLocationId: string | null;
+  pathname: string;
+}) {
+  const router = useRouter();
+  const [addOpen, setAddOpen] = useState(false);
+
+  const selected = currentLocationId
+    ? (locations.find((l) => l.id === currentLocationId) ?? null)
+    : null;
+  const displayLabel = selected ? selected.name : "All Restaurants";
+
+  function switchTo(locationId: string | null) {
+    const href = locationId
+      ? `${pathname}?location=${encodeURIComponent(locationId)}`
+      : pathname;
+    router.push(href);
+  }
+
   return (
     <div className="px-4 pt-5 pb-4 border-b border-border space-y-3">
       <Link href="/dashboard/restaurant" className="flex items-center gap-2">
         <Image src="/Milton_Logo.png" alt="Milton" width={28} height={28} />
         <span className="text-lg font-bold tracking-tight">milton.</span>
       </Link>
-      <button
-        type="button"
-        className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md border border-border bg-muted/40 hover:bg-muted text-left"
-        title="Restaurant selector — multi-location is coming"
-      >
-        <span className="flex items-center gap-2 min-w-0">
-          <Building2 className="h-4 w-4 text-orange-500 shrink-0" />
-          <span className="text-sm font-medium truncate">
-            Pinche Gringo BBQ
-          </span>
-        </span>
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-      </button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md border border-border bg-muted/40 hover:bg-muted text-left"
+          >
+            <span className="flex items-center gap-2 min-w-0">
+              <Building2 className="h-4 w-4 text-orange-500 shrink-0" />
+              <span className="text-sm font-medium truncate">
+                {displayLabel}
+              </span>
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuItem onClick={() => switchTo(null)}>
+            <span className="flex-1">All Restaurants</span>
+            {!selected && <Check className="h-3.5 w-3.5" />}
+          </DropdownMenuItem>
+          {locations.length > 0 && <DropdownMenuSeparator />}
+          {locations.map((loc) => (
+            <DropdownMenuItem key={loc.id} onClick={() => switchTo(loc.id)}>
+              <span className="flex-1 truncate">{loc.name}</span>
+              {selected?.id === loc.id && (
+                <Check className="h-3.5 w-3.5 shrink-0" />
+              )}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setAddOpen(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            <span>Add restaurant</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <AddRestaurantDialog open={addOpen} onOpenChange={setAddOpen} />
     </div>
   );
 }
@@ -248,9 +405,11 @@ function SidebarBrand() {
 function SidebarGroup({
   group,
   pathname,
+  currentLocationId,
 }: {
   group: NavGroup;
   pathname: string;
+  currentLocationId: string | null;
 }) {
   return (
     <div className="space-y-1">
@@ -259,20 +418,33 @@ function SidebarGroup({
       </p>
       <ul className="space-y-0.5">
         {group.items.map((item) => (
-          <SidebarLink key={item.label} item={item} pathname={pathname} />
+          <SidebarLink
+            key={item.label}
+            item={item}
+            pathname={pathname}
+            currentLocationId={currentLocationId}
+          />
         ))}
       </ul>
     </div>
   );
 }
 
-function SidebarLink({ item, pathname }: { item: NavItem; pathname: string }) {
+function SidebarLink({
+  item,
+  pathname,
+  currentLocationId,
+}: {
+  item: NavItem;
+  pathname: string;
+  currentLocationId: string | null;
+}) {
   const Icon = item.icon;
   const active = defaultMatch(item, pathname);
   return (
     <li>
       <Link
-        href={item.href}
+        href={withLocationParam(item.href, currentLocationId)}
         className={
           "flex items-center justify-between gap-2 px-2.5 py-2 rounded-md text-sm font-medium transition-colors " +
           (active

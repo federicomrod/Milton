@@ -11,6 +11,12 @@
 //     generated entirely from the same context. The UI distinguishes the two
 //     via the `source` field.
 //
+// Generation itself (buildBriefingContext + the OpenAI-or-deterministic
+// choice) lives in lib/restaurant/briefing-generate.ts (Telegram Daily
+// Briefing v1) so the Telegram send route can reuse the EXACT same
+// pipeline — this route only adds transport (HTTP, location resolution,
+// the compact context_summary for the dashboard card).
+//
 // Safety guarantees:
 //   * The OpenAI key is read from server env only and never echoed back.
 //   * The model never receives raw database rows — only the rounded summary
@@ -20,18 +26,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import {
-  buildBriefingContext,
-  type BriefingContext,
-} from "@/lib/restaurant/briefing-context";
+import type { BriefingContext } from "@/lib/restaurant/briefing-context";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
-import {
-  BRIEFING_SYSTEM_PROMPT,
-  buildBriefingUserPrompt,
-  buildDeterministicBriefing,
-  isBriefingOutput,
-  type BriefingOutput,
-} from "@/lib/restaurant/briefing-prompt";
+import { generateBriefing } from "@/lib/restaurant/briefing-generate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -55,74 +52,6 @@ function buildContextSummary(ctx: BriefingContext) {
     open_recommendations_total: ctx.open_recommendations.total,
     open_recommendations_critical: ctx.open_recommendations.critical,
   };
-}
-
-// ---------------------------------------------------------------------------
-// OpenAI caller — isolated so any failure cleanly falls back to deterministic.
-// ---------------------------------------------------------------------------
-
-async function callOpenAI(
-  ctx: BriefingContext
-): Promise<BriefingOutput | null> {
-  if (!process.env.OPENAI_API_KEY) return null;
-
-  let OpenAIctor: typeof import("openai").OpenAI;
-  try {
-    const mod = await import("openai");
-    OpenAIctor =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-  } catch (err) {
-    console.error("[briefing] openai sdk import failed:", err);
-    return null;
-  }
-  if (!OpenAIctor) return null;
-
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const client = new OpenAIctor({ apiKey: process.env.OPENAI_API_KEY });
-
-  try {
-    const completion = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: BRIEFING_SYSTEM_PROMPT },
-        { role: "user", content: buildBriefingUserPrompt(ctx) },
-      ],
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-    });
-    const raw = completion.choices?.[0]?.message?.content ?? "";
-    if (!raw) {
-      console.error("[briefing] openai returned empty content");
-      return null;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (err) {
-      console.error("[briefing] openai response was not valid JSON:", err);
-      return null;
-    }
-    if (!isBriefingOutput(parsed)) {
-      console.error("[briefing] openai response failed schema validation");
-      return null;
-    }
-    // Cap array sizes — defensive, in case the model ignored the prompt limit.
-    return {
-      headline: parsed.headline,
-      summary: parsed.summary,
-      top_risks: parsed.top_risks.slice(0, 3),
-      top_opportunities: parsed.top_opportunities.slice(0, 3),
-      recommended_actions: parsed.recommended_actions.slice(0, 3),
-      confidence_notes: parsed.confidence_notes.slice(0, 3),
-    };
-  } catch (err) {
-    console.error(
-      "[briefing] openai call failed:",
-      err instanceof Error ? err.message : err
-    );
-    return null;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -150,8 +79,14 @@ export async function GET(req: NextRequest) {
   }
 
   let ctx: BriefingContext;
+  let briefing: Awaited<ReturnType<typeof generateBriefing>>["briefing"];
+  let source: "openai" | "deterministic";
   try {
-    ctx = await buildBriefingContext(supabase, companyId, selected);
+    ({ ctx, briefing, source } = await generateBriefing(
+      supabase,
+      companyId,
+      selected
+    ));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("[briefing] context build failed:", msg);
@@ -160,12 +95,6 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
-
-  const aiBriefing = await callOpenAI(ctx);
-  const briefing = aiBriefing ?? buildDeterministicBriefing(ctx);
-  const source: "openai" | "deterministic" = aiBriefing
-    ? "openai"
-    : "deterministic";
 
   return NextResponse.json({
     source,

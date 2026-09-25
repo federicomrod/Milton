@@ -52,6 +52,7 @@ export const ONBOARDING_COPY = {
     conceptLabel: "What best describes it?",
     countryLabel: "Where are you located?",
     countryPlaceholder: "Select a country",
+    languageLabel: "What language should Milton use?",
   },
   step2: {
     title: "Your operation",

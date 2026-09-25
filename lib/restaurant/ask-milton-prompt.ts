@@ -4,6 +4,7 @@
 // and deterministic fallback for the Ask Milton chat endpoint.
 
 import type { AskMiltonContext } from "@/lib/restaurant/ask-milton-context";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 
 // ---------------------------------------------------------------------------
 // Output schema
@@ -373,6 +374,12 @@ export const ASK_MILTON_SYSTEM_PROMPT = [
   '   whole company ("consolidated"). When it is relevant to the question',
   "   (e.g. margins, sales, menu), make that scope clear in your answer —",
   '   e.g. "For {restaurant_name}, ..." vs "Across all your restaurants, ..."',
+  '12. `context.briefing.preferred_language` is either "en" or "es". Write',
+  "   your ENTIRE response (answer, supporting_facts, related_links",
+  "   labels, suggested_followups, confidence_notes) in that language —",
+  '   natural, professional Spanish for "es", never a mix. NEVER translate',
+  "   restaurant names, dish/menu item names, ingredient names, or",
+  "   supplier names — keep those exactly as given in `context`.",
   "",
   "Answering specific question types:",
   "- 'most profitable dish': Answer with the SINGLE top item from",
@@ -519,24 +526,88 @@ function pct(n: number | null | undefined): string {
   return `${n}%`;
 }
 
+// ---------------------------------------------------------------------------
+// Bilingual related-link labels (Milton Language Foundation v1) — every
+// deterministic answer below picks its related_links from this fixed
+// allow-list via relatedLink(lang, href) instead of repeating literal
+// English labels, so the label always matches the answer's language.
+// ---------------------------------------------------------------------------
+
+type RelatedLinkRoute =
+  | "/dashboard/restaurant"
+  | "/dashboard/restaurant/menu"
+  | "/dashboard/restaurant/ingredients"
+  | "/dashboard/restaurant/suppliers"
+  | "/dashboard/restaurant/invoices"
+  | "/dashboard/restaurant/agents"
+  | "/dashboard/restaurant/costs/upload"
+  | "/dashboard/restaurant/upload";
+
+const RELATED_LINK_LABELS: Record<
+  RelatedLinkRoute,
+  { en: string; es: string }
+> = {
+  "/dashboard/restaurant": { en: "Cockpit", es: "Panel principal" },
+  "/dashboard/restaurant/menu": {
+    en: "Menu & Recipes",
+    es: "Menú y Recetas",
+  },
+  "/dashboard/restaurant/ingredients": {
+    en: "Ingredients",
+    es: "Ingredientes",
+  },
+  "/dashboard/restaurant/suppliers": { en: "Suppliers", es: "Proveedores" },
+  "/dashboard/restaurant/invoices": {
+    en: "Supplier Invoices",
+    es: "Facturas de Proveedores",
+  },
+  "/dashboard/restaurant/agents": { en: "Agents", es: "Agentes" },
+  "/dashboard/restaurant/costs/upload": {
+    en: "Import Costs",
+    es: "Importar Costos",
+  },
+  "/dashboard/restaurant/upload": { en: "POS Sales", es: "Ventas del POS" },
+};
+
+function relatedLink(
+  lang: PreferredLanguage,
+  href: RelatedLinkRoute
+): AskMiltonRelatedLink {
+  return { label: RELATED_LINK_LABELS[href][lang], href };
+}
+
 // ---- Most profitable dish ----
 
-function mostProfitableAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
+function mostProfitableAnswer(
+  ctx: AskMiltonContext,
+  lang: PreferredLanguage
+): AskMiltonAnswer {
   const items = ctx.menu.most_profitable_items;
   const c = ctx.briefing.currency;
 
   if (items.length === 0) {
     return {
-      answer:
+      answer: t(
+        lang,
         "I don't have enough complete costing data to identify your most profitable dish yet. Add recipes and ingredient costs to enable margin calculation.",
+        "Aún no tengo suficientes datos de costeo completos para identificar tu platillo más rentable. Agrega recetas y costos de ingredientes para habilitar el cálculo de margen."
+      ),
       supporting_facts: [],
       related_links: [
-        { label: "Menu & Recipes", href: "/dashboard/restaurant/menu" },
-        { label: "Ingredients", href: "/dashboard/restaurant/ingredients" },
+        relatedLink(lang, "/dashboard/restaurant/menu"),
+        relatedLink(lang, "/dashboard/restaurant/ingredients"),
       ],
       suggested_followups: [
-        "Which menu items have missing recipes?",
-        "Where is cost coverage incomplete?",
+        t(
+          lang,
+          "Which menu items have missing recipes?",
+          "¿Qué artículos del menú no tienen receta?"
+        ),
+        t(
+          lang,
+          "Where is cost coverage incomplete?",
+          "¿Dónde está incompleta la cobertura de costo?"
+        ),
       ],
       confidence_notes: [],
     };
@@ -545,15 +616,27 @@ function mostProfitableAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
   const top = items[0];
   const lines: string[] = [];
   lines.push(
-    `Your most profitable dish is ${top.name} at ${pct(top.gross_margin_pct)} gross margin` +
-      (top.gross_profit_per_item !== null
-        ? ` (${fmtCurrencyDec(top.gross_profit_per_item, c)} profit per serving)`
-        : "") +
-      "."
+    t(
+      lang,
+      `Your most profitable dish is ${top.name} at ${pct(top.gross_margin_pct)} gross margin` +
+        (top.gross_profit_per_item !== null
+          ? ` (${fmtCurrencyDec(top.gross_profit_per_item, c)} profit per serving)`
+          : "") +
+        ".",
+      `Tu platillo más rentable es ${top.name} con ${pct(top.gross_margin_pct)} de margen bruto` +
+        (top.gross_profit_per_item !== null
+          ? ` (${fmtCurrencyDec(top.gross_profit_per_item, c)} de utilidad por porción)`
+          : "") +
+        "."
+    )
   );
   if (top.selling_price !== null && top.estimated_cost !== null) {
     lines.push(
-      `Selling price: ${fmtCurrencyDec(top.selling_price, c)}, estimated food cost: ${fmtCurrencyDec(top.estimated_cost, c)}.`
+      t(
+        lang,
+        `Selling price: ${fmtCurrencyDec(top.selling_price, c)}, estimated food cost: ${fmtCurrencyDec(top.estimated_cost, c)}.`,
+        `Precio de venta: ${fmtCurrencyDec(top.selling_price, c)}, costo de alimentos estimado: ${fmtCurrencyDec(top.estimated_cost, c)}.`
+      )
     );
   }
   if (items.length > 1) {
@@ -561,13 +644,19 @@ function mostProfitableAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
       .slice(1, 3)
       .map((i) => `${i.name} (${pct(i.gross_margin_pct)})`)
       .join(", ");
-    lines.push(`Next best: ${runners}.`);
+    lines.push(
+      t(lang, `Next best: ${runners}.`, `Los siguientes mejores: ${runners}.`)
+    );
   }
 
   const notes: string[] = [];
   if (ctx.briefing.kpis.cost_coverage_pct < 90) {
     notes.push(
-      `Cost coverage is ${ctx.briefing.kpis.cost_coverage_pct}% — only items with complete recipes and ingredient costs appear in this list.`
+      t(
+        lang,
+        `Cost coverage is ${ctx.briefing.kpis.cost_coverage_pct}% — only items with complete recipes and ingredient costs appear in this list.`,
+        `La cobertura de costo es ${ctx.briefing.kpis.cost_coverage_pct}% — solo los artículos con recetas y costos de ingredientes completos aparecen en esta lista.`
+      )
     );
   }
 
@@ -580,7 +669,11 @@ function mostProfitableAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
   ];
   if (top.gross_profit_per_item !== null) {
     facts.push({
-      label: `${top.name} profit/serving`,
+      label: t(
+        lang,
+        `${top.name} profit/serving`,
+        `${top.name} utilidad/porción`
+      ),
       value: fmtCurrencyDec(top.gross_profit_per_item, c),
       source_area: "menu",
     });
@@ -590,13 +683,21 @@ function mostProfitableAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
     answer: lines.join(" "),
     supporting_facts: facts.slice(0, 4),
     related_links: [
-      { label: "Menu & Recipes", href: "/dashboard/restaurant/menu" },
-      { label: "Cockpit", href: "/dashboard/restaurant" },
+      relatedLink(lang, "/dashboard/restaurant/menu"),
+      relatedLink(lang, "/dashboard/restaurant"),
     ],
     suggested_followups: [
-      "Which dishes are least profitable?",
-      "Which ingredients are most expensive?",
-      "What should I do this week?",
+      t(
+        lang,
+        "Which dishes are least profitable?",
+        "¿Qué platillos son menos rentables?"
+      ),
+      t(
+        lang,
+        "Which ingredients are most expensive?",
+        "¿Qué ingredientes son más costosos?"
+      ),
+      t(lang, "What should I do this week?", "¿Qué debería hacer esta semana?"),
     ],
     confidence_notes: notes,
   };
@@ -604,12 +705,15 @@ function mostProfitableAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
 
 // ---- Least profitable dishes ----
 
-function leastProfitableAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
+function leastProfitableAnswer(
+  ctx: AskMiltonContext,
+  lang: PreferredLanguage
+): AskMiltonAnswer {
   const items = ctx.menu.least_profitable_items;
 
   if (items.length === 0) {
     // Fall back to briefing low_margin_items
-    return marginFallbackAnswer(ctx);
+    return marginFallbackAnswer(ctx, lang);
   }
 
   const lines: string[] = [];
@@ -617,11 +721,19 @@ function leastProfitableAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
 
   const worst = items[0];
   lines.push(
-    `Least profitable dish: ${worst.name} at ${pct(worst.gross_margin_pct)} gross margin` +
-      (worst.food_cost_pct !== null
-        ? ` (${pct(worst.food_cost_pct)} food cost)`
-        : "") +
-      "."
+    t(
+      lang,
+      `Least profitable dish: ${worst.name} at ${pct(worst.gross_margin_pct)} gross margin` +
+        (worst.food_cost_pct !== null
+          ? ` (${pct(worst.food_cost_pct)} food cost)`
+          : "") +
+        ".",
+      `Platillo menos rentable: ${worst.name} con ${pct(worst.gross_margin_pct)} de margen bruto` +
+        (worst.food_cost_pct !== null
+          ? ` (${pct(worst.food_cost_pct)} de costo de alimentos)`
+          : "") +
+        "."
+    )
   );
   facts.push({
     label: worst.name,
@@ -634,7 +746,9 @@ function leastProfitableAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
       .slice(1, 4)
       .map((i) => `${i.name} (${pct(i.gross_margin_pct)})`)
       .join(", ");
-    lines.push(`Also low-margin: ${rest}.`);
+    lines.push(
+      t(lang, `Also low-margin: ${rest}.`, `También con margen bajo: ${rest}.`)
+    );
     for (const i of items.slice(1, 3)) {
       facts.push({
         label: i.name,
@@ -648,24 +762,46 @@ function leastProfitableAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
   const notes: string[] = [];
   if (ctx.briefing.kpis.cost_coverage_pct < 90) {
     notes.push(
-      `Cost coverage ${ctx.briefing.kpis.cost_coverage_pct}% — only items with complete recipes are ranked here.`
+      t(
+        lang,
+        `Cost coverage ${ctx.briefing.kpis.cost_coverage_pct}% — only items with complete recipes are ranked here.`,
+        `Cobertura de costo ${ctx.briefing.kpis.cost_coverage_pct}% — solo los artículos con recetas completas están clasificados aquí.`
+      )
     );
   }
   if (missingCount > 0) {
-    notes.push(`${missingCount} item(s) without recipes are excluded.`);
+    notes.push(
+      t(
+        lang,
+        `${missingCount} item(s) without recipes are excluded.`,
+        `${missingCount} artículo(s) sin receta quedaron excluidos.`
+      )
+    );
   }
 
   return {
     answer: lines.join(" "),
     supporting_facts: facts.slice(0, 4),
     related_links: [
-      { label: "Menu & Recipes", href: "/dashboard/restaurant/menu" },
-      { label: "Cockpit", href: "/dashboard/restaurant" },
+      relatedLink(lang, "/dashboard/restaurant/menu"),
+      relatedLink(lang, "/dashboard/restaurant"),
     ],
     suggested_followups: [
-      "What is my most profitable dish?",
-      "Which ingredients are most expensive?",
-      "Which menu items have missing recipes?",
+      t(
+        lang,
+        "What is my most profitable dish?",
+        "¿Cuál es mi platillo más rentable?"
+      ),
+      t(
+        lang,
+        "Which ingredients are most expensive?",
+        "¿Qué ingredientes son más costosos?"
+      ),
+      t(
+        lang,
+        "Which menu items have missing recipes?",
+        "¿Qué artículos del menú no tienen receta?"
+      ),
     ],
     confidence_notes: notes,
   };
@@ -673,17 +809,24 @@ function leastProfitableAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
 
 // ---- Generic margin fallback (when profitability data is empty) ----
 
-function marginFallbackAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
+function marginFallbackAnswer(
+  ctx: AskMiltonContext,
+  lang: PreferredLanguage
+): AskMiltonAnswer {
   const b = ctx.briefing;
   const lines: string[] = [];
   const facts: AskMiltonSupportingFact[] = [];
 
   if (b.kpis.estimated_gross_margin_pct !== null) {
     lines.push(
-      `Estimated gross margin is ${pct(b.kpis.estimated_gross_margin_pct)} with food cost at ${pct(b.kpis.food_cost_pct)}.`
+      t(
+        lang,
+        `Estimated gross margin is ${pct(b.kpis.estimated_gross_margin_pct)} with food cost at ${pct(b.kpis.food_cost_pct)}.`,
+        `El margen bruto estimado es ${pct(b.kpis.estimated_gross_margin_pct)} con un costo de alimentos de ${pct(b.kpis.food_cost_pct)}.`
+      )
     );
     facts.push({
-      label: "Gross margin (est.)",
+      label: t(lang, "Gross margin (est.)", "Margen bruto (est.)"),
       value: pct(b.kpis.estimated_gross_margin_pct),
       source_area: "menu",
     });
@@ -696,7 +839,13 @@ function marginFallbackAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
       .slice(0, 3)
       .map((m) => `${m.name} (${pct(m.gross_margin_pct)})`)
       .join(", ");
-    lines.push(`Lowest-margin items: ${names}.`);
+    lines.push(
+      t(
+        lang,
+        `Lowest-margin items: ${names}.`,
+        `Artículos con menor margen: ${names}.`
+      )
+    );
     for (const m of b.low_margin_items.slice(0, 2)) {
       facts.push({
         label: m.name,
@@ -709,21 +858,43 @@ function marginFallbackAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
   const notes: string[] = [];
   if (b.kpis.cost_coverage_pct < 90) {
     notes.push(
-      `Cost coverage is ${b.kpis.cost_coverage_pct}% — margin numbers only cover that share of revenue.`
+      t(
+        lang,
+        `Cost coverage is ${b.kpis.cost_coverage_pct}% — margin numbers only cover that share of revenue.`,
+        `La cobertura de costo es ${b.kpis.cost_coverage_pct}% — los márgenes solo cubren esa parte de los ingresos.`
+      )
     );
   }
 
   return {
-    answer: lines.join(" ") || "No margin data available yet.",
+    answer:
+      lines.join(" ") ||
+      t(
+        lang,
+        "No margin data available yet.",
+        "Aún no hay datos de margen disponibles."
+      ),
     supporting_facts: facts.slice(0, 4),
     related_links: [
-      { label: "Menu & Recipes", href: "/dashboard/restaurant/menu" },
-      { label: "Cockpit", href: "/dashboard/restaurant" },
+      relatedLink(lang, "/dashboard/restaurant/menu"),
+      relatedLink(lang, "/dashboard/restaurant"),
     ],
     suggested_followups: [
-      "Which dishes should I fix first?",
-      "Which menu items have missing recipes?",
-      "Which ingredients are most expensive?",
+      t(
+        lang,
+        "Which dishes should I fix first?",
+        "¿Qué platillos debería corregir primero?"
+      ),
+      t(
+        lang,
+        "Which menu items have missing recipes?",
+        "¿Qué artículos del menú no tienen receta?"
+      ),
+      t(
+        lang,
+        "Which ingredients are most expensive?",
+        "¿Qué ingredientes son más costosos?"
+      ),
     ],
     confidence_notes: notes,
   };
@@ -739,21 +910,47 @@ function marginFallbackAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
 //
 // All tiers append a business note about profitability impact.
 
-const INGREDIENT_COST_BUSINESS_NOTE =
-  "Unit cost alone does not show profitability impact. " +
-  "What matters most is how much of the ingredient is used in recipes " +
-  "and how much those dishes sell.";
+function ingredientCostBusinessNote(lang: PreferredLanguage): string {
+  return t(
+    lang,
+    "Unit cost alone does not show profitability impact. " +
+      "What matters most is how much of the ingredient is used in recipes " +
+      "and how much those dishes sell.",
+    "El costo unitario por sí solo no muestra el impacto en la rentabilidad. " +
+      "Lo que más importa es cuánto se usa el ingrediente en las recetas " +
+      "y cuánto se venden esos platillos."
+  );
+}
 
-function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
+function expensiveIngredientsAnswer(
+  ctx: AskMiltonContext,
+  lang: PreferredLanguage
+): AskMiltonAnswer {
   const FOLLOWUPS = [
-    "Which dishes use these ingredients?",
-    "Which dishes have the highest food cost?",
-    "Which supplier prices increased recently?",
-    "Which suppliers provide these ingredients?",
+    t(
+      lang,
+      "Which dishes use these ingredients?",
+      "¿Qué platillos usan estos ingredientes?"
+    ),
+    t(
+      lang,
+      "Which dishes have the highest food cost?",
+      "¿Qué platillos tienen el mayor costo de alimentos?"
+    ),
+    t(
+      lang,
+      "Which supplier prices increased recently?",
+      "¿Qué precios de proveedores subieron recientemente?"
+    ),
+    t(
+      lang,
+      "Which suppliers provide these ingredients?",
+      "¿Qué proveedores surten estos ingredientes?"
+    ),
   ];
   const LINKS: AskMiltonRelatedLink[] = [
-    { label: "Ingredients", href: "/dashboard/restaurant/ingredients" },
-    { label: "Suppliers", href: "/dashboard/restaurant/suppliers" },
+    relatedLink(lang, "/dashboard/restaurant/ingredients"),
+    relatedLink(lang, "/dashboard/restaurant/suppliers"),
   ];
 
   // ── Tier 1: authoritative unit costs from ingredient_cost_entries ──────────
@@ -764,10 +961,17 @@ function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
 
     const top = items[0];
     lines.push(
-      `Most expensive ingredient by unit cost: ${top.name} at ` +
-        `${fmtCurrencyDec(top.unit_cost, top.currency)} per ${top.unit}` +
-        (top.supplier_name ? ` (${top.supplier_name})` : "") +
-        "."
+      t(
+        lang,
+        `Most expensive ingredient by unit cost: ${top.name} at ` +
+          `${fmtCurrencyDec(top.unit_cost, top.currency)} per ${top.unit}` +
+          (top.supplier_name ? ` (${top.supplier_name})` : "") +
+          ".",
+        `Ingrediente más costoso por costo unitario: ${top.name} a ` +
+          `${fmtCurrencyDec(top.unit_cost, top.currency)} por ${top.unit}` +
+          (top.supplier_name ? ` (${top.supplier_name})` : "") +
+          "."
+      )
     );
     facts.push({
       label: top.name,
@@ -784,7 +988,9 @@ function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
             (i.supplier_name ? ` (${i.supplier_name})` : "")
         )
         .join("; ");
-      lines.push(`Also expensive: ${rest}.`);
+      lines.push(
+        t(lang, `Also expensive: ${rest}.`, `También costosos: ${rest}.`)
+      );
       for (const i of items.slice(1, 3)) {
         facts.push({
           label: i.name,
@@ -797,7 +1003,11 @@ function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
     // Add usage context for the top ingredient when available
     if (top.used_in.length > 0) {
       lines.push(
-        `${top.name} is used in: ${top.used_in.slice(0, 4).join(", ")}.`
+        t(
+          lang,
+          `${top.name} is used in: ${top.used_in.slice(0, 4).join(", ")}.`,
+          `${top.name} se usa en: ${top.used_in.slice(0, 4).join(", ")}.`
+        )
       );
     }
 
@@ -806,7 +1016,7 @@ function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
       supporting_facts: facts.slice(0, 4),
       related_links: LINKS,
       suggested_followups: FOLLOWUPS,
-      confidence_notes: [INGREDIENT_COST_BUSINESS_NOTE],
+      confidence_notes: [ingredientCostBusinessNote(lang)],
     };
   }
 
@@ -823,8 +1033,13 @@ function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
 
     const top = usageWithCost[0];
     lines.push(
-      `Highest-cost ingredient (from recipe data): ${top.ingredient_name} at ` +
-        `${fmtCurrencyDec(top.unit_cost!, top.currency ?? c)} per ${top.unit}.`
+      t(
+        lang,
+        `Highest-cost ingredient (from recipe data): ${top.ingredient_name} at ` +
+          `${fmtCurrencyDec(top.unit_cost!, top.currency ?? c)} per ${top.unit}.`,
+        `Ingrediente de mayor costo (de datos de receta): ${top.ingredient_name} a ` +
+          `${fmtCurrencyDec(top.unit_cost!, top.currency ?? c)} por ${top.unit}.`
+      )
     );
     facts.push({
       label: top.ingredient_name,
@@ -840,7 +1055,7 @@ function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
             `${u.ingredient_name}: ${fmtCurrencyDec(u.unit_cost!, u.currency ?? c)}/${u.unit}`
         )
         .join("; ");
-      lines.push(`Also: ${rest}.`);
+      lines.push(t(lang, `Also: ${rest}.`, `También: ${rest}.`));
       for (const u of usageWithCost.slice(1, 3)) {
         facts.push({
           label: u.ingredient_name,
@@ -855,7 +1070,7 @@ function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
       supporting_facts: facts.slice(0, 4),
       related_links: LINKS,
       suggested_followups: FOLLOWUPS,
-      confidence_notes: [INGREDIENT_COST_BUSINESS_NOTE],
+      confidence_notes: [ingredientCostBusinessNote(lang)],
     };
   }
 
@@ -869,8 +1084,13 @@ function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
     const facts: AskMiltonSupportingFact[] = [];
 
     lines.push(
-      "I do not have a clean ingredient unit-cost ranking available yet, " +
-        "but based on recipe and menu costing, the biggest cost-impact areas are:"
+      t(
+        lang,
+        "I do not have a clean ingredient unit-cost ranking available yet, " +
+          "but based on recipe and menu costing, the biggest cost-impact areas are:",
+        "Aún no tengo un ranking claro de costo unitario de ingredientes, " +
+          "pero según el costeo de recetas y menú, las áreas de mayor impacto en costo son:"
+      )
     );
 
     if (highFoodCost.length > 0) {
@@ -878,11 +1098,18 @@ function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
         .slice(0, 3)
         .map((i) => `${i.name} (${pct(i.food_cost_pct)} food cost)`)
         .join(", ");
-      lines.push(`High food-cost dishes — ${names}.`);
+      lines.push(
+        t(
+          lang,
+          `High food-cost dishes — ${names}.`,
+          `Platillos con alto costo de alimentos — ${names}.`
+        )
+      );
       for (const i of highFoodCost.slice(0, 2)) {
         facts.push({
           label: i.name,
-          value: pct(i.food_cost_pct) + " food cost",
+          value:
+            pct(i.food_cost_pct) + t(lang, " food cost", " costo de alimentos"),
           source_area: "menu",
         });
       }
@@ -893,20 +1120,30 @@ function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
         .slice(0, 3)
         .map((i) => `${i.name} (${pct(i.gross_margin_pct)} margin)`)
         .join(", ");
-      lines.push(`Low-margin dishes — ${names}.`);
+      lines.push(
+        t(
+          lang,
+          `Low-margin dishes — ${names}.`,
+          `Platillos de bajo margen — ${names}.`
+        )
+      );
       for (const i of lowMargin.slice(0, 2)) {
         facts.push({
           label: i.name,
-          value: pct(i.gross_margin_pct) + " margin",
+          value: pct(i.gross_margin_pct) + t(lang, " margin", " margen"),
           source_area: "menu",
         });
       }
     }
 
-    const notes = [INGREDIENT_COST_BUSINESS_NOTE];
+    const notes = [ingredientCostBusinessNote(lang)];
     if (b.kpis.cost_coverage_pct < 90) {
       notes.push(
-        `Cost coverage is ${b.kpis.cost_coverage_pct}% — add ingredient prices to see per-item cost drivers.`
+        t(
+          lang,
+          `Cost coverage is ${b.kpis.cost_coverage_pct}% — add ingredient prices to see per-item cost drivers.`,
+          `La cobertura de costo es ${b.kpis.cost_coverage_pct}% — agrega precios de ingredientes para ver los factores de costo por artículo.`
+        )
       );
     }
 
@@ -914,15 +1151,31 @@ function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
       answer: lines.join(" "),
       supporting_facts: facts.slice(0, 4),
       related_links: [
-        { label: "Ingredients", href: "/dashboard/restaurant/ingredients" },
-        { label: "Import Costs", href: "/dashboard/restaurant/costs/upload" },
-        { label: "Menu & Recipes", href: "/dashboard/restaurant/menu" },
+        relatedLink(lang, "/dashboard/restaurant/ingredients"),
+        relatedLink(lang, "/dashboard/restaurant/costs/upload"),
+        relatedLink(lang, "/dashboard/restaurant/menu"),
       ],
       suggested_followups: [
-        "Which dishes have the highest food cost?",
-        "Which dishes are least profitable?",
-        "Where is cost coverage incomplete?",
-        "Which supplier prices increased recently?",
+        t(
+          lang,
+          "Which dishes have the highest food cost?",
+          "¿Qué platillos tienen el mayor costo de alimentos?"
+        ),
+        t(
+          lang,
+          "Which dishes are least profitable?",
+          "¿Qué platillos son menos rentables?"
+        ),
+        t(
+          lang,
+          "Where is cost coverage incomplete?",
+          "¿Dónde está incompleta la cobertura de costo?"
+        ),
+        t(
+          lang,
+          "Which supplier prices increased recently?",
+          "¿Qué precios de proveedores subieron recientemente?"
+        ),
       ],
       confidence_notes: notes,
     };
@@ -930,22 +1183,39 @@ function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
 
   // ── Tier 4: no cost or menu data at all ───────────────────────────────────
   return {
-    answer:
+    answer: t(
+      lang,
       "No ingredient cost entries or menu profitability data is available yet. " +
-      "Upload invoices or use Import Costs to start tracking ingredient prices, " +
-      "and build recipes to see which dishes drive cost.",
+        "Upload invoices or use Import Costs to start tracking ingredient prices, " +
+        "and build recipes to see which dishes drive cost.",
+      "Aún no hay costos de ingredientes ni datos de rentabilidad del menú disponibles. " +
+        "Sube facturas o usa Importar Costos para empezar a registrar precios de ingredientes, " +
+        "y crea recetas para ver qué platillos generan más costo."
+    ),
     supporting_facts: [],
     related_links: [
-      { label: "Ingredients", href: "/dashboard/restaurant/ingredients" },
-      { label: "Import Costs", href: "/dashboard/restaurant/costs/upload" },
-      { label: "Supplier Invoices", href: "/dashboard/restaurant/invoices" },
+      relatedLink(lang, "/dashboard/restaurant/ingredients"),
+      relatedLink(lang, "/dashboard/restaurant/costs/upload"),
+      relatedLink(lang, "/dashboard/restaurant/invoices"),
     ],
     suggested_followups: [
-      "Where is cost coverage incomplete?",
-      "Which menu items have missing recipes?",
+      t(
+        lang,
+        "Where is cost coverage incomplete?",
+        "¿Dónde está incompleta la cobertura de costo?"
+      ),
+      t(
+        lang,
+        "Which menu items have missing recipes?",
+        "¿Qué artículos del menú no tienen receta?"
+      ),
     ],
     confidence_notes: [
-      "No valid cost entries found in ingredient_cost_entries and no menu profitability data is available.",
+      t(
+        lang,
+        "No valid cost entries found in ingredient_cost_entries and no menu profitability data is available.",
+        "No se encontraron costos válidos en ingredient_cost_entries y no hay datos de rentabilidad del menú disponibles."
+      ),
     ],
   };
 }
@@ -955,7 +1225,8 @@ function expensiveIngredientsAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
 function ingredientUsageAnswer(
   ctx: AskMiltonContext,
   message: string,
-  resolved: ResolvedEntities
+  resolved: ResolvedEntities,
+  lang: PreferredLanguage
 ): AskMiltonAnswer {
   const usageList = ctx.ingredient_usage;
 
@@ -991,14 +1262,23 @@ function ingredientUsageAnswer(
     // Generic: show all usage entries we have
     if (usageList.length === 0) {
       return {
-        answer:
+        answer: t(
+          lang,
           "I don't have recipe usage data for ingredients in Milton yet. Build recipes and ingredient cost entries to enable this view.",
+          "Aún no tengo datos de uso de ingredientes en recetas en Milton. Crea recetas y costos de ingredientes para habilitar esta vista."
+        ),
         supporting_facts: [],
         related_links: [
-          { label: "Menu & Recipes", href: "/dashboard/restaurant/menu" },
-          { label: "Ingredients", href: "/dashboard/restaurant/ingredients" },
+          relatedLink(lang, "/dashboard/restaurant/menu"),
+          relatedLink(lang, "/dashboard/restaurant/ingredients"),
         ],
-        suggested_followups: ["Which ingredients are most expensive?"],
+        suggested_followups: [
+          t(
+            lang,
+            "Which ingredients are most expensive?",
+            "¿Qué ingredientes son más costosos?"
+          ),
+        ],
         confidence_notes: [],
       };
     }
@@ -1009,17 +1289,31 @@ function ingredientUsageAnswer(
           0,
           4
         );
-        return `${u.ingredient_name}: ${all.length > 0 ? all.join(", ") : "not linked to recipes yet"}`;
+        return `${u.ingredient_name}: ${
+          all.length > 0
+            ? all.join(", ")
+            : t(lang, "not linked to recipes yet", "sin vincular a recetas aún")
+        }`;
       })
       .join(". ");
     return {
-      answer: `Top ingredient usage: ${sample}.`,
+      answer: t(
+        lang,
+        `Top ingredient usage: ${sample}.`,
+        `Principal uso de ingredientes: ${sample}.`
+      ),
       supporting_facts: [],
       related_links: [
-        { label: "Menu & Recipes", href: "/dashboard/restaurant/menu" },
-        { label: "Ingredients", href: "/dashboard/restaurant/ingredients" },
+        relatedLink(lang, "/dashboard/restaurant/menu"),
+        relatedLink(lang, "/dashboard/restaurant/ingredients"),
       ],
-      suggested_followups: ["Which ingredients are most expensive?"],
+      suggested_followups: [
+        t(
+          lang,
+          "Which ingredients are most expensive?",
+          "¿Qué ingredientes son más costosos?"
+        ),
+      ],
       confidence_notes: [],
     };
   }
@@ -1034,7 +1328,13 @@ function ingredientUsageAnswer(
       (u) => u.ingredient_name.toLowerCase() === name.toLowerCase()
     );
     if (!entry) {
-      lines.push(`I don't have recipe usage for "${name}" in Milton yet.`);
+      lines.push(
+        t(
+          lang,
+          `I don't have recipe usage for "${name}" in Milton yet.`,
+          `Aún no tengo el uso en recetas de "${name}" en Milton.`
+        )
+      );
       continue;
     }
     found++;
@@ -1044,21 +1344,41 @@ function ingredientUsageAnswer(
 
     const parts: string[] = [];
     if (entry.used_in_direct.length > 0) {
-      parts.push(`directly in: ${directList}`);
+      parts.push(
+        t(lang, `directly in: ${directList}`, `directamente en: ${directList}`)
+      );
     }
     if (entry.components_using.length > 0) {
       parts.push(
-        `in component${entry.components_using.length > 1 ? "s" : ""} (${compList})`
+        t(
+          lang,
+          `in component${entry.components_using.length > 1 ? "s" : ""} (${compList})`,
+          `en componente${entry.components_using.length > 1 ? "s" : ""} (${compList})`
+        )
       );
     }
     if (entry.used_in_via_component.length > 0) {
-      parts.push(`and therefore in: ${viaList}`);
+      parts.push(
+        t(lang, `and therefore in: ${viaList}`, `y por lo tanto en: ${viaList}`)
+      );
     }
 
     if (parts.length === 0) {
-      lines.push(`${entry.ingredient_name} is not linked to any recipes yet.`);
+      lines.push(
+        t(
+          lang,
+          `${entry.ingredient_name} is not linked to any recipes yet.`,
+          `${entry.ingredient_name} aún no está vinculado a ninguna receta.`
+        )
+      );
     } else {
-      lines.push(`${entry.ingredient_name} appears ${parts.join(", ")}.`);
+      lines.push(
+        t(
+          lang,
+          `${entry.ingredient_name} appears ${parts.join(", ")}.`,
+          `${entry.ingredient_name} aparece ${parts.join(", ")}.`
+        )
+      );
       facts.push({
         label: entry.ingredient_name,
         value: [
@@ -1076,10 +1396,14 @@ function ingredientUsageAnswer(
     return {
       answer: lines.join(" "),
       supporting_facts: [],
-      related_links: [
-        { label: "Menu & Recipes", href: "/dashboard/restaurant/menu" },
+      related_links: [relatedLink(lang, "/dashboard/restaurant/menu")],
+      suggested_followups: [
+        t(
+          lang,
+          "Which ingredients are most expensive?",
+          "¿Qué ingredientes son más costosos?"
+        ),
       ],
-      suggested_followups: ["Which ingredients are most expensive?"],
       confidence_notes: [],
     };
   }
@@ -1088,13 +1412,21 @@ function ingredientUsageAnswer(
     answer: lines.join(" "),
     supporting_facts: facts.slice(0, 4),
     related_links: [
-      { label: "Menu & Recipes", href: "/dashboard/restaurant/menu" },
-      { label: "Ingredients", href: "/dashboard/restaurant/ingredients" },
+      relatedLink(lang, "/dashboard/restaurant/menu"),
+      relatedLink(lang, "/dashboard/restaurant/ingredients"),
     ],
     suggested_followups: [
-      "Which of these dishes have the worst margin?",
-      "Which ingredients are most expensive?",
-      "What should I do this week?",
+      t(
+        lang,
+        "Which of these dishes have the worst margin?",
+        "¿Cuáles de estos platillos tienen el peor margen?"
+      ),
+      t(
+        lang,
+        "Which ingredients are most expensive?",
+        "¿Qué ingredientes son más costosos?"
+      ),
+      t(lang, "What should I do this week?", "¿Qué debería hacer esta semana?"),
     ],
     confidence_notes: [],
   };
@@ -1102,7 +1434,10 @@ function ingredientUsageAnswer(
 
 // ---- Supplier risk ----
 
-function supplierAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
+function supplierAnswer(
+  ctx: AskMiltonContext,
+  lang: PreferredLanguage
+): AskMiltonAnswer {
   const c = ctx.briefing.currency;
   const facts: AskMiltonSupportingFact[] = [];
   const lines: string[] = [];
@@ -1110,7 +1445,11 @@ function supplierAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
   if (ctx.briefing.top_suppliers.length > 0) {
     const top = ctx.briefing.top_suppliers[0];
     lines.push(
-      `Top supplier by spend: ${top.supplier_name} at ${fmtCurrency(top.total_spend, c)} (${pct(top.share_pct)} of total).`
+      t(
+        lang,
+        `Top supplier by spend: ${top.supplier_name} at ${fmtCurrency(top.total_spend, c)} (${pct(top.share_pct)} of total).`,
+        `Principal proveedor por gasto: ${top.supplier_name} con ${fmtCurrency(top.total_spend, c)} (${pct(top.share_pct)} del total).`
+      )
     );
     facts.push({
       label: top.supplier_name,
@@ -1118,37 +1457,67 @@ function supplierAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
       source_area: "supplier",
     });
   } else {
-    lines.push("No supplier spend has been recorded yet.");
+    lines.push(
+      t(
+        lang,
+        "No supplier spend has been recorded yet.",
+        "Aún no se ha registrado gasto con proveedores."
+      )
+    );
   }
 
   if (ctx.briefing.supplier_price_increases.length > 0) {
     const names = ctx.briefing.supplier_price_increases
       .slice(0, 3)
-      .map((t) => `${t.ingredient_name} +${t.pct_change}%`)
+      .map((inc) => `${inc.ingredient_name} +${inc.pct_change}%`)
       .join(", ");
-    lines.push(`Recent price increases: ${names}.`);
-    for (const t of ctx.briefing.supplier_price_increases.slice(0, 2)) {
+    lines.push(
+      t(
+        lang,
+        `Recent price increases: ${names}.`,
+        `Aumentos de precio recientes: ${names}.`
+      )
+    );
+    for (const inc of ctx.briefing.supplier_price_increases.slice(0, 2)) {
       facts.push({
-        label: t.ingredient_name,
-        value: `+${t.pct_change}% to ${fmtCurrency(t.latest_cost, c)} / ${t.unit}`,
+        label: inc.ingredient_name,
+        value: `+${inc.pct_change}% to ${fmtCurrency(inc.latest_cost, c)} / ${inc.unit}`,
         source_area: "supplier",
       });
     }
   } else {
-    lines.push("No supplier price increases detected in recent invoices.");
+    lines.push(
+      t(
+        lang,
+        "No supplier price increases detected in recent invoices.",
+        "No se detectaron aumentos de precio de proveedores en facturas recientes."
+      )
+    );
   }
 
   return {
     answer: lines.join(" "),
     supporting_facts: facts.slice(0, 4),
     related_links: [
-      { label: "Suppliers", href: "/dashboard/restaurant/suppliers" },
-      { label: "Supplier Invoices", href: "/dashboard/restaurant/invoices" },
+      relatedLink(lang, "/dashboard/restaurant/suppliers"),
+      relatedLink(lang, "/dashboard/restaurant/invoices"),
     ],
     suggested_followups: [
-      "Which ingredients are most expensive?",
-      "What changed after the latest invoice?",
-      "Which invoices still need review?",
+      t(
+        lang,
+        "Which ingredients are most expensive?",
+        "¿Qué ingredientes son más costosos?"
+      ),
+      t(
+        lang,
+        "What changed after the latest invoice?",
+        "¿Qué cambió después de la última factura?"
+      ),
+      t(
+        lang,
+        "Which invoices still need review?",
+        "¿Qué facturas aún necesitan revisión?"
+      ),
     ],
     confidence_notes: [],
   };
@@ -1156,21 +1525,29 @@ function supplierAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
 
 // ---- Invoices ----
 
-function invoiceAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
+function invoiceAnswer(
+  ctx: AskMiltonContext,
+  lang: PreferredLanguage
+): AskMiltonAnswer {
   const c = ctx.briefing.currency;
   const lines: string[] = [];
   const facts: AskMiltonSupportingFact[] = [];
+  const unknown = t(lang, "Unknown", "Desconocido");
 
   lines.push(
-    `${ctx.invoices.total_recent} recent invoice(s): ${ctx.invoices.posted_count} posted, ${ctx.invoices.needs_review_count} awaiting review.`
+    t(
+      lang,
+      `${ctx.invoices.total_recent} recent invoice(s): ${ctx.invoices.posted_count} posted, ${ctx.invoices.needs_review_count} awaiting review.`,
+      `${ctx.invoices.total_recent} factura(s) reciente(s): ${ctx.invoices.posted_count} registrada(s), ${ctx.invoices.needs_review_count} esperando revisión.`
+    )
   );
   facts.push({
-    label: "Needs review",
+    label: t(lang, "Needs review", "Necesita revisión"),
     value: String(ctx.invoices.needs_review_count),
     source_area: "invoice",
   });
   facts.push({
-    label: "Posted",
+    label: t(lang, "Posted", "Registrada"),
     value: String(ctx.invoices.posted_count),
     source_area: "invoice",
   });
@@ -1180,16 +1557,22 @@ function invoiceAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
       .slice(0, 3)
       .map(
         (i) =>
-          `${i.supplier_name ?? "Unknown"} ${i.invoice_number ?? ""} (${i.invoice_date})`
+          `${i.supplier_name ?? unknown} ${i.invoice_number ?? ""} (${i.invoice_date})`
       )
       .join("; ");
-    lines.push(`Needs review: ${sample}.`);
+    lines.push(
+      t(lang, `Needs review: ${sample}.`, `Necesita revisión: ${sample}.`)
+    );
   }
   if (ctx.invoices.latest.length > 0) {
     const i = ctx.invoices.latest[0];
     if (i.total_amount !== null) {
       lines.push(
-        `Latest: ${i.supplier_name ?? "Unknown"} for ${fmtCurrency(i.total_amount, i.currency || c)} on ${i.invoice_date} (${i.status}).`
+        t(
+          lang,
+          `Latest: ${i.supplier_name ?? unknown} for ${fmtCurrency(i.total_amount, i.currency || c)} on ${i.invoice_date} (${i.status}).`,
+          `Más reciente: ${i.supplier_name ?? unknown} por ${fmtCurrency(i.total_amount, i.currency || c)} el ${i.invoice_date} (${i.status}).`
+        )
       );
     }
   }
@@ -1198,12 +1581,20 @@ function invoiceAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
     answer: lines.join(" "),
     supporting_facts: facts.slice(0, 4),
     related_links: [
-      { label: "Supplier Invoices", href: "/dashboard/restaurant/invoices" },
-      { label: "Suppliers", href: "/dashboard/restaurant/suppliers" },
+      relatedLink(lang, "/dashboard/restaurant/invoices"),
+      relatedLink(lang, "/dashboard/restaurant/suppliers"),
     ],
     suggested_followups: [
-      "Which suppliers increased prices?",
-      "What changed after the latest invoice?",
+      t(
+        lang,
+        "Which suppliers increased prices?",
+        "¿Qué proveedores subieron precios?"
+      ),
+      t(
+        lang,
+        "What changed after the latest invoice?",
+        "¿Qué cambió después de la última factura?"
+      ),
     ],
     confidence_notes: [],
   };
@@ -1211,17 +1602,24 @@ function invoiceAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
 
 // ---- Missing recipes / cost coverage ----
 
-function missingRecipesAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
+function missingRecipesAnswer(
+  ctx: AskMiltonContext,
+  lang: PreferredLanguage
+): AskMiltonAnswer {
   const b = ctx.briefing;
   const lines: string[] = [];
   const facts: AskMiltonSupportingFact[] = [];
 
   if (b.data_quality.menu_items_without_recipe > 0) {
     lines.push(
-      `${b.data_quality.menu_items_without_recipe} menu item(s) have no recipe.`
+      t(
+        lang,
+        `${b.data_quality.menu_items_without_recipe} menu item(s) have no recipe.`,
+        `${b.data_quality.menu_items_without_recipe} artículo(s) del menú no tienen receta.`
+      )
     );
     facts.push({
-      label: "Items without recipe",
+      label: t(lang, "Items without recipe", "Artículos sin receta"),
       value: String(b.data_quality.menu_items_without_recipe),
       source_area: "data_quality",
     });
@@ -1231,48 +1629,79 @@ function missingRecipesAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
       .slice(0, 4)
       .map((m) => m.name)
       .join(", ");
-    lines.push(`High-revenue items missing a recipe: ${names}.`);
+    lines.push(
+      t(
+        lang,
+        `High-revenue items missing a recipe: ${names}.`,
+        `Artículos de alto ingreso sin receta: ${names}.`
+      )
+    );
   }
   if (b.costing_blockers.length > 0) {
     const blk = b.costing_blockers
       .slice(0, 3)
       .map((b2) => `${b2.name} (${b2.status})`)
       .join(", ");
-    lines.push(`Costing blockers: ${blk}.`);
+    lines.push(
+      t(lang, `Costing blockers: ${blk}.`, `Bloqueos de costeo: ${blk}.`)
+    );
     facts.push({
-      label: "Costing blockers",
+      label: t(lang, "Costing blockers", "Bloqueos de costeo"),
       value: String(b.costing_blockers.length),
       source_area: "data_quality",
     });
   }
   if (lines.length === 0) {
-    lines.push("All menu items appear to have recipes attached.");
+    lines.push(
+      t(
+        lang,
+        "All menu items appear to have recipes attached.",
+        "Todos los artículos del menú parecen tener una receta asignada."
+      )
+    );
   }
 
   return {
     answer: lines.join(" "),
     supporting_facts: facts.slice(0, 4),
     related_links: [
-      { label: "Menu & Recipes", href: "/dashboard/restaurant/menu" },
-      { label: "Ingredients", href: "/dashboard/restaurant/ingredients" },
+      relatedLink(lang, "/dashboard/restaurant/menu"),
+      relatedLink(lang, "/dashboard/restaurant/ingredients"),
     ],
     suggested_followups: [
-      "Which dishes should I fix first?",
-      "Where is cost coverage incomplete?",
+      t(
+        lang,
+        "Which dishes should I fix first?",
+        "¿Qué platillos debería corregir primero?"
+      ),
+      t(
+        lang,
+        "Where is cost coverage incomplete?",
+        "¿Dónde está incompleta la cobertura de costo?"
+      ),
     ],
     confidence_notes: [],
   };
 }
 
-function costCoverageAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
+function costCoverageAnswer(
+  ctx: AskMiltonContext,
+  lang: PreferredLanguage
+): AskMiltonAnswer {
   const b = ctx.briefing;
   const dq = b.data_quality;
   const lines: string[] = [];
   const facts: AskMiltonSupportingFact[] = [];
 
-  lines.push(`Cost coverage is ${b.kpis.cost_coverage_pct}%.`);
+  lines.push(
+    t(
+      lang,
+      `Cost coverage is ${b.kpis.cost_coverage_pct}%.`,
+      `La cobertura de costo es ${b.kpis.cost_coverage_pct}%.`
+    )
+  );
   facts.push({
-    label: "Cost coverage",
+    label: t(lang, "Cost coverage", "Cobertura de costo"),
     value: pct(b.kpis.cost_coverage_pct),
     source_area: "data_quality",
   });
@@ -1280,35 +1709,61 @@ function costCoverageAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
   const blockers: string[] = [];
   if (dq.unmapped_pos_items > 0) {
     blockers.push(
-      `${dq.unmapped_pos_items} POS item(s) unmapped to menu items`
+      t(
+        lang,
+        `${dq.unmapped_pos_items} POS item(s) unmapped to menu items`,
+        `${dq.unmapped_pos_items} artículo(s) del POS sin vincular a artículos del menú`
+      )
     );
     facts.push({
-      label: "Unmapped POS items",
+      label: t(lang, "Unmapped POS items", "Artículos del POS sin vincular"),
       value: String(dq.unmapped_pos_items),
       source_area: "data_quality",
     });
   }
   if (dq.menu_items_without_recipe > 0) {
     blockers.push(
-      `${dq.menu_items_without_recipe} menu item(s) without a recipe`
+      t(
+        lang,
+        `${dq.menu_items_without_recipe} menu item(s) without a recipe`,
+        `${dq.menu_items_without_recipe} artículo(s) del menú sin receta`
+      )
     );
   }
   if (dq.recipes_with_unit_mismatch > 0) {
     blockers.push(
-      `${dq.recipes_with_unit_mismatch} recipe(s) with unit mismatches`
+      t(
+        lang,
+        `${dq.recipes_with_unit_mismatch} recipe(s) with unit mismatches`,
+        `${dq.recipes_with_unit_mismatch} receta(s) con discrepancias de unidad`
+      )
     );
   }
   if (dq.ingredients_without_cost_entries > 0) {
     blockers.push(
-      `${dq.ingredients_without_cost_entries} ingredient(s) with no cost entries`
+      t(
+        lang,
+        `${dq.ingredients_without_cost_entries} ingredient(s) with no cost entries`,
+        `${dq.ingredients_without_cost_entries} ingrediente(s) sin costos registrados`
+      )
     );
   }
 
   if (blockers.length > 0) {
-    lines.push(`Gaps: ${blockers.join("; ")}.`);
+    lines.push(
+      t(
+        lang,
+        `Gaps: ${blockers.join("; ")}.`,
+        `Brechas: ${blockers.join("; ")}.`
+      )
+    );
   } else if (b.kpis.cost_coverage_pct >= 90) {
     lines.push(
-      "Coverage is strong. Fix any remaining costing blockers to reach 100%."
+      t(
+        lang,
+        "Coverage is strong. Fix any remaining costing blockers to reach 100%.",
+        "La cobertura es sólida. Corrige los bloqueos de costeo restantes para llegar al 100%."
+      )
     );
   }
 
@@ -1316,13 +1771,21 @@ function costCoverageAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
     answer: lines.join(" "),
     supporting_facts: facts.slice(0, 4),
     related_links: [
-      { label: "Menu & Recipes", href: "/dashboard/restaurant/menu" },
-      { label: "Ingredients", href: "/dashboard/restaurant/ingredients" },
-      { label: "POS Sales", href: "/dashboard/restaurant/upload" },
+      relatedLink(lang, "/dashboard/restaurant/menu"),
+      relatedLink(lang, "/dashboard/restaurant/ingredients"),
+      relatedLink(lang, "/dashboard/restaurant/upload"),
     ],
     suggested_followups: [
-      "Which menu items have missing recipes?",
-      "Which ingredients are most expensive?",
+      t(
+        lang,
+        "Which menu items have missing recipes?",
+        "¿Qué artículos del menú no tienen receta?"
+      ),
+      t(
+        lang,
+        "Which ingredients are most expensive?",
+        "¿Qué ingredientes son más costosos?"
+      ),
     ],
     confidence_notes: [],
   };
@@ -1330,16 +1793,23 @@ function costCoverageAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
 
 // ---- Agent recommendations ----
 
-function agentAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
+function agentAnswer(
+  ctx: AskMiltonContext,
+  lang: PreferredLanguage
+): AskMiltonAnswer {
   const b = ctx.briefing;
   const facts: AskMiltonSupportingFact[] = [];
   const lines: string[] = [];
 
   lines.push(
-    `${b.open_recommendations.total} open recommendation(s): ${b.open_recommendations.critical} critical, ${b.open_recommendations.warning} warning, ${b.open_recommendations.info} info.`
+    t(
+      lang,
+      `${b.open_recommendations.total} open recommendation(s): ${b.open_recommendations.critical} critical, ${b.open_recommendations.warning} warning, ${b.open_recommendations.info} info.`,
+      `${b.open_recommendations.total} recomendación(es) abierta(s): ${b.open_recommendations.critical} crítica(s), ${b.open_recommendations.warning} de advertencia, ${b.open_recommendations.info} informativa(s).`
+    )
   );
   facts.push({
-    label: "Open recommendations",
+    label: t(lang, "Open recommendations", "Recomendaciones abiertas"),
     value: String(b.open_recommendations.total),
     source_area: "agent",
   });
@@ -1348,15 +1818,19 @@ function agentAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
       .slice(0, 3)
       .map((g) => `${g.agent_key} (${g.severity}, ${g.count})`)
       .join("; ");
-    lines.push(`By agent: ${sample}.`);
+    lines.push(t(lang, `By agent: ${sample}.`, `Por agente: ${sample}.`));
   }
   const openActions = ctx.agent_actions.open;
   if (openActions.length > 0) {
     lines.push(
-      `${openActions.length} open action(s); most recent: "${openActions[0].title}".`
+      t(
+        lang,
+        `${openActions.length} open action(s); most recent: "${openActions[0].title}".`,
+        `${openActions.length} acción(es) abierta(s); la más reciente: "${openActions[0].title}".`
+      )
     );
     facts.push({
-      label: "Open actions",
+      label: t(lang, "Open actions", "Acciones abiertas"),
       value: String(openActions.length),
       source_area: "agent",
     });
@@ -1366,12 +1840,16 @@ function agentAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
     answer: lines.join(" "),
     supporting_facts: facts.slice(0, 4),
     related_links: [
-      { label: "Agents", href: "/dashboard/restaurant/agents" },
-      { label: "Cockpit", href: "/dashboard/restaurant" },
+      relatedLink(lang, "/dashboard/restaurant/agents"),
+      relatedLink(lang, "/dashboard/restaurant"),
     ],
     suggested_followups: [
-      "What should I do this week?",
-      "Which dishes should I fix first?",
+      t(lang, "What should I do this week?", "¿Qué debería hacer esta semana?"),
+      t(
+        lang,
+        "Which dishes should I fix first?",
+        "¿Qué platillos debería corregir primero?"
+      ),
     ],
     confidence_notes: [],
   };
@@ -1379,7 +1857,10 @@ function agentAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
 
 // ---- Generic briefing ----
 
-function genericBriefingAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
+function genericBriefingAnswer(
+  ctx: AskMiltonContext,
+  lang: PreferredLanguage
+): AskMiltonAnswer {
   const k = ctx.briefing.kpis;
   const c = ctx.briefing.currency;
   const facts: AskMiltonSupportingFact[] = [];
@@ -1387,59 +1868,91 @@ function genericBriefingAnswer(ctx: AskMiltonContext): AskMiltonAnswer {
 
   if (k.revenue > 0) {
     facts.push({
-      label: "Revenue",
+      label: t(lang, "Revenue", "Ingresos"),
       value: fmtCurrency(k.revenue, c),
       source_area: "sales",
     });
   }
   facts.push({
-    label: "Cost coverage",
+    label: t(lang, "Cost coverage", "Cobertura de costo"),
     value: pct(k.cost_coverage_pct),
     source_area: "data_quality",
   });
   if (k.estimated_gross_margin_pct !== null) {
     facts.push({
-      label: "Gross margin (est.)",
+      label: t(lang, "Gross margin (est.)", "Margen bruto (est.)"),
       value: pct(k.estimated_gross_margin_pct),
       source_area: "menu",
     });
   }
   if (ctx.briefing.open_recommendations.total > 0) {
     facts.push({
-      label: "Open recommendations",
+      label: t(lang, "Open recommendations", "Recomendaciones abiertas"),
       value: String(ctx.briefing.open_recommendations.total),
       source_area: "agent",
     });
   }
   if (k.cost_coverage_pct < 90) {
     notes.push(
-      `Cost coverage is ${k.cost_coverage_pct}% — margin numbers only reflect that share of revenue.`
+      t(
+        lang,
+        `Cost coverage is ${k.cost_coverage_pct}% — margin numbers only reflect that share of revenue.`,
+        `La cobertura de costo es ${k.cost_coverage_pct}% — los márgenes solo reflejan esa parte de los ingresos.`
+      )
     );
   }
   if (ctx.briefing.data_quality.menu_items_without_recipe > 0) {
     notes.push(
-      `${ctx.briefing.data_quality.menu_items_without_recipe} menu item(s) still need a recipe.`
+      t(
+        lang,
+        `${ctx.briefing.data_quality.menu_items_without_recipe} menu item(s) still need a recipe.`,
+        `${ctx.briefing.data_quality.menu_items_without_recipe} artículo(s) del menú aún necesitan receta.`
+      )
     );
   }
 
   const summary =
     k.revenue > 0
-      ? `Across ${ctx.briefing.period_label}, ${ctx.briefing.restaurant_name} recorded ${fmtCurrency(k.revenue, c)} in revenue with ${pct(k.cost_coverage_pct)} cost coverage. Estimated gross margin is ${pct(k.estimated_gross_margin_pct)}.`
-      : `${ctx.briefing.restaurant_name} has no POS revenue loaded yet. Upload sales data to start tracking margin.`;
+      ? t(
+          lang,
+          `Across ${ctx.briefing.period_label}, ${ctx.briefing.restaurant_name} recorded ${fmtCurrency(k.revenue, c)} in revenue with ${pct(k.cost_coverage_pct)} cost coverage. Estimated gross margin is ${pct(k.estimated_gross_margin_pct)}.`,
+          `En ${ctx.briefing.period_label}, ${ctx.briefing.restaurant_name} registró ${fmtCurrency(k.revenue, c)} en ingresos con ${pct(k.cost_coverage_pct)} de cobertura de costo. El margen bruto estimado es ${pct(k.estimated_gross_margin_pct)}.`
+        )
+      : t(
+          lang,
+          `${ctx.briefing.restaurant_name} has no POS revenue loaded yet. Upload sales data to start tracking margin.`,
+          `${ctx.briefing.restaurant_name} aún no tiene ingresos de POS cargados. Sube datos de ventas para empezar a rastrear el margen.`
+        );
 
   return {
     answer: summary,
     supporting_facts: facts.slice(0, 4),
     related_links: [
-      { label: "Cockpit", href: "/dashboard/restaurant" },
-      { label: "Menu & Recipes", href: "/dashboard/restaurant/menu" },
-      { label: "Agents", href: "/dashboard/restaurant/agents" },
+      relatedLink(lang, "/dashboard/restaurant"),
+      relatedLink(lang, "/dashboard/restaurant/menu"),
+      relatedLink(lang, "/dashboard/restaurant/agents"),
     ],
     suggested_followups: [
-      "What is my most profitable dish?",
-      "Which dishes are least profitable?",
-      "Which ingredients are most expensive?",
-      "Where is cost coverage incomplete?",
+      t(
+        lang,
+        "What is my most profitable dish?",
+        "¿Cuál es mi platillo más rentable?"
+      ),
+      t(
+        lang,
+        "Which dishes are least profitable?",
+        "¿Qué platillos son menos rentables?"
+      ),
+      t(
+        lang,
+        "Which ingredients are most expensive?",
+        "¿Qué ingredientes son más costosos?"
+      ),
+      t(
+        lang,
+        "Where is cost coverage incomplete?",
+        "¿Dónde está incompleta la cobertura de costo?"
+      ),
     ],
     confidence_notes: notes.slice(0, 3),
   };
@@ -1455,26 +1968,30 @@ export function buildDeterministicAnswer(
   intent: AskMiltonIntent,
   resolved: ResolvedEntities
 ): AskMiltonAnswer {
+  // Milton Language Foundation v1: every branch below is bilingual — the
+  // deterministic fallback never silently reverts to English for a
+  // Spanish-preference company. See lib/restaurant/language.ts.
+  const lang = ctx.briefing.preferred_language;
   switch (intent) {
     case "most_profitable_dish":
-      return mostProfitableAnswer(ctx);
+      return mostProfitableAnswer(ctx, lang);
     case "least_profitable_dishes":
-      return leastProfitableAnswer(ctx);
+      return leastProfitableAnswer(ctx, lang);
     case "expensive_ingredients":
-      return expensiveIngredientsAnswer(ctx);
+      return expensiveIngredientsAnswer(ctx, lang);
     case "ingredient_usage":
-      return ingredientUsageAnswer(ctx, message, resolved);
+      return ingredientUsageAnswer(ctx, message, resolved, lang);
     case "supplier_risk":
-      return supplierAnswer(ctx);
+      return supplierAnswer(ctx, lang);
     case "invoices_needing_review":
-      return invoiceAnswer(ctx);
+      return invoiceAnswer(ctx, lang);
     case "missing_recipes":
-      return missingRecipesAnswer(ctx);
+      return missingRecipesAnswer(ctx, lang);
     case "cost_coverage":
-      return costCoverageAnswer(ctx);
+      return costCoverageAnswer(ctx, lang);
     case "agent_recommendations":
-      return agentAnswer(ctx);
+      return agentAnswer(ctx, lang);
     default:
-      return genericBriefingAnswer(ctx);
+      return genericBriefingAnswer(ctx, lang);
   }
 }

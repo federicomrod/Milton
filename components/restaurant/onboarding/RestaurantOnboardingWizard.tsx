@@ -16,6 +16,11 @@
 //   - concept type, location-count bucket, POS choice, priorities: used
 //     for this screen's own personalization only; not yet durably stored
 //     (no existing column fits them — see the reported proposed migration).
+//   - preferred language (Milton Language Foundation v1): written to
+//     companies.preferred_language — a company-level setting, not tied to
+//     any one restaurant/location. Defaults intelligently from the chosen
+//     country (see lib/restaurant/language.ts) but the user can always
+//     override it by picking a card directly.
 
 import { useMemo, useState, type ComponentType } from "react";
 import { useRouter } from "next/navigation";
@@ -62,6 +67,11 @@ import {
   type PosSystemChoice,
   type PriorityKey,
 } from "@/lib/restaurant/onboarding-copy";
+import {
+  LANGUAGE_OPTIONS,
+  nextLanguageOnCountryChange,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 
 type IconComponent = ComponentType<{ className?: string }>;
 
@@ -88,6 +98,10 @@ const TOTAL_STEPS = 4;
 interface WizardState {
   conceptType: ConceptType | null;
   country: string | null;
+  preferredLanguage: PreferredLanguage | null;
+  /** True once the user has explicitly picked a language card — after
+   *  that, changing the country must never override their choice. */
+  languageTouched: boolean;
   locationCount: LocationCountBucket | null;
   posSystem: PosSystemChoice | null;
   priorities: PriorityKey[];
@@ -105,6 +119,8 @@ export function RestaurantOnboardingWizard({
   const [state, setState] = useState<WizardState>({
     conceptType: null,
     country: null,
+    preferredLanguage: null,
+    languageTouched: false,
     locationCount: null,
     posSystem: null,
     priorities: [],
@@ -138,6 +154,7 @@ export function RestaurantOnboardingWizard({
         body: JSON.stringify({
           conceptType: state.conceptType,
           country: state.country,
+          preferredLanguage: state.preferredLanguage,
           locationCount: state.locationCount,
           posSystem: state.posSystem,
           priorities: state.priorities,
@@ -210,7 +227,20 @@ export function RestaurantOnboardingWizard({
             </h3>
             <Select
               value={state.country ?? undefined}
-              onValueChange={(v) => setState((s) => ({ ...s, country: v }))}
+              onValueChange={(v) =>
+                setState((s) => ({
+                  ...s,
+                  country: v,
+                  // Smart default: only auto-set language from the country
+                  // while the user hasn't explicitly picked one themselves —
+                  // the user's own choice always wins from then on.
+                  preferredLanguage: nextLanguageOnCountryChange(
+                    v,
+                    s.languageTouched,
+                    s.preferredLanguage
+                  ),
+                }))
+              }
             >
               <SelectTrigger className="h-12 w-full text-base">
                 <SelectValue
@@ -225,6 +255,28 @@ export function RestaurantOnboardingWizard({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium">
+              {ONBOARDING_COPY.step1.languageLabel}
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              {LANGUAGE_OPTIONS.map((opt) => (
+                <SelectableCard
+                  key={opt.value}
+                  label={opt.label}
+                  selected={state.preferredLanguage === opt.value}
+                  onClick={() =>
+                    setState((s) => ({
+                      ...s,
+                      preferredLanguage: opt.value,
+                      languageTouched: true,
+                    }))
+                  }
+                />
+              ))}
+            </div>
           </div>
         </StepShell>
       )}

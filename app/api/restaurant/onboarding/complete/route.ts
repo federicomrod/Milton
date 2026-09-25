@@ -17,6 +17,8 @@
 //     including its declared primary_pos
 //   - companies.location_count_range, companies.priorities,
 //     companies.onboarding_status = 'completed'
+//   - companies.preferred_language (migration 016 — Milton Language
+//     Foundation v1; company-level, applies to every restaurant under it)
 //
 // Every submitted value is validated server-side against the fixed option
 // lists in lib/restaurant/onboarding-copy.ts before being written — the
@@ -37,6 +39,10 @@ import {
   normalizePosSystemChoice,
   normalizePriorities,
 } from "@/lib/restaurant/onboarding-copy";
+import {
+  defaultLanguageForCountry,
+  normalizePreferredLanguage,
+} from "@/lib/restaurant/language";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -44,6 +50,7 @@ export const runtime = "nodejs";
 interface RequestBody {
   country?: string | null;
   conceptType?: unknown;
+  preferredLanguage?: unknown;
   locationCount?: unknown;
   posSystem?: unknown;
   priorities?: unknown;
@@ -70,6 +77,12 @@ export async function POST(req: NextRequest) {
     const locationCount = normalizeLocationCountBucket(body.locationCount);
     const posSystem = normalizePosSystemChoice(body.posSystem);
     const priorities = normalizePriorities(body.priorities);
+    // Server-side default mirrors the wizard's own smart default so a
+    // missing/malformed value never silently falls back to English for a
+    // Spanish-default country — see lib/restaurant/language.ts.
+    const preferredLanguage =
+      normalizePreferredLanguage(body.preferredLanguage) ??
+      defaultLanguageForCountry(country);
 
     const { data: companyRow, error: companyError } = await supabase
       .from("companies")
@@ -195,6 +208,7 @@ export async function POST(req: NextRequest) {
         onboarding_status: "completed",
         location_count_range: locationCount,
         priorities,
+        preferred_language: preferredLanguage,
       })
       .eq("id", companyId);
     if (statusError) {

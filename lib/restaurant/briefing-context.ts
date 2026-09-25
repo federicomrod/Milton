@@ -17,6 +17,11 @@ import {
   fetchProfitabilityData,
   type ProfitabilitySelection,
 } from "@/lib/restaurant/profitability-server";
+import {
+  resolvePreferredLanguage,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 
 // ---------------------------------------------------------------------------
 // Public shape
@@ -95,6 +100,13 @@ export interface BriefingDataQuality {
 
 export interface BriefingContext {
   restaurant_name: string;
+  /**
+   * Milton Language Foundation v1 — the company's preferred_language
+   * ("en" | "es"), resolved once here and reused by every consumer that
+   * wraps this context (Ask Milton included, via its own `briefing` field)
+   * rather than each one re-fetching or re-deciding language on its own.
+   */
+  preferred_language: PreferredLanguage;
   period_label: string;
   currency: string;
   kpis: {
@@ -160,6 +172,23 @@ export async function buildBriefingContext(
   companyId: string,
   selected?: ProfitabilitySelection | null
 ): Promise<BriefingContext> {
+  // ---- Preferred language (company-level, Milton Language Foundation v1) ----
+  // Best-effort: any failure (missing column pre-migration, transient
+  // error) safely resolves to English — never blocks the briefing.
+  let preferredLanguage: PreferredLanguage = "en";
+  try {
+    const { data: languageRow } = await supabase
+      .from("companies")
+      .select("preferred_language")
+      .eq("id", companyId)
+      .maybeSingle();
+    preferredLanguage = resolvePreferredLanguage(
+      languageRow?.preferred_language
+    );
+  } catch (err) {
+    console.error("[briefing-context] preferred_language lookup:", err);
+  }
+
   // ---- Restaurant name (best-effort) ----
   // Selected: prefer the location's OWN brand, then its own location name —
   // never an arbitrary OTHER brand belonging to the same company.
@@ -226,7 +255,11 @@ export async function buildBriefingContext(
     }
     const { data: checks, error: checksErr } = await checksQuery.limit(20_000);
     if (checksErr) {
-      ordersReason = "Could not read check_id from pos_sales_items.";
+      ordersReason = t(
+        preferredLanguage,
+        "Could not read check_id from pos_sales_items.",
+        "No se pudo leer check_id de pos_sales_items."
+      );
     } else {
       const distinct = new Set<string>();
       for (const row of (checks ?? []) as { check_id: string | null }[]) {
@@ -235,13 +268,20 @@ export async function buildBriefingContext(
       if (distinct.size > 0) {
         orders = distinct.size;
       } else {
-        ordersReason =
-          "POS rows have no check_id (summary export) — orders not counted.";
+        ordersReason = t(
+          preferredLanguage,
+          "POS rows have no check_id (summary export) — orders not counted.",
+          "Las filas del POS no tienen check_id (exportación resumida) — no se contaron órdenes."
+        );
       }
     }
   } catch (err) {
     console.error("[briefing-context] orders lookup:", err);
-    ordersReason = "Unexpected error counting orders.";
+    ordersReason = t(
+      preferredLanguage,
+      "Unexpected error counting orders.",
+      "Error inesperado al contar las órdenes."
+    );
   }
 
   const unitsSold = data.marginRows.reduce((s, r) => s + r.units_sold, 0);
@@ -249,7 +289,11 @@ export async function buildBriefingContext(
     orders && orders > 0 ? data.kpis.revenue_total / orders : null;
   const avgTicketReason =
     avgTicket === null
-      ? "avg_ticket requires order count — see orders_reason."
+      ? t(
+          preferredLanguage,
+          "avg_ticket requires order count — see orders_reason.",
+          "avg_ticket requiere el número de órdenes — ver orders_reason."
+        )
       : undefined;
 
   // ---- Top revenue items (top 5, with cost status) ----
@@ -397,6 +441,7 @@ export async function buildBriefingContext(
   // ---- Final assembly ----
   const ctx: BriefingContext = {
     restaurant_name: restaurantName,
+    preferred_language: preferredLanguage,
     period_label: "all available POS data",
     currency,
     kpis: {
@@ -415,12 +460,20 @@ export async function buildBriefingContext(
       ),
       estimated_gross_margin_pct_reason:
         data.kpis.estimated_gross_margin_pct === null
-          ? "No revenue with complete cost coverage — set up recipes and ingredient costs."
+          ? t(
+              preferredLanguage,
+              "No revenue with complete cost coverage — set up recipes and ingredient costs.",
+              "No hay ingresos con cobertura de costo completa — configura recetas y costos de ingredientes."
+            )
           : undefined,
       food_cost_pct: round(data.kpis.food_cost_pct, 1),
       food_cost_pct_reason:
         data.kpis.food_cost_pct === null
-          ? "Food cost % requires revenue with complete cost — see cost_coverage_pct."
+          ? t(
+              preferredLanguage,
+              "Food cost % requires revenue with complete cost — see cost_coverage_pct.",
+              "El % de costo de alimentos requiere ingresos con costo completo — ver cost_coverage_pct."
+            )
           : undefined,
     },
     top_revenue_items: topRevenueItems,

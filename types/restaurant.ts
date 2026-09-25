@@ -119,7 +119,10 @@ export interface Ingredient {
 
 export interface MenuItem {
   id: string;
-  brand_id: string;
+  // Nullable in the DB (migration 004 dropped the NOT NULL constraint) —
+  // NULL means "legacy/company-wide", not scoped to any one brand. New
+  // menu items may optionally declare a brand at creation time.
+  brand_id: string | null;
   company_id: string;
   name: string;
   category: string;
@@ -223,10 +226,19 @@ export interface MenuRecipeInput {
   created_at: string;
 }
 
-/** Canonical mapping from raw POS item name → menu_items.id. */
+/**
+ * Canonical mapping from raw POS item name → menu_items.id.
+ *
+ * location_id (migration 015) scopes a mapping to one restaurant_location
+ * so the same raw name can resolve differently per restaurant. NULL means
+ * "company-wide/legacy" — used as the fallback when no location-specific
+ * mapping exists. See lib/restaurant/scoped-matching.ts for the lookup
+ * precedence.
+ */
 export interface POSItemMapping {
   id: string;
   company_id: string;
+  location_id: string | null;
   raw_pos_item_name: string;
   menu_item_id: string;
   match_type: POSMatchType;

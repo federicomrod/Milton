@@ -27,6 +27,10 @@ import type {
   MenuItemCostResult,
   CostStatus,
 } from "@/types/restaurant-costing";
+import {
+  buildScopedNameIndex,
+  resolveScopedName,
+} from "@/lib/restaurant/scoped-matching";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -169,12 +173,14 @@ export async function fetchProfitabilityData(
   ] = await Promise.all([
     supabase
       .from("pos_sales_items")
-      .select("raw_item_name, quantity, gross_revenue, net_revenue, currency")
+      .select(
+        "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id"
+      )
       .eq("company_id", companyId)
       .limit(20_000),
     supabase
       .from("pos_item_mappings")
-      .select("raw_pos_item_name, menu_item_id")
+      .select("raw_pos_item_name, menu_item_id, location_id")
       .eq("company_id", companyId),
     supabase
       .from("menu_items")
@@ -378,15 +384,24 @@ export async function fetchProfitabilityData(
   const menuItemCosts = calculateAllMenuItemCosts(costingData);
 
   // ----- POS revenue aggregation per menu item -----
-  // mappings are exact-match on trimmed raw_item_name (same as menu page).
+  // Mappings are exact-match on trimmed raw_item_name, scoped by location
+  // (Multi-Restaurant v1, migration 015): a location-specific mapping
+  // takes precedence; a company-wide (location_id NULL) mapping is the
+  // fallback for legacy/unscoped rows. Same precedence rule as ingest-time
+  // menu-item matching — see lib/restaurant/scoped-matching.ts.
   const mappings = (mappingsRes.data ?? []) as {
     raw_pos_item_name: string;
     menu_item_id: string;
+    location_id: string | null;
   }[];
-  const menuItemIdByRawName = new Map<string, string>();
-  for (const m of mappings)
-    menuItemIdByRawName.set(m.raw_pos_item_name, m.menu_item_id);
-  const mappedNames = new Set(mappings.map((m) => m.raw_pos_item_name));
+  const mappingIndex = buildScopedNameIndex(
+    mappings.map((m) => ({
+      id: m.menu_item_id,
+      name: m.raw_pos_item_name,
+      scopeId: m.location_id,
+    })),
+    (s) => s
+  );
 
   type PosAggregate = {
     units_sold: number;
@@ -404,6 +419,7 @@ export async function fetchProfitabilityData(
     gross_revenue: number | null;
     net_revenue: number | null;
     currency: string | null;
+    location_id: string | null;
   }[];
   for (const r of posRows) {
     const raw = (r.raw_item_name ?? "").trim();
@@ -421,9 +437,9 @@ export async function fetchProfitabilityData(
     revenueTotal += rev;
     if (firstCurrency === null && r.currency) firstCurrency = r.currency;
 
-    const menuItemId = menuItemIdByRawName.get(raw);
+    const menuItemId = resolveScopedName(mappingIndex, r.location_id, raw);
     if (!menuItemId) {
-      if (!mappedNames.has(raw)) unmappedRawNames.add(raw.toLowerCase());
+      unmappedRawNames.add(raw.toLowerCase());
       continue;
     }
     let agg = posByMenuItem.get(menuItemId);

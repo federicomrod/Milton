@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { buildNameIndex } from "@/lib/restaurant/pos-import";
+import { buildScopedNameIndex } from "@/lib/restaurant/scoped-matching";
 import {
   authenticate,
   executeKw,
@@ -25,6 +26,7 @@ import {
 } from "@/lib/restaurant/odoo/client";
 import {
   transformOdooOrders,
+  normalizeMatchKey,
   ODOO_COMPLETED_STATES,
   type OdooPosOrderRaw,
   type OdooPosOrderLineRaw,
@@ -269,11 +271,11 @@ export async function POST(req: NextRequest) {
     const [menuItemsRes, locationsRes] = await Promise.all([
       supabase
         .from("menu_items")
-        .select("id, name")
+        .select("id, name, brand_id")
         .eq("company_id", companyId),
       supabase
         .from("restaurant_locations")
-        .select("id, name")
+        .select("id, name, brand_id")
         .eq("company_id", companyId),
     ]);
     if (menuItemsRes.error) {
@@ -288,11 +290,30 @@ export async function POST(req: NextRequest) {
         locationsRes.error.message
       );
     }
-    const menuItemIndex = buildNameIndex(
-      (menuItemsRes.data ?? []) as { id: string; name: string }[]
+    const menuItemRows = (menuItemsRes.data ?? []) as {
+      id: string;
+      name: string;
+      brand_id: string | null;
+    }[];
+    const locationRows = (locationsRes.data ?? []) as {
+      id: string;
+      name: string;
+      brand_id: string | null;
+    }[];
+    // Menu items are matched scoped by brand — never guessed across
+    // brands. Uses normalizeMatchKey (from odoo/sync.ts), the same
+    // normalization transformOdooOrders uses to look values up.
+    const menuItemIndex = buildScopedNameIndex(
+      menuItemRows.map((m) => ({
+        id: m.id,
+        name: m.name,
+        scopeId: m.brand_id,
+      })),
+      normalizeMatchKey
     );
-    const locationIndex = buildNameIndex(
-      (locationsRes.data ?? []) as { id: string; name: string }[]
+    const locationIndex = buildNameIndex(locationRows);
+    const locationBrandIndex = new Map<string, string | null>(
+      locationRows.map((l) => [l.id, l.brand_id])
     );
 
     // --- Transform ----------------------------------------------------------
@@ -302,6 +323,7 @@ export async function POST(req: NextRequest) {
       defaultCurrency: "MXN",
       menuItemIndex,
       locationIndex,
+      locationBrandIndex,
     });
 
     // Drop rows the padding pulled in that fall outside the exact requested

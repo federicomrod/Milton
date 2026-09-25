@@ -8,14 +8,22 @@ import {
   type OdooPosOrderLineRaw,
   type OdooSyncContext,
 } from "@/lib/restaurant/odoo/sync";
+import { buildScopedNameIndex } from "@/lib/restaurant/scoped-matching";
 
 function baseCtx(overrides: Partial<OdooSyncContext> = {}): OdooSyncContext {
   return {
     companyId: "company-1",
     timezone: "America/Mexico_City",
     defaultCurrency: "MXN",
-    menuItemIndex: new Map([["bbqbrisketsandwich", "menu-item-1"]]),
+    // Legacy/unscoped fixture by default (brand_id null) — exercises the
+    // fallback path, matching pre-multi-restaurant behavior when nothing
+    // has a brand assigned yet.
+    menuItemIndex: buildScopedNameIndex(
+      [{ id: "menu-item-1", name: "BBQ Brisket Sandwich", scopeId: null }],
+      normalizeMatchKey
+    ),
     locationIndex: new Map([["romanorte", "location-1"]]),
+    locationBrandIndex: new Map([["location-1", "brand-1"]]),
     ...overrides,
   };
 }
@@ -194,5 +202,99 @@ describe("transformOdooOrders", () => {
     );
     expect(rows).toHaveLength(0);
     expect(skipped[0].reason).toMatch(/no order_id/i);
+  });
+});
+
+describe("transformOdooOrders — multi-brand matching (Multi-Restaurant v1)", () => {
+  // Two brands under one company, each with its own "Coke" menu item and
+  // its own location/pos.config.
+  const menuItemIndex = buildScopedNameIndex(
+    [
+      { id: "coke-brand-a", name: "Coke", scopeId: "brand-a" },
+      { id: "coke-brand-b", name: "Coke", scopeId: "brand-b" },
+    ],
+    normalizeMatchKey
+  );
+  const locationIndex = new Map([
+    ["locationa", "location-a"],
+    ["locationb", "location-b"],
+  ]);
+  const locationBrandIndex = new Map([
+    ["location-a", "brand-a"],
+    ["location-b", "brand-b"],
+  ]);
+  const ctx = baseCtx({ menuItemIndex, locationIndex, locationBrandIndex });
+
+  const orderA: OdooPosOrderRaw = {
+    ...paidOrder,
+    id: 201,
+    config_id: [11, "Location A"],
+  };
+  const orderB: OdooPosOrderRaw = {
+    ...paidOrder,
+    id: 202,
+    config_id: [12, "Location B"],
+  };
+
+  it("matches Coke sold at Location A to Brand A's Coke menu item", () => {
+    const { rows } = transformOdooOrders(
+      [orderA],
+      [makeLine({ id: 901, order_id: [201, "o"], full_product_name: "Coke" })],
+      ctx
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].location_id).toBe("location-a");
+    expect(rows[0].menu_item_id).toBe("coke-brand-a");
+  });
+
+  it("matches Coke sold at Location B to Brand B's Coke menu item — no cross-brand leakage", () => {
+    const { rows } = transformOdooOrders(
+      [orderB],
+      [makeLine({ id: 902, order_id: [202, "o"], full_product_name: "Coke" })],
+      ctx
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].location_id).toBe("location-b");
+    expect(rows[0].menu_item_id).toBe("coke-brand-b");
+    expect(rows[0].menu_item_id).not.toBe("coke-brand-a");
+  });
+
+  it("both locations' Coke sales coexist correctly in the same sync batch", () => {
+    const { rows } = transformOdooOrders(
+      [orderA, orderB],
+      [
+        makeLine({ id: 901, order_id: [201, "o"], full_product_name: "Coke" }),
+        makeLine({ id: 902, order_id: [202, "o"], full_product_name: "Coke" }),
+      ],
+      ctx
+    );
+    expect(rows).toHaveLength(2);
+    const byLine = new Map(rows.map((r) => [r.external_line_id, r]));
+    expect(byLine.get("901")?.menu_item_id).toBe("coke-brand-a");
+    expect(byLine.get("902")?.menu_item_id).toBe("coke-brand-b");
+  });
+
+  it("never guesses a brand when the location doesn't resolve — falls back to unscoped only", () => {
+    const unresolvedOrder: OdooPosOrderRaw = {
+      ...paidOrder,
+      id: 203,
+      config_id: [99, "Unknown Terminal"],
+    };
+    const { rows } = transformOdooOrders(
+      [unresolvedOrder],
+      [
+        makeLine({
+          id: 903,
+          order_id: [203, "o"],
+          full_product_name: "Coke",
+        }),
+      ],
+      ctx
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].location_id).toBeNull();
+    // Neither brand's Coke is guessed — there is no unscoped "Coke" in
+    // this fixture's index, so it's correctly unmatched.
+    expect(rows[0].menu_item_id).toBeNull();
   });
 });

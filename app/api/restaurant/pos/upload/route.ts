@@ -17,10 +17,12 @@ import {
   validateRevelPOSColumns,
   normalizeRevelPOSRow,
   buildNameIndex,
+  normalizeHeader,
   type PosSalesItemInsert,
   type SourceType,
   type RowValidationError,
 } from "@/lib/restaurant/pos-import";
+import { buildScopedNameIndex } from "@/lib/restaurant/scoped-matching";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -259,11 +261,11 @@ export async function POST(req: NextRequest) {
     const [menuItemsRes, locationsRes] = await Promise.all([
       supabase
         .from("menu_items")
-        .select("id, name")
+        .select("id, name, brand_id")
         .eq("company_id", company.id),
       supabase
         .from("restaurant_locations")
-        .select("id, name")
+        .select("id, name, brand_id")
         .eq("company_id", company.id),
     ]);
 
@@ -280,11 +282,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const menuItemIndex = buildNameIndex(
-      (menuItemsRes.data ?? []) as { id: string; name: string }[]
+    const menuItemRows = (menuItemsRes.data ?? []) as {
+      id: string;
+      name: string;
+      brand_id: string | null;
+    }[];
+    const locationRows = (locationsRes.data ?? []) as {
+      id: string;
+      name: string;
+      brand_id: string | null;
+    }[];
+
+    // Menu items are matched scoped by brand (see pos-import.ts /
+    // scoped-matching.ts) — never guessed across brands.
+    const menuItemIndex = buildScopedNameIndex(
+      menuItemRows.map((m) => ({
+        id: m.id,
+        name: m.name,
+        scopeId: m.brand_id,
+      })),
+      normalizeHeader
     );
-    const locationIndex = buildNameIndex(
-      (locationsRes.data ?? []) as { id: string; name: string }[]
+    const locationIndex = buildNameIndex(locationRows);
+    const locationBrandIndex = new Map<string, string | null>(
+      locationRows.map((l) => [l.id, l.brand_id])
     );
 
     // --- Normalize rows ---------------------------------------------------
@@ -299,6 +320,7 @@ export async function POST(req: NextRequest) {
         source_type: sourceType,
         currency: "MXN", // Pinche Gringo pilot; per-tenant currency comes later.
         locationIndex,
+        locationBrandIndex,
         menuItemIndex,
         columns: colCheck.resolved,
       });

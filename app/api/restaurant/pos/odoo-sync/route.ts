@@ -2,13 +2,15 @@
 //
 // Manual Odoo 18 POS sales sync: authenticate, pull completed orders for a
 // requested date range, transform to canonical pos_sales_items rows,
-// upsert idempotently. Sandbox-only per Issue #3 scope — the Odoo API key
-// comes from a server-side environment variable (ODOO_SANDBOX_API_KEY),
-// never from the request or the browser. Non-secret connection details
-// (base URL, database, username, timezone) come from
+// upsert idempotently.
+//
+// Odoo Production Hardening v1: the Odoo API key is per-company, loaded
+// and decrypted server-side from restaurant_pos_secrets via
+// lib/restaurant/odoo/secrets.ts (service-role client, AES-256-GCM at
+// rest) — NOT a shared global environment variable. Non-secret connection
+// details (base URL, database, username, timezone) still come from
 // restaurant_pos_connections, scoped to the authenticated user's company
-// via the same RLS-backed client every other restaurant route uses — no
-// service role, no credential storage beyond the one env var.
+// via the same RLS-backed client every other restaurant route uses.
 //
 // This route does not run on a schedule; it is triggered explicitly by an
 // authenticated request with a date range. No cron, no background job.
@@ -32,6 +34,7 @@ import {
   type OdooPosOrderLineRaw,
   type CanonicalOdooSaleRow,
 } from "@/lib/restaurant/odoo/sync";
+import { loadDecryptedOdooSecret } from "@/lib/restaurant/odoo/secrets";
 import type { RestaurantPosConnection } from "@/types/restaurant";
 
 export const dynamic = "force-dynamic";
@@ -138,16 +141,31 @@ export async function POST(req: NextRequest) {
     }
     const conn = connection as RestaurantPosConnection;
 
-    // --- Sandbox-only secret: server-side env var, never from the client -
-    const apiKey = process.env.ODOO_SANDBOX_API_KEY;
+    // --- Per-company secret: encrypted at rest, decrypted server-side only.
+    // Never logged, never echoed back — see lib/restaurant/odoo/secrets.ts.
+    let apiKey: string | null;
+    try {
+      apiKey = await loadDecryptedOdooSecret(conn.id, companyId);
+    } catch (err) {
+      // Deliberately generic — never forward err.message here, this is
+      // the closest call site to the credential in the whole request.
+      console.error(
+        "[Odoo Sync] credential lookup failed:",
+        err instanceof Error ? err.name : "Unknown error"
+      );
+      return NextResponse.json(
+        { error: "Could not load the stored Odoo credential" },
+        { status: 500 }
+      );
+    }
     if (!apiKey) {
       return NextResponse.json(
         {
-          error: "Server misconfigured",
+          error: "No Odoo credential configured for this company",
           message:
-            "ODOO_SANDBOX_API_KEY is not set. This sandbox implementation reads the Odoo API key from a server-side environment variable only.",
+            "Configure this company's Odoo connection (including the API key) via POST /api/restaurant/pos/odoo-connection before syncing.",
         },
-        { status: 500 }
+        { status: 404 }
       );
     }
 

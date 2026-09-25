@@ -147,14 +147,66 @@ const PRICE_INCREASE_MIN_PCT = 0; // surface any increase; UI can highlight larg
 // Aggregator
 // ---------------------------------------------------------------------------
 
+export interface ProfitabilitySelection {
+  locationId: string;
+  /** The selected location's brand, or null for a legacy brand-less location. */
+  brandId: string | null;
+}
+
+/**
+ * Pure brand-scoping rule for menu items — no I/O, directly unit-testable.
+ * A location's own brand's items are visible, plus legacy brand_id-NULL
+ * items (compatibility fallback); a DIFFERENT brand's items are never
+ * shown. Consolidated (selected null/undefined) returns every item
+ * unchanged — today's behavior.
+ */
+export function filterMenuItemsForSelection<
+  T extends { brand_id: string | null },
+>(menuItems: T[], selected: ProfitabilitySelection | null | undefined): T[] {
+  if (!selected) return menuItems;
+  if (selected.brandId) {
+    const brandId = selected.brandId;
+    return menuItems.filter(
+      (m) => m.brand_id === brandId || m.brand_id === null
+    );
+  }
+  return menuItems.filter((m) => m.brand_id === null);
+}
+
 /**
  * Loads every table the cockpit profitability section needs, runs the
  * costing engine, and aggregates per-menu-item revenue from POS sales.
+ *
+ * @param selected Multi-Restaurant UX v1: when set, scopes `pos_sales_items`
+ *   to the given location and `menu_items` to that location's brand (plus
+ *   legacy brand_id-NULL items, for compatibility) via
+ *   `filterMenuItemsForSelection`. Must already be validated by the caller
+ *   against the resolved company — see lib/restaurant/restaurant-context-server.ts.
+ *   null/undefined preserves today's company-wide consolidated behavior.
+ *   Ingredients/cost entries/suppliers remain company-wide regardless (out
+ *   of scope for v1).
  */
 export async function fetchProfitabilityData(
   supabase: SupabaseClient,
-  companyId: string
+  companyId: string,
+  selected?: ProfitabilitySelection | null
 ): Promise<ProfitabilityData> {
+  const posSalesQuery = supabase
+    .from("pos_sales_items")
+    .select(
+      "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id"
+    )
+    .eq("company_id", companyId);
+  if (selected) {
+    posSalesQuery.eq("location_id", selected.locationId);
+  }
+  // menu_items is intentionally fetched unfiltered and scoped in-memory via
+  // filterMenuItemsForSelection below — see that function's docstring.
+  const menuItemsQuery = supabase
+    .from("menu_items")
+    .select("id, name, category, selling_price, currency, brand_id")
+    .eq("company_id", companyId);
+
   const [
     posRes,
     mappingsRes,
@@ -171,21 +223,17 @@ export async function fetchProfitabilityData(
     supplierInvoicesCountRes,
     agentRunsCountRes,
   ] = await Promise.all([
-    supabase
-      .from("pos_sales_items")
-      .select(
-        "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id"
-      )
-      .eq("company_id", companyId)
-      .limit(20_000),
+    posSalesQuery.limit(20_000),
+    // Intentionally NOT filtered by location: resolveScopedName below
+    // already applies the correct exact-scope-then-company-wide-fallback
+    // precedence per POS row once pos_sales_items itself is location-
+    // filtered. Pre-filtering this query would break that fallback for
+    // legacy/unscoped mappings.
     supabase
       .from("pos_item_mappings")
       .select("raw_pos_item_name, menu_item_id, location_id")
       .eq("company_id", companyId),
-    supabase
-      .from("menu_items")
-      .select("id, name, category, selling_price, currency")
-      .eq("company_id", companyId),
+    menuItemsQuery,
     supabase
       .from("recipes")
       .select("id, menu_item_id, status")
@@ -257,13 +305,17 @@ export async function fetchProfitabilityData(
   errLog("agent_runs_count", agentRunsCountRes.error);
 
   // ----- Costing engine setup -----
-  const menuItems = (menuItemsRes.data ?? []) as {
-    id: string;
-    name: string;
-    category: string | null;
-    selling_price: number | null;
-    currency: string | null;
-  }[];
+  const menuItems = filterMenuItemsForSelection(
+    (menuItemsRes.data ?? []) as {
+      id: string;
+      name: string;
+      category: string | null;
+      selling_price: number | null;
+      currency: string | null;
+      brand_id: string | null;
+    }[],
+    selected
+  );
   const recipes = (recipesRes.data ?? []) as {
     id: string;
     menu_item_id: string;

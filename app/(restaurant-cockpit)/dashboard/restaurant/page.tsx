@@ -47,6 +47,7 @@ import {
 } from "@/lib/restaurant/calculations";
 import {
   fetchRealRestaurantDashboardData,
+  resolveCompanyIdForUser,
   type RestaurantDashboardData,
   type SampleReason,
 } from "@/lib/restaurant/supabase-sales";
@@ -54,6 +55,7 @@ import {
   fetchProfitabilityData,
   type ProfitabilityData,
 } from "@/lib/restaurant/profitability-server";
+import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import {
   ProfitabilityKpisSection,
   MarginRiskSection,
@@ -861,7 +863,14 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
 // Page entry — branches on live vs sample mode.
 // ---------------------------------------------------------------------------
 
-export default async function RestaurantCockpitPage() {
+export default async function RestaurantCockpitPage({
+  searchParams,
+}: {
+  // Next.js 15+/16: searchParams is a Promise in a page Server Component.
+  searchParams: Promise<{ location?: string }>;
+}) {
+  const { location: requestedLocationId } = await searchParams;
+
   // Defensive: createClient() throws when Supabase env vars are missing.
   // Treat that as sample mode rather than crashing the page.
   let data: RestaurantDashboardData;
@@ -869,7 +878,37 @@ export default async function RestaurantCockpitPage() {
   let profitability: ProfitabilityData | null = null;
   try {
     const supabase = await createClient();
-    data = await fetchRealRestaurantDashboardData(supabase);
+
+    // Multi-Restaurant UX v1: resolve + validate the requested location
+    // against the caller's OWN company before trusting it for anything.
+    // An id for another company (or garbage) simply never matches and we
+    // silently fall back to consolidated — see resolveRestaurantContext's
+    // security note. Only bother with this lookup when a location was
+    // actually requested, to keep the common consolidated path cheap.
+    let selectedLocationId: string | null = null;
+    let selectedBrandId: string | null = null;
+    if (requestedLocationId) {
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData.user?.id) {
+        const companyIdForContext = await resolveCompanyIdForUser(
+          supabase,
+          userData.user.id
+        );
+        if (companyIdForContext) {
+          const context = await resolveRestaurantContext(
+            supabase,
+            companyIdForContext,
+            requestedLocationId
+          );
+          if (context.selected) {
+            selectedLocationId = context.selected.locationId;
+            selectedBrandId = context.selected.brandId;
+          }
+        }
+      }
+    }
+
+    data = await fetchRealRestaurantDashboardData(supabase, selectedLocationId);
     // Targets + profitability are scoped per-company; only load them when
     // we resolved a company (live mode). Each loader degrades independently
     // so a single failure doesn't blank the cockpit.
@@ -881,7 +920,13 @@ export default async function RestaurantCockpitPage() {
         targets = {};
       }
       try {
-        profitability = await fetchProfitabilityData(supabase, data.companyId);
+        profitability = await fetchProfitabilityData(
+          supabase,
+          data.companyId,
+          selectedLocationId
+            ? { locationId: selectedLocationId, brandId: selectedBrandId }
+            : null
+        );
       } catch (err) {
         console.error(
           "[RestaurantCockpitPage] profitability load failed:",

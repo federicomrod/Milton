@@ -18,12 +18,13 @@
 //   * The model's response is parsed + schema-validated before being returned.
 //   * No DB writes; no streaming; no chat memory.
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
   buildBriefingContext,
   type BriefingContext,
 } from "@/lib/restaurant/briefing-context";
+import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import {
   BRIEFING_SYSTEM_PROMPT,
   buildBriefingUserPrompt,
@@ -128,14 +129,29 @@ async function callOpenAI(
 // Handler
 // ---------------------------------------------------------------------------
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   const { supabase, companyId } = auth;
 
+  // Multi-Restaurant UX v1: an optional `?location=` narrows the briefing
+  // to one restaurant. Validated against the caller's OWN company before
+  // being trusted — an id for another company (or garbage) simply never
+  // matches and silently falls back to the consolidated briefing.
+  const requestedLocationId = req.nextUrl.searchParams.get("location");
+  let selected: { locationId: string; brandId: string | null } | null = null;
+  if (requestedLocationId) {
+    const context = await resolveRestaurantContext(
+      supabase,
+      companyId,
+      requestedLocationId
+    );
+    selected = context.selected;
+  }
+
   let ctx: BriefingContext;
   try {
-    ctx = await buildBriefingContext(supabase, companyId);
+    ctx = await buildBriefingContext(supabase, companyId, selected);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("[briefing] context build failed:", msg);

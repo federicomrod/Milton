@@ -9,7 +9,8 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Sparkles, RefreshCw, AlertTriangle, Cpu } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,15 +62,46 @@ function fmtRelative(iso: string): string {
 // ---------------------------------------------------------------------------
 
 export function BriefingCard() {
+  // useSearchParams() (used below, for the ?location= selection) requires a
+  // Suspense boundary — the fallback is only ever visible for an instant,
+  // since it resolves synchronously on the client.
+  return (
+    <Suspense fallback={<BriefingCardSkeleton />}>
+      <BriefingCardInner />
+    </Suspense>
+  );
+}
+
+function BriefingCardSkeleton() {
+  return (
+    <Card className="border-orange-200 dark:border-orange-900/50 bg-orange-50/30 dark:bg-orange-950/10">
+      <CardContent className="pt-4 pb-4">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Sparkles className="h-4 w-4 text-orange-600 dark:text-orange-300" />
+          Loading briefing...
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function BriefingCardInner() {
   const [data, setData] = useState<BriefingPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Multi-Restaurant UX v1: re-fetch when the selected restaurant changes so
+  // the briefing reflects the currently selected location (or consolidated
+  // when none is selected).
+  const locationId = useSearchParams().get("location");
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/restaurant/briefing", {
+      const url = locationId
+        ? `/api/restaurant/briefing?location=${encodeURIComponent(locationId)}`
+        : "/api/restaurant/briefing";
+      const res = await fetch(url, {
         credentials: "include",
         cache: "no-store",
       });
@@ -85,7 +117,7 @@ export function BriefingCard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [locationId]);
 
   useEffect(() => {
     void load();

@@ -11,6 +11,7 @@
 "use client";
 
 import {
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -19,6 +20,7 @@ import {
   type FormEvent,
 } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Sparkles,
   RefreshCw,
@@ -146,15 +148,44 @@ export function AskMiltonWorkspace() {
 // ---------------------------------------------------------------------------
 
 function ExecutiveBriefingPanel() {
+  // useSearchParams() requires a Suspense boundary — see the wrapper below.
+  return (
+    <Suspense fallback={<ExecutiveBriefingPanelSkeleton />}>
+      <ExecutiveBriefingPanelInner />
+    </Suspense>
+  );
+}
+
+function ExecutiveBriefingPanelSkeleton() {
+  return (
+    <Card>
+      <CardContent className="pt-4 pb-4">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Sparkles className="h-4 w-4" />
+          Loading briefing...
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExecutiveBriefingPanelInner() {
   const [data, setData] = useState<BriefingPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Multi-Restaurant UX v1: re-fetch when the selected restaurant changes so
+  // the briefing reflects the currently selected location (or consolidated
+  // when none is selected).
+  const locationId = useSearchParams().get("location");
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/restaurant/briefing", {
+      const url = locationId
+        ? `/api/restaurant/briefing?location=${encodeURIComponent(locationId)}`
+        : "/api/restaurant/briefing";
+      const res = await fetch(url, {
         credentials: "include",
         cache: "no-store",
       });
@@ -170,7 +201,7 @@ function ExecutiveBriefingPanel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [locationId]);
 
   useEffect(() => {
     void load();

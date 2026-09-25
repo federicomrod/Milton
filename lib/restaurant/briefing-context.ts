@@ -13,7 +13,10 @@
 // This file is server-only — it expects an authenticated Supabase client.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchProfitabilityData } from "@/lib/restaurant/profitability-server";
+import {
+  fetchProfitabilityData,
+  type ProfitabilitySelection,
+} from "@/lib/restaurant/profitability-server";
 
 // ---------------------------------------------------------------------------
 // Public shape
@@ -146,22 +149,51 @@ function roundInt(n: number | null): number | null {
 // Builder
 // ---------------------------------------------------------------------------
 
+/**
+ * @param selected Multi-Restaurant UX v1: when set, scopes the briefing to
+ *   a single restaurant (consolidated otherwise). Must already be
+ *   validated by the caller against the resolved company — see
+ *   lib/restaurant/restaurant-context-server.ts.
+ */
 export async function buildBriefingContext(
   supabase: SupabaseClient,
-  companyId: string
+  companyId: string,
+  selected?: ProfitabilitySelection | null
 ): Promise<BriefingContext> {
   // ---- Restaurant name (best-effort) ----
+  // Selected: prefer the location's OWN brand, then its own location name —
+  // never an arbitrary OTHER brand belonging to the same company.
+  // Consolidated: the company's first brand (arbitrary but harmless — the
+  // whole company is in view), falling back to the company name.
   let restaurantName = "Your restaurant";
   try {
-    const { data: brand } = await supabase
-      .from("restaurant_brands")
-      .select("name")
-      .eq("company_id", companyId)
-      .limit(1)
-      .maybeSingle();
-    if (brand?.name) {
-      restaurantName = brand.name;
+    if (selected) {
+      if (selected.brandId) {
+        const { data: brand } = await supabase
+          .from("restaurant_brands")
+          .select("name")
+          .eq("id", selected.brandId)
+          .maybeSingle();
+        if (brand?.name) restaurantName = brand.name;
+      }
+      if (restaurantName === "Your restaurant") {
+        const { data: location } = await supabase
+          .from("restaurant_locations")
+          .select("name")
+          .eq("id", selected.locationId)
+          .maybeSingle();
+        if (location?.name) restaurantName = location.name;
+      }
     } else {
+      const { data: brand } = await supabase
+        .from("restaurant_brands")
+        .select("name")
+        .eq("company_id", companyId)
+        .limit(1)
+        .maybeSingle();
+      if (brand?.name) restaurantName = brand.name;
+    }
+    if (restaurantName === "Your restaurant") {
       const { data: company } = await supabase
         .from("companies")
         .select("name")
@@ -174,7 +206,7 @@ export async function buildBriefingContext(
   }
 
   // ---- Profitability snapshot (single round-trip aggregator) ----
-  const data = await fetchProfitabilityData(supabase, companyId);
+  const data = await fetchProfitabilityData(supabase, companyId, selected);
   const currency = data.kpis.currency;
 
   // ---- POS-level orders + avg ticket (counts distinct check_id when present) ----
@@ -184,12 +216,15 @@ export async function buildBriefingContext(
   let orders: number | null = null;
   let ordersReason: string | undefined;
   try {
-    const { data: checks, error: checksErr } = await supabase
+    let checksQuery = supabase
       .from("pos_sales_items")
       .select("check_id")
       .eq("company_id", companyId)
-      .not("check_id", "is", null)
-      .limit(20_000);
+      .not("check_id", "is", null);
+    if (selected) {
+      checksQuery = checksQuery.eq("location_id", selected.locationId);
+    }
+    const { data: checks, error: checksErr } = await checksQuery.limit(20_000);
     if (checksErr) {
       ordersReason = "Could not read check_id from pos_sales_items.";
     } else {

@@ -361,7 +361,14 @@ export function computeDishSales(rawRows: PosSalesItemRow[]): DishSalesRow[] {
  * not available.
  */
 export async function fetchRealRestaurantDashboardData(
-  supabase: SupabaseLike
+  supabase: SupabaseLike,
+  /**
+   * Multi-Restaurant UX v1: when set, scopes `pos_sales_items` to a single
+   * location (already validated by the caller against the resolved
+   * company — see lib/restaurant/restaurant-context-server.ts). null/undefined
+   * preserves today's company-wide consolidated behavior.
+   */
+  selectedLocationId?: string | null
 ): Promise<RestaurantDashboardData> {
   // 1. Auth.
   let userId: string;
@@ -391,11 +398,14 @@ export async function fetchRealRestaurantDashboardData(
   // 3. Fetch sales rows.
   let rawRows: PosSalesItemRow[];
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from("pos_sales_items")
       .select(POS_SELECT_COLS)
-      .eq("company_id", companyId)
-      .limit(MAX_ROWS);
+      .eq("company_id", companyId);
+    if (selectedLocationId) {
+      query = query.eq("location_id", selectedLocationId);
+    }
+    const { data, error } = await query.limit(MAX_ROWS);
     if (error) {
       console.error("[supabase-sales] pos_sales_items read failed:", error);
       return { mode: "sample", reason: "supabase_error" };

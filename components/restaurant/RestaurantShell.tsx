@@ -183,7 +183,10 @@ function defaultMatch(item: NavItem, pathname: string): boolean {
  * href, inserted before any hash fragment the item's own href already has
  * (only "Targets" does, today).
  */
-function withLocationParam(href: string, locationId: string | null): string {
+export function withLocationParam(
+  href: string,
+  locationId: string | null
+): string {
   if (!locationId) return href;
   const [pathAndQuery, hash] = href.split("#");
   const separator = pathAndQuery.includes("?") ? "&" : "?";

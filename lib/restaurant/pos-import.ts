@@ -7,6 +7,14 @@
 //
 // Scope of this milestone: ONLY the Revel "Customer Items" item-level export.
 // Generic POS support, PDF invoices, API integrations are out of scope.
+//
+// Multi-restaurant matching (Multi-Restaurant v1): a row's menu-item match
+// is scoped by the BRAND of the location it resolved to — never guessed
+// across brands. If the row's Establishment/POS_Station didn't resolve to
+// a known location (so the brand is unknown), only brand-less/legacy menu
+// items are considered. See lib/restaurant/scoped-matching.ts.
+
+import { resolveScopedName, type ScopedNameIndex } from "./scoped-matching";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -109,7 +117,12 @@ const COLUMN_CANDIDATES: Record<string, string[]> = {
 const REQUIRED_LOGICAL_COLUMNS: ReadonlyArray<keyof typeof COLUMN_CANDIDATES> =
   ["order_number", "order_date", "product_name", "product_quantity"];
 
-function normalizeHeader(h: string): string {
+/**
+ * Public: used both internally (column/name matching) and by callers that
+ * need to build a ScopedNameIndex with the same normalization, e.g. the
+ * upload route building the brand-scoped menu item index.
+ */
+export function normalizeHeader(h: string): string {
   return h.toLowerCase().replace(/[\s_-]+/g, "");
 }
 
@@ -260,8 +273,14 @@ export interface NormalizeContext {
   currency: string;
   /** Map of normalized location name → location_id, for soft-matching Establishment / POS_Station. */
   locationIndex: Map<string, string>;
-  /** Map of normalized menu item name → menu_item_id, for soft-matching Product_Name. */
-  menuItemIndex: Map<string, string>;
+  /** Map of location_id → brand_id (or null), so a resolved location can be scoped to its brand. */
+  locationBrandIndex: Map<string, string | null>;
+  /**
+   * Menu items indexed by brand (scopeId = brand_id, or unscoped for
+   * legacy brand_id-NULL items). Replaces the old flat name→id map — see
+   * lib/restaurant/scoped-matching.ts for resolution precedence.
+   */
+  menuItemIndex: ScopedNameIndex;
   /** Resolved logical → actual header mapping from validateRevelPOSColumns. */
   columns: Record<string, string>;
 }
@@ -361,8 +380,18 @@ export function normalizeRevelPOSRow(
     ? (ctx.locationIndex.get(locationKey) ?? null)
     : null;
 
-  const menuItemId =
-    ctx.menuItemIndex.get(normalizeHeader(productName)) ?? null;
+  // Brand scoping: only known when the location itself resolved. An
+  // unresolved location means an unknown brand — never guess by matching
+  // into a specific brand's menu in that case, only the brand-less/legacy
+  // fallback bucket is considered (see resolveScopedName).
+  const brandId = locationId
+    ? (ctx.locationBrandIndex.get(locationId) ?? null)
+    : null;
+  const menuItemId = resolveScopedName(
+    ctx.menuItemIndex,
+    brandId,
+    normalizeHeader(productName)
+  );
 
   // New optional text fields. The schema columns were added by migration
   // 002_add_pos_sales_filter_fields.sql; for files that don't carry these

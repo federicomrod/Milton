@@ -13,6 +13,13 @@
 // convention. Treat cross-source (Revel vs Odoo) KPI comparisons as
 // unverified until that reconciliation happens — this module does not
 // block on it per the approved decision.
+//
+// Multi-restaurant matching (Multi-Restaurant v1): mirrors pos-import.ts —
+// a line's menu-item match is scoped by the BRAND of the order's matched
+// pos.config/location, never guessed across brands. See
+// lib/restaurant/scoped-matching.ts.
+
+import { resolveScopedName, type ScopedNameIndex } from "../scoped-matching";
 
 // ---------------------------------------------------------------------------
 // Odoo raw row shapes (search_read output). Odoo many2one fields come back
@@ -59,10 +66,15 @@ export interface OdooSyncContext {
   timezone: string;
   /** Fallback currency when an order's currency_id is unexpectedly unset. */
   defaultCurrency: string;
-  /** normalized product/item name → menu_item_id, same shape as pos-import.ts's buildNameIndex output. */
-  menuItemIndex: Map<string, string>;
+  /**
+   * Menu items indexed by brand (scopeId = brand_id, or unscoped for
+   * legacy brand_id-NULL items) — see lib/restaurant/scoped-matching.ts.
+   */
+  menuItemIndex: ScopedNameIndex;
   /** normalized pos.config name → restaurant_locations.id. */
   locationIndex: Map<string, string>;
+  /** location_id → brand_id (or null), so a resolved location can be scoped to its brand. */
+  locationBrandIndex: Map<string, string | null>;
 }
 
 export interface CanonicalOdooSaleRow {
@@ -228,13 +240,24 @@ export function transformOdooOrders(
     }
 
     const rawItemName = (line.full_product_name || "").trim();
-    const menuItemId = rawItemName
-      ? (ctx.menuItemIndex.get(normalizeMatchKey(rawItemName)) ?? null)
-      : null;
     const locationId =
       order.config_id && order.config_id[1]
         ? (ctx.locationIndex.get(normalizeMatchKey(order.config_id[1])) ?? null)
         : null;
+    // Brand scoping: only known when the pos.config resolved to a known
+    // location. Unresolved location → unknown brand → only the
+    // brand-less/legacy fallback bucket is considered, never a guess into
+    // a specific brand's menu.
+    const brandId = locationId
+      ? (ctx.locationBrandIndex.get(locationId) ?? null)
+      : null;
+    const menuItemId = rawItemName
+      ? resolveScopedName(
+          ctx.menuItemIndex,
+          brandId,
+          normalizeMatchKey(rawItemName)
+        )
+      : null;
 
     const currency =
       order.currency_id && order.currency_id[1]

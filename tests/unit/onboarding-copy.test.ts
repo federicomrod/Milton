@@ -5,6 +5,7 @@ import {
   normalizePosSystemChoice,
   normalizePriorities,
   currencyForCountry,
+  COUNTRY_OPTIONS,
   MAX_PRIORITIES,
 } from "@/lib/restaurant/onboarding-copy";
 
@@ -124,5 +125,40 @@ describe("currencyForCountry", () => {
 
   it("falls back to USD for an unknown code", () => {
     expect(currencyForCountry("ZZ")).toBe("USD");
+  });
+
+  it("resolves every required country to its expected currency", () => {
+    expect(currencyForCountry("SV")).toBe("USD"); // El Salvador
+    expect(currencyForCountry("GT")).toBe("GTQ"); // Guatemala
+    expect(currencyForCountry("MX")).toBe("MXN"); // Mexico
+    expect(currencyForCountry("CH")).toBe("CHF"); // Switzerland
+    expect(currencyForCountry("DE")).toBe("EUR"); // Germany
+    expect(currencyForCountry("IT")).toBe("EUR"); // Italy
+    expect(currencyForCountry("ES")).toBe("EUR"); // Spain
+    expect(currencyForCountry("PT")).toBe("EUR"); // Portugal
+  });
+});
+
+describe("COUNTRY_OPTIONS", () => {
+  it("includes El Salvador, Guatemala, Switzerland, Germany, and Italy", () => {
+    const labels = COUNTRY_OPTIONS.map((c) => c.label);
+    expect(labels).toEqual(
+      expect.arrayContaining([
+        "El Salvador",
+        "Guatemala",
+        "Switzerland",
+        "Germany",
+        "Italy",
+      ])
+    );
+  });
+
+  it("has no duplicate country codes", () => {
+    const codes = COUNTRY_OPTIONS.map((c) => c.code);
+    expect(new Set(codes).size).toBe(codes.length);
+  });
+
+  it("keeps 'Other' as a catch-all option", () => {
+    expect(COUNTRY_OPTIONS.some((c) => c.code === "OTHER")).toBe(true);
   });
 });

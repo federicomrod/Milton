@@ -15,6 +15,7 @@ import { useUserProfile } from "@/lib/hooks/useUserProfile";
 import { getUserCompany } from "@/lib/profile-service";
 import { createClient } from "@/lib/supabase/client";
 import { TelegramConnectionCard } from "@/components/restaurant/TelegramConnectionCard";
+import { EmailBriefingCard } from "@/components/restaurant/EmailBriefingCard";
 import {
   Building2,
   MapPin,
@@ -273,6 +274,9 @@ export default function AccountPage() {
 
         {/* Telegram Briefing (Telegram Connection UI v1) */}
         <TelegramConnectionCard />
+
+        {/* Briefing Delivery by email (Email Briefing Extension v1) */}
+        <EmailBriefingCard />
       </div>
 
       {/* Quick Actions */}

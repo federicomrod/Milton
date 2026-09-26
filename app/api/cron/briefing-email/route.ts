@@ -2,9 +2,30 @@
 //
 // GET /api/cron/briefing-email
 //
-// Automatic Email Briefing Scheduler v1 — triggered by Vercel Cron
-// (vercel.json: "0 * * * *", every hour on the hour). Finds companies due
-// for an automatic send RIGHT NOW (per lib/restaurant/email/scheduler.ts's
+// ⚠️  NOT YET WIRED TO A CRON TRIGGER — ACTION REQUIRED WHEN UPGRADING TO
+// VERCEL PRO. This endpoint and its full due-logic/send pipeline are
+// complete and tested, but vercel.json currently declares NO cron entry
+// for it: Vercel's Hobby plan only allows once-per-day cron execution,
+// and the correct schedule for this scheduler is hourly (to catch each
+// company's own 07:00 LOCAL time across differing IANA timezones — see
+// lib/restaurant/email/scheduler.ts). Rather than ship a degraded
+// once-daily schedule as a stand-in (which would deliver at the wrong
+// local hour for most companies), the cron trigger was deliberately left
+// unregistered until the Vercel project is upgraded to Pro.
+//
+// TO ACTIVATE, once on a plan that supports hourly cron jobs, add this to
+// vercel.json's "crons" array:
+//   { "path": "/api/cron/briefing-email", "schedule": "0 * * * *" }
+//
+// Until that's done, this route is unreachable via any Vercel-triggered
+// schedule — the only way to invoke it at all is a direct HTTP request
+// carrying a valid `Authorization: Bearer <CRON_SECRET>` header, which
+// requires knowing that secret. It is not "public" in any meaningful
+// sense, but it is also not doing anything automatically yet.
+//
+// Once wired, it is triggered by Vercel Cron (see vercel.json: schedule
+// "0 * * * *", every hour on the hour). Finds companies due for an
+// automatic send RIGHT NOW (per lib/restaurant/email/scheduler.ts's
 // evaluateDue(), which checks each company's OWN explicit
 // briefing_email_timezone — never server time), and for each one runs the
 // exact same, already-validated pipeline the manual test-send route uses:

@@ -17,6 +17,13 @@
 // handled automatically by Intl's own IANA timezone database, since
 // "local hour" is always recomputed fresh from the zone name for the
 // exact instant being checked — never a hand-maintained UTC-offset table.
+//
+// ⚠️  Not yet triggered automatically: vercel.json currently declares no
+// cron entry for this scheduler (Vercel's Hobby plan only allows
+// once-per-day cron jobs; this design requires hourly to catch every
+// company's own 07:00 local time). See the header comment in
+// app/api/cron/briefing-email/route.ts for the exact line to restore
+// once the project is on a plan that supports hourly cron execution.
 
 import { timingSafeEqual } from "crypto";
 import type { BriefingEmailCadence } from "@/lib/restaurant/email/preferences";

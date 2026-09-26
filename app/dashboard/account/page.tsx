@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { useUserProfile } from "@/lib/hooks/useUserProfile";
 import { getUserCompany } from "@/lib/profile-service";
 import { createClient } from "@/lib/supabase/client";
+import { TelegramConnectionCard } from "@/components/restaurant/TelegramConnectionCard";
 import {
   Building2,
   MapPin,
@@ -269,6 +270,9 @@ export default function AccountPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Telegram Briefing (Telegram Connection UI v1) */}
+        <TelegramConnectionCard />
       </div>
 
       {/* Quick Actions */}

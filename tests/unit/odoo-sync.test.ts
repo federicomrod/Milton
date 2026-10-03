@@ -37,6 +37,7 @@ const paidOrder: OdooPosOrderRaw = {
   session_id: [5, "Session 1"],
   config_id: [3, "Roma Norte"],
   currency_id: [10, "MXN"],
+  company_id: [1, "Roma Norte Co"],
 };
 
 const draftOrder: OdooPosOrderRaw = {
@@ -59,6 +60,7 @@ function makeLine(
     price_subtotal_incl: 313.2, // + 16% tax on 270
     discount: 10,
     uuid: "line-uuid-1",
+    company_id: [1, "Roma Norte Co"],
     ...overrides,
   };
 }
@@ -139,6 +141,10 @@ describe("transformOdooOrders", () => {
       config_name: "Roma Norte",
       product_id: 55,
       state: "paid",
+    });
+    expect(row.source_metadata).toMatchObject({
+      odoo_company_id: 1,
+      odoo_company_name: "Roma Norte Co",
     });
   });
 

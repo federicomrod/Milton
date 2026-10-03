@@ -7,7 +7,18 @@
 // settings UI. It exists solely because there would otherwise be no way
 // to get a credential into restaurant_pos_secrets at all.
 //
+// Odoo multi-company isolation: before anything is written, the submitted
+// credentials are authenticated against Odoo and the companies the Odoo
+// user can access are discovered (res.users -> res.company). The tenant's
+// odoo_company_ids selection is then resolved by
+// resolveOdooCompanySelection(): auto-selected when exactly one company is
+// accessible, explicit (optional body field odoo_company_ids) when several,
+// and null (sync refuses, fail closed) until chosen. Inaccessible IDs are
+// rejected with 400. Companies can also be chosen later via
+// /api/restaurant/pos/odoo-companies.
+//
 // Behavior:
+//   0. Authenticate + discover companies BEFORE writing anything.
 //   1. authAndCompany() — company_id is resolved server-side, never
 //      accepted from the request body, same pattern as every other
 //      restaurant route.
@@ -27,6 +38,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { storeOdooSecret } from "@/lib/restaurant/odoo/secrets";
+import {
+  authenticate,
+  OdooAuthenticationError,
+  type OdooCredentials,
+} from "@/lib/restaurant/odoo/client";
+import { discoverOdooCompanies } from "@/lib/restaurant/odoo/scoped";
+import { resolveOdooCompanySelection } from "@/lib/restaurant/odoo/company-selection";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -37,6 +55,7 @@ interface RequestBody {
   username?: unknown;
   timezone?: unknown;
   api_key?: unknown;
+  odoo_company_ids?: unknown;
 }
 
 function requiredString(value: unknown): string | null {
@@ -75,10 +94,47 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // --- Authenticate + discover Odoo companies BEFORE writing anything ---
+    const creds: OdooCredentials = {
+      baseUrl: baseUrl as string,
+      database: databaseName as string,
+      username: username as string,
+      apiKey: apiKey as string,
+    };
+    let uid: number;
+    try {
+      uid = await authenticate(creds);
+    } catch (err) {
+      if (err instanceof OdooAuthenticationError) {
+        return NextResponse.json({ error: err.message }, { status: 401 });
+      }
+      console.error(
+        "[odoo-connection] Odoo unreachable:",
+        err instanceof Error ? err.name : "Unknown error"
+      );
+      return NextResponse.json(
+        { error: "Could not reach Odoo instance" },
+        { status: 502 }
+      );
+    }
+    let accessible: { id: number; name: string }[];
+    try {
+      accessible = (await discoverOdooCompanies(creds, uid)).companies;
+    } catch (err) {
+      console.error(
+        "[odoo-connection] company discovery failed:",
+        err instanceof Error ? err.name : "Unknown error"
+      );
+      return NextResponse.json(
+        { error: "Could not read the Odoo user's companies" },
+        { status: 502 }
+      );
+    }
+
     // --- Non-secret connection metadata: normal RLS-backed client ---------
     const { data: existing, error: lookupError } = await supabase
       .from("restaurant_pos_connections")
-      .select("id")
+      .select("id, base_url, database_name, odoo_company_ids")
       .eq("company_id", companyId)
       .eq("pos_source", "odoo")
       .maybeSingle();
@@ -96,6 +152,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // A stored selection only carries over when it points at the same Odoo
+    // database — company IDs are meaningless across databases.
+    const sameDatabase =
+      existing?.base_url === baseUrl &&
+      existing?.database_name === databaseName;
+    const selection = resolveOdooCompanySelection({
+      requested: body.odoo_company_ids,
+      accessible,
+      existing: sameDatabase
+        ? (existing?.odoo_company_ids as number[] | null)
+        : null,
+    });
+    if (!selection.ok) {
+      return NextResponse.json(
+        {
+          error: selection.error,
+          accessible_companies: selection.accessible.map((c) => ({
+            id: c.id,
+            name: c.name,
+          })),
+        },
+        { status: selection.status }
+      );
+    }
+
     let connectionId: string;
     if (existing?.id) {
       connectionId = existing.id;
@@ -106,6 +187,7 @@ export async function POST(req: NextRequest) {
           database_name: databaseName,
           username,
           timezone,
+          odoo_company_ids: selection.selected,
           is_active: true,
         })
         .eq("id", connectionId);
@@ -132,6 +214,7 @@ export async function POST(req: NextRequest) {
           database_name: databaseName,
           username,
           timezone,
+          odoo_company_ids: selection.selected,
           is_active: true,
         })
         .select("id")
@@ -177,7 +260,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      accessible_companies: accessible.map((c) => ({ id: c.id, name: c.name })),
+      selected_company_ids: selection.selected,
+      selection_required: selection.selectionRequired,
+    });
   } catch (err) {
     console.error(
       "[odoo-connection] Unexpected error:",

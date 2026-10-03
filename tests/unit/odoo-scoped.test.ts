@@ -5,10 +5,14 @@ import {
   buildScopedCall,
   scopedExecuteKw,
   ODOO_MODEL_COMPANY_POLICY,
+  discoverOdooCompanies,
   OdooCompanyScopeError,
   type OdooCompanyPolicy,
 } from "@/lib/restaurant/odoo/scoped";
-import type { OdooCredentials } from "@/lib/restaurant/odoo/client";
+import {
+  OdooRpcError,
+  type OdooCredentials,
+} from "@/lib/restaurant/odoo/client";
 import type { XmlRpcValue } from "@/lib/restaurant/odoo/xmlrpc";
 
 const creds: OdooCredentials = {
@@ -378,5 +382,63 @@ describe("scopedExecuteKw — mocked RPC", () => {
       ).rejects.toBeInstanceOf(OdooCompanyScopeError);
     }
     expect(fetchMock).toHaveBeenCalledTimes(0);
+  });
+});
+
+describe("discoverOdooCompanies", () => {
+  const userRow =
+    "<array><data><value><struct>" +
+    "<member><name>company_id</name><value><array><data><value><int>2</int></value><value><string>Beta</string></value></data></array></value></member>" +
+    "<member><name>company_ids</name><value><array><data><value><int>2</int></value><value><int>1</int></value></data></array></value></member>" +
+    "</struct></value></data></array>";
+  const co = (id: number, name: string) =>
+    `<value><struct><member><name>id</name><value><int>${id}</int></value></member><member><name>name</name><value><string>${name}</string></value></member></struct></value>`;
+
+  it("makes exactly two calls and returns companies sorted by name", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(xmlOk(userRow))
+      .mockResolvedValueOnce(
+        xmlOk(`<array><data>${co(2, "Beta")}${co(1, "Alpha")}</data></array>`)
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await discoverOdooCompanies(creds, 5);
+    expect(result).toEqual({
+      defaultCompanyId: 2,
+      companies: [
+        { id: 1, name: "Alpha" },
+        { id: 2, name: "Beta" },
+      ],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const body1 = String((fetchMock.mock.calls[0][1] as RequestInit).body);
+    const body2 = String((fetchMock.mock.calls[1][1] as RequestInit).body);
+    expect(body1).toContain("<string>res.users</string>");
+    expect(body1).toContain(
+      "<string>id</string></value><value><string>=</string></value><value><int>5</int>"
+    );
+    expect(body2).toContain("<string>res.company</string>");
+    expect(body2).toContain(
+      "<string>id</string></value><value><string>in</string></value><value><array><data><value><int>2</int></value><value><int>1</int></value>"
+    );
+    expect(body2).toContain("<name>allowed_company_ids</name>");
+  });
+
+  it("surfaces a fault as OdooRpcError", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            `<?xml version="1.0"?><methodResponse><fault><value><struct><member><name>faultCode</name><value><int>1</int></value></member><member><name>faultString</name><value><string>Access denied</string></value></member></struct></value></fault></methodResponse>`,
+            { status: 200 }
+          )
+        )
+    );
+    await expect(discoverOdooCompanies(creds, 5)).rejects.toBeInstanceOf(
+      OdooRpcError
+    );
   });
 });

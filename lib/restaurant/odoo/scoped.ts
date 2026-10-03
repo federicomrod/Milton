@@ -21,7 +21,7 @@
 //
 // Design brief: "Odoo multi-company isolation" (r1-pilot).
 
-import { unsafeExecuteKw, type OdooCredentials } from "./client";
+import { unsafeExecuteKw, OdooRpcError, type OdooCredentials } from "./client";
 import type { XmlRpcValue } from "./xmlrpc";
 
 export interface OdooScope {
@@ -282,4 +282,76 @@ export function assertRecordsInScope(
       );
     }
   }
+}
+
+export interface OdooCompanyDiscovery {
+  defaultCompanyId: number;
+  companies: { id: number; name: string }[];
+}
+
+/**
+ * Bootstrap discovery — the single documented pre-scope call path. No
+ * selection exists yet when this runs, so it cannot use scopedExecuteKw.
+ * It makes exactly two calls and nothing else may use unsafeExecuteKw
+ * this way:
+ *   1. res.users [["id","=",uid]] -> company_id, company_ids
+ *   2. res.company [["id","in",user.company_ids]] -> id, name, with
+ *      context.allowed_company_ids = user.company_ids
+ * Returns only what the integration user can access, sorted by name.
+ */
+export async function discoverOdooCompanies(
+  creds: OdooCredentials,
+  uid: number
+): Promise<OdooCompanyDiscovery> {
+  const users = await unsafeExecuteKw(
+    creds,
+    uid,
+    "res.users",
+    "search_read",
+    [[["id", "=", uid]]],
+    { fields: ["company_id", "company_ids"] }
+  );
+  const user = Array.isArray(users)
+    ? (users[0] as Record<string, unknown> | undefined)
+    : undefined;
+  const accessibleIds = user?.company_ids;
+  if (
+    !user ||
+    !Array.isArray(accessibleIds) ||
+    !accessibleIds.every((n) => typeof n === "number")
+  ) {
+    throw new OdooRpcError("Unexpected res.users response from Odoo", "shape");
+  }
+  const ids = accessibleIds as number[];
+  const def = Array.isArray(user.company_id) ? user.company_id[0] : null;
+  if (ids.length === 0) {
+    return {
+      defaultCompanyId: typeof def === "number" ? def : 0,
+      companies: [],
+    };
+  }
+
+  const rows = await unsafeExecuteKw(
+    creds,
+    uid,
+    "res.company",
+    "search_read",
+    [[["id", "in", ids]]],
+    { fields: ["id", "name"], context: { allowed_company_ids: ids } }
+  );
+  if (!Array.isArray(rows)) {
+    throw new OdooRpcError(
+      "Unexpected res.company response from Odoo",
+      "shape"
+    );
+  }
+  const companies = (rows as Record<string, unknown>[])
+    // Defense in depth: never surface a company outside the user's list.
+    .filter((r) => typeof r.id === "number" && ids.includes(r.id))
+    .map((r) => ({ id: r.id as number, name: String(r.name ?? "") }))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+  return {
+    defaultCompanyId: typeof def === "number" ? def : (companies[0]?.id ?? 0),
+    companies,
+  };
 }

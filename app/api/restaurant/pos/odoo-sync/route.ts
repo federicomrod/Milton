@@ -21,7 +21,7 @@ import { buildNameIndex } from "@/lib/restaurant/pos-import";
 import { buildScopedNameIndex } from "@/lib/restaurant/scoped-matching";
 import {
   authenticate,
-  executeKw,
+  unsafeExecuteKw,
   OdooAuthenticationError,
   OdooRpcError,
   type OdooCredentials,
@@ -213,7 +213,7 @@ export async function POST(req: NextRequest) {
 
     let orders: OdooPosOrderRaw[];
     try {
-      const result = await executeKw(
+      const result = await unsafeExecuteKw(
         creds,
         uid,
         "pos.order",
@@ -264,7 +264,7 @@ export async function POST(req: NextRequest) {
 
     let lines: OdooPosOrderLineRaw[];
     try {
-      const result = await executeKw(
+      const result = await unsafeExecuteKw(
         creds,
         uid,
         "pos.order.line",

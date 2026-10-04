@@ -2,7 +2,15 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 // Routes that don't require authentication
-const publicRoutes = ["/auth/login", "/auth/signup", "/auth/callback", "/"];
+const publicRoutes = [
+  "/auth/login",
+  "/auth/signup",
+  "/auth/callback",
+  "/auth/invite",
+  "/auth/forgot-password",
+  "/auth/reset-password",
+  "/",
+];
 
 // Routes that start with these prefixes are public
 const publicPrefixes = [

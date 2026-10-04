@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
+import { resolveInvitedUserLanding } from "@/lib/restaurant/post-login";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,6 +42,12 @@ async function getPostLoginRedirect(
     // there first, same check as app/auth/callback/route.ts.
     const companyId = await resolveCompanyIdForUser(supabase, user.id);
     if (companyId) {
+      // Invited users keep the invite landing rule on every login.
+      const invitedLanding = await resolveInvitedUserLanding(
+        supabase,
+        companyId
+      );
+      if (invitedLanding) return invitedLanding;
       const { data: company } = await supabase
         .from("companies")
         .select("onboarding_status")
@@ -64,6 +71,10 @@ export function LoginForm() {
   const searchParams = useSearchParams();
   const supabase = createClient();
 
+  const notice =
+    searchParams.get("notice") === "password_updated"
+      ? "Your password was updated. Log in with your new password."
+      : null;
   const urlError = searchParams.get("error");
   const [error, setError] = useState<string | null>(urlError || null);
   const [loading, setLoading] = useState(false);
@@ -190,6 +201,11 @@ export function LoginForm() {
       </CardHeader>
       <form onSubmit={handleLogin}>
         <CardContent className="space-y-4">
+          {notice && !error && (
+            <Alert>
+              <AlertDescription>{notice}</AlertDescription>
+            </Alert>
+          )}
           {error && (
             <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
@@ -207,7 +223,15 @@ export function LoginForm() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="password">Password</Label>
+              <Link
+                href="/auth/forgot-password"
+                className="text-sm text-primary hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <Input
               id="password"
               type="password"

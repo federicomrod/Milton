@@ -198,3 +198,39 @@ export async function recordKitchenReport(input: {
   if (error) throw new Error("report insert failed");
   return (data?.length ?? 0) > 0;
 }
+
+export interface ActiveKitchenStaff {
+  id: string;
+  company_id: string;
+  location_id: string;
+  location_name: string;
+}
+
+/**
+ * The cook's active kitchen_staff row (and their location's name), or null
+ * for unknown or removed cooks. Service role; throws on DB errors.
+ */
+export async function findActiveKitchenStaff(
+  telegramUserId: number
+): Promise<ActiveKitchenStaff | null> {
+  const admin = createAdminClient();
+  const { data: staff, error } = await admin
+    .from("kitchen_staff")
+    .select("id, company_id, location_id")
+    .eq("telegram_user_id", telegramUserId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error) throw new Error("staff lookup failed");
+  if (!staff) return null;
+  const { data: location } = await admin
+    .from("restaurant_locations")
+    .select("name")
+    .eq("id", staff.location_id)
+    .maybeSingle();
+  return {
+    id: staff.id,
+    company_id: staff.company_id,
+    location_id: staff.location_id,
+    location_name: location?.name ?? "",
+  };
+}

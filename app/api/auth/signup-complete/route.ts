@@ -57,6 +57,47 @@ export async function POST(req: Request) {
 
     const adminClient = createAdminClient();
 
+    // ── Invite guard ──────────────────────────────────────────────────────
+    // An email with a live workspace invite must join that workspace via
+    // its invite link, never bootstrap a brand-new company. Looked up by
+    // the auth user's own email (never a client-supplied one) and answered
+    // generically — the response does not reveal which company invited it.
+    const { data: authUser, error: authUserError } =
+      await adminClient.auth.admin.getUserById(userId);
+    const signupEmail = authUser?.user?.email?.toLowerCase();
+    if (authUserError || !signupEmail) {
+      // Fail closed: if we can't tell, don't create a company.
+      return NextResponse.json(
+        { error: "Could not verify signup. Please try again." },
+        { status: 500 }
+      );
+    }
+    const { data: liveInvite, error: inviteLookupError } = await adminClient
+      .from("workspace_invites")
+      .select("id")
+      .eq("email", signupEmail)
+      .is("accepted_at", null)
+      .is("revoked_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .limit(1)
+      .maybeSingle();
+    if (inviteLookupError) {
+      return NextResponse.json(
+        { error: "Could not verify signup. Please try again." },
+        { status: 500 }
+      );
+    }
+    if (liveInvite) {
+      return NextResponse.json(
+        {
+          error: "pending_invite",
+          message:
+            "This email has a pending invitation. Please use the invite link you were sent to activate your account.",
+        },
+        { status: 409 }
+      );
+    }
+
     // ── Primary path: RPC ─────────────────────────────────────────────────
     // bootstrap_restaurant_user() executes raw SQL inside Postgres.
     // PostgREST cannot strip the `id` column from a function body.

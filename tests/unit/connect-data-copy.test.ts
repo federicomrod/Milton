@@ -47,11 +47,20 @@ describe("connect-data options are honest", () => {
     expect(byId("odoo_setup")).toMatchObject({
       kind: "request",
       source: "odoo",
-      label: "Request Odoo setup",
+      label: "Connect Odoo",
     });
     const odoo = CONNECT_OPTIONS.find((o) => o.key === "odoo")!;
     expect(odoo.actions.every((a) => a.kind === "request")).toBe(true);
-    expect(odoo.description).toMatch(/Milton team connects Odoo/);
+    expect(odoo.description).toBe(
+      "The Milton team connects Odoo for you during the pilot."
+    );
+    const action = byId("odoo_setup") as {
+      badge?: string;
+      sentMessage?: string;
+    };
+    expect(action.badge).toBeUndefined();
+    expect(action.sentMessage).toMatch(/Milton team connects Odoo for you/);
+    expect(JSON.stringify(odoo)).not.toMatch(/coming soon/i);
   });
 
   it("every request source is in the API allowlist", () => {

@@ -39,6 +39,8 @@ export type ConnectAction =
       badge?: string;
       /** Show an optional note field before sending. */
       note?: boolean;
+      /** Confirmation shown after a successful request (default: COPY.requestSent). */
+      sentMessage?: string;
     };
 
 export interface ConnectOption {
@@ -112,9 +114,11 @@ export const CONNECT_OPTIONS: readonly ConnectOption[] = [
       {
         id: "odoo_setup",
         kind: "request",
-        label: "Request Odoo setup",
+        label: "Connect Odoo",
         source: "odoo",
         note: true,
+        sentMessage:
+          "Thanks! The Milton team connects Odoo for you. We'll contact you to set it up.",
       },
     ],
   },

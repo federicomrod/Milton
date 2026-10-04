@@ -67,7 +67,11 @@ function RequestControl({
   };
 
   if (state === "sent") {
-    return <p className="text-sm text-green-700">{COPY.requestSent}</p>;
+    return (
+      <p className="text-sm text-green-700">
+        {action.sentMessage ?? COPY.requestSent}
+      </p>
+    );
   }
 
   return (

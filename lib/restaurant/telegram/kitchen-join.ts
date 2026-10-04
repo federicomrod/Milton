@@ -249,3 +249,77 @@ export async function consumeKitchenJoin(input: {
       }
     : { kind: "joined", locationName: location.name };
 }
+
+// ---------------------------------------------------------------------------
+// Dashboard-side helpers (service role): permission input + QR status
+// ---------------------------------------------------------------------------
+
+/** The user's company_memberships.role for this company (admin client). */
+export async function loadMembershipRole(
+  companyId: string,
+  userId: string
+): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("company_memberships")
+    .select("role")
+    .eq("company_id", companyId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return (data?.role as string | undefined) ?? null;
+}
+
+export interface KitchenQrLocationStatus {
+  location_id: string;
+  name: string;
+  has_active_qr: boolean;
+  qr_created_at: string | null;
+  active_staff_count: number;
+}
+
+/** Per-location QR status for a company. Never returns a token or hash. */
+export async function loadKitchenQrStatus(
+  companyId: string
+): Promise<KitchenQrLocationStatus[]> {
+  const admin = createAdminClient();
+  const [locs, tokens, staff] = await Promise.all([
+    admin
+      .from("restaurant_locations")
+      .select("id, name, is_active")
+      .eq("company_id", companyId)
+      .order("name", { ascending: true }),
+    admin
+      .from("kitchen_join_tokens")
+      .select("location_id, created_at")
+      .eq("company_id", companyId)
+      .is("revoked_at", null),
+    admin
+      .from("kitchen_staff")
+      .select("location_id")
+      .eq("company_id", companyId)
+      .eq("is_active", true),
+  ]);
+  if (locs.error || tokens.error || staff.error) {
+    throw new Error("Could not load kitchen QR status.");
+  }
+  const tokenByLocation = new Map(
+    (tokens.data ?? []).map((t) => [
+      t.location_id as string,
+      t.created_at as string,
+    ])
+  );
+  const staffCount = new Map<string, number>();
+  for (const row of staff.data ?? []) {
+    const id = row.location_id as string;
+    staffCount.set(id, (staffCount.get(id) ?? 0) + 1);
+  }
+  return (locs.data ?? [])
+    .filter((l) => l.is_active !== false)
+    .map((l) => ({
+      location_id: l.id as string,
+      name: l.name as string,
+      has_active_qr: tokenByLocation.has(l.id as string),
+      qr_created_at: tokenByLocation.get(l.id as string) ?? null,
+      active_staff_count: staffCount.get(l.id as string) ?? 0,
+    }));
+}

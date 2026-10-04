@@ -31,7 +31,7 @@ export async function openTelegramFile(
 ): Promise<TelegramFileStream> {
   const token = getBotToken();
   if (!token) {
-    console.error("[telegram-files] config error: bot token not set");
+    console.error("[telegram-files] config error: bot is not configured");
     return { ok: false, error: "Telegram is not configured." };
   }
 

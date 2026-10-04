@@ -8,6 +8,7 @@ import {
   Target,
   FileText,
   Table,
+  QrCode,
   ChevronLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,11 @@ const navigation = [
     name: "Data Tables",
     href: "/management/data-tables",
     icon: Table,
+  },
+  {
+    name: "Kitchen QR",
+    href: "/management/kitchen",
+    icon: QrCode,
   },
 ];
 

@@ -4,14 +4,27 @@
 # to author the canonical migration baseline (branch r1-db-baseline).
 #
 # What it does: runs pg_dump --schema-only on the `public` schema (no table
-# rows, ever) through a dedicated read-only login role, scans the result for
-# secrets, and uploads it as a private artifact kept for 1 day. Nothing is
-# committed, nothing is written to production, and no SQL of our own is run.
+# rows, ever) through a dedicated read-only login role, checks the plaintext
+# (no row data, secret scan), ENCRYPTS it to a one-run OpenPGP public key,
+# deletes the plaintext and uploads only the encrypted file as an encrypted
+# artifact kept for 1 day. The repository is public, so anyone signed in to
+# GitHub can download artifacts: that is why nothing is ever uploaded in
+# plaintext. Nothing is committed, nothing is written to production, and no
+# SQL of our own is run.
 #
 # How it is triggered: ONLY by a push to r1-db-baseline that touches
 # .github/schema-dump-request. That file does not exist yet; creating it is
 # the deliberate "run" action. There is no pull_request, schedule or
 # workflow_dispatch trigger.
+#
+# Encryption key: the file .github/schema-dump-request holds ONLY the
+# ASCII-armored OpenPGP PUBLIC key generated for that run. The private key
+# stays with whoever generated it (never committed, never in GitHub). The job
+# reads the file at exactly $GITHUB_SHA over HTTPS (no checkout, no token) and
+# fails if it is missing, is not exactly one valid encryption-capable public
+# key, or contains a private key block. The key fingerprint is printed in the
+# log so the reviewer approving the run can compare it with the one they were
+# given. Only tools preinstalled on ubuntu-24.04 are used (curl, gpg).
 #
 # Secret: PROD_SCHEMA_READER_DB_URL lives in the GitHub Environment
 # `prod-schema-dump` (restrict that environment to the r1-db-baseline branch
@@ -21,10 +34,15 @@
 # the transaction pooler (port 6543). The secret value is never echoed and
 # is exposed only to the dump step.
 #
+# If the pooler rejects the PGOPTIONS startup option, the fix is to delete
+# the PGOPTIONS env line below. It is NOT a production change: the role's own
+# default_transaction_read_only setting and pg_dump's own read-only
+# transaction still apply.
+#
 # Tooling: pg_dump 17 from the official postgres:17 image, pinned by digest
-# (no checkout, no npm, no Supabase CLI, no psql).
+# (no checkout, no npm, no Supabase CLI, no psql, no new actions).
 
-name: Prod schema dump (one-off, read-only)
+name: Prod schema dump (one-off, read-only, encrypted)
 
 on:
   push:
@@ -35,7 +53,7 @@ permissions: {}
 
 jobs:
   dump:
-    name: Schema-only dump of production (public schema)
+    name: Encrypted schema-only dump of production (public schema)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: prod-schema-dump
@@ -54,10 +72,60 @@ jobs:
             exit 1
           fi
 
+      - name: Load and validate the encryption public key (before touching production)
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+
+          keyfile="$RUNNER_TEMP/recipient.asc"
+          gnupghome="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 "$gnupghome"
+          export GNUPGHOME="$gnupghome"
+
+          # The key file as committed at exactly this run's commit. No
+          # checkout and no token: the repository is public.
+          url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/.github/schema-dump-request"
+          curl --fail --silent --show-error \
+               --proto '=https' --tlsv1.2 --max-time 30 --max-filesize 20000 \
+               --retry 5 --retry-delay 3 --retry-all-errors \
+               --output "$keyfile" "$url" \
+            || fail ".github/schema-dump-request is missing at commit ${GITHUB_SHA} (or could not be fetched)."
+
+          [ -s "$keyfile" ] || fail ".github/schema-dump-request is empty."
+          if grep -q 'PRIVATE KEY BLOCK' "$keyfile"; then
+            fail ".github/schema-dump-request contains a PRIVATE key block. Remove it from history and rotate the key."
+          fi
+          [ "$(grep -c -- '-----BEGIN PGP PUBLIC KEY BLOCK-----' "$keyfile")" = "1" ] \
+            || fail ".github/schema-dump-request must contain exactly one armored OpenPGP public key block."
+
+          colons="$(gpg --batch --with-colons --show-keys "$keyfile" 2>/dev/null)" \
+            || fail ".github/schema-dump-request is not a valid OpenPGP key."
+          [ "$(printf '%s\n' "$colons" | grep -c '^pub:')" = "1" ] \
+            || fail ".github/schema-dump-request must hold exactly one public key."
+          validity="$(printf '%s\n' "$colons" | awk -F: '$1=="pub"{print $2; exit}')"
+          case "$validity" in r|e) fail "the public key is revoked or expired." ;; esac
+          fpr="$(printf '%s\n' "$colons" | awk -F: '$1=="fpr"{print $10; exit}')"
+          [[ "$fpr" =~ ^[0-9A-F]{40,64}$ ]] || fail "could not read the key fingerprint."
+
+          # Import, then prove the key can actually encrypt.
+          gpg --batch --quiet --import "$keyfile" 2>/dev/null \
+            || fail "could not import the public key."
+          printf 'probe' | gpg --batch --yes --quiet --trust-model always \
+              --recipient "$fpr" --encrypt --output "$RUNNER_TEMP/probe.gpg" 2>/dev/null \
+            || fail "the public key cannot be used for encryption."
+          rm -f "$RUNNER_TEMP/probe.gpg"
+
+          echo "::notice::Encrypting to OpenPGP key fingerprint: ${fpr}"
+          # Later steps use this keyring (public info only; no private key).
+          { echo "GNUPGHOME=$gnupghome"; echo "RECIPIENT_FPR=$fpr"; } >> "$GITHUB_ENV"
+
       - name: Dump production schema (read-only, no rows)
         env:
           DB_URL: ${{ secrets.PROD_SCHEMA_READER_DB_URL }}
           PGSSLMODE: require
+          # If the pooler rejects this startup option, delete this line (see
+          # the header comment); it is not a production change.
           PGOPTIONS: "-c default_transaction_read_only=on"
         shell: bash
         run: |
@@ -78,7 +146,7 @@ jobs:
             rm -f baseline_raw.sql
             echo "::error::pg_dump failed; raw output withheld. Likely cause:"
             if   grep -qi "password authentication failed" "$err"; then echo "::error::bad credentials for the read-only role"
-            elif grep -qiE "startup parameter|unsupported.*option" "$err"; then echo "::error::the pooler rejected the read-only startup option"
+            elif grep -qiE "startup parameter|unsupported.*option" "$err"; then echo "::error::the pooler rejected the read-only startup option: delete the PGOPTIONS env line (not a production change)"
             elif grep -qi "permission denied" "$err"; then echo "::error::the role lacks a privilege pg_dump needs"
             elif grep -qiE "does not support SSL|SSL" "$err"; then echo "::error::TLS negotiation problem"
             elif grep -qiE "could not translate|timeout|timed out|network is unreachable|connection refused" "$err"; then echo "::error::network or host problem (use the IPv4 session pooler URL)"
@@ -87,13 +155,21 @@ jobs:
             exit 1
           fi
 
-      - name: Validate dump and scan for secrets
+      - name: Validate dump and scan plaintext for secrets
         shell: bash
         run: |
           set -euo pipefail
           f=baseline_raw.sql
           [ -s "$f" ] || { echo "::error::dump is empty"; rm -f "$f"; exit 1; }
           grep -q '^CREATE TABLE ' "$f" || { echo "::error::dump contains no CREATE TABLE"; rm -f "$f"; exit 1; }
+
+          # A schema-only dump must contain no row data at all. Only line
+          # numbers are printed, never content.
+          if grep -Eq '^(COPY|INSERT INTO)([[:space:]]|$)' "$f"; then
+            echo "::error::dump contains row data (a line starting with COPY or INSERT INTO) at line(s): $(grep -nE '^(COPY|INSERT INTO)([[:space:]]|$)' "$f" | cut -d: -f1 | head -5 | tr '\n' ' ')"
+            rm -f "$f"
+            exit 1
+          fi
 
           # Matches are never printed, only the name of the pattern.
           hits=0
@@ -123,10 +199,43 @@ jobs:
             "functions=$(grep -c '^CREATE FUNCTION ' "$f")" \
             "grants=$(grep -c '^GRANT ' "$f")"
 
-      - name: Upload dump artifact (private, 1 day)
+      - name: Encrypt the dump and delete the plaintext
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=baseline_raw.sql
+          out=baseline_raw.sql.gpg
+          # On any failure leave neither file behind.
+          trap 'rc=$?; if [ "$rc" -ne 0 ]; then rm -f -- "$f" "$out"; fi' EXIT
+
+          [ -n "${RECIPIENT_FPR:-}" ] || { echo "::error::no recipient key was loaded"; exit 1; }
+          [ -s "$f" ] || { echo "::error::plaintext dump is missing"; exit 1; }
+
+          gpg --batch --yes --quiet --no-emit-version --no-comments \
+              --trust-model always --cipher-algo AES256 \
+              --recipient "$RECIPIENT_FPR" --output "$out" --encrypt "$f"
+
+          # Prove the output really is ciphertext for our key before the
+          # plaintext goes away.
+          [ -s "$out" ] || { echo "::error::encryption produced no output"; exit 1; }
+          # --list-only: list the packets without trying to decrypt (there is
+          # no private key here, and a decrypt attempt would exit non-zero).
+          packets="$(gpg --batch --list-only --list-packets "$out" 2>/dev/null)" \
+            || { echo "::error::could not inspect the encrypted output"; exit 1; }
+          [ "$(printf '%s\n' "$packets" | grep -c '^:pubkey enc packet:')" = "1" ] \
+            || { echo "::error::output must be encrypted to exactly one public key"; exit 1; }
+          if grep -aq -e 'CREATE TABLE' -e 'CREATE POLICY' "$out"; then
+            echo "::error::ciphertext still contains readable schema text"; exit 1
+          fi
+
+          rm -f -- "$f"
+          [ ! -e "$f" ] || { echo "::error::plaintext could not be removed"; exit 1; }
+          echo "encrypted: $(wc -c < "$out") bytes; plaintext removed"
+
+      - name: Upload encrypted artifact (1 day)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: prod-schema-baseline-raw
-          path: baseline_raw.sql
+          name: prod-schema-baseline-raw-encrypted
+          path: baseline_raw.sql.gpg
           retention-days: 1
           if-no-files-found: error

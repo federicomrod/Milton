@@ -76,31 +76,30 @@ jobs:
         run: |
           set -euo pipefail
           f=baseline_raw.sql
-          # Dummy content that mimics a schema dump structure
-          cat > "$f" <<'DUMMY_EOF'
--- Milton rehearsal schema dump (dummy data, no production access)
--- Generated at: 2026-10-05
-
-CREATE TABLE restaurants (
-  id uuid PRIMARY KEY,
-  name text NOT NULL
-);
-
-CREATE TABLE menu_items (
-  id uuid PRIMARY KEY,
-  restaurant_id uuid REFERENCES restaurants(id)
-);
-
-CREATE POLICY "restaurants_select" ON restaurants FOR SELECT TO authenticated;
-CREATE POLICY "menu_items_select" ON menu_items FOR SELECT TO authenticated;
-
-CREATE FUNCTION get_restaurant_count() RETURNS bigint AS $$
-  SELECT count(*) FROM restaurants;
-$$ LANGUAGE sql;
-
-GRANT SELECT ON restaurants TO authenticated;
-GRANT SELECT ON menu_items TO authenticated;
-DUMMY_EOF
+          {
+            echo "-- Milton rehearsal schema dump (dummy data, no production access)"
+            echo "-- Generated at: 2026-10-05"
+            echo ""
+            echo "CREATE TABLE restaurants ("
+            echo "  id uuid PRIMARY KEY,"
+            echo "  name text NOT NULL"
+            echo ");"
+            echo ""
+            echo "CREATE TABLE menu_items ("
+            echo "  id uuid PRIMARY KEY,"
+            echo "  restaurant_id uuid REFERENCES restaurants(id)"
+            echo ");"
+            echo ""
+            echo "CREATE POLICY \"restaurants_select\" ON restaurants FOR SELECT TO authenticated;"
+            echo "CREATE POLICY \"menu_items_select\" ON menu_items FOR SELECT TO authenticated;"
+            echo ""
+            echo "CREATE FUNCTION get_restaurant_count() RETURNS bigint AS \$\$"
+            echo "  SELECT count(*) FROM restaurants;"
+            echo "\$\$ LANGUAGE sql;"
+            echo ""
+            echo "GRANT SELECT ON restaurants TO authenticated;"
+            echo "GRANT SELECT ON menu_items TO authenticated;"
+          } > "$f"
           echo "dummy data generated: $(wc -l < "$f") lines"
 
       - name: Validate dump and scan plaintext for secrets

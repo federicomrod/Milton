@@ -1,0 +1,132 @@
+# .github/workflows/prod-schema-dump.yml
+#
+# ONE-OFF, READ-ONLY schema dump of the PRODUCTION Supabase database, used
+# to author the canonical migration baseline (branch r1-db-baseline).
+#
+# What it does: runs pg_dump --schema-only on the `public` schema (no table
+# rows, ever) through a dedicated read-only login role, scans the result for
+# secrets, and uploads it as a private artifact kept for 1 day. Nothing is
+# committed, nothing is written to production, and no SQL of our own is run.
+#
+# How it is triggered: ONLY by a push to r1-db-baseline that touches
+# .github/schema-dump-request. That file does not exist yet; creating it is
+# the deliberate "run" action. There is no pull_request, schedule or
+# workflow_dispatch trigger.
+#
+# Secret: PROD_SCHEMA_READER_DB_URL lives in the GitHub Environment
+# `prod-schema-dump` (restrict that environment to the r1-db-baseline branch
+# and add a required reviewer). Use the Supabase SESSION pooler connection
+# string for the read-only role: GitHub runners are IPv4-only (the direct
+# db.<ref>.supabase.co host is IPv6-only) and pg_dump does not work through
+# the transaction pooler (port 6543). The secret value is never echoed and
+# is exposed only to the dump step.
+#
+# Tooling: pg_dump 17 from the official postgres:17 image, pinned by digest
+# (no checkout, no npm, no Supabase CLI, no psql).
+
+name: Prod schema dump (one-off, read-only)
+
+on:
+  push:
+    branches: [r1-db-baseline]
+    paths: [.github/schema-dump-request]
+
+permissions: {}
+
+jobs:
+  dump:
+    name: Schema-only dump of production (public schema)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: prod-schema-dump
+    permissions: {}
+    steps:
+      - name: Fail fast if the secret is not configured
+        # Only a boolean is derived from the secret here; its value is not
+        # placed in this step's environment.
+        env:
+          SECRET_CONFIGURED: ${{ secrets.PROD_SCHEMA_READER_DB_URL != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$SECRET_CONFIGURED" != "true" ]; then
+            echo "::error::PROD_SCHEMA_READER_DB_URL is empty or missing in environment prod-schema-dump."
+            exit 1
+          fi
+
+      - name: Dump production schema (read-only, no rows)
+        env:
+          DB_URL: ${{ secrets.PROD_SCHEMA_READER_DB_URL }}
+          PGSSLMODE: require
+          PGOPTIONS: "-c default_transaction_read_only=on"
+        shell: bash
+        run: |
+          set -euo pipefail
+          err="$RUNNER_TEMP/pg_dump.err"
+          # Privileges are kept (GRANTs are needed); owners are dropped.
+          # The URL reaches pg_dump through the container environment, never
+          # through argv, and pg_dump's own stderr is withheld (libpq errors
+          # can name the host and user).
+          if ! docker run --rm \
+              --user "$(id -u):$(id -g)" \
+              --cap-drop ALL --security-opt no-new-privileges \
+              -e DB_URL -e PGSSLMODE -e PGOPTIONS \
+              -v "$GITHUB_WORKSPACE:/out" -w /out \
+              postgres@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f \
+              sh -c 'exec pg_dump --schema-only --schema=public --no-owner --file=baseline_raw.sql "$DB_URL"' \
+              2>"$err"; then
+            rm -f baseline_raw.sql
+            echo "::error::pg_dump failed; raw output withheld. Likely cause:"
+            if   grep -qi "password authentication failed" "$err"; then echo "::error::bad credentials for the read-only role"
+            elif grep -qiE "startup parameter|unsupported.*option" "$err"; then echo "::error::the pooler rejected the read-only startup option"
+            elif grep -qi "permission denied" "$err"; then echo "::error::the role lacks a privilege pg_dump needs"
+            elif grep -qiE "does not support SSL|SSL" "$err"; then echo "::error::TLS negotiation problem"
+            elif grep -qiE "could not translate|timeout|timed out|network is unreachable|connection refused" "$err"; then echo "::error::network or host problem (use the IPv4 session pooler URL)"
+            elif grep -qi "server version mismatch\|aborting because of server version" "$err"; then echo "::error::server is newer than pg_dump 17"
+            else echo "::error::unclassified failure"; fi
+            exit 1
+          fi
+
+      - name: Validate dump and scan for secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=baseline_raw.sql
+          [ -s "$f" ] || { echo "::error::dump is empty"; rm -f "$f"; exit 1; }
+          grep -q '^CREATE TABLE ' "$f" || { echo "::error::dump contains no CREATE TABLE"; rm -f "$f"; exit 1; }
+
+          # Matches are never printed, only the name of the pattern.
+          hits=0
+          scan() { # name, grep flags, ERE
+            if grep "$2" -q -- "$3" "$f"; then
+              echo "::error::secret scan hit: $1"
+              hits=$((hits + 1))
+            fi
+          }
+          scan "database URL"           -Ei 'postgres(ql)?://'
+          scan "JWT (eyJ...)"           -E  'eyJ[A-Za-z0-9_-]{10,}'
+          scan "sb_secret_ key"         -E  'sb_secret_'
+          scan "sk_live key"            -E  'sk_live'
+          scan "private key block"      -E  '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----'
+          scan "password literal (=)"   -Ei "password[[:space:]]*(=|:|=>)[[:space:]]*'+[^']+'+"
+          scan "password literal (SQL)" -Ei "password[[:space:]]+'+[^']+'+"
+          if [ "$hits" -gt 0 ]; then
+            rm -f "$f"
+            echo "::error::$hits secret-scan pattern(s) matched; nothing will be uploaded."
+            exit 1
+          fi
+
+          # Counts only, no content.
+          echo "dump OK: $(wc -l < "$f") lines;" \
+            "tables=$(grep -c '^CREATE TABLE ' "$f")" \
+            "policies=$(grep -c '^CREATE POLICY ' "$f")" \
+            "functions=$(grep -c '^CREATE FUNCTION ' "$f")" \
+            "grants=$(grep -c '^GRANT ' "$f")"
+
+      - name: Upload dump artifact (private, 1 day)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: prod-schema-baseline-raw
+          path: baseline_raw.sql
+          retention-days: 1
+          if-no-files-found: error

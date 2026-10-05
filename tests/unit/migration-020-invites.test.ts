@@ -64,7 +64,21 @@ describe("migration 020", () => {
       /GRANT EXECUTE ON FUNCTION public\.accept_workspace_invite[^;]*TO (authenticated|anon|PUBLIC)/i
     );
     expect(code).toContain(
-      "REVOKE ALL ON FUNCTION public.accept_workspace_invite(text, uuid) FROM PUBLIC"
+      "REVOKE ALL ON FUNCTION public.accept_workspace_invite(text, uuid) FROM PUBLIC, anon, authenticated"
+    );
+  });
+  it("revokes anon explicitly on every SECURITY DEFINER function (default privileges grant it directly)", () => {
+    expect(code).toContain(
+      "REVOKE EXECUTE ON FUNCTION public.is_milton_admin() FROM PUBLIC, anon"
+    );
+    expect(code).toContain(
+      "REVOKE ALL ON FUNCTION public.current_user_was_invited() FROM PUBLIC, anon"
+    );
+    expect(code).toContain(
+      "GRANT EXECUTE ON FUNCTION public.current_user_was_invited() TO authenticated, service_role"
+    );
+    expect(code).toContain(
+      "GRANT EXECUTE ON FUNCTION public.is_milton_admin() TO authenticated, service_role"
     );
   });
   it("the RPC never creates a company or calls bootstrap_restaurant_user", () => {

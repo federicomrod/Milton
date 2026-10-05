@@ -24,9 +24,13 @@
 --      only Milton admins invite during the pilot).
 --
 --   2. accept_workspace_invite(p_token_hash, p_user_id)
---      SECURITY DEFINER, EXECUTE granted to service_role only, same pattern
+--      SECURITY DEFINER, EXECUTE granted to service_role ONLY, same pattern
 --      as bootstrap_restaurant_user (PostgREST strips profiles.id on
---      insert, so profile/membership writes happen inside Postgres). One
+--      insert, so profile/membership writes happen inside Postgres).
+--      EXECUTE is revoked from PUBLIC, anon AND authenticated: on Supabase
+--      the public schema's default privileges grant EXECUTE directly to
+--      anon and authenticated, so revoking PUBLIC alone would leave it
+--      callable through /rest/v1/rpc with the public key. One
 --      transaction: lock the invite, reject accepted / revoked / expired
 --      with a distinct error code each, require the auth user's email to
 --      match the invite (case-insensitive), upsert the profile, insert the
@@ -37,7 +41,8 @@
 --      company per user), never moved or duplicated.
 --
 --   3. current_user_was_invited()
---      SECURITY DEFINER, EXECUTE for authenticated. Returns whether the
+--      SECURITY DEFINER, EXECUTE for authenticated (and service_role);
+--      revoked from PUBLIC and anon. Returns whether the
 --      calling user has an accepted invite, so the login redirect can keep
 --      invited users out of the self-serve onboarding wizard without
 --      giving invitees any read access to workspace_invites.
@@ -47,6 +52,11 @@
 --      screen. INSERT/SELECT for members of the company
 --      (public.is_company_member), SELECT for Milton admins. No UPDATE or
 --      DELETE policy.
+--
+-- Privileges: every SECURITY DEFINER function below has EXECUTE revoked from
+-- PUBLIC and anon explicitly (see migration 022 for the reasoning); the RLS
+-- helpers stay executable by authenticated because policies evaluate them as
+-- the querying role.
 --
 -- Milton admin check: profiles.role = 'admin' — the same check the app
 -- already uses (isUserAdminServer). NOTE: migration 011's header claims
@@ -75,6 +85,10 @@ AS $$
      WHERE p.user_id = auth.uid() AND p.role = 'admin'
   );
 $$;
+
+-- Only signed-in users (RLS policies run as them) and the service role.
+REVOKE EXECUTE ON FUNCTION public.is_milton_admin() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_milton_admin() TO authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- 1. workspace_invites
@@ -209,7 +223,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.accept_workspace_invite(text, uuid) FROM PUBLIC;
+-- Server-only. PUBLIC, anon and authenticated must ALL be revoked: the public
+-- schema's default privileges grant anon/authenticated directly.
+REVOKE ALL ON FUNCTION public.accept_workspace_invite(text, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.accept_workspace_invite(text, uuid) TO service_role;
 
 -- ---------------------------------------------------------------------------
@@ -229,8 +245,8 @@ AS $$
   );
 $$;
 
-REVOKE ALL ON FUNCTION public.current_user_was_invited() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.current_user_was_invited() TO authenticated;
+REVOKE ALL ON FUNCTION public.current_user_was_invited() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.current_user_was_invited() TO authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- 4. data_source_requests

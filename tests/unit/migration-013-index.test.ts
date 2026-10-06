@@ -11,7 +11,7 @@ import { join } from "path";
 
 const MIGRATION_PATH = join(
   process.cwd(),
-  "supabase/migrations/013_pos_sales_idempotency_and_connections.sql"
+  "supabase/migrations_archive/013_pos_sales_idempotency_and_connections.sql"
 );
 const sql = readFileSync(MIGRATION_PATH, "utf8");
 

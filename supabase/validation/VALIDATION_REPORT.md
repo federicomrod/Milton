@@ -245,16 +245,12 @@ This approach provided complete validation without requiring the full Supabase s
 
 **Issue:** Migration 020_workspace_invites.sql (PR #56, branch r1-item2-invite-password) references:
 
-1. `profiles.role` column (removed - role is in company_memberships)
-2. `is_milton_admin()` function (doesn't exist in baseline)
+1. `profiles.role` column (never existed in production)
+2. `is_milton_admin()` function (doesn't exist in baseline due to #1)
 
 **Impact:** Migration 020 cannot apply cleanly on top of baseline.
 
-**Resolution Required:** Update migration 020 to:
-
-- Use `company_memberships.role` instead of `profiles.role`
-- Remove or replace `is_milton_admin()` calls
-- Rebase on baseline branch
+**Resolution:** Fix in progress on PR #56, where `is_milton_admin()` will read a locked-down `public.milton_admins` table (RLS enabled, no policies).
 
 ---
 

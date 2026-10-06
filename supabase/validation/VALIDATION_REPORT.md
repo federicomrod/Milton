@@ -79,7 +79,7 @@
 | --------------------------------- | ------------- | ------------------------------------------------------------------------------------------ |
 | 001_baseline.sql                  | ✅ PASSED     | 36 tables, 105 policies, 5 functions created                                               |
 | 019_odoo_company_scope.sql        | ✅ PASSED     | odoo_company_ids column added                                                              |
-| 020_workspace_invites.sql         | ⚠️ **FAILED** | **4 errors:** references `profiles.role` (removed) and `is_milton_admin()` (doesn't exist) |
+| 020_workspace_invites.sql         | ⚠️ **FAILED** | **Root cause:** `is_milton_admin()` reads `profiles.role`, which has never existed in production |
 | 021_kitchen_telegram.sql          | ✅ PASSED     | Applied successfully                                                                       |
 | 022_secdef_function_hardening.sql | ✅ PASSED     | Applied successfully                                                                       |
 
@@ -87,10 +87,13 @@
 
 ```
 ERROR: column p.role does not exist
+HINT:  Perhaps you meant to reference the column "p.id" or "p.company_id".
 ERROR: function public.is_milton_admin() does not exist (4 occurrences)
 ```
 
-**Analysis:** Migration 020 was written against the old schema where `profiles.role` existed. The baseline correctly has role in `company_memberships.role`. Migration 020 needs update.
+**Root Cause:** Migration 020 creates an `is_milton_admin()` function (LANGUAGE sql) that reads `profiles.role`. This column has **never existed in production**—the baseline correctly has no such column. The "function does not exist" errors follow from the failed function definition.
+
+**Fix in Progress:** PR #56 is being updated to introduce a locked-down `public.milton_admins` table (RLS enabled, no policies) that `is_milton_admin()` will read instead. This approach separates Milton staff privileges from restaurant-level roles (`company_memberships.role`).
 
 ### C.2: Schema Diff ✅
 
@@ -296,8 +299,7 @@ This approach provided complete validation without requiring the full Supabase s
 **After merge:**
 
 1. Rebase PRs #56, #57, #61 on baseline
-2. Update migration 020 to work with baseline schema
-3. Delete temporary production access (already done by Federico)
+2. Update migration 020 to work with baseline schema (in progress on PR #56)
 
 ---
 

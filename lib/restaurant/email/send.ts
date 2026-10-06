@@ -107,3 +107,72 @@ export async function sendBriefingEmail(
     return { ok: false, error: "Could not reach the email provider." };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Workspace invite email (R1 item 2). Best effort: the admin always also
+// gets the copyable link, so a failure here is never fatal. The email
+// contains only the one-time link — never a password.
+// ---------------------------------------------------------------------------
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export async function sendWorkspaceInviteEmail(payload: {
+  to: string;
+  link: string;
+  workspaceName: string;
+}): Promise<EmailSendResult> {
+  let apiKey: string;
+  try {
+    apiKey = getApiKey();
+  } catch (err) {
+    console.error(
+      "[email-send] config error:",
+      err instanceof Error ? err.name : "Unknown error"
+    );
+    return { ok: false, error: "Email delivery is not configured." };
+  }
+
+  const name = payload.workspaceName;
+  const text =
+    `You've been invited to join ${name} on Milton.\n\n` +
+    `Set your password and activate your account here (the link expires in 7 days and works once):\n${payload.link}\n\n` +
+    `If you weren't expecting this, you can ignore this email.`;
+  const html =
+    `<p>You've been invited to join <strong>${escapeHtml(name)}</strong> on Milton.</p>` +
+    `<p><a href="${escapeHtml(payload.link)}">Set your password and activate your account</a></p>` +
+    `<p>The link expires in 7 days and works once. If you weren't expecting this, you can ignore this email.</p>`;
+
+  try {
+    const res = await fetch(RESEND_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        from: getFromAddress(),
+        to: payload.to,
+        subject: `You're invited to ${name} on Milton`,
+        html,
+        text,
+      }),
+    });
+    if (!res.ok) {
+      console.error("[email-send] invite email failed: HTTP", res.status);
+      return { ok: false, error: "Could not send the invite email." };
+    }
+    return { ok: true };
+  } catch (err) {
+    console.error(
+      "[email-send] invite request failed:",
+      err instanceof Error ? err.name : "Unknown error"
+    );
+    return { ok: false, error: "Could not reach the email provider." };
+  }
+}

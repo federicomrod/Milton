@@ -46,7 +46,7 @@ describe("sendWorkspaceInviteEmail — content", () => {
     const { result, body } = await send("La Cantina", LINK);
     expect(result).toEqual({ ok: true });
     expect(body.subject).toBe(
-      "Te han invitado a La Cantina en Milton / You're invited to La Cantina on Milton"
+      "Te invitaron a La Cantina en Milton / You're invited to La Cantina on Milton"
     );
     expect(body.to).toBe("cook@restaurant.com");
   });
@@ -59,6 +59,16 @@ describe("sendWorkspaceInviteEmail — content", () => {
     expect(html).toContain('bgcolor="#1B40C8"');
     expect(html).toContain("Activar cuenta / Activate account");
     expect(html).toContain("miltonlabs.ai");
+    expect(html).toContain("Te invitaron a Milton");
+    expect(html).toContain(
+      "El enlace vence en 7 días y solo funciona una vez."
+    );
+    expect(html).toContain("The link expires in 7 days and works only once.");
+    expect(html).toContain(
+      "Si no esperabas esta invitación, puedes ignorar este correo."
+    );
+    // Neutral Latin American Spanish: no Spain-Spanish leftovers.
+    expect(html + body.text).not.toMatch(/han invitado|caduca|pulsa|hemos/i);
     // Spanish block comes before the English block.
     expect(html.indexOf('lang="es"')).toBeGreaterThan(-1);
     expect(html.indexOf('lang="es"')).toBeLessThan(html.indexOf('lang="en"'));
@@ -91,12 +101,12 @@ describe("sendWorkspaceInviteEmail — content", () => {
   it("plain-text part is bilingual and contains only the link, never a password", async () => {
     const { body } = await send("La Cantina", LINK);
     const text: string = body.text;
-    expect(text.indexOf("Te han invitado")).toBeLessThan(
+    expect(text.indexOf("Te invitaron")).toBeLessThan(
       text.indexOf("You've been invited")
     );
     expect(text.split(LINK).length - 1).toBe(2);
-    expect(text).toContain("7 días");
-    expect(text).toContain("expires in 7 days and works once");
+    expect(text).toContain("vence en 7 días y solo funciona una vez");
+    expect(text).toContain("expires in 7 days and works only once");
     expect(text.toLowerCase()).not.toMatch(/password:|contraseña:/);
   });
 

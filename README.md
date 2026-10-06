@@ -276,7 +276,7 @@ milton/
 | Table                      | Purpose                                                                                      |
 | -------------------------- | -------------------------------------------------------------------------------------------- |
 | `auth.users`               | Supabase-managed authentication                                                              |
-| `profiles`                 | User profile; stores `role` ("user" or "admin")                                              |
+| `profiles`                 | User profile (id, user_id, company_id, full_name, email); see milton_admins for admin flag   |
 | `companies`                | Tenant record; linked to creator user                                                        |
 | `business_models`          | Per-company business type, KPI selections, canonical data model, onboarding answers          |
 | `data_tables`              | Admin-defined canonical table schemas (`fields` as JSONB array)                              |
@@ -476,7 +476,7 @@ All AI calls use `gpt-4o-mini` for cost efficiency. The model is not configurabl
 
 1. User signs up at `/auth/signup`
 2. Supabase creates `auth.users`
-3. `POST /api/auth/signup-complete` creates `profiles` (role = "user") and `companies` records
+3. `POST /api/auth/signup-complete` creates `profiles` (basic info only) and `companies` records
 4. Session stored via Supabase SSR (HTTP-only cookies)
 
 ### Roles
@@ -486,7 +486,7 @@ All AI calls use `gpt-4o-mini` for cost efficiency. The model is not configurabl
 | `user`  | Own company data only; dashboard, uploads, KPI selection |
 | `admin` | All management routes; KPI/template/table CRUD           |
 
-Admin role is stored in `profiles.role`. Checked server-side via `isUserAdmin(userId)` in `lib/profile-service.ts`.
+Admin role is stored in `public.milton_admins`. Checked server-side via `isUserAdminServer()` in `lib/profile-service-server.ts`, which calls the `is_milton_admin()` RPC (migration 020).
 
 ### Supabase Clients
 

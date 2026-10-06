@@ -7,7 +7,7 @@
 -- migration 011 is untouched and is NEVER called for invitees).
 --
 --   1. workspace_invites
---      A Milton admin (profiles.role = 'admin') invites a client email into
+--      A Milton admin (checked via is_milton_admin()) invites a client email into
 --      an EXISTING workspace (companies row). Only a SHA-256 hash of the
 --      one-time token is stored (token_hash); the raw token exists only in
 --      the link handed to the admin once. role is 'owner' or 'member'.
@@ -58,10 +58,10 @@
 -- helpers stay executable by authenticated because policies evaluate them as
 -- the querying role.
 --
--- Milton admin check: profiles.role = 'admin' — the same check the app
--- already uses (isUserAdminServer). NOTE: migration 011's header claims
--- profiles has no role column; if the column does not exist, the admin
--- check fails closed (no admin policy matches) — see the PR notes.
+-- Milton admin check: uses the public.milton_admins table (created below).
+-- Only service_role (or the owner) can insert milton_admins rows, so
+-- clients cannot self-promote. The is_milton_admin() helper is used in
+-- RLS policies and can be called by the app via RPC.
 --
 -- IMPORTANT: This file is for repo history. Supabase migrations are not
 -- applied from the repo by CI yet, so this SQL must also be pasted
@@ -70,19 +70,37 @@
 -- BEFORE deploying the code that uses it.
 
 -- ---------------------------------------------------------------------------
--- Milton admin helper (used by the RLS policies below)
+-- Milton admin table and helper (used by the RLS policies below)
 -- ---------------------------------------------------------------------------
+
+-- Milton staff registry. Only service_role (or the owner) can write to this
+-- table; authenticated has no grants. Locked down with RLS and no policies
+-- so clients can never read or write it directly (all queries go through
+-- is_milton_admin()).
+CREATE TABLE IF NOT EXISTS public.milton_admins (
+  user_id    uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.milton_admins ENABLE ROW LEVEL SECURITY;
+
+-- No policies: only the owner and service_role can access this table.
+REVOKE ALL ON TABLE public.milton_admins FROM PUBLIC, anon, authenticated;
+GRANT ALL ON TABLE public.milton_admins TO service_role;
+
+-- Seed example (commented out):
+-- INSERT INTO public.milton_admins (user_id) VALUES ('00000000-0000-0000-0000-000000000000');
 
 CREATE OR REPLACE FUNCTION public.is_milton_admin()
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = ''
 AS $$
   SELECT EXISTS (
-    SELECT 1 FROM public.profiles p
-     WHERE p.user_id = auth.uid() AND p.role = 'admin'
+    SELECT 1 FROM public.milton_admins
+     WHERE user_id = auth.uid()
   );
 $$;
 

@@ -30,13 +30,12 @@ async function getPostLoginRedirect(
     } = await supabase.auth.getUser();
     if (!user) return "/dashboard/restaurant";
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
+    const { data: isAdmin, error } = await supabase.rpc("is_milton_admin");
+    if (error) {
+      console.error("[LoginForm] is_milton_admin RPC error:", error.message);
+    }
 
-    if (profile?.role === "admin") return "/management/dashboard";
+    if (isAdmin === true) return "/management/dashboard";
 
     // Send restaurant users who haven't finished the onboarding wizard
     // there first, same check as app/auth/callback/route.ts.

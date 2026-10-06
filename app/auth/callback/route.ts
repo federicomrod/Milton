@@ -27,13 +27,15 @@ export async function GET(request: NextRequest) {
 
       if (user) {
         // Admins always go to the management dashboard.
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("user_id", user.id)
-          .single();
+        const { data: isAdmin, error } = await supabase.rpc("is_milton_admin");
+        if (error) {
+          console.error(
+            "[auth/callback] is_milton_admin RPC error:",
+            error.message
+          );
+        }
 
-        if (profile?.role === "admin") {
+        if (isAdmin === true) {
           console.log(
             "[auth/callback] Admin user, going to management dashboard"
           );

@@ -98,7 +98,7 @@ describe("routing", () => {
     ]) {
       const src = read(f);
       expect(src).toContain("import { resolveInvitedUserLanding }");
-      const adminAt = src.indexOf('profile?.role === "admin"');
+      const adminAt = src.indexOf('is_milton_admin"');
       const invitedAt = src.indexOf("resolveInvitedUserLanding(");
       expect(adminAt).toBeGreaterThan(-1);
       expect(invitedAt).toBeGreaterThan(adminAt);

@@ -134,12 +134,12 @@ export async function proxy(request: NextRequest) {
   // Also skip for management routes (admin-only) and for admin users
   const isAdmin = await (async () => {
     try {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("user_id", user.id)
-        .single();
-      return profile?.role === "admin";
+      const { data, error } = await supabase.rpc("is_milton_admin");
+      if (error) {
+        console.error("[Proxy] is_milton_admin RPC error:", error.message);
+        return false;
+      }
+      return data === true;
     } catch {
       return false;
     }

@@ -1,5 +1,3 @@
-// app/api/management/invites/route.ts
-//
 // Milton-admin-only workspace invites (R1 item 2, issue #45).
 //
 // POST { company_id, email, role? } creates an invite and returns the raw
@@ -8,9 +6,10 @@
 // GET ?company_id= lists invites (never tokens or hashes), plus the company
 //   list for the picker and recent "Connect your data" requests.
 //
-// Every handler is gated by isUserAdminServer() (profiles.role = 'admin');
-// everyone else gets 403. The admin client is used only after that gate,
-// for the privileged invite reads/writes.
+// Every handler is gated by isUserAdminServer() (which calls the
+// is_milton_admin() RPC from migration 020); everyone else gets 403.
+// The admin client is used only after that gate, for the privileged
+// invite reads/writes.
 
 import { NextRequest, NextResponse } from "next/server";
 import { isUserAdminServer } from "@/lib/profile-service-server";

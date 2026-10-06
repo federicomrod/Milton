@@ -98,7 +98,16 @@ describe("migration 020", () => {
   it("is additive: no DROP, no ALTER of existing tables, no policy changes", () => {
     expect(code).not.toMatch(/\bDROP\b/i);
     expect(code).not.toMatch(/ALTER POLICY/i);
-    const alters = [...code.matchAll(/ALTER TABLE ([\w.]+)/g)].map((m) => m[1]);
+    // 020 creates milton_admins itself; the only ALTER allowed on it is
+    // enabling RLS. Any other ALTER on it still fails the allow-list below.
+    const alters = [
+      ...code
+        .replace(
+          /ALTER TABLE public\.milton_admins ENABLE ROW LEVEL SECURITY;/g,
+          ""
+        )
+        .matchAll(/ALTER TABLE ([\w.]+)/g),
+    ].map((m) => m[1]);
     for (const t of alters) {
       expect([
         "public.workspace_invites",

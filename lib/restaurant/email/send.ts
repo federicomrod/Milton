@@ -134,7 +134,6 @@ const EMAIL_FONT = "'Plus Jakarta Sans', Arial, Helvetica, sans-serif";
 function workspaceInviteEmailHtml(safeName: string, safeLink: string): string {
   const h1 = `margin:0 0 10px 0;font-family:${EMAIL_FONT};font-size:22px;line-height:30px;font-weight:700;color:#0D1117;`;
   const p = `margin:0;font-family:${EMAIL_FONT};font-size:15px;line-height:24px;color:#0D1117;`;
-  const small = `margin:10px 0 0 0;font-family:${EMAIL_FONT};font-size:13px;line-height:20px;color:#5B6570;`;
   const rule = (pad: string) =>
     `<tr><td style="padding:${pad};"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid #E6E8EC;font-size:0;line-height:0;height:1px;">&nbsp;</td></tr></table></td></tr>`;
   return (
@@ -147,15 +146,13 @@ function workspaceInviteEmailHtml(safeName: string, safeLink: string): string {
     `<table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:560px;">` +
     `<tr><td style="padding:0 0 28px 0;"><img src="${EMAIL_LOGO_URL}" width="160" height="42" alt="Milton" style="display:block;width:160px;height:42px;border:0;outline:none;text-decoration:none;"></td></tr>` +
     `<tr><td lang="es" style="font-family:${EMAIL_FONT};color:#0D1117;">` +
-    `<h1 style="${h1}">Te han invitado a Milton</h1>` +
-    `<p style="${p}">Te han invitado a unirte a <strong>${safeName}</strong> en Milton, el asistente para la operación de tu restaurante. Crea tu contraseña y activa tu cuenta con el botón de abajo.</p>` +
-    `<p style="${small}">El enlace caduca en 7 días y solo funciona una vez.</p>` +
+    `<h1 style="${h1}">Te invitaron a Milton</h1>` +
+    `<p style="${p}">Te invitaron a unirte a <strong>${safeName}</strong> en Milton, el asistente para la operación de tu restaurante. Crea tu contraseña y activa tu cuenta con el botón de abajo. El enlace vence en 7 días y solo funciona una vez.</p>` +
     `</td></tr>` +
     rule("24px 0") +
     `<tr><td lang="en" style="font-family:${EMAIL_FONT};color:#0D1117;">` +
     `<h1 style="${h1}">You're invited to Milton</h1>` +
-    `<p style="${p}">You've been invited to join <strong>${safeName}</strong> on Milton, your restaurant operations assistant. Set your password and activate your account with the button below.</p>` +
-    `<p style="${small}">The link expires in 7 days and works once.</p>` +
+    `<p style="${p}">You've been invited to join <strong>${safeName}</strong> on Milton, your restaurant operations assistant. Set your password and activate your account with the button below. The link expires in 7 days and works only once.</p>` +
     `</td></tr>` +
     `<tr><td style="padding:28px 0 0 0;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>` +
     `<td align="center" bgcolor="#1B40C8" style="background-color:#1B40C8;border-radius:999px;mso-padding-alt:14px 28px;">` +
@@ -192,12 +189,12 @@ export async function sendWorkspaceInviteEmail(payload: {
 
   const name = payload.workspaceName;
   const text =
-    `Te han invitado a unirte a ${name} en Milton.\n\n` +
-    `Crea tu contraseña y activa tu cuenta aquí (el enlace caduca en 7 días y solo funciona una vez):\n${payload.link}\n\n` +
+    `Te invitaron a unirte a ${name} en Milton.\n\n` +
+    `Crea tu contraseña y activa tu cuenta aquí (el enlace vence en 7 días y solo funciona una vez):\n${payload.link}\n\n` +
     `Si no esperabas esta invitación, puedes ignorar este correo.\n\n` +
     `---\n\n` +
     `You've been invited to join ${name} on Milton.\n\n` +
-    `Set your password and activate your account here (the link expires in 7 days and works once):\n${payload.link}\n\n` +
+    `Set your password and activate your account here (the link expires in 7 days and works only once):\n${payload.link}\n\n` +
     `If you weren't expecting this, you can ignore this email.`;
   const html = workspaceInviteEmailHtml(
     escapeHtml(name),
@@ -214,7 +211,7 @@ export async function sendWorkspaceInviteEmail(payload: {
       body: JSON.stringify({
         from: getFromAddress(),
         to: payload.to,
-        subject: `Te han invitado a ${name} en Milton / You're invited to ${name} on Milton`,
+        subject: `Te invitaron a ${name} en Milton / You're invited to ${name} on Milton`,
         html,
         text,
       }),

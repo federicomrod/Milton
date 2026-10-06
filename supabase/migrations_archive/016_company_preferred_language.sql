@@ -1,0 +1,34 @@
+-- 016_company_preferred_language.sql
+--
+-- Milton Language Foundation v1 — one persistent language preference per
+-- company, so Milton can progressively support English and Spanish across
+-- onboarding, the dashboard, Ask Milton, executive briefings, and future
+-- Telegram / photo / voice workflows.
+--
+-- Company-level, not per-restaurant: applies to every restaurant_brand /
+-- restaurant_location under a company. A restaurant location already has
+-- its own `country`/`currency` (migration 014) but language is a company
+-- decision in v1 — a future per-location override, if ever needed, would
+-- be a separate additive column on restaurant_locations, not a change to
+-- this one.
+--
+-- preferred_language is deliberately free text with NO CHECK constraint,
+-- same rationale as pos_source (migration 012) and the onboarding profile
+-- columns (migration 014): the fixed 'en' | 'es' option list lives in
+-- application code (lib/restaurant/language.ts's normalizePreferredLanguage()),
+-- so adding a third language later never requires a migration to match.
+--
+-- All changes are additive:
+--   * preferred_language is NOT NULL with a DEFAULT, so the ADD COLUMN
+--     backfills every existing company to 'en' in the same statement — no
+--     separate UPDATE needed, and no existing company's behavior changes
+--     silently.
+-- No existing column, constraint, index, or RLS policy is modified.
+--
+-- IMPORTANT: This file is for repo history. Supabase migrations are not
+-- applied from the repo by CI yet, so this SQL must also be pasted
+-- manually into the Supabase SQL Editor by someone with production
+-- access — it is NOT applied automatically by this change.
+
+ALTER TABLE public.companies
+  ADD COLUMN IF NOT EXISTS preferred_language text NOT NULL DEFAULT 'en';

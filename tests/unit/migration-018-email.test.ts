@@ -8,7 +8,7 @@ import { join } from "path";
 
 const MIGRATION_PATH = join(
   process.cwd(),
-  "supabase/migrations/018_briefing_email_delivery.sql"
+  "supabase/migrations_archive/018_briefing_email_delivery.sql"
 );
 const sql = readFileSync(MIGRATION_PATH, "utf8");
 

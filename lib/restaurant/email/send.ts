@@ -122,6 +122,58 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+// Shared Milton email look (matches supabase/templates/*.html on
+// r1-db-baseline): table layout, inline CSS, 560px column, logo, one blue
+// button, plain fallback link. Bilingual: Spanish first, then English.
+// STAGING-ONLY logo URL; production will move to a stable miltonlabs.ai URL.
+const EMAIL_LOGO_URL =
+  "https://raw.githubusercontent.com/federicomrod/Milton/r1-db-baseline/public/email/milton-logo.png";
+const EMAIL_FONT = "'Plus Jakarta Sans', Arial, Helvetica, sans-serif";
+
+/** Both arguments must already be HTML-escaped. */
+function workspaceInviteEmailHtml(safeName: string, safeLink: string): string {
+  const h1 = `margin:0 0 10px 0;font-family:${EMAIL_FONT};font-size:22px;line-height:30px;font-weight:700;color:#0D1117;`;
+  const p = `margin:0;font-family:${EMAIL_FONT};font-size:15px;line-height:24px;color:#0D1117;`;
+  const small = `margin:10px 0 0 0;font-family:${EMAIL_FONT};font-size:13px;line-height:20px;color:#5B6570;`;
+  const rule = (pad: string) =>
+    `<tr><td style="padding:${pad};"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid #E6E8EC;font-size:0;line-height:0;height:1px;">&nbsp;</td></tr></table></td></tr>`;
+  return (
+    `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">` +
+    `<meta name="viewport" content="width=device-width, initial-scale=1">` +
+    `<meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light">` +
+    `<title>Milton</title></head>` +
+    `<body style="margin:0;padding:0;background-color:#ffffff;">` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;"><tr><td align="center" style="padding:32px 16px;">` +
+    `<table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:560px;">` +
+    `<tr><td style="padding:0 0 28px 0;"><img src="${EMAIL_LOGO_URL}" width="160" height="42" alt="Milton" style="display:block;width:160px;height:42px;border:0;outline:none;text-decoration:none;"></td></tr>` +
+    `<tr><td lang="es" style="font-family:${EMAIL_FONT};color:#0D1117;">` +
+    `<h1 style="${h1}">Te han invitado a Milton</h1>` +
+    `<p style="${p}">Te han invitado a unirte a <strong>${safeName}</strong> en Milton, el asistente para la operación de tu restaurante. Crea tu contraseña y activa tu cuenta con el botón de abajo.</p>` +
+    `<p style="${small}">El enlace caduca en 7 días y solo funciona una vez.</p>` +
+    `</td></tr>` +
+    rule("24px 0") +
+    `<tr><td lang="en" style="font-family:${EMAIL_FONT};color:#0D1117;">` +
+    `<h1 style="${h1}">You're invited to Milton</h1>` +
+    `<p style="${p}">You've been invited to join <strong>${safeName}</strong> on Milton, your restaurant operations assistant. Set your password and activate your account with the button below.</p>` +
+    `<p style="${small}">The link expires in 7 days and works once.</p>` +
+    `</td></tr>` +
+    `<tr><td style="padding:28px 0 0 0;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>` +
+    `<td align="center" bgcolor="#1B40C8" style="background-color:#1B40C8;border-radius:999px;mso-padding-alt:14px 28px;">` +
+    `<a href="${safeLink}" target="_blank" style="display:inline-block;padding:14px 28px;font-family:${EMAIL_FONT};font-size:15px;line-height:20px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:999px;">Activar cuenta / Activate account</a>` +
+    `</td></tr></table></td></tr>` +
+    `<tr><td style="padding:20px 0 0 0;font-family:${EMAIL_FONT};font-size:13px;line-height:20px;color:#5B6570;">` +
+    `¿El botón no funciona? Copia este enlace en tu navegador:<br>Button not working? Paste this link into your browser:<br>` +
+    `<a href="${safeLink}" target="_blank" style="color:#1B40C8;text-decoration:underline;word-break:break-all;">${safeLink}</a>` +
+    `</td></tr>` +
+    rule("32px 0 0 0") +
+    `<tr><td style="padding:16px 0 0 0;font-family:${EMAIL_FONT};font-size:12px;line-height:18px;color:#5B6570;">` +
+    `<strong style="color:#0D1117;">Milton</strong> · <a href="https://miltonlabs.ai" target="_blank" style="color:#5B6570;text-decoration:none;">miltonlabs.ai</a><br>` +
+    `<span lang="es">Si no esperabas esta invitación, puedes ignorar este correo.</span><br>` +
+    `<span lang="en">If you weren't expecting this, you can ignore this email.</span>` +
+    `</td></tr></table></td></tr></table></body></html>`
+  );
+}
+
 export async function sendWorkspaceInviteEmail(payload: {
   to: string;
   link: string;
@@ -140,13 +192,17 @@ export async function sendWorkspaceInviteEmail(payload: {
 
   const name = payload.workspaceName;
   const text =
+    `Te han invitado a unirte a ${name} en Milton.\n\n` +
+    `Crea tu contraseña y activa tu cuenta aquí (el enlace caduca en 7 días y solo funciona una vez):\n${payload.link}\n\n` +
+    `Si no esperabas esta invitación, puedes ignorar este correo.\n\n` +
+    `---\n\n` +
     `You've been invited to join ${name} on Milton.\n\n` +
     `Set your password and activate your account here (the link expires in 7 days and works once):\n${payload.link}\n\n` +
     `If you weren't expecting this, you can ignore this email.`;
-  const html =
-    `<p>You've been invited to join <strong>${escapeHtml(name)}</strong> on Milton.</p>` +
-    `<p><a href="${escapeHtml(payload.link)}">Set your password and activate your account</a></p>` +
-    `<p>The link expires in 7 days and works once. If you weren't expecting this, you can ignore this email.</p>`;
+  const html = workspaceInviteEmailHtml(
+    escapeHtml(name),
+    escapeHtml(payload.link)
+  );
 
   try {
     const res = await fetch(RESEND_API_URL, {
@@ -158,7 +214,7 @@ export async function sendWorkspaceInviteEmail(payload: {
       body: JSON.stringify({
         from: getFromAddress(),
         to: payload.to,
-        subject: `You're invited to ${name} on Milton`,
+        subject: `Te han invitado a ${name} en Milton / You're invited to ${name} on Milton`,
         html,
         text,
       }),

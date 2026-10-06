@@ -6,6 +6,8 @@ This directory contains the Milton database schema, migrations, and local develo
 
 The database baseline (`migrations/001_baseline.sql`) is a complete snapshot of the Milton production database schema captured on **October 6, 2026**. This baseline supersedes all previous migrations (002-018), which have been archived.
 
+It carries exactly two Supabase-compatibility edits relative to the raw `pg_dump` (see the file header): `CREATE SCHEMA public;` is `CREATE SCHEMA IF NOT EXISTS public;`, and the 12 `ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin ...` lines are removed (the `postgres` role cannot change them, and Supabase already sets them). Without these edits the file fails on a real Supabase project. The baseline is never applied to production, which already has this schema.
+
 ## Directory Structure
 
 ```

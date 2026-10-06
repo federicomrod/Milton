@@ -9,6 +9,7 @@ import {
   FileText,
   Table,
   UserPlus,
+  QrCode,
   ChevronLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,11 @@ const navigation = [
     name: "Invites",
     href: "/management/invites",
     icon: UserPlus,
+  },
+  {
+    name: "Kitchen QR",
+    href: "/management/kitchen",
+    icon: QrCode,
   },
 ];
 

@@ -1,6 +1,6 @@
 # Milton auth email templates
 
-Milton-branded templates for Supabase Auth emails. Each one is bilingual (Spanish first, then English), uses table-based HTML with inline CSS, and has one blue button plus a plain fallback link.
+Milton-branded templates for Supabase Auth emails. Each one is bilingual: Spanish first (neutral Latin American Spanish, tú), then English, uses table-based HTML with inline CSS, and has one blue button plus a plain fallback link.
 
 - **Sender:** `Milton <no-reply@miltonlabs.ai>`, set in the project's SMTP settings, not here.
 - **Logo:** `public/email/milton-logo.png` (320×84, shown at 160×42), loaded from `https://raw.githubusercontent.com/federicomrod/Milton/r1-db-baseline/public/email/milton-logo.png`. **That URL is staging-only.** Production will switch to a stable miltonlabs.ai URL.
@@ -12,8 +12,8 @@ The templates use only Supabase's standard variables: `{{ .ConfirmationURL }}`, 
 | Dashboard template | Subject | File | config.toml key |
 |---|---|---|---|
 | Confirm signup | `Confirma tu cuenta de Milton / Confirm your Milton account` | `confirmation.html` | `[auth.email.template.confirmation]` |
-| Invite user | `Te han invitado a Milton / You're invited to Milton` | `invite.html` | `[auth.email.template.invite]` |
-| Magic Link | `Tu enlace para entrar en Milton / Your Milton sign-in link` | `magic_link.html` | `[auth.email.template.magic_link]` |
+| Invite user | `Te invitaron a Milton / You're invited to Milton` | `invite.html` | `[auth.email.template.invite]` |
+| Magic Link | `Tu enlace para entrar a Milton / Your Milton sign-in link` | `magic_link.html` | `[auth.email.template.magic_link]` |
 | Reset Password | `Restablece tu contraseña de Milton / Reset your Milton password` | `recovery.html` | `[auth.email.template.recovery]` |
 | Change Email Address | `Confirma tu nuevo correo en Milton / Confirm your new Milton email` | `email_change.html` | `[auth.email.template.email_change]` |
 

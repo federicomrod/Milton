@@ -285,7 +285,7 @@ export async function loadKitchenQrStatus(
   const [locs, tokens, staff] = await Promise.all([
     admin
       .from("restaurant_locations")
-      .select("id, name, is_active")
+      .select("id, name, status")
       .eq("company_id", companyId)
       .order("name", { ascending: true }),
     admin
@@ -314,7 +314,7 @@ export async function loadKitchenQrStatus(
     staffCount.set(id, (staffCount.get(id) ?? 0) + 1);
   }
   return (locs.data ?? [])
-    .filter((l) => l.is_active !== false)
+    .filter((l) => l.status === "active")
     .map((l) => ({
       location_id: l.id as string,
       name: l.name as string,

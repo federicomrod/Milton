@@ -1,100 +1,233 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 /**
- * Restaurant Onboarding Complete Route — Location Insert Payload Tests
+ * Restaurant Onboarding Complete Route Tests (Content Regression)
  *
- * Validates that the route inserts restaurant_locations rows with only
- * columns that exist in the baseline schema, and that insert errors
- * surface to the caller instead of being silently swallowed.
+ * Verifies the structural guarantees the fix requires:
+ * - Location insert uses only real columns (status: 'active', no currency/is_active)
+ * - Insert errors surface as 500 responses and prevent onboarding_status='completed'
+ * - Idempotency: re-running with existing brand but no location creates it
+ *
+ * Uses content regression (not full route execution) to avoid mocking complexity.
  */
 
-describe("POST /api/restaurant/onboarding/complete location insert", () => {
-  it("uses status 'active' not is_active boolean", () => {
-    // The insert payload must use status: 'active' (string enum),
-    // not is_active: true (boolean), to match the baseline schema.
-    const mockPayload = {
-      brand_id: "brand-123",
-      company_id: "company-123",
-      name: "Test Restaurant",
-      country: "MX",
-      primary_pos: "odoo",
-      status: "active" as const,
-    };
+const ROUTE_PATH = join(
+  process.cwd(),
+  "app/api/restaurant/onboarding/complete/route.ts"
+);
+const ADD_RESTAURANT_PATH = join(
+  process.cwd(),
+  "app/api/restaurant/add-restaurant/route.ts"
+);
 
-    expect(mockPayload.status).toBe("active");
-    expect(mockPayload).not.toHaveProperty("is_active");
+const completeSource = readFileSync(ROUTE_PATH, "utf8");
+const addRestaurantSource = readFileSync(ADD_RESTAURANT_PATH, "utf8");
+
+describe("POST /api/restaurant/onboarding/complete — location insert columns", () => {
+  it("inserts restaurant_locations with status: 'active'", () => {
+    const locationInsertIdx = completeSource.indexOf(
+      '.from("restaurant_locations")'
+    );
+    expect(locationInsertIdx).toBeGreaterThan(-1);
+
+    // Find the insert payload (the object after .insert( up to the closing })
+    const insertStart = completeSource.indexOf(".insert({", locationInsertIdx);
+    expect(insertStart).toBeGreaterThan(-1);
+    const insertEnd = completeSource.indexOf("});", insertStart);
+    const insertPayload = completeSource.slice(insertStart, insertEnd);
+
+    expect(insertPayload).toContain("status:");
+    expect(insertPayload).toContain('"active"');
   });
 
-  it("does not include currency field", () => {
-    // The currency field does not exist in restaurant_locations baseline
-    // schema. Currency comes from pos_sales_items and menu_items instead.
-    const mockPayload = {
-      brand_id: "brand-123",
-      company_id: "company-123",
-      name: "Test Restaurant",
-      country: "MX",
-      primary_pos: "odoo",
-      status: "active" as const,
-    };
+  it("does NOT insert currency into restaurant_locations", () => {
+    const locationInsertIdx = completeSource.indexOf(
+      '.from("restaurant_locations")'
+    );
+    expect(locationInsertIdx).toBeGreaterThan(-1);
 
-    expect(mockPayload).not.toHaveProperty("currency");
+    const insertStart = completeSource.indexOf(".insert({", locationInsertIdx);
+    const insertEnd = completeSource.indexOf("});", insertStart);
+    const insertPayload = completeSource.slice(insertStart, insertEnd);
+
+    expect(insertPayload).not.toContain("currency");
   });
 
-  it("includes only existing baseline columns", () => {
-    // Verify the payload contains only columns that exist in the
-    // baseline schema: brand_id, company_id, name, country, status,
-    // primary_pos (added by migration 014).
-    const mockPayload = {
-      brand_id: "brand-123",
-      company_id: "company-123",
-      name: "Test Restaurant",
-      country: "MX",
-      primary_pos: "odoo",
-      status: "active" as const,
-    };
+  it("does NOT insert is_active into restaurant_locations", () => {
+    const locationInsertIdx = completeSource.indexOf(
+      '.from("restaurant_locations")'
+    );
+    expect(locationInsertIdx).toBeGreaterThan(-1);
 
-    const allowedKeys = [
-      "brand_id",
-      "company_id",
-      "name",
-      "country",
-      "primary_pos",
-      "status",
-    ];
+    const insertStart = completeSource.indexOf(".insert({", locationInsertIdx);
+    const insertEnd = completeSource.indexOf("});", insertStart);
+    const insertPayload = completeSource.slice(insertStart, insertEnd);
 
-    const payloadKeys = Object.keys(mockPayload);
-    for (const key of payloadKeys) {
-      expect(allowedKeys).toContain(key);
-    }
+    expect(insertPayload).not.toContain("is_active");
   });
 });
 
-describe("POST /api/restaurant/onboarding/complete error surfacing", () => {
-  it("location insert error returns 500 error response not silent success", () => {
-    // Before the fix, location insert errors were logged but the route
-    // returned { success: true }. After the fix, they must return a 500
-    // error with details so the UI can show the failure.
-    const mockErrorResponse = {
-      error: "Could not create restaurant location",
-      details: "column 'is_active' does not exist",
-    };
+describe("POST /api/restaurant/onboarding/complete — error handling", () => {
+  it("returns 500 when restaurant_brands insert fails", () => {
+    const brandInsertIdx = completeSource.indexOf('.from("restaurant_brands")');
+    expect(brandInsertIdx).toBeGreaterThan(-1);
 
-    expect(mockErrorResponse).toHaveProperty("error");
-    expect(mockErrorResponse).toHaveProperty("details");
-    expect(mockErrorResponse.error).toContain("location");
+    // Find the error check after brand insert
+    const brandErrorCheckIdx = completeSource.indexOf(
+      "if (brandInsertError)",
+      brandInsertIdx
+    );
+    expect(brandErrorCheckIdx).toBeGreaterThan(brandInsertIdx);
+
+    // Find the 500 response in that error block
+    const errorBlock = completeSource.slice(
+      brandErrorCheckIdx,
+      completeSource.indexOf("});", brandErrorCheckIdx) + 10
+    );
+    expect(errorBlock).toContain("status: 500");
+    expect(errorBlock).toContain("brand");
   });
 
-  it("brand insert error returns 500 error response not silent success", () => {
-    // Brand insert errors must also return error responses, not continue
-    // with brandId=null (which would skip location creation and report
-    // success despite having no brand or location).
-    const mockErrorResponse = {
-      error: "Could not create restaurant brand",
-      details: "constraint violation",
-    };
+  it("returns 500 when restaurant_locations insert fails", () => {
+    const locationInsertIdx = completeSource.indexOf(
+      '.from("restaurant_locations")'
+    );
+    expect(locationInsertIdx).toBeGreaterThan(-1);
 
-    expect(mockErrorResponse).toHaveProperty("error");
-    expect(mockErrorResponse).toHaveProperty("details");
-    expect(mockErrorResponse.error).toContain("brand");
+    // Find the error check after location insert
+    const locationErrorCheckIdx = completeSource.indexOf(
+      "if (locationInsertError)",
+      locationInsertIdx
+    );
+    expect(locationErrorCheckIdx).toBeGreaterThan(locationInsertIdx);
+
+    // Find the 500 response in that error block
+    const errorBlock = completeSource.slice(
+      locationErrorCheckIdx,
+      completeSource.indexOf("});", locationErrorCheckIdx) + 10
+    );
+    expect(errorBlock).toContain("status: 500");
+    expect(errorBlock).toContain("location");
+  });
+
+  it("sets onboarding_status='completed' only after both brand and location succeed", () => {
+    const brandErrorIdx = completeSource.indexOf("if (brandInsertError)");
+    const locationErrorIdx = completeSource.indexOf("if (locationInsertError)");
+    const completionIdx = completeSource.indexOf(
+      'onboarding_status: "completed"'
+    );
+
+    expect(brandErrorIdx).toBeGreaterThan(-1);
+    expect(locationErrorIdx).toBeGreaterThan(-1);
+    expect(completionIdx).toBeGreaterThan(-1);
+
+    // The completion update should come after both error checks
+    expect(completionIdx).toBeGreaterThan(brandErrorIdx);
+    expect(completionIdx).toBeGreaterThan(locationErrorIdx);
+
+    // Verify both error blocks return early (contain 'return')
+    const brandErrorBlock = completeSource.slice(
+      brandErrorIdx,
+      brandErrorIdx + 500
+    );
+    const locationErrorBlock = completeSource.slice(
+      locationErrorIdx,
+      locationErrorIdx + 500
+    );
+
+    expect(brandErrorBlock).toContain("return");
+    expect(locationErrorBlock).toContain("return");
+  });
+});
+
+describe("POST /api/restaurant/onboarding/complete — idempotency", () => {
+  it("checks if brand exists before creating a new one", () => {
+    const brandCheckIdx = completeSource.indexOf(
+      '.from("restaurant_brands")\n      .select("id")'
+    );
+    const brandInsertIdx = completeSource.indexOf(
+      '.from("restaurant_brands")\n        .insert({'
+    );
+
+    expect(brandCheckIdx).toBeGreaterThan(-1);
+    expect(brandInsertIdx).toBeGreaterThan(-1);
+    // The check should come before the insert
+    expect(brandCheckIdx).toBeLessThan(brandInsertIdx);
+  });
+
+  it("checks if location exists before creating a new one", () => {
+    const locationCheckIdx = completeSource.indexOf(
+      '.from("restaurant_locations")\n        .select("id")'
+    );
+    const locationInsertIdx = completeSource.indexOf(
+      '.from("restaurant_locations")\n        .insert({'
+    );
+
+    expect(locationCheckIdx).toBeGreaterThan(-1);
+    expect(locationInsertIdx).toBeGreaterThan(-1);
+    // The check should come before the insert
+    expect(locationCheckIdx).toBeLessThan(locationInsertIdx);
+  });
+
+  it("creates location even when brand already exists", () => {
+    // Look for the pattern: if existingBrand is found, use its ID
+    // then still check and potentially create the location
+    const useBrandIdIdx = completeSource.indexOf("if (existingBrand?.id)");
+    const locationCheckIdx = completeSource.indexOf(
+      '.from("restaurant_locations")\n        .select("id")'
+    );
+
+    expect(useBrandIdIdx).toBeGreaterThan(-1);
+    expect(locationCheckIdx).toBeGreaterThan(-1);
+    // Location check should happen after we potentially use existing brand
+    expect(locationCheckIdx).toBeGreaterThan(useBrandIdIdx);
+  });
+});
+
+describe("POST /api/restaurant/add-restaurant — location insert columns", () => {
+  it("inserts restaurant_locations with status: 'active'", () => {
+    // Find restaurant_locations insert specifically (not restaurant_brands)
+    const locationsTableIdx = addRestaurantSource.indexOf(
+      '.from("restaurant_locations")\n      .insert({'
+    );
+    expect(locationsTableIdx).toBeGreaterThan(-1);
+
+    const insertStart =
+      locationsTableIdx + '.from("restaurant_locations")'.length;
+    const insertEnd = addRestaurantSource.indexOf("})", insertStart);
+    const insertPayload = addRestaurantSource.slice(insertStart, insertEnd);
+
+    expect(insertPayload).toContain("status:");
+    expect(insertPayload).toContain('"active"');
+  });
+
+  it("does NOT insert currency into restaurant_locations", () => {
+    const locationsTableIdx = addRestaurantSource.indexOf(
+      '.from("restaurant_locations")\n      .insert({'
+    );
+    expect(locationsTableIdx).toBeGreaterThan(-1);
+
+    const insertStart =
+      locationsTableIdx + '.from("restaurant_locations")'.length;
+    const insertEnd = addRestaurantSource.indexOf("})", insertStart);
+    const insertPayload = addRestaurantSource.slice(insertStart, insertEnd);
+
+    expect(insertPayload).not.toContain("currency");
+  });
+
+  it("does NOT insert is_active into restaurant_locations", () => {
+    const locationsTableIdx = addRestaurantSource.indexOf(
+      '.from("restaurant_locations")\n      .insert({'
+    );
+    expect(locationsTableIdx).toBeGreaterThan(-1);
+
+    const insertStart =
+      locationsTableIdx + '.from("restaurant_locations")'.length;
+    const insertEnd = addRestaurantSource.indexOf("})", insertStart);
+    const insertPayload = addRestaurantSource.slice(insertStart, insertEnd);
+
+    expect(insertPayload).not.toContain("is_active");
   });
 });

@@ -1,10 +1,16 @@
 // lib/restaurant/odoo/client.ts
 //
-// Thin Odoo XML-RPC client: authenticate() + executeKw(). No env var
+// Thin Odoo XML-RPC client: authenticate() + unsafeExecuteKw(). No env var
 // access here — credentials are passed in explicitly by the caller (the
 // sync API route), which is the only place that should know where a
 // secret comes from. Keeps this module trivially unit-testable with a
 // mocked fetch.
+//
+// MULTI-COMPANY SAFETY: unsafeExecuteKw() performs NO company scoping.
+// Only lib/restaurant/odoo/scoped.ts may import it; every route/lib must
+// call Odoo models through scopedExecuteKw() there, which injects the
+// company_id domain filter and context.allowed_company_ids and fails
+// closed when no Odoo company is selected. A content test enforces this.
 
 import { encodeMethodCall, decodeMethodResponse } from "./xmlrpc";
 import type { XmlRpcValue } from "./xmlrpc";
@@ -81,10 +87,13 @@ export async function authenticate(creds: OdooCredentials): Promise<number> {
 }
 
 /**
- * Calls execute_kw on /xmlrpc/2/object — the general-purpose model-method
- * RPC every other Odoo operation goes through (search_read, etc.).
+ * Calls execute_kw on /xmlrpc/2/object with args/kwargs passed through
+ * VERBATIM — no domain or context injection.
+ *
+ * UNSAFE: only lib/restaurant/odoo/scoped.ts may import this. Everything
+ * else goes through scopedExecuteKw().
  */
-export async function executeKw(
+export async function unsafeExecuteKw(
   creds: OdooCredentials,
   uid: number,
   model: string,

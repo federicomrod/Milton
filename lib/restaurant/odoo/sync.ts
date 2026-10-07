@@ -41,6 +41,8 @@ export interface OdooPosOrderRaw {
   session_id: OdooMany2one;
   config_id: OdooMany2one;
   currency_id: OdooMany2one;
+  /** Odoo res.company — always requested and re-checked after every fetch. */
+  company_id: OdooMany2one;
 }
 
 export interface OdooPosOrderLineRaw {
@@ -54,6 +56,8 @@ export interface OdooPosOrderLineRaw {
   price_subtotal_incl: number;
   discount: number; // percent, 0-100
   uuid?: string | false;
+  /** Odoo res.company (stored related of order_id.company_id). */
+  company_id: OdooMany2one;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,6 +299,8 @@ export function transformOdooOrders(
         session_id: order.session_id ? order.session_id[0] : null,
         config_id: order.config_id ? order.config_id[0] : null,
         config_name: order.config_id ? order.config_id[1] : null,
+        odoo_company_id: order.company_id ? order.company_id[0] : null,
+        odoo_company_name: order.company_id ? order.company_id[1] : null,
         product_id: line.product_id ? line.product_id[0] : null,
         state: order.state,
       },

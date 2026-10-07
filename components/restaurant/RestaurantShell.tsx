@@ -53,6 +53,7 @@ import {
   MessageSquareText,
   Check,
   Plus,
+  ChefHat,
 } from "lucide-react";
 import { LogoutButton } from "@/components/dashboard/logout-button";
 import { AddRestaurantDialog } from "@/components/restaurant/AddRestaurantDialog";
@@ -143,6 +144,11 @@ const PRIMARY_GROUPS: NavGroup[] = [
         href: "/dashboard/restaurant/invoices",
         label: "Supplier Invoices",
         icon: Receipt,
+      },
+      {
+        href: "/dashboard/restaurant/kitchen",
+        label: "Kitchen (Telegram)",
+        icon: ChefHat,
       },
     ],
   },

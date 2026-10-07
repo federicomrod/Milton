@@ -12,6 +12,16 @@
 // restaurant_pos_connections, scoped to the authenticated user's company
 // via the same RLS-backed client every other restaurant route uses.
 //
+// Odoo multi-company isolation: every Odoo model call goes through
+// scopedExecuteKw() (lib/restaurant/odoo/scoped.ts), which injects a
+// company_id domain filter AND context.allowed_company_ids for the Odoo
+// companies selected on the connection (odoo_company_ids). Nothing is
+// selected -> 409, before the secret is decrypted or Odoo is contacted.
+// The stored selection is re-validated against Odoo on every run, and
+// every fetched record's company_id is re-checked before anything is
+// upserted. A single foreign record aborts the whole sync (no partial
+// upsert).
+//
 // This route does not run on a schedule; it is triggered explicitly by an
 // authenticated request with a date range. No cron, no background job.
 
@@ -21,7 +31,6 @@ import { buildNameIndex } from "@/lib/restaurant/pos-import";
 import { buildScopedNameIndex } from "@/lib/restaurant/scoped-matching";
 import {
   authenticate,
-  executeKw,
   OdooAuthenticationError,
   OdooRpcError,
   type OdooCredentials,
@@ -35,6 +44,14 @@ import {
   type CanonicalOdooSaleRow,
 } from "@/lib/restaurant/odoo/sync";
 import { loadDecryptedOdooSecret } from "@/lib/restaurant/odoo/secrets";
+import {
+  assertOdooScope,
+  assertRecordsInScope,
+  discoverOdooCompanies,
+  scopedExecuteKw,
+  OdooCompanyScopeError,
+  type OdooScope,
+} from "@/lib/restaurant/odoo/scoped";
 import type { RestaurantPosConnection } from "@/types/restaurant";
 
 export const dynamic = "force-dynamic";
@@ -56,6 +73,20 @@ function addDays(dateStr: string, days: number): string {
   const d = new Date(`${dateStr}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+// Generic on purpose: nothing about the offending records leaves the server.
+function scopeViolationResponse(err: unknown): NextResponse {
+  console.error(
+    "[Odoo Sync] aborted, scope check failed:",
+    err instanceof Error ? err.name : "Unknown error"
+  );
+  return NextResponse.json(
+    {
+      error: "Odoo returned data outside the selected companies; sync aborted",
+    },
+    { status: 502 }
+  );
 }
 
 interface RequestBody {
@@ -141,6 +172,25 @@ export async function POST(req: NextRequest) {
     }
     const conn = connection as RestaurantPosConnection;
 
+    // --- Fail closed: no selected Odoo company, no Odoo call. This runs
+    // BEFORE the secret is decrypted and before Odoo is contacted. --------
+    let scope: OdooScope;
+    try {
+      scope = assertOdooScope(conn.odoo_company_ids);
+    } catch (err) {
+      if (err instanceof OdooCompanyScopeError) {
+        return NextResponse.json(
+          {
+            error: "odoo_company_selection_required",
+            message:
+              "Choose which Odoo companies this Milton account should sync (GET/POST /api/restaurant/pos/odoo-companies) before syncing.",
+          },
+          { status: 409 }
+        );
+      }
+      throw err;
+    }
+
     // --- Per-company secret: encrypted at rest, decrypted server-side only.
     // Never logged, never echoed back — see lib/restaurant/odoo/secrets.ts.
     let apiKey: string | null;
@@ -192,6 +242,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // --- Re-validate the stored selection against Odoo on every sync -----
+    // (a tenant member can edit the column under RLS; they must never be
+    // able to reach a company the stored Odoo user cannot access).
+    try {
+      const { companies } = await discoverOdooCompanies(creds, uid);
+      const accessibleIds = new Set(companies.map((c) => c.id));
+      if (!scope.companyIds.every((id) => accessibleIds.has(id))) {
+        return NextResponse.json(
+          {
+            error: "odoo_company_selection_invalid",
+            message:
+              "The selected Odoo companies are no longer accessible to the connected Odoo user. Re-select them via /api/restaurant/pos/odoo-companies.",
+          },
+          { status: 409 }
+        );
+      }
+    } catch (err) {
+      console.error(
+        "[Odoo Sync] company re-validation failed:",
+        err instanceof Error ? err.name : "Unknown error"
+      );
+      return NextResponse.json(
+        { error: "Could not verify Odoo company access" },
+        { status: 502 }
+      );
+    }
+
     // --- Fetch completed orders in the padded UTC-date window -------------
     const queryStart = addDays(start_date, -QUERY_PAD_DAYS);
     const queryEnd = addDays(end_date, QUERY_PAD_DAYS);
@@ -209,13 +286,15 @@ export async function POST(req: NextRequest) {
       "session_id",
       "config_id",
       "currency_id",
+      "company_id",
     ];
 
     let orders: OdooPosOrderRaw[];
     try {
-      const result = await executeKw(
+      const result = await scopedExecuteKw(
         creds,
         uid,
+        scope,
         "pos.order",
         "search_read",
         [domain],
@@ -232,6 +311,12 @@ export async function POST(req: NextRequest) {
         { error: "Failed to fetch Odoo POS orders", details: message },
         { status }
       );
+    }
+
+    try {
+      assertRecordsInScope("pos.order", orders, scope);
+    } catch (err) {
+      return scopeViolationResponse(err);
     }
 
     if (orders.length === 0) {
@@ -260,13 +345,15 @@ export async function POST(req: NextRequest) {
       "price_subtotal_incl",
       "discount",
       "uuid",
+      "company_id",
     ];
 
     let lines: OdooPosOrderLineRaw[];
     try {
-      const result = await executeKw(
+      const result = await scopedExecuteKw(
         creds,
         uid,
+        scope,
         "pos.order.line",
         "search_read",
         [[["order_id", "in", orderIds]]],
@@ -283,6 +370,12 @@ export async function POST(req: NextRequest) {
         { error: "Failed to fetch Odoo POS order lines", details: message },
         { status }
       );
+    }
+
+    try {
+      assertRecordsInScope("pos.order.line", lines, scope);
+    } catch (err) {
+      return scopeViolationResponse(err);
     }
 
     // --- Build lookup indexes (same soft-match mechanism as Revel) --------

@@ -12,9 +12,8 @@
 //   - the company's first restaurant_brands row, if none exists yet,
 //     including its declared concept_type
 //   - the company's first restaurant_locations row, if none exists yet
-//     (country + a currency derived from country; name reuses the
-//     restaurant's own name since this is its one known/flagship location),
-//     including its declared primary_pos
+//     (country; name reuses the restaurant's own name since this is its
+//     one known/flagship location), including its declared primary_pos
 //   - companies.location_count_range, companies.priorities,
 //     companies.onboarding_status = 'completed'
 //   - companies.preferred_language (migration 016 — Milton Language
@@ -33,7 +32,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
-  currencyForCountry,
   normalizeConceptType,
   normalizeLocationCountBucket,
   normalizePosSystemChoice,
@@ -183,14 +181,20 @@ export async function POST(req: NextRequest) {
           company_id: companyId,
           name: restaurantName,
           country: country,
-          currency: country ? currencyForCountry(country) : "USD",
           primary_pos: posSystem,
-          is_active: true,
+          status: "active",
         });
       if (locationInsertError) {
         console.error(
           "[onboarding/complete] restaurant_locations insert failed:",
           locationInsertError.message
+        );
+        return NextResponse.json(
+          {
+            error: "Could not create restaurant location",
+            details: locationInsertError.message,
+          },
+          { status: 500 }
         );
       } else {
         locationCreated = true;

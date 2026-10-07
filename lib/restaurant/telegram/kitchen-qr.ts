@@ -27,11 +27,11 @@ export async function createOrRotateKitchenQr(
   const admin = createAdminClient();
   const { data: location } = await admin
     .from("restaurant_locations")
-    .select("id, is_active")
+    .select("id, status")
     .eq("id", locationId)
     .eq("company_id", companyId)
     .maybeSingle();
-  if (!location || location.is_active === false) {
+  if (!location || location.status !== "active") {
     return { ok: false, reason: "location_not_found" };
   }
 

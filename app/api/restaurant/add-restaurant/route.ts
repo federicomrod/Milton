@@ -27,7 +27,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
-  currencyForCountry,
   normalizeConceptType,
   normalizePosSystemChoice,
 } from "@/lib/restaurant/onboarding-copy";
@@ -161,9 +160,8 @@ export async function POST(req: NextRequest) {
         company_id: companyId,
         name,
         country,
-        currency: country ? currencyForCountry(country) : "USD",
         primary_pos: posSystem,
-        is_active: true,
+        status: 'active',
       })
       .select("id")
       .single();

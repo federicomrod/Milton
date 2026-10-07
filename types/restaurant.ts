@@ -50,8 +50,7 @@ export interface RestaurantLocation {
   address?: string;
   city?: string;
   country?: string;
-  currency: string;
-  is_active: boolean;
+  status: 'active' | 'inactive';
   // Onboarding profile answer (migration 014) — the declared POS system
   // at signup time, not the real connection (see RestaurantPosConnection).
   // Unconstrained text; see PosSystemChoice / normalizePosSystemChoice().

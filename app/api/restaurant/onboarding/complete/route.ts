@@ -139,9 +139,15 @@ export async function POST(req: NextRequest) {
           "[onboarding/complete] restaurant_brands insert failed:",
           brandInsertError.message
         );
-      } else {
-        brandId = newBrand?.id ?? null;
+        return NextResponse.json(
+          {
+            error: "Could not create restaurant brand",
+            details: brandInsertError.message,
+          },
+          { status: 500 }
+        );
       }
+      brandId = newBrand?.id ?? null;
     }
 
     // --- Location: create the first one if none exists yet -----------------

@@ -2,9 +2,9 @@
 
 // components/restaurant/kitchen/KitchenRecipeDraftsCard.tsx
 //
-// Manager review UI for recipe drafts: list drafts, edit ingredients/portions,
-// confirm or reject. Only drafts and awaiting_portions show; confirmed and
-// rejected are hidden. Confirm writes to recipes / menu_recipe_inputs.
+// Manager review UI for recipe drafts: list drafts, edit ingredients/portions/units,
+// add/remove lines, pick menu item, confirm or reject. English UI (cook-facing bot
+// stays Spanish). Confirm disabled until all lines resolved.
 
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -64,10 +64,16 @@ interface Ingredient {
   name: string;
 }
 
+interface MenuItem {
+  id: string;
+  name: string;
+  selling_price: number | null;
+}
+
 const CONFIDENCE_LABELS: Record<string, string> = {
-  high: "Alta",
-  medium: "Media",
-  low: "Baja",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
 };
 
 const CONFIDENCE_COLORS: Record<string, string> = {
@@ -85,10 +91,14 @@ export function KitchenRecipeDraftsCard({
 }) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [locationId, setLocationId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [selectedDraft, setSelectedDraft] = useState<Draft | null>(null);
   const [editedDraft, setEditedDraft] = useState<Draft | null>(null);
+  const [editedLines, setEditedLines] = useState<DraftLine[]>([]);
+  const [selectedMenuItem, setSelectedMenuItem] = useState<string>("");
+  const [newSellingPrice, setNewSellingPrice] = useState<string>("");
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -129,18 +139,47 @@ export function KitchenRecipeDraftsCard({
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/restaurant/menu-items");
+      if (cancelled) return;
+      if (res.ok) {
+        const data = await res.json();
+        setMenuItems(data ?? []);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const openEditor = (draft: Draft) => {
     setSelectedDraft(draft);
     setEditedDraft(JSON.parse(JSON.stringify(draft)));
+    setEditedLines(JSON.parse(JSON.stringify(draft.lines)));
+    setSelectedMenuItem("");
+    setNewSellingPrice("");
   };
 
   const closeEditor = () => {
     setSelectedDraft(null);
     setEditedDraft(null);
+    setEditedLines([]);
+    setSelectedMenuItem("");
+    setNewSellingPrice("");
   };
 
   const handleConfirm = async () => {
     if (!editedDraft) return;
+
+    const menuItemId =
+      selectedMenuItem === "new" ? undefined : selectedMenuItem || undefined;
+    const sellingPrice =
+      selectedMenuItem === "new" && newSellingPrice
+        ? parseFloat(newSellingPrice)
+        : undefined;
+
     const res = await fetch(
       `/api/restaurant/kitchen/recipe-drafts/${editedDraft.id}/confirm`,
       {
@@ -149,7 +188,14 @@ export function KitchenRecipeDraftsCard({
         body: JSON.stringify({
           dish_name: editedDraft.dish_name,
           portions: editedDraft.portions,
-          lines: editedDraft.lines,
+          menu_item_id: menuItemId,
+          selling_price: sellingPrice,
+          lines: editedLines.map((l) => ({
+            id: l.id,
+            ingredient_id: l.ingredient_id,
+            total_quantity: l.total_quantity,
+            unit: l.unit,
+          })),
         }),
       }
     );
@@ -174,40 +220,55 @@ export function KitchenRecipeDraftsCard({
     }
   };
 
-  const updateLineIngredient = (lineId: string, ingredientId: string) => {
-    if (!editedDraft) return;
+  const updateLineIngredient = (index: number, ingredientId: string) => {
     const ing = ingredients.find((i) => i.id === ingredientId);
-    setEditedDraft({
-      ...editedDraft,
-      lines: editedDraft.lines.map((l) =>
-        l.id === lineId
-          ? {
-              ...l,
-              ingredient_id: ingredientId,
-              ingredient_name: ing?.name ?? null,
-            }
-          : l
-      ),
-    });
+    const newLines = [...editedLines];
+    newLines[index] = {
+      ...newLines[index],
+      ingredient_id: ingredientId,
+      ingredient_name: ing?.name ?? null,
+    };
+    setEditedLines(newLines);
   };
 
-  const updateLineQuantity = (lineId: string, quantity: number | null) => {
-    if (!editedDraft) return;
-    setEditedDraft({
-      ...editedDraft,
-      lines: editedDraft.lines.map((l) =>
-        l.id === lineId
-          ? {
-              ...l,
-              total_quantity: quantity,
-              per_portion_quantity:
-                quantity !== null && editedDraft.portions
-                  ? quantity / editedDraft.portions
-                  : null,
-            }
-          : l
-      ),
-    });
+  const updateLineQuantity = (index: number, quantity: number | null) => {
+    const newLines = [...editedLines];
+    newLines[index] = {
+      ...newLines[index],
+      total_quantity: quantity,
+      per_portion_quantity:
+        quantity !== null && editedDraft?.portions
+          ? quantity / editedDraft.portions
+          : null,
+    };
+    setEditedLines(newLines);
+  };
+
+  const updateLineUnit = (index: number, unit: string) => {
+    const newLines = [...editedLines];
+    newLines[index] = { ...newLines[index], unit };
+    setEditedLines(newLines);
+  };
+
+  const addLine = () => {
+    setEditedLines([
+      ...editedLines,
+      {
+        id: `new-${Date.now()}`,
+        raw_name: "",
+        ingredient_id: null,
+        ingredient_name: null,
+        total_quantity: null,
+        unit: null,
+        per_portion_quantity: null,
+        confidence: "low",
+        line_cost: null,
+      },
+    ]);
+  };
+
+  const removeLine = (index: number) => {
+    setEditedLines(editedLines.filter((_, i) => i !== index));
   };
 
   const updateDishName = (name: string) => {
@@ -220,15 +281,29 @@ export function KitchenRecipeDraftsCard({
     setEditedDraft({
       ...editedDraft,
       portions,
-      lines: editedDraft.lines.map((l) => ({
+    });
+    setEditedLines(
+      editedLines.map((l) => ({
         ...l,
         per_portion_quantity:
           l.total_quantity !== null && portions
             ? l.total_quantity / portions
             : null,
-      })),
-    });
+      }))
+    );
   };
+
+  const canConfirm =
+    editedDraft?.portions &&
+    editedDraft.portions > 0 &&
+    editedLines.length > 0 &&
+    editedLines.every(
+      (l) =>
+        l.ingredient_id &&
+        l.total_quantity !== null &&
+        l.total_quantity > 0 &&
+        l.unit
+    );
 
   const selectClass =
     "h-8 rounded-md border border-input bg-transparent px-2 text-sm";
@@ -237,10 +312,10 @@ export function KitchenRecipeDraftsCard({
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Recetas por Revisar</CardTitle>
+          <CardTitle>Recipes to Review</CardTitle>
           <CardDescription>
-            Recetas enviadas por cocineros con foto, voz o texto. Revisa y
-            confirma.
+            Recipes sent by cooks via photo, voice, or text. Review and confirm
+            to add to menu.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -250,7 +325,7 @@ export function KitchenRecipeDraftsCard({
               onChange={(e) => setLocationId(e.target.value)}
               className={selectClass}
             >
-              <option value="">Todas las ubicaciones</option>
+              <option value="">All locations</option>
               {locations.map((loc) => (
                 <option key={loc.id} value={loc.id}>
                   {loc.name}
@@ -261,7 +336,7 @@ export function KitchenRecipeDraftsCard({
           {error && <p className="text-sm text-red-600">{error}</p>}
           {drafts.length === 0 && !error && (
             <p className="text-sm text-muted-foreground">
-              No hay recetas pendientes.
+              No pending recipe drafts.
             </p>
           )}
           <div className="space-y-3">
@@ -281,18 +356,18 @@ export function KitchenRecipeDraftsCard({
                           draft.confidence}
                       </Badge>
                       {draft.status === "awaiting_portions" && (
-                        <Badge variant="outline">Esperando porciones</Badge>
+                        <Badge variant="outline">Awaiting portions</Badge>
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">
                       {draft.staff_name} • {draft.location_name} •{" "}
-                      {new Date(draft.created_at).toLocaleDateString("es-MX")}
+                      {new Date(draft.created_at).toLocaleDateString()}
                     </p>
                     {draft.portions && draft.per_portion_cost !== null && (
                       <p className="text-sm">
-                        {draft.portions} porción{draft.portions > 1 ? "es" : ""}{" "}
+                        {draft.portions} portion{draft.portions > 1 ? "s" : ""}{" "}
                         • {draft.currency} {draft.per_portion_cost.toFixed(2)}{" "}
-                        por porción
+                        per portion
                       </p>
                     )}
                   </div>
@@ -303,14 +378,14 @@ export function KitchenRecipeDraftsCard({
                         variant="outline"
                         onClick={() => openEditor(draft)}
                       >
-                        Revisar
+                        Review
                       </Button>
                       <Button
                         size="sm"
                         variant="ghost"
                         onClick={() => handleReject(draft.id)}
                       >
-                        Rechazar
+                        Reject
                       </Button>
                     </div>
                   )}
@@ -325,21 +400,21 @@ export function KitchenRecipeDraftsCard({
         <Dialog open={!!editedDraft} onOpenChange={closeEditor}>
           <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Revisar Receta</DialogTitle>
+              <DialogTitle>Review Recipe</DialogTitle>
               <DialogDescription>
-                Edita ingredientes, cantidades y porciones antes de confirmar.
+                Edit ingredients, quantities, and portions before confirming.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div>
-                <Label>Platillo</Label>
+                <Label>Dish Name</Label>
                 <Input
                   value={editedDraft.dish_name}
                   onChange={(e) => updateDishName(e.target.value)}
                 />
               </div>
               <div>
-                <Label>Porciones</Label>
+                <Label>Portions</Label>
                 <Input
                   type="number"
                   min="1"
@@ -352,22 +427,56 @@ export function KitchenRecipeDraftsCard({
                 />
               </div>
               <div>
-                <Label>Ingredientes</Label>
-                <div className="space-y-2 mt-2">
-                  {editedDraft.lines.map((line) => (
+                <Label>Menu Item</Label>
+                <Select
+                  value={selectedMenuItem}
+                  onValueChange={setSelectedMenuItem}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Create new or pick existing" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="new">Create new menu item</SelectItem>
+                    {menuItems.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {selectedMenuItem === "new" && (
+                <div>
+                  <Label>Selling Price</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={newSellingPrice}
+                    onChange={(e) => setNewSellingPrice(e.target.value)}
+                  />
+                </div>
+              )}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label>Ingredients</Label>
+                  <Button size="sm" variant="outline" onClick={addLine}>
+                    Add Line
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {editedLines.map((line, idx) => (
                     <div
                       key={line.id}
-                      className="grid grid-cols-3 gap-2 items-center"
+                      className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2 items-center"
                     >
                       <Select
                         value={line.ingredient_id ?? ""}
-                        onValueChange={(val) =>
-                          updateLineIngredient(line.id, val)
-                        }
+                        onValueChange={(val) => updateLineIngredient(idx, val)}
                       >
                         <SelectTrigger>
                           <SelectValue
-                            placeholder={line.raw_name || "Sin ingrediente"}
+                            placeholder={line.raw_name || "Select ingredient"}
                           />
                         </SelectTrigger>
                         <SelectContent>
@@ -381,41 +490,37 @@ export function KitchenRecipeDraftsCard({
                       <Input
                         type="number"
                         step="0.001"
-                        placeholder="Cantidad"
+                        placeholder="Qty"
                         value={line.total_quantity ?? ""}
                         onChange={(e) =>
                           updateLineQuantity(
-                            line.id,
+                            idx,
                             e.target.value ? parseFloat(e.target.value) : null
                           )
                         }
                       />
-                      <div className="text-sm text-muted-foreground">
-                        {line.unit || "unidad"}
-                        {line.confidence === "low" && (
-                          <Badge variant="outline" className="ml-2">
-                            Revisar
-                          </Badge>
-                        )}
-                      </div>
+                      <Input
+                        placeholder="Unit"
+                        value={line.unit ?? ""}
+                        onChange={(e) => updateLineUnit(idx, e.target.value)}
+                      />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => removeLine(idx)}
+                      >
+                        ×
+                      </Button>
                     </div>
                   ))}
                 </div>
               </div>
               <div className="flex gap-2 justify-end pt-4">
                 <Button variant="outline" onClick={closeEditor}>
-                  Cancelar
+                  Cancel
                 </Button>
-                <Button
-                  onClick={handleConfirm}
-                  disabled={
-                    !editedDraft.portions ||
-                    editedDraft.lines.some(
-                      (l) => !l.ingredient_id || !l.total_quantity
-                    )
-                  }
-                >
-                  Confirmar
+                <Button onClick={handleConfirm} disabled={!canConfirm}>
+                  Confirm
                 </Button>
               </div>
             </div>

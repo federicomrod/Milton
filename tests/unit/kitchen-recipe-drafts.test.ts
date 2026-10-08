@@ -2,37 +2,75 @@ import { describe, it, expect } from "vitest";
 import {
   detectRecipeIntent,
   parsePortions,
+  parsePortionsFromFollowUp,
   matchIngredients,
 } from "@/lib/restaurant/telegram/kitchen-recipe-drafts";
 import type { CostingIngredient } from "@/lib/restaurant/costing";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
 
 describe("recipe intent detection", () => {
-  it("detects recipe keywords", () => {
+  it("detects recipe keyword", () => {
     expect(detectRecipeIntent("aqui esta la receta de pollo")).toEqual({
       isRecipe: true,
       portions: null,
       dishName: null,
     });
+  });
+
+  it("detects portions with sali√≥ para", () => {
     expect(detectRecipeIntent("esto salio para 2 porciones")).toEqual({
       isRecipe: true,
       portions: 2,
       dishName: null,
     });
-    expect(detectRecipeIntent("para 4 porciones de arroz")).toEqual({
+  });
+
+  it("detects portions only", () => {
+    expect(detectRecipeIntent("4 porciones de arroz")).toEqual({
       isRecipe: true,
       portions: 4,
       dishName: null,
     });
+    expect(detectRecipeIntent("sali√≥ para 2")).toEqual({
+      isRecipe: true,
+      portions: 2,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("1 porci√≥n")).toEqual({
+      isRecipe: true,
+      portions: 1,
+      dishName: null,
+    });
   });
 
-  it("ignores non-recipe messages", () => {
+  it("normalizes accents before checking", () => {
+    expect(detectRecipeIntent("saliÔøΩ para 3 porciones")).toEqual({
+      isRecipe: true,
+      portions: 3,
+      dishName: null,
+    });
+  });
+
+  it("report keywords take precedence over recipe", () => {
+    expect(detectRecipeIntent("quedan 3 porciones de flan")).toEqual({
+      isRecipe: false,
+      portions: null,
+      dishName: null,
+    });
     expect(detectRecipeIntent("se acabo el pollo")).toEqual({
       isRecipe: false,
       portions: null,
       dishName: null,
     });
     expect(detectRecipeIntent("merma de 2kg")).toEqual({
+      isRecipe: false,
+      portions: null,
+      dishName: null,
+    });
+  });
+
+  it("ignores non-recipe messages", () => {
+    expect(detectRecipeIntent("hola")).toEqual({
       isRecipe: false,
       portions: null,
       dishName: null,
@@ -57,6 +95,38 @@ describe("portions parsing", () => {
     expect(parsePortions("receta de pollo")).toBeNull();
     expect(parsePortions("se acabo el arroz")).toBeNull();
   });
+
+  it("avoids false positives", () => {
+    expect(parsePortions("solo para 3 mesas")).toBeNull();
+  });
+});
+
+describe("portions follow-up parsing", () => {
+  it("parses bare numbers", () => {
+    expect(parsePortionsFromFollowUp("2")).toBe(2);
+    expect(parsePortionsFromFollowUp("  4  ")).toBe(4);
+    expect(parsePortionsFromFollowUp("10.")).toBe(10);
+  });
+
+  it("parses number with porcion(es)", () => {
+    expect(parsePortionsFromFollowUp("2 porciones")).toBe(2);
+    expect(parsePortionsFromFollowUp("1 porcion")).toBe(1);
+  });
+
+  it("parses Spanish words", () => {
+    expect(parsePortionsFromFollowUp("dos")).toBe(2);
+    expect(parsePortionsFromFollowUp("cuatro porciones")).toBe(4);
+  });
+
+  it("normalizes accents", () => {
+    expect(parsePortionsFromFollowUp("dos porci√≥n")).toBe(2);
+  });
+
+  it("rejects non-bare-number messages", () => {
+    expect(parsePortionsFromFollowUp("solo para 3 mesas")).toBeNull();
+    expect(parsePortionsFromFollowUp("quedan 3 porciones de flan")).toBeNull();
+    expect(parsePortionsFromFollowUp("receta de 2 porciones")).toBeNull();
+  });
 });
 
 describe("ingredient matching", () => {
@@ -64,6 +134,7 @@ describe("ingredient matching", () => {
     { id: "ing1", name: "Pollo", default_unit: "kg" },
     { id: "ing2", name: "Arroz", default_unit: "kg" },
     { id: "ing3", name: "Aceite de oliva", default_unit: "l" },
+    { id: "ing4", name: "Sal", default_unit: "kg" },
   ];
 
   const costEntries: Map<string, IngredientCostEntry[]> = new Map([
@@ -113,7 +184,7 @@ describe("ingredient matching", () => {
     ],
   ]);
 
-  it("matches exact ingredient names", () => {
+  it("matches exact ingredient names (case/accent insensitive)", () => {
     const lines = [
       {
         name: "Pollo",
@@ -122,7 +193,7 @@ describe("ingredient matching", () => {
         confidence: "high" as const,
       },
       {
-        name: "Arroz",
+        name: "ARROZ",
         estimated_quantity: 0.5,
         unit: "kg",
         confidence: "high" as const,
@@ -134,6 +205,34 @@ describe("ingredient matching", () => {
     expect(matched[0].per_portion_quantity).toBe(0.5);
     expect(matched[1].ingredient_id).toBe("ing2");
     expect(matched[1].per_portion_quantity).toBe(0.25);
+  });
+
+  it("matches whole-word substrings with medium confidence", () => {
+    const lines = [
+      {
+        name: "aceite",
+        estimated_quantity: 0.1,
+        unit: "l",
+        confidence: "high" as const,
+      },
+    ];
+    const matched = matchIngredients(lines, ingredients, costEntries, 2);
+    expect(matched[0].ingredient_id).toBe("ing3");
+    expect(matched[0].confidence).toBe("medium");
+  });
+
+  it("does not match short partial strings", () => {
+    const lines = [
+      {
+        name: "salsa verde",
+        estimated_quantity: 0.1,
+        unit: "kg",
+        confidence: "high" as const,
+      },
+    ];
+    const matched = matchIngredients(lines, ingredients, costEntries, 2);
+    expect(matched[0].ingredient_id).toBeNull();
+    expect(matched[0].confidence).toBe("low");
   });
 
   it("flags unmatched ingredients as low confidence", () => {
@@ -162,6 +261,7 @@ describe("ingredient matching", () => {
     const matched = matchIngredients(lines, ingredients, costEntries, 2);
     expect(matched[0].line_cost).toBe(80);
     expect(matched[0].unit_cost_snapshot).toBe(80);
+    expect(matched[0].unit_cost_unit).toBe("kg");
   });
 
   it("flags missing cost as low confidence", () => {
@@ -178,27 +278,36 @@ describe("ingredient matching", () => {
     expect(matched[0].confidence).toBe("low");
     expect(matched[0].line_cost).toBeNull();
   });
-});
 
-describe("draft does not affect costing until confirmed", () => {
-  it("drafts are in separate tables, not recipes", () => {
-    const code = `
-      SELECT * FROM recipes WHERE status = 'draft';
-      SELECT * FROM kitchen_recipe_drafts WHERE status = 'draft';
-    `;
-    expect(code).toContain("kitchen_recipe_drafts");
-    expect(code).not.toContain("INSERT INTO recipes");
+  it("flags null line_cost as low confidence", () => {
+    const lines = [
+      {
+        name: "Arroz",
+        estimated_quantity: null,
+        unit: null,
+        confidence: "high" as const,
+      },
+    ];
+    const matched = matchIngredients(lines, ingredients, costEntries, 2);
+    expect(matched[0].confidence).toBe("low");
   });
-});
 
-describe("webhook content safety", () => {
-  it("never logs message text, file ids, or tokens", () => {
-    const webhookCode = `
-      console.error("[telegram-webhook] kitchen report failed:", err instanceof Error ? err.name : "Unknown error");
-    `;
-    expect(webhookCode).not.toContain("message.text");
-    expect(webhookCode).not.toContain("telegram_file_id");
-    expect(webhookCode).not.toContain("TELEGRAM_BOT_TOKEN");
-    expect(webhookCode).not.toContain("OPENAI_API_KEY");
+  it("skips empty ingredient names", () => {
+    const lines = [
+      {
+        name: "",
+        estimated_quantity: 1,
+        unit: "kg",
+        confidence: "high" as const,
+      },
+      {
+        name: "  ",
+        estimated_quantity: 1,
+        unit: "kg",
+        confidence: "high" as const,
+      },
+    ];
+    const matched = matchIngredients(lines, ingredients, costEntries, 2);
+    expect(matched).toHaveLength(0);
   });
 });

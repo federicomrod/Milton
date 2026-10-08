@@ -182,7 +182,7 @@ describe("Odoo allowed-hosts guard", () => {
       ).toThrow(OdooHostNotAllowedError);
       expect(() =>
         assertOdooBaseUrlAllowed("https://192.168.1.1", allowed)
-      ).toThrow("must not be an IP address");
+      ).toThrow("IPv4");
     });
 
     it("rejects IPv6 literal", () => {
@@ -192,7 +192,7 @@ describe("Odoo allowed-hosts guard", () => {
       ).toThrow(OdooHostNotAllowedError);
       expect(() =>
         assertOdooBaseUrlAllowed("https://[2001:db8::1]", allowed)
-      ).toThrow("must not be an IP address");
+      ).toThrow("IPv6");
     });
 
     it("rejects port other than 443", () => {

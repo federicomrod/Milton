@@ -288,6 +288,8 @@ describe("API key is never in response body", () => {
     }));
     vi.doMock("@/lib/restaurant/odoo/secrets", () => ({
       storeOdooSecret: vi.fn().mockResolvedValue(undefined),
+      assertOdooEncryptionConfigured: vi.fn(),
+      OdooSecretConfigError: class extends Error {},
     }));
     vi.doMock("@/lib/restaurant/odoo/allowed-hosts", () => ({
       parseAllowedHosts: vi.fn().mockReturnValue(new Set(["test.odoo.com"])),

@@ -32,7 +32,7 @@ describe("Odoo sync with company-to-location mapping", () => {
     pos_reference: "Order/0002",
     uuid: "uuid-2",
     session_id: [11, "Session 2"],
-    config_id: [101, "Caja principal"],
+    config_id: [101, "Caja secundaria"],
     currency_id: [1, "MXN"],
     company_id: [9, "Restaurant B"],
   };
@@ -68,7 +68,7 @@ describe("Odoo sync with company-to-location mapping", () => {
   it("maps orders to the correct location by company_id", () => {
     const locationIndex = buildNameIndex([
       { id: "loc-a", name: "Caja principal" },
-      { id: "loc-b", name: "Caja principal" },
+      { id: "loc-b", name: "Caja secundaria" },
     ]);
     const companyLocationMap = new Map<number, string>([
       [7, "loc-a"], // Company 7 → Location A
@@ -114,14 +114,13 @@ describe("Odoo sync with company-to-location mapping", () => {
   it("skips orders when till-name location conflicts with mapping", () => {
     const locationIndex = buildNameIndex([
       { id: "loc-a", name: "Caja principal" },
-      { id: "loc-b", name: "Caja principal" },
+      { id: "loc-b", name: "Caja secundaria" },
     ]);
-    // Company 7 is mapped to loc-a, but till name "Caja principal" resolves
-    // to loc-a in the index (first match). When both match, it's fine.
-    // Let's create a conflict: map company 7 to loc-b, but till name resolves to loc-a.
+    // Company 7's till name "Caja principal" resolves to loc-a,
+    // but mapping points company 7 to loc-b → conflict, should skip.
     const companyLocationMap = new Map<number, string>([
-      [7, "loc-b"], // Company 7 → Location B (but till name would resolve to loc-a)
-      [9, "loc-b"],
+      [7, "loc-b"], // Company 7 → Location B (but till name resolves to loc-a)
+      [9, "loc-b"], // Company 9 → Location B (till name "Caja secundaria" also points to loc-b, no conflict)
     ]);
 
     const menuItemIndex2: ScopedNameIndex = {

@@ -42,8 +42,9 @@ describe("migration 025 — odoo_company_id on restaurant_locations", () => {
     expect(sql).toContain("production access (only after backup #21");
   });
 
-  it("does not set NOT NULL or DEFAULT", () => {
-    expect(statements).not.toMatch(/NOT NULL/i);
+  it("does not set NOT NULL constraint or DEFAULT value", () => {
+    // Accept "NULL" keyword as explicit nullability, reject "NOT NULL" constraint
+    expect(statements).not.toMatch(/\bNOT\s+NULL\b/i);
     expect(statements).not.toMatch(/\bDEFAULT\b/i);
   });
 });

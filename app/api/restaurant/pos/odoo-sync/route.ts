@@ -386,7 +386,7 @@ export async function POST(req: NextRequest) {
         .eq("company_id", companyId),
       supabase
         .from("restaurant_locations")
-        .select("id, name, brand_id")
+        .select("id, name, brand_id, odoo_company_id")
         .eq("company_id", companyId),
     ]);
     if (menuItemsRes.error) {
@@ -410,6 +410,7 @@ export async function POST(req: NextRequest) {
       id: string;
       name: string;
       brand_id: string | null;
+      odoo_company_id: number | null;
     }[];
     // Menu items are matched scoped by brand — never guessed across
     // brands. Uses normalizeMatchKey (from odoo/sync.ts), the same
@@ -427,6 +428,28 @@ export async function POST(req: NextRequest) {
       locationRows.map((l) => [l.id, l.brand_id])
     );
 
+    // --- Build Odoo company → location mapping -----------------------------
+    const companyLocationMap = new Map<number, string>();
+    for (const loc of locationRows) {
+      if (loc.odoo_company_id !== null) {
+        companyLocationMap.set(loc.odoo_company_id, loc.id);
+      }
+    }
+
+    // --- Fail closed: all selected companies must be mapped ---------------
+    const unmappedCompanies = scope.companyIds.filter(
+      (id) => !companyLocationMap.has(id)
+    );
+    if (unmappedCompanies.length > 0) {
+      return NextResponse.json(
+        {
+          error: "odoo_location_mapping_required",
+          message: `Odoo companies ${unmappedCompanies.join(", ")} are not mapped to locations. Map them in the admin Odoo page before syncing.`,
+        },
+        { status: 409 }
+      );
+    }
+
     // --- Transform ----------------------------------------------------------
     const { rows: allRows, skipped } = transformOdooOrders(orders, lines, {
       companyId,
@@ -435,6 +458,7 @@ export async function POST(req: NextRequest) {
       menuItemIndex,
       locationIndex,
       locationBrandIndex,
+      companyLocationMap,
     });
 
     // Drop rows the padding pulled in that fall outside the exact requested

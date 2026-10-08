@@ -30,6 +30,7 @@ interface OdooCompany {
 interface RestaurantLocation {
   id: string;
   name: string;
+  odoo_company_id?: number | null;
 }
 
 interface ConnectionData {
@@ -73,6 +74,10 @@ export default function OdooPage() {
     number[]
   >([]);
   const [locations, setLocations] = useState<RestaurantLocation[]>([]);
+  const [companyLocationMap, setCompanyLocationMap] = useState<
+    Record<number, string>
+  >({});
+  const [saveMappingLoading, setSaveMappingLoading] = useState(false);
 
   const { toast } = useToast();
 
@@ -145,11 +150,20 @@ export default function OdooPage() {
     if (!selectedCompanyId) return;
     try {
       const response = await fetch(
-        `/api/admin/restaurant-locations?company_id=${selectedCompanyId}`
+        `/api/admin/odoo/location-mapping?company_id=${encodeURIComponent(selectedCompanyId)}`
       );
       if (response.ok) {
         const data = await response.json();
-        setLocations(data);
+        setLocations(data.locations);
+
+        // Build initial map from existing mappings
+        const map: Record<number, string> = {};
+        for (const loc of data.locations) {
+          if (loc.odoo_company_id) {
+            map[loc.odoo_company_id] = loc.id;
+          }
+        }
+        setCompanyLocationMap(map);
       }
     } catch (error) {
       console.error("Failed to load locations:", error);
@@ -256,7 +270,8 @@ export default function OdooPage() {
         });
         setApiKey("");
         setAccessibleCompanies(data.accessible_companies);
-        loadConnection();
+        await loadConnection();
+        await loadLocations();
       } else {
         if (data.accessible_companies) {
           setAccessibleCompanies(data.accessible_companies);
@@ -512,23 +527,124 @@ export default function OdooPage() {
           {locations.length > 0 && selectedOdooCompanyIds.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Restaurant Locations</CardTitle>
+                <CardTitle>Company → Location Mapping</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
                 <Alert>
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    Location mapping: {locations.length} Milton locations
-                    available for this workspace. Odoo pos.config names are
-                    matched automatically against location names during sync.
+                    Map each selected Odoo company to exactly one Milton
+                    location. Orders from that Odoo company will land on the
+                    mapped location, never guessed from till name.
                   </AlertDescription>
                 </Alert>
-                <div className="mt-4 space-y-2">
-                  {locations.map((location) => (
-                    <div key={location.id} className="text-sm">
-                      • {location.name}
-                    </div>
-                  ))}
+
+                <div className="space-y-3">
+                  {selectedOdooCompanyIds.map((companyId) => {
+                    const company = accessibleCompanies.find(
+                      (c) => c.id === companyId
+                    );
+                    return (
+                      <div key={companyId} className="flex items-center gap-4">
+                        <Label className="w-48 text-sm font-medium">
+                          {company?.name || `Company ${companyId}`}:
+                        </Label>
+                        <Select
+                          value={companyLocationMap[companyId] || ""}
+                          onValueChange={(value) => {
+                            setCompanyLocationMap((prev) => ({
+                              ...prev,
+                              [companyId]: value,
+                            }));
+                          }}
+                        >
+                          <SelectTrigger className="w-64">
+                            <SelectValue placeholder="Select location" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {locations.map((location) => (
+                              <SelectItem key={location.id} value={location.id}>
+                                {location.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <Button
+                  onClick={async () => {
+                    const unmapped = selectedOdooCompanyIds.filter(
+                      (id) => !companyLocationMap[id]
+                    );
+                    if (unmapped.length > 0) {
+                      toast({
+                        title: "Validation Error",
+                        description:
+                          "All selected Odoo companies must be mapped to a location",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+
+                    setSaveMappingLoading(true);
+                    try {
+                      const mappings = selectedOdooCompanyIds.map(
+                        (companyId) => ({
+                          odoo_company_id: companyId,
+                          location_id: companyLocationMap[companyId],
+                        })
+                      );
+
+                      const response = await fetch(
+                        "/api/admin/odoo/location-mapping",
+                        {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            company_id: selectedCompanyId,
+                            mappings,
+                          }),
+                        }
+                      );
+
+                      if (response.ok) {
+                        toast({
+                          title: "Success",
+                          description: "Location mapping saved successfully",
+                        });
+                        await loadLocations();
+                      } else {
+                        const data = await response.json();
+                        toast({
+                          title: "Save Failed",
+                          description: data.error,
+                          variant: "destructive",
+                        });
+                      }
+                    } catch (error) {
+                      toast({
+                        title: "Error",
+                        description: "Failed to save mapping",
+                        variant: "destructive",
+                      });
+                    } finally {
+                      setSaveMappingLoading(false);
+                    }
+                  }}
+                  disabled={saveMappingLoading}
+                >
+                  {saveMappingLoading && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  Save Mapping
+                </Button>
+
+                <div className="mt-4 text-sm text-muted-foreground">
+                  <strong>Available locations:</strong>{" "}
+                  {locations.map((l) => l.name).join(", ")}
                 </div>
               </CardContent>
             </Card>

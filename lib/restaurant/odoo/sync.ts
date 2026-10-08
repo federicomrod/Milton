@@ -79,6 +79,12 @@ export interface OdooSyncContext {
   locationIndex: Map<string, string>;
   /** location_id → brand_id (or null), so a resolved location can be scoped to its brand. */
   locationBrandIndex: Map<string, string | null>;
+  /**
+   * Odoo res.company ID → restaurant_locations.id. When set, orders from
+   * that Odoo company land on the mapped location, never guessed from till
+   * name. If the till-name match disagrees, the record is skipped.
+   */
+  companyLocationMap?: Map<number, string>;
 }
 
 export interface CanonicalOdooSaleRow {
@@ -244,10 +250,38 @@ export function transformOdooOrders(
     }
 
     const rawItemName = (line.full_product_name || "").trim();
-    const locationId =
+
+    // Location resolution: mapping takes precedence over till-name match.
+    const odooCompanyId = Array.isArray(order.company_id)
+      ? order.company_id[0]
+      : null;
+    const mappedLocationId =
+      odooCompanyId && ctx.companyLocationMap
+        ? (ctx.companyLocationMap.get(odooCompanyId) ?? null)
+        : null;
+
+    const tillNameLocationId =
       order.config_id && order.config_id[1]
         ? (ctx.locationIndex.get(normalizeMatchKey(order.config_id[1])) ?? null)
         : null;
+
+    let locationId: string | null = null;
+    if (mappedLocationId) {
+      // Mapping exists: use it, but if till-name disagrees, skip.
+      if (tillNameLocationId && tillNameLocationId !== mappedLocationId) {
+        skipped.push({
+          line_id: line.id,
+          order_id: orderId,
+          reason: `Till-name location (${tillNameLocationId}) conflicts with mapped location (${mappedLocationId}) for Odoo company ${odooCompanyId}`,
+        });
+        continue;
+      }
+      locationId = mappedLocationId;
+    } else {
+      // No mapping: use till-name match.
+      locationId = tillNameLocationId;
+    }
+
     // Brand scoping: only known when the pos.config resolved to a known
     // location. Unresolved location → unknown brand → only the
     // brand-less/legacy fallback bucket is considered, never a guess into

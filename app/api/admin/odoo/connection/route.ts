@@ -9,7 +9,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isUserAdminServer } from "@/lib/profile-service-server";
-import { storeOdooSecret } from "@/lib/restaurant/odoo/secrets";
+import {
+  storeOdooSecret,
+  assertOdooEncryptionConfigured,
+  OdooSecretConfigError,
+} from "@/lib/restaurant/odoo/secrets";
 import {
   authenticate,
   OdooAuthenticationError,
@@ -173,6 +177,19 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 
+  // Verify encryption key is configured before any DB write
+  try {
+    assertOdooEncryptionConfigured();
+  } catch (err) {
+    if (err instanceof OdooSecretConfigError) {
+      return NextResponse.json(
+        { error: "Encryption key is not configured" },
+        { status: 500 }
+      );
+    }
+    throw err;
+  }
+
   const adminClient = createAdminClient();
   const { data: company, error: companyError } = await adminClient
     .from("companies")
@@ -216,7 +233,7 @@ export async function POST(req: NextRequest) {
 
   const { data: existing, error: lookupError } = await adminClient
     .from("restaurant_pos_connections")
-    .select("id, base_url, database_name, odoo_company_ids")
+    .select("id, base_url, database_name, username, timezone, odoo_company_ids")
     .eq("company_id", companyId)
     .eq("pos_source", "odoo")
     .maybeSingle();
@@ -252,6 +269,8 @@ export async function POST(req: NextRequest) {
   }
 
   let connectionId: string;
+  const isNewConnection = !existing?.id;
+
   if (existing?.id) {
     connectionId = existing.id;
     const { error: updateError } = await adminClient
@@ -298,8 +317,29 @@ export async function POST(req: NextRequest) {
   try {
     await storeOdooSecret(connectionId, companyId as string, apiKey as string);
   } catch {
+    // Rollback: if secret storage fails after metadata write, delete the
+    // newly inserted connection or revert the update to prevent leaving
+    // stale metadata with no secret.
+    if (isNewConnection) {
+      await adminClient
+        .from("restaurant_pos_connections")
+        .delete()
+        .eq("id", connectionId);
+    } else if (existing) {
+      // Revert update to previous values
+      await adminClient
+        .from("restaurant_pos_connections")
+        .update({
+          base_url: existing.base_url,
+          database_name: existing.database_name,
+          username: existing.username,
+          timezone: existing.timezone,
+          odoo_company_ids: existing.odoo_company_ids,
+        })
+        .eq("id", connectionId);
+    }
     return NextResponse.json(
-      { error: "Connection saved but credential storage failed" },
+      { error: "Failed to store credential" },
       { status: 500 }
     );
   }

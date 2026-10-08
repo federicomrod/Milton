@@ -316,3 +316,70 @@ describe("API key is never in response body", () => {
     expect(responseText).not.toContain("api_key");
   });
 });
+
+describe("Location mapping admin routes", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  describe("GET /api/admin/odoo/location-mapping", () => {
+    it("rejects non-admin users with 403", async () => {
+      vi.doMock("@/lib/profile-service-server", () => ({
+        isUserAdminServer: vi.fn().mockResolvedValue(false),
+      }));
+      vi.doMock("@/lib/supabase/server", () => ({
+        createClient: vi.fn().mockResolvedValue({
+          auth: {
+            getUser: vi.fn().mockResolvedValue({
+              data: { user: { id: "user-123" } },
+            }),
+          },
+        }),
+      }));
+
+      const { GET } =
+        await import("@/app/api/admin/odoo/location-mapping/route");
+      const mockReq = new Request(
+        "http://localhost/api/admin/odoo/location-mapping?company_id=test",
+        { method: "GET" }
+      );
+
+      const response = await GET(mockReq as any);
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error).toContain("Forbidden");
+    });
+  });
+
+  describe("POST /api/admin/odoo/location-mapping", () => {
+    it("rejects non-admin users with 403", async () => {
+      vi.doMock("@/lib/profile-service-server", () => ({
+        isUserAdminServer: vi.fn().mockResolvedValue(false),
+      }));
+      vi.doMock("@/lib/supabase/server", () => ({
+        createClient: vi.fn().mockResolvedValue({
+          auth: {
+            getUser: vi.fn().mockResolvedValue({
+              data: { user: { id: "user-123" } },
+            }),
+          },
+        }),
+      }));
+
+      const { POST } =
+        await import("@/app/api/admin/odoo/location-mapping/route");
+      const mockReq = new Request(
+        "http://localhost/api/admin/odoo/location-mapping",
+        {
+          method: "POST",
+          body: JSON.stringify({}),
+        }
+      );
+
+      const response = await POST(mockReq as any);
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error).toContain("Forbidden");
+    });
+  });
+});

@@ -37,7 +37,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { storeOdooSecret } from "@/lib/restaurant/odoo/secrets";
+import {
+  storeOdooSecret,
+  assertOdooEncryptionConfigured,
+  OdooSecretConfigError,
+} from "@/lib/restaurant/odoo/secrets";
 import {
   authenticate,
   OdooAuthenticationError,
@@ -105,7 +109,23 @@ export async function POST(req: NextRequest) {
       assertOdooBaseUrlAllowed(baseUrl as string, allowedHosts);
     } catch (err) {
       if (err instanceof OdooHostNotAllowedError) {
-        return NextResponse.json({ error: err.message }, { status: 400 });
+        return NextResponse.json(
+          { error: "Odoo connection not allowed" },
+          { status: 400 }
+        );
+      }
+      throw err;
+    }
+
+    // --- Verify encryption key before any DB write ------------------------
+    try {
+      assertOdooEncryptionConfigured();
+    } catch (err) {
+      if (err instanceof OdooSecretConfigError) {
+        return NextResponse.json(
+          { error: "Server configuration error" },
+          { status: 500 }
+        );
       }
       throw err;
     }
@@ -150,7 +170,9 @@ export async function POST(req: NextRequest) {
     // --- Non-secret connection metadata: normal RLS-backed client ---------
     const { data: existing, error: lookupError } = await supabase
       .from("restaurant_pos_connections")
-      .select("id, base_url, database_name, odoo_company_ids")
+      .select(
+        "id, base_url, database_name, username, timezone, odoo_company_ids"
+      )
       .eq("company_id", companyId)
       .eq("pos_source", "odoo")
       .maybeSingle();
@@ -194,6 +216,17 @@ export async function POST(req: NextRequest) {
     }
 
     let connectionId: string;
+    const isNewConnection = !existing?.id;
+    const previousMetadata = existing
+      ? {
+          base_url: existing.base_url,
+          database_name: existing.database_name,
+          username: existing.username,
+          timezone: existing.timezone,
+          odoo_company_ids: existing.odoo_company_ids,
+        }
+      : null;
+
     if (existing?.id) {
       connectionId = existing.id;
       const { error: updateError } = await supabase
@@ -267,11 +300,23 @@ export async function POST(req: NextRequest) {
         "[odoo-connection] secret storage failed:",
         err instanceof Error ? err.name : "Unknown error"
       );
+
+      // Rollback: if secret storage fails after metadata write, delete the
+      // newly inserted connection or revert the update.
+      if (isNewConnection) {
+        await supabase
+          .from("restaurant_pos_connections")
+          .delete()
+          .eq("id", connectionId);
+      } else if (previousMetadata) {
+        await supabase
+          .from("restaurant_pos_connections")
+          .update(previousMetadata)
+          .eq("id", connectionId);
+      }
+
       return NextResponse.json(
-        {
-          error:
-            "Connection details were saved, but the credential could not be stored. Please try again.",
-        },
+        { error: "Could not store Odoo credential" },
         { status: 500 }
       );
     }

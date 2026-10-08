@@ -37,10 +37,10 @@ const SPANISH_NUMBERS: Record<string, number> = {
 };
 
 const SPANISH_NUMBER_WORDS = Object.keys(SPANISH_NUMBERS).join("|");
-const DIGIT_TOKEN = `(?<![.\\d])\\d+(?![.\\d])`;
+const DIGIT_TOKEN = `(?<![.,\\d])\\d+(?!\\d|[.,]\\d)`;
 const NUMBER_WORD_TOKEN = `\\b(?:${SPANISH_NUMBER_WORDS})\\b`;
 const NUMBER_TOKEN = `(?:${DIGIT_TOKEN}|${NUMBER_WORD_TOKEN})`;
-const CAPTURE_NUMBER = `(?:\\b(${SPANISH_NUMBER_WORDS})\\b|(?<![.\\d])(\\d+)(?![.\\d]))`;
+const CAPTURE_NUMBER = `(?:\\b(${SPANISH_NUMBER_WORDS})\\b|(?<![.,\\d])(\\d+)(?!\\d|[.,]\\d))`;
 const PORCION_WORD = `porcion(?:es)?\\b`;
 
 const PORTIONS_WITH_NUMBER = new RegExp(

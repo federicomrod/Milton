@@ -50,6 +50,21 @@ describe("recipe intent detection", () => {
       portions: 2,
       dishName: null,
     });
+    expect(detectRecipeIntent("salió para 3.")).toEqual({
+      isRecipe: true,
+      portions: 3,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("Salió para 3. Pollo con arroz")).toEqual({
+      isRecipe: true,
+      portions: 3,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("receta, salió para 2.")).toEqual({
+      isRecipe: true,
+      portions: 2,
+      dishName: null,
+    });
   });
 
   it("detects Spanish number words as portions", () => {
@@ -157,6 +172,11 @@ describe("recipe intent detection", () => {
       portions: null,
       dishName: null,
     });
+    expect(detectRecipeIntent("2,5 porciones")).toEqual({
+      isRecipe: false,
+      portions: null,
+      dishName: null,
+    });
   });
 });
 
@@ -169,6 +189,9 @@ describe("portions parsing", () => {
     expect(parsePortions("salieron dos porciones")).toBe(2);
     expect(parsePortions("salió para dos")).toBe(2);
     expect(parsePortions("2porciones")).toBe(2);
+    expect(parsePortions("salió para 3.")).toBe(3);
+    expect(parsePortions("Salió para 3. Pollo con arroz")).toBe(3);
+    expect(parsePortions("receta, salió para 2.")).toBe(2);
   });
 
   it("parses Spanish number words", () => {
@@ -188,6 +211,7 @@ describe("portions parsing", () => {
     expect(parsePortions("ninguna porción")).toBeNull();
     expect(parsePortions("2 porcionado")).toBeNull();
     expect(parsePortions("2.5 porciones")).toBeNull();
+    expect(parsePortions("2,5 porciones")).toBeNull();
   });
 });
 

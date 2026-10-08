@@ -66,7 +66,7 @@ export async function PATCH(
 
   const { data: draft } = await admin
     .from("kitchen_recipe_drafts")
-    .select("id, company_id, status, portions")
+    .select("id, company_id, status, portions, dish_name")
     .eq("id", draftId)
     .maybeSingle();
 
@@ -195,56 +195,149 @@ export async function PATCH(
     }
   }
   if (body.menu_item_id !== undefined) updates.menu_item_id = body.menu_item_id;
+  if (Object.keys(updates).length === 0) {
+    updates.dish_name = draft.dish_name;
+  }
 
-  if (Object.keys(updates).length > 0) {
-    const { error: updateError } = await admin
-      .from("kitchen_recipe_drafts")
-      .update(updates)
-      .eq("id", draftId);
+  const { data: updatedRows, error: updateError } = await admin
+    .from("kitchen_recipe_drafts")
+    .update(updates)
+    .eq("id", draftId)
+    .eq("company_id", auth.companyId)
+    .in("status", ["draft", "awaiting_portions"])
+    .select("id");
 
-    if (updateError) {
-      console.error("[recipe-drafts PATCH] update failed");
-      return NextResponse.json(
-        { error: "Failed to update draft" },
-        { status: 500 }
-      );
-    }
+  if (updateError) {
+    console.error("[recipe-drafts PATCH] update failed");
+    return NextResponse.json(
+      { error: "Failed to update draft" },
+      { status: 500 }
+    );
+  }
+
+  if (!updatedRows || updatedRows.length !== 1) {
+    return NextResponse.json(
+      { error: "Draft not found or not in editable status" },
+      { status: 409 }
+    );
   }
 
   if (body.lines !== undefined) {
-    const { error: deleteError } = await admin
+    const portionsForLines = body.portions ?? draft.portions;
+
+    const { data: existingLineRows, error: existingError } = await admin
       .from("kitchen_recipe_draft_lines")
-      .delete()
+      .select("id")
       .eq("draft_id", draftId);
 
-    if (deleteError) {
-      console.error("[recipe-drafts PATCH] delete lines failed");
+    if (existingError) {
+      console.error("[recipe-drafts PATCH] load lines failed");
       return NextResponse.json(
-        { error: "Failed to update lines" },
+        { error: "Failed to load lines" },
         { status: 500 }
       );
     }
 
-    const portionsForLines = body.portions ?? draft.portions;
-    const lineRows = body.lines.map((l, idx) => ({
-      draft_id: draftId,
-      company_id: auth.companyId,
-      line_number: idx + 1,
-      raw_name: l.raw_name,
-      ingredient_id: l.ingredient_id,
-      total_quantity: l.total_quantity,
-      unit: l.unit,
-      per_portion_quantity:
-        l.total_quantity !== null && portionsForLines
-          ? l.total_quantity / portionsForLines
-          : null,
-      confidence: "low" as const,
-    }));
+    const existingIds = new Set((existingLineRows ?? []).map((l) => l.id));
+    const isKeepId = (id: string | undefined): id is string =>
+      !!id && !id.startsWith("new-");
 
-    if (lineRows.length > 0) {
+    for (const line of body.lines) {
+      if (isKeepId(line.id) && !existingIds.has(line.id)) {
+        return NextResponse.json(
+          { error: `Line ${line.id} does not belong to this draft` },
+          { status: 400 }
+        );
+      }
+    }
+
+    const keepIds = new Set(
+      body.lines.filter((l) => isKeepId(l.id)).map((l) => l.id as string)
+    );
+    const removeIds = [...existingIds].filter((id) => !keepIds.has(id));
+    if (removeIds.length > 0) {
+      const { error: deleteError } = await admin
+        .from("kitchen_recipe_draft_lines")
+        .delete()
+        .eq("draft_id", draftId)
+        .in("id", removeIds);
+
+      if (deleteError) {
+        console.error("[recipe-drafts PATCH] delete lines failed");
+        return NextResponse.json(
+          { error: "Failed to update lines" },
+          { status: 500 }
+        );
+      }
+    }
+
+    const toUpdate = body.lines
+      .map((l, idx) => ({ line: l, line_number: idx + 1 }))
+      .filter(({ line }) => isKeepId(line.id));
+    const toInsert = body.lines
+      .map((l, idx) => ({ line: l, line_number: idx + 1 }))
+      .filter(({ line }) => !isKeepId(line.id));
+
+    for (const { line, line_number } of toUpdate) {
+      const { error: bumpError } = await admin
+        .from("kitchen_recipe_draft_lines")
+        .update({ line_number: 10000 + line_number })
+        .eq("id", line.id)
+        .eq("draft_id", draftId);
+      if (bumpError) {
+        console.error("[recipe-drafts PATCH] bump line_number failed");
+        return NextResponse.json(
+          { error: "Failed to update lines" },
+          { status: 500 }
+        );
+      }
+    }
+
+    for (const { line, line_number } of toUpdate) {
+      const { error: lineUpdateError } = await admin
+        .from("kitchen_recipe_draft_lines")
+        .update({
+          raw_name: line.raw_name,
+          ingredient_id: line.ingredient_id,
+          total_quantity: line.total_quantity,
+          unit: line.unit,
+          per_portion_quantity:
+            line.total_quantity !== null && portionsForLines
+              ? line.total_quantity / portionsForLines
+              : null,
+          line_number,
+        })
+        .eq("id", line.id)
+        .eq("draft_id", draftId);
+
+      if (lineUpdateError) {
+        console.error("[recipe-drafts PATCH] update line failed");
+        return NextResponse.json(
+          { error: "Failed to update lines" },
+          { status: 500 }
+        );
+      }
+    }
+
+    if (toInsert.length > 0) {
       const { error: insertError } = await admin
         .from("kitchen_recipe_draft_lines")
-        .insert(lineRows);
+        .insert(
+          toInsert.map(({ line, line_number }) => ({
+            draft_id: draftId,
+            company_id: auth.companyId,
+            line_number,
+            raw_name: line.raw_name,
+            ingredient_id: line.ingredient_id,
+            total_quantity: line.total_quantity,
+            unit: line.unit,
+            per_portion_quantity:
+              line.total_quantity !== null && portionsForLines
+                ? line.total_quantity / portionsForLines
+                : null,
+            confidence: "low" as const,
+          }))
+        );
 
       if (insertError) {
         console.error("[recipe-drafts PATCH] insert lines failed");
@@ -256,5 +349,19 @@ export async function PATCH(
     }
   }
 
-  return NextResponse.json({ ok: true });
+  const { data: savedLines, error: reloadError } = await admin
+    .from("kitchen_recipe_draft_lines")
+    .select("*")
+    .eq("draft_id", draftId)
+    .order("line_number", { ascending: true });
+
+  if (reloadError) {
+    console.error("[recipe-drafts PATCH] reload lines failed");
+    return NextResponse.json(
+      { error: "Failed to load saved lines" },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({ ok: true, lines: savedLines ?? [] });
 }

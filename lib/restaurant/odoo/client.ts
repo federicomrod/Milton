@@ -14,6 +14,11 @@
 
 import { encodeMethodCall, decodeMethodResponse } from "./xmlrpc";
 import type { XmlRpcValue } from "./xmlrpc";
+import {
+  assertOdooBaseUrlAllowed,
+  assertNoRedirect,
+  parseAllowedHosts,
+} from "./allowed-hosts";
 
 export interface OdooCredentials {
   /** e.g. "https://pilot-restaurant.odoo.com" — no trailing slash. */
@@ -49,7 +54,9 @@ async function postXmlRpc(url: string, body: string): Promise<XmlRpcValue> {
     headers: { "Content-Type": "text/xml" },
     body,
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    redirect: "manual",
   });
+  assertNoRedirect(res);
   if (!res.ok) {
     throw new OdooRpcError(
       `Odoo XML-RPC HTTP ${res.status} from ${url}`,
@@ -70,6 +77,8 @@ async function postXmlRpc(url: string, body: string): Promise<XmlRpcValue> {
  * bad credentials, so that case is checked explicitly.
  */
 export async function authenticate(creds: OdooCredentials): Promise<number> {
+  const allowedHosts = parseAllowedHosts();
+  assertOdooBaseUrlAllowed(creds.baseUrl, allowedHosts);
   const url = `${creds.baseUrl}/xmlrpc/2/common`;
   const body = encodeMethodCall("authenticate", [
     creds.database,
@@ -101,6 +110,8 @@ export async function unsafeExecuteKw(
   args: XmlRpcValue[],
   kwargs: Record<string, XmlRpcValue> = {}
 ): Promise<XmlRpcValue> {
+  const allowedHosts = parseAllowedHosts();
+  assertOdooBaseUrlAllowed(creds.baseUrl, allowedHosts);
   const url = `${creds.baseUrl}/xmlrpc/2/object`;
   const body = encodeMethodCall("execute_kw", [
     creds.database,

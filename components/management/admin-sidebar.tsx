@@ -11,6 +11,7 @@ import {
   UserPlus,
   QrCode,
   ChevronLeft,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -44,6 +45,11 @@ const navigation = [
     name: "Kitchen QR",
     href: "/management/kitchen",
     icon: QrCode,
+  },
+  {
+    name: "Odoo",
+    href: "/management/odoo",
+    icon: Database,
   },
 ];
 

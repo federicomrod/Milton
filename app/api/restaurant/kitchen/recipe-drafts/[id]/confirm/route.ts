@@ -25,7 +25,7 @@ interface ConfirmBody {
   menu_item_id?: string;
   selling_price?: number;
   lines: Array<{
-    id: string;
+    id?: string;
     ingredient_id: string;
     total_quantity: number;
     unit: string;
@@ -103,7 +103,11 @@ export async function POST(
     );
   }
 
-  if (!body.portions || body.portions <= 0) {
+  if (
+    !body.portions ||
+    body.portions <= 0 ||
+    !Number.isInteger(body.portions)
+  ) {
     return NextResponse.json(
       { error: "Portions must be a positive integer" },
       { status: 400 }
@@ -117,6 +121,22 @@ export async function POST(
     );
   }
 
+  if (body.menu_item_id) {
+    const { data: menuItem } = await admin
+      .from("menu_items")
+      .select("id")
+      .eq("id", body.menu_item_id)
+      .eq("company_id", auth.companyId)
+      .maybeSingle();
+
+    if (!menuItem) {
+      return NextResponse.json(
+        { error: "Menu item not found or does not belong to your company" },
+        { status: 400 }
+      );
+    }
+  }
+
   const { data: draftLines } = await admin
     .from("kitchen_recipe_draft_lines")
     .select("id, ingredient_id")
@@ -124,8 +144,11 @@ export async function POST(
 
   const draftLineIds = new Set((draftLines ?? []).map((l) => l.id));
 
+  const isExistingLineId = (id: string | undefined): id is string =>
+    !!id && !id.startsWith("new-");
+
   for (const line of body.lines) {
-    if (!draftLineIds.has(line.id)) {
+    if (isExistingLineId(line.id) && !draftLineIds.has(line.id)) {
       return NextResponse.json(
         { error: `Line ${line.id} does not belong to this draft` },
         { status: 400 }
@@ -174,9 +197,10 @@ export async function POST(
 
   const { data: costEntries } = await admin
     .from("ingredient_cost_entries")
-    .select("ingredient_id, normalized_unit_cost, normalized_unit")
+    .select("ingredient_id, normalized_unit_cost, normalized_unit, cost_date")
     .eq("company_id", auth.companyId)
-    .in("ingredient_id", ingredientIds);
+    .in("ingredient_id", ingredientIds)
+    .order("cost_date", { ascending: false });
 
   const costMap = new Map<
     string,
@@ -184,8 +208,9 @@ export async function POST(
   >();
   for (const entry of costEntries ?? []) {
     if (
-      !costMap.has(entry.ingredient_id) ||
-      (entry.normalized_unit_cost !== null && entry.normalized_unit !== null)
+      !costMap.has(entry.ingredient_id) &&
+      entry.normalized_unit_cost !== null &&
+      entry.normalized_unit !== null
     ) {
       costMap.set(entry.ingredient_id, {
         normalized_unit_cost: entry.normalized_unit_cost,
@@ -225,7 +250,8 @@ export async function POST(
   }));
 
   for (const bodyLine of body.lines) {
-    await admin
+    if (!isExistingLineId(bodyLine.id)) continue;
+    const { error: lineUpdateError } = await admin
       .from("kitchen_recipe_draft_lines")
       .update({
         total_quantity: bodyLine.total_quantity,
@@ -233,6 +259,13 @@ export async function POST(
         per_portion_quantity: bodyLine.total_quantity / body.portions,
       })
       .eq("id", bodyLine.id);
+    if (lineUpdateError) {
+      console.error("[confirm] line update failed");
+      return NextResponse.json(
+        { error: "Could not update draft lines" },
+        { status: 500 }
+      );
+    }
   }
 
   try {
@@ -257,8 +290,8 @@ export async function POST(
     const result = data?.[0];
     return NextResponse.json({
       ok: true,
-      recipe_id: result?.recipe_id,
-      menu_item_id: result?.menu_item_id,
+      recipe_id: result?.out_recipe_id,
+      menu_item_id: result?.out_menu_item_id,
     });
   } catch (err) {
     console.error("[confirm] unexpected error");

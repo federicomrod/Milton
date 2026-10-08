@@ -120,6 +120,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   pieza: "unit",
   piezas: "unit",
   pza: "unit",
+  pzas: "unit",
   pc: "unit",
   pcs: "unit",
   ea: "unit",

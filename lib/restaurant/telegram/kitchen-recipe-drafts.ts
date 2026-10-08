@@ -31,12 +31,14 @@ const EIGHTY_SIX_RE =
   /\b86\b|se acab(?:o|aron)|(?<!casi )no (?:hay|queda)|agotad|nos quedamos sin|^\s*sin\s+\S+/;
 const RUNNING_OUT_RE =
   /queda(?:n)? poco|se esta acabando|casi no (?:hay|queda)|quedan para|ultim[oa]s?/;
+const REPORT_PORTIONS_RE = /\bqueda(?:n)?\s+\d+\s+porcion(?:es)?/;
 
 function hasReportKeywords(normalizedText: string): boolean {
   return (
     WASTE_RE.test(normalizedText) ||
     EIGHTY_SIX_RE.test(normalizedText) ||
-    RUNNING_OUT_RE.test(normalizedText)
+    RUNNING_OUT_RE.test(normalizedText) ||
+    REPORT_PORTIONS_RE.test(normalizedText)
   );
 }
 
@@ -86,17 +88,42 @@ const SPANISH_NUMBERS: Record<string, number> = {
 };
 
 export function parsePortions(text: string): number | null {
-  const digitMatch = text.match(/\b(\d+)\s*porcion(?:es)?/i);
+  const normalized = normalize(text);
+
+  const digitMatch = normalized.match(/\b(\d+)\s*porcion(?:es)?/);
   if (digitMatch) return parseInt(digitMatch[1], 10);
 
-  const forMatch = text.match(/(?:salio|salieron)\s+para\s+(\d+)/i);
+  const forMatch = normalized.match(/(?:salio|salieron)\s+para\s+(\d+)/);
   if (forMatch) return parseInt(forMatch[1], 10);
 
   for (const [word, num] of Object.entries(SPANISH_NUMBERS)) {
-    const re = new RegExp(`\\b${word}\\s+porcion(?:es)?`, "i");
-    if (re.test(text)) return num;
+    const re = new RegExp(`\\b${word}\\s+porcion(?:es)?`);
+    if (re.test(normalized)) return num;
   }
 
+  return null;
+}
+
+export function parseDishName(text: string | null | undefined): string | null {
+  if (!text || !text.trim()) return null;
+  const trimmed = text.trim();
+  const normalized = normalize(trimmed);
+
+  const patterns = [
+    /(?:salio|salieron)\s+para\s+\d+\s+porcion(?:es)?\s+de\s+(.+)$/,
+    /(?:salio|salieron)\s+para\s+\d+\s+de\s+(.+)$/,
+    /\d+\s+porcion(?:es)?\s+de\s+(.+)$/,
+    /\breceta\s+(?:de\s+)?(.+)$/,
+  ];
+  for (const re of patterns) {
+    const match = normalized.match(re);
+    const captured = match?.[1]?.trim();
+    if (captured && captured.length > 0 && captured.length <= 80) {
+      return trimmed.slice(trimmed.length - captured.length).trim();
+    }
+  }
+
+  if (trimmed.length <= 40) return trimmed;
   return null;
 }
 
@@ -313,17 +340,21 @@ async function extractFromText(
     }
     return { ok: true, data: parsed };
   } catch (err) {
-    console.error("[recipe-drafts] text extraction failed");
+    console.error("[recipe-drafts] extraction failed");
     return { ok: false, error: "Text extraction failed" };
   }
 }
 
-function validateExtractedRecipe(data: unknown): data is ExtractedRecipe {
+export function validateExtractedRecipe(
+  data: unknown
+): data is ExtractedRecipe {
   if (!data || typeof data !== "object") return false;
   const d = data as Record<string, unknown>;
   if (typeof d.dish_name !== "string") return false;
   if (d.portions !== null && typeof d.portions !== "number") return false;
-  if (typeof d.portions === "number" && d.portions <= 0) return false;
+  if (typeof d.portions === "number") {
+    if (d.portions <= 0 || !Number.isInteger(d.portions)) return false;
+  }
   if (!Array.isArray(d.ingredients)) return false;
   if (!["high", "medium", "low"].includes(d.overall_confidence as string))
     return false;
@@ -649,7 +680,6 @@ export async function extractAndCreateRecipeDraft(
   let extracted: ExtractedRecipe | null = null;
 
   const parsedPortions = input.text ? parsePortions(input.text) : null;
-  const parsedDishName = input.text ? input.text.trim() : null;
 
   if (input.mediaKind === "photo" && input.telegramFileId) {
     const { openTelegramFile } =
@@ -672,10 +702,14 @@ export async function extractAndCreateRecipeDraft(
         if (parsedPortions !== null) {
           extracted.portions = parsedPortions;
         }
-        if (parsedDishName && parsedDishName.length > 0) {
-          extracted.dish_name = parsedDishName;
-        }
       }
+    }
+  } else if (input.text) {
+    // Voice is transcribed once in the webhook after() work and passed here
+    // as text, so we must not transcribe again.
+    const result = await extractFromText(input.text);
+    if (result.ok) {
+      extracted = result.data;
     }
   } else if (input.mediaKind === "voice" && input.telegramFileId) {
     const { openTelegramFile } =
@@ -699,11 +733,6 @@ export async function extractAndCreateRecipeDraft(
         }
       }
     }
-  } else if (input.text) {
-    const result = await extractFromText(input.text);
-    if (result.ok) {
-      extracted = result.data;
-    }
   }
 
   if (!extracted) {
@@ -714,7 +743,7 @@ export async function extractAndCreateRecipeDraft(
       kitchenReportId: input.kitchenReportId,
       chatId: input.chatId,
       messageId: input.messageId,
-      dishName: parsedDishName || "Receta",
+      dishName: parseDishName(input.text) || "Receta",
       portions: parsedPortions,
       lines: [],
       overallConfidence: "low",
@@ -733,10 +762,10 @@ export async function extractAndCreateRecipeDraft(
 
   const hasUnmatched = matched.some((l) => l.ingredient_id === null);
   const hasLowConf = matched.some((l) => l.confidence === "low");
-  const overallConfidence =
-    extracted.overall_confidence === "low" || hasUnmatched || hasLowConf
-      ? "low"
-      : extracted.overall_confidence;
+  let overallConfidence = extracted.overall_confidence;
+  if (overallConfidence !== "low" && (hasUnmatched || hasLowConf)) {
+    overallConfidence = "low";
+  }
 
   const currencies = new Set(
     matched
@@ -748,12 +777,21 @@ export async function extractAndCreateRecipeDraft(
       .filter((c): c is string => c !== null)
   );
 
-  const currency =
-    currencies.size === 1
-      ? Array.from(currencies)[0]
-      : currencies.size > 1
-        ? "MXN"
-        : input.currency;
+  let currency = input.currency;
+  if (currencies.size === 1) {
+    currency = Array.from(currencies)[0];
+  } else if (currencies.size > 1) {
+    overallConfidence = "low";
+  }
+
+  const caption = input.text?.trim() ?? "";
+  const modelName = extracted.dish_name?.trim() ?? "";
+  let dishName = "Receta";
+  if (modelName && modelName !== caption) {
+    dishName = modelName;
+  } else {
+    dishName = parseDishName(input.text) || "Receta";
+  }
 
   const draft: CreateDraftInput = {
     companyId: input.companyId,
@@ -762,7 +800,7 @@ export async function extractAndCreateRecipeDraft(
     kitchenReportId: input.kitchenReportId,
     chatId: input.chatId,
     messageId: input.messageId,
-    dishName: extracted.dish_name || parsedDishName || "Receta",
+    dishName,
     portions,
     lines: matched,
     overallConfidence,

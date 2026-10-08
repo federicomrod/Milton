@@ -60,7 +60,7 @@ function makeFrom(table: string) {
       store[table] = rows().filter((r) => !ids.has(r.id));
       return { data: matched.map((r) => ({ ...r })), error: null };
     }
-    let data = rows()
+    const data = rows()
       .filter((row) => matches(row, ops))
       .map((r) => ({ ...r }));
     if (orderCol) {

@@ -146,7 +146,7 @@ export function KitchenRecipeDraftsCard({
       if (cancelled) return;
       if (res.ok) {
         const data = await res.json();
-        setMenuItems(data ?? []);
+        setMenuItems(data.menu_items ?? []);
       }
     })();
     return () => {
@@ -179,6 +179,33 @@ export function KitchenRecipeDraftsCard({
       selectedMenuItem === "new" && newSellingPrice
         ? parseFloat(newSellingPrice)
         : undefined;
+
+    const linePayload = editedLines.map((l) => ({
+      id: l.id,
+      raw_name: l.raw_name || l.ingredient_name || "ingredient",
+      ingredient_id: l.ingredient_id,
+      total_quantity: l.total_quantity,
+      unit: l.unit,
+    }));
+
+    const patchRes = await fetch(
+      `/api/restaurant/kitchen/recipe-drafts/${editedDraft.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dish_name: editedDraft.dish_name,
+          portions: editedDraft.portions,
+          menu_item_id: menuItemId,
+          lines: linePayload,
+        }),
+      }
+    );
+    if (!patchRes.ok) {
+      const data = await patchRes.json().catch(() => ({}));
+      setError(data.error ?? "Could not save draft edits.");
+      return;
+    }
 
     const res = await fetch(
       `/api/restaurant/kitchen/recipe-drafts/${editedDraft.id}/confirm`,
@@ -294,7 +321,8 @@ export function KitchenRecipeDraftsCard({
   };
 
   const canConfirm =
-    editedDraft?.portions &&
+    !!editedDraft?.portions &&
+    Number.isInteger(editedDraft.portions) &&
     editedDraft.portions > 0 &&
     editedLines.length > 0 &&
     editedLines.every(

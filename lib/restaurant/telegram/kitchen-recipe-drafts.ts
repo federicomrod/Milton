@@ -37,15 +37,17 @@ const SPANISH_NUMBERS: Record<string, number> = {
 };
 
 const SPANISH_NUMBER_WORDS = Object.keys(SPANISH_NUMBERS).join("|");
-const SPANISH_NUMBER_PATTERN = `\\d+|${SPANISH_NUMBER_WORDS}`;
-const NUMBER_TOKEN = `\\b(?:${SPANISH_NUMBER_PATTERN})\\b`;
+const DIGIT_TOKEN = `(?<![.\\d])\\d+(?![.\\d])`;
 const NUMBER_WORD_TOKEN = `\\b(?:${SPANISH_NUMBER_WORDS})\\b`;
+const NUMBER_TOKEN = `(?:${DIGIT_TOKEN}|${NUMBER_WORD_TOKEN})`;
+const CAPTURE_NUMBER = `(?:\\b(${SPANISH_NUMBER_WORDS})\\b|(?<![.\\d])(\\d+)(?![.\\d]))`;
+const PORCION_WORD = `porcion(?:es)?\\b`;
 
 const PORTIONS_WITH_NUMBER = new RegExp(
-  `\\b(?:salio|salieron)\\s+(?:para\\s+${NUMBER_TOKEN}|${NUMBER_TOKEN}\\s+porcion(?:es)?)`
+  `\\b(?:salio|salieron)\\s+(?:para\\s+${NUMBER_TOKEN}|${NUMBER_TOKEN}\\s+${PORCION_WORD})`
 );
 const PORTIONS_ONLY = new RegExp(
-  `(?:${NUMBER_WORD_TOKEN}|\\b\\d+)\\s*porcion(?:es)?`
+  `(?:${NUMBER_WORD_TOKEN}|${DIGIT_TOKEN})\\s*${PORCION_WORD}`
 );
 
 const WASTE_RE =
@@ -55,7 +57,7 @@ const EIGHTY_SIX_RE =
 const RUNNING_OUT_RE =
   /queda(?:n)? poco|se esta acabando|casi no (?:hay|queda)|quedan para|ultim[oa]s?/;
 const REPORT_PORTIONS_RE = new RegExp(
-  `\\bqueda(?:n)?\\s+${NUMBER_TOKEN}\\s+porcion(?:es)?`
+  `\\bqueda(?:n)?\\s+${NUMBER_TOKEN}\\s+${PORCION_WORD}`
 );
 
 function hasReportKeywords(normalizedText: string): boolean {
@@ -107,9 +109,7 @@ export function parsePortions(text: string): number | null {
   const normalized = normalize(text);
 
   const porcionMatch = normalized.match(
-    new RegExp(
-      `(?:\\b(${SPANISH_NUMBER_WORDS})\\b|\\b(\\d+))\\s*porcion(?:es)?`
-    )
+    new RegExp(`${CAPTURE_NUMBER}\\s*${PORCION_WORD}`)
   );
   if (porcionMatch) {
     const token = porcionMatch[1] ?? porcionMatch[2];
@@ -117,11 +117,12 @@ export function parsePortions(text: string): number | null {
   }
 
   const forMatch = normalized.match(
-    new RegExp(
-      `(?:salio|salieron)\\s+para\\s+\\b(${SPANISH_NUMBER_PATTERN})\\b`
-    )
+    new RegExp(`(?:salio|salieron)\\s+para\\s+${CAPTURE_NUMBER}`)
   );
-  if (forMatch) return parseNumberToken(forMatch[1]);
+  if (forMatch) {
+    const token = forMatch[1] ?? forMatch[2];
+    if (token) return parseNumberToken(token);
+  }
 
   return null;
 }
@@ -152,7 +153,7 @@ export function parseDishName(text: string | null | undefined): string | null {
 export function parsePortionsFromFollowUp(text: string): number | null {
   const normalized = normalize(text.trim());
   const portionsRe =
-    /^\s*(?:\b(\d{1,3})|\b(uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b)(?:\s*porcion(?:es)?)?\s*\.?\s*$/;
+    /^\s*(?:(\d{1,3})(?!\d)(?!\.\d)|\b(uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b)(?:\s*porcion(?:es)?\b)?\s*\.?\s*$/;
   const match = normalized.match(portionsRe);
   if (!match) return null;
 
@@ -409,43 +410,58 @@ const KITCHEN_SYNONYMS: Record<string, string> = {
   maiz: "elote",
 };
 
-function isSpanishConsonant(ch: string): boolean {
-  return /[bcdfghjklmnpqrstvwxyz]/.test(ch);
-}
+function spanishWordForms(word: string): Set<string> {
+  const forms = new Set<string>([word]);
+  if (word.length <= 3) return forms;
 
-function singularizeSpanishWord(word: string): string {
-  if (word.length <= 3) return word;
+  if (word.endsWith("ces")) {
+    forms.add(`${word.slice(0, -3)}z`);
+  }
   if (word.endsWith("es")) {
     const stem = word.slice(0, -2);
-    const stemEnd = stem.charAt(stem.length - 1);
-    if (stemEnd && isSpanishConsonant(stemEnd)) {
-      return stem;
+    if (stem.length > 0) {
+      forms.add(stem);
+      forms.add(`${stem}e`);
     }
+  } else if (word.endsWith("s")) {
+    forms.add(word.slice(0, -1));
   }
-  if (word.endsWith("s")) return word.slice(0, -1);
-  return word;
+  return forms;
 }
 
-function kitchenWordVariants(word: string): Set<string> {
-  const singular = singularizeSpanishWord(word);
-  const variants = new Set<string>([word, singular]);
-  for (const form of [word, singular]) {
-    const synonym = KITCHEN_SYNONYMS[form];
-    if (synonym) {
-      variants.add(synonym);
-      variants.add(singularizeSpanishWord(synonym));
-    }
-  }
-  return variants;
-}
-
-function kitchenWordsMatch(cookWord: string, catalogWord: string): boolean {
-  if (cookWord.length < 3) return false;
-  const catalogVariants = kitchenWordVariants(catalogWord);
-  for (const variant of kitchenWordVariants(cookWord)) {
-    if (catalogVariants.has(variant)) return true;
+function formsOverlap(a: Set<string>, b: Set<string>): boolean {
+  for (const form of a) {
+    if (b.has(form)) return true;
   }
   return false;
+}
+
+function synonymForms(word: string): Set<string> {
+  const expanded = new Set<string>();
+  for (const form of spanishWordForms(word)) {
+    const synonym = KITCHEN_SYNONYMS[form];
+    if (!synonym) continue;
+    expanded.add(synonym);
+    for (const synForm of spanishWordForms(synonym)) {
+      expanded.add(synForm);
+    }
+  }
+  return expanded;
+}
+
+function directWordsMatch(cookWord: string, catalogWord: string): boolean {
+  if (cookWord.length < 3) return false;
+  return formsOverlap(
+    spanishWordForms(cookWord),
+    spanishWordForms(catalogWord)
+  );
+}
+
+function synonymWordsMatch(cookWord: string, catalogWord: string): boolean {
+  if (cookWord.length < 3) return false;
+  const catalogForms = spanishWordForms(catalogWord);
+  if (formsOverlap(synonymForms(cookWord), catalogForms)) return true;
+  return formsOverlap(synonymForms(catalogWord), spanishWordForms(cookWord));
 }
 
 export interface MatchedIngredientLine {
@@ -486,19 +502,31 @@ export function matchIngredients(
     }
 
     if (!bestMatch && normName.length >= 3) {
+      const words = normName.split(/\s+/);
+
       for (const ing of companyIngredients) {
-        const ingNorm = normalize(ing.name);
-        const words = normName.split(/\s+/);
-        const ingWords = ingNorm.split(/\s+/);
-
-        const hasWholeWordMatch = words.some((w) =>
-          ingWords.some((iw) => kitchenWordsMatch(w, iw))
+        const ingWords = normalize(ing.name).split(/\s+/);
+        const hasDirect = words.some((w) =>
+          ingWords.some((iw) => directWordsMatch(w, iw))
         );
-
-        if (hasWholeWordMatch) {
+        if (hasDirect) {
           bestMatch = ing;
           matchConfidence = "medium";
           break;
+        }
+      }
+
+      if (!bestMatch) {
+        for (const ing of companyIngredients) {
+          const ingWords = normalize(ing.name).split(/\s+/);
+          const hasSynonym = words.some((w) =>
+            ingWords.some((iw) => synonymWordsMatch(w, iw))
+          );
+          if (hasSynonym) {
+            bestMatch = ing;
+            matchConfidence = "medium";
+            break;
+          }
         }
       }
     }

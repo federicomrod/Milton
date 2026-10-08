@@ -147,6 +147,16 @@ describe("recipe intent detection", () => {
       portions: null,
       dishName: null,
     });
+    expect(detectRecipeIntent("2 porcionado")).toEqual({
+      isRecipe: false,
+      portions: null,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("2.5 porciones")).toEqual({
+      isRecipe: false,
+      portions: null,
+      dishName: null,
+    });
   });
 });
 
@@ -176,6 +186,8 @@ describe("portions parsing", () => {
     expect(parsePortions("solo para 3 mesas")).toBeNull();
     expect(parsePortions("salieron doscientos gramos")).toBeNull();
     expect(parsePortions("ninguna porción")).toBeNull();
+    expect(parsePortions("2 porcionado")).toBeNull();
+    expect(parsePortions("2.5 porciones")).toBeNull();
   });
 });
 
@@ -205,6 +217,8 @@ describe("portions follow-up parsing", () => {
     expect(parsePortionsFromFollowUp("solo para 3 mesas")).toBeNull();
     expect(parsePortionsFromFollowUp("quedan 3 porciones de flan")).toBeNull();
     expect(parsePortionsFromFollowUp("receta de 2 porciones")).toBeNull();
+    expect(parsePortionsFromFollowUp("2 porcionado")).toBeNull();
+    expect(parsePortionsFromFollowUp("2.5 porciones")).toBeNull();
   });
 });
 
@@ -562,14 +576,84 @@ describe("Spanish singularisation and kitchen synonyms", () => {
     expect(matched[0].confidence).toBe("low");
   });
 
-  it("leaves gas unmatched", () => {
+  it("leaves gas unmatched even when Gasa or Pegaso is in the catalog", () => {
+    const trapIngredients: CostingIngredient[] = [
+      ...mexicanIngredients,
+      { id: "mx5", name: "Gasa", default_unit: "kg" },
+      { id: "mx6", name: "Pegaso", default_unit: "kg" },
+    ];
     const matched = matchIngredients(
       [line("gas")],
-      mexicanIngredients,
-      mexicanCosts,
+      trapIngredients,
+      costMapFor("mx1", "mx2", "mx3", "mx4", "mx5", "mx6"),
       2
     );
     expect(matched[0].ingredient_id).toBeNull();
     expect(matched[0].confidence).toBe("low");
+  });
+
+  function catalog(...names: string[]): {
+    ingredients: CostingIngredient[];
+    costs: Map<string, IngredientCostEntry[]>;
+  } {
+    const ingredients = names.map((name, i) => ({
+      id: `cat${i}`,
+      name,
+      default_unit: "kg",
+    }));
+    return {
+      ingredients,
+      costs: costMapFor(...ingredients.map((ing) => ing.id)),
+    };
+  }
+
+  function matchCook(cook: string, ...catalogNames: string[]) {
+    const { ingredients, costs } = catalog(...catalogNames);
+    return matchIngredients([line(cook)], ingredients, costs, 2)[0];
+  }
+
+  it("matches -e and -z plurals", () => {
+    expect(matchCook("tomates", "Tomate").ingredient_name).toBe("Tomate");
+    expect(matchCook("tomates", "Jitomate").ingredient_name).toBe("Jitomate");
+    expect(matchCook("chiles", "Chile").ingredient_name).toBe("Chile");
+    expect(matchCook("elotes", "Elote").ingredient_name).toBe("Elote");
+    expect(matchCook("aguacates", "Aguacate").ingredient_name).toBe("Aguacate");
+    expect(matchCook("nueces", "Nuez").ingredient_name).toBe("Nuez");
+    expect(matchCook("moles", "Mole").ingredient_name).toBe("Mole");
+    expect(matchCook("tomates", "Tomate").confidence).toBe("medium");
+    expect(matchCook("chiles", "Chile").confidence).toBe("medium");
+  });
+
+  it("leaves arroz, maíz, and res unchanged", () => {
+    expect(matchCook("arroz", "Arroz").ingredient_name).toBe("Arroz");
+    expect(matchCook("arroz", "Arroz").confidence).toBe("high");
+    expect(matchCook("maíz", "Maíz").ingredient_name).toBe("Maíz");
+    expect(matchCook("res", "Res").ingredient_name).toBe("Res");
+  });
+
+  it("singularises reses and sales without matching salsa", () => {
+    expect(matchCook("reses", "Res").ingredient_name).toBe("Res");
+    expect(matchCook("sales", "Sal", "Salsa verde").ingredient_name).toBe(
+      "Sal"
+    );
+    expect(matchCook("sal", "Salsa verde").ingredient_id).toBeNull();
+  });
+
+  it("matches Mexican kitchen synonyms at medium confidence", () => {
+    expect(matchCook("patata", "Papa").ingredient_name).toBe("Papa");
+    expect(matchCook("papa", "Patata").ingredient_name).toBe("Patata");
+    expect(matchCook("chili", "Chile").ingredient_name).toBe("Chile");
+    expect(matchCook("chile", "Chili").ingredient_name).toBe("Chili");
+    expect(matchCook("elote", "Maíz").ingredient_name).toBe("Maíz");
+    expect(matchCook("maíz", "Elote").ingredient_name).toBe("Elote");
+    expect(matchCook("patata", "Papa").confidence).toBe("medium");
+    expect(matchCook("chili", "Chile").confidence).toBe("medium");
+    expect(matchCook("elote", "Maíz").confidence).toBe("medium");
+  });
+
+  it("prefers a direct Maíz match over an earlier Elote synonym", () => {
+    const matched = matchCook("tortilla de maíz", "Elote", "Maíz");
+    expect(matched.ingredient_name).toBe("Maíz");
+    expect(matched.confidence).toBe("medium");
   });
 });

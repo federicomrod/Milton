@@ -48,7 +48,7 @@ import {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 interface TelegramUpdate {
   message?: TelegramIncomingMessage & {
@@ -224,26 +224,25 @@ async function handleKitchenReport(
     const intent = detectRecipeIntent(textContent);
 
     const report = extractReportFromMessage(message);
-    let reportId: string | null = null;
-    if (report) {
-      const inserted = await recordKitchenReport({
-        companyId: staff.company_id,
-        locationId: staff.location_id,
-        staffId: staff.id,
-        chatId,
-        report,
-      });
-      if (!inserted) {
-        return;
-      }
-      const { data } = await admin
-        .from("kitchen_reports")
-        .select("id")
-        .eq("telegram_chat_id", chatId)
-        .eq("telegram_message_id", report.telegram_message_id)
-        .maybeSingle();
-      reportId = data?.id ?? null;
+    if (!report) return;
+
+    const inserted = await recordKitchenReport({
+      companyId: staff.company_id,
+      locationId: staff.location_id,
+      staffId: staff.id,
+      chatId,
+      report,
+    });
+    if (!inserted) {
+      return;
     }
+    const { data } = await admin
+      .from("kitchen_reports")
+      .select("id")
+      .eq("telegram_chat_id", chatId)
+      .eq("telegram_message_id", report.telegram_message_id)
+      .maybeSingle();
+    const reportId = data?.id ?? null;
 
     if (!intent.isRecipe && !isVoiceWithoutText) {
       await sendTelegramMessage(
@@ -324,7 +323,7 @@ async function processRecipeDraftAsync(
           const client = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY,
             timeout: 20000,
-            maxRetries: 1,
+            maxRetries: 0,
           });
           const transcription = await client.audio.transcriptions.create({
             file,

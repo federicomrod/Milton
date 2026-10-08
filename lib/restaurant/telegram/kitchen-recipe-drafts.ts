@@ -22,8 +22,28 @@ function normalize(text: string): string {
 
 const RECIPE_KEYWORDS = [/\breceta\b/i];
 
-const PORTIONS_WITH_NUMBER = /\b(?:salio|salieron)\s+para\s+\d+/i;
-const PORTIONS_ONLY = /\d+\s*porcion(?:es)?/i;
+const SPANISH_NUMBERS: Record<string, number> = {
+  uno: 1,
+  una: 1,
+  dos: 2,
+  tres: 3,
+  cuatro: 4,
+  cinco: 5,
+  seis: 6,
+  siete: 7,
+  ocho: 8,
+  nueve: 9,
+  diez: 10,
+};
+
+const SPANISH_NUMBER_PATTERN = `\\d+|${Object.keys(SPANISH_NUMBERS).join("|")}`;
+
+const PORTIONS_WITH_NUMBER = new RegExp(
+  `\\b(?:salio|salieron)\\s+(?:para\\s+)?(?:${SPANISH_NUMBER_PATTERN})`
+);
+const PORTIONS_ONLY = new RegExp(
+  `(?:${SPANISH_NUMBER_PATTERN})\\s*porcion(?:es)?`
+);
 
 const WASTE_RE =
   /merma|\btir(?:e|amos|aron|ado)|\bbot(?:e|amos)\b|se quem|quemad|caduc|venci|se paso|se dano/;
@@ -31,7 +51,9 @@ const EIGHTY_SIX_RE =
   /\b86\b|se acab(?:o|aron)|(?<!casi )no (?:hay|queda)|agotad|nos quedamos sin|^\s*sin\s+\S+/;
 const RUNNING_OUT_RE =
   /queda(?:n)? poco|se esta acabando|casi no (?:hay|queda)|quedan para|ultim[oa]s?/;
-const REPORT_PORTIONS_RE = /\bqueda(?:n)?\s+\d+\s+porcion(?:es)?/;
+const REPORT_PORTIONS_RE = new RegExp(
+  `\\bqueda(?:n)?\\s+(?:${SPANISH_NUMBER_PATTERN})\\s+porcion(?:es)?`
+);
 
 function hasReportKeywords(normalizedText: string): boolean {
   return (
@@ -73,33 +95,24 @@ export function detectRecipeIntent(
   return { isRecipe: false, portions: null, dishName: null };
 }
 
-const SPANISH_NUMBERS: Record<string, number> = {
-  uno: 1,
-  una: 1,
-  dos: 2,
-  tres: 3,
-  cuatro: 4,
-  cinco: 5,
-  seis: 6,
-  siete: 7,
-  ocho: 8,
-  nueve: 9,
-  diez: 10,
-};
+function parseNumberToken(token: string): number | null {
+  if (/^\d+$/.test(token)) return parseInt(token, 10);
+  return SPANISH_NUMBERS[token] ?? null;
+}
 
 export function parsePortions(text: string): number | null {
   const normalized = normalize(text);
+  const numberGroup = `(${SPANISH_NUMBER_PATTERN})`;
 
-  const digitMatch = normalized.match(/\b(\d+)\s*porcion(?:es)?/);
-  if (digitMatch) return parseInt(digitMatch[1], 10);
+  const digitMatch = normalized.match(
+    new RegExp(`\\b${numberGroup}\\s*porcion(?:es)?`)
+  );
+  if (digitMatch) return parseNumberToken(digitMatch[1]);
 
-  const forMatch = normalized.match(/(?:salio|salieron)\s+para\s+(\d+)/);
-  if (forMatch) return parseInt(forMatch[1], 10);
-
-  for (const [word, num] of Object.entries(SPANISH_NUMBERS)) {
-    const re = new RegExp(`\\b${word}\\s+porcion(?:es)?`);
-    if (re.test(normalized)) return num;
-  }
+  const forMatch = normalized.match(
+    new RegExp(`(?:salio|salieron)\\s+para\\s+${numberGroup}`)
+  );
+  if (forMatch) return parseNumberToken(forMatch[1]);
 
   return null;
 }
@@ -209,7 +222,7 @@ async function callOpenAIVision(
   const client = new OpenAIctor({
     apiKey: process.env.OPENAI_API_KEY,
     timeout: 20000,
-    maxRetries: 1,
+    maxRetries: 0,
   });
 
   try {
@@ -270,7 +283,7 @@ async function transcribeVoice(
   const client = new OpenAIctor({
     apiKey: process.env.OPENAI_API_KEY,
     timeout: 20000,
-    maxRetries: 1,
+    maxRetries: 0,
   });
 
   try {
@@ -314,7 +327,7 @@ async function extractFromText(
   const client = new OpenAIctor({
     apiKey: process.env.OPENAI_API_KEY,
     timeout: 20000,
-    maxRetries: 1,
+    maxRetries: 0,
   });
 
   try {
@@ -710,6 +723,9 @@ export async function extractAndCreateRecipeDraft(
     const result = await extractFromText(input.text);
     if (result.ok) {
       extracted = result.data;
+      if (extracted.portions == null && parsedPortions !== null) {
+        extracted.portions = parsedPortions;
+      }
     }
   } else if (input.mediaKind === "voice" && input.telegramFileId) {
     const { openTelegramFile } =
@@ -730,6 +746,10 @@ export async function extractAndCreateRecipeDraft(
         const result = await extractFromText(transcription.text);
         if (result.ok) {
           extracted = result.data;
+          const fromTranscript = parsePortions(transcription.text);
+          if (extracted.portions == null && fromTranscript !== null) {
+            extracted.portions = fromTranscript;
+          }
         }
       }
     }

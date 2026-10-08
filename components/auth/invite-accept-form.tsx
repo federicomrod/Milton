@@ -31,6 +31,8 @@ const ERROR_COPY: Record<string, string> = {
   invalid_password: "Password must be between 8 and 72 characters.",
   login_required:
     "Please log in with the invited email, then reopen this link.",
+  accept_failed:
+    "We couldn't activate this invite. Please try again, or ask your Milton contact for help.",
 };
 
 export function InviteAcceptForm({

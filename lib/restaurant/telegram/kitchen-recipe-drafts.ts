@@ -37,13 +37,12 @@ const SPANISH_NUMBERS: Record<string, number> = {
 };
 
 const SPANISH_NUMBER_PATTERN = `\\d+|${Object.keys(SPANISH_NUMBERS).join("|")}`;
+const NUMBER_TOKEN = `\\b(?:${SPANISH_NUMBER_PATTERN})\\b`;
 
 const PORTIONS_WITH_NUMBER = new RegExp(
-  `\\b(?:salio|salieron)\\s+(?:para\\s+)?(?:${SPANISH_NUMBER_PATTERN})`
+  `\\b(?:salio|salieron)\\s+(?:para\\s+${NUMBER_TOKEN}|${NUMBER_TOKEN}\\s+porcion(?:es)?)`
 );
-const PORTIONS_ONLY = new RegExp(
-  `(?:${SPANISH_NUMBER_PATTERN})\\s*porcion(?:es)?`
-);
+const PORTIONS_ONLY = new RegExp(`${NUMBER_TOKEN}\\s*porcion(?:es)?`);
 
 const WASTE_RE =
   /merma|\btir(?:e|amos|aron|ado)|\bbot(?:e|amos)\b|se quem|quemad|caduc|venci|se paso|se dano/;
@@ -52,7 +51,7 @@ const EIGHTY_SIX_RE =
 const RUNNING_OUT_RE =
   /queda(?:n)? poco|se esta acabando|casi no (?:hay|queda)|quedan para|ultim[oa]s?/;
 const REPORT_PORTIONS_RE = new RegExp(
-  `\\bqueda(?:n)?\\s+(?:${SPANISH_NUMBER_PATTERN})\\s+porcion(?:es)?`
+  `\\bqueda(?:n)?\\s+${NUMBER_TOKEN}\\s+porcion(?:es)?`
 );
 
 function hasReportKeywords(normalizedText: string): boolean {
@@ -102,10 +101,10 @@ function parseNumberToken(token: string): number | null {
 
 export function parsePortions(text: string): number | null {
   const normalized = normalize(text);
-  const numberGroup = `(${SPANISH_NUMBER_PATTERN})`;
+  const numberGroup = `\\b(${SPANISH_NUMBER_PATTERN})\\b`;
 
   const digitMatch = normalized.match(
-    new RegExp(`\\b${numberGroup}\\s*porcion(?:es)?`)
+    new RegExp(`${numberGroup}\\s*porcion(?:es)?`)
   );
   if (digitMatch) return parseNumberToken(digitMatch[1]);
 
@@ -143,7 +142,7 @@ export function parseDishName(text: string | null | undefined): string | null {
 export function parsePortionsFromFollowUp(text: string): number | null {
   const normalized = normalize(text.trim());
   const portionsRe =
-    /^\s*(\d{1,3}|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*(?:porcion(?:es)?)?\s*\.?\s*$/;
+    /^\s*\b(\d{1,3}|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b\s*(?:porcion(?:es)?)?\s*\.?\s*$/;
   const match = normalized.match(portionsRe);
   if (!match) return null;
 

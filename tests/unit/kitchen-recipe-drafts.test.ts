@@ -57,7 +57,17 @@ describe("recipe intent detection", () => {
       portions: 2,
       dishName: null,
     });
+    expect(detectRecipeIntent("dos porciones de arroz")).toEqual({
+      isRecipe: true,
+      portions: 2,
+      dishName: null,
+    });
     expect(detectRecipeIntent("salió para dos")).toEqual({
+      isRecipe: true,
+      portions: 2,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("salió para 2")).toEqual({
       isRecipe: true,
       portions: 2,
       dishName: null,
@@ -83,6 +93,11 @@ describe("recipe intent detection", () => {
       portions: null,
       dishName: null,
     });
+    expect(detectRecipeIntent("quedan dos porciones de flan")).toEqual({
+      isRecipe: false,
+      portions: null,
+      dishName: null,
+    });
     expect(detectRecipeIntent("se acabo el pollo")).toEqual({
       isRecipe: false,
       portions: null,
@@ -97,6 +112,31 @@ describe("recipe intent detection", () => {
 
   it("ignores non-recipe messages", () => {
     expect(detectRecipeIntent("hola")).toEqual({
+      isRecipe: false,
+      portions: null,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("salió una orden mal")).toEqual({
+      isRecipe: false,
+      portions: null,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("salieron tres pedidos de tacos")).toEqual({
+      isRecipe: false,
+      portions: null,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("salió uno de más")).toEqual({
+      isRecipe: false,
+      portions: null,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("salieron doscientos gramos")).toEqual({
+      isRecipe: false,
+      portions: null,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("ninguna porción")).toEqual({
       isRecipe: false,
       portions: null,
       dishName: null,

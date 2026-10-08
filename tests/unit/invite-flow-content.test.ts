@@ -91,20 +91,25 @@ describe("routing", () => {
     }
   });
 
-  it("callback and login form use resolveInvitedUserLanding after the admin check", () => {
+  it("callback and login form share getPostLoginRedirect", () => {
     for (const f of [
       "app/auth/callback/route.ts",
       "components/auth/login-form.tsx",
     ]) {
       const src = read(f);
-      expect(src).toContain("import { resolveInvitedUserLanding }");
-      const adminAt = src.indexOf('is_milton_admin"');
-      const invitedAt = src.indexOf("resolveInvitedUserLanding(");
-      expect(adminAt).toBeGreaterThan(-1);
-      expect(invitedAt).toBeGreaterThan(adminAt);
-      // ...and before the self-serve onboarding check.
-      expect(invitedAt).toBeLessThan(src.indexOf("onboarding_status"));
+      expect(src).toContain("import { getPostLoginRedirect }");
+      expect(src).toContain("getPostLoginRedirect(");
     }
+  });
+
+  it("getPostLoginRedirect checks admin, then invited, then onboarding_status", () => {
+    const src = read("lib/restaurant/post-login.ts");
+    const adminAt = src.indexOf('is_milton_admin"');
+    const invitedAt = src.indexOf("resolveInvitedUserLanding(");
+    const onboardingAt = src.indexOf("onboarding_status");
+    expect(adminAt).toBeGreaterThan(-1);
+    expect(invitedAt).toBeGreaterThan(adminAt);
+    expect(onboardingAt).toBeGreaterThan(invitedAt);
   });
 
   it("signup-complete checks for a live invite before calling the RPC", () => {

@@ -3,8 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
-import { resolveInvitedUserLanding } from "@/lib/restaurant/post-login";
+import { getPostLoginRedirect } from "@/lib/restaurant/post-login";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,50 +17,6 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
-
-async function getPostLoginRedirect(
-  supabase: ReturnType<typeof createClient>
-): Promise<string> {
-  // Restaurant pivot: non-admin users always land in the restaurant cockpit.
-  // The legacy onboarding gate no longer applies to the restaurant pilot.
-  try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return "/dashboard/restaurant";
-
-    const { data: isAdmin, error } = await supabase.rpc("is_milton_admin");
-    if (error) {
-      console.error("[LoginForm] is_milton_admin RPC error:", error.message);
-    }
-
-    if (isAdmin === true) return "/management/dashboard";
-
-    // Send restaurant users who haven't finished the onboarding wizard
-    // there first, same check as app/auth/callback/route.ts.
-    const companyId = await resolveCompanyIdForUser(supabase, user.id);
-    if (companyId) {
-      // Invited users keep the invite landing rule on every login.
-      const invitedLanding = await resolveInvitedUserLanding(
-        supabase,
-        companyId
-      );
-      if (invitedLanding) return invitedLanding;
-      const { data: company } = await supabase
-        .from("companies")
-        .select("onboarding_status")
-        .eq("id", companyId)
-        .maybeSingle();
-      if (company?.onboarding_status !== "completed") {
-        return "/onboarding/restaurant";
-      }
-    }
-
-    return "/dashboard/restaurant";
-  } catch {
-    return "/dashboard/restaurant";
-  }
-}
 
 export function LoginForm() {
   const [email, setEmail] = useState("");

@@ -43,8 +43,13 @@ describe("migration 025 — odoo_company_id on restaurant_locations", () => {
   });
 
   it("does not set NOT NULL constraint or DEFAULT value", () => {
-    // Accept "NULL" keyword in WHERE clause, reject "NOT NULL" in ADD COLUMN
-    expect(statements).not.toMatch(/ADD\s+COLUMN[^;]*\bNOT\s+NULL\b/i);
-    expect(statements).not.toMatch(/ADD\s+COLUMN[^;]*\bDEFAULT\b/i);
+    // Scope to the odoo_company_id ADD COLUMN statement only, so the
+    // unique index's `WHERE odoo_company_id IS NOT NULL` is not a false hit.
+    expect(statements).not.toMatch(
+      /ADD\s+COLUMN[^;]*\bodoo_company_id\b[^;]*\bNOT\s+NULL\b/i
+    );
+    expect(statements).not.toMatch(
+      /ADD\s+COLUMN[^;]*\bodoo_company_id\b[^;]*\bDEFAULT\b/i
+    );
   });
 });

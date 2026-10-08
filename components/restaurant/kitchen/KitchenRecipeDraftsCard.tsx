@@ -207,6 +207,11 @@ export function KitchenRecipeDraftsCard({
       return;
     }
 
+    const patchData = await patchRes.json().catch(() => ({}));
+    const savedLines: DraftLine[] = Array.isArray(patchData.lines)
+      ? patchData.lines
+      : editedLines;
+
     const res = await fetch(
       `/api/restaurant/kitchen/recipe-drafts/${editedDraft.id}/confirm`,
       {
@@ -217,7 +222,7 @@ export function KitchenRecipeDraftsCard({
           portions: editedDraft.portions,
           menu_item_id: menuItemId,
           selling_price: sellingPrice,
-          lines: editedLines.map((l) => ({
+          lines: savedLines.map((l) => ({
             id: l.id,
             ingredient_id: l.ingredient_id,
             total_quantity: l.total_quantity,

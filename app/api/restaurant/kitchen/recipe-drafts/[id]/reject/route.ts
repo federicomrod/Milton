@@ -3,10 +3,12 @@
 // POST /api/restaurant/kitchen/recipe-drafts/:id/reject
 //
 // Rejects a recipe draft (marks status 'rejected'). Only Milton admins
-// and owners can reject (enforced server-side).
+// and owners can reject (enforced server-side). Uses admin client after
+// role check. Only drafts in 'draft' or 'awaiting_portions' can be rejected.
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { isUserAdminServer } from "@/lib/profile-service-server";
 import {
@@ -41,34 +43,31 @@ export async function POST(
   }
 
   const { id: draftId } = await params;
+  const admin = createAdminClient();
 
-  const { data: draft, error: draftError } = await supabase
-    .from("kitchen_recipe_drafts")
-    .select("id, company_id")
-    .eq("id", draftId)
-    .maybeSingle();
-
-  if (draftError || !draft) {
-    return NextResponse.json({ error: "Draft not found." }, { status: 404 });
-  }
-
-  if (draft.company_id !== auth.companyId) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const { error: updateError } = await supabase
+  const { data: updated, error: updateError } = await admin
     .from("kitchen_recipe_drafts")
     .update({
       status: "rejected",
-      updated_at: new Date().toISOString(),
     })
-    .eq("id", draftId);
+    .eq("id", draftId)
+    .eq("company_id", auth.companyId)
+    .in("status", ["draft", "awaiting_portions"])
+    .select("id")
+    .maybeSingle();
 
   if (updateError) {
-    console.error("[reject] draft update failed:", updateError.message);
+    console.error("[reject] update failed");
     return NextResponse.json(
-      { error: "Could not reject draft." },
+      { error: "Could not reject draft" },
       { status: 500 }
+    );
+  }
+
+  if (!updated) {
+    return NextResponse.json(
+      { error: "Draft not found or not in rejectable status" },
+      { status: 404 }
     );
   }
 

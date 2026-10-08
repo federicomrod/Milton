@@ -48,6 +48,7 @@ import {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 interface TelegramUpdate {
   message?: TelegramIncomingMessage & {
@@ -131,10 +132,9 @@ async function handleKitchenJoin(
 }
 
 // Cook report: private chat, active kitchen_staff only. Unknown, removed
-// and group senders are ignored (no row, no reply). If it's a recipe,
-// extract and create a draft; if portions are missing, ask. Otherwise,
-// the acknowledgement is the generic R5 and is sent only when a NEW row
-// was stored, so a Telegram retry never double-acknowledges.
+// and group senders are ignored (no row, no reply). Telegram retries
+// never double-reply. Voice notes are transcribed first, then checked
+// for recipe intent. Recipe extraction and cook reply happen via after().
 async function handleKitchenReport(
   message: TelegramMessage,
   chatId: number
@@ -147,109 +147,74 @@ async function handleKitchenReport(
 
     const {
       detectRecipeIntent,
-      parsePortions,
-      extractAndCreateRecipeDraft,
+      parsePortionsFromFollowUp,
       updateDraftPortions,
     } = await import("@/lib/restaurant/telegram/kitchen-recipe-drafts");
 
-    const textContent = message.text || message.caption || "";
-    const intent = detectRecipeIntent(textContent);
+    const messageId = message.message_id ?? 0;
+    const admin = createAdminClient();
 
-    if (intent.isRecipe) {
-      const report = extractReportFromMessage(message);
-      let reportId: string | null = null;
-      if (report) {
-        const inserted = await recordKitchenReport({
-          companyId: staff.company_id,
-          locationId: staff.location_id,
-          staffId: staff.id,
-          chatId,
-          report,
-        });
-        if (inserted) {
-          const admin = createAdminClient();
-          const { data } = await admin
-            .from("kitchen_reports")
-            .select("id")
-            .eq("telegram_chat_id", chatId)
-            .eq("telegram_message_id", report.telegram_message_id)
-            .maybeSingle();
-          reportId = data?.id ?? null;
-        }
-      }
+    const { data: existingDraft } = await admin
+      .from("kitchen_recipe_drafts")
+      .select("id")
+      .eq("telegram_chat_id", chatId)
+      .eq("telegram_message_id", messageId)
+      .maybeSingle();
 
-      const admin = createAdminClient();
-      const [ingredientsRes, costEntriesRes, companyRes] = await Promise.all([
-        admin
-          .from("ingredients")
-          .select("id, name, default_unit")
-          .eq("company_id", staff.company_id),
-        admin
-          .from("ingredient_cost_entries")
-          .select(
-            "id, company_id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit_cost, normalized_unit, currency, created_at"
-          )
-          .eq("company_id", staff.company_id),
-        admin
-          .from("companies")
-          .select("name")
-          .eq("id", staff.company_id)
-          .maybeSingle(),
-      ]);
-
-      const ingredients = ingredientsRes.data ?? [];
-      const costEntries = costEntriesRes.data ?? [];
-      const costMap = new Map<string, typeof costEntries>();
-      for (const entry of costEntries) {
-        if (!costMap.has(entry.ingredient_id)) {
-          costMap.set(entry.ingredient_id, []);
-        }
-        costMap.get(entry.ingredient_id)!.push(entry);
-      }
-
-      const result = await extractAndCreateRecipeDraft(
-        {
-          companyId: staff.company_id,
-          locationId: staff.location_id,
-          staffId: staff.id,
-          kitchenReportId: reportId,
-          chatId,
-          messageId: report?.telegram_message_id ?? message.message_id ?? 0,
-          mediaKind: report?.media_kind ?? null,
-          telegramFileId: report?.telegram_file_id ?? null,
-          text: textContent || null,
-          currency: costEntries[0]?.currency ?? "MXN",
-        },
-        ingredients,
-        costMap
-      );
-
-      if (result.ok) {
-        const { data: draft } = await admin
-          .from("kitchen_recipe_drafts")
-          .select("dish_name, status")
-          .eq("id", result.draftId)
-          .maybeSingle();
-
-        if (draft?.status === "awaiting_portions") {
-          await sendTelegramMessage(chatId, KITCHEN_COPY.RECIPE_ASK_PORTIONS);
-        } else {
-          await sendTelegramMessage(
-            chatId,
-            renderKitchenCopy(KITCHEN_COPY.RECIPE_RECEIVED, {
-              plato: draft?.dish_name ?? "tu receta",
-            })
-          );
-        }
-      }
+    if (existingDraft) {
       return;
     }
 
-    const portionsOnly = parsePortions(textContent);
-    if (portionsOnly !== null && !intent.isRecipe) {
-      const result = await updateDraftPortions(chatId, portionsOnly);
+    let textContent = message.text || message.caption || "";
+
+    if (message.voice && !textContent) {
+      const { openTelegramFile } =
+        await import("@/lib/restaurant/telegram/files");
+      const stream = await openTelegramFile(message.voice.file_id);
+      if (stream.ok) {
+        const chunks: Uint8Array[] = [];
+        const reader = stream.body.getReader();
+        let done = false;
+        while (!done) {
+          const { value, done: readerDone } = await reader.read();
+          if (value) chunks.push(value);
+          done = readerDone;
+        }
+        const buffer = Buffer.concat(chunks);
+
+        const uint8Array = new Uint8Array(buffer);
+        const blob = new Blob([uint8Array], { type: "audio/ogg" });
+        const file = new File([blob], "voice.ogg", { type: "audio/ogg" });
+
+        if (process.env.OPENAI_API_KEY) {
+          try {
+            const { default: OpenAI } = await import("openai");
+            const client = new OpenAI({
+              apiKey: process.env.OPENAI_API_KEY,
+              timeout: 20000,
+              maxRetries: 1,
+            });
+            const transcription = await client.audio.transcriptions.create({
+              file,
+              model: "whisper-1",
+              language: "es",
+            });
+            textContent = transcription.text;
+          } catch (err) {
+            console.error("[telegram-webhook] transcription failed");
+          }
+        }
+      }
+    }
+
+    const portionsFollowUp = parsePortionsFromFollowUp(textContent);
+    if (portionsFollowUp !== null) {
+      const result = await updateDraftPortions(
+        chatId,
+        staff.id,
+        portionsFollowUp
+      );
       if (result.ok) {
-        const admin = createAdminClient();
         const { data: draft } = await admin
           .from("kitchen_recipe_drafts")
           .select("dish_name")
@@ -265,28 +230,163 @@ async function handleKitchenReport(
       }
     }
 
+    const intent = detectRecipeIntent(textContent);
+
     const report = extractReportFromMessage(message);
-    if (!report) return;
-    const inserted = await recordKitchenReport({
-      companyId: staff.company_id,
-      locationId: staff.location_id,
-      staffId: staff.id,
-      chatId,
-      report,
-    });
-    if (inserted) {
+    let reportId: string | null = null;
+    if (report) {
+      const inserted = await recordKitchenReport({
+        companyId: staff.company_id,
+        locationId: staff.location_id,
+        staffId: staff.id,
+        chatId,
+        report,
+      });
+      if (!inserted) {
+        return;
+      }
+      const { data } = await admin
+        .from("kitchen_reports")
+        .select("id")
+        .eq("telegram_chat_id", chatId)
+        .eq("telegram_message_id", report.telegram_message_id)
+        .maybeSingle();
+      reportId = data?.id ?? null;
+    }
+
+    if (!intent.isRecipe) {
       await sendTelegramMessage(
         chatId,
         renderKitchenCopy(KITCHEN_COPY.REPORT_ACK, {
           nombre_local: staff.location_name,
         })
       );
+      return;
+    }
+
+    processRecipeDraftAsync(
+      staff,
+      chatId,
+      messageId,
+      reportId,
+      textContent,
+      report?.media_kind ?? null,
+      report?.telegram_file_id ?? null
+    );
+  } catch (err) {
+    console.error("[telegram-webhook] kitchen report failed");
+  }
+}
+
+async function processRecipeDraftAsync(
+  staff: { company_id: string; location_id: string; id: string },
+  chatId: number,
+  messageId: number,
+  reportId: string | null,
+  textContent: string,
+  mediaKind: "photo" | "voice" | null,
+  telegramFileId: string | null
+) {
+  try {
+    const { extractAndCreateRecipeDraft } =
+      await import("@/lib/restaurant/telegram/kitchen-recipe-drafts");
+
+    const admin = createAdminClient();
+
+    const { data: existingDraft } = await admin
+      .from("kitchen_recipe_drafts")
+      .select("id")
+      .eq("telegram_chat_id", chatId)
+      .eq("telegram_message_id", messageId)
+      .maybeSingle();
+
+    if (existingDraft) {
+      return;
+    }
+
+    const ingredientsRes = await admin
+      .from("ingredients")
+      .select("id, name, default_unit")
+      .eq("company_id", staff.company_id);
+
+    const ingredients = ingredientsRes.data ?? [];
+    const ingredientIds = ingredients.map((i) => i.id);
+
+    let costEntries: Array<{
+      ingredient_id: string;
+      normalized_unit_cost: number;
+      normalized_unit: string;
+      cost_date: string;
+      currency: string;
+      created_at: string;
+      id: string;
+      company_id: string;
+      supplier_id: string | null;
+      source_type: "manual" | "invoice_line" | "import" | "api";
+      source_id: string | null;
+      quantity: number;
+      unit: string;
+      total_cost: number;
+      unit_cost: number;
+    }> = [];
+
+    if (ingredientIds.length > 0) {
+      const costEntriesRes = await admin
+        .from("ingredient_cost_entries")
+        .select(
+          "id, company_id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit_cost, normalized_unit, currency, created_at"
+        )
+        .eq("company_id", staff.company_id)
+        .in("ingredient_id", ingredientIds);
+
+      costEntries = (costEntriesRes.data ?? []) as typeof costEntries;
+    }
+
+    const costMap = new Map<string, typeof costEntries>();
+    for (const entry of costEntries) {
+      if (!costMap.has(entry.ingredient_id)) {
+        costMap.set(entry.ingredient_id, []);
+      }
+      costMap.get(entry.ingredient_id)!.push(entry);
+    }
+
+    const result = await extractAndCreateRecipeDraft(
+      {
+        companyId: staff.company_id,
+        locationId: staff.location_id,
+        staffId: staff.id,
+        kitchenReportId: reportId,
+        chatId,
+        messageId,
+        mediaKind,
+        telegramFileId,
+        text: textContent || null,
+        currency: costEntries[0]?.currency ?? "MXN",
+      },
+      ingredients,
+      costMap
+    );
+
+    if (result.ok) {
+      const { data: draft } = await admin
+        .from("kitchen_recipe_drafts")
+        .select("dish_name, status")
+        .eq("id", result.draftId)
+        .maybeSingle();
+
+      if (draft?.status === "awaiting_portions") {
+        await sendTelegramMessage(chatId, KITCHEN_COPY.RECIPE_ASK_PORTIONS);
+      } else {
+        await sendTelegramMessage(
+          chatId,
+          renderKitchenCopy(KITCHEN_COPY.RECIPE_RECEIVED, {
+            plato: draft?.dish_name ?? "tu receta",
+          })
+        );
+      }
     }
   } catch (err) {
-    console.error(
-      "[telegram-webhook] kitchen report failed:",
-      err instanceof Error ? err.name : "Unknown error"
-    );
+    console.error("[telegram-webhook] recipe draft async failed");
   }
 }
 

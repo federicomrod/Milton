@@ -13,12 +13,63 @@ import { convertUnitStr, normalizeUnit } from "@/lib/restaurant/units";
 import type { CostingData, CostingIngredient } from "@/lib/restaurant/costing";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
 
-const RECIPE_KEYWORDS = [
-  /\breceta\b/i,
-  /\bporcion(?:es)?\b/i,
-  /sali(?:o|eron)\s+para\s+\d+/i,
-  /para\s+\d+\s+porcion(?:es)?/i,
-];
+function normalize(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+const RECIPE_KEYWORDS = [/\breceta\b/i];
+
+const PORTIONS_WITH_NUMBER = /\b(?:salio|salieron)\s+para\s+\d+/i;
+const PORTIONS_ONLY = /\d+\s*porcion(?:es)?/i;
+
+const WASTE_RE =
+  /merma|\btir(?:e|amos|aron|ado)|\bbot(?:e|amos)\b|se quem|quemad|caduc|venci|se paso|se dano/;
+const EIGHTY_SIX_RE =
+  /\b86\b|se acab(?:o|aron)|(?<!casi )no (?:hay|queda)|agotad|nos quedamos sin|^\s*sin\s+\S+/;
+const RUNNING_OUT_RE =
+  /queda(?:n)? poco|se esta acabando|casi no (?:hay|queda)|quedan para|ultim[oa]s?/;
+
+function hasReportKeywords(normalizedText: string): boolean {
+  return (
+    WASTE_RE.test(normalizedText) ||
+    EIGHTY_SIX_RE.test(normalizedText) ||
+    RUNNING_OUT_RE.test(normalizedText)
+  );
+}
+
+export interface RecipeIntentResult {
+  isRecipe: boolean;
+  portions: number | null;
+  dishName: string | null;
+}
+
+export function detectRecipeIntent(
+  text: string | null | undefined
+): RecipeIntentResult {
+  if (!text || !text.trim()) {
+    return { isRecipe: false, portions: null, dishName: null };
+  }
+
+  const normalized = normalize(text);
+
+  if (hasReportKeywords(normalized)) {
+    return { isRecipe: false, portions: null, dishName: null };
+  }
+
+  const hasRecipeKeyword = RECIPE_KEYWORDS.some((re) => re.test(normalized));
+  const hasPortionsWithNumber = PORTIONS_WITH_NUMBER.test(normalized);
+  const hasPortionsOnly = PORTIONS_ONLY.test(normalized);
+
+  if (hasRecipeKeyword || hasPortionsWithNumber || hasPortionsOnly) {
+    const portions = parsePortions(text);
+    return { isRecipe: true, portions, dishName: null };
+  }
+
+  return { isRecipe: false, portions: null, dishName: null };
+}
 
 const SPANISH_NUMBERS: Record<string, number> = {
   uno: 1,
@@ -34,33 +85,11 @@ const SPANISH_NUMBERS: Record<string, number> = {
   diez: 10,
 };
 
-export interface RecipeIntentResult {
-  isRecipe: boolean;
-  portions: number | null;
-  dishName: string | null;
-}
-
-export function detectRecipeIntent(
-  text: string | null | undefined
-): RecipeIntentResult {
-  if (!text || !text.trim()) {
-    return { isRecipe: false, portions: null, dishName: null };
-  }
-
-  const hasKeyword = RECIPE_KEYWORDS.some((re) => re.test(text));
-  if (!hasKeyword) {
-    return { isRecipe: false, portions: null, dishName: null };
-  }
-
-  const portions = parsePortions(text);
-  return { isRecipe: true, portions, dishName: null };
-}
-
 export function parsePortions(text: string): number | null {
   const digitMatch = text.match(/\b(\d+)\s*porcion(?:es)?/i);
   if (digitMatch) return parseInt(digitMatch[1], 10);
 
-  const forMatch = text.match(/para\s+(\d+)/i);
+  const forMatch = text.match(/(?:salio|salieron)\s+para\s+(\d+)/i);
   if (forMatch) return parseInt(forMatch[1], 10);
 
   for (const [word, num] of Object.entries(SPANISH_NUMBERS)) {
@@ -69,6 +98,20 @@ export function parsePortions(text: string): number | null {
   }
 
   return null;
+}
+
+export function parsePortionsFromFollowUp(text: string): number | null {
+  const normalized = normalize(text.trim());
+  const portionsRe =
+    /^\s*(\d{1,3}|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*(?:porcion(?:es)?)?\s*\.?\s*$/;
+  const match = normalized.match(portionsRe);
+  if (!match) return null;
+
+  const value = match[1];
+  if (/^\d+$/.test(value)) {
+    return parseInt(value, 10);
+  }
+  return SPANISH_NUMBERS[value] ?? null;
 }
 
 export interface ExtractedIngredientLine {
@@ -102,10 +145,20 @@ Reglas:
 - Marca confidence "low" si hay ambigüedad o falta información.
 - Extrae SOLO lo visible o mencionado, nunca inventes.`;
 
-const EXTRACTION_USER_INSTRUCTION = `Extrae el nombre del platillo, número de porciones, e ingredientes con cantidades de esta receta.`;
+function buildExtractionUserPrompt(
+  caption: string | null,
+  isPhoto: boolean
+): string {
+  let prompt = `Extrae el nombre del platillo, número de porciones, e ingredientes con cantidades de esta receta.`;
+  if (caption && caption.trim()) {
+    prompt += `\n\nContexto del cocinero: ${caption}`;
+  }
+  return prompt;
+}
 
 async function callOpenAIVision(
-  imageDataUrl: string
+  imageDataUrl: string,
+  caption: string | null
 ): Promise<{ ok: true; data: ExtractedRecipe } | { ok: false; error: string }> {
   if (!process.env.OPENAI_API_KEY) {
     return { ok: false, error: "OpenAI not configured" };
@@ -118,7 +171,7 @@ async function callOpenAIVision(
       mod.OpenAI ??
       (mod as unknown as { default: typeof import("openai").OpenAI }).default;
   } catch (err) {
-    console.error("[recipe-drafts] openai sdk import failed:", err);
+    console.error("[recipe-drafts] openai sdk import failed");
     return { ok: false, error: "OpenAI SDK unavailable" };
   }
   if (!OpenAIctor) {
@@ -126,7 +179,11 @@ async function callOpenAIVision(
   }
 
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const client = new OpenAIctor({ apiKey: process.env.OPENAI_API_KEY });
+  const client = new OpenAIctor({
+    apiKey: process.env.OPENAI_API_KEY,
+    timeout: 20000,
+    maxRetries: 1,
+  });
 
   try {
     const completion = await client.chat.completions.create({
@@ -138,10 +195,10 @@ async function callOpenAIVision(
         {
           role: "user",
           content: [
-            { type: "text", text: EXTRACTION_USER_INSTRUCTION },
+            { type: "text", text: buildExtractionUserPrompt(caption, true) },
             {
               type: "image_url",
-              image_url: { url: imageDataUrl, detail: "high" },
+              image_url: { url: imageDataUrl, detail: "low" },
             },
           ],
         },
@@ -151,11 +208,13 @@ async function callOpenAIVision(
     if (!raw) {
       return { ok: false, error: "No content" };
     }
-    const parsed = JSON.parse(raw) as ExtractedRecipe;
+    const parsed = JSON.parse(raw);
+    if (!validateExtractedRecipe(parsed)) {
+      return { ok: false, error: "Invalid JSON structure" };
+    }
     return { ok: true, data: parsed };
   } catch (err) {
-    const msg = err instanceof Error ? err.name : "Unknown";
-    console.error("[recipe-drafts] vision call failed:", msg);
+    console.error("[recipe-drafts] vision call failed");
     return { ok: false, error: "Vision call failed" };
   }
 }
@@ -174,14 +233,18 @@ async function transcribeVoice(
       mod.OpenAI ??
       (mod as unknown as { default: typeof import("openai").OpenAI }).default;
   } catch (err) {
-    console.error("[recipe-drafts] openai sdk import failed:", err);
+    console.error("[recipe-drafts] openai sdk import failed");
     return { ok: false, error: "OpenAI SDK unavailable" };
   }
   if (!OpenAIctor) {
     return { ok: false, error: "OpenAI SDK unavailable" };
   }
 
-  const client = new OpenAIctor({ apiKey: process.env.OPENAI_API_KEY });
+  const client = new OpenAIctor({
+    apiKey: process.env.OPENAI_API_KEY,
+    timeout: 20000,
+    maxRetries: 1,
+  });
 
   try {
     const uint8Array = new Uint8Array(audioBytes);
@@ -194,8 +257,7 @@ async function transcribeVoice(
     });
     return { ok: true, text: transcription.text };
   } catch (err) {
-    const msg = err instanceof Error ? err.name : "Unknown";
-    console.error("[recipe-drafts] transcription failed:", msg);
+    console.error("[recipe-drafts] transcription failed");
     return { ok: false, error: "Transcription failed" };
   }
 }
@@ -214,7 +276,7 @@ async function extractFromText(
       mod.OpenAI ??
       (mod as unknown as { default: typeof import("openai").OpenAI }).default;
   } catch (err) {
-    console.error("[recipe-drafts] openai sdk import failed:", err);
+    console.error("[recipe-drafts] openai sdk import failed");
     return { ok: false, error: "OpenAI SDK unavailable" };
   }
   if (!OpenAIctor) {
@@ -222,7 +284,11 @@ async function extractFromText(
   }
 
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const client = new OpenAIctor({ apiKey: process.env.OPENAI_API_KEY });
+  const client = new OpenAIctor({
+    apiKey: process.env.OPENAI_API_KEY,
+    timeout: 20000,
+    maxRetries: 1,
+  });
 
   try {
     const completion = await client.chat.completions.create({
@@ -233,7 +299,7 @@ async function extractFromText(
         { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
         {
           role: "user",
-          content: `${EXTRACTION_USER_INSTRUCTION}\n\n${text}`,
+          content: `${buildExtractionUserPrompt(text, false)}\n\n${text}`,
         },
       ],
     });
@@ -241,20 +307,41 @@ async function extractFromText(
     if (!raw) {
       return { ok: false, error: "No content" };
     }
-    const parsed = JSON.parse(raw) as ExtractedRecipe;
+    const parsed = JSON.parse(raw);
+    if (!validateExtractedRecipe(parsed)) {
+      return { ok: false, error: "Invalid JSON structure" };
+    }
     return { ok: true, data: parsed };
   } catch (err) {
-    const msg = err instanceof Error ? err.name : "Unknown";
-    console.error("[recipe-drafts] text extraction failed:", msg);
+    console.error("[recipe-drafts] text extraction failed");
     return { ok: false, error: "Text extraction failed" };
   }
 }
 
-function normalize(text: string): string {
-  return text
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
+function validateExtractedRecipe(data: unknown): data is ExtractedRecipe {
+  if (!data || typeof data !== "object") return false;
+  const d = data as Record<string, unknown>;
+  if (typeof d.dish_name !== "string") return false;
+  if (d.portions !== null && typeof d.portions !== "number") return false;
+  if (typeof d.portions === "number" && d.portions <= 0) return false;
+  if (!Array.isArray(d.ingredients)) return false;
+  if (!["high", "medium", "low"].includes(d.overall_confidence as string))
+    return false;
+
+  for (const ing of d.ingredients) {
+    if (typeof ing !== "object" || !ing) return false;
+    const i = ing as Record<string, unknown>;
+    if (typeof i.name !== "string") return false;
+    if (
+      i.estimated_quantity !== null &&
+      typeof i.estimated_quantity !== "number"
+    )
+      return false;
+    if (i.unit !== null && typeof i.unit !== "string") return false;
+    if (!["high", "medium", "low"].includes(i.confidence as string))
+      return false;
+  }
+  return true;
 }
 
 export interface MatchedIngredientLine {
@@ -266,6 +353,7 @@ export interface MatchedIngredientLine {
   per_portion_quantity: number | null;
   confidence: "high" | "medium" | "low";
   unit_cost_snapshot: number | null;
+  unit_cost_unit: string | null;
   line_cost: number | null;
 }
 
@@ -278,23 +366,34 @@ export function matchIngredients(
   const matched: MatchedIngredientLine[] = [];
 
   for (const line of lines) {
+    if (!line.name || !line.name.trim()) continue;
+
     const normName = normalize(line.name);
     let bestMatch: CostingIngredient | null = null;
+    let matchConfidence: "high" | "medium" | "low" = line.confidence;
 
     for (const ing of companyIngredients) {
-      if (normalize(ing.name) === normName) {
+      const ingNorm = normalize(ing.name);
+      if (ingNorm === normName) {
         bestMatch = ing;
+        matchConfidence = line.confidence;
         break;
       }
     }
 
-    if (!bestMatch) {
+    if (!bestMatch && normName.length >= 3) {
       for (const ing of companyIngredients) {
-        if (
-          normalize(ing.name).includes(normName) ||
-          normName.includes(normalize(ing.name))
-        ) {
+        const ingNorm = normalize(ing.name);
+        const words = normName.split(/\s+/);
+        const ingWords = ingNorm.split(/\s+/);
+
+        const hasWholeWordMatch = words.some((w) =>
+          ingWords.some((iw) => w === iw && w.length >= 3)
+        );
+
+        if (hasWholeWordMatch) {
           bestMatch = ing;
+          matchConfidence = "medium";
           break;
         }
       }
@@ -306,8 +405,9 @@ export function matchIngredients(
         : null;
 
     let unitCost: number | null = null;
+    let unitCostUnit: string | null = null;
     let lineCost: number | null = null;
-    let finalConfidence = line.confidence;
+    let finalConfidence = matchConfidence;
 
     if (bestMatch) {
       const costData: CostingData = {
@@ -324,6 +424,7 @@ export function matchIngredients(
       const cost = getLatestIngredientCost(bestMatch.id, costData);
       if (cost.status === "complete" && cost.unit_cost !== null && cost.unit) {
         unitCost = cost.unit_cost;
+        unitCostUnit = cost.unit;
         if (
           line.estimated_quantity !== null &&
           line.unit &&
@@ -344,6 +445,10 @@ export function matchIngredients(
       } else {
         finalConfidence = "low";
       }
+
+      if (lineCost === null) {
+        finalConfidence = "low";
+      }
     } else {
       finalConfidence = "low";
     }
@@ -357,6 +462,7 @@ export function matchIngredients(
       per_portion_quantity: perPortion,
       confidence: finalConfidence,
       unit_cost_snapshot: unitCost,
+      unit_cost_unit: unitCostUnit,
       line_cost: lineCost,
     });
   }
@@ -395,32 +501,29 @@ export async function createRecipeDraft(
 
     const { data: draft, error: draftError } = await admin
       .from("kitchen_recipe_drafts")
-      .upsert(
-        {
-          company_id: input.companyId,
-          location_id: input.locationId,
-          staff_id: input.staffId,
-          kitchen_report_id: input.kitchenReportId,
-          telegram_chat_id: input.chatId,
-          telegram_message_id: input.messageId,
-          dish_name: input.dishName,
-          portions: input.portions,
-          status,
-          confidence: input.overallConfidence,
-          total_cost: totalCost,
-          per_portion_cost: perPortionCost,
-          currency: input.currency,
-        },
-        {
-          onConflict: "telegram_chat_id,telegram_message_id",
-          ignoreDuplicates: false,
-        }
-      )
+      .insert({
+        company_id: input.companyId,
+        location_id: input.locationId,
+        staff_id: input.staffId,
+        kitchen_report_id: input.kitchenReportId,
+        telegram_chat_id: input.chatId,
+        telegram_message_id: input.messageId,
+        dish_name: input.dishName,
+        portions: input.portions,
+        status,
+        confidence: input.overallConfidence,
+        total_cost: totalCost,
+        per_portion_cost: perPortionCost,
+        currency: input.currency,
+      })
       .select("id")
       .single();
 
     if (draftError) {
-      console.error("[recipe-drafts] draft insert failed:", draftError.message);
+      if (draftError.code === "23505") {
+        return { ok: false, error: "duplicate" };
+      }
+      console.error("[recipe-drafts] draft insert failed");
       return { ok: false, error: "Draft insert failed" };
     }
 
@@ -435,56 +538,44 @@ export async function createRecipeDraft(
       per_portion_quantity: l.per_portion_quantity,
       confidence: l.confidence,
       unit_cost_snapshot: l.unit_cost_snapshot,
+      unit_cost_unit: l.unit_cost_unit,
       line_cost: l.line_cost,
     }));
 
     if (lineRows.length > 0) {
-      const { error: linesError } = await admin
-        .from("kitchen_recipe_draft_lines")
-        .delete()
-        .eq("draft_id", draft.id);
-
-      if (linesError) {
-        console.error(
-          "[recipe-drafts] lines delete failed:",
-          linesError.message
-        );
-      }
-
       const { error: insertError } = await admin
         .from("kitchen_recipe_draft_lines")
         .insert(lineRows);
 
       if (insertError) {
-        console.error(
-          "[recipe-drafts] lines insert failed:",
-          insertError.message
-        );
+        console.error("[recipe-drafts] lines insert failed");
       }
     }
 
     return { ok: true, draftId: draft.id };
   } catch (err) {
-    console.error(
-      "[recipe-drafts] create failed:",
-      err instanceof Error ? err.message : "Unknown"
-    );
+    console.error("[recipe-drafts] create failed");
     return { ok: false, error: "Create failed" };
   }
 }
 
 export async function updateDraftPortions(
   chatId: number,
+  staffId: string,
   portions: number
 ): Promise<{ ok: true; draftId: string } | { ok: false; error: string }> {
   try {
     const admin = createAdminClient();
 
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+
     const { data: draft, error: findError } = await admin
       .from("kitchen_recipe_drafts")
       .select("id, total_cost")
       .eq("telegram_chat_id", chatId)
+      .eq("staff_id", staffId)
       .eq("status", "awaiting_portions")
+      .gte("created_at", twoHoursAgo)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -496,21 +587,19 @@ export async function updateDraftPortions(
     const perPortionCost =
       portions > 0 && draft.total_cost ? draft.total_cost / portions : null;
 
-    const { error: updateError } = await admin
+    const { data: updated, error: updateError } = await admin
       .from("kitchen_recipe_drafts")
       .update({
         portions,
         per_portion_cost: perPortionCost,
         status: "draft",
-        updated_at: new Date().toISOString(),
       })
-      .eq("id", draft.id);
+      .eq("id", draft.id)
+      .eq("status", "awaiting_portions")
+      .select("id")
+      .single();
 
-    if (updateError) {
-      console.error(
-        "[recipe-drafts] portions update failed:",
-        updateError.message
-      );
+    if (updateError || !updated) {
       return { ok: false, error: "Update failed" };
     }
 
@@ -527,7 +616,6 @@ export async function updateDraftPortions(
           .from("kitchen_recipe_draft_lines")
           .update({
             per_portion_quantity: perPortion,
-            updated_at: new Date().toISOString(),
           })
           .eq("id", line.id);
       }
@@ -535,10 +623,7 @@ export async function updateDraftPortions(
 
     return { ok: true, draftId: draft.id };
   } catch (err) {
-    console.error(
-      "[recipe-drafts] update portions failed:",
-      err instanceof Error ? err.message : "Unknown"
-    );
+    console.error("[recipe-drafts] update portions failed");
     return { ok: false, error: "Update failed" };
   }
 }
@@ -563,6 +648,9 @@ export async function extractAndCreateRecipeDraft(
 ): Promise<{ ok: true; draftId: string } | { ok: false; error: string }> {
   let extracted: ExtractedRecipe | null = null;
 
+  const parsedPortions = input.text ? parsePortions(input.text) : null;
+  const parsedDishName = input.text ? input.text.trim() : null;
+
   if (input.mediaKind === "photo" && input.telegramFileId) {
     const { openTelegramFile } =
       await import("@/lib/restaurant/telegram/files");
@@ -578,9 +666,15 @@ export async function extractAndCreateRecipeDraft(
       }
       const buffer = Buffer.concat(chunks);
       const dataUrl = `data:image/jpeg;base64,${buffer.toString("base64")}`;
-      const result = await callOpenAIVision(dataUrl);
+      const result = await callOpenAIVision(dataUrl, input.text);
       if (result.ok) {
         extracted = result.data;
+        if (parsedPortions !== null) {
+          extracted.portions = parsedPortions;
+        }
+        if (parsedDishName && parsedDishName.length > 0) {
+          extracted.dish_name = parsedDishName;
+        }
       }
     }
   } else if (input.mediaKind === "voice" && input.telegramFileId) {
@@ -620,8 +714,8 @@ export async function extractAndCreateRecipeDraft(
       kitchenReportId: input.kitchenReportId,
       chatId: input.chatId,
       messageId: input.messageId,
-      dishName: "Receta sin procesar",
-      portions: null,
+      dishName: parsedDishName || "Receta",
+      portions: parsedPortions,
       lines: [],
       overallConfidence: "low",
       currency: input.currency,
@@ -644,6 +738,23 @@ export async function extractAndCreateRecipeDraft(
       ? "low"
       : extracted.overall_confidence;
 
+  const currencies = new Set(
+    matched
+      .map((l) => {
+        if (!l.ingredient_id) return null;
+        const entries = costEntriesByIngredientId.get(l.ingredient_id);
+        return entries?.[0]?.currency ?? null;
+      })
+      .filter((c): c is string => c !== null)
+  );
+
+  const currency =
+    currencies.size === 1
+      ? Array.from(currencies)[0]
+      : currencies.size > 1
+        ? "MXN"
+        : input.currency;
+
   const draft: CreateDraftInput = {
     companyId: input.companyId,
     locationId: input.locationId,
@@ -651,11 +762,11 @@ export async function extractAndCreateRecipeDraft(
     kitchenReportId: input.kitchenReportId,
     chatId: input.chatId,
     messageId: input.messageId,
-    dishName: extracted.dish_name || "Receta",
+    dishName: extracted.dish_name || parsedDishName || "Receta",
     portions,
     lines: matched,
     overallConfidence,
-    currency: input.currency,
+    currency,
   };
 
   return await createRecipeDraft(draft);

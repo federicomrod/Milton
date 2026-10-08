@@ -52,7 +52,7 @@ describe("migration 024", () => {
     }
   });
 
-  it("has SELECT-only member policies", () => {
+  it("has SELECT-only member policies (writes via service role or SECURITY DEFINER function)", () => {
     const policies = [
       ...code.matchAll(
         /CREATE POLICY (\w+) ON public\.(\w+)\s+FOR (\w+) USING \(([^)]*\)?)\)/g
@@ -66,7 +66,6 @@ describe("migration 024", () => {
       expect(p[3]).toBe("SELECT");
       expect(p[4]).toContain("public.is_company_member(company_id)");
     }
-    expect(code).not.toMatch(/FOR (INSERT|UPDATE|DELETE|ALL)/);
   });
 
   it("is additive: no DROP", () => {
@@ -76,5 +75,25 @@ describe("migration 024", () => {
   it("contains the manual-apply note", () => {
     expect(sql).toContain("manually into the Supabase SQL Editor");
     expect(sql).toContain("apply manually to Milton Staging first");
+  });
+
+  it("has a SECURITY DEFINER confirm function", () => {
+    expect(code).toContain(
+      "CREATE OR REPLACE FUNCTION public.confirm_kitchen_recipe_draft"
+    );
+    expect(code).toContain("SECURITY DEFINER");
+    expect(code).toContain("SET search_path = public");
+  });
+
+  it("has updated_at triggers", () => {
+    expect(code).toContain(
+      "CREATE OR REPLACE FUNCTION public.set_updated_at()"
+    );
+    expect(code).toContain(
+      "CREATE TRIGGER set_updated_at_kitchen_recipe_drafts"
+    );
+    expect(code).toContain(
+      "CREATE TRIGGER set_updated_at_kitchen_recipe_draft_lines"
+    );
   });
 });

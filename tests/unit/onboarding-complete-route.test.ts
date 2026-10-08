@@ -140,6 +140,29 @@ describe("POST /api/restaurant/onboarding/complete — error handling", () => {
     expect(brandErrorBlock).toContain("return");
     expect(locationErrorBlock).toContain("return");
   });
+
+  it("returns 500 when the companies profile update fails", () => {
+    const statusErrorIdx = completeSource.indexOf("if (statusError)");
+    expect(statusErrorIdx).toBeGreaterThan(-1);
+
+    const errorBlock = completeSource.slice(
+      statusErrorIdx,
+      completeSource.indexOf("});", statusErrorIdx) + 10
+    );
+    expect(errorBlock).toContain("status: 500");
+    expect(errorBlock).toContain("return");
+  });
+
+  it("does not report success after a companies profile update failure", () => {
+    const statusErrorIdx = completeSource.indexOf("if (statusError)");
+    const successIdx = completeSource.indexOf("success: true");
+    expect(statusErrorIdx).toBeGreaterThan(-1);
+    expect(successIdx).toBeGreaterThan(statusErrorIdx);
+
+    const between = completeSource.slice(statusErrorIdx, successIdx);
+    expect(between).toContain("return");
+    expect(between).toContain("status: 500");
+  });
 });
 
 describe("POST /api/restaurant/onboarding/complete — idempotency", () => {

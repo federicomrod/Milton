@@ -15,7 +15,7 @@
 //     (country; name reuses the restaurant's own name since this is its
 //     one known/flagship location), including its declared primary_pos
 //   - companies.location_count_range, companies.priorities,
-//     companies.onboarding_status = 'completed'
+//     companies.onboarding_status = 'completed' (migration 026)
 //   - companies.preferred_language (migration 016 — Milton Language
 //     Foundation v1; company-level, applies to every restaurant under it)
 //
@@ -208,7 +208,9 @@ export async function POST(req: NextRequest) {
     }
 
     // --- Company-level profile fields + mark onboarding complete -----------
-    // Best-effort; never blocks the response. Always reflects the current
+    // Required, not best-effort: a failure here used to return success
+    // while leaving onboarding_status unset, so the next login sent the
+    // user back to the wizard (GitHub #77). Always reflects the current
     // submission — location_count_range/priorities are a full replace,
     // not a merge, matching how the wizard sends its current state each
     // time (never a partial diff).
@@ -225,6 +227,13 @@ export async function POST(req: NextRequest) {
       console.error(
         "[onboarding/complete] companies profile update failed:",
         statusError.message
+      );
+      return NextResponse.json(
+        {
+          error: "Could not save onboarding answers",
+          details: statusError.message,
+        },
+        { status: 500 }
       );
     }
 

@@ -30,6 +30,13 @@ const testRegistry: Record<string, OdooCompanyPolicy> = {
   "test.self": "self",
 };
 
+vi.mock("@/lib/restaurant/odoo/allowed-hosts", () => ({
+  parseAllowedHosts: vi.fn().mockReturnValue(new Set(["odoo.example.com"])),
+  assertOdooBaseUrlAllowed: vi.fn(),
+  assertNoRedirect: vi.fn(),
+  OdooHostNotAllowedError: class extends Error {},
+}));
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();

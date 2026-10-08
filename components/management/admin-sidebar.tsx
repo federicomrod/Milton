@@ -9,6 +9,7 @@ import {
   FileText,
   Table,
   ChevronLeft,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -32,6 +33,11 @@ const navigation = [
     name: "Data Tables",
     href: "/management/data-tables",
     icon: Table,
+  },
+  {
+    name: "Odoo",
+    href: "/management/odoo",
+    icon: Database,
   },
 ];
 

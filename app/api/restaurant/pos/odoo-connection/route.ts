@@ -45,6 +45,11 @@ import {
 } from "@/lib/restaurant/odoo/client";
 import { discoverOdooCompanies } from "@/lib/restaurant/odoo/scoped";
 import { resolveOdooCompanySelection } from "@/lib/restaurant/odoo/company-selection";
+import {
+  assertOdooBaseUrlAllowed,
+  parseAllowedHosts,
+  OdooHostNotAllowedError,
+} from "@/lib/restaurant/odoo/allowed-hosts";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -92,6 +97,17 @@ export async function POST(req: NextRequest) {
         { error: `Missing required field(s): ${missing.join(", ")}` },
         { status: 400 }
       );
+    }
+
+    // --- Allowed-hosts guard (SSRF-safe, fail closed) before any network I/O ---
+    const allowedHosts = parseAllowedHosts();
+    try {
+      assertOdooBaseUrlAllowed(baseUrl as string, allowedHosts);
+    } catch (err) {
+      if (err instanceof OdooHostNotAllowedError) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
+      }
+      throw err;
     }
 
     // --- Authenticate + discover Odoo companies BEFORE writing anything ---

@@ -94,15 +94,29 @@ CREATE TABLE IF NOT EXISTS public.kitchen_recipe_draft_lines (
   confidence            text NOT NULL DEFAULT 'low'
                           CHECK (confidence IN ('high', 'medium', 'low')),
   unit_cost_snapshot    numeric(10, 4) NULL,
-  unit_cost_unit        text NULL,
   line_cost             numeric(10, 2) NULL,
   created_at            timestamptz NOT NULL DEFAULT now(),
-  updated_at            timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (draft_id, line_number)
+  updated_at            timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.kitchen_recipe_draft_lines 
+  ADD COLUMN IF NOT EXISTS unit_cost_unit text;
 
 CREATE INDEX IF NOT EXISTS kitchen_recipe_draft_lines_draft_idx
   ON public.kitchen_recipe_draft_lines (draft_id, line_number);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 'kitchen_recipe_draft_lines_draft_id_line_number_key'
+  ) THEN
+    ALTER TABLE public.kitchen_recipe_draft_lines 
+      ADD CONSTRAINT kitchen_recipe_draft_lines_draft_id_line_number_key 
+      UNIQUE (draft_id, line_number);
+  END IF;
+END
+$$;
 
 ALTER TABLE public.kitchen_recipe_draft_lines ENABLE ROW LEVEL SECURITY;
 
@@ -117,25 +131,13 @@ END
 $$;
 
 -- ---------------------------------------------------------------------------
--- 3. Updated-at triggers
+-- 3. Updated-at triggers (use existing set_updated_at function from 001)
 -- ---------------------------------------------------------------------------
-
-CREATE OR REPLACE FUNCTION public.set_updated_at()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  NEW.updated_at = now();
-  RETURN NEW;
-END;
-$$;
 
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_trigger
+    SELECT 1 FROM pg_trigger 
     WHERE tgname = 'set_updated_at_kitchen_recipe_drafts'
   ) THEN
     CREATE TRIGGER set_updated_at_kitchen_recipe_drafts
@@ -145,7 +147,7 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM pg_trigger
+    SELECT 1 FROM pg_trigger 
     WHERE tgname = 'set_updated_at_kitchen_recipe_draft_lines'
   ) THEN
     CREATE TRIGGER set_updated_at_kitchen_recipe_draft_lines
@@ -169,7 +171,7 @@ CREATE OR REPLACE FUNCTION public.confirm_kitchen_recipe_draft(
   p_selling_price numeric,
   p_lines jsonb
 )
-RETURNS TABLE(recipe_id uuid, menu_item_id uuid)
+RETURNS TABLE(out_recipe_id uuid, out_menu_item_id uuid)
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
@@ -179,12 +181,13 @@ DECLARE
   v_menu_item_id uuid;
   v_recipe_id uuid;
   v_line jsonb;
+  v_ingredient_count int;
 BEGIN
   -- Lock and fetch the draft
-  SELECT id, company_id, status, confirmed_recipe_id, menu_item_id
+  SELECT d.id, d.company_id, d.status, d.confirmed_recipe_id, d.menu_item_id
   INTO v_draft
-  FROM public.kitchen_recipe_drafts
-  WHERE id = p_draft_id
+  FROM public.kitchen_recipe_drafts d
+  WHERE d.id = p_draft_id
   FOR UPDATE;
 
   IF NOT FOUND THEN
@@ -193,8 +196,8 @@ BEGIN
 
   -- If already confirmed, return existing recipe
   IF v_draft.status = 'confirmed' AND v_draft.confirmed_recipe_id IS NOT NULL THEN
-    SELECT v_draft.confirmed_recipe_id, COALESCE(v_draft.menu_item_id, p_menu_item_id)
-    INTO recipe_id, menu_item_id;
+    out_recipe_id := v_draft.confirmed_recipe_id;
+    out_menu_item_id := COALESCE(v_draft.menu_item_id, p_menu_item_id);
     RETURN NEXT;
     RETURN;
   END IF;
@@ -203,6 +206,44 @@ BEGIN
   IF v_draft.status != 'draft' THEN
     RAISE EXCEPTION 'Draft must be in draft status to confirm';
   END IF;
+
+  -- Validate inputs
+  IF p_portions < 1 THEN
+    RAISE EXCEPTION 'Portions must be at least 1';
+  END IF;
+
+  IF p_lines IS NULL
+     OR jsonb_typeof(p_lines) <> 'array'
+     OR jsonb_array_length(p_lines) = 0 THEN
+    RAISE EXCEPTION 'At least one ingredient line is required';
+  END IF;
+
+  -- Validate menu item belongs to company
+  IF p_menu_item_id IS NOT NULL THEN
+    SELECT COUNT(*) INTO v_ingredient_count
+    FROM public.menu_items mi
+    WHERE mi.id = p_menu_item_id AND mi.company_id = v_draft.company_id;
+    IF v_ingredient_count = 0 THEN
+      RAISE EXCEPTION 'Menu item does not belong to this company';
+    END IF;
+  END IF;
+
+  -- Validate all ingredients belong to company and quantities are valid
+  FOR v_line IN SELECT * FROM jsonb_array_elements(p_lines)
+  LOOP
+    IF (v_line->>'per_portion_quantity')::numeric IS NULL 
+       OR (v_line->>'per_portion_quantity')::numeric <= 0 THEN
+      RAISE EXCEPTION 'All lines must have positive per-portion quantities';
+    END IF;
+
+    SELECT COUNT(*) INTO v_ingredient_count
+    FROM public.ingredients ing
+    WHERE ing.id = (v_line->>'ingredient_id')::uuid 
+      AND ing.company_id = v_draft.company_id;
+    IF v_ingredient_count = 0 THEN
+      RAISE EXCEPTION 'Ingredient % does not belong to this company', v_line->>'ingredient_id';
+    END IF;
+  END LOOP;
 
   -- Create or use menu item
   v_menu_item_id := COALESCE(p_menu_item_id, v_draft.menu_item_id);
@@ -276,11 +317,24 @@ BEGIN
     menu_item_id = v_menu_item_id,
     dish_name = p_dish_name,
     portions = p_portions
-  WHERE id = p_draft_id;
+  WHERE kitchen_recipe_drafts.id = p_draft_id;
 
   -- Return results
-  recipe_id := v_recipe_id;
-  menu_item_id := v_menu_item_id;
+  out_recipe_id := v_recipe_id;
+  out_menu_item_id := v_menu_item_id;
   RETURN NEXT;
 END;
+$$;
+
+-- Secure the function: only service_role can call it
+DO $$
+BEGIN
+  REVOKE EXECUTE ON FUNCTION public.confirm_kitchen_recipe_draft(uuid, uuid, text, int, uuid, numeric, jsonb)
+    FROM PUBLIC, anon, authenticated;
+  GRANT EXECUTE ON FUNCTION public.confirm_kitchen_recipe_draft(uuid, uuid, text, int, uuid, numeric, jsonb)
+    TO service_role;
+EXCEPTION WHEN undefined_object THEN
+  REVOKE EXECUTE ON FUNCTION public.confirm_kitchen_recipe_draft(uuid, uuid, text, int, uuid, numeric, jsonb)
+    FROM PUBLIC;
+END
 $$;

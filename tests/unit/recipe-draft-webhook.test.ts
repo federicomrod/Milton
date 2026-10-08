@@ -156,6 +156,12 @@ describe("telegram webhook recipe drafts", () => {
     process.env.TELEGRAM_WEBHOOK_SECRET = SECRET;
     delete process.env.OPENAI_API_KEY;
 
+    updateDraftPortions.mockReset();
+    extractAndCreateRecipeDraft.mockReset();
+    recordKitchenReport.mockReset();
+    sendTelegramMessage.mockClear();
+    findActiveKitchenStaff.mockReset();
+
     findActiveKitchenStaff.mockResolvedValue({
       id: "staff-1",
       company_id: "company-1",
@@ -214,5 +220,21 @@ describe("telegram webhook recipe drafts", () => {
     expect(drafts).toHaveLength(1);
     expect(extractAndCreateRecipeDraft).toHaveBeenCalledOnce();
     expect(replies).toHaveLength(1);
+  });
+
+  it("a sticker gets no reply", async () => {
+    const res = await postUpdate({
+      message: {
+        message_id: 77,
+        from: { id: 99, first_name: "Ana" },
+        chat: { id: 1001, type: "private" },
+        sticker: { file_id: "sticker-1", emoji: "👍" },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(replies).toHaveLength(0);
+    expect(recordKitchenReport).not.toHaveBeenCalled();
+    expect(extractAndCreateRecipeDraft).not.toHaveBeenCalled();
   });
 });

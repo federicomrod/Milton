@@ -46,6 +46,24 @@ describe("recipe intent detection", () => {
     });
   });
 
+  it("detects Spanish number words as portions", () => {
+    expect(detectRecipeIntent("salieron dos porciones")).toEqual({
+      isRecipe: true,
+      portions: 2,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("dos porciones")).toEqual({
+      isRecipe: true,
+      portions: 2,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("salió para dos")).toEqual({
+      isRecipe: true,
+      portions: 2,
+      dishName: null,
+    });
+  });
+
   it("normalizes accents before checking", () => {
     expect(detectRecipeIntent("salió para 3 porciones")).toEqual({
       isRecipe: true,
@@ -56,6 +74,11 @@ describe("recipe intent detection", () => {
 
   it("report keywords take precedence over recipe", () => {
     expect(detectRecipeIntent("quedan 3 porciones de flan")).toEqual({
+      isRecipe: false,
+      portions: null,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("quedan tres porciones de flan")).toEqual({
       isRecipe: false,
       portions: null,
       dishName: null,
@@ -87,6 +110,8 @@ describe("portions parsing", () => {
     expect(parsePortions("4 porciones")).toBe(4);
     expect(parsePortions("salio para 10")).toBe(10);
     expect(parsePortions("salió para 2")).toBe(2);
+    expect(parsePortions("salieron dos porciones")).toBe(2);
+    expect(parsePortions("salió para dos")).toBe(2);
   });
 
   it("parses Spanish number words", () => {

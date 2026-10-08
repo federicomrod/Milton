@@ -154,6 +154,7 @@ describe("POST /recipe-drafts/:id/confirm", () => {
     });
     isUserAdminServer.mockResolvedValue(false);
     loadMembershipRole.mockResolvedValue("owner");
+    rpc.mockReset();
     rpc.mockResolvedValue({
       data: [{ out_recipe_id: "recipe-1", out_menu_item_id: MENU_ID }],
       error: null,

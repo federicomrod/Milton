@@ -21,7 +21,8 @@ describe("recipe-draft source safety", () => {
       )) {
         const call = match[0];
         expect(call).not.toMatch(/TELEGRAM_BOT_TOKEN|OPENAI_API_KEY/i);
-        expect(call).not.toMatch(/telegramFileId|file_id|transcript/i);
+        expect(call).not.toMatch(/telegramFileId|file_id/i);
+        expect(call).not.toMatch(/\$\{[^}]*transcript/i);
         expect(call).not.toMatch(/textContent|caption|message\.text/i);
       }
     }

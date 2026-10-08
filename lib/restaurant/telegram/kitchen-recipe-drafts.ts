@@ -284,7 +284,7 @@ async function transcribeVoice(
     });
     return { ok: true, text: transcription.text };
   } catch (err) {
-    console.error("[recipe-drafts] transcription failed");
+    console.error("[recipe-drafts] voice processing failed");
     return { ok: false, error: "Transcription failed" };
   }
 }

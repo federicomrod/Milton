@@ -263,7 +263,27 @@ describe("ingredient matching", () => {
         confidence: "high" as const,
       },
     ];
-    const matched = matchIngredients(lines, ingredients, costEntries, 2);
+    const withOilCost = new Map(costEntries);
+    withOilCost.set("ing3", [
+      {
+        id: "c3",
+        company_id: "comp1",
+        ingredient_id: "ing3",
+        supplier_id: null,
+        source_type: "manual" as const,
+        source_id: null,
+        cost_date: "2026-10-01",
+        quantity: 1,
+        unit: "l",
+        total_cost: 200,
+        unit_cost: 200,
+        normalized_unit_cost: 200,
+        normalized_unit: "l",
+        currency: "MXN",
+        created_at: "2026-10-01T00:00:00Z",
+      },
+    ]);
+    const matched = matchIngredients(lines, ingredients, withOilCost, 2);
     expect(matched[0].ingredient_id).toBe("ing3");
     expect(matched[0].confidence).toBe("medium");
   });

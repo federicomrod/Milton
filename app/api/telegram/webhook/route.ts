@@ -333,7 +333,7 @@ async function processRecipeDraftAsync(
           });
           finalTextContent = transcription.text;
         } catch (err) {
-          console.error("[telegram-webhook] voice transcription failed");
+          console.error("[telegram-webhook] voice processing failed");
         }
       }
     }

@@ -6,9 +6,9 @@ import {
 
 // Sofia's strings, verbatim (bold markers dropped; send.ts is plain text).
 describe("kitchen copy", () => {
-  it("R1–R6 (+R5a/R5b) equal Sofia's strings exactly", () => {
+  it("R1–R6 (+R5a/R5b) and R7–R8 equal Sofia's strings exactly", () => {
     expect(KITCHEN_COPY.JOINED).toBe(
-      "✅ ¡Listo! Ya estás en Milton de {local}. Cuando algo se acabe o se tire, mándalo aquí: texto, nota de voz o foto."
+      "✅ ¡Listo! Ya estás en Milton de {local}. Cuando algo se acabe, se tire o quieras mandar una receta, mándalo aquí: texto, nota de voz o foto."
     );
     expect(KITCHEN_COPY.QR_INVALID).toBe(
       "Este QR ya no funciona. Pide al encargado el código actualizado."
@@ -30,6 +30,12 @@ describe("kitchen copy", () => {
     );
     expect(KITCHEN_COPY.RATE_LIMITED).toBe(
       "Ahora mismo hay muchos ingresos con este código. Prueba de nuevo en unos minutos o pide ayuda al encargado."
+    );
+    expect(KITCHEN_COPY.RECIPE_RECEIVED).toBe(
+      "✅ Recibida la receta de {plato}. El encargado la revisa antes de que cuente en los costos."
+    );
+    expect(KITCHEN_COPY.RECIPE_ASK_PORTIONS).toBe(
+      "¿Para cuántas porciones salió? Responde con un número, por ejemplo: 2."
     );
   });
 

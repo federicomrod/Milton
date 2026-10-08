@@ -24,7 +24,7 @@
 // belongs/belonged to on a failed pairing attempt — every failure branch
 // replies with a generic, bilingual, identity-free message.
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { consumePairingCode } from "@/lib/restaurant/telegram/pairing";
 import { sendTelegramMessage } from "@/lib/restaurant/telegram/send";
@@ -48,6 +48,7 @@ import {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 interface TelegramUpdate {
   message?: TelegramIncomingMessage & {
@@ -131,9 +132,9 @@ async function handleKitchenJoin(
 }
 
 // Cook report: private chat, active kitchen_staff only. Unknown, removed
-// and group senders are ignored (no row, no reply). The acknowledgement is
-// always the generic R5 and is sent only when a NEW row was stored, so a
-// Telegram retry never double-acknowledges.
+// and group senders are ignored (no row, no reply). Telegram retries
+// never double-reply. Simple reports (no recipe intent) reply immediately.
+// Recipe extraction and reply happen via after(), including voice transcription.
 async function handleKitchenReport(
   message: TelegramMessage,
   chatId: number
@@ -143,8 +144,88 @@ async function handleKitchenReport(
   try {
     const staff = await findActiveKitchenStaff(fromId);
     if (!staff) return;
+
+    const messageId = message.message_id ?? 0;
+    const admin = createAdminClient();
+
+    const { data: existingDraft } = await admin
+      .from("kitchen_recipe_drafts")
+      .select("id")
+      .eq("telegram_chat_id", chatId)
+      .eq("telegram_message_id", messageId)
+      .maybeSingle();
+
+    if (existingDraft) {
+      return;
+    }
+
+    const textContent = message.text || message.caption || "";
+    const isVoiceWithoutText = Boolean(message.voice) && !textContent;
+
+    const {
+      detectRecipeIntent,
+      parsePortionsFromFollowUp,
+      updateDraftPortions,
+    } = await import("@/lib/restaurant/telegram/kitchen-recipe-drafts");
+
+    const portionsFollowUp = parsePortionsFromFollowUp(textContent);
+    if (portionsFollowUp !== null && !isVoiceWithoutText) {
+      const followUpReport = extractReportFromMessage(message);
+      if (followUpReport) {
+        const inserted = await recordKitchenReport({
+          companyId: staff.company_id,
+          locationId: staff.location_id,
+          staffId: staff.id,
+          chatId,
+          report: followUpReport,
+        });
+        if (!inserted) {
+          return;
+        }
+      }
+
+      const twoHoursAgo = new Date(
+        Date.now() - 2 * 60 * 60 * 1000
+      ).toISOString();
+      const { data: awaitingDraft } = await admin
+        .from("kitchen_recipe_drafts")
+        .select("id")
+        .eq("telegram_chat_id", chatId)
+        .eq("staff_id", staff.id)
+        .eq("status", "awaiting_portions")
+        .gte("created_at", twoHoursAgo)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (awaitingDraft) {
+        const result = await updateDraftPortions(
+          chatId,
+          staff.id,
+          portionsFollowUp
+        );
+        if (result.ok) {
+          const { data: draft } = await admin
+            .from("kitchen_recipe_drafts")
+            .select("dish_name")
+            .eq("id", result.draftId)
+            .maybeSingle();
+          await sendTelegramMessage(
+            chatId,
+            renderKitchenCopy(KITCHEN_COPY.RECIPE_RECEIVED, {
+              plato: draft?.dish_name ?? "tu receta",
+            })
+          );
+        }
+      }
+      return;
+    }
+
+    const intent = detectRecipeIntent(textContent);
+
     const report = extractReportFromMessage(message);
     if (!report) return;
+
     const inserted = await recordKitchenReport({
       companyId: staff.company_id,
       locationId: staff.location_id,
@@ -152,19 +233,207 @@ async function handleKitchenReport(
       chatId,
       report,
     });
-    if (inserted) {
+    if (!inserted) {
+      return;
+    }
+    const { data } = await admin
+      .from("kitchen_reports")
+      .select("id")
+      .eq("telegram_chat_id", chatId)
+      .eq("telegram_message_id", report.telegram_message_id)
+      .maybeSingle();
+    const reportId = data?.id ?? null;
+
+    if (!intent.isRecipe && !isVoiceWithoutText) {
       await sendTelegramMessage(
         chatId,
         renderKitchenCopy(KITCHEN_COPY.REPORT_ACK, {
           nombre_local: staff.location_name,
         })
       );
+      return;
+    }
+
+    after(() =>
+      processRecipeDraftAsync(
+        staff,
+        chatId,
+        messageId,
+        reportId,
+        textContent,
+        report?.media_kind ?? null,
+        report?.telegram_file_id ?? null
+      )
+    );
+  } catch (err) {
+    console.error("[telegram-webhook] kitchen report failed");
+  }
+}
+
+async function processRecipeDraftAsync(
+  staff: {
+    company_id: string;
+    location_id: string;
+    id: string;
+    location_name: string;
+  },
+  chatId: number,
+  messageId: number,
+  reportId: string | null,
+  textContent: string,
+  mediaKind: "photo" | "voice" | null,
+  telegramFileId: string | null
+) {
+  try {
+    const admin = createAdminClient();
+
+    const { data: existingDraft } = await admin
+      .from("kitchen_recipe_drafts")
+      .select("id")
+      .eq("telegram_chat_id", chatId)
+      .eq("telegram_message_id", messageId)
+      .maybeSingle();
+
+    if (existingDraft) {
+      return;
+    }
+
+    let finalTextContent = textContent;
+
+    if (mediaKind === "voice" && telegramFileId && !finalTextContent) {
+      const { openTelegramFile } =
+        await import("@/lib/restaurant/telegram/files");
+      const stream = await openTelegramFile(telegramFileId);
+      if (stream.ok && process.env.OPENAI_API_KEY) {
+        const chunks: Uint8Array[] = [];
+        const reader = stream.body.getReader();
+        let done = false;
+        while (!done) {
+          const { value, done: readerDone } = await reader.read();
+          if (value) chunks.push(value);
+          done = readerDone;
+        }
+        const buffer = Buffer.concat(chunks);
+        const uint8Array = new Uint8Array(buffer);
+        const blob = new Blob([uint8Array], { type: "audio/ogg" });
+        const file = new File([blob], "voice.ogg", { type: "audio/ogg" });
+
+        try {
+          const { default: OpenAI } = await import("openai");
+          const client = new OpenAI({
+            apiKey: process.env.OPENAI_API_KEY,
+            timeout: 20000,
+            maxRetries: 0,
+          });
+          const transcription = await client.audio.transcriptions.create({
+            file,
+            model: "whisper-1",
+            language: "es",
+          });
+          finalTextContent = transcription.text;
+        } catch (err) {
+          console.error("[telegram-webhook] voice processing failed");
+        }
+      }
+    }
+
+    const { detectRecipeIntent, extractAndCreateRecipeDraft } =
+      await import("@/lib/restaurant/telegram/kitchen-recipe-drafts");
+
+    const intent = detectRecipeIntent(finalTextContent);
+    if (!intent.isRecipe) {
+      await sendTelegramMessage(
+        chatId,
+        renderKitchenCopy(KITCHEN_COPY.REPORT_ACK, {
+          nombre_local: staff.location_name,
+        })
+      );
+      return;
+    }
+
+    const ingredientsRes = await admin
+      .from("ingredients")
+      .select("id, name, default_unit")
+      .eq("company_id", staff.company_id);
+
+    const ingredients = ingredientsRes.data ?? [];
+    const ingredientIds = ingredients.map((i) => i.id);
+
+    let costEntries: Array<{
+      ingredient_id: string;
+      normalized_unit_cost: number;
+      normalized_unit: string;
+      cost_date: string;
+      currency: string;
+      created_at: string;
+      id: string;
+      company_id: string;
+      supplier_id: string | null;
+      source_type: "manual" | "invoice_line" | "import" | "api";
+      source_id: string | null;
+      quantity: number;
+      unit: string;
+      total_cost: number;
+      unit_cost: number;
+    }> = [];
+
+    if (ingredientIds.length > 0) {
+      const costEntriesRes = await admin
+        .from("ingredient_cost_entries")
+        .select(
+          "id, company_id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit_cost, normalized_unit, currency, created_at"
+        )
+        .eq("company_id", staff.company_id)
+        .in("ingredient_id", ingredientIds);
+
+      costEntries = (costEntriesRes.data ?? []) as typeof costEntries;
+    }
+
+    const costMap = new Map<string, typeof costEntries>();
+    for (const entry of costEntries) {
+      if (!costMap.has(entry.ingredient_id)) {
+        costMap.set(entry.ingredient_id, []);
+      }
+      costMap.get(entry.ingredient_id)!.push(entry);
+    }
+
+    const result = await extractAndCreateRecipeDraft(
+      {
+        companyId: staff.company_id,
+        locationId: staff.location_id,
+        staffId: staff.id,
+        kitchenReportId: reportId,
+        chatId,
+        messageId,
+        mediaKind,
+        telegramFileId,
+        text: finalTextContent || null,
+        currency: costEntries[0]?.currency ?? "MXN",
+      },
+      ingredients,
+      costMap
+    );
+
+    if (result.ok) {
+      const { data: draft } = await admin
+        .from("kitchen_recipe_drafts")
+        .select("dish_name, status")
+        .eq("id", result.draftId)
+        .maybeSingle();
+
+      if (draft?.status === "awaiting_portions") {
+        await sendTelegramMessage(chatId, KITCHEN_COPY.RECIPE_ASK_PORTIONS);
+      } else {
+        await sendTelegramMessage(
+          chatId,
+          renderKitchenCopy(KITCHEN_COPY.RECIPE_RECEIVED, {
+            plato: draft?.dish_name ?? "tu receta",
+          })
+        );
+      }
     }
   } catch (err) {
-    console.error(
-      "[telegram-webhook] kitchen report failed:",
-      err instanceof Error ? err.name : "Unknown error"
-    );
+    console.error("[telegram-webhook] recipe draft async failed");
   }
 }
 

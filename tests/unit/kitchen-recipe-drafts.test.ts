@@ -3,8 +3,11 @@ import {
   detectRecipeIntent,
   parsePortions,
   parsePortionsFromFollowUp,
+  parseDishName,
   matchIngredients,
+  validateExtractedRecipe,
 } from "@/lib/restaurant/telegram/kitchen-recipe-drafts";
+import { normalizeUnit } from "@/lib/restaurant/units";
 import type { CostingIngredient } from "@/lib/restaurant/costing";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
 
@@ -17,8 +20,8 @@ describe("recipe intent detection", () => {
     });
   });
 
-  it("detects portions with sali√≥ para", () => {
-    expect(detectRecipeIntent("esto salio para 2 porciones")).toEqual({
+  it("detects portions with salió para", () => {
+    expect(detectRecipeIntent("esto salió para 2 porciones")).toEqual({
       isRecipe: true,
       portions: 2,
       dishName: null,
@@ -31,12 +34,12 @@ describe("recipe intent detection", () => {
       portions: 4,
       dishName: null,
     });
-    expect(detectRecipeIntent("sali√≥ para 2")).toEqual({
+    expect(detectRecipeIntent("salió para 2")).toEqual({
       isRecipe: true,
       portions: 2,
       dishName: null,
     });
-    expect(detectRecipeIntent("1 porci√≥n")).toEqual({
+    expect(detectRecipeIntent("1 porción")).toEqual({
       isRecipe: true,
       portions: 1,
       dishName: null,
@@ -44,7 +47,7 @@ describe("recipe intent detection", () => {
   });
 
   it("normalizes accents before checking", () => {
-    expect(detectRecipeIntent("saliÔøΩ para 3 porciones")).toEqual({
+    expect(detectRecipeIntent("salió para 3 porciones")).toEqual({
       isRecipe: true,
       portions: 3,
       dishName: null,
@@ -83,6 +86,7 @@ describe("portions parsing", () => {
     expect(parsePortions("para 2 porciones")).toBe(2);
     expect(parsePortions("4 porciones")).toBe(4);
     expect(parsePortions("salio para 10")).toBe(10);
+    expect(parsePortions("salió para 2")).toBe(2);
   });
 
   it("parses Spanish number words", () => {
@@ -119,13 +123,56 @@ describe("portions follow-up parsing", () => {
   });
 
   it("normalizes accents", () => {
-    expect(parsePortionsFromFollowUp("dos porci√≥n")).toBe(2);
+    expect(parsePortionsFromFollowUp("dos porción")).toBe(2);
   });
 
   it("rejects non-bare-number messages", () => {
     expect(parsePortionsFromFollowUp("solo para 3 mesas")).toBeNull();
     expect(parsePortionsFromFollowUp("quedan 3 porciones de flan")).toBeNull();
     expect(parsePortionsFromFollowUp("receta de 2 porciones")).toBeNull();
+  });
+});
+
+describe("dish name parsing", () => {
+  it("does not use the whole caption as the dish name", () => {
+    const caption = "Esto salió para 2 porciones de pollo con arroz";
+    expect(parseDishName(caption)).toBe("pollo con arroz");
+    expect(parseDishName(caption)).not.toBe(caption);
+  });
+
+  it("parses a short receta de name", () => {
+    expect(parseDishName("receta de flan")).toBe("flan");
+  });
+});
+
+describe("extracted recipe validation", () => {
+  const valid = {
+    dish_name: "Pollo",
+    portions: 2,
+    ingredients: [
+      {
+        name: "Pollo",
+        estimated_quantity: 1,
+        unit: "kg",
+        confidence: "high",
+      },
+    ],
+    overall_confidence: "high",
+  };
+
+  it("accepts integer portions", () => {
+    expect(validateExtractedRecipe(valid)).toBe(true);
+    expect(validateExtractedRecipe({ ...valid, portions: null })).toBe(true);
+  });
+
+  it("rejects non-integer portions", () => {
+    expect(validateExtractedRecipe({ ...valid, portions: 2.5 })).toBe(false);
+  });
+});
+
+describe("unit synonyms", () => {
+  it("recognizes pzas", () => {
+    expect(normalizeUnit("pzas")).toBe("unit");
   });
 });
 

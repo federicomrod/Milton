@@ -85,8 +85,8 @@ describe("migration 024", () => {
     expect(code).toContain("SET search_path = public");
   });
 
-  it("has updated_at triggers", () => {
-    expect(code).toContain(
+  it("attaches updated_at triggers to the existing set_updated_at function", () => {
+    expect(code).not.toContain(
       "CREATE OR REPLACE FUNCTION public.set_updated_at()"
     );
     expect(code).toContain(
@@ -95,5 +95,28 @@ describe("migration 024", () => {
     expect(code).toContain(
       "CREATE TRIGGER set_updated_at_kitchen_recipe_draft_lines"
     );
+    expect(code).toContain("EXECUTE FUNCTION public.set_updated_at()");
+  });
+
+  it("renames confirm outputs to avoid column name clash", () => {
+    expect(code).toContain(
+      "RETURNS TABLE(out_recipe_id uuid, out_menu_item_id uuid)"
+    );
+  });
+
+  it("revokes execute from public roles and grants service_role", () => {
+    expect(code).toContain(
+      "REVOKE EXECUTE ON FUNCTION public.confirm_kitchen_recipe_draft"
+    );
+    expect(code).toContain("FROM PUBLIC, anon, authenticated");
+    expect(code).toContain(
+      "GRANT EXECUTE ON FUNCTION public.confirm_kitchen_recipe_draft"
+    );
+    expect(code).toContain("TO service_role");
+  });
+
+  it("is safe to re-run unit_cost_unit and unique line constraint", () => {
+    expect(code).toContain("ADD COLUMN IF NOT EXISTS unit_cost_unit text");
+    expect(code).toContain("UNIQUE (draft_id, line_number)");
   });
 });

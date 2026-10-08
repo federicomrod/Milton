@@ -116,7 +116,7 @@ export default function OdooPage() {
     if (!selectedCompanyId) return;
     try {
       const response = await fetch(
-        `/api/admin/odoo/connection?company_id=${selectedCompanyId}`
+        `/api/admin/odoo/connection?company_id=${encodeURIComponent(selectedCompanyId)}`
       );
       if (!response.ok) throw new Error("Failed to load connection");
       const data = await response.json();

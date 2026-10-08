@@ -7,10 +7,14 @@
 // Enforces:
 //   - HTTPS only
 //   - no userinfo
-//   - no IP-literal hosts (including IPv6)
+//   - no IP-literal hosts (IPv4 or IPv6)
 //   - port 443 or none
 //   - hostname must exactly match an entry in ODOO_ALLOWED_HOSTS
 //   - fetch with redirect: "manual", treating any redirect as an error
+//
+// The exact-hostname allowlist is the primary control. DNS answers are NOT
+// checked for private/loopback addresses — the allowlist prevents reaching
+// internal hosts by never listing them.
 //
 // When ODOO_ALLOWED_HOSTS is unset or empty, NO Odoo host is reachable.
 // This is the fail-closed posture: the app never guesses a safe default,
@@ -71,12 +75,27 @@ export function assertOdooBaseUrlAllowed(
 
   const { hostname, port } = parsed;
 
-  // Reject IPv4 and IPv6 literals.
-  const ipv4Pattern = /^(\d{1,3}\.){3}\d{1,3}$/;
-  const ipv6Pattern = /^\[?[0-9a-f:]+\]?$/i;
-  if (ipv4Pattern.test(hostname) || ipv6Pattern.test(hostname)) {
+  // Reject IPv4 literals (decimal: 192.0.2.1, hex: 0xc0.0x00.0x02.0x01)
+  const ipv4Decimal = /^(\d{1,3}\.){3}\d{1,3}$/;
+  const ipv4Hex = /^0x[0-9a-f]+(\.(0x)?[0-9a-f]+){0,3}$/i;
+  if (ipv4Decimal.test(hostname) || ipv4Hex.test(hostname)) {
     throw new OdooHostNotAllowedError(
-      "Odoo base URL must not be an IP address"
+      "Odoo base URL must not be an IPv4 address"
+    );
+  }
+
+  // Reject IPv6 literals (standard and IPv4-mapped forms)
+  const ipv6Pattern = /^\[?[0-9a-f:]+\]?$/i;
+  if (ipv6Pattern.test(hostname) || hostname.includes(":")) {
+    throw new OdooHostNotAllowedError(
+      "Odoo base URL must not be an IPv6 address"
+    );
+  }
+
+  // Reject trailing dots in hostname
+  if (hostname.endsWith(".")) {
+    throw new OdooHostNotAllowedError(
+      "Odoo base URL hostname must not have a trailing dot"
     );
   }
 
@@ -103,11 +122,10 @@ export function assertOdooBaseUrlAllowed(
 
 /**
  * Validates the response from fetch() when called with redirect: "manual".
- * Throws on any redirect (3xx) or loopback/private IP detection where
- * feasible. This is called immediately after fetch, before reading the
- * response body.
+ * Throws on any redirect (3xx). This is called immediately after fetch,
+ * before reading the response body.
  */
-export function assertNoRedirect(res: Response, url: string): void {
+export function assertNoRedirect(res: Response): void {
   if (res.status >= 300 && res.status < 400) {
     throw new OdooHostNotAllowedError(
       `Odoo endpoint returned a redirect (${res.status}), which is not permitted`

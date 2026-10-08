@@ -147,7 +147,31 @@ export async function POST(req: NextRequest) {
   }
 
   const companyId = requiredString(body.company_id);
-  const baseUrl = requiredString(body.base_url)?.replace(/\/+$/, "") ?? null;
+  const rawBaseUrl = requiredString(body.base_url);
+
+  // Extract and validate origin only (reject path/query/fragment)
+  let baseUrl: string | null = null;
+  if (rawBaseUrl) {
+    try {
+      const parsed = new URL(rawBaseUrl);
+      if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
+        return NextResponse.json(
+          {
+            error:
+              "base_url must contain only origin (no path, query, or fragment)",
+          },
+          { status: 400 }
+        );
+      }
+      baseUrl = parsed.origin;
+    } catch {
+      return NextResponse.json(
+        { error: "base_url is not a valid URL" },
+        { status: 400 }
+      );
+    }
+  }
+
   const databaseName = requiredString(body.database_name);
   const username = requiredString(body.username);
   const timezone = requiredString(body.timezone);

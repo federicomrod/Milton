@@ -265,48 +265,38 @@ describe("Odoo allowed-hosts guard", () => {
   describe("assertNoRedirect", () => {
     it("allows 2xx status", () => {
       const res = new Response(null, { status: 200 });
-      expect(() => assertNoRedirect(res, "https://example.com")).not.toThrow();
+      expect(() => assertNoRedirect(res)).not.toThrow();
     });
 
     it("allows 4xx status", () => {
       const res = new Response(null, { status: 404 });
-      expect(() => assertNoRedirect(res, "https://example.com")).not.toThrow();
+      expect(() => assertNoRedirect(res)).not.toThrow();
     });
 
     it("allows 5xx status", () => {
       const res = new Response(null, { status: 500 });
-      expect(() => assertNoRedirect(res, "https://example.com")).not.toThrow();
+      expect(() => assertNoRedirect(res)).not.toThrow();
     });
 
     it("rejects 3xx redirect status", () => {
       const res = new Response(null, { status: 301 });
-      expect(() => assertNoRedirect(res, "https://example.com")).toThrow(
-        OdooHostNotAllowedError
-      );
-      expect(() => assertNoRedirect(res, "https://example.com")).toThrow(
-        "returned a redirect"
-      );
+      expect(() => assertNoRedirect(res)).toThrow(OdooHostNotAllowedError);
+      expect(() => assertNoRedirect(res)).toThrow("returned a redirect");
     });
 
     it("rejects 302 redirect", () => {
       const res = new Response(null, { status: 302 });
-      expect(() => assertNoRedirect(res, "https://example.com")).toThrow(
-        OdooHostNotAllowedError
-      );
+      expect(() => assertNoRedirect(res)).toThrow(OdooHostNotAllowedError);
     });
 
     it("rejects 307 temporary redirect", () => {
       const res = new Response(null, { status: 307 });
-      expect(() => assertNoRedirect(res, "https://example.com")).toThrow(
-        OdooHostNotAllowedError
-      );
+      expect(() => assertNoRedirect(res)).toThrow(OdooHostNotAllowedError);
     });
 
     it("rejects 308 permanent redirect", () => {
       const res = new Response(null, { status: 308 });
-      expect(() => assertNoRedirect(res, "https://example.com")).toThrow(
-        OdooHostNotAllowedError
-      );
+      expect(() => assertNoRedirect(res)).toThrow(OdooHostNotAllowedError);
     });
   });
 });

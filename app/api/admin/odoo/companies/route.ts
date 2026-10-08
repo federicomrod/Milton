@@ -65,7 +65,16 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const apiKey = await loadDecryptedOdooSecret(connection.id, companyId);
+  let apiKey: string | null;
+  try {
+    apiKey = await loadDecryptedOdooSecret(connection.id, companyId);
+  } catch {
+    return NextResponse.json(
+      { error: "Could not load the stored Odoo credential" },
+      { status: 500 }
+    );
+  }
+
   if (!apiKey) {
     return NextResponse.json(
       { error: "No API key stored for this connection" },
@@ -157,7 +166,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const apiKey = await loadDecryptedOdooSecret(connection.id, companyId);
+  let apiKey: string | null;
+  try {
+    apiKey = await loadDecryptedOdooSecret(connection.id, companyId);
+  } catch {
+    return NextResponse.json(
+      { error: "Could not load the stored Odoo credential" },
+      { status: 500 }
+    );
+  }
+
   if (!apiKey) {
     return NextResponse.json(
       { error: "No API key stored for this connection" },

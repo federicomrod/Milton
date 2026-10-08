@@ -191,6 +191,48 @@ export async function POST(req: NextRequest) {
       throw err;
     }
 
+    // --- Load restaurant locations to validate mapping BEFORE Odoo fetch ---
+    const { data: locationRows, error: locError } = await supabase
+      .from("restaurant_locations")
+      .select("id, odoo_company_id")
+      .eq("company_id", companyId);
+    if (locError) {
+      console.error(
+        "[Odoo Sync] restaurant_locations lookup failed:",
+        locError.message
+      );
+      return NextResponse.json(
+        { error: "Could not load restaurant locations" },
+        { status: 500 }
+      );
+    }
+
+    // Build Odoo company → location mapping
+    const companyLocationMap = new Map<number, string>();
+    for (const loc of (locationRows ?? []) as Array<{
+      id: string;
+      odoo_company_id: number | null;
+    }>) {
+      if (loc.odoo_company_id !== null) {
+        companyLocationMap.set(loc.odoo_company_id, loc.id);
+      }
+    }
+
+    // Fail closed: all selected companies must be mapped
+    const unmappedCompanies = scope.companyIds.filter(
+      (id) => !companyLocationMap.has(id)
+    );
+    if (unmappedCompanies.length > 0) {
+      return NextResponse.json(
+        {
+          error: "odoo_location_mapping_required",
+          unmapped_companies: unmappedCompanies,
+          message: `Odoo companies ${unmappedCompanies.join(", ")} are not mapped to locations. Map them in the admin Odoo page before syncing.`,
+        },
+        { status: 409 }
+      );
+    }
+
     // --- Per-company secret: encrypted at rest, decrypted server-side only.
     // Never logged, never echoed back — see lib/restaurant/odoo/secrets.ts.
     let apiKey: string | null;
@@ -379,7 +421,7 @@ export async function POST(req: NextRequest) {
     }
 
     // --- Build lookup indexes (same soft-match mechanism as Revel) --------
-    const [menuItemsRes, locationsRes] = await Promise.all([
+    const [menuItemsRes, locationsFullRes] = await Promise.all([
       supabase
         .from("menu_items")
         .select("id, name, brand_id")
@@ -395,10 +437,10 @@ export async function POST(req: NextRequest) {
         menuItemsRes.error.message
       );
     }
-    if (locationsRes.error) {
+    if (locationsFullRes.error) {
       console.error(
         "[Odoo Sync] restaurant_locations lookup failed:",
-        locationsRes.error.message
+        locationsFullRes.error.message
       );
     }
     const menuItemRows = (menuItemsRes.data ?? []) as {
@@ -406,7 +448,7 @@ export async function POST(req: NextRequest) {
       name: string;
       brand_id: string | null;
     }[];
-    const locationRows = (locationsRes.data ?? []) as {
+    const locationRowsFull = (locationsFullRes.data ?? []) as {
       id: string;
       name: string;
       brand_id: string | null;
@@ -423,31 +465,17 @@ export async function POST(req: NextRequest) {
       })),
       normalizeMatchKey
     );
-    const locationIndex = buildNameIndex(locationRows);
+    const locationIndex = buildNameIndex(locationRowsFull);
     const locationBrandIndex = new Map<string, string | null>(
-      locationRows.map((l) => [l.id, l.brand_id])
+      locationRowsFull.map((l) => [l.id, l.brand_id])
     );
 
-    // --- Build Odoo company → location mapping -----------------------------
-    const companyLocationMap = new Map<number, string>();
-    for (const loc of locationRows) {
+    // Update the mapping with full location data (was built earlier with minimal fields)
+    companyLocationMap.clear();
+    for (const loc of locationRowsFull) {
       if (loc.odoo_company_id !== null) {
         companyLocationMap.set(loc.odoo_company_id, loc.id);
       }
-    }
-
-    // --- Fail closed: all selected companies must be mapped ---------------
-    const unmappedCompanies = scope.companyIds.filter(
-      (id) => !companyLocationMap.has(id)
-    );
-    if (unmappedCompanies.length > 0) {
-      return NextResponse.json(
-        {
-          error: "odoo_location_mapping_required",
-          message: `Odoo companies ${unmappedCompanies.join(", ")} are not mapped to locations. Map them in the admin Odoo page before syncing.`,
-        },
-        { status: 409 }
-      );
     }
 
     // --- Transform ----------------------------------------------------------

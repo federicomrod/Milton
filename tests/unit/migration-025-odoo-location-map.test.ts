@@ -43,8 +43,8 @@ describe("migration 025 — odoo_company_id on restaurant_locations", () => {
   });
 
   it("does not set NOT NULL constraint or DEFAULT value", () => {
-    // Accept "NULL" keyword as explicit nullability, reject "NOT NULL" constraint
-    expect(statements).not.toMatch(/\bNOT\s+NULL\b/i);
-    expect(statements).not.toMatch(/\bDEFAULT\b/i);
+    // Accept "NULL" keyword in WHERE clause, reject "NOT NULL" in ADD COLUMN
+    expect(statements).not.toMatch(/ADD\s+COLUMN[^;]*\bNOT\s+NULL\b/i);
+    expect(statements).not.toMatch(/ADD\s+COLUMN[^;]*\bDEFAULT\b/i);
   });
 });

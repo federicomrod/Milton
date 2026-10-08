@@ -50,8 +50,7 @@ export interface RestaurantLocation {
   address?: string;
   city?: string;
   country?: string;
-  currency: string;
-  is_active: boolean;
+  status: "active" | "inactive";
   // Onboarding profile answer (migration 014) — the declared POS system
   // at signup time, not the real connection (see RestaurantPosConnection).
   // Unconstrained text; see PosSystemChoice / normalizePosSystemChoice().
@@ -347,8 +346,8 @@ export interface PosSalesItemRow {
 /**
  * Non-secret per-restaurant connection config for POS sources that need
  * live API access (added by migration 013, GitHub Issue #3). Never holds
- * a credential/secret — for the Odoo sandbox implementation the API key
- * lives in a server-side environment variable, not this table.
+ * a credential/secret — the Odoo API key is stored encrypted in
+ * restaurant_pos_secrets, not this table.
  */
 export interface RestaurantPosConnection {
   id: string;
@@ -358,6 +357,11 @@ export interface RestaurantPosConnection {
   database_name: string;
   username: string;
   timezone: string;
+  /**
+   * Odoo res.company IDs this tenant may sync from (migration 019).
+   * null = nothing selected; Odoo calls fail closed.
+   */
+  odoo_company_ids: number[] | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

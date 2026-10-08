@@ -3,6 +3,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
+import { resolveInvitedUserLanding } from "@/lib/restaurant/post-login";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -26,13 +27,15 @@ export async function GET(request: NextRequest) {
 
       if (user) {
         // Admins always go to the management dashboard.
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("user_id", user.id)
-          .single();
+        const { data: isAdmin, error } = await supabase.rpc("is_milton_admin");
+        if (error) {
+          console.error(
+            "[auth/callback] is_milton_admin RPC error:",
+            error.message
+          );
+        }
 
-        if (profile?.role === "admin") {
+        if (isAdmin === true) {
           console.log(
             "[auth/callback] Admin user, going to management dashboard"
           );
@@ -48,6 +51,16 @@ export async function GET(request: NextRequest) {
         try {
           const companyId = await resolveCompanyIdForUser(supabase, user.id);
           if (companyId) {
+            // Invited users (accepted workspace invite) never enter the
+            // self-serve onboarding wizard: dashboard if the workspace has
+            // a data connection, otherwise the Connect-your-data screen.
+            const invitedLanding = await resolveInvitedUserLanding(
+              supabase,
+              companyId
+            );
+            if (invitedLanding) {
+              return NextResponse.redirect(`${origin}${invitedLanding}`);
+            }
             const { data: company } = await supabase
               .from("companies")
               .select("onboarding_status")

@@ -38,12 +38,15 @@ export function AppNavigation() {
 
         // Check if user is admin
         if (user) {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("role")
-            .eq("user_id", user.id)
-            .single();
-          setIsAdmin(profile?.role === "admin");
+          const { data: isAdmin, error } =
+            await supabase.rpc("is_milton_admin");
+          if (error) {
+            console.error(
+              "[AppNavigation] is_milton_admin RPC error:",
+              error.message
+            );
+          }
+          setIsAdmin(isAdmin === true);
         } else {
           setIsAdmin(false);
         }

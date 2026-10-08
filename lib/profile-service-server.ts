@@ -27,7 +27,9 @@ export interface Company {
 
 /**
  * Check if a user has admin role (server-side version)
- * Used in API routes and server components
+ * Used in API routes and server components.
+ * Calls the is_milton_admin() RPC which checks the milton_admins table
+ * (migration 020).
  */
 export async function isUserAdminServer(userId?: string): Promise<boolean> {
   const supabase = await createClient();
@@ -37,22 +39,21 @@ export async function isUserAdminServer(userId?: string): Promise<boolean> {
     return false;
   }
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("user_id", userIdToCheck)
-    .single();
+  const { data, error } = await supabase.rpc("is_milton_admin");
 
   if (error) {
     console.error("Error checking admin status:", error.message);
     return false;
   }
 
-  return data?.role === "admin";
+  return data === true;
 }
 
 /**
- * Get the role of a user (server-side version)
+ * Get the role of a user (server-side version).
+ * For Milton admins, checks the is_milton_admin() RPC.
+ * For restaurant-level roles (owner, manager, member), check
+ * company_memberships.role via resolveCompanyIdForUser.
  */
 export async function getUserRoleServer(userId?: string): Promise<UserRole> {
   const supabase = await createClient();
@@ -62,18 +63,14 @@ export async function getUserRoleServer(userId?: string): Promise<UserRole> {
     return "user";
   }
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("user_id", userIdToCheck)
-    .single();
+  const { data, error } = await supabase.rpc("is_milton_admin");
 
   if (error) {
     console.error("Error fetching user role:", error.message);
     return "user";
   }
 
-  return (data?.role as UserRole) || "user";
+  return data === true ? "admin" : "user";
 }
 
 /**

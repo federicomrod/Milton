@@ -73,6 +73,12 @@ export function SignupForm() {
 
       if (!response.ok) {
         const errorData = await response.json();
+        if (errorData.error === "pending_invite") {
+          throw new Error(
+            errorData.message ||
+              "This email has a pending invitation. Please use your invite link."
+          );
+        }
         throw new Error(
           errorData.error ||
             "Failed to create company profile. Please try again."

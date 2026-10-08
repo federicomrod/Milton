@@ -1,7 +1,7 @@
 // lib/restaurant/odoo/xmlrpc.ts
 //
-// Minimal XML-RPC request encoder / response decoder for talking to Odoo's
-// /xmlrpc/2/common and /xmlrpc/2/object endpoints.
+// Minimal XML-RPC request encoder / response decoder for talking to the
+// Odoo XML-RPC endpoints (common and object).
 //
 // Why hand-rolled instead of a library: the project has zero XML
 // dependencies today, and XML-RPC's value grammar is small and fixed

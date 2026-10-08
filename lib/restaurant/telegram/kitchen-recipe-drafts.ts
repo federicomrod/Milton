@@ -36,13 +36,17 @@ const SPANISH_NUMBERS: Record<string, number> = {
   diez: 10,
 };
 
-const SPANISH_NUMBER_PATTERN = `\\d+|${Object.keys(SPANISH_NUMBERS).join("|")}`;
+const SPANISH_NUMBER_WORDS = Object.keys(SPANISH_NUMBERS).join("|");
+const SPANISH_NUMBER_PATTERN = `\\d+|${SPANISH_NUMBER_WORDS}`;
 const NUMBER_TOKEN = `\\b(?:${SPANISH_NUMBER_PATTERN})\\b`;
+const NUMBER_WORD_TOKEN = `\\b(?:${SPANISH_NUMBER_WORDS})\\b`;
 
 const PORTIONS_WITH_NUMBER = new RegExp(
   `\\b(?:salio|salieron)\\s+(?:para\\s+${NUMBER_TOKEN}|${NUMBER_TOKEN}\\s+porcion(?:es)?)`
 );
-const PORTIONS_ONLY = new RegExp(`${NUMBER_TOKEN}\\s*porcion(?:es)?`);
+const PORTIONS_ONLY = new RegExp(
+  `(?:${NUMBER_WORD_TOKEN}|\\b\\d+)\\s*porcion(?:es)?`
+);
 
 const WASTE_RE =
   /merma|\btir(?:e|amos|aron|ado)|\bbot(?:e|amos)\b|se quem|quemad|caduc|venci|se paso|se dano/;
@@ -101,15 +105,21 @@ function parseNumberToken(token: string): number | null {
 
 export function parsePortions(text: string): number | null {
   const normalized = normalize(text);
-  const numberGroup = `\\b(${SPANISH_NUMBER_PATTERN})\\b`;
 
-  const digitMatch = normalized.match(
-    new RegExp(`${numberGroup}\\s*porcion(?:es)?`)
+  const porcionMatch = normalized.match(
+    new RegExp(
+      `(?:\\b(${SPANISH_NUMBER_WORDS})\\b|\\b(\\d+))\\s*porcion(?:es)?`
+    )
   );
-  if (digitMatch) return parseNumberToken(digitMatch[1]);
+  if (porcionMatch) {
+    const token = porcionMatch[1] ?? porcionMatch[2];
+    if (token) return parseNumberToken(token);
+  }
 
   const forMatch = normalized.match(
-    new RegExp(`(?:salio|salieron)\\s+para\\s+${numberGroup}`)
+    new RegExp(
+      `(?:salio|salieron)\\s+para\\s+\\b(${SPANISH_NUMBER_PATTERN})\\b`
+    )
   );
   if (forMatch) return parseNumberToken(forMatch[1]);
 
@@ -142,11 +152,12 @@ export function parseDishName(text: string | null | undefined): string | null {
 export function parsePortionsFromFollowUp(text: string): number | null {
   const normalized = normalize(text.trim());
   const portionsRe =
-    /^\s*\b(\d{1,3}|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b\s*(?:porcion(?:es)?)?\s*\.?\s*$/;
+    /^\s*(?:\b(\d{1,3})|\b(uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b)(?:\s*porcion(?:es)?)?\s*\.?\s*$/;
   const match = normalized.match(portionsRe);
   if (!match) return null;
 
-  const value = match[1];
+  const value = match[1] ?? match[2];
+  if (!value) return null;
   if (/^\d+$/.test(value)) {
     return parseInt(value, 10);
   }
@@ -387,6 +398,56 @@ export function validateExtractedRecipe(
   return true;
 }
 
+const KITCHEN_SYNONYMS: Record<string, string> = {
+  tomate: "jitomate",
+  jitomate: "tomate",
+  papa: "patata",
+  patata: "papa",
+  chile: "chili",
+  chili: "chile",
+  elote: "maiz",
+  maiz: "elote",
+};
+
+function isSpanishConsonant(ch: string): boolean {
+  return /[bcdfghjklmnpqrstvwxyz]/.test(ch);
+}
+
+function singularizeSpanishWord(word: string): string {
+  if (word.length <= 3) return word;
+  if (word.endsWith("es")) {
+    const stem = word.slice(0, -2);
+    const stemEnd = stem.charAt(stem.length - 1);
+    if (stemEnd && isSpanishConsonant(stemEnd)) {
+      return stem;
+    }
+  }
+  if (word.endsWith("s")) return word.slice(0, -1);
+  return word;
+}
+
+function kitchenWordVariants(word: string): Set<string> {
+  const singular = singularizeSpanishWord(word);
+  const variants = new Set<string>([word, singular]);
+  for (const form of [word, singular]) {
+    const synonym = KITCHEN_SYNONYMS[form];
+    if (synonym) {
+      variants.add(synonym);
+      variants.add(singularizeSpanishWord(synonym));
+    }
+  }
+  return variants;
+}
+
+function kitchenWordsMatch(cookWord: string, catalogWord: string): boolean {
+  if (cookWord.length < 3) return false;
+  const catalogVariants = kitchenWordVariants(catalogWord);
+  for (const variant of kitchenWordVariants(cookWord)) {
+    if (catalogVariants.has(variant)) return true;
+  }
+  return false;
+}
+
 export interface MatchedIngredientLine {
   raw_name: string;
   ingredient_id: string | null;
@@ -431,7 +492,7 @@ export function matchIngredients(
         const ingWords = ingNorm.split(/\s+/);
 
         const hasWholeWordMatch = words.some((w) =>
-          ingWords.some((iw) => w === iw && w.length >= 3)
+          ingWords.some((iw) => kitchenWordsMatch(w, iw))
         );
 
         if (hasWholeWordMatch) {

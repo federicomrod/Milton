@@ -6,6 +6,7 @@ import {
   parseDishName,
   matchIngredients,
   validateExtractedRecipe,
+  type ExtractedIngredientLine,
 } from "@/lib/restaurant/telegram/kitchen-recipe-drafts";
 import { normalizeUnit } from "@/lib/restaurant/units";
 import type { CostingIngredient } from "@/lib/restaurant/costing";
@@ -42,6 +43,11 @@ describe("recipe intent detection", () => {
     expect(detectRecipeIntent("1 porción")).toEqual({
       isRecipe: true,
       portions: 1,
+      dishName: null,
+    });
+    expect(detectRecipeIntent("2porciones")).toEqual({
+      isRecipe: true,
+      portions: 2,
       dishName: null,
     });
   });
@@ -152,6 +158,7 @@ describe("portions parsing", () => {
     expect(parsePortions("salió para 2")).toBe(2);
     expect(parsePortions("salieron dos porciones")).toBe(2);
     expect(parsePortions("salió para dos")).toBe(2);
+    expect(parsePortions("2porciones")).toBe(2);
   });
 
   it("parses Spanish number words", () => {
@@ -167,6 +174,8 @@ describe("portions parsing", () => {
 
   it("avoids false positives", () => {
     expect(parsePortions("solo para 3 mesas")).toBeNull();
+    expect(parsePortions("salieron doscientos gramos")).toBeNull();
+    expect(parsePortions("ninguna porción")).toBeNull();
   });
 });
 
@@ -180,6 +189,7 @@ describe("portions follow-up parsing", () => {
   it("parses number with porcion(es)", () => {
     expect(parsePortionsFromFollowUp("2 porciones")).toBe(2);
     expect(parsePortionsFromFollowUp("1 porcion")).toBe(1);
+    expect(parsePortionsFromFollowUp("2porciones")).toBe(2);
   });
 
   it("parses Spanish words", () => {
@@ -441,5 +451,125 @@ describe("ingredient matching", () => {
     ];
     const matched = matchIngredients(lines, ingredients, costEntries, 2);
     expect(matched).toHaveLength(0);
+  });
+
+  it("still matches pechuga de pollo to Pollo", () => {
+    const lines = [
+      {
+        name: "pechuga de pollo",
+        estimated_quantity: 1,
+        unit: "kg",
+        confidence: "high" as const,
+      },
+    ];
+    const matched = matchIngredients(lines, ingredients, costEntries, 2);
+    expect(matched[0].ingredient_id).toBe("ing1");
+    expect(matched[0].ingredient_name).toBe("Pollo");
+    expect(matched[0].confidence).toBe("medium");
+  });
+});
+
+describe("Spanish singularisation and kitchen synonyms", () => {
+  const mexicanIngredients: CostingIngredient[] = [
+    { id: "mx1", name: "Tortilla de maíz", default_unit: "kg" },
+    { id: "mx2", name: "Frijol", default_unit: "kg" },
+    { id: "mx3", name: "Jitomate", default_unit: "kg" },
+    { id: "mx4", name: "Salsa verde", default_unit: "kg" },
+  ];
+
+  function costMapFor(...ids: string[]): Map<string, IngredientCostEntry[]> {
+    return new Map(
+      ids.map((id) => [
+        id,
+        [
+          {
+            id: `c-${id}`,
+            company_id: "comp1",
+            ingredient_id: id,
+            supplier_id: null,
+            source_type: "manual" as const,
+            source_id: null,
+            cost_date: "2026-10-01",
+            quantity: 1,
+            unit: "kg",
+            total_cost: 10,
+            unit_cost: 10,
+            normalized_unit_cost: 10,
+            normalized_unit: "kg",
+            currency: "MXN",
+            created_at: "2026-10-01T00:00:00Z",
+          },
+        ],
+      ])
+    );
+  }
+
+  const mexicanCosts = costMapFor("mx1", "mx2", "mx3", "mx4");
+
+  function line(name: string): ExtractedIngredientLine {
+    return {
+      name,
+      estimated_quantity: 1,
+      unit: "kg",
+      confidence: "high",
+    };
+  }
+
+  it("matches tortillas to Tortilla de maíz at medium confidence", () => {
+    const matched = matchIngredients(
+      [line("tortillas")],
+      mexicanIngredients,
+      mexicanCosts,
+      2
+    );
+    expect(matched[0].ingredient_id).toBe("mx1");
+    expect(matched[0].ingredient_name).toBe("Tortilla de maíz");
+    expect(matched[0].confidence).toBe("medium");
+  });
+
+  it("matches frijoles to Frijol at medium confidence", () => {
+    const matched = matchIngredients(
+      [line("frijoles")],
+      mexicanIngredients,
+      mexicanCosts,
+      2
+    );
+    expect(matched[0].ingredient_id).toBe("mx2");
+    expect(matched[0].ingredient_name).toBe("Frijol");
+    expect(matched[0].confidence).toBe("medium");
+  });
+
+  it("matches tomate to Jitomate at medium confidence", () => {
+    const matched = matchIngredients(
+      [line("tomate")],
+      mexicanIngredients,
+      mexicanCosts,
+      2
+    );
+    expect(matched[0].ingredient_id).toBe("mx3");
+    expect(matched[0].ingredient_name).toBe("Jitomate");
+    expect(matched[0].confidence).toBe("medium");
+  });
+
+  it("does not match sal to salsa verde", () => {
+    const matched = matchIngredients(
+      [line("sal")],
+      mexicanIngredients,
+      mexicanCosts,
+      2
+    );
+    expect(matched[0].ingredient_id).toBeNull();
+    expect(matched[0].confidence).toBe("low");
+  });
+
+  it("leaves gas unmatched", () => {
+    const matched = matchIngredients(
+      [line("gas")],
+      mexicanIngredients,
+      mexicanCosts,
+      2
+    );
+    expect(matched[0].ingredient_id).toBeNull();
+    expect(matched[0].confidence).toBe("low");
   });
 });

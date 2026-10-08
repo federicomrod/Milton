@@ -161,12 +161,12 @@ describe("getPostLoginRedirect", () => {
   });
 
   it("falls back to the dashboard when there is no user or no company", async () => {
-    expect(
-      await getPostLoginRedirect(fakeSupabase({ user: null }))
-    ).toBe(RESTAURANT_DASHBOARD_PATH);
-    expect(
-      await getPostLoginRedirect(fakeSupabase({ companyId: null }))
-    ).toBe(RESTAURANT_DASHBOARD_PATH);
+    expect(await getPostLoginRedirect(fakeSupabase({ user: null }))).toBe(
+      RESTAURANT_DASHBOARD_PATH
+    );
+    expect(await getPostLoginRedirect(fakeSupabase({ companyId: null }))).toBe(
+      RESTAURANT_DASHBOARD_PATH
+    );
   });
 
   it("does not block login when auth lookup throws", async () => {

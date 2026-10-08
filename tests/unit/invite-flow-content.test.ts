@@ -104,9 +104,12 @@ describe("routing", () => {
 
   it("getPostLoginRedirect checks admin, then invited, then onboarding_status", () => {
     const src = read("lib/restaurant/post-login.ts");
-    const adminAt = src.indexOf('is_milton_admin"');
-    const invitedAt = src.indexOf("resolveInvitedUserLanding(");
-    const onboardingAt = src.indexOf("onboarding_status");
+    const fn = src.slice(
+      src.indexOf("export async function getPostLoginRedirect")
+    );
+    const adminAt = fn.indexOf('is_milton_admin"');
+    const invitedAt = fn.indexOf("resolveInvitedUserLanding(");
+    const onboardingAt = fn.indexOf("onboarding_status");
     expect(adminAt).toBeGreaterThan(-1);
     expect(invitedAt).toBeGreaterThan(adminAt);
     expect(onboardingAt).toBeGreaterThan(invitedAt);

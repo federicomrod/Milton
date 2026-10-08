@@ -8,6 +8,8 @@ import {
   Target,
   FileText,
   Table,
+  UserPlus,
+  QrCode,
   ChevronLeft,
   Database,
 } from "lucide-react";
@@ -33,6 +35,16 @@ const navigation = [
     name: "Data Tables",
     href: "/management/data-tables",
     icon: Table,
+  },
+  {
+    name: "Invites",
+    href: "/management/invites",
+    icon: UserPlus,
+  },
+  {
+    name: "Kitchen QR",
+    href: "/management/kitchen",
+    icon: QrCode,
   },
   {
     name: "Odoo",

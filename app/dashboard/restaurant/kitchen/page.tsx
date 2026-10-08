@@ -17,6 +17,7 @@ import {
 import { KitchenQrCard } from "@/components/restaurant/kitchen/KitchenQrCard";
 import { KitchenStaffCard } from "@/components/restaurant/kitchen/KitchenStaffCard";
 import { KitchenReportsCard } from "@/components/restaurant/kitchen/KitchenReportsCard";
+import { KitchenRecipeDraftsCard } from "@/components/restaurant/kitchen/KitchenRecipeDraftsCard";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,7 @@ export default async function KitchenPage() {
       </div>
       <KitchenQrCard canManage={canManage} />
       <KitchenStaffCard canManage={canManage} locations={locations} />
+      <KitchenRecipeDraftsCard canManage={canManage} locations={locations} />
       <KitchenReportsCard canManage={canManage} locations={locations} />
     </div>
   );

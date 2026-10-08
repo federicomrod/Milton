@@ -131,9 +131,10 @@ async function handleKitchenJoin(
 }
 
 // Cook report: private chat, active kitchen_staff only. Unknown, removed
-// and group senders are ignored (no row, no reply). The acknowledgement is
-// always the generic R5 and is sent only when a NEW row was stored, so a
-// Telegram retry never double-acknowledges.
+// and group senders are ignored (no row, no reply). If it's a recipe,
+// extract and create a draft; if portions are missing, ask. Otherwise,
+// the acknowledgement is the generic R5 and is sent only when a NEW row
+// was stored, so a Telegram retry never double-acknowledges.
 async function handleKitchenReport(
   message: TelegramMessage,
   chatId: number
@@ -143,6 +144,127 @@ async function handleKitchenReport(
   try {
     const staff = await findActiveKitchenStaff(fromId);
     if (!staff) return;
+
+    const {
+      detectRecipeIntent,
+      parsePortions,
+      extractAndCreateRecipeDraft,
+      updateDraftPortions,
+    } = await import("@/lib/restaurant/telegram/kitchen-recipe-drafts");
+
+    const textContent = message.text || message.caption || "";
+    const intent = detectRecipeIntent(textContent);
+
+    if (intent.isRecipe) {
+      const report = extractReportFromMessage(message);
+      let reportId: string | null = null;
+      if (report) {
+        const inserted = await recordKitchenReport({
+          companyId: staff.company_id,
+          locationId: staff.location_id,
+          staffId: staff.id,
+          chatId,
+          report,
+        });
+        if (inserted) {
+          const admin = createAdminClient();
+          const { data } = await admin
+            .from("kitchen_reports")
+            .select("id")
+            .eq("telegram_chat_id", chatId)
+            .eq("telegram_message_id", report.telegram_message_id)
+            .maybeSingle();
+          reportId = data?.id ?? null;
+        }
+      }
+
+      const admin = createAdminClient();
+      const [ingredientsRes, costEntriesRes, companyRes] = await Promise.all([
+        admin
+          .from("ingredients")
+          .select("id, name, default_unit")
+          .eq("company_id", staff.company_id),
+        admin
+          .from("ingredient_cost_entries")
+          .select(
+            "id, company_id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit_cost, normalized_unit, currency, created_at"
+          )
+          .eq("company_id", staff.company_id),
+        admin
+          .from("companies")
+          .select("name")
+          .eq("id", staff.company_id)
+          .maybeSingle(),
+      ]);
+
+      const ingredients = ingredientsRes.data ?? [];
+      const costEntries = costEntriesRes.data ?? [];
+      const costMap = new Map<string, typeof costEntries>();
+      for (const entry of costEntries) {
+        if (!costMap.has(entry.ingredient_id)) {
+          costMap.set(entry.ingredient_id, []);
+        }
+        costMap.get(entry.ingredient_id)!.push(entry);
+      }
+
+      const result = await extractAndCreateRecipeDraft(
+        {
+          companyId: staff.company_id,
+          locationId: staff.location_id,
+          staffId: staff.id,
+          kitchenReportId: reportId,
+          chatId,
+          messageId: report?.telegram_message_id ?? message.message_id ?? 0,
+          mediaKind: report?.media_kind ?? null,
+          telegramFileId: report?.telegram_file_id ?? null,
+          text: textContent || null,
+          currency: costEntries[0]?.currency ?? "MXN",
+        },
+        ingredients,
+        costMap
+      );
+
+      if (result.ok) {
+        const { data: draft } = await admin
+          .from("kitchen_recipe_drafts")
+          .select("dish_name, status")
+          .eq("id", result.draftId)
+          .maybeSingle();
+
+        if (draft?.status === "awaiting_portions") {
+          await sendTelegramMessage(chatId, KITCHEN_COPY.RECIPE_ASK_PORTIONS);
+        } else {
+          await sendTelegramMessage(
+            chatId,
+            renderKitchenCopy(KITCHEN_COPY.RECIPE_RECEIVED, {
+              plato: draft?.dish_name ?? "tu receta",
+            })
+          );
+        }
+      }
+      return;
+    }
+
+    const portionsOnly = parsePortions(textContent);
+    if (portionsOnly !== null && !intent.isRecipe) {
+      const result = await updateDraftPortions(chatId, portionsOnly);
+      if (result.ok) {
+        const admin = createAdminClient();
+        const { data: draft } = await admin
+          .from("kitchen_recipe_drafts")
+          .select("dish_name")
+          .eq("id", result.draftId)
+          .maybeSingle();
+        await sendTelegramMessage(
+          chatId,
+          renderKitchenCopy(KITCHEN_COPY.RECIPE_RECEIVED, {
+            plato: draft?.dish_name ?? "tu receta",
+          })
+        );
+        return;
+      }
+    }
+
     const report = extractReportFromMessage(message);
     if (!report) return;
     const inserted = await recordKitchenReport({

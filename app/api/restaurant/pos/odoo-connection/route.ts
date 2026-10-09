@@ -45,6 +45,7 @@ import {
 import {
   authenticate,
   OdooAuthenticationError,
+  OdooRpcError,
   type OdooCredentials,
 } from "@/lib/restaurant/odoo/client";
 import { discoverOdooCompanies } from "@/lib/restaurant/odoo/scoped";
@@ -57,6 +58,24 @@ import {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function logOdooFault(tag: string, err: unknown): string {
+  const name = err instanceof Error ? err.name : "UnknownError";
+  const logMessage = err instanceof Error ? err.message : "Unknown error";
+  let statusClass = "unknown";
+  if (err instanceof OdooRpcError && typeof err.faultCode === "number") {
+    const code = err.faultCode;
+    if (Number.isInteger(code) && code >= 100 && code <= 599) {
+      statusClass = `${Math.floor(code / 100)}xx`;
+    }
+  }
+  console.error(tag, name, logMessage);
+  return statusClass;
+}
+
+function odooFaultDetails(statusClass: string): string {
+  return `Odoo request failed (${statusClass})`;
+}
 
 interface RequestBody {
   base_url?: unknown;
@@ -168,12 +187,15 @@ export async function POST(req: NextRequest) {
       if (err instanceof OdooAuthenticationError) {
         return NextResponse.json({ error: err.message }, { status: 401 });
       }
-      console.error(
+      const statusClass = logOdooFault(
         "[odoo-connection] Odoo unreachable:",
-        err instanceof Error ? err.name : "Unknown error"
+        err
       );
       return NextResponse.json(
-        { error: "Could not reach Odoo instance" },
+        {
+          error: "Could not reach Odoo instance",
+          details: odooFaultDetails(statusClass),
+        },
         { status: 502 }
       );
     }
@@ -181,12 +203,15 @@ export async function POST(req: NextRequest) {
     try {
       accessible = (await discoverOdooCompanies(creds, uid)).companies;
     } catch (err) {
-      console.error(
+      const statusClass = logOdooFault(
         "[odoo-connection] company discovery failed:",
-        err instanceof Error ? err.name : "Unknown error"
+        err
       );
       return NextResponse.json(
-        { error: "Could not read the Odoo user's companies" },
+        {
+          error: "Could not read the Odoo user's companies",
+          details: odooFaultDetails(statusClass),
+        },
         { status: 502 }
       );
     }
@@ -203,12 +228,13 @@ export async function POST(req: NextRequest) {
     if (lookupError) {
       console.error(
         "[odoo-connection] connection lookup failed:",
+        "PostgrestError",
         lookupError.message
       );
       return NextResponse.json(
         {
           error: "Could not save Odoo connection",
-          details: lookupError.message,
+          details: odooFaultDetails("unknown"),
         },
         { status: 500 }
       );
@@ -267,12 +293,13 @@ export async function POST(req: NextRequest) {
       if (updateError) {
         console.error(
           "[odoo-connection] connection update failed:",
+          "PostgrestError",
           updateError.message
         );
         return NextResponse.json(
           {
             error: "Could not save Odoo connection",
-            details: updateError.message,
+            details: odooFaultDetails("unknown"),
           },
           { status: 500 }
         );
@@ -295,12 +322,13 @@ export async function POST(req: NextRequest) {
       if (insertError || !inserted?.id) {
         console.error(
           "[odoo-connection] connection insert failed:",
+          "PostgrestError",
           insertError?.message
         );
         return NextResponse.json(
           {
             error: "Could not save Odoo connection",
-            details: insertError?.message,
+            details: odooFaultDetails("unknown"),
           },
           { status: 500 }
         );
@@ -352,12 +380,15 @@ export async function POST(req: NextRequest) {
       selection_required: selection.selectionRequired,
     });
   } catch (err) {
-    console.error(
+    const statusClass = logOdooFault(
       "[odoo-connection] Unexpected error:",
-      err instanceof Error ? err.message : "Unknown error"
+      err
     );
     return NextResponse.json(
-      { error: "Could not save Odoo connection" },
+      {
+        error: "Could not save Odoo connection",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 500 }
     );
   }

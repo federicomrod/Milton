@@ -14,6 +14,7 @@
 // never read from the request. Odoo IDs only ever come from discovery.
 
 import { NextRequest, NextResponse } from "next/server";
+import { OdooRpcError } from "@/lib/restaurant/odoo/client";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { loadOdooSession } from "@/lib/restaurant/odoo/load-connection";
 import { discoverOdooCompanies } from "@/lib/restaurant/odoo/scoped";
@@ -21,6 +22,24 @@ import { resolveOdooCompanySelection } from "@/lib/restaurant/odoo/company-selec
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function logOdooFault(tag: string, err: unknown): string {
+  const name = err instanceof Error ? err.name : "UnknownError";
+  const logMessage = err instanceof Error ? err.message : "Unknown error";
+  let statusClass = "unknown";
+  if (err instanceof OdooRpcError && typeof err.faultCode === "number") {
+    const code = err.faultCode;
+    if (Number.isInteger(code) && code >= 100 && code <= 599) {
+      statusClass = `${Math.floor(code / 100)}xx`;
+    }
+  }
+  console.error(tag, name, logMessage);
+  return statusClass;
+}
+
+function odooFaultDetails(statusClass: string): string {
+  return `Odoo request failed (${statusClass})`;
+}
 
 export async function GET() {
   try {
@@ -50,12 +69,12 @@ export async function GET() {
       selection_required: !storedValid,
     });
   } catch (err) {
-    console.error(
-      "[Odoo Companies] GET failed:",
-      err instanceof Error ? err.name : "Unknown error"
-    );
+    const statusClass = logOdooFault("[Odoo Companies] GET failed:", err);
     return NextResponse.json(
-      { error: "Could not list Odoo companies" },
+      {
+        error: "Could not list Odoo companies",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 502 }
     );
   }
@@ -114,9 +133,16 @@ export async function POST(req: NextRequest) {
       .eq("id", conn.id)
       .eq("company_id", companyId);
     if (updateError) {
-      console.error("[Odoo Companies] save failed:", updateError.message);
+      console.error(
+        "[Odoo Companies] save failed:",
+        "PostgrestError",
+        updateError.message
+      );
       return NextResponse.json(
-        { error: "Could not save the Odoo company selection" },
+        {
+          error: "Could not save the Odoo company selection",
+          details: odooFaultDetails("unknown"),
+        },
         { status: 500 }
       );
     }
@@ -129,12 +155,12 @@ export async function POST(req: NextRequest) {
         .map((c) => ({ id: c.id, name: c.name })),
     });
   } catch (err) {
-    console.error(
-      "[Odoo Companies] POST failed:",
-      err instanceof Error ? err.name : "Unknown error"
-    );
+    const statusClass = logOdooFault("[Odoo Companies] POST failed:", err);
     return NextResponse.json(
-      { error: "Could not save the Odoo company selection" },
+      {
+        error: "Could not save the Odoo company selection",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 502 }
     );
   }

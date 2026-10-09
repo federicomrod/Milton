@@ -16,6 +16,7 @@
 // that belong to a company that is NOT selected.
 
 import { NextResponse } from "next/server";
+import { OdooRpcError } from "@/lib/restaurant/odoo/client";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { loadOdooSession } from "@/lib/restaurant/odoo/load-connection";
 import {
@@ -31,6 +32,24 @@ import {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function logOdooFault(tag: string, err: unknown): string {
+  const name = err instanceof Error ? err.name : "UnknownError";
+  const logMessage = err instanceof Error ? err.message : "Unknown error";
+  let statusClass = "unknown";
+  if (err instanceof OdooRpcError && typeof err.faultCode === "number") {
+    const code = err.faultCode;
+    if (Number.isInteger(code) && code >= 100 && code <= 599) {
+      statusClass = `${Math.floor(code / 100)}xx`;
+    }
+  }
+  console.error(tag, name, logMessage);
+  return statusClass;
+}
+
+function odooFaultDetails(statusClass: string): string {
+  return `Odoo request failed (${statusClass})`;
+}
 
 const PAGE_SIZE = 1000;
 
@@ -57,9 +76,16 @@ export async function GET() {
         .order("id", { ascending: true })
         .range(from, from + PAGE_SIZE - 1);
       if (error) {
-        console.error("[Odoo Audit] row read failed:", error.message);
+        console.error(
+          "[Odoo Audit] row read failed:",
+          "PostgrestError",
+          error.message
+        );
         return NextResponse.json(
-          { error: "Could not read existing Odoo rows" },
+          {
+            error: "Could not read existing Odoo rows",
+            details: odooFaultDetails("unknown"),
+          },
           { status: 500 }
         );
       }
@@ -105,10 +131,13 @@ export async function GET() {
       buildOdooAuditReport(rows, configCompanyMap, conn.odoo_company_ids)
     );
   } catch (err) {
-    console.error(
-      "[Odoo Audit] failed:",
-      err instanceof Error ? err.name : "Unknown error"
+    const statusClass = logOdooFault("[Odoo Audit] failed:", err);
+    return NextResponse.json(
+      {
+        error: "Odoo audit failed",
+        details: odooFaultDetails(statusClass),
+      },
+      { status: 502 }
     );
-    return NextResponse.json({ error: "Odoo audit failed" }, { status: 502 });
   }
 }

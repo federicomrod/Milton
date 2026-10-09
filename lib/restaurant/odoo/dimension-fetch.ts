@@ -67,6 +67,10 @@ export interface LoadedOdooDimensions {
   productCategories: Map<number, CategoryNode>;
   notes: string[];
   callCount: number;
+  /** True when pos.payment fields_get or search_read failed. */
+  paymentReadFailed: boolean;
+  /** True when product.product fields_get or search_read failed. */
+  categoryReadFailed: boolean;
 }
 
 export function chunkIds(
@@ -103,6 +107,10 @@ export async function detectModelFields(
   }
 }
 
+/**
+ * Batched search_read. Returns null when any batch fails so callers can
+ * refuse to overwrite stored payment / category values with null.
+ */
 async function searchReadBatched(
   call: ScopedOdooCall,
   model: string,
@@ -110,7 +118,7 @@ async function searchReadBatched(
   ids: number[],
   fields: string[],
   stats: { callCount: number; notes: string[] }
-): Promise<Record<string, unknown>[]> {
+): Promise<Record<string, unknown>[] | null> {
   const rows: Record<string, unknown>[] = [];
   for (const chunk of chunkIds(ids)) {
     try {
@@ -131,12 +139,27 @@ async function searchReadBatched(
     } catch (err) {
       if (!isSkippableOdooError(err)) throw err;
       stats.notes.push(
-        `${model} search_read failed for ${domainField} batch of ${chunk.length}; that dimension is left empty`
+        `${model} search_read failed for ${domainField} batch of ${chunk.length}; existing stored values are kept`
       );
-      return [];
+      return null;
     }
   }
   return rows;
+}
+
+export function stripFailedDimensionFields(
+  row: object,
+  flags: { paymentReadFailed: boolean; categoryReadFailed: boolean }
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...row };
+  if (flags.paymentReadFailed) {
+    delete next.payment_type;
+  }
+  if (flags.categoryReadFailed) {
+    delete next.category;
+    delete next.sub_category;
+  }
+  return next;
 }
 
 function paymentOrderId(
@@ -243,6 +266,7 @@ export async function loadOdooDimensions(
   }
 
   const payments: OdooPaymentRaw[] = [];
+  let paymentReadFailed = false;
   if (availablePaymentFields) {
     const paymentFields = pickPresentFields(
       availablePaymentFields,
@@ -268,15 +292,21 @@ export async function loadOdooDimensions(
         paymentFields,
         stats
       );
-      payments.push(...(fetched as OdooPaymentRaw[]));
+      if (fetched === null) {
+        paymentReadFailed = true;
+      } else {
+        payments.push(...(fetched as OdooPaymentRaw[]));
+      }
     }
   } else {
+    paymentReadFailed = true;
     stats.notes.push("pos.payment fields_get failed or the model is absent");
   }
 
   const products: Record<string, unknown>[] = [];
   let posCategories = new Map<number, CategoryNode>();
   let productCategories = new Map<number, CategoryNode>();
+  let categoryReadFailed = false;
   if (availableProductFields) {
     const productFields = [
       "id",
@@ -294,16 +324,19 @@ export async function loadOdooDimensions(
         "product.product has neither POS category nor product category fields"
       );
     } else {
-      products.push(
-        ...(await searchReadBatched(
-          call,
-          "product.product",
-          "id",
-          productIds,
-          productFields,
-          stats
-        ))
+      const fetchedProducts = await searchReadBatched(
+        call,
+        "product.product",
+        "id",
+        productIds,
+        productFields,
+        stats
       );
+      if (fetchedProducts === null) {
+        categoryReadFailed = true;
+      } else {
+        products.push(...fetchedProducts);
+      }
 
       const posIds = new Set<number>();
       const prodCategIds = new Set<number>();
@@ -336,7 +369,7 @@ export async function loadOdooDimensions(
             fields,
             stats
           );
-          posCategories = nodesFromRows(rows);
+          posCategories = nodesFromRows(rows ?? []);
           const parentIds = parentIdsMissing(posCategories);
           if (parentIds.length > 0) {
             const parents = await searchReadBatched(
@@ -347,7 +380,7 @@ export async function loadOdooDimensions(
               fields,
               stats
             );
-            for (const node of nodesFromRows(parents).values()) {
+            for (const node of nodesFromRows(parents ?? []).values()) {
               posCategories.set(node.id, node);
             }
           }
@@ -377,7 +410,7 @@ export async function loadOdooDimensions(
             fields,
             stats
           );
-          productCategories = nodesFromRows(rows);
+          productCategories = nodesFromRows(rows ?? []);
           const parentIds = parentIdsMissing(productCategories);
           if (parentIds.length > 0) {
             const parents = await searchReadBatched(
@@ -388,7 +421,7 @@ export async function loadOdooDimensions(
               fields,
               stats
             );
-            for (const node of nodesFromRows(parents).values()) {
+            for (const node of nodesFromRows(parents ?? []).values()) {
               productCategories.set(node.id, node);
             }
           }
@@ -396,6 +429,7 @@ export async function loadOdooDimensions(
       }
     }
   } else {
+    categoryReadFailed = true;
     stats.notes.push(
       "product.product fields_get failed or the model is absent"
     );
@@ -423,6 +457,8 @@ export async function loadOdooDimensions(
     productCategories,
     notes: stats.notes,
     callCount: stats.callCount,
+    paymentReadFailed,
+    categoryReadFailed,
   };
 }
 

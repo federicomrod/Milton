@@ -17,6 +17,25 @@ import type { OdooMany2one } from "./sync";
 
 export const MIXED_PAYMENT_TYPE = "Mixed";
 
+export const CHANNEL_VOCABULARY = [
+  "in_store",
+  "takeaway",
+  "delivery",
+  "online",
+] as const;
+export type ChannelVocabulary = (typeof CHANNEL_VOCABULARY)[number];
+
+export function isChannelVocabulary(
+  value: string | null | undefined
+): value is ChannelVocabulary {
+  return (
+    value === "in_store" ||
+    value === "takeaway" ||
+    value === "delivery" ||
+    value === "online"
+  );
+}
+
 export const CHANNEL_ORDER_FIELD_CANDIDATES = [
   "preset_id",
   "table_id",
@@ -27,8 +46,67 @@ export const CHANNEL_ORDER_FIELD_CANDIDATES = [
   "service_mode",
   "order_type",
   "order_type_id",
+  "sh_order_type_id",
   "delivery_provider_id",
 ] as const;
+
+/**
+ * Floor-name keywords for sales_channel when Odoo has no usable
+ * order-type signal. Matching is case- and accent-insensitive against
+ * the floor name (restaurant.table display prefix before the comma,
+ * e.g. "LLEVAR, 4" → "LLEVAR"). Extend per client as new floor names
+ * show up; do not guess from a missing table.
+ */
+export const TABLE_FLOOR_CHANNEL_KEYWORDS = {
+  takeaway: ["llevar", "para llevar", "takeaway", "to go"],
+  delivery: ["domicilio", "delivery", "express"],
+} as const;
+
+/** Synthetic audit field: floor name derived from table_id display. */
+export const TABLE_FLOOR_SIGNAL_FIELD = "table_floor";
+
+/** Case/accent fold used by floor-name and channel-label matching. */
+export function foldLabel(raw: string): string {
+  return raw
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** "LOS RANCHOS, 5" → "LOS RANCHOS"; no comma → the whole display name. */
+export function tableFloorNameFromDisplay(
+  display: string | null | undefined
+): string | null {
+  const label = (display ?? "").trim();
+  if (!label) return null;
+  const comma = label.indexOf(",");
+  if (comma === -1) return label;
+  const prefix = label.slice(0, comma).trim();
+  return prefix || label;
+}
+
+/**
+ * Map a table floor name onto the Explorer vocabulary. A recognised
+ * to-go / delivery keyword wins; any other non-empty floor is in_store.
+ * Empty / missing → null (never guessed).
+ */
+export function mapFloorNameToChannel(
+  floorName: string | null | undefined
+): ChannelVocabulary | null {
+  if (!floorName?.trim()) return null;
+  const key = foldLabel(floorName);
+  if (!key) return null;
+  for (const kw of TABLE_FLOOR_CHANNEL_KEYWORDS.delivery) {
+    if (key === kw || key.includes(kw)) return "delivery";
+  }
+  for (const kw of TABLE_FLOOR_CHANNEL_KEYWORDS.takeaway) {
+    if (key === kw || key.includes(kw)) return "takeaway";
+  }
+  return "in_store";
+}
 
 export const ORDER_AMOUNT_FIELD_CANDIDATES = [
   "amount_total",
@@ -96,7 +174,7 @@ export function fieldNamesFromFieldsGet(result: unknown): Set<string> | null {
 export function mapChannelLabel(raw: string | null | undefined): string | null {
   const label = (raw ?? "").trim();
   if (!label) return null;
-  const o = label.toLowerCase();
+  const o = foldLabel(label);
   if (
     o.includes("delivery") ||
     o.includes("deliveroo") ||
@@ -105,7 +183,8 @@ export function mapChannelLabel(raw: string | null | undefined): string | null {
     o.includes("pedidosya") ||
     o.includes("didifood") ||
     o.includes("just eat") ||
-    o.includes("justeat")
+    o.includes("justeat") ||
+    o.includes("domicilio")
   ) {
     return "delivery";
   }
@@ -130,7 +209,8 @@ export function mapChannelLabel(raw: string | null | undefined): string | null {
     o.includes("take out") ||
     o.includes("pickup") ||
     o.includes("pick-up") ||
-    o.includes("pick up")
+    o.includes("pick up") ||
+    o.includes("llevar")
   ) {
     return "takeaway";
   }
@@ -152,12 +232,16 @@ export function mapChannelLabel(raw: string | null | undefined): string | null {
 export interface ChannelSignals {
   presetName?: string | null;
   orderType?: string | null;
+  /** Softhealer pos.order.sh_order_type_id display name, when present. */
+  shOrderTypeName?: string | null;
   serviceMode?: string | null;
   /** null = field not present on this Odoo; boolean = explicit value. */
   takeaway?: boolean | null;
   isTogo?: boolean | null;
   deliveryProviderName?: string | null;
   hasTable?: boolean | null;
+  /** Floor name from table_id display (prefix before the comma). */
+  tableFloorName?: string | null;
   configName?: string | null;
 }
 
@@ -167,8 +251,17 @@ export interface MappedChannel {
 }
 
 /**
- * First dedicated signal wins. Table / till are fallbacks and till names
- * only count when they map to the Explorer vocabulary.
+ * First dedicated signal wins. Precedence:
+ *   1. Named order-type signals (preset, Softhealer sh_order_type_id when
+ *      it clearly maps to the Explorer vocabulary, order_type, service_mode)
+ *   2. delivery_provider_id (before takeaway=false — that boolean is often
+ *      stuck false on custom Odoos)
+ *   3. takeaway / is_togo only when explicitly true
+ *   4. Table floor name (LLEVAR → takeaway, DOMICILIO → delivery, any
+ *      other real floor → in_store)
+ *   5. A set table with no parseable floor → in_store
+ *   6. Till / pos.config name, only when it maps to the vocabulary
+ * No table and no other signal → null. Never guessed.
  */
 export function mapSalesChannel(signals: ChannelSignals): MappedChannel {
   const named = (
@@ -178,22 +271,28 @@ export function mapSalesChannel(signals: ChannelSignals): MappedChannel {
     const channel = mapChannelLabel(raw);
     return channel ? { channel, source } : null;
   };
+  const vocabulary = (
+    raw: string | null | undefined,
+    source: string
+  ): MappedChannel | null => {
+    const channel = mapChannelLabel(raw);
+    return isChannelVocabulary(channel) ? { channel, source } : null;
+  };
 
   const fromPreset = named(signals.presetName, "preset_id");
   if (fromPreset) return fromPreset;
+
+  const fromShOrderType = vocabulary(
+    signals.shOrderTypeName,
+    "sh_order_type_id"
+  );
+  if (fromShOrderType) return fromShOrderType;
 
   const fromOrderType = named(signals.orderType, "order_type");
   if (fromOrderType) return fromOrderType;
 
   const fromService = named(signals.serviceMode, "service_mode");
   if (fromService) return fromService;
-
-  if (signals.takeaway === true || signals.isTogo === true) {
-    return { channel: "takeaway", source: "takeaway" };
-  }
-  if (signals.takeaway === false || signals.isTogo === false) {
-    return { channel: "in_store", source: "takeaway" };
-  }
 
   if (signals.deliveryProviderName) {
     return {
@@ -202,17 +301,23 @@ export function mapSalesChannel(signals: ChannelSignals): MappedChannel {
     };
   }
 
+  if (signals.takeaway === true || signals.isTogo === true) {
+    return { channel: "takeaway", source: "takeaway" };
+  }
+
+  if (signals.tableFloorName) {
+    const channel = mapFloorNameToChannel(signals.tableFloorName);
+    if (channel) {
+      return { channel, source: "table_floor" };
+    }
+  }
+
   if (signals.hasTable === true) {
     return { channel: "in_store", source: "table_id" };
   }
 
   const fromConfig = mapChannelLabel(signals.configName);
-  if (
-    fromConfig === "in_store" ||
-    fromConfig === "takeaway" ||
-    fromConfig === "delivery" ||
-    fromConfig === "online"
-  ) {
+  if (isChannelVocabulary(fromConfig)) {
     return { channel: fromConfig, source: "config_id" };
   }
 
@@ -240,6 +345,9 @@ export function channelSignalsFromOrder(
   return {
     presetName: has("preset_id") ? many2oneName(order.preset_id) : null,
     orderType,
+    shOrderTypeName: has("sh_order_type_id")
+      ? many2oneName(order.sh_order_type_id)
+      : null,
     serviceMode:
       has("service_mode") && typeof order.service_mode === "string"
         ? order.service_mode
@@ -252,6 +360,9 @@ export function channelSignalsFromOrder(
       ? many2oneName(order.delivery_provider_id)
       : null,
     hasTable: has("table_id") ? many2oneId(order.table_id) !== null : null,
+    tableFloorName: has("table_id")
+      ? tableFloorNameFromDisplay(many2oneName(order.table_id))
+      : null,
     configName: many2oneName(order.config_id),
   };
 }
@@ -502,7 +613,7 @@ export function summarizeChannelSignalFields(
   }>,
   available: Set<string>
 ): ChannelSignalFieldReport[] {
-  return CHANNEL_ORDER_FIELD_CANDIDATES.map((field) => {
+  const reports = CHANNEL_ORDER_FIELD_CANDIDATES.map((field) => {
     const present = available.has(field);
     if (!present) {
       return { field, present: false, buckets: [] };
@@ -521,4 +632,20 @@ export function summarizeChannelSignalFields(
     });
     return { field, present: true, buckets: summarizeDimensionBuckets(items) };
   });
+
+  const tablePresent = available.has("table_id");
+  reports.push({
+    field: TABLE_FLOOR_SIGNAL_FIELD,
+    present: tablePresent,
+    buckets: tablePresent
+      ? summarizeDimensionBuckets(
+          orders.map(({ order, amount }) => ({
+            value: tableFloorNameFromDisplay(many2oneName(order.table_id)),
+            orderId: typeof order.id === "number" ? order.id : null,
+            amount,
+          }))
+        )
+      : [],
+  });
+  return reports;
 }

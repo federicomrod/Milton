@@ -53,6 +53,8 @@ export interface OdooPosOrderRaw {
   service_mode?: string | OdooMany2one;
   order_type?: string | OdooMany2one;
   order_type_id?: OdooMany2one;
+  /** Softhealer POS order type, when the module is installed. */
+  sh_order_type_id?: OdooMany2one;
   delivery_provider_id?: OdooMany2one;
   amount_total?: number;
   amount_paid?: number;

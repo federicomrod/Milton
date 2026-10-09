@@ -245,7 +245,12 @@ export function buildLiveOdooDimensionReport(input: {
     { category: string | null; sub_category: string | null }
   >;
   posCategories: Map<number, CategoryNode>;
-  lineProductByOrderId: Map<number, number[]>;
+  /**
+   * POS lines for category buckets. Amounts must be line-level
+   * (price_subtotal_incl), not the full order total — otherwise every
+   * category on a multi-category order is credited the whole ticket.
+   */
+  lineItemsByOrderId: Map<number, Array<{ productId: number; amount: number }>>;
   notes: string[];
   callCount: number;
 }): LiveOdooDimensionReport {
@@ -342,9 +347,10 @@ export function buildLiveOdooDimensionReport(input: {
       }
       for (const row of mapped) {
         if (row.orderId === null) continue;
-        const productIds = input.lineProductByOrderId.get(row.orderId) ?? [];
-        for (const productId of productIds) {
-          const product = productById.get(productId);
+        const lineItems = input.lineItemsByOrderId.get(row.orderId) ?? [];
+        for (const line of lineItems) {
+          const lineAmount = Number.isFinite(line.amount) ? line.amount : 0;
+          const product = productById.get(line.productId);
           if (product && input.availableProductFields) {
             const src = productCategorySourceFromRaw(
               product,
@@ -359,19 +365,19 @@ export function buildLiveOdooDimensionReport(input: {
             posCatItems.push({
               value: posName,
               orderId: row.orderId,
-              amount: row.amount,
+              amount: lineAmount,
             });
             prodCatItems.push({
               value: src.productCateg?.name ?? null,
               orderId: row.orderId,
-              amount: row.amount,
+              amount: lineAmount,
             });
           } else {
-            const cats = input.categoryByProductId.get(productId);
+            const cats = input.categoryByProductId.get(line.productId);
             posCatItems.push({
               value: cats?.category ?? null,
               orderId: row.orderId,
-              amount: row.amount,
+              amount: lineAmount,
             });
           }
         }

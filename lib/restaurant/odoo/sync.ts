@@ -43,6 +43,19 @@ export interface OdooPosOrderRaw {
   currency_id: OdooMany2one;
   /** Odoo res.company — always requested and re-checked after every fetch. */
   company_id: OdooMany2one;
+  /** Optional channel signals — only present when fields_get says they exist. */
+  preset_id?: OdooMany2one;
+  table_id?: OdooMany2one;
+  takeaway?: boolean;
+  take_away?: boolean;
+  is_togo?: boolean;
+  is_takeaway?: boolean;
+  service_mode?: string | OdooMany2one;
+  order_type?: string | OdooMany2one;
+  order_type_id?: OdooMany2one;
+  delivery_provider_id?: OdooMany2one;
+  amount_total?: number;
+  amount_paid?: number;
 }
 
 export interface OdooPosOrderLineRaw {
@@ -85,6 +98,17 @@ export interface OdooSyncContext {
    * name. If the till-name match disagrees, the record is skipped.
    */
   companyLocationMap?: Map<number, string>;
+  /**
+   * Dimension lookups built from pos.payment / product categories /
+   * channel signals. Absent lookups leave the column null (never guessed).
+   */
+  channelByOrderId?: Map<number, string | null>;
+  channelSourceByOrderId?: Map<number, string | null>;
+  paymentByOrderId?: Map<number, string | null>;
+  categoryByProductId?: Map<
+    number,
+    { category: string | null; sub_category: string | null }
+  >;
 }
 
 export interface CanonicalOdooSaleRow {
@@ -101,7 +125,10 @@ export interface CanonicalOdooSaleRow {
   discount_amount: number;
   tax_amount: number;
   currency: string;
-  sales_channel: null;
+  sales_channel: string | null;
+  payment_type: string | null;
+  category: string | null;
+  sub_category: string | null;
   source_type: "api";
   pos_source: "odoo";
   external_line_id: string;
@@ -306,6 +333,14 @@ export function transformOdooOrders(
     const taxAmount = round2(priceSubtotalIncl - priceSubtotal);
     const saleDate = deriveLocalSaleDate(orderPlacedAt, ctx.timezone);
 
+    const productId = line.product_id ? line.product_id[0] : null;
+    const categories =
+      productId !== null
+        ? (ctx.categoryByProductId?.get(productId) ?? null)
+        : null;
+    const salesChannel = ctx.channelByOrderId?.get(order.id) ?? null;
+    const paymentType = ctx.paymentByOrderId?.get(order.id) ?? null;
+
     rows.push({
       company_id: ctx.companyId,
       location_id: locationId,
@@ -320,7 +355,10 @@ export function transformOdooOrders(
       discount_amount: discountAmount,
       tax_amount: taxAmount,
       currency,
-      sales_channel: null,
+      sales_channel: salesChannel,
+      payment_type: paymentType,
+      category: categories?.category ?? null,
+      sub_category: categories?.sub_category ?? null,
       source_type: "api",
       pos_source: "odoo",
       external_line_id: String(line.id),
@@ -335,8 +373,9 @@ export function transformOdooOrders(
         config_name: order.config_id ? order.config_id[1] : null,
         odoo_company_id: order.company_id ? order.company_id[0] : null,
         odoo_company_name: order.company_id ? order.company_id[1] : null,
-        product_id: line.product_id ? line.product_id[0] : null,
+        product_id: productId,
         state: order.state,
+        sales_channel_source: ctx.channelSourceByOrderId?.get(order.id) ?? null,
       },
     });
   }

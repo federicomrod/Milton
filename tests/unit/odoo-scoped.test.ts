@@ -65,7 +65,12 @@ describe("assertOdooScope", () => {
 
 describe("buildScopedCall — registered models × methods", () => {
   const cases: [string, string][] = [];
-  for (const model of ["pos.order", "pos.order.line", "pos.config"]) {
+  for (const model of [
+    "pos.order",
+    "pos.order.line",
+    "pos.config",
+    "pos.payment",
+  ]) {
     for (const method of ["search_read", "search_count"]) {
       cases.push([model, method]);
     }
@@ -129,6 +134,58 @@ describe("buildScopedCall — registered models × methods", () => {
     buildScopedCall("pos.order", "search_read", [domain], kwargs, scope);
     expect(domain).toEqual([["x", "=", 1]]);
     expect(kwargs).toEqual({ fields: ["id"], context: { lang: "en" } });
+  });
+
+  it("fields_get injects context only and never a company domain", () => {
+    const out = buildScopedCall(
+      "pos.order",
+      "fields_get",
+      [],
+      { attributes: ["string", "type"] },
+      scope
+    );
+    expect(out.args).toEqual([]);
+    expect(out.kwargs.attributes).toEqual(["string", "type"]);
+    expect(out.kwargs.context).toEqual({ allowed_company_ids: [7, 9] });
+    expect(JSON.stringify(out.args)).not.toContain("company_id");
+  });
+
+  it("fields_get keeps an optional field-name list in args[0]", () => {
+    const out = buildScopedCall(
+      "product.product",
+      "fields_get",
+      [["categ_id", "pos_categ_ids"]],
+      {},
+      scope
+    );
+    expect(out.args[0]).toEqual(["categ_id", "pos_categ_ids"]);
+  });
+
+  it("product.product uses shared_or_company", () => {
+    const out = buildScopedCall(
+      "product.product",
+      "search_read",
+      [[["id", "in", [1]]]],
+      { fields: ["id", "categ_id"] },
+      scope
+    );
+    expect(out.args[0]).toEqual([
+      "|",
+      ["company_id", "=", false],
+      ["company_id", "in", [7, 9]],
+      ["id", "in", [1]],
+    ]);
+  });
+
+  it("pos.category has no company domain", () => {
+    const out = buildScopedCall(
+      "pos.category",
+      "search_read",
+      [[["id", "in", [3]]]],
+      { fields: ["id", "name"] },
+      scope
+    );
+    expect(out.args[0]).toEqual([["id", "in", [3]]]);
   });
 
   it("res.company (self policy) filters on id", () => {

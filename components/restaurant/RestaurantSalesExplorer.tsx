@@ -49,6 +49,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { ExplorerRow } from "@/lib/restaurant/supabase-sales";
+import {
+  formatChipQuantity,
+  formatCount,
+} from "@/lib/restaurant/format-counts";
 import type {
   TargetMap,
   TargetMetricKey,
@@ -1058,12 +1062,12 @@ function describeRangeForHint(params: {
 function ChannelChip({
   active,
   label,
-  count,
+  countLabel,
   onClick,
 }: {
   active: boolean;
   label: string;
-  count?: number;
+  countLabel?: string;
   onClick: () => void;
 }) {
   return (
@@ -1078,14 +1082,14 @@ function ChannelChip({
       }
     >
       {label}
-      {count !== undefined && (
+      {countLabel !== undefined && (
         <span
           className={
             "ml-2 text-xs " +
             (active ? "text-primary-foreground/80" : "text-muted-foreground")
           }
         >
-          {count}
+          {countLabel}
         </span>
       )}
     </button>
@@ -1422,7 +1426,10 @@ export function RestaurantSalesExplorer({
             <ChannelChip
               active={filters.channel === null}
               label="All"
-              count={rows.reduce((s, r) => s + r.quantity, 0)}
+              countLabel={formatChipQuantity(
+                rows.reduce((s, r) => s + r.quantity, 0),
+                fmts.locale
+              )}
               onClick={() => updateFilter("channel", null)}
             />
             {distinctChannels.map((ch) => (
@@ -1430,7 +1437,10 @@ export function RestaurantSalesExplorer({
                 key={ch}
                 active={filters.channel === ch}
                 label={channelLabel(ch)}
-                count={channelCounts.get(ch)}
+                countLabel={formatChipQuantity(
+                  channelCounts.get(ch) ?? 0,
+                  fmts.locale
+                )}
                 onClick={() =>
                   updateFilter("channel", filters.channel === ch ? null : ch)
                 }
@@ -1440,7 +1450,10 @@ export function RestaurantSalesExplorer({
               <ChannelChip
                 active={filters.channel === NULL_BUCKET}
                 label="Unknown channel"
-                count={channelCounts.get(NULL_BUCKET)}
+                countLabel={formatChipQuantity(
+                  channelCounts.get(NULL_BUCKET) ?? 0,
+                  fmts.locale
+                )}
                 onClick={() =>
                   updateFilter(
                     "channel",
@@ -2159,8 +2172,8 @@ function BreakdownSection({
                   {fmts.int.format(b.revenue)}
                 </p>
                 <p className="text-sm text-muted-foreground mt-1 tabular-nums">
-                  {b.order_count.toLocaleString(fmts.locale)} orders ·{" "}
-                  {b.units.toLocaleString(fmts.locale)} units
+                  {formatCount(b.order_count, fmts.locale)} orders ·{" "}
+                  {formatCount(b.units, fmts.locale)} units
                 </p>
               </CardContent>
             </Card>
@@ -2224,11 +2237,11 @@ function TopItemsCard({
                   <td className="px-4 py-3 text-right tabular-nums">
                     {metricKey === "revenue"
                       ? fmts.dec2.format(r.revenue)
-                      : r.units.toLocaleString(fmts.locale)}
+                      : formatCount(r.units, fmts.locale)}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
                     {metricKey === "revenue"
-                      ? r.units.toLocaleString(fmts.locale)
+                      ? formatCount(r.units, fmts.locale)
                       : fmts.dec2.format(r.revenue)}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
@@ -2292,7 +2305,7 @@ function ItemsTable({
             >
               <td className="px-4 py-3 font-medium">{r.item_name}</td>
               <td className="px-4 py-3 text-right tabular-nums">
-                {r.units.toLocaleString(fmts.locale)}
+                {formatCount(r.units, fmts.locale)}
               </td>
               <td className="px-4 py-3 text-right tabular-nums">
                 {fmts.dec2.format(r.revenue)}

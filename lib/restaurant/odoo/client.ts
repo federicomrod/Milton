@@ -4,8 +4,8 @@
 // access here — credentials are passed in explicitly by the caller (the
 // sync API route), which is the only place that should know where a
 // secret comes from. Keeps this module trivially unit-testable with a
-// mocked fetch. unsafeExecuteKw() is hard-read-only (search_read /
-// search_count only); authenticate() stays on common.authenticate.
+// mocked fetch. unsafeExecuteKw() is hard-read-only (search_read,
+// search_count, fields_get); authenticate() stays on common.authenticate.
 //
 // MULTI-COMPANY SAFETY: unsafeExecuteKw() performs NO company scoping.
 // Only lib/restaurant/odoo/scoped.ts may import it; every route/lib must
@@ -98,7 +98,11 @@ export async function authenticate(creds: OdooCredentials): Promise<number> {
 
 // Hard read-only allowlist: the last line of defense before any execute_kw
 // network I/O. Do not widen. Authenticate stays on common.authenticate.
-const READ_ONLY_METHODS = new Set(["search_read", "search_count"]);
+const READ_ONLY_METHODS = new Set([
+  "search_read",
+  "search_count",
+  "fields_get",
+]);
 
 /**
  * Calls execute_kw on /xmlrpc/2/object with args/kwargs passed through

@@ -16,8 +16,9 @@
 //
 // Only this module may import unsafeExecuteKw from ./client (a content
 // test enforces it). Models must be registered in ODOO_MODEL_COMPANY_POLICY
-// — adding one is a deliberate, reviewed edit. Only search_read and
-// search_count are permitted; Milton makes no writes to Odoo.
+// — adding one is a deliberate, reviewed edit. Only search_read,
+// search_count and fields_get are permitted; Milton makes no writes to Odoo.
+// fields_get is schema introspection (no domain) and does not return records.
 //
 // Design brief: "Odoo multi-company isolation" (r1-pilot).
 
@@ -46,8 +47,8 @@ export type OdooCompanyPolicy =
  * Frozen model registry. A model not listed here is rejected. In Odoo
  * 17/18 pos.order.line.company_id is a stored related field of
  * order_id.company_id (confirm with fields_get — design brief §8.6).
- * "shared_or_company" and "no_company_field" are defined and tested but
- * intentionally have no registered models yet.
+ * product.product is shared_or_company (company_id false = shared catalog).
+ * pos.category and product.category have no company_id.
  */
 export const ODOO_MODEL_COMPANY_POLICY: Readonly<
   Record<string, OdooCompanyPolicy>
@@ -56,9 +57,13 @@ export const ODOO_MODEL_COMPANY_POLICY: Readonly<
   "pos.order.line": "strict",
   "pos.config": "strict",
   "res.company": "self",
+  "pos.payment": "strict",
+  "product.product": "shared_or_company",
+  "pos.category": "no_company_field",
+  "product.category": "no_company_field",
 });
 
-const ALLOWED_METHODS = new Set(["search_read", "search_count"]);
+const ALLOWED_METHODS = new Set(["search_read", "search_count", "fields_get"]);
 const WRITE_METHODS = new Set([
   "create",
   "write",
@@ -157,6 +162,23 @@ export function buildScopedCall(
     }
   }
 
+  const scopedContext: Record<string, XmlRpcValue> = {
+    ...((callerContext as Record<string, XmlRpcValue> | undefined) ?? {}),
+    allowed_company_ids: [...companyIds],
+  };
+
+  // fields_get is introspection: args[0] is an optional list of field
+  // names, not a domain. Do not inject company_id into args.
+  if (method === "fields_get") {
+    return {
+      args: [...args],
+      kwargs: {
+        ...callerKwargs,
+        context: scopedContext,
+      },
+    };
+  }
+
   // 5. Domain injection (prepended: Odoo ANDs top-level terms, so this is
   // correct even when the caller's own domain starts with "|" or "!").
   const callerDomain = args.length > 0 ? args[0] : [];
@@ -191,10 +213,7 @@ export function buildScopedCall(
   // 6. Context injection + always fetch company_id for post-fetch checks.
   const scopedKwargs: Record<string, XmlRpcValue> = {
     ...callerKwargs,
-    context: {
-      ...((callerContext as Record<string, XmlRpcValue> | undefined) ?? {}),
-      allowed_company_ids: [...companyIds],
-    },
+    context: scopedContext,
   };
   if (
     method === "search_read" &&

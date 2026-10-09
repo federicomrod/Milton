@@ -18,9 +18,10 @@
 // SECURITY: Reads use the authenticated user's Supabase client, so Row
 // Level Security applies. We never bypass RLS or use the service role.
 //
-// PERFORMANCE: We cap row reads at MAX_ROWS to avoid pulling unbounded
-// historical data into the page. For the restaurant pilot the per-month
-// row count is small (hundreds, not millions), so this cap is generous.
+// PERFORMANCE: PostgREST silently caps every response at 1,000 rows
+// (`max_rows`). We page with fetchAllRows() so a month of POS lines
+// (this client: ~10k/location) is not truncated to ~$7–8k. A safety cap
+// far above a pilot year still applies; the UI is told when it is hit.
 //
 // FUTURE: When per-tenant currency, date filtering, and pagination land,
 // extend `fetchRealRestaurantDashboardData` to accept a filter object.
@@ -30,8 +31,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { POSSalesItem } from "@/types/restaurant";
-
-const MAX_ROWS = 10_000;
+import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -94,6 +94,8 @@ export type RestaurantDashboardData =
       explorerRows: ExplorerRow[];
       companyId: string;
       rowCount: number;
+      /** True when the paginated read hit the safety cap. */
+      truncated: boolean;
     }
   | {
       mode: "sample";
@@ -395,22 +397,30 @@ export async function fetchRealRestaurantDashboardData(
     return { mode: "sample", reason: "no_company" };
   }
 
-  // 3. Fetch sales rows.
+  // 3. Fetch sales rows (paged; PostgREST caps each response at 1,000).
   let rawRows: PosSalesItemRow[];
+  let truncated = false;
   try {
-    let query = supabase
-      .from("pos_sales_items")
-      .select(POS_SELECT_COLS)
-      .eq("company_id", companyId);
-    if (selectedLocationId) {
-      query = query.eq("location_id", selectedLocationId);
-    }
-    const { data, error } = await query.limit(MAX_ROWS);
-    if (error) {
-      console.error("[supabase-sales] pos_sales_items read failed:", error);
+    const result = await fetchAllRows<PosSalesItemRow>(() => {
+      let query = supabase
+        .from("pos_sales_items")
+        .select(POS_SELECT_COLS)
+        .eq("company_id", companyId);
+      if (selectedLocationId) {
+        query = query.eq("location_id", selectedLocationId);
+      }
+      return query;
+    });
+    if (result.error) {
+      console.error(
+        "[supabase-sales] pos_sales_items read failed:",
+        result.error
+      );
       return { mode: "sample", reason: "supabase_error" };
     }
-    rawRows = (data ?? []) as PosSalesItemRow[];
+    warnIfTruncated("supabase-sales pos_sales_items", result);
+    rawRows = result.rows;
+    truncated = result.truncated;
   } catch (err) {
     console.error("[supabase-sales] pos_sales_items read threw:", err);
     return { mode: "sample", reason: "supabase_error" };
@@ -434,6 +444,7 @@ export async function fetchRealRestaurantDashboardData(
     explorerRows,
     companyId,
     rowCount: rawRows.length,
+    truncated,
   };
 }
 

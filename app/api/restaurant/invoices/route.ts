@@ -23,6 +23,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
 import {
   isInvoiceStatus,
   type SupplierInvoice,
@@ -85,14 +86,17 @@ export async function GET(req: NextRequest) {
     }
   >();
   if (ids.length > 0) {
-    const { data: lines, error: linesErr } = await supabase
-      .from("supplier_invoice_lines")
-      .select("invoice_id, match_status, review_status")
-      .eq("company_id", companyId)
-      .in("invoice_id", ids);
-    if (linesErr) {
-      console.error("[invoices GET] line counts:", linesErr.message);
+    const linesRes = await fetchAllRows<LineRow>(() =>
+      supabase
+        .from("supplier_invoice_lines")
+        .select("invoice_id, match_status, review_status")
+        .eq("company_id", companyId)
+        .in("invoice_id", ids)
+    );
+    if (linesRes.error) {
+      console.error("[invoices GET] line counts:", linesRes.error.message);
     } else {
+      warnIfTruncated("invoices GET line counts", linesRes);
       linesByInvoice = new Map();
       for (const id of ids) {
         linesByInvoice.set(id, {
@@ -103,7 +107,7 @@ export async function GET(req: NextRequest) {
           pending: 0,
         });
       }
-      for (const l of (lines ?? []) as LineRow[]) {
+      for (const l of linesRes.rows) {
         const bucket = linesByInvoice.get(l.invoice_id);
         if (!bucket) continue;
         bucket.total++;

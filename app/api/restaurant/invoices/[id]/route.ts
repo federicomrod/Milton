@@ -7,6 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
 import type {
   SupplierInvoice,
   SupplierInvoiceLine,
@@ -38,12 +39,13 @@ export async function GET(
       .eq("company_id", companyId)
       .eq("id", id)
       .maybeSingle(),
-    supabase
-      .from("supplier_invoice_lines")
-      .select(LINE_SELECT)
-      .eq("company_id", companyId)
-      .eq("invoice_id", id)
-      .order("created_at", { ascending: true }),
+    fetchAllRows<SupplierInvoiceLine>(() =>
+      supabase
+        .from("supplier_invoice_lines")
+        .select(LINE_SELECT)
+        .eq("company_id", companyId)
+        .eq("invoice_id", id)
+    ),
     supabase
       .from("invoice_events")
       .select(
@@ -53,11 +55,16 @@ export async function GET(
       .eq("invoice_id", id)
       .order("created_at", { ascending: true })
       .limit(200),
-    supabase
-      .from("ingredients")
-      .select("id, name, default_unit")
-      .eq("company_id", companyId)
-      .order("name", { ascending: true }),
+    fetchAllRows<{
+      id: string;
+      name: string;
+      default_unit: string | null;
+    }>(() =>
+      supabase
+        .from("ingredients")
+        .select("id, name, default_unit")
+        .eq("company_id", companyId)
+    ),
   ]);
 
   if (invRes.error) {
@@ -69,6 +76,13 @@ export async function GET(
   if (!invRes.data) {
     return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
   }
+  if (lineRes.error) {
+    return NextResponse.json(
+      { error: "Invoice lines lookup failed", details: lineRes.error.message },
+      { status: 500 }
+    );
+  }
+  warnIfTruncated("invoice detail lines", lineRes);
   const invoice = invRes.data as SupplierInvoice;
 
   let supplierName: string | null = null;
@@ -84,12 +98,10 @@ export async function GET(
 
   return NextResponse.json({
     invoice: { ...invoice, supplier_name: supplierName },
-    lines: (lineRes.data ?? []) as SupplierInvoiceLine[],
+    lines: [...lineRes.rows].sort((a, b) =>
+      a.created_at.localeCompare(b.created_at)
+    ),
     events: (evtRes.data ?? []) as InvoiceEvent[],
-    ingredients: (ingRes.data ?? []) as {
-      id: string;
-      name: string;
-      default_unit: string | null;
-    }[],
+    ingredients: [...ingRes.rows].sort((a, b) => a.name.localeCompare(b.name)),
   });
 }

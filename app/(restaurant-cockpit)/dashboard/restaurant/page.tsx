@@ -55,6 +55,7 @@ import {
   fetchProfitabilityData,
   type ProfitabilityData,
 } from "@/lib/restaurant/profitability-server";
+import { PAGINATED_READ_SAFETY_CAP } from "@/lib/restaurant/paginated-read";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import {
   ProfitabilityKpisSection,
@@ -307,6 +308,17 @@ function LiveRestaurantView({
               {data.rowCount === 1 ? "" : "s"} loaded from Supabase. Items with
               missing recipes or unit mismatches are flagged rather than
               estimated.
+            </span>
+          </div>
+        )}
+
+        {(data.truncated || profitability?.truncated) && (
+          <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              Totals may be incomplete. This view stopped after{" "}
+              {PAGINATED_READ_SAFETY_CAP.toLocaleString("en-US")} rows (safety
+              cap). Shown KPIs are partial.
             </span>
           </div>
         )}

@@ -31,6 +31,7 @@ import {
   buildScopedNameIndex,
   resolveScopedName,
 } from "@/lib/restaurant/scoped-matching";
+import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -133,6 +134,8 @@ export interface ProfitabilityData {
   /** Total spend across all cost entries — used by the supplier-spend chart. */
   total_supplier_spend: number;
   setupCounts: SetupCounts;
+  /** True when any paged fact-table read hit the safety cap. */
+  truncated: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,22 +194,30 @@ export async function fetchProfitabilityData(
   companyId: string,
   selected?: ProfitabilitySelection | null
 ): Promise<ProfitabilityData> {
-  const posSalesQuery = supabase
-    .from("pos_sales_items")
-    .select(
-      "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id"
-    )
-    .eq("company_id", companyId);
-  if (selected) {
-    posSalesQuery.eq("location_id", selected.locationId);
-  }
+  type PosRow = {
+    raw_item_name: string | null;
+    quantity: number | null;
+    gross_revenue: number | null;
+    net_revenue: number | null;
+    currency: string | null;
+    location_id: string | null;
+  };
+  type MappingRow = {
+    raw_pos_item_name: string;
+    menu_item_id: string;
+    location_id: string | null;
+  };
+  type MenuItemRow = {
+    id: string;
+    name: string;
+    category: string | null;
+    selling_price: number | null;
+    currency: string | null;
+    brand_id: string | null;
+  };
+
   // menu_items is intentionally fetched unfiltered and scoped in-memory via
   // filterMenuItemsForSelection below — see that function's docstring.
-  const menuItemsQuery = supabase
-    .from("menu_items")
-    .select("id, name, category, selling_price, currency, brand_id")
-    .eq("company_id", companyId);
-
   const [
     posRes,
     mappingsRes,
@@ -223,58 +234,123 @@ export async function fetchProfitabilityData(
     supplierInvoicesCountRes,
     agentRunsCountRes,
   ] = await Promise.all([
-    posSalesQuery.limit(20_000),
+    fetchAllRows<PosRow>(() => {
+      let q = supabase
+        .from("pos_sales_items")
+        .select(
+          "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id"
+        )
+        .eq("company_id", companyId);
+      if (selected) {
+        q = q.eq("location_id", selected.locationId);
+      }
+      return q;
+    }),
     // Intentionally NOT filtered by location: resolveScopedName below
     // already applies the correct exact-scope-then-company-wide-fallback
     // precedence per POS row once pos_sales_items itself is location-
     // filtered. Pre-filtering this query would break that fallback for
     // legacy/unscoped mappings.
-    supabase
-      .from("pos_item_mappings")
-      .select("raw_pos_item_name, menu_item_id, location_id")
-      .eq("company_id", companyId),
-    menuItemsQuery,
-    supabase
-      .from("recipes")
-      .select("id, menu_item_id, status")
-      .eq("company_id", companyId),
-    supabase
-      .from("menu_recipe_inputs")
-      .select(
-        "id, recipe_id, input_type, ingredient_id, component_id, quantity, unit"
-      )
-      .eq("company_id", companyId),
-    supabase
-      .from("prepared_components")
-      .select(
-        "id, company_id, name, category, output_unit, status, notes, created_at, updated_at"
-      )
-      .eq("company_id", companyId),
-    supabase
-      .from("component_recipes")
-      .select("id, component_id, output_quantity, output_unit, status")
-      .eq("company_id", companyId),
-    supabase
-      .from("component_recipe_inputs")
-      .select(
-        "id, component_recipe_id, input_type, ingredient_id, component_id, quantity, unit"
-      )
-      .eq("company_id", companyId),
-    supabase
-      .from("ingredients")
-      .select("id, name, default_unit")
-      .eq("company_id", companyId),
-    supabase
-      .from("ingredient_cost_entries")
-      .select(
-        "id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
-      )
-      .eq("company_id", companyId),
-    supabase.from("suppliers").select("id, name").eq("company_id", companyId),
-    supabase
-      .from("supplier_ingredients")
-      .select("supplier_id, ingredient_id")
-      .eq("company_id", companyId),
+    fetchAllRows<MappingRow>(() =>
+      supabase
+        .from("pos_item_mappings")
+        .select("raw_pos_item_name, menu_item_id, location_id")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<MenuItemRow>(() =>
+      supabase
+        .from("menu_items")
+        .select("id, name, category, selling_price, currency, brand_id")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{ id: string; menu_item_id: string; status: string | null }>(
+      () =>
+        supabase
+          .from("recipes")
+          .select("id, menu_item_id, status")
+          .eq("company_id", companyId)
+    ),
+    fetchAllRows<{
+      id: string;
+      recipe_id: string;
+      input_type: "ingredient" | "component";
+      ingredient_id: string | null;
+      component_id: string | null;
+      quantity: number;
+      unit: string;
+    }>(() =>
+      supabase
+        .from("menu_recipe_inputs")
+        .select(
+          "id, recipe_id, input_type, ingredient_id, component_id, quantity, unit"
+        )
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{
+      id: string;
+      name: string;
+      status: string | null;
+      output_unit: string | null;
+    }>(() =>
+      supabase
+        .from("prepared_components")
+        .select(
+          "id, company_id, name, category, output_unit, status, notes, created_at, updated_at"
+        )
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{
+      id: string;
+      component_id: string;
+      output_quantity: number;
+      output_unit: string;
+      status: string | null;
+    }>(() =>
+      supabase
+        .from("component_recipes")
+        .select("id, component_id, output_quantity, output_unit, status")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{
+      id: string;
+      component_recipe_id: string;
+      input_type: "ingredient" | "component";
+      ingredient_id: string | null;
+      component_id: string | null;
+      quantity: number;
+      unit: string;
+    }>(() =>
+      supabase
+        .from("component_recipe_inputs")
+        .select(
+          "id, component_recipe_id, input_type, ingredient_id, component_id, quantity, unit"
+        )
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{ id: string; name: string; default_unit: string | null }>(
+      () =>
+        supabase
+          .from("ingredients")
+          .select("id, name, default_unit")
+          .eq("company_id", companyId)
+    ),
+    fetchAllRows<IngredientCostEntry>(() =>
+      supabase
+        .from("ingredient_cost_entries")
+        .select(
+          "id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
+        )
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{ id: string; name: string }>(() =>
+      supabase.from("suppliers").select("id, name").eq("company_id", companyId)
+    ),
+    fetchAllRows<{ supplier_id: string; ingredient_id: string }>(() =>
+      supabase
+        .from("supplier_ingredients")
+        .select("supplier_id, ingredient_id")
+        .eq("company_id", companyId)
+    ),
     // Lightweight count-only queries for the setup checklist.
     supabase
       .from("supplier_invoices")
@@ -303,66 +379,26 @@ export async function fetchProfitabilityData(
   errLog("supplier_ingredients", supplierIngredientsRes.error);
   errLog("supplier_invoices_count", supplierInvoicesCountRes.error);
   errLog("agent_runs_count", agentRunsCountRes.error);
+  warnIfTruncated("profitability pos_sales_items", posRes);
+  warnIfTruncated("profitability pos_item_mappings", mappingsRes);
+  warnIfTruncated("profitability menu_recipe_inputs", recipeInputsRes);
+  warnIfTruncated("profitability ingredient_cost_entries", costEntriesRes);
+  warnIfTruncated(
+    "profitability component_recipe_inputs",
+    componentRecipeInputsRes
+  );
 
   // ----- Costing engine setup -----
-  const menuItems = filterMenuItemsForSelection(
-    (menuItemsRes.data ?? []) as {
-      id: string;
-      name: string;
-      category: string | null;
-      selling_price: number | null;
-      currency: string | null;
-      brand_id: string | null;
-    }[],
-    selected
-  );
-  const recipes = (recipesRes.data ?? []) as {
-    id: string;
-    menu_item_id: string;
-    status: string | null;
-  }[];
-  const recipeInputs = (recipeInputsRes.data ?? []) as {
-    id: string;
-    recipe_id: string;
-    input_type: "ingredient" | "component";
-    ingredient_id: string | null;
-    component_id: string | null;
-    quantity: number;
-    unit: string;
-  }[];
-  const components = (componentsRes.data ?? []) as {
-    id: string;
-    name: string;
-    status: string | null;
-    output_unit: string | null;
-  }[];
-  const componentRecipes = (componentRecipesRes.data ?? []) as {
-    id: string;
-    component_id: string;
-    output_quantity: number;
-    output_unit: string;
-    status: string | null;
-  }[];
-  const componentRecipeInputs = (componentRecipeInputsRes.data ?? []) as {
-    id: string;
-    component_recipe_id: string;
-    input_type: "ingredient" | "component";
-    ingredient_id: string | null;
-    component_id: string | null;
-    quantity: number;
-    unit: string;
-  }[];
-  const ingredients = (ingredientsRes.data ?? []) as {
-    id: string;
-    name: string;
-    default_unit: string | null;
-  }[];
-  const costEntries = (costEntriesRes.data ?? []) as IngredientCostEntry[];
-  const suppliers = (suppliersRes.data ?? []) as { id: string; name: string }[];
-  const supplierLinks = (supplierIngredientsRes.data ?? []) as {
-    supplier_id: string;
-    ingredient_id: string;
-  }[];
+  const menuItems = filterMenuItemsForSelection(menuItemsRes.rows, selected);
+  const recipes = recipesRes.rows;
+  const recipeInputs = recipeInputsRes.rows;
+  const components = componentsRes.rows;
+  const componentRecipes = componentRecipesRes.rows;
+  const componentRecipeInputs = componentRecipeInputsRes.rows;
+  const ingredients = ingredientsRes.rows;
+  const costEntries = costEntriesRes.rows;
+  const suppliers = suppliersRes.rows;
+  const supplierLinks = supplierIngredientsRes.rows;
 
   // Index for the engine.
   const menuInputsByRecipeId = new Map<string, CostingRecipeInput[]>();
@@ -441,11 +477,7 @@ export async function fetchProfitabilityData(
   // takes precedence; a company-wide (location_id NULL) mapping is the
   // fallback for legacy/unscoped rows. Same precedence rule as ingest-time
   // menu-item matching — see lib/restaurant/scoped-matching.ts.
-  const mappings = (mappingsRes.data ?? []) as {
-    raw_pos_item_name: string;
-    menu_item_id: string;
-    location_id: string | null;
-  }[];
+  const mappings = mappingsRes.rows;
   const mappingIndex = buildScopedNameIndex(
     mappings.map((m) => ({
       id: m.menu_item_id,
@@ -465,14 +497,7 @@ export async function fetchProfitabilityData(
   let revenueTotal = 0;
   let firstCurrency: string | null = null;
 
-  const posRows = (posRes.data ?? []) as {
-    raw_item_name: string | null;
-    quantity: number | null;
-    gross_revenue: number | null;
-    net_revenue: number | null;
-    currency: string | null;
-    location_id: string | null;
-  }[];
+  const posRows = posRes.rows;
   for (const r of posRows) {
     const raw = (r.raw_item_name ?? "").trim();
     if (!raw) continue;
@@ -745,5 +770,18 @@ export async function fetchProfitabilityData(
     dataQuality,
     total_supplier_spend: totalSupplierSpend,
     setupCounts,
+    truncated:
+      posRes.truncated ||
+      mappingsRes.truncated ||
+      menuItemsRes.truncated ||
+      recipesRes.truncated ||
+      recipeInputsRes.truncated ||
+      componentsRes.truncated ||
+      componentRecipesRes.truncated ||
+      componentRecipeInputsRes.truncated ||
+      ingredientsRes.truncated ||
+      costEntriesRes.truncated ||
+      suppliersRes.truncated ||
+      supplierIngredientsRes.truncated,
   };
 }

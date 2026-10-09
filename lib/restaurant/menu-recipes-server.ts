@@ -24,6 +24,7 @@ import {
   calculateAllMenuItemCosts,
   getLatestIngredientCost,
 } from "@/lib/restaurant/costing";
+import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -188,64 +189,104 @@ export async function fetchMenuRecipesData(
     ingredientsRes,
     costEntriesRes,
   ] = await Promise.all([
-    supabase
-      .from("pos_sales_items")
-      .select(
-        "raw_item_name, quantity, gross_revenue, net_revenue, order_id, check_id, currency"
-      )
-      .eq("company_id", companyId)
-      .limit(20_000),
-    supabase
-      .from("pos_item_mappings")
-      .select("raw_pos_item_name, menu_item_id")
-      .eq("company_id", companyId),
-    supabase
-      .from("menu_items")
-      .select("id, name, category, selling_price, currency, status, is_live")
-      .eq("company_id", companyId)
-      .order("name", { ascending: true }),
-    supabase
-      .from("recipes")
-      .select("id, menu_item_id, status")
-      .eq("company_id", companyId),
+    fetchAllRows<PosRow>(() =>
+      supabase
+        .from("pos_sales_items")
+        .select(
+          "raw_item_name, quantity, gross_revenue, net_revenue, order_id, check_id, currency"
+        )
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<MappingRow>(() =>
+      supabase
+        .from("pos_item_mappings")
+        .select("raw_pos_item_name, menu_item_id")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<MenuItemRow>(() =>
+      supabase
+        .from("menu_items")
+        .select("id, name, category, selling_price, currency, status, is_live")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<RecipeRow>(() =>
+      supabase
+        .from("recipes")
+        .select("id, menu_item_id, status")
+        .eq("company_id", companyId)
+    ),
     // Full input rows — quantities/units are required for cost math.
-    supabase
-      .from("menu_recipe_inputs")
-      .select(
-        "id, recipe_id, input_type, ingredient_id, component_id, quantity, unit"
-      )
-      .eq("company_id", companyId),
-    supabase
-      .from("prepared_components")
-      .select(
-        "id, company_id, name, category, output_unit, status, notes, created_at, updated_at"
-      )
-      .eq("company_id", companyId)
-      .order("name", { ascending: true }),
+    fetchAllRows<{
+      id: string;
+      recipe_id: string;
+      input_type: "ingredient" | "component";
+      ingredient_id: string | null;
+      component_id: string | null;
+      quantity: number;
+      unit: string;
+    }>(() =>
+      supabase
+        .from("menu_recipe_inputs")
+        .select(
+          "id, recipe_id, input_type, ingredient_id, component_id, quantity, unit"
+        )
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<PreparedComponent>(() =>
+      supabase
+        .from("prepared_components")
+        .select(
+          "id, company_id, name, category, output_unit, status, notes, created_at, updated_at"
+        )
+        .eq("company_id", companyId)
+    ),
     // Need full component_recipes for output_quantity/output_unit/status.
-    supabase
-      .from("component_recipes")
-      .select("id, component_id, output_quantity, output_unit, status")
-      .eq("company_id", companyId),
-    supabase
-      .from("component_recipe_inputs")
-      .select(
-        "id, component_recipe_id, input_type, ingredient_id, component_id, quantity, unit"
-      )
-      .eq("company_id", companyId),
-    supabase
-      .from("ingredients")
-      .select("id, name, default_unit")
-      .eq("company_id", companyId),
+    fetchAllRows<{
+      id: string;
+      component_id: string;
+      output_quantity: number;
+      output_unit: string;
+      status: string | null;
+    }>(() =>
+      supabase
+        .from("component_recipes")
+        .select("id, component_id, output_quantity, output_unit, status")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{
+      id: string;
+      component_recipe_id: string;
+      input_type: "ingredient" | "component";
+      ingredient_id: string | null;
+      component_id: string | null;
+      quantity: number;
+      unit: string;
+    }>(() =>
+      supabase
+        .from("component_recipe_inputs")
+        .select(
+          "id, component_recipe_id, input_type, ingredient_id, component_id, quantity, unit"
+        )
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{ id: string; name: string; default_unit: string | null }>(
+      () =>
+        supabase
+          .from("ingredients")
+          .select("id, name, default_unit")
+          .eq("company_id", companyId)
+    ),
     // Cost entries — only the normalized projection is used by the
     // engine, but we pull source_type/cost_date/currency so the
     // ingredients page can show provenance.
-    supabase
-      .from("ingredient_cost_entries")
-      .select(
-        "id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
-      )
-      .eq("company_id", companyId),
+    fetchAllRows<IngredientCostEntry>(() =>
+      supabase
+        .from("ingredient_cost_entries")
+        .select(
+          "id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
+        )
+        .eq("company_id", companyId)
+    ),
   ]);
 
   // Soft-fail on individual table errors. A missing table (migration not
@@ -289,43 +330,25 @@ export async function fetchMenuRecipesData(
       costEntriesRes.error.message
     );
 
-  const posRows: PosRow[] = (posRes.data ?? []) as PosRow[];
-  const mappings: MappingRow[] = (mappingsRes.data ?? []) as MappingRow[];
-  const menuItems: MenuItemRow[] = (menuItemsRes.data ?? []) as MenuItemRow[];
-  const recipes: RecipeRow[] = (recipesRes.data ?? []) as RecipeRow[];
+  warnIfTruncated("menu-recipes pos_sales_items", posRes);
+  warnIfTruncated("menu-recipes menu_recipe_inputs", recipeInputsRes);
+  warnIfTruncated("menu-recipes ingredient_cost_entries", costEntriesRes);
+
+  const posRows: PosRow[] = posRes.rows;
+  const mappings: MappingRow[] = mappingsRes.rows;
+  const menuItems: MenuItemRow[] = [...menuItemsRes.rows].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+  const recipes: RecipeRow[] = recipesRes.rows;
   // Now the FULL input rows — quantity/unit/input_type/ingredient_id/component_id.
-  const recipeInputs = (recipeInputsRes.data ?? []) as {
-    id: string;
-    recipe_id: string;
-    input_type: "ingredient" | "component";
-    ingredient_id: string | null;
-    component_id: string | null;
-    quantity: number;
-    unit: string;
-  }[];
-  const components = (componentsRes.data ?? []) as PreparedComponent[];
-  const componentRecipes = (componentRecipesRes.data ?? []) as {
-    id: string;
-    component_id: string;
-    output_quantity: number;
-    output_unit: string;
-    status: string | null;
-  }[];
-  const componentRecipeInputs = (componentRecipeInputsRes.data ?? []) as {
-    id: string;
-    component_recipe_id: string;
-    input_type: "ingredient" | "component";
-    ingredient_id: string | null;
-    component_id: string | null;
-    quantity: number;
-    unit: string;
-  }[];
-  const ingredients = (ingredientsRes.data ?? []) as {
-    id: string;
-    name: string;
-    default_unit: string | null;
-  }[];
-  const costEntries = (costEntriesRes.data ?? []) as IngredientCostEntry[];
+  const recipeInputs = recipeInputsRes.rows;
+  const components = [...componentsRes.rows].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+  const componentRecipes = componentRecipesRes.rows;
+  const componentRecipeInputs = componentRecipeInputsRes.rows;
+  const ingredients = ingredientsRes.rows;
+  const costEntries = costEntriesRes.rows;
 
   // ---- Unmatched POS aggregation -----------------------------------------
   const mappedNames = new Set(mappings.map((m) => m.raw_pos_item_name));
@@ -588,18 +611,28 @@ export async function fetchIngredientLatestCosts(
   companyId: string
 ): Promise<IngredientLatestCostRow[]> {
   const [ingredientsRes, entriesRes, suppliersRes] = await Promise.all([
-    supabase
-      .from("ingredients")
-      .select("id, name, category, default_unit")
-      .eq("company_id", companyId)
-      .order("name", { ascending: true }),
-    supabase
-      .from("ingredient_cost_entries")
-      .select(
-        "id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
-      )
-      .eq("company_id", companyId),
-    supabase.from("suppliers").select("id, name").eq("company_id", companyId),
+    fetchAllRows<{
+      id: string;
+      name: string;
+      category: string | null;
+      default_unit: string | null;
+    }>(() =>
+      supabase
+        .from("ingredients")
+        .select("id, name, category, default_unit")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<IngredientCostEntry>(() =>
+      supabase
+        .from("ingredient_cost_entries")
+        .select(
+          "id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
+        )
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{ id: string; name: string }>(() =>
+      supabase.from("suppliers").select("id, name").eq("company_id", companyId)
+    ),
   ]);
   if (ingredientsRes.error) {
     console.error(
@@ -608,12 +641,10 @@ export async function fetchIngredientLatestCosts(
     );
     return [];
   }
-  const entries = (entriesRes.data ?? []) as IngredientCostEntry[];
+  warnIfTruncated("ingredient-latest-costs entries", entriesRes);
+  const entries = entriesRes.rows;
   const supplierNameById = new Map<string, string>(
-    ((suppliersRes.data ?? []) as { id: string; name: string }[]).map((s) => [
-      s.id,
-      s.name,
-    ])
+    suppliersRes.rows.map((s) => [s.id, s.name])
   );
   const byIngredient = new Map<string, IngredientCostEntry[]>();
   for (const e of entries) {
@@ -631,12 +662,9 @@ export async function fetchIngredientLatestCosts(
     menuRecipeInputsByRecipeId: new Map(),
     costEntriesByIngredientId: byIngredient,
   };
-  const ingredients = (ingredientsRes.data ?? []) as {
-    id: string;
-    name: string;
-    category: string | null;
-    default_unit: string | null;
-  }[];
+  const ingredients = [...ingredientsRes.rows].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
   return ingredients.map((ing) => {
     const latest = getLatestIngredientCost(ing.id, fakeData);
     const list = byIngredient.get(ing.id) ?? [];

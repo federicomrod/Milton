@@ -149,16 +149,13 @@ describe("fetchProfitabilityData — PostgREST 1,000-row cap", () => {
 
   it("a failed POS page does not become a smaller revenue_total", async () => {
     const data = await fetchProfitabilityData(
-      makeClient(
-        {},
-        [
-          {
-            table: "pos_sales_items",
-            from: POSTGREST_MAX_ROWS,
-            message: "pos page 2 failed",
-          },
-        ]
-      ),
+      makeClient({}, [
+        {
+          table: "pos_sales_items",
+          from: POSTGREST_MAX_ROWS,
+          message: "pos page 2 failed",
+        },
+      ]),
       COMPANY_ID
     );
     expect(data.readError).toBe(true);
@@ -171,16 +168,13 @@ describe("fetchProfitabilityData — PostgREST 1,000-row cap", () => {
 describe("fetchMenuRecipesData — failed page is not a partial unmatched list", () => {
   it("surfaces the error instead of using the first 1,000 POS rows", async () => {
     const data = await fetchMenuRecipesData(
-      makeClient(
-        {},
-        [
-          {
-            table: "pos_sales_items",
-            from: POSTGREST_MAX_ROWS,
-            message: "pos page 2 failed",
-          },
-        ]
-      ),
+      makeClient({}, [
+        {
+          table: "pos_sales_items",
+          from: POSTGREST_MAX_ROWS,
+          message: "pos page 2 failed",
+        },
+      ]),
       COMPANY_ID
     );
     expect(data.readError).toBe(true);
@@ -193,6 +187,7 @@ describe("buildAskMiltonContext — failed page is not a partial cost snapshot",
   it("surfaces the error instead of using the first 1,000 cost entries", async () => {
     const ingredients = Array.from({ length: 5 }, (_, i) => ({
       id: `ing-${i}`,
+      company_id: COMPANY_ID,
       name: `Ingredient ${i}`,
       category: "produce",
       default_unit: "kg",
@@ -202,6 +197,7 @@ describe("buildAskMiltonContext — failed page is not a partial cost snapshot",
     }));
     const costEntries = Array.from({ length: TOTAL_ROWS }, (_, i) => ({
       id: `ce-${String(i).padStart(5, "0")}`,
+      company_id: COMPANY_ID,
       ingredient_id: ingredients[i % ingredients.length].id,
       supplier_id: null,
       source_type: "manual",
@@ -218,16 +214,13 @@ describe("buildAskMiltonContext — failed page is not a partial cost snapshot",
       notes: null,
     }));
     const ctx = await buildAskMiltonContext(
-      makeClient(
-        { ingredients, ingredient_cost_entries: costEntries },
-        [
-          {
-            table: "ingredient_cost_entries",
-            from: POSTGREST_MAX_ROWS,
-            message: "cost entries page 2 failed",
-          },
-        ]
-      ),
+      makeClient({ ingredients, ingredient_cost_entries: costEntries }, [
+        {
+          table: "ingredient_cost_entries",
+          from: POSTGREST_MAX_ROWS,
+          message: "cost entries page 2 failed",
+        },
+      ]),
       COMPANY_ID
     );
     expect(ctx.read_errors).toContain("ingredient_cost_entries");
@@ -238,16 +231,13 @@ describe("buildAskMiltonContext — failed page is not a partial cost snapshot",
 describe("fetchRealRestaurantDashboardData — failed page is sample, not a live partial", () => {
   it("falls back to sample mode when a POS page fails", async () => {
     const data = await fetchRealRestaurantDashboardData(
-      makeClient(
-        {},
-        [
-          {
-            table: "pos_sales_items",
-            from: POSTGREST_MAX_ROWS,
-            message: "pos page 2 failed",
-          },
-        ]
-      )
+      makeClient({}, [
+        {
+          table: "pos_sales_items",
+          from: POSTGREST_MAX_ROWS,
+          message: "pos page 2 failed",
+        },
+      ])
     );
     expect(data.mode).toBe("sample");
     if (data.mode !== "sample") return;

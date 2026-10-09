@@ -88,10 +88,7 @@ export async function GET(
   }
   warnIfTruncated("invoice detail lines", lineRes);
   if (ingRes.error) {
-    console.error(
-      "[invoice detail] ingredients:",
-      ingRes.error.message
-    );
+    console.error("[invoice detail] ingredients:", ingRes.error.message);
   }
   const invoice = invRes.data as SupplierInvoice;
 

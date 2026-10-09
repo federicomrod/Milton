@@ -317,8 +317,7 @@ function LiveRestaurantView({
             <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
             <span>
               Could not load all sales rows. Totals are unavailable — they are
-              not a smaller number from a partial read. Try refreshing the
-              page.
+              not a smaller number from a partial read. Try refreshing the page.
             </span>
           </div>
         )}

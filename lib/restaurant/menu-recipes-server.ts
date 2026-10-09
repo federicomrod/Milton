@@ -606,15 +606,15 @@ export async function fetchMenuRecipesData(
     currency: currencyHint,
     readError: Boolean(
       posRes.error ||
-        mappingsRes.error ||
-        menuItemsRes.error ||
-        recipesRes.error ||
-        recipeInputsRes.error ||
-        componentsRes.error ||
-        componentRecipesRes.error ||
-        componentRecipeInputsRes.error ||
-        ingredientsRes.error ||
-        costEntriesRes.error
+      mappingsRes.error ||
+      menuItemsRes.error ||
+      recipesRes.error ||
+      recipeInputsRes.error ||
+      componentsRes.error ||
+      componentRecipesRes.error ||
+      componentRecipeInputsRes.error ||
+      ingredientsRes.error ||
+      costEntriesRes.error
     ),
   };
 }

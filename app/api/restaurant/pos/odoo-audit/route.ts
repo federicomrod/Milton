@@ -72,19 +72,29 @@ function odooFaultDetails(statusClass: string): string {
 
 const PAGE_SIZE = 1000;
 
+function emptyLiveDimensionReport(notes: string[]): LiveOdooDimensionReport {
+  return {
+    available_fields: {
+      "pos.order": [],
+      "pos.payment": null,
+      "product.product": null,
+    },
+    by_odoo_company: [],
+    multi_payment_rule:
+      "Largest summed pos.payment amount per method name wins; Mixed on a tie",
+    notes,
+    call_count: 0,
+  };
+}
+
 async function fetchLiveDimensions(
   creds: OdooCredentials,
   uid: number,
-  selectedIds: number[] | null | undefined,
+  selectedIds: number[],
   range: { start_date: string; end_date: string }
 ): Promise<LiveOdooDimensionReport> {
-  let scope: OdooScope;
-  if (selectedIds && selectedIds.length > 0) {
-    scope = assertOdooScope(selectedIds);
-  } else {
-    const { companies } = await discoverOdooCompanies(creds, uid);
-    scope = assertOdooScope(companies.map((c) => c.id));
-  }
+  // Fail closed: no selected companies → no live Odoo read.
+  const scope: OdooScope = assertOdooScope(selectedIds);
 
   const scopedCall: ScopedOdooCall = async (model, method, args, kwargs) => {
     const result = await scopedExecuteKw(
@@ -147,7 +157,10 @@ async function fetchLiveDimensions(
   const orderIds = orders
     .map((o) => o.id)
     .filter((id): id is number => typeof id === "number");
-  const lineProductByOrderId = new Map<number, number[]>();
+  const lineItemsByOrderId = new Map<
+    number,
+    Array<{ productId: number; amount: number }>
+  >();
   const productIds: number[] = [];
   if (orderIds.length > 0) {
     for (const chunk of chunkIds(orderIds)) {
@@ -155,7 +168,15 @@ async function fetchLiveDimensions(
         "pos.order.line",
         "search_read",
         [[["order_id", "in", chunk]]],
-        { fields: ["id", "order_id", "product_id", "company_id"] }
+        {
+          fields: [
+            "id",
+            "order_id",
+            "product_id",
+            "company_id",
+            "price_subtotal_incl",
+          ],
+        }
       );
       if (!Array.isArray(lines)) continue;
       for (const line of lines as Record<string, unknown>[]) {
@@ -167,9 +188,14 @@ async function fetchLiveDimensions(
           : null;
         if (orderId === null || productId === null) continue;
         productIds.push(productId);
-        const list = lineProductByOrderId.get(orderId) ?? [];
-        list.push(productId);
-        lineProductByOrderId.set(orderId, list);
+        const lineAmount =
+          typeof line.price_subtotal_incl === "number" &&
+          Number.isFinite(line.price_subtotal_incl)
+            ? line.price_subtotal_incl
+            : 0;
+        const list = lineItemsByOrderId.get(orderId) ?? [];
+        list.push({ productId, amount: lineAmount });
+        lineItemsByOrderId.set(orderId, list);
       }
     }
   }
@@ -186,7 +212,7 @@ async function fetchLiveDimensions(
     paymentByOrderId: dimensions.lookups.paymentByOrderId,
     categoryByProductId: dimensions.lookups.categoryByProductId,
     posCategories: dimensions.posCategories,
-    lineProductByOrderId,
+    lineItemsByOrderId,
     notes: dimensions.notes,
     callCount: dimensions.callCount,
   });
@@ -286,29 +312,25 @@ export async function GET(req: NextRequest) {
 
     let odooDimensions: LiveOdooDimensionReport | null = null;
     if (range) {
-      try {
-        odooDimensions = await fetchLiveDimensions(
-          creds,
-          uid,
-          conn.odoo_company_ids,
-          range
-        );
-      } catch (err) {
-        logOdooFault("[Odoo Audit] live dimension fetch failed:", err);
-        odooDimensions = {
-          available_fields: {
-            "pos.order": [],
-            "pos.payment": null,
-            "product.product": null,
-          },
-          by_odoo_company: [],
-          multi_payment_rule:
-            "Largest summed pos.payment amount per method name wins; Mixed on a tie",
-          notes: [
+      const selectedIds = conn.odoo_company_ids;
+      if (!Array.isArray(selectedIds) || selectedIds.length === 0) {
+        odooDimensions = emptyLiveDimensionReport([
+          "Live Odoo dimension fetch skipped: no Odoo companies selected (fail closed)",
+        ]);
+      } else {
+        try {
+          odooDimensions = await fetchLiveDimensions(
+            creds,
+            uid,
+            selectedIds,
+            range
+          );
+        } catch (err) {
+          logOdooFault("[Odoo Audit] live dimension fetch failed:", err);
+          odooDimensions = emptyLiveDimensionReport([
             "Live Odoo dimension fetch failed; stored row audit is still valid",
-          ],
-          call_count: 0,
-        };
+          ]);
+        }
       }
     }
 

@@ -111,6 +111,21 @@ describe("single Odoo network path", () => {
   });
 });
 
+describe("odoo-audit live dimension scope", () => {
+  const src = read("app/api/restaurant/pos/odoo-audit/route.ts");
+
+  it("fails closed when odoo_company_ids is empty (no discover fallback)", () => {
+    const fnStart = src.indexOf("async function fetchLiveDimensions");
+    const fnEnd = src.indexOf("export async function GET");
+    expect(fnStart).toBeGreaterThan(-1);
+    expect(fnEnd).toBeGreaterThan(fnStart);
+    const fn = src.slice(fnStart, fnEnd);
+    expect(fn).toContain("assertOdooScope(selectedIds)");
+    expect(fn).not.toContain("discoverOdooCompanies");
+    expect(src).toContain("no Odoo companies selected (fail closed)");
+  });
+});
+
 describe("read-only paths", () => {
   it("the audit route performs no writes", () => {
     const src = read("app/api/restaurant/pos/odoo-audit/route.ts");

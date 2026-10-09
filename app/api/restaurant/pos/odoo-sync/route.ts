@@ -41,11 +41,11 @@ import {
   ODOO_COMPLETED_STATES,
   type OdooPosOrderRaw,
   type OdooPosOrderLineRaw,
-  type CanonicalOdooSaleRow,
 } from "@/lib/restaurant/odoo/sync";
 import {
   loadOdooDimensions,
   optionalOrderFields,
+  stripFailedDimensionFields,
   type ScopedOdooCall,
 } from "@/lib/restaurant/odoo/dimension-fetch";
 import {
@@ -615,9 +615,12 @@ export async function POST(req: NextRequest) {
     // --- Upsert (idempotent on company_id, pos_source, external_line_id) --
     let upserted = 0;
     for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
-      const batch: CanonicalOdooSaleRow[] = rows.slice(
-        i,
-        i + UPSERT_BATCH_SIZE
+      const batch = rows.slice(i, i + UPSERT_BATCH_SIZE).map((row) =>
+        stripFailedDimensionFields(row, {
+          paymentReadFailed: dimensions == null || dimensions.paymentReadFailed,
+          categoryReadFailed:
+            dimensions == null || dimensions.categoryReadFailed,
+        })
       );
       const { error: upsertError, count } = await supabase
         .from("pos_sales_items")

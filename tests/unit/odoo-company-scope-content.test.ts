@@ -137,6 +137,73 @@ describe("read-only paths", () => {
   });
 });
 
+describe("Odoo routes never leak err.message or raw fault text", () => {
+  const files = [
+    ...walk(join(ROOT, "app/api/admin/odoo")),
+    ...walk(join(ROOT, "app/api/restaurant/pos")),
+  ]
+    .map((f) => relative(ROOT, f).split("\\").join("/"))
+    .filter((f) => f.includes("odoo") && f.endsWith("route.ts"));
+
+  it("scans every Odoo admin and pos route", () => {
+    expect(files.sort()).toEqual(
+      [
+        "app/api/admin/odoo/companies/route.ts",
+        "app/api/admin/odoo/connection/route.ts",
+        "app/api/admin/odoo/location-mapping/route.ts",
+        "app/api/admin/odoo/test-connection/route.ts",
+        "app/api/restaurant/pos/odoo-audit/route.ts",
+        "app/api/restaurant/pos/odoo-companies/route.ts",
+        "app/api/restaurant/pos/odoo-connection/route.ts",
+        "app/api/restaurant/pos/odoo-sync/route.ts",
+      ].sort()
+    );
+  });
+
+  it("never puts Error.message into JSON details", () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = read(f);
+      if (/details:\s*message\b/.test(src)) {
+        offenders.push(`${f}: details: message`);
+      }
+      if (/details:\s*[A-Za-z0-9_$?]+\.message/.test(src)) {
+        offenders.push(`${f}: details: *.message`);
+      }
+      if (/details:\s*`[^`]*\$\{message\}/.test(src)) {
+        offenders.push(`${f}: details interpolates message`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("JSON error: err.message is only the canned auth/host responses", () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = read(f);
+      const re = /error:\s*err\.message/g;
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(src))) {
+        const before = src.slice(Math.max(0, match.index - 350), match.index);
+        const allowed =
+          before.includes("OdooAuthenticationError") ||
+          before.includes("OdooHostNotAllowedError");
+        if (!allowed) offenders.push(`${f} @${match.index}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("client-facing details use the generic status-class helper", () => {
+    for (const f of files) {
+      const src = read(f);
+      if (!src.includes("details:")) continue;
+      expect(src).toContain("Odoo request failed (");
+      expect(src).toContain("function odooFaultDetails");
+    }
+  });
+});
+
 describe("Milton company stays server-side", () => {
   it.each(["odoo-sync", "odoo-connection", "odoo-companies", "odoo-audit"])(
     "%s never reads body.company_id",

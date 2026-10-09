@@ -8,6 +8,7 @@ import { isUserAdminServer } from "@/lib/profile-service-server";
 import {
   authenticate,
   OdooAuthenticationError,
+  OdooRpcError,
   type OdooCredentials,
 } from "@/lib/restaurant/odoo/client";
 import { discoverOdooCompanies } from "@/lib/restaurant/odoo/scoped";
@@ -19,6 +20,24 @@ import {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function logOdooFault(tag: string, err: unknown): string {
+  const name = err instanceof Error ? err.name : "UnknownError";
+  const logMessage = err instanceof Error ? err.message : "Unknown error";
+  let statusClass = "unknown";
+  if (err instanceof OdooRpcError && typeof err.faultCode === "number") {
+    const code = err.faultCode;
+    if (Number.isInteger(code) && code >= 100 && code <= 599) {
+      statusClass = `${Math.floor(code / 100)}xx`;
+    }
+  }
+  console.error(tag, name, logMessage);
+  return statusClass;
+}
+
+function odooFaultDetails(statusClass: string): string {
+  return `Odoo request failed (${statusClass})`;
+}
 
 function requiredString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -92,8 +111,15 @@ export async function POST(req: NextRequest) {
     if (err instanceof OdooAuthenticationError) {
       return NextResponse.json({ error: err.message }, { status: 401 });
     }
+    const statusClass = logOdooFault(
+      "[admin/odoo/test-connection] Odoo unreachable:",
+      err
+    );
     return NextResponse.json(
-      { error: "Could not reach Odoo instance" },
+      {
+        error: "Could not reach Odoo instance",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 502 }
     );
   }
@@ -101,9 +127,16 @@ export async function POST(req: NextRequest) {
   let companies: { id: number; name: string }[];
   try {
     companies = (await discoverOdooCompanies(creds, uid)).companies;
-  } catch {
+  } catch (err) {
+    const statusClass = logOdooFault(
+      "[admin/odoo/test-connection] company discovery failed:",
+      err
+    );
     return NextResponse.json(
-      { error: "Could not read Odoo companies" },
+      {
+        error: "Could not read Odoo companies",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 502 }
     );
   }

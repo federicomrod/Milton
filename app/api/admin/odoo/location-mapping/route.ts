@@ -11,6 +11,29 @@ import { isUserAdminServer } from "@/lib/profile-service-server";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+function logOdooFault(tag: string, err: unknown): string {
+  const name =
+    err &&
+    typeof err === "object" &&
+    "name" in err &&
+    typeof err.name === "string"
+      ? err.name
+      : "UnknownError";
+  const logMessage =
+    err &&
+    typeof err === "object" &&
+    "message" in err &&
+    typeof err.message === "string"
+      ? err.message
+      : "Unknown error";
+  console.error(tag, name, logMessage);
+  return "unknown";
+}
+
+function odooFaultDetails(statusClass: string): string {
+  return `Odoo request failed (${statusClass})`;
+}
+
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const {
@@ -44,8 +67,15 @@ export async function GET(req: NextRequest) {
     .order("name");
 
   if (error) {
+    const statusClass = logOdooFault(
+      "[admin/odoo/location-mapping] load locations failed:",
+      error
+    );
     return NextResponse.json(
-      { error: "Failed to load locations" },
+      {
+        error: "Failed to load locations",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 500 }
     );
   }
@@ -129,8 +159,15 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   if (connError) {
+    const statusClass = logOdooFault(
+      "[admin/odoo/location-mapping] load connection failed:",
+      connError
+    );
     return NextResponse.json(
-      { error: "Failed to load connection" },
+      {
+        error: "Failed to load connection",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 500 }
     );
   }
@@ -187,8 +224,15 @@ export async function POST(req: NextRequest) {
     .in("id", Array.from(mappedLocationIds));
 
   if (locError) {
+    const statusClass = logOdooFault(
+      "[admin/odoo/location-mapping] verify locations failed:",
+      locError
+    );
     return NextResponse.json(
-      { error: "Failed to verify locations" },
+      {
+        error: "Failed to verify locations",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 500 }
     );
   }
@@ -207,8 +251,15 @@ export async function POST(req: NextRequest) {
     .eq("company_id", companyId);
 
   if (clearError) {
+    const statusClass = logOdooFault(
+      "[admin/odoo/location-mapping] clear mappings failed:",
+      clearError
+    );
     return NextResponse.json(
-      { error: "Failed to clear existing mappings" },
+      {
+        error: "Failed to clear existing mappings",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 500 }
     );
   }
@@ -222,8 +273,15 @@ export async function POST(req: NextRequest) {
       .eq("company_id", companyId);
 
     if (updateError) {
+      const statusClass = logOdooFault(
+        "[admin/odoo/location-mapping] update mapping failed:",
+        updateError
+      );
       return NextResponse.json(
-        { error: "Failed to update mapping" },
+        {
+          error: "Failed to update mapping",
+          details: odooFaultDetails(statusClass),
+        },
         { status: 500 }
       );
     }

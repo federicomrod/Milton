@@ -9,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isUserAdminServer } from "@/lib/profile-service-server";
 import {
   authenticate,
+  OdooRpcError,
   type OdooCredentials,
 } from "@/lib/restaurant/odoo/client";
 import { discoverOdooCompanies } from "@/lib/restaurant/odoo/scoped";
@@ -17,6 +18,24 @@ import { loadDecryptedOdooSecret } from "@/lib/restaurant/odoo/secrets";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function logOdooFault(tag: string, err: unknown): string {
+  const name = err instanceof Error ? err.name : "UnknownError";
+  const logMessage = err instanceof Error ? err.message : "Unknown error";
+  let statusClass = "unknown";
+  if (err instanceof OdooRpcError && typeof err.faultCode === "number") {
+    const code = err.faultCode;
+    if (Number.isInteger(code) && code >= 100 && code <= 599) {
+      statusClass = `${Math.floor(code / 100)}xx`;
+    }
+  }
+  console.error(tag, name, logMessage);
+  return statusClass;
+}
+
+function odooFaultDetails(statusClass: string): string {
+  return `Odoo request failed (${statusClass})`;
+}
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -52,8 +71,15 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
 
   if (connError) {
+    const statusClass = logOdooFault(
+      "[admin/odoo/companies] GET load failed:",
+      connError
+    );
     return NextResponse.json(
-      { error: "Failed to load connection" },
+      {
+        error: "Failed to load connection",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 500 }
     );
   }
@@ -68,9 +94,16 @@ export async function GET(req: NextRequest) {
   let apiKey: string | null;
   try {
     apiKey = await loadDecryptedOdooSecret(connection.id, companyId);
-  } catch {
+  } catch (err) {
+    console.error(
+      "[admin/odoo/companies] GET credential lookup failed:",
+      err instanceof Error ? err.name : "Unknown error"
+    );
     return NextResponse.json(
-      { error: "Could not load the stored Odoo credential" },
+      {
+        error: "Could not load the stored Odoo credential",
+        details: odooFaultDetails("unknown"),
+      },
       { status: 500 }
     );
   }
@@ -94,9 +127,16 @@ export async function GET(req: NextRequest) {
   try {
     uid = await authenticate(creds);
     companies = (await discoverOdooCompanies(creds, uid)).companies;
-  } catch {
+  } catch (err) {
+    const statusClass = logOdooFault(
+      "[admin/odoo/companies] GET Odoo unreachable:",
+      err
+    );
     return NextResponse.json(
-      { error: "Could not reach Odoo to discover companies" },
+      {
+        error: "Could not reach Odoo to discover companies",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 502 }
     );
   }
@@ -153,8 +193,15 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   if (connError) {
+    const statusClass = logOdooFault(
+      "[admin/odoo/companies] POST load failed:",
+      connError
+    );
     return NextResponse.json(
-      { error: "Failed to load connection" },
+      {
+        error: "Failed to load connection",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 500 }
     );
   }
@@ -169,9 +216,16 @@ export async function POST(req: NextRequest) {
   let apiKey: string | null;
   try {
     apiKey = await loadDecryptedOdooSecret(connection.id, companyId);
-  } catch {
+  } catch (err) {
+    console.error(
+      "[admin/odoo/companies] POST credential lookup failed:",
+      err instanceof Error ? err.name : "Unknown error"
+    );
     return NextResponse.json(
-      { error: "Could not load the stored Odoo credential" },
+      {
+        error: "Could not load the stored Odoo credential",
+        details: odooFaultDetails("unknown"),
+      },
       { status: 500 }
     );
   }
@@ -195,9 +249,16 @@ export async function POST(req: NextRequest) {
   try {
     uid = await authenticate(creds);
     accessible = (await discoverOdooCompanies(creds, uid)).companies;
-  } catch {
+  } catch (err) {
+    const statusClass = logOdooFault(
+      "[admin/odoo/companies] POST Odoo unreachable:",
+      err
+    );
     return NextResponse.json(
-      { error: "Could not reach Odoo to validate companies" },
+      {
+        error: "Could not reach Odoo to validate companies",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 502 }
     );
   }
@@ -227,8 +288,15 @@ export async function POST(req: NextRequest) {
     .eq("id", connection.id);
 
   if (updateError) {
+    const statusClass = logOdooFault(
+      "[admin/odoo/companies] save failed:",
+      updateError
+    );
     return NextResponse.json(
-      { error: "Failed to update company selection" },
+      {
+        error: "Failed to update company selection",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 500 }
     );
   }

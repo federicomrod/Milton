@@ -75,15 +75,35 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Log name + message server-side; never put err.message in the JSON body. */
+function logOdooFault(tag: string, err: unknown): string {
+  const name = err instanceof Error ? err.name : "UnknownError";
+  const logMessage = err instanceof Error ? err.message : "Unknown error";
+  let statusClass = "unknown";
+  if (err instanceof OdooRpcError && typeof err.faultCode === "number") {
+    const code = err.faultCode;
+    if (Number.isInteger(code) && code >= 100 && code <= 599) {
+      statusClass = `${Math.floor(code / 100)}xx`;
+    }
+  }
+  console.error(tag, name, logMessage);
+  return statusClass;
+}
+
+function odooFaultDetails(statusClass: string): string {
+  return `Odoo request failed (${statusClass})`;
+}
+
 // Generic on purpose: nothing about the offending records leaves the server.
 function scopeViolationResponse(err: unknown): NextResponse {
-  console.error(
+  const statusClass = logOdooFault(
     "[Odoo Sync] aborted, scope check failed:",
-    err instanceof Error ? err.name : "Unknown error"
+    err
   );
   return NextResponse.json(
     {
       error: "Odoo returned data outside the selected companies; sync aborted",
+      details: odooFaultDetails(statusClass),
     },
     { status: 502 }
   );
@@ -151,11 +171,15 @@ export async function POST(req: NextRequest) {
       .eq("is_active", true)
       .maybeSingle();
     if (connError) {
-      console.error("[Odoo Sync] connection lookup failed:", connError.message);
+      console.error(
+        "[Odoo Sync] connection lookup failed:",
+        "PostgrestError",
+        connError.message
+      );
       return NextResponse.json(
         {
           error: "Could not look up Odoo connection config",
-          details: connError.message,
+          details: odooFaultDetails("unknown"),
         },
         { status: 500 }
       );
@@ -199,10 +223,14 @@ export async function POST(req: NextRequest) {
     if (locError) {
       console.error(
         "[Odoo Sync] restaurant_locations lookup failed:",
+        "PostgrestError",
         locError.message
       );
       return NextResponse.json(
-        { error: "Could not load restaurant locations" },
+        {
+          error: "Could not load restaurant locations",
+          details: odooFaultDetails("unknown"),
+        },
         { status: 500 }
       );
     }
@@ -276,21 +304,14 @@ export async function POST(req: NextRequest) {
       if (err instanceof OdooAuthenticationError) {
         return NextResponse.json({ error: err.message }, { status: 401 });
       }
-      const name = err instanceof Error ? err.name : "UnknownError";
-      const logMessage = err instanceof Error ? err.message : "Unknown error";
-      let statusClass = "unknown";
-      if (err instanceof OdooRpcError && typeof err.faultCode === "number") {
-        const code = err.faultCode;
-        if (Number.isInteger(code) && code >= 100 && code <= 599) {
-          statusClass = `${Math.floor(code / 100)}xx`;
-        }
-      }
-      // Log the fault server-side; never credentials, request bodies, or the API key.
-      console.error("[Odoo Sync] authentication failed:", name, logMessage);
+      const statusClass = logOdooFault(
+        "[Odoo Sync] authentication failed:",
+        err
+      );
       return NextResponse.json(
         {
           error: "Could not reach Odoo instance",
-          details: `Odoo request failed (${statusClass})`,
+          details: odooFaultDetails(statusClass),
         },
         { status: 502 }
       );
@@ -313,12 +334,15 @@ export async function POST(req: NextRequest) {
         );
       }
     } catch (err) {
-      console.error(
+      const statusClass = logOdooFault(
         "[Odoo Sync] company re-validation failed:",
-        err instanceof Error ? err.name : "Unknown error"
+        err
       );
       return NextResponse.json(
-        { error: "Could not verify Odoo company access" },
+        {
+          error: "Could not verify Odoo company access",
+          details: odooFaultDetails(statusClass),
+        },
         { status: 502 }
       );
     }
@@ -358,11 +382,16 @@ export async function POST(req: NextRequest) {
         ? result
         : []) as unknown as OdooPosOrderRaw[];
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      console.error("[Odoo Sync] pos.order search_read failed:", message);
+      const statusClass = logOdooFault(
+        "[Odoo Sync] pos.order search_read failed:",
+        err
+      );
       const status = err instanceof OdooRpcError ? 502 : 500;
       return NextResponse.json(
-        { error: "Failed to fetch Odoo POS orders", details: message },
+        {
+          error: "Failed to fetch Odoo POS orders",
+          details: odooFaultDetails(statusClass),
+        },
         { status }
       );
     }
@@ -417,11 +446,16 @@ export async function POST(req: NextRequest) {
         ? result
         : []) as unknown as OdooPosOrderLineRaw[];
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      console.error("[Odoo Sync] pos.order.line search_read failed:", message);
+      const statusClass = logOdooFault(
+        "[Odoo Sync] pos.order.line search_read failed:",
+        err
+      );
       const status = err instanceof OdooRpcError ? 502 : 500;
       return NextResponse.json(
-        { error: "Failed to fetch Odoo POS order lines", details: message },
+        {
+          error: "Failed to fetch Odoo POS order lines",
+          details: odooFaultDetails(statusClass),
+        },
         { status }
       );
     }
@@ -537,11 +571,15 @@ export async function POST(req: NextRequest) {
           count: "exact",
         });
       if (upsertError) {
-        console.error("[Odoo Sync] upsert failed:", upsertError.message);
+        console.error(
+          "[Odoo Sync] upsert failed:",
+          "PostgrestError",
+          upsertError.message
+        );
         return NextResponse.json(
           {
             error: "Database upsert failed",
-            details: upsertError.message,
+            details: odooFaultDetails("unknown"),
             rows_upserted_before_failure: upserted,
           },
           { status: 500 }
@@ -562,10 +600,12 @@ export async function POST(req: NextRequest) {
       unmatched_locations: Array.from(unmatchedLocations).sort(),
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[Odoo Sync] Unexpected error:", message);
+    const statusClass = logOdooFault("[Odoo Sync] Unexpected error:", err);
     return NextResponse.json(
-      { error: "Odoo sync failed", details: message },
+      {
+        error: "Odoo sync failed",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 500 }
     );
   }

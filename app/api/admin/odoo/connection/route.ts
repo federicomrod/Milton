@@ -17,6 +17,7 @@ import {
 import {
   authenticate,
   OdooAuthenticationError,
+  OdooRpcError,
   type OdooCredentials,
 } from "@/lib/restaurant/odoo/client";
 import { discoverOdooCompanies } from "@/lib/restaurant/odoo/scoped";
@@ -29,6 +30,24 @@ import {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function logOdooFault(tag: string, err: unknown): string {
+  const name = err instanceof Error ? err.name : "UnknownError";
+  const logMessage = err instanceof Error ? err.message : "Unknown error";
+  let statusClass = "unknown";
+  if (err instanceof OdooRpcError && typeof err.faultCode === "number") {
+    const code = err.faultCode;
+    if (Number.isInteger(code) && code >= 100 && code <= 599) {
+      statusClass = `${Math.floor(code / 100)}xx`;
+    }
+  }
+  console.error(tag, name, logMessage);
+  return statusClass;
+}
+
+function odooFaultDetails(statusClass: string): string {
+  return `Odoo request failed (${statusClass})`;
+}
 
 function requiredString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -80,8 +99,15 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
 
   if (connError) {
+    const statusClass = logOdooFault(
+      "[admin/odoo/connection] GET load failed:",
+      connError
+    );
     return NextResponse.json(
-      { error: "Failed to load connection" },
+      {
+        error: "Failed to load connection",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 500 }
     );
   }
@@ -239,8 +265,15 @@ export async function POST(req: NextRequest) {
     if (err instanceof OdooAuthenticationError) {
       return NextResponse.json({ error: err.message }, { status: 401 });
     }
+    const statusClass = logOdooFault(
+      "[admin/odoo/connection] Odoo unreachable:",
+      err
+    );
     return NextResponse.json(
-      { error: "Could not reach Odoo instance" },
+      {
+        error: "Could not reach Odoo instance",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 502 }
     );
   }
@@ -248,9 +281,16 @@ export async function POST(req: NextRequest) {
   let accessible: { id: number; name: string }[];
   try {
     accessible = (await discoverOdooCompanies(creds, uid)).companies;
-  } catch {
+  } catch (err) {
+    const statusClass = logOdooFault(
+      "[admin/odoo/connection] company discovery failed:",
+      err
+    );
     return NextResponse.json(
-      { error: "Could not read Odoo companies" },
+      {
+        error: "Could not read Odoo companies",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 502 }
     );
   }
@@ -263,8 +303,15 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   if (lookupError) {
+    const statusClass = logOdooFault(
+      "[admin/odoo/connection] lookup failed:",
+      lookupError
+    );
     return NextResponse.json(
-      { error: "Failed to check existing connection" },
+      {
+        error: "Failed to check existing connection",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 500 }
     );
   }
@@ -309,8 +356,15 @@ export async function POST(req: NextRequest) {
       })
       .eq("id", connectionId);
     if (updateError) {
+      const statusClass = logOdooFault(
+        "[admin/odoo/connection] update failed:",
+        updateError
+      );
       return NextResponse.json(
-        { error: "Failed to update connection" },
+        {
+          error: "Failed to update connection",
+          details: odooFaultDetails(statusClass),
+        },
         { status: 500 }
       );
     }
@@ -330,8 +384,15 @@ export async function POST(req: NextRequest) {
       .select("id")
       .single();
     if (insertError || !inserted?.id) {
+      const statusClass = logOdooFault(
+        "[admin/odoo/connection] insert failed:",
+        insertError
+      );
       return NextResponse.json(
-        { error: "Failed to create connection" },
+        {
+          error: "Failed to create connection",
+          details: odooFaultDetails(statusClass),
+        },
         { status: 500 }
       );
     }
@@ -363,7 +424,10 @@ export async function POST(req: NextRequest) {
         .eq("id", connectionId);
     }
     return NextResponse.json(
-      { error: "Failed to store credential" },
+      {
+        error: "Failed to store credential",
+        details: odooFaultDetails("unknown"),
+      },
       { status: 500 }
     );
   }

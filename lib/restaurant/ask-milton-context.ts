@@ -30,6 +30,11 @@ import {
   filterMenuItemsForSelection,
   type ProfitabilitySelection,
 } from "@/lib/restaurant/profitability-server";
+import {
+  fetchAllRows,
+  succeededRows,
+  warnIfTruncated,
+} from "@/lib/restaurant/paginated-read";
 
 // ---------------------------------------------------------------------------
 // Extra shapes layered on top of BriefingContext
@@ -164,6 +169,11 @@ export interface AskMiltonContext {
   agent_runs: {
     recent: AskMiltonAgentRunSummary[];
   };
+  /**
+   * Paged reads that failed. Empty/omitted when every fetch succeeded.
+   * Callers must not treat related arrays as a complete snapshot.
+   */
+  read_errors?: string[];
 }
 
 export interface AskMiltonContextScope {
@@ -198,6 +208,43 @@ function roundInt(n: number | null | undefined): number | null {
 function round1(n: number | null | undefined): number | null {
   if (n === null || n === undefined || !Number.isFinite(n)) return null;
   return Math.round(n * 10) / 10;
+}
+
+type CostEntryRow = {
+  ingredient_id: string;
+  normalized_unit_cost: number | null;
+  normalized_unit: string | null;
+  cost_date: string;
+  created_at: string | null;
+  currency: string | null;
+  supplier_id: string | null;
+  source_type: string | null;
+};
+type RecipeRow = { id: string; menu_item_id: string };
+type RecipeInputRow = {
+  recipe_id: string;
+  input_type: string;
+  ingredient_id: string | null;
+  component_id: string | null;
+};
+type ComponentRow = { id: string; name: string };
+type CompRecipeRow = { id: string; component_id: string };
+type CompRecipeInputRow = {
+  component_recipe_id: string;
+  input_type: string;
+  ingredient_id: string | null;
+  component_id: string | null;
+};
+type MenuItemRow = { id: string; name: string; brand_id: string | null };
+
+function isNewerCostEntry(
+  candidate: CostEntryRow,
+  current: CostEntryRow
+): boolean {
+  if (candidate.cost_date !== current.cost_date) {
+    return candidate.cost_date > current.cost_date;
+  }
+  return (candidate.created_at ?? "") > (current.created_at ?? "");
 }
 
 // ---------------------------------------------------------------------------
@@ -267,18 +314,16 @@ export async function buildAskMiltonContext(
       )
       .eq("company_id", companyId)
       .limit(500),
-    // Authoritative ingredient costs — sorted so the first row per
-    // ingredient_id is the latest cost. We group client-side below.
-    supabase
-      .from("ingredient_cost_entries")
-      .select(
-        "ingredient_id, normalized_unit_cost, normalized_unit, cost_date, currency, supplier_id, source_type"
-      )
-      .eq("company_id", companyId)
-      .order("ingredient_id")
-      .order("cost_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(2000),
+    // Authoritative ingredient costs — latest per ingredient is picked
+    // in memory below (query order is `id` for stable pagination).
+    fetchAllRows<CostEntryRow>(() =>
+      supabase
+        .from("ingredient_cost_entries")
+        .select(
+          "ingredient_id, normalized_unit_cost, normalized_unit, cost_date, created_at, currency, supplier_id, source_type"
+        )
+        .eq("company_id", companyId)
+    ),
     supabase
       .from("agent_actions")
       .select("id, agent_key, title, action_type, status, priority, created_at")
@@ -292,31 +337,43 @@ export async function buildAskMiltonContext(
       .order("started_at", { ascending: false })
       .limit(10),
     // --- ingredient_usage sources ---
-    supabase
-      .from("recipes")
-      .select("id, menu_item_id")
-      .eq("company_id", companyId),
-    supabase
-      .from("menu_recipe_inputs")
-      .select("recipe_id, input_type, ingredient_id, component_id")
-      .eq("company_id", companyId),
-    supabase
-      .from("prepared_components")
-      .select("id, name")
-      .eq("company_id", companyId),
-    supabase
-      .from("component_recipes")
-      .select("id, component_id")
-      .eq("company_id", companyId),
-    supabase
-      .from("component_recipe_inputs")
-      .select("component_recipe_id, input_type, ingredient_id, component_id")
-      .eq("company_id", companyId),
+    fetchAllRows<RecipeRow>(() =>
+      supabase
+        .from("recipes")
+        .select("id, menu_item_id")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<RecipeInputRow>(() =>
+      supabase
+        .from("menu_recipe_inputs")
+        .select("recipe_id, input_type, ingredient_id, component_id")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<ComponentRow>(() =>
+      supabase
+        .from("prepared_components")
+        .select("id, name")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<CompRecipeRow>(() =>
+      supabase
+        .from("component_recipes")
+        .select("id, component_id")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<CompRecipeInputRow>(() =>
+      supabase
+        .from("component_recipe_inputs")
+        .select("component_recipe_id, input_type, ingredient_id, component_id")
+        .eq("company_id", companyId)
+    ),
     // all menu items for usage map (profData only includes POS-mapped items)
-    supabase
-      .from("menu_items")
-      .select("id, name, brand_id")
-      .eq("company_id", companyId),
+    fetchAllRows<MenuItemRow>(() =>
+      supabase
+        .from("menu_items")
+        .select("id, name, brand_id")
+        .eq("company_id", companyId)
+    ),
   ]);
 
   const fallbackCurrency = briefing.currency;
@@ -400,19 +457,9 @@ export async function buildAskMiltonContext(
   // ingredients.current_unit_cost is a legacy cache that may be 0 when
   // costs were entered via invoices or bulk import — do NOT use it for
   // anything cost-related here.
-  type CostEntryRow = {
-    ingredient_id: string;
-    normalized_unit_cost: number | null;
-    normalized_unit: string | null;
-    cost_date: string;
-    currency: string | null;
-    supplier_id: string | null;
-    source_type: string | null;
-  };
-  const costEntryRows = (costEntriesRes.data ?? []) as CostEntryRow[];
+  warnIfTruncated("ask-milton ingredient_cost_entries", costEntriesRes);
+  const costEntryRows = succeededRows(costEntriesRes);
 
-  // The query is sorted ingredient_id, cost_date desc, created_at desc —
-  // so the first row we see per ingredient_id is the latest cost.
   interface LatestCost {
     normalized_unit_cost: number;
     normalized_unit: string;
@@ -421,12 +468,18 @@ export async function buildAskMiltonContext(
     supplier_id: string | null;
     source_type: string | null;
   }
-  const latestCostByIngredientId = new Map<string, LatestCost>();
+  const latestRawByIngredientId = new Map<string, CostEntryRow>();
   for (const entry of costEntryRows) {
-    if (latestCostByIngredientId.has(entry.ingredient_id)) continue; // already have latest
+    const prev = latestRawByIngredientId.get(entry.ingredient_id);
+    if (!prev || isNewerCostEntry(entry, prev)) {
+      latestRawByIngredientId.set(entry.ingredient_id, entry);
+    }
+  }
+  const latestCostByIngredientId = new Map<string, LatestCost>();
+  for (const [ingredientId, entry] of latestRawByIngredientId) {
     const cost = Number(entry.normalized_unit_cost ?? 0);
     if (!Number.isFinite(cost) || cost <= 0) continue; // skip zero/null costs
-    latestCostByIngredientId.set(entry.ingredient_id, {
+    latestCostByIngredientId.set(ingredientId, {
       normalized_unit_cost: cost,
       normalized_unit: entry.normalized_unit ?? "",
       cost_date: entry.cost_date,
@@ -601,35 +654,18 @@ export async function buildAskMiltonContext(
 
   // ---- Ingredient usage map ----
   // Build: ingredient_id → { direct menu items, via-component menu items }
-  type RecipeRow = { id: string; menu_item_id: string };
-  type RecipeInputRow = {
-    recipe_id: string;
-    input_type: string;
-    ingredient_id: string | null;
-    component_id: string | null;
-  };
-  type ComponentRow = { id: string; name: string };
-  type CompRecipeRow = { id: string; component_id: string };
-  type CompRecipeInputRow = {
-    component_recipe_id: string;
-    input_type: string;
-    ingredient_id: string | null;
-    component_id: string | null;
-  };
-  type MenuItemRow = { id: string; name: string; brand_id: string | null };
-
-  const recipes = (recipesRes.data ?? []) as RecipeRow[];
-  const recipeInputs = (recipeInputsRes.data ?? []) as RecipeInputRow[];
-  const components = (componentsRes.data ?? []) as ComponentRow[];
-  const componentRecipes = (componentRecipesRes.data ?? []) as CompRecipeRow[];
-  const componentRecipeInputs = (componentRecipeInputsRes.data ??
-    []) as CompRecipeInputRow[];
+  warnIfTruncated("ask-milton menu_recipe_inputs", recipeInputsRes);
+  const recipes = succeededRows(recipesRes);
+  const recipeInputs = succeededRows(recipeInputsRes);
+  const components = succeededRows(componentsRes);
+  const componentRecipes = succeededRows(componentRecipesRes);
+  const componentRecipeInputs = succeededRows(componentRecipeInputsRes);
   // Scoped the same way the cockpit's profitability view is (Multi-
   // Restaurant UX v1): a selected restaurant's own brand's items plus
   // legacy brand-less items — never another brand's exclusive dishes
   // leaking into the ingredient-usage map below.
   const menuItemRows = filterMenuItemsForSelection(
-    (menuItemsRes.data ?? []) as MenuItemRow[],
+    succeededRows(menuItemsRes),
     selected
   );
 
@@ -799,6 +835,7 @@ export async function buildAskMiltonContext(
     });
 
   // Log errors for observability but never throw — keep partial context.
+  const read_errors: string[] = [];
   for (const [label, res] of [
     ["suppliers", suppliersRes],
     ["supplier_invoices", invoicesRes],
@@ -815,7 +852,11 @@ export async function buildAskMiltonContext(
   ] as const) {
     if (res.error) {
       console.error(`[ask-milton-context] ${label}:`, res.error.message);
+      read_errors.push(label);
     }
+  }
+  if (profData.readError) {
+    read_errors.push("pos_sales_items");
   }
 
   return {
@@ -853,5 +894,6 @@ export async function buildAskMiltonContext(
     agent_runs: {
       recent: runsRecent,
     },
+    ...(read_errors.length > 0 ? { read_errors } : {}),
   };
 }

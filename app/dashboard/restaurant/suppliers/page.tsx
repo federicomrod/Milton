@@ -11,6 +11,11 @@ import { Carrot } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
 import {
+  fetchAllRows,
+  succeededRows,
+  warnIfTruncated,
+} from "@/lib/restaurant/paginated-read";
+import {
   SuppliersPage,
   type SupplierRow,
 } from "@/components/restaurant/SuppliersPage";
@@ -62,48 +67,56 @@ export default async function SuppliersRoute() {
     "id, name, status, contact_name, email, phone, notes, address, payment_terms, tax_id, created_at, updated_at";
   const MINIMAL_COLS = "id, name, status";
 
-  const fullRes = await supabase
-    .from("suppliers")
-    .select(FULL_COLS)
-    .eq("company_id", companyId)
-    .order("name", { ascending: true });
+  const fullRes = await fetchAllRows<Record<string, unknown>>(() =>
+    supabase.from("suppliers").select(FULL_COLS).eq("company_id", companyId)
+  );
 
-  let supplierRows: Record<string, unknown>[] = (fullRes.data ?? []) as Record<
-    string,
-    unknown
-  >[];
+  let supplierRows: Record<string, unknown>[] = [
+    ...succeededRows(fullRes),
+  ].sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
 
   if (fullRes.error) {
     console.error(
       "[suppliers page] full select failed, falling back to minimal columns:",
       fullRes.error.message
     );
-    const minimalRes = await supabase
-      .from("suppliers")
-      .select(MINIMAL_COLS)
-      .eq("company_id", companyId)
-      .order("name", { ascending: true });
+    const minimalRes = await fetchAllRows<Record<string, unknown>>(() =>
+      supabase
+        .from("suppliers")
+        .select(MINIMAL_COLS)
+        .eq("company_id", companyId)
+    );
     if (minimalRes.error) {
       console.error(
         "[suppliers page] minimal select also failed:",
         minimalRes.error.message
       );
     }
-    supplierRows = (minimalRes.data ?? []) as Record<string, unknown>[];
+    supplierRows = [...succeededRows(minimalRes)].sort((a, b) =>
+      String(a.name ?? "").localeCompare(String(b.name ?? ""))
+    );
   }
 
   // Metrics are best-effort: if either query fails (e.g. table missing),
   // we still render suppliers and degrade the metric to "—".
   const [linksRes, costRes] = await Promise.all([
-    supabase
-      .from("supplier_ingredients")
-      .select("supplier_id, ingredient_id")
-      .eq("company_id", companyId),
-    supabase
-      .from("ingredient_cost_entries")
-      .select("supplier_id, cost_date, total_cost")
-      .eq("company_id", companyId)
-      .not("supplier_id", "is", null),
+    fetchAllRows<{ supplier_id: string; ingredient_id: string }>(() =>
+      supabase
+        .from("supplier_ingredients")
+        .select("supplier_id, ingredient_id")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{
+      supplier_id: string;
+      cost_date: string;
+      total_cost: number;
+    }>(() =>
+      supabase
+        .from("ingredient_cost_entries")
+        .select("supplier_id, cost_date, total_cost")
+        .eq("company_id", companyId)
+        .not("supplier_id", "is", null)
+    ),
   ]);
 
   if (linksRes.error) {
@@ -118,9 +131,11 @@ export default async function SuppliersRoute() {
       costRes.error.message
     );
   }
+  warnIfTruncated("suppliers page links", linksRes);
+  warnIfTruncated("suppliers page cost entries", costRes);
 
   const ingredientCountBySupplierId = new Map<string, number>();
-  for (const l of (linksRes.data ?? []) as { supplier_id: string }[]) {
+  for (const l of succeededRows(linksRes)) {
     ingredientCountBySupplierId.set(
       l.supplier_id,
       (ingredientCountBySupplierId.get(l.supplier_id) ?? 0) + 1
@@ -129,11 +144,7 @@ export default async function SuppliersRoute() {
 
   const latestCostDateBySupplierId = new Map<string, string>();
   const totalSpendBySupplierId = new Map<string, number>();
-  for (const e of (costRes.data ?? []) as {
-    supplier_id: string;
-    cost_date: string;
-    total_cost: number;
-  }[]) {
+  for (const e of succeededRows(costRes)) {
     const sid = e.supplier_id;
     const prev = latestCostDateBySupplierId.get(sid);
     if (!prev || e.cost_date > prev)

@@ -8,6 +8,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
 import {
+  fetchAllRows,
+  succeededRows,
+  warnIfTruncated,
+} from "@/lib/restaurant/paginated-read";
+import {
   InvoicesPage,
   type InvoiceListItem,
 } from "@/components/restaurant/InvoicesPage";
@@ -46,20 +51,29 @@ export default async function SupplierInvoicesPage() {
       .order("invoice_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(200),
-    supabase
-      .from("supplier_invoice_lines")
-      .select("invoice_id, match_status, review_status")
-      .eq("company_id", companyId),
-    supabase
-      .from("suppliers")
-      .select("id, name")
-      .eq("company_id", companyId)
-      .order("name", { ascending: true }),
-    supabase
-      .from("ingredients")
-      .select("id, name, default_unit")
-      .eq("company_id", companyId)
-      .order("name", { ascending: true }),
+    fetchAllRows<{
+      invoice_id: string;
+      match_status: string;
+      review_status: string;
+    }>(() =>
+      supabase
+        .from("supplier_invoice_lines")
+        .select("invoice_id, match_status, review_status")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{ id: string; name: string }>(() =>
+      supabase.from("suppliers").select("id, name").eq("company_id", companyId)
+    ),
+    fetchAllRows<{
+      id: string;
+      name: string;
+      default_unit: string | null;
+    }>(() =>
+      supabase
+        .from("ingredients")
+        .select("id, name, default_unit")
+        .eq("company_id", companyId)
+    ),
   ]);
 
   if (invRes.error)
@@ -73,9 +87,12 @@ export default async function SupplierInvoicesPage() {
     console.error("[invoices page] suppliers:", supplierRes.error.message);
   if (ingRes.error)
     console.error("[invoices page] ingredients:", ingRes.error.message);
+  warnIfTruncated("invoices page lines", lineRes);
 
   const supplierNameById = new Map<string, string>();
-  for (const s of (supplierRes.data ?? []) as { id: string; name: string }[]) {
+  for (const s of [...succeededRows(supplierRes)].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  )) {
     supplierNameById.set(s.id, s.name);
   }
 
@@ -96,12 +113,7 @@ export default async function SupplierInvoicesPage() {
       pending: 0,
     });
   }
-  type LineLite = {
-    invoice_id: string;
-    match_status: string;
-    review_status: string;
-  };
-  for (const l of (lineRes.data ?? []) as LineLite[]) {
+  for (const l of succeededRows(lineRes)) {
     const bucket = lineCounts.get(l.invoice_id);
     if (!bucket) continue;
     bucket.total++;
@@ -155,14 +167,12 @@ export default async function SupplierInvoicesPage() {
   return (
     <InvoicesPage
       initialInvoices={invoices}
-      suppliers={(supplierRes.data ?? []) as { id: string; name: string }[]}
-      ingredients={
-        (ingRes.data ?? []) as {
-          id: string;
-          name: string;
-          default_unit: string | null;
-        }[]
-      }
+      suppliers={[...succeededRows(supplierRes)].sort((a, b) =>
+        a.name.localeCompare(b.name)
+      )}
+      ingredients={[...succeededRows(ingRes)].sort((a, b) =>
+        a.name.localeCompare(b.name)
+      )}
     />
   );
 }

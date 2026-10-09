@@ -21,6 +21,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
+import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
+import type { IngredientCostEntry } from "@/types/restaurant-costing";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,24 +34,30 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const ingredientId = url.searchParams.get("ingredient_id");
 
-  let q = auth.supabase
-    .from("ingredient_cost_entries")
-    .select(
-      "id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
-    )
-    .eq("company_id", auth.companyId)
-    .order("cost_date", { ascending: false });
-  if (ingredientId) q = q.eq("ingredient_id", ingredientId);
-
-  const { data, error } = await q;
-  if (error) {
-    console.error("[ingredient-costs GET]", error.message);
+  const result = await fetchAllRows<IngredientCostEntry>(() => {
+    let q = auth.supabase
+      .from("ingredient_cost_entries")
+      .select(
+        "id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
+      )
+      .eq("company_id", auth.companyId);
+    if (ingredientId) q = q.eq("ingredient_id", ingredientId);
+    return q;
+  });
+  if (result.error) {
+    console.error("[ingredient-costs GET]", result.error.message);
     return NextResponse.json(
-      { error: "Read failed", details: error.message },
+      { error: "Read failed", details: result.error.message },
       { status: 500 }
     );
   }
-  return NextResponse.json({ entries: data ?? [] });
+  warnIfTruncated("ingredient-costs GET", result);
+  const entries = [...result.rows].sort((a, b) =>
+    a.cost_date === b.cost_date
+      ? b.created_at.localeCompare(a.created_at)
+      : b.cost_date.localeCompare(a.cost_date)
+  );
+  return NextResponse.json({ entries });
 }
 
 interface PostBody {

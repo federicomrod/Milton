@@ -17,6 +17,7 @@ import {
   fetchProfitabilityData,
   type ProfitabilitySelection,
 } from "@/lib/restaurant/profitability-server";
+import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
 import {
   resolvePreferredLanguage,
   t,
@@ -245,24 +246,27 @@ export async function buildBriefingContext(
   let orders: number | null = null;
   let ordersReason: string | undefined;
   try {
-    let checksQuery = supabase
-      .from("pos_sales_items")
-      .select("check_id")
-      .eq("company_id", companyId)
-      .not("check_id", "is", null);
-    if (selected) {
-      checksQuery = checksQuery.eq("location_id", selected.locationId);
-    }
-    const { data: checks, error: checksErr } = await checksQuery.limit(20_000);
-    if (checksErr) {
+    const checksRes = await fetchAllRows<{ check_id: string | null }>(() => {
+      let checksQuery = supabase
+        .from("pos_sales_items")
+        .select("check_id")
+        .eq("company_id", companyId)
+        .not("check_id", "is", null);
+      if (selected) {
+        checksQuery = checksQuery.eq("location_id", selected.locationId);
+      }
+      return checksQuery;
+    });
+    if (checksRes.error) {
       ordersReason = t(
         preferredLanguage,
         "Could not read check_id from pos_sales_items.",
         "No se pudo leer check_id de pos_sales_items."
       );
     } else {
+      warnIfTruncated("briefing-context pos_sales_items check_id", checksRes);
       const distinct = new Set<string>();
-      for (const row of (checks ?? []) as { check_id: string | null }[]) {
+      for (const row of checksRes.rows) {
         if (row.check_id) distinct.add(row.check_id);
       }
       if (distinct.size > 0) {

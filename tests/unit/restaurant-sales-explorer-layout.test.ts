@@ -41,13 +41,13 @@ describe("RestaurantSalesExplorer compact Revenue-tab chrome (#85)", () => {
     const toolbar = sliceBetween(
       explorer,
       "Compact toolbar:",
-      "id=\"more-filters-panel\""
+      'id="more-filters-panel"'
     );
-    expect(toolbar).toContain("Date range:");
-    expect(toolbar).toContain("Channel:");
     expect(toolbar).toContain("<DateRangeControls");
+    expect(toolbar).toContain("Channel:");
     expect(toolbar).toContain("<ChannelChip");
     expect(toolbar).toContain("More filters");
+    expect(explorer).toContain("Date range:");
   });
 
   it("hides item-level filters behind a More filters panel", () => {

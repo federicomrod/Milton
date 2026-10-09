@@ -43,6 +43,16 @@ import {
   type OdooPosOrderLineRaw,
   type CanonicalOdooSaleRow,
 } from "@/lib/restaurant/odoo/sync";
+import {
+  loadOdooDimensions,
+  optionalOrderFields,
+  type ScopedOdooCall,
+} from "@/lib/restaurant/odoo/dimension-fetch";
+import {
+  QUERY_PAD_DAYS,
+  addDays,
+  parseInclusiveDateRange,
+} from "@/lib/restaurant/odoo/sync-window";
 import { loadDecryptedOdooSecret } from "@/lib/restaurant/odoo/secrets";
 import {
   assertOdooScope,
@@ -58,22 +68,14 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const UPSERT_BATCH_SIZE = 500;
-const MAX_RANGE_DAYS = 92; // ~3 months — a generous but bounded manual sync window
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Query Odoo with the requested local range padded by a full day on each
 // side, then filter transformed rows back down to the exact requested
 // local range afterward. This sidesteps computing exact UTC offset
 // boundaries for the timezone (DST-safe) at the cost of a harmless amount
 // of over-fetching; the idempotent upsert makes any overlap with a prior
-// sync a no-op.
-const QUERY_PAD_DAYS = 1;
-
-function addDays(dateStr: string, days: number): string {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
+// sync a no-op. Re-sync of the same range updates dimension columns on
+// existing (company_id, pos_source, external_line_id) rows.
 
 /** Log name + message server-side; never put err.message in the JSON body. */
 function logOdooFault(tag: string, err: unknown): string {
@@ -130,37 +132,11 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const { start_date, end_date } = body;
-    if (
-      !start_date ||
-      !end_date ||
-      !DATE_RE.test(start_date) ||
-      !DATE_RE.test(end_date)
-    ) {
-      return NextResponse.json(
-        { error: "start_date and end_date are required, format YYYY-MM-DD" },
-        { status: 400 }
-      );
+    const range = parseInclusiveDateRange(body.start_date, body.end_date);
+    if (!range.ok) {
+      return NextResponse.json({ error: range.error }, { status: 400 });
     }
-    if (start_date > end_date) {
-      return NextResponse.json(
-        { error: "start_date must be on or before end_date" },
-        { status: 400 }
-      );
-    }
-    const rangeDays =
-      (new Date(`${end_date}T00:00:00Z`).getTime() -
-        new Date(`${start_date}T00:00:00Z`).getTime()) /
-        86_400_000 +
-      1;
-    if (rangeDays > MAX_RANGE_DAYS) {
-      return NextResponse.json(
-        {
-          error: `Requested range spans ${rangeDays} days; the manual sync is capped at ${MAX_RANGE_DAYS} days per call`,
-        },
-        { status: 400 }
-      );
-    }
+    const { start_date, end_date } = range;
 
     // --- Load non-secret connection config -------------------------------
     const { data: connection, error: connError } = await supabase
@@ -355,7 +331,23 @@ export async function POST(req: NextRequest) {
       ["date_order", "<=", `${queryEnd} 23:59:59`],
       ["state", "in", [...ODOO_COMPLETED_STATES]],
     ];
-    const orderFields = [
+    const scopedCall: ScopedOdooCall = async (model, method, args, kwargs) => {
+      const result = await scopedExecuteKw(
+        creds,
+        uid,
+        scope,
+        model,
+        method,
+        args,
+        kwargs
+      );
+      if (method === "search_read") {
+        assertRecordsInScope(model, result, scope);
+      }
+      return result;
+    };
+
+    const baseOrderFields = [
       "id",
       "state",
       "date_order",
@@ -365,6 +357,25 @@ export async function POST(req: NextRequest) {
       "config_id",
       "currency_id",
       "company_id",
+    ];
+    let availableOrderFields = new Set<string>();
+    try {
+      const detected = await scopedCall("pos.order", "fields_get", [], {
+        attributes: ["string", "type"],
+      });
+      if (
+        detected &&
+        typeof detected === "object" &&
+        !Array.isArray(detected)
+      ) {
+        availableOrderFields = new Set(Object.keys(detected));
+      }
+    } catch (err) {
+      logOdooFault("[Odoo Sync] pos.order fields_get failed:", err);
+    }
+    const orderFields = [
+      ...baseOrderFields,
+      ...optionalOrderFields(availableOrderFields),
     ];
 
     let orders: OdooPosOrderRaw[];
@@ -382,18 +393,40 @@ export async function POST(req: NextRequest) {
         ? result
         : []) as unknown as OdooPosOrderRaw[];
     } catch (err) {
-      const statusClass = logOdooFault(
-        "[Odoo Sync] pos.order search_read failed:",
+      // A version-specific optional field can still 500 the call; retry
+      // the known-safe base list so revenue sync is not blocked.
+      logOdooFault(
+        "[Odoo Sync] pos.order search_read with optional fields failed, retrying base fields:",
         err
       );
-      const status = err instanceof OdooRpcError ? 502 : 500;
-      return NextResponse.json(
-        {
-          error: "Failed to fetch Odoo POS orders",
-          details: odooFaultDetails(statusClass),
-        },
-        { status }
-      );
+      try {
+        const result = await scopedExecuteKw(
+          creds,
+          uid,
+          scope,
+          "pos.order",
+          "search_read",
+          [domain],
+          { fields: baseOrderFields }
+        );
+        orders = (Array.isArray(result)
+          ? result
+          : []) as unknown as OdooPosOrderRaw[];
+        availableOrderFields = new Set(baseOrderFields);
+      } catch (retryErr) {
+        const statusClass = logOdooFault(
+          "[Odoo Sync] pos.order search_read failed:",
+          retryErr
+        );
+        const status = retryErr instanceof OdooRpcError ? 502 : 500;
+        return NextResponse.json(
+          {
+            error: "Failed to fetch Odoo POS orders",
+            details: odooFaultDetails(statusClass),
+          },
+          { status }
+        );
+      }
     }
 
     try {
@@ -466,6 +499,24 @@ export async function POST(req: NextRequest) {
       return scopeViolationResponse(err);
     }
 
+    const productIds = lines
+      .map((line) => (line.product_id ? line.product_id[0] : null))
+      .filter((id): id is number => typeof id === "number");
+    let dimensions;
+    try {
+      dimensions = await loadOdooDimensions(
+        scopedCall,
+        orders as unknown as Record<string, unknown>[],
+        productIds
+      );
+    } catch (err) {
+      if (err instanceof OdooCompanyScopeError) {
+        return scopeViolationResponse(err);
+      }
+      logOdooFault("[Odoo Sync] dimension fetch failed:", err);
+      dimensions = null;
+    }
+
     // --- Build lookup indexes (same soft-match mechanism as Revel) --------
     const [menuItemsRes, locationsFullRes] = await Promise.all([
       supabase
@@ -533,6 +584,10 @@ export async function POST(req: NextRequest) {
       locationIndex,
       locationBrandIndex,
       companyLocationMap,
+      channelByOrderId: dimensions?.lookups.channelByOrderId,
+      channelSourceByOrderId: dimensions?.lookups.channelSourceByOrderId,
+      paymentByOrderId: dimensions?.lookups.paymentByOrderId,
+      categoryByProductId: dimensions?.lookups.categoryByProductId,
     });
 
     // Drop rows the padding pulled in that fall outside the exact requested
@@ -598,6 +653,8 @@ export async function POST(req: NextRequest) {
       lines_skipped: skipped,
       unmatched_menu_items: Array.from(unmatchedMenuItems).sort(),
       unmatched_locations: Array.from(unmatchedLocations).sort(),
+      dimension_notes: dimensions?.notes ?? [],
+      dimension_calls: dimensions?.callCount ?? 0,
     });
   } catch (err) {
     const statusClass = logOdooFault("[Odoo Sync] Unexpected error:", err);

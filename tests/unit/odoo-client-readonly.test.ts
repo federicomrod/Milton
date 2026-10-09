@@ -55,7 +55,7 @@ describe("unsafeExecuteKw read-only allowlist", () => {
     }
   );
 
-  it.each(["search_read", "search_count"] as const)(
+  it.each(["search_read", "search_count", "fields_get"] as const)(
     "passes %s through to fetch",
     async (method) => {
       process.env.ODOO_ALLOWED_HOSTS = "allowed.odoo.com";

@@ -46,6 +46,8 @@ describe("RestaurantSalesExplorer compact Revenue-tab chrome (#85)", () => {
     expect(toolbar).toContain("<DateRangeControls");
     expect(toolbar).toContain("Channel:");
     expect(toolbar).toContain("<ChannelChip");
+    expect(toolbar).toContain("countLabel={formatChipQuantity");
+    expect(toolbar).not.toContain("count={");
     expect(toolbar).toContain("More filters");
     expect(explorer).toContain("Date range:");
   });

@@ -177,8 +177,8 @@ function PageHeader({
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
-          <Flame className="h-6 w-6 text-orange-500 shrink-0" />
-          <h1 className="text-2xl font-bold tracking-tight">Cockpit</h1>
+          <Flame className="h-5 w-5 text-orange-500 shrink-0" />
+          <h1 className="text-xl font-bold tracking-tight">Cockpit</h1>
           {mode === "live" ? (
             <Badge className="text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0">
               Live POS data
@@ -285,13 +285,13 @@ function LiveRestaurantView({
       ];
 
   return (
-    <div className="w-full py-8 px-6 lg:px-10">
-      <div className="space-y-6">
+    <div className="w-full py-6 px-6 lg:px-10">
+      <div className="space-y-4">
         <PageHeader mode="live" />
 
         {/* Live-mode banner — adapts to costing state */}
         {profitability && profitability.kpis.cost_coverage_pct === 0 ? (
-          <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 p-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+          <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 py-2 px-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
             <Info className="h-4 w-4 shrink-0 mt-0.5" />
             <span>
               Sales data is loaded ({data.rowCount.toLocaleString("es-MX")} row
@@ -300,7 +300,7 @@ function LiveRestaurantView({
             </span>
           </div>
         ) : (
-          <div className="rounded-md border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20 p-3 text-sm text-green-900 dark:text-green-200 flex items-start gap-2">
+          <div className="rounded-md border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20 py-2 px-3 text-sm text-green-900 dark:text-green-200 flex items-start gap-2">
             <Info className="h-4 w-4 shrink-0 mt-0.5" />
             <span>
               {data.rowCount.toLocaleString("es-MX")} POS sale row

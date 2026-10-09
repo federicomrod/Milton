@@ -249,9 +249,10 @@ describe("table floor channel mapping", () => {
         tableFloorName: "LOS RANCHOS",
       })
     ).toEqual({ channel: "in_store", source: "table_floor" });
-    expect(
-      mapSalesChannel({ takeaway: false, hasTable: false })
-    ).toEqual({ channel: null, source: null });
+    expect(mapSalesChannel({ takeaway: false, hasTable: false })).toEqual({
+      channel: null,
+      source: null,
+    });
   });
 });
 
@@ -505,20 +506,22 @@ describe("buildDimensionLookups + loadOdooDimensions", () => {
   it("marks a failed payment search_read so stored values are not nulled", async () => {
     const call: ScopedOdooCall = async (model, method) => {
       if (method === "fields_get") {
-        if (model === "pos.order") {
-          return { table_id: { type: "many2one" } };
+        const fields: Record<string, XmlRpcValue> =
+          model === "pos.order"
+            ? { table_id: { type: "many2one" } }
+            : model === "pos.payment"
+              ? {
+                  pos_order_id: { type: "many2one" },
+                  payment_method_id: { type: "many2one" },
+                  amount: { type: "float" },
+                }
+              : model === "product.product"
+                ? { categ_id: { type: "many2one" } }
+                : {};
+        if (Object.keys(fields).length === 0) {
+          throw new OdooRpcError("missing", 1);
         }
-        if (model === "pos.payment") {
-          return {
-            pos_order_id: { type: "many2one" },
-            payment_method_id: { type: "many2one" },
-            amount: { type: "float" },
-          };
-        }
-        if (model === "product.product") {
-          return { categ_id: { type: "many2one" } };
-        }
-        throw new OdooRpcError("missing", 1);
+        return fields;
       }
       if (model === "pos.payment") {
         throw new OdooRpcError("payment read failed", 1);
@@ -687,9 +690,9 @@ describe("live dimension audit", () => {
       { value: "Food", order_count: 1, amount: 8, row_count: 1 },
       { value: "Drinks", order_count: 1, amount: 4, row_count: 1 },
     ]);
-    expect(
-      ranchos.pos_categories.reduce((sum, b) => sum + b.amount, 0)
-    ).toBe(ranchos.amount);
+    expect(ranchos.pos_categories.reduce((sum, b) => sum + b.amount, 0)).toBe(
+      ranchos.amount
+    );
   });
 });
 

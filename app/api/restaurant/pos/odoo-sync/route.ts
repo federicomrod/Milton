@@ -617,8 +617,7 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
       const batch = rows.slice(i, i + UPSERT_BATCH_SIZE).map((row) =>
         stripFailedDimensionFields(row, {
-          paymentReadFailed:
-            dimensions == null || dimensions.paymentReadFailed,
+          paymentReadFailed: dimensions == null || dimensions.paymentReadFailed,
           categoryReadFailed:
             dimensions == null || dimensions.categoryReadFailed,
         })

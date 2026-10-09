@@ -122,9 +122,7 @@ describe("odoo-audit live dimension scope", () => {
     const fn = src.slice(fnStart, fnEnd);
     expect(fn).toContain("assertOdooScope(selectedIds)");
     expect(fn).not.toContain("discoverOdooCompanies");
-    expect(src).toContain(
-      "no Odoo companies selected (fail closed)"
-    );
+    expect(src).toContain("no Odoo companies selected (fail closed)");
   });
 });
 

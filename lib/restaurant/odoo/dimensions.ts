@@ -613,25 +613,30 @@ export function summarizeChannelSignalFields(
   }>,
   available: Set<string>
 ): ChannelSignalFieldReport[] {
-  const reports = CHANNEL_ORDER_FIELD_CANDIDATES.map((field) => {
-    const present = available.has(field);
-    if (!present) {
-      return { field, present: false, buckets: [] };
-    }
-    const items = orders.map(({ order, amount }) => {
-      const raw = order[field];
-      let value: string | null = null;
-      if (typeof raw === "boolean") value = raw ? "true" : "false";
-      else if (typeof raw === "string" && raw.trim()) value = raw.trim();
-      else value = many2oneName(raw);
+  const reports: ChannelSignalFieldReport[] =
+    CHANNEL_ORDER_FIELD_CANDIDATES.map((field) => {
+      const present = available.has(field);
+      if (!present) {
+        return { field, present: false, buckets: [] };
+      }
+      const items = orders.map(({ order, amount }) => {
+        const raw = order[field];
+        let value: string | null = null;
+        if (typeof raw === "boolean") value = raw ? "true" : "false";
+        else if (typeof raw === "string" && raw.trim()) value = raw.trim();
+        else value = many2oneName(raw);
+        return {
+          value,
+          orderId: typeof order.id === "number" ? order.id : null,
+          amount,
+        };
+      });
       return {
-        value,
-        orderId: typeof order.id === "number" ? order.id : null,
-        amount,
+        field,
+        present: true,
+        buckets: summarizeDimensionBuckets(items),
       };
     });
-    return { field, present: true, buckets: summarizeDimensionBuckets(items) };
-  });
 
   const tablePresent = available.has("table_id");
   reports.push({

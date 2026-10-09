@@ -699,9 +699,10 @@ const TARGET_LABELS: Record<TargetMetricKey, string> = {
 };
 
 /**
- * Collapsible "Edit targets" card. Default collapsed with a tiny status
- * line so the dashboard isn't dominated by config UI; opens to a four-row
- * form that POSTs to /api/restaurant/targets.
+ * "Edit targets" form. Collapsed by default (including when none are set)
+ * so it never pushes Overview KPIs below the fold. The parent owns open
+ * state and renders a compact toolbar button; this card stays mounted so
+ * unsaved draft values survive hide/show. POSTs to /api/restaurant/targets.
  *
  * Server response is the canonical full target set — we replace local
  * state with it on save so partial edits never desynchronize.
@@ -711,13 +712,16 @@ function TargetEditorCard({
   currency,
   onSaved,
   anyTargetSet,
+  open,
+  onOpenChange,
 }: {
   currentTargets: TargetMap;
   currency: string;
   onSaved: (next: TargetMap) => void;
   anyTargetSet: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(!anyTargetSet);
   // Form state shadows currentTargets but holds strings so the user can
   // clear a field without immediately falling back to a default.
   const [draft, setDraft] = useState<Record<TargetMetricKey, string>>({
@@ -810,6 +814,8 @@ function TargetEditorCard({
     return parts.join(" · ");
   })();
 
+  if (!open) return null;
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -821,20 +827,11 @@ function TargetEditorCard({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setOpen((v) => !v)}
+            onClick={() => onOpenChange(false)}
             className="gap-1"
             aria-expanded={open}
           >
-            {open ? (
-              <>
-                <ChevronUp className="h-4 w-4" /> Hide
-              </>
-            ) : (
-              <>
-                <ChevronDown className="h-4 w-4" />{" "}
-                {anyTargetSet ? "Edit" : "Add targets"}
-              </>
-            )}
+            <ChevronUp className="h-4 w-4" /> Hide
           </Button>
         </div>
       </CardHeader>
@@ -978,70 +975,55 @@ const DATE_PRESET_LABELS: Record<DatePreset, string> = {
 
 function DateRangeControls({
   filters,
-  range,
-  previousRange,
-  latestDate,
   onPreset,
   onCustomFrom,
   onCustomTo,
 }: {
   filters: Filters;
-  range: DateRange;
-  previousRange: DateRange | null;
-  latestDate: string | null;
   onPreset: (p: DatePreset) => void;
   onCustomFrom: (v: string) => void;
   onCustomTo: (v: string) => void;
 }) {
   const presets: DatePreset[] = ["all", "7d", "14d", "28d", "custom"];
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-medium text-muted-foreground">
-          Date range:
-        </span>
-        {presets.map((p) => (
-          <button
-            key={p}
-            type="button"
-            onClick={() => onPreset(p)}
-            className={
-              "px-3 py-1.5 rounded-full text-sm font-medium border transition-colors " +
-              (filters.datePreset === p
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-background text-foreground border-border hover:bg-muted")
-            }
-          >
-            {DATE_PRESET_LABELS[p]}
-          </button>
-        ))}
-        {filters.datePreset === "custom" && (
-          <div className="flex items-center gap-2">
-            <Input
-              type="date"
-              value={filters.customFrom ?? ""}
-              onChange={(e) => onCustomFrom(e.target.value)}
-              className="h-9 w-auto"
-              aria-label="From date"
-            />
-            <span className="text-sm text-muted-foreground">to</span>
-            <Input
-              type="date"
-              value={filters.customTo ?? ""}
-              onChange={(e) => onCustomTo(e.target.value)}
-              className="h-9 w-auto"
-              aria-label="To date"
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Resolved-range hint. Tells the user exactly which dates the dashboard
-          is showing — important because presets are anchored to the latest
-          sale_date in the data, not today's date. */}
-      <p className="text-xs text-muted-foreground">
-        {describeRangeForHint({ filters, range, previousRange, latestDate })}
-      </p>
+    <div className="flex items-center gap-2 flex-wrap min-w-0">
+      <span className="text-xs font-medium text-muted-foreground shrink-0">
+        Date range:
+      </span>
+      {presets.map((p) => (
+        <button
+          key={p}
+          type="button"
+          onClick={() => onPreset(p)}
+          className={
+            "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors " +
+            (filters.datePreset === p
+              ? "bg-primary text-primary-foreground border-primary"
+              : "bg-background text-foreground border-border hover:bg-muted")
+          }
+        >
+          {DATE_PRESET_LABELS[p]}
+        </button>
+      ))}
+      {filters.datePreset === "custom" && (
+        <div className="flex items-center gap-2">
+          <Input
+            type="date"
+            value={filters.customFrom ?? ""}
+            onChange={(e) => onCustomFrom(e.target.value)}
+            className="h-8 w-auto"
+            aria-label="From date"
+          />
+          <span className="text-xs text-muted-foreground">to</span>
+          <Input
+            type="date"
+            value={filters.customTo ?? ""}
+            onChange={(e) => onCustomTo(e.target.value)}
+            className="h-8 w-auto"
+            aria-label="To date"
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1089,7 +1071,7 @@ function ChannelChip({
       type="button"
       onClick={onClick}
       className={
-        "px-3 py-1.5 rounded-full text-sm font-medium border transition-colors " +
+        "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors " +
         (active
           ? "bg-primary text-primary-foreground border-primary"
           : "bg-background text-foreground border-border hover:bg-muted")
@@ -1191,36 +1173,16 @@ function ActiveFilterPills({
     });
   }
 
-  // Render the bar even when no filters are active, so the user always has
-  // an unambiguous status line ("Showing all POS sales") near the top.
-  const isEmpty = pills.length === 0;
+  // Only render when something is actually filtered — the compact toolbar
+  // already shows the default date/channel state, and an empty "Showing all"
+  // bar would push Overview KPIs down for no information gain.
+  if (pills.length === 0) return null;
 
   return (
-    <div
-      className={
-        "flex items-center gap-2 flex-wrap rounded-lg border px-3 py-2 " +
-        (isEmpty
-          ? "bg-muted/40 border-border"
-          : "bg-blue-50/70 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900")
-      }
-    >
-      <Filter
-        className={
-          "h-4 w-4 " +
-          (isEmpty
-            ? "text-muted-foreground"
-            : "text-blue-700 dark:text-blue-300")
-        }
-      />
-      <span
-        className={
-          "text-sm font-medium " +
-          (isEmpty
-            ? "text-muted-foreground"
-            : "text-blue-900 dark:text-blue-100")
-        }
-      >
-        {isEmpty ? "Showing all POS sales" : "Filtered by:"}
+    <div className="flex items-center gap-2 flex-wrap rounded-lg border px-3 py-1.5 bg-blue-50/70 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900">
+      <Filter className="h-4 w-4 text-blue-700 dark:text-blue-300" />
+      <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
+        Filtered by:
       </span>
       {pills.map((p) => (
         <span
@@ -1238,16 +1200,14 @@ function ActiveFilterPills({
           </button>
         </span>
       ))}
-      {!isEmpty && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onClearAll}
-          className="h-7 text-sm ml-auto"
-        >
-          Clear all filters
-        </Button>
-      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onClearAll}
+        className="h-7 text-sm ml-auto"
+      >
+        Clear all filters
+      </Button>
     </div>
   );
 }
@@ -1271,6 +1231,12 @@ export function RestaurantSalesExplorer({
   // Targets live in client state so the editor's POST can update them
   // optimistically. Server is source of truth on next page reload.
   const [targets, setTargets] = useState<TargetMap>(initialTargets);
+  // Item-level filters (search / min units / min revenue / price band) sit
+  // behind "More filters" so the default toolbar is a single compact row.
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
+  // Targets editor is always collapsed on load — including when none are
+  // set — so the Overview KPI cards stay above the fold.
+  const [targetsOpen, setTargetsOpen] = useState(false);
 
   // Unfiltered counts used for channel-chip badges so the user sees the full
   // distribution before clicking. These are stable across filter changes.
@@ -1409,34 +1375,32 @@ export function RestaurantSalesExplorer({
 
   const clearAll = () => setFilters(EMPTY_FILTERS);
 
-  return (
-    <div className="space-y-8">
-      {/* Always-visible status line: "Showing all" or active filter chips
-          with one-click removal. Placed at the very top so the user can
-          always orient themselves before reading the KPIs below. */}
-      <ActiveFilterPills
-        filters={filters}
-        onClear={clearOne}
-        onClearAll={clearAll}
-      />
+  const moreFilterCount =
+    (filters.search.trim() !== "" ? 1 : 0) +
+    (filters.minRevenue > 0 ? 1 : 0) +
+    (filters.minUnits > 0 ? 1 : 0) +
+    (filters.minAvgPrice !== null ? 1 : 0) +
+    (filters.maxAvgPrice !== null ? 1 : 0);
 
-      {/* Filter bar — a single panel grouping date / channel / item-level
-          filters so the controls have one clear home. */}
-      <Card>
-        <CardHeader className="pb-3 pt-4">
-          <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-            <Filter className="h-3.5 w-3.5" />
-            Filters
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0 pb-5 space-y-5">
-          {/* Date range — first row so the time-axis selection always
-              precedes the dimension filters underneath. */}
+  const dateHint =
+    filters.datePreset === "all"
+      ? null
+      : describeRangeForHint({
+          filters,
+          range: aggs.range,
+          previousRange: aggs.previousRange,
+          latestDate: latestSaleDate(rows),
+        });
+
+  return (
+    <div className="space-y-5">
+      {/* Compact toolbar: date + channel stay visible; item-level filters
+          and the targets editor are collapsed so Overview KPIs land above
+          the fold on a 1280×800 laptop. */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <DateRangeControls
             filters={filters}
-            range={aggs.range}
-            previousRange={aggs.previousRange}
-            latestDate={latestSaleDate(rows)}
             onPreset={(p) => {
               // Switching to a non-custom preset wipes the custom bounds
               // so they don't reappear when the user goes back to "Custom".
@@ -1451,8 +1415,10 @@ export function RestaurantSalesExplorer({
             onCustomTo={(v) => updateFilter("customTo", v || null)}
           />
 
-          {/* Channel chips */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <span className="text-xs font-medium text-muted-foreground shrink-0">
+              Channel:
+            </span>
             <ChannelChip
               active={filters.channel === null}
               label="All"
@@ -1485,15 +1451,63 @@ export function RestaurantSalesExplorer({
             )}
           </div>
 
-          {/* Search + numeric filters */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="flex items-center gap-2 ml-auto shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setMoreFiltersOpen((v) => !v)}
+              className="gap-1 h-8"
+              aria-expanded={moreFiltersOpen}
+              aria-controls="more-filters-panel"
+            >
+              {moreFiltersOpen ? (
+                <ChevronUp className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
+              More filters
+              {moreFilterCount > 0 && (
+                <span className="ml-0.5 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold tabular-nums">
+                  {moreFilterCount}
+                </span>
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              id="targets"
+              onClick={() => setTargetsOpen((v) => !v)}
+              className="gap-1 h-8 scroll-mt-24"
+              aria-expanded={targetsOpen}
+            >
+              <Target className="h-3.5 w-3.5 text-orange-500" />
+              {targetsOpen
+                ? "Hide targets"
+                : anyTargetSet
+                  ? "Edit targets"
+                  : "Add targets"}
+            </Button>
+          </div>
+        </div>
+
+        {dateHint && (
+          <p className="text-xs text-muted-foreground">{dateHint}</p>
+        )}
+
+        {moreFiltersOpen && (
+          <div
+            id="more-filters-panel"
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 rounded-lg border border-border bg-muted/20 p-3"
+          >
             <div className="relative lg:col-span-2">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input
                 placeholder="Search item name…"
                 value={filters.search}
                 onChange={(e) => updateFilter("search", e.target.value)}
-                className="pl-8"
+                className="pl-8 h-9"
               />
             </div>
             <NumberFilter
@@ -1521,24 +1535,28 @@ export function RestaurantSalesExplorer({
               />
             </div>
           </div>
-        </CardContent>
-      </Card>
+        )}
+
+        <ActiveFilterPills
+          filters={filters}
+          onClear={clearOne}
+          onClearAll={clearAll}
+        />
+      </div>
+
+      <TargetEditorCard
+        currentTargets={targets}
+        currency={aggs.currency}
+        onSaved={(next) => setTargets(next)}
+        anyTargetSet={anyTargetSet}
+        open={targetsOpen}
+        onOpenChange={setTargetsOpen}
+      />
 
       {/* In-page section nav. Plain anchor links scroll to the section
           IDs below; the dashboard's scroll-margin-top keeps the heading
           visible under the sticky app header. */}
       <SectionTabs />
-
-      {/* Targets editor. Lives between filters and KPI cards so editing
-          a target immediately reframes the metrics underneath. */}
-      <section id="targets" className="scroll-mt-24">
-        <TargetEditorCard
-          currentTargets={targets}
-          currency={aggs.currency}
-          onSaved={(next) => setTargets(next)}
-          anyTargetSet={anyTargetSet}
-        />
-      </section>
 
       {/* KPI cards. Deltas render when a previous-period overview exists
           (i.e. the active range is bounded). For "All dates" the cards
@@ -1546,7 +1564,7 @@ export function RestaurantSalesExplorer({
           on top of the delta when targets are configured AND no non-date
           filter is active. */}
       <section id="overview" className="scroll-mt-24">
-        <h2 className="text-lg font-semibold mb-4">Overview</h2>
+        <h2 className="text-lg font-semibold mb-3">Overview</h2>
         {anyTargetSet && nonDateFiltersActive && (
           <p className="text-sm text-muted-foreground mb-3">
             Target comparison hidden for filtered slices. Clear non-date filters
@@ -1861,7 +1879,7 @@ function SectionTabs() {
       aria-label="Dashboard sections"
       className="sticky top-0 z-30 -mx-6 lg:-mx-10 px-6 lg:px-10 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70 border-b border-border"
     >
-      <ul className="flex items-center gap-1 overflow-x-auto py-2">
+      <ul className="flex items-center gap-1 overflow-x-auto py-1.5">
         {tabs.map((t) => (
           <li key={t.hash}>
             <a

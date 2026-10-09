@@ -49,7 +49,7 @@ export function CockpitTabs({
       {/* Sticky sub-navigation. We bleed it edge-to-edge of the page
           padding with negative margins so the bottom border feels like
           a real navigation bar, not a centered chip row. */}
-      <div className="sticky top-0 z-20 -mx-6 lg:-mx-10 px-6 lg:px-10 mb-6 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+      <div className="sticky top-0 z-20 -mx-6 lg:-mx-10 px-6 lg:px-10 mb-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
         <nav
           className="flex gap-1 overflow-x-auto"
           aria-label="Cockpit sections"
@@ -64,7 +64,7 @@ export function CockpitTabs({
                 aria-selected={isActive}
                 onClick={() => setActive(t.id)}
                 className={
-                  "flex items-center gap-1.5 px-3 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-t-sm " +
+                  "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-t-sm " +
                   (isActive
                     ? "border-orange-500 text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30")

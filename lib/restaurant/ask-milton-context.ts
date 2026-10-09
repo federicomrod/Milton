@@ -30,7 +30,11 @@ import {
   filterMenuItemsForSelection,
   type ProfitabilitySelection,
 } from "@/lib/restaurant/profitability-server";
-import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
+import {
+  fetchAllRows,
+  succeededRows,
+  warnIfTruncated,
+} from "@/lib/restaurant/paginated-read";
 
 // ---------------------------------------------------------------------------
 // Extra shapes layered on top of BriefingContext
@@ -165,6 +169,11 @@ export interface AskMiltonContext {
   agent_runs: {
     recent: AskMiltonAgentRunSummary[];
   };
+  /**
+   * Paged reads that failed. Empty/omitted when every fetch succeeded.
+   * Callers must not treat related arrays as a complete snapshot.
+   */
+  read_errors?: string[];
 }
 
 export interface AskMiltonContextScope {
@@ -449,7 +458,7 @@ export async function buildAskMiltonContext(
   // costs were entered via invoices or bulk import — do NOT use it for
   // anything cost-related here.
   warnIfTruncated("ask-milton ingredient_cost_entries", costEntriesRes);
-  const costEntryRows = costEntriesRes.rows;
+  const costEntryRows = succeededRows(costEntriesRes);
 
   interface LatestCost {
     normalized_unit_cost: number;
@@ -646,16 +655,19 @@ export async function buildAskMiltonContext(
   // ---- Ingredient usage map ----
   // Build: ingredient_id → { direct menu items, via-component menu items }
   warnIfTruncated("ask-milton menu_recipe_inputs", recipeInputsRes);
-  const recipes = recipesRes.rows;
-  const recipeInputs = recipeInputsRes.rows;
-  const components = componentsRes.rows;
-  const componentRecipes = componentRecipesRes.rows;
-  const componentRecipeInputs = componentRecipeInputsRes.rows;
+  const recipes = succeededRows(recipesRes);
+  const recipeInputs = succeededRows(recipeInputsRes);
+  const components = succeededRows(componentsRes);
+  const componentRecipes = succeededRows(componentRecipesRes);
+  const componentRecipeInputs = succeededRows(componentRecipeInputsRes);
   // Scoped the same way the cockpit's profitability view is (Multi-
   // Restaurant UX v1): a selected restaurant's own brand's items plus
   // legacy brand-less items — never another brand's exclusive dishes
   // leaking into the ingredient-usage map below.
-  const menuItemRows = filterMenuItemsForSelection(menuItemsRes.rows, selected);
+  const menuItemRows = filterMenuItemsForSelection(
+    succeededRows(menuItemsRes),
+    selected
+  );
 
   // Index lookups
   const recipeToMenuItem = new Map<string, string>(); // recipe_id → menu_item_id
@@ -823,6 +835,7 @@ export async function buildAskMiltonContext(
     });
 
   // Log errors for observability but never throw — keep partial context.
+  const read_errors: string[] = [];
   for (const [label, res] of [
     ["suppliers", suppliersRes],
     ["supplier_invoices", invoicesRes],
@@ -839,7 +852,11 @@ export async function buildAskMiltonContext(
   ] as const) {
     if (res.error) {
       console.error(`[ask-milton-context] ${label}:`, res.error.message);
+      read_errors.push(label);
     }
+  }
+  if (profData.readError) {
+    read_errors.push("pos_sales_items");
   }
 
   return {
@@ -877,5 +894,6 @@ export async function buildAskMiltonContext(
     agent_runs: {
       recent: runsRecent,
     },
+    ...(read_errors.length > 0 ? { read_errors } : {}),
   };
 }

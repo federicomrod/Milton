@@ -7,7 +7,11 @@
 
 import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
+import {
+  fetchAllRows,
+  succeededRows,
+  warnIfTruncated,
+} from "@/lib/restaurant/paginated-read";
 import type {
   SupplierInvoice,
   SupplierInvoiceLine,
@@ -83,6 +87,12 @@ export async function GET(
     );
   }
   warnIfTruncated("invoice detail lines", lineRes);
+  if (ingRes.error) {
+    console.error(
+      "[invoice detail] ingredients:",
+      ingRes.error.message
+    );
+  }
   const invoice = invRes.data as SupplierInvoice;
 
   let supplierName: string | null = null;
@@ -102,6 +112,8 @@ export async function GET(
       a.created_at.localeCompare(b.created_at)
     ),
     events: (evtRes.data ?? []) as InvoiceEvent[],
-    ingredients: [...ingRes.rows].sort((a, b) => a.name.localeCompare(b.name)),
+    ingredients: [...succeededRows(ingRes)].sort((a, b) =>
+      a.name.localeCompare(b.name)
+    ),
   });
 }

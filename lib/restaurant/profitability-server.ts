@@ -31,7 +31,11 @@ import {
   buildScopedNameIndex,
   resolveScopedName,
 } from "@/lib/restaurant/scoped-matching";
-import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
+import {
+  fetchAllRows,
+  succeededRows,
+  warnIfTruncated,
+} from "@/lib/restaurant/paginated-read";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -136,6 +140,29 @@ export interface ProfitabilityData {
   setupCounts: SetupCounts;
   /** True when any paged fact-table read hit the safety cap. */
   truncated: boolean;
+  /**
+   * True when a paged POS read failed. KPIs must not be treated as a
+   * complete (or smaller) total — the cockpit shows a warning instead.
+   */
+  readError: boolean;
+}
+
+/** Slim POS shape the profitability aggregator needs. */
+export interface ProfitabilityPosRow {
+  raw_item_name: string | null;
+  quantity: number | null;
+  gross_revenue: number | null;
+  net_revenue: number | null;
+  currency: string | null;
+  location_id: string | null;
+}
+
+export interface FetchProfitabilityOptions {
+  /**
+   * Reuse POS rows already loaded in this request (cockpit sales fetch)
+   * so we do not page `pos_sales_items` a second time.
+   */
+  posRows?: ProfitabilityPosRow[];
 }
 
 // ---------------------------------------------------------------------------
@@ -192,16 +219,10 @@ export function filterMenuItemsForSelection<
 export async function fetchProfitabilityData(
   supabase: SupabaseClient,
   companyId: string,
-  selected?: ProfitabilitySelection | null
+  selected?: ProfitabilitySelection | null,
+  options?: FetchProfitabilityOptions
 ): Promise<ProfitabilityData> {
-  type PosRow = {
-    raw_item_name: string | null;
-    quantity: number | null;
-    gross_revenue: number | null;
-    net_revenue: number | null;
-    currency: string | null;
-    location_id: string | null;
-  };
+  type PosRow = ProfitabilityPosRow;
   type MappingRow = {
     raw_pos_item_name: string;
     menu_item_id: string;
@@ -216,10 +237,12 @@ export async function fetchProfitabilityData(
     brand_id: string | null;
   };
 
+  const preloadedPos = options?.posRows;
+
   // menu_items is intentionally fetched unfiltered and scoped in-memory via
   // filterMenuItemsForSelection below — see that function's docstring.
   const [
-    posRes,
+    posFetched,
     mappingsRes,
     menuItemsRes,
     recipesRes,
@@ -234,18 +257,24 @@ export async function fetchProfitabilityData(
     supplierInvoicesCountRes,
     agentRunsCountRes,
   ] = await Promise.all([
-    fetchAllRows<PosRow>(() => {
-      let q = supabase
-        .from("pos_sales_items")
-        .select(
-          "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id"
-        )
-        .eq("company_id", companyId);
-      if (selected) {
-        q = q.eq("location_id", selected.locationId);
-      }
-      return q;
-    }),
+    preloadedPos
+      ? Promise.resolve({
+          rows: preloadedPos,
+          truncated: false,
+          error: null as { message?: string } | null,
+        })
+      : fetchAllRows<PosRow>(() => {
+          let q = supabase
+            .from("pos_sales_items")
+            .select(
+              "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id"
+            )
+            .eq("company_id", companyId);
+          if (selected) {
+            q = q.eq("location_id", selected.locationId);
+          }
+          return q;
+        }),
     // Intentionally NOT filtered by location: resolveScopedName below
     // already applies the correct exact-scope-then-company-wide-fallback
     // precedence per POS row once pos_sales_items itself is location-
@@ -362,7 +391,11 @@ export async function fetchProfitabilityData(
       .eq("company_id", companyId),
   ]);
 
-  // Soft-fail per table.
+  const posRes = posFetched;
+
+  // Soft-fail per table. A failed page yields no rows (fetchAllRows fail-closes),
+  // matching the old single-query `data ?? []`. POS failures also set
+  // `readError` so the cockpit can show a warning instead of $0 as a total.
   const errLog = (name: string, e: { message?: string } | null) =>
     e?.message && console.error(`[profitability] ${name}:`, e.message);
   errLog("pos_sales_items", posRes.error);
@@ -389,16 +422,19 @@ export async function fetchProfitabilityData(
   );
 
   // ----- Costing engine setup -----
-  const menuItems = filterMenuItemsForSelection(menuItemsRes.rows, selected);
-  const recipes = recipesRes.rows;
-  const recipeInputs = recipeInputsRes.rows;
-  const components = componentsRes.rows;
-  const componentRecipes = componentRecipesRes.rows;
-  const componentRecipeInputs = componentRecipeInputsRes.rows;
-  const ingredients = ingredientsRes.rows;
-  const costEntries = costEntriesRes.rows;
-  const suppliers = suppliersRes.rows;
-  const supplierLinks = supplierIngredientsRes.rows;
+  const menuItems = filterMenuItemsForSelection(
+    succeededRows(menuItemsRes),
+    selected
+  );
+  const recipes = succeededRows(recipesRes);
+  const recipeInputs = succeededRows(recipeInputsRes);
+  const components = succeededRows(componentsRes);
+  const componentRecipes = succeededRows(componentRecipesRes);
+  const componentRecipeInputs = succeededRows(componentRecipeInputsRes);
+  const ingredients = succeededRows(ingredientsRes);
+  const costEntries = succeededRows(costEntriesRes);
+  const suppliers = succeededRows(suppliersRes);
+  const supplierLinks = succeededRows(supplierIngredientsRes);
 
   // Index for the engine.
   const menuInputsByRecipeId = new Map<string, CostingRecipeInput[]>();
@@ -477,7 +513,7 @@ export async function fetchProfitabilityData(
   // takes precedence; a company-wide (location_id NULL) mapping is the
   // fallback for legacy/unscoped rows. Same precedence rule as ingest-time
   // menu-item matching — see lib/restaurant/scoped-matching.ts.
-  const mappings = mappingsRes.rows;
+  const mappings = succeededRows(mappingsRes);
   const mappingIndex = buildScopedNameIndex(
     mappings.map((m) => ({
       id: m.menu_item_id,
@@ -497,7 +533,7 @@ export async function fetchProfitabilityData(
   let revenueTotal = 0;
   let firstCurrency: string | null = null;
 
-  const posRows = posRes.rows;
+  const posRows = succeededRows(posRes);
   for (const r of posRows) {
     const raw = (r.raw_item_name ?? "").trim();
     if (!raw) continue;
@@ -783,5 +819,6 @@ export async function fetchProfitabilityData(
       costEntriesRes.truncated ||
       suppliersRes.truncated ||
       supplierIngredientsRes.truncated,
+    readError: Boolean(posRes.error),
   };
 }

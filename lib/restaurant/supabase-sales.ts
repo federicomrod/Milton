@@ -96,6 +96,18 @@ export type RestaurantDashboardData =
       rowCount: number;
       /** True when the paginated read hit the safety cap. */
       truncated: boolean;
+      /**
+       * Slim POS facts for `fetchProfitabilityData` so the cockpit request
+       * does not page `pos_sales_items` a second time.
+       */
+      posFactRows: Array<{
+        raw_item_name: string | null;
+        quantity: number | null;
+        gross_revenue: number | null;
+        net_revenue: number | null;
+        currency: string | null;
+        location_id: string | null;
+      }>;
     }
   | {
       mode: "sample";
@@ -445,6 +457,7 @@ export async function fetchRealRestaurantDashboardData(
     companyId,
     rowCount: rawRows.length,
     truncated,
+    posFactRows: rawRows,
   };
 }
 

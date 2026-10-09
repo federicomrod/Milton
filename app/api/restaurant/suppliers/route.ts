@@ -12,7 +12,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
+import {
+  fetchAllRows,
+  succeededRows,
+  warnIfTruncated,
+} from "@/lib/restaurant/paginated-read";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -63,7 +67,7 @@ export async function GET() {
 
   // Build per-supplier aggregates in memory so we avoid N+1 queries.
   const ingredientCountBySupplierId = new Map<string, number>();
-  for (const l of linksRes.rows) {
+  for (const l of succeededRows(linksRes)) {
     ingredientCountBySupplierId.set(
       l.supplier_id,
       (ingredientCountBySupplierId.get(l.supplier_id) ?? 0) + 1
@@ -72,7 +76,7 @@ export async function GET() {
 
   const latestCostDateBySupplierId = new Map<string, string>();
   const totalSpendBySupplierId = new Map<string, number>();
-  for (const e of costRes.rows) {
+  for (const e of succeededRows(costRes)) {
     const sid = e.supplier_id;
     const prev = latestCostDateBySupplierId.get(sid);
     if (!prev || e.cost_date > prev)

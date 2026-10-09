@@ -61,4 +61,57 @@ describe("fetchAllRows", () => {
     // ~10k POS lines/month × 12 ≈ 120k; 500k leaves headroom.
     expect(PAGINATED_READ_SAFETY_CAP).toBeGreaterThanOrEqual(500_000);
   });
+
+  it("a middle-page failure returns error and no partial rows", async () => {
+    const supabase = createCappedSupabase({
+      tables: { items: rows(2_500) },
+      maxRowsPerRequest: POSTGREST_MAX_ROWS,
+      pageErrors: [
+        {
+          table: "items",
+          from: POSTGREST_MAX_ROWS,
+          message: "simulated page 2 failure",
+        },
+      ],
+    });
+    const result = await fetchAllRows<{ id: string; n: number }>(() =>
+      supabase.from("items").select("id, n")
+    );
+    expect(result.error?.message).toBe("simulated page 2 failure");
+    expect(result.rows).toEqual([]);
+    expect(result.truncated).toBe(false);
+  });
+
+  it("an exact multiple of 1,000 rows (2,000) ends cleanly", async () => {
+    const all = rows(2_000);
+    const supabase = createCappedSupabase({
+      tables: { items: all },
+      maxRowsPerRequest: POSTGREST_MAX_ROWS,
+    });
+    let pages = 0;
+    const result = await fetchAllRows<{ id: string; n: number }>(() => {
+      pages += 1;
+      return supabase.from("items").select("id, n");
+    });
+    expect(result.error).toBeNull();
+    expect(result.truncated).toBe(false);
+    expect(result.rows).toHaveLength(2_000);
+    expect(result.rows[0].id).toBe("row-00000");
+    expect(result.rows[1_999].id).toBe("row-01999");
+    // Two full pages plus a short (empty) page that proves the end.
+    expect(pages).toBe(3);
+  });
+
+  it("an empty table returns no rows and no error", async () => {
+    const supabase = createCappedSupabase({
+      tables: { items: [] },
+      maxRowsPerRequest: POSTGREST_MAX_ROWS,
+    });
+    const result = await fetchAllRows(() =>
+      supabase.from("items").select("id")
+    );
+    expect(result.error).toBeNull();
+    expect(result.truncated).toBe(false);
+    expect(result.rows).toEqual([]);
+  });
 });

@@ -10,7 +10,11 @@
 import { Carrot } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
-import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
+import {
+  fetchAllRows,
+  succeededRows,
+  warnIfTruncated,
+} from "@/lib/restaurant/paginated-read";
 import {
   SuppliersPage,
   type SupplierRow,
@@ -67,9 +71,9 @@ export default async function SuppliersRoute() {
     supabase.from("suppliers").select(FULL_COLS).eq("company_id", companyId)
   );
 
-  let supplierRows: Record<string, unknown>[] = [...fullRes.rows].sort((a, b) =>
-    String(a.name ?? "").localeCompare(String(b.name ?? ""))
-  );
+  let supplierRows: Record<string, unknown>[] = [
+    ...succeededRows(fullRes),
+  ].sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
 
   if (fullRes.error) {
     console.error(
@@ -88,7 +92,7 @@ export default async function SuppliersRoute() {
         minimalRes.error.message
       );
     }
-    supplierRows = [...minimalRes.rows].sort((a, b) =>
+    supplierRows = [...succeededRows(minimalRes)].sort((a, b) =>
       String(a.name ?? "").localeCompare(String(b.name ?? ""))
     );
   }
@@ -131,7 +135,7 @@ export default async function SuppliersRoute() {
   warnIfTruncated("suppliers page cost entries", costRes);
 
   const ingredientCountBySupplierId = new Map<string, number>();
-  for (const l of linksRes.rows) {
+  for (const l of succeededRows(linksRes)) {
     ingredientCountBySupplierId.set(
       l.supplier_id,
       (ingredientCountBySupplierId.get(l.supplier_id) ?? 0) + 1
@@ -140,7 +144,7 @@ export default async function SuppliersRoute() {
 
   const latestCostDateBySupplierId = new Map<string, string>();
   const totalSpendBySupplierId = new Map<string, number>();
-  for (const e of costRes.rows) {
+  for (const e of succeededRows(costRes)) {
     const sid = e.supplier_id;
     const prev = latestCostDateBySupplierId.get(sid);
     if (!prev || e.cost_date > prev)

@@ -460,6 +460,15 @@ export async function runPosAgent(
   );
   if (posRes.error) {
     console.error("[pos_agent] pos_sales_items:", posRes.error.message);
+    return {
+      findings: [],
+      metadata: {
+        pos_rows_reviewed: 0,
+        pos_read_error: posRes.error.message ?? true,
+      },
+      summary:
+        "POS Agent could not load sales rows; no findings from a partial read.",
+    };
   }
   warnIfTruncated("pos_agent pos_sales_items", posRes);
   const posRows = posRes.rows;

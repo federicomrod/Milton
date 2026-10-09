@@ -42,6 +42,14 @@ export interface FetchAllRowsResult<T> {
 }
 
 /**
+ * Rows from a succeeded read. On error this is always `[]` — never a
+ * prefix of pages that happened to complete before the failure.
+ */
+export function succeededRows<T>(result: FetchAllRowsResult<T>): T[] {
+  return result.error ? [] : result.rows;
+}
+
+/**
  * Minimal surface we call on a PostgREST filter builder after the caller
  * has applied `.from().select().eq()` (etc.). Row shape is `unknown` here
  * because supabase-js infers select-column objects that are not assignable
@@ -88,7 +96,10 @@ export async function fetchAllRows<T>(
       .order(orderBy, { ascending: true })
       .range(from, to);
     if (error) {
-      return { rows, truncated: false, error };
+      // Fail closed: a mid-loop error must not look like a complete read.
+      // Callers that only check `truncated` (or treat a short `rows` as
+      // "that's all of them") would otherwise show silent partial totals.
+      return { rows: [], truncated: false, error };
     }
     const page = (data ?? []) as T[];
     rows.push(...page);

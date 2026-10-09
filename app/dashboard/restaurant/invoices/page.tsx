@@ -7,7 +7,11 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
-import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
+import {
+  fetchAllRows,
+  succeededRows,
+  warnIfTruncated,
+} from "@/lib/restaurant/paginated-read";
 import {
   InvoicesPage,
   type InvoiceListItem,
@@ -86,7 +90,7 @@ export default async function SupplierInvoicesPage() {
   warnIfTruncated("invoices page lines", lineRes);
 
   const supplierNameById = new Map<string, string>();
-  for (const s of [...supplierRes.rows].sort((a, b) =>
+  for (const s of [...succeededRows(supplierRes)].sort((a, b) =>
     a.name.localeCompare(b.name)
   )) {
     supplierNameById.set(s.id, s.name);
@@ -109,7 +113,7 @@ export default async function SupplierInvoicesPage() {
       pending: 0,
     });
   }
-  for (const l of lineRes.rows) {
+  for (const l of succeededRows(lineRes)) {
     const bucket = lineCounts.get(l.invoice_id);
     if (!bucket) continue;
     bucket.total++;
@@ -163,10 +167,10 @@ export default async function SupplierInvoicesPage() {
   return (
     <InvoicesPage
       initialInvoices={invoices}
-      suppliers={[...supplierRes.rows].sort((a, b) =>
+      suppliers={[...succeededRows(supplierRes)].sort((a, b) =>
         a.name.localeCompare(b.name)
       )}
-      ingredients={[...ingRes.rows].sort((a, b) =>
+      ingredients={[...succeededRows(ingRes)].sort((a, b) =>
         a.name.localeCompare(b.name)
       )}
     />

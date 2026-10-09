@@ -9,15 +9,25 @@
 
 export type MockRow = Record<string, unknown>;
 
+export interface PageErrorSpec {
+  table: string;
+  /** Matches the `.range(from, _)` start offset (0 for the first page). */
+  from: number;
+  message?: string;
+}
+
 export interface CappedSupabaseOptions {
   tables: Record<string, MockRow[]>;
   maxRowsPerRequest?: number;
   userId?: string | null;
+  /** Simulated PostgREST/network failure for a specific page. */
+  pageErrors?: PageErrorSpec[];
 }
 
 export function createCappedSupabase(opts: CappedSupabaseOptions) {
   const maxRows = opts.maxRowsPerRequest ?? 1000;
   const userId = opts.userId === undefined ? "user-1" : opts.userId;
+  const pageErrors = opts.pageErrors ?? [];
 
   return {
     auth: {
@@ -27,7 +37,12 @@ export function createCappedSupabase(opts: CappedSupabaseOptions) {
       }),
     },
     from(table: string) {
-      return new CappedQuery([...(opts.tables[table] ?? [])], maxRows);
+      return new CappedQuery(
+        [...(opts.tables[table] ?? [])],
+        maxRows,
+        table,
+        pageErrors
+      );
     },
   };
 }
@@ -41,7 +56,9 @@ class CappedQuery {
 
   constructor(
     private rows: MockRow[],
-    private maxRows: number
+    private maxRows: number,
+    private table: string,
+    private pageErrors: PageErrorSpec[]
   ) {}
 
   select(_cols?: unknown, opts?: { count?: string; head?: boolean }) {
@@ -99,13 +116,20 @@ class CappedQuery {
     onfulfilled?:
       | ((value: {
           data: MockRow[] | null;
-          error: null;
+          error: { message?: string } | null;
           count: number | null;
         }) => TResult1 | PromiseLike<TResult1>)
       | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
   ) {
     return this.execute().then(onfulfilled, onrejected);
+  }
+
+  private pageError(): { message: string } | null {
+    const hit = this.pageErrors.find(
+      (e) => e.table === this.table && e.from === this.fromIdx
+    );
+    return hit ? { message: hit.message ?? "page failed" } : null;
   }
 
   private applyOrder(): MockRow[] {
@@ -125,6 +149,10 @@ class CappedQuery {
   }
 
   private async execute() {
+    const fail = this.pageError();
+    if (fail) {
+      return { data: null, error: fail, count: null };
+    }
     const ordered = this.applyOrder();
     if (this.head) {
       return { data: null, error: null, count: ordered.length };

@@ -24,7 +24,11 @@ import {
   calculateAllMenuItemCosts,
   getLatestIngredientCost,
 } from "@/lib/restaurant/costing";
-import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
+import {
+  fetchAllRows,
+  succeededRows,
+  warnIfTruncated,
+} from "@/lib/restaurant/paginated-read";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -112,6 +116,8 @@ export interface MenuRecipesData {
   summary: MenuRecipesSummary;
   /** Currency used to format prices/revenue in the menu page. */
   currency: string;
+  /** True when a paged POS (or other fact-table) read failed. */
+  readError: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +180,7 @@ export async function fetchMenuRecipesData(
         menu_items_with_cost_issues: 0,
       },
       currency: "MXN",
+      readError: false,
     };
   }
 
@@ -334,21 +341,21 @@ export async function fetchMenuRecipesData(
   warnIfTruncated("menu-recipes menu_recipe_inputs", recipeInputsRes);
   warnIfTruncated("menu-recipes ingredient_cost_entries", costEntriesRes);
 
-  const posRows: PosRow[] = posRes.rows;
-  const mappings: MappingRow[] = mappingsRes.rows;
-  const menuItems: MenuItemRow[] = [...menuItemsRes.rows].sort((a, b) =>
-    a.name.localeCompare(b.name)
+  const posRows: PosRow[] = succeededRows(posRes);
+  const mappings: MappingRow[] = succeededRows(mappingsRes);
+  const menuItems: MenuItemRow[] = [...succeededRows(menuItemsRes)].sort(
+    (a, b) => a.name.localeCompare(b.name)
   );
-  const recipes: RecipeRow[] = recipesRes.rows;
+  const recipes: RecipeRow[] = succeededRows(recipesRes);
   // Now the FULL input rows — quantity/unit/input_type/ingredient_id/component_id.
-  const recipeInputs = recipeInputsRes.rows;
-  const components = [...componentsRes.rows].sort((a, b) =>
+  const recipeInputs = succeededRows(recipeInputsRes);
+  const components = [...succeededRows(componentsRes)].sort((a, b) =>
     a.name.localeCompare(b.name)
   );
-  const componentRecipes = componentRecipesRes.rows;
-  const componentRecipeInputs = componentRecipeInputsRes.rows;
-  const ingredients = ingredientsRes.rows;
-  const costEntries = costEntriesRes.rows;
+  const componentRecipes = succeededRows(componentRecipesRes);
+  const componentRecipeInputs = succeededRows(componentRecipeInputsRes);
+  const ingredients = succeededRows(ingredientsRes);
+  const costEntries = succeededRows(costEntriesRes);
 
   // ---- Unmatched POS aggregation -----------------------------------------
   const mappedNames = new Set(mappings.map((m) => m.raw_pos_item_name));
@@ -597,6 +604,18 @@ export async function fetchMenuRecipesData(
       menu_items_with_cost_issues: menuItemsWithCostIssues,
     },
     currency: currencyHint,
+    readError: Boolean(
+      posRes.error ||
+        mappingsRes.error ||
+        menuItemsRes.error ||
+        recipesRes.error ||
+        recipeInputsRes.error ||
+        componentsRes.error ||
+        componentRecipesRes.error ||
+        componentRecipeInputsRes.error ||
+        ingredientsRes.error ||
+        costEntriesRes.error
+    ),
   };
 }
 
@@ -641,10 +660,22 @@ export async function fetchIngredientLatestCosts(
     );
     return [];
   }
+  if (entriesRes.error) {
+    console.error(
+      "[fetchIngredientLatestCosts] ingredient_cost_entries:",
+      entriesRes.error.message
+    );
+  }
+  if (suppliersRes.error) {
+    console.error(
+      "[fetchIngredientLatestCosts] suppliers:",
+      suppliersRes.error.message
+    );
+  }
   warnIfTruncated("ingredient-latest-costs entries", entriesRes);
-  const entries = entriesRes.rows;
+  const entries = succeededRows(entriesRes);
   const supplierNameById = new Map<string, string>(
-    suppliersRes.rows.map((s) => [s.id, s.name])
+    succeededRows(suppliersRes).map((s) => [s.id, s.name])
   );
   const byIngredient = new Map<string, IngredientCostEntry[]>();
   for (const e of entries) {
@@ -662,7 +693,7 @@ export async function fetchIngredientLatestCosts(
     menuRecipeInputsByRecipeId: new Map(),
     costEntriesByIngredientId: byIngredient,
   };
-  const ingredients = [...ingredientsRes.rows].sort((a, b) =>
+  const ingredients = [...succeededRows(ingredientsRes)].sort((a, b) =>
     a.name.localeCompare(b.name)
   );
   return ingredients.map((ing) => {

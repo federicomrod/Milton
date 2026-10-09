@@ -2,7 +2,13 @@ import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchRealRestaurantDashboardData } from "@/lib/restaurant/supabase-sales";
 import { fetchProfitabilityData } from "@/lib/restaurant/profitability-server";
-import { createCappedSupabase, type MockRow } from "./helpers/capped-supabase";
+import { fetchMenuRecipesData } from "@/lib/restaurant/menu-recipes-server";
+import { buildAskMiltonContext } from "@/lib/restaurant/ask-milton-context";
+import {
+  createCappedSupabase,
+  type MockRow,
+  type PageErrorSpec,
+} from "./helpers/capped-supabase";
 import { POSTGREST_MAX_ROWS } from "@/lib/restaurant/paginated-read";
 
 const COMPANY_ID = "co-1";
@@ -36,12 +42,23 @@ function posRow(i: number): MockRow {
   };
 }
 
-function makeClient(extraTables: Record<string, MockRow[]> = {}) {
+function makeClient(
+  extraTables: Record<string, MockRow[]> = {},
+  pageErrors: PageErrorSpec[] = []
+) {
   const supabase = createCappedSupabase({
     maxRowsPerRequest: POSTGREST_MAX_ROWS,
     userId: USER_ID,
+    pageErrors,
     tables: {
-      companies: [{ id: COMPANY_ID, created_by: USER_ID }],
+      companies: [
+        {
+          id: COMPANY_ID,
+          created_by: USER_ID,
+          name: "Test Co",
+          preferred_language: "en",
+        },
+      ],
       pos_sales_items: Array.from({ length: TOTAL_ROWS }, (_, i) => posRow(i)),
       pos_item_mappings: [],
       menu_items: [],
@@ -56,6 +73,10 @@ function makeClient(extraTables: Record<string, MockRow[]> = {}) {
       supplier_ingredients: [],
       supplier_invoices: [],
       agent_runs: [],
+      agent_actions: [],
+      agent_recommendations: [],
+      restaurant_brands: [],
+      restaurant_locations: [],
       ...extraTables,
     },
   });
@@ -108,6 +129,7 @@ describe("fetchProfitabilityData — PostgREST 1,000-row cap", () => {
     expect(data.kpis.revenue_total).toBe(TOTAL_ROWS * ROW_REVENUE);
     expect(data.setupCounts.pos_sales_count).toBe(TOTAL_ROWS);
     expect(data.truncated).toBe(false);
+    expect(data.readError).toBe(false);
   });
 
   it("location scoping still applies to profitability revenue", async () => {
@@ -123,5 +145,112 @@ describe("fetchProfitabilityData — PostgREST 1,000-row cap", () => {
     expect(b.kpis.revenue_total).toBe(ROWS_B * ROW_REVENUE);
     expect(a.setupCounts.pos_sales_count).toBe(ROWS_A);
     expect(b.setupCounts.pos_sales_count).toBe(ROWS_B);
+  });
+
+  it("a failed POS page does not become a smaller revenue_total", async () => {
+    const data = await fetchProfitabilityData(
+      makeClient(
+        {},
+        [
+          {
+            table: "pos_sales_items",
+            from: POSTGREST_MAX_ROWS,
+            message: "pos page 2 failed",
+          },
+        ]
+      ),
+      COMPANY_ID
+    );
+    expect(data.readError).toBe(true);
+    expect(data.kpis.revenue_total).toBe(0);
+    expect(data.setupCounts.pos_sales_count).toBe(0);
+    expect(data.truncated).toBe(false);
+  });
+});
+
+describe("fetchMenuRecipesData — failed page is not a partial unmatched list", () => {
+  it("surfaces the error instead of using the first 1,000 POS rows", async () => {
+    const data = await fetchMenuRecipesData(
+      makeClient(
+        {},
+        [
+          {
+            table: "pos_sales_items",
+            from: POSTGREST_MAX_ROWS,
+            message: "pos page 2 failed",
+          },
+        ]
+      ),
+      COMPANY_ID
+    );
+    expect(data.readError).toBe(true);
+    expect(data.unmatched).toEqual([]);
+    expect(data.summary.unmatched_pos_count).toBe(0);
+  });
+});
+
+describe("buildAskMiltonContext — failed page is not a partial cost snapshot", () => {
+  it("surfaces the error instead of using the first 1,000 cost entries", async () => {
+    const ingredients = Array.from({ length: 5 }, (_, i) => ({
+      id: `ing-${i}`,
+      name: `Ingredient ${i}`,
+      category: "produce",
+      default_unit: "kg",
+      current_unit_cost: null,
+      currency: "USD",
+      supplier_id: null,
+    }));
+    const costEntries = Array.from({ length: TOTAL_ROWS }, (_, i) => ({
+      id: `ce-${String(i).padStart(5, "0")}`,
+      ingredient_id: ingredients[i % ingredients.length].id,
+      supplier_id: null,
+      source_type: "manual",
+      source_id: null,
+      cost_date: "2026-07-01",
+      created_at: `2026-07-01T00:00:${String(i % 60).padStart(2, "0")}Z`,
+      quantity: 1,
+      unit: "kg",
+      total_cost: 50,
+      unit_cost: 50,
+      normalized_unit: "kg",
+      normalized_unit_cost: 50,
+      currency: "USD",
+      notes: null,
+    }));
+    const ctx = await buildAskMiltonContext(
+      makeClient(
+        { ingredients, ingredient_cost_entries: costEntries },
+        [
+          {
+            table: "ingredient_cost_entries",
+            from: POSTGREST_MAX_ROWS,
+            message: "cost entries page 2 failed",
+          },
+        ]
+      ),
+      COMPANY_ID
+    );
+    expect(ctx.read_errors).toContain("ingredient_cost_entries");
+    expect(ctx.expensive_ingredients).toEqual([]);
+  });
+});
+
+describe("fetchRealRestaurantDashboardData — failed page is sample, not a live partial", () => {
+  it("falls back to sample mode when a POS page fails", async () => {
+    const data = await fetchRealRestaurantDashboardData(
+      makeClient(
+        {},
+        [
+          {
+            table: "pos_sales_items",
+            from: POSTGREST_MAX_ROWS,
+            message: "pos page 2 failed",
+          },
+        ]
+      )
+    );
+    expect(data.mode).toBe("sample");
+    if (data.mode !== "sample") return;
+    expect(data.reason).toBe("supabase_error");
   });
 });

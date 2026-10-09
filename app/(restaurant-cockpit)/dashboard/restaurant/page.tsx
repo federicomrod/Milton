@@ -312,6 +312,17 @@ function LiveRestaurantView({
           </div>
         )}
 
+        {profitability?.readError && (
+          <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              Could not load all sales rows. Totals are unavailable — they are
+              not a smaller number from a partial read. Try refreshing the
+              page.
+            </span>
+          </div>
+        )}
+
         {(data.truncated || profitability?.truncated) && (
           <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -937,7 +948,8 @@ export default async function RestaurantCockpitPage({
           data.companyId,
           selectedLocationId
             ? { locationId: selectedLocationId, brandId: selectedBrandId }
-            : null
+            : null,
+          { posRows: data.posFactRows }
         );
       } catch (err) {
         console.error(

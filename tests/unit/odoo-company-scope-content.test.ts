@@ -82,6 +82,35 @@ describe("odoo-sync route", () => {
   });
 });
 
+function hasCodeFetchCall(src: string): boolean {
+  return src.split("\n").some((line) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("//") || trimmed.startsWith("*")) return false;
+    return trimmed.includes("fetch(");
+  });
+}
+
+describe("single Odoo network path", () => {
+  it("client.ts contains the only execute_kw string and the only fetch( in lib/restaurant/odoo and app/api", () => {
+    const files = [
+      ...walk(join(ROOT, "lib/restaurant/odoo")),
+      ...walk(join(ROOT, "app/api")),
+    ].map((f) => relative(ROOT, f).split("\\").join("/"));
+
+    const executeKwFiles = files.filter((f) => read(f).includes("execute_kw"));
+    expect(executeKwFiles).toEqual(["lib/restaurant/odoo/client.ts"]);
+
+    const fetchFiles = files.filter((f) => {
+      // Non-Odoo API routes may fetch other services; Odoo I/O must stay in client.ts.
+      if (!f.startsWith("lib/restaurant/odoo/") && !f.includes("/odoo")) {
+        return false;
+      }
+      return hasCodeFetchCall(read(f));
+    });
+    expect(fetchFiles).toEqual(["lib/restaurant/odoo/client.ts"]);
+  });
+});
+
 describe("read-only paths", () => {
   it("the audit route performs no writes", () => {
     const src = read("app/api/restaurant/pos/odoo-audit/route.ts");

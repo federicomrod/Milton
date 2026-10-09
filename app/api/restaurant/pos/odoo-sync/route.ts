@@ -276,10 +276,22 @@ export async function POST(req: NextRequest) {
       if (err instanceof OdooAuthenticationError) {
         return NextResponse.json({ error: err.message }, { status: 401 });
       }
-      const message = err instanceof Error ? err.message : "Unknown error";
-      console.error("[Odoo Sync] authentication failed:", message);
+      const name = err instanceof Error ? err.name : "UnknownError";
+      const logMessage = err instanceof Error ? err.message : "Unknown error";
+      let statusClass = "unknown";
+      if (err instanceof OdooRpcError && typeof err.faultCode === "number") {
+        const code = err.faultCode;
+        if (Number.isInteger(code) && code >= 100 && code <= 599) {
+          statusClass = `${Math.floor(code / 100)}xx`;
+        }
+      }
+      // Log the fault server-side; never credentials, request bodies, or the API key.
+      console.error("[Odoo Sync] authentication failed:", name, logMessage);
       return NextResponse.json(
-        { error: "Could not reach Odoo instance", details: message },
+        {
+          error: "Could not reach Odoo instance",
+          details: `Odoo request failed (${statusClass})`,
+        },
         { status: 502 }
       );
     }

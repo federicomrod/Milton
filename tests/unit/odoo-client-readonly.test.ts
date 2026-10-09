@@ -63,12 +63,14 @@ describe("unsafeExecuteKw read-only allowlist", () => {
         method === "search_count"
           ? "<int>0</int>"
           : "<array><data></data></array>";
-      const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(
-        new Response(
-          `<?xml version="1.0"?><methodResponse><params><param><value>${inner}</value></param></params></methodResponse>`,
-          { status: 200 }
-        )
-      );
+      const fetchSpy = vi
+        .spyOn(global, "fetch")
+        .mockResolvedValue(
+          new Response(
+            `<?xml version="1.0"?><methodResponse><params><param><value>${inner}</value></param></params></methodResponse>`,
+            { status: 200 }
+          )
+        );
 
       await unsafeExecuteKw(creds, 5, "pos.order", method, [[]]);
 

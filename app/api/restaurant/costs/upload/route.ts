@@ -12,7 +12,9 @@
 // Form fields:
 //   file                        (required) the CSV/XLSX
 //   create_missing_ingredients  "true" to auto-create unknown ingredients
-//   default_currency            3-letter code, default "MXN"
+//   default_currency            3-letter code; ignored when it differs
+//                               from the company currency. Missing rows
+//                               use the company currency.
 //   skip_duplicates             "true" to skip exact-duplicate rows
 //
 // Exact-duplicate key (when skip_duplicates is on):
@@ -32,6 +34,11 @@ import {
   type CostRowError,
   type IngredientCostEntryInsert,
 } from "@/lib/restaurant/cost-import";
+import {
+  currencyMismatchReason,
+  normalizeCurrency,
+  resolveCompanyCurrency,
+} from "@/lib/restaurant/currency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -51,6 +58,7 @@ interface UploadSummary {
   resolved_columns: Record<string, string>;
   create_missing_ingredients: boolean;
   default_currency: string;
+  currency_mismatch_rows: number;
   warning: string;
 }
 
@@ -83,12 +91,11 @@ export async function POST(req: NextRequest) {
       formData.get("create_missing_ingredients")
     );
     const skipDuplicates = truthy(formData.get("skip_duplicates"));
-    const defaultCurrencyRaw = formData.get("default_currency");
-    const defaultCurrency =
-      typeof defaultCurrencyRaw === "string" &&
-      /^[A-Za-z]{3}$/.test(defaultCurrencyRaw)
-        ? defaultCurrencyRaw.toUpperCase()
-        : "MXN";
+    const companyCurrency = await resolveCompanyCurrency(supabase, companyId);
+    const formCurrency = normalizeCurrency(formData.get("default_currency"));
+    const defaultCurrency = companyCurrency;
+    const formCurrencyIgnored =
+      formCurrency !== null && formCurrency !== companyCurrency;
 
     // --- Parse file -------------------------------------------------------
     const isCSV = file.name.toLowerCase().endsWith(".csv");
@@ -168,6 +175,7 @@ export async function POST(req: NextRequest) {
     // --- Normalize all rows (shape only — no DB yet) ----------------------
     const normalized: NormalizedCostRow[] = [];
     const failed: CostRowError[] = [];
+    let currencyMismatchRows = 0;
     for (let i = 0; i < rawRows.length; i++) {
       const res = normalizeCostImportRow(
         rawRows[i],
@@ -175,8 +183,24 @@ export async function POST(req: NextRequest) {
         colCheck.resolved,
         defaultCurrency
       );
-      if (res.ok) normalized.push(res.value);
-      else failed.push(res.error);
+      if (!res.ok) {
+        failed.push(res.error);
+        continue;
+      }
+      const mismatch = currencyMismatchReason(
+        res.value.currency,
+        companyCurrency
+      );
+      if (mismatch) {
+        currencyMismatchRows++;
+        failed.push({
+          rowIndex: res.value.rowIndex,
+          reason: mismatch,
+          ingredient_name: res.value.ingredient_name,
+        });
+        continue;
+      }
+      normalized.push(res.value);
     }
 
     // --- Load existing suppliers + ingredients ---------------------------
@@ -524,8 +548,19 @@ export async function POST(req: NextRequest) {
       resolved_columns: colCheck.resolved,
       create_missing_ingredients: createMissingIngredients,
       default_currency: defaultCurrency,
-      warning:
+      currency_mismatch_rows: currencyMismatchRows,
+      warning: [
+        `Applied company currency ${defaultCurrency} to rows without a currency column.`,
+        formCurrencyIgnored
+          ? `Form default ${formCurrency} was ignored because it differs from the company currency.`
+          : null,
+        currencyMismatchRows > 0
+          ? `${currencyMismatchRows} row(s) were rejected because their currency differs from ${defaultCurrency}.`
+          : null,
         "Uploading the same file twice will create duplicate cost entries unless 'Skip exact duplicate rows' is enabled.",
+      ]
+        .filter(Boolean)
+        .join(" "),
     };
 
     return NextResponse.json(summary);

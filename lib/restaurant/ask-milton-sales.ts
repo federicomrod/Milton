@@ -20,6 +20,7 @@ import {
   succeededRows,
   warnIfTruncated,
 } from "@/lib/restaurant/paginated-read";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 
 export const SALES_SNAPSHOT_CAPS = {
   categories: 12,
@@ -48,7 +49,10 @@ export const WEEKDAY_KEYS = [
 export type WeekdayKey = (typeof WEEKDAY_KEYS)[number];
 
 export type SalesPeriodSource =
-  "named_period" | "latest_month" | "last_week" | "empty";
+  | "named_period"
+  | "latest_month"
+  | "last_week"
+  | "empty";
 
 export interface SalesSnapshotBucket {
   key: string;
@@ -462,6 +466,7 @@ export function buildSalesSnapshot(
   options: {
     question?: string;
     truncated?: boolean;
+    currency?: string;
   } = {}
 ): AskMiltonSalesSnapshot {
   const tz = normalizeTimezone(timezone) ?? "UTC";
@@ -505,9 +510,12 @@ export function buildSalesSnapshot(
   let totalRevenue = 0;
   let totalUnits = 0;
   const orderIds = new Set<string>();
-  const currency = windowed[0]?.currency || "USD";
+  const currency = options.currency || windowed[0]?.currency || "USD";
 
   for (const row of windowed) {
+    if (options.currency && row.currency && row.currency !== options.currency) {
+      continue;
+    }
     totalRevenue += row.revenue;
     totalUnits += row.quantity;
     if (row.order_key) orderIds.add(row.order_key);
@@ -796,10 +804,12 @@ export async function fetchAskMiltonSalesSnapshot(
     };
   }
   warnIfTruncated("ask-milton-sales pos_sales_items", result);
+  const companyCurrency = await resolveCompanyCurrency(supabase, companyId);
   const rows = succeededRows(result).map(toSalesFactRow);
   const snapshot = buildSalesSnapshot(rows, timezone, {
     question,
     truncated: result.truncated,
+    currency: companyCurrency,
   });
   return { snapshot, readError: false };
 }

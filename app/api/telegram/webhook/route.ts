@@ -31,6 +31,10 @@ import { sendTelegramMessage } from "@/lib/restaurant/telegram/send";
 import { resolvePreferredLanguage, t } from "@/lib/restaurant/language";
 import { isValidWebhookSecret } from "@/lib/restaurant/telegram/webhook-secret";
 import {
+  resolveCompanyCurrency,
+  resolveWriteCurrency,
+} from "@/lib/restaurant/currency";
+import {
   buildDisplayName,
   consumeKitchenJoin,
   isKitchenPayload,
@@ -408,7 +412,10 @@ async function processRecipeDraftAsync(
         mediaKind,
         telegramFileId,
         text: finalTextContent || null,
-        currency: costEntries[0]?.currency ?? "MXN",
+        currency: resolveWriteCurrency(
+          costEntries[0]?.currency,
+          await resolveCompanyCurrency(admin, staff.company_id)
+        ),
       },
       ingredients,
       costMap

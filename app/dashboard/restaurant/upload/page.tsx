@@ -37,6 +37,7 @@ interface UploadSummary {
   resolved_columns: Record<string, string>;
   total_rows_in_file: number;
   replace_existing: boolean;
+  currency?: string;
 }
 
 interface UploadError {
@@ -51,11 +52,15 @@ interface UploadError {
   }>;
 }
 
-const mxnFmt = new Intl.NumberFormat("es-MX", {
-  style: "currency",
-  currency: "MXN",
-  minimumFractionDigits: 0,
-});
+function moneyFmt(currency: string) {
+  const safe = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
+  const locale = safe === "MXN" ? "es-MX" : "en-US";
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: safe,
+    minimumFractionDigits: 0,
+  });
+}
 
 export default function RestaurantPOSUploadPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -316,7 +321,9 @@ export default function RestaurantPOSUploadPage() {
                 />
                 <StatBlock
                   label="Total revenue"
-                  value={mxnFmt.format(summary.total_revenue)}
+                  value={moneyFmt(summary.currency ?? "USD").format(
+                    summary.total_revenue
+                  )}
                 />
                 <StatBlock
                   label="Rows in file"

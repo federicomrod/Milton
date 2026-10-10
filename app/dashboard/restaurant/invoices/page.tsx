@@ -16,6 +16,7 @@ import {
   InvoicesPage,
   type InvoiceListItem,
 } from "@/components/restaurant/InvoicesPage";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 
 export const dynamic = "force-dynamic";
 
@@ -41,40 +42,45 @@ export default async function SupplierInvoicesPage() {
   // Initial list of invoices + line counts (used to render "matched/total"
   // pills without an extra round-trip). Suppliers are also loaded so the
   // manual create form can use a select.
-  const [invRes, lineRes, supplierRes, ingRes] = await Promise.all([
-    supabase
-      .from("supplier_invoices")
-      .select(
-        "id, company_id, supplier_id, invoice_number, invoice_date, due_date, currency, subtotal, tax_amount, total_amount, status, source_type, original_file_name, notes, created_at, updated_at"
-      )
-      .eq("company_id", companyId)
-      .order("invoice_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(200),
-    fetchAllRows<{
-      invoice_id: string;
-      match_status: string;
-      review_status: string;
-    }>(() =>
+  const [invRes, lineRes, supplierRes, ingRes, companyCurrency] =
+    await Promise.all([
       supabase
-        .from("supplier_invoice_lines")
-        .select("invoice_id, match_status, review_status")
+        .from("supplier_invoices")
+        .select(
+          "id, company_id, supplier_id, invoice_number, invoice_date, due_date, currency, subtotal, tax_amount, total_amount, status, source_type, original_file_name, notes, created_at, updated_at"
+        )
         .eq("company_id", companyId)
-    ),
-    fetchAllRows<{ id: string; name: string }>(() =>
-      supabase.from("suppliers").select("id, name").eq("company_id", companyId)
-    ),
-    fetchAllRows<{
-      id: string;
-      name: string;
-      default_unit: string | null;
-    }>(() =>
-      supabase
-        .from("ingredients")
-        .select("id, name, default_unit")
-        .eq("company_id", companyId)
-    ),
-  ]);
+        .order("invoice_date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(200),
+      fetchAllRows<{
+        invoice_id: string;
+        match_status: string;
+        review_status: string;
+      }>(() =>
+        supabase
+          .from("supplier_invoice_lines")
+          .select("invoice_id, match_status, review_status")
+          .eq("company_id", companyId)
+      ),
+      fetchAllRows<{ id: string; name: string }>(() =>
+        supabase
+          .from("suppliers")
+          .select("id, name")
+          .eq("company_id", companyId)
+      ),
+      fetchAllRows<{
+        id: string;
+        name: string;
+        default_unit: string | null;
+      }>(() =>
+        supabase
+          .from("ingredients")
+          .select("id, name, default_unit")
+          .eq("company_id", companyId)
+      ),
+      resolveCompanyCurrency(supabase, companyId),
+    ]);
 
   if (invRes.error)
     console.error("[invoices page] supplier_invoices:", invRes.error.message);
@@ -173,6 +179,7 @@ export default async function SupplierInvoicesPage() {
       ingredients={[...succeededRows(ingRes)].sort((a, b) =>
         a.name.localeCompare(b.name)
       )}
+      companyCurrency={companyCurrency}
     />
   );
 }

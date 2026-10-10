@@ -28,6 +28,11 @@ import {
   isInvoiceStatus,
   type SupplierInvoice,
 } from "@/types/supplier-invoices";
+import {
+  currencyMismatchReason,
+  resolveCompanyCurrency,
+  resolveWriteCurrency,
+} from "@/lib/restaurant/currency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -227,10 +232,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const currency =
-    typeof body.currency === "string" && /^[A-Z]{3}$/.test(body.currency)
-      ? body.currency
-      : "MXN";
+  const companyCurrency = await resolveCompanyCurrency(supabase, companyId);
+  const currency = resolveWriteCurrency(body.currency, companyCurrency);
+  const mismatch = currencyMismatchReason(currency, companyCurrency);
+  if (mismatch) {
+    return NextResponse.json({ error: mismatch }, { status: 400 });
+  }
 
   const numberOrNull = (v: unknown): number | null =>
     typeof v === "number" && Number.isFinite(v) ? v : null;

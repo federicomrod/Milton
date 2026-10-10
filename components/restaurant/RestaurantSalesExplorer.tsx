@@ -341,7 +341,11 @@ interface ExplorerAggregations extends OverviewTotals {
  * are item-level constraints and applying them to the channel table would
  * make the percentages no longer sum to ~100% of filtered revenue.
  */
-function aggregate(rows: ExplorerRow[], f: Filters): ExplorerAggregations {
+function aggregate(
+  rows: ExplorerRow[],
+  f: Filters,
+  displayCurrency?: string
+): ExplorerAggregations {
   // Date windows are computed first so we can reuse a "non-date" matcher
   // for both the current period and the previous-period comparison.
   const range = resolveDateRange(rows, f);
@@ -361,9 +365,10 @@ function aggregate(rows: ExplorerRow[], f: Filters): ExplorerAggregations {
     (r) => matchesNonDate(r) && inRange(r.sale_date, range)
   );
 
-  // Currency: use the first row we saw (input came from one company / upload
-  // batch in the pilot). Falls back to USD when nothing is filtered in.
-  const currency = filtered[0]?.currency ?? rows[0]?.currency ?? "USD";
+  // Company currency wins over the first row so MXN menu/cost leftovers
+  // cannot flip a USD cockpit.
+  const currency =
+    displayCurrency ?? filtered[0]?.currency ?? rows[0]?.currency ?? "USD";
 
   // Order/item aggregation.
   let totalRevenue = 0;
@@ -405,6 +410,9 @@ function aggregate(rows: ExplorerRow[], f: Filters): ExplorerAggregations {
   const dailyBuckets = new Map<string, DailyAgg>();
 
   for (const r of filtered) {
+    if (displayCurrency && r.currency && r.currency !== displayCurrency) {
+      continue;
+    }
     totalRevenue += r.revenue;
     totalUnits += r.quantity;
     if (r.order_key) orderIds.add(r.order_key);
@@ -1225,11 +1233,14 @@ export interface RestaurantSalesExplorerProps {
   /** Daily KPI targets for this company. Empty object when nothing is set
    *  — KPI cards then fall back to previous-period deltas only. */
   initialTargets?: TargetMap;
+  /** Company currency for money formatting. Overrides first-row currency. */
+  displayCurrency?: string;
 }
 
 export function RestaurantSalesExplorer({
   rows,
   initialTargets = {},
+  displayCurrency,
 }: RestaurantSalesExplorerProps) {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   // Targets live in client state so the editor's POST can update them
@@ -1261,7 +1272,10 @@ export function RestaurantSalesExplorer({
       .map(([k]) => k);
   }, [channelCounts]);
 
-  const aggs = useMemo(() => aggregate(rows, filters), [rows, filters]);
+  const aggs = useMemo(
+    () => aggregate(rows, filters, displayCurrency),
+    [rows, filters, displayCurrency]
+  );
   const fmts = useMemo(() => makeFmts(aggs.currency), [aggs.currency]);
 
   // ---- Targets -------------------------------------------------------

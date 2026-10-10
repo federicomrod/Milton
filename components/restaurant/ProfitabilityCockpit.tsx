@@ -100,6 +100,18 @@ export function ProfitabilityKpisSection({
           Cost coverage: {pct(kpis.cost_coverage_pct)} of revenue
         </Badge>
       </div>
+      {data.dataQuality.currency_mismatch_rows > 0 && (
+        <div className="mb-3 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            {data.dataQuality.currency_mismatch_rows} row
+            {data.dataQuality.currency_mismatch_rows === 1 ? "" : "s"} used a
+            different currency than {kpis.currency} and{" "}
+            <span className="font-medium">were not summed</span> into these
+            KPIs. There is no FX conversion.
+          </span>
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         <Kpi
           label="Revenue"
@@ -487,6 +499,14 @@ export function DataQualityChecklistSection({
               href="/dashboard/restaurant/menu"
               hrefLabel="Open Components"
               icon={<BookOpen className="h-4 w-4" />}
+            />
+            <ChecklistItem
+              count={data.dataQuality.currency_mismatch_rows}
+              doneCopy={`All money rows match ${data.kpis.currency}`}
+              problemCopy="Rows in a different currency (excluded from totals)"
+              href="/dashboard/restaurant/costs/upload"
+              hrefLabel="Review costs"
+              icon={<AlertTriangle className="h-4 w-4" />}
             />
             <li className="flex items-center justify-between gap-4 px-4 py-3">
               <div className="flex items-center gap-3 min-w-0">

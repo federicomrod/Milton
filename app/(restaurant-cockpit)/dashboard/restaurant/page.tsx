@@ -233,7 +233,8 @@ function LiveRestaurantView({
       profitability.dataQuality.menu_items_without_recipe +
       profitability.dataQuality.recipes_with_unit_mismatch +
       profitability.dataQuality.ingredients_without_cost_entries +
-      profitability.dataQuality.components_without_recipe
+      profitability.dataQuality.components_without_recipe +
+      profitability.dataQuality.currency_mismatch_rows
     : 0;
 
   const tabs = profitability
@@ -263,7 +264,11 @@ function LiveRestaurantView({
           id: "revenue",
           label: "Revenue & Channels",
           content: (
-            <RevenueAndChannelsTab rows={data.explorerRows} targets={targets} />
+            <RevenueAndChannelsTab
+              rows={data.explorerRows}
+              targets={targets}
+              displayCurrency={profitability.kpis.currency}
+            />
           ),
         },
         {
@@ -280,7 +285,11 @@ function LiveRestaurantView({
           id: "revenue",
           label: "Revenue & Channels",
           content: (
-            <RevenueAndChannelsTab rows={data.explorerRows} targets={targets} />
+            <RevenueAndChannelsTab
+              rows={data.explorerRows}
+              targets={targets}
+              displayCurrency={data.overview.currency}
+            />
           ),
         },
       ];
@@ -429,13 +438,19 @@ function MenuProfitabilityTab({
 function RevenueAndChannelsTab({
   rows,
   targets,
+  displayCurrency,
 }: {
   rows: Extract<RestaurantDashboardData, { mode: "live" }>["explorerRows"];
   targets: TargetMap;
+  displayCurrency?: string;
 }) {
   return (
     <section>
-      <RestaurantSalesExplorer rows={rows} initialTargets={targets} />
+      <RestaurantSalesExplorer
+        rows={rows}
+        initialTargets={targets}
+        displayCurrency={displayCurrency}
+      />
     </section>
   );
 }

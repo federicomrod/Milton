@@ -25,6 +25,7 @@ import {
   type TargetMetricKey,
   type TargetMap,
 } from "@/lib/restaurant/supabase-targets";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -157,6 +158,10 @@ export async function POST(req: NextRequest) {
   // Sequential upserts. The set is at most 4 rows, so simplicity wins over
   // batching gymnastics. First failure short-circuits so the client gets a
   // clear error instead of a partial-success surprise.
+  const companyCurrency = await resolveCompanyCurrency(
+    auth.supabase,
+    auth.companyId
+  );
   const updated: TargetMap = {};
   try {
     for (const op of ops) {
@@ -164,6 +169,7 @@ export async function POST(req: NextRequest) {
         company_id: auth.companyId,
         metric_key: op.metric_key,
         target_value: op.target_value,
+        currency: companyCurrency,
       });
       updated[row.metric_key] = Number(row.target_value);
     }

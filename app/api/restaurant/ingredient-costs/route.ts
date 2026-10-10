@@ -23,6 +23,11 @@ import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
 import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
+import {
+  currencyMismatchReason,
+  resolveCompanyCurrency,
+  resolveWriteCurrency,
+} from "@/lib/restaurant/currency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -124,10 +129,15 @@ export async function POST(req: NextRequest) {
   if (!unit) {
     return NextResponse.json({ error: "unit is required" }, { status: 400 });
   }
-  const currency =
-    typeof body.currency === "string" && /^[A-Z]{3}$/.test(body.currency)
-      ? body.currency
-      : "MXN";
+  const companyCurrency = await resolveCompanyCurrency(
+    auth.supabase,
+    auth.companyId
+  );
+  const currency = resolveWriteCurrency(body.currency, companyCurrency);
+  const mismatch = currencyMismatchReason(currency, companyCurrency);
+  if (mismatch) {
+    return NextResponse.json({ error: mismatch }, { status: 400 });
+  }
   const supplierId =
     typeof body.supplier_id === "string" && body.supplier_id.trim() !== ""
       ? body.supplier_id

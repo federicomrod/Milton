@@ -30,6 +30,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { isUserAdminServer } from "@/lib/profile-service-server";
 import { compactLastSync } from "@/lib/restaurant/odoo/sync-summary";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { buildNameIndex } from "@/lib/restaurant/pos-import";
 import { buildScopedNameIndex } from "@/lib/restaurant/scoped-matching";
 import {
@@ -619,7 +620,7 @@ export async function POST(req: NextRequest) {
     const { rows: allRows, skipped } = transformOdooOrders(orders, lines, {
       companyId,
       timezone: conn.timezone,
-      defaultCurrency: "MXN",
+      defaultCurrency: await resolveCompanyCurrency(supabase, companyId),
       menuItemIndex,
       locationIndex,
       locationBrandIndex,

@@ -62,6 +62,22 @@ export interface SalesSnapshotBucket {
   units: number;
 }
 
+/** Weekday totals plus the day count behind them, so averages are honest. */
+export interface SalesWeekdayBucket extends SalesSnapshotBucket {
+  /** Distinct dates of this weekday in the period that had sales. */
+  day_count: number;
+  avg_revenue_per_day: number;
+  avg_orders_per_day: number;
+}
+
+export interface SalesDateBucket {
+  date: string;
+  weekday: WeekdayKey;
+  revenue: number;
+  orders: number;
+  units: number;
+}
+
 export interface SalesSnapshotItem {
   name: string;
   category: string | null;
@@ -72,7 +88,7 @@ export interface SalesSnapshotItem {
 
 export interface SalesCategoryWeekday {
   category: string;
-  weekdays: SalesSnapshotBucket[];
+  weekdays: SalesWeekdayBucket[];
 }
 
 export interface SalesCategoryItems {
@@ -100,7 +116,7 @@ export interface AskMiltonSalesSnapshot {
     avg_ticket: number;
     currency: string;
   };
-  by_weekday: SalesSnapshotBucket[];
+  by_weekday: SalesWeekdayBucket[];
   by_hour: SalesSnapshotBucket[];
   by_category: SalesSnapshotBucket[];
   by_channel: SalesSnapshotBucket[];
@@ -110,6 +126,10 @@ export interface AskMiltonSalesSnapshot {
   top_items_by_category: SalesCategoryItems[];
   /** Weekday split for the top categories — breakfast-by-day questions. */
   by_category_weekday: SalesCategoryWeekday[];
+  /** Compact daily totals for dates that had sales (may be trimmed to fit the JSON cap). */
+  by_date: SalesDateBucket[];
+  best_date: SalesDateBucket | null;
+  worst_date: SalesDateBucket | null;
 }
 
 export interface SalesFactRow {
@@ -219,6 +239,43 @@ function toSnapshotBucket(
   };
 }
 
+function avgPerDay(total: number, dayCount: number): number {
+  return dayCount > 0 ? roundInt(total / dayCount) : 0;
+}
+
+function toWeekdayBucket(
+  key: string,
+  label: string,
+  b: MetricBucket,
+  dayCount: number
+): SalesWeekdayBucket {
+  const bucket = toSnapshotBucket(key, label, b);
+  return {
+    ...bucket,
+    day_count: dayCount,
+    avg_revenue_per_day: avgPerDay(bucket.revenue, dayCount),
+    avg_orders_per_day: avgPerDay(bucket.orders, dayCount),
+  };
+}
+
+function toDateBucket(
+  date: string,
+  weekday: WeekdayKey,
+  b: MetricBucket
+): SalesDateBucket {
+  return {
+    date,
+    weekday,
+    revenue: roundInt(b.revenue),
+    orders: b.orders.size,
+    units: roundInt(b.units),
+  };
+}
+
+function compareDateBuckets(a: SalesDateBucket, b: SalesDateBucket): number {
+  return b.revenue - a.revenue || b.orders - a.orders || b.units - a.units;
+}
+
 function trimOrNull(v: string | null | undefined): string | null {
   if (v === null || v === undefined) return null;
   const s = String(v).trim();
@@ -291,6 +348,9 @@ export function emptySalesSnapshot(
     top_items_by_revenue: [],
     top_items_by_category: [],
     by_category_weekday: [],
+    by_date: [],
+    best_date: null,
+    worst_date: null,
   };
 }
 
@@ -496,6 +556,9 @@ export function buildSalesSnapshot(
   }
 
   const weekdayBuckets = WEEKDAY_KEYS.map(() => emptyBucket());
+  const weekdayDates = WEEKDAY_KEYS.map(() => new Set<string>());
+  const dateBuckets = new Map<string, MetricBucket>();
+  const dateWeekday = new Map<string, WeekdayKey>();
   const hourBuckets = Array.from({ length: 24 }, () => emptyBucket());
   const hourSeen = new Array<boolean>(24).fill(false);
   const categoryBuckets = new Map<string, MetricBucket>();
@@ -506,6 +569,7 @@ export function buildSalesSnapshot(
     { name: string; category: string | null; bucket: MetricBucket }
   >();
   const categoryWeekday = new Map<string, MetricBucket[]>();
+  const categoryWeekdayDates = new Map<string, Set<string>[]>();
 
   let totalRevenue = 0;
   let totalUnits = 0;
@@ -521,7 +585,16 @@ export function buildSalesSnapshot(
     if (row.order_key) orderIds.add(row.order_key);
 
     const local = localWeekdayAndHour(row, tz);
-    bump(weekdayBuckets[local.weekday] ?? weekdayBuckets[0], row);
+    const weekdayIdx = weekdayBuckets[local.weekday] ? local.weekday : 0;
+    bump(weekdayBuckets[weekdayIdx], row);
+    weekdayDates[weekdayIdx].add(local.dateKey);
+    let dayBucket = dateBuckets.get(local.dateKey);
+    if (!dayBucket) {
+      dayBucket = emptyBucket();
+      dateBuckets.set(local.dateKey, dayBucket);
+    }
+    bump(dayBucket, row);
+    dateWeekday.set(local.dateKey, WEEKDAY_KEYS[weekdayIdx]);
     if (local.hour !== null) {
       hourSeen[local.hour] = true;
       bump(hourBuckets[local.hour], row);
@@ -541,8 +614,14 @@ export function buildSalesSnapshot(
     if (!catDays) {
       catDays = WEEKDAY_KEYS.map(() => emptyBucket());
       categoryWeekday.set(catKey, catDays);
+      categoryWeekdayDates.set(
+        catKey,
+        WEEKDAY_KEYS.map(() => new Set<string>())
+      );
     }
-    bump(catDays[local.weekday] ?? catDays[0], row);
+    const catDayIdx = catDays[local.weekday] ? local.weekday : 0;
+    bump(catDays[catDayIdx], row);
+    categoryWeekdayDates.get(catKey)?.[catDayIdx]?.add(local.dateKey);
 
     const chKey = row.sales_channel ?? "";
     let ch = channelBuckets.get(chKey);
@@ -608,14 +687,26 @@ export function buildSalesSnapshot(
     (category) => ({
       category: capName(category),
       weekdays: WEEKDAY_KEYS.map((label, idx) =>
-        toSnapshotBucket(
+        toWeekdayBucket(
           label,
           label,
-          categoryWeekday.get(category)?.[idx] ?? emptyBucket()
+          categoryWeekday.get(category)?.[idx] ?? emptyBucket(),
+          categoryWeekdayDates.get(category)?.[idx]?.size ?? 0
         )
       ),
     })
   );
+
+  const byDate = Array.from(dateBuckets.entries())
+    .map(([date, b]) =>
+      toDateBucket(
+        date,
+        dateWeekday.get(date) ?? WEEKDAY_KEYS[weekdayFromDateKey(date)],
+        b
+      )
+    )
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const datesByRevenue = [...byDate].sort(compareDateBuckets);
 
   const snapshot: AskMiltonSalesSnapshot = {
     available: true,
@@ -636,7 +727,7 @@ export function buildSalesSnapshot(
       currency,
     },
     by_weekday: WEEKDAY_KEYS.map((label, idx) =>
-      toSnapshotBucket(label, label, weekdayBuckets[idx])
+      toWeekdayBucket(label, label, weekdayBuckets[idx], weekdayDates[idx].size)
     ),
     by_hour: hourBuckets
       .map((b, hour) =>
@@ -664,12 +755,16 @@ export function buildSalesSnapshot(
     top_items_by_revenue: topByRevenue,
     top_items_by_category: topItemsByCategory,
     by_category_weekday: byCategoryWeekday,
+    by_date: byDate,
+    best_date: datesByRevenue[0] ?? null,
+    worst_date: datesByRevenue[datesByRevenue.length - 1] ?? null,
   };
 
   return clampSalesSnapshot(snapshot);
 }
 
 const SNAPSHOT_LIST_KEYS = [
+  "by_date",
   "by_hour",
   "by_category",
   "by_channel",
@@ -679,6 +774,16 @@ const SNAPSHOT_LIST_KEYS = [
   "top_items_by_category",
   "by_category_weekday",
 ] as const;
+
+/** Keep the strongest and weakest dates when the full daily list is too large. */
+function compactDateList(dates: SalesDateBucket[]): SalesDateBucket[] {
+  if (dates.length <= 8) return dates;
+  const byRev = [...dates].sort(compareDateBuckets);
+  const keep = new Set<string>();
+  for (const d of byRev.slice(0, 5)) keep.add(d.date);
+  for (const d of byRev.slice(-3)) keep.add(d.date);
+  return dates.filter((d) => keep.has(d.date));
+}
 
 function capSalesSnapshotNames(
   snapshot: AskMiltonSalesSnapshot
@@ -718,6 +823,22 @@ function clampSalesSnapshot(
   }
   next = {
     ...next,
+    by_date: compactDateList(next.by_date),
+  };
+  if (salesSnapshotJsonSize(next) <= SALES_SNAPSHOT_MAX_JSON_CHARS) {
+    return next;
+  }
+  const extrema = [next.best_date, next.worst_date].filter(
+    (d): d is SalesDateBucket => d !== null
+  );
+  const extremaDates = new Set<string>();
+  next = {
+    ...next,
+    by_date: extrema.filter((d) => {
+      if (extremaDates.has(d.date)) return false;
+      extremaDates.add(d.date);
+      return true;
+    }),
     by_hour: [...next.by_hour]
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 8)

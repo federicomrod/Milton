@@ -5,6 +5,11 @@ import type {
   CostWorkbookCostEntry,
   CostWorkbookIngredient,
   CostWorkbookReviewItem,
+  ImportedComponent,
+  ImportedComponentRecipe,
+  ImportedMenuItem,
+  ImportedRecipe,
+  RecipeInputSnapshot,
   SavedLayoutMap,
   TabImportSummary,
   UndoSnapshot,
@@ -91,6 +96,75 @@ export interface CostWorkbookRepo {
     id: string,
     patch: Partial<CostWorkbookReviewItem> & { resolved_at?: string | null }
   ): Promise<void>;
+  listMenuItems(companyId: string): Promise<ImportedMenuItem[]>;
+  createMenuItem(input: {
+    companyId: string;
+    name: string;
+    currency: string;
+    sourceId: string;
+    category?: string | null;
+  }): Promise<ImportedMenuItem>;
+  deleteMenuItems(companyId: string, ids: string[]): Promise<number>;
+  listRecipes(companyId: string): Promise<ImportedRecipe[]>;
+  createRecipe(input: {
+    companyId: string;
+    menuItemId: string;
+    name: string;
+    sourceId: string;
+    inputs: RecipeInputSnapshot[];
+  }): Promise<ImportedRecipe>;
+  listRecipeInputs(
+    companyId: string,
+    recipeId: string
+  ): Promise<RecipeInputSnapshot[]>;
+  replaceRecipeInputs(
+    companyId: string,
+    recipeId: string,
+    inputs: RecipeInputSnapshot[]
+  ): Promise<void>;
+  deleteRecipes(companyId: string, ids: string[]): Promise<number>;
+  listComponents(companyId: string): Promise<ImportedComponent[]>;
+  createComponent(input: {
+    companyId: string;
+    name: string;
+    outputUnit: string;
+    sourceId: string;
+  }): Promise<ImportedComponent>;
+  deleteComponents(companyId: string, ids: string[]): Promise<number>;
+  listComponentRecipes(companyId: string): Promise<ImportedComponentRecipe[]>;
+  createComponentRecipe(input: {
+    companyId: string;
+    componentId: string;
+    name: string;
+    outputQuantity: number;
+    outputUnit: string;
+    sourceId: string;
+    inputs: RecipeInputSnapshot[];
+  }): Promise<ImportedComponentRecipe>;
+  listComponentRecipeInputs(
+    companyId: string,
+    componentRecipeId: string
+  ): Promise<RecipeInputSnapshot[]>;
+  replaceComponentRecipeInputs(
+    companyId: string,
+    componentRecipeId: string,
+    inputs: RecipeInputSnapshot[]
+  ): Promise<void>;
+  deleteComponentRecipes(companyId: string, ids: string[]): Promise<number>;
+  listDistinctPosItemNames(companyId: string): Promise<string[]>;
+  listPosMappings(
+    companyId: string
+  ): Promise<
+    Array<{ id: string; raw_pos_item_name: string; menu_item_id: string }>
+  >;
+  createPosMappings(
+    inputs: Array<{
+      companyId: string;
+      rawPosItemName: string;
+      menuItemId: string;
+    }>
+  ): Promise<Array<{ id: string }>>;
+  deletePosMappings(companyId: string, ids: string[]): Promise<number>;
 }
 
 function asIngredient(row: Record<string, unknown>): CostWorkbookIngredient {
@@ -440,5 +514,412 @@ export function createSupabaseCostWorkbookRepo(
         .eq("id", id);
       if (error) throw new Error(error.message);
     },
+
+    async listMenuItems(companyId) {
+      const { data, error } = await supabase
+        .from("menu_items")
+        .select("id, name, source_type, source_id")
+        .eq("company_id", companyId);
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        id: String(row.id),
+        name: String(row.name ?? ""),
+        source_type: (row.source_type as string | null) ?? null,
+        source_id: (row.source_id as string | null) ?? null,
+      }));
+    },
+
+    async createMenuItem(input) {
+      const { data, error } = await supabase
+        .from("menu_items")
+        .insert({
+          company_id: input.companyId,
+          name: input.name,
+          category: input.category ?? null,
+          selling_price: 0,
+          currency: input.currency,
+          source_type: "import",
+          source_id: input.sourceId,
+        })
+        .select("id, name, source_type, source_id")
+        .single();
+      if (error || !data) {
+        throw new Error(error?.message ?? "menu item insert failed");
+      }
+      return {
+        id: String(data.id),
+        name: String(data.name ?? input.name),
+        source_type: (data.source_type as string | null) ?? "import",
+        source_id: (data.source_id as string | null) ?? input.sourceId,
+      };
+    },
+
+    async deleteMenuItems(companyId, ids) {
+      if (ids.length === 0) return 0;
+      const { data, error } = await supabase
+        .from("menu_items")
+        .delete()
+        .eq("company_id", companyId)
+        .in("id", ids)
+        .select("id");
+      if (error) throw new Error(error.message);
+      return (data ?? []).length;
+    },
+
+    async listRecipes(companyId) {
+      const { data, error } = await supabase
+        .from("recipes")
+        .select("id, menu_item_id, name, source_type, source_id")
+        .eq("company_id", companyId);
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        id: String(row.id),
+        menu_item_id: String(row.menu_item_id),
+        name: String(row.name ?? ""),
+        source_type: (row.source_type as string | null) ?? null,
+        source_id: (row.source_id as string | null) ?? null,
+      }));
+    },
+
+    async createRecipe(input) {
+      const { data, error } = await supabase
+        .from("recipes")
+        .insert({
+          company_id: input.companyId,
+          menu_item_id: input.menuItemId,
+          name: input.name,
+          status: "active",
+          serving_quantity: 1,
+          serving_unit: "portion",
+          source_type: "import",
+          source_id: input.sourceId,
+        })
+        .select("id, menu_item_id, name, source_type, source_id")
+        .single();
+      if (error || !data) {
+        throw new Error(error?.message ?? "recipe insert failed");
+      }
+      if (input.inputs.length > 0) {
+        const { error: inputError } = await supabase
+          .from("menu_recipe_inputs")
+          .insert(
+            input.inputs.map((row) => ({
+              company_id: input.companyId,
+              recipe_id: data.id,
+              input_type: row.input_type,
+              ingredient_id: row.ingredient_id,
+              component_id: row.component_id,
+              quantity: row.quantity,
+              unit: row.unit,
+              notes: row.notes,
+            }))
+          );
+        if (inputError) throw new Error(inputError.message);
+      }
+      return {
+        id: String(data.id),
+        menu_item_id: String(data.menu_item_id),
+        name: String(data.name ?? input.name),
+        source_type: (data.source_type as string | null) ?? "import",
+        source_id: (data.source_id as string | null) ?? input.sourceId,
+      };
+    },
+
+    async listRecipeInputs(companyId, recipeId) {
+      const { data, error } = await supabase
+        .from("menu_recipe_inputs")
+        .select(
+          "input_type, ingredient_id, component_id, quantity, unit, notes"
+        )
+        .eq("company_id", companyId)
+        .eq("recipe_id", recipeId);
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map(asRecipeInput);
+    },
+
+    async replaceRecipeInputs(companyId, recipeId, inputs) {
+      const { error: delError } = await supabase
+        .from("menu_recipe_inputs")
+        .delete()
+        .eq("company_id", companyId)
+        .eq("recipe_id", recipeId);
+      if (delError) throw new Error(delError.message);
+      if (inputs.length === 0) return;
+      const { error } = await supabase.from("menu_recipe_inputs").insert(
+        inputs.map((row) => ({
+          company_id: companyId,
+          recipe_id: recipeId,
+          input_type: row.input_type,
+          ingredient_id: row.ingredient_id,
+          component_id: row.component_id,
+          quantity: row.quantity,
+          unit: row.unit,
+          notes: row.notes,
+        }))
+      );
+      if (error) throw new Error(error.message);
+    },
+
+    async deleteRecipes(companyId, ids) {
+      if (ids.length === 0) return 0;
+      const { data, error } = await supabase
+        .from("recipes")
+        .delete()
+        .eq("company_id", companyId)
+        .in("id", ids)
+        .select("id");
+      if (error) throw new Error(error.message);
+      return (data ?? []).length;
+    },
+
+    async listComponents(companyId) {
+      const { data, error } = await supabase
+        .from("prepared_components")
+        .select("id, name, output_unit, source_type, source_id")
+        .eq("company_id", companyId);
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        id: String(row.id),
+        name: String(row.name ?? ""),
+        output_unit: String(row.output_unit ?? "unit"),
+        source_type: (row.source_type as string | null) ?? null,
+        source_id: (row.source_id as string | null) ?? null,
+      }));
+    },
+
+    async createComponent(input) {
+      const { data, error } = await supabase
+        .from("prepared_components")
+        .insert({
+          company_id: input.companyId,
+          name: input.name,
+          output_unit: input.outputUnit,
+          status: "active",
+          source_type: "import",
+          source_id: input.sourceId,
+        })
+        .select("id, name, output_unit, source_type, source_id")
+        .single();
+      if (error || !data) {
+        throw new Error(error?.message ?? "component insert failed");
+      }
+      return {
+        id: String(data.id),
+        name: String(data.name ?? input.name),
+        output_unit: String(data.output_unit ?? input.outputUnit),
+        source_type: (data.source_type as string | null) ?? "import",
+        source_id: (data.source_id as string | null) ?? input.sourceId,
+      };
+    },
+
+    async deleteComponents(companyId, ids) {
+      if (ids.length === 0) return 0;
+      const { data, error } = await supabase
+        .from("prepared_components")
+        .delete()
+        .eq("company_id", companyId)
+        .in("id", ids)
+        .select("id");
+      if (error) throw new Error(error.message);
+      return (data ?? []).length;
+    },
+
+    async listComponentRecipes(companyId) {
+      const { data, error } = await supabase
+        .from("component_recipes")
+        .select(
+          "id, component_id, name, output_quantity, output_unit, source_type, source_id"
+        )
+        .eq("company_id", companyId);
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        id: String(row.id),
+        component_id: String(row.component_id),
+        name: String(row.name ?? ""),
+        output_quantity: Number(row.output_quantity ?? 1),
+        output_unit: String(row.output_unit ?? "unit"),
+        source_type: (row.source_type as string | null) ?? null,
+        source_id: (row.source_id as string | null) ?? null,
+      }));
+    },
+
+    async createComponentRecipe(input) {
+      const { data, error } = await supabase
+        .from("component_recipes")
+        .insert({
+          company_id: input.companyId,
+          component_id: input.componentId,
+          name: input.name,
+          output_quantity: input.outputQuantity,
+          output_unit: input.outputUnit,
+          status: "active",
+          source_type: "import",
+          source_id: input.sourceId,
+        })
+        .select(
+          "id, component_id, name, output_quantity, output_unit, source_type, source_id"
+        )
+        .single();
+      if (error || !data) {
+        throw new Error(error?.message ?? "component recipe insert failed");
+      }
+      if (input.inputs.length > 0) {
+        const { error: inputError } = await supabase
+          .from("component_recipe_inputs")
+          .insert(
+            input.inputs.map((row) => ({
+              company_id: input.companyId,
+              component_recipe_id: data.id,
+              input_type: row.input_type,
+              ingredient_id: row.ingredient_id,
+              component_id: row.component_id,
+              quantity: row.quantity,
+              unit: row.unit,
+              notes: row.notes,
+            }))
+          );
+        if (inputError) throw new Error(inputError.message);
+      }
+      return {
+        id: String(data.id),
+        component_id: String(data.component_id),
+        name: String(data.name ?? input.name),
+        output_quantity: Number(data.output_quantity ?? input.outputQuantity),
+        output_unit: String(data.output_unit ?? input.outputUnit),
+        source_type: (data.source_type as string | null) ?? "import",
+        source_id: (data.source_id as string | null) ?? input.sourceId,
+      };
+    },
+
+    async listComponentRecipeInputs(companyId, componentRecipeId) {
+      const { data, error } = await supabase
+        .from("component_recipe_inputs")
+        .select(
+          "input_type, ingredient_id, component_id, quantity, unit, notes"
+        )
+        .eq("company_id", companyId)
+        .eq("component_recipe_id", componentRecipeId);
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map(asRecipeInput);
+    },
+
+    async replaceComponentRecipeInputs(companyId, componentRecipeId, inputs) {
+      const { error: delError } = await supabase
+        .from("component_recipe_inputs")
+        .delete()
+        .eq("company_id", companyId)
+        .eq("component_recipe_id", componentRecipeId);
+      if (delError) throw new Error(delError.message);
+      if (inputs.length === 0) return;
+      const { error } = await supabase.from("component_recipe_inputs").insert(
+        inputs.map((row) => ({
+          company_id: companyId,
+          component_recipe_id: componentRecipeId,
+          input_type: row.input_type,
+          ingredient_id: row.ingredient_id,
+          component_id: row.component_id,
+          quantity: row.quantity,
+          unit: row.unit,
+          notes: row.notes,
+        }))
+      );
+      if (error) throw new Error(error.message);
+    },
+
+    async deleteComponentRecipes(companyId, ids) {
+      if (ids.length === 0) return 0;
+      const { data, error } = await supabase
+        .from("component_recipes")
+        .delete()
+        .eq("company_id", companyId)
+        .in("id", ids)
+        .select("id");
+      if (error) throw new Error(error.message);
+      return (data ?? []).length;
+    },
+
+    async listDistinctPosItemNames(companyId) {
+      const names = new Set<string>();
+      const page = 1000;
+      let from = 0;
+      for (;;) {
+        const { data, error } = await supabase
+          .from("pos_sales_items")
+          .select("raw_item_name")
+          .eq("company_id", companyId)
+          .range(from, from + page - 1);
+        if (error) throw new Error(error.message);
+        const rows = data ?? [];
+        for (const row of rows) {
+          const name = String(row.raw_item_name ?? "").trim();
+          if (name) names.add(name);
+        }
+        if (rows.length < page) break;
+        from += page;
+      }
+      return [...names];
+    },
+
+    async listPosMappings(companyId) {
+      const { data, error } = await supabase
+        .from("pos_item_mappings")
+        .select("id, raw_pos_item_name, menu_item_id")
+        .eq("company_id", companyId);
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        id: String(row.id),
+        raw_pos_item_name: String(row.raw_pos_item_name ?? ""),
+        menu_item_id: String(row.menu_item_id),
+      }));
+    },
+
+    async createPosMappings(inputs) {
+      if (inputs.length === 0) return [];
+      const created: Array<{ id: string }> = [];
+      await mapChunks(inputs, async (chunk) => {
+        const { data, error } = await supabase
+          .from("pos_item_mappings")
+          .insert(
+            chunk.map((row) => ({
+              company_id: row.companyId,
+              raw_pos_item_name: row.rawPosItemName,
+              menu_item_id: row.menuItemId,
+              match_type: "auto",
+              location_id: null,
+            }))
+          )
+          .select("id");
+        if (error) throw new Error(error.message);
+        created.push(
+          ...((data ?? []) as Array<{ id: string }>).map((row) => ({
+            id: String(row.id),
+          }))
+        );
+      });
+      return created;
+    },
+
+    async deletePosMappings(companyId, ids) {
+      if (ids.length === 0) return 0;
+      const { data, error } = await supabase
+        .from("pos_item_mappings")
+        .delete()
+        .eq("company_id", companyId)
+        .in("id", ids)
+        .select("id");
+      if (error) throw new Error(error.message);
+      return (data ?? []).length;
+    },
+  };
+}
+
+function asRecipeInput(row: Record<string, unknown>): RecipeInputSnapshot {
+  return {
+    input_type: row.input_type === "component" ? "component" : "ingredient",
+    ingredient_id: (row.ingredient_id as string | null) ?? null,
+    component_id: (row.component_id as string | null) ?? null,
+    quantity: Number(row.quantity ?? 0),
+    unit: String(row.unit ?? ""),
+    notes: (row.notes as string | null) ?? null,
   };
 }

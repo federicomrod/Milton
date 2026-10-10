@@ -34,8 +34,10 @@ const CLASSIFIER_CONTEXT =
   "price_list (item + unit prices such as per lb/oz), " +
   "category_cost (food-category sheet with name/unit/cost/quantity/total), " +
   "purchases (one purchase per row with date/supplier/qty/total), " +
-  "recipe (ingredient lines for a dish — not costs to import yet), " +
+  "recipe (ingredient lines for a finished dish / menu item), " +
+  "sub_recipe (prep item / sub-receta / mise-en-place used inside recipes), " +
   "ignore (cover, index, empty, or unrelated). " +
+  "A tab named SUB RECETAS or similar is sub_recipe even if it also has cost columns. " +
   "Set detectedTable to that exact token.";
 
 const TYPE_ALIASES: Record<string, CostTabType> = {
@@ -48,6 +50,14 @@ const TYPE_ALIASES: Record<string, CostTabType> = {
   recipes: "recipe",
   receta: "recipe",
   recetas: "recipe",
+  sub_recipe: "sub_recipe",
+  sub_recipes: "sub_recipe",
+  subrecipe: "sub_recipe",
+  subrecipes: "sub_recipe",
+  sub_receta: "sub_recipe",
+  sub_recetas: "sub_recipe",
+  subreceta: "sub_recipe",
+  subrecetas: "sub_recipe",
   purchases: "purchases",
   purchase: "purchases",
   compras: "purchases",
@@ -112,10 +122,19 @@ export function classifyCostTabHeuristic(
   }
 
   if (
-    (/(receta|recipe|preparacion|preparación)/.test(nameBlob) ||
+    /(sub[\s_]*receta|sub[\s_]*recipe|preparacion|preparación)/.test(nameBlob)
+  ) {
+    return {
+      type: "sub_recipe",
+      confidence: 0.93,
+      notes: "heuristic sub-recipe",
+    };
+  }
+
+  if (
+    (/(receta|recipe)/.test(nameBlob) ||
       hasAny(set, ["receta", "porcion", "porción", "procedimiento"])) &&
-    hasAny(set, ["ingrediente", "ingredient", "nombre"]) &&
-    !hasAny(set, ["total", "costo", "importe"])
+    hasAny(set, ["ingrediente", "ingredient", "nombre", "articulo", "artículo"])
   ) {
     return { type: "recipe", confidence: 0.9, notes: "heuristic recipe" };
   }
@@ -168,6 +187,18 @@ const HEURISTIC_COLUMNS: Record<string, string[]> = {
   price_per_lb: ["libra", "lb", "preciolibra"],
   price_per_oz: ["onza", "oz", "precioonza"],
   price_per_unit: ["preciounitario", "unitprice", "precio"],
+  recipe_name: [
+    "receta",
+    "recipe",
+    "plato",
+    "platillo",
+    "dish",
+    "menu",
+    "preparacion",
+    "preparación",
+  ],
+  output_quantity: ["porciones", "portions", "rendimiento", "yield"],
+  output_unit: ["unidadsalida", "outputunit"],
 };
 
 export function mapColumnsHeuristic(input: MapColumnsInput): ColumnMapping {

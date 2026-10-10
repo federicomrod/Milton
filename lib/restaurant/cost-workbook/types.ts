@@ -7,6 +7,7 @@ export const COST_TAB_TYPES = [
   "category_cost",
   "purchases",
   "recipe",
+  "sub_recipe",
   "ignore",
 ] as const;
 
@@ -74,6 +75,18 @@ export interface ReviewCandidate {
   suggested: Partial<WorkbookRowCandidate> | null;
 }
 
+export interface SkipCandidate {
+  tabName: string;
+  rowIndex: number;
+  reason: string;
+  raw: Record<string, unknown>;
+}
+
+export interface SkipReasonCount {
+  reason: string;
+  count: number;
+}
+
 export interface TabImportSummary {
   name: string;
   type: CostTabType;
@@ -82,6 +95,8 @@ export interface TabImportSummary {
   column_mapping: ColumnMapping;
   imported_count: number;
   review_count: number;
+  skipped_count: number;
+  skipped_reasons: SkipReasonCount[];
   preview: Record<string, unknown>[];
   note?: string;
 }
@@ -112,6 +127,11 @@ export interface WorkbookImportResult {
   costs_updated: number;
   saved_count: number;
   skipped_count: number;
+  skipped_reasons: SkipReasonCount[];
+  menu_items_created: number;
+  recipes_created: number;
+  sub_recipes_created: number;
+  pos_links_created: number;
 }
 
 export interface CostWorkbookIngredient {
@@ -153,6 +173,15 @@ export interface CostWorkbookReviewItem {
   status: "pending" | "approved" | "skipped";
 }
 
+export interface RecipeInputSnapshot {
+  input_type: "ingredient" | "component";
+  ingredient_id: string | null;
+  component_id: string | null;
+  quantity: number;
+  unit: string;
+  notes: string | null;
+}
+
 export interface UndoSnapshot {
   inserted_entry_ids: string[];
   updated_entries: Array<{
@@ -165,6 +194,19 @@ export interface UndoSnapshot {
     current_unit_cost: number;
     currency: string;
   }>;
+  created_menu_item_ids: string[];
+  created_recipe_ids: string[];
+  created_component_ids: string[];
+  created_component_recipe_ids: string[];
+  created_mapping_ids: string[];
+  updated_recipes: Array<{
+    id: string;
+    inputs: RecipeInputSnapshot[];
+  }>;
+  updated_components: Array<{
+    id: string;
+    inputs: RecipeInputSnapshot[];
+  }>;
 }
 
 export function emptyUndoSnapshot(): UndoSnapshot {
@@ -173,7 +215,64 @@ export function emptyUndoSnapshot(): UndoSnapshot {
     updated_entries: [],
     created_ingredient_ids: [],
     ingredient_costs_before: [],
+    created_menu_item_ids: [],
+    created_recipe_ids: [],
+    created_component_ids: [],
+    created_component_recipe_ids: [],
+    created_mapping_ids: [],
+    updated_recipes: [],
+    updated_components: [],
   };
+}
+
+export interface ImportedMenuItem {
+  id: string;
+  name: string;
+  source_type: string | null;
+  source_id: string | null;
+}
+
+export interface ImportedRecipe {
+  id: string;
+  menu_item_id: string;
+  name: string;
+  source_type: string | null;
+  source_id: string | null;
+}
+
+export interface ImportedComponent {
+  id: string;
+  name: string;
+  output_unit: string;
+  source_type: string | null;
+  source_id: string | null;
+}
+
+export interface ImportedComponentRecipe {
+  id: string;
+  component_id: string;
+  name: string;
+  output_quantity: number;
+  output_unit: string;
+  source_type: string | null;
+  source_id: string | null;
+}
+
+export interface RecipeLineCandidate {
+  tabName: string;
+  rowIndex: number;
+  recipeName: string;
+  ingredient_name: string;
+  quantity: number;
+  unit: string;
+  raw: Record<string, unknown>;
+}
+
+export interface GroupedRecipe {
+  name: string;
+  tabName: string;
+  kind: "recipe" | "sub_recipe";
+  lines: RecipeLineCandidate[];
 }
 
 export interface CostWorkbookBatch {
@@ -219,9 +318,19 @@ export const PURCHASE_FIELDS = [
   { name: "currency" },
 ] as const;
 
+export const RECIPE_FIELDS = [
+  { name: "recipe_name" },
+  { name: "ingredient_name", required: true },
+  { name: "quantity", type: "number", required: true },
+  { name: "unit", required: true },
+  { name: "output_quantity", type: "number" },
+  { name: "output_unit" },
+] as const;
+
 export function targetFieldsForTab(type: CostTabType) {
   if (type === "price_list") return [...PRICE_LIST_FIELDS];
   if (type === "purchases") return [...PURCHASE_FIELDS];
   if (type === "category_cost") return [...CATEGORY_COST_FIELDS];
+  if (type === "recipe" || type === "sub_recipe") return [...RECIPE_FIELDS];
   return [];
 }

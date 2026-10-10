@@ -1,49 +1,22 @@
 // Plain-code parsing + validation. AI never invents these numbers.
 
-import {
-  parseCostImportDate,
-  parseCostImportNumber,
-} from "@/lib/restaurant/cost-import";
+import { parseCostImportDate } from "@/lib/restaurant/cost-import";
 import {
   currencyMismatchReason,
   normalizeCurrency,
 } from "@/lib/restaurant/currency";
 import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
+import { numberAt, textAt } from "./cells";
+import { skipReasonForWorkbookRow } from "./skip";
 import type {
   ColumnMapping,
   CostTabType,
   ReviewCandidate,
   WorkbookRowCandidate,
 } from "./types";
-import { HIGH_COLUMN_CONFIDENCE } from "./types";
-
-const TOTAL_ROW_RE = /^(total|sub[\s-]?total|totales|subtotales|suma)(\b|:|$)/i;
 
 const MATH_ABS_TOL = 0.05;
 const MATH_REL_TOL = 0.02;
-
-function textAt(
-  row: Record<string, unknown>,
-  mapping: ColumnMapping,
-  field: string
-): string | null {
-  const col = mapping[field]?.column;
-  if (!col) return null;
-  const raw = row[col];
-  if (raw === null || raw === undefined) return null;
-  const s = String(raw).trim();
-  return s === "" ? null : s;
-}
-
-function numberAt(
-  row: Record<string, unknown>,
-  mapping: ColumnMapping,
-  field: string
-): number | null {
-  const col = mapping[field]?.column;
-  if (!col) return null;
-  return parseCostImportNumber(row[col]);
-}
 
 export function totalsMatch(
   quantity: number,
@@ -73,14 +46,7 @@ export function isSkippableWorkbookRow(
   row: Record<string, unknown>,
   mapping: ColumnMapping
 ): boolean {
-  if (tabType !== "category_cost" && tabType !== "purchases") return false;
-  const name = textAt(row, mapping, "ingredient_name");
-  if (!name) {
-    return Object.values(row).every(
-      (value) => String(value ?? "").trim() === ""
-    );
-  }
-  return TOTAL_ROW_RE.test(name.trim());
+  return skipReasonForWorkbookRow(tabType, row, mapping) !== null;
 }
 
 function currencyReviewReason(
@@ -95,21 +61,6 @@ function currencyReviewReason(
     return currencyMismatchReason(raw.trim().toUpperCase(), companyCurrency);
   }
   return currencyMismatchReason(normalized, companyCurrency);
-}
-
-function mappingConfidence(mapping: ColumnMapping, field: string): number {
-  return mapping[field]?.confidence ?? 0;
-}
-
-function columnUnsure(mapping: ColumnMapping, fields: string[]): string | null {
-  for (const field of fields) {
-    const binding = mapping[field];
-    if (!binding?.column) continue;
-    if (binding.confidence < HIGH_COLUMN_CONFIDENCE) {
-      return `column unsure (${field} ← ${binding.column})`;
-    }
-  }
-  return null;
 }
 
 function baseCandidate(
@@ -193,12 +144,6 @@ function evaluatePriceListRow(
 ):
   | { ok: true; value: WorkbookRowCandidate }
   | { ok: false; review: ReviewCandidate } {
-  const unsure = columnUnsure(mapping, [
-    "ingredient_name",
-    "price_per_lb",
-    "price_per_oz",
-    "price_per_unit",
-  ]);
   const name = textAt(row, mapping, "ingredient_name");
   const fail = (reason: string): { ok: false; review: ReviewCandidate } => ({
     ok: false,
@@ -217,10 +162,6 @@ function evaluatePriceListRow(
   });
 
   if (!name) return fail("Missing ingredient name");
-  if (unsure) return fail(unsure);
-  if (mappingConfidence(mapping, "ingredient_name") < HIGH_COLUMN_CONFIDENCE) {
-    return fail("column unsure (ingredient name)");
-  }
 
   const priceLb = numberAt(row, mapping, "price_per_lb");
   const priceOz = numberAt(row, mapping, "price_per_oz");
@@ -277,13 +218,6 @@ function evaluateQuantityCostRow(
 ):
   | { ok: true; value: WorkbookRowCandidate }
   | { ok: false; review: ReviewCandidate } {
-  const unsure = columnUnsure(mapping, [
-    "ingredient_name",
-    "unit",
-    "unit_price",
-    "quantity",
-    "total_cost",
-  ]);
   const name = textAt(row, mapping, "ingredient_name");
   const fail = (
     reason: string,
@@ -300,7 +234,6 @@ function evaluateQuantityCostRow(
   });
 
   if (!name) return fail("Missing ingredient name");
-  if (unsure) return fail(unsure);
 
   const unitRaw = textAt(row, mapping, "unit");
   if (!unitRaw) return fail("Missing unit", { ingredient_name: name });

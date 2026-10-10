@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { calculateMenuItemCost } from "@/lib/restaurant/costing";
+import {
+  calculateAllComponentCosts,
+  calculateMenuItemCost,
+  getLatestIngredientCost,
+} from "@/lib/restaurant/costing";
 import type { CostingData } from "@/lib/restaurant/costing";
+import { readFileSync } from "fs";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
 import {
   approveReviewItem,
@@ -29,6 +34,7 @@ import * as XLSX from "xlsx";
 import type { CostWorkbookCostEntry } from "@/lib/restaurant/cost-workbook/types";
 import {
   createMemoryCostWorkbookRepo,
+  emptyMemoryStore,
   type MemoryCostWorkbookStore,
 } from "./helpers/memory-cost-workbook-repo";
 
@@ -36,13 +42,114 @@ const COMPANY = "co-ranchos";
 const FILENAME = "Costos_Los Ranchos_Abril-2026.xlsx";
 
 function emptyStore(): MemoryCostWorkbookStore {
-  return {
-    ingredients: [],
-    costEntries: [],
-    mappings: [],
-    batches: [],
-    reviewItems: [],
+  return emptyMemoryStore();
+}
+
+function costingDataFromStore(store: MemoryCostWorkbookStore): CostingData {
+  const entriesByIngredient = new Map<string, IngredientCostEntry[]>();
+  for (const entry of store.costEntries) {
+    const list = entriesByIngredient.get(entry.ingredient_id) ?? [];
+    list.push({
+      ...entry,
+      source_type: "import",
+      notes: entry.notes ?? undefined,
+    });
+    entriesByIngredient.set(entry.ingredient_id, list);
+  }
+  const componentRecipesByComponentId = new Map(
+    store.componentRecipes.map((row) => [
+      row.component_id,
+      {
+        id: row.id,
+        component_id: row.component_id,
+        output_quantity: row.output_quantity,
+        output_unit: row.output_unit,
+        status: "active",
+      },
+    ])
+  );
+  const componentRecipeInputsByRecipeId = new Map<
+    string,
+    CostingData["componentRecipeInputsByRecipeId"] extends Map<string, infer V>
+      ? V
+      : never
+  >();
+  for (const row of store.componentRecipeInputs) {
+    const list =
+      componentRecipeInputsByRecipeId.get(row.component_recipe_id) ?? [];
+    list.push({
+      input_type: row.input_type,
+      ingredient_id: row.ingredient_id,
+      component_id: row.component_id,
+      quantity: row.quantity,
+      unit: row.unit,
+    });
+    componentRecipeInputsByRecipeId.set(row.component_recipe_id, list);
+  }
+  const menuRecipesByMenuItemId = new Map(
+    store.recipes.map((row) => [
+      row.menu_item_id,
+      { id: row.id, menu_item_id: row.menu_item_id, status: "active" },
+    ])
+  );
+  const menuRecipeInputsByRecipeId = new Map<
+    string,
+    Array<{
+      input_type: "ingredient" | "component";
+      ingredient_id: string | null;
+      component_id: string | null;
+      quantity: number;
+      unit: string;
+    }>
+  >();
+  for (const row of store.recipeInputs) {
+    const list = menuRecipeInputsByRecipeId.get(row.recipe_id) ?? [];
+    list.push({
+      input_type: row.input_type,
+      ingredient_id: row.ingredient_id,
+      component_id: row.component_id,
+      quantity: row.quantity,
+      unit: row.unit,
+    });
+    menuRecipeInputsByRecipeId.set(row.recipe_id, list);
+  }
+  const data: CostingData = {
+    ingredientsById: new Map(
+      store.ingredients.map((item) => [
+        item.id,
+        { id: item.id, name: item.name, default_unit: item.default_unit },
+      ])
+    ),
+    componentsById: new Map(
+      store.components.map((item) => [
+        item.id,
+        {
+          id: item.id,
+          name: item.name,
+          output_unit: item.output_unit,
+          status: "active",
+        },
+      ])
+    ),
+    componentRecipesByComponentId,
+    componentRecipeInputsByRecipeId,
+    menuItemsById: new Map(
+      store.menuItems.map((item) => [
+        item.id,
+        {
+          id: item.id,
+          name: item.name,
+          selling_price: 12,
+          currency: "USD",
+        },
+      ])
+    ),
+    menuRecipesByMenuItemId,
+    menuRecipeInputsByRecipeId,
+    costEntriesByIngredientId: entriesByIngredient,
   };
+  calculateAllComponentCosts(data);
+  return data;
 }
 
 function mockedAi(): WorkbookAi & {
@@ -55,6 +162,9 @@ function mockedAi(): WorkbookAi & {
       const headers = input.headers.map((h) => h.toLowerCase());
       if (headers.includes("item") && headers.includes("libra")) {
         return { type: "price_list" as const, confidence: 0.96 };
+      }
+      if (name.includes("sub receta") || name.includes("sub_receta")) {
+        return { type: "sub_recipe" as const, confidence: 0.94 };
       }
       if (name.includes("receta") || headers.includes("ingrediente")) {
         return { type: "recipe" as const, confidence: 0.95 };
@@ -77,7 +187,17 @@ function mockedAi(): WorkbookAi & {
           ...bind("item", "ingredient_name"),
           ...bind("libra", "price_per_lb"),
           ...bind("onza", "price_per_oz"),
-          ...bind("preciounitario", "price_per_unit"),
+          ...bind("preciounitario", "price_per_unit", 0.7),
+        };
+      }
+      if (input.tabType === "recipe" || input.tabType === "sub_recipe") {
+        return {
+          ...bind("receta", "recipe_name"),
+          ...bind("ingrediente", "ingredient_name"),
+          ...bind("articulo", "ingredient_name"),
+          ...bind("artículo", "ingredient_name"),
+          ...bind("cantidad", "quantity"),
+          ...bind("unidad", "unit"),
         };
       }
       return {
@@ -170,19 +290,30 @@ describe("smart workbook import", () => {
     expect(ai.classifyTab).toHaveBeenCalled();
     expect(ai.mapColumns).toHaveBeenCalled();
     expect(result.headline).toBe(
-      "Saved 6, updated 0 from 3 tabs. 2 need a look. 0 skipped."
+      "Saved 6, updated 0 from 3 tabs. 2 need a look. 2 skipped."
     );
     expect(result.imported_count).toBe(6);
     expect(result.saved_count).toBe(6);
     expect(result.review_count).toBe(2);
-    expect(result.skipped_count).toBe(0);
-    expect(result.recipe_tab_count).toBe(1);
+    expect(result.skipped_count).toBe(2);
+    expect(result.recipe_tab_count).toBe(2);
+    expect(result.menu_items_created).toBe(1);
+    expect(result.recipes_created).toBe(1);
+    expect(result.sub_recipes_created).toBe(1);
     expect(result.default_currency).toBe("USD");
     expect(result.file_month).toBe("2026-04-01");
     expect(result.mapping_source).toBe("ai");
+    expect(
+      result.review_items.some((item) => item.reason.includes("column unsure"))
+    ).toBe(false);
+    expect(result.skipped_reasons.map((row) => row.reason).sort()).toEqual(
+      ["header/total row", "no price"].sort()
+    );
 
     const recipeTab = result.tabs.find((t) => t.type === "recipe");
-    expect(recipeTab?.note).toBe("recipes, coming soon");
+    expect(recipeTab?.note).toBe("recipe");
+    const subTab = result.tabs.find((t) => t.type === "sub_recipe");
+    expect(subTab?.note).toBe("sub-recipe / prep item");
 
     const names = store.ingredients.map((i) => i.name).sort();
     expect(names).toEqual(
@@ -195,6 +326,12 @@ describe("smart workbook import", () => {
         "Tomate",
       ].sort()
     );
+    expect(store.menuItems.map((item) => item.name)).toEqual(["Carne Asada"]);
+    expect(store.components.map((item) => item.name)).toEqual([
+      "Salsa ranchera",
+    ]);
+    expect(store.recipes).toHaveLength(1);
+    expect(store.recipeInputs).toHaveLength(3);
     expect(store.costEntries).toHaveLength(6);
     expect(store.costEntries.every((e) => e.currency === "USD")).toBe(true);
     expect(store.costEntries.every((e) => e.cost_date === "2026-04-01")).toBe(
@@ -232,7 +369,12 @@ describe("smart workbook import", () => {
     });
     expect(first.mapping_source).toBe("ai");
     expect(store.mappings.map((m) => m.tab_name).sort()).toEqual(
-      ["Lista de precios", "RECETA Carne Asada", "Vegetales"].sort()
+      [
+        "Lista de precios",
+        "RECETA Carne Asada",
+        "SUB RECETAS",
+        "Vegetales",
+      ].sort()
     );
     expect(store.mappings.some((m) => m.tab_name === "Carnes")).toBe(false);
 
@@ -271,12 +413,18 @@ describe("smart workbook import", () => {
     });
     expect(store.costEntries.length).toBe(6);
     expect(store.ingredients.length).toBe(6);
+    expect(store.menuItems.length).toBe(1);
+    expect(store.components.length).toBe(1);
 
     const undone = await undoCostImportBatch(repo, COMPANY, result.batch_id);
     expect(undone.ok).toBe(true);
     if (undone.ok) expect(undone.deleted).toBe(6);
     expect(store.costEntries).toHaveLength(0);
     expect(store.ingredients).toHaveLength(0);
+    expect(store.menuItems).toHaveLength(0);
+    expect(store.recipes).toHaveLength(0);
+    expect(store.components).toHaveLength(0);
+    expect(store.posMappings).toHaveLength(0);
     expect(store.batches[0]?.undone_at).toBeTruthy();
   });
 
@@ -292,72 +440,14 @@ describe("smart workbook import", () => {
       ai: mockedAi(),
     });
 
-    const carne = store.ingredients.find((i) => i.name === "Carne para asar");
-    const tomate = store.ingredients.find((i) => i.name === "Tomate");
-    expect(carne && tomate).toBeTruthy();
-    if (!carne || !tomate) return;
-
-    const entriesByIngredient = new Map<string, IngredientCostEntry[]>();
-    for (const e of store.costEntries) {
-      const list = entriesByIngredient.get(e.ingredient_id) ?? [];
-      list.push({
-        ...e,
-        source_type: "import",
-        notes: e.notes ?? undefined,
-      });
-      entriesByIngredient.set(e.ingredient_id, list);
-    }
-
-    const data: CostingData = {
-      ingredientsById: new Map([
-        [carne.id, carne],
-        [tomate.id, tomate],
-      ]),
-      componentsById: new Map(),
-      componentRecipesByComponentId: new Map(),
-      componentRecipeInputsByRecipeId: new Map(),
-      menuItemsById: new Map([
-        [
-          "menu-1",
-          {
-            id: "menu-1",
-            name: "Carne Asada",
-            selling_price: 12,
-            currency: "USD",
-          },
-        ],
-      ]),
-      menuRecipesByMenuItemId: new Map([
-        ["menu-1", { id: "rec-1", menu_item_id: "menu-1", status: "active" }],
-      ]),
-      menuRecipeInputsByRecipeId: new Map([
-        [
-          "rec-1",
-          [
-            {
-              input_type: "ingredient",
-              ingredient_id: carne.id,
-              component_id: null,
-              quantity: 8,
-              unit: "oz",
-            },
-            {
-              input_type: "ingredient",
-              ingredient_id: tomate.id,
-              component_id: null,
-              quantity: 2,
-              unit: "oz",
-            },
-          ],
-        ],
-      ]),
-      costEntriesByIngredientId: entriesByIngredient,
-    };
-
-    const cost = calculateMenuItemCost("menu-1", data);
+    const data = costingDataFromStore(store);
+    const menu = store.menuItems[0];
+    expect(menu).toBeTruthy();
+    const cost = calculateMenuItemCost(menu.id, data);
     expect(cost.status).toBe("complete");
-    // 8 oz carne = 0.5 lb × $4.80 + 2 oz tomate = 0.125 lb × $1.20
-    expect(cost.cost).toBeCloseTo(0.5 * 4.8 + 0.125 * 1.2, 5);
+    expect(cost.cost).toBeGreaterThan(0);
+    // 8 oz carne = 0.5 lb × $4.80 + 2 oz tomate = 0.125 lb × $1.20 + salsa
+    expect(cost.cost).toBeGreaterThan(0.5 * 4.8 + 0.125 * 1.2);
   });
 
   it("builds the one-line summary the UI shows", () => {
@@ -646,7 +736,7 @@ describe("workbook import blockers", () => {
     );
     expect(
       result.saved_count + result.review_count + result.skipped_count
-    ).toBe(8);
+    ).toBe(10);
     expect(result.saved_count).toBe(store.costEntries.length);
     expect(result.review_count).toBe(store.reviewItems.length);
     expect(result.headline).toBe(
@@ -654,6 +744,7 @@ describe("workbook import blockers", () => {
     );
     expect(result.review_count).toBe(3);
     expect(result.saved_count).toBe(5);
+    expect(result.skipped_count).toBe(2);
   });
 
   it("rejects non-numeric approve body fields", async () => {
@@ -731,5 +822,128 @@ describe("workbook import nits", () => {
       fs.readFileSync("app/api/restaurant/costs/upload/route.ts", "utf8")
     );
     expect(src).toContain("export const maxDuration = 300");
+  });
+});
+
+describe("workbook recipes, POS links, and cockpit COGS", () => {
+  it("auto-saves price-list rows when only one column mapping is unsure", async () => {
+    const store = emptyStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosCostWorkbook(),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    const priceTab = result.tabs.find((tab) => tab.type === "price_list");
+    expect(priceTab?.column_mapping.price_per_unit?.confidence).toBe(0.7);
+    expect(priceTab?.imported_count).toBe(4);
+    expect(priceTab?.review_count).toBe(0);
+    expect(
+      result.review_items.filter((item) =>
+        item.reason.includes("column unsure")
+      )
+    ).toHaveLength(0);
+  });
+
+  it("links imported menu items to sample POS names and yields COGS > 0", async () => {
+    const store = emptyStore();
+    store.posItemNames = ["CARNE ASADA", "Hamburguesa especial"];
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosCostWorkbook(),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+
+    expect(result.pos_links_created).toBe(1);
+    expect(store.posMappings[0]?.raw_pos_item_name).toBe("CARNE ASADA");
+    expect(
+      result.review_items.some((item) =>
+        item.reason.startsWith("POS name unsure")
+      )
+    ).toBe(false);
+
+    const data = costingDataFromStore(store);
+    const menu = store.menuItems[0];
+    const cost = calculateMenuItemCost(menu.id, data);
+    expect(cost.status).toBe("complete");
+    expect(cost.cost).toBeGreaterThan(0);
+
+    const julyUnits = 10;
+    const julyRevenue = 120;
+    const estimatedCogs = (cost.cost ?? 0) * julyUnits;
+    const coverage = (julyRevenue / julyRevenue) * 100;
+    expect(estimatedCogs).toBeGreaterThan(0);
+    expect(coverage).toBeGreaterThan(0);
+
+    const carne = store.ingredients.find(
+      (item) => item.name === "Carne para asar"
+    );
+    expect(carne).toBeTruthy();
+    if (!carne) return;
+    const latest = getLatestIngredientCost(carne.id, data);
+    expect(latest.cost_date).toBe("2026-04-01");
+    const filtered = getLatestIngredientCost(carne.id, data, {
+      asOfDate: "2026-07-31",
+    });
+    expect(filtered.cost_date).toBe("2026-04-01");
+  });
+
+  it("does not overwrite a handmade recipe", async () => {
+    const store = emptyStore();
+    store.menuItems.push({
+      id: "menu-hand",
+      name: "Carne Asada",
+      source_type: null,
+      source_id: null,
+    });
+    store.recipes.push({
+      id: "rec-hand",
+      menu_item_id: "menu-hand",
+      name: "Carne Asada",
+      source_type: null,
+      source_id: null,
+    });
+    store.recipeInputs.push({
+      id: "in-hand",
+      recipe_id: "rec-hand",
+      input_type: "ingredient",
+      ingredient_id: "ing-x",
+      component_id: null,
+      quantity: 99,
+      unit: "lb",
+      notes: null,
+    });
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosCostWorkbook(),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    expect(result.recipes_created).toBe(0);
+    expect(result.menu_items_created).toBe(0);
+    expect(
+      store.recipeInputs.find((row) => row.id === "in-hand")?.quantity
+    ).toBe(99);
+    expect(
+      result.skipped_reasons.some(
+        (row) => row.reason === "handmade recipe exists"
+      )
+    ).toBe(true);
+  });
+
+  it("cockpit costing does not filter costs by sales month", () => {
+    const src = readFileSync("lib/restaurant/profitability-server.ts", "utf8");
+    expect(src).not.toMatch(/asOfDate/);
+    expect(src).toContain("calculateAllMenuItemCosts(costingData)");
   });
 });

@@ -3,6 +3,11 @@ import type {
   CostWorkbookCostEntry,
   CostWorkbookIngredient,
   CostWorkbookReviewItem,
+  ImportedComponent,
+  ImportedComponentRecipe,
+  ImportedMenuItem,
+  ImportedRecipe,
+  RecipeInputSnapshot,
   SavedLayoutMap,
   UndoSnapshot,
 } from "@/lib/restaurant/cost-workbook/types";
@@ -15,6 +20,38 @@ export interface MemoryCostWorkbookStore {
   mappings: SavedLayoutMap[];
   batches: CostWorkbookBatch[];
   reviewItems: CostWorkbookReviewItem[];
+  menuItems: ImportedMenuItem[];
+  recipes: ImportedRecipe[];
+  recipeInputs: Array<RecipeInputSnapshot & { id: string; recipe_id: string }>;
+  components: ImportedComponent[];
+  componentRecipes: ImportedComponentRecipe[];
+  componentRecipeInputs: Array<
+    RecipeInputSnapshot & { id: string; component_recipe_id: string }
+  >;
+  posItemNames: string[];
+  posMappings: Array<{
+    id: string;
+    raw_pos_item_name: string;
+    menu_item_id: string;
+  }>;
+}
+
+export function emptyMemoryStore(): MemoryCostWorkbookStore {
+  return {
+    ingredients: [],
+    costEntries: [],
+    mappings: [],
+    batches: [],
+    reviewItems: [],
+    menuItems: [],
+    recipes: [],
+    recipeInputs: [],
+    components: [],
+    componentRecipes: [],
+    componentRecipeInputs: [],
+    posItemNames: [],
+    posMappings: [],
+  };
 }
 
 export function createMemoryCostWorkbookRepo(
@@ -175,6 +212,204 @@ export function createMemoryCostWorkbookRepo(
         (r) => r.company_id === companyId && r.id === reviewId
       );
       if (row) Object.assign(row, patch);
+    },
+    async listMenuItems() {
+      return [...store.menuItems];
+    },
+    async createMenuItem(input) {
+      const row: ImportedMenuItem = {
+        id: id(),
+        name: input.name,
+        source_type: "import",
+        source_id: input.sourceId,
+      };
+      store.menuItems.push(row);
+      return row;
+    },
+    async deleteMenuItems(_companyId, ids) {
+      const remove = new Set(ids);
+      const before = store.menuItems.length;
+      const recipeIds = new Set(
+        store.recipes
+          .filter((row) => remove.has(row.menu_item_id))
+          .map((row) => row.id)
+      );
+      store.menuItems = store.menuItems.filter((row) => !remove.has(row.id));
+      store.recipes = store.recipes.filter(
+        (row) => !remove.has(row.menu_item_id)
+      );
+      store.recipeInputs = store.recipeInputs.filter(
+        (row) => !recipeIds.has(row.recipe_id)
+      );
+      store.posMappings = store.posMappings.filter(
+        (row) => !remove.has(row.menu_item_id)
+      );
+      return before - store.menuItems.length;
+    },
+    async listRecipes() {
+      return [...store.recipes];
+    },
+    async createRecipe(input) {
+      const row: ImportedRecipe = {
+        id: id(),
+        menu_item_id: input.menuItemId,
+        name: input.name,
+        source_type: "import",
+        source_id: input.sourceId,
+      };
+      store.recipes.push(row);
+      store.recipeInputs.push(
+        ...input.inputs.map((line) => ({
+          ...line,
+          id: id(),
+          recipe_id: row.id,
+        }))
+      );
+      return row;
+    },
+    async listRecipeInputs(_companyId, recipeId) {
+      return store.recipeInputs
+        .filter((row) => row.recipe_id === recipeId)
+        .map((row) => ({
+          input_type: row.input_type,
+          ingredient_id: row.ingredient_id,
+          component_id: row.component_id,
+          quantity: row.quantity,
+          unit: row.unit,
+          notes: row.notes,
+        }));
+    },
+    async replaceRecipeInputs(_companyId, recipeId, inputs) {
+      store.recipeInputs = store.recipeInputs.filter(
+        (row) => row.recipe_id !== recipeId
+      );
+      store.recipeInputs.push(
+        ...inputs.map((line) => ({ ...line, id: id(), recipe_id: recipeId }))
+      );
+    },
+    async deleteRecipes(_companyId, ids) {
+      const remove = new Set(ids);
+      const before = store.recipes.length;
+      store.recipes = store.recipes.filter((row) => !remove.has(row.id));
+      store.recipeInputs = store.recipeInputs.filter(
+        (row) => !remove.has(row.recipe_id)
+      );
+      return before - store.recipes.length;
+    },
+    async listComponents() {
+      return [...store.components];
+    },
+    async createComponent(input) {
+      const row: ImportedComponent = {
+        id: id(),
+        name: input.name,
+        output_unit: input.outputUnit,
+        source_type: "import",
+        source_id: input.sourceId,
+      };
+      store.components.push(row);
+      return row;
+    },
+    async deleteComponents(_companyId, ids) {
+      const remove = new Set(ids);
+      const before = store.components.length;
+      const recipeIds = new Set(
+        store.componentRecipes
+          .filter((row) => remove.has(row.component_id))
+          .map((row) => row.id)
+      );
+      store.components = store.components.filter((row) => !remove.has(row.id));
+      store.componentRecipes = store.componentRecipes.filter(
+        (row) => !remove.has(row.component_id)
+      );
+      store.componentRecipeInputs = store.componentRecipeInputs.filter(
+        (row) => !recipeIds.has(row.component_recipe_id)
+      );
+      return before - store.components.length;
+    },
+    async listComponentRecipes() {
+      return [...store.componentRecipes];
+    },
+    async createComponentRecipe(input) {
+      const row: ImportedComponentRecipe = {
+        id: id(),
+        component_id: input.componentId,
+        name: input.name,
+        output_quantity: input.outputQuantity,
+        output_unit: input.outputUnit,
+        source_type: "import",
+        source_id: input.sourceId,
+      };
+      store.componentRecipes.push(row);
+      store.componentRecipeInputs.push(
+        ...input.inputs.map((line) => ({
+          ...line,
+          id: id(),
+          component_recipe_id: row.id,
+        }))
+      );
+      return row;
+    },
+    async listComponentRecipeInputs(_companyId, componentRecipeId) {
+      return store.componentRecipeInputs
+        .filter((row) => row.component_recipe_id === componentRecipeId)
+        .map((row) => ({
+          input_type: row.input_type,
+          ingredient_id: row.ingredient_id,
+          component_id: row.component_id,
+          quantity: row.quantity,
+          unit: row.unit,
+          notes: row.notes,
+        }));
+    },
+    async replaceComponentRecipeInputs(_companyId, componentRecipeId, inputs) {
+      store.componentRecipeInputs = store.componentRecipeInputs.filter(
+        (row) => row.component_recipe_id !== componentRecipeId
+      );
+      store.componentRecipeInputs.push(
+        ...inputs.map((line) => ({
+          ...line,
+          id: id(),
+          component_recipe_id: componentRecipeId,
+        }))
+      );
+    },
+    async deleteComponentRecipes(_companyId, ids) {
+      const remove = new Set(ids);
+      const before = store.componentRecipes.length;
+      store.componentRecipes = store.componentRecipes.filter(
+        (row) => !remove.has(row.id)
+      );
+      store.componentRecipeInputs = store.componentRecipeInputs.filter(
+        (row) => !remove.has(row.component_recipe_id)
+      );
+      return before - store.componentRecipes.length;
+    },
+    async listDistinctPosItemNames() {
+      return [...store.posItemNames];
+    },
+    async listPosMappings() {
+      return [...store.posMappings];
+    },
+    async createPosMappings(inputs) {
+      const created = inputs.map((input) => {
+        const row = {
+          id: id(),
+          raw_pos_item_name: input.rawPosItemName,
+          menu_item_id: input.menuItemId,
+        };
+        store.posMappings.push(row);
+        return { id: row.id };
+      });
+      return created;
+    },
+    async deletePosMappings(_companyId, ids) {
+      const remove = new Set(ids);
+      const before = store.posMappings.length;
+      store.posMappings = store.posMappings.filter(
+        (row) => !remove.has(row.id)
+      );
+      return before - store.posMappings.length;
     },
   };
 }

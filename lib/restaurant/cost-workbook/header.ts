@@ -8,6 +8,8 @@ const HEADER_TOKENS = new Set([
   "producto",
   "ingrediente",
   "ingredient",
+  "receta",
+  "recipe",
   "articulo",
   "artículo",
   "unidad",

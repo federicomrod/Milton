@@ -51,6 +51,31 @@ export function mergeUndoSnapshots(
       ...extra.created_ingredient_ids,
     ],
     ingredient_costs_before: ingredientCosts,
+    created_menu_item_ids: [
+      ...start.created_menu_item_ids,
+      ...extra.created_menu_item_ids,
+    ],
+    created_recipe_ids: [
+      ...start.created_recipe_ids,
+      ...extra.created_recipe_ids,
+    ],
+    created_component_ids: [
+      ...start.created_component_ids,
+      ...extra.created_component_ids,
+    ],
+    created_component_recipe_ids: [
+      ...start.created_component_recipe_ids,
+      ...extra.created_component_recipe_ids,
+    ],
+    created_mapping_ids: [
+      ...start.created_mapping_ids,
+      ...extra.created_mapping_ids,
+    ],
+    updated_recipes: [...start.updated_recipes, ...extra.updated_recipes],
+    updated_components: [
+      ...start.updated_components,
+      ...extra.updated_components,
+    ],
   };
 }
 
@@ -76,6 +101,39 @@ export function snapshotFromUnknown(value: unknown): UndoSnapshot {
       ? raw.ingredient_costs_before.filter(
           (row): row is UndoSnapshot["ingredient_costs_before"][number] =>
             Boolean(row && typeof row === "object" && "id" in row)
+        )
+      : [],
+    created_menu_item_ids: Array.isArray(raw.created_menu_item_ids)
+      ? raw.created_menu_item_ids.map(String)
+      : [],
+    created_recipe_ids: Array.isArray(raw.created_recipe_ids)
+      ? raw.created_recipe_ids.map(String)
+      : [],
+    created_component_ids: Array.isArray(raw.created_component_ids)
+      ? raw.created_component_ids.map(String)
+      : [],
+    created_component_recipe_ids: Array.isArray(
+      raw.created_component_recipe_ids
+    )
+      ? raw.created_component_recipe_ids.map(String)
+      : [],
+    created_mapping_ids: Array.isArray(raw.created_mapping_ids)
+      ? raw.created_mapping_ids.map(String)
+      : [],
+    updated_recipes: Array.isArray(raw.updated_recipes)
+      ? raw.updated_recipes.filter(
+          (row): row is UndoSnapshot["updated_recipes"][number] =>
+            Boolean(
+              row && typeof row === "object" && "id" in row && "inputs" in row
+            )
+        )
+      : [],
+    updated_components: Array.isArray(raw.updated_components)
+      ? raw.updated_components.filter(
+          (row): row is UndoSnapshot["updated_components"][number] =>
+            Boolean(
+              row && typeof row === "object" && "id" in row && "inputs" in row
+            )
         )
       : [],
   };

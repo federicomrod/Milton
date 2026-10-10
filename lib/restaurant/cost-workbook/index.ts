@@ -17,6 +17,9 @@ export {
   isSkippableWorkbookRow,
   totalsMatch,
 } from "./parse";
+export { groupSkipReasons, skipReasonForWorkbookRow } from "./skip";
+export { nameMatchScore, normalizeMatchName } from "./names";
+export { collectRecipeLines } from "./recipes";
 export {
   firstSheetRawRows,
   isWorkbookLimitError,

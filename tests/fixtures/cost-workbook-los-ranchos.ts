@@ -2,8 +2,9 @@ import * as XLSX from "xlsx";
 
 /**
  * Synthetic Los Ranchos-shaped workbook. No client data.
- * Price list + recipe + two Spanish category tabs with title rows,
- * one unknown unit, and one qty×price mismatch.
+ * Price list (ambiguous PRECIO UNITARIO) + recipe + sub-recipe + two
+ * Spanish category tabs with title rows above headers, one unknown unit,
+ * one qty×price mismatch, and one price-list row that fails row checks.
  */
 export function buildLosRanchosCostWorkbook(opts?: {
   carneLb?: number;
@@ -19,6 +20,8 @@ export function buildLosRanchosCostWorkbook(opts?: {
     ["Carne para asar", carneLb, carneOz, ""],
     ["Tomate", 1.2, 0.075, ""],
     ["Sal", "", "", 0.15],
+    ["Cebolla", 1.8, 0.1125, ""],
+    ["Aceite rancio", "", "", "n/a"],
   ];
   XLSX.utils.book_append_sheet(
     wb,
@@ -26,11 +29,25 @@ export function buildLosRanchosCostWorkbook(opts?: {
     "Lista de precios"
   );
 
+  const subRecipes = [
+    ["SUB RECETAS"],
+    [],
+    ["Receta", "Ingrediente", "Cantidad", "Unidad"],
+    ["Salsa ranchera", "Tomate", 2, "lb"],
+    ["Salsa ranchera", "Cebolla", 0.5, "kg"],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(subRecipes),
+    "SUB RECETAS"
+  );
+
   const recipe = [
     ["RECETA: Carne Asada"],
     ["Ingrediente", "Cantidad", "Unidad", "Notas"],
     ["Carne para asar", 8, "oz", "por porción"],
     ["Tomate", 2, "oz", ""],
+    ["Salsa ranchera", 1, "unidad", "prep"],
   ];
   XLSX.utils.book_append_sheet(
     wb,
@@ -51,8 +68,8 @@ export function buildLosRanchosCostWorkbook(opts?: {
   const vegetales = [
     ["VEGETALES"],
     ["Producto", "Unidad", "Precio", "Cantidad", "Total"],
-    ["Cebolla", "kg", 1.8, 5, 9],
     ["Lechuga", "unidad", 0.6, 12, 7.2],
+    ["TOTAL", "", "", "", 7.2],
   ];
   XLSX.utils.book_append_sheet(
     wb,

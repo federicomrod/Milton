@@ -1,7 +1,8 @@
 // lib/restaurant/units.ts
 // Deterministic unit conversion for recipe costing.
-// Only covers mass (kg/g) and volume (l/ml) families plus same-unit passthrough.
-// Returns an explicit error instead of silently guessing for unsupported pairs.
+// Mass (kg/g/lb/oz), volume (l/ml), plus same-unit passthrough for
+// discrete units. Returns an explicit error instead of silently guessing
+// for unsupported pairs.
 //
 // API surface:
 //   * convertUnit / convertUnitPrice — original strictly-typed UnitOfMeasure
@@ -21,18 +22,33 @@ export type ConversionResult = ConversionOk | ConversionFail;
 
 // Multiplier to go from `from` → `to`.
 // Only families that are safely interconvertible are included.
+// Exact SI definitions so lb ↔ oz ↔ kg ↔ g stay consistent.
+const LB_IN_KG = 0.45359237;
+const OZ_IN_G = 28.349523125;
+const OZ_PER_LB = 16;
+
 const CONVERSION_FACTOR: Partial<
   Record<UnitOfMeasure, Partial<Record<UnitOfMeasure, number>>>
 > = {
-  kg: { kg: 1, g: 1000 },
-  g: { g: 1, kg: 0.001 },
+  kg: { kg: 1, g: 1000, lb: 1 / LB_IN_KG, oz: 1000 / OZ_IN_G },
+  g: { g: 1, kg: 0.001, lb: 0.001 / LB_IN_KG, oz: 1 / OZ_IN_G },
   l: { l: 1, ml: 1000 },
   ml: { ml: 1, l: 0.001 },
   // Discrete / portion units — only same-unit conversion is valid.
   unit: { unit: 1 },
   portion: { portion: 1 },
-  oz: { oz: 1 },
-  lb: { lb: 1 },
+  oz: {
+    oz: 1,
+    lb: 1 / OZ_PER_LB,
+    g: OZ_IN_G,
+    kg: OZ_IN_G / 1000,
+  },
+  lb: {
+    lb: 1,
+    oz: OZ_PER_LB,
+    kg: LB_IN_KG,
+    g: LB_IN_KG * 1000,
+  },
 };
 
 /**
@@ -130,8 +146,17 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   serving: "portion",
   servings: "portion",
   oz: "oz",
+  onza: "oz",
+  onzas: "oz",
+  onz: "oz",
+  ounce: "oz",
+  ounces: "oz",
   lb: "lb",
   lbs: "lb",
+  libra: "lb",
+  libras: "lb",
+  pound: "lb",
+  pounds: "lb",
 };
 
 /**

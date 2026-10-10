@@ -5,9 +5,10 @@
 // auto-creating suppliers and (optionally) ingredients, and maintaining
 // supplier_ingredients links.
 //
-// Deterministic. No OCR, no AI. Parsing + normalization live in
-// lib/restaurant/cost-import.ts; this route owns auth, DB lookups, and
-// the create-or-match logic that needs the database.
+// Fixed-header CSV / first-sheet XLSX stays deterministic (no AI).
+// Multi-tab workbooks that fail that column check use the smart
+// workbook path in lib/restaurant/cost-workbook (AI maps tabs/columns;
+// plain code parses, converts and saves high-confidence rows).
 //
 // Form fields:
 //   file                        (required) the CSV/XLSX
@@ -39,6 +40,12 @@ import {
   normalizeCurrency,
   resolveCompanyCurrency,
 } from "@/lib/restaurant/currency";
+import {
+  createDefaultWorkbookAi,
+  createSupabaseCostWorkbookRepo,
+  importCostWorkbook,
+  shouldUseWorkbookImport,
+} from "@/lib/restaurant/cost-workbook";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -162,6 +169,30 @@ export async function POST(req: NextRequest) {
     // --- Validate columns -------------------------------------------------
     const colCheck = validateCostImportColumns(headers);
     if (!colCheck.ok) {
+      if (shouldUseWorkbookImport(isCSV, colCheck.ok)) {
+        try {
+          const result = await importCostWorkbook({
+            companyId,
+            filename: file.name,
+            buffer,
+            currency: defaultCurrency,
+            repo: createSupabaseCostWorkbookRepo(supabase),
+            ai: createDefaultWorkbookAi(),
+            createdBy: auth.userId,
+          });
+          return NextResponse.json(result);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Unknown error";
+          console.error("[costs/upload workbook]", message);
+          return NextResponse.json(
+            {
+              error: "Workbook import failed",
+              details: message,
+            },
+            { status: 500 }
+          );
+        }
+      }
       return NextResponse.json(
         {
           error: "Missing required columns",

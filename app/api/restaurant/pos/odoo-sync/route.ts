@@ -69,6 +69,9 @@ import type { RestaurantPosConnection } from "@/types/restaurant";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+// A month-long sync (~20k rows) can exceed Vercel's default limit and
+// return a 504 with no JSON. 300s matches the briefing-email cron ceiling.
+export const maxDuration = 300;
 
 const UPSERT_BATCH_SIZE = 500;
 

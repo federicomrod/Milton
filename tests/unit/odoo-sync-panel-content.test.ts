@@ -8,6 +8,7 @@ describe("Odoo Sync now panel", () => {
   const panel = read("components/management/odoo-sync-panel.tsx");
   const page = read("app/management/odoo/page.tsx");
   const route = read("app/api/restaurant/pos/odoo-sync/route.ts");
+  const companies = read("app/api/admin/companies/route.ts");
 
   it("is mounted on the admin Odoo page", () => {
     expect(page).toContain("OdooSyncPanel");
@@ -17,9 +18,31 @@ describe("Odoo Sync now panel", () => {
   it("calls the existing sync endpoint and guards double-submit", () => {
     expect(panel).toContain('fetch("/api/restaurant/pos/odoo-sync"');
     expect(panel).toContain("createInFlightGuard");
-    expect(panel).toContain("disabled={syncing || !startDate || !endDate}");
+    expect(panel).toContain(
+      "disabled={syncing || !canSync || !startDate || !endDate}"
+    );
+    expect(panel).toContain("if (!canSync) return");
     expect(panel).toContain("Sync now");
     expect(panel).toContain("MAX_RANGE_DAYS");
+  });
+
+  it("names the signed-in workspace and disables Sync now for another company", () => {
+    expect(panel).toContain("syncWorkspaceCopy");
+    expect(panel).toContain("formatWorkspaceLastSyncLine");
+    expect(panel).toContain("odoo-sync-target");
+    expect(page).toContain("canSyncSelectedWorkspace");
+    expect(page).toContain("findOwnCompany");
+    expect(page).toContain("ownCompanyName");
+    expect(page).toContain("canSync={canSync}");
+  });
+
+  it("raises the sync route duration so a ~20k-row month does not 504 without JSON", () => {
+    expect(route).toContain("export const maxDuration = 300");
+  });
+
+  it("labels the signed-in workspace on the companies list", () => {
+    expect(companies).toContain("resolveCompanyIdForUser");
+    expect(companies).toContain("is_own");
   });
 
   it("renders the human summary helpers instead of raw JSON", () => {

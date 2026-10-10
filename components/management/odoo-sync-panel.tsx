@@ -20,7 +20,6 @@ import {
 } from "@/lib/restaurant/odoo/sync-window";
 import {
   compactLastSync,
-  formatLastSyncLine,
   summarizeOdooSync,
   syncSummaryCopy,
   type OdooLastSync,
@@ -35,12 +34,24 @@ import {
   rangeForPreset,
   type SyncDatePreset,
 } from "@/lib/restaurant/odoo/sync-control";
+import {
+  formatWorkspaceLastSyncLine,
+  syncWorkspaceCopy,
+} from "@/lib/restaurant/odoo/sync-workspace";
 
 interface OdooSyncPanelProps {
   lastSync?: OdooLastSync | null;
+  selectedCompanyName: string | null;
+  ownCompanyName: string | null;
+  canSync: boolean;
 }
 
-export function OdooSyncPanel({ lastSync = null }: OdooSyncPanelProps) {
+export function OdooSyncPanel({
+  lastSync = null,
+  selectedCompanyName,
+  ownCompanyName,
+  canSync,
+}: OdooSyncPanelProps) {
   const router = useRouter();
   const { toast } = useToast();
   const defaultRange = rangeForPreset(DEFAULT_SYNC_PRESET);
@@ -75,7 +86,14 @@ export function OdooSyncPanel({ lastSync = null }: OdooSyncPanelProps) {
     else setEndDate(value);
   };
 
+  const workspaceCopy = syncWorkspaceCopy({
+    canSync,
+    ownCompanyName,
+    selectedCompanyName,
+  });
+
   const handleSync = async () => {
+    if (!canSync) return;
     const result = await guardRef.current.run(async () => {
       const parsed = parseInclusiveDateRange(startDate, endDate);
       if (!parsed.ok) {
@@ -130,9 +148,11 @@ export function OdooSyncPanel({ lastSync = null }: OdooSyncPanelProps) {
   };
 
   const copy = summary ? syncSummaryCopy(summary) : null;
-  const lastSyncLine = storedLastSync
-    ? formatLastSyncLine(storedLastSync)
-    : "Not synced yet. Pick a date range and click Sync now.";
+  const lastSyncLine = formatWorkspaceLastSyncLine(
+    storedLastSync,
+    selectedCompanyName,
+    canSync
+  );
 
   return (
     <Card>
@@ -142,9 +162,16 @@ export function OdooSyncPanel({ lastSync = null }: OdooSyncPanelProps) {
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
           Pull completed POS orders into Milton. You can sync at most{" "}
-          {MAX_RANGE_DAYS} days at a time. This updates the workspace you are
-          signed into.
+          {MAX_RANGE_DAYS} days at a time.
         </p>
+        <p className="text-sm font-medium" data-testid="odoo-sync-target">
+          {workspaceCopy.targetLine}
+        </p>
+        {workspaceCopy.blockedReason && (
+          <Alert>
+            <AlertDescription>{workspaceCopy.blockedReason}</AlertDescription>
+          </Alert>
+        )}
 
         <div>
           <Label className="mb-2 block">Quick range</Label>
@@ -191,7 +218,7 @@ export function OdooSyncPanel({ lastSync = null }: OdooSyncPanelProps) {
           <Button
             type="button"
             onClick={handleSync}
-            disabled={syncing || !startDate || !endDate}
+            disabled={syncing || !canSync || !startDate || !endDate}
           >
             {syncing ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

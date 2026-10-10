@@ -362,6 +362,22 @@ export interface RestaurantPosConnection {
    * null = nothing selected; Odoo calls fail closed.
    */
   odoo_company_ids: number[] | null;
+  /**
+   * Compact last successful Odoo POS sync (migration 027). Absent or
+   * null until the first Sync now (or console) run after the column
+   * exists. Never stores the full unmatched_menu_items list.
+   */
+  last_sync?: {
+    synced_at: string;
+    start_date: string;
+    end_date: string;
+    orders_fetched: number;
+    rows_upserted: number;
+    skipped_count: number;
+    unmatched_menu_item_count: number;
+    unmatched_locations: string[];
+    warning_count: number;
+  } | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

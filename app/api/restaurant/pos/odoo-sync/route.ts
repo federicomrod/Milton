@@ -26,7 +26,10 @@
 // authenticated request with a date range. No cron, no background job.
 
 import { NextRequest, NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { isUserAdminServer } from "@/lib/profile-service-server";
+import { compactLastSync } from "@/lib/restaurant/odoo/sync-summary";
 import { buildNameIndex } from "@/lib/restaurant/pos-import";
 import { buildScopedNameIndex } from "@/lib/restaurant/scoped-matching";
 import {
@@ -116,11 +119,43 @@ interface RequestBody {
   end_date?: string;
 }
 
+/** Best-effort persist. Must never fail the sync or log row payloads. */
+async function persistLastSync(
+  supabase: SupabaseClient,
+  connectionId: string,
+  companyId: string,
+  payload: Parameters<typeof compactLastSync>[0]
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from("restaurant_pos_connections")
+      .update({ last_sync: compactLastSync(payload) })
+      .eq("id", connectionId)
+      .eq("company_id", companyId);
+    if (error) {
+      console.error(
+        "[Odoo Sync] last_sync persist failed:",
+        error.name || "PostgrestError"
+      );
+    }
+  } catch (err) {
+    console.error(
+      "[Odoo Sync] last_sync persist failed:",
+      err instanceof Error ? err.name : "Unknown"
+    );
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const auth = await authAndCompany();
     if (!auth.ok) return auth.response;
-    const { supabase, companyId } = auth;
+    const { supabase, companyId, userId } = auth;
+
+    const isAdmin = await isUserAdminServer(userId);
+    if (!isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     // --- Parse + validate the requested range ---------------------------
     let body: RequestBody;
@@ -436,7 +471,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (orders.length === 0) {
-      return NextResponse.json({
+      const emptyPayload = {
         synced_range: { start_date, end_date },
         orders_fetched: 0,
         lines_fetched: 0,
@@ -445,7 +480,9 @@ export async function POST(req: NextRequest) {
         lines_skipped: [],
         unmatched_menu_items: [],
         unmatched_locations: [],
-      });
+      };
+      await persistLastSync(supabase, conn.id, companyId, emptyPayload);
+      return NextResponse.json(emptyPayload);
     }
 
     // --- Fetch lines for those orders --------------------------------------
@@ -646,7 +683,7 @@ export async function POST(req: NextRequest) {
       upserted += count ?? batch.length;
     }
 
-    return NextResponse.json({
+    const payload = {
       synced_range: { start_date, end_date },
       odoo_query_range_utc: { start: queryStart, end: queryEnd },
       orders_fetched: orders.length,
@@ -658,7 +695,9 @@ export async function POST(req: NextRequest) {
       unmatched_locations: Array.from(unmatchedLocations).sort(),
       dimension_notes: dimensions?.notes ?? [],
       dimension_calls: dimensions?.callCount ?? 0,
-    });
+    };
+    await persistLastSync(supabase, conn.id, companyId, payload);
+    return NextResponse.json(payload);
   } catch (err) {
     const statusClass = logOdooFault("[Odoo Sync] Unexpected error:", err);
     return NextResponse.json(

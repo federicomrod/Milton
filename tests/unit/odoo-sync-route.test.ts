@@ -53,6 +53,9 @@ describe("POST /api/restaurant/pos/odoo-sync - location mapping validation", () 
     const upsertSpy = vi.fn();
     const authenticateSpy = vi.fn();
 
+    vi.doMock("@/lib/profile-service-server", () => ({
+      isUserAdminServer: vi.fn().mockResolvedValue(true),
+    }));
     vi.doMock("@/lib/restaurant/api-auth", () => ({
       authAndCompany: vi.fn().mockResolvedValue({
         ok: true,
@@ -65,6 +68,7 @@ describe("POST /api/restaurant/pos/odoo-sync - location mapping validation", () 
           }),
         },
         companyId: "company-123",
+        userId: "admin-123",
       }),
     }));
 
@@ -138,6 +142,9 @@ describe("POST /api/restaurant/pos/odoo-sync - Odoo fault text is not returned",
       error: null,
     });
 
+    vi.doMock("@/lib/profile-service-server", () => ({
+      isUserAdminServer: vi.fn().mockResolvedValue(true),
+    }));
     vi.doMock("@/lib/restaurant/api-auth", () => ({
       authAndCompany: vi.fn().mockResolvedValue({
         ok: true,
@@ -150,6 +157,7 @@ describe("POST /api/restaurant/pos/odoo-sync - Odoo fault text is not returned",
           }),
         },
         companyId: "company-123",
+        userId: "admin-123",
       }),
     }));
 
@@ -195,5 +203,50 @@ describe("POST /api/restaurant/pos/odoo-sync - Odoo fault text is not returned",
     expect(body.details).toBe("Odoo request failed (unknown)");
     expect(JSON.stringify(body)).not.toContain(FAULT);
     expect(JSON.stringify(body)).not.toContain("Access Denied");
+  });
+});
+
+describe("POST /api/restaurant/pos/odoo-sync - admin only", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it("rejects non-admin users with 403 before Odoo is contacted", async () => {
+    const authenticateSpy = vi.fn();
+    const fromSpy = vi.fn();
+
+    vi.doMock("@/lib/profile-service-server", () => ({
+      isUserAdminServer: vi.fn().mockResolvedValue(false),
+    }));
+    vi.doMock("@/lib/restaurant/api-auth", () => ({
+      authAndCompany: vi.fn().mockResolvedValue({
+        ok: true,
+        supabase: { from: fromSpy },
+        companyId: "company-123",
+        userId: "user-123",
+      }),
+    }));
+    vi.doMock("@/lib/restaurant/odoo/client", () => ({
+      authenticate: authenticateSpy,
+      OdooAuthenticationError: class extends Error {},
+      OdooRpcError: class extends Error {},
+    }));
+
+    const { POST } = await import("@/app/api/restaurant/pos/odoo-sync/route");
+    const response = await POST(
+      new Request("http://localhost/api/restaurant/pos/odoo-sync", {
+        method: "POST",
+        body: JSON.stringify({
+          start_date: "2026-07-01",
+          end_date: "2026-07-31",
+        }),
+      }) as never
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error).toBe("Forbidden");
+    expect(authenticateSpy).not.toHaveBeenCalled();
+    expect(fromSpy).not.toHaveBeenCalled();
   });
 });

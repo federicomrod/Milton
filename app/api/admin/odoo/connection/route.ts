@@ -89,14 +89,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Company not found" }, { status: 404 });
   }
 
-  const { data: connection, error: connError } = await adminClient
+  const CONNECTION_FIELDS =
+    "id, base_url, database_name, username, timezone, odoo_company_ids, updated_at";
+  let connectionResult = await adminClient
     .from("restaurant_pos_connections")
-    .select(
-      "id, base_url, database_name, username, timezone, odoo_company_ids, updated_at"
-    )
+    .select(`${CONNECTION_FIELDS}, last_sync`)
     .eq("company_id", companyId)
     .eq("pos_source", "odoo")
     .maybeSingle();
+
+  // Migration 027 is applied by hand. If last_sync is not on the table
+  // yet, reload without it so the rest of the page still works.
+  if (connectionResult.error) {
+    connectionResult = await adminClient
+      .from("restaurant_pos_connections")
+      .select(CONNECTION_FIELDS)
+      .eq("company_id", companyId)
+      .eq("pos_source", "odoo")
+      .maybeSingle();
+  }
+
+  const { data: connection, error: connError } = connectionResult;
 
   if (connError) {
     const statusClass = logOdooFault(
@@ -137,6 +150,8 @@ export async function GET(req: NextRequest) {
       timezone: connection.timezone,
       odoo_company_ids: connection.odoo_company_ids,
       updated_at: connection.updated_at,
+      last_sync:
+        "last_sync" in connection ? (connection.last_sync ?? null) : null,
     },
     has_api_key: !!secret,
   });

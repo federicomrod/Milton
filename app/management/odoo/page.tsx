@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/select";
 import { Loader2, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { OdooSyncPanel } from "@/components/management/odoo-sync-panel";
+import type { OdooLastSync } from "@/lib/restaurant/odoo/sync-summary";
 
 interface Company {
   id: string;
@@ -42,6 +44,7 @@ interface ConnectionData {
     timezone: string;
     odoo_company_ids: number[] | null;
     updated_at: string;
+    last_sync?: OdooLastSync | null;
   } | null;
   has_api_key: boolean;
 }
@@ -336,6 +339,10 @@ export default function OdooPage() {
 
       {selectedCompanyId && (
         <>
+          {connectionData?.connection && (
+            <OdooSyncPanel lastSync={connectionData.connection.last_sync} />
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Connection Details</CardTitle>

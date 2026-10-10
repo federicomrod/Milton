@@ -147,3 +147,13 @@ export function headerFingerprint(headers: string[]): string {
 export function layoutKeyForHeaders(headers: string[]): string {
   return headerFingerprint(headers);
 }
+
+/** Layout memory key includes sheet type so a recipe tab and a cost tab
+ * with the same headers cannot collide. */
+export function layoutKeyForSheet(headers: string[], tabType: string): string {
+  const normalized = headers
+    .map((h) => normalizeHeaderToken(h))
+    .filter(Boolean)
+    .join("|");
+  return createHash("sha256").update(`${tabType}|${normalized}`).digest("hex");
+}

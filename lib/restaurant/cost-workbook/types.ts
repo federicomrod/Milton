@@ -110,6 +110,8 @@ export interface WorkbookImportResult {
   }>;
   ingredients_created: number;
   costs_updated: number;
+  saved_count: number;
+  skipped_count: number;
 }
 
 export interface CostWorkbookIngredient {
@@ -151,6 +153,29 @@ export interface CostWorkbookReviewItem {
   status: "pending" | "approved" | "skipped";
 }
 
+export interface UndoSnapshot {
+  inserted_entry_ids: string[];
+  updated_entries: Array<{
+    id: string;
+    before: CostWorkbookCostEntry;
+  }>;
+  created_ingredient_ids: string[];
+  ingredient_costs_before: Array<{
+    id: string;
+    current_unit_cost: number;
+    currency: string;
+  }>;
+}
+
+export function emptyUndoSnapshot(): UndoSnapshot {
+  return {
+    inserted_entry_ids: [],
+    updated_entries: [],
+    created_ingredient_ids: [],
+    ingredient_costs_before: [],
+  };
+}
+
 export interface CostWorkbookBatch {
   id: string;
   company_id: string;
@@ -162,6 +187,7 @@ export interface CostWorkbookBatch {
   tab_summaries: TabImportSummary[];
   mapping_source: "ai" | "saved" | "mixed";
   undone_at: string | null;
+  undo_snapshot: UndoSnapshot;
 }
 
 export const PRICE_LIST_FIELDS = [
@@ -179,6 +205,7 @@ export const CATEGORY_COST_FIELDS = [
   { name: "total_cost", type: "number" },
   { name: "supplier_name" },
   { name: "cost_date", type: "date" },
+  { name: "currency" },
 ] as const;
 
 export const PURCHASE_FIELDS = [
@@ -189,6 +216,7 @@ export const PURCHASE_FIELDS = [
   { name: "unit_price", type: "number" },
   { name: "supplier_name" },
   { name: "cost_date", type: "date" },
+  { name: "currency" },
 ] as const;
 
 export function targetFieldsForTab(type: CostTabType) {

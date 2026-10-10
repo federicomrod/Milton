@@ -5,14 +5,18 @@ import * as XLSX from "xlsx";
  * Price list + recipe + two Spanish category tabs with title rows,
  * one unknown unit, and one qty×price mismatch.
  */
-export function buildLosRanchosCostWorkbook(): Buffer {
+export function buildLosRanchosCostWorkbook(opts?: {
+  carneLb?: number;
+}): Buffer {
+  const carneLb = opts?.carneLb ?? 4.8;
+  const carneOz = Number((carneLb / 16).toFixed(4));
   const wb = XLSX.utils.book_new();
 
   const priceList = [
     ["LISTA DE PRECIOS LOS RANCHOS — ABRIL 2026"],
     [],
     ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
-    ["Carne para asar", 4.8, 0.3, ""],
+    ["Carne para asar", carneLb, carneOz, ""],
     ["Tomate", 1.2, 0.075, ""],
     ["Sal", "", "", 0.15],
   ];

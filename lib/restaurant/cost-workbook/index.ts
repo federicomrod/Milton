@@ -3,15 +3,32 @@ export {
   detectHeaderRow,
   headerFingerprint,
   layoutKeyForHeaders,
+  layoutKeyForSheet,
 } from "./header";
 export {
   classifyCostTabHeuristic,
   createDefaultWorkbookAi,
   mapColumnsHeuristic,
+  normalizeCostTabType,
   type WorkbookAi,
 } from "./ai";
-export { evaluateWorkbookRow, totalsMatch } from "./parse";
-export { readWorkbookSheets, shouldUseWorkbookImport } from "./sheets";
+export {
+  evaluateWorkbookRow,
+  isSkippableWorkbookRow,
+  totalsMatch,
+} from "./parse";
+export {
+  firstSheetRawRows,
+  isWorkbookLimitError,
+  MAX_ROWS_PER_SHEET,
+  MAX_WORKBOOK_CELLS,
+  MAX_WORKBOOK_TABS,
+  readWorkbookSheets,
+  readWorkbookSheetsFromWorkbook,
+  readXlsxWorkbook,
+  shouldUseWorkbookImport,
+  WorkbookLimitError,
+} from "./sheets";
 export { createSupabaseCostWorkbookRepo, type CostWorkbookRepo } from "./repo";
 export {
   approveReviewItem,
@@ -20,6 +37,7 @@ export {
   skipReviewItem,
   undoCostImportBatch,
 } from "./import";
+export { mappingPassesSanity } from "./sanity";
 export type {
   CostTabType,
   WorkbookImportResult,

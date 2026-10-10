@@ -22,6 +22,10 @@ describe("migration 028 — cost workbook import", () => {
     expect(sql).toContain(
       "CREATE TABLE IF NOT EXISTS public.cost_import_review_items"
     );
+    expect(sql).toContain("undo_snapshot");
+    expect(sql).toContain(
+      "ADD COLUMN IF NOT EXISTS undo_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb"
+    );
   });
 
   it("does not alter ingredient_cost_entries or drop anything", () => {

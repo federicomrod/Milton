@@ -38,7 +38,38 @@ const CLASSIFIER_CONTEXT =
   "ignore (cover, index, empty, or unrelated). " +
   "Set detectedTable to that exact token.";
 
-function normalizeType(raw: string): CostTabType | null {
+const TYPE_ALIASES: Record<string, CostTabType> = {
+  price_list: "price_list",
+  pricelist: "price_list",
+  lista_de_precios: "price_list",
+  lista_precios: "price_list",
+  precios: "price_list",
+  recipe: "recipe",
+  recipes: "recipe",
+  receta: "recipe",
+  recetas: "recipe",
+  purchases: "purchases",
+  purchase: "purchases",
+  compras: "purchases",
+  compra: "purchases",
+  invoice: "purchases",
+  invoices: "purchases",
+  factura: "purchases",
+  facturas: "purchases",
+  category_cost: "category_cost",
+  category_costs: "category_cost",
+  category: "category_cost",
+  costos: "category_cost",
+  costo: "category_cost",
+  ignore: "ignore",
+  unknown: "ignore",
+  other: "ignore",
+  index: "ignore",
+  cover: "ignore",
+};
+
+/** Exact tokens / aliases only — a string that merely contains "cost" is not a type. */
+export function normalizeCostTabType(raw: string): CostTabType | null {
   const key = raw
     .trim()
     .toLowerCase()
@@ -46,12 +77,7 @@ function normalizeType(raw: string): CostTabType | null {
   if ((COST_TAB_TYPES as readonly string[]).includes(key)) {
     return key as CostTabType;
   }
-  if (/(price_?list|lista_?de_?precios|precios)/.test(key)) return "price_list";
-  if (/(recip|receta)/.test(key)) return "recipe";
-  if (/(purchase|compra|invoice|factura)/.test(key)) return "purchases";
-  if (/(category|cost|costo|ingred)/.test(key)) return "category_cost";
-  if (/(ignore|unknown|other|index|cover)/.test(key)) return "ignore";
-  return null;
+  return TYPE_ALIASES[key] ?? null;
 }
 
 function headerSet(headers: string[]): Set<string> {
@@ -138,6 +164,7 @@ const HEURISTIC_COLUMNS: Record<string, string[]> = {
   total_cost: ["total", "importe", "amount", "linetotal"],
   supplier_name: ["proveedor", "supplier", "vendor"],
   cost_date: ["fecha", "date", "costdate", "invoicedate"],
+  currency: ["currency", "moneda", "divisa"],
   price_per_lb: ["libra", "lb", "preciolibra"],
   price_per_oz: ["onza", "oz", "precioonza"],
   price_per_unit: ["preciounitario", "unitprice", "precio"],
@@ -171,7 +198,7 @@ export async function classifyCostTabWithAi(
     sampleRows: input.sampleRows,
     businessContext: CLASSIFIER_CONTEXT,
   });
-  const type = normalizeType(classified.detectedTable);
+  const type = normalizeCostTabType(classified.detectedTable);
   if (type && classified.confidence >= 0.5) {
     return {
       type,

@@ -2,7 +2,9 @@
 --
 -- Smart workbook import for ingredient costs (GitHub #113, step 1).
 -- High-confidence rows save immediately into ingredient_cost_entries
--- (source_type='import', source_id=cost_import_batches.id). Low-confidence
+-- (source_type='import', source_id=cost_import_batches.id). Each batch
+-- stores an undo_snapshot of inserted/updated rows and auto-created
+-- ingredients so undo restores exactly that batch. Low-confidence
 -- or invalid rows are held in cost_import_review_items so they never
 -- save silently and never block the cockpit. Confirmed tab/column maps
 -- are remembered per restaurant + header layout so next month's file
@@ -36,7 +38,8 @@ CREATE TABLE IF NOT EXISTS public.cost_import_batches (
                     CHECK (mapping_source IN ('ai', 'saved', 'mixed')),
   created_by      uuid NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
-  undone_at       timestamptz NULL
+  undone_at       timestamptz NULL,
+  undo_snapshot   jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE INDEX IF NOT EXISTS cost_import_batches_company_created_idx
@@ -216,3 +219,13 @@ $$;
 GRANT ALL ON TABLE public.cost_import_review_items TO anon;
 GRANT ALL ON TABLE public.cost_import_review_items TO authenticated;
 GRANT ALL ON TABLE public.cost_import_review_items TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- 4. Undo snapshot (additive — 028 has not been applied anywhere yet)
+-- Records inserted cost-entry ids, previous values of updated rows,
+-- auto-created ingredient ids, and previous ingredients.current_unit_cost
+-- so undo restores or deletes exactly this batch and nothing else.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE public.cost_import_batches
+  ADD COLUMN IF NOT EXISTS undo_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { snapshotFromUnknown } from "./snapshot";
 import type {
   CostWorkbookBatch,
   CostWorkbookCostEntry,
@@ -6,8 +7,12 @@ import type {
   CostWorkbookReviewItem,
   SavedLayoutMap,
   TabImportSummary,
+  UndoSnapshot,
   WorkbookRowCandidate,
 } from "./types";
+import { emptyUndoSnapshot } from "./types";
+
+const WRITE_CHUNK = 100;
 
 export interface CreateBatchInput {
   companyId: string;
@@ -23,32 +28,40 @@ export interface CreateBatchInput {
 
 export interface CostWorkbookRepo {
   listIngredients(companyId: string): Promise<CostWorkbookIngredient[]>;
-  createIngredient(input: {
-    companyId: string;
-    name: string;
-    defaultUnit: string;
-    currentUnitCost: number;
-    currency: string;
-    category?: string | null;
-  }): Promise<CostWorkbookIngredient>;
-  updateIngredientCost(
-    ingredientId: string,
-    currentUnitCost: number,
-    currency: string
+  createIngredients(
+    inputs: Array<{
+      companyId: string;
+      name: string;
+      defaultUnit: string;
+      currentUnitCost: number;
+      currency: string;
+      category?: string | null;
+    }>
+  ): Promise<CostWorkbookIngredient[]>;
+  updateIngredientCosts(
+    updates: Array<{
+      ingredientId: string;
+      currentUnitCost: number;
+      currency: string;
+    }>
   ): Promise<void>;
-  findImportCostEntry(input: {
+  deleteIngredients(companyId: string, ids: string[]): Promise<number>;
+  findWorkbookCostEntries(input: {
     companyId: string;
-    ingredientId: string;
-    costDate: string;
-  }): Promise<CostWorkbookCostEntry | null>;
-  insertCostEntry(
-    entry: Omit<CostWorkbookCostEntry, "id" | "created_at">
-  ): Promise<CostWorkbookCostEntry>;
-  updateCostEntry(
-    id: string,
-    patch: Partial<CostWorkbookCostEntry>
+    ingredientIds: string[];
+  }): Promise<CostWorkbookCostEntry[]>;
+  insertCostEntries(
+    entries: Array<Omit<CostWorkbookCostEntry, "id" | "created_at">>
+  ): Promise<CostWorkbookCostEntry[]>;
+  updateCostEntries(
+    companyId: string,
+    updates: Array<{ id: string; patch: Partial<CostWorkbookCostEntry> }>
   ): Promise<void>;
-  deleteCostEntriesByBatch(companyId: string, batchId: string): Promise<number>;
+  restoreCostEntries(
+    companyId: string,
+    entries: CostWorkbookCostEntry[]
+  ): Promise<void>;
+  deleteCostEntriesByIds(companyId: string, ids: string[]): Promise<number>;
   listMappings(companyId: string): Promise<SavedLayoutMap[]>;
   upsertMapping(companyId: string, mapping: SavedLayoutMap): Promise<void>;
   createBatch(input: CreateBatchInput): Promise<CostWorkbookBatch>;
@@ -57,6 +70,11 @@ export interface CostWorkbookRepo {
     batchId: string
   ): Promise<CostWorkbookBatch | null>;
   markBatchUndone(companyId: string, batchId: string): Promise<void>;
+  updateBatchSnapshot(
+    companyId: string,
+    batchId: string,
+    snapshot: UndoSnapshot
+  ): Promise<void>;
   insertReviewItems(
     items: Array<Omit<CostWorkbookReviewItem, "id">>
   ): Promise<CostWorkbookReviewItem[]>;
@@ -69,6 +87,7 @@ export interface CostWorkbookRepo {
     id: string
   ): Promise<CostWorkbookReviewItem | null>;
   updateReviewItem(
+    companyId: string,
     id: string,
     patch: Partial<CostWorkbookReviewItem> & { resolved_at?: string | null }
   ): Promise<void>;
@@ -144,7 +163,21 @@ function asBatch(row: Record<string, unknown>): CostWorkbookBatch {
     mapping_source:
       (row.mapping_source as CostWorkbookBatch["mapping_source"]) ?? "ai",
     undone_at: (row.undone_at as string | null) ?? null,
+    undo_snapshot:
+      snapshotFromUnknown(row.undo_snapshot) ?? emptyUndoSnapshot(),
   };
+}
+
+const COST_ENTRY_SELECT =
+  "id, company_id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at";
+
+async function mapChunks<T>(
+  items: T[],
+  fn: (chunk: T[]) => Promise<void>
+): Promise<void> {
+  for (let i = 0; i < items.length; i += WRITE_CHUNK) {
+    await fn(items.slice(i, i + WRITE_CHUNK));
+  }
 }
 
 export function createSupabaseCostWorkbookRepo(
@@ -160,78 +193,127 @@ export function createSupabaseCostWorkbookRepo(
       return ((data ?? []) as Record<string, unknown>[]).map(asIngredient);
     },
 
-    async createIngredient(input) {
-      const { data, error } = await supabase
-        .from("ingredients")
-        .insert({
-          company_id: input.companyId,
-          name: input.name,
-          category: input.category ?? null,
-          default_unit: input.defaultUnit,
-          current_unit_cost: input.currentUnitCost,
-          currency: input.currency,
+    async createIngredients(inputs) {
+      if (inputs.length === 0) return [];
+      const created: CostWorkbookIngredient[] = [];
+      await mapChunks(inputs, async (chunk) => {
+        const { data, error } = await supabase
+          .from("ingredients")
+          .insert(
+            chunk.map((input) => ({
+              company_id: input.companyId,
+              name: input.name,
+              category: input.category ?? null,
+              default_unit: input.defaultUnit,
+              current_unit_cost: input.currentUnitCost,
+              currency: input.currency,
+            }))
+          )
+          .select("id, name, default_unit, current_unit_cost, currency");
+        if (error) throw new Error(error.message);
+        created.push(
+          ...((data ?? []) as Record<string, unknown>[]).map(asIngredient)
+        );
+      });
+      return created;
+    },
+
+    async updateIngredientCosts(updates) {
+      await Promise.all(
+        updates.map(async (update) => {
+          const { error } = await supabase
+            .from("ingredients")
+            .update({
+              current_unit_cost: update.currentUnitCost,
+              currency: update.currency,
+            })
+            .eq("id", update.ingredientId);
+          if (error) throw new Error(error.message);
         })
-        .select("id, name, default_unit, current_unit_cost, currency")
-        .single();
-      if (error || !data) {
-        throw new Error(error?.message ?? "ingredient insert failed");
-      }
-      return asIngredient(data as Record<string, unknown>);
+      );
     },
 
-    async updateIngredientCost(ingredientId, currentUnitCost, currency) {
-      const { error } = await supabase
+    async deleteIngredients(companyId, ids) {
+      if (ids.length === 0) return 0;
+      const { data, error } = await supabase
         .from("ingredients")
-        .update({ current_unit_cost: currentUnitCost, currency })
-        .eq("id", ingredientId);
+        .delete()
+        .eq("company_id", companyId)
+        .in("id", ids)
+        .select("id");
       if (error) throw new Error(error.message);
+      return (data ?? []).length;
     },
 
-    async findImportCostEntry(input) {
-      const { data, error } = await supabase
-        .from("ingredient_cost_entries")
-        .select(
-          "id, company_id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
-        )
-        .eq("company_id", input.companyId)
-        .eq("ingredient_id", input.ingredientId)
-        .eq("source_type", "import")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw new Error(error.message);
-      return data ? asCostEntry(data as Record<string, unknown>) : null;
+    async findWorkbookCostEntries(input) {
+      if (input.ingredientIds.length === 0) return [];
+      const found: CostWorkbookCostEntry[] = [];
+      await mapChunks(input.ingredientIds, async (chunk) => {
+        const { data, error } = await supabase
+          .from("ingredient_cost_entries")
+          .select(COST_ENTRY_SELECT)
+          .eq("company_id", input.companyId)
+          .eq("source_type", "import")
+          .not("source_id", "is", null)
+          .in("ingredient_id", chunk);
+        if (error) throw new Error(error.message);
+        found.push(
+          ...((data ?? []) as Record<string, unknown>[]).map(asCostEntry)
+        );
+      });
+      return found;
     },
 
-    async insertCostEntry(entry) {
-      const { data, error } = await supabase
-        .from("ingredient_cost_entries")
-        .insert(entry)
-        .select(
-          "id, company_id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
-        )
-        .single();
-      if (error || !data) {
-        throw new Error(error?.message ?? "cost entry insert failed");
-      }
-      return asCostEntry(data as Record<string, unknown>);
+    async insertCostEntries(entries) {
+      if (entries.length === 0) return [];
+      const inserted: CostWorkbookCostEntry[] = [];
+      await mapChunks(entries, async (chunk) => {
+        const { data, error } = await supabase
+          .from("ingredient_cost_entries")
+          .insert(chunk)
+          .select(COST_ENTRY_SELECT);
+        if (error) throw new Error(error.message);
+        inserted.push(
+          ...((data ?? []) as Record<string, unknown>[]).map(asCostEntry)
+        );
+      });
+      return inserted;
     },
 
-    async updateCostEntry(id, patch) {
-      const { error } = await supabase
-        .from("ingredient_cost_entries")
-        .update(patch)
-        .eq("id", id);
-      if (error) throw new Error(error.message);
+    async updateCostEntries(companyId, updates) {
+      await Promise.all(
+        updates.map(async (update) => {
+          const { error } = await supabase
+            .from("ingredient_cost_entries")
+            .update(update.patch)
+            .eq("company_id", companyId)
+            .eq("id", update.id);
+          if (error) throw new Error(error.message);
+        })
+      );
     },
 
-    async deleteCostEntriesByBatch(companyId, batchId) {
+    async restoreCostEntries(companyId, entries) {
+      await Promise.all(
+        entries.map(async (entry) => {
+          const { id, created_at: _createdAt, ...patch } = entry;
+          const { error } = await supabase
+            .from("ingredient_cost_entries")
+            .update(patch)
+            .eq("company_id", companyId)
+            .eq("id", id);
+          if (error) throw new Error(error.message);
+        })
+      );
+    },
+
+    async deleteCostEntriesByIds(companyId, ids) {
+      if (ids.length === 0) return 0;
       const { data, error } = await supabase
         .from("ingredient_cost_entries")
         .delete()
         .eq("company_id", companyId)
-        .eq("source_type", "import")
-        .eq("source_id", batchId)
+        .in("id", ids)
         .select("id");
       if (error) throw new Error(error.message);
       return (data ?? []).length;
@@ -277,6 +359,7 @@ export function createSupabaseCostWorkbookRepo(
           tab_summaries: input.tabSummaries,
           mapping_source: input.mappingSource,
           created_by: input.createdBy ?? null,
+          undo_snapshot: emptyUndoSnapshot(),
         })
         .select("*")
         .single();
@@ -301,6 +384,15 @@ export function createSupabaseCostWorkbookRepo(
       const { error } = await supabase
         .from("cost_import_batches")
         .update({ undone_at: new Date().toISOString() })
+        .eq("company_id", companyId)
+        .eq("id", batchId);
+      if (error) throw new Error(error.message);
+    },
+
+    async updateBatchSnapshot(companyId, batchId, snapshot) {
+      const { error } = await supabase
+        .from("cost_import_batches")
+        .update({ undo_snapshot: snapshot })
         .eq("company_id", companyId)
         .eq("id", batchId);
       if (error) throw new Error(error.message);
@@ -340,10 +432,11 @@ export function createSupabaseCostWorkbookRepo(
       return data ? asReview(data as Record<string, unknown>) : null;
     },
 
-    async updateReviewItem(id, patch) {
+    async updateReviewItem(companyId, id, patch) {
       const { error } = await supabase
         .from("cost_import_review_items")
         .update(patch)
+        .eq("company_id", companyId)
         .eq("id", id);
       if (error) throw new Error(error.message);
     },

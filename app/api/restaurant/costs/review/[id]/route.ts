@@ -42,6 +42,15 @@ export async function POST(
       return NextResponse.json({ ok: true, status: "skipped" });
     }
     if (body.action === "approve") {
+      if (
+        (body.quantity !== undefined && typeof body.quantity !== "number") ||
+        (body.total_cost !== undefined && typeof body.total_cost !== "number")
+      ) {
+        return NextResponse.json(
+          { error: "quantity and total_cost must be numbers" },
+          { status: 400 }
+        );
+      }
       const currency = await resolveCompanyCurrency(
         auth.supabase,
         auth.companyId

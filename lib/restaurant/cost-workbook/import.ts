@@ -1,17 +1,20 @@
-import {
-  buildIngredientCostEntryInsert,
-  nameKey,
-} from "@/lib/restaurant/cost-import";
 import { normalizeUnit } from "@/lib/restaurant/units";
 import type { WorkbookAi } from "./ai";
-import { evaluateWorkbookRow } from "./parse";
+import { classifyCostTabHeuristic } from "./ai";
+import { layoutKeyForSheet } from "./header";
+import { evaluateWorkbookRow, isSkippableWorkbookRow } from "./parse";
+import { dedupeWorkbookRows, persistSavedRows } from "./persist";
+import { mapPool, WORKBOOK_AI_CONCURRENCY } from "./pool";
 import type { CostWorkbookRepo } from "./repo";
 import { inferWorkbookDate } from "./date";
+import { mappingPassesSanity } from "./sanity";
 import { readWorkbookSheets } from "./sheets";
+import { mergeUndoSnapshots } from "./snapshot";
 import {
   HIGH_TAB_CONFIDENCE,
   type ColumnMapping,
   type CostTabType,
+  type DetectedSheet,
   type MappingSource,
   type ReviewCandidate,
   type SavedLayoutMap,
@@ -21,13 +24,16 @@ import {
 } from "./types";
 
 export function buildImportHeadline(input: {
-  imported: number;
+  saved: number;
+  updated: number;
   tabs: number;
   review: number;
+  skipped: number;
 }): string {
   const look =
     input.review === 1 ? "1 needs a look." : `${input.review} need a look.`;
-  return `Imported ${input.imported} items from ${input.tabs} tabs. ${look}`;
+  const skip = input.skipped === 1 ? "1 skipped." : `${input.skipped} skipped.`;
+  return `Saved ${input.saved}, updated ${input.updated} from ${input.tabs} tabs. ${look} ${skip}`;
 }
 
 function requiredMapped(type: CostTabType, mapping: ColumnMapping): boolean {
@@ -45,16 +51,132 @@ function requiredMapped(type: CostTabType, mapping: ColumnMapping): boolean {
   return false;
 }
 
+function optionalNumber(
+  value: unknown,
+  label: string
+): { ok: true; value?: number } | { ok: false; reason: string } {
+  if (value === undefined) return { ok: true };
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return { ok: false, reason: `${label} must be a number` };
+  }
+  return { ok: true, value };
+}
+
+interface ResolvedTab {
+  sheet: DetectedSheet;
+  tabType: CostTabType;
+  tabConfidence: number;
+  mapping: ColumnMapping;
+  mappingSource: MappingSource | "none";
+  note?: string;
+  persistMapping: boolean;
+}
+
+async function resolveTab(input: {
+  sheet: DetectedSheet;
+  savedByKey: Map<string, SavedLayoutMap>;
+  ai: WorkbookAi;
+  currency: string;
+  defaultDate: string;
+}): Promise<ResolvedTab> {
+  const { sheet, savedByKey, ai, currency, defaultDate } = input;
+  const heuristic = classifyCostTabHeuristic({
+    sheetName: sheet.name,
+    headers: sheet.headers,
+    sampleRows: sheet.sampleRows,
+  });
+  const trySaved = (type: CostTabType): SavedLayoutMap | undefined => {
+    const saved = savedByKey.get(layoutKeyForSheet(sheet.headers, type));
+    if (!saved || saved.tab_confidence < HIGH_TAB_CONFIDENCE) return undefined;
+    if (
+      saved.tab_type !== "recipe" &&
+      saved.tab_type !== "ignore" &&
+      !mappingPassesSanity({
+        tabType: saved.tab_type,
+        dataRows: sheet.dataRows,
+        mapping: saved.column_mapping,
+        currency,
+        defaultDate,
+      })
+    ) {
+      return undefined;
+    }
+    return saved;
+  };
+
+  const savedHeuristic = trySaved(heuristic.type);
+  if (savedHeuristic) {
+    return {
+      sheet,
+      tabType: savedHeuristic.tab_type,
+      tabConfidence: savedHeuristic.tab_confidence,
+      mapping: savedHeuristic.column_mapping,
+      mappingSource: "saved",
+      persistMapping: false,
+    };
+  }
+
+  const classified = await ai.classifyTab({
+    sheetName: sheet.name,
+    headers: sheet.headers,
+    sampleRows: sheet.sampleRows,
+  });
+  const savedClassified = trySaved(classified.type);
+  if (savedClassified) {
+    return {
+      sheet,
+      tabType: savedClassified.tab_type,
+      tabConfidence: savedClassified.tab_confidence,
+      mapping: savedClassified.column_mapping,
+      mappingSource: "saved",
+      note: classified.notes,
+      persistMapping: false,
+    };
+  }
+
+  let mapping: ColumnMapping = {};
+  if (classified.type !== "recipe" && classified.type !== "ignore") {
+    mapping = await ai.mapColumns({
+      tabType: classified.type,
+      headers: sheet.headers,
+      sampleRows: sheet.sampleRows,
+    });
+  }
+
+  const sane =
+    classified.type === "recipe" ||
+    classified.type === "ignore" ||
+    mappingPassesSanity({
+      tabType: classified.type,
+      dataRows: sheet.dataRows,
+      mapping,
+      currency,
+      defaultDate,
+    });
+
+  return {
+    sheet,
+    tabType: classified.type,
+    tabConfidence: classified.confidence,
+    mapping,
+    mappingSource: "ai",
+    note: classified.notes,
+    persistMapping: sane && classified.type !== "ignore",
+  };
+}
+
 export async function importCostWorkbook(input: {
   companyId: string;
   filename: string;
-  buffer: Buffer;
+  buffer?: Buffer;
+  sheets?: DetectedSheet[];
   currency: string;
   repo: CostWorkbookRepo;
   ai: WorkbookAi;
   createdBy?: string | null;
 }): Promise<WorkbookImportResult> {
-  const sheets = readWorkbookSheets(input.buffer);
+  const sheets =
+    input.sheets ?? (input.buffer ? readWorkbookSheets(input.buffer) : []);
   const fileMonth =
     inferWorkbookDate(
       input.filename,
@@ -64,6 +186,16 @@ export async function importCostWorkbook(input: {
   const savedMaps = await input.repo.listMappings(input.companyId);
   const savedByKey = new Map(savedMaps.map((m) => [m.layout_key, m]));
 
+  const resolvedTabs = await mapPool(sheets, WORKBOOK_AI_CONCURRENCY, (sheet) =>
+    resolveTab({
+      sheet,
+      savedByKey,
+      ai: input.ai,
+      currency: input.currency,
+      defaultDate: fileMonth,
+    })
+  );
+
   const toSave: WorkbookRowCandidate[] = [];
   const toReview: ReviewCandidate[] = [];
   const tabSummaries: TabImportSummary[] = [];
@@ -71,39 +203,11 @@ export async function importCostWorkbook(input: {
   const sources: Array<MappingSource | "none"> = [];
   let recipeTabCount = 0;
   let costTabCount = 0;
+  let skippedCount = 0;
 
-  for (const sheet of sheets) {
-    const saved = savedByKey.get(sheet.layoutKey);
-    let tabType: CostTabType;
-    let tabConfidence: number;
-    let mapping: ColumnMapping = {};
-    let mappingSource: MappingSource | "none" = "none";
-    let note: string | undefined;
-
-    if (saved && saved.tab_confidence >= HIGH_TAB_CONFIDENCE) {
-      tabType = saved.tab_type;
-      tabConfidence = saved.tab_confidence;
-      mapping = saved.column_mapping;
-      mappingSource = "saved";
-    } else {
-      const classified = await input.ai.classifyTab({
-        sheetName: sheet.name,
-        headers: sheet.headers,
-        sampleRows: sheet.sampleRows,
-      });
-      tabType = classified.type;
-      tabConfidence = classified.confidence;
-      note = classified.notes;
-      mappingSource = "ai";
-      if (tabType !== "recipe" && tabType !== "ignore") {
-        mapping = await input.ai.mapColumns({
-          tabType,
-          headers: sheet.headers,
-          sampleRows: sheet.sampleRows,
-        });
-      }
-    }
-
+  for (const resolved of resolvedTabs) {
+    const { sheet, tabType, tabConfidence, mapping, mappingSource, note } =
+      resolved;
     sources.push(mappingSource);
 
     if (tabType === "recipe") {
@@ -119,9 +223,9 @@ export async function importCostWorkbook(input: {
         preview: sheet.sampleRows,
         note: "recipes, coming soon",
       });
-      if (mappingSource !== "saved") {
+      if (resolved.persistMapping && mappingSource !== "saved") {
         mapsToPersist.push({
-          layout_key: sheet.layoutKey,
+          layout_key: layoutKeyForSheet(sheet.headers, "recipe"),
           tab_name: sheet.name,
           tab_type: "recipe",
           column_mapping: {},
@@ -163,6 +267,10 @@ export async function importCostWorkbook(input: {
       });
       review += 1;
       for (const [i, row] of sheet.dataRows.entries()) {
+        if (isSkippableWorkbookRow(tabType, row, mapping)) {
+          skippedCount += 1;
+          continue;
+        }
         toReview.push({
           tabName: sheet.name,
           rowIndex: i,
@@ -174,6 +282,10 @@ export async function importCostWorkbook(input: {
       }
     } else {
       for (const [i, row] of sheet.dataRows.entries()) {
+        if (isSkippableWorkbookRow(tabType, row, mapping)) {
+          skippedCount += 1;
+          continue;
+        }
         const result = evaluateWorkbookRow({
           tabType,
           tabName: sheet.name,
@@ -191,9 +303,19 @@ export async function importCostWorkbook(input: {
           review += 1;
         }
       }
-      if (mappingSource !== "saved") {
+      if (
+        resolved.persistMapping &&
+        mappingSource !== "saved" &&
+        mappingPassesSanity({
+          tabType,
+          dataRows: sheet.dataRows,
+          mapping,
+          currency: input.currency,
+          defaultDate: fileMonth,
+        })
+      ) {
         mapsToPersist.push({
-          layout_key: sheet.layoutKey,
+          layout_key: layoutKeyForSheet(sheet.headers, tabType),
           tab_name: sheet.name,
           tab_type: tabType,
           column_mapping: mapping,
@@ -216,6 +338,13 @@ export async function importCostWorkbook(input: {
     });
   }
 
+  const deduped = dedupeWorkbookRows(toSave);
+  skippedCount += deduped.skipped.length;
+  for (const skip of deduped.skipped) {
+    const tab = tabSummaries.find((t) => t.name === skip.tabName);
+    if (tab && tab.imported_count > 0) tab.imported_count -= 1;
+  }
+
   const usedSources = sources.filter((s) => s === "ai" || s === "saved");
   const mappingSource: "ai" | "saved" | "mixed" =
     usedSources.length === 0
@@ -231,7 +360,7 @@ export async function importCostWorkbook(input: {
     filename: input.filename,
     fileMonth,
     currency: input.currency,
-    importedCount: toSave.length,
+    importedCount: deduped.rows.length,
     reviewCount: toReview.length,
     tabSummaries,
     mappingSource,
@@ -242,9 +371,18 @@ export async function importCostWorkbook(input: {
     companyId: input.companyId,
     currency: input.currency,
     batchId: batch.id,
-    rows: toSave,
+    rows: deduped.rows,
     repo: input.repo,
   });
+
+  for (const fail of persistStats.failed) {
+    toReview.push(fail);
+    const tab = tabSummaries.find((t) => t.name === fail.tabName);
+    if (tab) {
+      if (tab.imported_count > 0) tab.imported_count -= 1;
+      tab.review_count += 1;
+    }
+  }
 
   const reviewItems = await input.repo.insertReviewItems(
     toReview.map((r) => ({
@@ -263,16 +401,28 @@ export async function importCostWorkbook(input: {
     await input.repo.upsertMapping(input.companyId, map);
   }
 
+  await input.repo.updateBatchSnapshot(
+    input.companyId,
+    batch.id,
+    persistStats.changes
+  );
+
+  const saved = persistStats.inserted;
+  const updated = persistStats.updated;
+  const review = toReview.length;
+
   return {
     kind: "workbook",
     batch_id: batch.id,
     headline: buildImportHeadline({
-      imported: toSave.length,
+      saved,
+      updated,
       tabs: costTabCount,
-      review: toReview.length,
+      review,
+      skipped: skippedCount,
     }),
-    imported_count: toSave.length,
-    review_count: toReview.length,
+    imported_count: saved + updated,
+    review_count: review,
     tab_count: costTabCount,
     recipe_tab_count: recipeTabCount,
     mapping_source: mappingSource,
@@ -290,99 +440,51 @@ export async function importCostWorkbook(input: {
       status: "pending" as const,
     })),
     ingredients_created: persistStats.ingredientsCreated,
-    costs_updated: persistStats.updated,
+    costs_updated: updated,
+    saved_count: saved,
+    skipped_count: skippedCount,
   };
-}
-
-async function persistSavedRows(input: {
-  companyId: string;
-  currency: string;
-  batchId: string;
-  rows: WorkbookRowCandidate[];
-  repo: CostWorkbookRepo;
-}): Promise<{ ingredientsCreated: number; updated: number }> {
-  const ingredients = await input.repo.listIngredients(input.companyId);
-  const byName = new Map(
-    ingredients.filter((i) => i.name).map((i) => [nameKey(i.name), i])
-  );
-  let ingredientsCreated = 0;
-  let updated = 0;
-
-  for (const row of input.rows) {
-    const key = nameKey(row.ingredient_name);
-    let ingredient = byName.get(key);
-    const defaultUnit = normalizeUnit(row.unit) ?? row.unit;
-    if (!ingredient) {
-      ingredient = await input.repo.createIngredient({
-        companyId: input.companyId,
-        name: row.ingredient_name,
-        defaultUnit,
-        currentUnitCost: row.unit_price,
-        currency: input.currency,
-      });
-      byName.set(key, ingredient);
-      ingredientsCreated += 1;
-    }
-
-    const built = buildIngredientCostEntryInsert({
-      companyId: input.companyId,
-      ingredientId: ingredient.id,
-      ingredientDefaultUnit: ingredient.default_unit,
-      supplierId: null,
-      sourceId: input.batchId,
-      row: {
-        rowIndex: row.rowIndex,
-        cost_date: row.cost_date,
-        supplier_name: row.supplier_name ?? "",
-        ingredient_name: row.ingredient_name,
-        quantity: row.quantity,
-        unit: row.unit,
-        total_cost: row.total_cost,
-        currency: input.currency,
-        notes: row.notes,
-        supplier_item_name: null,
-        supplier_sku: null,
-      },
-    });
-    if (!built.ok) {
-      continue;
-    }
-
-    const existing = await input.repo.findImportCostEntry({
-      companyId: input.companyId,
-      ingredientId: ingredient.id,
-      costDate: row.cost_date,
-    });
-    if (existing) {
-      await input.repo.updateCostEntry(existing.id, {
-        ...built.insert,
-        source_id: input.batchId,
-      });
-      updated += 1;
-    } else {
-      await input.repo.insertCostEntry(built.insert);
-    }
-    await input.repo.updateIngredientCost(
-      ingredient.id,
-      built.insert.normalized_unit_cost,
-      input.currency
-    );
-  }
-
-  return { ingredientsCreated, updated };
 }
 
 export async function undoCostImportBatch(
   repo: CostWorkbookRepo,
   companyId: string,
   batchId: string
-): Promise<{ ok: true; deleted: number } | { ok: false; reason: string }> {
+): Promise<
+  | { ok: true; deleted: number; restored: number }
+  | { ok: false; reason: string }
+> {
   const batch = await repo.getBatch(companyId, batchId);
   if (!batch) return { ok: false, reason: "Import batch not found" };
   if (batch.undone_at) return { ok: false, reason: "Import already undone" };
-  const deleted = await repo.deleteCostEntriesByBatch(companyId, batchId);
+
+  const snap = batch.undo_snapshot;
+  const deleted = await repo.deleteCostEntriesByIds(
+    companyId,
+    snap.inserted_entry_ids
+  );
+  await repo.restoreCostEntries(
+    companyId,
+    snap.updated_entries.map((row) => row.before)
+  );
+  if (snap.created_ingredient_ids.length > 0) {
+    try {
+      await repo.deleteIngredients(companyId, snap.created_ingredient_ids);
+    } catch (err) {
+      console.error("[cost-workbook undo ingredients]", err);
+    }
+  }
+  if (snap.ingredient_costs_before.length > 0) {
+    await repo.updateIngredientCosts(
+      snap.ingredient_costs_before.map((row) => ({
+        ingredientId: row.id,
+        currentUnitCost: row.current_unit_cost,
+        currency: row.currency,
+      }))
+    );
+  }
   await repo.markBatchUndone(companyId, batchId);
-  return { ok: true, deleted };
+  return { ok: true, deleted, restored: snap.updated_entries.length };
 }
 
 export async function skipReviewItem(
@@ -395,7 +497,7 @@ export async function skipReviewItem(
   if (item.status !== "pending") {
     return { ok: false, reason: "Review item already resolved" };
   }
-  await repo.updateReviewItem(reviewId, {
+  await repo.updateReviewItem(companyId, reviewId, {
     status: "skipped",
     resolved_at: new Date().toISOString(),
   });
@@ -410,8 +512,8 @@ export async function approveReviewItem(
   edits: {
     ingredient_name?: string;
     unit?: string;
-    quantity?: number;
-    total_cost?: number;
+    quantity?: number | unknown;
+    total_cost?: number | unknown;
     cost_date?: string;
   }
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -420,11 +522,22 @@ export async function approveReviewItem(
   if (item.status !== "pending") {
     return { ok: false, reason: "Review item already resolved" };
   }
+  const batch = await repo.getBatch(companyId, item.batch_id);
+  if (!batch) return { ok: false, reason: "Import batch not found" };
+  if (batch.undone_at) {
+    return { ok: false, reason: "Import already undone" };
+  }
+
+  const quantityCheck = optionalNumber(edits.quantity, "quantity");
+  if (!quantityCheck.ok) return quantityCheck;
+  const totalCheck = optionalNumber(edits.total_cost, "total_cost");
+  if (!totalCheck.ok) return totalCheck;
+
   const suggested = item.suggested ?? {};
   const name = edits.ingredient_name ?? suggested.ingredient_name ?? null;
   const unit = edits.unit ?? suggested.unit ?? null;
-  const quantity = edits.quantity ?? suggested.quantity ?? 1;
-  const total = edits.total_cost ?? suggested.total_cost ?? null;
+  const quantity = quantityCheck.value ?? suggested.quantity ?? 1;
+  const total = totalCheck.value ?? suggested.total_cost ?? null;
   const costDate =
     edits.cost_date ??
     suggested.cost_date ??
@@ -437,7 +550,7 @@ export async function approveReviewItem(
   if (quantity <= 0)
     return { ok: false, reason: "Quantity must be a positive number" };
 
-  await persistSavedRows({
+  const persistStats = await persistSavedRows({
     companyId,
     currency,
     batchId: item.batch_id,
@@ -459,7 +572,15 @@ export async function approveReviewItem(
     ],
     repo,
   });
-  await repo.updateReviewItem(reviewId, {
+  if (persistStats.failed[0]) {
+    return { ok: false, reason: persistStats.failed[0].reason };
+  }
+  await repo.updateBatchSnapshot(
+    companyId,
+    item.batch_id,
+    mergeUndoSnapshots(batch.undo_snapshot, persistStats.changes)
+  );
+  await repo.updateReviewItem(companyId, reviewId, {
     status: "approved",
     resolved_at: new Date().toISOString(),
   });

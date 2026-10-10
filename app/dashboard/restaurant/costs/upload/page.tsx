@@ -84,6 +84,8 @@ interface WorkbookSummary {
   review_items: WorkbookReviewItem[];
   ingredients_created: number;
   costs_updated: number;
+  saved_count?: number;
+  skipped_count?: number;
 }
 
 interface UploadError {

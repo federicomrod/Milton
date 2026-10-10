@@ -4,6 +4,10 @@ import {
   parseCostImportDate,
   parseCostImportNumber,
 } from "@/lib/restaurant/cost-import";
+import {
+  currencyMismatchReason,
+  normalizeCurrency,
+} from "@/lib/restaurant/currency";
 import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
 import type {
   ColumnMapping,
@@ -12,6 +16,8 @@ import type {
   WorkbookRowCandidate,
 } from "./types";
 import { HIGH_COLUMN_CONFIDENCE } from "./types";
+
+const TOTAL_ROW_RE = /^(total|sub[\s-]?total|totales|subtotales|suma)(\b|:|$)/i;
 
 const MATH_ABS_TOL = 0.05;
 const MATH_REL_TOL = 0.02;
@@ -60,6 +66,35 @@ export function pricesConvert(
   const converted = convertUnitPriceStr(fromPrice, fromUnit, toUnit);
   if (!converted.ok) return false;
   return totalsMatch(1, converted.value, toPrice);
+}
+
+export function isSkippableWorkbookRow(
+  tabType: CostTabType,
+  row: Record<string, unknown>,
+  mapping: ColumnMapping
+): boolean {
+  if (tabType !== "category_cost" && tabType !== "purchases") return false;
+  const name = textAt(row, mapping, "ingredient_name");
+  if (!name) {
+    return Object.values(row).every(
+      (value) => String(value ?? "").trim() === ""
+    );
+  }
+  return TOTAL_ROW_RE.test(name.trim());
+}
+
+function currencyReviewReason(
+  row: Record<string, unknown>,
+  mapping: ColumnMapping,
+  companyCurrency: string
+): string | null {
+  const raw = textAt(row, mapping, "currency");
+  if (!raw) return null;
+  const normalized = normalizeCurrency(raw);
+  if (!normalized) {
+    return currencyMismatchReason(raw.trim().toUpperCase(), companyCurrency);
+  }
+  return currencyMismatchReason(normalized, companyCurrency);
 }
 
 function mappingConfidence(mapping: ColumnMapping, field: string): number {
@@ -111,6 +146,21 @@ export function evaluateWorkbookRow(input: {
   | { ok: false; review: ReviewCandidate } {
   const { tabType, tabName, rowIndex, row, mapping, currency, defaultDate } =
     input;
+
+  const currencyReason = currencyReviewReason(row, mapping, currency);
+  if (currencyReason) {
+    const name = textAt(row, mapping, "ingredient_name");
+    return {
+      ok: false,
+      review: {
+        tabName,
+        rowIndex,
+        reason: currencyReason,
+        raw: row,
+        suggested: name ? { ingredient_name: name } : null,
+      },
+    };
+  }
 
   if (tabType === "price_list") {
     return evaluatePriceListRow(

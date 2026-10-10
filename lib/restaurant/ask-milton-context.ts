@@ -10,6 +10,7 @@
 //     agent actions (counts by status, recent titles)
 //   - last agent runs (recent)
 //   - most_profitable_items / least_profitable_items (complete-costing only)
+//   - sales: compact POS snapshot (weekday/hour/category/item/channel/payment)
 //   - ingredient_usage map: ingredient → direct menu items + via components
 //   - expensive_ingredients: top 10 by unit cost with usage
 //
@@ -35,6 +36,11 @@ import {
   succeededRows,
   warnIfTruncated,
 } from "@/lib/restaurant/paginated-read";
+import {
+  emptySalesSnapshot,
+  fetchAskMiltonSalesSnapshot,
+  type AskMiltonSalesSnapshot,
+} from "@/lib/restaurant/ask-milton-sales";
 
 // ---------------------------------------------------------------------------
 // Extra shapes layered on top of BriefingContext
@@ -170,6 +176,12 @@ export interface AskMiltonContext {
     recent: AskMiltonAgentRunSummary[];
   };
   /**
+   * Compact, rounded POS sales snapshot (no raw rows). Scoped to the
+   * selected restaurant or consolidated company. See
+   * lib/restaurant/ask-milton-sales.ts for caps and timezone rules.
+   */
+  sales: AskMiltonSalesSnapshot;
+  /**
    * Paged reads that failed. Empty/omitted when every fetch succeeded.
    * Callers must not treat related arrays as a complete snapshot.
    */
@@ -264,7 +276,8 @@ function isNewerCostEntry(
 export async function buildAskMiltonContext(
   supabase: SupabaseClient,
   companyId: string,
-  selected?: ProfitabilitySelection | null
+  selected?: ProfitabilitySelection | null,
+  options?: { question?: string }
 ): Promise<AskMiltonContext> {
   // Run all data fetches in parallel. fetchProfitabilityData fires its own
   // internal Promise.all (12 sub-queries) concurrently with the others here,
@@ -289,6 +302,7 @@ export async function buildAskMiltonContext(
     componentRecipesRes,
     componentRecipeInputsRes,
     menuItemsRes,
+    salesResult,
   ] = await Promise.all([
     buildBriefingContext(supabase, companyId, selected),
     fetchProfitabilityData(supabase, companyId, selected),
@@ -373,6 +387,12 @@ export async function buildAskMiltonContext(
         .from("menu_items")
         .select("id, name, brand_id")
         .eq("company_id", companyId)
+    ),
+    fetchAskMiltonSalesSnapshot(
+      supabase,
+      companyId,
+      selected?.locationId ?? null,
+      options?.question
     ),
   ]);
 
@@ -858,6 +878,11 @@ export async function buildAskMiltonContext(
   if (profData.readError) {
     read_errors.push("pos_sales_items");
   }
+  if (salesResult.readError && !read_errors.includes("pos_sales_items")) {
+    read_errors.push("pos_sales_items");
+  }
+
+  const sales = salesResult.snapshot ?? emptySalesSnapshot();
 
   return {
     context_scope: resolveContextScope(selected, briefing.restaurant_name),
@@ -894,6 +919,7 @@ export async function buildAskMiltonContext(
     agent_runs: {
       recent: runsRecent,
     },
+    sales,
     ...(read_errors.length > 0 ? { read_errors } : {}),
   };
 }

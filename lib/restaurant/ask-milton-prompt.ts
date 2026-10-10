@@ -7,8 +7,9 @@ import type { AskMiltonContext } from "@/lib/restaurant/ask-milton-context";
 import {
   matchCategoryFromQuestion,
   type AskMiltonSalesSnapshot,
-  type SalesSnapshotBucket,
+  type SalesDateBucket,
   type SalesSnapshotItem,
+  type SalesWeekdayBucket,
 } from "@/lib/restaurant/ask-milton-sales";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 
@@ -470,6 +471,23 @@ export const ASK_MILTON_SYSTEM_PROMPT = [
   "  a category (breakfast / Desayunos), use the matching entry in",
   "  `context.sales.by_category_weekday` and `context.sales.by_category`.",
   "  Cite the period in `context.sales.period`.",
+  "  Each weekday bucket's revenue/orders/units are TOTALS across",
+  "  `day_count` days of that weekday that had sales. Also use",
+  "  `avg_revenue_per_day` and `avg_orders_per_day`.",
+  "  Rank 'which weekday sells most' by average per day, not the raw",
+  "  total. Mention the total too. When `day_count` differs across",
+  "  weekdays (e.g. 5 Thursdays vs 4 Mondays), say so — a raw total",
+  "  is biased toward weekdays that appear more often.",
+  "  Always state whether a number is a total across N days or an",
+  "  average per day. Never say 'Thursday sold $X' without that",
+  "  qualifier.",
+  "  Also name the best single calendar date from",
+  "  `context.sales.best_date` or `context.sales.by_date` when the",
+  "  question is about the busiest day / weekday.",
+  "  supporting_facts labels must be unambiguous, e.g.",
+  "  'Total across 5 Thursdays' / 'Total de los 5 jueves',",
+  "  'Average per Thursday' / 'Promedio por jueves',",
+  "  'Best single date' / 'Mejor día individual'.",
   "- 'most sold / top items / artículos más vendidos': Use",
   "  `context.sales.top_items_by_units` (volume) or",
   "  `context.sales.top_items_by_revenue`. When a category is named, use",
@@ -1933,6 +1951,59 @@ function weekdayLabel(key: string, lang: PreferredLanguage): string {
   return WEEKDAY_LABELS[key]?.[lang] ?? key;
 }
 
+function weekdayCountPhrase(
+  key: string,
+  count: number,
+  lang: PreferredLanguage
+): string {
+  const label = weekdayLabel(key, lang);
+  if (lang === "es") {
+    const plural =
+      label === "sábado" ? "sábados" : label === "domingo" ? "domingos" : label;
+    return `${count} ${plural}`;
+  }
+  return `${count} ${label}${count === 1 ? "" : "s"}`;
+}
+
+const MONTH_LABELS: Record<number, { en: string; es: string }> = {
+  1: { en: "January", es: "enero" },
+  2: { en: "February", es: "febrero" },
+  3: { en: "March", es: "marzo" },
+  4: { en: "April", es: "abril" },
+  5: { en: "May", es: "mayo" },
+  6: { en: "June", es: "junio" },
+  7: { en: "July", es: "julio" },
+  8: { en: "August", es: "agosto" },
+  9: { en: "September", es: "septiembre" },
+  10: { en: "October", es: "octubre" },
+  11: { en: "November", es: "noviembre" },
+  12: { en: "December", es: "diciembre" },
+};
+
+function formatDateKey(dateKey: string, lang: PreferredLanguage): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return dateKey;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const monthLabel = MONTH_LABELS[month]?.[lang] ?? match[2];
+  if (lang === "es") {
+    return `${day} de ${monthLabel} de ${year}`;
+  }
+  return `${day} ${monthLabel} ${year}`;
+}
+
+function formatBestDate(
+  date: SalesDateBucket,
+  lang: PreferredLanguage
+): string {
+  return `${weekdayLabel(date.weekday, lang)} ${formatDateKey(date.date, lang)}`;
+}
+
+function weekdayAvgUnits(d: SalesWeekdayBucket): number {
+  return d.day_count > 0 ? d.units / d.day_count : 0;
+}
+
 function salesUnavailableAnswer(
   ctx: AskMiltonContext,
   lang: PreferredLanguage
@@ -1975,7 +2046,7 @@ function salesUnavailableAnswer(
 function pickCategoryWeekdays(
   sales: AskMiltonSalesSnapshot,
   category: string | null
-): { category: string | null; weekdays: SalesSnapshotBucket[] } {
+): { category: string | null; weekdays: SalesWeekdayBucket[] } {
   if (category) {
     const match = sales.by_category_weekday.find(
       (c) => c.category === category
@@ -2093,9 +2164,18 @@ function bestSalesDayAnswer(
   const categories = sales.by_category.map((c) => c.key).filter(Boolean);
   const category = matchCategoryFromQuestion(message, categories);
   const picked = pickCategoryWeekdays(sales, category);
-  const ranked = [...picked.weekdays].sort(
-    (a, b) => b.units - a.units || b.revenue - a.revenue
-  );
+  const ranked = [...picked.weekdays].sort((a, b) => {
+    if (picked.category) {
+      return (
+        weekdayAvgUnits(b) - weekdayAvgUnits(a) ||
+        b.avg_revenue_per_day - a.avg_revenue_per_day
+      );
+    }
+    return (
+      b.avg_revenue_per_day - a.avg_revenue_per_day ||
+      b.avg_orders_per_day - a.avg_orders_per_day
+    );
+  });
   const top = ranked[0];
   if (!top || (top.units === 0 && top.revenue === 0)) {
     return salesUnavailableAnswer(ctx, lang);
@@ -2109,35 +2189,81 @@ function bestSalesDayAnswer(
   const scope = picked.category
     ? t(lang, `${picked.category} items`, `artículos de ${picked.category}`)
     : t(lang, "all items", "todos los artículos");
+  const dayPhrase = weekdayCountPhrase(top.key, top.day_count, lang);
+  const dayLabel = weekdayLabel(top.key, lang);
   const runners = ranked
     .slice(1, 3)
     .filter((d) => d.units > 0 || d.revenue > 0)
-    .map(
-      (d) =>
-        `${weekdayLabel(d.key, lang)} (${roundUnits(d.units)} ${t(lang, "units", "unidades")})`
-    )
+    .map((d) => {
+      const avg = picked.category
+        ? `${roundUnits(weekdayAvgUnits(d))} ${t(lang, "units/day", "unidades/día")}`
+        : `${fmtCurrency(d.avg_revenue_per_day, c)}/${t(lang, "day", "día")}`;
+      return `${weekdayLabel(d.key, lang)} (${avg}, ${t(lang, "total", "total")} ${fmtCurrency(d.revenue, c)})`;
+    })
     .join(", ");
 
   const lines = [
     t(
       lang,
-      `Strongest day for ${scope} (${period}): ${weekdayLabel(top.key, lang)} — ${roundUnits(top.units)} units, ${fmtCurrency(top.revenue, c)}, ${top.orders} orders.`,
-      `Día más fuerte para ${scope} (${period}): ${weekdayLabel(top.key, lang)} — ${roundUnits(top.units)} unidades, ${fmtCurrency(top.revenue, c)}, ${top.orders} órdenes.`
+      `Strongest weekday for ${scope} (${period}), ranked by average per day: ${dayLabel} — ${fmtCurrency(top.avg_revenue_per_day, c)}/day and ${top.avg_orders_per_day} orders/day across ${dayPhrase} (total ${fmtCurrency(top.revenue, c)}, ${top.orders} orders).`,
+      `El día de la semana más fuerte para ${scope} (${period}), según el promedio por día: ${dayLabel} — ${fmtCurrency(top.avg_revenue_per_day, c)}/día y ${top.avg_orders_per_day} pedidos/día en ${dayPhrase} (total ${fmtCurrency(top.revenue, c)}, ${top.orders} pedidos).`
     ),
   ];
   if (runners) {
     lines.push(t(lang, `Next: ${runners}.`, `Siguen: ${runners}.`));
   }
 
+  const dayCounts = picked.weekdays
+    .filter((d) => d.day_count > 0)
+    .map((d) => d.day_count);
+  const unevenCounts = new Set(dayCounts).size > 1;
+  if (unevenCounts) {
+    const countList = picked.weekdays
+      .filter((d) => d.day_count > 0)
+      .map((d) => weekdayCountPhrase(d.key, d.day_count, lang))
+      .join(", ");
+    lines.push(
+      t(
+        lang,
+        `Weekday counts in this period are uneven (${countList}), so a raw total would favor days that appear more often.`,
+        `En este período el número de días no es igual para todos (${countList}), así que un total crudo favorecería a los días que aparecen más veces.`
+      )
+    );
+  }
+
+  if (!picked.category && sales.best_date) {
+    lines.push(
+      t(
+        lang,
+        `Best single date: ${formatBestDate(sales.best_date, lang)} — ${fmtCurrency(sales.best_date.revenue, c)}, ${sales.best_date.orders} orders.`,
+        `El mejor día individual fue el ${formatBestDate(sales.best_date, lang)} — ${fmtCurrency(sales.best_date.revenue, c)}, ${sales.best_date.orders} pedidos.`
+      )
+    );
+  }
+
+  const facts: AskMiltonSupportingFact[] = [
+    {
+      label: t(lang, `Total across ${dayPhrase}`, `Total de los ${dayPhrase}`),
+      value: fmtCurrency(top.revenue, c),
+      source_area: "sales",
+    },
+    {
+      label: t(lang, `Average per ${dayLabel}`, `Promedio por ${dayLabel}`),
+      value: fmtCurrency(top.avg_revenue_per_day, c),
+      source_area: "sales",
+    },
+  ];
+  if (!picked.category && sales.best_date) {
+    facts.push({
+      label: t(lang, "Best single date", "Mejor día individual"),
+      value: `${formatBestDate(sales.best_date, lang)} — ${fmtCurrency(sales.best_date.revenue, c)}`,
+      source_area: "sales",
+    });
+  }
+
   return {
     answer: lines.join(" "),
-    supporting_facts: [
-      {
-        label: weekdayLabel(top.key, lang),
-        value: `${roundUnits(top.units)} / ${fmtCurrency(top.revenue, c)}`,
-        source_area: "sales",
-      },
-    ],
+    supporting_facts: facts.slice(0, 4),
     related_links: [relatedLink(lang, "/dashboard/restaurant")],
     suggested_followups: [
       t(

@@ -31,7 +31,6 @@ import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-se
 import {
   ASK_MILTON_SYSTEM_PROMPT,
   buildAskMiltonUserPrompt,
-  buildDeterministicAnswer,
   detectIntent,
   isAskMiltonAnswer,
   resolveFollowupReferences,
@@ -41,6 +40,7 @@ import {
   type AskMiltonIntent,
   type ResolvedEntities,
 } from "@/lib/restaurant/ask-milton-prompt";
+import { resolveAskMiltonAnswer } from "@/lib/restaurant/ask-milton-ground";
 import { generateSuggestedActions } from "@/lib/restaurant/ask-milton-actions";
 
 export const dynamic = "force-dynamic";
@@ -230,11 +230,17 @@ export async function POST(req: NextRequest) {
     intent,
     resolved
   );
-  const answer =
-    aiAnswer ?? buildDeterministicAnswer(ctx, message, intent, resolved);
-  const source: "openai" | "deterministic" = aiAnswer
-    ? "openai"
-    : "deterministic";
+  // Prompt rules alone do not constrain the live model for
+  // `best_sales_day` (issue #108 after PR #110). Ground / replace
+  // that intent against the deterministic computation; other
+  // intents keep the model answer as-is.
+  const { answer, source } = resolveAskMiltonAnswer(
+    aiAnswer,
+    ctx,
+    message,
+    intent,
+    resolved
+  );
 
   const suggested_actions = generateSuggestedActions(message, ctx, intent);
 

@@ -33,6 +33,9 @@ export const SALES_SNAPSHOT_CAPS = {
 /** Hard cap on the JSON we hand the model — no raw POS rows. */
 export const SALES_SNAPSHOT_MAX_JSON_CHARS = 12_000;
 
+/** Item and category names are truncated so the JSON cap stays reachable. */
+export const SALES_SNAPSHOT_MAX_NAME_CHARS = 80;
+
 export const WEEKDAY_KEYS = [
   "Sunday",
   "Monday",
@@ -45,10 +48,7 @@ export const WEEKDAY_KEYS = [
 export type WeekdayKey = (typeof WEEKDAY_KEYS)[number];
 
 export type SalesPeriodSource =
-  | "named_period"
-  | "latest_month"
-  | "last_week"
-  | "empty";
+  "named_period" | "latest_month" | "last_week" | "empty";
 
 export interface SalesSnapshotBucket {
   key: string;
@@ -129,29 +129,63 @@ interface MetricBucket {
 
 const MONTH_INDEX: Record<string, number> = {
   january: 1,
-  febrero: 2,
+  enero: 1,
+  jan: 1,
+  ene: 1,
   february: 2,
+  febrero: 2,
+  feb: 2,
   march: 3,
   marzo: 3,
+  mar: 3,
   april: 4,
   abril: 4,
+  apr: 4,
+  abr: 4,
   may: 5,
   mayo: 5,
   june: 6,
   junio: 6,
+  jun: 6,
   july: 7,
   julio: 7,
+  jul: 7,
   august: 8,
   agosto: 8,
+  aug: 8,
+  ago: 8,
   september: 9,
   septiembre: 9,
+  sep: 9,
+  sept: 9,
   october: 10,
   octubre: 10,
+  oct: 10,
   november: 11,
   noviembre: 11,
+  nov: 11,
   december: 12,
   diciembre: 12,
+  dec: 12,
+  dic: 12,
 };
+
+/**
+ * English "may" is also a modal verb. Whole-word `\bmay\b` would treat
+ * "what may be best" as May; only accept month-like context.
+ */
+const ENGLISH_MAY_AS_MONTH = /\bin may\b|\bmay 20\d{2}\b/;
+
+const MONTH_NAME_PATTERNS: Array<{ name: string; index: number; re: RegExp }> =
+  Object.entries(MONTH_INDEX).map(([name, index]) => ({
+    name,
+    index,
+    re: new RegExp(`\\b${name}\\b`),
+  }));
+
+function capName(name: string): string {
+  return name.slice(0, SALES_SNAPSHOT_MAX_NAME_CHARS);
+}
 
 function roundInt(n: number): number {
   return Math.round(n);
@@ -308,11 +342,21 @@ interface NamedMonth {
   year: number | null;
 }
 
+function monthNameInQuestion(
+  folded: string,
+  name: string,
+  re: RegExp
+): boolean {
+  if (!re.test(folded)) return false;
+  if (name === "may") return ENGLISH_MAY_AS_MONTH.test(folded);
+  return true;
+}
+
 function namedMonthFromQuestion(question: string): NamedMonth | null {
   const folded = foldText(question);
   let month: number | null = null;
-  for (const [name, index] of Object.entries(MONTH_INDEX)) {
-    if (folded.includes(name)) {
+  for (const { name, index, re } of MONTH_NAME_PATTERNS) {
+    if (monthNameInQuestion(folded, name, re)) {
       month = index;
       break;
     }
@@ -400,8 +444,8 @@ function itemFromBucket(
   b: MetricBucket
 ): SalesSnapshotItem {
   return {
-    name,
-    category,
+    name: capName(name),
+    category: category == null ? null : capName(category),
     revenue: roundInt(b.revenue),
     units: roundInt(b.units),
     orders: b.orders.size,
@@ -475,7 +519,9 @@ export function buildSalesSnapshot(
       bump(hourBuckets[local.hour], row);
     }
 
-    const catKey = row.category ?? "";
+    const category = row.category == null ? null : capName(row.category);
+    const itemName = capName(row.item_name || "(unnamed)");
+    const catKey = category ?? "";
     let cat = categoryBuckets.get(catKey);
     if (!cat) {
       cat = emptyBucket();
@@ -506,12 +552,12 @@ export function buildSalesSnapshot(
     }
     bump(pay, row);
 
-    const itemKey = row.item_name.toLowerCase() || "(unnamed)";
+    const itemKey = itemName.toLowerCase() || "(unnamed)";
     let item = itemBuckets.get(itemKey);
     if (!item) {
       item = {
-        name: row.item_name || "(unnamed)",
-        category: row.category,
+        name: itemName,
+        category,
         bucket: emptyBucket(),
       };
       itemBuckets.set(itemKey, item);
@@ -542,7 +588,7 @@ export function buildSalesSnapshot(
 
   const topItemsByCategory: SalesCategoryItems[] = topCategoryKeys.map(
     (category) => ({
-      category,
+      category: capName(category),
       items: items
         .filter((i) => i.category === category)
         .sort((a, b) => b.units - a.units || b.revenue - a.revenue)
@@ -552,7 +598,7 @@ export function buildSalesSnapshot(
 
   const byCategoryWeekday: SalesCategoryWeekday[] = topCategoryKeys.map(
     (category) => ({
-      category,
+      category: capName(category),
       weekdays: WEEKDAY_KEYS.map((label, idx) =>
         toSnapshotBucket(
           label,
@@ -615,24 +661,79 @@ export function buildSalesSnapshot(
   return clampSalesSnapshot(snapshot);
 }
 
+const SNAPSHOT_LIST_KEYS = [
+  "by_hour",
+  "by_category",
+  "by_channel",
+  "by_payment",
+  "top_items_by_units",
+  "top_items_by_revenue",
+  "top_items_by_category",
+  "by_category_weekday",
+] as const;
+
+function capSalesSnapshotNames(
+  snapshot: AskMiltonSalesSnapshot
+): AskMiltonSalesSnapshot {
+  const capBucket = (b: SalesSnapshotBucket): SalesSnapshotBucket => ({
+    ...b,
+    key: capName(b.key),
+    label: capName(b.label),
+  });
+  const capItem = (item: SalesSnapshotItem): SalesSnapshotItem => ({
+    ...item,
+    name: capName(item.name),
+    category: item.category == null ? null : capName(item.category),
+  });
+  return {
+    ...snapshot,
+    by_category: snapshot.by_category.map(capBucket),
+    top_items_by_units: snapshot.top_items_by_units.map(capItem),
+    top_items_by_revenue: snapshot.top_items_by_revenue.map(capItem),
+    top_items_by_category: snapshot.top_items_by_category.map((group) => ({
+      category: capName(group.category),
+      items: group.items.map(capItem),
+    })),
+    by_category_weekday: snapshot.by_category_weekday.map((group) => ({
+      ...group,
+      category: capName(group.category),
+    })),
+  };
+}
+
 function clampSalesSnapshot(
   snapshot: AskMiltonSalesSnapshot
 ): AskMiltonSalesSnapshot {
-  if (JSON.stringify(snapshot).length <= SALES_SNAPSHOT_MAX_JSON_CHARS) {
-    return snapshot;
+  let next = capSalesSnapshotNames(snapshot);
+  if (salesSnapshotJsonSize(next) <= SALES_SNAPSHOT_MAX_JSON_CHARS) {
+    return next;
   }
-  return {
-    ...snapshot,
-    by_hour: [...snapshot.by_hour]
+  next = {
+    ...next,
+    by_hour: [...next.by_hour]
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 8)
       .sort((a, b) => a.key.localeCompare(b.key)),
-    by_category: snapshot.by_category.slice(0, 8),
-    top_items_by_units: snapshot.top_items_by_units.slice(0, 8),
-    top_items_by_revenue: snapshot.top_items_by_revenue.slice(0, 8),
-    top_items_by_category: snapshot.top_items_by_category.slice(0, 3),
-    by_category_weekday: snapshot.by_category_weekday.slice(0, 3),
+    by_category: next.by_category.slice(0, 8),
+    top_items_by_units: next.top_items_by_units.slice(0, 8),
+    top_items_by_revenue: next.top_items_by_revenue.slice(0, 8),
+    top_items_by_category: next.top_items_by_category.slice(0, 3),
+    by_category_weekday: next.by_category_weekday.slice(0, 3),
   };
+  while (salesSnapshotJsonSize(next) > SALES_SNAPSHOT_MAX_JSON_CHARS) {
+    let dropped = false;
+    for (const key of SNAPSHOT_LIST_KEYS) {
+      const list = next[key];
+      if (list.length === 0) continue;
+      next = { ...next, [key]: list.slice(0, list.length - 1) };
+      dropped = true;
+      if (salesSnapshotJsonSize(next) <= SALES_SNAPSHOT_MAX_JSON_CHARS) {
+        return next;
+      }
+    }
+    if (!dropped) break;
+  }
+  return next;
 }
 
 export function salesSnapshotJsonSize(

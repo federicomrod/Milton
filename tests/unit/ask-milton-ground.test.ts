@@ -98,7 +98,7 @@ describe("resolveAskMiltonAnswer — best_sales_day grounding", () => {
       "best_sales_day",
       none
     );
-    expect(source).toBe("openai");
+    expect(source).toBe("deterministic");
     expectCompliantEs(answer);
     expect(answer.answer).not.toMatch(/10,650|10650/);
     expect(answer.suggested_followups).toEqual(
@@ -115,7 +115,7 @@ describe("resolveAskMiltonAnswer — best_sales_day grounding", () => {
       "best_sales_day",
       none
     );
-    expect(source).toBe("openai");
+    expect(source).toBe("deterministic");
     expectCompliantEn(answer);
   });
 
@@ -157,13 +157,14 @@ describe("resolveAskMiltonAnswer — best_sales_day grounding", () => {
         },
       ],
     });
-    const { answer } = resolveAskMiltonAnswer(
+    const { answer, source } = resolveAskMiltonAnswer(
       compliant,
       ctx,
       "¿Qué día de la semana vendimos más en julio?",
       "best_sales_day",
       none
     );
+    expect(source).toBe("openai");
     expect(answer.answer).toBe(compliant.answer);
     expect(answer.supporting_facts.map((f) => f.label)).toEqual(
       expect.arrayContaining([
@@ -172,6 +173,24 @@ describe("resolveAskMiltonAnswer — best_sales_day grounding", () => {
         "Mejor día individual",
       ])
     );
+  });
+
+  it("does not treat 170 as the best-date day 17", () => {
+    const ctx = salesContext(july2026UnevenRows(), "es");
+    const mentions170 = mockModelAnswer({
+      answer:
+        "El día de la semana más fuerte, según el promedio por día, fue el jueves: USD 5,846/día en 5 jueves (total USD 29,230). En este período el número de días no es igual para todos. El mejor día individual fue el viernes 170 de julio de 2026.",
+    });
+    const { answer, source } = resolveAskMiltonAnswer(
+      mentions170,
+      ctx,
+      "¿Qué día de la semana vendimos más en julio?",
+      "best_sales_day",
+      none
+    );
+    expect(source).toBe("deterministic");
+    expect(answer.answer).toMatch(/17 de julio/i);
+    expect(answer.answer).not.toMatch(/\b170\b/);
   });
 
   it("does not rewrite unrelated intents", () => {

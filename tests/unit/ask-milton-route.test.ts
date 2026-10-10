@@ -92,7 +92,7 @@ describe("POST /api/restaurant/ask-milton — best_sales_day AI path", () => {
     };
 
     expect(createCompletion).toHaveBeenCalledOnce();
-    expect(body.source).toBe("openai");
+    expect(body.source).toBe("deterministic");
     expect(body.answer).toMatch(/promedio por día/i);
     expect(body.answer).toMatch(/5 jueves/);
     expect(body.answer).toMatch(/número de días no es igual/i);

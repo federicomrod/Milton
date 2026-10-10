@@ -79,7 +79,8 @@ export function isBestSalesDayAnswerTextCompliant(
   );
   if (bestFact) {
     const dayNum = bestFact.value.match(/\b(\d{1,2})\b/);
-    if (dayNum && !text.includes(dayNum[1])) return false;
+    // Word boundary so "17" does not match inside "170".
+    if (dayNum && !new RegExp(`\\b${dayNum[1]}\\b`).test(text)) return false;
     if (!/(mejor dia|best (single )?(date|day))/.test(text)) return false;
   }
 
@@ -92,31 +93,38 @@ export function groundAskMiltonAnswer(
   message: string,
   intent: AskMiltonIntent,
   resolved: ResolvedEntities
-): AskMiltonAnswer {
-  if (intent !== "best_sales_day") return aiAnswer;
+): { answer: AskMiltonAnswer; replaced: boolean } {
+  if (intent !== "best_sales_day") {
+    return { answer: aiAnswer, replaced: false };
+  }
 
   const grounded = buildDeterministicAnswer(ctx, message, intent, resolved);
   const hasRequiredFacts = grounded.supporting_facts.some((f) =>
     /total (de los|across)/i.test(f.label)
   );
-  if (!hasRequiredFacts) return grounded;
+  if (!hasRequiredFacts) {
+    return { answer: grounded, replaced: true };
+  }
 
   const textOk = isBestSalesDayAnswerTextCompliant(aiAnswer.answer, grounded);
   return {
-    answer: textOk ? aiAnswer.answer : grounded.answer,
-    supporting_facts: grounded.supporting_facts,
-    related_links:
-      aiAnswer.related_links.length > 0
-        ? aiAnswer.related_links
-        : grounded.related_links,
-    suggested_followups:
-      aiAnswer.suggested_followups.length > 0
-        ? aiAnswer.suggested_followups
-        : grounded.suggested_followups,
-    confidence_notes: (aiAnswer.confidence_notes.length > 0
-      ? aiAnswer.confidence_notes
-      : grounded.confidence_notes
-    ).slice(0, 3),
+    answer: {
+      answer: textOk ? aiAnswer.answer : grounded.answer,
+      supporting_facts: grounded.supporting_facts,
+      related_links:
+        aiAnswer.related_links.length > 0
+          ? aiAnswer.related_links
+          : grounded.related_links,
+      suggested_followups:
+        aiAnswer.suggested_followups.length > 0
+          ? aiAnswer.suggested_followups
+          : grounded.suggested_followups,
+      confidence_notes: (aiAnswer.confidence_notes.length > 0
+        ? aiAnswer.confidence_notes
+        : grounded.confidence_notes
+      ).slice(0, 3),
+    },
+    replaced: !textOk,
   };
 }
 
@@ -133,8 +141,15 @@ export function resolveAskMiltonAnswer(
       source: "deterministic",
     };
   }
+  const { answer, replaced } = groundAskMiltonAnswer(
+    aiAnswer,
+    ctx,
+    message,
+    intent,
+    resolved
+  );
   return {
-    answer: groundAskMiltonAnswer(aiAnswer, ctx, message, intent, resolved),
-    source: "openai",
+    answer,
+    source: replaced ? "deterministic" : "openai",
   };
 }

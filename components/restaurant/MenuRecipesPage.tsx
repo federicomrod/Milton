@@ -90,7 +90,11 @@ export function MenuRecipesPage({ data }: { data: MenuRecipesData }) {
 
         <MenuItemsSection rows={data.menuItems} fmts={fmts} />
 
-        <ComponentsSection components={data.components} onChange={refresh} />
+        <ComponentsSection
+          components={data.components}
+          onChange={refresh}
+          currency={data.currency}
+        />
       </div>
     </div>
   );
@@ -753,9 +757,11 @@ function MarginPct({ pct }: { pct: number }) {
 function ComponentsSection({
   components,
   onChange,
+  currency,
 }: {
   components: PreparedComponentListRow[];
   onChange: () => void;
+  currency: string;
 }) {
   return (
     <section>
@@ -825,7 +831,7 @@ function ComponentsSection({
                         currency={
                           c.cost.status === "complete" &&
                           c.cost.cost_per_output_unit !== null
-                            ? "MXN" // we don't track per-component currency yet
+                            ? currency
                             : null
                         }
                       />
@@ -1096,7 +1102,7 @@ function ComponentRow({
           <span>
             {formatComponentCost(
               component.cost.cost_per_output_unit,
-              currency ?? "MXN"
+              currency ?? "USD"
             )}{" "}
             <span className="text-xs text-muted-foreground">
               / {component.cost.output_unit ?? component.output_unit}

@@ -88,14 +88,16 @@ const STATUS_STYLE: Record<string, string> = {
 
 function fmtMoney(n: number | null | undefined, currency: string): string {
   if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  const safe = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
+  const locale = safe === "MXN" ? "es-MX" : "en-US";
   try {
-    return new Intl.NumberFormat("es-MX", {
+    return new Intl.NumberFormat(locale, {
       style: "currency",
-      currency: /^[A-Z]{3}$/.test(currency) ? currency : "MXN",
+      currency: safe,
       maximumFractionDigits: 2,
     }).format(n);
   } catch {
-    return `${n.toFixed(2)} ${currency}`;
+    return `${n.toFixed(2)} ${safe}`;
   }
 }
 
@@ -119,10 +121,12 @@ export function InvoicesPage({
   initialInvoices,
   suppliers,
   ingredients: initialIngredients,
+  companyCurrency = "USD",
 }: {
   initialInvoices: InvoiceListItem[];
   suppliers: SupplierLite[];
   ingredients: IngredientLite[];
+  companyCurrency?: string;
 }) {
   const [invoices, setInvoices] = useState<InvoiceListItem[]>(initialInvoices);
   const [ingredients, setIngredients] =
@@ -225,6 +229,7 @@ export function InvoicesPage({
             />
             <ManualCreateCard
               suppliers={suppliers}
+              companyCurrency={companyCurrency}
               onCreated={async (id) => {
                 await refreshList();
                 setReviewingId(id);
@@ -275,6 +280,9 @@ function UploadCard({
     auto_matched_lines: number;
     unmatched_lines: number;
     failed_rows?: { rowIndex: number; reason: string; description?: string }[];
+    default_currency?: string;
+    currency_mismatch_rows?: number;
+    warning?: string;
   } | null>(null);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -382,8 +390,15 @@ function UploadCard({
               {summary.suppliers_created} new supplier
               {summary.suppliers_created === 1 ? "" : "s"} ·{" "}
               {summary.auto_matched_lines} auto-matched ·{" "}
-              {summary.unmatched_lines} unmatched.
+              {summary.unmatched_lines} unmatched
+              {summary.default_currency
+                ? ` · currency ${summary.default_currency}`
+                : ""}
+              .
             </p>
+            {summary.warning && (
+              <p className="text-muted-foreground">{summary.warning}</p>
+            )}
             {summary.failed_rows && summary.failed_rows.length > 0 && (
               <details className="mt-2">
                 <summary className="cursor-pointer text-amber-600">
@@ -413,9 +428,11 @@ function UploadCard({
 
 function ManualCreateCard({
   suppliers,
+  companyCurrency,
   onCreated,
 }: {
   suppliers: SupplierLite[];
+  companyCurrency: string;
   onCreated: (id: string) => Promise<void> | void;
 }) {
   const today = new Date().toISOString().slice(0, 10);
@@ -423,7 +440,7 @@ function ManualCreateCard({
   const [supplierName, setSupplierName] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(today);
-  const [currency, setCurrency] = useState("MXN");
+  const [currency, setCurrency] = useState(companyCurrency);
   const [totalAmount, setTotalAmount] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);

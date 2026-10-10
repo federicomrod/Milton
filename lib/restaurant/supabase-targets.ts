@@ -121,7 +121,7 @@ export async function upsertRestaurantKpiTarget(
         metric_key: params.metric_key,
         target_period: "daily",
         target_value: params.target_value,
-        currency: params.currency ?? "MXN",
+        currency: params.currency ?? "USD",
         is_active: true,
       },
       {

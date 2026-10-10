@@ -14,6 +14,7 @@ import {
   fetchIngredientLatestCosts,
   type IngredientLatestCostRow,
 } from "@/lib/restaurant/menu-recipes-server";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { IngredientsPage } from "@/components/restaurant/IngredientsPage";
 import { ComingSoonPage } from "@/components/restaurant/ComingSoonPage";
 
@@ -29,6 +30,7 @@ type LoadResult =
       kind: "data";
       ingredients: IngredientLatestCostRow[];
       suppliers: SupplierOption[];
+      companyCurrency: string;
     }
   | { kind: "no-company" };
 
@@ -42,7 +44,7 @@ async function loadIngredients(): Promise<LoadResult> {
     const companyId = await resolveCompanyIdForUser(supabase, user.id);
     if (!companyId) return { kind: "no-company" };
 
-    const [ingredients, suppliersRes] = await Promise.all([
+    const [ingredients, suppliersRes, companyCurrency] = await Promise.all([
       fetchIngredientLatestCosts(supabase, companyId),
       supabase
         .from("suppliers")
@@ -50,16 +52,22 @@ async function loadIngredients(): Promise<LoadResult> {
         .eq("company_id", companyId)
         .eq("status", "active")
         .order("name", { ascending: true }),
+      resolveCompanyCurrency(supabase, companyId),
     ]);
 
     const suppliers: SupplierOption[] = (
       (suppliersRes.data ?? []) as { id: string; name: string }[]
     ).map((s) => ({ id: s.id, name: s.name }));
 
-    return { kind: "data", ingredients, suppliers };
+    return { kind: "data", ingredients, suppliers, companyCurrency };
   } catch (err) {
     console.error("[/dashboard/restaurant/ingredients] failed:", err);
-    return { kind: "data", ingredients: [], suppliers: [] };
+    return {
+      kind: "data",
+      ingredients: [],
+      suppliers: [],
+      companyCurrency: "USD",
+    };
   }
 }
 
@@ -70,6 +78,7 @@ export default async function IngredientsRoute() {
       <IngredientsPage
         ingredients={result.ingredients}
         suppliers={result.suppliers}
+        companyCurrency={result.companyCurrency}
       />
     );
   }

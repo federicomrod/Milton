@@ -23,6 +23,7 @@ import {
   type RowValidationError,
 } from "@/lib/restaurant/pos-import";
 import { buildScopedNameIndex } from "@/lib/restaurant/scoped-matching";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -50,6 +51,7 @@ interface UploadSummary {
   total_rows_in_file: number;
   /** Echoes the replace flag back so the UI can confirm what happened. */
   replace_existing: boolean;
+  currency: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -254,6 +256,7 @@ export async function POST(req: NextRequest) {
     }
 
     const company = { id: companyId };
+    const companyCurrency = await resolveCompanyCurrency(supabase, company.id);
 
     // Pull lookup data for soft-matching menu_item_id and location_id.
     // We tolerate the case where these tables exist but are empty (e.g. a fresh
@@ -318,7 +321,7 @@ export async function POST(req: NextRequest) {
       const res = normalizeRevelPOSRow(rows[i], i, {
         company_id: company.id,
         source_type: sourceType,
-        currency: "MXN", // Pinche Gringo pilot; per-tenant currency comes later.
+        currency: companyCurrency,
         locationIndex,
         locationBrandIndex,
         menuItemIndex,
@@ -436,6 +439,7 @@ export async function POST(req: NextRequest) {
       resolved_columns: colCheck.resolved,
       total_rows_in_file: rows.length,
       replace_existing: replaceExisting,
+      currency: companyCurrency,
     };
 
     return NextResponse.json(summary);

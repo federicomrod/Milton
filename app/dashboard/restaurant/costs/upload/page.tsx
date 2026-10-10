@@ -8,7 +8,9 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useCompanyCurrency } from "@/lib/restaurant/use-company-currency";
+import { CURRENCY_OPTIONS } from "@/lib/restaurant/currency";
 import Link from "next/link";
 import {
   Upload,
@@ -39,6 +41,7 @@ interface UploadSummary {
   resolved_columns: Record<string, string>;
   create_missing_ingredients: boolean;
   default_currency: string;
+  currency_mismatch_rows?: number;
   warning: string;
 }
 
@@ -53,7 +56,11 @@ export default function CostUploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [createMissing, setCreateMissing] = useState(true);
   const [skipDuplicates, setSkipDuplicates] = useState(false);
-  const [defaultCurrency, setDefaultCurrency] = useState("MXN");
+  const companyCurrency = useCompanyCurrency();
+  const [defaultCurrency, setDefaultCurrency] = useState(companyCurrency);
+  useEffect(() => {
+    setDefaultCurrency(companyCurrency);
+  }, [companyCurrency]);
   const [submitting, setSubmitting] = useState(false);
   const [summary, setSummary] = useState<UploadSummary | null>(null);
   const [error, setError] = useState<UploadError | null>(null);
@@ -227,9 +234,16 @@ export default function CostUploadPage() {
                   onChange={(e) => setDefaultCurrency(e.target.value)}
                   className="mt-1 h-9 w-full rounded-md border border-border bg-background px-2 text-sm"
                 >
-                  <option value="MXN">MXN</option>
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
+                  {CURRENCY_OPTIONS.map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
+                  {!CURRENCY_OPTIONS.includes(
+                    defaultCurrency as (typeof CURRENCY_OPTIONS)[number]
+                  ) && (
+                    <option value={defaultCurrency}>{defaultCurrency}</option>
+                  )}
                 </select>
               </label>
 
@@ -338,6 +352,17 @@ export default function CostUploadPage() {
                 />
                 <Stat label="Failed rows" value={summary.failed_rows.length} />
               </div>
+              <p className="text-sm">
+                Currency applied:{" "}
+                <span className="font-semibold">
+                  {summary.default_currency}
+                </span>
+              </p>
+              {summary.warning && (
+                <p className="text-sm text-muted-foreground">
+                  {summary.warning}
+                </p>
+              )}
 
               {summary.failed_rows.length > 0 && (
                 <div>

@@ -29,6 +29,7 @@ import {
   succeededRows,
   warnIfTruncated,
 } from "@/lib/restaurant/paginated-read";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -179,7 +180,7 @@ export async function fetchMenuRecipesData(
         menu_items_fully_costed: 0,
         menu_items_with_cost_issues: 0,
       },
-      currency: "MXN",
+      currency: "USD",
       readError: false,
     };
   }
@@ -368,14 +369,11 @@ export async function fetchMenuRecipesData(
     orderIds: Set<string>;
   };
   const unmatchedBuckets = new Map<string, Bucket>();
-  let firstSeenCurrency: string | null = null;
 
   for (const r of posRows) {
     const raw = (r.raw_item_name ?? "").trim();
     if (!raw) continue;
     if (mappedNames.has(raw)) continue;
-    if (firstSeenCurrency === null && r.currency)
-      firstSeenCurrency = r.currency;
     const key = raw.toLowerCase();
     let b = unmatchedBuckets.get(key);
     if (!b) {
@@ -584,10 +582,7 @@ export async function fetchMenuRecipesData(
     (m) => m.cost.status !== "complete" && m.cost.status !== "missing_recipe" // dedupe with "menu items without recipe"
   ).length;
 
-  // Prefer the menu items' currency for display when present (esp. the
-  // first one), falling back to whatever appeared in pos rows.
-  const currencyHint =
-    menuItems.find((m) => m.currency)?.currency ?? firstSeenCurrency ?? "MXN";
+  const currencyHint = await resolveCompanyCurrency(supabase, companyId);
 
   return {
     companyId,

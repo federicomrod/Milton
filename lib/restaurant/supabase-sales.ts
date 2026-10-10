@@ -32,6 +32,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { POSSalesItem } from "@/types/restaurant";
 import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -279,13 +280,17 @@ function toPOSSalesItem(row: PosSalesItemRow): POSSalesItem {
  * The function is fed normalized POSSalesItem rows so it stays unit-testable.
  */
 export function computeOverviewFromRows(
-  rows: POSSalesItem[]
+  rows: POSSalesItem[],
+  companyCurrency?: string
 ): RealRestaurantOverview {
   let totalRevenue = 0;
   let totalUnitsSold = 0;
   const orderIds = new Set<string>();
 
   for (const r of rows) {
+    if (companyCurrency && r.currency && r.currency !== companyCurrency) {
+      continue;
+    }
     totalRevenue += r.total_revenue;
     totalUnitsSold += r.quantity;
     if (r.check_id) orderIds.add(r.check_id);
@@ -293,7 +298,8 @@ export function computeOverviewFromRows(
 
   const totalOrders = orderIds.size;
   const avgTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-  const currency = rows.length > 0 ? (rows[0].currency ?? "USD") : "USD";
+  const currency =
+    companyCurrency ?? (rows.length > 0 ? (rows[0].currency ?? "USD") : "USD");
 
   return {
     total_revenue: totalRevenue,
@@ -465,8 +471,9 @@ export async function fetchRealRestaurantDashboardData(
   }
 
   // 4. Normalize and aggregate.
+  const companyCurrency = await resolveCompanyCurrency(supabase, companyId);
   const sales = rawRows.map(toPOSSalesItem);
-  const overview = computeOverviewFromRows(sales);
+  const overview = computeOverviewFromRows(sales, companyCurrency);
   const dishSales = computeDishSales(rawRows);
   const explorerRows = rawRows.map(toExplorerRow);
 

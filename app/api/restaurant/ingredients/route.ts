@@ -9,6 +9,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import {
+  currencyMismatchReason,
+  resolveCompanyCurrency,
+  resolveWriteCurrency,
+} from "@/lib/restaurant/currency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -65,10 +70,15 @@ export async function POST(req: NextRequest) {
     typeof body.default_unit === "string" && body.default_unit.trim() !== ""
       ? body.default_unit.trim()
       : "kg";
-  const currency =
-    typeof body.currency === "string" && /^[A-Z]{3}$/.test(body.currency)
-      ? body.currency
-      : "MXN";
+  const companyCurrency = await resolveCompanyCurrency(
+    auth.supabase,
+    auth.companyId
+  );
+  const currency = resolveWriteCurrency(body.currency, companyCurrency);
+  const mismatch = currencyMismatchReason(currency, companyCurrency);
+  if (mismatch) {
+    return NextResponse.json({ error: mismatch }, { status: 400 });
+  }
 
   const { data, error } = await auth.supabase
     .from("ingredients")

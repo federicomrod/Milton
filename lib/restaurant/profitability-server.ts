@@ -36,6 +36,10 @@ import {
   succeededRows,
   warnIfTruncated,
 } from "@/lib/restaurant/paginated-read";
+import {
+  isSameCurrency,
+  resolveCompanyCurrency,
+} from "@/lib/restaurant/currency";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -112,6 +116,8 @@ export interface DataQualityCounts {
   ingredients_without_cost_entries: number;
   components_without_recipe: number;
   supplier_linked_ingredients: number;
+  /** POS / cost / menu rows whose currency differs from the company currency. */
+  currency_mismatch_rows: number;
 }
 
 /** Row counts used by the first-time setup checklist on the cockpit. */
@@ -238,6 +244,7 @@ export async function fetchProfitabilityData(
   };
 
   const preloadedPos = options?.posRows;
+  const companyCurrency = await resolveCompanyCurrency(supabase, companyId);
 
   // menu_items is intentionally fetched unfiltered and scoped in-memory via
   // filterMenuItemsForSelection below — see that function's docstring.
@@ -531,12 +538,16 @@ export async function fetchProfitabilityData(
   const posByMenuItem = new Map<string, PosAggregate>();
   const unmappedRawNames = new Set<string>();
   let revenueTotal = 0;
-  let firstCurrency: string | null = null;
+  let mismatchedPosRows = 0;
 
   const posRows = succeededRows(posRes);
   for (const r of posRows) {
     const raw = (r.raw_item_name ?? "").trim();
     if (!raw) continue;
+    if (r.currency && !isSameCurrency(r.currency, companyCurrency)) {
+      mismatchedPosRows++;
+      continue;
+    }
     const qty =
       typeof r.quantity === "number" && Number.isFinite(r.quantity)
         ? r.quantity
@@ -548,7 +559,6 @@ export async function fetchProfitabilityData(
           ? r.net_revenue
           : 0;
     revenueTotal += rev;
-    if (firstCurrency === null && r.currency) firstCurrency = r.currency;
 
     const menuItemId = resolveScopedName(mappingIndex, r.location_id, raw);
     if (!menuItemId) {
@@ -630,8 +640,7 @@ export async function fetchProfitabilityData(
     (m) => m.cost.status !== "complete" && m.cost.status !== "missing_recipe"
   ).length;
 
-  const currency =
-    menuItems.find((m) => m.currency)?.currency ?? firstCurrency ?? "MXN";
+  const currency = companyCurrency;
 
   const kpis: ProfitabilityKpis = {
     revenue_total: revenueTotal,
@@ -706,6 +715,12 @@ export async function fetchProfitabilityData(
         previous.normalized_unit_cost) *
       100;
     if (Math.abs(pctChange) < PRICE_INCREASE_MIN_PCT) continue;
+    if (
+      (latest.currency && !isSameCurrency(latest.currency, companyCurrency)) ||
+      (previous.currency && !isSameCurrency(previous.currency, companyCurrency))
+    ) {
+      continue;
+    }
     ingredientPriceTrends.push({
       ingredient_id: ingredientId,
       ingredient_name: ingredientNameById.get(ingredientId) ?? "(unknown)",
@@ -732,7 +747,12 @@ export async function fetchProfitabilityData(
     { spend: number; ingredients: Set<string> }
   >();
   let totalSupplierSpend = 0;
+  let mismatchedCostEntries = 0;
   for (const e of costEntries) {
+    if (e.currency && !isSameCurrency(e.currency, companyCurrency)) {
+      mismatchedCostEntries++;
+      continue;
+    }
     if (!e.supplier_id) continue;
     totalSupplierSpend += e.total_cost ?? 0;
     let agg = spendBySupplier.get(e.supplier_id);
@@ -782,6 +802,12 @@ export async function fetchProfitabilityData(
       (c) => !componentsWithRecipe.has(c.id)
     ).length,
     supplier_linked_ingredients: supplierLinkedIngredients,
+    currency_mismatch_rows:
+      mismatchedPosRows +
+      mismatchedCostEntries +
+      menuItems.filter(
+        (m) => m.currency && !isSameCurrency(m.currency, companyCurrency)
+      ).length,
   };
 
   const setupCounts: SetupCounts = {

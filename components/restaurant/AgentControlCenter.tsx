@@ -1603,12 +1603,12 @@ function PriceChangePreview({
    *  When null/undefined no disclaimer is shown. */
   disclaimer?: React.ReactNode;
 }) {
-  const cur = (payload.currency as string) ?? "MXN";
+  const cur = (payload.currency as string) ?? "USD";
   const fmt = (n: unknown): string =>
     typeof n === "number" && Number.isFinite(n)
       ? new Intl.NumberFormat("es-MX", {
           style: "currency",
-          currency: /^[A-Z]{3}$/.test(cur) ? cur : "MXN",
+          currency: /^[A-Z]{3}$/.test(cur) ? cur : "USD",
           maximumFractionDigits: 0,
         }).format(n)
       : "—";
@@ -2346,8 +2346,8 @@ function ExecutePriceUpdateDialog({
   onConfirm: () => void;
 }) {
   const currency =
-    typeof payload.currency === "string" ? (payload.currency as string) : "MXN";
-  const safeCurrency = /^[A-Z]{3}$/.test(currency) ? currency : "MXN";
+    typeof payload.currency === "string" ? (payload.currency as string) : "USD";
+  const safeCurrency = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
   const fmt = (n: unknown): string =>
     typeof n === "number" && Number.isFinite(n)
       ? new Intl.NumberFormat("es-MX", {

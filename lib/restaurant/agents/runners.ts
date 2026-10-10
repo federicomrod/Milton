@@ -11,6 +11,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchProfitabilityData } from "@/lib/restaurant/profitability-server";
 import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
+import {
+  isSameCurrency,
+  resolveCompanyCurrency,
+} from "@/lib/restaurant/currency";
 import type {
   AgentKey,
   AgentRecommendationType,
@@ -475,10 +479,12 @@ export async function runPosAgent(
 
   // Channel concentration: dominant channel above the configured shift threshold,
   // expressed as a share of total revenue.
+  const companyCurrency = await resolveCompanyCurrency(supabase, companyId);
   const channelRevenue = new Map<string, number>();
   let totalRevenue = 0;
-  let currency = "MXN";
+  const currency = companyCurrency;
   for (const r of posRows) {
+    if (r.currency && !isSameCurrency(r.currency, companyCurrency)) continue;
     const rev =
       typeof r.gross_revenue === "number" && Number.isFinite(r.gross_revenue)
         ? r.gross_revenue
@@ -487,7 +493,6 @@ export async function runPosAgent(
           : 0;
     if (rev <= 0) continue;
     totalRevenue += rev;
-    if (r.currency) currency = r.currency;
     const ch = r.sales_channel ?? "unknown";
     channelRevenue.set(ch, (channelRevenue.get(ch) ?? 0) + rev);
   }

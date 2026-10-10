@@ -33,9 +33,11 @@ interface SupplierOption {
 export function IngredientsPage({
   ingredients,
   suppliers,
+  companyCurrency = "USD",
 }: {
   ingredients: IngredientLatestCostRow[];
   suppliers: SupplierOption[];
+  companyCurrency?: string;
 }) {
   return (
     <div className="w-full py-8 px-6 lg:px-10">
@@ -95,6 +97,7 @@ export function IngredientsPage({
               <AddCostEntryForm
                 ingredients={ingredients}
                 suppliers={suppliers}
+                companyCurrency={companyCurrency}
               />
             )}
           </CardContent>
@@ -271,9 +274,11 @@ function CreateIngredientForm() {
 function AddCostEntryForm({
   ingredients,
   suppliers,
+  companyCurrency,
 }: {
   ingredients: IngredientLatestCostRow[];
   suppliers: SupplierOption[];
+  companyCurrency: string;
 }) {
   const router = useRouter();
   const [ingredientId, setIngredientId] = useState(ingredients[0]?.id ?? "");
@@ -283,7 +288,7 @@ function AddCostEntryForm({
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState(ingredients[0]?.default_unit ?? "kg");
   const [totalCost, setTotalCost] = useState("");
-  const [currency, setCurrency] = useState("MXN");
+  const [currency, setCurrency] = useState(companyCurrency);
   const [supplierId, setSupplierId] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -426,9 +431,14 @@ function AddCostEntryForm({
           onChange={(e) => setCurrency(e.target.value)}
           className="h-9 rounded-md border border-border bg-background px-2 text-sm"
         >
-          <option value="MXN">MXN</option>
           <option value="USD">USD</option>
+          <option value="MXN">MXN</option>
           <option value="EUR">EUR</option>
+          {companyCurrency !== "USD" &&
+            companyCurrency !== "MXN" &&
+            companyCurrency !== "EUR" && (
+              <option value={companyCurrency}>{companyCurrency}</option>
+            )}
         </select>
       </label>
       <div className="flex flex-col gap-1">

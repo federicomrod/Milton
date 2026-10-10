@@ -40,6 +40,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import type { AgentAction } from "@/types/agent-actions";
+import {
+  resolveCompanyCurrency,
+  resolveWriteCurrency,
+} from "@/lib/restaurant/currency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -230,10 +234,12 @@ export async function POST(req: NextRequest) {
     estimatedCost !== null && newPrice > 0
       ? Math.round(((newPrice - estimatedCost) / newPrice) * 1000) / 10
       : null;
-  const currencyForLog =
+  const companyCurrency = await resolveCompanyCurrency(supabase, companyId);
+  const currencyForLog = resolveWriteCurrency(
     (typeof menuItem.currency === "string" && menuItem.currency) ||
-    (typeof payload.currency === "string" && (payload.currency as string)) ||
-    "MXN";
+      (typeof payload.currency === "string" ? payload.currency : null),
+    companyCurrency
+  );
 
   const outcomeNotes = `Updated ${menuItem.name} selling_price from ${
     oldPrice !== null ? oldPrice : "unknown"

@@ -261,7 +261,7 @@ export interface IngredientCostEntryInsert {
   ingredient_id: string;
   supplier_id: string | null;
   source_type: "import";
-  source_id: null;
+  source_id: string | null;
   cost_date: string;
   quantity: number;
   unit: string;
@@ -292,6 +292,7 @@ export function buildIngredientCostEntryInsert(params: {
   ingredientDefaultUnit: string | null;
   supplierId: string | null;
   row: NormalizedCostRow;
+  sourceId?: string | null;
 }):
   | { ok: true; insert: IngredientCostEntryInsert }
   | { ok: false; reason: string } {
@@ -317,7 +318,7 @@ export function buildIngredientCostEntryInsert(params: {
       ingredient_id: ingredientId,
       supplier_id: supplierId,
       source_type: "import",
-      source_id: null,
+      source_id: params.sourceId ?? null,
       cost_date: row.cost_date,
       quantity: row.quantity,
       unit: row.unit,

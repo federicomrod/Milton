@@ -30,6 +30,7 @@ interface FailedRow {
 }
 
 interface UploadSummary {
+  kind?: "fixed" | "workbook";
   total_rows_in_file: number;
   inserted_rows: number;
   suppliers_created: number;
@@ -43,6 +44,48 @@ interface UploadSummary {
   default_currency: string;
   currency_mismatch_rows?: number;
   warning: string;
+}
+
+interface WorkbookTabSummary {
+  name: string;
+  type: string;
+  confidence: number;
+  mapping_source: string;
+  column_mapping: Record<string, { column: string; confidence: number }>;
+  imported_count: number;
+  review_count: number;
+  preview: Record<string, unknown>[];
+  note?: string;
+}
+
+interface WorkbookReviewItem {
+  id: string;
+  tab_name: string;
+  row_index: number;
+  reason: string;
+  raw_values: Record<string, unknown>;
+  suggested: Record<string, unknown> | null;
+  status: "pending" | "approved" | "skipped";
+}
+
+interface WorkbookSummary {
+  kind: "workbook";
+  batch_id: string;
+  headline: string;
+  imported_count: number;
+  review_count: number;
+  tab_count: number;
+  recipe_tab_count: number;
+  mapping_source: "ai" | "saved" | "mixed";
+  default_currency: string;
+  file_month: string | null;
+  filename: string;
+  tabs: WorkbookTabSummary[];
+  review_items: WorkbookReviewItem[];
+  ingredients_created: number;
+  costs_updated: number;
+  saved_count?: number;
+  skipped_count?: number;
 }
 
 interface UploadError {
@@ -63,13 +106,37 @@ export default function CostUploadPage() {
   }, [companyCurrency]);
   const [submitting, setSubmitting] = useState(false);
   const [summary, setSummary] = useState<UploadSummary | null>(null);
+  const [workbook, setWorkbook] = useState<WorkbookSummary | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const [undoing, setUndoing] = useState(false);
+  const [undoMessage, setUndoMessage] = useState<string | null>(null);
   const [error, setError] = useState<UploadError | null>(null);
+  const [pendingReview, setPendingReview] = useState<WorkbookReviewItem[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/restaurant/costs/review?status=pending", {
+      credentials: "include",
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (cancelled || !json?.items) return;
+        setPendingReview(json.items as WorkbookReviewItem[]);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!file) return;
     setSubmitting(true);
     setSummary(null);
+    setWorkbook(null);
+    setShowDetails(false);
+    setUndoMessage(null);
     setError(null);
     try {
       const form = new FormData();
@@ -87,7 +154,11 @@ export default function CostUploadPage() {
       });
       const json = await res.json();
       if (!res.ok) setError(json as UploadError);
-      else setSummary(json as UploadSummary);
+      else if (json?.kind === "workbook") {
+        const wb = json as WorkbookSummary;
+        setWorkbook(wb);
+        setPendingReview(wb.review_items ?? []);
+      } else setSummary(json as UploadSummary);
     } catch (err) {
       setError({
         error: "Network error",
@@ -115,10 +186,11 @@ export default function CostUploadPage() {
             Import Ingredient Costs
           </h1>
           <p className="text-base text-muted-foreground mt-2">
-            Bulk-load supplier cost observations from a CSV or XLSX. Each row
-            becomes a normalized entry in{" "}
-            <code className="text-xs">ingredient_cost_entries</code> feeding the
-            deterministic cost engine.
+            Bulk-load supplier cost observations from a CSV or a multi-tab
+            workbook. High-confidence rows save immediately into{" "}
+            <code className="text-xs">ingredient_cost_entries</code> so the
+            cockpit can show margins. Rows Milton is unsure about wait in a
+            needs-a-look list and never block anything.
           </p>
         </div>
 
@@ -171,7 +243,9 @@ export default function CostUploadPage() {
             <p className="text-xs text-muted-foreground">
               Headers are matched case-insensitively and accept variants (Cost
               Date, date, invoice_date · Supplier, vendor · Ingredient,
-              item_name, product_name · Qty · UOM · Amount, line_total · SKU).
+              item_name, product_name · Qty · UOM · Amount, line_total · SKU). A
+              multi-tab workbook with Spanish headers or a price-list first
+              sheet does not need these English names — Milton maps it.
             </p>
           </CardContent>
         </Card>
@@ -188,7 +262,9 @@ export default function CostUploadPage() {
                   onChange={(e) => {
                     setFile(e.target.files?.[0] ?? null);
                     setSummary(null);
+                    setWorkbook(null);
                     setError(null);
+                    setUndoMessage(null);
                   }}
                   className="mt-2 block w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-300"
                 />
@@ -272,6 +348,57 @@ export default function CostUploadPage() {
           </CardContent>
         </Card>
 
+        {!workbook && pendingReview.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                Needs a look ({pendingReview.length}) — optional
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="text-xs space-y-2 max-h-72 overflow-y-auto">
+                {pendingReview.map((item) => (
+                  <li
+                    key={item.id}
+                    className="rounded-md border border-border px-3 py-2 flex flex-wrap items-start justify-between gap-2"
+                  >
+                    <span className="text-muted-foreground">
+                      {item.tab_name} row {item.row_index + 1}: {item.reason}
+                      {item.suggested?.ingredient_name
+                        ? ` (${String(item.suggested.ingredient_name)})`
+                        : ""}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      onClick={async () => {
+                        const res = await fetch(
+                          `/api/restaurant/costs/review/${item.id}`,
+                          {
+                            method: "POST",
+                            credentials: "include",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ action: "skip" }),
+                          }
+                        );
+                        if (res.ok) {
+                          setPendingReview((rows) =>
+                            rows.filter((r) => r.id !== item.id)
+                          );
+                        }
+                      }}
+                    >
+                      Skip
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Error */}
         {error && (
           <Card className="border-red-200 dark:border-red-900">
@@ -315,6 +442,77 @@ export default function CostUploadPage() {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {workbook && (
+          <WorkbookResult
+            workbook={workbook}
+            pendingReview={pendingReview}
+            showDetails={showDetails}
+            onToggleDetails={() => setShowDetails((v) => !v)}
+            undoing={undoing}
+            undoMessage={undoMessage}
+            onUndo={async () => {
+              setUndoing(true);
+              setUndoMessage(null);
+              try {
+                const res = await fetch(
+                  `/api/restaurant/costs/batches/${workbook.batch_id}/undo`,
+                  { method: "POST", credentials: "include" }
+                );
+                const json = await res.json();
+                if (!res.ok) {
+                  setUndoMessage(json.error ?? "Undo failed");
+                } else {
+                  setUndoMessage(
+                    `Undone. Removed ${json.deleted_cost_entries ?? 0} cost rows.`
+                  );
+                  setPendingReview([]);
+                }
+              } catch (err) {
+                setUndoMessage(
+                  err instanceof Error ? err.message : "Undo failed"
+                );
+              } finally {
+                setUndoing(false);
+              }
+            }}
+            onSkip={async (id) => {
+              const res = await fetch(`/api/restaurant/costs/review/${id}`, {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "skip" }),
+              });
+              if (res.ok) {
+                setPendingReview((rows) => rows.filter((r) => r.id !== id));
+              }
+            }}
+            onApprove={async (item) => {
+              const res = await fetch(
+                `/api/restaurant/costs/review/${item.id}`,
+                {
+                  method: "POST",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    action: "approve",
+                    ingredient_name:
+                      (item.suggested?.ingredient_name as string) ?? undefined,
+                    unit: (item.suggested?.unit as string) ?? undefined,
+                    quantity: (item.suggested?.quantity as number) ?? undefined,
+                    total_cost:
+                      (item.suggested?.total_cost as number) ?? undefined,
+                  }),
+                }
+              );
+              if (res.ok) {
+                setPendingReview((rows) =>
+                  rows.filter((r) => r.id !== item.id)
+                );
+              }
+            }}
+          />
         )}
 
         {/* Summary */}
@@ -411,5 +609,182 @@ function Stat({ label, value }: { label: string; value: number }) {
         {value.toLocaleString()}
       </p>
     </div>
+  );
+}
+
+function tabTypeLabel(type: string): string {
+  if (type === "price_list") return "Price list";
+  if (type === "category_cost") return "Category costs";
+  if (type === "purchases") return "Purchases";
+  if (type === "recipe") return "Recipes, coming soon";
+  return "Skipped";
+}
+
+function WorkbookResult({
+  workbook,
+  pendingReview,
+  showDetails,
+  onToggleDetails,
+  undoing,
+  undoMessage,
+  onUndo,
+  onSkip,
+  onApprove,
+}: {
+  workbook: WorkbookSummary;
+  pendingReview: WorkbookReviewItem[];
+  showDetails: boolean;
+  onToggleDetails: () => void;
+  undoing: boolean;
+  undoMessage: string | null;
+  onUndo: () => void;
+  onSkip: (id: string) => void;
+  onApprove: (item: WorkbookReviewItem) => void;
+}) {
+  return (
+    <Card className="border-green-200 dark:border-green-900">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2 text-green-700 dark:text-green-400">
+          <CheckCircle2 className="h-4 w-4" />
+          {workbook.headline}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Saved for this restaurant in {workbook.default_currency}
+          {workbook.file_month ? ` · dated ${workbook.file_month}` : ""}.
+          Mapping:{" "}
+          {workbook.mapping_source === "saved" ? "remembered layout" : "AI"}.
+          {workbook.recipe_tab_count > 0
+            ? ` ${workbook.recipe_tab_count} recipe tab${
+                workbook.recipe_tab_count === 1 ? "" : "s"
+              } listed as coming soon.`
+            : ""}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onToggleDetails}
+          >
+            {showDetails
+              ? "Hide mapping details"
+              : "See how Milton mapped this"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={undoing || Boolean(undoMessage?.startsWith("Undone"))}
+            onClick={onUndo}
+          >
+            {undoing ? "Undoing…" : "Undo this import"}
+          </Button>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/dashboard/restaurant">Open cockpit</Link>
+          </Button>
+        </div>
+        {undoMessage && (
+          <p className="text-sm text-muted-foreground">{undoMessage}</p>
+        )}
+
+        {showDetails && (
+          <div className="space-y-3">
+            {workbook.tabs.map((tab) => (
+              <div
+                key={tab.name}
+                className="rounded-md border border-border p-3 space-y-2"
+              >
+                <p className="text-sm font-medium">
+                  {tab.name}{" "}
+                  <span className="text-muted-foreground font-normal">
+                    · {tabTypeLabel(tab.type)} ·{" "}
+                    {Math.round(tab.confidence * 100)}% · {tab.mapping_source}
+                    {tab.note ? ` · ${tab.note}` : ""}
+                  </span>
+                </p>
+                {Object.keys(tab.column_mapping).length > 0 && (
+                  <p className="text-xs font-mono text-muted-foreground">
+                    {Object.entries(tab.column_mapping)
+                      .map(
+                        ([field, bind]) =>
+                          `${field} ← ${bind.column} (${Math.round(
+                            bind.confidence * 100
+                          )}%)`
+                      )
+                      .join(" · ")}
+                  </p>
+                )}
+                {tab.preview.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Preview:{" "}
+                    {tab.preview
+                      .slice(0, 3)
+                      .map((row) =>
+                        Object.values(row)
+                          .filter((v) => String(v).trim() !== "")
+                          .slice(0, 4)
+                          .join(" / ")
+                      )
+                      .join(" · ")}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {pendingReview.length > 0 && (
+          <div>
+            <p className="text-sm font-medium mb-2">
+              Needs a look ({pendingReview.length}) — optional, does not block
+              the cockpit
+            </p>
+            <ul className="text-xs space-y-2 max-h-72 overflow-y-auto">
+              {pendingReview.map((item) => (
+                <li
+                  key={item.id}
+                  className="rounded-md border border-border px-3 py-2 flex flex-wrap items-start justify-between gap-2"
+                >
+                  <span className="text-muted-foreground">
+                    {item.tab_name} row {item.row_index + 1}: {item.reason}
+                    {item.suggested?.ingredient_name
+                      ? ` (${String(item.suggested.ingredient_name)})`
+                      : ""}
+                  </span>
+                  <span className="flex gap-1">
+                    {Boolean(
+                      item.suggested?.ingredient_name &&
+                      item.suggested?.unit &&
+                      item.suggested?.total_cost != null
+                    ) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => onApprove(item)}
+                      >
+                        Approve
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      onClick={() => onSkip(item.id)}
+                    >
+                      Skip
+                    </Button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

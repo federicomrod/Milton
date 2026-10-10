@@ -5,9 +5,10 @@
 // auto-creating suppliers and (optionally) ingredients, and maintaining
 // supplier_ingredients links.
 //
-// Deterministic. No OCR, no AI. Parsing + normalization live in
-// lib/restaurant/cost-import.ts; this route owns auth, DB lookups, and
-// the create-or-match logic that needs the database.
+// Fixed-header CSV / first-sheet XLSX stays deterministic (no AI).
+// Multi-tab workbooks that fail that column check use the smart
+// workbook path in lib/restaurant/cost-workbook (AI maps tabs/columns;
+// plain code parses, converts and saves high-confidence rows).
 //
 // Form fields:
 //   file                        (required) the CSV/XLSX
@@ -22,7 +23,6 @@
 //   + unit + total_cost
 
 import { NextRequest, NextResponse } from "next/server";
-import * as XLSX from "xlsx";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { normalizeUnit } from "@/lib/restaurant/units";
 import {
@@ -39,9 +39,20 @@ import {
   normalizeCurrency,
   resolveCompanyCurrency,
 } from "@/lib/restaurant/currency";
+import {
+  createDefaultWorkbookAi,
+  createSupabaseCostWorkbookRepo,
+  firstSheetRawRows,
+  importCostWorkbook,
+  isWorkbookLimitError,
+  readWorkbookSheetsFromWorkbook,
+  readXlsxWorkbook,
+  shouldUseWorkbookImport,
+} from "@/lib/restaurant/cost-workbook";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 const INSERT_BATCH_SIZE = 500;
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
@@ -132,24 +143,55 @@ export async function POST(req: NextRequest) {
         return r;
       });
     } else {
-      const workbook = XLSX.read(buffer, {
-        type: "buffer",
-        raw: true,
-        cellDates: false,
-      });
-      const sheetName = workbook.SheetNames[0];
-      if (!sheetName) {
+      let workbook;
+      try {
+        workbook = readXlsxWorkbook(buffer);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        return NextResponse.json(
+          { error: "Could not read this spreadsheet", details: message },
+          { status: 400 }
+        );
+      }
+      if (workbook.SheetNames.length === 0) {
         return NextResponse.json(
           { error: "File contains no sheets" },
           { status: 400 }
         );
       }
-      const ws = workbook.Sheets[sheetName];
-      rawRows = XLSX.utils.sheet_to_json(ws, {
-        raw: true,
-        defval: "",
-      }) as Record<string, unknown>[];
-      if (rawRows.length > 0) headers = Object.keys(rawRows[0]);
+      const first = firstSheetRawRows(workbook);
+      rawRows = first.rawRows;
+      headers = first.headers;
+
+      const colCheckPreview = validateCostImportColumns(headers);
+      if (shouldUseWorkbookImport(false, colCheckPreview.ok)) {
+        try {
+          const sheets = readWorkbookSheetsFromWorkbook(workbook);
+          const result = await importCostWorkbook({
+            companyId,
+            filename: file.name,
+            sheets,
+            currency: defaultCurrency,
+            repo: createSupabaseCostWorkbookRepo(supabase),
+            ai: createDefaultWorkbookAi(),
+            createdBy: auth.userId,
+          });
+          return NextResponse.json(result);
+        } catch (err) {
+          if (isWorkbookLimitError(err)) {
+            return NextResponse.json({ error: err.message }, { status: 400 });
+          }
+          const message = err instanceof Error ? err.message : "Unknown error";
+          console.error("[costs/upload workbook]", message);
+          return NextResponse.json(
+            {
+              error: "Workbook import failed",
+              details: message,
+            },
+            { status: 500 }
+          );
+        }
+      }
     }
 
     if (rawRows.length === 0) {

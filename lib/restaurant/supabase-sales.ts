@@ -189,7 +189,7 @@ export async function resolveCompanyIdForUser(
 // added later.
 // ---------------------------------------------------------------------------
 
-interface PosSalesItemRow {
+export interface PosSalesItemRow {
   id: string;
   company_id: string;
   location_id: string | null;
@@ -208,10 +208,12 @@ interface PosSalesItemRow {
   payment_type: string | null;
   category: string | null;
   sub_category: string | null;
+  /** Precise source timestamp when present (migration 012). */
+  order_placed_at?: string | null;
 }
 
 const POS_SELECT_COLS =
-  "id, company_id, location_id, menu_item_id, sale_date, order_id, check_id, raw_item_name, quantity, gross_revenue, net_revenue, currency, sales_channel, payment_type, category, sub_category";
+  "id, company_id, location_id, menu_item_id, sale_date, order_id, check_id, raw_item_name, quantity, gross_revenue, net_revenue, currency, sales_channel, payment_type, category, sub_category, order_placed_at";
 
 // ---------------------------------------------------------------------------
 // Conversion: pos_sales_items row → POSSalesItem (the type the existing
@@ -365,6 +367,31 @@ export function computeDishSales(rawRows: PosSalesItemRow[]): DishSalesRow[] {
     .sort((a, b) => b.revenue - a.revenue);
 }
 
+/**
+ * Paged `pos_sales_items` read used by the cockpit and Ask Milton.
+ * PostgREST caps each response at 1,000 rows — this walks `.range()` via
+ * `fetchAllRows` and fail-closes on a mid-loop error (empty rows + error).
+ *
+ * Multi-Restaurant UX v1: `selectedLocationId` scopes to one restaurant
+ * when the caller has already validated it against the company.
+ */
+export async function fetchCompanyPosSalesRows(
+  supabase: SupabaseLike,
+  companyId: string,
+  selectedLocationId?: string | null
+) {
+  return fetchAllRows<PosSalesItemRow>(() => {
+    let query = supabase
+      .from("pos_sales_items")
+      .select(POS_SELECT_COLS)
+      .eq("company_id", companyId);
+    if (selectedLocationId) {
+      query = query.eq("location_id", selectedLocationId);
+    }
+    return query;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Top-level: load everything the dashboard needs, with sample-mode fallback.
 // ---------------------------------------------------------------------------
@@ -413,16 +440,11 @@ export async function fetchRealRestaurantDashboardData(
   let rawRows: PosSalesItemRow[];
   let truncated = false;
   try {
-    const result = await fetchAllRows<PosSalesItemRow>(() => {
-      let query = supabase
-        .from("pos_sales_items")
-        .select(POS_SELECT_COLS)
-        .eq("company_id", companyId);
-      if (selectedLocationId) {
-        query = query.eq("location_id", selectedLocationId);
-      }
-      return query;
-    });
+    const result = await fetchCompanyPosSalesRows(
+      supabase,
+      companyId,
+      selectedLocationId
+    );
     if (result.error) {
       console.error(
         "[supabase-sales] pos_sales_items read failed:",

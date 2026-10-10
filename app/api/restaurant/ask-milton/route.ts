@@ -208,7 +208,9 @@ export async function POST(req: NextRequest) {
 
   let ctx: AskMiltonContext;
   try {
-    ctx = await buildAskMiltonContext(supabase, companyId, selected);
+    ctx = await buildAskMiltonContext(supabase, companyId, selected, {
+      question: message,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("[ask-milton] context build failed:", msg);

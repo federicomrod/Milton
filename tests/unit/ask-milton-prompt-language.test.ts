@@ -10,6 +10,7 @@ import type {
 } from "@/lib/restaurant/ask-milton-context";
 import type { BriefingContext } from "@/lib/restaurant/briefing-context";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { emptySalesSnapshot } from "@/lib/restaurant/ask-milton-sales";
 
 // Milton Language Foundation v1 — proves Ask Milton's deterministic
 // fallback (used whenever OpenAI is unavailable) genuinely respects the
@@ -101,6 +102,7 @@ function contextFixture(
     },
     agent_actions: { counts_by_status: {}, open: [], recent: [] },
     agent_runs: { recent: [] },
+    sales: emptySalesSnapshot(),
   };
 }
 

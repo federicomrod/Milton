@@ -181,6 +181,47 @@ describe("Admin Odoo routes - access control", () => {
       const body = await response.json();
       expect(body.error).toContain("Forbidden");
     });
+
+    it("marks the signed-in workspace with is_own", async () => {
+      vi.doMock("@/lib/profile-service-server", () => ({
+        isUserAdminServer: vi.fn().mockResolvedValue(true),
+      }));
+      vi.doMock("@/lib/supabase/server", () => ({
+        createClient: vi.fn().mockResolvedValue({
+          auth: {
+            getUser: vi.fn().mockResolvedValue({
+              data: { user: { id: "user-123" } },
+            }),
+          },
+        }),
+      }));
+      vi.doMock("@/lib/supabase/admin", () => ({
+        createAdminClient: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            select: vi.fn().mockReturnValue({
+              order: vi.fn().mockResolvedValue({
+                data: [
+                  { id: "other", name: "Alpha" },
+                  { id: "own", name: "Los Ranchos" },
+                ],
+                error: null,
+              }),
+            }),
+          }),
+        }),
+      }));
+      vi.doMock("@/lib/restaurant/supabase-sales", () => ({
+        resolveCompanyIdForUser: vi.fn().mockResolvedValue("own"),
+      }));
+
+      const { GET } = await import("@/app/api/admin/companies/route");
+      const response = await GET();
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual([
+        { id: "other", name: "Alpha", is_own: false },
+        { id: "own", name: "Los Ranchos", is_own: true },
+      ]);
+    });
   });
 
   describe("GET /api/admin/restaurant-locations", () => {

@@ -16,10 +16,17 @@ import {
 } from "@/components/ui/select";
 import { Loader2, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { OdooSyncPanel } from "@/components/management/odoo-sync-panel";
+import type { OdooLastSync } from "@/lib/restaurant/odoo/sync-summary";
+import {
+  canSyncSelectedWorkspace,
+  findOwnCompany,
+} from "@/lib/restaurant/odoo/sync-workspace";
 
 interface Company {
   id: string;
   name: string;
+  is_own?: boolean;
 }
 
 interface OdooCompany {
@@ -42,6 +49,7 @@ interface ConnectionData {
     timezone: string;
     odoo_company_ids: number[] | null;
     updated_at: string;
+    last_sync?: OdooLastSync | null;
   } | null;
   has_api_key: boolean;
 }
@@ -98,7 +106,10 @@ export default function OdooPage() {
       if (!response.ok) throw new Error("Failed to load companies");
       const data = await response.json();
       setCompanies(data);
-      if (data.length > 0) {
+      const own = findOwnCompany(data);
+      if (own) {
+        setSelectedCompanyId(own.id);
+      } else if (data.length > 0) {
         setSelectedCompanyId(data[0].id);
       }
     } catch (error) {
@@ -293,6 +304,11 @@ export default function OdooPage() {
     }
   };
 
+  const selectedCompany =
+    companies.find((company) => company.id === selectedCompanyId) ?? null;
+  const ownCompany = findOwnCompany(companies);
+  const canSync = canSyncSelectedWorkspace(selectedCompanyId, ownCompany?.id);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -336,6 +352,15 @@ export default function OdooPage() {
 
       {selectedCompanyId && (
         <>
+          {connectionData?.connection && (
+            <OdooSyncPanel
+              lastSync={connectionData.connection.last_sync}
+              selectedCompanyName={selectedCompany?.name ?? null}
+              ownCompanyName={ownCompany?.name ?? null}
+              canSync={canSync}
+            />
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Connection Details</CardTitle>

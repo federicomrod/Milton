@@ -41,6 +41,22 @@ describe("cockpit load split (#134)", () => {
     );
   });
 
+  it("tabs profitability no longer preloads every POS row", () => {
+    const cache = read("lib/restaurant/pos-read-cache.ts");
+    expect(cache).toContain(
+      "fetchProfitabilityData(supabase, companyId, selected)"
+    );
+    expect(cache).not.toMatch(
+      /loadCachedProfitability[\s\S]*loadCachedPosSalesRows/
+    );
+    expect(read("lib/restaurant/profitability-server.ts")).toContain(
+      "fetchCockpitPosProductRollup"
+    );
+    expect(read("lib/restaurant/cockpit-page-data.ts")).toContain(
+      "profitability.posSource"
+    );
+  });
+
   it("briefing reuses profitability check counts instead of a second POS walk", () => {
     const src = read("lib/restaurant/briefing-context.ts");
     expect(src).toContain("distinct_check_count");

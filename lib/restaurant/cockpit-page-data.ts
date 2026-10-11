@@ -803,6 +803,7 @@ async function loadCockpitTabsModelUncached(
   );
   logCockpitTiming("tabs", {
     totalMs: Date.now() - started,
+    source: profitability.posSource ?? "none",
     posRows: profitability.setupCounts.pos_sales_count,
     location: resolved.scope.locationId,
   });

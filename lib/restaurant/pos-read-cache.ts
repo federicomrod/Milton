@@ -1,7 +1,8 @@
 // lib/restaurant/pos-read-cache.ts
 //
-// Per-request React cache so cockpit executive, tabs, menu, and costs
-// share one POS page-walk instead of each firing its own.
+// Per-request React cache. Tabs/menu/costs share one profitability
+// load (product rollup when 033 is applied). Sales still pages rows
+// via loadCachedPosSalesRows when the explorer needs them.
 
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
@@ -26,12 +27,9 @@ export const loadCachedProfitability = cache(
     brandId: string | null
   ): Promise<ProfitabilityData> => {
     const supabase = await createClient();
-    const pos = await loadCachedPosSalesRows(companyId, locationId);
     const selected: ProfitabilitySelection | null = locationId
       ? { locationId, brandId }
       : null;
-    return fetchProfitabilityData(supabase, companyId, selected, {
-      posRows: pos.error ? undefined : pos.rows,
-    });
+    return fetchProfitabilityData(supabase, companyId, selected);
   }
 );

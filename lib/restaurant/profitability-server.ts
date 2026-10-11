@@ -42,6 +42,11 @@ import {
 } from "@/lib/restaurant/currency";
 import { classifySaleLine } from "@/lib/restaurant/sales-revenue";
 import { fetchAllRowsRetryingWithoutColumn } from "@/lib/restaurant/missing-schema-column";
+import {
+  fetchCockpitPosProductRollup,
+  type CockpitPosProductRollup,
+} from "@/lib/restaurant/cockpit-pos-product-rollup";
+import { logCockpitTiming } from "@/lib/restaurant/cockpit-timing";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -159,6 +164,8 @@ export interface ProfitabilityData {
    * complete (or smaller) total — the cockpit shows a warning instead.
    */
   readError: boolean;
+  /** How POS totals were loaded. Tabs log this as `source`. */
+  posSource?: "product-rpc" | "rows" | "error" | "preloaded";
 }
 
 /** Slim POS shape the profitability aggregator needs. */
@@ -181,6 +188,13 @@ export interface FetchProfitabilityOptions {
    * so we do not page `pos_sales_items` a second time.
    */
   posRows?: ProfitabilityPosRow[];
+  /**
+   * Per-product rollup from `cockpit_pos_product_rollup`. When set, the
+   * aggregator does not page POS rows. Tests inject this directly.
+   */
+  posProductRollup?: CockpitPosProductRollup;
+  /** Fail-closed: skip POS reads and return empty sales totals. */
+  posReadError?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +272,85 @@ export async function fetchProfitabilityData(
   const preloadedPos = options?.posRows;
   const companyCurrency = await resolveCompanyCurrency(supabase, companyId);
 
+  const loadPos = async (): Promise<{
+    rows: PosRow[];
+    truncated: boolean;
+    error: { message?: string } | null;
+    productRollup: CockpitPosProductRollup | null;
+    posSource: NonNullable<ProfitabilityData["posSource"]>;
+  }> => {
+    if (options?.posReadError) {
+      return {
+        rows: [],
+        truncated: false,
+        error: { message: "pos read failed" },
+        productRollup: null,
+        posSource: "error",
+      };
+    }
+    if (options?.posProductRollup) {
+      return {
+        rows: [],
+        truncated: false,
+        error: null,
+        productRollup: options.posProductRollup,
+        posSource: "product-rpc",
+      };
+    }
+    if (preloadedPos) {
+      return {
+        rows: preloadedPos,
+        truncated: false,
+        error: null,
+        productRollup: null,
+        posSource: "preloaded",
+      };
+    }
+    const rpc = await fetchCockpitPosProductRollup(supabase, companyId, {
+      locationId: selected?.locationId ?? null,
+      currency: companyCurrency,
+    });
+    if (rpc.rollup) {
+      return {
+        rows: [],
+        truncated: false,
+        error: null,
+        productRollup: rpc.rollup,
+        posSource: "product-rpc",
+      };
+    }
+    if (!rpc.missing) {
+      return {
+        rows: [],
+        truncated: false,
+        error: rpc.error ?? { message: "product rollup failed" },
+        productRollup: null,
+        posSource: "error",
+      };
+    }
+    const walked = await fetchAllRowsRetryingWithoutColumn<PosRow>(
+      "is_tip",
+      (select) => {
+        let q = supabase
+          .from("pos_sales_items")
+          .select(select)
+          .eq("company_id", companyId);
+        if (selected) {
+          q = q.eq("location_id", selected.locationId);
+        }
+        return q;
+      },
+      "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id, is_tip, discount_amount, check_id, order_id"
+    );
+    return {
+      rows: walked.rows,
+      truncated: walked.truncated,
+      error: walked.error,
+      productRollup: null,
+      posSource: walked.error ? "error" : "rows",
+    };
+  };
+
   // menu_items is intentionally fetched unfiltered and scoped in-memory via
   // filterMenuItemsForSelection below — see that function's docstring.
   const [
@@ -276,26 +369,7 @@ export async function fetchProfitabilityData(
     supplierInvoicesCountRes,
     agentRunsCountRes,
   ] = await Promise.all([
-    preloadedPos
-      ? Promise.resolve({
-          rows: preloadedPos,
-          truncated: false,
-          error: null as { message?: string } | null,
-        })
-      : fetchAllRowsRetryingWithoutColumn<PosRow>(
-          "is_tip",
-          (select) => {
-            let q = supabase
-              .from("pos_sales_items")
-              .select(select)
-              .eq("company_id", companyId);
-            if (selected) {
-              q = q.eq("location_id", selected.locationId);
-            }
-            return q;
-          },
-          "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id, is_tip, discount_amount, check_id, order_id"
-        ),
+    loadPos(),
     // Intentionally NOT filtered by location: resolveScopedName below
     // already applies the correct exact-scope-then-company-wide-fallback
     // precedence per POS row once pos_sales_items itself is location-
@@ -553,40 +627,64 @@ export async function fetchProfitabilityData(
   const unmappedRawNames = new Set<string>();
   let revenueTotal = 0;
   let mismatchedPosRows = 0;
+  let distinctCheckCount = 0;
+  let posSalesCount = 0;
 
-  const posRows = succeededRows(posRes);
-  const distinctChecks = new Set<string>();
-  for (const r of posRows) {
-    const check = r.check_id ?? r.order_id ?? null;
-    if (check) distinctChecks.add(check);
-    const raw = (r.raw_item_name ?? "").trim();
-    if (!raw) continue;
-    if (r.currency && !isSameCurrency(r.currency, companyCurrency)) {
-      mismatchedPosRows++;
-      continue;
-    }
-    const line = classifySaleLine(r);
-    if (line.isTip) continue;
-    const qty =
-      typeof r.quantity === "number" && Number.isFinite(r.quantity)
-        ? r.quantity
-        : 0;
-    const rev = line.net;
-    revenueTotal += rev;
-
-    const menuItemId = resolveScopedName(mappingIndex, r.location_id, raw);
+  const addMappedLine = (
+    raw: string,
+    locationId: string | null,
+    units: number,
+    net: number
+  ) => {
+    revenueTotal += net;
+    const menuItemId = resolveScopedName(mappingIndex, locationId, raw);
     if (!menuItemId) {
       unmappedRawNames.add(raw.toLowerCase());
-      continue;
+      return;
     }
     let agg = posByMenuItem.get(menuItemId);
     if (!agg) {
       agg = { units_sold: 0, revenue: 0, raw_names: new Set<string>() };
       posByMenuItem.set(menuItemId, agg);
     }
-    agg.units_sold += qty;
-    agg.revenue += rev;
+    agg.units_sold += units;
+    agg.revenue += net;
     agg.raw_names.add(raw);
+  };
+
+  const posRows = succeededRows(posRes);
+  const productRollup = posFetched.productRollup;
+  if (productRollup && !posRes.error) {
+    posSalesCount = productRollup.row_count;
+    distinctCheckCount = productRollup.distinct_check_count;
+    mismatchedPosRows = productRollup.currency_mismatch_rows;
+    for (const product of productRollup.products) {
+      if (product.is_tip) continue;
+      const raw = product.raw_item_name.trim();
+      if (!raw) continue;
+      addMappedLine(raw, product.location_id, product.units, product.net);
+    }
+  } else {
+    const distinctChecks = new Set<string>();
+    for (const r of posRows) {
+      const check = r.check_id ?? r.order_id ?? null;
+      if (check) distinctChecks.add(check);
+      const raw = (r.raw_item_name ?? "").trim();
+      if (!raw) continue;
+      if (r.currency && !isSameCurrency(r.currency, companyCurrency)) {
+        mismatchedPosRows++;
+        continue;
+      }
+      const line = classifySaleLine(r);
+      if (line.isTip) continue;
+      const qty =
+        typeof r.quantity === "number" && Number.isFinite(r.quantity)
+          ? r.quantity
+          : 0;
+      addMappedLine(raw, r.location_id, qty, line.net);
+    }
+    posSalesCount = posRows.length;
+    distinctCheckCount = distinctChecks.size;
   }
 
   // ----- Build per-menu-item margin rows -----
@@ -825,7 +923,7 @@ export async function fetchProfitabilityData(
   };
 
   const setupCounts: SetupCounts = {
-    pos_sales_count: posRows.length,
+    pos_sales_count: posSalesCount,
     cost_entries_count: costEntries.length,
     menu_items_count: menuItems.length,
     mappings_count: mappings.length,
@@ -834,6 +932,12 @@ export async function fetchProfitabilityData(
     agent_runs_count: agentRunsCountRes.count ?? 0,
     ingredients_count: ingredients.length,
   };
+
+  logCockpitTiming("tabs-pos", {
+    source: posFetched.posSource,
+    rows: posSalesCount,
+    products: productRollup?.products.length ?? posRows.length,
+  });
 
   return {
     kpis,
@@ -847,7 +951,8 @@ export async function fetchProfitabilityData(
     dataQuality,
     total_supplier_spend: totalSupplierSpend,
     setupCounts,
-    distinct_check_count: distinctChecks.size,
+    distinct_check_count: distinctCheckCount,
+    posSource: posFetched.posSource,
     truncated:
       posRes.truncated ||
       mappingsRes.truncated ||

@@ -45,3 +45,16 @@ export function salesHref(
   const next = search ? `${url.pathname}?${search}` : url.pathname;
   return params.hash ? `${next}#${params.hash}` : next;
 }
+
+/**
+ * Bump a nonce so the same Ask Milton chip refills the composer after
+ * the user edited the box.
+ */
+export function bumpAskMiltonPrefill(
+  currentNonce: number,
+  question?: string
+): { draft: string | null; nonce: number } {
+  const next = question?.trim() ?? "";
+  if (!next) return { draft: null, nonce: currentNonce };
+  return { draft: next, nonce: currentNonce + 1 };
+}

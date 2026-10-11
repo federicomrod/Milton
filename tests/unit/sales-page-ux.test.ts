@@ -3,7 +3,10 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { SALES_DETAIL_HREF, SALES_HREF } from "@/lib/restaurant/navigation";
 import { buildCockpitSalesAggregate } from "@/lib/restaurant/cockpit-aggregates";
-import { buildSalesInsights } from "@/lib/restaurant/sales-insights";
+import {
+  buildSalesInsights,
+  salesDayStatsFromRows,
+} from "@/lib/restaurant/sales-insights";
 import type { CockpitFactRow } from "@/lib/restaurant/cockpit-aggregates";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
@@ -46,6 +49,8 @@ describe("Sales page IA (#130)", () => {
     expect(sales).not.toContain("RestaurantSalesExplorer");
     expect(detalle).toContain("<SalesHero");
     expect(detalle).toContain("<RestaurantSalesExplorer");
+    expect(detalle).toContain("sales.explorerRows");
+    expect(detalle).toContain("mismo periodo que el encabezado");
     expect(detalle).toContain('id="categorias"');
   });
 
@@ -56,6 +61,8 @@ describe("Sales page IA (#130)", () => {
     expect(loader).toContain("parseCockpitPeriodPreset");
     expect(loader).toContain("resolveCockpitPeriod");
     expect(loader).toContain("filterRowsForSalesPeriod");
+    expect(loader).toContain("filterExplorerRowsForPeriod");
+    expect(loader).toContain("salesDayStatsFromRows");
     expect(loader).toContain("buildCockpitSalesAggregate");
     expect(chrome).toContain("CockpitPeriodControl");
     expect(page).not.toContain("shownPeriodFromSales");
@@ -100,6 +107,13 @@ describe("Spanish completeness for Sales (#130)", () => {
     expect(read("lib/restaurant/sales-insights.ts")).toContain(
       "La lectura de Milton"
     );
+    expect(read("lib/restaurant/sales-insights.ts")).toContain(
+      "Día más fuerte"
+    );
+    expect(read("lib/restaurant/sales-insights.ts")).toContain(
+      "Franja más fuerte"
+    );
+    expect(read("lib/restaurant/sales-insights.ts")).toContain("por promedio");
   });
 
   it("does not put English chrome in t() Spanish slots", () => {
@@ -150,8 +164,16 @@ describe("existing aggregate totals stay on the same net definition", () => {
     expect(agg.revenue.net_sales + agg.revenue.tips).toBe(85943.59);
     expect(agg.revenue.net_sales).toBe(85923.59);
     expect(agg.revenue.tips).toBe(20);
-    const insights = buildSalesInsights(agg, "es");
+    const insights = buildSalesInsights(
+      agg,
+      "es",
+      salesDayStatsFromRows(rows, { currency: "USD" })
+    );
+    expect(insights.availability).toBe("insufficient");
     expect(insights.summaries[0].value).toBe("$85,923.59");
     expect(insights.summaries[0].value).not.toContain("USD");
+    expect(insights.summaries.find((s) => s.id === "daypart")?.value).toBe(
+      "Aún no disponible"
+    );
   });
 });

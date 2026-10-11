@@ -16,6 +16,7 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { SalesHighlights } from "./SalesHighlights";
 import { SalesDetailLink } from "./SalesDetailLink";
+import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
 
 export function SalesUnderstand({
   insights,
@@ -79,27 +80,41 @@ export function SalesUnderstand({
             <SalesDetailLink href={`${detailHref}#horario`} lang={lang} />
           </div>
         </div>
-        <SalesHighlights highlights={insights.highlights} lang={lang} />
+        <SalesHighlights
+          highlights={insights.highlights}
+          availability={insights.availability}
+          lang={lang}
+        />
       </div>
 
       <div
         data-testid="sales-summaries"
         className="grid grid-cols-1 sm:grid-cols-3 gap-2"
       >
-        {insights.summaries.map((row) => (
-          <div
-            key={row.id}
-            className="rounded-md border border-border px-3 py-2"
-          >
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-              {row.label}
-            </p>
-            <p className="text-lg font-semibold tabular-nums mt-0.5">
-              {row.value}
-            </p>
-            <p className="text-[11px] text-muted-foreground">{row.hint}</p>
-          </div>
-        ))}
+        {insights.summaries.map((row) =>
+          row.available ? (
+            <div
+              key={row.id}
+              className="rounded-md border border-border px-3 py-2"
+            >
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                {row.label}
+              </p>
+              <p className="text-lg font-semibold tabular-nums mt-0.5">
+                {row.value}
+              </p>
+              <p className="text-[11px] text-muted-foreground">{row.hint}</p>
+            </div>
+          ) : (
+            <NotAvailableYet
+              key={row.id}
+              lang={lang}
+              title={row.label}
+              reason={row.hint}
+              compact
+            />
+          )
+        )}
       </div>
     </section>
   );

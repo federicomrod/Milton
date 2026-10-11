@@ -13,10 +13,12 @@ import {
   useMemo,
   useState,
 } from "react";
+import { bumpAskMiltonPrefill } from "@/lib/restaurant/sales-explore";
 
 export interface AskMiltonController {
   open: boolean;
   draft: string | null;
+  nonce: number;
   openAskMilton: (draft?: string) => void;
   onOpenChange: (open: boolean) => void;
 }
@@ -31,22 +33,28 @@ export function AskMiltonControllerProvider({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<string | null>(null);
+  const [prefill, setPrefill] = useState<{
+    draft: string | null;
+    nonce: number;
+  }>({ draft: null, nonce: 0 });
 
   const openAskMilton = useCallback((question?: string) => {
-    const next = question?.trim() ?? "";
-    setDraft(next.length > 0 ? next : null);
+    setPrefill((prev) => {
+      const next = bumpAskMiltonPrefill(prev.nonce, question);
+      return { draft: next.draft, nonce: next.nonce };
+    });
     setOpen(true);
   }, []);
 
   const value = useMemo<AskMiltonController>(
     () => ({
       open,
-      draft,
+      draft: prefill.draft,
+      nonce: prefill.nonce,
       openAskMilton,
       onOpenChange: setOpen,
     }),
-    [open, draft, openAskMilton]
+    [open, prefill, openAskMilton]
   );
 
   return (
@@ -62,6 +70,7 @@ export function useAskMiltonController(): AskMiltonController {
     return {
       open: false,
       draft: null,
+      nonce: 0,
       openAskMilton: () => {},
       onOpenChange: () => {},
     };

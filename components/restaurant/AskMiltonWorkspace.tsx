@@ -444,7 +444,7 @@ function SourceBadge({ source }: { source: "openai" | "deterministic" }) {
 
 function ChatWorkspace() {
   const lang = useMiltonLang();
-  const { draft } = useAskMiltonController();
+  const { draft, nonce } = useAskMiltonController();
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
@@ -465,7 +465,7 @@ function ChatWorkspace() {
 
   useEffect(() => {
     if (draft) setInput(draft);
-  }, [draft]);
+  }, [draft, nonce]);
 
   // Auto-scroll on new turns.
   useEffect(() => {

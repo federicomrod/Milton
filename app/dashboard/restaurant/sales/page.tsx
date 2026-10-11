@@ -68,22 +68,24 @@ export default async function SalesAreaPage({
             lang={lang}
             detailHref={detailHref}
           />
-          <Suspense
-            fallback={
-              <SalesInterpretation
+          {sales.insights.interpretation && sales.interpretationFact ? (
+            <Suspense
+              fallback={
+                <SalesInterpretation
+                  lang={lang}
+                  title={sales.insights.interpretation.title}
+                  body={sales.insights.interpretation.body}
+                  source="deterministic"
+                />
+              }
+            >
+              <SalesInterpretationUpgrade
+                fact={sales.interpretationFact}
                 lang={lang}
-                title={sales.insights.interpretation.title}
-                body={sales.insights.interpretation.body}
-                source="deterministic"
+                cacheKey={sales.interpretationCacheKey}
               />
-            }
-          >
-            <SalesInterpretationUpgrade
-              fact={sales.interpretationFact}
-              lang={lang}
-              cacheKey={sales.interpretationCacheKey}
-            />
-          </Suspense>
+            </Suspense>
+          ) : null}
           <Suspense
             fallback={
               <PageSkeleton height="14rem" className="w-full" lang={lang} />

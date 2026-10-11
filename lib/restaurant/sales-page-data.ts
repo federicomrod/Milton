@@ -28,9 +28,12 @@ import {
   type CockpitPeriod,
   type CockpitPeriodPreset,
 } from "@/lib/restaurant/cockpit-period";
+import type { ExplorerRow } from "@/lib/restaurant/supabase-sales";
 import {
   buildSalesInsights,
+  filterExplorerRowsForPeriod,
   filterRowsForSalesPeriod,
+  salesDayStatsFromRows,
   type SalesInsights,
 } from "@/lib/restaurant/sales-insights";
 
@@ -41,7 +44,8 @@ export interface SalesPageView {
   phrases: CockpitComparisonPhrases;
   scoped: CockpitSalesAggregate;
   insights: SalesInsights;
-  interpretationFact: CockpitInsightFact;
+  explorerRows: ExplorerRow[];
+  interpretationFact: CockpitInsightFact | null;
   interpretationCacheKey: string;
 }
 
@@ -77,7 +81,12 @@ export async function loadSalesPageModel(
     timezone
   );
   const scoped = buildCockpitSalesAggregate(filtered, { timezone, currency });
-  const insights = buildSalesInsights(scoped, lang);
+  const stats = salesDayStatsFromRows(filtered, { timezone, currency });
+  const insights = buildSalesInsights(scoped, lang, stats);
+  const explorerRows = filterExplorerRowsForPeriod(
+    base.data.explorerRows,
+    period
+  );
   const phrases = cockpitComparisonPhrases(period, lang);
   const interpretationCacheKey = cockpitInsightCacheKey({
     companyId: `sales:${base.data.companyId}`,
@@ -86,7 +95,9 @@ export async function loadSalesPageModel(
     from: period.current.from,
     to: period.current.to,
     lang,
-    factsHash: hashCockpitInsightFacts([insights.interpretationFact]),
+    factsHash: insights.interpretationFact
+      ? hashCockpitInsightFacts([insights.interpretationFact])
+      : "none",
     dataVersion: cockpitFactsDataVersion({
       latestSaleDate: base.data.cockpit.period_to,
       rowCount: base.data.rowCount,
@@ -103,6 +114,7 @@ export async function loadSalesPageModel(
       phrases,
       scoped,
       insights,
+      explorerRows,
       interpretationFact: insights.interpretationFact,
       interpretationCacheKey,
     },

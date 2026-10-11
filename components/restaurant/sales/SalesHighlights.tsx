@@ -5,14 +5,19 @@
 "use client";
 
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
-import type { SalesHighlight } from "@/lib/restaurant/sales-insights";
+import type {
+  SalesAvailability,
+  SalesHighlight,
+} from "@/lib/restaurant/sales-insights";
 import { useAskMiltonController } from "@/components/restaurant/shell/ask-milton-controller";
 
 export function SalesHighlights({
   highlights,
+  availability,
   lang,
 }: {
   highlights: SalesHighlight[];
+  availability: SalesAvailability;
   lang: PreferredLanguage;
 }) {
   const { openAskMilton } = useAskMiltonController();
@@ -26,12 +31,21 @@ export function SalesHighlights({
         {t(lang, "What stands out", "Lo que destaca")}
       </h2>
       {highlights.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {t(
-            lang,
-            "Not enough sales in this period to pick a peak yet.",
-            "Aún no hay suficientes ventas en este periodo para marcar un pico."
-          )}
+        <p
+          className="text-sm text-muted-foreground"
+          data-testid="sales-highlights-empty"
+        >
+          {availability === "empty"
+            ? t(
+                lang,
+                "No sales in this period.",
+                "No hay ventas en este periodo."
+              )
+            : t(
+                lang,
+                "Not enough history yet to name a strongest day or slot.",
+                "Aún no hay suficiente historia para marcar un día o una franja."
+              )}
         </p>
       ) : (
         <ul className="space-y-3">
@@ -41,14 +55,16 @@ export function SalesHighlights({
                 {item.title}
               </p>
               <p className="text-sm font-medium leading-snug">{item.body}</p>
-              <button
-                type="button"
-                data-testid={`ask-milton-${item.id}`}
-                onClick={() => openAskMilton(item.ask_question)}
-                className="text-xs font-medium text-orange-700 dark:text-orange-300 hover:underline underline-offset-2"
-              >
-                {t(lang, "Ask Milton", "Preguntar a Milton")}
-              </button>
+              {item.ask_question ? (
+                <button
+                  type="button"
+                  data-testid={`ask-milton-${item.id}`}
+                  onClick={() => openAskMilton(item.ask_question ?? undefined)}
+                  className="text-xs font-medium text-orange-700 dark:text-orange-300 hover:underline underline-offset-2"
+                >
+                  {t(lang, "Ask Milton", "Preguntar a Milton")}
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>

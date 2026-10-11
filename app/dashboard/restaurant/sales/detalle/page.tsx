@@ -65,10 +65,20 @@ export default async function SalesDetailPage({
       </p>
       {data.mode === "live" && sales ? (
         <div className="space-y-6">
+          <p
+            className="text-xs text-muted-foreground"
+            data-testid="sales-detail-period-note"
+          >
+            {t(
+              lang,
+              "The charts and the explorer below use the same period as the header.",
+              "Los gráficos y el explorador de abajo usan el mismo periodo que el encabezado."
+            )}
+          </p>
           <SalesHero cockpit={sales.scoped} lang={lang} />
           <section id="categorias">
             <RestaurantSalesExplorer
-              rows={data.explorerRows}
+              rows={sales.explorerRows}
               initialTargets={targets}
               displayCurrency={
                 profitability?.kpis.currency ?? data.overview.currency

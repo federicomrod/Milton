@@ -1,13 +1,17 @@
 // lib/restaurant/sales-insights.ts
 //
-// Deterministic Sales-page insights. React only renders; this module
-// picks the peak slot, weakest weekday, lunch vs dinner split, ranked
-// categories, and the one-line interpretation. OpenAI may reword that
-// line through the existing cockpit-insights-ai guards — never invent
-// numbers.
+// Deterministic Sales-page insights. React only renders.
+//
+// Strongest / weakest weekday and the peak slot are ranked on the
+// AVERAGE per distinct local date — not raw totals (#110 / #112).
+// A weekday or weekday-hour needs at least MIN_*_OCCURRENCES dates
+// before we call it a finding. Lunch/dinner share needs enough days
+// and tickets. OpenAI may only reword the one-line read through the
+// existing cockpit-insights-ai guards.
 
 import {
   DINNER_START_HOUR,
+  formatCompactDateRange,
   type CategoryMixRow,
   type CockpitFactRow,
   type CockpitSalesAggregate,
@@ -26,12 +30,25 @@ import {
   type CockpitPeriod,
 } from "@/lib/restaurant/cockpit-period";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
-import type { WeekdayKey } from "@/lib/restaurant/pos-local-time";
-import { WEEKDAY_KEYS } from "@/lib/restaurant/pos-local-time";
+import {
+  localWeekdayAndHour,
+  WEEKDAY_KEYS,
+  type WeekdayKey,
+} from "@/lib/restaurant/pos-local-time";
 import { SALES_CATEGORY_TOP_N } from "@/lib/restaurant/sales-explore";
-import type { Daypart } from "@/lib/restaurant/sales-revenue";
+import { classifySaleLine, type Daypart } from "@/lib/restaurant/sales-revenue";
+import type { ExplorerRow } from "@/lib/restaurant/supabase-sales";
 
 export { DINNER_START_HOUR };
+
+/** A weekday needs this many distinct local dates before we rank it. */
+export const MIN_WEEKDAY_OCCURRENCES = 2;
+/** A weekday-hour needs this many distinct dates before we call it the peak. */
+export const MIN_PEAK_SLOT_OCCURRENCES = 2;
+/** Findings need this many distinct local dates with sales. */
+export const MIN_DAYS_FOR_FINDINGS = 2;
+/** Lunch/dinner share claims need this many tickets and MIN_DAYS_FOR_FINDINGS. */
+export const MIN_TICKETS_FOR_DAYPART_SHARE = 20;
 
 const WEEKDAY_LABEL_EN = [
   "Sunday",
@@ -52,27 +69,51 @@ const WEEKDAY_LABEL_ES = [
   "sábado",
 ] as const;
 
+export type SalesAvailability = "empty" | "insufficient" | "ready";
+
 export interface PeakSlot {
   weekday: number;
   weekday_key: WeekdayKey;
   hour: number;
   net_sales: number;
   tickets: number;
+  days: number;
+  avg_per_day: number;
 }
 
-export interface WeekdayTotal {
+export interface WeekdayStat {
+  weekday: number;
+  weekday_key: WeekdayKey;
+  net_sales: number;
+  tickets: number;
+  days: number;
+  avg_per_day: number;
+}
+
+export interface BestDate {
+  date: string;
   weekday: number;
   weekday_key: WeekdayKey;
   net_sales: number;
   tickets: number;
 }
 
+export interface SalesDayStats {
+  days_with_sales: number;
+  tickets: number;
+  weekdays: WeekdayStat[];
+  slots: PeakSlot[];
+  best_date: BestDate | null;
+}
+
 export interface DaypartSplit {
   lunch: DaypartTotals;
   dinner: DaypartTotals;
-  winner: Daypart | "tie";
+  winner: Daypart | "tie" | null;
   lunch_share_pct: number | null;
   dinner_share_pct: number | null;
+  available: boolean;
+  reason: string | null;
 }
 
 export interface RankedCategories {
@@ -93,10 +134,10 @@ export interface EnrichedHeatmapCell extends HeatmapCell {
 }
 
 export interface SalesHighlight {
-  id: "peak_slot" | "strongest_weekday" | "weakest_weekday";
+  id: "peak_slot" | "strongest_weekday" | "weakest_weekday" | "best_date";
   title: string;
   body: string;
-  ask_question: string;
+  ask_question: string | null;
   facts: Record<string, number | string | null>;
 }
 
@@ -105,6 +146,7 @@ export interface SalesSummary {
   label: string;
   value: string;
   hint: string;
+  available: boolean;
 }
 
 export interface SalesInterpretation {
@@ -114,9 +156,12 @@ export interface SalesInterpretation {
 }
 
 export interface SalesInsights {
+  availability: SalesAvailability;
+  days_with_sales: number;
   peak_slot: PeakSlot | null;
-  strongest_weekday: WeekdayTotal | null;
-  weakest_weekday: WeekdayTotal | null;
+  strongest_weekday: WeekdayStat | null;
+  weakest_weekday: WeekdayStat | null;
+  best_date: BestDate | null;
   daypart: DaypartSplit;
   ranked_categories: RankedCategories;
   channel_mix: MixSlice[];
@@ -125,8 +170,8 @@ export interface SalesInsights {
   typical_net_by_hour: Record<number, number>;
   highlights: SalesHighlight[];
   summaries: SalesSummary[];
-  interpretation: SalesInterpretation;
-  interpretationFact: CockpitInsightFact;
+  interpretation: SalesInterpretation | null;
+  interpretationFact: CockpitInsightFact | null;
 }
 
 export function weekdayLabel(weekday: number, lang: PreferredLanguage): string {
@@ -136,6 +181,24 @@ export function weekdayLabel(weekday: number, lang: PreferredLanguage): string {
 
 export function hourLabel(hour: number): string {
   return `${String(Math.min(23, Math.max(0, Math.trunc(hour)))).padStart(2, "0")}:00`;
+}
+
+export function weekdayPlural(
+  weekday: number,
+  lang: PreferredLanguage
+): string {
+  const day = weekdayLabel(weekday, lang);
+  if (lang === "es") {
+    if (day === "sábado") return "sábados";
+    if (day === "domingo") return "domingos";
+    return day;
+  }
+  return `${day}s`;
+}
+
+export function ticketCountLabel(n: number, lang: PreferredLanguage): string {
+  if (n === 1) return t(lang, "1 ticket", "1 ticket");
+  return t(lang, `${n} tickets`, `${n} tickets`);
 }
 
 export function filterRowsForSalesPeriod(
@@ -150,73 +213,206 @@ export function filterRowsForSalesPeriod(
   });
 }
 
-export function findPeakSlot(cells: HeatmapCell[]): PeakSlot | null {
-  const ranked = cells
-    .filter((c) => c.net_sales > 0)
-    .sort((a, b) => {
-      if (b.net_sales !== a.net_sales) return b.net_sales - a.net_sales;
-      if (a.weekday !== b.weekday) return a.weekday - b.weekday;
-      return a.hour - b.hour;
-    });
-  const top = ranked[0];
-  if (!top) return null;
+export function filterExplorerRowsForPeriod(
+  rows: ExplorerRow[],
+  period: CockpitPeriod
+): ExplorerRow[] {
+  return rows.filter((row) => inInclusiveRange(row.sale_date, period.current));
+}
+
+export function salesDayStatsFromRows(
+  rows: CockpitFactRow[],
+  options: { timezone?: string; currency?: string } = {}
+): SalesDayStats {
+  const timezone = options.timezone ?? "UTC";
+  const currency = options.currency;
+  const byDate = new Map<
+    string,
+    { weekday: number; net: number; orders: Set<string> }
+  >();
+  const bySlot = new Map<
+    string,
+    {
+      weekday: number;
+      hour: number;
+      net: number;
+      orders: Set<string>;
+      dates: Set<string>;
+    }
+  >();
+
+  for (const row of rows) {
+    if (currency && row.currency && row.currency !== currency) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(row.sale_date)) continue;
+    const line = classifySaleLine(row);
+    const local = localWeekdayAndHour(
+      {
+        sale_date: row.sale_date,
+        order_placed_at: row.order_placed_at ?? null,
+      },
+      timezone
+    );
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(local.dateKey)) continue;
+    const key = row.check_id ?? row.order_id ?? null;
+
+    if (!line.isTip) {
+      let day = byDate.get(local.dateKey);
+      if (!day) {
+        day = { weekday: local.weekday, net: 0, orders: new Set() };
+        byDate.set(local.dateKey, day);
+      }
+      day.net += line.net;
+      if (key) day.orders.add(key);
+    }
+
+    if (local.hour !== null && !line.isTip) {
+      const slotKey = `${local.weekday}-${local.hour}`;
+      let slot = bySlot.get(slotKey);
+      if (!slot) {
+        slot = {
+          weekday: local.weekday,
+          hour: local.hour,
+          net: 0,
+          orders: new Set(),
+          dates: new Set(),
+        };
+        bySlot.set(slotKey, slot);
+      }
+      slot.net += line.net;
+      slot.dates.add(local.dateKey);
+      if (key) slot.orders.add(key);
+    }
+  }
+
+  const weekdays = weekdayStatsFromDates(byDate);
+  const slots: PeakSlot[] = Array.from(bySlot.values())
+    .map((slot) => ({
+      weekday: slot.weekday,
+      weekday_key: WEEKDAY_KEYS[slot.weekday],
+      hour: slot.hour,
+      net_sales: round2(slot.net),
+      tickets: slot.orders.size,
+      days: slot.dates.size,
+      avg_per_day: slot.dates.size > 0 ? round2(slot.net / slot.dates.size) : 0,
+    }))
+    .sort((a, b) => a.weekday - b.weekday || a.hour - b.hour);
+
+  let best_date: BestDate | null = null;
+  for (const [date, day] of byDate) {
+    if (day.net <= 0) continue;
+    if (!best_date || day.net > best_date.net_sales) {
+      best_date = {
+        date,
+        weekday: day.weekday,
+        weekday_key: WEEKDAY_KEYS[day.weekday],
+        net_sales: round2(day.net),
+        tickets: day.orders.size,
+      };
+    } else if (day.net === best_date.net_sales && date < best_date.date) {
+      best_date = {
+        date,
+        weekday: day.weekday,
+        weekday_key: WEEKDAY_KEYS[day.weekday],
+        net_sales: round2(day.net),
+        tickets: day.orders.size,
+      };
+    }
+  }
+
+  const days_with_sales = Array.from(byDate.values()).filter(
+    (d) => d.net > 0
+  ).length;
+  const tickets = new Set<string>();
+  for (const day of byDate.values()) {
+    for (const order of day.orders) tickets.add(order);
+  }
+
   return {
-    weekday: top.weekday,
-    weekday_key: top.weekday_key,
-    hour: top.hour,
-    net_sales: round2(top.net_sales),
-    tickets: top.tickets,
+    days_with_sales,
+    tickets: tickets.size,
+    weekdays,
+    slots,
+    best_date,
   };
 }
 
-export function weekdayTotals(cells: HeatmapCell[]): WeekdayTotal[] {
-  const buckets = new Map<number, { net: number; tickets: number }>();
-  for (let i = 0; i < 7; i++) buckets.set(i, { net: 0, tickets: 0 });
-  for (const cell of cells) {
-    const bucket = buckets.get(cell.weekday) ?? { net: 0, tickets: 0 };
-    bucket.net += cell.net_sales;
-    bucket.tickets += cell.tickets;
-    buckets.set(cell.weekday, bucket);
+function weekdayStatsFromDates(
+  byDate: Map<string, { weekday: number; net: number; orders: Set<string> }>
+): WeekdayStat[] {
+  const buckets = new Map<
+    number,
+    { net: number; orders: Set<string>; dates: Set<string> }
+  >();
+  for (let i = 0; i < 7; i++) {
+    buckets.set(i, { net: 0, orders: new Set(), dates: new Set() });
+  }
+  for (const [date, day] of byDate) {
+    const bucket = buckets.get(day.weekday)!;
+    bucket.net += day.net;
+    if (day.net > 0) bucket.dates.add(date);
+    for (const order of day.orders) bucket.orders.add(order);
   }
   return Array.from(buckets.entries()).map(([weekday, bucket]) => ({
     weekday,
     weekday_key: WEEKDAY_KEYS[weekday],
     net_sales: round2(bucket.net),
-    tickets: bucket.tickets,
+    tickets: bucket.orders.size,
+    days: bucket.dates.size,
+    avg_per_day:
+      bucket.dates.size > 0 ? round2(bucket.net / bucket.dates.size) : 0,
   }));
 }
 
+export function findPeakSlot(slots: PeakSlot[]): PeakSlot | null {
+  const ranked = slots
+    .filter((s) => s.avg_per_day > 0 && s.days >= MIN_PEAK_SLOT_OCCURRENCES)
+    .sort((a, b) => {
+      if (b.avg_per_day !== a.avg_per_day) return b.avg_per_day - a.avg_per_day;
+      if (a.weekday !== b.weekday) return a.weekday - b.weekday;
+      return a.hour - b.hour;
+    });
+  return ranked[0] ?? null;
+}
+
 export function findStrongestWeekday(
-  totals: WeekdayTotal[]
-): WeekdayTotal | null {
-  return pickWeekday(totals, "max");
+  weekdays: WeekdayStat[]
+): WeekdayStat | null {
+  return pickWeekday(weekdays, "max");
 }
 
 export function findWeakestWeekday(
-  totals: WeekdayTotal[]
-): WeekdayTotal | null {
-  return pickWeekday(totals, "min");
+  weekdays: WeekdayStat[]
+): WeekdayStat | null {
+  return pickWeekday(weekdays, "min");
 }
 
 function pickWeekday(
-  totals: WeekdayTotal[],
+  weekdays: WeekdayStat[],
   mode: "max" | "min"
-): WeekdayTotal | null {
-  const active = totals.filter((row) => row.net_sales > 0);
+): WeekdayStat | null {
+  const active = weekdays.filter(
+    (row) => row.avg_per_day > 0 && row.days >= MIN_WEEKDAY_OCCURRENCES
+  );
   if (active.length === 0) return null;
   return active.reduce((best, row) => {
     if (mode === "max") {
-      if (row.net_sales !== best.net_sales) {
-        return row.net_sales > best.net_sales ? row : best;
+      if (row.avg_per_day !== best.avg_per_day) {
+        return row.avg_per_day > best.avg_per_day ? row : best;
       }
-    } else if (row.net_sales !== best.net_sales) {
-      return row.net_sales < best.net_sales ? row : best;
+    } else if (row.avg_per_day !== best.avg_per_day) {
+      return row.avg_per_day < best.avg_per_day ? row : best;
     }
     return row.weekday < best.weekday ? row : best;
   });
 }
 
-export function lunchVsDinner(dayparts: DaypartTotals[]): DaypartSplit {
+export function lunchVsDinner(dayparts: DaypartTotals[]): {
+  lunch: DaypartTotals;
+  dinner: DaypartTotals;
+  winner: Daypart | "tie";
+  lunch_share_pct: number | null;
+  dinner_share_pct: number | null;
+} {
   const lunch =
     dayparts.find((d) => d.daypart === "lunch") ?? emptyDaypart("lunch");
   const dinner =
@@ -316,44 +512,74 @@ export function enrichHeatmapCells(
 
 export function buildSalesInsights(
   agg: CockpitSalesAggregate,
-  lang: PreferredLanguage
+  lang: PreferredLanguage,
+  stats: SalesDayStats
 ): SalesInsights {
-  const peak = findPeakSlot(agg.heatmap);
-  const byWeekday = weekdayTotals(agg.heatmap);
-  const strongest = findStrongestWeekday(byWeekday);
-  const weakestRaw = findWeakestWeekday(byWeekday);
+  const availability: SalesAvailability =
+    agg.revenue.net_sales <= 0 && stats.days_with_sales === 0
+      ? "empty"
+      : stats.days_with_sales < MIN_DAYS_FOR_FINDINGS
+        ? "insufficient"
+        : "ready";
+
+  const canFind =
+    availability === "ready" && stats.days_with_sales >= MIN_DAYS_FOR_FINDINGS;
+  const peak = canFind ? findPeakSlot(stats.slots) : null;
+  const strongest = canFind ? findStrongestWeekday(stats.weekdays) : null;
+  const weakestRaw = canFind ? findWeakestWeekday(stats.weekdays) : null;
   const weakest =
     weakestRaw && strongest && weakestRaw.weekday === strongest.weekday
       ? null
       : weakestRaw;
-  const daypart = lunchVsDinner(agg.dayparts);
+  const bestDate =
+    canFind && stats.best_date && stats.days_with_sales >= MIN_DAYS_FOR_FINDINGS
+      ? stats.best_date
+      : null;
+
+  const rawDaypart = lunchVsDinner(agg.dayparts);
+  const daypartAvailable =
+    availability === "ready" &&
+    stats.days_with_sales >= MIN_DAYS_FOR_FINDINGS &&
+    agg.tickets >= MIN_TICKETS_FOR_DAYPART_SHARE;
+  const daypart = resolveDaypartSplit(rawDaypart, availability, lang, {
+    available: daypartAvailable,
+  });
+
   const money = (n: number, digits = 0) =>
     formatCockpitMoney(n, agg.currency, digits);
   const highlights = buildHighlights({
     lang,
     money,
+    availability,
     peak,
     strongest,
     weakest,
+    bestDate,
   });
   const summaries = buildSummaries({
     lang,
     money,
     agg,
     daypart,
+    availability,
   });
   const interpretation = buildInterpretation({
     lang,
     money,
     peak,
     daypart,
+    strongest,
     agg,
+    availability,
   });
 
   return {
+    availability,
+    days_with_sales: stats.days_with_sales,
     peak_slot: peak,
     strongest_weekday: strongest,
     weakest_weekday: weakest,
+    best_date: bestDate,
     daypart,
     ranked_categories: rankCategories(agg.category_mix),
     channel_mix: flattenMixSeries(agg.channel_mix_over_time),
@@ -363,126 +589,251 @@ export function buildSalesInsights(
     highlights,
     summaries,
     interpretation,
-    interpretationFact: {
-      id: "sales_interpretation",
-      kind: "sales_change",
-      score: 1,
-      facts: interpretation.facts,
-      title: interpretation.title,
-      body: interpretation.body,
-    },
+    interpretationFact: interpretation
+      ? {
+          id: "sales_interpretation",
+          kind: "sales_change",
+          score: 1,
+          facts: interpretation.facts,
+          title: interpretation.title,
+          body: interpretation.body,
+        }
+      : null,
   };
+}
+
+function resolveDaypartSplit(
+  raw: ReturnType<typeof lunchVsDinner>,
+  availability: SalesAvailability,
+  lang: PreferredLanguage,
+  opts: { available: boolean }
+): DaypartSplit {
+  if (availability === "empty") {
+    return {
+      ...raw,
+      winner: null,
+      lunch_share_pct: null,
+      dinner_share_pct: null,
+      available: false,
+      reason: t(
+        lang,
+        "No sales in this period.",
+        "No hay ventas en este periodo."
+      ),
+    };
+  }
+  if (!opts.available) {
+    return {
+      ...raw,
+      winner: null,
+      lunch_share_pct: null,
+      dinner_share_pct: null,
+      available: false,
+      reason: t(
+        lang,
+        `Need at least ${MIN_DAYS_FOR_FINDINGS} days with sales and ${MIN_TICKETS_FOR_DAYPART_SHARE} tickets to compare lunch and dinner.`,
+        `Se necesitan al menos ${MIN_DAYS_FOR_FINDINGS} días con ventas y ${MIN_TICKETS_FOR_DAYPART_SHARE} tickets para comparar almuerzo y cena.`
+      ),
+    };
+  }
+  return {
+    ...raw,
+    available: true,
+    reason: null,
+  };
+}
+
+function weekdayAveragePhrase(
+  stat: WeekdayStat,
+  lang: PreferredLanguage,
+  money: (n: number, digits?: number) => string
+): string {
+  const day = weekdayLabel(stat.weekday, lang);
+  const days = weekdayPlural(stat.weekday, lang);
+  return polishCockpitCopy(
+    lang,
+    t(
+      lang,
+      `${money(stat.avg_per_day)} per ${day} (total of the ${stat.days} ${days}: ${money(stat.net_sales)})`,
+      `${money(stat.avg_per_day)} por ${day} (total de los ${stat.days} ${days}: ${money(stat.net_sales)})`
+    )
+  );
+}
+
+function slotAveragePhrase(
+  slot: PeakSlot,
+  lang: PreferredLanguage,
+  money: (n: number, digits?: number) => string
+): string {
+  const day = weekdayLabel(slot.weekday, lang);
+  const hour = hourLabel(slot.hour);
+  return polishCockpitCopy(
+    lang,
+    t(
+      lang,
+      `${money(slot.avg_per_day)} per ${day} at ${hour} (total of the ${slot.days} times: ${money(slot.net_sales)})`,
+      `${money(slot.avg_per_day)} por ${day} a las ${hour} (total de las ${slot.days} veces: ${money(slot.net_sales)})`
+    )
+  );
 }
 
 function buildHighlights({
   lang,
   money,
+  availability,
   peak,
   strongest,
   weakest,
+  bestDate,
 }: {
   lang: PreferredLanguage;
   money: (n: number, digits?: number) => string;
+  availability: SalesAvailability;
   peak: PeakSlot | null;
-  strongest: WeekdayTotal | null;
-  weakest: WeekdayTotal | null;
+  strongest: WeekdayStat | null;
+  weakest: WeekdayStat | null;
+  bestDate: BestDate | null;
 }): SalesHighlight[] {
+  if (availability !== "ready") return [];
   const out: SalesHighlight[] = [];
   if (peak) {
     const day = weekdayLabel(peak.weekday, lang);
     const hour = hourLabel(peak.hour);
-    const amount = money(peak.net_sales);
+    const avgPhrase = slotAveragePhrase(peak, lang, money);
     out.push({
       id: "peak_slot",
       title: polishCockpitCopy(
         lang,
-        t(lang, "Peak period", "Pico del periodo")
+        t(lang, "Strongest slot", "Franja más fuerte")
       ),
       body: polishCockpitCopy(
         lang,
         t(
           lang,
-          `${day} ${hour} · ${amount} · ${peak.tickets} tickets`,
-          `${day} ${hour} · ${amount} · ${peak.tickets} tickets`
+          `${day} ${hour} · ${avgPhrase} · ${ticketCountLabel(peak.tickets, lang)}`,
+          `${day} ${hour} · ${avgPhrase} · ${ticketCountLabel(peak.tickets, lang)}`
         )
       ),
       ask_question: polishCockpitCopy(
         lang,
         t(
           lang,
-          `Why is ${day} at ${hour} the peak slot, with ${amount} in net sales?`,
-          `¿Por qué el ${day} a las ${hour} es el pico, con ${amount} en ventas netas?`
+          `Why is ${day} at ${hour} the strongest slot by average, at ${money(peak.avg_per_day)} per ${day} at ${hour}?`,
+          `¿Por qué el ${day} a las ${hour} es la franja más fuerte por promedio, con ${money(peak.avg_per_day)} por ${day} a las ${hour}?`
         )
       ),
       facts: {
         weekday: peak.weekday,
         hour: peak.hour,
         net_sales: peak.net_sales,
+        avg_per_day: peak.avg_per_day,
+        days: peak.days,
         tickets: peak.tickets,
       },
     });
   }
   if (strongest) {
     const day = weekdayLabel(strongest.weekday, lang);
-    const amount = money(strongest.net_sales);
+    const avgPhrase = weekdayAveragePhrase(strongest, lang, money);
     out.push({
       id: "strongest_weekday",
       title: polishCockpitCopy(
         lang,
-        t(lang, "Strongest period", "Periodo más fuerte")
+        t(lang, "Strongest weekday", "Día más fuerte")
       ),
       body: polishCockpitCopy(
         lang,
         t(
           lang,
-          `${day} · ${amount} · ${strongest.tickets} tickets`,
-          `${day} · ${amount} · ${strongest.tickets} tickets`
+          `${day}: ${avgPhrase} · ${ticketCountLabel(strongest.tickets, lang)}`,
+          `${day}: ${avgPhrase} · ${ticketCountLabel(strongest.tickets, lang)}`
         )
       ),
       ask_question: polishCockpitCopy(
         lang,
         t(
           lang,
-          `What makes ${day} the strongest weekday, with ${amount} in net sales?`,
-          `¿Qué hace del ${day} el día más fuerte, con ${amount} en ventas netas?`
+          `What makes ${day} the strongest weekday by average, at ${money(strongest.avg_per_day)} per ${day} (total of the ${strongest.days} ${weekdayPlural(strongest.weekday, lang)}: ${money(strongest.net_sales)})?`,
+          `¿Qué hace del ${day} el día más fuerte por promedio, con ${money(strongest.avg_per_day)} por ${day} (total de los ${strongest.days} ${weekdayPlural(strongest.weekday, lang)}: ${money(strongest.net_sales)})?`
         )
       ),
       facts: {
         weekday: strongest.weekday,
         net_sales: strongest.net_sales,
+        avg_per_day: strongest.avg_per_day,
+        days: strongest.days,
         tickets: strongest.tickets,
       },
     });
   }
   if (weakest) {
     const day = weekdayLabel(weakest.weekday, lang);
-    const amount = money(weakest.net_sales);
+    const avgPhrase = weekdayAveragePhrase(weakest, lang, money);
     out.push({
       id: "weakest_weekday",
       title: polishCockpitCopy(
         lang,
-        t(lang, "Weakest period", "Periodo más flojo")
+        t(lang, "Weakest weekday", "Día más flojo")
       ),
       body: polishCockpitCopy(
         lang,
         t(
           lang,
-          `${day} · ${amount} · ${weakest.tickets} tickets`,
-          `${day} · ${amount} · ${weakest.tickets} tickets`
+          `${day}: ${avgPhrase} · ${ticketCountLabel(weakest.tickets, lang)}`,
+          `${day}: ${avgPhrase} · ${ticketCountLabel(weakest.tickets, lang)}`
         )
       ),
       ask_question: polishCockpitCopy(
         lang,
         t(
           lang,
-          `What is happening on ${day}, the weakest weekday, with ${amount} in net sales?`,
-          `¿Qué está pasando el ${day}, el día más flojo, con ${amount} en ventas netas?`
+          `What is happening on ${day}, the weakest weekday by average, at ${money(weakest.avg_per_day)} per ${day}?`,
+          `¿Qué está pasando el ${day}, el día más flojo por promedio, con ${money(weakest.avg_per_day)} por ${day}?`
         )
       ),
       facts: {
         weekday: weakest.weekday,
         net_sales: weakest.net_sales,
+        avg_per_day: weakest.avg_per_day,
+        days: weakest.days,
         tickets: weakest.tickets,
+      },
+    });
+  }
+  if (bestDate) {
+    const day = weekdayLabel(bestDate.weekday, lang);
+    const dateLabel = formatCompactDateRange(
+      bestDate.date,
+      bestDate.date,
+      lang === "es" ? "es" : "en-GB"
+    );
+    out.push({
+      id: "best_date",
+      title: polishCockpitCopy(
+        lang,
+        t(lang, "Best single day", "Mejor día suelto")
+      ),
+      body: polishCockpitCopy(
+        lang,
+        t(
+          lang,
+          `${day} ${dateLabel} · ${money(bestDate.net_sales)} · ${ticketCountLabel(bestDate.tickets, lang)}`,
+          `${day} ${dateLabel} · ${money(bestDate.net_sales)} · ${ticketCountLabel(bestDate.tickets, lang)}`
+        )
+      ),
+      ask_question: polishCockpitCopy(
+        lang,
+        t(
+          lang,
+          `What happened on ${day} ${dateLabel}, the best single day, with ${money(bestDate.net_sales)} in net sales?`,
+          `¿Qué pasó el ${day} ${dateLabel}, el mejor día suelto, con ${money(bestDate.net_sales)} en ventas netas?`
+        )
+      ),
+      facts: {
+        date: bestDate.date,
+        weekday: bestDate.weekday,
+        net_sales: bestDate.net_sales,
+        tickets: bestDate.tickets,
       },
     });
   }
@@ -494,14 +845,18 @@ function buildSummaries({
   money,
   agg,
   daypart,
+  availability,
 }: {
   lang: PreferredLanguage;
   money: (n: number, digits?: number) => string;
   agg: CockpitSalesAggregate;
   daypart: DaypartSplit;
+  availability: SalesAvailability;
 }): SalesSummary[] {
-  const tipsNote =
-    agg.revenue.tips > 0
+  const empty = availability === "empty";
+  const tipsNote = empty
+    ? t(lang, "No sales in this period.", "No hay ventas en este periodo.")
+    : agg.revenue.tips > 0
       ? t(
           lang,
           `Tips ${money(agg.revenue.tips, 2)} stay on their own line.`,
@@ -512,8 +867,18 @@ function buildSummaries({
           "Tips excluded from net.",
           "Las propinas no entran en el neto."
         );
-  const daypartHint =
-    daypart.winner === "tie"
+
+  const daypartValue = !daypart.available
+    ? t(lang, "Not available yet", "Aún no disponible")
+    : daypart.winner === "dinner"
+      ? t(lang, "Dinner leads", "Gana la cena")
+      : daypart.winner === "lunch"
+        ? t(lang, "Lunch leads", "Gana el almuerzo")
+        : t(lang, "Even split", "Empate");
+  const daypartHint = !daypart.available
+    ? (daypart.reason ??
+      t(lang, "Not enough history yet.", "Aún no hay suficiente historia."))
+    : daypart.winner === "tie"
       ? t(
           lang,
           `Lunch ${money(daypart.lunch.net_sales)} · dinner ${money(daypart.dinner.net_sales)}`,
@@ -535,29 +900,33 @@ function buildSummaries({
     {
       id: "net_sales",
       label: t(lang, "Net sales", "Ventas netas"),
-      value: money(agg.revenue.net_sales, 2),
+      value: empty
+        ? t(lang, "Not available yet", "Aún no disponible")
+        : money(agg.revenue.net_sales, 2),
       hint: polishCockpitCopy(lang, tipsNote),
+      available: !empty,
     },
     {
       id: "tickets",
       label: t(lang, "Tickets", "Tickets"),
-      value: String(agg.tickets),
-      hint: t(
-        lang,
-        `Avg ticket ${money(agg.avg_ticket, 2)}`,
-        `Ticket promedio ${money(agg.avg_ticket, 2)}`
-      ),
+      value: empty
+        ? t(lang, "Not available yet", "Aún no disponible")
+        : ticketCountLabel(agg.tickets, lang),
+      hint: empty
+        ? t(lang, "No sales in this period.", "No hay ventas en este periodo.")
+        : t(
+            lang,
+            `Avg ticket ${money(agg.avg_ticket, 2)}`,
+            `Ticket promedio ${money(agg.avg_ticket, 2)}`
+          ),
+      available: !empty,
     },
     {
       id: "daypart",
       label: t(lang, "Lunch vs dinner", "Almuerzo vs cena"),
-      value:
-        daypart.winner === "dinner"
-          ? t(lang, "Dinner leads", "Gana la cena")
-          : daypart.winner === "lunch"
-            ? t(lang, "Lunch leads", "Gana el almuerzo")
-            : t(lang, "Even split", "Empate"),
+      value: daypartValue,
       hint: polishCockpitCopy(lang, daypartHint),
+      available: daypart.available,
     },
   ];
 }
@@ -567,14 +936,21 @@ function buildInterpretation({
   money,
   peak,
   daypart,
+  strongest,
   agg,
+  availability,
 }: {
   lang: PreferredLanguage;
   money: (n: number, digits?: number) => string;
   peak: PeakSlot | null;
   daypart: DaypartSplit;
+  strongest: WeekdayStat | null;
   agg: CockpitSalesAggregate;
-}): SalesInterpretation {
+  availability: SalesAvailability;
+}): SalesInterpretation | null {
+  if (availability !== "ready") return null;
+  if (!peak && !strongest && !daypart.available) return null;
+
   const title = polishCockpitCopy(
     lang,
     t(lang, "Milton's read", "La lectura de Milton")
@@ -585,33 +961,26 @@ function buildInterpretation({
     avg_ticket: round2(agg.avg_ticket),
     lunch_net: round2(daypart.lunch.net_sales),
     dinner_net: round2(daypart.dinner.net_sales),
-    lunch_share_pct: daypart.lunch_share_pct,
-    dinner_share_pct: daypart.dinner_share_pct,
+    lunch_share_pct: daypart.available ? daypart.lunch_share_pct : null,
+    dinner_share_pct: daypart.available ? daypart.dinner_share_pct : null,
     dinner_cutoff: DINNER_START_HOUR,
   };
   if (peak) {
     facts.peak_net = peak.net_sales;
+    facts.peak_avg = peak.avg_per_day;
     facts.peak_hour = peak.hour;
     facts.peak_weekday = peak.weekday;
+    facts.peak_days = peak.days;
     facts.peak_tickets = peak.tickets;
   }
-
-  if (!peak && daypart.winner === "tie") {
-    return {
-      title,
-      body: polishCockpitCopy(
-        lang,
-        t(
-          lang,
-          `Net sales are ${money(agg.revenue.net_sales, 2)} across ${agg.tickets} tickets.`,
-          `Las ventas netas son ${money(agg.revenue.net_sales, 2)} en ${agg.tickets} tickets.`
-        )
-      ),
-      facts,
-    };
+  if (strongest) {
+    facts.strongest_avg = strongest.avg_per_day;
+    facts.strongest_net = strongest.net_sales;
+    facts.strongest_days = strongest.days;
+    facts.strongest_weekday = strongest.weekday;
   }
 
-  if (peak && daypart.winner !== "tie" && daypart.dinner_share_pct !== null) {
+  if (peak && daypart.available && daypart.winner && daypart.winner !== "tie") {
     const day = weekdayLabel(peak.weekday, lang);
     const hour = hourLabel(peak.hour);
     const share =
@@ -628,8 +997,8 @@ function buildInterpretation({
         lang,
         t(
           lang,
-          `The peak is ${day} at ${hour} (${money(peak.net_sales)}) and ${part} holds ${share?.toFixed(1)}% of net sales.`,
-          `El pico es el ${day} a las ${hour} (${money(peak.net_sales)}) y ${part} concentra el ${share?.toFixed(1)}% de las ventas netas.`
+          `The strongest slot by average is ${day} at ${hour} (${money(peak.avg_per_day)}) and ${part} holds ${share?.toFixed(1)}% of net sales.`,
+          `La franja más fuerte por promedio es el ${day} a las ${hour} (${money(peak.avg_per_day)}) y ${part} concentra el ${share?.toFixed(1)}% de las ventas netas.`
         )
       ),
       facts,
@@ -645,8 +1014,24 @@ function buildInterpretation({
         lang,
         t(
           lang,
-          `The peak is ${day} at ${hour}, with ${money(peak.net_sales)} in net sales.`,
-          `El pico es el ${day} a las ${hour}, con ${money(peak.net_sales)} en ventas netas.`
+          `The strongest slot by average is ${day} at ${hour}, at ${money(peak.avg_per_day)} per ${day} at ${hour}.`,
+          `La franja más fuerte por promedio es el ${day} a las ${hour}, con ${money(peak.avg_per_day)} por ${day} a las ${hour}.`
+        )
+      ),
+      facts,
+    };
+  }
+
+  if (strongest) {
+    const day = weekdayLabel(strongest.weekday, lang);
+    return {
+      title,
+      body: polishCockpitCopy(
+        lang,
+        t(
+          lang,
+          `${day} is the strongest weekday by average, at ${money(strongest.avg_per_day)} per ${day}.`,
+          `El ${day} es el día más fuerte por promedio, con ${money(strongest.avg_per_day)} por ${day}.`
         )
       ),
       facts,

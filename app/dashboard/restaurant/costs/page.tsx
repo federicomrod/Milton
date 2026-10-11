@@ -6,6 +6,7 @@
 import Link from "next/link";
 import { loadMenuAreaModel } from "@/lib/restaurant/cockpit-page-data";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
+import { timeCockpitStep } from "@/lib/restaurant/cockpit-timing";
 import { SupplierTrendsSection } from "@/components/restaurant/ProfitabilityCockpit";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
@@ -23,10 +24,12 @@ export default async function CostsAreaPage({
   searchParams: Promise<{ location?: string }>;
 }) {
   const { location } = await searchParams;
-  const [{ lang }, { profitability }] = await Promise.all([
-    loadRestaurantShellChrome(),
-    loadMenuAreaModel(location),
-  ]);
+  const [{ lang }, { profitability }] = await timeCockpitStep(
+    "costs-route",
+    () =>
+      Promise.all([loadRestaurantShellChrome(), loadMenuAreaModel(location)]),
+    { location: location ?? null }
+  );
   const costLinks = routesForSection("data_sources").filter((route) =>
     ["import-costs", "ingredients", "suppliers", "supplier-invoices"].includes(
       route.id

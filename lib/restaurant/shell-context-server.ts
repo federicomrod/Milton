@@ -15,8 +15,12 @@ import {
 } from "@/lib/restaurant/language";
 import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 import { lastSyncTimestamp } from "@/lib/restaurant/last-synced";
-import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
 import { listRestaurantLocationsForCurrentUser } from "@/lib/restaurant/restaurant-context-server";
+import {
+  getCachedAuthUser,
+  getCachedCompanyId,
+} from "@/lib/restaurant/auth-user";
+import { timeCockpitStep } from "@/lib/restaurant/cockpit-timing";
 import type { RestaurantLocationOption } from "@/lib/restaurant/restaurant-context-server";
 
 export interface RestaurantShellChrome {
@@ -39,31 +43,33 @@ async function loadRestaurantShellChromeUncached(): Promise<RestaurantShellChrom
   };
 
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    return await timeCockpitStep("chrome", async () => {
+      const supabase = await createClient();
+      const user = await getCachedAuthUser();
 
-    const locations = await listRestaurantLocationsForCurrentUser(supabase);
-    if (!user?.id) {
-      return { ...empty, locations };
-    }
+      if (!user?.id) {
+        const locations = await listRestaurantLocationsForCurrentUser(supabase);
+        return { ...empty, locations };
+      }
 
-    const [isAdmin, companyId] = await Promise.all([
-      isUserAdminServer(user.id),
-      resolveCompanyIdForUser(supabase, user.id),
-    ]);
+      const companyId = await getCachedCompanyId(user.id);
+      const [isAdmin, lang, lastSyncedAt, locations] = await Promise.all([
+        isUserAdminServer(user.id),
+        companyId
+          ? loadPreferredLanguage(supabase, companyId)
+          : Promise.resolve(RESTAURANT_COCKPIT_DEFAULT_LANGUAGE),
+        companyId
+          ? loadLastSyncedAt(supabase, companyId)
+          : Promise.resolve(null),
+        listRestaurantLocationsForCurrentUser(supabase),
+      ]);
 
-    if (!companyId) {
-      return { ...empty, locations, isAdmin };
-    }
+      if (!companyId) {
+        return { ...empty, locations, isAdmin };
+      }
 
-    const [lang, lastSyncedAt] = await Promise.all([
-      loadPreferredLanguage(supabase, companyId),
-      loadLastSyncedAt(supabase, companyId),
-    ]);
-
-    return { locations, lang, isAdmin, lastSyncedAt };
+      return { locations, lang, isAdmin, lastSyncedAt };
+    });
   } catch (err) {
     console.error("[loadRestaurantShellChrome] failed:", err);
     return empty;

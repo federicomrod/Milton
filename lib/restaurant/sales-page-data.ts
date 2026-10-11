@@ -9,6 +9,11 @@ import {
   loadCockpitExecutiveFast,
   type CockpitExecutiveFastModel,
 } from "@/lib/restaurant/cockpit-page-data";
+import {
+  applyCockpitServerTimingHeader,
+  logCockpitTiming,
+  timeCockpitStep,
+} from "@/lib/restaurant/cockpit-timing";
 import { loadCachedPosSalesRows } from "@/lib/restaurant/pos-read-cache";
 import {
   buildCockpitSalesAggregate,
@@ -65,7 +70,18 @@ export async function loadSalesPageModel(
   requestedLocationId?: string,
   periodRaw?: string | null
 ): Promise<SalesPageModel> {
+  const started = Date.now();
   const periodPreset = parseCockpitPeriodPreset(periodRaw);
+  const finish = (extra: Record<string, unknown> = {}) => {
+    logCockpitTiming("sales-page", {
+      totalMs: Date.now() - started,
+      period: periodPreset,
+      location: requestedLocationId ?? null,
+      ...extra,
+    });
+    applyCockpitServerTimingHeader();
+  };
+
   const fast = await loadCockpitExecutiveFast(requestedLocationId, periodRaw);
   const base = {
     mode: fast.mode,
@@ -78,19 +94,24 @@ export async function loadSalesPageModel(
   };
 
   if (fast.mode !== "live" || !fast.scope) {
+    finish({ source: fast.mode });
     return { ...base, sales: null };
   }
 
+  const scope = fast.scope;
   const period = resolveCockpitPeriod(periodPreset, fast.cockpit.period_to);
   if (!period) {
+    finish({ source: "no-period", location: scope.locationId });
     return { ...base, sales: null };
   }
 
-  const pos = await loadCachedPosSalesRows(
-    fast.scope.companyId,
-    fast.scope.locationId
+  const pos = await timeCockpitStep(
+    "sales-pos-rows",
+    () => loadCachedPosSalesRows(scope.companyId, scope.locationId),
+    { location: scope.locationId }
   );
   if (pos.error) {
+    finish({ source: "pos-error", location: scope.locationId });
     return { ...base, sales: null };
   }
 
@@ -108,8 +129,8 @@ export async function loadSalesPageModel(
   });
   const phrases = cockpitComparisonPhrases(period, fast.lang);
   const interpretationCacheKey = cockpitInsightCacheKey({
-    companyId: `sales:${fast.scope.companyId}`,
-    locationId: fast.scope.locationId,
+    companyId: `sales:${scope.companyId}`,
+    locationId: scope.locationId,
     preset: period.preset,
     from: period.current.from,
     to: period.current.to,
@@ -123,6 +144,12 @@ export async function loadSalesPageModel(
     }),
   });
 
+  finish({
+    source: "live",
+    rows: pos.rows.length,
+    filtered: filtered.length,
+    location: scope.locationId,
+  });
   return {
     ...base,
     sales: {

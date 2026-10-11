@@ -7,6 +7,7 @@
 
 import { Suspense } from "react";
 import { loadSalesPageModel } from "@/lib/restaurant/sales-page-data";
+import { timeCockpitStep } from "@/lib/restaurant/cockpit-timing";
 import { SalesPageLive } from "@/components/restaurant/sales/SalesPageLive";
 import { SalesInterpretation } from "@/components/restaurant/sales/SalesInterpretation";
 import { SalesInterpretationUpgrade } from "@/components/restaurant/sales/SalesInterpretationUpgrade";
@@ -33,7 +34,11 @@ export default async function SalesAreaPage({
     sales,
     periodPreset,
     latestSaleDate,
-  } = await loadSalesPageModel(location, period);
+  } = await timeCockpitStep(
+    "sales-route",
+    () => loadSalesPageModel(location, period),
+    { location: location ?? null, period: period ?? null }
+  );
   const lang = modelLang || RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
   const detailHref = salesHref(SALES_DETAIL_HREF, {
     locationId: location,

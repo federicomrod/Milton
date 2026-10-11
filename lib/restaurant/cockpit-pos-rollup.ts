@@ -37,6 +37,9 @@ import { salesChannelLabel } from "@/lib/restaurant/sales-channel-labels";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { deltaPct } from "@/lib/restaurant/cockpit-period";
 import type { PeriodCostKpis } from "@/lib/restaurant/cockpit-cost-coverage";
+import { logCockpitTiming } from "@/lib/restaurant/cockpit-timing";
+
+export { logCockpitTiming } from "@/lib/restaurant/cockpit-timing";
 
 export const COCKPIT_POS_ROLLUP_RPC = "cockpit_pos_rollup";
 
@@ -551,6 +554,12 @@ export async function fetchCockpitPosRollup(
     });
     if (error) {
       const missing = isMissingRpcError(error);
+      logCockpitTiming("rpc", {
+        ms: Date.now() - started,
+        source: missing ? "missing" : "error",
+        error: error.message,
+        code: error.code,
+      });
       if (!missing) {
         console.error("[cockpit-pos-rollup] rpc failed:", error.message);
       }
@@ -562,23 +571,39 @@ export async function fetchCockpitPosRollup(
       };
     }
     const rollup = parseCockpitPosRollup(data);
+    const elapsedMs = Date.now() - started;
     if (!rollup) {
+      logCockpitTiming("rpc", {
+        ms: elapsedMs,
+        source: "error",
+        error: "cockpit_pos_rollup returned an unreadable payload",
+      });
       return {
         rollup: null,
         missing: false,
         error: { message: "cockpit_pos_rollup returned an unreadable payload" },
-        elapsedMs: Date.now() - started,
+        elapsedMs,
       };
     }
+    logCockpitTiming("rpc", {
+      ms: elapsedMs,
+      source: "rpc",
+      rows: rollup.row_count,
+    });
     return {
       rollup,
       missing: false,
       error: null,
-      elapsedMs: Date.now() - started,
+      elapsedMs,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const missing = isMissingRpcError({ message });
+    logCockpitTiming("rpc", {
+      ms: Date.now() - started,
+      source: missing ? "missing" : "error",
+      error: message,
+    });
     if (!missing) {
       console.error("[cockpit-pos-rollup] rpc threw:", err);
     }
@@ -589,11 +614,4 @@ export async function fetchCockpitPosRollup(
       elapsedMs: Date.now() - started,
     };
   }
-}
-
-export function logCockpitTiming(
-  label: string,
-  fields: Record<string, unknown>
-): void {
-  console.info(`[cockpit-timing] ${label}`, fields);
 }

@@ -100,9 +100,11 @@ export async function proxy(request: NextRequest) {
   });
 
   // Check if user is authenticated
+  const authStarted = Date.now();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const authMs = Date.now() - authStarted;
 
   // If user is not authenticated, redirect to login
   if (!user) {
@@ -166,6 +168,17 @@ export async function proxy(request: NextRequest) {
   if (isRestaurantPivotRoute) {
     console.log(
       `[Proxy] PROD bypass: restaurant pilot route pathname=${pathname} skips onboarding gate`
+    );
+    console.info("[cockpit-timing] proxy", {
+      ms: Date.now() - authStarted,
+      authMs,
+      path: pathname,
+    });
+    const existing = response.headers.get("Server-Timing");
+    const proxyTiming = `proxy;dur=${Date.now() - authStarted}, auth;dur=${authMs}`;
+    response.headers.set(
+      "Server-Timing",
+      existing ? `${existing}, ${proxyTiming}` : proxyTiming
     );
   }
 

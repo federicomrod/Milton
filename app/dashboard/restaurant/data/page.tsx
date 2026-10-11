@@ -5,8 +5,8 @@
 
 import Link from "next/link";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
-import { DEFAULT_LANGUAGE } from "@/lib/restaurant/language";
+import { t } from "@/lib/restaurant/language";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import {
   DATA_SETTINGS_HREF,
   dataSettingsLinkLabel,
@@ -25,13 +25,13 @@ const SECTIONS: DataSettingsSectionId[] = [
   "account",
 ];
 
-export default function DataSettingsPage() {
-  const lang: PreferredLanguage = DEFAULT_LANGUAGE;
+export default async function DataSettingsPage() {
+  const { lang } = await loadRestaurantShellChrome();
 
   return (
     <div className="w-full py-3 px-6 lg:px-10 space-y-6 max-w-3xl">
       <OperatingPageHeader
-        title={t(lang, "Data & Settings", "Datos y ajustes")}
+        title={t(lang, "Data & Settings", "Datos y configuración")}
         lang={lang}
         showDateRange={false}
       />
@@ -39,7 +39,7 @@ export default function DataSettingsPage() {
         {t(
           lang,
           "Sources, setup and account. Every previous page is still here.",
-          "Fuentes, configuración y cuenta. Todas las páginas anteriores siguen aquí."
+          "Fuentes, configuración y cuenta. Todas las páginas de antes siguen aquí."
         )}
       </p>
 
@@ -51,7 +51,7 @@ export default function DataSettingsPage() {
           {t(
             lang,
             "Row counts, POS source notes and costing gaps live behind the Data health control on each operating page. A full drawer comes next.",
-            "Los conteos de filas, notas del POS y huecos de costeo viven detrás del control de salud de datos en cada página. El panel completo llega después."
+            "Los conteos de filas, las notas del POS y los huecos de costeo están detrás del control de salud de datos en cada página. El panel completo llega después."
           )}
         </p>
         <Link

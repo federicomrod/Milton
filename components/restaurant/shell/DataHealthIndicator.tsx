@@ -16,7 +16,7 @@ import { DATA_SETTINGS_HREF } from "@/lib/restaurant/navigation";
 export type DataHealthTone = "ok" | "warn" | "error";
 
 export function DataHealthIndicator({
-  lang = "en",
+  lang = "es",
   tone = "ok",
   children,
 }: {
@@ -61,7 +61,11 @@ export function DataHealthIndicator({
               href={DATA_SETTINGS_HREF}
               className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
             >
-              {t(lang, "Open Data & Settings →", "Abrir Datos y ajustes →")}
+              {t(
+                lang,
+                "Open Data & Settings →",
+                "Abrir Datos y configuración →"
+              )}
             </Link>
           </p>
         </div>

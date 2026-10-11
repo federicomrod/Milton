@@ -52,7 +52,11 @@ export function OperatingPageHeader({
         {showDateRange ? (
           <Suspense
             fallback={
-              <PageSkeleton width="10rem" height="2rem" label="Date range" />
+              <PageSkeleton
+                width="10rem"
+                height="2rem"
+                label={t(resolvedLang, "Date range", "Rango de fechas")}
+              />
             }
           >
             <DateRangeControl lang={resolvedLang} />

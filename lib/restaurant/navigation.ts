@@ -89,7 +89,7 @@ export function primaryNavLabel(
     case "kitchen":
       return t(lang, "Kitchen", "Cocina");
     case "data_settings":
-      return t(lang, "Data & Settings", "Datos y ajustes");
+      return t(lang, "Data & Settings", "Datos y configuración");
   }
 }
 
@@ -99,7 +99,7 @@ export function navGroupLabel(
 ): string {
   return group === "main"
     ? t(lang, "Main", "Principal")
-    : t(lang, "Data & Settings", "Datos y ajustes");
+    : t(lang, "Data & Settings", "Datos y configuración");
 }
 
 export function isPrimaryNavActive(
@@ -294,7 +294,7 @@ export function dataSettingsLinkLabel(
 ): string {
   switch (id) {
     case "ask-milton":
-      return t(lang, "Ask Milton", "Pregunta a Milton");
+      return t(lang, "Ask Milton", "Preguntar a Milton");
     case "pos-sales":
       return t(lang, "POS Sales", "Ventas del POS");
     case "targets":

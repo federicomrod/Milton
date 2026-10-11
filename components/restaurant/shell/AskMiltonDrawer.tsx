@@ -30,7 +30,7 @@ import {
 export function AskMiltonDrawer({
   open,
   onOpenChange,
-  lang = "en",
+  lang = "es",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -50,7 +50,7 @@ export function AskMiltonDrawer({
         <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border shrink-0">
           <div className="min-w-0">
             <DialogTitle className="text-base font-semibold">
-              {t(lang, "Ask Milton", "Pregunta a Milton")}
+              {t(lang, "Ask Milton", "Preguntar a Milton")}
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground mt-0.5">
               {pageLabel
@@ -58,7 +58,7 @@ export function AskMiltonDrawer({
                 : t(
                     lang,
                     "Ask about sales, menu, costs or the kitchen.",
-                    "Pregunta sobre ventas, menú, costos o cocina."
+                    "Pregúntale sobre ventas, menú, costos o la cocina."
                   )}
             </DialogDescription>
           </div>
@@ -101,13 +101,13 @@ function pageContextLabel(
     pathname === DATA_SETTINGS_HREF ||
     pathname.startsWith(DATA_SETTINGS_HREF + "/")
   ) {
-    return t(lang, "Data & Settings", "Datos y ajustes");
+    return t(lang, "Data & Settings", "Datos y configuración");
   }
   return null;
 }
 
 export function AskMiltonButton({
-  lang = "en",
+  lang = "es",
   onClick,
 }: {
   lang?: PreferredLanguage;
@@ -121,7 +121,7 @@ export function AskMiltonButton({
       className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-primary text-primary-foreground h-10 px-4 text-sm font-semibold shadow-sm hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2"
     >
       <MessageSquareText className="h-4 w-4" />
-      {t(lang, "Ask Milton", "Pregunta a Milton")}
+      {t(lang, "Ask Milton", "Preguntar a Milton")}
     </button>
   );
 }

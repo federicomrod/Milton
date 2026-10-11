@@ -47,8 +47,11 @@ import {
   DATE_TO_PARAM,
   hasExplicitPageDateRange,
 } from "@/lib/restaurant/page-date-range";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
-import { DEFAULT_LANGUAGE } from "@/lib/restaurant/language";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import {
   RestaurantShellChromeProvider,
   type RestaurantShellChromeValue,
@@ -82,7 +85,7 @@ export interface RestaurantShellLocation {
 export function RestaurantShell({
   children,
   locations = [],
-  lang = DEFAULT_LANGUAGE,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   isAdmin = false,
   lastSyncedAt = null,
 }: {
@@ -218,7 +221,7 @@ function RestaurantShellBody({
               className="rounded-full bg-primary text-primary-foreground h-8 px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
               onClick={() => setAskOpen(true)}
             >
-              {t(lang, "Ask Milton", "Pregunta a Milton")}
+              {t(lang, "Ask Milton", "Preguntar a Milton")}
             </button>
             <button
               type="button"

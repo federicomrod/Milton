@@ -7,7 +7,7 @@ import Link from "next/link";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 
 export function NotAvailableYet({
-  lang = "en",
+  lang = "es",
   title,
   reason,
   href,

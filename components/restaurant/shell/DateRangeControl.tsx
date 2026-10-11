@@ -29,7 +29,7 @@ import {
 import { Input } from "@/components/ui/input";
 
 export function DateRangeControl({
-  lang = "en",
+  lang = "es",
 }: {
   lang?: PreferredLanguage;
 }) {
@@ -76,7 +76,7 @@ export function DateRangeControl({
         <DropdownMenuItem
           onClick={() => apply({ from: lastMonth.start, to: lastMonth.end })}
         >
-          {t(lang, "Last month", "Mes pasado")}
+          {t(lang, "Last month", "El mes pasado")}
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => apply({ from: last7.start, to: last7.end })}

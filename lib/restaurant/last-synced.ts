@@ -19,7 +19,7 @@ export function lastSyncTimestamp(lastSync: unknown): string | null {
 export function formatLastSyncedAgo(
   syncedAt: string | null | undefined,
   now: Date = new Date(),
-  lang: PreferredLanguage = "en"
+  lang: PreferredLanguage = "es"
 ): string | null {
   if (!syncedAt) return null;
   const when = new Date(syncedAt);
@@ -28,13 +28,13 @@ export function formatLastSyncedAgo(
   const diffMs = Math.max(0, now.getTime() - when.getTime());
   const minutes = Math.floor(diffMs / 60_000);
   if (minutes < 1) {
-    return t(lang, "Last synced just now", "Sincronizado ahora");
+    return t(lang, "Last synced just now", "Última sincronización ahora mismo");
   }
   if (minutes < 60) {
     return t(
       lang,
       `Last synced ${minutes} min ago`,
-      `Sincronizado hace ${minutes} min`
+      `Última sincronización hace ${minutes} min`
     );
   }
   const hours = Math.floor(minutes / 60);
@@ -42,12 +42,16 @@ export function formatLastSyncedAgo(
     return t(
       lang,
       `Last synced ${hours} hr ago`,
-      `Sincronizado hace ${hours} h`
+      `Última sincronización hace ${hours} h`
     );
   }
   const days = Math.floor(hours / 24);
   if (days < 7) {
-    return t(lang, `Last synced ${days}d ago`, `Sincronizado hace ${days} d`);
+    return t(
+      lang,
+      `Last synced ${days}d ago`,
+      `Última sincronización hace ${days} d`
+    );
   }
   const locale = lang === "es" ? "es" : "en-GB";
   const dateLabel = when.toLocaleDateString(locale, {
@@ -55,5 +59,9 @@ export function formatLastSyncedAgo(
     month: "short",
     year: "numeric",
   });
-  return t(lang, `Last synced ${dateLabel}`, `Sincronizado ${dateLabel}`);
+  return t(
+    lang,
+    `Last synced ${dateLabel}`,
+    `Última sincronización el ${dateLabel}`
+  );
 }

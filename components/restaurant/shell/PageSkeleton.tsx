@@ -4,11 +4,14 @@
 // does not jump when real content arrives. No full-page "Reading your
 // latest restaurant numbers..." boxes.
 
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+
 export function PageSkeleton({
   className = "",
   width,
   height,
   label,
+  lang = "es",
 }: {
   className?: string;
   /** CSS width of the reserved slot (e.g. "100%", "12rem"). */
@@ -17,6 +20,7 @@ export function PageSkeleton({
   height?: string;
   /** Accessible name; not shown visually. */
   label?: string;
+  lang?: PreferredLanguage;
 }) {
   const style: { width?: string; height?: string } = {};
   if (width) style.width = width;
@@ -35,7 +39,7 @@ export function PageSkeleton({
       }
       style={Object.keys(style).length > 0 ? style : undefined}
     >
-      <span className="sr-only">{label ?? "Loading"}</span>
+      <span className="sr-only">{label ?? t(lang, "Loading", "Cargando")}</span>
     </div>
   );
 }

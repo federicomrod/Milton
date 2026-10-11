@@ -7,9 +7,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { isUserAdminServer } from "@/lib/profile-service-server";
+import { cache } from "react";
 import {
-  DEFAULT_LANGUAGE,
-  resolvePreferredLanguage,
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  resolveRestaurantCockpitLanguage,
   type PreferredLanguage,
 } from "@/lib/restaurant/language";
 import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
@@ -25,10 +26,14 @@ export interface RestaurantShellChrome {
   lastSyncedAt: string | null;
 }
 
-export async function loadRestaurantShellChrome(): Promise<RestaurantShellChrome> {
+export const loadRestaurantShellChrome = cache(
+  loadRestaurantShellChromeUncached
+);
+
+async function loadRestaurantShellChromeUncached(): Promise<RestaurantShellChrome> {
   const empty: RestaurantShellChrome = {
     locations: [],
-    lang: DEFAULT_LANGUAGE,
+    lang: RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
     isAdmin: false,
     lastSyncedAt: null,
   };
@@ -75,10 +80,10 @@ async function loadPreferredLanguage(
       .select("preferred_language")
       .eq("id", companyId)
       .maybeSingle();
-    return resolvePreferredLanguage(data?.preferred_language);
+    return resolveRestaurantCockpitLanguage(data?.preferred_language);
   } catch (err) {
     console.error("[loadRestaurantShellChrome] preferred_language:", err);
-    return DEFAULT_LANGUAGE;
+    return RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
   }
 }
 

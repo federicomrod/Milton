@@ -51,7 +51,11 @@ import { CockpitTabs } from "@/components/restaurant/cockpit/CockpitTabs";
 import { CockpitKpiStrip } from "@/components/restaurant/cockpit/CockpitKpiStrip";
 import { RevenueAndChannelsTab } from "@/components/restaurant/cockpit/RevenueAndChannelsTab";
 import { MenuProfitabilityTab } from "@/components/restaurant/cockpit/MenuProfitabilityTab";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import {
   DataHealthBanner,
@@ -556,8 +560,15 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
   return (
     <div className="w-full py-8 px-6 lg:px-10">
       <div className="space-y-8">
-        <OperatingPageHeader title="Cockpit" />
-        <CockpitDataHealth lang="en" mode="sample" reason={reason} />
+        <OperatingPageHeader
+          title={t(RESTAURANT_COCKPIT_DEFAULT_LANGUAGE, "Cockpit", "Cockpit")}
+          lang={RESTAURANT_COCKPIT_DEFAULT_LANGUAGE}
+        />
+        <CockpitDataHealth
+          lang={RESTAURANT_COCKPIT_DEFAULT_LANGUAGE}
+          mode="sample"
+          reason={reason}
+        />
 
         {/* KPIs */}
         <section>

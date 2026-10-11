@@ -7,7 +7,10 @@ import { loadCockpitPageModel } from "@/lib/restaurant/cockpit-page-data";
 import { RevenueAndChannelsTab } from "@/components/restaurant/cockpit/RevenueAndChannelsTab";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
-import { t } from "@/lib/restaurant/language";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+} from "@/lib/restaurant/language";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +21,10 @@ export default async function SalesAreaPage({
 }) {
   const { location } = await searchParams;
   const { data, targets, profitability } = await loadCockpitPageModel(location);
-  const lang = data.mode === "live" ? data.preferredLanguage : "en";
+  const lang =
+    data.mode === "live"
+      ? data.preferredLanguage
+      : RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
 
   return (
     <div className="w-full py-3 px-6 lg:px-10 space-y-3">

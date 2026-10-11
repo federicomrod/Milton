@@ -30,9 +30,11 @@ describe("NotAvailableYet (#128)", () => {
 
   it("requires a title, reason, and optional link — never a bare dash", () => {
     expect(src).toContain("Not available yet");
+    expect(src).toContain("Aún no disponible");
     expect(src).toContain("reason");
     expect(src).toContain("href");
     expect(src).toContain("Add costs →");
+    expect(src).toContain("Agregar costos →");
     expect(src).not.toMatch(/>\s*—\s*</);
     expect(src).not.toContain('{"—"}');
   });
@@ -49,6 +51,9 @@ describe("last synced copy", () => {
     const now = new Date("2026-07-31T12:08:00.000Z");
     expect(formatLastSyncedAgo("2026-07-31T12:00:00.000Z", now, "en")).toBe(
       "Last synced 8 min ago"
+    );
+    expect(formatLastSyncedAgo("2026-07-31T12:00:00.000Z", now, "es")).toBe(
+      "Última sincronización hace 8 min"
     );
   });
 });

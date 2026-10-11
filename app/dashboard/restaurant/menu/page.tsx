@@ -17,7 +17,10 @@ import { loadCockpitPageModel } from "@/lib/restaurant/cockpit-page-data";
 import { MenuProfitabilityTab } from "@/components/restaurant/cockpit/MenuProfitabilityTab";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
-import { t } from "@/lib/restaurant/language";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+} from "@/lib/restaurant/language";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +53,10 @@ export default async function MenuRecipesRoute({
 }) {
   const params = await searchParams;
   const { data, profitability } = await loadCockpitPageModel(params.location);
-  const lang = data.mode === "live" ? data.preferredLanguage : "en";
+  const lang =
+    data.mode === "live"
+      ? data.preferredLanguage
+      : RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
   const result = await loadMenuRecipes();
 
   const header = (
@@ -65,7 +71,7 @@ export default async function MenuRecipesRoute({
             reason={t(
               lang,
               "Recipe costs required",
-              "Se requieren costos de receta"
+              "Hacen falta los costos de las recetas"
             )}
             href="/dashboard/restaurant/costs/upload"
             linkLabel={t(lang, "Add costs →", "Agregar costos →")}

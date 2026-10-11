@@ -31,7 +31,7 @@ import { parsePageDateRange } from "@/lib/restaurant/page-date-range";
 import { syncButtonDisabled } from "@/lib/restaurant/sync-visibility";
 
 export function SyncNowButton({
-  lang = "en",
+  lang = "es",
   isAdmin,
 }: {
   lang?: PreferredLanguage;
@@ -47,7 +47,7 @@ export function SyncNowButton({
   const nonAdminHint = t(
     lang,
     "Only Milton admins can sync POS data.",
-    "Solo los administradores de Milton pueden sincronizar el POS."
+    "Solo un administrador de Milton puede sincronizar el POS."
   );
 
   const handleSync = async () => {
@@ -84,7 +84,7 @@ export function SyncNowButton({
 
         if (!response.ok) {
           toast({
-            title: t(lang, "Sync failed", "Sincronización fallida"),
+            title: t(lang, "Sync failed", "La sincronización no se completó"),
             description: safeSyncErrorMessage(response.status, body),
             variant: "destructive",
           });
@@ -101,7 +101,7 @@ export function SyncNowButton({
         router.refresh();
       } catch {
         toast({
-          title: t(lang, "Sync failed", "Sincronización fallida"),
+          title: t(lang, "Sync failed", "La sincronización no se completó"),
           description: safeSyncErrorMessage(0, {}),
           variant: "destructive",
         });

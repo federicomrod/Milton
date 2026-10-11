@@ -2,9 +2,11 @@ import { describe, it, expect } from "vitest";
 import {
   LANGUAGE_OPTIONS,
   DEFAULT_LANGUAGE,
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   defaultLanguageForCountry,
   normalizePreferredLanguage,
   resolvePreferredLanguage,
+  resolveRestaurantCockpitLanguage,
   nextLanguageOnCountryChange,
   t,
 } from "@/lib/restaurant/language";
@@ -21,6 +23,18 @@ describe("LANGUAGE_OPTIONS / DEFAULT_LANGUAGE", () => {
 
   it("defaults to English", () => {
     expect(DEFAULT_LANGUAGE).toBe("en");
+  });
+
+  it("defaults the restaurant cockpit to Spanish when no preference is stored", () => {
+    expect(RESTAURANT_COCKPIT_DEFAULT_LANGUAGE).toBe("es");
+    expect(resolveRestaurantCockpitLanguage(null)).toBe("es");
+    expect(resolveRestaurantCockpitLanguage(undefined)).toBe("es");
+    expect(resolveRestaurantCockpitLanguage("garbage")).toBe("es");
+  });
+
+  it("still honors a stored company preference in the restaurant cockpit", () => {
+    expect(resolveRestaurantCockpitLanguage("en")).toBe("en");
+    expect(resolveRestaurantCockpitLanguage("es")).toBe("es");
   });
 });
 

@@ -2,7 +2,7 @@
 
 import { createContext, useContext } from "react";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
-import { DEFAULT_LANGUAGE } from "@/lib/restaurant/language";
+import { RESTAURANT_COCKPIT_DEFAULT_LANGUAGE } from "@/lib/restaurant/language";
 
 export interface RestaurantShellChromeValue {
   lang: PreferredLanguage;
@@ -11,7 +11,7 @@ export interface RestaurantShellChromeValue {
 }
 
 const RestaurantShellChromeContext = createContext<RestaurantShellChromeValue>({
-  lang: DEFAULT_LANGUAGE,
+  lang: RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   isAdmin: false,
   lastSyncedAt: null,
 });

@@ -19,12 +19,20 @@ export type PreferredLanguage = "en" | "es";
 
 export const DEFAULT_LANGUAGE: PreferredLanguage = "en";
 
+/**
+ * Restaurant cockpit chrome (sidebar, header, Sync, empty states) defaults
+ * to Spanish when `companies.preferred_language` is unset. Emails, Telegram
+ * and briefings still use DEFAULT_LANGUAGE — this is not a migration and
+ * does not overwrite a stored company preference.
+ */
+export const RESTAURANT_COCKPIT_DEFAULT_LANGUAGE: PreferredLanguage = "es";
+
 export interface LanguageOption {
   value: PreferredLanguage;
   label: string;
 }
 
-/** English first — matches DEFAULT_LANGUAGE and today's only supported UI language. */
+/** English first — matches DEFAULT_LANGUAGE. The restaurant cockpit UI defaults to Spanish separately. */
 export const LANGUAGE_OPTIONS: LanguageOption[] = [
   { value: "en", label: "English" },
   { value: "es", label: "Español" },
@@ -97,6 +105,18 @@ export function normalizePreferredLanguage(
  */
 export function resolvePreferredLanguage(value: unknown): PreferredLanguage {
   return normalizePreferredLanguage(value) ?? DEFAULT_LANGUAGE;
+}
+
+/**
+ * Same as resolvePreferredLanguage, but the restaurant cockpit falls back
+ * to Spanish for the El Salvador / LatAm pilot when no preference is stored.
+ */
+export function resolveRestaurantCockpitLanguage(
+  value: unknown
+): PreferredLanguage {
+  return (
+    normalizePreferredLanguage(value) ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE
+  );
 }
 
 /**

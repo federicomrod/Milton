@@ -32,6 +32,14 @@ describe("primary restaurant navigation (#128)", () => {
       "Kitchen",
       "Data & Settings",
     ]);
+    expect(primaryNavLabels("es")).toEqual([
+      "Cockpit",
+      "Ventas",
+      "Menú",
+      "Costos",
+      "Cocina",
+      "Datos y configuración",
+    ]);
   });
 
   it("never puts Telegram in a primary-nav label", () => {

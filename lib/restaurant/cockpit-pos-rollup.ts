@@ -107,7 +107,8 @@ export function isMissingRpcError(
     code?: string;
     details?: string;
     hint?: string;
-  } | null
+  } | null,
+  rpcName: string = COCKPIT_POS_ROLLUP_RPC
 ): boolean {
   if (!error) return false;
   const hay = [error.message, error.code, error.details, error.hint]
@@ -117,7 +118,7 @@ export function isMissingRpcError(
   return (
     error.code === "PGRST202" ||
     error.code === "42883" ||
-    hay.includes(COCKPIT_POS_ROLLUP_RPC) ||
+    hay.includes(rpcName.toLowerCase()) ||
     hay.includes("could not find the function") ||
     hay.includes("does not exist")
   );

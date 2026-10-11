@@ -127,10 +127,7 @@ export {
   resetConfirmationMatches,
   runResetSteps,
 } from "./reset";
-export {
-  loadCompanyMembershipRole,
-  loadCompanyName,
-} from "./reset-auth";
+export { loadCompanyMembershipRole, loadCompanyName } from "./reset-auth";
 export {
   PICK_RESTAURANT_ERROR_EN,
   PICK_RESTAURANT_ERROR_ES,

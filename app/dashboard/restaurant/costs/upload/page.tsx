@@ -3,7 +3,10 @@
 // restaurantes" when the company has more than one location.
 
 import { createClient } from "@/lib/supabase/server";
-import { getCachedAuthUser, getCachedCompanyId } from "@/lib/restaurant/auth-user";
+import {
+  getCachedAuthUser,
+  getCachedCompanyId,
+} from "@/lib/restaurant/auth-user";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import {
   canManageCompanyCostReset,

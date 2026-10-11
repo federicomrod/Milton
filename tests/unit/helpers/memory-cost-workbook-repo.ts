@@ -17,7 +17,10 @@ import type {
 } from "@/lib/restaurant/cost-workbook/types";
 import { emptyUndoSnapshot } from "@/lib/restaurant/cost-workbook/types";
 import type { CostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
-import { runResetSteps, summaryFromResetSteps } from "@/lib/restaurant/cost-workbook/reset";
+import {
+  runResetSteps,
+  summaryFromResetSteps,
+} from "@/lib/restaurant/cost-workbook/reset";
 
 export interface MemoryPosSale {
   id: string;

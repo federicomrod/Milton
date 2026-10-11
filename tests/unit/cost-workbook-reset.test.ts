@@ -352,14 +352,18 @@ describe("resetCompanyCostData", () => {
     expect(warning).toBe(
       "Esto borra los costos y recetas de TODOS los restaurantes de la cuenta (Los Ranchos y Lavara), no solo de Los Ranchos. No se puede deshacer."
     );
-    expect(resetConfirmPromptEs({
-      companyName: "Los Ranchos",
-      restaurantNames: ["Los Ranchos", "Lavara"],
-    })).toContain("Los Ranchos y Lavara");
-    expect(resetConfirmPromptEs({
-      companyName: "Los Ranchos",
-      restaurantNames: ["Los Ranchos", "Lavara"],
-    })).toContain("No se puede deshacer");
+    expect(
+      resetConfirmPromptEs({
+        companyName: "Los Ranchos",
+        restaurantNames: ["Los Ranchos", "Lavara"],
+      })
+    ).toContain("Los Ranchos y Lavara");
+    expect(
+      resetConfirmPromptEs({
+        companyName: "Los Ranchos",
+        restaurantNames: ["Los Ranchos", "Lavara"],
+      })
+    ).toContain("No se puede deshacer");
     expect(
       resetConfirmErrorEs({
         companyName: "Grupo Ranchos",
@@ -453,8 +457,7 @@ describe("resetCompanyCostData", () => {
 });
 
 describe("cost reset server and UI copy", () => {
-  const read = (rel: string) =>
-    readFileSync(join(process.cwd(), rel), "utf8");
+  const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
 
   it("enforces the multi-restaurant confirm on the reset route", () => {
     const src = read("app/api/restaurant/costs/reset/route.ts");

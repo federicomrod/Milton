@@ -465,7 +465,8 @@ export function CostImportCleanup({
                   placeholder={
                     multiRestaurant
                       ? companyNameIsDistinct(companyName, restaurantNames)
-                        ? companyName ?? joinRestaurantNamesEs(restaurantNames)
+                        ? (companyName ??
+                          joinRestaurantNamesEs(restaurantNames))
                         : joinRestaurantNamesEs(restaurantNames)
                       : expectedName
                   }
@@ -539,11 +540,7 @@ export function CostImportCleanup({
           <Card className="border-amber-300 dark:border-amber-800">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-amber-800 dark:text-amber-200">
-                {t(
-                  lang,
-                  "Reset stopped halfway",
-                  "El reinicio quedó a medias"
-                )}
+                {t(lang, "Reset stopped halfway", "El reinicio quedó a medias")}
               </CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-muted-foreground space-y-2">

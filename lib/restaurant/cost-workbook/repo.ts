@@ -408,7 +408,8 @@ async function loadImportMenuAndMappingIds(
       }>
     ).filter(
       (row) =>
-        row.match_type !== "auto" && !importMenuSet.has(String(row.menu_item_id))
+        row.match_type !== "auto" &&
+        !importMenuSet.has(String(row.menu_item_id))
     ).length;
 
     return {
@@ -501,7 +502,11 @@ async function resetSupabaseCompanyCostCatalog(
           companyId
         );
       case "cost_import_layout_maps":
-        return deleteCompanyRows(supabase, "cost_import_layout_maps", companyId);
+        return deleteCompanyRows(
+          supabase,
+          "cost_import_layout_maps",
+          companyId
+        );
       case "batches_marked_undone": {
         const now = new Date().toISOString();
         const { data: marked, error: batchError } = await supabase

@@ -106,6 +106,6 @@ describe("shell source has no Telegram primary label", () => {
       "utf8"
     );
     expect(shell).not.toContain("Kitchen (Telegram)");
-    expect(shell).toContain('primaryNavLabel(item.id, lang)');
+    expect(shell).toContain("primaryNavLabel(item.id, lang)");
   });
 });

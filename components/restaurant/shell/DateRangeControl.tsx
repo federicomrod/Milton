@@ -70,15 +70,11 @@ export function DateRangeControl({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">
-        <DropdownMenuItem
-          onClick={() => apply(thisMonth)}
-        >
+        <DropdownMenuItem onClick={() => apply(thisMonth)}>
           {t(lang, "This month", "Este mes")}
         </DropdownMenuItem>
         <DropdownMenuItem
-          onClick={() =>
-            apply({ from: lastMonth.start, to: lastMonth.end })
-          }
+          onClick={() => apply({ from: lastMonth.start, to: lastMonth.end })}
         >
           {t(lang, "Last month", "Mes pasado")}
         </DropdownMenuItem>

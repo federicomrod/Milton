@@ -60,15 +60,17 @@ import {
 
 export { withLocationParam, withShellParams };
 
-const NAV_ICONS: Record<NavItemConfig["id"], ComponentType<{ className?: string }>> =
-  {
-    cockpit: LayoutDashboard,
-    sales: Flame,
-    menu: BookOpen,
-    costs: Receipt,
-    kitchen: ChefHat,
-    data_settings: Settings,
-  };
+const NAV_ICONS: Record<
+  NavItemConfig["id"],
+  ComponentType<{ className?: string }>
+> = {
+  cockpit: LayoutDashboard,
+  sales: Flame,
+  menu: BookOpen,
+  costs: Receipt,
+  kitchen: ChefHat,
+  data_settings: Settings,
+};
 
 const SHELL_BUILD_MARKER = "RestaurantShell build: 2026-10-11-cockpit-ux-pr1";
 
@@ -194,11 +196,7 @@ function RestaurantShellBody({
           dateTo={dateTo}
           lang={lang}
         />
-        <SidebarNav
-          pathname={pathname}
-          shellParams={shellParams}
-          lang={lang}
-        />
+        <SidebarNav pathname={pathname} shellParams={shellParams} lang={lang} />
         <div className="px-3 pb-3 space-y-3">
           <AskMiltonButton lang={lang} onClick={() => setAskOpen(true)} />
           <SidebarFooter />
@@ -273,7 +271,11 @@ function SidebarNav({
   const groups: NavGroupId[] = ["main", "data_settings"];
   return (
     <nav
-      aria-label={t(lang, "Restaurant navigation", "Navegación del restaurante")}
+      aria-label={t(
+        lang,
+        "Restaurant navigation",
+        "Navegación del restaurante"
+      )}
       className="flex-1 overflow-y-auto px-3 py-3 space-y-5"
     >
       {groups.map((group) => (

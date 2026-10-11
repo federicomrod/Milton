@@ -19,18 +19,11 @@
 // SSR client, so the user's session cookie is honored and RLS applies.
 
 import Link from "next/link";
-import {
-  TrendingDown,
-  AlertTriangle,
-  ShieldAlert,
-  Info,
-} from "lucide-react";
+import { TrendingDown, AlertTriangle, ShieldAlert, Info } from "lucide-react";
 import type React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  type TargetMap,
-} from "@/lib/restaurant/supabase-targets";
+import { type TargetMap } from "@/lib/restaurant/supabase-targets";
 import {
   calculateRestaurantOverview,
   getRestaurantMenuItemMargins,
@@ -43,9 +36,7 @@ import {
   type RestaurantDashboardData,
   type SampleReason,
 } from "@/lib/restaurant/supabase-sales";
-import {
-  type ProfitabilityData,
-} from "@/lib/restaurant/profitability-server";
+import { type ProfitabilityData } from "@/lib/restaurant/profitability-server";
 import { PAGINATED_READ_SAFETY_CAP } from "@/lib/restaurant/paginated-read";
 import { loadCockpitPageModel } from "@/lib/restaurant/cockpit-page-data";
 import {
@@ -157,9 +148,7 @@ function cockpitSampleCopy(reason?: SampleReason): string {
     env_missing:
       "Using sample pilot data — Supabase is not configured in this environment.",
   };
-  return reason
-    ? sampleCopyByReason[reason]
-    : sampleCopyByReason.no_sales;
+  return reason ? sampleCopyByReason[reason] : sampleCopyByReason.no_sales;
 }
 
 function CockpitDataHealth({
@@ -188,11 +177,13 @@ function CockpitDataHealth({
   return (
     <DataHealthIndicator lang={lang} tone={tone}>
       {mode === "sample" ? (
-        <DataHealthBanner tone="warn">{cockpitSampleCopy(reason)}</DataHealthBanner>
+        <DataHealthBanner tone="warn">
+          {cockpitSampleCopy(reason)}
+        </DataHealthBanner>
       ) : data?.readError || profitability?.readError ? (
         <DataHealthBanner tone="error">
-          Could not load all sales rows. Totals are unavailable — they are
-          not a smaller number from a partial read. Try refreshing the page.
+          Could not load all sales rows. Totals are unavailable — they are not a
+          smaller number from a partial read. Try refreshing the page.
         </DataHealthBanner>
       ) : profitability && profitability.kpis.cost_coverage_pct === 0 ? (
         <DataHealthBanner tone="warn">
@@ -204,8 +195,7 @@ function CockpitDataHealth({
         <DataHealthBanner tone="ok">
           {data?.rowCount.toLocaleString("es-MX")} POS sale row
           {data?.rowCount === 1 ? "" : "s"} loaded from Supabase. Items with
-          missing recipes or unit mismatches are flagged rather than
-          estimated.
+          missing recipes or unit mismatches are flagged rather than estimated.
         </DataHealthBanner>
       )}
       {mode === "live" ? (
@@ -321,7 +311,10 @@ function LiveRestaurantView({
   return (
     <div className="w-full py-3 px-6 lg:px-10">
       <div className="space-y-3">
-        <OperatingPageHeader title={t(lang, "Cockpit", "Cockpit")} lang={lang} />
+        <OperatingPageHeader
+          title={t(lang, "Cockpit", "Cockpit")}
+          lang={lang}
+        />
         <CockpitDataHealth
           lang={lang}
           mode="live"

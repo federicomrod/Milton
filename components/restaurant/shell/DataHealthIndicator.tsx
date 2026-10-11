@@ -61,11 +61,7 @@ export function DataHealthIndicator({
               href={DATA_SETTINGS_HREF}
               className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
             >
-              {t(
-                lang,
-                "Open Data & Settings →",
-                "Abrir Datos y ajustes →"
-              )}
+              {t(lang, "Open Data & Settings →", "Abrir Datos y ajustes →")}
             </Link>
           </p>
         </div>

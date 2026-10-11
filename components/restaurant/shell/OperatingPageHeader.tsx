@@ -34,7 +34,11 @@ export function OperatingPageHeader({
   const resolvedLang = lang ?? chrome.lang;
   const resolvedAdmin = isAdmin ?? chrome.isAdmin;
   const resolvedSync = lastSyncedAt ?? chrome.lastSyncedAt;
-  const lastSynced = formatLastSyncedAgo(resolvedSync, new Date(), resolvedLang);
+  const lastSynced = formatLastSyncedAgo(
+    resolvedSync,
+    new Date(),
+    resolvedLang
+  );
 
   return (
     <header

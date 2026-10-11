@@ -117,7 +117,9 @@ export default async function MenuRecipesRoute({
           "If you just ran the 004 migration, refresh this page",
           "Verify pos_item_mappings, prepared_components, menu_recipe_inputs exist",
         ]}
-        related={[{ href: "/dashboard/restaurant", label: "Back to live sales" }]}
+        related={[
+          { href: "/dashboard/restaurant", label: "Back to live sales" },
+        ]}
       />
     </>
   );

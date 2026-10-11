@@ -76,10 +76,7 @@ export async function loadCockpitPageModel(
           data.readError ? undefined : { posRows: data.posFactRows }
         );
       } catch (err) {
-        console.error(
-          "[loadCockpitPageModel] profitability load failed:",
-          err
-        );
+        console.error("[loadCockpitPageModel] profitability load failed:", err);
         profitability = null;
       }
     }

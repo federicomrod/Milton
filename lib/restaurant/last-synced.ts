@@ -47,11 +47,7 @@ export function formatLastSyncedAgo(
   }
   const days = Math.floor(hours / 24);
   if (days < 7) {
-    return t(
-      lang,
-      `Last synced ${days}d ago`,
-      `Sincronizado hace ${days} d`
-    );
+    return t(lang, `Last synced ${days}d ago`, `Sincronizado hace ${days} d`);
   }
   const locale = lang === "es" ? "es" : "en-GB";
   const dateLabel = when.toLocaleDateString(locale, {

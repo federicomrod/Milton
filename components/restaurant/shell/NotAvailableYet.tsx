@@ -19,8 +19,7 @@ export function NotAvailableYet({
   href?: string;
   linkLabel?: string;
 }) {
-  const heading =
-    title ?? t(lang, "Not available yet", "Aún no disponible");
+  const heading = title ?? t(lang, "Not available yet", "Aún no disponible");
   const fallbackLink = t(lang, "Add costs →", "Agregar costos →");
 
   return (

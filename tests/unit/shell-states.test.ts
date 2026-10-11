@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { formatLastSyncedAgo, lastSyncTimestamp } from "@/lib/restaurant/last-synced";
+import {
+  formatLastSyncedAgo,
+  lastSyncTimestamp,
+} from "@/lib/restaurant/last-synced";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
@@ -44,8 +47,8 @@ describe("last synced copy", () => {
 
   it("formats a relative Last synced line", () => {
     const now = new Date("2026-07-31T12:08:00.000Z");
-    expect(
-      formatLastSyncedAgo("2026-07-31T12:00:00.000Z", now, "en")
-    ).toBe("Last synced 8 min ago");
+    expect(formatLastSyncedAgo("2026-07-31T12:00:00.000Z", now, "en")).toBe(
+      "Last synced 8 min ago"
+    );
   });
 });

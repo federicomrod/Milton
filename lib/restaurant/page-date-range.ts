@@ -46,8 +46,10 @@ export function parsePageDateRange(
 export function hasExplicitPageDateRange(params: {
   get: (key: string) => string | null;
 }): boolean {
-  return isValidYmd(params.get(DATE_FROM_PARAM)) &&
-    isValidYmd(params.get(DATE_TO_PARAM));
+  return (
+    isValidYmd(params.get(DATE_FROM_PARAM)) &&
+    isValidYmd(params.get(DATE_TO_PARAM))
+  );
 }
 
 /** "Jul 1 - Jul 31, 2026" (en) / "1 jul - 31 jul 2026" (es). */

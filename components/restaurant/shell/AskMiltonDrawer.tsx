@@ -54,11 +54,7 @@ export function AskMiltonDrawer({
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground mt-0.5">
               {pageLabel
-                ? t(
-                    lang,
-                    `Viewing ${pageLabel}`,
-                    `Viendo ${pageLabel}`
-                  )
+                ? t(lang, `Viewing ${pageLabel}`, `Viendo ${pageLabel}`)
                 : t(
                     lang,
                     "Ask about sales, menu, costs or the kitchen.",

@@ -29,6 +29,7 @@
 //     never recurses infinitely.
 
 import { convertUnitStr, normalizeUnit } from "@/lib/restaurant/units";
+import { shouldApplyWorkbookMismatch } from "@/lib/restaurant/protect-imported-recipe";
 import type {
   CostIssue,
   ComponentCostResult,
@@ -74,6 +75,7 @@ export interface CostingMenuRecipe {
   id: string;
   menu_item_id: string;
   status: "draft" | "active" | "archived" | string;
+  source_type?: string | null;
   /** Imported recipes that do not match the workbook COSTO TOTAL. */
   workbook_cost_match?: "match" | "mismatch" | null;
 }
@@ -598,7 +600,7 @@ export function calculateMenuItemCost(
     return empty(worst, issues);
   }
 
-  if (recipe.workbook_cost_match === "mismatch") {
+  if (shouldApplyWorkbookMismatch(recipe)) {
     const issues: CostIssue[] = [];
     pushIssue(
       issues,

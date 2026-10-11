@@ -621,3 +621,113 @@ export function buildWorkbookMatchFooterWorkbook(): Buffer {
     XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
   );
 }
+
+/**
+ * Sub-recipe yield is 3 lb (COSTO TOTAL / PRECIO POR LIBRA). A dish
+ * that uses 1 ORDEN is priced in Excel at the whole-batch COSTO TOTAL,
+ * not at $0.40/lb. A second dish prints 5.40 as if 1 ORDEN = 1 lb —
+ * that must stay a mismatch, never forced.
+ */
+export function buildOrdenPortionCostWorkbook(): Buffer {
+  const wb = XLSX.utils.book_new();
+  const header = [
+    "Articulo",
+    "Unidad Detalle",
+    "Cantidad",
+    "Costo Unitario",
+    "Total Costo",
+  ];
+  const sub = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["PAPAS FRITAS"],
+    header,
+    ["PAPA", "LIBRA", 3, 0.4, 1.2],
+    ["COSTO TOTAL", "", "", "", 1.2],
+    ["PRECIO POR LIBRA", "", "", "", 0.4],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
+
+  const dishes = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["BISTEC"],
+    header,
+    ["CARNE", "LIBRA", 1, 5, 5],
+    ["PAPAS FRITAS", "ORDEN", 1, 1.2, 1.2],
+    ["COSTO TOTAL", "", "", "", 6.2],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 12],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["BISTEC BARATO"],
+    header,
+    ["CARNE", "LIBRA", 1, 5, 5],
+    ["PAPAS FRITAS", "ORDEN", 1, 1.2, 1.2],
+    ["COSTO TOTAL", "", "", "", 5.4],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 12],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(dishes),
+    "DE LA PARRILLA"
+  );
+
+  const price = [
+    ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+    ["PAPA", 0.4, 0.025, ""],
+    ["CARNE", 5, 0.3125, ""],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(price),
+    "Lista de precios"
+  );
+
+  return Buffer.from(
+    XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+  );
+}
+
+/**
+ * Protein line uses an unknown unit and is dropped to review. If the
+ * remaining ACEITE line were saved as a complete recipe, the dish would
+ * cost $0.20 / 2.7% food cost — the Pollo Empanizado failure mode.
+ */
+export function buildIncompleteDishWorkbook(): Buffer {
+  const wb = XLSX.utils.book_new();
+  const header = [
+    "Articulo",
+    "Unidad Detalle",
+    "Cantidad",
+    "Costo Unitario",
+    "Total Costo",
+  ];
+  const dishes = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["POLLO EMPANIZADO"],
+    header,
+    ["POLLO", "BULTAZO", 1, 7, 7],
+    ["ACEITE", "ONZA", 1, 0.2, 0.2],
+    ["COSTO TOTAL", "", "", "", 7.2],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 7.4],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(dishes),
+    "DE LA PARRILLA"
+  );
+  const price = [
+    ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+    ["ACEITE", 3.2, 0.2, ""],
+    ["POLLO", 7, 0.4375, ""],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(price),
+    "Lista de precios"
+  );
+  return Buffer.from(
+    XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+  );
+}

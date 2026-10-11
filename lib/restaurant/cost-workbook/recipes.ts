@@ -180,6 +180,7 @@ export function collectRecipeLines(input: {
       lines: [],
       output_quantity: null,
       output_unit: null,
+      incomplete_lines: false,
     };
     groups.set(key, created);
     return created;
@@ -229,6 +230,7 @@ export function collectRecipeLines(input: {
       lang: input.lang,
     });
     if (!evaluated.ok) {
+      takeGroup(currentName).incomplete_lines = true;
       review.push(evaluated.review);
       continue;
     }

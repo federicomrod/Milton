@@ -309,6 +309,7 @@ interface OpenBlock {
   pricePerOz: number | null;
   pricePerUnit: number | null;
   sellingPrice: number | null;
+  incompleteLines: boolean;
 }
 
 export function collectCostoRestauranteBlockNames(aoa: unknown[][]): string[] {
@@ -413,6 +414,7 @@ export function collectCostoRestauranteBlocks(input: {
       price_per_lb: current.pricePerLb,
       price_per_oz: current.pricePerOz,
       price_per_unit: current.pricePerUnit,
+      incomplete_lines: current.incompleteLines,
     });
     open.block = null;
     pendingName = "";
@@ -431,6 +433,7 @@ export function collectCostoRestauranteBlocks(input: {
       pricePerOz: null,
       pricePerUnit: null,
       sellingPrice: null,
+      incompleteLines: false,
     };
     phase = "in_block";
     pendingName = "";
@@ -559,6 +562,7 @@ export function collectCostoRestauranteBlocks(input: {
         })
       : { ok: false as const, reason: missingUnitReason(lang) };
     if (!resolvedUnit.ok) {
+      current.incompleteLines = true;
       review.push({
         tabName: input.tabName,
         rowIndex,
@@ -569,6 +573,7 @@ export function collectCostoRestauranteBlocks(input: {
       continue;
     }
     if (qty === null || qty <= 0) {
+      current.incompleteLines = true;
       review.push({
         tabName: input.tabName,
         rowIndex,

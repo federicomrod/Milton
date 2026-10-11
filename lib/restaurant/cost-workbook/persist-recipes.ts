@@ -150,7 +150,7 @@ export function resolveCatalogInput(
   return { ok: false, reason: unknownIngredientReason(lang, lineName) };
 }
 
-function withQty(
+export function withQty(
   input: RecipeInputSnapshot,
   line: RecipeLineCandidate
 ): RecipeInputSnapshot {
@@ -159,6 +159,26 @@ function withQty(
     quantity: line.quantity,
     unit: line.unit,
   };
+}
+
+/** Pick the restaurant-scoped menu item when the schema has location_id. */
+export function pickMenuItemForLocation<
+  T extends { name: string; location_id?: string | null },
+>(
+  items: T[],
+  name: string,
+  locationId?: string | null
+): T | undefined {
+  const key = nameKey(name);
+  const sameName = items.filter((row) => nameKey(row.name) === key);
+  if (sameName.length === 0) return undefined;
+  if (locationId) {
+    return (
+      sameName.find((row) => row.location_id === locationId) ??
+      sameName.find((row) => row.location_id == null)
+    );
+  }
+  return sameName.find((row) => row.location_id == null) ?? sameName[0];
 }
 
 function isImported(sourceType: string | null | undefined): boolean {
@@ -226,6 +246,7 @@ export async function persistWorkbookRecipes(input: {
   const lang = input.lang ?? "en";
   const resolveGroup = (group: GroupedRecipe): RecipeInputSnapshot[] | null => {
     const inputs: RecipeInputSnapshot[] = [];
+    let incomplete = Boolean(group.incomplete_lines);
     for (const line of group.lines) {
       const resolved = resolveCatalogInput(
         line.ingredient_name,
@@ -236,6 +257,7 @@ export async function persistWorkbookRecipes(input: {
         group.name
       );
       if (!resolved.ok) {
+        incomplete = true;
         review.push({
           tabName: line.tabName,
           rowIndex: line.rowIndex,
@@ -252,6 +274,7 @@ export async function persistWorkbookRecipes(input: {
       const rawUnit = rawLineUnit(line);
       if (isSubRecipePortionUnit(rawUnit)) {
         if (resolved.input.input_type !== "component") {
+          incomplete = true;
           review.push({
             tabName: line.tabName,
             rowIndex: line.rowIndex,
@@ -274,6 +297,10 @@ export async function persistWorkbookRecipes(input: {
           yieldRecipe.output_quantity > 0 &&
           yieldRecipe.output_unit
         ) {
+          // 1 ORDEN / CONVOY is one plated prep of the sub-recipe: the
+          // Excel unit cost is that sub's COSTO TOTAL, not cost-per-lb.
+          // Storing qty × yield in the yield unit makes Milton's portion
+          // cost equal N × batch (see DEDOS DE QUESO / GUARNICION 1).
           inputs.push(
             withQty(resolved.input, {
               ...line,
@@ -287,6 +314,9 @@ export async function persistWorkbookRecipes(input: {
         continue;
       }
       inputs.push(withQty(resolved.input, line));
+    }
+    if (incomplete) {
+      return null;
     }
     if (inputs.length === 0) {
       skipped.push({

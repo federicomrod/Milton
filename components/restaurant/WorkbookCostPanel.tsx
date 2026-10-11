@@ -1,4 +1,6 @@
+import { handmadeNoLongerComparedNote } from "@/lib/restaurant/cost-workbook/copy";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { isImportProtectedSource } from "@/lib/restaurant/protect-imported-recipe";
 import type { MenuItemCostResult } from "@/types/restaurant-costing";
 
 function money(
@@ -36,6 +38,7 @@ export function WorkbookCostPanel({
   const live =
     cost?.status === "complete" && cost.cost != null ? cost.cost : null;
   const milton = live ?? workbook?.milton_cost ?? null;
+  const handmade = isImportProtectedSource(workbook?.source_type);
   const imported = workbook?.source_type === "import";
   return (
     <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm space-y-1">
@@ -65,7 +68,11 @@ export function WorkbookCostPanel({
           <span className="tabular-nums font-medium">
             {money(workbook?.excel_cost ?? null, currency ?? null)}
           </span>
-          {workbook?.match === "match" ? (
+          {handmade ? (
+            <span className="ml-2 text-xs text-muted-foreground">
+              {handmadeNoLongerComparedNote(lang)}
+            </span>
+          ) : workbook?.match === "match" ? (
             <span className="ml-2 text-xs text-green-700 dark:text-green-300">
               {t(lang, "matches the Excel", "coincide con el Excel")}
             </span>

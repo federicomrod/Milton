@@ -3,9 +3,11 @@ import {
   handmadeSourcePatch,
   isImportProtectedSource,
   MANUAL_RECIPE_SOURCE,
+  shouldApplyWorkbookMismatch,
 } from "@/lib/restaurant/protect-imported-recipe";
 import {
   decideWorkbookCostMatch,
+  handmadeNoLongerComparedNote,
   workbookCostsMatch,
 } from "@/lib/restaurant/cost-workbook";
 
@@ -16,7 +18,33 @@ describe("protect imported recipes after a hand edit", () => {
     expect(isImportProtectedSource(null)).toBe(true);
     expect(handmadeSourcePatch()).toEqual({
       source_type: MANUAL_RECIPE_SOURCE,
+      workbook_cost_match: null,
+      workbook_computed_cost: null,
     });
+  });
+
+  it("skips the Excel mismatch rule unless the recipe is still an import", () => {
+    expect(
+      shouldApplyWorkbookMismatch({
+        source_type: "import",
+        workbook_cost_match: "mismatch",
+      })
+    ).toBe(true);
+    expect(
+      shouldApplyWorkbookMismatch({
+        source_type: "manual",
+        workbook_cost_match: "mismatch",
+      })
+    ).toBe(false);
+    expect(
+      shouldApplyWorkbookMismatch({
+        source_type: "import",
+        workbook_cost_match: "match",
+      })
+    ).toBe(false);
+    expect(handmadeNoLongerComparedNote("es")).toBe(
+      "Editada a mano, ya no se compara con el Excel"
+    );
   });
 });
 

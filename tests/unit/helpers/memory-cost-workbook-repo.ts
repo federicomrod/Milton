@@ -57,6 +57,7 @@ export interface MemoryCostWorkbookStore {
   mappingCompanyIds: Record<string, string>;
   posSalesItems: MemoryPosSale[];
   failResetStep?: CostResetStepId;
+  workbookCostColumns?: boolean;
 }
 
 export function emptyMemoryStore(): MemoryCostWorkbookStore {
@@ -676,7 +677,10 @@ export function createMemoryCostWorkbookRepo(
     },
     async markRecipeManual(_companyId, recipeId) {
       const recipe = store.recipes.find((row) => row.id === recipeId);
-      if (recipe) recipe.source_type = "manual";
+      if (!recipe) return;
+      recipe.source_type = "manual";
+      recipe.workbook_cost_match = null;
+      recipe.workbook_computed_cost = null;
     },
     async markComponentManual(_companyId, componentId, componentRecipeId) {
       const component = store.components.find((row) => row.id === componentId);
@@ -685,7 +689,13 @@ export function createMemoryCostWorkbookRepo(
       const recipe = store.componentRecipes.find(
         (row) => row.id === componentRecipeId
       );
-      if (recipe) recipe.source_type = "manual";
+      if (!recipe) return;
+      recipe.source_type = "manual";
+      recipe.workbook_cost_match = null;
+      recipe.workbook_computed_cost = null;
+    },
+    async hasWorkbookCostColumns() {
+      return store.workbookCostColumns !== false;
     },
   };
 }

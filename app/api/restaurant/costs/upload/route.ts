@@ -44,6 +44,7 @@ import {
   createSupabaseCostWorkbookRepo,
   firstSheetRawRows,
   importCostWorkbook,
+  isMissingWorkbookCostColumnsError,
   isWorkbookLimitError,
   PICK_RESTAURANT_ERROR_ES,
   readWorkbookSheetsFromWorkbook,
@@ -216,7 +217,10 @@ export async function POST(req: NextRequest) {
           });
           return NextResponse.json(result);
         } catch (err) {
-          if (isWorkbookLimitError(err)) {
+          if (
+            isWorkbookLimitError(err) ||
+            isMissingWorkbookCostColumnsError(err)
+          ) {
             return NextResponse.json({ error: err.message }, { status: 400 });
           }
           const message = err instanceof Error ? err.message : "Unknown error";

@@ -398,12 +398,13 @@ export async function fetchProfitabilityData(
       id: string;
       menu_item_id: string;
       status: string | null;
+      source_type?: string | null;
       workbook_cost_match?: string | null;
     }>(
       "workbook_cost_match",
       (select) =>
         supabase.from("recipes").select(select).eq("company_id", companyId),
-      "id, menu_item_id, status, workbook_cost_match"
+      "id, menu_item_id, status, source_type, workbook_cost_match"
     ),
     fetchAllRows<{
       id: string;
@@ -598,6 +599,7 @@ export async function fetchProfitabilityData(
         id: r.id,
         menu_item_id: r.menu_item_id,
         status: r.status ?? "draft",
+        source_type: r.source_type ?? null,
         workbook_cost_match: parseWorkbookCostMatch(r.workbook_cost_match),
       },
     ])

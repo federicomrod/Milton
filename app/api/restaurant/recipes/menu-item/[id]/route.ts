@@ -13,7 +13,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { handmadeSourcePatch } from "@/lib/restaurant/protect-imported-recipe";
+import {
+  errorMentionsColumn,
+  omitColumn,
+} from "@/lib/restaurant/missing-schema-column";
+import {
+  handmadeSourceCorePatch,
+  handmadeSourcePatch,
+} from "@/lib/restaurant/protect-imported-recipe";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -246,7 +253,25 @@ export async function PUT(
         ...handmadeSourcePatch(),
       })
       .eq("id", recipeId);
-    if (error) {
+    if (error && errorMentionsColumn(error, "workbook_cost_match")) {
+      const retry = await auth.supabase
+        .from("recipes")
+        .update({
+          status,
+          serving_quantity: servingQuantity,
+          serving_unit: servingUnit,
+          notes,
+          ...handmadeSourceCorePatch(),
+        })
+        .eq("id", recipeId);
+      if (retry.error) {
+        console.error("[recipes/menu-item PUT update]", retry.error);
+        return NextResponse.json(
+          buildPgErrorBody("Recipe update failed", retry.error),
+          { status: 500 }
+        );
+      }
+    } else if (error) {
       console.error("[recipes/menu-item PUT update]", error);
       return NextResponse.json(
         buildPgErrorBody("Recipe update failed", error),
@@ -259,29 +284,50 @@ export async function PUT(
     // unknown keys silently for inserts? It does NOT — PostgREST rejects
     // unknown columns. If your `recipes` table lacks a `name` column the
     // request will fail; remove the key in that case.
+    const insertBody = {
+      company_id: auth.companyId,
+      menu_item_id: menuItemId,
+      name: menuItem.name,
+      status,
+      serving_quantity: servingQuantity,
+      serving_unit: servingUnit,
+      notes,
+      version: 1,
+      ...handmadeSourcePatch(),
+    };
     const { data: created, error } = await auth.supabase
       .from("recipes")
-      .insert({
-        company_id: auth.companyId,
-        menu_item_id: menuItemId,
-        name: menuItem.name,
-        status,
-        serving_quantity: servingQuantity,
-        serving_unit: servingUnit,
-        notes,
-        version: 1,
-        ...handmadeSourcePatch(),
-      })
+      .insert(insertBody)
       .select("id")
       .single();
-    if (error || !created) {
+    if (error && errorMentionsColumn(error, "workbook_cost_match")) {
+      const retry = await auth.supabase
+        .from("recipes")
+        .insert(
+          omitColumn(
+            omitColumn(insertBody, "workbook_cost_match"),
+            "workbook_computed_cost"
+          )
+        )
+        .select("id")
+        .single();
+      if (retry.error || !retry.data) {
+        console.error("[recipes/menu-item PUT insert]", retry.error);
+        return NextResponse.json(
+          buildPgErrorBody("Recipe insert failed", retry.error),
+          { status: 500 }
+        );
+      }
+      recipeId = retry.data.id;
+    } else if (error || !created) {
       console.error("[recipes/menu-item PUT insert]", error);
       return NextResponse.json(
         buildPgErrorBody("Recipe insert failed", error),
         { status: 500 }
       );
+    } else {
+      recipeId = created.id;
     }
-    recipeId = created.id;
   }
 
   // ---- Replace inputs ---------------------------------------------------

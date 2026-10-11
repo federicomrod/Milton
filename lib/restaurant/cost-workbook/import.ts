@@ -1,5 +1,6 @@
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { resolveUnitCell } from "@/lib/restaurant/units";
+import { MISSING_WORKBOOK_COST_MIGRATION_ES } from "./copy";
 import type { WorkbookAi } from "./ai";
 import { classifyCostTabHeuristic } from "./ai";
 import {
@@ -269,6 +270,19 @@ async function resolveTab(input: {
   };
 }
 
+export class MissingWorkbookCostColumnsError extends Error {
+  constructor() {
+    super(MISSING_WORKBOOK_COST_MIGRATION_ES);
+    this.name = "MissingWorkbookCostColumnsError";
+  }
+}
+
+export function isMissingWorkbookCostColumnsError(
+  err: unknown
+): err is MissingWorkbookCostColumnsError {
+  return err instanceof MissingWorkbookCostColumnsError;
+}
+
 export async function importCostWorkbook(input: {
   companyId: string;
   filename: string;
@@ -284,6 +298,9 @@ export async function importCostWorkbook(input: {
   skipDuplicates?: boolean;
   lang?: PreferredLanguage;
 }): Promise<WorkbookImportResult> {
+  if (!(await input.repo.hasWorkbookCostColumns(input.companyId))) {
+    throw new MissingWorkbookCostColumnsError();
+  }
   const sheets =
     input.sheets ?? (input.buffer ? readWorkbookSheets(input.buffer) : []);
   const fileMonth =
@@ -760,6 +777,7 @@ export async function importCostWorkbook(input: {
     repo: input.repo,
     groups: recipeGroups,
     lang,
+    locationId: input.locationId ?? null,
   });
 
   const reviewItems = await input.repo.insertReviewItems(

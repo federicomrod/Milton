@@ -8,6 +8,7 @@ import { nameKey } from "@/lib/restaurant/cost-import";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
 import { workbookMatchHeadline, workbookMismatchReason } from "./copy";
+import { pickMenuItemForLocation } from "./persist-recipes";
 import type { CostWorkbookRepo } from "./repo";
 import type {
   GroupedRecipe,
@@ -116,6 +117,8 @@ export async function costingDataFromWorkbookRepo(
         id: row.id,
         menu_item_id: row.menu_item_id,
         status: "active" as const,
+        source_type: row.source_type,
+        workbook_cost_match: row.workbook_cost_match ?? null,
       },
     ])
   );
@@ -179,6 +182,7 @@ export async function reconcileImportedWorkbookCosts(input: {
   repo: CostWorkbookRepo;
   groups: GroupedRecipe[];
   lang?: PreferredLanguage;
+  locationId?: string | null;
 }): Promise<WorkbookRecipeMatchSummary> {
   const lang = input.lang ?? "en";
   const data = await costingDataFromWorkbookRepo(input.repo, input.companyId);
@@ -188,8 +192,10 @@ export async function reconcileImportedWorkbookCosts(input: {
     input.repo.listComponents(input.companyId),
     input.repo.listComponentRecipes(input.companyId),
   ]);
-  const menuByName = new Map(menuItems.map((row) => [nameKey(row.name), row]));
   const recipeByMenuId = new Map(recipes.map((row) => [row.menu_item_id, row]));
+  // prepared_components have no location_id in the schema, so sub-recipe
+  // match stays company-wide. Menu dishes are scoped to the selected
+  // restaurant when menu_items.location_id is set.
   const componentByName = new Map(
     components.map((row) => [nameKey(row.name), row])
   );
@@ -252,7 +258,11 @@ export async function reconcileImportedWorkbookCosts(input: {
       continue;
     }
 
-    const menu = menuByName.get(nameKey(group.name));
+    const menu = pickMenuItemForLocation(
+      menuItems,
+      group.name,
+      input.locationId
+    );
     const recipe = menu ? recipeByMenuId.get(menu.id) : undefined;
     if (!menu || !recipe) continue;
     dishesTotal += 1;

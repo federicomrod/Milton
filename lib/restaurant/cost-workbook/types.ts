@@ -391,6 +391,12 @@ export interface GroupedRecipe {
   price_per_lb?: number | null;
   price_per_oz?: number | null;
   price_per_unit?: number | null;
+  /**
+   * True when at least one ingredient line was sent to review and dropped
+   * from `lines`. The remaining lines must not be persisted as a complete
+   * recipe (that is how a dish like Pollo Empanizado ends up at $0.20).
+   */
+  incomplete_lines?: boolean;
 }
 
 export interface CostWorkbookBatch {

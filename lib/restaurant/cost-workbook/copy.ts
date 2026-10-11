@@ -96,6 +96,17 @@ export function handmadeRecipeExistsReason(lang: PreferredLanguage): string {
   return t(lang, "handmade recipe exists", "la receta fue editada a mano");
 }
 
+export const MISSING_WORKBOOK_COST_MIGRATION_ES =
+  "Falta aplicar la migración 035 en la base de datos. Avísale al equipo técnico.";
+
+export function handmadeNoLongerComparedNote(lang: PreferredLanguage): string {
+  return t(
+    lang,
+    "Edited by hand, no longer compared with the Excel",
+    "Editada a mano, ya no se compara con el Excel"
+  );
+}
+
 export function selfReferenceReason(
   lang: PreferredLanguage,
   name: string

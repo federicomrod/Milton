@@ -1,4 +1,4 @@
-import { normalizeUnit } from "@/lib/restaurant/units";
+import { resolveUnitCell } from "@/lib/restaurant/units";
 import type { WorkbookAi } from "./ai";
 import { classifyCostTabHeuristic } from "./ai";
 import { categoryForTab } from "./categories";
@@ -872,11 +872,15 @@ export async function approveReviewItem(
     new Date().toISOString().slice(0, 10);
   if (!name) return { ok: false, reason: "Missing ingredient name" };
   if (!unit) return { ok: false, reason: "Missing unit" };
-  if (!normalizeUnit(unit))
-    return { ok: false, reason: `unknown unit (${unit})` };
+  const resolvedUnit = resolveUnitCell(unit);
+  if (!resolvedUnit.ok) return { ok: false, reason: resolvedUnit.reason };
   if (!total || total < 0) return { ok: false, reason: "Missing cost" };
   if (quantity <= 0)
     return { ok: false, reason: "Quantity must be a positive number" };
+
+  const persistQuantity = quantity * resolvedUnit.quantityMultiplier;
+  const persistUnit =
+    resolvedUnit.quantityMultiplier !== 1 ? resolvedUnit.unit : unit;
 
   const persistStats = await persistSavedRows({
     companyId,
@@ -887,10 +891,10 @@ export async function approveReviewItem(
         tabName: item.tab_name,
         rowIndex: item.row_index,
         ingredient_name: name,
-        quantity,
-        unit,
+        quantity: persistQuantity,
+        unit: persistUnit,
         total_cost: total,
-        unit_price: total / quantity,
+        unit_price: total / persistQuantity,
         cost_date: costDate,
         supplier_name: suggested.supplier_name ?? null,
         currency,

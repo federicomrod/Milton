@@ -102,9 +102,10 @@ export function buildLosRanchosCostWorkbook(opts?: {
 /**
  * Same shape as the April Los Ranchos file, plus the Latin American
  * kitchen units that the real SUB RECETAS tab uses (GALON, PAQUETE,
- * SOBRES, UNIDA, BOLSA, CAJA), a parenthetical pack size, one genuinely
- * bad row (ingredient name in the unit column), a cover tab with no
- * headers, and a second recipe tab. No client data.
+ * SOBRES, UNIDA, BOLSA, CAJA), parenthetical / mixed / oversized pack
+ * sizes that must go to needs-a-look, one genuinely bad row (ingredient
+ * name in the unit column), a cover tab with no headers, and a second
+ * recipe tab. No client data.
  */
 export function buildLosRanchosKitchenUnitsWorkbook(): Buffer {
   const wb = XLSX.read(buildLosRanchosCostWorkbook(), { type: "buffer" });
@@ -124,6 +125,9 @@ export function buildLosRanchosKitchenUnitsWorkbook(): Buffer {
     ["YUCA FRITA", "Yuca", 2, "lb"],
     ["TOSTONES", "Platano", 2, "lb"],
     ["Apio suelto", "APIO", 1, "APIO"],
+    ["Arroz saco", "Arroz", 1, "SACO 25 KG (ARROZ)"],
+    ["Harina mixta", "Harina", 1, "CAJA 12 x 500 g"],
+    ["Aceite cubeta", "Aceite", 1, "CUBETA 18.9 L + 2 L"],
   ];
   wb.Sheets["SUB RECETAS"] = XLSX.utils.aoa_to_sheet(sub);
 

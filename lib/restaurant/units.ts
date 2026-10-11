@@ -1,8 +1,13 @@
 // lib/restaurant/units.ts
 // Deterministic unit conversion for recipe costing.
-// Mass (kg/g/lb/oz), volume (l/ml), plus same-unit passthrough for
+// Mass (kg/g/lb/oz), volume (l/ml/gal), plus same-unit passthrough for
 // discrete units. Returns an explicit error instead of silently guessing
 // for unsupported pairs.
+//
+// Pack words (paquete, bolsa, caja, …) are "each" only when the cell has
+// no parenthetical and no number. A size like "PAQUETE (14 UNIDADES)" or
+// "BOLSA 5 LB" is never collapsed to a bare unit — unknown sizes go to
+// needs-a-look; only an explicit, fully-parseable pack is converted.
 //
 // API surface:
 //   * convertUnit / convertUnitPrice — original strictly-typed UnitOfMeasure
@@ -19,6 +24,8 @@ import type { UnitOfMeasure } from "@/types/restaurant";
 export type ConversionOk = { ok: true; value: number };
 export type ConversionFail = { ok: false; reason: "unsupported_conversion" };
 export type ConversionResult = ConversionOk | ConversionFail;
+
+export const PACK_SIZE_REVIEW_REASON = "tamaño de empaque, necesita conversión";
 
 // Multiplier to go from `from` → `to`.
 // Only families that are safely interconvertible are included.
@@ -137,7 +144,8 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   galones: "gal",
   gallon: "gal",
   gallons: "gal",
-  // discrete — kitchen pack sizes stay "each"; we never invent a weight
+  // discrete — bare kitchen pack words stay "each"; a size next to them
+  // is never inferred here (see resolveUnitCell / parseExplicitPackSize).
   unit: "unit",
   units: "unit",
   unidad: "unit",
@@ -204,6 +212,46 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   pounds: "lb",
 };
 
+const PACK_WORDS = new Set([
+  "paquete",
+  "paquetes",
+  "paq",
+  "pqt",
+  "pqte",
+  "sobre",
+  "sobres",
+  "bolsa",
+  "bolsas",
+  "caja",
+  "cajas",
+  "lata",
+  "latas",
+  "botella",
+  "botellas",
+  "bandeja",
+  "bandejas",
+  "rollo",
+  "rollos",
+  "barra",
+  "barras",
+  "saco",
+  "sacos",
+  "cubeta",
+  "cubetas",
+  "balde",
+  "baldes",
+]);
+
+const MEASURE_UNITS = new Set<UnitOfMeasure>([
+  "kg",
+  "g",
+  "l",
+  "ml",
+  "gal",
+  "oz",
+  "lb",
+]);
+
 function foldUnitKey(raw: string): string {
   return raw
     .trim()
@@ -215,26 +263,80 @@ function foldUnitKey(raw: string): string {
     .trim();
 }
 
+function firstWord(text: string): string {
+  return text.split(" ")[0] ?? "";
+}
+
+function stripParentheticals(folded: string): string {
+  return folded
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cellHasSizeHint(raw: string, folded: string): boolean {
+  return /\d/.test(folded) || /\([^)]*\)/.test(raw);
+}
+
+function isPackWord(key: string): boolean {
+  return PACK_WORDS.has(key);
+}
+
+function isMeasureKey(key: string): boolean {
+  const hit = UNIT_SYNONYMS[key];
+  return hit != null && MEASURE_UNITS.has(hit);
+}
+
+function isBareCountKey(key: string): boolean {
+  const hit = UNIT_SYNONYMS[key];
+  return (hit === "unit" || hit === "portion") && !isPackWord(key);
+}
+
+function escapeRegexToken(token: string): string {
+  return token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function alternation(tokens: string[]): string {
+  return tokens
+    .slice()
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegexToken)
+    .join("|");
+}
+
 /**
  * Kitchen workbooks write "PAQUETE (TORTILLA DE TACO 14 UNIDADES)" or
- * "GALÓN". Try the whole cell, then the token before a parenthetical,
- * then the first word — never guess a family from a leftover adjective.
+ * "GALÓN". Try the whole cell, then a parenthetical strip only when the
+ * leftover is not a pack-with-size, then the first word only for true
+ * unit words (kg, lb, g, l, oz, ml, gal, …). Never guess a family from
+ * a leftover pack adjective.
  */
 export function unitLookupKeys(raw: string): string[] {
   const folded = foldUnitKey(raw);
   if (!folded) return [];
-  const noParens = folded
-    .replace(/\([^)]*\)/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const first = (noParens || folded).split(" ")[0] ?? "";
-  return [...new Set([folded, noParens, first].filter(Boolean))];
+  const keys = [folded];
+  const sized = cellHasSizeHint(raw, folded);
+  const noParens = stripParentheticals(folded);
+  if (noParens && noParens !== folded) {
+    const head = firstWord(noParens);
+    if (!isPackWord(head) || !sized) keys.push(noParens);
+  }
+  const first = firstWord(noParens || folded);
+  if (first && isMeasureKey(first)) {
+    keys.push(first);
+  } else if (first && isBareCountKey(first) && !sized) {
+    keys.push(first);
+  } else if (first && isPackWord(first) && !sized) {
+    keys.push(first);
+  }
+  return [...new Set(keys.filter(Boolean))];
 }
 
 /**
  * Returns the canonical UnitOfMeasure for an arbitrary user-typed unit
  * string, or `null` when we don't recognise it. Comparison is lowercase
- * + trimmed — never guesses families.
+ * + trimmed — never guesses families. Pack cells with a size are null
+ * so callers cannot treat a 14-count bag as one "each".
  */
 export function normalizeUnit(
   raw: string | null | undefined
@@ -247,20 +349,129 @@ export function normalizeUnit(
   return null;
 }
 
+export function parseExplicitPackSize(
+  raw: string
+): { unit: UnitOfMeasure; multiplier: number } | null {
+  const folded = foldUnitKey(raw);
+  if (!folded || !isPackWord(firstWord(stripParentheticals(folded)))) {
+    return null;
+  }
+
+  const packTokens = alternation([...PACK_WORDS]);
+  const measureTokens = alternation(
+    Object.entries(UNIT_SYNONYMS)
+      .filter(([key, unit]) => MEASURE_UNITS.has(unit) && !isPackWord(key))
+      .map(([key]) => key)
+  );
+  const countTokens = alternation(
+    Object.entries(UNIT_SYNONYMS)
+      .filter(([key, unit]) => unit === "unit" && !isPackWord(key))
+      .map(([key]) => key)
+  );
+
+  const massVol = folded.match(
+    new RegExp(`^(${packTokens}) (\\d+(?:\\.\\d+)?) (${measureTokens})$`)
+  );
+  if (massVol) {
+    const unit = UNIT_SYNONYMS[massVol[3] ?? ""];
+    const multiplier = Number(massVol[2]);
+    if (unit && Number.isFinite(multiplier) && multiplier > 0) {
+      return { unit, multiplier };
+    }
+  }
+
+  const counted = folded.match(
+    new RegExp(`^(${packTokens}) \\((\\d+(?:\\.\\d+)?) (${countTokens})\\)$`)
+  );
+  if (counted) {
+    const multiplier = Number(counted[2]);
+    if (Number.isFinite(multiplier) && multiplier > 0) {
+      return { unit: "unit", multiplier };
+    }
+  }
+
+  return null;
+}
+
+export function isAmbiguousPackUnit(raw: string): boolean {
+  const folded = foldUnitKey(raw);
+  if (!folded) return false;
+  if (!cellHasSizeHint(raw, folded)) return false;
+  if (parseExplicitPackSize(raw)) return false;
+  return isPackWord(firstWord(stripParentheticals(folded)));
+}
+
+export type ResolvedUnitCell =
+  | {
+      ok: true;
+      unit: string;
+      canonical: UnitOfMeasure;
+      quantityMultiplier: number;
+    }
+  | { ok: false; reason: string };
+
+/**
+ * Workbook / draft ingest. Bare packs stay "each". Explicit parseable
+ * sizes (BOLSA 5 LB, PAQUETE (14 UNIDADES)) expand. Anything else with
+ * a pack size goes to needs-a-look in tú-neutral LatAm Spanish.
+ */
+export function resolveUnitCell(
+  raw: string | null | undefined
+): ResolvedUnitCell {
+  if (typeof raw !== "string" || !raw.trim()) {
+    return { ok: false, reason: "Missing unit" };
+  }
+  const explicit = parseExplicitPackSize(raw);
+  if (explicit) {
+    return {
+      ok: true,
+      unit: explicit.unit,
+      canonical: explicit.unit,
+      quantityMultiplier: explicit.multiplier,
+    };
+  }
+  const canonical = normalizeUnit(raw);
+  if (canonical) {
+    return {
+      ok: true,
+      unit: raw.trim(),
+      canonical,
+      quantityMultiplier: 1,
+    };
+  }
+  if (isAmbiguousPackUnit(raw)) {
+    return { ok: false, reason: PACK_SIZE_REVIEW_REASON };
+  }
+  return { ok: false, reason: `unknown unit (${raw})` };
+}
+
+function conversionSides(
+  raw: string | null | undefined
+): { unit: UnitOfMeasure; multiplier: number } | null {
+  if (typeof raw !== "string") return null;
+  const explicit = parseExplicitPackSize(raw);
+  if (explicit) return explicit;
+  const unit = normalizeUnit(raw);
+  return unit ? { unit, multiplier: 1 } : null;
+}
+
 /**
  * String-friendly value conversion. Same contract as `convertUnit` but
  * accepts arbitrary unit strings and normalises them first. Returns
  * `unsupported_conversion` for any pair the canonical table can't bridge.
+ * Explicit pack sizes multiply through (1 × BOLSA 5 LB = 5 lb).
  */
 export function convertUnitStr(
   value: number,
   from: string | null | undefined,
   to: string | null | undefined
 ): ConversionResult {
-  const f = normalizeUnit(from);
-  const t = normalizeUnit(to);
+  const f = conversionSides(from);
+  const t = conversionSides(to);
   if (!f || !t) return { ok: false, reason: "unsupported_conversion" };
-  return convertUnit(value, f, t);
+  const converted = convertUnit(value * f.multiplier, f.unit, t.unit);
+  if (!converted.ok) return converted;
+  return { ok: true, value: converted.value / t.multiplier };
 }
 
 /**
@@ -271,8 +482,11 @@ export function convertUnitPriceStr(
   from: string | null | undefined,
   to: string | null | undefined
 ): ConversionResult {
-  const f = normalizeUnit(from);
-  const t = normalizeUnit(to);
+  const f = conversionSides(from);
+  const t = conversionSides(to);
   if (!f || !t) return { ok: false, reason: "unsupported_conversion" };
-  return convertUnitPrice(pricePerFrom, f, t);
+  const pricePerFromCanonical = pricePerFrom / f.multiplier;
+  const converted = convertUnitPrice(pricePerFromCanonical, f.unit, t.unit);
+  if (!converted.ok) return converted;
+  return { ok: true, value: converted.value * t.multiplier };
 }

@@ -34,9 +34,12 @@ import {
 } from "@/lib/restaurant/cost-workbook/limits";
 import { shouldUseWorkbookImport } from "@/lib/restaurant/cost-workbook/sheets";
 import {
+  PACK_SIZE_REVIEW_REASON,
   convertUnitPriceStr,
   convertUnitStr,
   normalizeUnit,
+  parseExplicitPackSize,
+  resolveUnitCell,
 } from "@/lib/restaurant/units";
 import { validateCostImportColumns } from "@/lib/restaurant/cost-import";
 import {
@@ -254,21 +257,96 @@ describe("units — Spanish + lb/oz", () => {
     expect(normalizeUnit("galón")).toBe("gal");
     expect(normalizeUnit("galones")).toBe("gal");
     expect(normalizeUnit("PAQUETE")).toBe("unit");
-    expect(normalizeUnit("PAQUETE (TORTILLA DE TACO 14 UNIDADES)")).toBe(
-      "unit"
-    );
     expect(normalizeUnit("SOBRES")).toBe("unit");
     expect(normalizeUnit("sobre")).toBe("unit");
     expect(normalizeUnit("UNIDA")).toBe("unit");
+    expect(normalizeUnit("UNIDAD")).toBe("unit");
     expect(normalizeUnit("BOLSA")).toBe("unit");
     expect(normalizeUnit("CAJA")).toBe("unit");
     expect(normalizeUnit("lata")).toBe("unit");
     expect(normalizeUnit("botella")).toBe("unit");
+    expect(normalizeUnit("saco")).toBe("unit");
+    expect(normalizeUnit("cubeta")).toBe("unit");
+    expect(normalizeUnit("balde")).toBe("unit");
     expect(normalizeUnit("bulto")).toBeNull();
     expect(normalizeUnit("APIO")).toBeNull();
     const galToL = convertUnitStr(1, "GALON", "l");
     expect(galToL.ok).toBe(true);
     if (galToL.ok) expect(galToL.value).toBeCloseTo(3.785411784, 6);
+  });
+
+  it("does not treat a pack cell with a size as a plain unit", () => {
+    expect(normalizeUnit("PAQUETE (TORTILLA DE TACO 14 UNIDADES)")).toBeNull();
+    expect(normalizeUnit("PAQUETE (14 UNIDADES)")).toBeNull();
+    expect(normalizeUnit("BOLSA 5 LB")).toBeNull();
+    expect(normalizeUnit("SACO 25 KG (ARROZ)")).toBeNull();
+    expect(normalizeUnit("CAJA 12 x 500 g")).toBeNull();
+    expect(normalizeUnit("CUBETA 18.9 L + 2 L")).toBeNull();
+    expect(normalizeUnit("kg neto")).toBe("kg");
+    expect(normalizeUnit("lb (net)")).toBe("lb");
+    expect(normalizeUnit("GALÓN (US)")).toBe("gal");
+
+    expect(resolveUnitCell("PAQUETE (TORTILLA DE TACO 14 UNIDADES)")).toEqual({
+      ok: false,
+      reason: PACK_SIZE_REVIEW_REASON,
+    });
+    expect(resolveUnitCell("SACO 25 KG (ARROZ)")).toEqual({
+      ok: false,
+      reason: PACK_SIZE_REVIEW_REASON,
+    });
+    expect(resolveUnitCell("CAJA 12 x 500 g")).toEqual({
+      ok: false,
+      reason: PACK_SIZE_REVIEW_REASON,
+    });
+    expect(resolveUnitCell("CUBETA 18.9 L + 2 L")).toEqual({
+      ok: false,
+      reason: PACK_SIZE_REVIEW_REASON,
+    });
+    expect(resolveUnitCell("APIO")).toEqual({
+      ok: false,
+      reason: "unknown unit (APIO)",
+    });
+  });
+
+  it("converts only fully parseable pack sizes", () => {
+    expect(parseExplicitPackSize("BOLSA 5 LB")).toEqual({
+      unit: "lb",
+      multiplier: 5,
+    });
+    expect(parseExplicitPackSize("PAQUETE (14 UNIDADES)")).toEqual({
+      unit: "unit",
+      multiplier: 14,
+    });
+    expect(
+      parseExplicitPackSize("PAQUETE (TORTILLA DE TACO 14 UNIDADES)")
+    ).toBeNull();
+    expect(parseExplicitPackSize("CAJA 12 x 500 g")).toBeNull();
+
+    const bag = convertUnitStr(1, "BOLSA 5 LB", "lb");
+    expect(bag.ok).toBe(true);
+    if (bag.ok) expect(bag.value).toBe(5);
+    const pack = convertUnitStr(2, "PAQUETE (14 UNIDADES)", "unit");
+    expect(pack.ok).toBe(true);
+    if (pack.ok) expect(pack.value).toBe(28);
+    const perLb = convertUnitPriceStr(10, "BOLSA 5 LB", "lb");
+    expect(perLb.ok).toBe(true);
+    if (perLb.ok) expect(perLb.value).toBeCloseTo(2);
+    expect(
+      convertUnitStr(1, "PAQUETE (TORTILLA DE TACO 14 UNIDADES)", "unit").ok
+    ).toBe(false);
+
+    expect(resolveUnitCell("BOLSA 5 LB")).toEqual({
+      ok: true,
+      unit: "lb",
+      canonical: "lb",
+      quantityMultiplier: 5,
+    });
+    expect(resolveUnitCell("PAQUETE (14 UNIDADES)")).toEqual({
+      ok: true,
+      unit: "unit",
+      canonical: "unit",
+      quantityMultiplier: 14,
+    });
   });
 
   it("converts lb ↔ oz and into kg/g for costing", () => {
@@ -1006,9 +1084,27 @@ describe("workbook recipes, POS links, and cockpit COGS", () => {
     const unknownUnits = result.review_items.filter((item) =>
       item.reason.startsWith("unknown unit")
     );
+    const packSizeRows = result.review_items.filter(
+      (item) => item.reason === PACK_SIZE_REVIEW_REASON
+    );
+    const packUnits = packSizeRows.map((item) => item.suggested?.unit ?? "");
+    expect(packUnits).toEqual(
+      expect.arrayContaining([
+        "PAQUETE (TORTILLA DE TACO 14 UNIDADES)",
+        "SACO 25 KG (ARROZ)",
+        "CAJA 12 x 500 g",
+        "CUBETA 18.9 L + 2 L",
+      ])
+    );
+    expect(packSizeRows.length).toBeGreaterThanOrEqual(4);
     expect(
       unknownUnits.some((item) =>
-        /PAQUETE|GALON|SOBRES|UNIDA|BOLSA|CAJA/i.test(item.reason)
+        /GALON|SOBRES|UNIDA|BOLSA|CAJA/i.test(item.reason)
+      )
+    ).toBe(false);
+    expect(
+      unknownUnits.some((item) =>
+        /PAQUETE \(TORTILLA DE TACO 14 UNIDADES\)/i.test(item.reason)
       )
     ).toBe(false);
     expect(unknownUnits.some((item) => item.reason.includes("APIO"))).toBe(
@@ -1018,16 +1114,20 @@ describe("workbook recipes, POS links, and cockpit COGS", () => {
       true
     );
 
-    expect(result.sub_recipes_created).toBeGreaterThanOrEqual(6);
+    expect(result.sub_recipes_created).toBeGreaterThan(0);
+    expect(result.recipes_created).toBeGreaterThan(0);
+    expect(result.menu_items_created).toBeGreaterThan(0);
     expect(store.components.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "Salsa ranchera",
         "Agua de jamaica",
-        "Tortilla taco",
         "Sopa para tacos",
         "Wantan wrap",
         "Aderezo casa",
       ])
+    );
+    expect(store.components.some((row) => row.name === "Tortilla taco")).toBe(
+      false
     );
     expect(store.menuItems.map((row) => row.name)).toEqual(
       expect.arrayContaining(["Carne Asada", "Agua Jamaica"])
@@ -1050,11 +1150,76 @@ describe("workbook recipes, POS links, and cockpit COGS", () => {
     if (!carne) return;
     const cost = calculateMenuItemCost(carne.id, data);
     expect(cost.status).toBe("complete");
-    expect(cost.cost).toBeGreaterThan(0);
-    const julyRevenue = 120;
-    const estimatedCogs = (cost.cost ?? 0) * 10;
-    expect(estimatedCogs).toBeGreaterThan(0);
-    expect(julyRevenue > 0 && estimatedCogs > 0).toBe(true);
+    const carneLb = convertUnitStr(8, "oz", "lb");
+    const tomateLb = convertUnitStr(2, "oz", "lb");
+    const cebollaLb = convertUnitStr(0.5, "kg", "lb");
+    const salsaPortionLb = convertUnitStr(2, "oz", "lb");
+    expect(carneLb.ok && tomateLb.ok && cebollaLb.ok && salsaPortionLb.ok).toBe(
+      true
+    );
+    if (!carneLb.ok || !tomateLb.ok || !cebollaLb.ok || !salsaPortionLb.ok) {
+      return;
+    }
+    const salsaBatch = 2 * 1.2 + cebollaLb.value * 1.8;
+    const salsaYieldLb = 2 + cebollaLb.value;
+    const expectedCost =
+      carneLb.value * 4.8 +
+      tomateLb.value * 1.2 +
+      salsaBatch * (salsaPortionLb.value / salsaYieldLb);
+    expect(cost.cost).toBeCloseTo(expectedCost, 4);
+    expect(expectedCost).toBeGreaterThan(2.7);
+    expect(expectedCost).toBeLessThan(2.8);
+  });
+
+  it("expands parseable pack sizes and holds mixed packs for review", async () => {
+    const store = emptyStore();
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+        ["Chile", 2, 0.125, ""],
+        ["Sal", "", "", 0.15],
+      ]),
+      "Lista de precios"
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Receta", "Ingrediente", "Cantidad", "Unidad"],
+        ["Chile molido", "Chile", 1, "BOLSA 5 LB"],
+        ["Sal porcion", "Sal", 1, "PAQUETE (14 UNIDADES)"],
+        ["Harina suelta", "Harina", 1, "CAJA 12 x 500 g"],
+      ]),
+      "SUB RECETAS"
+    );
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: Buffer.from(
+        XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+      ),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+
+    const chile = store.componentRecipeInputs.find((row) => row.quantity === 5);
+    expect(chile?.unit).toBe("lb");
+    const sal = store.componentRecipeInputs.find((row) => row.quantity === 14);
+    expect(sal?.unit).toBe("unit");
+    expect(store.components.map((row) => row.name).sort()).toEqual(
+      ["Chile molido", "Sal porcion"].sort()
+    );
+    expect(
+      result.review_items.some(
+        (item) =>
+          item.reason === PACK_SIZE_REVIEW_REASON &&
+          item.suggested?.unit === "CAJA 12 x 500 g"
+      )
+    ).toBe(true);
+    expect(result.sub_recipes_created).toBe(2);
   });
 
   it("does not overwrite a handmade recipe", async () => {

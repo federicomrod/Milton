@@ -47,7 +47,7 @@ export function SalesHero({
 
   return (
     <div className="space-y-4">
-      <section>
+      <section id="horario">
         <h2 className="text-base font-semibold mb-1">
           {t(
             lang,
@@ -69,7 +69,7 @@ export function SalesHero({
         />
       </section>
 
-      <section>
+      <section id="almuerzo">
         <h2 className="text-base font-semibold mb-2">
           {t(lang, "Lunch vs dinner", "Almuerzo vs cena")}
         </h2>
@@ -98,7 +98,7 @@ export function SalesHero({
         </div>
       </section>
 
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <section id="canales" className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <MixChart
           title={t(
             lang,
@@ -116,23 +116,29 @@ export function SalesHero({
           lang={lang}
           labelFor={salesChannelLabel}
         />
-        <MixChart
-          title={t(lang, "Payment mix over time", "Mix de pagos en el tiempo")}
-          subtitle={t(
-            lang,
-            "Calendar weeks Mon–Sun (not the rolling 7-day KPI window).",
-            "Semanas calendario lun–dom (no la ventana móvil de 7 días del KPI)."
-          )}
-          series={cockpit.payment_mix_over_time}
-          currency={cockpit.currency}
-          locale={locale}
-          lang={lang}
-          labelFor={(key) =>
-            key === "unknown"
-              ? t(lang, "Unknown payment", "Pago desconocido")
-              : key
-          }
-        />
+        <div id="pagos">
+          <MixChart
+            title={t(
+              lang,
+              "Payment mix over time",
+              "Mix de pagos en el tiempo"
+            )}
+            subtitle={t(
+              lang,
+              "Calendar weeks Mon–Sun (not the rolling 7-day KPI window).",
+              "Semanas calendario lun–dom (no la ventana móvil de 7 días del KPI)."
+            )}
+            series={cockpit.payment_mix_over_time}
+            currency={cockpit.currency}
+            locale={locale}
+            lang={lang}
+            labelFor={(key) =>
+              key === "unknown"
+                ? t(lang, "Unknown payment", "Pago desconocido")
+                : key
+            }
+          />
+        </div>
       </section>
     </div>
   );

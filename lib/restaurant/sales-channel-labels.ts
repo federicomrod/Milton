@@ -13,6 +13,13 @@ const CHANNEL_LABELS: Record<string, { en: string; es: string }> = {
   unknown: { en: "Unknown channel", es: "Canal desconocido" },
 };
 
+const PAYMENT_LABELS: Record<string, { en: string; es: string }> = {
+  card: { en: "Card", es: "Tarjeta" },
+  cash: { en: "Cash", es: "Efectivo" },
+  digital: { en: "Digital", es: "Digital" },
+  unknown: { en: "Unknown payment", es: "Pago desconocido" },
+};
+
 export function salesChannelLabel(
   key: string,
   lang: PreferredLanguage
@@ -23,4 +30,26 @@ export function salesChannelLabel(
     return t(lang, "Unknown", "Desconocido");
   }
   return key;
+}
+
+export function salesPaymentLabel(
+  key: string,
+  lang: PreferredLanguage
+): string {
+  const known = PAYMENT_LABELS[key];
+  if (known) return lang === "es" ? known.es : known.en;
+  if (key === "unknown") {
+    return t(lang, "Unknown payment", "Pago desconocido");
+  }
+  return key;
+}
+
+export function salesCategoryLabel(
+  category: string | null | undefined,
+  lang: PreferredLanguage
+): string {
+  if (category == null || category.trim() === "") {
+    return t(lang, "Uncategorized", "Sin categoría");
+  }
+  return category;
 }

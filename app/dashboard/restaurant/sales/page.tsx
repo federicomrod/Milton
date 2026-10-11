@@ -1,107 +1,113 @@
 // app/dashboard/restaurant/sales/page.tsx
 //
-// Thin Sales area — heatmap from the fast rollup, explorer streamed after
-// the POS page-walk. Layout of the Sales tab is unchanged.
+// Sales area — Understand / Explore. Investigate lives one level deeper
+// at /detalle. KPI math stays in lib/restaurant/sales-insights.ts.
+// First paint uses the cached rollup/POS path from #136 and does not
+// serialize explorer rows.
 
 import { Suspense } from "react";
-import {
-  loadSalesExplorerModel,
-  loadSalesHeroModel,
-} from "@/lib/restaurant/cockpit-page-data";
+import { loadSalesPageModel } from "@/lib/restaurant/sales-page-data";
 import { timeCockpitStep } from "@/lib/restaurant/cockpit-timing";
-import { SalesHero } from "@/components/restaurant/cockpit/SalesHero";
-import { RestaurantSalesExplorer } from "@/components/restaurant/RestaurantSalesExplorer";
-import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
+import { SalesPageLive } from "@/components/restaurant/sales/SalesPageLive";
+import { SalesInterpretation } from "@/components/restaurant/sales/SalesInterpretation";
+import { SalesInterpretationUpgrade } from "@/components/restaurant/sales/SalesInterpretationUpgrade";
+import { SalesPageHeader } from "@/components/restaurant/sales/SalesPageChrome";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
-import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
 import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   t,
 } from "@/lib/restaurant/language";
-import { shownPeriodFromSales } from "@/lib/restaurant/page-date-range";
+import { SALES_DETAIL_HREF } from "@/lib/restaurant/navigation";
+import { salesHref } from "@/lib/restaurant/sales-explore";
 
 export const dynamic = "force-dynamic";
-
-async function SalesHeroSection({ location }: { location?: string }) {
-  const hero = await loadSalesHeroModel(location);
-  if (hero.mode !== "live") {
-    return (
-      <NotAvailableYet
-        lang={hero.lang}
-        reason={t(
-          hero.lang,
-          "Upload POS sales to see the heatmap and explorer.",
-          "Importa ventas del POS para ver el mapa de calor y el explorador."
-        )}
-        href="/dashboard/restaurant/upload"
-        linkLabel={t(
-          hero.lang,
-          "Import POS Sales →",
-          "Importar ventas del POS →"
-        )}
-      />
-    );
-  }
-  return <SalesHero cockpit={hero.cockpit} lang={hero.lang} />;
-}
-
-async function SalesExplorerSection({ location }: { location?: string }) {
-  const model = await loadSalesExplorerModel(location);
-  if (model.mode !== "live") return null;
-  return (
-    <section>
-      <RestaurantSalesExplorer
-        rows={model.explorerRows}
-        initialTargets={model.targets}
-        displayCurrency={model.displayCurrency}
-        lang={model.lang}
-      />
-    </section>
-  );
-}
 
 export default async function SalesAreaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ location?: string }>;
+  searchParams: Promise<{ location?: string; period?: string }>;
 }) {
-  const { location } = await searchParams;
-  const hero = await timeCockpitStep(
+  const { location, period } = await searchParams;
+  const {
+    mode,
+    lang: modelLang,
+    sales,
+    periodPreset,
+    latestSaleDate,
+  } = await timeCockpitStep(
     "sales-route",
-    () => loadSalesHeroModel(location),
-    { location: location ?? null }
+    () => loadSalesPageModel(location, period),
+    { location: location ?? null, period: period ?? null }
   );
-  const lang =
-    hero.mode === "live" ? hero.lang : RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  const lang = modelLang || RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  const detailHref = salesHref(SALES_DETAIL_HREF, {
+    locationId: location,
+    period: periodPreset,
+  });
 
   return (
     <div className="w-full py-3 px-6 lg:px-10 space-y-3">
-      <OperatingPageHeader
-        title={t(lang, "Sales", "Ventas")}
+      <SalesPageHeader
         lang={lang}
-        shownRange={
-          hero.mode === "live"
-            ? shownPeriodFromSales(
-                hero.cockpit.period_from,
-                hero.cockpit.period_to
-              )
-            : null
+        periodPreset={periodPreset}
+        range={
+          sales
+            ? sales.period.current
+            : mode === "live" && latestSaleDate
+              ? { from: latestSaleDate, to: latestSaleDate }
+              : null
         }
+        comparisonLabel={sales?.comparisonLabel}
+        periodAskQuestion={sales?.insights.period_ask_question}
       />
-      <Suspense
-        fallback={<PageSkeleton height="220px" width="100%" label="heatmap" />}
-      >
-        <SalesHeroSection location={location} />
-      </Suspense>
-      {hero.mode === "live" ? (
-        <Suspense
-          fallback={
-            <PageSkeleton height="320px" width="100%" label="explorer" />
-          }
+      {mode === "live" && sales ? (
+        <SalesPageLive
+          insights={sales.insights}
+          currency={sales.scoped.currency}
+          timezone={sales.scoped.timezone}
+          lang={lang}
+          detailHref={detailHref}
         >
-          <SalesExplorerSection location={location} />
-        </Suspense>
-      ) : null}
+          {sales.insights.interpretation && sales.interpretationFact ? (
+            <Suspense
+              fallback={
+                <SalesInterpretation
+                  lang={lang}
+                  title={sales.insights.interpretation.title}
+                  body={sales.insights.interpretation.body}
+                  source="deterministic"
+                />
+              }
+            >
+              <SalesInterpretationUpgrade
+                fact={sales.interpretationFact}
+                lang={lang}
+                cacheKey={sales.interpretationCacheKey}
+              />
+            </Suspense>
+          ) : null}
+        </SalesPageLive>
+      ) : mode === "live" ? (
+        <NotAvailableYet
+          lang={lang}
+          reason={t(
+            lang,
+            "Not enough dated sales to build this period.",
+            "No hay suficientes ventas con fecha para armar este periodo."
+          )}
+        />
+      ) : (
+        <NotAvailableYet
+          lang={lang}
+          reason={t(
+            lang,
+            "Upload POS sales to see the heatmap and explorer.",
+            "Importa ventas del POS para ver el mapa de calor y el explorador."
+          )}
+          href="/dashboard/restaurant/upload"
+          linkLabel={t(lang, "Import POS Sales →", "Importar ventas del POS →")}
+        />
+      )}
     </div>
   );
 }

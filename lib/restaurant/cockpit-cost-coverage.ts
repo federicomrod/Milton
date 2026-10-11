@@ -99,6 +99,104 @@ export function periodCostKpisFromRows(
   };
 }
 
+export interface PeriodCostProductLine {
+  raw_item_name: string;
+  units: number;
+  net: number;
+  is_tip: boolean;
+  currency?: string | null;
+  menu_item_id?: string | null;
+}
+
+/**
+ * Same KPI math as periodCostKpisFromRows, but over already-grouped
+ * product lines (the 033 rollup shape). unitCost × units matches
+ * summing unitCost × qty on the raw rows when the unit cost is stable.
+ */
+export function periodCostKpisFromProductLines(
+  lines: PeriodCostProductLine[],
+  lookup: ItemCostLookup,
+  currency?: string
+): PeriodCostKpis {
+  const coverageLines: CoverageLine[] = [];
+  let cogs = 0;
+  for (const line of lines) {
+    if (line.is_tip) continue;
+    if (currency && line.currency && line.currency !== currency) continue;
+    const menuItemId = resolveMenuItemId(
+      {
+        menu_item_id: line.menu_item_id,
+        raw_item_name: line.raw_item_name,
+      },
+      lookup
+    );
+    const unitCost = menuItemId
+      ? (lookup.unitCostByMenuItemId.get(menuItemId) ?? null)
+      : null;
+    const hasCost = unitCost !== null && Number.isFinite(unitCost);
+    coverageLines.push({ net: line.net, has_cost: hasCost });
+    if (hasCost) {
+      const qty = Number.isFinite(line.units) ? line.units : 0;
+      cogs += (unitCost as number) * qty;
+    }
+  }
+  const coverage = salesWeightedCoverage(coverageLines);
+  const foodCostPct =
+    coverage.covered_sales > 0 ? (cogs / coverage.covered_sales) * 100 : null;
+  const grossMarginPct =
+    coverage.covered_sales > 0
+      ? ((coverage.covered_sales - cogs) / coverage.covered_sales) * 100
+      : null;
+  return {
+    coverage_pct: coverage.coverage_pct,
+    covered_net: coverage.covered_sales,
+    estimated_cogs: round2(cogs),
+    food_cost_pct: foodCostPct === null ? null : round1(foodCostPct),
+    gross_margin_pct: grossMarginPct === null ? null : round1(grossMarginPct),
+  };
+}
+
+/**
+ * Group period-filtered POS rows the same way 033 groups products, so a
+ * rollup-based KPI can be compared 1:1 with the row walk.
+ */
+export function productLinesFromCostRows(
+  rows: CockpitFactRow[],
+  currency?: string
+): PeriodCostProductLine[] {
+  const buckets = new Map<string, PeriodCostProductLine>();
+  for (const row of rows) {
+    if (currency && row.currency && row.currency !== currency) continue;
+    const classified = classifySaleLine(row);
+    const raw = (row.raw_item_name ?? row.item_name ?? "").trim();
+    const menuItemId = row.menu_item_id?.trim() || null;
+    const key = `${raw}\0${menuItemId ?? ""}\0${classified.isTip ? "1" : "0"}\0${row.currency ?? ""}`;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        raw_item_name: raw,
+        units: 0,
+        net: 0,
+        is_tip: classified.isTip,
+        currency: row.currency ?? null,
+        menu_item_id: menuItemId,
+      };
+      buckets.set(key, bucket);
+    }
+    const qty =
+      typeof row.quantity === "number" && Number.isFinite(row.quantity)
+        ? row.quantity
+        : 0;
+    if (!classified.isTip) bucket.units += qty;
+    bucket.net += classified.net;
+  }
+  return Array.from(buckets.values()).map((line) => ({
+    ...line,
+    units: Math.round(line.units * 1000) / 1000,
+    net: Math.round(line.net * 100) / 100,
+  }));
+}
+
 export function itemCostLookupFromMarginRows(
   rows: Array<{
     menu_item_id: string;
@@ -123,7 +221,11 @@ export function itemCostLookupFromMarginRows(
 }
 
 function resolveMenuItemId(
-  row: CockpitFactRow & { menu_item_id?: string | null },
+  row: {
+    menu_item_id?: string | null;
+    raw_item_name?: string | null;
+    item_name?: string | null;
+  },
   lookup: ItemCostLookup
 ): string | null {
   const direct = row.menu_item_id?.trim();

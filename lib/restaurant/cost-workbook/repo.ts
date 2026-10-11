@@ -20,8 +20,10 @@ import type {
   WorkbookMappingSource,
   WorkbookRowCandidate,
   CompanyCostResetSummary,
+  CostResetStepId,
 } from "./types";
 import { emptyUndoSnapshot } from "./types";
+import { runResetSteps, summaryFromResetSteps } from "./reset";
 
 const WRITE_CHUNK = 100;
 
@@ -354,138 +356,170 @@ async function deleteCompanyRows(
   return (data ?? []).length;
 }
 
+async function loadImportMenuAndMappingIds(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<{
+  importMenuIds: string[];
+  importMappingIds: string[];
+  keptManualMenuItems: number;
+  keptManualPosMappings: number;
+  loadError: string | null;
+}> {
+  try {
+    const menus = await supabase
+      .from("menu_items")
+      .select("id, source_type")
+      .eq("company_id", companyId);
+    if (menus.error) throw new Error(menus.error.message);
+    const importMenuIds = (
+      (menus.data ?? []) as Array<{ id: string; source_type: string | null }>
+    )
+      .filter((row) => row.source_type === "import")
+      .map((row) => String(row.id));
+    const keptManualMenuItems = (
+      (menus.data ?? []) as Array<{ source_type: string | null }>
+    ).filter((row) => row.source_type !== "import").length;
+
+    const mappings = await supabase
+      .from("pos_item_mappings")
+      .select("id, menu_item_id, match_type")
+      .eq("company_id", companyId);
+    if (mappings.error) throw new Error(mappings.error.message);
+    const importMenuSet = new Set(importMenuIds);
+    const importMappingIds = (
+      (mappings.data ?? []) as Array<{
+        id: string;
+        menu_item_id: string;
+        match_type: string | null;
+      }>
+    )
+      .filter(
+        (row) =>
+          row.match_type === "auto" ||
+          importMenuSet.has(String(row.menu_item_id))
+      )
+      .map((row) => String(row.id));
+    const keptManualPosMappings = (
+      (mappings.data ?? []) as Array<{
+        id: string;
+        menu_item_id: string;
+        match_type: string | null;
+      }>
+    ).filter(
+      (row) =>
+        row.match_type !== "auto" && !importMenuSet.has(String(row.menu_item_id))
+    ).length;
+
+    return {
+      importMenuIds,
+      importMappingIds,
+      keptManualMenuItems,
+      keptManualPosMappings,
+      loadError: null,
+    };
+  } catch (err) {
+    return {
+      importMenuIds: [],
+      importMappingIds: [],
+      keptManualMenuItems: 0,
+      keptManualPosMappings: 0,
+      loadError: err instanceof Error ? err.message : "Error",
+    };
+  }
+}
+
 async function resetSupabaseCompanyCostCatalog(
   supabase: SupabaseClient,
   companyId: string
 ): Promise<CompanyCostResetSummary> {
-  const menus = await supabase
-    .from("menu_items")
-    .select("id, source_type")
-    .eq("company_id", companyId);
-  if (menus.error) throw new Error(menus.error.message);
-  const importMenuIds = (
-    (menus.data ?? []) as Array<{ id: string; source_type: string | null }>
-  )
-    .filter((row) => row.source_type === "import")
-    .map((row) => String(row.id));
-  const keptManualMenuItems = (
-    (menus.data ?? []) as Array<{ source_type: string | null }>
-  ).filter((row) => row.source_type !== "import").length;
+  const loaded = await loadImportMenuAndMappingIds(supabase, companyId);
 
-  const mappings = await supabase
-    .from("pos_item_mappings")
-    .select("id, menu_item_id, match_type")
-    .eq("company_id", companyId);
-  if (mappings.error) throw new Error(mappings.error.message);
-  const importMenuSet = new Set(importMenuIds);
-  const importMappingIds = (
-    (mappings.data ?? []) as Array<{
-      id: string;
-      menu_item_id: string;
-      match_type: string | null;
-    }>
-  )
-    .filter(
-      (row) =>
-        row.match_type === "auto" || importMenuSet.has(String(row.menu_item_id))
-    )
-    .map((row) => String(row.id));
-  const keptManualPosMappings = (
-    (mappings.data ?? []) as Array<{
-      id: string;
-      menu_item_id: string;
-      match_type: string | null;
-    }>
-  ).filter(
-    (row) =>
-      row.match_type !== "auto" && !importMenuSet.has(String(row.menu_item_id))
-  ).length;
-
-  await deleteCompanyRows(supabase, "menu_recipe_inputs", companyId);
-  await deleteCompanyRows(supabase, "recipe_ingredients", companyId);
-  await deleteCompanyRows(supabase, "component_recipe_inputs", companyId);
-  const recipes = await deleteCompanyRows(supabase, "recipes", companyId);
-  await deleteCompanyRows(supabase, "component_recipes", companyId);
-  const components = await deleteCompanyRows(
-    supabase,
-    "prepared_components",
-    companyId
-  );
-
-  let importPosMappings = 0;
-  await mapChunks(importMappingIds, async (chunk) => {
-    const { data, error } = await supabase
-      .from("pos_item_mappings")
-      .delete()
-      .eq("company_id", companyId)
-      .in("id", chunk)
-      .select("id");
-    if (error) throw new Error(error.message);
-    importPosMappings += (data ?? []).length;
+  const steps = await runResetSteps(async (id: CostResetStepId) => {
+    switch (id) {
+      case "menu_recipe_inputs":
+        return deleteCompanyRows(supabase, "menu_recipe_inputs", companyId);
+      case "recipe_ingredients":
+        return deleteCompanyRows(supabase, "recipe_ingredients", companyId);
+      case "component_recipe_inputs":
+        return deleteCompanyRows(
+          supabase,
+          "component_recipe_inputs",
+          companyId
+        );
+      case "recipes":
+        return deleteCompanyRows(supabase, "recipes", companyId);
+      case "component_recipes":
+        return deleteCompanyRows(supabase, "component_recipes", companyId);
+      case "prepared_components":
+        return deleteCompanyRows(supabase, "prepared_components", companyId);
+      case "import_pos_mappings": {
+        if (loaded.loadError) throw new Error(loaded.loadError);
+        let importPosMappings = 0;
+        await mapChunks(loaded.importMappingIds, async (chunk) => {
+          const { data, error } = await supabase
+            .from("pos_item_mappings")
+            .delete()
+            .eq("company_id", companyId)
+            .in("id", chunk)
+            .select("id");
+          if (error) throw new Error(error.message);
+          importPosMappings += (data ?? []).length;
+        });
+        return importPosMappings;
+      }
+      case "import_menu_items": {
+        if (loaded.loadError) throw new Error(loaded.loadError);
+        let importMenuItems = 0;
+        await mapChunks(loaded.importMenuIds, async (chunk) => {
+          const { data, error } = await supabase
+            .from("menu_items")
+            .delete()
+            .eq("company_id", companyId)
+            .eq("source_type", "import")
+            .in("id", chunk)
+            .select("id");
+          if (error) throw new Error(error.message);
+          importMenuItems += (data ?? []).length;
+        });
+        return importMenuItems;
+      }
+      case "ingredient_cost_entries":
+        return deleteCompanyRows(
+          supabase,
+          "ingredient_cost_entries",
+          companyId
+        );
+      case "supplier_ingredients":
+        return deleteCompanyRows(supabase, "supplier_ingredients", companyId);
+      case "ingredients":
+        return deleteCompanyRows(supabase, "ingredients", companyId);
+      case "cost_import_review_items":
+        return deleteCompanyRows(
+          supabase,
+          "cost_import_review_items",
+          companyId
+        );
+      case "cost_import_layout_maps":
+        return deleteCompanyRows(supabase, "cost_import_layout_maps", companyId);
+      case "batches_marked_undone": {
+        const now = new Date().toISOString();
+        const { data: marked, error: batchError } = await supabase
+          .from("cost_import_batches")
+          .update({ undone_at: now })
+          .eq("company_id", companyId)
+          .is("undone_at", null)
+          .select("id");
+        if (batchError) throw new Error(batchError.message);
+        return (marked ?? []).length;
+      }
+    }
   });
 
-  let importMenuItems = 0;
-  await mapChunks(importMenuIds, async (chunk) => {
-    const { data, error } = await supabase
-      .from("menu_items")
-      .delete()
-      .eq("company_id", companyId)
-      .eq("source_type", "import")
-      .in("id", chunk)
-      .select("id");
-    if (error) throw new Error(error.message);
-    importMenuItems += (data ?? []).length;
+  return summaryFromResetSteps(steps, {
+    kept_manual_menu_items: loaded.keptManualMenuItems,
+    kept_manual_pos_mappings: loaded.keptManualPosMappings,
   });
-
-  const costEntries = await deleteCompanyRows(
-    supabase,
-    "ingredient_cost_entries",
-    companyId
-  );
-  const supplierIngredientLinks = await deleteCompanyRows(
-    supabase,
-    "supplier_ingredients",
-    companyId
-  );
-  const ingredients = await deleteCompanyRows(
-    supabase,
-    "ingredients",
-    companyId
-  );
-  const reviewItems = await deleteCompanyRows(
-    supabase,
-    "cost_import_review_items",
-    companyId
-  );
-  const layoutMaps = await deleteCompanyRows(
-    supabase,
-    "cost_import_layout_maps",
-    companyId
-  );
-
-  const now = new Date().toISOString();
-  const { data: marked, error: batchError } = await supabase
-    .from("cost_import_batches")
-    .update({ undone_at: now })
-    .eq("company_id", companyId)
-    .is("undone_at", null)
-    .select("id");
-  if (batchError) throw new Error(batchError.message);
-
-  return {
-    cost_entries: costEntries,
-    ingredients,
-    supplier_ingredient_links: supplierIngredientLinks,
-    recipes,
-    components,
-    import_menu_items: importMenuItems,
-    import_pos_mappings: importPosMappings,
-    review_items: reviewItems,
-    layout_maps: layoutMaps,
-    batches_marked_undone: (marked ?? []).length,
-    kept_manual_menu_items: keptManualMenuItems,
-    kept_manual_pos_mappings: keptManualPosMappings,
-  };
 }
 
 export function createSupabaseCostWorkbookRepo(

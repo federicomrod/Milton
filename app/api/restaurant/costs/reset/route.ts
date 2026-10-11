@@ -4,11 +4,20 @@ import {
   createSupabaseCostWorkbookRepo,
   PICK_RESTAURANT_ERROR_EN,
   PICK_RESTAURANT_ERROR_ES,
-  RESET_CONFIRM_FALLBACK,
+  RESET_FAILED_ERROR_ES,
+  RESET_FORBIDDEN_ERROR_EN,
+  RESET_FORBIDDEN_ERROR_ES,
+  RESET_PARTIAL_ERROR_ES,
   resetCompanyCostData,
-  resetConfirmationMatches,
+  resetConfirmErrorEs,
+  resetConfirmationAccepted,
   resolveUploadRestaurantScope,
 } from "@/lib/restaurant/cost-workbook";
+import {
+  loadCompanyMembershipRole,
+  loadCompanyName,
+} from "@/lib/restaurant/cost-workbook/reset-auth";
+import { canManageCompanyCostReset } from "@/lib/restaurant/cost-workbook/reset";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +26,32 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+
+  let membership;
+  try {
+    membership = await loadCompanyMembershipRole(
+      auth.supabase,
+      auth.companyId,
+      auth.userId
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error";
+    console.error("[costs/reset] role", message);
+    return NextResponse.json(
+      { error: RESET_FORBIDDEN_ERROR_ES, error_en: RESET_FORBIDDEN_ERROR_EN },
+      { status: 403 }
+    );
+  }
+  if (!canManageCompanyCostReset(membership)) {
+    return NextResponse.json(
+      {
+        error: RESET_FORBIDDEN_ERROR_ES,
+        error_en: RESET_FORBIDDEN_ERROR_EN,
+        code: "forbidden",
+      },
+      { status: 403 }
+    );
+  }
 
   let body: { confirm_name?: unknown; location_id?: unknown } = {};
   try {
@@ -50,12 +85,23 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const expectedName = scope.name?.trim() || RESET_CONFIRM_FALLBACK;
+  let companyName: string | null = null;
+  try {
+    companyName = await loadCompanyName(auth.supabase, auth.companyId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error";
+    console.error("[costs/reset] company name", message);
+  }
+
+  const confirmTarget = {
+    companyName,
+    restaurantNames: restaurantContext.locations.map((row) => row.name),
+  };
   const typed = typeof body.confirm_name === "string" ? body.confirm_name : "";
-  if (!resetConfirmationMatches(typed, expectedName)) {
+  if (!resetConfirmationAccepted(typed, confirmTarget)) {
     return NextResponse.json(
       {
-        error: "Type the restaurant name to confirm",
+        error: resetConfirmErrorEs(confirmTarget),
         code: "confirm_name",
       },
       { status: 400 }
@@ -67,16 +113,31 @@ export async function POST(req: NextRequest) {
       createSupabaseCostWorkbookRepo(auth.supabase),
       auth.companyId
     );
+    if (!summary.ok) {
+      return NextResponse.json(
+        {
+          reset: false,
+          ok: false,
+          error: RESET_PARTIAL_ERROR_ES,
+          restaurant_name: scope.name,
+          summary,
+          steps: summary.steps,
+        },
+        { status: 500 }
+      );
+    }
     return NextResponse.json({
       reset: true,
+      ok: true,
       restaurant_name: scope.name,
       summary,
+      steps: summary.steps,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
+    const message = err instanceof Error ? err.message : "Error";
     console.error("[costs/reset]", message);
     return NextResponse.json(
-      { error: "Reset failed", details: message },
+      { error: RESET_FAILED_ERROR_ES, details: message },
       { status: 500 }
     );
   }

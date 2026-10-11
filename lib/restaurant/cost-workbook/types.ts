@@ -404,7 +404,35 @@ export interface UndoAllCostImportsResult {
   warnings?: string[];
 }
 
+export type CostResetStepId =
+  | "menu_recipe_inputs"
+  | "recipe_ingredients"
+  | "component_recipe_inputs"
+  | "recipes"
+  | "component_recipes"
+  | "prepared_components"
+  | "import_pos_mappings"
+  | "import_menu_items"
+  | "ingredient_cost_entries"
+  | "supplier_ingredients"
+  | "ingredients"
+  | "cost_import_review_items"
+  | "cost_import_layout_maps"
+  | "batches_marked_undone";
+
+export type CostResetStepStatus = "completed" | "failed";
+
+export interface CostResetStepResult {
+  id: CostResetStepId;
+  label_en: string;
+  label_es: string;
+  status: CostResetStepStatus;
+  deleted: number;
+  error?: string;
+}
+
 export interface CompanyCostResetSummary {
+  ok: boolean;
   cost_entries: number;
   ingredients: number;
   supplier_ingredient_links: number;
@@ -417,6 +445,7 @@ export interface CompanyCostResetSummary {
   batches_marked_undone: number;
   kept_manual_menu_items: number;
   kept_manual_pos_mappings: number;
+  steps: CostResetStepResult[];
 }
 
 export const PRICE_LIST_FIELDS = [

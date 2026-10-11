@@ -8,7 +8,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   RESET_CONFIRM_FALLBACK,
+  RESET_SALES_LINKS_NOTE_EN,
+  RESET_SALES_LINKS_NOTE_ES,
+  companyNameIsDistinct,
+  formatResetPartialFailureEn,
+  formatResetPartialFailureEs,
+  joinRestaurantNamesEs,
+  multiRestaurantResetWarningEn,
+  multiRestaurantResetWarningEs,
+  resetConfirmPromptEn,
+  resetConfirmPromptEs,
   type CostImportHistoryItem,
+  type CostResetStepResult,
 } from "@/lib/restaurant/cost-workbook";
 import {
   PICK_RESTAURANT_ERROR_EN,
@@ -68,11 +79,15 @@ export function CostImportCleanup({
   lang,
   locations,
   scope,
+  companyName,
+  canManageReset,
   version,
 }: {
   lang: PreferredLanguage;
   locations: RestaurantLocationOption[];
   scope: UploadRestaurantScope;
+  companyName: string | null;
+  canManageReset: boolean;
   version: number;
 }) {
   const [batches, setBatches] = useState<CostImportHistoryItem[]>([]);
@@ -87,6 +102,10 @@ export function CostImportCleanup({
     string,
     number
   > | null>(null);
+  const [resetSteps, setResetSteps] = useState<CostResetStepResult[] | null>(
+    null
+  );
+  const [resetPartial, setResetPartial] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,10 +126,17 @@ export function CostImportCleanup({
   }, [version]);
 
   const liveCount = batches.filter((batch) => batch.status === "live").length;
+  const restaurantNames = locations.map((row) => row.name);
+  const confirmTarget = { companyName, restaurantNames };
   const expectedName = scope.ok
-    ? scope.name?.trim() || RESET_CONFIRM_FALLBACK
+    ? scope.name?.trim() || companyName?.trim() || RESET_CONFIRM_FALLBACK
     : "";
   const restaurantPicked = scope.ok;
+  const multiRestaurant = restaurantNames.length > 1;
+  const selectedRestaurantName = scope.ok
+    ? scope.name?.trim() || expectedName
+    : expectedName;
+  const busy = resetting || undoingAll || undoingId !== null;
 
   async function undoOne(id: string) {
     setUndoingId(id);
@@ -137,12 +163,8 @@ export function CostImportCleanup({
         );
         setMessage(t(lang, "Import undone.", "Carga deshecha."));
       }
-    } catch (err) {
-      setMessage(
-        err instanceof Error
-          ? err.message
-          : t(lang, "Undo failed", "No se pudo deshacer")
-      );
+    } catch {
+      setMessage(t(lang, "Undo failed", "No se pudo deshacer"));
     } finally {
       setUndoingId(null);
     }
@@ -188,11 +210,9 @@ export function CostImportCleanup({
         };
         if (body.batches) setBatches(body.batches);
       }
-    } catch (err) {
+    } catch {
       setMessage(
-        err instanceof Error
-          ? err.message
-          : t(lang, "Undo failed", "No se pudo deshacer")
+        t(lang, "Undo all failed.", "No se pudieron deshacer todas las cargas.")
       );
     } finally {
       setUndoingAll(false);
@@ -200,9 +220,10 @@ export function CostImportCleanup({
   }
 
   async function startOver() {
-    if (!scope.ok) return;
+    if (!scope.ok || resetting) return;
     setResetting(true);
     setMessage(null);
+    setResetPartial(false);
     try {
       const res = await fetch("/api/restaurant/costs/reset", {
         method: "POST",
@@ -217,28 +238,54 @@ export function CostImportCleanup({
         error?: string;
         code?: string;
         summary?: Record<string, number>;
+        steps?: CostResetStepResult[];
+        ok?: boolean;
       };
+      if (json.steps && json.ok === false) {
+        setResetSteps(json.steps);
+        setResetSummary(json.summary ?? null);
+        setResetPartial(true);
+        setMessage(
+          t(
+            lang,
+            formatResetPartialFailureEn(json.steps),
+            formatResetPartialFailureEs(json.steps)
+          )
+        );
+        return;
+      }
       if (!res.ok) {
         if (json.code === "confirm_name") {
           setMessage(
             t(
               lang,
-              `Type ${expectedName} to confirm.`,
-              `Escribe ${expectedName} para confirmar.`
+              resetConfirmPromptEn(confirmTarget),
+              resetConfirmPromptEs(confirmTarget)
             )
           );
         } else if (json.code === "pick_restaurant") {
           setMessage(
             t(lang, PICK_RESTAURANT_ERROR_EN, PICK_RESTAURANT_ERROR_ES)
           );
+        } else if (json.code === "forbidden") {
+          setMessage(
+            t(
+              lang,
+              "Only the owner or an admin can do this.",
+              "Solo el dueño o un admin puede hacer esto."
+            )
+          );
         } else {
           setMessage(
-            json.error ?? t(lang, "Reset failed", "No se pudo empezar de nuevo")
+            json.error ??
+              t(lang, "Reset failed.", "No se pudo empezar de nuevo.")
           );
         }
         return;
       }
       setResetSummary(json.summary ?? {});
+      setResetSteps(json.steps ?? null);
+      setResetPartial(false);
       setResetOpen(false);
       setConfirmName("");
       const refresh = await fetch("/api/restaurant/costs/batches", {
@@ -250,12 +297,8 @@ export function CostImportCleanup({
         };
         if (body.batches) setBatches(body.batches);
       }
-    } catch (err) {
-      setMessage(
-        err instanceof Error
-          ? err.message
-          : t(lang, "Reset failed", "No se pudo empezar de nuevo")
-      );
+    } catch {
+      setMessage(t(lang, "Reset failed.", "No se pudo empezar de nuevo."));
     } finally {
       setResetting(false);
     }
@@ -275,8 +318,8 @@ export function CostImportCleanup({
             <p className="text-sm text-muted-foreground">
               {t(
                 lang,
-                "Older uploads can be undone here. Undo newest first if a later file touched the same rows.",
-                "Aquí puedes deshacer cargas viejas. Si un archivo posterior tocó las mismas filas, deshaz primero la más nueva."
+                "Older uploads can be undone here. Undo newest first if a later file touched the same rows. Undo cannot be undone.",
+                "Aquí puedes deshacer cargas viejas. Si un archivo posterior tocó las mismas filas, deshaz primero la más nueva. No se puede deshacer."
               )}
             </p>
             {loading ? (
@@ -319,7 +362,9 @@ export function CostImportCleanup({
                       size="sm"
                       variant="outline"
                       disabled={
-                        batch.status !== "live" || undoingId === batch.id
+                        batch.status !== "live" ||
+                        undoingId === batch.id ||
+                        busy
                       }
                       onClick={() => void undoOne(batch.id)}
                     >
@@ -332,17 +377,21 @@ export function CostImportCleanup({
                 ))}
               </ul>
             )}
-            {liveCount > 0 && (
+            {liveCount > 0 && canManageReset && (
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={undoingAll}
+                disabled={busy}
                 onClick={() => void undoAll()}
               >
                 {undoingAll
                   ? t(lang, "Undoing all…", "Deshaciendo todo…")
-                  : t(lang, "Undo all imports", "Deshacer todas las cargas")}
+                  : t(
+                      lang,
+                      "Undo all imports (cannot be undone)",
+                      "Deshacer todas las cargas (no se puede deshacer)"
+                    )}
               </Button>
             )}
           </CardContent>
@@ -359,10 +408,29 @@ export function CostImportCleanup({
             <p className="text-sm text-muted-foreground">
               {t(
                 lang,
-                "Deletes every cost, ingredient, recipe, and imported dish for this restaurant’s company so you can upload a clean workbook. POS sales, Odoo, users, and other companies stay. Menu items you created by hand stay; their recipes do not.",
-                "Borra todos los costos, ingredientes, recetas y platillos importados de la empresa de este restaurante para que puedas subir el libro limpio. Las ventas POS, Odoo, usuarios y otras empresas no se tocan. Los platillos que creaste a mano se quedan; sus recetas no."
-              )}
+                "Deletes every cost, ingredient, recipe, and imported dish for this restaurant’s company so you can upload a clean workbook. This cannot be undone. POS sales, Odoo, users, and other companies stay.",
+                "Borra todos los costos, ingredientes, recetas y platillos importados de la empresa de este restaurante para que puedas subir el libro limpio. No se puede deshacer. Las ventas POS, Odoo, usuarios y otras empresas no se tocan."
+              )}{" "}
+              {t(lang, RESET_SALES_LINKS_NOTE_EN, RESET_SALES_LINKS_NOTE_ES)}
             </p>
+            {multiRestaurant && restaurantPicked && (
+              <div className="rounded-md border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  {t(
+                    lang,
+                    multiRestaurantResetWarningEn(
+                      restaurantNames,
+                      selectedRestaurantName
+                    ),
+                    multiRestaurantResetWarningEs(
+                      restaurantNames,
+                      selectedRestaurantName
+                    )
+                  )}
+                </span>
+              </div>
+            )}
             {!restaurantPicked && locations.length > 1 ? (
               <div className="rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -374,20 +442,35 @@ export function CostImportCleanup({
                   )}
                 </span>
               </div>
+            ) : !canManageReset ? (
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  lang,
+                  "Only the owner or an admin can start over.",
+                  "Solo el dueño o un admin puede empezar de nuevo."
+                )}
+              </p>
             ) : resetOpen ? (
               <div className="space-y-3">
                 <p className="text-sm">
                   {t(
                     lang,
-                    `Type ${expectedName} to confirm.`,
-                    `Escribe ${expectedName} para confirmar.`
+                    resetConfirmPromptEn(confirmTarget),
+                    resetConfirmPromptEs(confirmTarget)
                   )}
                 </p>
                 <Input
                   value={confirmName}
                   onChange={(e) => setConfirmName(e.target.value)}
-                  placeholder={expectedName}
+                  placeholder={
+                    multiRestaurant
+                      ? companyNameIsDistinct(companyName, restaurantNames)
+                        ? companyName ?? joinRestaurantNamesEs(restaurantNames)
+                        : joinRestaurantNamesEs(restaurantNames)
+                      : expectedName
+                  }
                   autoComplete="off"
+                  disabled={resetting}
                 />
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -401,8 +484,8 @@ export function CostImportCleanup({
                       ? t(lang, "Deleting…", "Borrando…")
                       : t(
                           lang,
-                          "Delete cost data",
-                          "Borrar los datos de costos"
+                          "Delete cost data (cannot be undone)",
+                          "Borrar los datos de costos (no se puede deshacer)"
                         )}
                   </Button>
                   <Button
@@ -424,7 +507,7 @@ export function CostImportCleanup({
                 type="button"
                 size="sm"
                 variant="destructive"
-                disabled={!restaurantPicked}
+                disabled={!restaurantPicked || busy}
                 onClick={() => setResetOpen(true)}
               >
                 {t(lang, "Start over", "Empezar de nuevo")}
@@ -433,7 +516,7 @@ export function CostImportCleanup({
           </CardContent>
         </Card>
 
-        {resetSummary && (
+        {resetSummary && !resetPartial && (
           <Card className="border-green-200 dark:border-green-900">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-green-700 dark:text-green-400">
@@ -448,6 +531,43 @@ export function CostImportCleanup({
                   `Se quitaron ${resetSummary.cost_entries ?? 0} costos, ${resetSummary.ingredients ?? 0} ingredientes, ${resetSummary.recipes ?? 0} recetas, ${resetSummary.components ?? 0} sub-recetas, ${resetSummary.import_menu_items ?? 0} platillos importados y ${resetSummary.import_pos_mappings ?? 0} vínculos POS importados. ${resetSummary.batches_marked_undone ?? 0} cargas quedaron deshechas. Se conservaron ${resetSummary.kept_manual_menu_items ?? 0} platillos hechos a mano y ${resetSummary.kept_manual_pos_mappings ?? 0} vínculos POS hechos a mano.`
                 )}
               </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {resetPartial && resetSteps && (
+          <Card className="border-amber-300 dark:border-amber-800">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-amber-800 dark:text-amber-200">
+                {t(
+                  lang,
+                  "Reset stopped halfway",
+                  "El reinicio quedó a medias"
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground space-y-2">
+              <p>
+                {t(
+                  lang,
+                  formatResetPartialFailureEn(resetSteps),
+                  formatResetPartialFailureEs(resetSteps)
+                )}
+              </p>
+              <ul className="list-disc pl-5 space-y-1">
+                {resetSteps.map((step) => (
+                  <li key={step.id}>
+                    {t(lang, step.label_en, step.label_es)}: {step.deleted}
+                    {step.status === "failed"
+                      ? t(
+                          lang,
+                          ` — failed${step.error ? ` (${step.error})` : ""}`,
+                          ` — no se completó${step.error ? ` (${step.error})` : ""}`
+                        )
+                      : ""}
+                  </li>
+                ))}
+              </ul>
             </CardContent>
           </Card>
         )}

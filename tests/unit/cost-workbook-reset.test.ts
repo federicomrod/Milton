@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "fs";
+import { join } from "path";
 import {
+  canManageCompanyCostReset,
+  formatResetPartialFailureEs,
+  multiRestaurantResetWarningEs,
   resetCompanyCostData,
+  resetConfirmErrorEs,
+  resetConfirmPromptEs,
+  resetConfirmationAccepted,
   resetConfirmationMatches,
+  runResetSteps,
 } from "@/lib/restaurant/cost-workbook";
 import {
   createMemoryCostWorkbookRepo,
@@ -294,5 +303,179 @@ describe("resetCompanyCostData", () => {
       true
     );
     expect(resetConfirmationMatches("Lavara", "Stage Test 1")).toBe(false);
+  });
+
+  it("rejects a single restaurant name when the company has two restaurants", () => {
+    const target = {
+      companyName: "Grupo Ranchos",
+      restaurantNames: ["Los Ranchos", "Lavara"],
+    };
+    expect(resetConfirmationAccepted("Los Ranchos", target)).toBe(false);
+    expect(resetConfirmationAccepted("Lavara", target)).toBe(false);
+    expect(resetConfirmationAccepted("los ranchos", target)).toBe(false);
+    expect(resetConfirmationAccepted("Grupo Ranchos", target)).toBe(true);
+    expect(resetConfirmationAccepted("Los Ranchos y Lavara", target)).toBe(
+      true
+    );
+    expect(resetConfirmationAccepted("Lavara y Los Ranchos", target)).toBe(
+      true
+    );
+    expect(resetConfirmationAccepted("Los Ranchos, Lavara", target)).toBe(true);
+  });
+
+  it("does not treat a restaurant name as the account name on a shared company", () => {
+    const target = {
+      companyName: "Los Ranchos",
+      restaurantNames: ["Los Ranchos", "Lavara"],
+    };
+    expect(resetConfirmationAccepted("Los Ranchos", target)).toBe(false);
+    expect(resetConfirmationAccepted("Lavara", target)).toBe(false);
+    expect(resetConfirmationAccepted("Los Ranchos y Lavara", target)).toBe(
+      true
+    );
+  });
+
+  it("still accepts one restaurant name when the company has only that restaurant", () => {
+    expect(
+      resetConfirmationAccepted("Los Ranchos", {
+        companyName: "Los Ranchos",
+        restaurantNames: ["Los Ranchos"],
+      })
+    ).toBe(true);
+  });
+
+  it("shows the explicit multi-restaurant Spanish warning", () => {
+    const warning = multiRestaurantResetWarningEs(
+      ["Los Ranchos", "Lavara"],
+      "Los Ranchos"
+    );
+    expect(warning).toBe(
+      "Esto borra los costos y recetas de TODOS los restaurantes de la cuenta (Los Ranchos y Lavara), no solo de Los Ranchos. No se puede deshacer."
+    );
+    expect(resetConfirmPromptEs({
+      companyName: "Los Ranchos",
+      restaurantNames: ["Los Ranchos", "Lavara"],
+    })).toContain("Los Ranchos y Lavara");
+    expect(resetConfirmPromptEs({
+      companyName: "Los Ranchos",
+      restaurantNames: ["Los Ranchos", "Lavara"],
+    })).toContain("No se puede deshacer");
+    expect(
+      resetConfirmErrorEs({
+        companyName: "Grupo Ranchos",
+        restaurantNames: ["Los Ranchos", "Lavara"],
+      })
+    ).toBe(
+      "Escribe el nombre de la cuenta o el de todos los restaurantes para confirmar."
+    );
+  });
+
+  it("reports completed and failed reset steps with deleted-row counts", async () => {
+    const steps = await runResetSteps(async (id) => {
+      if (id === "ingredients") throw new Error("ingredients blocked");
+      if (id === "recipes") return 3;
+      return 0;
+    });
+    const failed = steps.find((step) => step.id === "ingredients");
+    const recipes = steps.find((step) => step.id === "recipes");
+    expect(recipes).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        deleted: 3,
+      })
+    );
+    expect(failed).toEqual(
+      expect.objectContaining({
+        status: "failed",
+        deleted: 0,
+        error: "ingredients blocked",
+      })
+    );
+    const message = formatResetPartialFailureEs(steps);
+    expect(message).toContain("El reinicio quedó a medias");
+    expect(message).toContain("Vuelve a pulsar para terminar");
+    expect(message).toContain("recetas (3)");
+    expect(message).toContain("ingredientes (ingredients blocked)");
+    expect(message).toContain("no se puede deshacer");
+  });
+
+  it("returns per-step counts when a catalog reset fails halfway and a re-run finishes", async () => {
+    const store = emptyMemoryStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const [ingA] = await repo.createIngredients([
+      {
+        companyId: COMPANY_A,
+        name: "Carne",
+        defaultUnit: "lb",
+        currentUnitCost: 4.8,
+        currency: "USD",
+      },
+    ]);
+    await repo.insertCostEntries([costEntry(COMPANY_A, ingA.id, "import")]);
+    store.failResetStep = "ingredients";
+
+    const first = await resetCompanyCostData(repo, COMPANY_A);
+    expect(first.ok).toBe(false);
+    expect(first.cost_entries).toBe(1);
+    expect(first.ingredients).toBe(0);
+    expect(store.ingredients).toHaveLength(1);
+    expect(store.costEntries).toHaveLength(0);
+    const failed = first.steps.find((step) => step.id === "ingredients");
+    const costs = first.steps.find(
+      (step) => step.id === "ingredient_cost_entries"
+    );
+    expect(failed?.status).toBe("failed");
+    expect(failed?.error).toContain("ingredients");
+    expect(costs?.status).toBe("completed");
+    expect(costs?.deleted).toBe(1);
+
+    store.failResetStep = undefined;
+    const second = await resetCompanyCostData(repo, COMPANY_A);
+    expect(second.ok).toBe(true);
+    expect(second.ingredients).toBe(1);
+    expect(second.cost_entries).toBe(0);
+    expect(store.ingredients).toHaveLength(0);
+    expect(second.steps.every((step) => step.status === "completed")).toBe(
+      true
+    );
+  });
+
+  it("restricts start-over and undo-all to owner/admin when role exists", () => {
+    expect(canManageCompanyCostReset({ role: "owner" })).toBe(true);
+    expect(canManageCompanyCostReset({ role: "admin" })).toBe(true);
+    expect(canManageCompanyCostReset({ role: "manager" })).toBe(false);
+    expect(canManageCompanyCostReset({ role: "member" })).toBe(false);
+    expect(canManageCompanyCostReset({ role: "viewer" })).toBe(false);
+    expect(
+      canManageCompanyCostReset({ role: null, roleColumnMissing: true })
+    ).toBe(true);
+  });
+});
+
+describe("cost reset server and UI copy", () => {
+  const read = (rel: string) =>
+    readFileSync(join(process.cwd(), rel), "utf8");
+
+  it("enforces the multi-restaurant confirm on the reset route", () => {
+    const src = read("app/api/restaurant/costs/reset/route.ts");
+    expect(src).toContain("resetConfirmationAccepted");
+    expect(src).toContain("loadCompanyName");
+    expect(src).toContain("restaurantContext.locations.map");
+    expect(src).not.toContain("Type the restaurant name to confirm");
+    expect(src).not.toContain('error: "Reset failed"');
+    expect(src).toContain("RESET_FAILED_ERROR_ES");
+    expect(src).toContain("canManageCompanyCostReset");
+  });
+
+  it("renders the shared-company warning and partial-failure Spanish copy", () => {
+    const src = read(
+      "app/dashboard/restaurant/costs/upload/import-history.tsx"
+    );
+    expect(src).toContain("multiRestaurantResetWarningEs");
+    expect(src).toContain("formatResetPartialFailureEs");
+    expect(src).toContain("RESET_SALES_LINKS_NOTE_ES");
+    expect(src).toContain("no se puede deshacer");
+    expect(src).toContain("canManageReset");
+    expect(src).toContain("disabled={resetting || !confirmName.trim()}");
   });
 });

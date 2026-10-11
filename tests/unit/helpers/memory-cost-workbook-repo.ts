@@ -1,5 +1,6 @@
 import type {
   CompanyCostResetSummary,
+  CostResetStepId,
   CostWorkbookBatch,
   CostWorkbookCostEntry,
   CostWorkbookIngredient,
@@ -16,6 +17,7 @@ import type {
 } from "@/lib/restaurant/cost-workbook/types";
 import { emptyUndoSnapshot } from "@/lib/restaurant/cost-workbook/types";
 import type { CostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
+import { runResetSteps, summaryFromResetSteps } from "@/lib/restaurant/cost-workbook/reset";
 
 export interface MemoryPosSale {
   id: string;
@@ -51,6 +53,7 @@ export interface MemoryCostWorkbookStore {
   companyByEntityId: Record<string, string>;
   mappingCompanyIds: Record<string, string>;
   posSalesItems: MemoryPosSale[];
+  failResetStep?: CostResetStepId;
 }
 
 export function emptyMemoryStore(): MemoryCostWorkbookStore {
@@ -655,10 +658,10 @@ export function createMemoryCostWorkbookRepo(
   };
 }
 
-function resetMemoryCompanyCostCatalog(
+async function resetMemoryCompanyCostCatalog(
   store: MemoryCostWorkbookStore,
   companyId: string
-): CompanyCostResetSummary {
+): Promise<CompanyCostResetSummary> {
   const ours = (id: string, rowCompany?: string | null) =>
     (rowCompany != null && rowCompany === companyId) ||
     store.companyByEntityId[id] === companyId;
@@ -684,73 +687,124 @@ function resetMemoryCompanyCostCatalog(
       !importMenuIds.has(row.menu_item_id)
   ).length;
 
-  const recipes = store.recipes.filter((row) => ours(row.id));
-  const recipeIds = new Set(recipes.map((row) => row.id));
-  const componentRecipes = store.componentRecipes.filter((row) => ours(row.id));
-  const componentRecipeIds = new Set(componentRecipes.map((row) => row.id));
-  const components = store.components.filter((row) => ours(row.id));
-  const costEntries = store.costEntries.filter(
-    (row) => row.company_id === companyId
-  );
-  const supplierLinks = store.supplierLinks.filter(
-    (row) => row.company_id === companyId
-  );
-  const ingredients = store.ingredients.filter((row) => ours(row.id));
-  const reviewItems = store.reviewItems.filter(
-    (row) => row.company_id === companyId
-  );
-  const layoutMaps = store.mappings.filter(
-    (row) => store.mappingCompanyIds[row.layout_key] === companyId
-  );
-  const liveBatches = store.batches.filter(
-    (row) => row.company_id === companyId && !row.undone_at
-  );
+  const steps = await runResetSteps(async (id: CostResetStepId) => {
+    if (store.failResetStep === id) {
+      throw new Error(`forced ${id} failure`);
+    }
+    switch (id) {
+      case "menu_recipe_inputs": {
+        const recipeIds = new Set(
+          store.recipes.filter((row) => ours(row.id)).map((row) => row.id)
+        );
+        const before = store.recipeInputs.length;
+        store.recipeInputs = store.recipeInputs.filter(
+          (row) => !recipeIds.has(row.recipe_id)
+        );
+        return before - store.recipeInputs.length;
+      }
+      case "recipe_ingredients":
+        return 0;
+      case "component_recipe_inputs": {
+        const componentRecipeIds = new Set(
+          store.componentRecipes
+            .filter((row) => ours(row.id))
+            .map((row) => row.id)
+        );
+        const before = store.componentRecipeInputs.length;
+        store.componentRecipeInputs = store.componentRecipeInputs.filter(
+          (row) => !componentRecipeIds.has(row.component_recipe_id)
+        );
+        return before - store.componentRecipeInputs.length;
+      }
+      case "recipes": {
+        const before = store.recipes.filter((row) => ours(row.id)).length;
+        store.recipes = store.recipes.filter((row) => !ours(row.id));
+        return before;
+      }
+      case "component_recipes": {
+        const before = store.componentRecipes.filter((row) =>
+          ours(row.id)
+        ).length;
+        store.componentRecipes = store.componentRecipes.filter(
+          (row) => !ours(row.id)
+        );
+        return before;
+      }
+      case "prepared_components": {
+        const before = store.components.filter((row) => ours(row.id)).length;
+        store.components = store.components.filter((row) => !ours(row.id));
+        return before;
+      }
+      case "import_pos_mappings": {
+        const before = store.posMappings.length;
+        store.posMappings = store.posMappings.filter(
+          (row) => !importMappingIds.has(row.id)
+        );
+        return before - store.posMappings.length;
+      }
+      case "import_menu_items": {
+        const before = store.menuItems.length;
+        store.menuItems = store.menuItems.filter(
+          (row) => !importMenuIds.has(row.id)
+        );
+        return before - store.menuItems.length;
+      }
+      case "ingredient_cost_entries": {
+        const before = store.costEntries.filter(
+          (row) => row.company_id === companyId
+        ).length;
+        store.costEntries = store.costEntries.filter(
+          (row) => row.company_id !== companyId
+        );
+        return before;
+      }
+      case "supplier_ingredients": {
+        const before = store.supplierLinks.filter(
+          (row) => row.company_id === companyId
+        ).length;
+        store.supplierLinks = store.supplierLinks.filter(
+          (row) => row.company_id !== companyId
+        );
+        return before;
+      }
+      case "ingredients": {
+        const before = store.ingredients.filter((row) => ours(row.id)).length;
+        store.ingredients = store.ingredients.filter((row) => !ours(row.id));
+        return before;
+      }
+      case "cost_import_review_items": {
+        const before = store.reviewItems.filter(
+          (row) => row.company_id === companyId
+        ).length;
+        store.reviewItems = store.reviewItems.filter(
+          (row) => row.company_id !== companyId
+        );
+        return before;
+      }
+      case "cost_import_layout_maps": {
+        const before = store.mappings.filter(
+          (row) => store.mappingCompanyIds[row.layout_key] === companyId
+        ).length;
+        store.mappings = store.mappings.filter(
+          (row) => store.mappingCompanyIds[row.layout_key] !== companyId
+        );
+        return before;
+      }
+      case "batches_marked_undone": {
+        const liveBatches = store.batches.filter(
+          (row) => row.company_id === companyId && !row.undone_at
+        );
+        const now = new Date().toISOString();
+        for (const batch of liveBatches) {
+          batch.undone_at = now;
+        }
+        return liveBatches.length;
+      }
+    }
+  });
 
-  store.recipeInputs = store.recipeInputs.filter(
-    (row) => !recipeIds.has(row.recipe_id)
-  );
-  store.recipes = store.recipes.filter((row) => !recipeIds.has(row.id));
-  store.componentRecipeInputs = store.componentRecipeInputs.filter(
-    (row) => !componentRecipeIds.has(row.component_recipe_id)
-  );
-  store.componentRecipes = store.componentRecipes.filter(
-    (row) => !componentRecipeIds.has(row.id)
-  );
-  store.components = store.components.filter((row) => !ours(row.id));
-  store.posMappings = store.posMappings.filter(
-    (row) => !importMappingIds.has(row.id)
-  );
-  store.menuItems = store.menuItems.filter((row) => !importMenuIds.has(row.id));
-  store.costEntries = store.costEntries.filter(
-    (row) => row.company_id !== companyId
-  );
-  store.supplierLinks = store.supplierLinks.filter(
-    (row) => row.company_id !== companyId
-  );
-  store.ingredients = store.ingredients.filter((row) => !ours(row.id));
-  store.reviewItems = store.reviewItems.filter(
-    (row) => row.company_id !== companyId
-  );
-  store.mappings = store.mappings.filter(
-    (row) => store.mappingCompanyIds[row.layout_key] !== companyId
-  );
-  const now = new Date().toISOString();
-  for (const batch of liveBatches) {
-    batch.undone_at = now;
-  }
-
-  return {
-    cost_entries: costEntries.length,
-    ingredients: ingredients.length,
-    supplier_ingredient_links: supplierLinks.length,
-    recipes: recipes.length,
-    components: components.length,
-    import_menu_items: importMenuItems.length,
-    import_pos_mappings: importMappings.length,
-    review_items: reviewItems.length,
-    layout_maps: layoutMaps.length,
-    batches_marked_undone: liveBatches.length,
+  return summaryFromResetSteps(steps, {
     kept_manual_menu_items: keptManualMenuItems,
     kept_manual_pos_mappings: keptManualPosMappings,
-  };
+  });
 }

@@ -11,10 +11,14 @@ export function CostUploadPageClient({
   lang,
   locations,
   scope,
+  companyName,
+  canManageReset,
 }: {
   lang: PreferredLanguage;
   locations: RestaurantLocationOption[];
   scope: UploadRestaurantScope;
+  companyName: string | null;
+  canManageReset: boolean;
 }) {
   const [version, setVersion] = useState(0);
   return (
@@ -29,6 +33,8 @@ export function CostUploadPageClient({
         lang={lang}
         locations={locations}
         scope={scope}
+        companyName={companyName}
+        canManageReset={canManageReset}
         version={version}
       />
     </>

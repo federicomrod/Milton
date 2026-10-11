@@ -100,10 +100,37 @@ export {
   undoAllCostImportBatches,
 } from "./history";
 export {
+  COST_RESET_STEP_IDS,
+  COST_RESET_STEP_LABELS,
   RESET_CONFIRM_FALLBACK,
+  RESET_CONFIRM_MULTI_ERROR_ES,
+  RESET_CONFIRM_SINGLE_ERROR_ES,
+  RESET_FAILED_ERROR_ES,
+  RESET_FORBIDDEN_ERROR_EN,
+  RESET_FORBIDDEN_ERROR_ES,
+  RESET_PARTIAL_ERROR_ES,
+  RESET_SALES_LINKS_NOTE_EN,
+  RESET_SALES_LINKS_NOTE_ES,
+  UNDO_ALL_FAILED_ERROR_ES,
+  canManageCompanyCostReset,
+  companyNameIsDistinct,
+  formatResetPartialFailureEn,
+  formatResetPartialFailureEs,
+  joinRestaurantNamesEs,
+  multiRestaurantResetWarningEn,
+  multiRestaurantResetWarningEs,
   resetCompanyCostData,
+  resetConfirmErrorEs,
+  resetConfirmPromptEn,
+  resetConfirmPromptEs,
+  resetConfirmationAccepted,
   resetConfirmationMatches,
+  runResetSteps,
 } from "./reset";
+export {
+  loadCompanyMembershipRole,
+  loadCompanyName,
+} from "./reset-auth";
 export {
   PICK_RESTAURANT_ERROR_EN,
   PICK_RESTAURANT_ERROR_ES,
@@ -120,5 +147,7 @@ export type {
   TabImportSummary,
   CostImportHistoryItem,
   CompanyCostResetSummary,
+  CostResetStepId,
+  CostResetStepResult,
   UndoAllCostImportsResult,
 } from "./types";

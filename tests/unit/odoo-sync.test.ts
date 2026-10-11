@@ -123,6 +123,7 @@ describe("transformOdooOrders", () => {
     expect(row.gross_revenue).toBe(313.2);
     expect(row.net_revenue).toBe(270);
     // discount_amount = price_unit*qty - price_subtotal = 300 - 270 = 30
+    expect(row.is_tip).toBe(false);
     expect(row.discount_amount).toBe(30);
     // tax_amount = price_subtotal_incl - price_subtotal = 313.2 - 270 = 43.2
     expect(row.tax_amount).toBeCloseTo(43.2, 5);
@@ -146,6 +147,16 @@ describe("transformOdooOrders", () => {
       odoo_company_id: 1,
       odoo_company_name: "Roma Norte Co",
     });
+  });
+
+  it("marks Propina lines as tips", () => {
+    const { rows } = transformOdooOrders(
+      [paidOrder],
+      [makeLine({ full_product_name: "Propina", price_subtotal: 5, price_subtotal_incl: 5, qty: 1, price_unit: 5, discount: 0 })],
+      baseCtx()
+    );
+    expect(rows[0].is_tip).toBe(true);
+    expect(rows[0].raw_item_name).toBe("Propina");
   });
 
   it("skips lines belonging to a non-completed order, with a reason, rather than silently dropping them", () => {

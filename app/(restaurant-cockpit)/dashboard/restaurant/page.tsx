@@ -67,6 +67,9 @@ import {
 } from "@/components/restaurant/ProfitabilityCockpit";
 import { CockpitTabs } from "@/components/restaurant/cockpit/CockpitTabs";
 import { MenuProfitabilityTable } from "@/components/restaurant/cockpit/MenuProfitabilityTable";
+import { CockpitKpiStrip } from "@/components/restaurant/cockpit/CockpitKpiStrip";
+import { SalesHero } from "@/components/restaurant/cockpit/SalesHero";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { BriefingCard } from "@/components/restaurant/BriefingCard";
 import { RestaurantSetupChecklist } from "@/components/restaurant/RestaurantSetupChecklist";
 import {
@@ -220,6 +223,7 @@ function LiveRestaurantView({
    *  the POS explorer so the page degrades cleanly). */
   profitability: ProfitabilityData | null;
 }) {
+  const lang: PreferredLanguage = data.preferredLanguage;
   // Tab content is built once on the server and passed through the
   // client tab shell. Server-rendered ReactNodes flow through fine
   // (Next.js App Router supports this); only the active-tab state
@@ -251,9 +255,9 @@ function LiveRestaurantView({
         },
         {
           id: "menu",
-          label: "Menu Profitability",
+          label: t(lang, "Menu Profitability", "Rentabilidad del menú"),
           badge: issueCount > 0 ? String(issueCount) : undefined,
-          content: <MenuProfitabilityTab profitability={profitability} />,
+          content: <MenuProfitabilityTab profitability={profitability} lang={lang} />,
         },
         {
           id: "suppliers",
@@ -262,12 +266,14 @@ function LiveRestaurantView({
         },
         {
           id: "revenue",
-          label: "Revenue & Channels",
+          label: t(lang, "Sales", "Ventas"),
           content: (
             <RevenueAndChannelsTab
               rows={data.explorerRows}
               targets={targets}
               displayCurrency={profitability.kpis.currency}
+              cockpit={data.cockpit}
+              lang={lang}
             />
           ),
         },
@@ -283,12 +289,14 @@ function LiveRestaurantView({
         // tab so the user still gets the POS explorer.
         {
           id: "revenue",
-          label: "Revenue & Channels",
+          label: t(lang, "Sales", "Ventas"),
           content: (
             <RevenueAndChannelsTab
               rows={data.explorerRows}
               targets={targets}
               displayCurrency={data.overview.currency}
+              cockpit={data.cockpit}
+              lang={lang}
             />
           ),
         },
@@ -330,6 +338,14 @@ function LiveRestaurantView({
             </span>
           </div>
         )}
+
+        <CockpitKpiStrip
+          cockpit={data.cockpit}
+          lang={lang}
+          foodCostPct={profitability?.kpis.food_cost_pct ?? null}
+          marginPct={profitability?.kpis.estimated_gross_margin_pct ?? null}
+          hasRecipeCosts={(profitability?.kpis.cost_coverage_pct ?? 0) > 0}
+        />
 
         {(data.truncated || profitability?.truncated) && (
           <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
@@ -400,11 +416,23 @@ function OverviewTab({
 
 function MenuProfitabilityTab({
   profitability,
+  lang,
 }: {
   profitability: ProfitabilityData;
+  lang: PreferredLanguage;
 }) {
   return (
     <div className="space-y-6">
+      {/* TODO(step 2, #123): category mix + popularity vs margin dish matrix
+          once recipe costs exist. Left out of step 1 so this PR stays to
+          revenue definition + Sales hero. */}
+      <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+        {t(
+          lang,
+          "TODO step 2: category mix and popularity × margin matrix.",
+          "TODO paso 2: mix de categorías y matriz popularidad × margen."
+        )}
+      </div>
       <ProfitabilityKpisSection data={profitability} />
       <section>
         <div className="flex items-baseline justify-between mb-3 gap-3 flex-wrap">
@@ -439,19 +467,26 @@ function RevenueAndChannelsTab({
   rows,
   targets,
   displayCurrency,
+  cockpit,
+  lang,
 }: {
   rows: Extract<RestaurantDashboardData, { mode: "live" }>["explorerRows"];
   targets: TargetMap;
   displayCurrency?: string;
+  cockpit: Extract<RestaurantDashboardData, { mode: "live" }>["cockpit"];
+  lang: PreferredLanguage;
 }) {
   return (
-    <section>
-      <RestaurantSalesExplorer
-        rows={rows}
-        initialTargets={targets}
-        displayCurrency={displayCurrency}
-      />
-    </section>
+    <div className="space-y-6">
+      <SalesHero cockpit={cockpit} lang={lang} />
+      <section>
+        <RestaurantSalesExplorer
+          rows={rows}
+          initialTargets={targets}
+          displayCurrency={displayCurrency}
+        />
+      </section>
+    </div>
   );
 }
 

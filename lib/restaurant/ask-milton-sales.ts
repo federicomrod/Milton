@@ -10,7 +10,6 @@
 // date from Odoo sync — it is never interpreted as UTC midnight.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getLocalMoment } from "@/lib/restaurant/email/scheduler";
 import { normalizeTimezone } from "@/lib/restaurant/email/preferences";
 import {
   fetchCompanyPosSalesRows,
@@ -21,6 +20,27 @@ import {
   warnIfTruncated,
 } from "@/lib/restaurant/paginated-read";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
+import {
+  classifySaleLine,
+  emptyRevenueBreakdown,
+  finalizeRevenueBreakdown,
+  addClassifiedLine,
+} from "@/lib/restaurant/sales-revenue";
+import {
+  localWeekdayAndHour,
+  WEEKDAY_KEYS,
+  weekdayFromDateKey,
+  type WeekdayKey,
+} from "@/lib/restaurant/pos-local-time";
+import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
+
+export {
+  localWeekdayAndHour,
+  WEEKDAY_KEYS,
+  weekdayFromDateKey,
+  resolvePosTimezone,
+};
+export type { WeekdayKey };
 
 export const SALES_SNAPSHOT_CAPS = {
   categories: 12,
@@ -36,17 +56,6 @@ export const SALES_SNAPSHOT_MAX_JSON_CHARS = 12_000;
 
 /** Item and category names are truncated so the JSON cap stays reachable. */
 export const SALES_SNAPSHOT_MAX_NAME_CHARS = 80;
-
-export const WEEKDAY_KEYS = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-] as const;
-export type WeekdayKey = (typeof WEEKDAY_KEYS)[number];
 
 export type SalesPeriodSource =
   | "named_period"
@@ -110,11 +119,17 @@ export interface AskMiltonSalesSnapshot {
   unavailable_reason: string | null;
   period: AskMiltonSalesPeriod;
   totals: {
+    /** Net sales — tips excluded. Matches the cockpit. */
     revenue: number;
     orders: number;
     units: number;
     avg_ticket: number;
     currency: string;
+    gross_sales: number;
+    discounts: number;
+    net_sales: number;
+    tips: number;
+    odoo_like_total: number;
   };
   by_weekday: SalesWeekdayBucket[];
   by_hour: SalesSnapshotBucket[];
@@ -137,12 +152,15 @@ export interface SalesFactRow {
   order_placed_at: string | null;
   item_name: string;
   quantity: number;
+  /** Posted line amount (tax-incl, post-discount). Net is derived via is_tip. */
   revenue: number;
   order_key: string | null;
   sales_channel: string | null;
   payment_type: string | null;
   category: string | null;
   currency: string;
+  is_tip?: boolean;
+  discount_amount?: number;
 }
 
 interface MetricBucket {
@@ -288,32 +306,22 @@ function rowQuantity(row: PosSalesItemRow): number {
     : 0;
 }
 
-function rowRevenue(row: PosSalesItemRow): number {
-  if (
-    typeof row.gross_revenue === "number" &&
-    Number.isFinite(row.gross_revenue)
-  ) {
-    return row.gross_revenue;
-  }
-  if (typeof row.net_revenue === "number" && Number.isFinite(row.net_revenue)) {
-    return row.net_revenue;
-  }
-  return 0;
-}
-
 /** Cockpit explorer semantics: trim, empty → null. */
 export function toSalesFactRow(row: PosSalesItemRow): SalesFactRow {
+  const line = classifySaleLine(row);
   return {
     sale_date: row.sale_date,
     order_placed_at: row.order_placed_at ?? null,
     item_name: (row.raw_item_name ?? "").trim(),
     quantity: rowQuantity(row),
-    revenue: rowRevenue(row),
+    revenue: line.posted,
     order_key: row.check_id ?? row.order_id ?? null,
     sales_channel: trimOrNull(row.sales_channel),
     payment_type: trimOrNull(row.payment_type),
     category: trimOrNull(row.category),
     currency: row.currency ?? "USD",
+    is_tip: line.isTip,
+    discount_amount: line.discount,
   };
 }
 
@@ -338,6 +346,11 @@ export function emptySalesSnapshot(
       units: 0,
       avg_ticket: 0,
       currency: "USD",
+      gross_sales: 0,
+      discounts: 0,
+      net_sales: 0,
+      tips: 0,
+      odoo_like_total: 0,
     },
     by_weekday: [],
     by_hour: [],
@@ -351,46 +364,6 @@ export function emptySalesSnapshot(
     by_date: [],
     best_date: null,
     worst_date: null,
-  };
-}
-
-/**
- * Calendar weekday of a YYYY-MM-DD key, independent of the runtime TZ.
- * Used only when `order_placed_at` is missing — `sale_date` is already local.
- */
-export function weekdayFromDateKey(dateKey: string): number {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
-  if (!match) return 0;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0)).getUTCDay();
-}
-
-/**
- * Local weekday (0=Sun) and hour for a POS line in `timezone`.
- * Prefer `order_placed_at` so a UTC Saturday morning can land on Friday
- * evening in America/El_Salvador. Fall back to the local `sale_date`.
- */
-export function localWeekdayAndHour(
-  row: Pick<SalesFactRow, "sale_date" | "order_placed_at">,
-  timezone: string
-): { weekday: number; hour: number | null; dateKey: string } {
-  if (row.order_placed_at) {
-    const instant = new Date(row.order_placed_at);
-    if (!Number.isNaN(instant.getTime())) {
-      const local = getLocalMoment(instant, timezone);
-      return {
-        weekday: local.weekday,
-        hour: local.hour,
-        dateKey: local.dateKey,
-      };
-    }
-  }
-  return {
-    weekday: weekdayFromDateKey(row.sale_date),
-    hour: null,
-    dateKey: row.sale_date,
   };
 }
 
@@ -571,33 +544,41 @@ export function buildSalesSnapshot(
   const categoryWeekday = new Map<string, MetricBucket[]>();
   const categoryWeekdayDates = new Map<string, Set<string>[]>();
 
-  let totalRevenue = 0;
   let totalUnits = 0;
   const orderIds = new Set<string>();
+  const revenueAcc = emptyRevenueBreakdown();
   const currency = options.currency || windowed[0]?.currency || "USD";
 
   for (const row of windowed) {
     if (options.currency && row.currency && row.currency !== options.currency) {
       continue;
     }
-    totalRevenue += row.revenue;
-    totalUnits += row.quantity;
+    const line = classifySaleLine({
+      item_name: row.item_name,
+      is_tip: row.is_tip,
+      revenue: row.revenue,
+      discount_amount: row.discount_amount,
+    });
+    addClassifiedLine(revenueAcc, line);
     if (row.order_key) orderIds.add(row.order_key);
+    if (line.isTip) continue;
+    totalUnits += row.quantity;
+    const netRow = { ...row, revenue: line.net };
 
     const local = localWeekdayAndHour(row, tz);
     const weekdayIdx = weekdayBuckets[local.weekday] ? local.weekday : 0;
-    bump(weekdayBuckets[weekdayIdx], row);
+    bump(weekdayBuckets[weekdayIdx], netRow);
     weekdayDates[weekdayIdx].add(local.dateKey);
     let dayBucket = dateBuckets.get(local.dateKey);
     if (!dayBucket) {
       dayBucket = emptyBucket();
       dateBuckets.set(local.dateKey, dayBucket);
     }
-    bump(dayBucket, row);
+    bump(dayBucket, netRow);
     dateWeekday.set(local.dateKey, WEEKDAY_KEYS[weekdayIdx]);
     if (local.hour !== null) {
       hourSeen[local.hour] = true;
-      bump(hourBuckets[local.hour], row);
+      bump(hourBuckets[local.hour], netRow);
     }
 
     const category = row.category == null ? null : capName(row.category);
@@ -608,7 +589,7 @@ export function buildSalesSnapshot(
       cat = emptyBucket();
       categoryBuckets.set(catKey, cat);
     }
-    bump(cat, row);
+    bump(cat, netRow);
 
     let catDays = categoryWeekday.get(catKey);
     if (!catDays) {
@@ -620,7 +601,7 @@ export function buildSalesSnapshot(
       );
     }
     const catDayIdx = catDays[local.weekday] ? local.weekday : 0;
-    bump(catDays[catDayIdx], row);
+    bump(catDays[catDayIdx], netRow);
     categoryWeekdayDates.get(catKey)?.[catDayIdx]?.add(local.dateKey);
 
     const chKey = row.sales_channel ?? "";
@@ -629,7 +610,7 @@ export function buildSalesSnapshot(
       ch = emptyBucket();
       channelBuckets.set(chKey, ch);
     }
-    bump(ch, row);
+    bump(ch, netRow);
 
     const payKey = row.payment_type ?? "";
     let pay = paymentBuckets.get(payKey);
@@ -637,7 +618,7 @@ export function buildSalesSnapshot(
       pay = emptyBucket();
       paymentBuckets.set(payKey, pay);
     }
-    bump(pay, row);
+    bump(pay, netRow);
 
     const itemKey = itemName.toLowerCase() || "(unnamed)";
     let item = itemBuckets.get(itemKey);
@@ -649,10 +630,12 @@ export function buildSalesSnapshot(
       };
       itemBuckets.set(itemKey, item);
     }
-    bump(item.bucket, row);
+    bump(item.bucket, netRow);
   }
 
   const orders = orderIds.size;
+  const finalizedRevenue = finalizeRevenueBreakdown(revenueAcc);
+  const totalRevenue = finalizedRevenue.net_sales;
   const byCategory = breakdownFromMap(
     categoryBuckets,
     SALES_SNAPSHOT_CAPS.categories,
@@ -725,6 +708,11 @@ export function buildSalesSnapshot(
       units: roundInt(totalUnits),
       avg_ticket: orders > 0 ? roundInt(totalRevenue / orders) : 0,
       currency,
+      gross_sales: roundInt(finalizedRevenue.gross_sales),
+      discounts: roundInt(finalizedRevenue.discounts),
+      net_sales: roundInt(finalizedRevenue.net_sales),
+      tips: roundInt(finalizedRevenue.tips),
+      odoo_like_total: roundInt(finalizedRevenue.odoo_like_total),
     },
     by_weekday: WEEKDAY_KEYS.map((label, idx) =>
       toWeekdayBucket(label, label, weekdayBuckets[idx], weekdayDates[idx].size)
@@ -869,37 +857,6 @@ export function salesSnapshotJsonSize(
   snapshot: AskMiltonSalesSnapshot
 ): number {
   return JSON.stringify(snapshot).length;
-}
-
-export async function resolvePosTimezone(
-  supabase: SupabaseClient,
-  companyId: string
-): Promise<string> {
-  try {
-    const { data } = await supabase
-      .from("restaurant_pos_connections")
-      .select("timezone")
-      .eq("company_id", companyId)
-      .eq("is_active", true)
-      .limit(1)
-      .maybeSingle();
-    const fromConn = normalizeTimezone(data?.timezone);
-    if (fromConn) return fromConn;
-  } catch (err) {
-    console.error("[ask-milton-sales] timezone lookup:", err);
-  }
-  try {
-    const { data } = await supabase
-      .from("companies")
-      .select("briefing_email_timezone")
-      .eq("id", companyId)
-      .maybeSingle();
-    const fromCompany = normalizeTimezone(data?.briefing_email_timezone);
-    if (fromCompany) return fromCompany;
-  } catch (err) {
-    console.error("[ask-milton-sales] company timezone lookup:", err);
-  }
-  return "UTC";
 }
 
 export async function fetchAskMiltonSalesSnapshot(

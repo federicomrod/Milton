@@ -296,6 +296,9 @@ interface OverviewTotals {
   avgTicket: number;
   avgItemPrice: number;
   uniqueItemsCount: number;
+  tips: number;
+  discounts: number;
+  grossSales: number;
 }
 
 /** One bucket in the daily trend series. `date` is ISO "YYYY-MM-DD". */
@@ -409,13 +412,21 @@ function aggregate(
   }
   const dailyBuckets = new Map<string, DailyAgg>();
 
+  let tips = 0;
+  let discounts = 0;
+
   for (const r of filtered) {
     if (displayCurrency && r.currency && r.currency !== displayCurrency) {
       continue;
     }
+    if (r.order_key) orderIds.add(r.order_key);
+    if (r.is_tip) {
+      tips += r.revenue;
+      continue;
+    }
     totalRevenue += r.revenue;
     totalUnits += r.quantity;
-    if (r.order_key) orderIds.add(r.order_key);
+    discounts += r.discount_amount ?? 0;
 
     // By item (case-insensitive bucket key; preserve first-seen casing).
     const itemKey = r.item_name.toLowerCase() || "(unnamed)";
@@ -541,14 +552,21 @@ function aggregate(
   if (previousRange && previousRange.from && previousRange.to) {
     let pRev = 0;
     let pUnits = 0;
+    let pTips = 0;
+    let pDiscounts = 0;
     const pOrders = new Set<string>();
     const pItemKeys = new Set<string>();
     for (const r of rows) {
       if (!matchesNonDate(r)) continue;
       if (!inRange(r.sale_date, previousRange)) continue;
+      if (r.order_key) pOrders.add(r.order_key);
+      if (r.is_tip) {
+        pTips += r.revenue;
+        continue;
+      }
       pRev += r.revenue;
       pUnits += r.quantity;
-      if (r.order_key) pOrders.add(r.order_key);
+      pDiscounts += r.discount_amount ?? 0;
       const k = r.item_name.toLowerCase();
       if (k) pItemKeys.add(k);
     }
@@ -560,6 +578,9 @@ function aggregate(
       avgTicket: pOrderCount > 0 ? pRev / pOrderCount : 0,
       avgItemPrice: pUnits > 0 ? pRev / pUnits : 0,
       uniqueItemsCount: pItemKeys.size,
+      tips: pTips,
+      discounts: pDiscounts,
+      grossSales: pRev + pDiscounts,
     };
   }
 
@@ -570,6 +591,9 @@ function aggregate(
     avgTicket,
     avgItemPrice,
     uniqueItemsCount: itemBuckets.size,
+    tips,
+    discounts,
+    grossSales: totalRevenue + discounts,
     byItem: itemRows,
     byChannel: channelRows,
     byPaymentType: paymentRows,
@@ -1602,7 +1626,7 @@ export function RestaurantSalesExplorer({
           <KpiCard
             label="Revenue"
             value={fmts.int.format(aggs.totalRevenue)}
-            sub={fmts.code}
+            sub={`${fmts.code} net`}
             delta={computeDelta(
               aggs.totalRevenue,
               aggs.previousOverview?.totalRevenue
@@ -1712,6 +1736,15 @@ export function RestaurantSalesExplorer({
             formatAbs={(n) => Math.round(n).toLocaleString(fmts.locale)}
           />
         </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Net sales {fmts.dec2.format(aggs.totalRevenue)}
+          {aggs.discounts > 0
+            ? ` · discounts ${fmts.dec2.format(aggs.discounts)} · gross ${fmts.dec2.format(aggs.grossSales)}`
+            : ""}
+          {aggs.tips > 0
+            ? ` · tips ${fmts.dec2.format(aggs.tips)} (excluded). Totals differ from Odoo by the tip amount.`
+            : " · tips excluded when present."}
+        </p>
       </section>
 
       {/* AI insights placeholder. Intentionally shown above the channel

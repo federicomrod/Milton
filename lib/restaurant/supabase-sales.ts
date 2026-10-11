@@ -33,6 +33,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { POSSalesItem } from "@/types/restaurant";
 import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
+import {
+  resolvePreferredLanguage,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
+import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
+import {
+  buildCockpitSalesAggregate,
+  type CockpitSalesAggregate,
+} from "@/lib/restaurant/cockpit-aggregates";
+import { classifySaleLine, isTipSaleRow } from "@/lib/restaurant/sales-revenue";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -49,11 +59,17 @@ export interface DishSalesRow {
 }
 
 export interface RealRestaurantOverview {
+  /** Net sales (tips excluded). Same number as `revenue.net_sales`. */
   total_revenue: number;
   total_orders: number;
   total_units_sold: number;
   avg_ticket: number;
   currency: string;
+  gross_sales: number;
+  discounts: number;
+  net_sales: number;
+  tips: number;
+  odoo_like_total: number;
 }
 
 /**
@@ -82,6 +98,9 @@ export interface ExplorerRow {
   sub_category: string | null;
   sale_date: string;
   currency: string;
+  /** Tip / Propina line — excluded from net sales KPIs. */
+  is_tip: boolean;
+  discount_amount: number;
 }
 
 export type RestaurantDashboardData =
@@ -108,7 +127,12 @@ export type RestaurantDashboardData =
         net_revenue: number | null;
         currency: string | null;
         location_id: string | null;
+        is_tip?: boolean | null;
+        discount_amount?: number | null;
       }>;
+      cockpit: CockpitSalesAggregate;
+      timezone: string;
+      preferredLanguage: PreferredLanguage;
     }
   | {
       mode: "sample";
@@ -211,10 +235,13 @@ export interface PosSalesItemRow {
   sub_category: string | null;
   /** Precise source timestamp when present (migration 012). */
   order_placed_at?: string | null;
+  discount_amount?: number | null;
+  /** Migration 030. Null on legacy rows — readers use the product name. */
+  is_tip?: boolean | null;
 }
 
 const POS_SELECT_COLS =
-  "id, company_id, location_id, menu_item_id, sale_date, order_id, check_id, raw_item_name, quantity, gross_revenue, net_revenue, currency, sales_channel, payment_type, category, sub_category, order_placed_at";
+  "id, company_id, location_id, menu_item_id, sale_date, order_id, check_id, raw_item_name, quantity, gross_revenue, net_revenue, discount_amount, currency, sales_channel, payment_type, category, sub_category, order_placed_at, is_tip";
 
 // ---------------------------------------------------------------------------
 // Conversion: pos_sales_items row → POSSalesItem (the type the existing
@@ -223,14 +250,9 @@ const POS_SELECT_COLS =
 // ---------------------------------------------------------------------------
 
 function toPOSSalesItem(row: PosSalesItemRow): POSSalesItem {
-  // Prefer gross_revenue for "revenue" since that's what the Revel exports
-  // surface; if missing, fall back to net_revenue, then 0.
-  const total =
-    typeof row.gross_revenue === "number" && Number.isFinite(row.gross_revenue)
-      ? row.gross_revenue
-      : typeof row.net_revenue === "number" && Number.isFinite(row.net_revenue)
-        ? row.net_revenue
-        : 0;
+  // Net sales: posted revenue excluding Propina / tip lines.
+  const line = classifySaleLine(row);
+  const total = line.net;
   const qty =
     typeof row.quantity === "number" && Number.isFinite(row.quantity)
       ? row.quantity
@@ -272,12 +294,14 @@ function toPOSSalesItem(row: PosSalesItemRow): POSSalesItem {
 /**
  * Deterministic overview metrics from raw POS rows.
  *
- * - total_revenue = Σ gross_revenue (with net_revenue fallback per row, see toPOSSalesItem)
+ * - total_revenue / net_sales = Σ posted revenue excluding tips
  * - total_orders  = unique non-empty check_id/order_id values
- * - total_units_sold = Σ quantity
- * - avg_ticket    = total_revenue / total_orders (0 when there are no orders)
+ * - total_units_sold = Σ quantity of non-tip lines
+ * - avg_ticket    = net_sales / total_orders (0 when there are no orders)
  *
- * The function is fed normalized POSSalesItem rows so it stays unit-testable.
+ * Prefer `computeOverviewFromPosRows` when the caller still has the raw
+ * `pos_sales_items` shape (discounts + tip flag). This helper stays
+ * unit-testable from POSSalesItem rows (already netted by toPOSSalesItem).
  */
 export function computeOverviewFromRows(
   rows: POSSalesItem[],
@@ -307,6 +331,33 @@ export function computeOverviewFromRows(
     total_units_sold: totalUnitsSold,
     avg_ticket: avgTicket,
     currency,
+    gross_sales: totalRevenue,
+    discounts: 0,
+    net_sales: totalRevenue,
+    tips: 0,
+    odoo_like_total: totalRevenue,
+  };
+}
+
+/** Overview from raw POS rows so discounts and tips are visible. */
+export function computeOverviewFromPosRows(
+  rawRows: PosSalesItemRow[],
+  companyCurrency?: string
+): RealRestaurantOverview {
+  const cockpit = buildCockpitSalesAggregate(rawRows, {
+    currency: companyCurrency,
+  });
+  return {
+    total_revenue: cockpit.revenue.net_sales,
+    total_orders: cockpit.tickets,
+    total_units_sold: cockpit.units,
+    avg_ticket: cockpit.avg_ticket,
+    currency: cockpit.currency,
+    gross_sales: cockpit.revenue.gross_sales,
+    discounts: cockpit.revenue.discounts,
+    net_sales: cockpit.revenue.net_sales,
+    tips: cockpit.revenue.tips,
+    odoo_like_total: cockpit.revenue.odoo_like_total,
   };
 }
 
@@ -328,6 +379,7 @@ export function computeDishSales(rawRows: PosSalesItemRow[]): DishSalesRow[] {
   const buckets = new Map<string, Bucket>();
 
   for (const r of rawRows) {
+    if (isTipSaleRow(r)) continue;
     const name = (r.raw_item_name ?? "").trim();
     if (!name) continue;
     const key = name.toLowerCase();
@@ -470,10 +522,18 @@ export async function fetchRealRestaurantDashboardData(
     return { mode: "sample", reason: "no_sales" };
   }
 
-  // 4. Normalize and aggregate.
-  const companyCurrency = await resolveCompanyCurrency(supabase, companyId);
+  // 4. Normalize and aggregate once (no second POS read).
+  const [companyCurrency, timezone, preferredLanguage] = await Promise.all([
+    resolveCompanyCurrency(supabase, companyId),
+    resolvePosTimezone(supabase, companyId),
+    resolveCompanyPreferredLanguage(supabase, companyId),
+  ]);
+  const cockpit = buildCockpitSalesAggregate(rawRows, {
+    timezone,
+    currency: companyCurrency,
+  });
   const sales = rawRows.map(toPOSSalesItem);
-  const overview = computeOverviewFromRows(sales, companyCurrency);
+  const overview = computeOverviewFromPosRows(rawRows, companyCurrency);
   const dishSales = computeDishSales(rawRows);
   const explorerRows = rawRows.map(toExplorerRow);
 
@@ -487,7 +547,27 @@ export async function fetchRealRestaurantDashboardData(
     rowCount: rawRows.length,
     truncated,
     posFactRows: rawRows,
+    cockpit,
+    timezone,
+    preferredLanguage,
   };
+}
+
+async function resolveCompanyPreferredLanguage(
+  supabase: SupabaseLike,
+  companyId: string
+): Promise<PreferredLanguage> {
+  try {
+    const { data } = await supabase
+      .from("companies")
+      .select("preferred_language")
+      .eq("id", companyId)
+      .maybeSingle();
+    return resolvePreferredLanguage(data?.preferred_language);
+  } catch (err) {
+    console.error("[supabase-sales] preferred_language lookup:", err);
+    return resolvePreferredLanguage(null);
+  }
 }
 
 /**
@@ -500,17 +580,12 @@ function toExplorerRow(row: PosSalesItemRow): ExplorerRow {
     typeof row.quantity === "number" && Number.isFinite(row.quantity)
       ? row.quantity
       : 0;
-  const revenue =
-    typeof row.gross_revenue === "number" && Number.isFinite(row.gross_revenue)
-      ? row.gross_revenue
-      : typeof row.net_revenue === "number" && Number.isFinite(row.net_revenue)
-        ? row.net_revenue
-        : 0;
+  const line = classifySaleLine(row);
   return {
     id: row.id,
     item_name: (row.raw_item_name ?? "").trim(),
     quantity: qty,
-    revenue,
+    revenue: line.posted,
     order_key: row.check_id ?? row.order_id ?? null,
     sales_channel: row.sales_channel ?? null,
     // Trim defensively: in the DB these are stored already trimmed (see
@@ -520,6 +595,8 @@ function toExplorerRow(row: PosSalesItemRow): ExplorerRow {
     sub_category: trimOrNull(row.sub_category),
     sale_date: row.sale_date,
     currency: row.currency ?? "USD",
+    is_tip: line.isTip,
+    discount_amount: line.discount,
   };
 }
 

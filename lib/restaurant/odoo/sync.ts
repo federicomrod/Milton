@@ -20,6 +20,7 @@
 // lib/restaurant/scoped-matching.ts.
 
 import { resolveScopedName, type ScopedNameIndex } from "../scoped-matching";
+import { isTipLineName } from "../sales-revenue";
 
 // ---------------------------------------------------------------------------
 // Odoo raw row shapes (search_read output). Odoo many2one fields come back
@@ -137,6 +138,8 @@ export interface CanonicalOdooSaleRow {
   unit_price: number;
   order_placed_at: string; // ISO 8601 UTC
   source_metadata: Record<string, unknown>;
+  /** True when the product name is a Propina / tip line. */
+  is_tip: boolean;
 }
 
 export interface SkippedLine {
@@ -366,6 +369,7 @@ export function transformOdooOrders(
       external_line_id: String(line.id),
       unit_price: priceUnit,
       order_placed_at: orderPlacedAt,
+      is_tip: isTipLineName(rawItemName),
       source_metadata: {
         order_pos_reference: order.pos_reference || null,
         order_uuid: order.uuid || null,

@@ -40,6 +40,7 @@ import {
   isSameCurrency,
   resolveCompanyCurrency,
 } from "@/lib/restaurant/currency";
+import { classifySaleLine } from "@/lib/restaurant/sales-revenue";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -52,7 +53,7 @@ export interface MenuMarginRow {
   selling_price: number | null;
   /** Total units sold across all POS rows mapped to this menu item. */
   units_sold: number;
-  /** Sum of revenue (gross_revenue, falling back to net_revenue) across POS rows. */
+  /** Sum of net sales (tips excluded) across POS rows mapped to this item. */
   revenue: number;
   /** Raw POS item names mapped to this menu item; useful for surfacing the
    *  joins in the table. */
@@ -161,6 +162,8 @@ export interface ProfitabilityPosRow {
   net_revenue: number | null;
   currency: string | null;
   location_id: string | null;
+  is_tip?: boolean | null;
+  discount_amount?: number | null;
 }
 
 export interface FetchProfitabilityOptions {
@@ -274,7 +277,7 @@ export async function fetchProfitabilityData(
           let q = supabase
             .from("pos_sales_items")
             .select(
-              "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id"
+              "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id, is_tip, discount_amount"
             )
             .eq("company_id", companyId);
           if (selected) {
@@ -548,16 +551,13 @@ export async function fetchProfitabilityData(
       mismatchedPosRows++;
       continue;
     }
+    const line = classifySaleLine(r);
+    if (line.isTip) continue;
     const qty =
       typeof r.quantity === "number" && Number.isFinite(r.quantity)
         ? r.quantity
         : 0;
-    const rev =
-      typeof r.gross_revenue === "number" && Number.isFinite(r.gross_revenue)
-        ? r.gross_revenue
-        : typeof r.net_revenue === "number" && Number.isFinite(r.net_revenue)
-          ? r.net_revenue
-          : 0;
+    const rev = line.net;
     revenueTotal += rev;
 
     const menuItemId = resolveScopedName(mappingIndex, r.location_id, raw);

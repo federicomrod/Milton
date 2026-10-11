@@ -80,7 +80,7 @@ interface WorkbookSummary {
   review_count: number;
   tab_count: number;
   recipe_tab_count: number;
-  mapping_source: "ai" | "saved" | "mixed";
+  mapping_source: "ai" | "saved" | "mixed" | "heuristic";
   default_currency: string;
   file_month: string | null;
   filename: string;
@@ -91,6 +91,12 @@ interface WorkbookSummary {
   saved_count?: number;
   skipped_count?: number;
   skipped_reasons?: Array<{ reason: string; count: number }>;
+  skipped_breakdown?: {
+    previous_duplicates: number;
+    blank_or_title: number;
+    other: number;
+  };
+  skipped_plain?: string;
   menu_items_created?: number;
   recipes_created?: number;
   sub_recipes_created?: number;
@@ -713,7 +719,14 @@ function WorkbookResult({
               )}
           {workbook.file_month ? ` · dated ${workbook.file_month}` : ""}.
           Mapping:{" "}
-          {workbook.mapping_source === "saved" ? "remembered layout" : "AI"}.
+          {workbook.mapping_source === "saved"
+            ? "remembered layout"
+            : workbook.mapping_source === "heuristic"
+              ? "columns from values"
+              : workbook.mapping_source === "mixed"
+                ? "mixed"
+                : "AI"}
+          .
           {workbook.recipe_tab_count > 0
             ? ` ${workbook.recipes_created ?? 0} recipe${
                 (workbook.recipes_created ?? 0) === 1 ? "" : "s"
@@ -726,6 +739,9 @@ function WorkbookResult({
               }.`
             : ""}
         </p>
+        {workbook.skipped_plain ? (
+          <p className="text-sm text-muted-foreground">{workbook.skipped_plain}</p>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"

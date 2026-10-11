@@ -177,7 +177,7 @@ const HEURISTIC_COLUMNS: Record<string, string[]> = {
     "articulo",
     "artículo",
   ],
-  unit: ["unidad", "unit", "uom", "medida"],
+  unit: ["unidad", "unit", "uom", "um", "und", "medida"],
   unit_price: ["costo", "coste", "precio", "price", "cost"],
   quantity: ["cantidad", "qty", "quantity"],
   total_cost: ["total", "importe", "amount", "linetotal"],

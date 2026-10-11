@@ -17,6 +17,7 @@ export const HIGH_TAB_CONFIDENCE = 0.8;
 export const HIGH_COLUMN_CONFIDENCE = 0.75;
 
 export type MappingSource = "ai" | "saved" | "heuristic";
+export type WorkbookMappingSource = "ai" | "saved" | "mixed" | "heuristic";
 
 export interface ColumnBinding {
   column: string;
@@ -113,7 +114,7 @@ export interface WorkbookImportResult {
   review_count: number;
   tab_count: number;
   recipe_tab_count: number;
-  mapping_source: "ai" | "saved" | "mixed";
+  mapping_source: WorkbookMappingSource;
   default_currency: string;
   file_month: string | null;
   filename: string;
@@ -132,6 +133,12 @@ export interface WorkbookImportResult {
   saved_count: number;
   skipped_count: number;
   skipped_reasons: SkipReasonCount[];
+  skipped_breakdown: {
+    previous_duplicates: number;
+    blank_or_title: number;
+    other: number;
+  };
+  skipped_plain: string;
   menu_items_created: number;
   recipes_created: number;
   sub_recipes_created: number;
@@ -352,7 +359,7 @@ export interface CostWorkbookBatch {
   imported_count: number;
   review_count: number;
   tab_summaries: TabImportSummary[];
-  mapping_source: "ai" | "saved" | "mixed";
+  mapping_source: WorkbookMappingSource;
   undone_at: string | null;
   undo_snapshot: UndoSnapshot;
 }

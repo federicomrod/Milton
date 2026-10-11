@@ -8,6 +8,8 @@ const HEADER_TOKENS = new Set([
   "producto",
   "ingrediente",
   "ingredient",
+  "descripcion",
+  "descripción",
   "receta",
   "recipe",
   "articulo",
@@ -15,6 +17,8 @@ const HEADER_TOKENS = new Set([
   "unidad",
   "unit",
   "uom",
+  "um",
+  "und",
   "medida",
   "costo",
   "coste",
@@ -112,9 +116,22 @@ export function detectHeaderRow(
   const raw = (rows[best.index] ?? []).map((c) => cellText(c));
   let last = raw.length - 1;
   while (last >= 0 && !raw[last]) last -= 1;
-  const headers = raw.slice(0, last + 1);
-  if (headers.filter(Boolean).length < 2) return null;
+  const headers = uniquifyHeaders(raw.slice(0, last + 1));
+  const named = headers.filter((header) => !header.startsWith("__col_"));
+  if (named.length < 2) return null;
   return { headerRowIndex: best.index, headers };
+}
+
+/** Blank or duplicate headers become stable unique keys so a unit
+ *  sitting in an unlabeled column is not dropped or overwritten. */
+export function uniquifyHeaders(headers: string[]): string[] {
+  const seen = new Map<string, number>();
+  return headers.map((raw, index) => {
+    const base = raw.trim() || `__col_${index}`;
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count === 0 ? base : `${base}_${count + 1}`;
+  });
 }
 
 export function rowsToObjects(

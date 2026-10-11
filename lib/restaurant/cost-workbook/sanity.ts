@@ -4,16 +4,16 @@ import { recipeNameFromSheet } from "./names";
 import { normalizeUnit } from "@/lib/restaurant/units";
 import type { ColumnMapping, CostTabType } from "./types";
 
-const SANITY_PASS_RATIO = 0.5;
+export const SANITY_PASS_RATIO = 0.5;
 
-export function mappingPassesSanity(input: {
+export function mappingSanityScore(input: {
   tabType: CostTabType;
   dataRows: Record<string, unknown>[];
   mapping: ColumnMapping;
   currency: string;
   defaultDate: string;
-}): boolean {
-  if (input.tabType === "ignore") return false;
+}): number {
+  if (input.tabType === "ignore") return 0;
   if (input.tabType === "recipe" || input.tabType === "sub_recipe") {
     const evaluated: boolean[] = [];
     for (const [rowIndex, row] of input.dataRows.entries()) {
@@ -28,10 +28,8 @@ export function mappingPassesSanity(input: {
       });
       evaluated.push(result.ok);
     }
-    if (evaluated.length === 0) return false;
-    return (
-      evaluated.filter(Boolean).length / evaluated.length > SANITY_PASS_RATIO
-    );
+    if (evaluated.length === 0) return 0;
+    return evaluated.filter(Boolean).length / evaluated.length;
   }
 
   const evaluated: Array<{ ok: boolean; unit?: string }> = [];
@@ -51,9 +49,9 @@ export function mappingPassesSanity(input: {
       unit: result.ok ? result.value.unit : undefined,
     });
   }
-  if (evaluated.length === 0) return false;
-  const passed = evaluated.filter((row) => row.ok).length;
-  if (passed / evaluated.length <= SANITY_PASS_RATIO) return false;
+  if (evaluated.length === 0) return 0;
+  const rowRatio =
+    evaluated.filter((row) => row.ok).length / evaluated.length;
 
   if (input.tabType !== "price_list") {
     const unitCol = input.mapping.unit?.column;
@@ -61,10 +59,20 @@ export function mappingPassesSanity(input: {
       const units = evaluated
         .map((row) => row.unit)
         .filter((unit): unit is string => Boolean(unit));
-      if (units.length === 0) return false;
+      if (units.length === 0) return 0;
       const plausible = units.filter((unit) => Boolean(normalizeUnit(unit)));
-      if (plausible.length / units.length <= SANITY_PASS_RATIO) return false;
+      return Math.min(rowRatio, plausible.length / units.length);
     }
   }
-  return true;
+  return rowRatio;
+}
+
+export function mappingPassesSanity(input: {
+  tabType: CostTabType;
+  dataRows: Record<string, unknown>[];
+  mapping: ColumnMapping;
+  currency: string;
+  defaultDate: string;
+}): boolean {
+  return mappingSanityScore(input) > SANITY_PASS_RATIO;
 }

@@ -18,13 +18,11 @@
 // This file is a Server Component (no "use client"): Supabase access uses the
 // SSR client, so the user's session cookie is honored and RLS applies.
 
-import Link from "next/link";
 import { TrendingDown, AlertTriangle, ShieldAlert, Info } from "lucide-react";
 import type React from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { type TargetMap } from "@/lib/restaurant/supabase-targets";
 import {
   calculateRestaurantOverview,
   getRestaurantMenuItemMargins,
@@ -33,16 +31,19 @@ import {
   getUnknownCostItems,
   getOpenRecommendations,
 } from "@/lib/restaurant/calculations";
-import {
-  type RestaurantDashboardData,
-  type SampleReason,
-} from "@/lib/restaurant/supabase-sales";
+import { type SampleReason } from "@/lib/restaurant/supabase-sales";
 import { type ProfitabilityData } from "@/lib/restaurant/profitability-server";
 import { PAGINATED_READ_SAFETY_CAP } from "@/lib/restaurant/paginated-read";
 import {
-  loadCockpitExecutivePage,
-  type CockpitExecutiveView,
+  loadCockpitExecutiveFast,
+  loadCockpitTabsModel,
+  type CockpitExecutiveFastModel,
 } from "@/lib/restaurant/cockpit-page-data";
+import { DeferredSalesTab } from "@/components/restaurant/cockpit/DeferredSalesTab";
+import {
+  CockpitCostKpis,
+  CockpitCostKpisSkeleton,
+} from "@/components/restaurant/cockpit/CockpitCostKpis";
 import {
   ProfitabilityKpisSection,
   MarginRiskSection,
@@ -53,7 +54,6 @@ import {
 } from "@/components/restaurant/ProfitabilityCockpit";
 import { CockpitTabs } from "@/components/restaurant/cockpit/CockpitTabs";
 import { CockpitKpiStrip } from "@/components/restaurant/cockpit/CockpitKpiStrip";
-import { RevenueAndChannelsTab } from "@/components/restaurant/cockpit/RevenueAndChannelsTab";
 import { MenuProfitabilityTab } from "@/components/restaurant/cockpit/MenuProfitabilityTab";
 import { CockpitPeriodControl } from "@/components/restaurant/cockpit/CockpitPeriodControl";
 import {
@@ -83,7 +83,6 @@ import {
 } from "@/components/restaurant/shell/DataHealthIndicator";
 import { buildCockpitDataHealth } from "@/lib/restaurant/cockpit-data-health";
 import { RestaurantSetupChecklist } from "@/components/restaurant/RestaurantSetupChecklist";
-import { type CockpitPeriodPreset } from "@/lib/restaurant/cockpit-period";
 import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
 import {
   MOCK_MENU_ITEMS,
@@ -222,221 +221,6 @@ function SampleDataHealth({
         {cockpitSampleCopy(lang, reason)}
       </DataHealthBanner>
       <DataHealthIndicator lang={lang} health={health} />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Live (real-data) view
-// ---------------------------------------------------------------------------
-
-function LiveRestaurantView({
-  data,
-  targets,
-  profitability,
-  executive,
-  periodPreset,
-}: {
-  data: Extract<RestaurantDashboardData, { mode: "live" }>;
-  /** Daily KPI targets for the same company; empty when nothing is set. */
-  targets: TargetMap;
-  /** Profitability aggregate; null when the load failed (we still render
-   *  the POS explorer so the page degrades cleanly). */
-  profitability: ProfitabilityData | null;
-  executive: CockpitExecutiveView | null;
-  periodPreset: CockpitPeriodPreset;
-}) {
-  const lang: PreferredLanguage = data.preferredLanguage;
-  // Tab content is built once on the server and passed through the
-  // client tab shell. Server-rendered ReactNodes flow through fine
-  // (Next.js App Router supports this); only the active-tab state
-  // lives in the client component.
-  const issueCount = profitability
-    ? profitability.kpis.menu_items_with_issues +
-      profitability.kpis.menu_items_without_recipe
-    : 0;
-  const setupOutstanding = profitability
-    ? profitability.dataQuality.unmapped_pos_items +
-      profitability.dataQuality.menu_items_without_recipe +
-      profitability.dataQuality.recipes_with_unit_mismatch +
-      profitability.dataQuality.ingredients_without_cost_entries +
-      profitability.dataQuality.components_without_recipe +
-      profitability.dataQuality.currency_mismatch_rows
-    : 0;
-
-  const tabs = profitability
-    ? [
-        {
-          id: "overview",
-          label: t(lang, "Overview", "Resumen"),
-          content: (
-            <OverviewTab
-              profitability={profitability}
-              rowCount={data.rowCount}
-              lang={lang}
-            />
-          ),
-        },
-        {
-          id: "menu",
-          label: t(lang, "Menu Profitability", "Rentabilidad del menú"),
-          badge: issueCount > 0 ? String(issueCount) : undefined,
-          content: <MenuProfitabilityTab profitability={profitability} />,
-        },
-        {
-          id: "suppliers",
-          label: t(lang, "Suppliers & Costs", "Proveedores y costos"),
-          content: <SupplierTrendsSection data={profitability} />,
-        },
-        {
-          id: "revenue",
-          label: t(lang, "Sales", "Ventas"),
-          content: (
-            <RevenueAndChannelsTab
-              rows={data.explorerRows}
-              targets={targets}
-              displayCurrency={profitability.kpis.currency}
-              cockpit={data.cockpit}
-              lang={lang}
-            />
-          ),
-        },
-        {
-          id: "setup",
-          label: t(lang, "Setup / Data Quality", "Configuración y datos"),
-          badge: setupOutstanding > 0 ? String(setupOutstanding) : undefined,
-          content: <SetupTab profitability={profitability} lang={lang} />,
-        },
-      ]
-    : [
-        // Profitability load failed — collapse to a single "Revenue & Channels"
-        // tab so the user still gets the POS explorer.
-        {
-          id: "revenue",
-          label: t(lang, "Sales", "Ventas"),
-          content: (
-            <RevenueAndChannelsTab
-              rows={data.explorerRows}
-              targets={targets}
-              displayCurrency={data.overview.currency}
-              cockpit={data.cockpit}
-              lang={lang}
-            />
-          ),
-        },
-      ];
-
-  return (
-    <div className="w-full py-3 px-6 lg:px-10">
-      <div className="space-y-3">
-        <OperatingPageHeader
-          title={t(lang, "Cockpit", "Cockpit")}
-          lang={lang}
-          dateRange={
-            <Suspense fallback={<PageSkeleton width="16rem" height="2rem" />}>
-              <CockpitPeriodControl
-                lang={lang}
-                preset={periodPreset}
-                range={
-                  executive
-                    ? executive.snapshot.period.current
-                    : data.cockpit.period_from && data.cockpit.period_to
-                      ? {
-                          from: data.cockpit.period_from,
-                          to: data.cockpit.period_to,
-                        }
-                      : null
-                }
-                comparisonLabel={executive?.comparisonLabel}
-              />
-            </Suspense>
-          }
-        />
-        {executive ? (
-          <div className="flex items-center gap-2 flex-wrap">
-            {executive.setup ? (
-              <CockpitOnboardingChip lang={lang} progress={executive.setup} />
-            ) : null}
-            <DataHealthIndicator lang={lang} health={executive.health} />
-          </div>
-        ) : null}
-
-        {executive ? (
-          <CockpitHeadline text={executive.headline} />
-        ) : (
-          <CockpitHeadlineSkeleton />
-        )}
-
-        {executive ? (
-          <CockpitKpiStrip model={executive.kpis} lang={lang} />
-        ) : null}
-
-        {executive ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
-            <div className="lg:col-span-2">
-              <CockpitHeroChart
-                lang={lang}
-                currency={executive.snapshot.currency}
-                points={executive.snapshot.daily}
-              />
-            </div>
-            <CockpitChannelBreakdown
-              lang={lang}
-              currency={executive.snapshot.currency}
-              channels={executive.snapshot.channels}
-            />
-          </div>
-        ) : (
-          <CockpitHeroChartSkeleton />
-        )}
-
-        {executive ? (
-          <Suspense
-            fallback={
-              <CockpitInsightsCard
-                lang={lang}
-                insights={executive.insights.insights}
-                source="deterministic"
-              />
-            }
-          >
-            <CockpitInsightsUpgrade
-              facts={executive.insightFacts}
-              lang={lang}
-              cacheKey={executive.insightCacheKey}
-            />
-          </Suspense>
-        ) : (
-          <CockpitInsightsCardSkeleton />
-        )}
-
-        {executive?.health.tone === "error" ||
-        data.readError ||
-        profitability?.readError ? (
-          <DataHealthBanner tone="error">
-            {t(
-              lang,
-              "Could not load all sales rows. Totals are unavailable — they are not a smaller number from a partial read. Try refreshing the page.",
-              "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial. Recarga la página."
-            )}
-          </DataHealthBanner>
-        ) : null}
-
-        {(data.truncated || profitability?.truncated) && (
-          <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>
-              {t(
-                lang,
-                `Totals may be incomplete. This view stopped after ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} rows. The numbers shown are partial.`,
-                `Los totales pueden estar incompletos. Esta vista se detuvo después de ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} filas. Los números que ves son parciales.`
-              )}
-            </span>
-          </div>
-        )}
-
-        <CockpitTabs tabs={tabs} defaultTab="overview" />
-      </div>
     </div>
   );
 }
@@ -1123,6 +907,266 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
 // Page entry — branches on live vs sample mode.
 // ---------------------------------------------------------------------------
 
+async function CockpitLiveBody({
+  location,
+  period,
+}: {
+  location?: string;
+  period?: string;
+}) {
+  const fast: CockpitExecutiveFastModel = await loadCockpitExecutiveFast(
+    location,
+    period
+  );
+  if (fast.mode !== "live") {
+    return <SampleRestaurantView reason={fast.reason ?? "no_sales"} />;
+  }
+  const lang = fast.lang;
+  const executive = fast.executive;
+  const week = {
+    thisWeek: fast.cockpit.this_week
+      ? { from: fast.cockpit.this_week.from, to: fast.cockpit.this_week.to }
+      : null,
+    lastWeek: fast.cockpit.last_week
+      ? { from: fast.cockpit.last_week.from, to: fast.cockpit.last_week.to }
+      : null,
+    deltaPct: fast.cockpit.week_delta_pct,
+  };
+  return (
+    <div className="w-full py-3 px-6 lg:px-10">
+      <div className="space-y-3">
+        <OperatingPageHeader
+          title={t(lang, "Cockpit", "Cockpit")}
+          lang={lang}
+          dateRange={
+            <Suspense fallback={<PageSkeleton width="16rem" height="2rem" />}>
+              <CockpitPeriodControl
+                lang={lang}
+                preset={fast.periodPreset}
+                range={
+                  executive
+                    ? executive.snapshot.period.current
+                    : fast.cockpit.period_from && fast.cockpit.period_to
+                      ? {
+                          from: fast.cockpit.period_from,
+                          to: fast.cockpit.period_to,
+                        }
+                      : null
+                }
+                comparisonLabel={executive?.comparisonLabel}
+              />
+            </Suspense>
+          }
+        />
+        {executive ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            {executive.setup ? (
+              <CockpitOnboardingChip lang={lang} progress={executive.setup} />
+            ) : null}
+            <DataHealthIndicator lang={lang} health={executive.health} />
+          </div>
+        ) : null}
+
+        {executive ? (
+          <CockpitHeadline text={executive.headline} />
+        ) : (
+          <CockpitHeadlineSkeleton />
+        )}
+
+        {executive ? (
+          <CockpitKpiStrip
+            model={executive.kpis}
+            lang={lang}
+            costSlot={
+              executive.snapshot ? (
+                <Suspense fallback={<CockpitCostKpisSkeleton />}>
+                  <CockpitCostKpis
+                    locationId={location}
+                    period={executive.snapshot.period}
+                    timezone={fast.timezone}
+                    currency={fast.currency}
+                    lang={lang}
+                    week={week}
+                  />
+                </Suspense>
+              ) : undefined
+            }
+          />
+        ) : null}
+
+        {executive ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+            <div className="lg:col-span-2">
+              <CockpitHeroChart
+                lang={lang}
+                currency={executive.snapshot.currency}
+                points={executive.snapshot.daily}
+              />
+            </div>
+            <CockpitChannelBreakdown
+              lang={lang}
+              currency={executive.snapshot.currency}
+              channels={executive.snapshot.channels}
+            />
+          </div>
+        ) : (
+          <CockpitHeroChartSkeleton />
+        )}
+
+        {executive ? (
+          <Suspense
+            fallback={
+              <CockpitInsightsCard
+                lang={lang}
+                insights={executive.insights.insights}
+                source="deterministic"
+              />
+            }
+          >
+            <CockpitInsightsUpgrade
+              facts={executive.insightFacts}
+              lang={lang}
+              cacheKey={executive.insightCacheKey}
+            />
+          </Suspense>
+        ) : (
+          <CockpitInsightsCardSkeleton />
+        )}
+
+        {executive?.health.tone === "error" || fast.readError ? (
+          <DataHealthBanner tone="error">
+            {t(
+              lang,
+              "Could not load all sales rows. Totals are unavailable — they are not a smaller number from a partial read. Try refreshing the page.",
+              "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial. Recarga la página."
+            )}
+          </DataHealthBanner>
+        ) : null}
+
+        {fast.truncated && (
+          <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              {t(
+                lang,
+                `Totals may be incomplete. This view stopped after ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} rows. The numbers shown are partial.`,
+                `Los totales pueden estar incompletos. Esta vista se detuvo después de ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} filas. Los números que ves son parciales.`
+              )}
+            </span>
+          </div>
+        )}
+
+        <Suspense
+          fallback={
+            <div className="space-y-3">
+              <PageSkeleton height="2.5rem" width="100%" label="tabs" />
+              <PageSkeleton height="16rem" width="100%" label="overview" />
+            </div>
+          }
+        >
+          <CockpitTabsFromModel location={location} lang={lang} />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
+async function CockpitTabsFromModel({
+  location,
+  lang,
+}: {
+  location?: string;
+  lang: PreferredLanguage;
+}) {
+  const { profitability, rowCount, readError, truncated, resolvedLocationId } =
+    await loadCockpitTabsModel(location);
+  const issueCount = profitability
+    ? profitability.kpis.menu_items_with_issues +
+      profitability.kpis.menu_items_without_recipe
+    : 0;
+  const setupOutstanding = profitability
+    ? profitability.dataQuality.unmapped_pos_items +
+      profitability.dataQuality.menu_items_without_recipe +
+      profitability.dataQuality.recipes_with_unit_mismatch +
+      profitability.dataQuality.ingredients_without_cost_entries +
+      profitability.dataQuality.components_without_recipe +
+      profitability.dataQuality.currency_mismatch_rows
+    : 0;
+  const tabs = profitability
+    ? [
+        {
+          id: "overview",
+          label: t(lang, "Overview", "Resumen"),
+          content: (
+            <OverviewTab
+              profitability={profitability}
+              rowCount={rowCount}
+              lang={lang}
+            />
+          ),
+        },
+        {
+          id: "menu",
+          label: t(lang, "Menu Profitability", "Rentabilidad del menú"),
+          badge: issueCount > 0 ? String(issueCount) : undefined,
+          content: <MenuProfitabilityTab profitability={profitability} />,
+        },
+        {
+          id: "suppliers",
+          label: t(lang, "Suppliers & Costs", "Proveedores y costos"),
+          content: <SupplierTrendsSection data={profitability} />,
+        },
+        {
+          id: "revenue",
+          label: t(lang, "Sales", "Ventas"),
+          content: (
+            <DeferredSalesTab locationId={resolvedLocationId} lang={lang} />
+          ),
+        },
+        {
+          id: "setup",
+          label: t(lang, "Setup / Data Quality", "Configuración y datos"),
+          badge: setupOutstanding > 0 ? String(setupOutstanding) : undefined,
+          content: <SetupTab profitability={profitability} lang={lang} />,
+        },
+      ]
+    : [
+        {
+          id: "revenue",
+          label: t(lang, "Sales", "Ventas"),
+          content: (
+            <DeferredSalesTab locationId={resolvedLocationId} lang={lang} />
+          ),
+        },
+      ];
+  return (
+    <>
+      {readError ? (
+        <DataHealthBanner tone="error">
+          {t(
+            lang,
+            "Could not load all sales rows. Totals are unavailable — they are not a smaller number from a partial read. Try refreshing the page.",
+            "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial. Recarga la página."
+          )}
+        </DataHealthBanner>
+      ) : null}
+      {truncated ? (
+        <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            {t(
+              lang,
+              `Totals may be incomplete. This view stopped after ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} rows. The numbers shown are partial.`,
+              `Los totales pueden estar incompletos. Esta vista se detuvo después de ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} filas. Los números que ves son parciales.`
+            )}
+          </span>
+        </div>
+      ) : null}
+      <CockpitTabs tabs={tabs} defaultTab="overview" />
+    </>
+  );
+}
+
 export default async function RestaurantCockpitPage({
   searchParams,
 }: {
@@ -1130,19 +1174,28 @@ export default async function RestaurantCockpitPage({
   searchParams: Promise<{ location?: string; period?: string }>;
 }) {
   const { location: requestedLocationId, period } = await searchParams;
-  const { data, targets, profitability, executive, periodPreset } =
-    await loadCockpitExecutivePage(requestedLocationId, period);
+  return (
+    <Suspense fallback={<RestaurantCockpitLoadingFallback />}>
+      <CockpitLiveBody location={requestedLocationId} period={period} />
+    </Suspense>
+  );
+}
 
-  if (data.mode === "live") {
-    return (
-      <LiveRestaurantView
-        data={data}
-        targets={targets}
-        profitability={profitability}
-        executive={executive}
-        periodPreset={periodPreset}
-      />
-    );
-  }
-  return <SampleRestaurantView reason={data.reason} />;
+function RestaurantCockpitLoadingFallback() {
+  return (
+    <div className="w-full py-3 px-6 lg:px-10">
+      <div className="space-y-3">
+        <PageSkeleton height="2rem" width="16rem" label="period" />
+        <CockpitHeadlineSkeleton />
+        <PageSkeleton height="4.5rem" width="100%" label="kpi strip" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+          <div className="lg:col-span-2">
+            <CockpitHeroChartSkeleton />
+          </div>
+          <PageSkeleton height="220px" width="100%" label="channels" />
+        </div>
+        <CockpitInsightsCardSkeleton />
+      </div>
+    </div>
+  );
 }

@@ -5,6 +5,7 @@
 
 "use client";
 
+import type { ReactNode } from "react";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { formatCompactDateRange } from "@/lib/restaurant/cockpit-aggregates";
 import { localeForCurrency } from "@/lib/restaurant/currency";
@@ -17,9 +18,12 @@ import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
 export function CockpitKpiStrip({
   model,
   lang,
+  costSlot,
 }: {
   model: CockpitKpiStripModel;
   lang: PreferredLanguage;
+  /** When set, replaces the two cost KPI cells (used to stream them in). */
+  costSlot?: ReactNode;
 }) {
   const locale = localeForCurrency(model.currency);
   const dateLocale = lang === "es" ? "es" : "en-GB";
@@ -80,7 +84,22 @@ export function CockpitKpiStrip({
                 )
           }
         />
-        {model.gross_margin_pct.available ? (
+        {costSlot ? (
+          costSlot
+        ) : model.cost_pending ? (
+          <>
+            <div
+              role="status"
+              aria-label={t(lang, "Gross margin %", "Margen bruto %")}
+              className="animate-pulse rounded-md bg-muted/70 min-h-[4.5rem]"
+            />
+            <div
+              role="status"
+              aria-label={t(lang, "Food cost %", "% costo de comida")}
+              className="animate-pulse rounded-md bg-muted/70 min-h-[4.5rem]"
+            />
+          </>
+        ) : model.gross_margin_pct.available ? (
           <Kpi
             label={t(lang, "Gross margin %", "Margen bruto %")}
             value={`${model.gross_margin_pct.value.toFixed(1)}%`}
@@ -101,7 +120,8 @@ export function CockpitKpiStrip({
             linkLabel={model.gross_margin_pct.link_label}
           />
         )}
-        {model.food_cost_pct.available ? (
+        {costSlot ? null : model.cost_pending ? null : model.food_cost_pct
+            .available ? (
           <Kpi
             label={t(lang, "Food cost %", "% costo de comida")}
             value={`${model.food_cost_pct.value.toFixed(1)}%`}

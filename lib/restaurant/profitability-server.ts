@@ -147,6 +147,11 @@ export interface ProfitabilityData {
   /** Total spend across all cost entries — used by the supplier-spend chart. */
   total_supplier_spend: number;
   setupCounts: SetupCounts;
+  /**
+   * Distinct check_id/order_id values in the POS read. Used by the
+   * briefing so it does not page pos_sales_items a second time.
+   */
+  distinct_check_count: number;
   /** True when any paged fact-table read hit the safety cap. */
   truncated: boolean;
   /**
@@ -166,6 +171,8 @@ export interface ProfitabilityPosRow {
   location_id: string | null;
   is_tip?: boolean | null;
   discount_amount?: number | null;
+  check_id?: string | null;
+  order_id?: string | null;
 }
 
 export interface FetchProfitabilityOptions {
@@ -287,7 +294,7 @@ export async function fetchProfitabilityData(
             }
             return q;
           },
-          "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id, is_tip, discount_amount"
+          "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id, is_tip, discount_amount, check_id, order_id"
         ),
     // Intentionally NOT filtered by location: resolveScopedName below
     // already applies the correct exact-scope-then-company-wide-fallback
@@ -548,7 +555,10 @@ export async function fetchProfitabilityData(
   let mismatchedPosRows = 0;
 
   const posRows = succeededRows(posRes);
+  const distinctChecks = new Set<string>();
   for (const r of posRows) {
+    const check = r.check_id ?? r.order_id ?? null;
+    if (check) distinctChecks.add(check);
     const raw = (r.raw_item_name ?? "").trim();
     if (!raw) continue;
     if (r.currency && !isSameCurrency(r.currency, companyCurrency)) {
@@ -837,6 +847,7 @@ export async function fetchProfitabilityData(
     dataQuality,
     total_supplier_spend: totalSupplierSpend,
     setupCounts,
+    distinct_check_count: distinctChecks.size,
     truncated:
       posRes.truncated ||
       mappingsRes.truncated ||

@@ -145,6 +145,8 @@ export function buildLosRanchosKitchenUnitsWorkbook(): Buffer {
     ["ADEREZO", "", "", 1.2],
     ["Yuca", 0.8, 0.05, ""],
     ["Platano", 0.6, 0.0375, ""],
+    ["ZANAHORIA", "", 0.0169, ""],
+    ["ZANAHORA", "", 0.0494, ""],
   ];
   wb.Sheets["Lista de precios"] = XLSX.utils.aoa_to_sheet(price);
 

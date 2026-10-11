@@ -164,11 +164,7 @@ export function withQty(
 /** Pick the restaurant-scoped menu item when the schema has location_id. */
 export function pickMenuItemForLocation<
   T extends { name: string; location_id?: string | null },
->(
-  items: T[],
-  name: string,
-  locationId?: string | null
-): T | undefined {
+>(items: T[], name: string, locationId?: string | null): T | undefined {
   const key = nameKey(name);
   const sameName = items.filter((row) => nameKey(row.name) === key);
   if (sameName.length === 0) return undefined;
@@ -335,7 +331,6 @@ export async function persistWorkbookRecipes(input: {
 
   for (const group of subGroups) {
     const inputs = resolveGroup(group);
-    if (!inputs) continue;
     const yieldResult = resolveSubRecipeYield(group, lang);
     if (!yieldResult.ok) {
       review.push({
@@ -347,6 +342,7 @@ export async function persistWorkbookRecipes(input: {
       });
       continue;
     }
+    if (!inputs) continue;
     const existing = componentByName.get(nameKey(group.name));
     if (existing && !isImported(existing.source_type)) {
       skipped.push({

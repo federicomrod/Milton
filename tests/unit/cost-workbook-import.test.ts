@@ -1249,10 +1249,12 @@ describe("workbook recipes, POS links, and cockpit COGS", () => {
     }
     const salsaBatch = 2 * 1.2 + cebollaLb.value * 1.8;
     const salsaYieldLb = 2 + cebollaLb.value;
+    const zanahoriaOz = 0.0169;
     const expectedCost =
       carneLb.value * 4.8 +
       tomateLb.value * 1.2 +
-      salsaBatch * (salsaPortionLb.value / salsaYieldLb);
+      salsaBatch * (salsaPortionLb.value / salsaYieldLb) +
+      zanahoriaOz;
     expect(cost.cost).toBeCloseTo(expectedCost, 4);
     expect(expectedCost).toBeGreaterThan(2.7);
     expect(expectedCost).toBeLessThan(2.8);
@@ -2650,11 +2652,13 @@ describe("shared Articulo dish tabs and cost summary", () => {
       (tab) => tab.name === "COSTOS RESTAURANTE 2026"
     );
     expect(costos?.type).toBe("ignore");
-    expect(result.recipes_created).toBeGreaterThanOrEqual(2);
-    expect(result.menu_items_created).toBeGreaterThanOrEqual(2);
+    expect(result.recipes_created).toBeGreaterThanOrEqual(1);
+    expect(result.menu_items_created).toBeGreaterThanOrEqual(1);
     expect(store.menuItems.map((row) => row.name)).toEqual(
-      expect.arrayContaining(["Ceviche", "Nachos"])
+      expect.arrayContaining(["Costilla"])
     );
+    expect(store.menuItems.map((row) => row.name)).not.toContain("Nachos");
+    expect(store.menuItems.map((row) => row.name)).not.toContain("Ceviche");
     expect(
       result.review_items.some((item) =>
         /unknown unit \(GRAM0\)/i.test(item.reason)
@@ -2726,7 +2730,8 @@ describe("shared Articulo dish tabs and cost summary", () => {
     expect(tab?.mapping_source).not.toBe("saved");
     expect(tab?.type).toBe("recipe");
     expect(tab?.column_mapping.recipe_name?.column).not.toBe("Articulo");
-    expect(result.recipes_created).toBeGreaterThanOrEqual(2);
+    expect(result.recipes_created).toBeGreaterThanOrEqual(1);
+    expect(store.menuItems.map((row) => row.name)).not.toContain("Nachos");
     const saved = store.mappings.find(
       (row) =>
         row.tab_type === "recipe" &&
@@ -3368,16 +3373,19 @@ describe("COSTO RESTAURANTE block layout", () => {
     const malo = store.recipes.find((row) => row.name === "PLATO MALO");
     const maloMenu = store.menuItems.find((row) => row.name === "PLATO MALO");
     expect(malo?.workbook_cost_match).toBe("mismatch");
-    expect(calculateMenuItemCost(maloMenu!.id, costingDataFromStore(store)).status).toBe(
-      "workbook_mismatch"
-    );
+    expect(
+      calculateMenuItemCost(maloMenu!.id, costingDataFromStore(store)).status
+    ).toBe("workbook_mismatch");
 
     await repo.markRecipeManual(COMPANY, malo!.id);
     const after = store.recipes.find((row) => row.id === malo?.id);
     expect(after?.source_type).toBe("manual");
     expect(after?.workbook_cost_match).toBeNull();
     expect(after?.workbook_computed_cost).toBeNull();
-    const live = calculateMenuItemCost(maloMenu!.id, costingDataFromStore(store));
+    const live = calculateMenuItemCost(
+      maloMenu!.id,
+      costingDataFromStore(store)
+    );
     expect(live.status).toBe("complete");
     expect(live.cost).toBeGreaterThan(0);
   });
@@ -3395,7 +3403,9 @@ describe("COSTO RESTAURANTE block layout", () => {
       lang: "es",
     });
     const dedos = store.recipes.find((row) => row.name === "DEDOS DE QUESO");
-    const dedosMenu = store.menuItems.find((row) => row.name === "DEDOS DE QUESO");
+    const dedosMenu = store.menuItems.find(
+      (row) => row.name === "DEDOS DE QUESO"
+    );
     expect(dedos?.workbook_cost_match).toBe("match");
     const input = store.recipeInputs.find((row) => row.recipe_id === dedos?.id);
     expect(input).toBeTruthy();
@@ -3509,9 +3519,9 @@ describe("COSTO RESTAURANTE block layout", () => {
         )
       )
     ).toBe(true);
-    expect(
-      store.recipes.some((row) => row.name === "POLLO EMPANIZADO")
-    ).toBe(false);
+    expect(store.recipes.some((row) => row.name === "POLLO EMPANIZADO")).toBe(
+      false
+    );
     const menu = store.menuItems.find((row) => row.name === "POLLO EMPANIZADO");
     expect(menu).toBeUndefined();
     expect(

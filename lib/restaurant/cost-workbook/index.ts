@@ -14,11 +14,18 @@ export {
   type WorkbookAi,
 } from "./ai";
 export {
+  countDishTitleBlocks,
+  looksLikeCostSummaryTab,
+  looksLikeDishRecipeTab,
+  refineTabClassification,
+} from "./classify";
+export {
   evaluateWorkbookRow,
   isSkippableWorkbookRow,
   resolvePriceListPrice,
   totalsMatch,
 } from "./parse";
+export { mappingSourceLabel, tabTypeLabel } from "./copy";
 export {
   formatSkipBreakdownSentence,
   groupSkipReasons,
@@ -27,6 +34,9 @@ export {
   summarizeSkippedRows,
 } from "./skip";
 export {
+  AMBIGUOUS_MAPPING_REASON,
+  OVERLAPPING_MAPPING_REASON,
+  inferRecipeMappingDetails,
   inferRecipeMappingFromContent,
   pickMappingSampleRows,
 } from "./infer-mapping";
@@ -68,7 +78,11 @@ export {
   PICK_RESTAURANT_ERROR_ES,
   resolveUploadRestaurantScope,
 } from "./scope";
-export { mappingPassesSanity, mappingSanityScore } from "./sanity";
+export {
+  mappingPassesSanity,
+  mappingSanityScore,
+  recipeMappingHasDistinctRoles,
+} from "./sanity";
 export type {
   CostTabType,
   WorkbookImportResult,

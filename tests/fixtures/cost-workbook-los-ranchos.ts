@@ -236,3 +236,79 @@ export function buildShiftedSubRecipeWorkbook(): Buffer {
     XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
   );
 }
+
+/**
+ * Staging Los Ranchos shape without client data: dish tabs use a
+ * shared Articulo column (title-row dish name, then ingredients),
+ * GRAM0 as a zero-for-O typo, and a yearly cost-summary tab that
+ * must not become recipes.
+ */
+export function buildSharedArticuloDishWorkbook(): Buffer {
+  const wb = XLSX.utils.book_new();
+
+  const priceList = [
+    ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+    ["Pescado", 4.8, 0.3, ""],
+    ["Limon", "", "", 0.15],
+    ["Totopos", "", "", 0.8],
+    ["Queso", 3.2, 0.2, ""],
+    ["Carne para asar", 4.8, 0.3, ""],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(priceList),
+    "Lista de precios"
+  );
+
+  const entradas = [
+    ["ENTRADAS"],
+    [],
+    ["Articulo", "Cantidad", "Unidad Detalle", "Costo"],
+    ["Ceviche"],
+    ["Pescado", 200, "GRAM0", 0.3],
+    ["Limon", 30, "ML", 0.15],
+    ["Nachos"],
+    ["Totopos", 100, "GRMO", 0.8],
+    ["Queso", 40, "GRAMO", 0.2],
+    ["Totopos pack", 1, "PAQUETE (TORTILLA DE TACO 14 UNIDADES)", 2.5],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(entradas),
+    "Entradas"
+  );
+
+  const parrilladas = [
+    ["PARRILLADAS"],
+    ["Articulo", "Cantidad", "Unidad Detalle", "Costo"],
+    ["Carne asada"],
+    ["Carne para asar", 8, "ONZ", 4.8],
+    ["Limon", 10, "ML", 0.15],
+    ["Costilla"],
+    ["Carne para asar", 12, "ONZ", 4.8],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(parrilladas),
+    "Parrilladas"
+  );
+
+  const costos = [
+    ["COSTOS RESTAURANTE 2026"],
+    [],
+    ["Concepto", "Enero", "Febrero", "Total"],
+    ["Alquiler", 2000, 2000, 4000],
+    ["Luz", 400, 420, 820],
+    ["Salarios", 8000, 8100, 16100],
+    ["TOTAL", 10400, 10520, 20920],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(costos),
+    "COSTOS RESTAURANTE 2026"
+  );
+
+  return Buffer.from(
+    XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+  );
+}

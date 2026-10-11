@@ -11,6 +11,10 @@ import {
   PICK_RESTAURANT_ERROR_ES,
   type UploadRestaurantScope,
 } from "@/lib/restaurant/cost-workbook/scope";
+import {
+  mappingSourceLabel,
+  tabTypeLabel,
+} from "@/lib/restaurant/cost-workbook/copy";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import type { RestaurantLocationOption } from "@/lib/restaurant/restaurant-context-server";
 import Link from "next/link";
@@ -189,7 +193,7 @@ export function CostUploadForm({
       } else setSummary(json as UploadSummary);
     } catch (err) {
       setError({
-        error: "Network error",
+        error: t(lang, "Network error", "Error de red"),
         details: err instanceof Error ? err.message : String(err),
       });
     } finally {
@@ -205,31 +209,39 @@ export function CostUploadForm({
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Back to Ingredients
+          {t(lang, "Back to Ingredients", "Volver a Ingredientes")}
         </Link>
 
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
             <FileSpreadsheet className="h-7 w-7 text-orange-500" />
-            Import Ingredient Costs
+            {t(
+              lang,
+              "Import Ingredient Costs",
+              "Importar costos de ingredientes"
+            )}
           </h1>
           <p className="text-base text-muted-foreground mt-2">
-            Bulk-load supplier cost observations from a CSV or a multi-tab
-            workbook. High-confidence rows save immediately into{" "}
-            <code className="text-xs">ingredient_cost_entries</code> so the
-            cockpit can show margins. Rows Milton is unsure about wait in a
-            needs-a-look list and never block anything.
+            {t(
+              lang,
+              "Bulk-load supplier cost observations from a CSV or a multi-tab workbook. High-confidence rows save immediately into ingredient_cost_entries so the cockpit can show margins. Rows Milton is unsure about wait in a needs-a-look list and never block anything.",
+              "Carga los costos de tus proveedores desde un CSV o un libro con varias pestañas. Las filas con alta confianza se guardan de una vez en ingredient_cost_entries para que el cockpit muestre márgenes. Las filas que Milton no tiene claras quedan en una lista de “necesitan una mirada” y no bloquean nada."
+            )}
           </p>
         </div>
 
         {/* Expected format */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Expected columns</CardTitle>
+            <CardTitle className="text-sm">
+              {t(lang, "Expected columns", "Columnas esperadas")}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div>
-              <p className="text-sm font-medium mb-1">Required</p>
+              <p className="text-sm font-medium mb-1">
+                {t(lang, "Required", "Obligatorias")}
+              </p>
               <div className="flex flex-wrap gap-1.5">
                 {[
                   "cost_date",
@@ -250,7 +262,9 @@ export function CostUploadForm({
               </div>
             </div>
             <div>
-              <p className="text-sm font-medium mb-1">Optional</p>
+              <p className="text-sm font-medium mb-1">
+                {t(lang, "Optional", "Opcionales")}
+              </p>
               <div className="flex flex-wrap gap-1.5">
                 {[
                   "currency",
@@ -269,11 +283,11 @@ export function CostUploadForm({
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Headers are matched case-insensitively and accept variants (Cost
-              Date, date, invoice_date · Supplier, vendor · Ingredient,
-              item_name, product_name · Qty · UOM · Amount, line_total · SKU). A
-              multi-tab workbook with Spanish headers or a price-list first
-              sheet does not need these English names — Milton maps it.
+              {t(
+                lang,
+                "Headers are matched case-insensitively and accept variants (Cost Date, date, invoice_date · Supplier, vendor · Ingredient, item_name, product_name · Qty · UOM · Amount, line_total · SKU). A multi-tab workbook with Spanish headers or a price-list first sheet does not need these English names — Milton maps it.",
+                "Los encabezados se reconocen sin importar mayúsculas y aceptan variantes (Cost Date, date, invoice_date · Supplier, vendor · Ingredient, item_name, product_name · Qty · UOM · Amount, line_total · SKU). Un libro con varias pestañas y encabezados en español o una lista de precios no necesita estos nombres en inglés — Milton los mapea."
+              )}
             </p>
           </CardContent>
         </Card>
@@ -283,7 +297,9 @@ export function CostUploadForm({
           <CardContent className="pt-6">
             <form onSubmit={handleSubmit} className="space-y-4">
               <label className="block">
-                <span className="text-sm font-medium">Select file</span>
+                <span className="text-sm font-medium">
+                  {t(lang, "Select file", "Elige el archivo")}
+                </span>
                 <input
                   type="file"
                   accept=".csv,.xlsx,.xls"
@@ -307,10 +323,17 @@ export function CostUploadForm({
                     className="mt-0.5 h-4 w-4 rounded border-border accent-blue-600"
                   />
                   <span className="text-sm leading-tight">
-                    Create missing ingredients
+                    {t(
+                      lang,
+                      "Create missing ingredients",
+                      "Crear ingredientes que falten"
+                    )}
                     <span className="block text-xs text-muted-foreground mt-0.5">
-                      New ingredient rows use the file&apos;s unit as default.
-                      Off = unknown ingredients are skipped and reported.
+                      {t(
+                        lang,
+                        "New ingredient rows use the file's unit as default. Off = unknown ingredients are skipped and reported.",
+                        "Los ingredientes nuevos usan la unidad del archivo. Si lo dejas apagado, los desconocidos se omiten y se reportan."
+                      )}
                     </span>
                   </span>
                 </label>
@@ -322,17 +345,26 @@ export function CostUploadForm({
                     className="mt-0.5 h-4 w-4 rounded border-border accent-blue-600"
                   />
                   <span className="text-sm leading-tight">
-                    Skip exact duplicate rows
+                    {t(
+                      lang,
+                      "Skip exact duplicate rows",
+                      "Omitir filas duplicadas exactas"
+                    )}
                     <span className="block text-xs text-muted-foreground mt-0.5">
-                      Dedupe key: ingredient + supplier + date + quantity + unit
-                      + total cost.
+                      {t(
+                        lang,
+                        "Dedupe key: ingredient + supplier + date + quantity + unit + total cost.",
+                        "Clave: ingrediente + proveedor + fecha + cantidad + unidad + costo total."
+                      )}
                     </span>
                   </span>
                 </label>
               </div>
 
               <label className="block max-w-[180px]">
-                <span className="text-sm font-medium">Default currency</span>
+                <span className="text-sm font-medium">
+                  {t(lang, "Default currency", "Moneda predeterminada")}
+                </span>
                 <select
                   value={defaultCurrency}
                   onChange={(e) => setDefaultCurrency(e.target.value)}
@@ -355,11 +387,11 @@ export function CostUploadForm({
                 <div className="rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
                   <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                   <span>
-                    Uploading the same file twice will{" "}
-                    <span className="font-medium">
-                      create duplicate cost entries
-                    </span>{" "}
-                    unless &ldquo;Skip exact duplicate rows&rdquo; is enabled.
+                    {t(
+                      lang,
+                      "Uploading the same file twice will create duplicate cost entries unless “Skip exact duplicate rows” is enabled.",
+                      "Si subes el mismo archivo dos veces vas a crear costos duplicados, salvo que actives «Omitir filas duplicadas exactas»."
+                    )}
                   </span>
                 </div>
               )}
@@ -393,7 +425,9 @@ export function CostUploadForm({
                 className="gap-2"
               >
                 <Upload className="h-4 w-4" />
-                {submitting ? "Uploading…" : "Upload costs"}
+                {submitting
+                  ? t(lang, "Uploading…", "Subiendo…")
+                  : t(lang, "Upload costs", "Subir costos")}
               </Button>
             </form>
           </CardContent>
@@ -403,7 +437,11 @@ export function CostUploadForm({
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">
-                Needs a look ({pendingReview.length}) — optional
+                {t(
+                  lang,
+                  `Needs a look (${pendingReview.length}) — optional`,
+                  `Necesitan una mirada (${pendingReview.length}) — opcional`
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -414,7 +452,8 @@ export function CostUploadForm({
                     className="rounded-md border border-border px-3 py-2 flex flex-wrap items-start justify-between gap-2"
                   >
                     <span className="text-muted-foreground">
-                      {item.tab_name} row {item.row_index + 1}: {item.reason}
+                      {item.tab_name} {t(lang, "row", "fila")}{" "}
+                      {item.row_index + 1}: {item.reason}
                       {item.suggested?.ingredient_name
                         ? ` (${String(item.suggested.ingredient_name)})`
                         : ""}
@@ -441,7 +480,7 @@ export function CostUploadForm({
                         }
                       }}
                     >
-                      Skip
+                      {t(lang, "Skip", "Omitir")}
                     </Button>
                   </li>
                 ))}
@@ -466,7 +505,11 @@ export function CostUploadForm({
               {error.missing && error.missing.length > 0 && (
                 <div>
                   <p className="text-sm font-medium mb-1">
-                    Missing required columns:
+                    {t(
+                      lang,
+                      "Missing required columns:",
+                      "Faltan columnas obligatorias:"
+                    )}
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {error.missing.map((m) => (
@@ -484,7 +527,11 @@ export function CostUploadForm({
               {error.headers && (
                 <div>
                   <p className="text-sm font-medium mb-1">
-                    Headers seen in your file:
+                    {t(
+                      lang,
+                      "Headers seen in your file:",
+                      "Encabezados que se vieron en tu archivo:"
+                    )}
                   </p>
                   <p className="text-xs text-muted-foreground font-mono">
                     {error.headers.join(", ")}
@@ -514,16 +561,24 @@ export function CostUploadForm({
                 );
                 const json = await res.json();
                 if (!res.ok) {
-                  setUndoMessage(json.error ?? "Undo failed");
+                  setUndoMessage(
+                    json.error ?? t(lang, "Undo failed", "No se pudo deshacer")
+                  );
                 } else {
                   setUndoMessage(
-                    `Undone. Removed ${json.deleted_cost_entries ?? 0} cost rows and the menu items, recipes, and POS links this import created.`
+                    t(
+                      lang,
+                      `Undone. Removed ${json.deleted_cost_entries ?? 0} cost rows and the menu items, recipes, and POS links this import created.`,
+                      `Deshecho. Se quitaron ${json.deleted_cost_entries ?? 0} filas de costo y los platillos, recetas y vínculos POS que creó esta carga.`
+                    )
                   );
                   setPendingReview([]);
                 }
               } catch (err) {
                 setUndoMessage(
-                  err instanceof Error ? err.message : "Undo failed"
+                  err instanceof Error
+                    ? err.message
+                    : t(lang, "Undo failed", "No se pudo deshacer")
                 );
               } finally {
                 setUndoing(false);
@@ -573,37 +628,50 @@ export function CostUploadForm({
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2 text-green-700 dark:text-green-400">
                 <CheckCircle2 className="h-4 w-4" />
-                Import complete
+                {t(lang, "Import complete", "Importación completa")}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <Stat label="Rows in file" value={summary.total_rows_in_file} />
-                <Stat label="Rows inserted" value={summary.inserted_rows} />
                 <Stat
-                  label="Suppliers created"
+                  label={t(lang, "Rows in file", "Filas en el archivo")}
+                  value={summary.total_rows_in_file}
+                />
+                <Stat
+                  label={t(lang, "Rows inserted", "Filas insertadas")}
+                  value={summary.inserted_rows}
+                />
+                <Stat
+                  label={t(lang, "Suppliers created", "Proveedores creados")}
                   value={summary.suppliers_created}
                 />
                 <Stat
-                  label="Ingredients created"
+                  label={t(lang, "Ingredients created", "Ingredientes creados")}
                   value={summary.ingredients_created}
                 />
                 <Stat
-                  label="Supplier links"
+                  label={t(lang, "Supplier links", "Vínculos de proveedor")}
                   value={summary.supplier_links_upserted}
                 />
                 <Stat
-                  label="Skipped duplicates"
+                  label={t(lang, "Skipped duplicates", "Duplicados omitidos")}
                   value={summary.skipped_duplicate_rows}
                 />
                 <Stat
-                  label="Unmatched ingredients"
+                  label={t(
+                    lang,
+                    "Unmatched ingredients",
+                    "Ingredientes sin coincidencia"
+                  )}
                   value={summary.unmatched_ingredient_rows}
                 />
-                <Stat label="Failed rows" value={summary.failed_rows.length} />
+                <Stat
+                  label={t(lang, "Failed rows", "Filas con error")}
+                  value={summary.failed_rows.length}
+                />
               </div>
               <p className="text-sm">
-                Currency applied:{" "}
+                {t(lang, "Currency applied:", "Moneda aplicada:")}{" "}
                 <span className="font-semibold">
                   {summary.default_currency}
                 </span>
@@ -617,19 +685,27 @@ export function CostUploadForm({
               {summary.failed_rows.length > 0 && (
                 <div>
                   <p className="text-sm font-medium mb-1">
-                    Rows not imported ({summary.failed_rows.length})
+                    {t(
+                      lang,
+                      `Rows not imported (${summary.failed_rows.length})`,
+                      `Filas no importadas (${summary.failed_rows.length})`
+                    )}
                   </p>
                   <ul className="text-xs text-muted-foreground space-y-0.5 max-h-60 overflow-y-auto">
                     {summary.failed_rows.slice(0, 100).map((r, i) => (
                       <li key={i}>
-                        Row {r.rowIndex + 2}: {r.reason}
+                        {t(lang, "Row", "Fila")} {r.rowIndex + 2}: {r.reason}
                         {r.ingredient_name ? ` (${r.ingredient_name})` : ""}
                       </li>
                     ))}
                   </ul>
                   {summary.failed_rows.length > 100 && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      + {summary.failed_rows.length - 100} more
+                      {t(
+                        lang,
+                        `+ ${summary.failed_rows.length - 100} more`,
+                        `+ ${summary.failed_rows.length - 100} más`
+                      )}
                     </p>
                   )}
                 </div>
@@ -638,11 +714,13 @@ export function CostUploadForm({
               <div className="flex flex-wrap gap-2 pt-2">
                 <Button asChild size="sm" variant="outline">
                   <Link href="/dashboard/restaurant/ingredients">
-                    View ingredients
+                    {t(lang, "View ingredients", "Ver ingredientes")}
                   </Link>
                 </Button>
                 <Button asChild size="sm" variant="outline">
-                  <Link href="/dashboard/restaurant/menu">View menu costs</Link>
+                  <Link href="/dashboard/restaurant/menu">
+                    {t(lang, "View menu costs", "Ver costos del menú")}
+                  </Link>
                 </Button>
               </div>
             </CardContent>
@@ -662,15 +740,6 @@ function Stat({ label, value }: { label: string; value: number }) {
       </p>
     </div>
   );
-}
-
-function tabTypeLabel(type: string): string {
-  if (type === "price_list") return "Price list";
-  if (type === "category_cost") return "Category costs";
-  if (type === "purchases") return "Purchases";
-  if (type === "recipe") return "Recipe";
-  if (type === "sub_recipe") return "Sub-recipe";
-  return "Skipped";
 }
 
 function WorkbookResult({
@@ -717,26 +786,37 @@ function WorkbookResult({
                 `Saved for this restaurant in ${workbook.default_currency}`,
                 `Guardado para este restaurante en ${workbook.default_currency}`
               )}
-          {workbook.file_month ? ` · dated ${workbook.file_month}` : ""}.
-          Mapping:{" "}
-          {workbook.mapping_source === "saved"
-            ? "remembered layout"
-            : workbook.mapping_source === "heuristic"
-              ? "columns from values"
-              : workbook.mapping_source === "mixed"
-                ? "mixed"
-                : "AI"}
-          .
+          {workbook.file_month
+            ? t(
+                lang,
+                ` · dated ${workbook.file_month}`,
+                ` · fecha ${workbook.file_month}`
+              )
+            : ""}
+          . {t(lang, "Mapping:", "Mapeo:")}{" "}
+          {mappingSourceLabel(lang, workbook.mapping_source)}.
           {workbook.recipe_tab_count > 0
-            ? ` ${workbook.recipes_created ?? 0} recipe${
-                (workbook.recipes_created ?? 0) === 1 ? "" : "s"
-              }, ${workbook.sub_recipes_created ?? 0} sub-recipe${
-                (workbook.sub_recipes_created ?? 0) === 1 ? "" : "s"
-              }, ${workbook.menu_items_created ?? 0} menu item${
-                (workbook.menu_items_created ?? 0) === 1 ? "" : "s"
-              }, ${workbook.pos_links_created ?? 0} POS link${
-                (workbook.pos_links_created ?? 0) === 1 ? "" : "s"
-              }.`
+            ? t(
+                lang,
+                ` ${workbook.recipes_created ?? 0} recipe${
+                  (workbook.recipes_created ?? 0) === 1 ? "" : "s"
+                }, ${workbook.sub_recipes_created ?? 0} sub-recipe${
+                  (workbook.sub_recipes_created ?? 0) === 1 ? "" : "s"
+                }, ${workbook.menu_items_created ?? 0} menu item${
+                  (workbook.menu_items_created ?? 0) === 1 ? "" : "s"
+                }, ${workbook.pos_links_created ?? 0} POS link${
+                  (workbook.pos_links_created ?? 0) === 1 ? "" : "s"
+                }.`,
+                ` ${workbook.recipes_created ?? 0} receta${
+                  (workbook.recipes_created ?? 0) === 1 ? "" : "s"
+                }, ${workbook.sub_recipes_created ?? 0} sub-receta${
+                  (workbook.sub_recipes_created ?? 0) === 1 ? "" : "s"
+                }, ${workbook.menu_items_created ?? 0} platillo${
+                  (workbook.menu_items_created ?? 0) === 1 ? "" : "s"
+                }, ${workbook.pos_links_created ?? 0} vínculo${
+                  (workbook.pos_links_created ?? 0) === 1 ? "" : "s"
+                } POS.`
+              )
             : ""}
         </p>
         {workbook.skipped_plain ? (
@@ -752,20 +832,34 @@ function WorkbookResult({
             onClick={onToggleDetails}
           >
             {showDetails
-              ? "Hide mapping details"
-              : "See how Milton mapped this"}
+              ? t(lang, "Hide mapping details", "Ocultar el detalle del mapeo")
+              : t(
+                  lang,
+                  "See how Milton mapped this",
+                  "Ver cómo Milton mapeó esto"
+                )}
           </Button>
           <Button
             type="button"
             size="sm"
             variant="outline"
-            disabled={undoing || Boolean(undoMessage?.startsWith("Undone"))}
+            disabled={
+              undoing ||
+              Boolean(
+                undoMessage?.startsWith("Undone") ||
+                undoMessage?.startsWith("Deshecho")
+              )
+            }
             onClick={onUndo}
           >
-            {undoing ? "Undoing…" : "Undo this import"}
+            {undoing
+              ? t(lang, "Undoing…", "Deshaciendo…")
+              : t(lang, "Undo this import", "Deshacer esta carga")}
           </Button>
           <Button asChild size="sm" variant="outline">
-            <Link href="/dashboard/restaurant">Open cockpit</Link>
+            <Link href="/dashboard/restaurant">
+              {t(lang, "Open cockpit", "Abrir el cockpit")}
+            </Link>
           </Button>
         </div>
         {undoMessage && (
@@ -782,8 +876,9 @@ function WorkbookResult({
                 <p className="text-sm font-medium">
                   {tab.name}{" "}
                   <span className="text-muted-foreground font-normal">
-                    · {tabTypeLabel(tab.type)} ·{" "}
-                    {Math.round(tab.confidence * 100)}% · {tab.mapping_source}
+                    · {tabTypeLabel(lang, tab.type)} ·{" "}
+                    {Math.round(tab.confidence * 100)}% ·{" "}
+                    {mappingSourceLabel(lang, tab.mapping_source)}
                     {tab.note ? ` · ${tab.note}` : ""}
                   </span>
                 </p>
@@ -801,7 +896,7 @@ function WorkbookResult({
                 )}
                 {tab.preview.length > 0 && (
                   <p className="text-xs text-muted-foreground">
-                    Preview:{" "}
+                    {t(lang, "Preview:", "Vista previa:")}{" "}
                     {tab.preview
                       .slice(0, 3)
                       .map((row) =>
@@ -815,7 +910,7 @@ function WorkbookResult({
                 )}
                 {(tab.skipped_reasons?.length ?? 0) > 0 && (
                   <p className="text-xs text-muted-foreground">
-                    Skipped:{" "}
+                    {t(lang, "Skipped:", "Omitidas:")}{" "}
                     {(tab.skipped_reasons ?? [])
                       .map((row) => `${row.count} ${row.reason}`)
                       .join(", ")}
@@ -825,7 +920,7 @@ function WorkbookResult({
             ))}
             {(workbook.skipped_reasons?.length ?? 0) > 0 && (
               <p className="text-xs text-muted-foreground">
-                All skipped:{" "}
+                {t(lang, "All skipped:", "Todas las omitidas:")}{" "}
                 {(workbook.skipped_reasons ?? [])
                   .map((row) => `${row.count} ${row.reason}`)
                   .join(", ")}
@@ -837,8 +932,11 @@ function WorkbookResult({
         {pendingReview.length > 0 && (
           <div>
             <p className="text-sm font-medium mb-2">
-              Needs a look ({pendingReview.length}) — optional, does not block
-              the cockpit
+              {t(
+                lang,
+                `Needs a look (${pendingReview.length}) — optional, does not block the cockpit`,
+                `Necesitan una mirada (${pendingReview.length}) — opcional, no bloquea el cockpit`
+              )}
             </p>
             <ul className="text-xs space-y-2 max-h-72 overflow-y-auto">
               {pendingReview.map((item) => (
@@ -847,7 +945,8 @@ function WorkbookResult({
                   className="rounded-md border border-border px-3 py-2 flex flex-wrap items-start justify-between gap-2"
                 >
                   <span className="text-muted-foreground">
-                    {item.tab_name} row {item.row_index + 1}: {item.reason}
+                    {item.tab_name} {t(lang, "row", "fila")}{" "}
+                    {item.row_index + 1}: {item.reason}
                     {item.suggested?.ingredient_name
                       ? ` (${String(item.suggested.ingredient_name)})`
                       : ""}
@@ -865,7 +964,7 @@ function WorkbookResult({
                         className="h-7 text-xs"
                         onClick={() => onApprove(item)}
                       >
-                        Approve
+                        {t(lang, "Approve", "Aprobar")}
                       </Button>
                     )}
                     <Button
@@ -875,7 +974,7 @@ function WorkbookResult({
                       className="h-7 text-xs"
                       onClick={() => onSkip(item.id)}
                     >
-                      Skip
+                      {t(lang, "Skip", "Omitir")}
                     </Button>
                   </span>
                 </li>

@@ -15,7 +15,11 @@ import {
   implausiblePriceReason,
   importCostWorkbook,
   inferRecipeMappingFromContent,
+  inferRecipeMappingDetails,
   isObviousTypo,
+  looksLikeCostSummaryTab,
+  looksLikeDishRecipeTab,
+  mappingSourceLabel,
   layoutKeyForSheet,
   mergeTypoDuplicates,
   nameMatchScore,
@@ -28,6 +32,10 @@ import {
   undoCostImportBatch,
   uniquifyHeaders,
   unitsCompatible,
+  classifyCostTabHeuristic,
+  formatSkipBreakdownSentence,
+  refineTabClassification,
+  recipeMappingHasDistinctRoles,
 } from "@/lib/restaurant/cost-workbook";
 import type { WorkbookAi } from "@/lib/restaurant/cost-workbook";
 import { inferDateFromName } from "@/lib/restaurant/cost-workbook/date";
@@ -49,6 +57,7 @@ import { validateCostImportColumns } from "@/lib/restaurant/cost-import";
 import {
   buildLosRanchosCostWorkbook,
   buildLosRanchosKitchenUnitsWorkbook,
+  buildSharedArticuloDishWorkbook,
   buildShiftedSubRecipeWorkbook,
 } from "../fixtures/cost-workbook-los-ranchos";
 import * as XLSX from "xlsx";
@@ -277,16 +286,26 @@ describe("units — Spanish + lb/oz", () => {
     expect(normalizeUnit("APIO")).toBeNull();
     expect(normalizeUnit("GRMO")).toBe("g");
     expect(normalizeUnit("GRAKO")).toBe("g");
+    expect(normalizeUnit("GRAM0")).toBe("g");
     expect(normalizeUnit("GRAMO")).toBe("g");
     expect(normalizeUnit("GRAMOS")).toBe("g");
+    expect(normalizeUnit("GRAMO(S)")).toBe("g");
     expect(normalizeUnit("GR")).toBe("g");
     expect(normalizeUnit("ONZ")).toBe("oz");
     expect(normalizeUnit("LIBRA")).toBe("lb");
     expect(normalizeUnit("LIBRAS")).toBe("lb");
+    expect(normalizeUnit("LIBRA(S)")).toBe("lb");
     expect(normalizeUnit("LB")).toBe("lb");
     expect(normalizeUnit("UNIDADES")).toBe("unit");
     expect(normalizeUnit("PIMIENTA")).toBeNull();
     expect(normalizeUnit("litra")).toBeNull();
+    expect(normalizeUnit("GRANO")).toBeNull();
+    expect(normalizeUnit("LITRA")).toBeNull();
+    expect(normalizeUnit("GRAMA?")).toBeNull();
+    expect(normalizeUnit("GRAMA")).toBeNull();
+    expect(normalizeUnit("LIBRO")).toBeNull();
+    expect(resolveUnitCell("GRANO").ok).toBe(false);
+    expect(resolveUnitCell("LIBRO").ok).toBe(false);
     const galToL = convertUnitStr(1, "GALON", "l");
     expect(galToL.ok).toBe(true);
     if (galToL.ok) expect(galToL.value).toBeCloseTo(3.785411784, 6);
@@ -639,6 +658,18 @@ describe("smart workbook import", () => {
         skipped: 2,
       })
     ).toBe("Saved 303, updated 9 from 14 tabs. 9 need a look. 2 skipped.");
+    expect(
+      buildImportHeadline({
+        saved: 303,
+        updated: 9,
+        tabs: 14,
+        review: 9,
+        skipped: 2,
+        lang: "es",
+      })
+    ).toBe(
+      "Se guardaron 303, se actualizaron 9 de 14 pestañas. 9 necesitan una mirada. 2 omitidas."
+    );
   });
 });
 
@@ -2289,5 +2320,377 @@ describe("recipe mapping fallback and skip breakdown", () => {
     ).toBe(true);
     expect(second.skipped_plain).toMatch(/exact duplicate/i);
     expect(second.saved_count).toBe(0);
+  });
+});
+
+describe("recipe mapping confidence and Spanish copy", () => {
+  it("refuses to guess when quantity and cost look alike", () => {
+    const mapping = inferRecipeMappingFromContent([
+      {
+        Receta: "Salsa",
+        Ingrediente: "Perejil",
+        A: 1.5,
+        Unidad: "GRAMO",
+        B: 1.2,
+      },
+      { Receta: "Salsa", Ingrediente: "Ajo", A: 2.0, Unidad: "GRAMO", B: 2.4 },
+      { Receta: "Salsa", Ingrediente: "Tomate", A: 3.5, Unidad: "LB", B: 3.1 },
+    ]);
+    expect(mapping.quantity).toBeUndefined();
+    expect(
+      inferRecipeMappingDetails([
+        {
+          Receta: "Salsa",
+          Ingrediente: "Perejil",
+          A: 1.5,
+          Unidad: "GRAMO",
+          B: 1.2,
+        },
+        {
+          Receta: "Salsa",
+          Ingrediente: "Ajo",
+          A: 2.0,
+          Unidad: "GRAMO",
+          B: 2.4,
+        },
+        {
+          Receta: "Salsa",
+          Ingrediente: "Tomate",
+          A: 3.5,
+          Unidad: "LB",
+          B: 3.1,
+        },
+      ]).confident
+    ).toBe(false);
+  });
+
+  it("does not treat a swapped cost column as quantity", () => {
+    const mapping = inferRecipeMappingFromContent([
+      {
+        Receta: "Salsa",
+        Ingrediente: "Perejil",
+        Costo: 0.02,
+        Unidad: "GRAMO",
+        Cantidad: 80,
+      },
+      {
+        Receta: "Salsa",
+        Ingrediente: "Ajo",
+        Costo: 0.05,
+        Unidad: "GRAMO",
+        Cantidad: 20,
+      },
+      {
+        Receta: "Salsa",
+        Ingrediente: "Tomate",
+        Costo: 1.6,
+        Unidad: "LB",
+        Cantidad: 2,
+      },
+    ]);
+    expect(mapping.quantity?.column).toBe("Cantidad");
+    expect(mapping.unit?.column).toBe("Unidad");
+    expect(mapping.ingredient_name?.column).toBe("Ingrediente");
+  });
+
+  it("treats a shared Articulo role map as invalid", () => {
+    expect(
+      recipeMappingHasDistinctRoles({
+        recipe_name: { column: "Articulo", confidence: 0.9 },
+        ingredient_name: { column: "Articulo", confidence: 0.9 },
+        quantity: { column: "Cantidad", confidence: 0.9 },
+        unit: { column: "Unidad Detalle", confidence: 0.9 },
+      })
+    ).toBe(false);
+  });
+
+  it("classifies dish tabs as recipe and cost summaries as not-recipe", () => {
+    const dishRows = [
+      { Articulo: "Ceviche", Cantidad: "", "Unidad Detalle": "", Costo: "" },
+      {
+        Articulo: "Pescado",
+        Cantidad: 200,
+        "Unidad Detalle": "GRAM0",
+        Costo: 0.3,
+      },
+      { Articulo: "Nachos", Cantidad: "", "Unidad Detalle": "", Costo: "" },
+      {
+        Articulo: "Totopos",
+        Cantidad: 100,
+        "Unidad Detalle": "GRMO",
+        Costo: 0.8,
+      },
+    ];
+    expect(
+      looksLikeDishRecipeTab({
+        sheetName: "Entradas",
+        headers: ["Articulo", "Cantidad", "Unidad Detalle", "Costo"],
+        dataRows: dishRows,
+      })
+    ).toBe(true);
+    expect(
+      classifyCostTabHeuristic({
+        sheetName: "Entradas",
+        headers: ["Articulo", "Cantidad", "Unidad Detalle", "Costo"],
+        sampleRows: dishRows,
+        dataRows: dishRows,
+      }).type
+    ).toBe("recipe");
+    expect(
+      refineTabClassification({
+        proposed: { type: "sub_recipe", confidence: 0.94 },
+        sheetName: "Parrilladas",
+        headers: ["Articulo", "Cantidad", "Unidad Detalle", "Costo"],
+        dataRows: dishRows,
+      }).type
+    ).toBe("recipe");
+
+    const summaryRows = [
+      { Concepto: "Alquiler", Enero: 2000, Febrero: 2000, Total: 4000 },
+      { Concepto: "Luz", Enero: 400, Febrero: 420, Total: 820 },
+    ];
+    expect(
+      looksLikeCostSummaryTab({
+        sheetName: "COSTOS RESTAURANTE 2026",
+        headers: ["Concepto", "Enero", "Febrero", "Total"],
+        dataRows: summaryRows,
+      })
+    ).toBe(true);
+    expect(
+      refineTabClassification({
+        proposed: { type: "recipe", confidence: 0.9 },
+        sheetName: "COSTOS RESTAURANTE 2026",
+        headers: ["Concepto", "Enero", "Febrero", "Total"],
+        dataRows: summaryRows,
+      }).type
+    ).toBe("ignore");
+  });
+
+  it("translates skip and mapping labels to LatAm Spanish", () => {
+    expect(
+      formatSkipBreakdownSentence(
+        5,
+        { previous_duplicates: 2, blank_or_title: 3, other: 0 },
+        "es"
+      )
+    ).toBe(
+      "De las 5 filas omitidas, 2 eran duplicados exactos de una carga anterior y 3 eran filas en blanco o de título."
+    );
+    expect(mappingSourceLabel("es", "heuristic")).toBe(
+      "columnas según los valores"
+    );
+    expect(mappingSourceLabel("es", "mixed")).toBe("mixto");
+  });
+});
+
+function aiSharedArticuloAsRecipeAndIngredient(): WorkbookAi & {
+  classifyTab: ReturnType<typeof vi.fn>;
+  mapColumns: ReturnType<typeof vi.fn>;
+} {
+  const classifyTab = vi.fn(
+    async (input: { sheetName: string; headers: string[] }) => {
+      const name = input.sheetName.toLowerCase();
+      if (name.includes("precio") || input.headers.includes("ITEM")) {
+        return { type: "price_list" as const, confidence: 0.96 };
+      }
+      if (name.includes("costos restaurante")) {
+        return { type: "recipe" as const, confidence: 0.91 };
+      }
+      return { type: "sub_recipe" as const, confidence: 0.93 };
+    }
+  );
+  const mapColumns = vi.fn(
+    async (input: { tabType: string; headers: string[] }) => {
+      const byNorm = new Map(
+        input.headers.map((h) => [h.toLowerCase().replace(/[\s_-]+/g, ""), h])
+      );
+      const col = (token: string) => byNorm.get(token);
+      if (input.tabType === "price_list") {
+        return {
+          ingredient_name: { column: col("item") ?? "ITEM", confidence: 0.93 },
+          price_per_lb: { column: col("libra") ?? "LIBRA", confidence: 0.93 },
+          price_per_oz: { column: col("onza") ?? "ONZA", confidence: 0.93 },
+        };
+      }
+      const articulo = col("articulo") ?? col("artículo");
+      return {
+        recipe_name: { column: articulo ?? "Articulo", confidence: 0.94 },
+        ingredient_name: { column: articulo ?? "Articulo", confidence: 0.94 },
+        quantity: { column: col("cantidad") ?? "Cantidad", confidence: 0.9 },
+        unit: {
+          column: col("unidaddetalle") ?? col("unidad") ?? "Unidad Detalle",
+          confidence: 0.9,
+        },
+        output_quantity: {
+          column: col("cantidad") ?? "Cantidad",
+          confidence: 0.7,
+        },
+        output_unit: {
+          column: col("unidaddetalle") ?? "Unidad Detalle",
+          confidence: 0.7,
+        },
+      };
+    }
+  );
+  return { classifyTab, mapColumns };
+}
+
+describe("shared Articulo dish tabs and cost summary", () => {
+  it("recovers dish recipes when AI maps Articulo to both roles", async () => {
+    const store = emptyStore();
+    store.posItemNames = ["CARNE ASADA", "CEVICHE", "NACHOS"];
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildSharedArticuloDishWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      locationId: "loc-ranchos",
+      restaurantName: "Stage Test 1",
+      lang: "es",
+    });
+
+    const entradas = result.tabs.find((tab) => tab.name === "Entradas");
+    expect(entradas?.type).toBe("recipe");
+    expect(entradas?.column_mapping.recipe_name?.column).not.toBe(
+      entradas?.column_mapping.ingredient_name?.column
+    );
+    expect(entradas?.column_mapping.ingredient_name?.column).toBe("Articulo");
+    expect(entradas?.column_mapping.unit?.column).toBe("Unidad Detalle");
+
+    const parrilladas = result.tabs.find((tab) => tab.name === "Parrilladas");
+    expect(parrilladas?.type).toBe("recipe");
+
+    const costos = result.tabs.find(
+      (tab) => tab.name === "COSTOS RESTAURANTE 2026"
+    );
+    expect(costos?.type).toBe("ignore");
+    expect(result.recipes_created).toBeGreaterThanOrEqual(2);
+    expect(result.menu_items_created).toBeGreaterThanOrEqual(2);
+    expect(store.menuItems.map((row) => row.name)).toEqual(
+      expect.arrayContaining(["Ceviche", "Nachos"])
+    );
+    expect(
+      result.review_items.some((item) =>
+        /unknown unit \(GRAM0\)/i.test(item.reason)
+      )
+    ).toBe(false);
+    expect(
+      result.review_items.some(
+        (item) => item.reason === PACK_SIZE_REVIEW_REASON
+      )
+    ).toBe(true);
+    expect(result.skipped_plain).toMatch(/filas omitidas/i);
+    expect(store.mappings.some((row) => row.tab_name === "Entradas")).toBe(
+      true
+    );
+    expect(
+      store.mappings.find((row) => row.tab_name === "Entradas")?.column_mapping
+        .recipe_name?.column
+    ).not.toBe("Articulo");
+  });
+
+  it("does not reuse or persist a saved overlapping Articulo map", async () => {
+    const store = emptyStore();
+    const buffer = buildSharedArticuloDishWorkbook();
+    const sheets = readWorkbookSheets(buffer);
+    const entradas = sheets.find((sheet) => sheet.name === "Entradas");
+    expect(entradas).toBeTruthy();
+    if (!entradas) return;
+
+    store.mappings.push({
+      layout_key: layoutKeyForSheet(entradas.headers, "sub_recipe"),
+      tab_name: "Entradas",
+      tab_type: "sub_recipe",
+      column_mapping: {
+        recipe_name: { column: "Articulo", confidence: 0.95 },
+        ingredient_name: { column: "Articulo", confidence: 0.95 },
+        quantity: { column: "Cantidad", confidence: 0.95 },
+        unit: { column: "Unidad Detalle", confidence: 0.95 },
+      },
+      header_fingerprint: entradas.headerFingerprint,
+      tab_confidence: 0.96,
+    });
+    store.mappings.push({
+      layout_key: layoutKeyForSheet(entradas.headers, "recipe"),
+      tab_name: "Entradas",
+      tab_type: "recipe",
+      column_mapping: {
+        recipe_name: { column: "Articulo", confidence: 0.95 },
+        ingredient_name: { column: "Articulo", confidence: 0.95 },
+        quantity: { column: "Cantidad", confidence: 0.95 },
+        unit: { column: "Unidad Detalle", confidence: 0.95 },
+      },
+      header_fingerprint: entradas.headerFingerprint,
+      tab_confidence: 0.96,
+    });
+
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer,
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+    });
+
+    const tab = result.tabs.find((row) => row.name === "Entradas");
+    expect(tab?.mapping_source).not.toBe("saved");
+    expect(tab?.type).toBe("recipe");
+    expect(tab?.column_mapping.recipe_name?.column).not.toBe("Articulo");
+    expect(result.recipes_created).toBeGreaterThanOrEqual(2);
+    const saved = store.mappings.find(
+      (row) => row.tab_name === "Entradas" && row.tab_type === "recipe"
+    );
+    expect(saved?.column_mapping.ingredient_name?.column).toBe("Articulo");
+    expect(saved?.column_mapping.recipe_name?.column).not.toBe("Articulo");
+  });
+
+  it("sends swapped-column recipe rows to needs-a-look and does not persist", async () => {
+    const store = emptyStore();
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Receta", "Ingrediente", "Uno", "Unidad", "Dos"],
+        ["Salsa", "Perejil", 1.4, "GRAMO", 1.6],
+        ["Salsa", "Ajo", 2.1, "GRAMO", 1.9],
+        ["Salsa", "Tomate", 3.2, "LB", 2.8],
+      ]),
+      "RECETA Salsa"
+    );
+    const repo = createMemoryCostWorkbookRepo(store);
+    const ai: WorkbookAi = {
+      classifyTab: async () => ({ type: "recipe", confidence: 0.95 }),
+      mapColumns: async () => ({
+        recipe_name: { column: "Receta", confidence: 0.9 },
+        ingredient_name: { column: "Ingrediente", confidence: 0.9 },
+        quantity: { column: "Uno", confidence: 0.9 },
+        unit: { column: "Unidad", confidence: 0.9 },
+      }),
+    };
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: Buffer.from(
+        XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+      ),
+      currency: "USD",
+      repo,
+      ai,
+    });
+    expect(result.recipes_created).toBe(0);
+    expect(result.review_count).toBeGreaterThan(0);
+    expect(
+      result.review_items.some((item) =>
+        /unidad|cantidad|ingrediente/i.test(item.reason)
+      )
+    ).toBe(true);
+    expect(store.mappings.some((row) => row.tab_name === "RECETA Salsa")).toBe(
+      false
+    );
   });
 });

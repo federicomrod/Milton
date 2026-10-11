@@ -3,6 +3,7 @@
 
 import { classifyDataset } from "@/lib/ai/dataset-classifier";
 import { suggestColumnMappings } from "@/lib/ai/column-mapper";
+import { refineTabClassification } from "./classify";
 import { normalizeHeaderToken } from "./header";
 import {
   COST_TAB_TYPES,
@@ -103,68 +104,71 @@ function hasAny(set: Set<string>, tokens: string[]): boolean {
  * (ITEM/LIBRA/ONZA, Spanish name/unit/cost/qty/total) score high.
  */
 export function classifyCostTabHeuristic(
-  input: ClassifyTabInput
+  input: ClassifyTabInput & { dataRows?: Record<string, unknown>[] }
 ): TabClassification {
   const set = headerSet(input.headers);
   const nameBlob = normalizeHeaderToken(
     `${input.sheetName} ${input.headers.join(" ")}`
   );
 
+  let proposed: TabClassification = {
+    type: "ignore",
+    confidence: 0.35,
+    notes: "heuristic unsure",
+  };
+
   if (
     hasAny(set, ["item", "nombre", "producto", "ingrediente"]) &&
     hasAny(set, ["libra", "onza", "preciounitario"])
   ) {
-    return {
+    proposed = {
       type: "price_list",
       confidence: 0.94,
       notes: "heuristic price list",
     };
-  }
-
-  if (
+  } else if (
     /(sub[\s_]*receta|sub[\s_]*recipe|preparacion|preparación)/.test(nameBlob)
   ) {
-    return {
+    proposed = {
       type: "sub_recipe",
       confidence: 0.93,
       notes: "heuristic sub-recipe",
     };
-  }
-
-  if (
+  } else if (
     (/(receta|recipe)/.test(nameBlob) ||
       hasAny(set, ["receta", "porcion", "porción", "procedimiento"])) &&
     hasAny(set, ["ingrediente", "ingredient", "nombre", "articulo", "artículo"])
   ) {
-    return { type: "recipe", confidence: 0.9, notes: "heuristic recipe" };
-  }
-
-  if (
+    proposed = { type: "recipe", confidence: 0.9, notes: "heuristic recipe" };
+  } else if (
     hasAny(set, ["costdate", "fecha", "invoicedate"]) &&
     hasAny(set, ["supplier", "proveedor", "vendor"]) &&
     hasAny(set, ["ingredient", "ingrediente", "item"])
   ) {
-    return {
+    proposed = {
       type: "purchases",
       confidence: 0.88,
       notes: "heuristic purchases",
     };
-  }
-
-  if (
+  } else if (
     hasAny(set, ["nombre", "producto", "item", "ingrediente", "ingredient"]) &&
     hasAny(set, ["unidad", "unit", "uom"]) &&
     hasAny(set, ["costo", "precio", "cost", "price"]) &&
     hasAny(set, ["cantidad", "qty", "quantity", "total"])
   ) {
-    return {
+    proposed = {
       type: "category_cost",
       confidence: 0.92,
       notes: "heuristic category cost",
     };
   }
 
-  return { type: "ignore", confidence: 0.35, notes: "heuristic unsure" };
+  return refineTabClassification({
+    proposed,
+    sheetName: input.sheetName,
+    headers: input.headers,
+    dataRows: input.dataRows ?? input.sampleRows,
+  });
 }
 
 const HEURISTIC_COLUMNS: Record<string, string[]> = {
@@ -230,14 +234,20 @@ export async function classifyCostTabWithAi(
     businessContext: CLASSIFIER_CONTEXT,
   });
   const type = normalizeCostTabType(classified.detectedTable);
-  if (type && classified.confidence >= 0.5) {
-    return {
-      type,
-      confidence: classified.confidence,
-      notes: classified.notes,
-    };
-  }
-  return classifyCostTabHeuristic(input);
+  const proposed =
+    type && classified.confidence >= 0.5
+      ? {
+          type,
+          confidence: classified.confidence,
+          notes: classified.notes,
+        }
+      : classifyCostTabHeuristic(input);
+  return refineTabClassification({
+    proposed,
+    sheetName: input.sheetName,
+    headers: input.headers,
+    dataRows: input.sampleRows,
+  });
 }
 
 export async function mapColumnsWithAi(

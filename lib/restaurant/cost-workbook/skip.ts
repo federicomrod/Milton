@@ -1,3 +1,4 @@
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { textAt, numberAt, rowIsBlank } from "./cells";
 import type {
   ColumnMapping,
@@ -99,17 +100,38 @@ export function summarizeSkippedRows(
 
 export function formatSkipBreakdownSentence(
   total: number,
-  breakdown: SkippedRowBreakdown
+  breakdown: SkippedRowBreakdown,
+  lang: PreferredLanguage = "en"
 ): string {
   if (total === 0) return "";
-  const noun = total === 1 ? "row" : "rows";
-  const dup =
+  const noun = t(
+    lang,
+    total === 1 ? "row" : "rows",
+    total === 1 ? "fila" : "filas"
+  );
+  const dup = t(
+    lang,
     breakdown.previous_duplicates === 1
       ? "1 was an exact duplicate of a previous upload"
-      : `${breakdown.previous_duplicates} were exact duplicates of a previous upload`;
-  const blank =
+      : `${breakdown.previous_duplicates} were exact duplicates of a previous upload`,
+    breakdown.previous_duplicates === 1
+      ? "1 era un duplicado exacto de una carga anterior"
+      : `${breakdown.previous_duplicates} eran duplicados exactos de una carga anterior`
+  );
+  const blank = t(
+    lang,
     breakdown.blank_or_title === 1
       ? "1 was a blank or title row"
-      : `${breakdown.blank_or_title} were blank or title rows`;
-  return `Of the ${total} skipped ${noun}, ${dup} and ${blank}.`;
+      : `${breakdown.blank_or_title} were blank or title rows`,
+    breakdown.blank_or_title === 1
+      ? "1 era una fila en blanco o de título"
+      : `${breakdown.blank_or_title} eran filas en blanco o de título`
+  );
+  return t(
+    lang,
+    `Of the ${total} skipped ${noun}, ${dup} and ${blank}.`,
+    total === 1
+      ? `De la ${total} fila omitida, ${dup} y ${blank}.`
+      : `De las ${total} filas omitidas, ${dup} y ${blank}.`
+  );
 }

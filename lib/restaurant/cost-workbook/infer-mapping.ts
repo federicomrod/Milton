@@ -5,12 +5,24 @@
 import { parseCostImportNumber } from "@/lib/restaurant/cost-import";
 import { resolveUnitCell } from "@/lib/restaurant/units";
 import { mapColumnsHeuristic } from "./ai";
-import { mappingSanityScore, SANITY_PASS_RATIO } from "./sanity";
+import {
+  dropCollidingOptionalRecipeFields,
+  mappingSanityScore,
+  quantityLikeness,
+  recipeMappingHasDistinctRoles,
+  SANITY_PASS_RATIO,
+} from "./sanity";
 import type { ColumnMapping, CostTabType, MappingSource } from "./types";
 
 const UNIT_RATIO = 0.4;
 const QTY_RATIO = 0.4;
+const ROLE_MARGIN = 0.15;
 const SAMPLE_LIMIT = 8;
+
+export const AMBIGUOUS_MAPPING_REASON =
+  "No está claro qué columna es la unidad, la cantidad o el ingrediente.";
+export const OVERLAPPING_MAPPING_REASON =
+  "La misma columna no puede ser a la vez receta e ingrediente.";
 
 function cellText(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -38,6 +50,7 @@ interface ColumnStats {
   numbers: number;
   texts: number;
   uniqueTexts: number;
+  numericValues: number[];
 }
 
 function columnStats(rows: Record<string, unknown>[]): ColumnStats[] {
@@ -48,13 +61,16 @@ function columnStats(rows: Record<string, unknown>[]): ColumnStats[] {
     let numbers = 0;
     let texts = 0;
     const unique = new Set<string>();
+    const numericValues: number[] = [];
     for (const row of rows) {
       const raw = row[col];
       const text = cellText(raw);
       if (!text) continue;
       nonempty += 1;
-      if (parseCostImportNumber(raw) !== null) {
+      const parsed = parseCostImportNumber(raw);
+      if (parsed !== null) {
         numbers += 1;
+        numericValues.push(parsed);
         continue;
       }
       texts += 1;
@@ -69,6 +85,7 @@ function columnStats(rows: Record<string, unknown>[]): ColumnStats[] {
       numbers,
       texts,
       uniqueTexts: unique.size,
+      numericValues,
     };
   });
 }
@@ -80,37 +97,87 @@ function bind(
   return { column, confidence };
 }
 
+function unitRatio(col: ColumnStats): number {
+  return col.nonempty === 0 ? 0 : col.units / col.nonempty;
+}
+
+function numberRatio(col: ColumnStats): number {
+  return col.nonempty === 0 ? 0 : col.numbers / col.nonempty;
+}
+
+function hasClearMargin(best: number, second: number): boolean {
+  if (second <= 0) return true;
+  return best - second >= ROLE_MARGIN;
+}
+
+function pickUnique(
+  ranked: Array<{ col: ColumnStats; score: number }>,
+  used: Set<string>
+): ColumnStats | undefined {
+  const free = ranked.filter((row) => !used.has(row.col.col));
+  const first = free[0];
+  if (!first || first.score <= 0) return undefined;
+  const second = free[1];
+  if (second && !hasClearMargin(first.score, second.score)) return undefined;
+  return first.col;
+}
+
+export interface InferredRecipeMapping {
+  mapping: ColumnMapping;
+  confident: boolean;
+  reason?: string;
+}
+
 /**
  * Pick the column whose values are mostly recognised units, the numeric
  * quantity column, a text ingredient column, and an optional repeating
- * recipe-name column. Does not guess prices.
+ * recipe-name column. Does not guess prices. Requires a clear margin
+ * between the best and second-best candidate and refuses a quantity
+ * column that looks more like cost than another numeric column.
  */
-export function inferRecipeMappingFromContent(
+export function inferRecipeMappingDetails(
   dataRows: Record<string, unknown>[]
-): ColumnMapping {
+): InferredRecipeMapping {
   const stats = columnStats(dataRows).filter((col) => col.nonempty > 0);
-  if (stats.length === 0) return {};
+  if (stats.length === 0) {
+    return {
+      mapping: {},
+      confident: false,
+      reason: AMBIGUOUS_MAPPING_REASON,
+    };
+  }
 
-  const unitCol = stats
-    .filter((col) => col.units / col.nonempty >= UNIT_RATIO)
-    .sort(
-      (a, b) => b.units / b.nonempty - a.units / a.nonempty || b.units - a.units
-    )[0];
+  const unitRanked = stats
+    .map((col) => ({ col, score: unitRatio(col) }))
+    .filter((row) => row.score >= UNIT_RATIO)
+    .sort((a, b) => b.score - a.score || b.col.units - a.col.units);
+  const unitCol = pickUnique(unitRanked, new Set());
 
-  const qtyCandidates = stats.filter(
-    (col) => col.col !== unitCol?.col && col.numbers / col.nonempty >= QTY_RATIO
-  );
-  const qtyCol = qtyCandidates.slice().sort((a, b) => {
-    if (unitCol) {
-      const aAdj = Math.abs(a.index - unitCol.index);
-      const bAdj = Math.abs(b.index - unitCol.index);
-      if (aAdj !== bAdj) return aAdj - bAdj;
+  const qtyRanked = stats
+    .filter((col) => col.col !== unitCol?.col && numberRatio(col) >= QTY_RATIO)
+    .map((col) => {
+      const qtyScore = quantityLikeness(col.numericValues);
+      const adjacency =
+        unitCol != null ? 1 / (1 + Math.abs(col.index - unitCol.index)) : 0;
+      return { col, score: qtyScore * 0.85 + adjacency * 0.15 };
+    })
+    .sort((a, b) => b.score - a.score);
+  const qtyCol = pickUnique(qtyRanked, new Set(unitCol ? [unitCol.col] : []));
+
+  if (qtyCol && qtyRanked.length > 1) {
+    const bestQty = quantityLikeness(qtyCol.numericValues);
+    const rival = qtyRanked.find((row) => row.col.col !== qtyCol.col);
+    if (
+      rival &&
+      quantityLikeness(rival.col.numericValues) - bestQty >= ROLE_MARGIN
+    ) {
+      return {
+        mapping: {},
+        confident: false,
+        reason: AMBIGUOUS_MAPPING_REASON,
+      };
     }
-    const aRatio = a.numbers / a.nonempty;
-    const bRatio = b.numbers / b.nonempty;
-    if (bRatio !== aRatio) return bRatio - aRatio;
-    return b.numbers - a.numbers;
-  })[0];
+  }
 
   const used = new Set<string>();
   if (unitCol) used.add(unitCol.col);
@@ -119,22 +186,53 @@ export function inferRecipeMappingFromContent(
   const textCols = stats.filter(
     (col) => !used.has(col.col) && col.texts - col.units > 0
   );
-  const recipeCol = textCols
+  const recipeRanked = textCols
     .filter((col) => col.texts >= 2 && col.uniqueTexts < col.texts * 0.7)
-    .sort((a, b) => a.uniqueTexts / a.texts - b.uniqueTexts / b.texts)[0];
-  const ingredientCol = textCols
+    .map((col) => ({
+      col,
+      score: 1 - col.uniqueTexts / col.texts,
+    }))
+    .sort((a, b) => b.score - a.score);
+  const recipeCol = pickUnique(recipeRanked, used);
+
+  const ingredientRanked = textCols
     .filter((col) => col.col !== recipeCol?.col)
-    .sort(
-      (a, b) =>
-        b.uniqueTexts - a.uniqueTexts || b.texts - b.units - (a.texts - a.units)
-    )[0];
+    .map((col) => ({
+      col,
+      score: col.uniqueTexts + (col.texts - col.units) * 0.25,
+    }))
+    .sort((a, b) => b.score - a.score);
+  const ingredientCol = pickUnique(
+    ingredientRanked,
+    new Set([...used, recipeCol?.col ?? ""])
+  );
 
   const mapping: ColumnMapping = {};
   if (ingredientCol) mapping.ingredient_name = bind(ingredientCol.col);
   if (qtyCol) mapping.quantity = bind(qtyCol.col);
   if (unitCol) mapping.unit = bind(unitCol.col);
-  if (recipeCol) mapping.recipe_name = bind(recipeCol.col, 0.8);
-  return mapping;
+  if (recipeCol && recipeCol.col !== ingredientCol?.col) {
+    mapping.recipe_name = bind(recipeCol.col, 0.8);
+  }
+
+  const required =
+    Boolean(mapping.ingredient_name?.column) &&
+    Boolean(mapping.quantity?.column) &&
+    Boolean(mapping.unit?.column);
+  if (!required || !recipeMappingHasDistinctRoles(mapping)) {
+    return {
+      mapping: {},
+      confident: false,
+      reason: required ? OVERLAPPING_MAPPING_REASON : AMBIGUOUS_MAPPING_REASON,
+    };
+  }
+  return { mapping, confident: true };
+}
+
+export function inferRecipeMappingFromContent(
+  dataRows: Record<string, unknown>[]
+): ColumnMapping {
+  return inferRecipeMappingDetails(dataRows).mapping;
 }
 
 export function pickMappingSampleRows(
@@ -181,6 +279,19 @@ export function scoreRecipeMapping(input: {
   return mappingSanityScore(input);
 }
 
+function usableRecipeMapping(mapping: ColumnMapping): ColumnMapping | null {
+  const cleaned = dropCollidingOptionalRecipeFields(mapping);
+  if (!recipeMappingHasDistinctRoles(cleaned)) return null;
+  if (
+    !cleaned.ingredient_name?.column ||
+    !cleaned.quantity?.column ||
+    !cleaned.unit?.column
+  ) {
+    return null;
+  }
+  return cleaned;
+}
+
 export async function resolveRecipeMapping(input: {
   tabType: Extract<CostTabType, "recipe" | "sub_recipe">;
   headers: string[];
@@ -199,6 +310,7 @@ export async function resolveRecipeMapping(input: {
   mappingSource: MappingSource;
   persistMapping: boolean;
   score: number;
+  holdReason?: string;
 }> {
   const scoreOf = (mapping: ColumnMapping) =>
     mappingSanityScore({
@@ -209,34 +321,36 @@ export async function resolveRecipeMapping(input: {
       defaultDate: input.defaultDate,
     });
 
-  const candidates: MappingCandidate[] = [
-    { mapping: input.aiMapping, source: "ai", score: scoreOf(input.aiMapping) },
-  ];
+  const candidates: MappingCandidate[] = [];
+  const add = (mapping: ColumnMapping, source: MappingSource) => {
+    const usable = usableRecipeMapping(mapping);
+    if (!usable) return;
+    candidates.push({ mapping: usable, source, score: scoreOf(usable) });
+  };
+
+  add(input.aiMapping, "ai");
 
   const bestSoFar = () =>
-    candidates.reduce((best, row) => (row.score > best.score ? row : best));
+    candidates.length === 0
+      ? null
+      : candidates.reduce((best, row) => (row.score > best.score ? row : best));
 
-  if (bestSoFar().score <= SANITY_PASS_RATIO) {
-    const content = inferRecipeMappingFromContent(input.dataRows);
-    candidates.push({
-      mapping: content,
-      source: "heuristic",
-      score: scoreOf(content),
-    });
+  const needsFallback = () =>
+    !bestSoFar() || (bestSoFar()?.score ?? 0) <= SANITY_PASS_RATIO;
+
+  const content = inferRecipeMappingDetails(input.dataRows);
+  if (needsFallback()) {
+    if (content.confident) add(content.mapping, "heuristic");
 
     const headerMap = mapColumnsHeuristic({
       tabType: input.tabType,
       headers: input.headers,
       sampleRows: input.sampleRows,
     });
-    candidates.push({
-      mapping: headerMap,
-      source: "heuristic",
-      score: scoreOf(headerMap),
-    });
+    add(headerMap, "heuristic");
   }
 
-  if (bestSoFar().score <= SANITY_PASS_RATIO) {
+  if (needsFallback()) {
     const betterSample = pickMappingSampleRows(input.dataRows);
     if (betterSample.length > 0) {
       const retried = await input.mapColumns({
@@ -244,24 +358,27 @@ export async function resolveRecipeMapping(input: {
         headers: input.headers,
         sampleRows: betterSample,
       });
-      candidates.push({
-        mapping: retried,
-        source: "ai",
-        score: scoreOf(retried),
-      });
+      add(retried, "ai");
     }
   }
 
   const passing = candidates.filter((row) => row.score > SANITY_PASS_RATIO);
-  const pool = passing.length > 0 ? passing : candidates;
-  const winner = pool.reduce((best, row) =>
+  if (passing.length === 0) {
+    return {
+      mapping: {},
+      mappingSource: "heuristic",
+      persistMapping: false,
+      score: 0,
+      holdReason: content.reason ?? AMBIGUOUS_MAPPING_REASON,
+    };
+  }
+  const winner = passing.reduce((best, row) =>
     row.score > best.score ? row : best
   );
-
   return {
     mapping: winner.mapping,
     mappingSource: winner.source,
-    persistMapping: winner.score > SANITY_PASS_RATIO,
+    persistMapping: true,
     score: winner.score,
   };
 }

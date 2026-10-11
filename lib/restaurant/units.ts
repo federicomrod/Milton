@@ -113,6 +113,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   kgs: "kg",
   kilo: "kg",
   kilos: "kg",
+  "kilo(s)": "kg",
   kilogram: "kg",
   kilograms: "kg",
   g: "g",
@@ -123,8 +124,10 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   grms: "g",
   grmo: "g",
   grako: "g",
+  gram0: "g",
   gramo: "g",
   gramos: "g",
+  "gramo(s)": "g",
   gram: "g",
   grams: "g",
   // volume
@@ -133,6 +136,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   ltr: "l",
   litro: "l",
   litros: "l",
+  "litro(s)": "l",
   liter: "l",
   liters: "l",
   litre: "l",
@@ -147,6 +151,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   gals: "gal",
   galon: "gal",
   galones: "gal",
+  "galon(es)": "gal",
   gallon: "gal",
   gallons: "gal",
   // discrete — bare kitchen pack words stay "each"; a size next to them
@@ -155,6 +160,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   units: "unit",
   unidad: "unit",
   unidades: "unit",
+  "unidad(es)": "unit",
   unida: "unit",
   unid: "unit",
   und: "unit",
@@ -206,6 +212,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   oz: "oz",
   onza: "oz",
   onzas: "oz",
+  "onza(s)": "oz",
   onz: "oz",
   ounce: "oz",
   ounces: "oz",
@@ -213,6 +220,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   lbs: "lb",
   libra: "lb",
   libras: "lb",
+  "libra(s)": "lb",
   pound: "lb",
   pounds: "lb",
 };
@@ -297,41 +305,6 @@ function isBareCountKey(key: string): boolean {
   return (hit === "unit" || hit === "portion") && !isPackWord(key);
 }
 
-function editDistance(left: string, right: string): number {
-  if (left === right) return 0;
-  const n = left.length;
-  const m = right.length;
-  if (n === 0) return m;
-  if (m === 0) return n;
-  const prev = new Array<number>(m + 1);
-  const curr = new Array<number>(m + 1);
-  for (let j = 0; j <= m; j++) prev[j] = j;
-  for (let i = 1; i <= n; i++) {
-    curr[0] = i;
-    for (let j = 1; j <= m; j++) {
-      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
-      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
-    }
-    for (let j = 0; j <= m; j++) prev[j] = curr[j] ?? 0;
-  }
-  return prev[m] ?? Math.max(n, m);
-}
-
-/**
- * One-edit typos of long measure words only (GRAMO→GRMO/GRAKO).
- * Ambiguous hits (LITRA → litro or libra) stay unknown.
- */
-function fuzzyMeasureUnit(folded: string): UnitOfMeasure | null {
-  if (folded.length < 4) return null;
-  const hits = new Set<UnitOfMeasure>();
-  for (const [key, unit] of Object.entries(UNIT_SYNONYMS)) {
-    if (!MEASURE_UNITS.has(unit) || key.length < 4) continue;
-    if (Math.abs(key.length - folded.length) > 1) continue;
-    if (editDistance(folded, key) === 1) hits.add(unit);
-  }
-  return hits.size === 1 ? [...hits][0] : null;
-}
-
 function escapeRegexToken(token: string): string {
   return token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -386,9 +359,7 @@ export function normalizeUnit(
     const hit = UNIT_SYNONYMS[key];
     if (hit) return hit;
   }
-  const folded = foldUnitKey(raw);
-  if (!folded || cellHasSizeHint(raw, folded)) return null;
-  return fuzzyMeasureUnit(folded);
+  return null;
 }
 
 export function parseExplicitPackSize(

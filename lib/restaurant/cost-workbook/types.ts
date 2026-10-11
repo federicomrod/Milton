@@ -54,6 +54,8 @@ export interface DetectedSheet {
   /** Set when the sheet was kept so the headline can count it, but
    *  there was no usable header row to map. */
   emptyReason?: string;
+  /** Raw AOA used to parse repeating COSTO RESTAURANTE blocks. */
+  aoa?: unknown[][];
 }
 
 export interface WorkbookRowCandidate {
@@ -303,6 +305,7 @@ export interface ImportedMenuItem {
   source_id: string | null;
   location_id?: string | null;
   brand_id?: string | null;
+  selling_price?: number | null;
 }
 
 export interface ImportedRecipe {
@@ -348,6 +351,12 @@ export interface GroupedRecipe {
   lines: RecipeLineCandidate[];
   output_quantity: number | null;
   output_unit: string | null;
+  /** Repeating COSTO RESTAURANTE blocks — do not invent a yield. */
+  block_layout?: boolean;
+  selling_price?: number | null;
+  cost_total?: number | null;
+  price_per_lb?: number | null;
+  price_per_oz?: number | null;
 }
 
 export interface CostWorkbookBatch {

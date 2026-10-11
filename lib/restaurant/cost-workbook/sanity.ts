@@ -6,6 +6,7 @@ import { normalizeUnit } from "@/lib/restaurant/units";
 import type { ColumnMapping, CostTabType } from "./types";
 
 const QTY_PLAUSIBILITY_MARGIN = 0.15;
+export const LOOKALIKE_QTY_MARGIN = 0.4;
 
 export const SANITY_PASS_RATIO = 0.5;
 
@@ -43,13 +44,17 @@ function numericColumnValues(
   return values;
 }
 
+function medianValue(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)] ?? 0;
+}
+
 export function quantityLikeness(values: number[]): number {
   if (values.length === 0) return 0;
   const integers =
     values.filter((value) => Math.abs(value - Math.round(value)) < 1e-9)
       .length / values.length;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted[Math.floor(sorted.length / 2)] ?? 0;
+  const mid = medianValue(values);
   const inRecipeRange =
     mid >= 0.1 && mid <= 500 ? 1 : mid > 0 && mid < 0.1 ? 0.2 : 0.35;
   const smallDecimals =
@@ -61,6 +66,19 @@ export function quantityLikeness(values: number[]): number {
     0,
     integers * 0.55 + inRecipeRange * 0.45 - smallDecimals * 0.5
   );
+}
+
+/** Two numeric columns in the same magnitude band — qty vs unit-cost,
+ *  not a guess we should make. */
+export function numericColumnsLookAlike(a: number[], b: number[]): boolean {
+  if (a.length < 2 || b.length < 2) return false;
+  const left = Math.abs(medianValue(a));
+  const right = Math.abs(medianValue(b));
+  if (left === 0 || right === 0) return false;
+  const lo = Math.min(left, right);
+  const hi = Math.max(left, right);
+  if (lo < 0.08 || hi > 500) return false;
+  return hi / lo <= 4;
 }
 
 /** False when the mapped quantity column looks like cost and another
@@ -76,7 +94,8 @@ export function recipeQuantityColumnIsPlausible(
       .map((field) => mapping[field]?.column)
       .filter((column): column is string => Boolean(column))
   );
-  const qtyScore = quantityLikeness(numericColumnValues(dataRows, qtyCol));
+  const qtyValues = numericColumnValues(dataRows, qtyCol);
+  const qtyScore = quantityLikeness(qtyValues);
   const columns = new Set<string>();
   for (const row of dataRows) {
     for (const key of Object.keys(row)) columns.add(key);
@@ -91,6 +110,12 @@ export function recipeQuantityColumnIsPlausible(
       Math.abs(rival - qtyScore) < QTY_PLAUSIBILITY_MARGIN &&
       rival >= 0.35 &&
       qtyScore >= 0.35
+    ) {
+      return false;
+    }
+    if (
+      numericColumnsLookAlike(qtyValues, values) &&
+      Math.abs(rival - qtyScore) < LOOKALIKE_QTY_MARGIN
     ) {
       return false;
     }

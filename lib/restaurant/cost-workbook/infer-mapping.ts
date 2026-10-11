@@ -7,7 +7,9 @@ import { resolveUnitCell } from "@/lib/restaurant/units";
 import { mapColumnsHeuristic } from "./ai";
 import {
   dropCollidingOptionalRecipeFields,
+  LOOKALIKE_QTY_MARGIN,
   mappingSanityScore,
+  numericColumnsLookAlike,
   quantityLikeness,
   recipeMappingHasDistinctRoles,
   SANITY_PASS_RATIO,
@@ -153,8 +155,29 @@ export function inferRecipeMappingDetails(
     .sort((a, b) => b.score - a.score || b.col.units - a.col.units);
   const unitCol = pickUnique(unitRanked, new Set());
 
-  const qtyRanked = stats
-    .filter((col) => col.col !== unitCol?.col && numberRatio(col) >= QTY_RATIO)
+  const qtyPool = stats.filter(
+    (col) => col.col !== unitCol?.col && numberRatio(col) >= QTY_RATIO
+  );
+  for (let i = 0; i < qtyPool.length; i += 1) {
+    for (let j = i + 1; j < qtyPool.length; j += 1) {
+      const left = qtyPool[i];
+      const right = qtyPool[j];
+      if (!numericColumnsLookAlike(left.numericValues, right.numericValues)) {
+        continue;
+      }
+      const leftScore = quantityLikeness(left.numericValues);
+      const rightScore = quantityLikeness(right.numericValues);
+      if (Math.abs(leftScore - rightScore) < LOOKALIKE_QTY_MARGIN) {
+        return {
+          mapping: {},
+          confident: false,
+          reason: AMBIGUOUS_MAPPING_REASON,
+        };
+      }
+    }
+  }
+
+  const qtyRanked = qtyPool
     .map((col) => {
       const qtyScore = quantityLikeness(col.numericValues);
       const adjacency =
@@ -167,9 +190,13 @@ export function inferRecipeMappingDetails(
   if (qtyCol && qtyRanked.length > 1) {
     const bestQty = quantityLikeness(qtyCol.numericValues);
     const rival = qtyRanked.find((row) => row.col.col !== qtyCol.col);
+    const rivalQty = rival ? quantityLikeness(rival.col.numericValues) : 0;
     if (
       rival &&
-      quantityLikeness(rival.col.numericValues) - bestQty >= ROLE_MARGIN
+      (rivalQty - bestQty >= ROLE_MARGIN ||
+        (Math.abs(rivalQty - bestQty) < ROLE_MARGIN &&
+          rivalQty >= 0.35 &&
+          bestQty >= 0.35))
     ) {
       return {
         mapping: {},

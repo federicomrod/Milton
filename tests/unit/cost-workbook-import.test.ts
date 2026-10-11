@@ -14,12 +14,17 @@ import {
   damerauLevenshtein,
   implausiblePriceReason,
   importCostWorkbook,
+  collectCostoRestauranteBlocks,
   inferRecipeMappingFromContent,
   inferRecipeMappingDetails,
   isObviousTypo,
   looksLikeCostSummaryTab,
   looksLikeDishRecipeTab,
   mappingSourceLabel,
+  readNumericCell,
+  sheetLooksLikeCostoRestauranteBlocks,
+  TOTAL_MISMATCH_REASON,
+  YIELD_INCONSISTENT_REASON,
   layoutKeyForSheet,
   mergeTypoDuplicates,
   nameMatchScore,
@@ -57,6 +62,7 @@ import { validateCostImportColumns } from "@/lib/restaurant/cost-import";
 import {
   buildLosRanchosCostWorkbook,
   buildLosRanchosKitchenUnitsWorkbook,
+  buildCostoRestauranteBlockWorkbook,
   buildSharedArticuloDishWorkbook,
   buildShiftedSubRecipeWorkbook,
 } from "../fixtures/cost-workbook-los-ranchos";
@@ -297,6 +303,14 @@ describe("units — Spanish + lb/oz", () => {
     expect(normalizeUnit("LIBRA(S)")).toBe("lb");
     expect(normalizeUnit("LB")).toBe("lb");
     expect(normalizeUnit("UNIDADES")).toBe("unit");
+    expect(normalizeUnit("ONZAS")).toBe("oz");
+    expect(normalizeUnit("LIBRAS")).toBe("lb");
+    expect(normalizeUnit("LITRO")).toBe("l");
+    expect(normalizeUnit("SOBRES")).toBe("unit");
+    expect(normalizeUnit("CONVOY")).toBe("portion");
+    expect(normalizeUnit("ORDEN")).toBe("portion");
+    expect(resolveUnitCell("CONVOY").ok).toBe(true);
+    expect(resolveUnitCell("ORDEN").ok).toBe(true);
     expect(normalizeUnit("PIMIENTA")).toBeNull();
     expect(normalizeUnit("litra")).toBeNull();
     expect(normalizeUnit("GRANO")).toBeNull();
@@ -2583,13 +2597,15 @@ describe("shared Articulo dish tabs and cost summary", () => {
       )
     ).toBe(true);
     expect(result.skipped_plain).toMatch(/filas omitidas/i);
-    expect(store.mappings.some((row) => row.tab_name === "Entradas")).toBe(
-      true
+    const savedRecipeMap = store.mappings.find(
+      (row) =>
+        row.tab_type === "recipe" &&
+        row.column_mapping.ingredient_name?.column === "Articulo"
     );
-    expect(
-      store.mappings.find((row) => row.tab_name === "Entradas")?.column_mapping
-        .recipe_name?.column
-    ).not.toBe("Articulo");
+    expect(savedRecipeMap).toBeTruthy();
+    expect(savedRecipeMap?.column_mapping.recipe_name?.column).not.toBe(
+      "Articulo"
+    );
   });
 
   it("does not reuse or persist a saved overlapping Articulo map", async () => {
@@ -2643,7 +2659,9 @@ describe("shared Articulo dish tabs and cost summary", () => {
     expect(tab?.column_mapping.recipe_name?.column).not.toBe("Articulo");
     expect(result.recipes_created).toBeGreaterThanOrEqual(2);
     const saved = store.mappings.find(
-      (row) => row.tab_name === "Entradas" && row.tab_type === "recipe"
+      (row) =>
+        row.tab_type === "recipe" &&
+        row.column_mapping.ingredient_name?.column === "Articulo"
     );
     expect(saved?.column_mapping.ingredient_name?.column).toBe("Articulo");
     expect(saved?.column_mapping.recipe_name?.column).not.toBe("Articulo");
@@ -2692,5 +2710,167 @@ describe("shared Articulo dish tabs and cost summary", () => {
     expect(store.mappings.some((row) => row.tab_name === "RECETA Salsa")).toBe(
       false
     );
+  });
+});
+
+describe("COSTO RESTAURANTE block layout", () => {
+  it("parses banners, merged names, no-banner first block, and footers", () => {
+    const sheets = readWorkbookSheets(buildCostoRestauranteBlockWorkbook());
+    const sub = sheets.find((sheet) => sheet.name === "SUB RECETAS");
+    expect(sub?.aoa).toBeTruthy();
+    expect(sheetLooksLikeCostoRestauranteBlocks(sub?.aoa ?? [])).toBe(true);
+
+    const parsed = collectCostoRestauranteBlocks({
+      tabName: "SUB RECETAS",
+      tabKind: "sub_recipe",
+      aoa: sub?.aoa ?? [],
+    });
+    const names = parsed.groups.map((group) => group.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "QUESO FRITO",
+        "FONDO PARA SOPA DE TORTILLA",
+        "FONDO DE RES",
+      ])
+    );
+    expect(names).not.toEqual(expect.arrayContaining(["COSTO RESTAURANTE"]));
+    expect(names).not.toEqual(
+      expect.arrayContaining(["RESTAURANTE LOS RANCHOS"])
+    );
+    expect(names).not.toContain("Articulo");
+    expect(
+      parsed.groups.some((group) =>
+        group.lines.some((line) => line.ingredient_name === "Articulo")
+      )
+    ).toBe(false);
+    expect(
+      parsed.review.some((item) =>
+        item.reason.includes(YIELD_INCONSISTENT_REASON)
+      )
+    ).toBe(true);
+    expect(
+      parsed.review.some((item) => item.reason === PACK_SIZE_REVIEW_REASON)
+    ).toBe(true);
+
+    const salsa = collectCostoRestauranteBlocks({
+      tabName: "SUB RECETAS 2",
+      tabKind: "sub_recipe",
+      aoa: sheets.find((sheet) => sheet.name === "SUB RECETAS 2")?.aoa ?? [],
+    });
+    expect(salsa.groups.map((group) => group.name)).toEqual(
+      expect.arrayContaining([
+        "SALSA TARTARA",
+        "SALSA VERDE",
+        "CHIMICHURRI",
+        "GUACAMOL",
+      ])
+    );
+    const tartara = salsa.groups.find(
+      (group) => group.name === "SALSA TARTARA"
+    );
+    expect(tartara?.output_unit).toBe("lb");
+    expect(tartara?.output_quantity).toBeCloseTo(7.55 / 0.555, 5);
+    expect(readNumericCell("#######")).toBeNull();
+    expect(
+      tartara?.lines.some(
+        (line) => line.ingredient_name === "CEBOLLA" && line.quantity === 2
+      )
+    ).toBe(true);
+
+    const dishes = collectCostoRestauranteBlocks({
+      tabName: "DE LA PARRILLA",
+      tabKind: "recipe",
+      aoa: sheets.find((sheet) => sheet.name === "DE LA PARRILLA")?.aoa ?? [],
+    });
+    expect(dishes.groups.map((group) => group.name)).toEqual(
+      expect.arrayContaining(["CHURRASCO TIPICO 6", "CHURRASCO TIPICO 8"])
+    );
+    const churrasco = dishes.groups.find(
+      (group) => group.name === "CHURRASCO TIPICO 6"
+    );
+    expect(churrasco?.selling_price).toBeCloseTo(17.699, 3);
+    expect(
+      churrasco?.lines.some(
+        (line) =>
+          line.ingredient_name === "CONVOY ENSALADA Y CALDO" &&
+          normalizeUnit(line.unit) === "portion"
+      )
+    ).toBe(true);
+    expect(
+      dishes.review.some((item) => /unknown unit \(CONVOY\)/i.test(item.reason))
+    ).toBe(false);
+
+    const especial = collectCostoRestauranteBlocks({
+      tabName: "ESPECIALIDADES DE LA PARRILLA",
+      tabKind: "recipe",
+      aoa:
+        sheets.find((sheet) => sheet.name === "ESPECIALIDADES DE LA PARRILLA")
+          ?.aoa ?? [],
+    });
+    expect(
+      especial.review.some((item) => item.reason === TOTAL_MISMATCH_REASON)
+    ).toBe(true);
+    expect(
+      especial.groups
+        .find((group) => group.name === "PUYASO")
+        ?.lines.some((line) => line.ingredient_name === "GUARNICION 1")
+    ).toBe(true);
+  });
+
+  it("imports dish tabs as recipes and resolves CONVOY/ORDEN to sub-recipes", async () => {
+    const store = emptyStore();
+    store.posItemNames = ["CHURRASCO TIPICO 6", "PUYASO", "ENTRAÑA"];
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildCostoRestauranteBlockWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      locationId: "loc-ranchos",
+      lang: "es",
+    });
+
+    expect(result.tabs.find((tab) => tab.name === "DE LA PARRILLA")?.type).toBe(
+      "recipe"
+    );
+    expect(result.tabs.find((tab) => tab.name === "SUB RECETAS")?.type).toBe(
+      "sub_recipe"
+    );
+    expect(
+      result.tabs.find((tab) => tab.name === "COSTOS RESTAURANTE 2026")
+    ).toBeUndefined();
+    expect(result.sub_recipes_created).toBeGreaterThanOrEqual(4);
+    expect(result.recipes_created).toBeGreaterThanOrEqual(2);
+    expect(result.menu_items_created).toBeGreaterThanOrEqual(2);
+    expect(store.menuItems.map((row) => row.name)).toEqual(
+      expect.arrayContaining(["CHURRASCO TIPICO 6", "PUYASO"])
+    );
+    expect(
+      store.menuItems.find((row) => row.name === "CHURRASCO TIPICO 6")
+        ?.selling_price
+    ).toBeCloseTo(17.699, 3);
+    expect(store.components.map((row) => row.name)).toEqual(
+      expect.arrayContaining(["SALSA TARTARA", "CHIMICHURRI", "GUACAMOL"])
+    );
+    expect(store.components.map((row) => row.name)).not.toContain(
+      "COSTO RESTAURANTE"
+    );
+    expect(
+      result.review_items.some((item) =>
+        /unknown unit \(CONVOY|ORDEN\)/i.test(item.reason)
+      )
+    ).toBe(false);
+    expect(
+      result.review_items.some(
+        (item) => item.reason === PACK_SIZE_REVIEW_REASON
+      )
+    ).toBe(true);
+    expect(
+      result.review_items.some((item) =>
+        item.reason.includes(YIELD_INCONSISTENT_REASON)
+      )
+    ).toBe(true);
   });
 });

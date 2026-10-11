@@ -8,10 +8,10 @@ import type {
 } from "./types";
 
 export const TOTAL_ROW_RE =
-  /^(total|sub[\s-]?total|totales|subtotales|suma)(\b|:|$)/i;
+  /^(total|sub[\s-]?total|totales|subtotales|suma|costo\s+total|precio\s+por\s+libra|precio\s+por\s+onza|precio\s+de\s+venta|margen\s+de\s+contribuci)(\b|:|$)/i;
 
 const HEADERISH_RE =
-  /^(item|nombre|producto|ingrediente|ingredient|articulo|artículo|unidad|unit|costo|precio|cantidad|quantity|total|libra|onza)$/i;
+  /^(item|nombre|producto|ingrediente|ingredient|articulo|artículo|unidad(\s+detalle)?|unit|costo(\s+unitario)?|precio|cantidad|quantity|total(\s+costo)?|libra|onza|costo\s+restaurante|restaurante\s+los\s+ranchos)$/i;
 
 const NO_PRICE_REASONS = new Set(["Missing unit price", "Missing cost"]);
 

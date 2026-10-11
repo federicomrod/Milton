@@ -4,6 +4,7 @@
 
 import { parseCostImportNumber } from "@/lib/restaurant/cost-import";
 import { resolveUnitCell } from "@/lib/restaurant/units";
+import { sheetLooksLikeCostoRestauranteBlocks } from "./blocks";
 import { normalizeHeaderToken } from "./header";
 import type { TabClassification } from "./types";
 
@@ -107,8 +108,12 @@ export function looksLikeCostSummaryTab(input: {
   sheetName: string;
   headers: string[];
   dataRows: Record<string, unknown>[];
+  aoa?: unknown[][];
 }): boolean {
   if (isExplicitSubRecipeName(input.sheetName)) return false;
+  if (input.aoa && sheetLooksLikeCostoRestauranteBlocks(input.aoa)) {
+    return isCostSummaryName(input.sheetName);
+  }
   if (countDishTitleBlocks(input.dataRows) >= 2) return false;
   if (isCostSummaryName(input.sheetName)) return true;
   if (
@@ -124,9 +129,11 @@ export function looksLikeDishRecipeTab(input: {
   sheetName: string;
   headers: string[];
   dataRows: Record<string, unknown>[];
+  aoa?: unknown[][];
 }): boolean {
   if (isExplicitSubRecipeName(input.sheetName)) return false;
   if (looksLikeCostSummaryTab(input)) return false;
+  if (input.aoa && sheetLooksLikeCostoRestauranteBlocks(input.aoa)) return true;
   return countDishTitleBlocks(input.dataRows) >= 2;
 }
 
@@ -135,9 +142,10 @@ export function refineTabClassification(input: {
   sheetName: string;
   headers: string[];
   dataRows: Record<string, unknown>[];
+  aoa?: unknown[][];
 }): TabClassification {
-  const { proposed, sheetName, headers, dataRows } = input;
-  if (looksLikeCostSummaryTab({ sheetName, headers, dataRows })) {
+  const { proposed, sheetName, headers, dataRows, aoa } = input;
+  if (looksLikeCostSummaryTab({ sheetName, headers, dataRows, aoa })) {
     return {
       type: "ignore",
       confidence: Math.max(proposed.confidence, 0.91),
@@ -148,11 +156,11 @@ export function refineTabClassification(input: {
     return {
       type: "sub_recipe",
       confidence: Math.max(proposed.confidence, 0.93),
-      notes: proposed.notes ?? "heuristic sub-recipe",
+      notes: proposed.notes,
     };
   }
   if (
-    looksLikeDishRecipeTab({ sheetName, headers, dataRows }) &&
+    looksLikeDishRecipeTab({ sheetName, headers, dataRows, aoa }) &&
     (proposed.type === "sub_recipe" ||
       proposed.type === "ignore" ||
       proposed.type === "category_cost")

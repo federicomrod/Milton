@@ -1,6 +1,11 @@
 import { nameKey } from "@/lib/restaurant/cost-import";
 import { canAutoLinkNames, resolveAliasName } from "./duplicates";
-import { REVIEW_NAME_SCORE, bestNameMatch, nameMatchScore } from "./names";
+import {
+  AUTO_NAME_SCORE,
+  REVIEW_NAME_SCORE,
+  bestNameMatch,
+  nameMatchScore,
+} from "./names";
 import { resolveSubRecipeYield } from "./recipes";
 import type { CostWorkbookRepo } from "./repo";
 import type {
@@ -22,11 +27,18 @@ export function resolveCatalogInput(
   aliases: Map<string, string> = new Map()
 ): { ok: true; input: RecipeInputSnapshot } | { ok: false; reason: string } {
   const resolvedName = resolveAliasName(lineName, aliases);
-  const exactComponent = components.find(
+  const exactComponents = components.filter(
     (item) =>
       nameKey(item.name) === nameKey(lineName) ||
       nameKey(item.name) === nameKey(resolvedName)
   );
+  if (exactComponents.length > 1) {
+    return {
+      ok: false,
+      reason: `sub-receta incierta (${lineName})`,
+    };
+  }
+  const exactComponent = exactComponents[0];
   if (exactComponent) {
     return {
       ok: true,
@@ -64,19 +76,20 @@ export function resolveCatalogInput(
     components,
     (item) => item.name
   );
+  if (componentHit && componentHit.score >= AUTO_NAME_SCORE) {
+    return {
+      ok: false,
+      reason: `sub-receta incierta (${lineName} ↔ ${componentHit.item.name})`,
+    };
+  }
   const ingredientHit = bestNameMatch(
     resolvedName,
     ingredients,
     (item) => item.name
   );
-  const best =
-    (componentHit?.score ?? 0) >= (ingredientHit?.score ?? 0)
-      ? componentHit
-        ? { kind: "component" as const, hit: componentHit }
-        : null
-      : ingredientHit
-        ? { kind: "ingredient" as const, hit: ingredientHit }
-        : null;
+  const best = ingredientHit
+    ? { kind: "ingredient" as const, hit: ingredientHit }
+    : null;
 
   if (best && canAutoLinkNames(resolvedName, best.hit.item.name)) {
     return {
@@ -336,6 +349,7 @@ export async function persistWorkbookRecipes(input: {
         sourceId: input.batchId,
         locationId,
         brandId,
+        sellingPrice: group.selling_price ?? 0,
       });
       changes.created_menu_item_ids.push(menuItem.id);
       menuByName.set(menuKey(menuItem.name, menuItem.location_id), menuItem);

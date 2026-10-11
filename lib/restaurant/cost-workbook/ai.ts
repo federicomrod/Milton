@@ -104,7 +104,10 @@ function hasAny(set: Set<string>, tokens: string[]): boolean {
  * (ITEM/LIBRA/ONZA, Spanish name/unit/cost/qty/total) score high.
  */
 export function classifyCostTabHeuristic(
-  input: ClassifyTabInput & { dataRows?: Record<string, unknown>[] }
+  input: ClassifyTabInput & {
+    dataRows?: Record<string, unknown>[];
+    aoa?: unknown[][];
+  }
 ): TabClassification {
   const set = headerSet(input.headers);
   const nameBlob = normalizeHeaderToken(
@@ -168,6 +171,7 @@ export function classifyCostTabHeuristic(
     sheetName: input.sheetName,
     headers: input.headers,
     dataRows: input.dataRows ?? input.sampleRows,
+    aoa: input.aoa,
   });
 }
 

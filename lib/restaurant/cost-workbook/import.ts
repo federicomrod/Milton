@@ -2,6 +2,11 @@ import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { resolveUnitCell } from "@/lib/restaurant/units";
 import type { WorkbookAi } from "./ai";
 import { classifyCostTabHeuristic } from "./ai";
+import {
+  collectCostoRestauranteBlocks,
+  mappingFromCostoRestauranteHeader,
+  sheetLooksLikeCostoRestauranteBlocks,
+} from "./blocks";
 import { refineTabClassification } from "./classify";
 import { categoryForTab } from "./categories";
 import { resolveRecipeMapping } from "./infer-mapping";
@@ -132,6 +137,7 @@ async function resolveTab(input: {
     headers: sheet.headers,
     sampleRows: sheet.sampleRows,
     dataRows: sheet.dataRows,
+    aoa: sheet.aoa,
   });
   const trySaved = (type: CostTabType): SavedLayoutMap | undefined => {
     const saved = savedByKey.get(layoutKeyForSheet(sheet.headers, type));
@@ -172,6 +178,7 @@ async function resolveTab(input: {
     sheetName: sheet.name,
     headers: sheet.headers,
     dataRows: sheet.dataRows,
+    aoa: sheet.aoa,
   });
   const savedClassified = trySaved(classified.type);
   if (savedClassified) {
@@ -183,6 +190,27 @@ async function resolveTab(input: {
       mappingSource: "saved",
       note: classified.notes,
       persistMapping: false,
+    };
+  }
+
+  if (
+    (classified.type === "recipe" || classified.type === "sub_recipe") &&
+    sheet.aoa &&
+    sheetLooksLikeCostoRestauranteBlocks(sheet.aoa)
+  ) {
+    const mapping = mappingFromCostoRestauranteHeader(sheet.aoa);
+    return {
+      sheet,
+      tabType: classified.type,
+      tabConfidence: classified.confidence,
+      mapping,
+      mappingSource: "heuristic",
+      note: classified.notes,
+      persistMapping: Boolean(
+        mapping.ingredient_name?.column &&
+        mapping.quantity?.column &&
+        mapping.unit?.column
+      ),
     };
   }
 
@@ -339,6 +367,41 @@ export async function importCostWorkbook(input: {
     const { sheet, tabType, tabConfidence, mapping, mappingSource, note } =
       resolved;
     recipeTabCount += 1;
+    if (sheet.aoa && sheetLooksLikeCostoRestauranteBlocks(sheet.aoa)) {
+      const collected = collectCostoRestauranteBlocks({
+        tabName: sheet.name,
+        tabKind: tabType === "sub_recipe" ? "sub_recipe" : "recipe",
+        aoa: sheet.aoa,
+      });
+      recipeGroups.push(...collected.groups);
+      toReview.push(...collected.review);
+      skipped.push(...collected.skipped);
+      const blockMap =
+        requiredMapped(tabType, mapping) &&
+        mapping.ingredient_name?.column !== mapping.recipe_name?.column
+          ? mapping
+          : mappingFromCostoRestauranteHeader(sheet.aoa);
+      rememberMapping(resolved, tabType, blockMap);
+      tabSummaries.push({
+        name: sheet.name,
+        type: tabType,
+        confidence: tabConfidence,
+        mapping_source: mappingSource,
+        column_mapping: blockMap,
+        imported_count: collected.groups.reduce(
+          (sum, group) => sum + group.lines.length,
+          0
+        ),
+        review_count: collected.review.length,
+        skipped_count: collected.skipped.length,
+        skipped_reasons: groupSkipReasons(collected.skipped),
+        preview: sheet.sampleRows,
+        note:
+          note ??
+          (tabType === "sub_recipe" ? "sub-recipe / prep item" : "recipe"),
+      });
+      return;
+    }
     if (resolved.mappingHoldReason || !requiredMapped(tabType, mapping)) {
       const reason =
         resolved.mappingHoldReason ??

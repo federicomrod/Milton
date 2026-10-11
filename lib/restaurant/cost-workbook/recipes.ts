@@ -21,6 +21,12 @@ export function resolveSubRecipeYield(
   | { ok: false; reason: string } {
   const mappedQty = group.output_quantity;
   const mappedUnit = group.output_unit?.trim() ?? "";
+  if (group.block_layout && (mappedQty == null || !mappedUnit)) {
+    return {
+      ok: false,
+      reason: `no pude calcular el rendimiento de ${group.name}`,
+    };
+  }
   if (mappedQty != null && mappedQty > 0 && mappedUnit) {
     const resolved = resolveUnitCell(mappedUnit);
     if (!resolved.ok) {

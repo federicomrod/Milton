@@ -52,6 +52,11 @@ export {
   skipReviewItem,
   undoCostImportBatch,
 } from "./import";
+export {
+  PICK_RESTAURANT_ERROR_EN,
+  PICK_RESTAURANT_ERROR_ES,
+  resolveUploadRestaurantScope,
+} from "./scope";
 export { mappingPassesSanity } from "./sanity";
 export type {
   CostTabType,

@@ -39,7 +39,10 @@ import {
   normalizeUnit,
 } from "@/lib/restaurant/units";
 import { validateCostImportColumns } from "@/lib/restaurant/cost-import";
-import { buildLosRanchosCostWorkbook } from "../fixtures/cost-workbook-los-ranchos";
+import {
+  buildLosRanchosCostWorkbook,
+  buildLosRanchosKitchenUnitsWorkbook,
+} from "../fixtures/cost-workbook-los-ranchos";
 import * as XLSX from "xlsx";
 import type {
   CostWorkbookCostEntry,
@@ -246,6 +249,28 @@ describe("units — Spanish + lb/oz", () => {
     expect(normalizeUnit("ml")).toBe("ml");
   });
 
+  it("recognises Latin American kitchen pack and gallon spellings", () => {
+    expect(normalizeUnit("GALON")).toBe("gal");
+    expect(normalizeUnit("galón")).toBe("gal");
+    expect(normalizeUnit("galones")).toBe("gal");
+    expect(normalizeUnit("PAQUETE")).toBe("unit");
+    expect(normalizeUnit("PAQUETE (TORTILLA DE TACO 14 UNIDADES)")).toBe(
+      "unit"
+    );
+    expect(normalizeUnit("SOBRES")).toBe("unit");
+    expect(normalizeUnit("sobre")).toBe("unit");
+    expect(normalizeUnit("UNIDA")).toBe("unit");
+    expect(normalizeUnit("BOLSA")).toBe("unit");
+    expect(normalizeUnit("CAJA")).toBe("unit");
+    expect(normalizeUnit("lata")).toBe("unit");
+    expect(normalizeUnit("botella")).toBe("unit");
+    expect(normalizeUnit("bulto")).toBeNull();
+    expect(normalizeUnit("APIO")).toBeNull();
+    const galToL = convertUnitStr(1, "GALON", "l");
+    expect(galToL.ok).toBe(true);
+    if (galToL.ok) expect(galToL.value).toBeCloseTo(3.785411784, 6);
+  });
+
   it("converts lb ↔ oz and into kg/g for costing", () => {
     const oz = convertUnitStr(1, "lb", "oz");
     expect(oz.ok && oz.value).toBe(16);
@@ -306,7 +331,7 @@ describe("smart workbook import", () => {
     expect(ai.classifyTab).toHaveBeenCalled();
     expect(ai.mapColumns).toHaveBeenCalled();
     expect(result.headline).toBe(
-      "Saved 13, updated 0 from 3 tabs. 5 need a look. 7 skipped."
+      "Saved 13, updated 0 from 5 tabs. 5 need a look. 7 skipped."
     );
     expect(result.imported_count).toBe(13);
     expect(result.saved_count).toBe(13);
@@ -952,6 +977,84 @@ describe("workbook recipes, POS links, and cockpit COGS", () => {
       asOfDate: "2026-07-31",
     });
     expect(filtered.cost_date).toBe("2026-04-01");
+  });
+
+  it("imports Latin American kitchen units into recipes, menu items, POS links, and COGS", async () => {
+    const store = emptyStore();
+    store.posItemNames = ["CARNE ASADA", "AGUA JAMAICA", "Ceviche Lavara"];
+    store.posItemLocationIds = ["loc-ranchos", "loc-ranchos", "loc-lavara"];
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosKitchenUnitsWorkbook(),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+      locationId: "loc-ranchos",
+      brandId: "brand-ranchos",
+      restaurantName: "Stage Test 1",
+    });
+
+    expect(result.tab_count).toBeGreaterThanOrEqual(6);
+    expect(
+      result.tabs.some((tab) => tab.name === "INDICE" && tab.type === "ignore")
+    ).toBe(true);
+    expect(result.restaurant_name).toBe("Stage Test 1");
+    expect(result.location_id).toBe("loc-ranchos");
+
+    const unknownUnits = result.review_items.filter((item) =>
+      item.reason.startsWith("unknown unit")
+    );
+    expect(
+      unknownUnits.some((item) =>
+        /PAQUETE|GALON|SOBRES|UNIDA|BOLSA|CAJA/i.test(item.reason)
+      )
+    ).toBe(false);
+    expect(unknownUnits.some((item) => item.reason.includes("APIO"))).toBe(
+      true
+    );
+    expect(unknownUnits.some((item) => item.reason.includes("bulto"))).toBe(
+      true
+    );
+
+    expect(result.sub_recipes_created).toBeGreaterThanOrEqual(6);
+    expect(store.components.map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        "Salsa ranchera",
+        "Agua de jamaica",
+        "Tortilla taco",
+        "Sopa para tacos",
+        "Wantan wrap",
+        "Aderezo casa",
+      ])
+    );
+    expect(store.menuItems.map((row) => row.name)).toEqual(
+      expect.arrayContaining(["Carne Asada", "Agua Jamaica"])
+    );
+    expect(
+      store.menuItems.every((row) => row.location_id === "loc-ranchos")
+    ).toBe(true);
+    expect(result.recipes_created).toBeGreaterThanOrEqual(2);
+    expect(result.pos_links_created).toBe(2);
+    expect(
+      store.posMappings.map((row) => row.raw_pos_item_name).sort()
+    ).toEqual(["AGUA JAMAICA", "CARNE ASADA"].sort());
+    expect(
+      store.posMappings.every((row) => row.location_id === "loc-ranchos")
+    ).toBe(true);
+
+    const data = costingDataFromStore(store);
+    const carne = store.menuItems.find((row) => row.name === "Carne Asada");
+    expect(carne).toBeTruthy();
+    if (!carne) return;
+    const cost = calculateMenuItemCost(carne.id, data);
+    expect(cost.status).toBe("complete");
+    expect(cost.cost).toBeGreaterThan(0);
+    const julyRevenue = 120;
+    const estimatedCogs = (cost.cost ?? 0) * 10;
+    expect(estimatedCogs).toBeGreaterThan(0);
+    expect(julyRevenue > 0 && estimatedCogs > 0).toBe(true);
   });
 
   it("does not overwrite a handmade recipe", async () => {

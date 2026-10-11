@@ -157,6 +157,8 @@ export interface CostWorkbookRepo {
     currency: string;
     sourceId: string;
     category?: string | null;
+    locationId?: string | null;
+    brandId?: string | null;
   }): Promise<ImportedMenuItem>;
   deleteMenuItems(companyId: string, ids: string[]): Promise<number>;
   listRecipes(companyId: string): Promise<ImportedRecipe[]>;
@@ -212,7 +214,10 @@ export interface CostWorkbookRepo {
     outputUnit: string;
   }): Promise<void>;
   deleteComponentRecipes(companyId: string, ids: string[]): Promise<number>;
-  listDistinctPosItemNames(companyId: string): Promise<string[]>;
+  listDistinctPosItemNames(
+    companyId: string,
+    locationId?: string | null
+  ): Promise<string[]>;
   listPosMappings(
     companyId: string
   ): Promise<
@@ -223,6 +228,7 @@ export interface CostWorkbookRepo {
       companyId: string;
       rawPosItemName: string;
       menuItemId: string;
+      locationId?: string | null;
     }>
   ): Promise<Array<{ id: string }>>;
   deletePosMappings(companyId: string, ids: string[]): Promise<number>;
@@ -831,7 +837,7 @@ export function createSupabaseCostWorkbookRepo(
     async listMenuItems(companyId) {
       const { data, error } = await supabase
         .from("menu_items")
-        .select("id, name, source_type, source_id")
+        .select("id, name, source_type, source_id, location_id, brand_id")
         .eq("company_id", companyId);
       if (error) throw new Error(error.message);
       return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
@@ -839,6 +845,8 @@ export function createSupabaseCostWorkbookRepo(
         name: String(row.name ?? ""),
         source_type: (row.source_type as string | null) ?? null,
         source_id: (row.source_id as string | null) ?? null,
+        location_id: (row.location_id as string | null) ?? null,
+        brand_id: (row.brand_id as string | null) ?? null,
       }));
     },
 
@@ -853,8 +861,10 @@ export function createSupabaseCostWorkbookRepo(
           currency: input.currency,
           source_type: "import",
           source_id: input.sourceId,
+          location_id: input.locationId ?? null,
+          brand_id: input.brandId ?? null,
         })
-        .select("id, name, source_type, source_id")
+        .select("id, name, source_type, source_id, location_id, brand_id")
         .single();
       if (error || !data) {
         throw new Error(error?.message ?? "menu item insert failed");
@@ -864,6 +874,9 @@ export function createSupabaseCostWorkbookRepo(
         name: String(data.name ?? input.name),
         source_type: (data.source_type as string | null) ?? "import",
         source_id: (data.source_id as string | null) ?? input.sourceId,
+        location_id:
+          (data.location_id as string | null) ?? input.locationId ?? null,
+        brand_id: (data.brand_id as string | null) ?? input.brandId ?? null,
       };
     },
 
@@ -1170,16 +1183,17 @@ export function createSupabaseCostWorkbookRepo(
       return (data ?? []).length;
     },
 
-    async listDistinctPosItemNames(companyId) {
+    async listDistinctPosItemNames(companyId, locationId) {
       const names = new Set<string>();
       const page = 1000;
       let from = 0;
       for (;;) {
-        const { data, error } = await supabase
+        let q = supabase
           .from("pos_sales_items")
           .select("raw_item_name")
-          .eq("company_id", companyId)
-          .range(from, from + page - 1);
+          .eq("company_id", companyId);
+        if (locationId) q = q.eq("location_id", locationId);
+        const { data, error } = await q.range(from, from + page - 1);
         if (error) throw new Error(error.message);
         const rows = data ?? [];
         for (const row of rows) {
@@ -1217,7 +1231,7 @@ export function createSupabaseCostWorkbookRepo(
               raw_pos_item_name: row.rawPosItemName,
               menu_item_id: row.menuItemId,
               match_type: "auto",
-              location_id: null,
+              location_id: row.locationId ?? null,
             }))
           )
           .select("id");

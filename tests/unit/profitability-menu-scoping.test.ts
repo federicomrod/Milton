@@ -58,4 +58,28 @@ describe("filterMenuItemsForSelection (Multi-Restaurant UX v1 — Phase 4 menu s
     const result = filterMenuItemsForSelection(MENU, selected);
     expect(result.map((m) => m.id)).toEqual(["item-legacy"]);
   });
+
+  it("hides menu items imported for a different location", () => {
+    const withLocations = [
+      ...MENU,
+      {
+        id: "item-ranchos",
+        name: "Carne Asada",
+        brand_id: null,
+        location_id: "loc-a",
+      },
+      {
+        id: "item-lavara",
+        name: "Ceviche",
+        brand_id: null,
+        location_id: "loc-b",
+      },
+    ];
+    const ranchos = filterMenuItemsForSelection(withLocations, {
+      locationId: "loc-a",
+      brandId: BRAND_A,
+    });
+    expect(ranchos.map((m) => m.id)).toContain("item-ranchos");
+    expect(ranchos.map((m) => m.id)).not.toContain("item-lavara");
+  });
 });

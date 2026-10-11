@@ -223,16 +223,18 @@ export interface ProfitabilitySelection {
  * unchanged — today's behavior.
  */
 export function filterMenuItemsForSelection<
-  T extends { brand_id: string | null },
+  T extends { brand_id: string | null; location_id?: string | null },
 >(menuItems: T[], selected: ProfitabilitySelection | null | undefined): T[] {
   if (!selected) return menuItems;
+  const scoped = menuItems.filter((m) => {
+    if (m.location_id && m.location_id !== selected.locationId) return false;
+    return true;
+  });
   if (selected.brandId) {
     const brandId = selected.brandId;
-    return menuItems.filter(
-      (m) => m.brand_id === brandId || m.brand_id === null
-    );
+    return scoped.filter((m) => m.brand_id === brandId || m.brand_id === null);
   }
-  return menuItems.filter((m) => m.brand_id === null);
+  return scoped.filter((m) => m.brand_id === null);
 }
 
 /**
@@ -267,6 +269,7 @@ export async function fetchProfitabilityData(
     selling_price: number | null;
     currency: string | null;
     brand_id: string | null;
+    location_id: string | null;
   };
 
   const preloadedPos = options?.posRows;
@@ -384,7 +387,9 @@ export async function fetchProfitabilityData(
     fetchAllRows<MenuItemRow>(() =>
       supabase
         .from("menu_items")
-        .select("id, name, category, selling_price, currency, brand_id")
+        .select(
+          "id, name, category, selling_price, currency, brand_id, location_id"
+        )
         .eq("company_id", companyId)
     ),
     fetchAllRows<{ id: string; menu_item_id: string; status: string | null }>(

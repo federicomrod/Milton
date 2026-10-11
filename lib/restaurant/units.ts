@@ -26,14 +26,18 @@ export type ConversionResult = ConversionOk | ConversionFail;
 const LB_IN_KG = 0.45359237;
 const OZ_IN_G = 28.349523125;
 const OZ_PER_LB = 16;
+// US liquid gallon. El Salvador / the rest of dollarized LatAm kitchens
+// write GALON for this, not the imperial gallon.
+const GAL_IN_L = 3.785411784;
 
 const CONVERSION_FACTOR: Partial<
   Record<UnitOfMeasure, Partial<Record<UnitOfMeasure, number>>>
 > = {
   kg: { kg: 1, g: 1000, lb: 1 / LB_IN_KG, oz: 1000 / OZ_IN_G },
   g: { g: 1, kg: 0.001, lb: 0.001 / LB_IN_KG, oz: 1 / OZ_IN_G },
-  l: { l: 1, ml: 1000 },
-  ml: { ml: 1, l: 0.001 },
+  l: { l: 1, ml: 1000, gal: 1 / GAL_IN_L },
+  ml: { ml: 1, l: 0.001, gal: 0.001 / GAL_IN_L },
+  gal: { gal: 1, l: GAL_IN_L, ml: GAL_IN_L * 1000 },
   // Discrete / portion units — only same-unit conversion is valid.
   unit: { unit: 1 },
   portion: { portion: 1 },
@@ -106,6 +110,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   kilograms: "kg",
   g: "g",
   gr: "g",
+  grs: "g",
   gramo: "g",
   gramos: "g",
   gram: "g",
@@ -126,11 +131,22 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   milliliters: "ml",
   millilitre: "ml",
   millilitres: "ml",
-  // discrete
+  gal: "gal",
+  gals: "gal",
+  galon: "gal",
+  galones: "gal",
+  gallon: "gal",
+  gallons: "gal",
+  // discrete — kitchen pack sizes stay "each"; we never invent a weight
   unit: "unit",
   units: "unit",
   unidad: "unit",
   unidades: "unit",
+  unida: "unit",
+  unid: "unit",
+  und: "unit",
+  unds: "unit",
+  uds: "unit",
   piece: "unit",
   pieces: "unit",
   pieza: "unit",
@@ -141,8 +157,37 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   pcs: "unit",
   ea: "unit",
   each: "unit",
+  paquete: "unit",
+  paquetes: "unit",
+  paq: "unit",
+  pqt: "unit",
+  pqte: "unit",
+  sobre: "unit",
+  sobres: "unit",
+  bolsa: "unit",
+  bolsas: "unit",
+  caja: "unit",
+  cajas: "unit",
+  lata: "unit",
+  latas: "unit",
+  botella: "unit",
+  botellas: "unit",
+  bandeja: "unit",
+  bandejas: "unit",
+  rollo: "unit",
+  rollos: "unit",
+  barra: "unit",
+  barras: "unit",
+  saco: "unit",
+  sacos: "unit",
+  cubeta: "unit",
+  cubetas: "unit",
+  balde: "unit",
+  baldes: "unit",
   portion: "portion",
   portions: "portion",
+  porcion: "portion",
+  porciones: "portion",
   serving: "portion",
   servings: "portion",
   oz: "oz",
@@ -159,6 +204,33 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   pounds: "lb",
 };
 
+function foldUnitKey(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[.,;:/]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Kitchen workbooks write "PAQUETE (TORTILLA DE TACO 14 UNIDADES)" or
+ * "GALÓN". Try the whole cell, then the token before a parenthetical,
+ * then the first word — never guess a family from a leftover adjective.
+ */
+export function unitLookupKeys(raw: string): string[] {
+  const folded = foldUnitKey(raw);
+  if (!folded) return [];
+  const noParens = folded
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const first = (noParens || folded).split(" ")[0] ?? "";
+  return [...new Set([folded, noParens, first].filter(Boolean))];
+}
+
 /**
  * Returns the canonical UnitOfMeasure for an arbitrary user-typed unit
  * string, or `null` when we don't recognise it. Comparison is lowercase
@@ -168,9 +240,11 @@ export function normalizeUnit(
   raw: string | null | undefined
 ): UnitOfMeasure | null {
   if (typeof raw !== "string") return null;
-  const key = raw.trim().toLowerCase();
-  if (!key) return null;
-  return UNIT_SYNONYMS[key] ?? null;
+  for (const key of unitLookupKeys(raw)) {
+    const hit = UNIT_SYNONYMS[key];
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /**

@@ -122,6 +122,8 @@ export async function persistWorkbookRecipes(input: {
   groups: GroupedRecipe[];
   repo: CostWorkbookRepo;
   aliases?: Map<string, string>;
+  locationId?: string | null;
+  brandId?: string | null;
 }): Promise<{
   menuItemsCreated: number;
   recipesCreated: number;
@@ -139,9 +141,17 @@ export async function persistWorkbookRecipes(input: {
       input.repo.listComponentRecipes(input.companyId),
     ]);
 
-  const menuByName = new Map(
-    menuItems.map((item) => [nameKey(item.name), item])
-  );
+  const locationId = input.locationId ?? null;
+  const brandId = input.brandId ?? null;
+  const menuKey = (name: string, loc: string | null | undefined) =>
+    `${nameKey(name)}|${loc ?? ""}`;
+  const menuByName = new Map<string, (typeof menuItems)[number]>();
+  for (const item of menuItems) {
+    menuByName.set(menuKey(item.name, item.location_id), item);
+    if (!item.location_id && !menuByName.has(menuKey(item.name, locationId))) {
+      menuByName.set(menuKey(item.name, locationId), item);
+    }
+  }
   const recipeByMenuId = new Map(recipes.map((row) => [row.menu_item_id, row]));
   const componentByName = new Map(
     components.map((item) => [nameKey(item.name), item])
@@ -298,7 +308,9 @@ export async function persistWorkbookRecipes(input: {
   for (const group of menuGroups) {
     const inputs = resolveGroup(group);
     if (!inputs) continue;
-    const existingMenu = menuByName.get(nameKey(group.name));
+    const existingMenu =
+      menuByName.get(menuKey(group.name, locationId)) ??
+      menuByName.get(menuKey(group.name, null));
     const existingRecipe = existingMenu
       ? recipeByMenuId.get(existingMenu.id)
       : undefined;
@@ -322,9 +334,11 @@ export async function persistWorkbookRecipes(input: {
         name: group.name,
         currency: input.currency,
         sourceId: input.batchId,
+        locationId,
+        brandId,
       });
       changes.created_menu_item_ids.push(menuItem.id);
-      menuByName.set(nameKey(menuItem.name), menuItem);
+      menuByName.set(menuKey(menuItem.name, menuItem.location_id), menuItem);
     }
 
     if (existingRecipe && isImported(existingRecipe.source_type)) {
@@ -368,6 +382,7 @@ export async function linkMenuItemsToPos(input: {
   companyId: string;
   menuItems: ImportedMenuItem[];
   repo: CostWorkbookRepo;
+  locationId?: string | null;
 }): Promise<{
   linked: number;
   review: ReviewCandidate[];
@@ -378,7 +393,10 @@ export async function linkMenuItemsToPos(input: {
     return { linked: 0, review: [], skipped: [], mappingIds: [] };
   }
   const [posNames, existing] = await Promise.all([
-    input.repo.listDistinctPosItemNames(input.companyId),
+    input.repo.listDistinctPosItemNames(
+      input.companyId,
+      input.locationId ?? null
+    ),
     input.repo.listPosMappings(input.companyId),
   ]);
   const mapped = new Set(existing.map((row) => row.raw_pos_item_name));
@@ -411,6 +429,7 @@ export async function linkMenuItemsToPos(input: {
       companyId: input.companyId,
       rawPosItemName: row.rawPosItemName,
       menuItemId: row.menuItemId,
+      locationId: input.locationId ?? null,
     }))
   );
 

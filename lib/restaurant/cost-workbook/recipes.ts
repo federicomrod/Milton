@@ -4,6 +4,7 @@ import {
   resolveUnitCell,
 } from "@/lib/restaurant/units";
 import { numberAt, textAt } from "./cells";
+import { sanitizeColumnMapping } from "./mapping";
 import { recipeNameFromSheet } from "./names";
 import { skipReasonForWorkbookRow } from "./skip";
 import type {
@@ -135,6 +136,7 @@ export function collectRecipeLines(input: {
   review: ReviewCandidate[];
   skipped: SkipCandidate[];
 } {
+  const mapping = sanitizeColumnMapping(input.mapping);
   const fallbackName = recipeNameFromSheet(input.tabName);
   const review: ReviewCandidate[] = [];
   const skipped: SkipCandidate[] = [];
@@ -158,7 +160,7 @@ export function collectRecipeLines(input: {
   };
 
   for (const [rowIndex, row] of input.dataRows.entries()) {
-    const skip = skipReasonForWorkbookRow(input.tabKind, row, input.mapping);
+    const skip = skipReasonForWorkbookRow(input.tabKind, row, mapping);
     if (skip) {
       skipped.push({
         tabName: input.tabName,
@@ -169,11 +171,11 @@ export function collectRecipeLines(input: {
       continue;
     }
 
-    const title = isTitleRow(row, input.mapping);
-    const qty = numberAt(row, input.mapping, "quantity");
-    const ingredient = textAt(row, input.mapping, "ingredient_name");
-    const outputQty = numberAt(row, input.mapping, "output_quantity");
-    const outputUnit = textAt(row, input.mapping, "output_unit");
+    const title = isTitleRow(row, mapping);
+    const qty = numberAt(row, mapping, "quantity");
+    const ingredient = textAt(row, mapping, "ingredient_name");
+    const outputQty = numberAt(row, mapping, "output_quantity");
+    const outputUnit = textAt(row, mapping, "output_unit");
     if (title && (qty === null || qty <= 0)) {
       currentName = title;
       if (outputQty != null && outputQty > 0 && outputUnit) {
@@ -183,7 +185,7 @@ export function collectRecipeLines(input: {
       }
       if (!ingredient || ingredient === title) continue;
     }
-    const named = textAt(row, input.mapping, "recipe_name");
+    const named = textAt(row, mapping, "recipe_name");
     if (named) currentName = named;
     if (outputQty != null && outputQty > 0 && outputUnit) {
       const group = takeGroup(currentName);
@@ -196,7 +198,7 @@ export function collectRecipeLines(input: {
       rowIndex,
       recipeName: currentName,
       row,
-      mapping: input.mapping,
+      mapping,
     });
     if (!evaluated.ok) {
       review.push(evaluated.review);

@@ -66,3 +66,50 @@ export function formatSkipSummary(reasons: SkipReasonCount[]): string {
     )
     .join(", ");
 }
+
+export const PREVIOUS_DUPLICATE_REASON = "exact duplicate of a previous upload";
+
+const BLANK_OR_TITLE_REASONS = new Set(["blank", "header/total row"]);
+
+export interface SkippedRowBreakdown {
+  previous_duplicates: number;
+  blank_or_title: number;
+  other: number;
+}
+
+export function summarizeSkippedRows(
+  skips: SkipCandidate[]
+): SkippedRowBreakdown {
+  const breakdown: SkippedRowBreakdown = {
+    previous_duplicates: 0,
+    blank_or_title: 0,
+    other: 0,
+  };
+  for (const skip of skips) {
+    if (skip.reason === PREVIOUS_DUPLICATE_REASON) {
+      breakdown.previous_duplicates += 1;
+    } else if (BLANK_OR_TITLE_REASONS.has(skip.reason)) {
+      breakdown.blank_or_title += 1;
+    } else {
+      breakdown.other += 1;
+    }
+  }
+  return breakdown;
+}
+
+export function formatSkipBreakdownSentence(
+  total: number,
+  breakdown: SkippedRowBreakdown
+): string {
+  if (total === 0) return "";
+  const noun = total === 1 ? "row" : "rows";
+  const dup =
+    breakdown.previous_duplicates === 1
+      ? "1 was an exact duplicate of a previous upload"
+      : `${breakdown.previous_duplicates} were exact duplicates of a previous upload`;
+  const blank =
+    breakdown.blank_or_title === 1
+      ? "1 was a blank or title row"
+      : `${breakdown.blank_or_title} were blank or title rows`;
+  return `Of the ${total} skipped ${noun}, ${dup} and ${blank}.`;
+}

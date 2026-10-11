@@ -2,6 +2,9 @@ import { resolveUnitCell } from "@/lib/restaurant/units";
 import type { WorkbookAi } from "./ai";
 import { classifyCostTabHeuristic } from "./ai";
 import { categoryForTab } from "./categories";
+import { resolveRecipeMapping } from "./infer-mapping";
+import { mappingHasOverlappingRoles, sanitizeColumnMapping } from "./mapping";
+import { refineCostTabType } from "./tab-type";
 import {
   importedIngredientIdsFromBatches,
   retireImportedPreparedIngredients,
@@ -19,9 +22,11 @@ import { collectRecipeLines } from "./recipes";
 import { mappingPassesSanity } from "./sanity";
 import { readWorkbookSheets } from "./sheets";
 import {
+  formatSkipBreakdownSentence,
   groupSkipReasons,
   isNoPriceReviewReason,
   skipReasonForWorkbookRow,
+  summarizeSkippedRows,
 } from "./skip";
 import { mergeUndoSnapshots } from "./snapshot";
 import {
@@ -37,6 +42,7 @@ import {
   type SkipCandidate,
   type TabImportSummary,
   type WorkbookImportResult,
+  type WorkbookMappingSource,
   type WorkbookRowCandidate,
 } from "./types";
 
@@ -112,6 +118,7 @@ async function resolveTab(input: {
   const trySaved = (type: CostTabType): SavedLayoutMap | undefined => {
     const saved = savedByKey.get(layoutKeyForSheet(sheet.headers, type));
     if (!saved || saved.tab_confidence < HIGH_TAB_CONFIDENCE) return undefined;
+    if (mappingHasOverlappingRoles(saved.column_mapping)) return undefined;
     if (
       saved.tab_type !== "ignore" &&
       !mappingPassesSanity({
@@ -127,7 +134,13 @@ async function resolveTab(input: {
     return saved;
   };
 
-  const savedHeuristic = trySaved(heuristic.type);
+  const refinedHeuristic = refineCostTabType({
+    sheetName: sheet.name,
+    headers: sheet.headers,
+    dataRows: sheet.dataRows,
+    classified: heuristic,
+  });
+  const savedHeuristic = trySaved(refinedHeuristic.type);
   if (savedHeuristic) {
     return {
       sheet,
@@ -139,10 +152,15 @@ async function resolveTab(input: {
     };
   }
 
-  const classified = await ai.classifyTab({
+  const classified = refineCostTabType({
     sheetName: sheet.name,
     headers: sheet.headers,
-    sampleRows: sheet.sampleRows,
+    dataRows: sheet.dataRows,
+    classified: await ai.classifyTab({
+      sheetName: sheet.name,
+      headers: sheet.headers,
+      sampleRows: sheet.sampleRows,
+    }),
   });
   const savedClassified = trySaved(classified.type);
   if (savedClassified) {
@@ -159,11 +177,37 @@ async function resolveTab(input: {
 
   let mapping: ColumnMapping = {};
   if (classified.type !== "ignore") {
-    mapping = await ai.mapColumns({
+    mapping = sanitizeColumnMapping(
+      await ai.mapColumns({
+        tabType: classified.type,
+        headers: sheet.headers,
+        sampleRows: sheet.sampleRows,
+      })
+    );
+  }
+
+  if (classified.type === "recipe" || classified.type === "sub_recipe") {
+    const resolved = await resolveRecipeMapping({
       tabType: classified.type,
       headers: sheet.headers,
+      dataRows: sheet.dataRows,
       sampleRows: sheet.sampleRows,
+      aiMapping: mapping,
+      mapColumns: (args) => ai.mapColumns(args),
+      currency,
+      defaultDate,
     });
+    const clean = sanitizeColumnMapping(resolved.mapping);
+    return {
+      sheet,
+      tabType: classified.type,
+      tabConfidence: classified.confidence,
+      mapping: clean,
+      mappingSource: resolved.mappingSource,
+      note: classified.notes,
+      persistMapping:
+        resolved.persistMapping && !mappingHasOverlappingRoles(clean),
+    };
   }
 
   const sane =
@@ -199,6 +243,7 @@ export async function importCostWorkbook(input: {
   locationId?: string | null;
   brandId?: string | null;
   restaurantName?: string | null;
+  skipDuplicates?: boolean;
 }): Promise<WorkbookImportResult> {
   const sheets =
     input.sheets ?? (input.buffer ? readWorkbookSheets(input.buffer) : []);
@@ -260,6 +305,7 @@ export async function importCostWorkbook(input: {
     mapping: ColumnMapping
   ) => {
     if (resolved.mappingSource === "saved" || !resolved.persistMapping) return;
+    if (mappingHasOverlappingRoles(mapping)) return;
     if (
       !mappingPassesSanity({
         tabType,
@@ -476,15 +522,15 @@ export async function importCostWorkbook(input: {
   for (const skip of merged.skipped) accountSkip(skip);
   for (const hint of merged.hints) accountReview(hint);
 
-  const usedSources = sources.filter((s) => s === "ai" || s === "saved");
-  const mappingSource: "ai" | "saved" | "mixed" =
+  const usedSources = sources.filter(
+    (s): s is MappingSource => s === "ai" || s === "saved" || s === "heuristic"
+  );
+  const mappingSource: WorkbookMappingSource =
     usedSources.length === 0
       ? "ai"
-      : usedSources.every((s) => s === "saved")
-        ? "saved"
-        : usedSources.every((s) => s === "ai")
-          ? "ai"
-          : "mixed";
+      : usedSources.every((s) => s === usedSources[0])
+        ? usedSources[0]
+        : "mixed";
 
   const batch = await input.repo.createBatch({
     companyId: input.companyId,
@@ -522,7 +568,9 @@ export async function importCostWorkbook(input: {
     batchId: batch.id,
     rows: merged.rows,
     repo: input.repo,
+    skipDuplicates: input.skipDuplicates,
   });
+  for (const skip of persistStats.skipped) accountSkip(skip);
 
   for (const fail of persistStats.failed) {
     toReview.push(fail);
@@ -589,6 +637,7 @@ export async function importCostWorkbook(input: {
   const updated = persistStats.updated;
   const review = toReview.length;
   const skippedReasons = groupSkipReasons(skipped);
+  const skippedBreakdown = summarizeSkippedRows(skipped);
   const tabCount = resolvedTabs.length;
 
   return {
@@ -624,6 +673,11 @@ export async function importCostWorkbook(input: {
     saved_count: saved,
     skipped_count: skipped.length,
     skipped_reasons: skippedReasons,
+    skipped_breakdown: skippedBreakdown,
+    skipped_plain: formatSkipBreakdownSentence(
+      skipped.length,
+      skippedBreakdown
+    ),
     menu_items_created: recipeStats.menuItemsCreated,
     recipes_created: recipeStats.recipesCreated,
     sub_recipes_created: recipeStats.subRecipesCreated,

@@ -202,6 +202,7 @@ export async function POST(req: NextRequest) {
             locationId: restaurantScope.locationId,
             brandId: restaurantScope.brandId,
             restaurantName: restaurantScope.name,
+            skipDuplicates,
           });
           return NextResponse.json(result);
         } catch (err) {

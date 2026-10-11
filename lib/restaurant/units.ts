@@ -118,6 +118,12 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   g: "g",
   gr: "g",
   grs: "g",
+  gm: "g",
+  grm: "g",
+  grms: "g",
+  grmo: "g",
+  grako: "g",
+  gram0: "g",
   gramo: "g",
   gramos: "g",
   gram: "g",
@@ -196,6 +202,8 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   portions: "portion",
   porcion: "portion",
   porciones: "portion",
+  orden: "portion",
+  ordenes: "portion",
   serving: "portion",
   servings: "portion",
   oz: "oz",
@@ -292,6 +300,41 @@ function isBareCountKey(key: string): boolean {
   return (hit === "unit" || hit === "portion") && !isPackWord(key);
 }
 
+function editDistance(left: string, right: string): number {
+  if (left === right) return 0;
+  const n = left.length;
+  const m = right.length;
+  if (n === 0) return m;
+  if (m === 0) return n;
+  const prev = new Array<number>(m + 1);
+  const curr = new Array<number>(m + 1);
+  for (let j = 0; j <= m; j++) prev[j] = j;
+  for (let i = 1; i <= n; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= m; j++) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    for (let j = 0; j <= m; j++) prev[j] = curr[j] ?? 0;
+  }
+  return prev[m] ?? Math.max(n, m);
+}
+
+/**
+ * One-edit typos of long measure words only (GRAMO→GRMO/GRAKO/GRAM0).
+ * Ambiguous hits (LITRA → litro or libra) stay unknown.
+ */
+function fuzzyMeasureUnit(folded: string): UnitOfMeasure | null {
+  if (folded.length < 4) return null;
+  const hits = new Set<UnitOfMeasure>();
+  for (const [key, unit] of Object.entries(UNIT_SYNONYMS)) {
+    if (!MEASURE_UNITS.has(unit) || key.length < 4) continue;
+    if (Math.abs(key.length - folded.length) > 1) continue;
+    if (editDistance(folded, key) === 1) hits.add(unit);
+  }
+  return hits.size === 1 ? [...hits][0] : null;
+}
+
 function escapeRegexToken(token: string): string {
   return token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -346,7 +389,9 @@ export function normalizeUnit(
     const hit = UNIT_SYNONYMS[key];
     if (hit) return hit;
   }
-  return null;
+  const folded = foldUnitKey(raw);
+  if (!folded || cellHasSizeHint(raw, folded)) return null;
+  return fuzzyMeasureUnit(folded);
 }
 
 export function parseExplicitPackSize(

@@ -14,15 +14,25 @@ import {
   damerauLevenshtein,
   implausiblePriceReason,
   importCostWorkbook,
+  classifyCostTabHeuristic,
+  collectRecipeLines,
+  inferRecipeMappingFromContent,
   isObviousTypo,
   layoutKeyForSheet,
+  mappingHasOverlappingRoles,
+  mappingSanityScore,
   mergeTypoDuplicates,
   nameMatchScore,
   normalizeCostTabType,
+  PREVIOUS_DUPLICATE_REASON,
+  readWorkbookSheets,
+  refineCostTabType,
   resolveCatalogInput,
   resolvePriceListPrice,
   resolveSubRecipeYield,
+  sanitizeColumnMapping,
   undoCostImportBatch,
+  uniquifyHeaders,
   unitsCompatible,
 } from "@/lib/restaurant/cost-workbook";
 import type { WorkbookAi } from "@/lib/restaurant/cost-workbook";
@@ -45,9 +55,12 @@ import { validateCostImportColumns } from "@/lib/restaurant/cost-import";
 import {
   buildLosRanchosCostWorkbook,
   buildLosRanchosKitchenUnitsWorkbook,
+  buildShiftedSubRecipeWorkbook,
+  buildTitleBlockRecipeWorkbook,
 } from "../fixtures/cost-workbook-los-ranchos";
 import * as XLSX from "xlsx";
 import type {
+  ColumnMapping,
   CostWorkbookCostEntry,
   GroupedRecipe,
 } from "@/lib/restaurant/cost-workbook/types";
@@ -270,6 +283,20 @@ describe("units — Spanish + lb/oz", () => {
     expect(normalizeUnit("balde")).toBe("unit");
     expect(normalizeUnit("bulto")).toBeNull();
     expect(normalizeUnit("APIO")).toBeNull();
+    expect(normalizeUnit("GRMO")).toBe("g");
+    expect(normalizeUnit("GRAKO")).toBe("g");
+    expect(normalizeUnit("GRAM0")).toBe("g");
+    expect(normalizeUnit("GRAMO")).toBe("g");
+    expect(normalizeUnit("ORDEN")).toBe("portion");
+    expect(normalizeUnit("GRAMOS")).toBe("g");
+    expect(normalizeUnit("GR")).toBe("g");
+    expect(normalizeUnit("ONZ")).toBe("oz");
+    expect(normalizeUnit("LIBRA")).toBe("lb");
+    expect(normalizeUnit("LIBRAS")).toBe("lb");
+    expect(normalizeUnit("LB")).toBe("lb");
+    expect(normalizeUnit("UNIDADES")).toBe("unit");
+    expect(normalizeUnit("PIMIENTA")).toBeNull();
+    expect(normalizeUnit("litra")).toBeNull();
     const galToL = convertUnitStr(1, "GALON", "l");
     expect(galToL.ok).toBe(true);
     if (galToL.ok) expect(galToL.value).toBeCloseTo(3.785411784, 6);
@@ -2045,5 +2072,568 @@ describe("workbook import blockers", () => {
       0
     );
     expect(store.batches[0]?.undone_at).toBeTruthy();
+  });
+});
+
+function aiMappingUnitToIngredientName(): WorkbookAi & {
+  classifyTab: ReturnType<typeof vi.fn>;
+  mapColumns: ReturnType<typeof vi.fn>;
+} {
+  const base = mockedAi();
+  const mapColumns = vi.fn(
+    async (input: Parameters<WorkbookAi["mapColumns"]>[0]) => {
+      const mapped = await base.mapColumns(input);
+      if (input.tabType !== "sub_recipe") return mapped;
+      const ingredient = input.headers.find((header) =>
+        /ingrediente/i.test(header)
+      );
+      if (!ingredient) return mapped;
+      return {
+        ...mapped,
+        unit: { column: ingredient, confidence: 0.94 },
+      };
+    }
+  );
+  return { classifyTab: base.classifyTab, mapColumns };
+}
+
+describe("recipe mapping fallback and skip breakdown", () => {
+  it("uniquifies blank and duplicate headers", () => {
+    expect(
+      uniquifyHeaders(["Receta", "Ingrediente", "Cantidad", "", "Costo"])
+    ).toEqual(["Receta", "Ingrediente", "Cantidad", "__col_3", "Costo"]);
+    expect(uniquifyHeaders(["Ingrediente", "Cantidad", "Ingrediente"])).toEqual(
+      ["Ingrediente", "Cantidad", "Ingrediente_2"]
+    );
+  });
+
+  it("detects unit / qty / ingredient columns from cell values", () => {
+    const mapping = inferRecipeMappingFromContent([
+      {
+        Receta: "Chimichurri casa",
+        Ingrediente: "Perejil",
+        Cantidad: 80,
+        __col_3: "GRMO",
+        Costo: 0.02,
+        Total: 1.6,
+      },
+      {
+        Receta: "Chimichurri casa",
+        Ingrediente: "APIO",
+        Cantidad: 40,
+        __col_3: "GRAMO",
+        Costo: 0.01,
+        Total: 0.4,
+      },
+      {
+        Receta: "Pimienta molida",
+        Ingrediente: "PIMIENTA",
+        Cantidad: 5,
+        __col_3: "GRAKO",
+        Costo: 0.2,
+        Total: 1,
+      },
+    ]);
+    expect(mapping.unit?.column).toBe("__col_3");
+    expect(mapping.quantity?.column).toBe("Cantidad");
+    expect(mapping.ingredient_name?.column).toBe("Ingrediente");
+    expect(mapping.recipe_name?.column).toBe("Receta");
+  });
+
+  it("recovers when AI maps the unit to the ingredient name", async () => {
+    const store = emptyStore();
+    store.posItemNames = ["CARNE ASADA"];
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildShiftedSubRecipeWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiMappingUnitToIngredientName(),
+      locationId: "loc-ranchos",
+      restaurantName: "Stage Test 1",
+    });
+
+    const subTab = result.tabs.find((tab) => tab.name === "SUB RECETAS 2");
+    expect(subTab?.column_mapping.unit?.column).toBe("__col_3");
+    expect(subTab?.column_mapping.ingredient_name?.column).toBe("Ingrediente");
+    expect(subTab?.mapping_source).toBe("heuristic");
+
+    expect(result.sub_recipes_created).toBeGreaterThanOrEqual(2);
+    expect(store.components.map((row) => row.name)).toEqual(
+      expect.arrayContaining(["Chimichurri casa", "YUCA FRITA"])
+    );
+    expect(result.recipes_created).toBeGreaterThanOrEqual(1);
+    expect(result.menu_items_created).toBeGreaterThanOrEqual(1);
+    expect(result.imported_count).toBeGreaterThan(0);
+
+    const packRows = result.review_items.filter(
+      (item) => item.reason === PACK_SIZE_REVIEW_REASON
+    );
+    expect(packRows.length).toBeGreaterThanOrEqual(1);
+    expect(
+      result.review_items.some((item) =>
+        /unknown unit \(APIO\)/i.test(item.reason)
+      )
+    ).toBe(false);
+    expect(
+      result.review_items.some((item) =>
+        /unknown unit \(GRMO|GRAKO\)/i.test(item.reason)
+      )
+    ).toBe(false);
+
+    expect(result.skipped_count).toBeGreaterThan(0);
+    expect(result.skipped_breakdown.previous_duplicates).toBe(0);
+    expect(result.skipped_breakdown.blank_or_title).toBeGreaterThan(0);
+    expect(result.skipped_plain).toMatch(/exact duplicate/i);
+    expect(result.skipped_plain).toMatch(/blank or title/i);
+  });
+
+  it("does not reuse a saved mapping that now fails sanity", async () => {
+    const store = emptyStore();
+    const buffer = buildShiftedSubRecipeWorkbook();
+    const sheets = readWorkbookSheets(buffer);
+    const sub = sheets.find((sheet) => sheet.name === "SUB RECETAS 2");
+    expect(sub).toBeTruthy();
+    if (!sub) return;
+
+    store.mappings.push({
+      layout_key: layoutKeyForSheet(sub.headers, "sub_recipe"),
+      tab_name: "SUB RECETAS 2",
+      tab_type: "sub_recipe",
+      column_mapping: {
+        recipe_name: { column: "Receta", confidence: 0.95 },
+        ingredient_name: { column: "Ingrediente", confidence: 0.95 },
+        quantity: { column: "Cantidad", confidence: 0.95 },
+        unit: { column: "Ingrediente", confidence: 0.95 },
+      },
+      header_fingerprint: sub.headerFingerprint,
+      tab_confidence: 0.96,
+    });
+
+    const repo = createMemoryCostWorkbookRepo(store);
+    const ai = aiMappingUnitToIngredientName();
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer,
+      currency: "USD",
+      repo,
+      ai,
+    });
+
+    const subTab = result.tabs.find((tab) => tab.name === "SUB RECETAS 2");
+    expect(subTab?.mapping_source).not.toBe("saved");
+    expect(subTab?.column_mapping.unit?.column).toBe("__col_3");
+    expect(result.sub_recipes_created).toBeGreaterThanOrEqual(2);
+    expect(ai.mapColumns).toHaveBeenCalled();
+
+    const saved = store.mappings.find(
+      (row) => row.tab_name === "SUB RECETAS 2"
+    );
+    expect(saved?.column_mapping.unit?.column).toBe("__col_3");
+    expect(saved?.column_mapping.unit?.column).not.toBe("Ingrediente");
+  });
+
+  it("never persists a mapping that still fails sanity", async () => {
+    const store = emptyStore();
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Receta", "Ingrediente", "Cantidad", "Unidad"],
+        ["Salsa", "APIO", 1, "APIO"],
+        ["Salsa", "PIMIENTA", 1, "XYZQ"],
+      ]),
+      "SUB RECETAS"
+    );
+    const repo = createMemoryCostWorkbookRepo(store);
+    await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: Buffer.from(
+        XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+      ),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    expect(store.mappings.some((row) => row.tab_name === "SUB RECETAS")).toBe(
+      false
+    );
+  });
+
+  it("counts previous-upload duplicates separately from blank rows", async () => {
+    const store = emptyStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const buffer = buildLosRanchosCostWorkbook();
+    const first = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer,
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    expect(first.skipped_breakdown.previous_duplicates).toBe(0);
+    expect(first.skipped_breakdown.blank_or_title).toBeGreaterThan(0);
+    expect(first.skipped_plain).toMatch(
+      /0 were exact duplicates of a previous upload/
+    );
+
+    const second = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer,
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+      skipDuplicates: true,
+    });
+    expect(second.skipped_breakdown.previous_duplicates).toBeGreaterThan(0);
+    expect(
+      second.skipped_reasons.some(
+        (row) => row.reason === PREVIOUS_DUPLICATE_REASON
+      )
+    ).toBe(true);
+    expect(second.skipped_plain).toMatch(/exact duplicate/i);
+    expect(second.saved_count).toBe(0);
+  });
+});
+
+const TITLE_BLOCK_HEADERS = [
+  "Articulo",
+  "Unidad Detalle",
+  "Cantidad",
+  "Costo Unitario",
+  "Total Costo",
+];
+
+function overlappingArticuloMapping() {
+  return {
+    recipe_name: { column: "Articulo", confidence: 0.9 },
+    ingredient_name: { column: "Articulo", confidence: 0.9 },
+    quantity: { column: "Cantidad", confidence: 1 },
+    output_quantity: { column: "Cantidad", confidence: 0.5 },
+    unit: { column: "Unidad Detalle", confidence: 0.9 },
+    output_unit: { column: "Unidad Detalle", confidence: 0.5 },
+  };
+}
+
+/** Staging AI: dish tabs as sub_recipe, same column used twice, menu summary as recipe. */
+function stagingLikeTitleBlockAi(): WorkbookAi & {
+  classifyTab: ReturnType<typeof vi.fn>;
+  mapColumns: ReturnType<typeof vi.fn>;
+} {
+  const classifyTab = vi.fn(
+    async (input: { sheetName: string; headers: string[] }) => {
+      const name = input.sheetName.toLowerCase();
+      const headers = input.headers.map((h) => h.toLowerCase());
+      if (headers.includes("item") && headers.includes("libra")) {
+        return { type: "price_list" as const, confidence: 0.96 };
+      }
+      if (name.includes("costos restaurante")) {
+        return { type: "recipe" as const, confidence: 0.9 };
+      }
+      if (name.includes("de la parrilla") || name.includes("menu eventos")) {
+        return { type: "category_cost" as const, confidence: 0.95 };
+      }
+      if (name.includes("sub receta") || !name.includes("receta")) {
+        return { type: "sub_recipe" as const, confidence: 0.9 };
+      }
+      return { type: "recipe" as const, confidence: 0.9 };
+    }
+  );
+
+  const mapColumns = vi.fn(
+    async (input: {
+      tabType: string;
+      headers: string[];
+    }): Promise<ColumnMapping> => {
+      if (input.tabType === "price_list") {
+        return {
+          ingredient_name: { column: "ITEM", confidence: 0.98 },
+          price_per_lb: { column: "LIBRA", confidence: 0.95 },
+          price_per_oz: { column: "ONZA", confidence: 0.95 },
+          price_per_unit: { column: "PRECIO UNITARIO", confidence: 0.7 },
+        };
+      }
+      if (input.tabType === "category_cost") {
+        return {
+          ingredient_name: { column: "Articulo", confidence: 0.95 },
+          unit: { column: "Unidad Detalle", confidence: 0.95 },
+          quantity: { column: "Cantidad", confidence: 0.95 },
+          unit_price: { column: "Costo Unitario", confidence: 0.95 },
+          total_cost: { column: "Total Costo", confidence: 0.95 },
+        };
+      }
+      if (input.headers.includes("MENU")) {
+        return {
+          recipe_name: { column: "MENU", confidence: 0.9 },
+          ingredient_name: { column: "MENU", confidence: 0.9 },
+          quantity: { column: "COSTO DEL PLATO", confidence: 0.9 },
+          unit: { column: "COSTO DEL PLATO", confidence: 0.5 },
+        };
+      }
+      return overlappingArticuloMapping();
+    }
+  );
+
+  return { classifyTab, mapColumns };
+}
+
+describe("title-block recipe layout", () => {
+  it("drops a column that was bound to two roles", () => {
+    const cleaned = sanitizeColumnMapping(overlappingArticuloMapping());
+    expect(cleaned.ingredient_name?.column).toBe("Articulo");
+    expect(cleaned.recipe_name).toBeUndefined();
+    expect(cleaned.quantity?.column).toBe("Cantidad");
+    expect(cleaned.output_quantity).toBeUndefined();
+    expect(cleaned.unit?.column).toBe("Unidad Detalle");
+    expect(cleaned.output_unit).toBeUndefined();
+    expect(mappingHasOverlappingRoles(overlappingArticuloMapping())).toBe(true);
+    expect(mappingHasOverlappingRoles(cleaned)).toBe(false);
+  });
+
+  it("fails sanity when a mapping reuses a column", () => {
+    const rows = [
+      {
+        Articulo: "Gallo pinto",
+        "Unidad Detalle": "ONZA",
+        Cantidad: 4.5,
+      },
+    ];
+    expect(
+      mappingSanityScore({
+        tabType: "sub_recipe",
+        dataRows: rows,
+        mapping: overlappingArticuloMapping(),
+        currency: "USD",
+        defaultDate: "2026-04-01",
+      })
+    ).toBe(0);
+    expect(
+      mappingSanityScore({
+        tabType: "sub_recipe",
+        dataRows: rows,
+        mapping: sanitizeColumnMapping(overlappingArticuloMapping()),
+        currency: "USD",
+        defaultDate: "2026-04-01",
+      })
+    ).toBeGreaterThan(0.5);
+  });
+
+  it("groups ingredient lines under title rows, not one recipe per line", () => {
+    const collected = collectRecipeLines({
+      tabName: "SUB RECETAS",
+      tabKind: "sub_recipe",
+      mapping: overlappingArticuloMapping(),
+      dataRows: [
+        { Articulo: "GUARNICION 1", "Unidad Detalle": "", Cantidad: "" },
+        {
+          Articulo: "Gallo pinto",
+          "Unidad Detalle": "ONZA",
+          Cantidad: 4.5,
+        },
+        {
+          Articulo: "Frijoles fritos",
+          "Unidad Detalle": "ONZA",
+          Cantidad: 2.5,
+        },
+        { Articulo: "CHIMICHURRI CASA", "Unidad Detalle": "", Cantidad: "" },
+        {
+          Articulo: "Perejil",
+          "Unidad Detalle": "GRAM0",
+          Cantidad: 80,
+        },
+      ],
+    });
+    expect(collected.groups.map((group) => group.name).sort()).toEqual([
+      "CHIMICHURRI CASA",
+      "GUARNICION 1",
+    ]);
+    expect(
+      collected.groups.find((group) => group.name === "GUARNICION 1")?.lines
+    ).toHaveLength(2);
+    expect(
+      collected.groups.find((group) => group.name === "CHIMICHURRI CASA")
+        ?.lines[0]?.ingredient_name
+    ).toBe("Perejil");
+  });
+
+  it("classifies dish tabs as recipes and the plate-cost sheet as ignore", () => {
+    const dish = refineCostTabType({
+      sheetName: "ENTRADAS INDIVIDUALES",
+      headers: TITLE_BLOCK_HEADERS,
+      dataRows: [
+        { Articulo: "TOSTONES CASA", "Unidad Detalle": "", Cantidad: "" },
+        {
+          Articulo: "Tostones",
+          "Unidad Detalle": "UNIDAD",
+          Cantidad: 3,
+        },
+        {
+          Articulo: "GUARNICION 1",
+          "Unidad Detalle": "ORDEN",
+          Cantidad: 1,
+        },
+      ],
+      classified: { type: "sub_recipe", confidence: 0.9 },
+    });
+    expect(dish.type).toBe("recipe");
+
+    const summary = refineCostTabType({
+      sheetName: "COSTOS RESTAURANTE 2026",
+      headers: ["MENU", "COSTO DEL PLATO", "FOOD COST", "PRECIO VENTA"],
+      dataRows: [{ MENU: "TOSTONES CASA", "COSTO DEL PLATO": 2.29 }],
+      classified: { type: "recipe", confidence: 0.9 },
+    });
+    expect(summary.type).toBe("ignore");
+
+    const grill = classifyCostTabHeuristic({
+      sheetName: "DE LA PARRILLA",
+      headers: TITLE_BLOCK_HEADERS,
+      sampleRows: [
+        {
+          Articulo: "Carne para asar",
+          "Unidad Detalle": "ONZA",
+          Cantidad: 6,
+          "Costo Unitario": 0.3,
+          "Total Costo": 1.8,
+        },
+      ],
+    });
+    expect(grill.type).toBe("category_cost");
+
+    const sub = classifyCostTabHeuristic({
+      sheetName: "SUB RECETAS 2",
+      headers: TITLE_BLOCK_HEADERS,
+      sampleRows: [],
+    });
+    expect(sub.type).toBe("sub_recipe");
+  });
+
+  it("imports sub-recipes, recipes and menu items from the title-block workbook", async () => {
+    const store = emptyStore();
+    store.posItemNames = ["CARNE ASADA"];
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildTitleBlockRecipeWorkbook(),
+      currency: "USD",
+      repo,
+      ai: stagingLikeTitleBlockAi(),
+      locationId: "loc-ranchos",
+      restaurantName: "Stage Test 1",
+    });
+
+    expect(result.sub_recipes_created).toBeGreaterThan(0);
+    expect(result.recipes_created).toBeGreaterThan(0);
+    expect(result.menu_items_created).toBeGreaterThan(0);
+
+    expect(store.components.map((row) => row.name).sort()).toEqual([
+      "CHIMICHURRI CASA",
+      "GUARNICION 1",
+    ]);
+    expect(store.menuItems.map((row) => row.name).sort()).toEqual([
+      "CARNE ASADA",
+      "TOSTONES CASA",
+    ]);
+    expect(store.components.map((row) => row.name)).not.toContain(
+      "Gallo pinto"
+    );
+    expect(store.components.map((row) => row.name)).not.toContain("Perejil");
+
+    const carne = store.recipes.find((row) => row.name === "CARNE ASADA");
+    expect(carne).toBeTruthy();
+    const chimichurri = store.components.find(
+      (row) => row.name === "CHIMICHURRI CASA"
+    );
+    expect(
+      store.recipeInputs.some(
+        (row) =>
+          row.recipe_id === carne?.id &&
+          row.component_id === chimichurri?.id &&
+          row.input_type === "component"
+      )
+    ).toBe(true);
+
+    const entradas = result.tabs.find(
+      (tab) => tab.name === "ENTRADAS INDIVIDUALES"
+    );
+    expect(entradas?.type).toBe("recipe");
+    expect(entradas?.column_mapping.ingredient_name?.column).toBe("Articulo");
+    expect(entradas?.column_mapping.recipe_name).toBeUndefined();
+    expect(entradas?.column_mapping.unit?.column).toBe("Unidad Detalle");
+    expect(entradas?.column_mapping.output_unit).toBeUndefined();
+
+    const costos = result.tabs.find(
+      (tab) => tab.name === "COSTOS RESTAURANTE 2026"
+    );
+    expect(costos?.type).toBe("ignore");
+
+    const grill = result.tabs.find((tab) => tab.name === "DE LA PARRILLA");
+    expect(grill?.type).toBe("category_cost");
+    expect(grill?.imported_count).toBeGreaterThan(0);
+
+    const bodega = result.tabs.find((tab) => tab.name === "BODEGA VIRTUAL");
+    expect(bodega?.type).toBe("price_list");
+    expect(result.imported_count).toBeGreaterThan(0);
+
+    expect(
+      result.review_items.some(
+        (item) => item.reason === PACK_SIZE_REVIEW_REASON
+      )
+    ).toBe(true);
+    expect(
+      result.review_items.some((item) =>
+        /unknown unit \(GRAM0\)/i.test(item.reason)
+      )
+    ).toBe(false);
+
+    for (const mapping of store.mappings) {
+      expect(mappingHasOverlappingRoles(mapping.column_mapping)).toBe(false);
+    }
+  });
+
+  it("does not reuse or persist a saved overlapping column mapping", async () => {
+    const store = emptyStore();
+    const buffer = buildTitleBlockRecipeWorkbook();
+    const sheets = readWorkbookSheets(buffer);
+    const sub = sheets.find((sheet) => sheet.name === "SUB RECETAS");
+    expect(sub).toBeTruthy();
+    if (!sub) return;
+
+    store.mappings.push({
+      layout_key: layoutKeyForSheet(sub.headers, "sub_recipe"),
+      tab_name: "SUB RECETAS",
+      tab_type: "sub_recipe",
+      column_mapping: overlappingArticuloMapping(),
+      header_fingerprint: sub.headerFingerprint,
+      tab_confidence: 0.96,
+    });
+
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer,
+      currency: "USD",
+      repo,
+      ai: stagingLikeTitleBlockAi(),
+    });
+
+    const subTab = result.tabs.find((tab) => tab.name === "SUB RECETAS");
+    expect(subTab?.mapping_source).not.toBe("saved");
+    expect(subTab?.column_mapping.recipe_name).toBeUndefined();
+    expect(subTab?.column_mapping.ingredient_name?.column).toBe("Articulo");
+    expect(result.sub_recipes_created).toBeGreaterThan(0);
+
+    const saved = store.mappings.find((row) => row.tab_name === "SUB RECETAS");
+    expect(saved).toBeTruthy();
+    expect(mappingHasOverlappingRoles(saved?.column_mapping ?? {})).toBe(false);
+    expect(saved?.column_mapping.recipe_name).toBeUndefined();
   });
 });

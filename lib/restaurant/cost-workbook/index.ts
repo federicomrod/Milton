@@ -4,6 +4,7 @@ export {
   headerFingerprint,
   layoutKeyForHeaders,
   layoutKeyForSheet,
+  uniquifyHeaders,
 } from "./header";
 export {
   classifyCostTabHeuristic,
@@ -18,7 +19,17 @@ export {
   resolvePriceListPrice,
   totalsMatch,
 } from "./parse";
-export { groupSkipReasons, skipReasonForWorkbookRow } from "./skip";
+export {
+  formatSkipBreakdownSentence,
+  groupSkipReasons,
+  PREVIOUS_DUPLICATE_REASON,
+  skipReasonForWorkbookRow,
+  summarizeSkippedRows,
+} from "./skip";
+export {
+  inferRecipeMappingFromContent,
+  pickMappingSampleRows,
+} from "./infer-mapping";
 export { nameMatchScore, normalizeMatchName } from "./names";
 export {
   canAutoLinkNames,
@@ -31,7 +42,14 @@ export { resolveSubRecipeYield } from "./recipes";
 export { resolveCatalogInput } from "./persist-recipes";
 export { implausiblePriceReason } from "./plausibility";
 export { categoryForTab, resolveCategoryName } from "./categories";
-export { collectRecipeLines } from "./recipes";
+export { collectRecipeLines, isTitleRow } from "./recipes";
+export { mappingHasOverlappingRoles, sanitizeColumnMapping } from "./mapping";
+export {
+  isMenuSummaryTab,
+  isSubRecipeTabName,
+  looksLikeTitleBlockRecipes,
+  refineCostTabType,
+} from "./tab-type";
 export {
   firstSheetRawRows,
   isWorkbookLimitError,
@@ -57,7 +75,7 @@ export {
   PICK_RESTAURANT_ERROR_ES,
   resolveUploadRestaurantScope,
 } from "./scope";
-export { mappingPassesSanity } from "./sanity";
+export { mappingPassesSanity, mappingSanityScore } from "./sanity";
 export type {
   CostTabType,
   WorkbookImportResult,

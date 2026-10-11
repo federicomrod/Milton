@@ -17,6 +17,7 @@ import type {
   SupplierIngredientSnapshot,
   TabImportSummary,
   UndoSnapshot,
+  WorkbookMappingSource,
   WorkbookRowCandidate,
 } from "./types";
 import { emptyUndoSnapshot } from "./types";
@@ -31,7 +32,7 @@ export interface CreateBatchInput {
   importedCount: number;
   reviewCount: number;
   tabSummaries: TabImportSummary[];
-  mappingSource: "ai" | "saved" | "mixed";
+  mappingSource: WorkbookMappingSource;
   createdBy?: string | null;
 }
 

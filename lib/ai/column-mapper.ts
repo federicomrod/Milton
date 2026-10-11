@@ -63,6 +63,7 @@ export async function suggestColumnMappings(input: {
   sampleRows?: Record<string, unknown>[];
   targetFields: TargetField[];
   tableName?: string;
+  extraInstructions?: string;
 }): Promise<ColumnMapperResult> {
   const headers = input.headers;
   const sampleRows = input.sampleRows ?? [];
@@ -90,7 +91,7 @@ Your task: for each target field, choose the BEST matching file column by name a
 Rules:
 - Match by semantic meaning, not literal text. File columns and sample values may be in any language (e.g. German, French, Spanish, Portuguese). Map by meaning: e.g. "Datum"/"Date"/"Fecha" -> date, "Betrag"/"Amount"/"Montant" -> amount, "Kunde"/"Customer"/"Cliente" -> customer.
 - Prefer strong semantic matches across languages; then same-language name similarity; then use sample value shape (numbers, dates, IDs).
-- Each file column may be used at most once.
+- Each file column may be used at most once. One column fills one role; never map the same file column to two target fields.
 - Return valid JSON only, with a single key "mappings" whose value is an array of objects.
 - Each object must have: originalColumn (string, one of the file columns or ""), standardField (string, one of the target field names or "unmapped"), confidence (0-1), dataType ("string"|"number"|"date"|"currency"), transformation ("none"|"date_conversion"|"currency_conversion"|"text_cleanup").
 - For unmapped target fields use originalColumn: "" and standardField: "<fieldName>".
@@ -110,7 +111,7 @@ File columns: ${headers.join(", ")}
 
 Sample rows (first 3):
 ${JSON.stringify(sampleRows.slice(0, 3), null, 2)}
-
+${input.extraInstructions ? `\n${input.extraInstructions.trim()}\n` : ""}
 Return JSON: { "mappings": [ { "originalColumn": "...", "standardField": "...", "confidence": 0.9, "dataType": "string", "transformation": "none" }, ... ] }`;
 
   const completion = await openai.chat.completions.create({

@@ -42,6 +42,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { withLocationParam } from "@/components/restaurant/RestaurantShell";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { useAskMiltonController } from "@/components/restaurant/shell/ask-milton-controller";
 
 const MiltonUiLang = createContext<PreferredLanguage>("es");
 function useMiltonLang(): PreferredLanguage {
@@ -443,6 +444,7 @@ function SourceBadge({ source }: { source: "openai" | "deterministic" }) {
 
 function ChatWorkspace() {
   const lang = useMiltonLang();
+  const { draft } = useAskMiltonController();
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
@@ -460,6 +462,10 @@ function ChatWorkspace() {
   useEffect(() => {
     setTurns([]);
   }, [locationId]);
+
+  useEffect(() => {
+    if (draft) setInput(draft);
+  }, [draft]);
 
   // Auto-scroll on new turns.
   useEffect(() => {

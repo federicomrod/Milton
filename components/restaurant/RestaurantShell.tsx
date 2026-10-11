@@ -55,6 +55,10 @@ import {
   AskMiltonButton,
   AskMiltonDrawer,
 } from "@/components/restaurant/shell/AskMiltonDrawer";
+import {
+  AskMiltonControllerProvider,
+  useAskMiltonController,
+} from "@/components/restaurant/shell/ask-milton-controller";
 
 export { withLocationParam, withShellParams };
 
@@ -156,7 +160,6 @@ function RestaurantShellBody({
   pathname: string;
   lang: PreferredLanguage;
 }) {
-  const [askOpen, setAskOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   if (typeof window !== "undefined") {
@@ -166,6 +169,48 @@ function RestaurantShellBody({
   const shellParams = {
     locationId: currentLocationId,
   };
+
+  return (
+    <AskMiltonControllerProvider>
+      <RestaurantShellChrome
+        locations={locations}
+        currentLocationId={currentLocationId}
+        pathname={pathname}
+        lang={lang}
+        mobileOpen={mobileOpen}
+        setMobileOpen={setMobileOpen}
+        shellParams={shellParams}
+      >
+        {children}
+      </RestaurantShellChrome>
+    </AskMiltonControllerProvider>
+  );
+}
+
+function RestaurantShellChrome({
+  children,
+  locations,
+  currentLocationId,
+  pathname,
+  lang,
+  mobileOpen,
+  setMobileOpen,
+  shellParams,
+}: {
+  children: React.ReactNode;
+  locations: RestaurantShellLocation[];
+  currentLocationId: string | null;
+  pathname: string;
+  lang: PreferredLanguage;
+  mobileOpen: boolean;
+  setMobileOpen: (open: boolean | ((v: boolean) => boolean)) => void;
+  shellParams: { locationId: string | null };
+}) {
+  const {
+    open: askOpen,
+    onOpenChange: setAskOpen,
+    openAskMilton,
+  } = useAskMiltonController();
 
   return (
     <div className="min-h-screen flex bg-muted/30">
@@ -178,7 +223,7 @@ function RestaurantShellBody({
         />
         <SidebarNav pathname={pathname} shellParams={shellParams} lang={lang} />
         <div className="px-3 pb-3 space-y-3">
-          <AskMiltonButton lang={lang} onClick={() => setAskOpen(true)} />
+          <AskMiltonButton lang={lang} onClick={() => openAskMilton()} />
           <SidebarFooter />
         </div>
       </aside>
@@ -196,7 +241,7 @@ function RestaurantShellBody({
             <button
               type="button"
               className="rounded-full bg-primary text-primary-foreground h-8 px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
-              onClick={() => setAskOpen(true)}
+              onClick={() => openAskMilton()}
             >
               {t(lang, "Ask Milton", "Preguntar a Milton")}
             </button>

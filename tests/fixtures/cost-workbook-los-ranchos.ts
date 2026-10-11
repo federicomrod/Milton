@@ -3,8 +3,9 @@ import * as XLSX from "xlsx";
 /**
  * Synthetic Los Ranchos-shaped workbook. No client data.
  * Price list (ambiguous PRECIO UNITARIO) + recipe + sub-recipe + two
- * Spanish category tabs with title rows above headers, one unknown unit,
- * one qty×price mismatch, and one price-list row that fails row checks.
+ * Spanish category tabs with title rows above headers, typo pairs,
+ * LIBRA/ONZA unit cases, an implausible per-gram price, and prepared
+ * items that also appear on SUB RECETAS.
  */
 export function buildLosRanchosCostWorkbook(opts?: {
   carneLb?: number;
@@ -22,6 +23,16 @@ export function buildLosRanchosCostWorkbook(opts?: {
     ["Sal", "", "", 0.15],
     ["Cebolla", 1.8, 0.1125, ""],
     ["Aceite rancio", "", "", "n/a"],
+    ["ACEITE DE OLIVA", "", 0.3556, ""],
+    ["ACEITE DE OIVA", 0.3556, "", ""],
+    ["ZANAHORIA", "", 0.0169, ""],
+    ["ZANAHORA", "", 0.0494, ""],
+    ["AGUACATE", "", 0.55, ""],
+    ["AGUCATE", "", "", 0.55],
+    ["YUCA FRITA", 0.8, 0.05, ""],
+    ["TOSTONES", 0.7, 0.0438, ""],
+    ["Yuca", 0.8, 0.05, ""],
+    ["Platano", 0.6, 0.0375, ""],
   ];
   XLSX.utils.book_append_sheet(
     wb,
@@ -35,6 +46,8 @@ export function buildLosRanchosCostWorkbook(opts?: {
     ["Receta", "Ingrediente", "Cantidad", "Unidad"],
     ["Salsa ranchera", "Tomate", 2, "lb"],
     ["Salsa ranchera", "Cebolla", 0.5, "kg"],
+    ["YUCA FRITA", "Yuca", 2, "lb"],
+    ["TOSTONES", "Platano", 2, "lb"],
   ];
   XLSX.utils.book_append_sheet(
     wb,
@@ -48,6 +61,7 @@ export function buildLosRanchosCostWorkbook(opts?: {
     ["Carne para asar", 8, "oz", "por porción"],
     ["Tomate", 2, "oz", ""],
     ["Salsa ranchera", 1, "unidad", "prep"],
+    ["ZANAHORA", 1, "oz", "typo of zanahoria"],
   ];
   XLSX.utils.book_append_sheet(
     wb,
@@ -69,6 +83,9 @@ export function buildLosRanchosCostWorkbook(opts?: {
     ["VEGETALES"],
     ["Producto", "Unidad", "Precio", "Cantidad", "Total"],
     ["Lechuga", "unidad", 0.6, 12, 7.2],
+    ["Apio", "gramo", 0.08, 1, 0.08],
+    ["ADEREZO", "unidad", 1.2, 1, 1.2],
+    ["ADERESO", "unidad", 1.2, 1, 1.2],
     ["TOTAL", "", "", "", 7.2],
   ];
   XLSX.utils.book_append_sheet(

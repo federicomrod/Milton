@@ -71,6 +71,7 @@ export function createMemoryCostWorkbookRepo(
           default_unit: input.defaultUnit,
           current_unit_cost: input.currentUnitCost,
           currency: input.currency,
+          category: input.category ?? null,
         };
         store.ingredients.push(row);
         return row;
@@ -85,6 +86,34 @@ export function createMemoryCostWorkbookRepo(
           ing.currency = update.currency;
         }
       }
+    },
+    async updateIngredientCategories(updates) {
+      for (const update of updates) {
+        const ing = store.ingredients.find((i) => i.id === update.ingredientId);
+        if (ing) ing.category = update.category;
+      }
+    },
+    async restoreIngredients(rows) {
+      for (const row of rows) {
+        if (store.ingredients.some((item) => item.id === row.id)) continue;
+        store.ingredients.push({
+          id: row.id,
+          name: row.name,
+          default_unit: row.defaultUnit,
+          current_unit_cost: row.currentUnitCost,
+          currency: row.currency,
+          category: row.category,
+        });
+      }
+    },
+    async detachIngredientInputs(_companyId, ingredientIds) {
+      const remove = new Set(ingredientIds);
+      store.recipeInputs = store.recipeInputs.filter(
+        (row) => !row.ingredient_id || !remove.has(row.ingredient_id)
+      );
+      store.componentRecipeInputs = store.componentRecipeInputs.filter(
+        (row) => !row.ingredient_id || !remove.has(row.ingredient_id)
+      );
     },
     async deleteIngredients(_companyId, ids) {
       const remove = new Set(ids);
@@ -128,6 +157,7 @@ export function createMemoryCostWorkbookRepo(
           (e) => e.company_id === companyId && e.id === entry.id
         );
         if (idx >= 0) store.costEntries[idx] = { ...entry };
+        else store.costEntries.push({ ...entry });
       }
     },
     async deleteCostEntriesByIds(companyId, ids) {

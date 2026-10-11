@@ -65,6 +65,7 @@ export interface WorkbookRowCandidate {
   currency: string;
   notes: string | null;
   raw: Record<string, unknown>;
+  category?: string | null;
 }
 
 export interface ReviewCandidate {
@@ -140,6 +141,7 @@ export interface CostWorkbookIngredient {
   default_unit: string | null;
   current_unit_cost: number;
   currency: string;
+  category?: string | null;
 }
 
 export interface CostWorkbookCostEntry {
@@ -207,6 +209,22 @@ export interface UndoSnapshot {
     id: string;
     inputs: RecipeInputSnapshot[];
   }>;
+  deleted_ingredients: DeletedIngredientSnapshot[];
+  deleted_cost_entries: CostWorkbookCostEntry[];
+  ingredient_categories_before: Array<{
+    id: string;
+    category: string | null;
+  }>;
+}
+
+export interface DeletedIngredientSnapshot {
+  id: string;
+  company_id: string;
+  name: string;
+  category: string | null;
+  default_unit: string | null;
+  current_unit_cost: number;
+  currency: string;
 }
 
 export function emptyUndoSnapshot(): UndoSnapshot {
@@ -222,6 +240,9 @@ export function emptyUndoSnapshot(): UndoSnapshot {
     created_mapping_ids: [],
     updated_recipes: [],
     updated_components: [],
+    deleted_ingredients: [],
+    deleted_cost_entries: [],
+    ingredient_categories_before: [],
   };
 }
 

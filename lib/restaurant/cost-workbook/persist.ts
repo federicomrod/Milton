@@ -135,6 +135,7 @@ export async function persistSavedRows(input: {
       defaultUnit: item.defaultUnit,
       currentUnitCost: item.row.unit_price,
       currency: input.currency,
+      category: item.row.category ?? null,
     });
   }
   const created = await input.repo.createIngredients(toCreate);
@@ -219,6 +220,35 @@ export async function persistSavedRows(input: {
       currency: value.currency,
     }))
   );
+
+  const categoryUpdates: Array<{
+    ingredientId: string;
+    category: string;
+  }> = [];
+  for (const item of ready) {
+    const ingredient = byName.get(item.name);
+    const nextCategory = item.row.category?.trim();
+    if (!ingredient || !nextCategory) continue;
+    if (ingredient.category?.trim()) continue;
+    if (changes.created_ingredient_ids.includes(ingredient.id)) continue;
+    if (
+      changes.ingredient_categories_before.some(
+        (row) => row.id === ingredient.id
+      )
+    ) {
+      continue;
+    }
+    changes.ingredient_categories_before.push({
+      id: ingredient.id,
+      category: ingredient.category ?? null,
+    });
+    categoryUpdates.push({
+      ingredientId: ingredient.id,
+      category: nextCategory,
+    });
+    ingredient.category = nextCategory;
+  }
+  await input.repo.updateIngredientCategories(categoryUpdates);
 
   return {
     ingredientsCreated: created.length,

@@ -10,10 +10,16 @@ import type { IngredientCostEntry } from "@/types/restaurant-costing";
 import {
   approveReviewItem,
   buildImportHeadline,
+  damerauLevenshtein,
+  implausiblePriceReason,
   importCostWorkbook,
+  isObviousTypo,
   layoutKeyForSheet,
+  mergeTypoDuplicates,
   normalizeCostTabType,
+  resolvePriceListPrice,
   undoCostImportBatch,
+  unitsCompatible,
 } from "@/lib/restaurant/cost-workbook";
 import type { WorkbookAi } from "@/lib/restaurant/cost-workbook";
 import { inferDateFromName } from "@/lib/restaurant/cost-workbook/date";
@@ -290,16 +296,16 @@ describe("smart workbook import", () => {
     expect(ai.classifyTab).toHaveBeenCalled();
     expect(ai.mapColumns).toHaveBeenCalled();
     expect(result.headline).toBe(
-      "Saved 6, updated 0 from 3 tabs. 2 need a look. 2 skipped."
+      "Saved 13, updated 0 from 3 tabs. 5 need a look. 7 skipped."
     );
-    expect(result.imported_count).toBe(6);
-    expect(result.saved_count).toBe(6);
-    expect(result.review_count).toBe(2);
-    expect(result.skipped_count).toBe(2);
+    expect(result.imported_count).toBe(13);
+    expect(result.saved_count).toBe(13);
+    expect(result.review_count).toBe(5);
+    expect(result.skipped_count).toBe(7);
     expect(result.recipe_tab_count).toBe(2);
     expect(result.menu_items_created).toBe(1);
     expect(result.recipes_created).toBe(1);
-    expect(result.sub_recipes_created).toBe(1);
+    expect(result.sub_recipes_created).toBe(3);
     expect(result.default_currency).toBe("USD");
     expect(result.file_month).toBe("2026-04-01");
     expect(result.mapping_source).toBe("ai");
@@ -307,7 +313,14 @@ describe("smart workbook import", () => {
       result.review_items.some((item) => item.reason.includes("column unsure"))
     ).toBe(false);
     expect(result.skipped_reasons.map((row) => row.reason).sort()).toEqual(
-      ["header/total row", "no price"].sort()
+      [
+        "header/total row",
+        "merged typo of ACEITE DE OLIVA",
+        "merged typo of ADEREZO",
+        "merged typo of ZANAHORIA",
+        "no price",
+        "prepared item / sub-recipe",
+      ].sort()
     );
 
     const recipeTab = result.tabs.find((t) => t.type === "recipe");
@@ -318,21 +331,28 @@ describe("smart workbook import", () => {
     const names = store.ingredients.map((i) => i.name).sort();
     expect(names).toEqual(
       [
+        "ACEITE DE OLIVA",
+        "ADEREZO",
+        "AGUACATE",
+        "AGUCATE",
         "Carne para asar",
         "Cebolla",
         "Lechuga",
+        "Platano",
         "Pollo entero",
         "Sal",
         "Tomate",
+        "Yuca",
+        "ZANAHORIA",
       ].sort()
     );
     expect(store.menuItems.map((item) => item.name)).toEqual(["Carne Asada"]);
-    expect(store.components.map((item) => item.name)).toEqual([
-      "Salsa ranchera",
-    ]);
+    expect(store.components.map((item) => item.name).sort()).toEqual(
+      ["Salsa ranchera", "TOSTONES", "YUCA FRITA"].sort()
+    );
     expect(store.recipes).toHaveLength(1);
-    expect(store.recipeInputs).toHaveLength(3);
-    expect(store.costEntries).toHaveLength(6);
+    expect(store.recipeInputs).toHaveLength(4);
+    expect(store.costEntries).toHaveLength(13);
     expect(store.costEntries.every((e) => e.currency === "USD")).toBe(true);
     expect(store.costEntries.every((e) => e.cost_date === "2026-04-01")).toBe(
       true
@@ -352,7 +372,36 @@ describe("smart workbook import", () => {
     const reasons = store.reviewItems.map((r) => r.reason);
     expect(reasons.some((r) => r.includes("unknown unit"))).toBe(true);
     expect(reasons.some((r) => r.includes("doesn't match total"))).toBe(true);
+    expect(reasons.some((r) => r.includes("implausible price"))).toBe(true);
+    expect(
+      reasons.some((r) => r.includes("looks like a typo of AGUACATE"))
+    ).toBe(true);
     expect(store.reviewItems.every((r) => r.status === "pending")).toBe(true);
+
+    const oliva = store.ingredients.find((i) => i.name === "ACEITE DE OLIVA");
+    const olivaCost = store.costEntries.find(
+      (e) => e.ingredient_id === oliva?.id
+    );
+    expect(olivaCost?.unit).toBe("oz");
+    expect(olivaCost?.unit_cost).toBeCloseTo(0.3556);
+    expect(
+      store.ingredients.some((i) => /yuca frita|tostones/i.test(i.name))
+    ).toBe(false);
+    expect(
+      store.ingredients.find((i) => i.name === "Pollo entero")?.category
+    ).toBe("Carnes");
+    expect(store.ingredients.find((i) => i.name === "Lechuga")?.category).toBe(
+      "Vegetales"
+    );
+    expect(store.ingredients.find((i) => i.name === "ADEREZO")?.category).toBe(
+      "Vegetales"
+    );
+    const zanahoria = store.ingredients.find((i) => i.name === "ZANAHORIA");
+    expect(
+      store.recipeInputs.some(
+        (row) => row.ingredient_id === zanahoria?.id && row.quantity === 1
+      )
+    ).toBe(true);
   });
 
   it("reuses saved mappings only for tabs that passed sanity", async () => {
@@ -395,9 +444,9 @@ describe("smart workbook import", () => {
     );
     expect(classified).toEqual(["Carnes"]);
     expect(second.mapping_source).toBe("mixed");
-    expect(store.costEntries).toHaveLength(12);
+    expect(store.costEntries).toHaveLength(26);
     expect(second.costs_updated).toBe(0);
-    expect(second.saved_count).toBe(6);
+    expect(second.saved_count).toBe(13);
   });
 
   it("undo removes one batch's cost rows and auto-created ingredients", async () => {
@@ -411,14 +460,14 @@ describe("smart workbook import", () => {
       repo,
       ai: mockedAi(),
     });
-    expect(store.costEntries.length).toBe(6);
-    expect(store.ingredients.length).toBe(6);
+    expect(store.costEntries.length).toBe(13);
+    expect(store.ingredients.length).toBe(13);
     expect(store.menuItems.length).toBe(1);
-    expect(store.components.length).toBe(1);
+    expect(store.components.length).toBe(3);
 
     const undone = await undoCostImportBatch(repo, COMPANY, result.batch_id);
     expect(undone.ok).toBe(true);
-    if (undone.ok) expect(undone.deleted).toBe(6);
+    if (undone.ok) expect(undone.deleted).toBe(13);
     expect(store.costEntries).toHaveLength(0);
     expect(store.ingredients).toHaveLength(0);
     expect(store.menuItems).toHaveLength(0);
@@ -549,15 +598,15 @@ describe("workbook import blockers", () => {
 
     expect(april.file_month).toBe("2026-04-01");
     expect(may.file_month).toBe("2026-05-01");
-    expect(store.costEntries).toHaveLength(12);
+    expect(store.costEntries).toHaveLength(26);
     expect(
       store.costEntries.filter((e) => e.cost_date.startsWith("2026-04"))
-    ).toHaveLength(6);
+    ).toHaveLength(13);
     expect(
       store.costEntries.filter((e) => e.cost_date.startsWith("2026-05"))
-    ).toHaveLength(6);
+    ).toHaveLength(13);
     expect(may.costs_updated).toBe(0);
-    expect(may.saved_count).toBe(6);
+    expect(may.saved_count).toBe(13);
   });
 
   it("leaves an old CSV import row untouched", async () => {
@@ -736,15 +785,15 @@ describe("workbook import blockers", () => {
     );
     expect(
       result.saved_count + result.review_count + result.skipped_count
-    ).toBe(10);
+    ).toBe(25);
     expect(result.saved_count).toBe(store.costEntries.length);
     expect(result.review_count).toBe(store.reviewItems.length);
     expect(result.headline).toBe(
       `Saved ${result.saved_count}, updated ${result.costs_updated} from ${result.tab_count} tabs. ${result.review_count} need a look. ${result.skipped_count} skipped.`
     );
-    expect(result.review_count).toBe(3);
-    expect(result.saved_count).toBe(5);
-    expect(result.skipped_count).toBe(2);
+    expect(result.review_count).toBe(6);
+    expect(result.saved_count).toBe(12);
+    expect(result.skipped_count).toBe(7);
   });
 
   it("rejects non-numeric approve body fields", async () => {
@@ -839,8 +888,8 @@ describe("workbook recipes, POS links, and cockpit COGS", () => {
     });
     const priceTab = result.tabs.find((tab) => tab.type === "price_list");
     expect(priceTab?.column_mapping.price_per_unit?.confidence).toBe(0.7);
-    expect(priceTab?.imported_count).toBe(4);
-    expect(priceTab?.review_count).toBe(0);
+    expect(priceTab?.imported_count).toBe(10);
+    expect(priceTab?.review_count).toBe(2);
     expect(
       result.review_items.filter((item) =>
         item.reason.includes("column unsure")
@@ -945,5 +994,282 @@ describe("workbook recipes, POS links, and cockpit COGS", () => {
     const src = readFileSync("lib/restaurant/profitability-server.ts", "utf8");
     expect(src).not.toMatch(/asOfDate/);
     expect(src).toContain("calculateAllMenuItemCosts(costingData)");
+  });
+});
+
+describe("workbook typo merge, units, categories, prepared items", () => {
+  it("matches obvious typos and compatible units only", () => {
+    expect(damerauLevenshtein("zanahora", "zanahoria")).toBe(1);
+    expect(isObviousTypo("ACEITE DE OIVA", "ACEITE DE OLIVA")).toBe(true);
+    expect(isObviousTypo("ACIETE", "Aceite")).toBe(true);
+    expect(isObviousTypo("ACEOTE", "Aceite")).toBe(true);
+    expect(isObviousTypo("AGUCATE", "AGUACATE")).toBe(true);
+    expect(isObviousTypo("ADERESO", "ADEREZO")).toBe(true);
+    expect(isObviousTypo("ZANAHORA", "ZANAHORIA")).toBe(true);
+    expect(isObviousTypo("ARROI", "Arroz")).toBe(true);
+    expect(isObviousTypo("Tomate", "Carne para asar")).toBe(false);
+    expect(unitsCompatible("lb", "oz")).toBe(true);
+    expect(unitsCompatible("oz", "unit")).toBe(false);
+  });
+
+  it("takes the unit from the LIBRA or ONZA column the price sits in", () => {
+    expect(
+      resolvePriceListPrice({ priceLb: 0.3556, priceOz: null, priceUnit: null })
+    ).toEqual({ ok: true, unit: "lb", unitPrice: 0.3556 });
+    expect(
+      resolvePriceListPrice({ priceLb: null, priceOz: 0.3556, priceUnit: null })
+    ).toEqual({ ok: true, unit: "oz", unitPrice: 0.3556 });
+    expect(
+      resolvePriceListPrice({ priceLb: 4.8, priceOz: 0.3, priceUnit: null }).ok
+    ).toBe(true);
+    expect(
+      resolvePriceListPrice({ priceLb: 4.8, priceOz: 4.8, priceUnit: null }).ok
+    ).toBe(false);
+    expect(
+      resolvePriceListPrice({ priceLb: null, priceOz: null, priceUnit: 0.15 })
+    ).toEqual({ ok: true, unit: "unit", unitPrice: 0.15 });
+  });
+
+  it("holds an APIO-style per-gram price and allows $0", () => {
+    expect(implausiblePriceReason("Apio", "g", 0.08)).toMatch(/implausible/);
+    expect(implausiblePriceReason("Apio", "gramo", 0.08)).toMatch(
+      /implausible/
+    );
+    expect(implausiblePriceReason("AGUA", "oz", 0)).toBeNull();
+    expect(implausiblePriceReason("Yuca", "oz", 0.0502)).toBeNull();
+  });
+
+  it("merges typo rows and hints when units are incompatible", () => {
+    const merged = mergeTypoDuplicates(
+      [
+        {
+          tabName: "Lista",
+          rowIndex: 1,
+          ingredient_name: "ZANAHORIA",
+          quantity: 1,
+          unit: "oz",
+          total_cost: 0.0169,
+          unit_price: 0.0169,
+          cost_date: "2026-04-01",
+          supplier_name: null,
+          currency: "USD",
+          notes: null,
+          raw: {},
+        },
+        {
+          tabName: "Lista",
+          rowIndex: 2,
+          ingredient_name: "ZANAHORA",
+          quantity: 1,
+          unit: "oz",
+          total_cost: 0.0494,
+          unit_price: 0.0494,
+          cost_date: "2026-04-01",
+          supplier_name: null,
+          currency: "USD",
+          notes: null,
+          raw: {},
+        },
+        {
+          tabName: "Lista",
+          rowIndex: 3,
+          ingredient_name: "AGUACATE",
+          quantity: 1,
+          unit: "oz",
+          total_cost: 0.55,
+          unit_price: 0.55,
+          cost_date: "2026-04-01",
+          supplier_name: null,
+          currency: "USD",
+          notes: null,
+          raw: {},
+        },
+        {
+          tabName: "Lista",
+          rowIndex: 4,
+          ingredient_name: "AGUCATE",
+          quantity: 1,
+          unit: "unit",
+          total_cost: 0.55,
+          unit_price: 0.55,
+          cost_date: "2026-04-01",
+          supplier_name: null,
+          currency: "USD",
+          notes: null,
+          raw: {},
+        },
+      ],
+      []
+    );
+    expect(merged.rows.map((row) => row.ingredient_name).sort()).toEqual(
+      ["AGUACATE", "AGUCATE", "ZANAHORIA"].sort()
+    );
+    expect(merged.aliases.get("zanahora")).toBe("ZANAHORIA");
+    expect(
+      merged.hints.some((row) =>
+        row.reason.includes("looks like a typo of AGUACATE")
+      )
+    ).toBe(true);
+  });
+
+  it("merges workbook typos into handmade Aceite / Arroz and leaves their names", async () => {
+    const store = emptyStore();
+    store.ingredients.push(
+      {
+        id: "ing-aceite",
+        name: "Aceite",
+        default_unit: "lb",
+        current_unit_cost: 1,
+        currency: "USD",
+        category: "Aceites",
+      },
+      {
+        id: "ing-arroz",
+        name: "Arroz",
+        default_unit: "lb",
+        current_unit_cost: 0.4,
+        currency: "USD",
+        category: "Granos",
+      }
+    );
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+        ["ACIETE", 2.2, 0.1375, ""],
+        ["ARROI", 0.5, 0.0313, ""],
+      ]),
+      "Lista de precios"
+    );
+    const repo = createMemoryCostWorkbookRepo(store);
+    await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: Buffer.from(
+        XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+      ),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    expect(store.ingredients.map((item) => item.name).sort()).toEqual(
+      ["Aceite", "Arroz"].sort()
+    );
+    expect(
+      store.ingredients.find((item) => item.id === "ing-aceite")?.category
+    ).toBe("Aceites");
+    expect(store.costEntries).toHaveLength(2);
+  });
+
+  it("does not overwrite a handmade category", async () => {
+    const store = emptyStore();
+    store.ingredients.push({
+      id: "ing-lechuga",
+      name: "Lechuga",
+      default_unit: "unit",
+      current_unit_cost: 0.4,
+      currency: "USD",
+      category: "Greens",
+    });
+    const repo = createMemoryCostWorkbookRepo(store);
+    await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosCostWorkbook(),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    expect(
+      store.ingredients.find((item) => item.id === "ing-lechuga")?.category
+    ).toBe("Greens");
+  });
+
+  it("converts a previously imported prepared item and undo restores it", async () => {
+    const store = emptyStore();
+    store.ingredients.push({
+      id: "ing-yuca-frita",
+      name: "YUCA FRITA",
+      default_unit: "oz",
+      current_unit_cost: 0.05,
+      currency: "USD",
+      category: null,
+    });
+    store.costEntries.push({
+      id: "cost-yuca-frita",
+      company_id: COMPANY,
+      ingredient_id: "ing-yuca-frita",
+      supplier_id: null,
+      source_type: "import",
+      source_id: "batch-old",
+      cost_date: "2026-03-01",
+      quantity: 1,
+      unit: "oz",
+      total_cost: 0.05,
+      unit_cost: 0.05,
+      normalized_unit: "oz",
+      normalized_unit_cost: 0.05,
+      currency: "USD",
+      notes: null,
+      created_at: "2026-03-01T00:00:00.000Z",
+    });
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosCostWorkbook(),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    expect(store.ingredients.some((item) => item.id === "ing-yuca-frita")).toBe(
+      false
+    );
+    expect(store.components.some((item) => item.name === "YUCA FRITA")).toBe(
+      true
+    );
+    const undone = await undoCostImportBatch(repo, COMPANY, result.batch_id);
+    expect(undone.ok).toBe(true);
+    expect(store.ingredients.some((item) => item.id === "ing-yuca-frita")).toBe(
+      true
+    );
+    expect(store.costEntries.some((row) => row.id === "cost-yuca-frita")).toBe(
+      true
+    );
+    expect(store.components.some((item) => item.name === "YUCA FRITA")).toBe(
+      false
+    );
+  });
+
+  it("never converts a handmade ingredient into a sub-recipe", async () => {
+    const store = emptyStore();
+    store.ingredients.push({
+      id: "ing-hand-tostones",
+      name: "TOSTONES",
+      default_unit: "unit",
+      current_unit_cost: 1,
+      currency: "USD",
+      category: "Prep",
+    });
+    const repo = createMemoryCostWorkbookRepo(store);
+    await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosCostWorkbook(),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    expect(
+      store.ingredients.find((item) => item.id === "ing-hand-tostones")?.name
+    ).toBe("TOSTONES");
+    expect(
+      store.ingredients.find((item) => item.id === "ing-hand-tostones")
+        ?.category
+    ).toBe("Prep");
+    expect(store.components.some((item) => item.name === "TOSTONES")).toBe(
+      true
+    );
   });
 });

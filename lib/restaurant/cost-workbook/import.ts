@@ -1,21 +1,25 @@
 import { normalizeUnit } from "@/lib/restaurant/units";
 import type { WorkbookAi } from "./ai";
 import { classifyCostTabHeuristic } from "./ai";
+import { categoryForTab } from "./categories";
+import { retireImportedPreparedIngredients } from "./convert";
+import { inferWorkbookDate } from "./date";
+import { mergeTypoDuplicates } from "./duplicates";
 import { layoutKeyForSheet } from "./header";
 import { evaluateWorkbookRow } from "./parse";
 import { dedupeWorkbookRows, persistSavedRows } from "./persist";
 import { linkMenuItemsToPos, persistWorkbookRecipes } from "./persist-recipes";
 import { mapPool, WORKBOOK_AI_CONCURRENCY } from "./pool";
+import { matchesPreparedName, preparedNamesFromGroups } from "./prepared";
 import type { CostWorkbookRepo } from "./repo";
 import { collectRecipeLines } from "./recipes";
+import { mappingPassesSanity } from "./sanity";
+import { readWorkbookSheets } from "./sheets";
 import {
   groupSkipReasons,
   isNoPriceReviewReason,
   skipReasonForWorkbookRow,
 } from "./skip";
-import { inferWorkbookDate } from "./date";
-import { mappingPassesSanity } from "./sanity";
-import { readWorkbookSheets } from "./sheets";
 import { mergeUndoSnapshots } from "./snapshot";
 import {
   HIGH_TAB_CONFIDENCE,
@@ -211,6 +215,15 @@ export async function importCostWorkbook(input: {
     })
   );
 
+  const existingIngredients = await input.repo.listIngredients(input.companyId);
+  const existingCategories = [
+    ...new Set(
+      existingIngredients
+        .map((item) => item.category)
+        .filter((value): value is string => Boolean(value?.trim()))
+    ),
+  ];
+
   const toSave: WorkbookRowCandidate[] = [];
   const toReview: ReviewCandidate[] = [];
   const skipped: SkipCandidate[] = [];
@@ -248,58 +261,73 @@ export async function importCostWorkbook(input: {
     });
   };
 
-  for (const resolved of resolvedTabs) {
+  const processRecipeTab = (resolved: ResolvedTab) => {
     const { sheet, tabType, tabConfidence, mapping, mappingSource, note } =
       resolved;
-    sources.push(mappingSource);
+    recipeTabCount += 1;
+    const collected = collectRecipeLines({
+      tabName: sheet.name,
+      tabKind: tabType === "sub_recipe" ? "sub_recipe" : "recipe",
+      dataRows: sheet.dataRows,
+      mapping,
+    });
+    recipeGroups.push(...collected.groups);
+    toReview.push(...collected.review);
+    skipped.push(...collected.skipped);
+    rememberMapping(resolved, tabType, mapping);
+    tabSummaries.push({
+      name: sheet.name,
+      type: tabType,
+      confidence: tabConfidence,
+      mapping_source: mappingSource,
+      column_mapping: mapping,
+      imported_count: collected.groups.reduce(
+        (sum, group) => sum + group.lines.length,
+        0
+      ),
+      review_count: collected.review.length,
+      skipped_count: collected.skipped.length,
+      skipped_reasons: groupSkipReasons(collected.skipped),
+      preview: sheet.sampleRows,
+      note:
+        note ??
+        (tabType === "sub_recipe" ? "sub-recipe / prep item" : "recipe"),
+    });
+  };
 
-    if (tabType === "ignore") {
+  for (const resolved of resolvedTabs) {
+    sources.push(resolved.mappingSource);
+    if (resolved.tabType === "ignore") {
       tabSummaries.push({
-        name: sheet.name,
-        type: tabType,
-        confidence: tabConfidence,
-        mapping_source: mappingSource,
-        column_mapping: mapping,
+        name: resolved.sheet.name,
+        type: resolved.tabType,
+        confidence: resolved.tabConfidence,
+        mapping_source: resolved.mappingSource,
+        column_mapping: resolved.mapping,
         imported_count: 0,
         review_count: 0,
         skipped_count: 0,
         skipped_reasons: [],
-        preview: sheet.sampleRows,
+        preview: resolved.sheet.sampleRows,
         note: "skipped",
       });
       continue;
     }
+    if (resolved.tabType === "recipe" || resolved.tabType === "sub_recipe") {
+      processRecipeTab(resolved);
+    }
+  }
 
-    if (tabType === "recipe" || tabType === "sub_recipe") {
-      recipeTabCount += 1;
-      const collected = collectRecipeLines({
-        tabName: sheet.name,
-        tabKind: tabType,
-        dataRows: sheet.dataRows,
-        mapping,
-      });
-      recipeGroups.push(...collected.groups);
-      toReview.push(...collected.review);
-      skipped.push(...collected.skipped);
-      rememberMapping(resolved, tabType, mapping);
-      tabSummaries.push({
-        name: sheet.name,
-        type: tabType,
-        confidence: tabConfidence,
-        mapping_source: mappingSource,
-        column_mapping: mapping,
-        imported_count: collected.groups.reduce(
-          (sum, group) => sum + group.lines.length,
-          0
-        ),
-        review_count: collected.review.length,
-        skipped_count: collected.skipped.length,
-        skipped_reasons: groupSkipReasons(collected.skipped),
-        preview: sheet.sampleRows,
-        note:
-          note ??
-          (tabType === "sub_recipe" ? "sub-recipe / prep item" : "recipe"),
-      });
+  const preparedNames = preparedNamesFromGroups(recipeGroups);
+
+  for (const resolved of resolvedTabs) {
+    const { sheet, tabType, tabConfidence, mapping, mappingSource, note } =
+      resolved;
+    if (
+      tabType === "ignore" ||
+      tabType === "recipe" ||
+      tabType === "sub_recipe"
+    ) {
       continue;
     }
 
@@ -307,6 +335,7 @@ export async function importCostWorkbook(input: {
     let imported = 0;
     let review = 0;
     const tabSkips: SkipCandidate[] = [];
+    const category = categoryForTab(tabType, sheet.name, existingCategories);
 
     for (const [i, row] of sheet.dataRows.entries()) {
       const skipReason = skipReasonForWorkbookRow(tabType, row, mapping);
@@ -338,7 +367,23 @@ export async function importCostWorkbook(input: {
         defaultDate: fileMonth,
       });
       if (result.ok) {
-        toSave.push(result.value);
+        const prepared = matchesPreparedName(
+          result.value.ingredient_name,
+          preparedNames
+        );
+        if (prepared) {
+          tabSkips.push({
+            tabName: sheet.name,
+            rowIndex: i,
+            reason: "prepared item / sub-recipe",
+            raw: row,
+          });
+          continue;
+        }
+        toSave.push({
+          ...result.value,
+          category,
+        });
         imported += 1;
         continue;
       }
@@ -372,8 +417,7 @@ export async function importCostWorkbook(input: {
     });
   }
 
-  const deduped = dedupeWorkbookRows(toSave);
-  for (const skip of deduped.skipped) {
+  const accountSkip = (skip: ReviewCandidate | SkipCandidate) => {
     skipped.push({
       tabName: skip.tabName,
       rowIndex: skip.rowIndex,
@@ -388,7 +432,20 @@ export async function importCostWorkbook(input: {
         skipped.filter((row) => row.tabName === tab.name)
       );
     }
-  }
+  };
+
+  const accountReview = (item: ReviewCandidate) => {
+    toReview.push(item);
+    const tab = tabSummaries.find((t) => t.name === item.tabName);
+    if (tab) tab.review_count += 1;
+  };
+
+  const deduped = dedupeWorkbookRows(toSave);
+  for (const skip of deduped.skipped) accountSkip(skip);
+
+  const merged = mergeTypoDuplicates(deduped.rows, existingIngredients);
+  for (const skip of merged.skipped) accountSkip(skip);
+  for (const hint of merged.hints) accountReview(hint);
 
   const usedSources = sources.filter((s) => s === "ai" || s === "saved");
   const mappingSource: "ai" | "saved" | "mixed" =
@@ -405,18 +462,30 @@ export async function importCostWorkbook(input: {
     filename: input.filename,
     fileMonth,
     currency: input.currency,
-    importedCount: deduped.rows.length,
+    importedCount: merged.rows.length,
     reviewCount: toReview.length,
     tabSummaries,
     mappingSource,
     createdBy: input.createdBy ?? null,
   });
 
+  const retired = await retireImportedPreparedIngredients({
+    companyId: input.companyId,
+    preparedNames,
+    repo: input.repo,
+  });
+  if (
+    retired.deleted_ingredients.length > 0 ||
+    retired.deleted_cost_entries.length > 0
+  ) {
+    await input.repo.updateBatchSnapshot(input.companyId, batch.id, retired);
+  }
+
   const persistStats = await persistSavedRows({
     companyId: input.companyId,
     currency: input.currency,
     batchId: batch.id,
-    rows: deduped.rows,
+    rows: merged.rows,
     repo: input.repo,
   });
 
@@ -435,6 +504,7 @@ export async function importCostWorkbook(input: {
     currency: input.currency,
     groups: recipeGroups,
     repo: input.repo,
+    aliases: merged.aliases,
   });
   toReview.push(...recipeStats.review);
   skipped.push(...recipeStats.skipped);
@@ -473,7 +543,7 @@ export async function importCostWorkbook(input: {
   }
 
   const snapshot = mergeUndoSnapshots(
-    persistStats.changes,
+    mergeUndoSnapshots(retired, persistStats.changes),
     recipeStats.changes
   );
   await input.repo.updateBatchSnapshot(input.companyId, batch.id, snapshot);
@@ -537,6 +607,22 @@ export async function undoCostImportBatch(
 
   const snap = batch.undo_snapshot;
 
+  if ((snap.deleted_ingredients ?? []).length > 0) {
+    await repo.restoreIngredients(
+      snap.deleted_ingredients.map((row) => ({
+        id: row.id,
+        companyId: companyId,
+        name: row.name,
+        category: row.category,
+        defaultUnit: row.default_unit,
+        currentUnitCost: row.current_unit_cost,
+        currency: row.currency,
+      }))
+    );
+  }
+  if ((snap.deleted_cost_entries ?? []).length > 0) {
+    await repo.restoreCostEntries(companyId, snap.deleted_cost_entries);
+  }
   for (const recipe of snap.updated_recipes ?? []) {
     await repo.replaceRecipeInputs(companyId, recipe.id, recipe.inputs);
   }
@@ -577,6 +663,14 @@ export async function undoCostImportBatch(
         ingredientId: row.id,
         currentUnitCost: row.current_unit_cost,
         currency: row.currency,
+      }))
+    );
+  }
+  if ((snap.ingredient_categories_before ?? []).length > 0) {
+    await repo.updateIngredientCategories(
+      snap.ingredient_categories_before.map((row) => ({
+        ingredientId: row.id,
+        category: row.category,
       }))
     );
   }

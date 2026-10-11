@@ -7,6 +7,7 @@ import {
 } from "@/lib/restaurant/currency";
 import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
 import { numberAt, textAt } from "./cells";
+import { implausiblePriceReason } from "./plausibility";
 import { skipReasonForWorkbookRow } from "./skip";
 import type {
   ColumnMapping,
@@ -163,36 +164,19 @@ function evaluatePriceListRow(
 
   if (!name) return fail("Missing ingredient name");
 
-  const priceLb = numberAt(row, mapping, "price_per_lb");
-  const priceOz = numberAt(row, mapping, "price_per_oz");
-  const priceUnit = numberAt(row, mapping, "price_per_unit");
+  const resolved = resolvePriceListPrice({
+    priceLb: numberAt(row, mapping, "price_per_lb"),
+    priceOz: numberAt(row, mapping, "price_per_oz"),
+    priceUnit: numberAt(row, mapping, "price_per_unit"),
+  });
+  if (!resolved.ok) return fail(resolved.reason);
 
-  if (
-    priceLb !== null &&
-    priceOz !== null &&
-    priceLb > 0 &&
-    priceOz > 0 &&
-    !pricesConvert(priceLb, "lb", priceOz, "oz")
-  ) {
-    return fail(
-      "quantity x price doesn't match total (lb/oz prices don't convert)"
-    );
-  }
-
-  let unit = "";
-  let unitPrice = 0;
-  if (priceLb !== null && priceLb > 0) {
-    unit = "lb";
-    unitPrice = priceLb;
-  } else if (priceOz !== null && priceOz > 0) {
-    unit = "oz";
-    unitPrice = priceOz;
-  } else if (priceUnit !== null && priceUnit > 0) {
-    unit = "unit";
-    unitPrice = priceUnit;
-  } else {
-    return fail("Missing unit price");
-  }
+  const implausible = implausiblePriceReason(
+    name,
+    resolved.unit,
+    resolved.unitPrice
+  );
+  if (implausible) return fail(implausible);
 
   return {
     ok: true,
@@ -200,11 +184,52 @@ function evaluatePriceListRow(
       ...baseCandidate(tabName, rowIndex, row, currency, defaultDate),
       ingredient_name: name,
       quantity: 1,
-      unit,
-      unit_price: unitPrice,
-      total_cost: unitPrice,
+      unit: resolved.unit,
+      unit_price: resolved.unitPrice,
+      total_cost: resolved.unitPrice,
     },
   };
+}
+
+/**
+ * On LIBRA / ONZA price-list tabs the unit is the column the price
+ * actually sits in. Never guess lb vs oz. PRECIO UNITARIO is per-each
+ * only when neither mass column has a price.
+ */
+export function resolvePriceListPrice(input: {
+  priceLb: number | null;
+  priceOz: number | null;
+  priceUnit: number | null;
+}):
+  | { ok: true; unit: "lb" | "oz" | "unit"; unitPrice: number }
+  | { ok: false; reason: string } {
+  const priceLb = input.priceLb;
+  const priceOz = input.priceOz;
+  const priceUnit = input.priceUnit;
+  const hasLb = priceLb !== null && priceLb > 0;
+  const hasOz = priceOz !== null && priceOz > 0;
+  const hasEach = priceUnit !== null && priceUnit > 0;
+
+  if (hasLb && hasOz && priceLb !== null && priceOz !== null) {
+    if (!pricesConvert(priceLb, "lb", priceOz, "oz")) {
+      return {
+        ok: false,
+        reason:
+          "quantity x price doesn't match total (lb/oz prices don't convert)",
+      };
+    }
+    return { ok: true, unit: "lb", unitPrice: priceLb };
+  }
+  if (hasLb && priceLb !== null) {
+    return { ok: true, unit: "lb", unitPrice: priceLb };
+  }
+  if (hasOz && priceOz !== null) {
+    return { ok: true, unit: "oz", unitPrice: priceOz };
+  }
+  if (hasEach && priceUnit !== null) {
+    return { ok: true, unit: "unit", unitPrice: priceUnit };
+  }
+  return { ok: false, reason: "Missing unit price" };
 }
 
 function evaluateQuantityCostRow(
@@ -293,6 +318,17 @@ function evaluateQuantityCostRow(
     resolvedPrice < 0
   ) {
     return fail("Missing cost", { ingredient_name: name, unit: unitRaw });
+  }
+
+  const implausible = implausiblePriceReason(name, unitRaw, resolvedPrice);
+  if (implausible) {
+    return fail(implausible, {
+      ingredient_name: name,
+      unit: unitRaw,
+      unit_price: resolvedPrice,
+      total_cost: resolvedTotal,
+      quantity,
+    });
   }
 
   return {

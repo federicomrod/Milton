@@ -1,6 +1,7 @@
 import {
   emptyUndoSnapshot,
   type CostWorkbookCostEntry,
+  type DeletedIngredientSnapshot,
   type UndoSnapshot,
 } from "./types";
 
@@ -76,7 +77,30 @@ export function mergeUndoSnapshots(
       ...start.updated_components,
       ...extra.updated_components,
     ],
+    deleted_ingredients: [
+      ...(start.deleted_ingredients ?? []),
+      ...(extra.deleted_ingredients ?? []),
+    ],
+    deleted_cost_entries: [
+      ...(start.deleted_cost_entries ?? []),
+      ...(extra.deleted_cost_entries ?? []),
+    ],
+    ingredient_categories_before: uniqueById([
+      ...(start.ingredient_categories_before ?? []),
+      ...(extra.ingredient_categories_before ?? []),
+    ]),
   };
+}
+
+function uniqueById<T extends { id: string }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const row of rows) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    out.push(row);
+  }
+  return out;
 }
 
 export function snapshotFromUnknown(value: unknown): UndoSnapshot {
@@ -134,6 +158,32 @@ export function snapshotFromUnknown(value: unknown): UndoSnapshot {
             Boolean(
               row && typeof row === "object" && "id" in row && "inputs" in row
             )
+        )
+      : [],
+    deleted_ingredients: Array.isArray(raw.deleted_ingredients)
+      ? raw.deleted_ingredients.filter(
+          (row): row is DeletedIngredientSnapshot =>
+            Boolean(
+              row && typeof row === "object" && "id" in row && "name" in row
+            )
+        )
+      : [],
+    deleted_cost_entries: Array.isArray(raw.deleted_cost_entries)
+      ? raw.deleted_cost_entries.filter((row): row is CostWorkbookCostEntry =>
+          Boolean(
+            row &&
+            typeof row === "object" &&
+            "id" in row &&
+            "ingredient_id" in row
+          )
+        )
+      : [],
+    ingredient_categories_before: Array.isArray(
+      raw.ingredient_categories_before
+    )
+      ? raw.ingredient_categories_before.filter(
+          (row): row is UndoSnapshot["ingredient_categories_before"][number] =>
+            Boolean(row && typeof row === "object" && "id" in row)
         )
       : [],
   };

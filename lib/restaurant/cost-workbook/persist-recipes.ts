@@ -1,4 +1,5 @@
 import { nameKey } from "@/lib/restaurant/cost-import";
+import { resolveAliasName } from "./duplicates";
 import {
   AUTO_NAME_SCORE,
   REVIEW_NAME_SCORE,
@@ -21,10 +22,14 @@ import { emptyUndoSnapshot } from "./types";
 export function resolveCatalogInput(
   lineName: string,
   ingredients: Array<{ id: string; name: string }>,
-  components: Array<{ id: string; name: string }>
+  components: Array<{ id: string; name: string }>,
+  aliases: Map<string, string> = new Map()
 ): { ok: true; input: RecipeInputSnapshot } | { ok: false; reason: string } {
+  const resolvedName = resolveAliasName(lineName, aliases);
   const exactComponent = components.find(
-    (item) => nameKey(item.name) === nameKey(lineName)
+    (item) =>
+      nameKey(item.name) === nameKey(lineName) ||
+      nameKey(item.name) === nameKey(resolvedName)
   );
   if (exactComponent) {
     return {
@@ -40,7 +45,9 @@ export function resolveCatalogInput(
     };
   }
   const exactIngredient = ingredients.find(
-    (item) => nameKey(item.name) === nameKey(lineName)
+    (item) =>
+      nameKey(item.name) === nameKey(lineName) ||
+      nameKey(item.name) === nameKey(resolvedName)
   );
   if (exactIngredient) {
     return {
@@ -56,9 +63,13 @@ export function resolveCatalogInput(
     };
   }
 
-  const componentHit = bestNameMatch(lineName, components, (item) => item.name);
+  const componentHit = bestNameMatch(
+    resolvedName,
+    components,
+    (item) => item.name
+  );
   const ingredientHit = bestNameMatch(
-    lineName,
+    resolvedName,
     ingredients,
     (item) => item.name
   );
@@ -114,6 +125,7 @@ export async function persistWorkbookRecipes(input: {
   currency: string;
   groups: GroupedRecipe[];
   repo: CostWorkbookRepo;
+  aliases?: Map<string, string>;
 }): Promise<{
   menuItemsCreated: number;
   recipesCreated: number;
@@ -160,7 +172,8 @@ export async function persistWorkbookRecipes(input: {
       const resolved = resolveCatalogInput(
         line.ingredient_name,
         liveIngredients,
-        liveComponents
+        liveComponents,
+        input.aliases ?? new Map()
       );
       if (!resolved.ok) {
         review.push({

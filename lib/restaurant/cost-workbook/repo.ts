@@ -50,6 +50,24 @@ export interface CostWorkbookRepo {
       currency: string;
     }>
   ): Promise<void>;
+  updateIngredientCategories(
+    updates: Array<{ ingredientId: string; category: string | null }>
+  ): Promise<void>;
+  restoreIngredients(
+    rows: Array<{
+      id: string;
+      companyId: string;
+      name: string;
+      category: string | null;
+      defaultUnit: string | null;
+      currentUnitCost: number;
+      currency: string;
+    }>
+  ): Promise<void>;
+  detachIngredientInputs(
+    companyId: string,
+    ingredientIds: string[]
+  ): Promise<void>;
   deleteIngredients(companyId: string, ids: string[]): Promise<number>;
   findWorkbookCostEntries(input: {
     companyId: string;
@@ -174,6 +192,7 @@ function asIngredient(row: Record<string, unknown>): CostWorkbookIngredient {
     default_unit: (row.default_unit as string | null) ?? null,
     current_unit_cost: Number(row.current_unit_cost ?? 0),
     currency: String(row.currency ?? "USD"),
+    category: (row.category as string | null) ?? null,
   };
 }
 
@@ -261,7 +280,7 @@ export function createSupabaseCostWorkbookRepo(
     async listIngredients(companyId) {
       const { data, error } = await supabase
         .from("ingredients")
-        .select("id, name, default_unit, current_unit_cost, currency")
+        .select("id, name, category, default_unit, current_unit_cost, currency")
         .eq("company_id", companyId);
       if (error) throw new Error(error.message);
       return ((data ?? []) as Record<string, unknown>[]).map(asIngredient);
@@ -283,7 +302,9 @@ export function createSupabaseCostWorkbookRepo(
               currency: input.currency,
             }))
           )
-          .select("id, name, default_unit, current_unit_cost, currency");
+          .select(
+            "id, name, category, default_unit, current_unit_cost, currency"
+          );
         if (error) throw new Error(error.message);
         created.push(
           ...((data ?? []) as Record<string, unknown>[]).map(asIngredient)
@@ -305,6 +326,52 @@ export function createSupabaseCostWorkbookRepo(
           if (error) throw new Error(error.message);
         })
       );
+    },
+
+    async updateIngredientCategories(updates) {
+      await Promise.all(
+        updates.map(async (update) => {
+          const { error } = await supabase
+            .from("ingredients")
+            .update({ category: update.category })
+            .eq("id", update.ingredientId);
+          if (error) throw new Error(error.message);
+        })
+      );
+    },
+
+    async restoreIngredients(rows) {
+      if (rows.length === 0) return;
+      await mapChunks(rows, async (chunk) => {
+        const { error } = await supabase.from("ingredients").insert(
+          chunk.map((row) => ({
+            id: row.id,
+            company_id: row.companyId,
+            name: row.name,
+            category: row.category,
+            default_unit: row.defaultUnit ?? "unit",
+            current_unit_cost: row.currentUnitCost,
+            currency: row.currency,
+          }))
+        );
+        if (error) throw new Error(error.message);
+      });
+    },
+
+    async detachIngredientInputs(_companyId, ingredientIds) {
+      if (ingredientIds.length === 0) return;
+      await mapChunks(ingredientIds, async (chunk) => {
+        const recipeErr = await supabase
+          .from("menu_recipe_inputs")
+          .delete()
+          .in("ingredient_id", chunk);
+        if (recipeErr.error) throw new Error(recipeErr.error.message);
+        const componentErr = await supabase
+          .from("component_recipe_inputs")
+          .delete()
+          .in("ingredient_id", chunk);
+        if (componentErr.error) throw new Error(componentErr.error.message);
+      });
     },
 
     async deleteIngredients(companyId, ids) {
@@ -371,12 +438,22 @@ export function createSupabaseCostWorkbookRepo(
       await Promise.all(
         entries.map(async (entry) => {
           const { id, created_at: _createdAt, ...patch } = entry;
-          const { error } = await supabase
+          const { data, error } = await supabase
             .from("ingredient_cost_entries")
             .update(patch)
             .eq("company_id", companyId)
-            .eq("id", id);
+            .eq("id", id)
+            .select("id");
           if (error) throw new Error(error.message);
+          if ((data ?? []).length > 0) return;
+          const { error: insertError } = await supabase
+            .from("ingredient_cost_entries")
+            .insert({
+              ...patch,
+              id,
+              created_at: entry.created_at,
+            });
+          if (insertError) throw new Error(insertError.message);
         })
       );
     },

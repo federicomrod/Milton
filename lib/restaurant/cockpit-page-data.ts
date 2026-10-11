@@ -46,10 +46,7 @@ import {
   type CockpitPeriod,
   type CockpitPeriodPreset,
 } from "@/lib/restaurant/cockpit-period";
-import {
-  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
-  type PreferredLanguage,
-} from "@/lib/restaurant/language";
+import { type PreferredLanguage } from "@/lib/restaurant/language";
 import {
   buildCockpitHeadline,
   buildCockpitKpiStripModel,
@@ -425,10 +422,12 @@ export interface SalesAreaModel {
   displayCurrency: string;
 }
 
-async function resolveCockpitScope(
-  requestedLocationId?: string
-): Promise<
-  | { ok: true; supabase: Awaited<ReturnType<typeof createClient>>; scope: CockpitScope }
+async function resolveCockpitScope(requestedLocationId?: string): Promise<
+  | {
+      ok: true;
+      supabase: Awaited<ReturnType<typeof createClient>>;
+      scope: CockpitScope;
+    }
   | { ok: false; reason: SampleReason }
 > {
   try {
@@ -496,7 +495,10 @@ function executiveFromSnapshot(
   );
   if (extras.costPending) kpis.cost_pending = true;
   const headline = buildCockpitHeadline(snapshot, lang);
-  const comparisonLabel = cockpitComparisonPhrases(snapshot.period, lang).chipLabel;
+  const comparisonLabel = cockpitComparisonPhrases(
+    snapshot.period,
+    lang
+  ).chipLabel;
   const recipeCoverage = recipeCoverageFromProfitability(extras.profitability);
   const ingredientsTotal = extras.profitability?.setupCounts.ingredients_count;
   const ingredientsWithout =
@@ -516,7 +518,8 @@ function executiveFromSnapshot(
       extras.profitability?.kpis.menu_items_without_recipe ?? 0,
     recipeCoveragePct: recipeCoverage,
     costCoveragePct: snapshot.cost.coverage_pct,
-    allTimeCostCoveragePct: extras.profitability?.kpis.cost_coverage_pct ?? null,
+    allTimeCostCoveragePct:
+      extras.profitability?.kpis.cost_coverage_pct ?? null,
     ingredientsWithCost,
     ingredientsTotal: ingredientsTotal ?? null,
     lastSyncedAt: extras.lastSyncedAt,
@@ -623,7 +626,12 @@ async function loadCockpitExecutiveFastUncached(
     rollupSource = "rpc";
     rowCount = rpc.rollup.row_count;
     cockpit = rollupToCockpitSalesAggregate(rpc.rollup, { timezone, currency });
-  } else if (rpc.rollup && rpc.rollup.row_count === 0 && !rpc.missing && !rpc.error) {
+  } else if (
+    rpc.rollup &&
+    rpc.rollup.row_count === 0 &&
+    !rpc.missing &&
+    !rpc.error
+  ) {
     return {
       mode: "sample",
       reason: "no_sales",
@@ -838,7 +846,7 @@ async function loadSalesExplorerModelUncached(
   logCockpitTiming("sales-explorer", {
     totalMs: Date.now() - started,
     rows: explorerRows.length,
-    pages: pos.pages,
+    pages: pos.pages ?? 0,
     payloadBytes: Buffer.byteLength(JSON.stringify(explorerRows)),
     location: resolved.scope.locationId,
   });

@@ -127,9 +127,9 @@ describe("cockpit POS rollup converters", () => {
     expect(parseCockpitPosRollup(null)).toBeNull();
     expect(parseCockpitPosRollup("nope")).toBeNull();
     expect(isMissingRpcError({ code: "PGRST202" })).toBe(true);
-    expect(
-      isMissingRpcError({ message: "Could not find the function" })
-    ).toBe(true);
+    expect(isMissingRpcError({ message: "Could not find the function" })).toBe(
+      true
+    );
     expect(isMissingRpcError({ message: "permission denied" })).toBe(false);
   });
 });

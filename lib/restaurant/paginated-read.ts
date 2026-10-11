@@ -40,9 +40,9 @@ export interface FetchAllRowsResult<T> {
   truncated: boolean;
   error: { message?: string } | null;
   /** HTTP pages issued (including empty trailing pages in a parallel wave). */
-  pages: number;
+  pages?: number;
   /** Wall time for the whole walk. */
-  elapsedMs: number;
+  elapsedMs?: number;
 }
 
 /**

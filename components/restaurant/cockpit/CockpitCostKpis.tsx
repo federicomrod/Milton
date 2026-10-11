@@ -4,10 +4,7 @@
 // sales numbers so the strip is not blocked on the POS page-walk.
 
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
-import {
-  buildCockpitKpiStripModel,
-  type CockpitPeriodSnapshot,
-} from "@/lib/restaurant/cockpit-executive";
+import { buildCockpitKpiStripModel } from "@/lib/restaurant/cockpit-executive";
 import { loadPeriodCostSnapshot } from "@/lib/restaurant/cockpit-page-data";
 import type { CockpitPeriod } from "@/lib/restaurant/cockpit-period";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
@@ -50,18 +47,16 @@ export async function CockpitCostKpis({
     return <CockpitCostKpisSkeleton />;
   }
   const model = buildCockpitKpiStripModel(snapshot, lang, week);
-  return <CockpitCostKpiCells snapshot={snapshot} lang={lang} model={model} />;
+  return <CockpitCostKpiCells lang={lang} model={model} />;
 }
 
 function CockpitCostKpiCells({
   model,
   lang,
 }: {
-  snapshot: CockpitPeriodSnapshot;
   lang: PreferredLanguage;
   model: ReturnType<typeof buildCockpitKpiStripModel>;
 }) {
-  void snapshot;
   return (
     <>
       {model.gross_margin_pct.available ? (

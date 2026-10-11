@@ -16,7 +16,9 @@ describe("migration 031 — cockpit POS rollup", () => {
     expect(sql).toContain("idx_pos_sales_items_company_location_date");
     expect(sql).toContain("idx_pos_sales_items_company_id");
     expect(sql).toContain("CREATE OR REPLACE FUNCTION public.pos_line_is_tip");
-    expect(sql).toContain("CREATE OR REPLACE FUNCTION public.cockpit_pos_rollup");
+    expect(sql).toContain(
+      "CREATE OR REPLACE FUNCTION public.cockpit_pos_rollup"
+    );
     expect(sql).toContain("SECURITY INVOKER");
     expect(sql).toContain("'propina'");
     expect(sql).toContain("'sugerida'");
@@ -29,6 +31,8 @@ describe("migration 031 — cockpit POS rollup", () => {
     expect(sql).toContain("manually into the Supabase SQL Editor");
     expect(sql).toContain("r1-staging");
     expect(sql).toContain("after 030");
-    expect(sql).toContain("GRANT EXECUTE ON FUNCTION public.cockpit_pos_rollup");
+    expect(sql).toContain(
+      "GRANT EXECUTE ON FUNCTION public.cockpit_pos_rollup"
+    );
   });
 });

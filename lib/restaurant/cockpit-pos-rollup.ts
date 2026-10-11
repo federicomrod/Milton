@@ -98,12 +98,14 @@ export const EMPTY_PERIOD_COST: PeriodCostKpis = {
   gross_margin_pct: null,
 };
 
-export function isMissingRpcError(error: {
-  message?: string;
-  code?: string;
-  details?: string;
-  hint?: string;
-} | null): boolean {
+export function isMissingRpcError(
+  error: {
+    message?: string;
+    code?: string;
+    details?: string;
+    hint?: string;
+  } | null
+): boolean {
   if (!error) return false;
   const hay = [error.message, error.code, error.details, error.hint]
     .filter((part): part is string => typeof part === "string")
@@ -447,7 +449,10 @@ export function buildCockpitPeriodSnapshotFromRollup(
     rollup.period_to
   );
   const currentDates = enumerateDates(period.current.from, period.current.to);
-  const previousDates = enumerateDates(period.previous.from, period.previous.to);
+  const previousDates = enumerateDates(
+    period.previous.from,
+    period.previous.to
+  );
   const daily: DailyNetPoint[] = currentDates.map((date, index) => {
     const cell = byDate.get(date);
     const currentNet = cell?.net_sales ?? 0;
@@ -493,8 +498,7 @@ export function buildCockpitPeriodSnapshotFromRollup(
   const channels: ChannelShare[] = channelKeys.map((channel) => {
     const net = Math.round((currentChannel.get(channel) ?? 0) * 100) / 100;
     const prev = previousChannel.get(channel) ?? 0;
-    const share =
-      current.net_sales > 0 ? (net / current.net_sales) * 100 : 0;
+    const share = current.net_sales > 0 ? (net / current.net_sales) * 100 : 0;
     const prevShare =
       previous.net_sales > 0 ? (prev / previous.net_sales) * 100 : null;
     return {

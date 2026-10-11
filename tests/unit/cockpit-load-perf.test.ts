@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { toExplorerRow, type PosSalesItemRow } from "@/lib/restaurant/supabase-sales";
+import {
+  toExplorerRow,
+  type PosSalesItemRow,
+} from "@/lib/restaurant/supabase-sales";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 

@@ -44,7 +44,10 @@ export type CockpitInsightKind =
   | "worst_day"
   | "channel_shift"
   | "ticket_change"
-  | "sales_change";
+  | "sales_change"
+  | "kitchen_most_reported"
+  | "kitchen_peak_hour"
+  | "kitchen_staff_active";
 
 export interface CockpitInsightFact {
   id: string;

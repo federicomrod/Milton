@@ -68,6 +68,7 @@ import {
 } from "../fixtures/cost-workbook-los-ranchos";
 import * as XLSX from "xlsx";
 import type {
+  ColumnMapping,
   CostWorkbookCostEntry,
   GroupedRecipe,
 } from "@/lib/restaurant/cost-workbook/types";
@@ -2514,7 +2515,10 @@ function aiSharedArticuloAsRecipeAndIngredient(): WorkbookAi & {
     }
   );
   const mapColumns = vi.fn(
-    async (input: { tabType: string; headers: string[] }) => {
+    async (input: {
+      tabType: string;
+      headers: string[];
+    }): Promise<ColumnMapping> => {
       const byNorm = new Map(
         input.headers.map((h) => [h.toLowerCase().replace(/[\s_-]+/g, ""), h])
       );

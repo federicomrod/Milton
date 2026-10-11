@@ -95,9 +95,9 @@ export function resolveCatalogInput(
     return {
       ok: true,
       input: {
-        input_type: best.kind,
-        ingredient_id: best.kind === "ingredient" ? best.hit.item.id : null,
-        component_id: best.kind === "component" ? best.hit.item.id : null,
+        input_type: "ingredient",
+        ingredient_id: best.hit.item.id,
+        component_id: null,
         quantity: 0,
         unit: "",
         notes: null,

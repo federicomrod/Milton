@@ -293,7 +293,7 @@ export function collectCostoRestauranteBlocks(input: {
   const review: ReviewCandidate[] = [];
   const skipped: SkipCandidate[] = [];
   const groups: GroupedRecipe[] = [];
-  let current: OpenBlock | null = null;
+  const open: { block: OpenBlock | null } = { block: null };
   let pendingName = "";
   let cols: Cols = {
     ingredient: 0,
@@ -304,8 +304,9 @@ export function collectCostoRestauranteBlocks(input: {
   };
 
   const close = () => {
+    const current = open.block;
     if (!current || current.lines.length === 0) {
-      current = null;
+      open.block = null;
       pendingName = "";
       return;
     }
@@ -336,13 +337,14 @@ export function collectCostoRestauranteBlocks(input: {
       price_per_lb: current.pricePerLb,
       price_per_oz: current.pricePerOz,
     });
-    current = null;
+    open.block = null;
     pendingName = "";
   };
 
   const start = (name: string) => {
+    const current = open.block;
     if (current && current.lines.length > 0) close();
-    current = {
+    open.block = {
       name: name.trim(),
       headerSeen: false,
       cols,
@@ -367,22 +369,22 @@ export function collectCostoRestauranteBlocks(input: {
       continue;
     }
     if (isBanner(cells)) {
-      if (current && current.lines.length > 0) close();
+      if (open.block && open.block.lines.length > 0) close();
       pendingName = "";
       continue;
     }
     const footer = footerKind(cells);
     if (footer) {
       const amount = firstNumber(cells.slice(1)) ?? firstNumber(cells);
-      if (current) {
+      if (open.block) {
         if (footer === "costo_total" && amount != null)
-          current.costTotal = amount;
+          open.block.costTotal = amount;
         if (footer === "precio_lb" && amount != null)
-          current.pricePerLb = amount;
+          open.block.pricePerLb = amount;
         if (footer === "precio_oz" && amount != null)
-          current.pricePerOz = amount;
+          open.block.pricePerOz = amount;
         if (footer === "precio_venta" && amount != null) {
-          current.sellingPrice = amount;
+          open.block.sellingPrice = amount;
         }
       }
       skipped.push({
@@ -398,11 +400,11 @@ export function collectCostoRestauranteBlocks(input: {
       const overlap = headerOverlapName(cells);
       const name = overlap ?? pendingName;
       if (name) start(name);
-      else if (!current) start("");
-      if (current) {
-        current.cols = cols;
-        current.headerSeen = true;
-        if (overlap && !current.name) current.name = overlap;
+      else if (!open.block) start("");
+      if (open.block) {
+        open.block.cols = cols;
+        open.block.headerSeen = true;
+        if (overlap && !open.block.name) open.block.name = overlap;
       }
       pendingName = "";
       skipped.push({
@@ -415,7 +417,7 @@ export function collectCostoRestauranteBlocks(input: {
     }
     if (isNameRow(cells)) {
       const name = firstText(cells);
-      if (current && current.lines.length > 0) close();
+      if (open.block && open.block.lines.length > 0) close();
       pendingName = name;
       start(name);
       continue;
@@ -435,10 +437,10 @@ export function collectCostoRestauranteBlocks(input: {
       });
       continue;
     }
-    if (!current || !current.name) {
+    if (!open.block || !open.block.name) {
       if (pendingName) start(pendingName);
     }
-    if (!current?.name) {
+    if (!open.block?.name) {
       review.push({
         tabName: input.tabName,
         rowIndex,
@@ -448,6 +450,7 @@ export function collectCostoRestauranteBlocks(input: {
       });
       continue;
     }
+    const current = open.block;
 
     const resolvedUnit = unitRaw
       ? resolveUnitCell(unitRaw)

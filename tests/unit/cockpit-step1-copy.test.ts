@@ -1,0 +1,51 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import { join } from "path";
+
+const ROOT = process.cwd();
+const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
+
+describe("cockpit step-1 review nits", () => {
+  it("does not render a visible TODO step 2 box on the Menu tab", () => {
+    const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
+    expect(page).toContain("TODO(step 2, #123)");
+    expect(page).not.toContain("TODO step 2: category mix");
+    expect(page).not.toContain("TODO paso 2:");
+  });
+
+  it("names the two revenue figures so the strip and Explorer cannot be confused", () => {
+    const strip = read("components/restaurant/cockpit/CockpitKpiStrip.tsx");
+    const explorer = read("components/restaurant/RestaurantSalesExplorer.tsx");
+    expect(strip).toContain("Net sales (all loaded data)");
+    expect(strip).toContain("not the Explorer date filter");
+    expect(explorer).toContain("Net sales (filtered)");
+    expect(explorer).toContain('t(lang,');
+  });
+
+  it("labels week vs last week with the actual date ranges", () => {
+    const strip = read("components/restaurant/cockpit/CockpitKpiStrip.tsx");
+    expect(strip).toContain("formatCompactDateRange");
+    expect(strip).toContain("this_week.from");
+    expect(strip).toContain("last_week.to");
+  });
+
+  it("labels mix charts as calendar weeks, not the rolling KPI window", () => {
+    const hero = read("components/restaurant/cockpit/SalesHero.tsx");
+    expect(hero).toContain("Calendar weeks Mon–Sun");
+  });
+
+  it("exposes the exact heatmap value on hover and focus", () => {
+    const heat = read("components/restaurant/cockpit/SalesHeatmap.tsx");
+    expect(heat).toContain("<title>{exact}</title>");
+    expect(heat).toContain("onMouseEnter");
+    expect(heat).toContain("onFocus");
+    expect(heat).toContain("aria-live=\"polite\"");
+  });
+
+  it("isolates the pending service-charge decision in one constant", () => {
+    const src = read("lib/restaurant/sales-revenue.ts");
+    expect(src).toContain("export const SERVICE_CHARGE_NAMES_ARE_TIPS = false");
+    expect(src).toContain("export const SERVICE_CHARGE_NAMES");
+    expect(src).toContain("Fede has not decided");
+  });
+});

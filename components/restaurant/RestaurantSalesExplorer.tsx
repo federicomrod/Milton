@@ -49,6 +49,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { ExplorerRow } from "@/lib/restaurant/supabase-sales";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import {
   formatChipQuantity,
   formatCount,
@@ -299,6 +300,7 @@ interface OverviewTotals {
   tips: number;
   discounts: number;
   grossSales: number;
+  discountsEstimated: boolean;
 }
 
 /** One bucket in the daily trend series. `date` is ISO "YYYY-MM-DD". */
@@ -414,6 +416,7 @@ function aggregate(
 
   let tips = 0;
   let discounts = 0;
+  let discountsEstimated = false;
 
   for (const r of filtered) {
     if (displayCurrency && r.currency && r.currency !== displayCurrency) {
@@ -427,6 +430,7 @@ function aggregate(
     totalRevenue += r.revenue;
     totalUnits += r.quantity;
     discounts += r.discount_amount ?? 0;
+    if (r.discount_estimated) discountsEstimated = true;
 
     // By item (case-insensitive bucket key; preserve first-seen casing).
     const itemKey = r.item_name.toLowerCase() || "(unnamed)";
@@ -554,6 +558,7 @@ function aggregate(
     let pUnits = 0;
     let pTips = 0;
     let pDiscounts = 0;
+    let pDiscountsEstimated = false;
     const pOrders = new Set<string>();
     const pItemKeys = new Set<string>();
     for (const r of rows) {
@@ -567,6 +572,7 @@ function aggregate(
       pRev += r.revenue;
       pUnits += r.quantity;
       pDiscounts += r.discount_amount ?? 0;
+      if (r.discount_estimated) pDiscountsEstimated = true;
       const k = r.item_name.toLowerCase();
       if (k) pItemKeys.add(k);
     }
@@ -581,6 +587,7 @@ function aggregate(
       tips: pTips,
       discounts: pDiscounts,
       grossSales: pRev + pDiscounts,
+      discountsEstimated: pDiscountsEstimated,
     };
   }
 
@@ -593,6 +600,7 @@ function aggregate(
     uniqueItemsCount: itemBuckets.size,
     tips,
     discounts,
+    discountsEstimated,
     grossSales: totalRevenue + discounts,
     byItem: itemRows,
     byChannel: channelRows,
@@ -1259,12 +1267,14 @@ export interface RestaurantSalesExplorerProps {
   initialTargets?: TargetMap;
   /** Company currency for money formatting. Overrides first-row currency. */
   displayCurrency?: string;
+  lang?: PreferredLanguage;
 }
 
 export function RestaurantSalesExplorer({
   rows,
   initialTargets = {},
   displayCurrency,
+  lang = "en",
 }: RestaurantSalesExplorerProps) {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   // Targets live in client state so the editor's POST can update them
@@ -1624,9 +1634,13 @@ export function RestaurantSalesExplorer({
         )}
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
           <KpiCard
-            label="Revenue"
+            label={t(
+              lang,
+              "Net sales (filtered)",
+              "Ventas netas (filtradas)"
+            )}
             value={fmts.int.format(aggs.totalRevenue)}
-            sub={`${fmts.code} net`}
+            sub={`${fmts.code} ${t(lang, "net · date filter", "neto · filtro de fechas")}`}
             delta={computeDelta(
               aggs.totalRevenue,
               aggs.previousOverview?.totalRevenue
@@ -1737,13 +1751,26 @@ export function RestaurantSalesExplorer({
           />
         </div>
         <p className="text-xs text-muted-foreground mt-2">
-          Net sales {fmts.dec2.format(aggs.totalRevenue)}
+          {t(lang, "Net sales", "Ventas netas")}{" "}
+          {fmts.dec2.format(aggs.totalRevenue)}
           {aggs.discounts > 0
-            ? ` · discounts ${fmts.dec2.format(aggs.discounts)} · gross ${fmts.dec2.format(aggs.grossSales)}`
+            ? ` · ${t(lang, "discounts", "descuentos")} ${fmts.dec2.format(aggs.discounts)}${
+                aggs.discountsEstimated
+                  ? ` ${t(lang, "(estimated)", "(estimado)")}`
+                  : ""
+              } · ${t(lang, "gross", "bruto")} ${fmts.dec2.format(aggs.grossSales)}${
+                aggs.discountsEstimated
+                  ? ` ${t(lang, "(estimated)", "(estimado)")}`
+                  : ""
+              }`
             : ""}
           {aggs.tips > 0
-            ? ` · tips ${fmts.dec2.format(aggs.tips)} (excluded). Totals differ from Odoo by the tip amount.`
-            : " · tips excluded when present."}
+            ? ` · ${t(lang, "tips", "propinas")} ${fmts.dec2.format(aggs.tips)} ${t(
+                lang,
+                "(excluded). Totals differ from Odoo by the tip amount.",
+                "(excluidas). Los totales difieren de Odoo por el monto de propinas."
+              )}`
+            : ""}
         </p>
       </section>
 

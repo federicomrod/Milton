@@ -113,6 +113,11 @@ export function SalesHero({
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <MixChart
           title={t(lang, "Channel mix over time", "Mix de canales en el tiempo")}
+          subtitle={t(
+            lang,
+            "Calendar weeks Mon–Sun (not the rolling 7-day KPI window).",
+            "Semanas calendario lun–dom (no la ventana móvil de 7 días del KPI)."
+          )}
           series={cockpit.channel_mix_over_time}
           currency={cockpit.currency}
           locale={locale}
@@ -124,6 +129,11 @@ export function SalesHero({
             lang,
             "Payment mix over time",
             "Mix de pagos en el tiempo"
+          )}
+          subtitle={t(
+            lang,
+            "Calendar weeks Mon–Sun (not the rolling 7-day KPI window).",
+            "Semanas calendario lun–dom (no la ventana móvil de 7 días del KPI)."
           )}
           series={cockpit.payment_mix_over_time}
           currency={cockpit.currency}
@@ -142,6 +152,7 @@ export function SalesHero({
 
 function MixChart({
   title,
+  subtitle,
   series,
   currency,
   locale,
@@ -149,6 +160,7 @@ function MixChart({
   labelFor,
 }: {
   title: string;
+  subtitle?: string;
   series: CockpitSalesAggregate["channel_mix_over_time"];
   currency: string;
   locale: string;
@@ -170,6 +182,9 @@ function MixChart({
     return (
       <div className="rounded-md border border-dashed border-border px-3 py-4">
         <p className="text-sm font-medium">{title}</p>
+        {subtitle ? (
+          <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>
+        ) : null}
         <p className="text-xs text-muted-foreground mt-1">
           {t(lang, "No mix to show yet.", "Aún no hay mix para mostrar.")}
         </p>
@@ -179,7 +194,12 @@ function MixChart({
 
   return (
     <div className="rounded-md border border-border px-3 py-3">
-      <p className="text-sm font-medium mb-2">{title}</p>
+      <p className="text-sm font-medium mb-0.5">{title}</p>
+      {subtitle ? (
+        <p className="text-[11px] text-muted-foreground mb-2">{subtitle}</p>
+      ) : (
+        <div className="mb-2" />
+      )}
       <div className="h-44">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>

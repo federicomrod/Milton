@@ -41,6 +41,7 @@ import {
   resolveCompanyCurrency,
 } from "@/lib/restaurant/currency";
 import { classifySaleLine } from "@/lib/restaurant/sales-revenue";
+import { fetchAllRowsRetryingWithoutColumn } from "@/lib/restaurant/missing-schema-column";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -273,18 +274,20 @@ export async function fetchProfitabilityData(
           truncated: false,
           error: null as { message?: string } | null,
         })
-      : fetchAllRows<PosRow>(() => {
-          let q = supabase
-            .from("pos_sales_items")
-            .select(
-              "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id, is_tip, discount_amount"
-            )
-            .eq("company_id", companyId);
-          if (selected) {
-            q = q.eq("location_id", selected.locationId);
-          }
-          return q;
-        }),
+      : fetchAllRowsRetryingWithoutColumn<PosRow>(
+          "is_tip",
+          (select) => {
+            let q = supabase
+              .from("pos_sales_items")
+              .select(select)
+              .eq("company_id", companyId);
+            if (selected) {
+              q = q.eq("location_id", selected.locationId);
+            }
+            return q;
+          },
+          "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id, is_tip, discount_amount"
+        ),
     // Intentionally NOT filtered by location: resolveScopedName below
     // already applies the correct exact-scope-then-company-wide-fallback
     // precedence per POS row once pos_sales_items itself is location-

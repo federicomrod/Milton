@@ -43,6 +43,8 @@ export interface CockpitFactRow {
   net_revenue?: number | null;
   revenue?: number | null;
   discount_amount?: number | null;
+  discount_estimated?: boolean | null;
+  source_metadata?: { discount_estimated?: boolean } | null;
   is_tip?: boolean | null;
   order_id?: string | null;
   check_id?: string | null;
@@ -92,6 +94,9 @@ export interface WeekWindow {
 export interface CockpitSalesAggregate {
   currency: string;
   timezone: string;
+  /** Inclusive sale_date span of the loaded rows (not the Explorer filter). */
+  period_from: string | null;
+  period_to: string | null;
   revenue: RevenueBreakdown;
   tickets: number;
   units: number;
@@ -139,6 +144,47 @@ export function weekStartMonday(dateKey: string): string {
   const weekday = dt.getUTCDay(); // 0=Sun
   const back = weekday === 0 ? 6 : weekday - 1;
   return shiftDateKey(dateKey, -back);
+}
+
+/** Compact inclusive range for KPI labels: "25–31 Jul 2026" or "28 Jul–3 Aug 2026". */
+export function formatCompactDateRange(
+  from: string,
+  to: string,
+  locale: string = "en-GB"
+): string {
+  const parse = (iso: string): Date | null => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d));
+  };
+  const a = parse(from);
+  const b = parse(to);
+  if (!a || !b) return `${from} – ${to}`;
+  const day = new Intl.DateTimeFormat(locale, {
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  const dayMonth = new Intl.DateTimeFormat(locale, {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+  const full = new Intl.DateTimeFormat(locale, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  if (from === to) return full.format(a);
+  const sameYear = a.getUTCFullYear() === b.getUTCFullYear();
+  const sameMonth = sameYear && a.getUTCMonth() === b.getUTCMonth();
+  if (sameMonth) {
+    return `${day.format(a)}–${full.format(b)}`;
+  }
+  if (sameYear) {
+    return `${dayMonth.format(a)}–${full.format(b)}`;
+  }
+  return `${full.format(a)}–${full.format(b)}`;
 }
 
 export function weekWindowsFromAnchor(latestDate: string): {
@@ -192,6 +238,8 @@ export function emptyCockpitSalesAggregate(
   return {
     currency,
     timezone,
+    period_from: null,
+    period_to: null,
     revenue: emptyRevenueBreakdown(),
     tickets: 0,
     units: 0,
@@ -222,6 +270,7 @@ export function buildCockpitSalesAggregate(
   const orderIds = new Set<string>();
   let units = 0;
   let latestDate: string | null = null;
+  let earliestDate: string | null = null;
   let rowsReviewed = 0;
 
   const weekNet = { thisWeek: 0, lastWeek: 0 };
@@ -234,6 +283,9 @@ export function buildCockpitSalesAggregate(
   for (const row of rows) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(row.sale_date)) continue;
     if (!latestDate || row.sale_date > latestDate) latestDate = row.sale_date;
+    if (!earliestDate || row.sale_date < earliestDate) {
+      earliestDate = row.sale_date;
+    }
   }
   if (latestDate) windows = weekWindowsFromAnchor(latestDate);
 
@@ -406,6 +458,8 @@ export function buildCockpitSalesAggregate(
   return {
     currency: currency ?? "USD",
     timezone,
+    period_from: earliestDate,
+    period_to: latestDate,
     revenue: finalized,
     tickets,
     units: Math.round(units * 1000) / 1000,

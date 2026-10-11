@@ -257,7 +257,7 @@ function LiveRestaurantView({
           id: "menu",
           label: t(lang, "Menu Profitability", "Rentabilidad del menú"),
           badge: issueCount > 0 ? String(issueCount) : undefined,
-          content: <MenuProfitabilityTab profitability={profitability} lang={lang} />,
+          content: <MenuProfitabilityTab profitability={profitability} />,
         },
         {
           id: "suppliers",
@@ -303,13 +303,22 @@ function LiveRestaurantView({
       ];
 
   return (
-    <div className="w-full py-6 px-6 lg:px-10">
-      <div className="space-y-4">
+    <div className="w-full py-4 px-6 lg:px-10">
+      <div className="space-y-3">
         <PageHeader mode="live" />
 
-        {/* Live-mode banner — adapts to costing state */}
-        {profitability && profitability.kpis.cost_coverage_pct === 0 ? (
-          <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 py-2 px-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+        {/* Live-mode banner — adapts to costing state. A POS read error
+            must never look like sample/pilot data: show the warning. */}
+        {data.readError || profitability?.readError ? (
+          <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 py-1.5 px-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              Could not load all sales rows. Totals are unavailable — they are
+              not a smaller number from a partial read. Try refreshing the page.
+            </span>
+          </div>
+        ) : profitability && profitability.kpis.cost_coverage_pct === 0 ? (
+          <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 py-1.5 px-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
             <Info className="h-4 w-4 shrink-0 mt-0.5" />
             <span>
               Sales data is loaded ({data.rowCount.toLocaleString("es-MX")} row
@@ -318,23 +327,13 @@ function LiveRestaurantView({
             </span>
           </div>
         ) : (
-          <div className="rounded-md border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20 py-2 px-3 text-sm text-green-900 dark:text-green-200 flex items-start gap-2">
+          <div className="rounded-md border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20 py-1.5 px-3 text-sm text-green-900 dark:text-green-200 flex items-start gap-2">
             <Info className="h-4 w-4 shrink-0 mt-0.5" />
             <span>
               {data.rowCount.toLocaleString("es-MX")} POS sale row
               {data.rowCount === 1 ? "" : "s"} loaded from Supabase. Items with
               missing recipes or unit mismatches are flagged rather than
               estimated.
-            </span>
-          </div>
-        )}
-
-        {profitability?.readError && (
-          <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>
-              Could not load all sales rows. Totals are unavailable — they are
-              not a smaller number from a partial read. Try refreshing the page.
             </span>
           </div>
         )}
@@ -416,23 +415,14 @@ function OverviewTab({
 
 function MenuProfitabilityTab({
   profitability,
-  lang,
 }: {
   profitability: ProfitabilityData;
-  lang: PreferredLanguage;
 }) {
   return (
     <div className="space-y-6">
       {/* TODO(step 2, #123): category mix + popularity vs margin dish matrix
           once recipe costs exist. Left out of step 1 so this PR stays to
           revenue definition + Sales hero. */}
-      <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-        {t(
-          lang,
-          "TODO step 2: category mix and popularity × margin matrix.",
-          "TODO paso 2: mix de categorías y matriz popularidad × margen."
-        )}
-      </div>
       <ProfitabilityKpisSection data={profitability} />
       <section>
         <div className="flex items-baseline justify-between mb-3 gap-3 flex-wrap">
@@ -484,6 +474,7 @@ function RevenueAndChannelsTab({
           rows={rows}
           initialTargets={targets}
           displayCurrency={displayCurrency}
+          lang={lang}
         />
       </section>
     </div>
@@ -998,7 +989,7 @@ export default async function RestaurantCockpitPage({
           selectedLocationId
             ? { locationId: selectedLocationId, brandId: selectedBrandId }
             : null,
-          { posRows: data.posFactRows }
+          data.readError ? undefined : { posRows: data.posFactRows }
         );
       } catch (err) {
         console.error(

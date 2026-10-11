@@ -31,7 +31,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { POSSalesItem } from "@/types/restaurant";
-import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
+import { warnIfTruncated } from "@/lib/restaurant/paginated-read";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import {
   resolvePreferredLanguage,
@@ -40,9 +40,11 @@ import {
 import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
 import {
   buildCockpitSalesAggregate,
+  emptyCockpitSalesAggregate,
   type CockpitSalesAggregate,
 } from "@/lib/restaurant/cockpit-aggregates";
 import { classifySaleLine, isTipSaleRow } from "@/lib/restaurant/sales-revenue";
+import { fetchAllRowsRetryingWithoutColumn } from "@/lib/restaurant/missing-schema-column";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -101,6 +103,8 @@ export interface ExplorerRow {
   /** Tip / Propina line — excluded from net sales KPIs. */
   is_tip: boolean;
   discount_amount: number;
+  /** True when discount_amount used the Odoo % fallback. */
+  discount_estimated: boolean;
 }
 
 export type RestaurantDashboardData =
@@ -133,6 +137,11 @@ export type RestaurantDashboardData =
       cockpit: CockpitSalesAggregate;
       timezone: string;
       preferredLanguage: PreferredLanguage;
+      /**
+       * True when the POS read failed after the missing-column retry.
+       * Callers must show the warning banner — never invent sample totals.
+       */
+      readError?: boolean;
     }
   | {
       mode: "sample";
@@ -238,10 +247,11 @@ export interface PosSalesItemRow {
   discount_amount?: number | null;
   /** Migration 030. Null on legacy rows — readers use the product name. */
   is_tip?: boolean | null;
+  source_metadata?: { discount_estimated?: boolean } | null;
 }
 
 const POS_SELECT_COLS =
-  "id, company_id, location_id, menu_item_id, sale_date, order_id, check_id, raw_item_name, quantity, gross_revenue, net_revenue, discount_amount, currency, sales_channel, payment_type, category, sub_category, order_placed_at, is_tip";
+  "id, company_id, location_id, menu_item_id, sale_date, order_id, check_id, raw_item_name, quantity, gross_revenue, net_revenue, discount_amount, currency, sales_channel, payment_type, category, sub_category, order_placed_at, is_tip, source_metadata";
 
 // ---------------------------------------------------------------------------
 // Conversion: pos_sales_items row → POSSalesItem (the type the existing
@@ -438,16 +448,20 @@ export async function fetchCompanyPosSalesRows(
   companyId: string,
   selectedLocationId?: string | null
 ) {
-  return fetchAllRows<PosSalesItemRow>(() => {
-    let query = supabase
-      .from("pos_sales_items")
-      .select(POS_SELECT_COLS)
-      .eq("company_id", companyId);
-    if (selectedLocationId) {
-      query = query.eq("location_id", selectedLocationId);
-    }
-    return query;
-  });
+  return fetchAllRowsRetryingWithoutColumn<PosSalesItemRow>(
+    "is_tip",
+    (select) => {
+      let query = supabase
+        .from("pos_sales_items")
+        .select(select)
+        .eq("company_id", companyId);
+      if (selectedLocationId) {
+        query = query.eq("location_id", selectedLocationId);
+      }
+      return query;
+    },
+    POS_SELECT_COLS
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -508,14 +522,14 @@ export async function fetchRealRestaurantDashboardData(
         "[supabase-sales] pos_sales_items read failed:",
         result.error
       );
-      return { mode: "sample", reason: "supabase_error" };
+      return liveReadError(supabase, companyId);
     }
     warnIfTruncated("supabase-sales pos_sales_items", result);
     rawRows = result.rows;
     truncated = result.truncated;
   } catch (err) {
     console.error("[supabase-sales] pos_sales_items read threw:", err);
-    return { mode: "sample", reason: "supabase_error" };
+    return liveReadError(supabase, companyId);
   }
 
   if (rawRows.length === 0) {
@@ -597,6 +611,45 @@ function toExplorerRow(row: PosSalesItemRow): ExplorerRow {
     currency: row.currency ?? "USD",
     is_tip: line.isTip,
     discount_amount: line.discount,
+    discount_estimated: line.discountEstimated,
+  };
+}
+
+async function liveReadError(
+  supabase: SupabaseLike,
+  companyId: string
+): Promise<Extract<RestaurantDashboardData, { mode: "live" }>> {
+  const [companyCurrency, timezone, preferredLanguage] = await Promise.all([
+    resolveCompanyCurrency(supabase, companyId),
+    resolvePosTimezone(supabase, companyId),
+    resolveCompanyPreferredLanguage(supabase, companyId),
+  ]);
+  const empty = emptyCockpitSalesAggregate(timezone, companyCurrency);
+  return {
+    mode: "live",
+    readError: true,
+    overview: {
+      total_revenue: 0,
+      total_orders: 0,
+      total_units_sold: 0,
+      avg_ticket: 0,
+      currency: companyCurrency,
+      gross_sales: 0,
+      discounts: 0,
+      net_sales: 0,
+      tips: 0,
+      odoo_like_total: 0,
+    },
+    dishSales: [],
+    sales: [],
+    explorerRows: [],
+    companyId,
+    rowCount: 0,
+    truncated: false,
+    posFactRows: [],
+    cockpit: empty,
+    timezone,
+    preferredLanguage,
   };
 }
 

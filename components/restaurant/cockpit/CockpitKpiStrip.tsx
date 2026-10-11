@@ -8,6 +8,7 @@
 
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import type { CockpitSalesAggregate } from "@/lib/restaurant/cockpit-aggregates";
+import { formatCompactDateRange } from "@/lib/restaurant/cockpit-aggregates";
 import { localeForCurrency } from "@/lib/restaurant/currency";
 
 export function CockpitKpiStrip({
@@ -24,6 +25,7 @@ export function CockpitKpiStrip({
   hasRecipeCosts: boolean;
 }) {
   const locale = localeForCurrency(cockpit.currency);
+  const dateLocale = lang === "es" ? "es" : "en-GB";
   const money = new Intl.NumberFormat(locale, {
     style: "currency",
     currency: /^[A-Z]{3}$/.test(cockpit.currency) ? cockpit.currency : "USD",
@@ -40,12 +42,44 @@ export function CockpitKpiStrip({
   const weekDelta = cockpit.week_delta_pct;
   const weekUp = weekDelta != null && weekDelta > 0;
   const weekDown = weekDelta != null && weekDelta < 0;
+  const estimatedHint = rev.discounts_estimated
+    ? ` ${t(lang, "(estimated)", "(estimado)")}`
+    : "";
+  const periodLabel =
+    cockpit.period_from && cockpit.period_to
+      ? formatCompactDateRange(
+          cockpit.period_from,
+          cockpit.period_to,
+          dateLocale
+        )
+      : null;
+  const weekRangeLabel =
+    cockpit.this_week && cockpit.last_week
+      ? `${formatCompactDateRange(cockpit.this_week.from, cockpit.this_week.to, dateLocale)} vs ${formatCompactDateRange(cockpit.last_week.from, cockpit.last_week.to, dateLocale)}`
+      : t(lang, "needs two weeks of sales", "hacen falta dos semanas");
 
   return (
     <section aria-label={t(lang, "Key numbers", "Cifras clave")}>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+      <p className="text-[11px] text-muted-foreground mb-1">
+        {t(
+          lang,
+          "KPI strip · all loaded data",
+          "Cifras clave · todos los datos cargados"
+        )}
+        {periodLabel ? ` · ${periodLabel}` : ""}
+        {t(
+          lang,
+          " (not the Explorer date filter)",
+          " (no el filtro de fechas del Explorer)"
+        )}
+      </p>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
         <Kpi
-          label={t(lang, "Net sales", "Ventas netas")}
+          label={t(
+            lang,
+            "Net sales (all loaded data)",
+            "Ventas netas (todos los datos cargados)"
+          )}
           value={moneyCompact.format(rev.net_sales)}
           sub={
             rev.tips > 0
@@ -54,7 +88,7 @@ export function CockpitKpiStrip({
                   `Tips ${money.format(rev.tips)} excluded`,
                   `Propinas ${money.format(rev.tips)} excluidas`
                 )
-              : t(lang, "Tips excluded", "Propinas excluidas")
+              : undefined
           }
         />
         <Kpi
@@ -81,18 +115,16 @@ export function CockpitKpiStrip({
                 ? "text-amber-800 dark:text-amber-300"
                 : undefined
           }
-          sub={
-            cockpit.this_week && cockpit.last_week
-              ? `${moneyCompact.format(cockpit.this_week.net_sales)} → ${moneyCompact.format(cockpit.last_week.net_sales)}`
-              : t(lang, "needs two weeks of sales", "hacen falta dos semanas")
-          }
+          sub={weekRangeLabel}
         />
       </div>
 
-      <p className="text-xs text-muted-foreground mt-2">
+      <p className="text-[11px] text-muted-foreground mt-1">
         {t(lang, "Gross", "Bruto")} {money.format(rev.gross_sales)}
+        {estimatedHint}
         {" · "}
         {t(lang, "Discounts", "Descuentos")} {money.format(rev.discounts)}
+        {estimatedHint}
         {" · "}
         {t(lang, "Net", "Neto")} {money.format(rev.net_sales)}
         {rev.tips > 0 ? (
@@ -110,7 +142,7 @@ export function CockpitKpiStrip({
       </p>
 
       {hasRecipeCosts ? (
-        <div className="grid grid-cols-2 gap-2 mt-2">
+        <div className="grid grid-cols-2 gap-1.5 mt-1.5">
           <Kpi
             label={t(lang, "Food cost %", "% costo de comida")}
             value={foodCostPct != null ? `${foodCostPct.toFixed(1)}%` : "—"}
@@ -123,7 +155,7 @@ export function CockpitKpiStrip({
           />
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground mt-1.5">
+        <p className="text-[11px] text-muted-foreground mt-1">
           {t(lang, "Add recipes to see food cost % and margin.", "Agrega recetas para ver % de costo y margen.")}
         </p>
       )}
@@ -143,20 +175,20 @@ function Kpi({
   valueClass?: string;
 }) {
   return (
-    <div className="rounded-md border border-border bg-background px-3 py-2">
-      <p className="text-xs font-medium text-muted-foreground truncate">
+    <div className="rounded-md border border-border bg-background px-2.5 py-1.5">
+      <p className="text-[11px] font-medium text-muted-foreground truncate" title={label}>
         {label}
       </p>
       <p
         className={
-          "text-xl font-semibold tabular-nums leading-tight mt-0.5 " +
+          "text-lg font-semibold tabular-nums leading-tight " +
           (valueClass ?? "")
         }
       >
         {value}
       </p>
       {sub ? (
-        <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+        <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug" title={sub}>
           {sub}
         </p>
       ) : null}

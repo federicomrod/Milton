@@ -44,12 +44,14 @@ function posRow(i: number): MockRow {
 
 function makeClient(
   extraTables: Record<string, MockRow[]> = {},
-  pageErrors: PageErrorSpec[] = []
+  pageErrors: PageErrorSpec[] = [],
+  unknownColumns?: Record<string, string[]>
 ) {
   const supabase = createCappedSupabase({
     maxRowsPerRequest: POSTGREST_MAX_ROWS,
     userId: USER_ID,
     pageErrors,
+    unknownColumns,
     tables: {
       companies: [
         {
@@ -228,8 +230,8 @@ describe("buildAskMiltonContext — failed page is not a partial cost snapshot",
   });
 });
 
-describe("fetchRealRestaurantDashboardData — failed page is sample, not a live partial", () => {
-  it("falls back to sample mode when a POS page fails", async () => {
+describe("fetchRealRestaurantDashboardData — failed page is a warning, not sample data", () => {
+  it("stays in live mode with readError when a POS page fails", async () => {
     const data = await fetchRealRestaurantDashboardData(
       makeClient({}, [
         {
@@ -239,8 +241,81 @@ describe("fetchRealRestaurantDashboardData — failed page is sample, not a live
         },
       ])
     );
-    expect(data.mode).toBe("sample");
-    if (data.mode !== "sample") return;
-    expect(data.reason).toBe("supabase_error");
+    expect(data.mode).toBe("live");
+    if (data.mode !== "live") return;
+    expect(data.readError).toBe(true);
+    expect(data.rowCount).toBe(0);
+    expect(data.overview.net_sales).toBe(0);
+    expect(data.explorerRows).toEqual([]);
+  });
+});
+
+describe("missing is_tip column — retry without it", () => {
+  it("cockpit stays live and classifies Propina from the name", async () => {
+    const supabase = createCappedSupabase({
+      maxRowsPerRequest: POSTGREST_MAX_ROWS,
+      userId: USER_ID,
+      unknownColumns: { pos_sales_items: ["is_tip"] },
+      tables: {
+        companies: [
+          {
+            id: COMPANY_ID,
+            created_by: USER_ID,
+            name: "Test Co",
+            preferred_language: "en",
+          },
+        ],
+        pos_sales_items: [
+          {
+            ...posRow(0),
+            id: "pos-tip",
+            raw_item_name: "PROPINA SUGERIDA",
+            gross_revenue: 5,
+            net_revenue: 5,
+          },
+          {
+            ...posRow(1),
+            id: "pos-dish",
+            raw_item_name: "Pupusa",
+            gross_revenue: 20,
+            net_revenue: 20,
+          },
+        ],
+        pos_item_mappings: [],
+        menu_items: [],
+        recipes: [],
+        menu_recipe_inputs: [],
+        prepared_components: [],
+        component_recipes: [],
+        component_recipe_inputs: [],
+        ingredients: [],
+        ingredient_cost_entries: [],
+        suppliers: [],
+        supplier_ingredients: [],
+        supplier_invoices: [],
+        agent_runs: [],
+        restaurant_brands: [],
+        restaurant_locations: [],
+      },
+    }) as unknown as SupabaseClient;
+
+    const data = await fetchRealRestaurantDashboardData(supabase);
+    expect(data.mode).toBe("live");
+    if (data.mode !== "live") return;
+    expect(data.readError).toBeFalsy();
+    expect(data.overview.net_sales).toBe(20);
+    expect(data.overview.tips).toBe(5);
+    expect(data.explorerRows.find((r) => r.item_name === "PROPINA SUGERIDA")?.is_tip).toBe(
+      true
+    );
+  });
+
+  it("profitability retries the POS read without is_tip", async () => {
+    const data = await fetchProfitabilityData(
+      makeClient({}, [], { pos_sales_items: ["is_tip"] }),
+      COMPANY_ID
+    );
+    expect(data.readError).toBe(false);
+    expect(data.kpis.revenue_total).toBe(TOTAL_ROWS * ROW_REVENUE);
   });
 });

@@ -3,6 +3,7 @@ import {
   buildCockpitSalesAggregate,
   daypartFromLocalHour,
   DINNER_START_HOUR,
+  formatCompactDateRange,
   shiftDateKey,
   weekWindowsFromAnchor,
   type CockpitFactRow,
@@ -78,9 +79,27 @@ describe("buildCockpitSalesAggregate — tips, discounts, net", () => {
     expect(agg.revenue.discounts).toBe(4);
     expect(agg.revenue.gross_sales).toBe(29);
     expect(agg.revenue.odoo_like_total).toBe(28);
+    expect(agg.revenue.discounts_estimated).toBe(false);
+    expect(agg.period_from).toBe("2026-07-10");
+    expect(agg.period_to).toBe("2026-07-20");
     expect(agg.tickets).toBe(2);
     expect(agg.avg_ticket).toBe(12.5);
     expect(agg.category_mix.map((c) => c.category)).toEqual(["Mains"]);
+  });
+
+  it("marks discounts estimated when a line used the percent fallback", () => {
+    const agg = buildCockpitSalesAggregate(
+      [
+        row({
+          sale_date: "2026-07-20",
+          discount_amount: 3,
+          source_metadata: { discount_estimated: true },
+        }),
+      ],
+      { currency: "USD" }
+    );
+    expect(agg.revenue.discounts).toBe(3);
+    expect(agg.revenue.discounts_estimated).toBe(true);
   });
 
   it("skips mixed-currency rows the same way as today's cockpit", () => {
@@ -188,6 +207,16 @@ describe("week vs last week", () => {
       tickets: 1,
     });
     expect(agg.week_delta_pct).toBe(100);
+    expect(agg.period_from).toBe("2026-07-24");
+    expect(agg.period_to).toBe("2026-07-31");
+  });
+});
+
+describe("formatCompactDateRange", () => {
+  it("collapses a same-month range", () => {
+    expect(formatCompactDateRange("2026-07-25", "2026-07-31", "en-GB")).toBe(
+      "25–31 Jul 2026"
+    );
   });
 });
 

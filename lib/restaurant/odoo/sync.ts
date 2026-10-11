@@ -70,7 +70,8 @@ export interface OdooPosOrderLineRaw {
   price_unit: number;
   price_subtotal: number;
   price_subtotal_incl: number;
-  discount: number; // percent, 0-100
+  /** Percent, 0-100. Missing on some payloads — see discountAmountFromOdooLine. */
+  discount?: number | null;
   uuid?: string | false;
   /** Odoo res.company (stored related of order_id.company_id). */
   company_id: OdooMany2one;
@@ -167,6 +168,38 @@ function round2(n: number): number {
 }
 
 /**
+ * Discount dollars for an Odoo POS line.
+ *
+ * When Odoo exposes `discount` (percent), compute
+ * `price_unit * qty * discount / 100` — same tax basis as `price_unit`,
+ * which is the basis Odoo uses for the posted line amounts. This avoids
+ * treating tax as a discount when `price_unit` is tax-included
+ * (`price_unit * qty − price_subtotal` would then equal the tax).
+ *
+ * Falls back to the old formula only when the percent is missing, and
+ * flags that amount as estimated. Does not rewrite posted revenue.
+ */
+export function discountAmountFromOdooLine(line: {
+  qty: number;
+  price_unit: number;
+  price_subtotal: number;
+  discount?: number | null;
+}): { discount_amount: number; discount_estimated: boolean } {
+  const qty = line.qty;
+  const priceUnit = line.price_unit;
+  if (typeof line.discount === "number" && Number.isFinite(line.discount)) {
+    return {
+      discount_amount: round2(priceUnit * qty * (line.discount / 100)),
+      discount_estimated: false,
+    };
+  }
+  return {
+    discount_amount: round2(priceUnit * qty - line.price_subtotal),
+    discount_estimated: true,
+  };
+}
+
+/**
  * Converts Odoo's naive-UTC "YYYY-MM-DD HH:MM:SS" datetime string to a
  * proper ISO 8601 UTC instant. Odoo's XML-RPC API always returns Datetime
  * fields in UTC with no offset marker — this makes that explicit.
@@ -210,9 +243,10 @@ export function deriveLocalSaleDate(utcIso: string, timeZone: string): string {
  * - A line whose product has no pos_item_mappings-equivalent match still
  *   produces a row — menu_item_id is null, raw_item_name is preserved.
  *   Sales are never discarded for being unmatched.
- * - discount_amount and tax_amount are derived (Odoo doesn't provide them
- *   directly): discount is a percentage on the line, and there is no
- *   per-line tax-amount field.
+ * - discount_amount comes from Odoo's `discount` percent when present
+ *   (`price_unit * qty * discount / 100`); otherwise the old
+ *   `price_unit * qty − price_subtotal` fallback, flagged estimated.
+ *   tax_amount is still derived (no per-line tax-amount field).
  */
 export function transformOdooOrders(
   orders: OdooPosOrderRaw[],
@@ -334,7 +368,8 @@ export function transformOdooOrders(
         ? order.currency_id[1]
         : ctx.defaultCurrency;
 
-    const discountAmount = round2(priceUnit * qty - priceSubtotal);
+    const { discount_amount: discountAmount, discount_estimated } =
+      discountAmountFromOdooLine(line);
     const taxAmount = round2(priceSubtotalIncl - priceSubtotal);
     const saleDate = deriveLocalSaleDate(orderPlacedAt, ctx.timezone);
 
@@ -382,6 +417,7 @@ export function transformOdooOrders(
         product_id: productId,
         state: order.state,
         sales_channel_source: ctx.channelSourceByOrderId?.get(order.id) ?? null,
+        discount_estimated,
       },
     });
   }

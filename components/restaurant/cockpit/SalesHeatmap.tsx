@@ -101,6 +101,7 @@ export function SalesHeatmap({
                   const net = cell?.net_sales ?? 0;
                   const intensity = max > 0 ? net / max : 0;
                   const x = labelW + weekday * cellW;
+                  const exact = `${days[weekday]} ${String(hour).padStart(2, "0")}:00 — ${money.format(net)}`;
                   return (
                     <g key={`${weekday}-${hour}`}>
                       <rect
@@ -119,7 +120,7 @@ export function SalesHeatmap({
                         }
                         tabIndex={0}
                         role="button"
-                        aria-label={`${days[weekday]} ${String(hour).padStart(2, "0")}:00 — ${money.format(net)}`}
+                        aria-label={exact}
                         onMouseEnter={() =>
                           setFocus(
                             cell ?? {
@@ -144,7 +145,9 @@ export function SalesHeatmap({
                           )
                         }
                         onBlur={() => setFocus(null)}
-                      />
+                      >
+                        <title>{exact}</title>
+                      </rect>
                       {net > 0 && intensity > 0.35 ? (
                         <text
                           x={x + cellW / 2}
@@ -165,7 +168,11 @@ export function SalesHeatmap({
           })}
         </svg>
       </div>
-      <p className="text-xs text-muted-foreground mt-2 min-h-4" aria-live="polite">
+      <p
+        className="text-xs text-muted-foreground mt-1.5 min-h-4 rounded-sm px-1.5 py-0.5"
+        aria-live="polite"
+        data-heatmap-exact={focus ? "true" : "false"}
+      >
         {focus
           ? `${days[focus.weekday]} ${String(focus.hour).padStart(2, "0")}:00 — ${money.format(focus.net_sales)} · ${focus.tickets} ${t(lang, "tickets", "tickets")}`
           : t(

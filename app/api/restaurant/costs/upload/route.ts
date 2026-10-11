@@ -45,10 +45,13 @@ import {
   firstSheetRawRows,
   importCostWorkbook,
   isWorkbookLimitError,
+  PICK_RESTAURANT_ERROR_ES,
   readWorkbookSheetsFromWorkbook,
   readXlsxWorkbook,
+  resolveUploadRestaurantScope,
   shouldUseWorkbookImport,
 } from "@/lib/restaurant/cost-workbook";
+import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -107,6 +110,27 @@ export async function POST(req: NextRequest) {
     const defaultCurrency = companyCurrency;
     const formCurrencyIgnored =
       formCurrency !== null && formCurrency !== companyCurrency;
+    const requestedLocationId = String(
+      formData.get("location_id") ?? ""
+    ).trim();
+    const restaurantContext = await resolveRestaurantContext(
+      supabase,
+      companyId,
+      requestedLocationId || null
+    );
+    const restaurantScope = resolveUploadRestaurantScope({
+      locations: restaurantContext.locations,
+      requestedLocationId: requestedLocationId || null,
+    });
+    if (!restaurantScope.ok) {
+      return NextResponse.json(
+        {
+          error: PICK_RESTAURANT_ERROR_ES,
+          code: restaurantScope.code,
+        },
+        { status: 400 }
+      );
+    }
 
     // --- Parse file -------------------------------------------------------
     const isCSV = file.name.toLowerCase().endsWith(".csv");
@@ -175,6 +199,9 @@ export async function POST(req: NextRequest) {
             repo: createSupabaseCostWorkbookRepo(supabase),
             ai: createDefaultWorkbookAi(),
             createdBy: auth.userId,
+            locationId: restaurantScope.locationId,
+            brandId: restaurantScope.brandId,
+            restaurantName: restaurantScope.name,
           });
           return NextResponse.json(result);
         } catch (err) {

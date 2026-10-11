@@ -81,7 +81,19 @@ export function readWorkbookSheetsFromWorkbook(
   const sheets: DetectedSheet[] = [];
   for (const { name, aoa } of parsed) {
     const detected = detectHeaderRow(aoa);
-    if (!detected) continue;
+    if (!detected) {
+      sheets.push({
+        name,
+        headerRowIndex: 0,
+        headers: [],
+        dataRows: [],
+        sampleRows: [],
+        headerFingerprint: headerFingerprint([]),
+        layoutKey: layoutKeyForHeaders([]),
+        emptyReason: "no header row",
+      });
+      continue;
+    }
     const dataRows = rowsToObjects(
       aoa,
       detected.headerRowIndex,

@@ -5,7 +5,7 @@ import {
   currencyMismatchReason,
   normalizeCurrency,
 } from "@/lib/restaurant/currency";
-import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
+import { convertUnitPriceStr, resolveUnitCell } from "@/lib/restaurant/units";
 import { numberAt, textAt } from "./cells";
 import { implausiblePriceReason } from "./plausibility";
 import { skipReasonForWorkbookRow } from "./skip";
@@ -262,8 +262,9 @@ function evaluateQuantityCostRow(
 
   const unitRaw = textAt(row, mapping, "unit");
   if (!unitRaw) return fail("Missing unit", { ingredient_name: name });
-  if (!normalizeUnit(unitRaw)) {
-    return fail(`unknown unit (${unitRaw})`, {
+  const resolvedUnit = resolveUnitCell(unitRaw);
+  if (!resolvedUnit.ok) {
+    return fail(resolvedUnit.reason, {
       ingredient_name: name,
       unit: unitRaw,
     });
@@ -302,13 +303,23 @@ function evaluateQuantityCostRow(
     });
   }
 
-  const quantity = qty !== null && qty > 0 ? qty : 1;
+  const rawQuantity = qty !== null && qty > 0 ? qty : 1;
   let resolvedTotal: number | null = total;
   let resolvedPrice: number | null = unitPrice;
   if (resolvedTotal === null && resolvedPrice !== null) {
-    resolvedTotal = resolvedPrice * quantity;
+    resolvedTotal = resolvedPrice * rawQuantity;
   }
-  if (resolvedPrice === null && resolvedTotal !== null && quantity > 0) {
+  if (resolvedPrice === null && resolvedTotal !== null && rawQuantity > 0) {
+    resolvedPrice = resolvedTotal / rawQuantity;
+  }
+  const quantity = rawQuantity * resolvedUnit.quantityMultiplier;
+  const storedUnit =
+    resolvedUnit.quantityMultiplier !== 1 ? resolvedUnit.unit : unitRaw;
+  if (
+    resolvedUnit.quantityMultiplier !== 1 &&
+    resolvedTotal !== null &&
+    quantity > 0
+  ) {
     resolvedPrice = resolvedTotal / quantity;
   }
   if (
@@ -320,11 +331,11 @@ function evaluateQuantityCostRow(
     return fail("Missing cost", { ingredient_name: name, unit: unitRaw });
   }
 
-  const implausible = implausiblePriceReason(name, unitRaw, resolvedPrice);
+  const implausible = implausiblePriceReason(name, storedUnit, resolvedPrice);
   if (implausible) {
     return fail(implausible, {
       ingredient_name: name,
-      unit: unitRaw,
+      unit: storedUnit,
       unit_price: resolvedPrice,
       total_cost: resolvedTotal,
       quantity,
@@ -337,7 +348,7 @@ function evaluateQuantityCostRow(
       ...baseCandidate(tabName, rowIndex, row, currency, defaultDate),
       ingredient_name: name,
       quantity,
-      unit: unitRaw,
+      unit: storedUnit,
       unit_price: resolvedPrice,
       total_cost: resolvedTotal,
       cost_date: costDate,

@@ -1,4 +1,8 @@
-import { convertUnitStr, normalizeUnit } from "@/lib/restaurant/units";
+import {
+  convertUnitStr,
+  normalizeUnit,
+  resolveUnitCell,
+} from "@/lib/restaurant/units";
 import { numberAt, textAt } from "./cells";
 import { recipeNameFromSheet } from "./names";
 import { skipReasonForWorkbookRow } from "./skip";
@@ -18,13 +22,18 @@ export function resolveSubRecipeYield(
   const mappedQty = group.output_quantity;
   const mappedUnit = group.output_unit?.trim() ?? "";
   if (mappedQty != null && mappedQty > 0 && mappedUnit) {
-    if (!normalizeUnit(mappedUnit)) {
+    const resolved = resolveUnitCell(mappedUnit);
+    if (!resolved.ok) {
       return {
         ok: false,
-        reason: `can't tell the yield for ${group.name} (unknown unit)`,
+        reason: `can't tell the yield for ${group.name} (${resolved.reason})`,
       };
     }
-    return { ok: true, quantity: mappedQty, unit: mappedUnit };
+    return {
+      ok: true,
+      quantity: mappedQty * resolved.quantityMultiplier,
+      unit: resolved.quantityMultiplier !== 1 ? resolved.unit : mappedUnit,
+    };
   }
 
   const summed = sumCompatibleLineYield(group.lines);
@@ -81,9 +90,8 @@ export function evaluateRecipeLine(input: {
   if (!name) return fail("Missing ingredient name");
   const unitRaw = textAt(row, mapping, "unit");
   if (!unitRaw) return fail("Missing unit");
-  if (!normalizeUnit(unitRaw)) {
-    return fail(`unknown unit (${unitRaw})`);
-  }
+  const resolvedUnit = resolveUnitCell(unitRaw);
+  if (!resolvedUnit.ok) return fail(resolvedUnit.reason);
   const qty = numberAt(row, mapping, "quantity");
   if (qty === null || qty <= 0) {
     return fail("Quantity must be a positive number");
@@ -96,8 +104,8 @@ export function evaluateRecipeLine(input: {
       rowIndex,
       recipeName,
       ingredient_name: name,
-      quantity: qty,
-      unit: unitRaw,
+      quantity: qty * resolvedUnit.quantityMultiplier,
+      unit: resolvedUnit.quantityMultiplier !== 1 ? resolvedUnit.unit : unitRaw,
       raw: row,
     },
   };

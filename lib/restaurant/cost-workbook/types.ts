@@ -50,6 +50,9 @@ export interface DetectedSheet {
   sampleRows: Record<string, unknown>[];
   headerFingerprint: string;
   layoutKey: string;
+  /** Set when the sheet was kept so the headline can count it, but
+   *  there was no usable header row to map. */
+  emptyReason?: string;
 }
 
 export interface WorkbookRowCandidate {
@@ -133,6 +136,8 @@ export interface WorkbookImportResult {
   recipes_created: number;
   sub_recipes_created: number;
   pos_links_created: number;
+  restaurant_name?: string | null;
+  location_id?: string | null;
 }
 
 export interface CostWorkbookIngredient {
@@ -289,6 +294,8 @@ export interface ImportedMenuItem {
   name: string;
   source_type: string | null;
   source_id: string | null;
+  location_id?: string | null;
+  brand_id?: string | null;
 }
 
 export interface ImportedRecipe {

@@ -14,6 +14,7 @@ export type UnitOfMeasure =
   | "g"
   | "l"
   | "ml"
+  | "gal"
   | "unit"
   | "portion"
   | "oz"

@@ -1,4 +1,4 @@
-import { normalizeUnit } from "@/lib/restaurant/units";
+import { resolveUnitCell } from "@/lib/restaurant/units";
 import type { WorkbookAi } from "./ai";
 import { classifyCostTabHeuristic } from "./ai";
 import { categoryForTab } from "./categories";
@@ -196,6 +196,9 @@ export async function importCostWorkbook(input: {
   repo: CostWorkbookRepo;
   ai: WorkbookAi;
   createdBy?: string | null;
+  locationId?: string | null;
+  brandId?: string | null;
+  restaurantName?: string | null;
 }): Promise<WorkbookImportResult> {
   const sheets =
     input.sheets ?? (input.buffer ? readWorkbookSheets(input.buffer) : []);
@@ -208,14 +211,29 @@ export async function importCostWorkbook(input: {
   const savedMaps = await input.repo.listMappings(input.companyId);
   const savedByKey = new Map(savedMaps.map((m) => [m.layout_key, m]));
 
-  const resolvedTabs = await mapPool(sheets, WORKBOOK_AI_CONCURRENCY, (sheet) =>
-    resolveTab({
-      sheet,
-      savedByKey,
-      ai: input.ai,
-      currency: input.currency,
-      defaultDate: fileMonth,
-    })
+  const resolvedTabs = await mapPool(
+    sheets,
+    WORKBOOK_AI_CONCURRENCY,
+    (sheet) => {
+      if (sheet.emptyReason || sheet.headers.length === 0) {
+        return Promise.resolve({
+          sheet,
+          tabType: "ignore" as const,
+          tabConfidence: 1,
+          mapping: {},
+          mappingSource: "none" as const,
+          note: sheet.emptyReason ?? "no header row",
+          persistMapping: false,
+        });
+      }
+      return resolveTab({
+        sheet,
+        savedByKey,
+        ai: input.ai,
+        currency: input.currency,
+        defaultDate: fileMonth,
+      });
+    }
   );
 
   const existingIngredients = await input.repo.listIngredients(input.companyId);
@@ -235,7 +253,6 @@ export async function importCostWorkbook(input: {
   const mapsToPersist: SavedLayoutMap[] = [];
   const sources: Array<MappingSource | "none"> = [];
   let recipeTabCount = 0;
-  let costTabCount = 0;
 
   const rememberMapping = (
     resolved: ResolvedTab,
@@ -334,7 +351,6 @@ export async function importCostWorkbook(input: {
       continue;
     }
 
-    costTabCount += 1;
     let imported = 0;
     let review = 0;
     const tabSkips: SkipCandidate[] = [];
@@ -524,6 +540,8 @@ export async function importCostWorkbook(input: {
     groups: recipeGroups,
     repo: input.repo,
     aliases: merged.aliases,
+    locationId: input.locationId ?? null,
+    brandId: input.brandId ?? null,
   });
   toReview.push(...recipeStats.review);
   skipped.push(...recipeStats.skipped);
@@ -538,6 +556,7 @@ export async function importCostWorkbook(input: {
     companyId: input.companyId,
     menuItems: importedMenuItems,
     repo: input.repo,
+    locationId: input.locationId ?? null,
   });
   toReview.push(...posStats.review);
   skipped.push(...posStats.skipped);
@@ -570,6 +589,7 @@ export async function importCostWorkbook(input: {
   const updated = persistStats.updated;
   const review = toReview.length;
   const skippedReasons = groupSkipReasons(skipped);
+  const tabCount = resolvedTabs.length;
 
   return {
     kind: "workbook",
@@ -577,13 +597,13 @@ export async function importCostWorkbook(input: {
     headline: buildImportHeadline({
       saved,
       updated,
-      tabs: costTabCount,
+      tabs: tabCount,
       review,
       skipped: skipped.length,
     }),
     imported_count: saved + updated,
     review_count: review,
-    tab_count: costTabCount,
+    tab_count: tabCount,
     recipe_tab_count: recipeTabCount,
     mapping_source: mappingSource,
     default_currency: input.currency,
@@ -608,6 +628,8 @@ export async function importCostWorkbook(input: {
     recipes_created: recipeStats.recipesCreated,
     sub_recipes_created: recipeStats.subRecipesCreated,
     pos_links_created: posStats.linked,
+    restaurant_name: input.restaurantName ?? null,
+    location_id: input.locationId ?? null,
   };
 }
 
@@ -850,11 +872,15 @@ export async function approveReviewItem(
     new Date().toISOString().slice(0, 10);
   if (!name) return { ok: false, reason: "Missing ingredient name" };
   if (!unit) return { ok: false, reason: "Missing unit" };
-  if (!normalizeUnit(unit))
-    return { ok: false, reason: `unknown unit (${unit})` };
+  const resolvedUnit = resolveUnitCell(unit);
+  if (!resolvedUnit.ok) return { ok: false, reason: resolvedUnit.reason };
   if (!total || total < 0) return { ok: false, reason: "Missing cost" };
   if (quantity <= 0)
     return { ok: false, reason: "Quantity must be a positive number" };
+
+  const persistQuantity = quantity * resolvedUnit.quantityMultiplier;
+  const persistUnit =
+    resolvedUnit.quantityMultiplier !== 1 ? resolvedUnit.unit : unit;
 
   const persistStats = await persistSavedRows({
     companyId,
@@ -865,10 +891,10 @@ export async function approveReviewItem(
         tabName: item.tab_name,
         rowIndex: item.row_index,
         ingredient_name: name,
-        quantity,
-        unit,
+        quantity: persistQuantity,
+        unit: persistUnit,
         total_cost: total,
-        unit_price: total / quantity,
+        unit_price: total / persistQuantity,
         cost_date: costDate,
         supplier_name: suggested.supplier_name ?? null,
         currency,

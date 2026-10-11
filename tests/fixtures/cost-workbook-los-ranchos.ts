@@ -98,3 +98,73 @@ export function buildLosRanchosCostWorkbook(opts?: {
     XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
   );
 }
+
+/**
+ * Same shape as the April Los Ranchos file, plus the Latin American
+ * kitchen units that the real SUB RECETAS tab uses (GALON, PAQUETE,
+ * SOBRES, UNIDA, BOLSA, CAJA), parenthetical / mixed / oversized pack
+ * sizes that must go to needs-a-look, one genuinely bad row (ingredient
+ * name in the unit column), a cover tab with no headers, and a second
+ * recipe tab. No client data.
+ */
+export function buildLosRanchosKitchenUnitsWorkbook(): Buffer {
+  const wb = XLSX.read(buildLosRanchosCostWorkbook(), { type: "buffer" });
+
+  const sub = [
+    ["SUB RECETAS"],
+    [],
+    ["Receta", "Ingrediente", "Cantidad", "Unidad"],
+    ["Salsa ranchera", "Tomate", 2, "lb"],
+    ["Salsa ranchera", "Cebolla", 0.5, "kg"],
+    ["Agua de jamaica", "Agua", 1, "GALON"],
+    ["Tortilla taco", "Tortilla", 14, "PAQUETE (TORTILLA DE TACO 14 UNIDADES)"],
+    ["Sopa para tacos", "Sopa instantanea", 2, "SOBRES"],
+    ["Wantan wrap", "Tela de wantan", 1, "UNIDA"],
+    ["Aderezo casa", "ADEREZO", 1, "BOLSA"],
+    ["Tomate caja", "Tomate", 1, "CAJA"],
+    ["YUCA FRITA", "Yuca", 2, "lb"],
+    ["TOSTONES", "Platano", 2, "lb"],
+    ["Apio suelto", "APIO", 1, "APIO"],
+    ["Arroz saco", "Arroz", 1, "SACO 25 KG (ARROZ)"],
+    ["Harina mixta", "Harina", 1, "CAJA 12 x 500 g"],
+    ["Aceite cubeta", "Aceite", 1, "CUBETA 18.9 L + 2 L"],
+  ];
+  wb.Sheets["SUB RECETAS"] = XLSX.utils.aoa_to_sheet(sub);
+
+  const price = [
+    ["LISTA DE PRECIOS LOS RANCHOS — ABRIL 2026"],
+    [],
+    ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+    ["Carne para asar", 4.8, 0.3, ""],
+    ["Tomate", 1.2, 0.075, ""],
+    ["Cebolla", 1.8, 0.1125, ""],
+    ["Agua", "", "", 0.4],
+    ["Tortilla", "", "", 2.5],
+    ["Sopa instantanea", "", "", 0.35],
+    ["Tela de wantan", "", "", 1.1],
+    ["ADEREZO", "", "", 1.2],
+    ["Yuca", 0.8, 0.05, ""],
+    ["Platano", 0.6, 0.0375, ""],
+  ];
+  wb.Sheets["Lista de precios"] = XLSX.utils.aoa_to_sheet(price);
+
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([["INDICE"], ["Los Ranchos — costos abril"], [""]]),
+    "INDICE"
+  );
+
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([
+      ["RECETA: Agua Jamaica"],
+      ["Ingrediente", "Cantidad", "Unidad"],
+      ["Agua de jamaica", 0.25, "GALON"],
+    ]),
+    "RECETA Agua Jamaica"
+  );
+
+  return Buffer.from(
+    XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+  );
+}

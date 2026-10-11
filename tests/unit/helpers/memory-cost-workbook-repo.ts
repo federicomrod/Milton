@@ -31,10 +31,12 @@ export interface MemoryCostWorkbookStore {
     RecipeInputSnapshot & { id: string; component_recipe_id: string }
   >;
   posItemNames: string[];
+  posItemLocationIds?: string[];
   posMappings: Array<{
     id: string;
     raw_pos_item_name: string;
     menu_item_id: string;
+    location_id?: string | null;
   }>;
   supplierLinks: SupplierIngredientSnapshot[];
 }
@@ -53,6 +55,7 @@ export function emptyMemoryStore(): MemoryCostWorkbookStore {
     componentRecipes: [],
     componentRecipeInputs: [],
     posItemNames: [],
+    posItemLocationIds: [],
     posMappings: [],
     supplierLinks: [],
   };
@@ -386,6 +389,8 @@ export function createMemoryCostWorkbookRepo(
         name: input.name,
         source_type: "import",
         source_id: input.sourceId,
+        location_id: input.locationId ?? null,
+        brand_id: input.brandId ?? null,
       };
       store.menuItems.push(row);
       return row;
@@ -573,8 +578,13 @@ export function createMemoryCostWorkbookRepo(
       );
       return before - store.componentRecipes.length;
     },
-    async listDistinctPosItemNames() {
-      return [...store.posItemNames];
+    async listDistinctPosItemNames(_companyId, locationId) {
+      if (!locationId || !store.posItemLocationIds?.length) {
+        return [...store.posItemNames];
+      }
+      return store.posItemNames.filter(
+        (_, i) => store.posItemLocationIds?.[i] === locationId
+      );
     },
     async listPosMappings() {
       return [...store.posMappings];
@@ -585,6 +595,7 @@ export function createMemoryCostWorkbookRepo(
           id: id(),
           raw_pos_item_name: input.rawPosItemName,
           menu_item_id: input.menuItemId,
+          location_id: input.locationId ?? null,
         };
         store.posMappings.push(row);
         return { id: row.id };

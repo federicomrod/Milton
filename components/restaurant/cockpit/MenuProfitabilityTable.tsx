@@ -22,7 +22,11 @@ import { Button } from "@/components/ui/button";
 import { ArrowUpDown, ArrowDown, ArrowUp } from "lucide-react";
 import type { MenuMarginRow } from "@/lib/restaurant/profitability-server";
 import type { CostStatus } from "@/types/restaurant-costing";
-import { t } from "@/lib/restaurant/language";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 
 // ---------------------------------------------------------------------------
 // Status color mapping
@@ -58,14 +62,14 @@ const STATUS_LABEL: Record<string, string> = {
   inactive_recipe: "Receta inactiva",
 };
 
-function buildStatusTitle(row: MenuMarginRow): string {
+function buildStatusTitle(row: MenuMarginRow, lang: PreferredLanguage): string {
   const label = STATUS_LABEL[row.cost.status] ?? row.cost.status;
   // Prefer the engine's first issue message (which already includes the
   // recipe path), and fall back to the bare label.
   const detail = row.cost.issues[0]?.message;
   const mappingHint =
     row.raw_pos_names.length === 0
-      ? t("es", " · No POS mapping", " · Sin ligue del POS")
+      ? t(lang, " · No POS mapping", " · Sin ligue del POS")
       : "";
   return detail
     ? `${label}: ${detail}${mappingHint}`
@@ -156,9 +160,11 @@ function compareNullsLast(
 export function MenuProfitabilityTable({
   rows,
   currency,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
 }: {
   rows: MenuMarginRow[];
   currency: string;
+  lang?: PreferredLanguage;
 }) {
   const fmt = makeFmt(currency);
 
@@ -219,14 +225,14 @@ export function MenuProfitabilityTable({
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-xs">
             <span className="text-muted-foreground">
-              {t("es", "Category", "Categoría")}
+              {t(lang, "Category", "Categoría")}
             </span>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               className="h-8 rounded-md border border-border bg-background px-2 text-xs"
             >
-              <option value="__all__">{t("es", "All", "Todas")}</option>
+              <option value="__all__">{t(lang, "All", "Todas")}</option>
               {categories.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -236,7 +242,7 @@ export function MenuProfitabilityTable({
           </label>
           <label className="flex items-center gap-2 text-xs">
             <span className="text-muted-foreground">
-              {t("es", "Status", "Estado")}
+              {t(lang, "Status", "Estado")}
             </span>
             <select
               value={statusFilter}
@@ -246,12 +252,12 @@ export function MenuProfitabilityTable({
               disabled={onlyIssues}
               className="h-8 rounded-md border border-border bg-background px-2 text-xs disabled:opacity-50"
             >
-              <option value="all">{t("es", "All", "Todos")}</option>
+              <option value="all">{t(lang, "All", "Todos")}</option>
               <option value="complete">
-                {t("es", "Complete only", "Solo completos")}
+                {t(lang, "Complete only", "Solo completos")}
               </option>
               <option value="issues">
-                {t("es", "Issues only", "Solo con problemas")}
+                {t(lang, "Issues only", "Solo con problemas")}
               </option>
             </select>
           </label>
@@ -262,11 +268,11 @@ export function MenuProfitabilityTable({
             onClick={() => setOnlyIssues((v) => !v)}
           >
             <Dot tone="yellow" />
-            {t("es", "Only show issues", "Solo problemas")}
+            {t(lang, "Only show issues", "Solo problemas")}
             <span className="tabular-nums opacity-80">({totalIssues})</span>
           </Button>
         </div>
-        <Legend />
+        <Legend lang={lang} />
       </div>
 
       {/* Table */}
@@ -274,7 +280,7 @@ export function MenuProfitabilityTable({
         <Card>
           <CardContent className="py-6 text-sm text-muted-foreground">
             {t(
-              "es",
+              lang,
               "No menu items match the current filters.",
               "Ningún platillo coincide con estos filtros."
             )}
@@ -292,10 +298,10 @@ export function MenuProfitabilityTable({
                       onClick={() => toggleSort("name")}
                       icon={sortIcon("name")}
                     >
-                      {t("es", "Menu item", "Platillo")}
+                      {t(lang, "Menu item", "Platillo")}
                     </SortableTh>
                     <th className="px-3 py-3 font-medium">
-                      {t("es", "POS mapping", "Ligue del POS")}
+                      {t(lang, "POS mapping", "Ligue del POS")}
                     </th>
                     <SortableTh
                       active={sortKey === "units"}
@@ -303,7 +309,7 @@ export function MenuProfitabilityTable({
                       icon={sortIcon("units")}
                       align="right"
                     >
-                      {t("es", "Units", "Unidades")}
+                      {t(lang, "Units", "Unidades")}
                     </SortableTh>
                     <SortableTh
                       active={sortKey === "revenue"}
@@ -311,7 +317,7 @@ export function MenuProfitabilityTable({
                       icon={sortIcon("revenue")}
                       align="right"
                     >
-                      {t("es", "Revenue", "Ventas")}
+                      {t(lang, "Revenue", "Ventas")}
                     </SortableTh>
                     <SortableTh
                       active={sortKey === "price"}
@@ -319,7 +325,7 @@ export function MenuProfitabilityTable({
                       icon={sortIcon("price")}
                       align="right"
                     >
-                      {t("es", "Price", "Precio")}
+                      {t(lang, "Price", "Precio")}
                     </SortableTh>
                     <SortableTh
                       active={sortKey === "cost"}
@@ -327,7 +333,7 @@ export function MenuProfitabilityTable({
                       icon={sortIcon("cost")}
                       align="right"
                     >
-                      {t("es", "Est. cost", "Costo est.")}
+                      {t(lang, "Est. cost", "Costo est.")}
                     </SortableTh>
                     <SortableTh
                       active={sortKey === "gp"}
@@ -335,7 +341,7 @@ export function MenuProfitabilityTable({
                       icon={sortIcon("gp")}
                       align="right"
                     >
-                      {t("es", "Gross profit", "Utilidad bruta")}
+                      {t(lang, "Gross profit", "Utilidad bruta")}
                     </SortableTh>
                     <SortableTh
                       active={sortKey === "gm"}
@@ -343,7 +349,7 @@ export function MenuProfitabilityTable({
                       icon={sortIcon("gm")}
                       align="right"
                     >
-                      {t("es", "GM %", "Margen %")}
+                      {t(lang, "GM %", "Margen %")}
                     </SortableTh>
                     <SortableTh
                       active={sortKey === "fc"}
@@ -351,14 +357,14 @@ export function MenuProfitabilityTable({
                       icon={sortIcon("fc")}
                       align="right"
                     >
-                      {t("es", "FC %", "Costo %")}
+                      {t(lang, "FC %", "Costo %")}
                     </SortableTh>
                     <th
                       className="px-3 py-3 font-medium text-center w-10"
-                      title={t("es", "Status", "Estado")}
+                      title={t(lang, "Status", "Estado")}
                     >
                       <span className="sr-only">
-                        {t("es", "Status", "Estado")}
+                        {t(lang, "Status", "Estado")}
                       </span>
                       <span aria-hidden>•</span>
                     </th>
@@ -388,7 +394,7 @@ export function MenuProfitabilityTable({
                         <td className="px-3 py-2 text-xs text-muted-foreground max-w-[200px] truncate">
                           {r.raw_pos_names.length === 0 ? (
                             <span className="text-amber-700 dark:text-amber-300">
-                              {t("es", "No POS mapping", "Sin ligue del POS")}
+                              {t(lang, "No POS mapping", "Sin ligue del POS")}
                             </span>
                           ) : r.raw_pos_names.length === 1 ? (
                             r.raw_pos_names[0]
@@ -431,8 +437,9 @@ export function MenuProfitabilityTable({
                         </td>
                         <td className="px-3 py-2 text-center">
                           <StatusDot
+                            lang={lang}
                             tone={tone}
-                            title={buildStatusTitle(r)}
+                            title={buildStatusTitle(r, lang)}
                             status={r.cost.status}
                           />
                         </td>
@@ -445,7 +452,7 @@ export function MenuProfitabilityTable({
             {filtered.length > 100 && (
               <p className="text-xs text-muted-foreground px-4 py-2 border-t">
                 {t(
-                  "es",
+                  lang,
                   `Showing first 100 of ${filtered.length} matching items.`,
                   `Mostrando los primeros 100 de ${filtered.length} platillos.`
                 )}
@@ -472,10 +479,12 @@ function Dot({ tone }: { tone: StatusTone }) {
 }
 
 function StatusDot({
+  lang,
   tone,
   title,
   status,
 }: {
+  lang: PreferredLanguage;
   tone: StatusTone;
   title: string;
   status: CostStatus;
@@ -486,7 +495,7 @@ function StatusDot({
       title={title}
       tabIndex={0}
       role="img"
-      aria-label={`${t("es", "Status", "Estado")}: ${STATUS_LABEL[status] ?? status}`}
+      aria-label={`${t(lang, "Status", "Estado")}: ${STATUS_LABEL[status] ?? status}`}
     >
       <span
         className={`inline-block h-2.5 w-2.5 rounded-full ${TONE_BG[tone]} ring-2 ring-background group-hover:ring-muted transition-shadow`}
@@ -495,20 +504,20 @@ function StatusDot({
   );
 }
 
-function Legend() {
+function Legend({ lang }: { lang: PreferredLanguage }) {
   return (
     <div className="flex items-center gap-3 text-xs text-muted-foreground">
       <span className="inline-flex items-center gap-1.5">
-        <Dot tone="green" /> {t("es", "Complete", "Completo")}
+        <Dot tone="green" /> {t(lang, "Complete", "Completo")}
       </span>
       <span className="inline-flex items-center gap-1.5">
-        <Dot tone="yellow" /> {t("es", "Missing setup", "Falta configuración")}
+        <Dot tone="yellow" /> {t(lang, "Missing setup", "Falta configuración")}
       </span>
       <span className="inline-flex items-center gap-1.5">
-        <Dot tone="red" /> {t("es", "Costing blocked", "Costeo bloqueado")}
+        <Dot tone="red" /> {t(lang, "Costing blocked", "Costeo bloqueado")}
       </span>
       <span className="text-muted-foreground/70 hidden md:inline">
-        · {t("es", "hover the dot for details", "pasa el mouse por el punto")}
+        · {t(lang, "hover the dot for details", "pasa el mouse por el punto")}
       </span>
     </div>
   );

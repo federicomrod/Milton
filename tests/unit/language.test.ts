@@ -32,8 +32,8 @@ describe("LANGUAGE_OPTIONS / DEFAULT_LANGUAGE", () => {
     expect(resolveRestaurantCockpitLanguage("garbage")).toBe("es");
   });
 
-  it("still honors a stored company preference in the restaurant cockpit", () => {
-    expect(resolveRestaurantCockpitLanguage("en")).toBe("en");
+  it("keeps the R1 cockpit in Spanish even when preferred_language was backfilled to en", () => {
+    expect(resolveRestaurantCockpitLanguage("en")).toBe("es");
     expect(resolveRestaurantCockpitLanguage("es")).toBe("es");
   });
 });

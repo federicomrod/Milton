@@ -15,7 +15,13 @@ import { Sparkles, RefreshCw, AlertTriangle, Cpu } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { t } from "@/lib/restaurant/language";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
+
+const DEFAULT_LANG: PreferredLanguage = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
 
 // ---------------------------------------------------------------------------
 // Types — kept local to avoid bundling server-only modules into the client.
@@ -48,10 +54,10 @@ interface BriefingPayload {
 
 function fmtRelative(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 60_000) return t("es", "just now", "hace un momento");
+  if (ms < 60_000) return t(DEFAULT_LANG, "just now", "hace un momento");
   if (ms < 3_600_000)
     return t(
-      "es",
+      DEFAULT_LANG,
       `${Math.round(ms / 60_000)} min ago`,
       `hace ${Math.round(ms / 60_000)} min`
     );
@@ -122,7 +128,7 @@ function BriefingCardInner() {
       setError(
         err instanceof Error
           ? err.message
-          : t("es", "Network error", "Error de red")
+          : t(DEFAULT_LANG, "Network error", "Error de red")
       );
     } finally {
       setLoading(false);
@@ -179,12 +185,16 @@ function BriefingCardInner() {
                 className="ml-auto h-7 text-xs gap-1"
                 onClick={load}
                 disabled={loading}
-                title={t("es", "Refresh briefing", "Actualizar briefing")}
+                title={t(
+                  DEFAULT_LANG,
+                  "Refresh briefing",
+                  "Actualizar briefing"
+                )}
               >
                 <RefreshCw
                   className={"h-3.5 w-3.5 " + (loading ? "animate-spin" : "")}
                 />
-                {t("es", "Refresh", "Actualizar")}
+                {t(DEFAULT_LANG, "Refresh", "Actualizar")}
               </Button>
             </div>
 
@@ -192,7 +202,7 @@ function BriefingCardInner() {
             {loading && !data && (
               <p className="text-sm text-muted-foreground">
                 {t(
-                  "es",
+                  DEFAULT_LANG,
                   "Reading your latest restaurant numbers…",
                   "Leyendo los números más recientes…"
                 )}
@@ -202,7 +212,7 @@ function BriefingCardInner() {
               <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
                 <AlertTriangle className="h-3.5 w-3.5" />
                 {t(
-                  "es",
+                  DEFAULT_LANG,
                   "Could not load briefing:",
                   "No se pudo cargar el briefing:"
                 )}{" "}
@@ -222,7 +232,11 @@ function BriefingCardInner() {
                 {data.briefing.recommended_actions.length > 0 && (
                   <div className="pt-1">
                     <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium mb-1">
-                      {t("es", "Recommended actions", "Acciones recomendadas")}
+                      {t(
+                        DEFAULT_LANG,
+                        "Recommended actions",
+                        "Acciones recomendadas"
+                      )}
                     </p>
                     <ul className="space-y-1 text-sm">
                       {data.briefing.recommended_actions

@@ -581,7 +581,7 @@ function weekdayLabel(dateKey: string, lang: PreferredLanguage): string {
   const date = new Date(
     Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12)
   );
-  return new Intl.DateTimeFormat(lang === "es" ? "es" : "en-US", {
+  return new Intl.DateTimeFormat(lang === "es" ? "es-MX" : "en-US", {
     weekday: "long",
     timeZone: "UTC",
   }).format(date);

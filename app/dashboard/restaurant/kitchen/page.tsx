@@ -1,71 +1,86 @@
 // app/dashboard/restaurant/kitchen/page.tsx
 //
-// "Kitchen (Telegram)" — manager page for the kitchen QR join and cook
-// reports (R1 #55 / #49): wall QR per location, active cooks, newest
-// reports. Auth-gated by proxy.ts, rendered inside RestaurantShell. Any
-// company member can read; only owners and Milton admins can create/rotate
-// QRs, remove cooks or reclassify reports (enforced again server-side).
+// Kitchen area — needs-attention feed (#148). KPI math stays in
+// lib/restaurant/kitchen-insights.ts. Same period shell as Sales.
 
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
-import { isUserAdminServer } from "@/lib/profile-service-server";
+import { loadKitchenPageModel } from "@/lib/restaurant/kitchen-page-data";
+import { timeCockpitStep } from "@/lib/restaurant/cockpit-timing";
+import { KitchenPageLive } from "@/components/restaurant/kitchen/KitchenPageLive";
+import { KitchenPageHeader } from "@/components/restaurant/kitchen/KitchenPageChrome";
+import { KitchenHighlights } from "@/components/restaurant/kitchen/KitchenHighlights";
+import { KitchenHighlightsUpgrade } from "@/components/restaurant/kitchen/KitchenHighlightsUpgrade";
+import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
 import {
-  canManageKitchenQr,
-  loadMembershipRole,
-} from "@/lib/restaurant/telegram/kitchen-join";
-import { KitchenQrCard } from "@/components/restaurant/kitchen/KitchenQrCard";
-import { KitchenStaffCard } from "@/components/restaurant/kitchen/KitchenStaffCard";
-import { KitchenReportsCard } from "@/components/restaurant/kitchen/KitchenReportsCard";
-import { KitchenRecipeDraftsCard } from "@/components/restaurant/kitchen/KitchenRecipeDraftsCard";
-import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
-import { t } from "@/lib/restaurant/language";
-import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+} from "@/lib/restaurant/language";
 
 export const dynamic = "force-dynamic";
 
-export default async function KitchenPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/auth/login");
-  const companyId = await resolveCompanyIdForUser(supabase, user.id);
-  if (!companyId) redirect("/dashboard/restaurant");
+export default async function KitchenPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ location?: string; period?: string }>;
+}) {
+  const { location, period } = await searchParams;
+  const model = await timeCockpitStep(
+    "kitchen-route",
+    () => loadKitchenPageModel(location, period),
+    { location: location ?? null, period: period ?? null }
+  );
+  const lang = model.lang || RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
 
-  const [isMiltonAdmin, membershipRole, locationsRes] = await Promise.all([
-    isUserAdminServer(user.id),
-    loadMembershipRole(companyId, user.id),
-    supabase
-      .from("restaurant_locations")
-      .select("id, name")
-      .eq("company_id", companyId)
-      .order("name", { ascending: true }),
-  ]);
-  const canManage = canManageKitchenQr({ isMiltonAdmin, membershipRole });
-  const locations = (locationsRes.data ?? []) as { id: string; name: string }[];
-  const { lang } = await loadRestaurantShellChrome();
+  if (!model.companyId) {
+    redirect("/dashboard/restaurant");
+  }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-8">
-      <div className="space-y-2">
-        <OperatingPageHeader
-          title={t(lang, "Kitchen", "Cocina")}
+    <div className="w-full py-3 px-6 lg:px-10 space-y-3">
+      <KitchenPageHeader
+        lang={lang}
+        periodPreset={model.periodPreset}
+        range={model.period?.current ?? null}
+        comparisonLabel={model.comparisonLabel}
+        periodAskQuestion={model.insights?.period_ask_question}
+      />
+      {model.insights ? (
+        <KitchenPageLive
+          insights={model.insights}
           lang={lang}
-          showDateRange={false}
-        />
-        <p className="text-sm text-muted-foreground">
-          {t(
+          canManage={model.canManage}
+          locations={model.locations}
+        >
+          <Suspense
+            fallback={
+              <KitchenHighlights
+                highlights={model.insights.highlights}
+                empty={model.insights.empty_feed}
+                lang={lang}
+                source="deterministic"
+              />
+            }
+          >
+            <KitchenHighlightsUpgrade
+              highlights={model.insights.highlights}
+              facts={model.insights.insightFacts}
+              empty={model.insights.empty_feed}
+              lang={lang}
+              cacheKey={model.insightCacheKey}
+            />
+          </Suspense>
+        </KitchenPageLive>
+      ) : (
+        <NotAvailableYet
+          lang={lang}
+          reason={t(
             lang,
-            "Let your cooks report what's running out, 86'd or wasted — by text, voice note or photo — just by scanning a QR.",
-            "Tus cocineros pueden avisar qué se está acabando, qué está agotado (86) o qué se desperdició — por texto, nota de voz o foto — solo escaneando un código QR."
+            "Kitchen reports from your team will show up here.",
+            "Aquí aparecerán los reportes de cocina de tu equipo."
           )}
-        </p>
-      </div>
-      <KitchenQrCard canManage={canManage} />
-      <KitchenStaffCard canManage={canManage} locations={locations} />
-      <KitchenRecipeDraftsCard canManage={canManage} locations={locations} />
-      <KitchenReportsCard canManage={canManage} locations={locations} />
+        />
+      )}
     </div>
   );
 }

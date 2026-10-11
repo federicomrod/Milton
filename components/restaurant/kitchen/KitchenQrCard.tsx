@@ -86,8 +86,8 @@ export function KitchenQrCard({ canManage }: { canManage: boolean }) {
       <CardHeader>
         <CardTitle>QR de pared por ubicación</CardTitle>
         <CardDescription>
-          Tus cocineros escanean el QR de la pared para unirse a su ubicación en
-          Telegram. No necesitan una cuenta de Milton.
+          Tus cocineros escanean el QR de la pared para unirse a su ubicación.
+          No necesitan una cuenta de Milton.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

@@ -85,9 +85,11 @@ const CONFIDENCE_COLORS: Record<string, string> = {
 export function KitchenRecipeDraftsCard({
   canManage,
   locations,
+  focusDraftId,
 }: {
   canManage: boolean;
   locations: { id: string; name: string }[];
+  focusDraftId?: string | null;
 }) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
@@ -117,12 +119,21 @@ export function KitchenRecipeDraftsCard({
       const data = await res.json();
       if (cancelled) return;
       setError(null);
-      setDrafts(data.drafts ?? []);
+      const next = (data.drafts ?? []) as Draft[];
+      setDrafts(next);
+      if (focusDraftId) {
+        const hit = next.find((d) => d.id === focusDraftId);
+        if (hit) {
+          setSelectedDraft(hit);
+          setEditedDraft(JSON.parse(JSON.stringify(hit)));
+          setEditedLines(JSON.parse(JSON.stringify(hit.lines)));
+        }
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [locationId, reloadKey]);
+  }, [locationId, reloadKey, focusDraftId]);
 
   useEffect(() => {
     let cancelled = false;

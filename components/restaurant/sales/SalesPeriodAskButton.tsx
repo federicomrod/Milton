@@ -27,12 +27,7 @@ export function SalesPeriodAskButton({
       onClick={() => openAskMilton(question)}
       className="text-xs font-medium text-orange-700 dark:text-orange-300 hover:underline underline-offset-2 whitespace-nowrap"
     >
-      {label ??
-        t(
-          lang,
-          "Ask Milton about this period",
-          "Preguntar a Milton sobre este periodo"
-        )}
+      {label ?? t(lang, "Ask Milton", "Preguntar a Milton")}
     </button>
   );
 }

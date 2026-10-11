@@ -124,9 +124,12 @@ describe("Spanish completeness for Sales (#130)", () => {
     );
     expect(highlights).toContain("Lo que destaca");
     expect(highlights).not.toContain("Preguntar a Milton");
+    expect(highlights).not.toContain("Pregúntale a Milton");
     expect(highlights).not.toContain("openAskMilton");
     expect(chrome).toContain("SalesPeriodAskButton");
-    expect(periodAsk).toContain("Preguntar a Milton sobre este periodo");
+    expect(periodAsk).toContain("Preguntar a Milton");
+    expect(periodAsk).not.toContain("Preguntar a Milton sobre este periodo");
+    expect(periodAsk).not.toContain("Pregúntale a Milton");
     expect(understand).toContain("Ventas netas");
     expect(understand).toContain("Cuándo se vende");
     expect(understand).toContain("sales-ask-milton-heatmap");

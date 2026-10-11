@@ -21,8 +21,11 @@ psql_db -c "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";"
 # PG 16: 001 dumps SET transaction_timeout (PG 17+).
 psql_db -f "$ROOT/supabase/validation/supabase_stub.sql"
 
-echo "=== migrations 001–033 (strip PG17-only SETs) ==="
+echo "=== migrations 001–032 (strip PG17-only SETs) ==="
 for f in "$ROOT"/supabase/migrations/*.sql; do
+  case "$(basename "$f")" in
+    033_*) continue ;;
+  esac
   echo "  applying $(basename "$f")"
   sed '/SET transaction_timeout/d' "$f" | psql_db -f -
 done
@@ -126,61 +129,47 @@ WHERE psi.company_id = '11111111-1111-1111-1111-111111111111'
   AND psi.location_id = '33333333-3333-3333-3333-333333333333';
 SQL
 
-echo "=== authenticated + RLS timings ==="
+echo "=== BEFORE (032) single-call timings ==="
 psql_db <<'SQL'
 SET statement_timeout = '8s';
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claims', '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}', false);
-
-\echo '--- cockpit_pos_rollup Los Ranchos ---'
 \timing on
-SELECT (public.cockpit_pos_rollup(
+SELECT public.cockpit_pos_rollup(
   '11111111-1111-1111-1111-111111111111',
   '22222222-2222-2222-2222-222222222222',
-  'America/El_Salvador',
-  'USD'
-)->>'row_count') AS rows,
-  ((public.cockpit_pos_rollup(
-  '11111111-1111-1111-1111-111111111111',
-  '22222222-2222-2222-2222-222222222222',
-  'America/El_Salvador',
-  'USD'
-)->'revenue'->>'net_sales')::numeric
-  + (public.cockpit_pos_rollup(
-  '11111111-1111-1111-1111-111111111111',
-  '22222222-2222-2222-2222-222222222222',
-  'America/El_Salvador',
-  'USD'
-)->'revenue'->>'tips')::numeric) AS net_plus_tips;
-
-\echo '--- cockpit_pos_rollup Lavara ---'
-SELECT (public.cockpit_pos_rollup(
+  'America/El_Salvador', 'USD')->>'row_count' AS ranchos_032;
+SELECT public.cockpit_pos_rollup(
   '11111111-1111-1111-1111-111111111111',
   '33333333-3333-3333-3333-333333333333',
-  'America/El_Salvador',
-  'USD'
-)->>'row_count') AS rows;
-
-\echo '--- cockpit_pos_product_rollup Lavara ---'
-SELECT (public.cockpit_pos_product_rollup(
-  '11111111-1111-1111-1111-111111111111',
-  '33333333-3333-3333-3333-333333333333',
-  'USD'
-)->>'row_count') AS rows,
-  jsonb_array_length(public.cockpit_pos_product_rollup(
-  '11111111-1111-1111-1111-111111111111',
-  '33333333-3333-3333-3333-333333333333',
-  'USD'
-)->'products') AS products;
-
-\echo '--- 25-page walk simulation (LIMIT 1000 x 10 for Lavara) ---'
-SELECT count(*) FROM (
-  SELECT 1 FROM public.pos_sales_items
-  WHERE company_id = '11111111-1111-1111-1111-111111111111'
-    AND location_id = '33333333-3333-3333-3333-333333333333'
-  ORDER BY id
-  LIMIT 10000
-) s;
-
+  'America/El_Salvador', 'USD')->>'row_count' AS lavara_032;
 RESET ROLE;
 SQL
+
+echo "=== apply 033 ==="
+psql_db -f "$ROOT/supabase/migrations/033_cockpit_tabs_product_rollup.sql" >/dev/null
+
+echo "=== AFTER (033) single-call timings ==="
+psql_db <<'SQL'
+SET statement_timeout = '8s';
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","role":"authenticated"}', false);
+\timing on
+SELECT public.cockpit_pos_rollup(
+  '11111111-1111-1111-1111-111111111111',
+  '22222222-2222-2222-2222-222222222222',
+  'America/El_Salvador', 'USD')->>'row_count' AS ranchos_033;
+SELECT public.cockpit_pos_rollup(
+  '11111111-1111-1111-1111-111111111111',
+  '33333333-3333-3333-3333-333333333333',
+  'America/El_Salvador', 'USD')->>'row_count' AS lavara_033;
+SELECT jsonb_build_object(
+  'rows', r->>'row_count',
+  'products', jsonb_array_length(r->'products')
+) FROM public.cockpit_pos_product_rollup(
+  '11111111-1111-1111-1111-111111111111',
+  '33333333-3333-3333-3333-333333333333',
+  'USD') r;
+RESET ROLE;
+SQL
+

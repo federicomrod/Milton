@@ -88,7 +88,7 @@ describe("RestaurantSalesExplorer compact Revenue-tab chrome (#85)", () => {
     const iToolbar = explorer.indexOf("Compact toolbar:");
     const iTargetsBtn = explorer.indexOf("Add targets");
     const iOverview = explorer.indexOf('id="overview"');
-    const iRevenueKpi = explorer.indexOf('label="Revenue"');
+    const iRevenueKpi = explorer.indexOf("Net sales (filtered)");
     expect(iToolbar).toBeGreaterThan(0);
     expect(iTargetsBtn).toBeGreaterThan(iToolbar);
     expect(iOverview).toBeGreaterThan(iTargetsBtn);

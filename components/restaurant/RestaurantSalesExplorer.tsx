@@ -49,6 +49,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { ExplorerRow } from "@/lib/restaurant/supabase-sales";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import {
   formatChipQuantity,
   formatCount,
@@ -296,6 +297,10 @@ interface OverviewTotals {
   avgTicket: number;
   avgItemPrice: number;
   uniqueItemsCount: number;
+  tips: number;
+  discounts: number;
+  grossSales: number;
+  discountsEstimated: boolean;
 }
 
 /** One bucket in the daily trend series. `date` is ISO "YYYY-MM-DD". */
@@ -409,13 +414,23 @@ function aggregate(
   }
   const dailyBuckets = new Map<string, DailyAgg>();
 
+  let tips = 0;
+  let discounts = 0;
+  let discountsEstimated = false;
+
   for (const r of filtered) {
     if (displayCurrency && r.currency && r.currency !== displayCurrency) {
       continue;
     }
+    if (r.order_key) orderIds.add(r.order_key);
+    if (r.is_tip) {
+      tips += r.revenue;
+      continue;
+    }
     totalRevenue += r.revenue;
     totalUnits += r.quantity;
-    if (r.order_key) orderIds.add(r.order_key);
+    discounts += r.discount_amount ?? 0;
+    if (r.discount_estimated) discountsEstimated = true;
 
     // By item (case-insensitive bucket key; preserve first-seen casing).
     const itemKey = r.item_name.toLowerCase() || "(unnamed)";
@@ -541,14 +556,23 @@ function aggregate(
   if (previousRange && previousRange.from && previousRange.to) {
     let pRev = 0;
     let pUnits = 0;
+    let pTips = 0;
+    let pDiscounts = 0;
+    let pDiscountsEstimated = false;
     const pOrders = new Set<string>();
     const pItemKeys = new Set<string>();
     for (const r of rows) {
       if (!matchesNonDate(r)) continue;
       if (!inRange(r.sale_date, previousRange)) continue;
+      if (r.order_key) pOrders.add(r.order_key);
+      if (r.is_tip) {
+        pTips += r.revenue;
+        continue;
+      }
       pRev += r.revenue;
       pUnits += r.quantity;
-      if (r.order_key) pOrders.add(r.order_key);
+      pDiscounts += r.discount_amount ?? 0;
+      if (r.discount_estimated) pDiscountsEstimated = true;
       const k = r.item_name.toLowerCase();
       if (k) pItemKeys.add(k);
     }
@@ -560,6 +584,10 @@ function aggregate(
       avgTicket: pOrderCount > 0 ? pRev / pOrderCount : 0,
       avgItemPrice: pUnits > 0 ? pRev / pUnits : 0,
       uniqueItemsCount: pItemKeys.size,
+      tips: pTips,
+      discounts: pDiscounts,
+      grossSales: pRev + pDiscounts,
+      discountsEstimated: pDiscountsEstimated,
     };
   }
 
@@ -570,6 +598,10 @@ function aggregate(
     avgTicket,
     avgItemPrice,
     uniqueItemsCount: itemBuckets.size,
+    tips,
+    discounts,
+    discountsEstimated,
+    grossSales: totalRevenue + discounts,
     byItem: itemRows,
     byChannel: channelRows,
     byPaymentType: paymentRows,
@@ -1235,12 +1267,14 @@ export interface RestaurantSalesExplorerProps {
   initialTargets?: TargetMap;
   /** Company currency for money formatting. Overrides first-row currency. */
   displayCurrency?: string;
+  lang?: PreferredLanguage;
 }
 
 export function RestaurantSalesExplorer({
   rows,
   initialTargets = {},
   displayCurrency,
+  lang = "en",
 }: RestaurantSalesExplorerProps) {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   // Targets live in client state so the editor's POST can update them
@@ -1600,9 +1634,9 @@ export function RestaurantSalesExplorer({
         )}
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
           <KpiCard
-            label="Revenue"
+            label={t(lang, "Net sales (filtered)", "Ventas netas (filtradas)")}
             value={fmts.int.format(aggs.totalRevenue)}
-            sub={fmts.code}
+            sub={`${fmts.code} ${t(lang, "net · date filter", "neto · filtro de fechas")}`}
             delta={computeDelta(
               aggs.totalRevenue,
               aggs.previousOverview?.totalRevenue
@@ -1712,6 +1746,28 @@ export function RestaurantSalesExplorer({
             formatAbs={(n) => Math.round(n).toLocaleString(fmts.locale)}
           />
         </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          {t(lang, "Net sales", "Ventas netas")}{" "}
+          {fmts.dec2.format(aggs.totalRevenue)}
+          {aggs.discounts > 0
+            ? ` · ${t(lang, "discounts", "descuentos")} ${fmts.dec2.format(aggs.discounts)}${
+                aggs.discountsEstimated
+                  ? ` ${t(lang, "(estimated)", "(estimado)")}`
+                  : ""
+              } · ${t(lang, "gross", "bruto")} ${fmts.dec2.format(aggs.grossSales)}${
+                aggs.discountsEstimated
+                  ? ` ${t(lang, "(estimated)", "(estimado)")}`
+                  : ""
+              }`
+            : ""}
+          {aggs.tips > 0
+            ? ` · ${t(lang, "tips", "propinas")} ${fmts.dec2.format(aggs.tips)} ${t(
+                lang,
+                "(excluded). Totals differ from Odoo by the tip amount.",
+                "(excluidas). Los totales difieren de Odoo por el monto de propinas."
+              )}`
+            : ""}
+        </p>
       </section>
 
       {/* AI insights placeholder. Intentionally shown above the channel

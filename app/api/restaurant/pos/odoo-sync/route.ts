@@ -67,6 +67,10 @@ import {
   type OdooScope,
 } from "@/lib/restaurant/odoo/scoped";
 import type { RestaurantPosConnection } from "@/types/restaurant";
+import {
+  omitColumnFromRows,
+  upsertRetryingWithoutColumn,
+} from "@/lib/restaurant/missing-schema-column";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -654,21 +658,41 @@ export async function POST(req: NextRequest) {
     }
 
     // --- Upsert (idempotent on company_id, pos_source, external_line_id) --
+    // Migration 030 is applied by hand. If is_tip is not on the table
+    // yet, strip it and retry so Sync now still writes the sale rows.
     let upserted = 0;
+    let omitIsTip = false;
+    const upsertOpts = {
+      onConflict: "company_id,pos_source,external_line_id",
+      count: "exact" as const,
+    };
     for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
-      const batch = rows.slice(i, i + UPSERT_BATCH_SIZE).map((row) =>
+      const mapped = rows.slice(i, i + UPSERT_BATCH_SIZE).map((row) =>
         stripFailedDimensionFields(row, {
           paymentReadFailed: dimensions == null || dimensions.paymentReadFailed,
           categoryReadFailed:
             dimensions == null || dimensions.categoryReadFailed,
         })
       );
-      const { error: upsertError, count } = await supabase
-        .from("pos_sales_items")
-        .upsert(batch, {
-          onConflict: "company_id,pos_source,external_line_id",
-          count: "exact",
-        });
+      const batch = omitIsTip ? omitColumnFromRows(mapped, "is_tip") : mapped;
+      const doUpsert = async (next: typeof batch) => {
+        const result = await supabase
+          .from("pos_sales_items")
+          .upsert(next, upsertOpts);
+        return { error: result.error, count: result.count };
+      };
+      const {
+        error: upsertError,
+        count,
+        omittedColumn,
+      } = omitIsTip
+        ? await doUpsert(batch).then((r) => ({
+            error: r.error,
+            count: r.count ?? batch.length,
+            omittedColumn: true,
+          }))
+        : await upsertRetryingWithoutColumn("is_tip", doUpsert, batch);
+      if (omittedColumn) omitIsTip = true;
       if (upsertError) {
         console.error(
           "[Odoo Sync] upsert failed:",

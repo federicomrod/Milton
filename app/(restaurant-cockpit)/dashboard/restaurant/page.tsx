@@ -67,6 +67,9 @@ import {
 } from "@/components/restaurant/ProfitabilityCockpit";
 import { CockpitTabs } from "@/components/restaurant/cockpit/CockpitTabs";
 import { MenuProfitabilityTable } from "@/components/restaurant/cockpit/MenuProfitabilityTable";
+import { CockpitKpiStrip } from "@/components/restaurant/cockpit/CockpitKpiStrip";
+import { SalesHero } from "@/components/restaurant/cockpit/SalesHero";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { BriefingCard } from "@/components/restaurant/BriefingCard";
 import { RestaurantSetupChecklist } from "@/components/restaurant/RestaurantSetupChecklist";
 import {
@@ -220,6 +223,7 @@ function LiveRestaurantView({
    *  the POS explorer so the page degrades cleanly). */
   profitability: ProfitabilityData | null;
 }) {
+  const lang: PreferredLanguage = data.preferredLanguage;
   // Tab content is built once on the server and passed through the
   // client tab shell. Server-rendered ReactNodes flow through fine
   // (Next.js App Router supports this); only the active-tab state
@@ -251,7 +255,7 @@ function LiveRestaurantView({
         },
         {
           id: "menu",
-          label: "Menu Profitability",
+          label: t(lang, "Menu Profitability", "Rentabilidad del menú"),
           badge: issueCount > 0 ? String(issueCount) : undefined,
           content: <MenuProfitabilityTab profitability={profitability} />,
         },
@@ -262,12 +266,14 @@ function LiveRestaurantView({
         },
         {
           id: "revenue",
-          label: "Revenue & Channels",
+          label: t(lang, "Sales", "Ventas"),
           content: (
             <RevenueAndChannelsTab
               rows={data.explorerRows}
               targets={targets}
               displayCurrency={profitability.kpis.currency}
+              cockpit={data.cockpit}
+              lang={lang}
             />
           ),
         },
@@ -283,25 +289,36 @@ function LiveRestaurantView({
         // tab so the user still gets the POS explorer.
         {
           id: "revenue",
-          label: "Revenue & Channels",
+          label: t(lang, "Sales", "Ventas"),
           content: (
             <RevenueAndChannelsTab
               rows={data.explorerRows}
               targets={targets}
               displayCurrency={data.overview.currency}
+              cockpit={data.cockpit}
+              lang={lang}
             />
           ),
         },
       ];
 
   return (
-    <div className="w-full py-6 px-6 lg:px-10">
-      <div className="space-y-4">
+    <div className="w-full py-4 px-6 lg:px-10">
+      <div className="space-y-3">
         <PageHeader mode="live" />
 
-        {/* Live-mode banner — adapts to costing state */}
-        {profitability && profitability.kpis.cost_coverage_pct === 0 ? (
-          <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 py-2 px-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+        {/* Live-mode banner — adapts to costing state. A POS read error
+            must never look like sample/pilot data: show the warning. */}
+        {data.readError || profitability?.readError ? (
+          <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 py-1.5 px-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              Could not load all sales rows. Totals are unavailable — they are
+              not a smaller number from a partial read. Try refreshing the page.
+            </span>
+          </div>
+        ) : profitability && profitability.kpis.cost_coverage_pct === 0 ? (
+          <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 py-1.5 px-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
             <Info className="h-4 w-4 shrink-0 mt-0.5" />
             <span>
               Sales data is loaded ({data.rowCount.toLocaleString("es-MX")} row
@@ -310,7 +327,7 @@ function LiveRestaurantView({
             </span>
           </div>
         ) : (
-          <div className="rounded-md border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20 py-2 px-3 text-sm text-green-900 dark:text-green-200 flex items-start gap-2">
+          <div className="rounded-md border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20 py-1.5 px-3 text-sm text-green-900 dark:text-green-200 flex items-start gap-2">
             <Info className="h-4 w-4 shrink-0 mt-0.5" />
             <span>
               {data.rowCount.toLocaleString("es-MX")} POS sale row
@@ -321,15 +338,13 @@ function LiveRestaurantView({
           </div>
         )}
 
-        {profitability?.readError && (
-          <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>
-              Could not load all sales rows. Totals are unavailable — they are
-              not a smaller number from a partial read. Try refreshing the page.
-            </span>
-          </div>
-        )}
+        <CockpitKpiStrip
+          cockpit={data.cockpit}
+          lang={lang}
+          foodCostPct={profitability?.kpis.food_cost_pct ?? null}
+          marginPct={profitability?.kpis.estimated_gross_margin_pct ?? null}
+          hasRecipeCosts={(profitability?.kpis.cost_coverage_pct ?? 0) > 0}
+        />
 
         {(data.truncated || profitability?.truncated) && (
           <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
@@ -405,6 +420,9 @@ function MenuProfitabilityTab({
 }) {
   return (
     <div className="space-y-6">
+      {/* TODO(step 2, #123): category mix + popularity vs margin dish matrix
+          once recipe costs exist. Left out of step 1 so this PR stays to
+          revenue definition + Sales hero. */}
       <ProfitabilityKpisSection data={profitability} />
       <section>
         <div className="flex items-baseline justify-between mb-3 gap-3 flex-wrap">
@@ -439,19 +457,27 @@ function RevenueAndChannelsTab({
   rows,
   targets,
   displayCurrency,
+  cockpit,
+  lang,
 }: {
   rows: Extract<RestaurantDashboardData, { mode: "live" }>["explorerRows"];
   targets: TargetMap;
   displayCurrency?: string;
+  cockpit: Extract<RestaurantDashboardData, { mode: "live" }>["cockpit"];
+  lang: PreferredLanguage;
 }) {
   return (
-    <section>
-      <RestaurantSalesExplorer
-        rows={rows}
-        initialTargets={targets}
-        displayCurrency={displayCurrency}
-      />
-    </section>
+    <div className="space-y-6">
+      <SalesHero cockpit={cockpit} lang={lang} />
+      <section>
+        <RestaurantSalesExplorer
+          rows={rows}
+          initialTargets={targets}
+          displayCurrency={displayCurrency}
+          lang={lang}
+        />
+      </section>
+    </div>
   );
 }
 
@@ -963,7 +989,7 @@ export default async function RestaurantCockpitPage({
           selectedLocationId
             ? { locationId: selectedLocationId, brandId: selectedBrandId }
             : null,
-          { posRows: data.posFactRows }
+          data.readError ? undefined : { posRows: data.posFactRows }
         );
       } catch (err) {
         console.error(

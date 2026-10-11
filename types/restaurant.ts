@@ -341,6 +341,11 @@ export interface PosSalesItemRow {
    * silently discard information the source provides.
    */
   source_metadata: Record<string, unknown> | null;
+  /**
+   * True when the POS line is a tip / Propina (migration 030). Null on
+   * legacy rows — readers fall back to the product name.
+   */
+  is_tip?: boolean | null;
 }
 
 /**

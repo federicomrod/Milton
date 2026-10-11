@@ -4,6 +4,7 @@ import {
   parseOdooDatetimeToUtcIso,
   deriveLocalSaleDate,
   normalizeMatchKey,
+  discountAmountFromOdooLine,
   type OdooPosOrderRaw,
   type OdooPosOrderLineRaw,
   type OdooSyncContext,
@@ -123,7 +124,9 @@ describe("transformOdooOrders", () => {
     expect(row.gross_revenue).toBe(313.2);
     expect(row.net_revenue).toBe(270);
     // discount_amount = price_unit*qty - price_subtotal = 300 - 270 = 30
+    expect(row.is_tip).toBe(false);
     expect(row.discount_amount).toBe(30);
+    expect(row.source_metadata.discount_estimated).toBe(false);
     // tax_amount = price_subtotal_incl - price_subtotal = 313.2 - 270 = 43.2
     expect(row.tax_amount).toBeCloseTo(43.2, 5);
     expect(row.currency).toBe("MXN");
@@ -146,6 +149,37 @@ describe("transformOdooOrders", () => {
       odoo_company_id: 1,
       odoo_company_name: "Roma Norte Co",
     });
+  });
+
+  it("flags discount as estimated when Odoo omits the percent", () => {
+    const { rows } = transformOdooOrders(
+      [paidOrder],
+      [makeLine({ discount: undefined, price_subtotal: 270 })],
+      baseCtx()
+    );
+    expect(rows[0].discount_amount).toBe(30);
+    expect(rows[0].source_metadata.discount_estimated).toBe(true);
+    expect(rows[0].gross_revenue).toBe(313.2);
+    expect(rows[0].net_revenue).toBe(270);
+  });
+
+  it("marks Propina lines as tips", () => {
+    const { rows } = transformOdooOrders(
+      [paidOrder],
+      [
+        makeLine({
+          full_product_name: "Propina",
+          price_subtotal: 5,
+          price_subtotal_incl: 5,
+          qty: 1,
+          price_unit: 5,
+          discount: 0,
+        }),
+      ],
+      baseCtx()
+    );
+    expect(rows[0].is_tip).toBe(true);
+    expect(rows[0].raw_item_name).toBe("Propina");
   });
 
   it("skips lines belonging to a non-completed order, with a reason, rather than silently dropping them", () => {
@@ -208,6 +242,41 @@ describe("transformOdooOrders", () => {
     );
     expect(rows).toHaveLength(0);
     expect(skipped[0].reason).toMatch(/no order_id/i);
+  });
+});
+
+describe("discountAmountFromOdooLine", () => {
+  it("uses price_unit * qty * discount / 100 when the percent is present", () => {
+    expect(
+      discountAmountFromOdooLine({
+        qty: 2,
+        price_unit: 150,
+        price_subtotal: 270,
+        discount: 10,
+      })
+    ).toEqual({ discount_amount: 30, discount_estimated: false });
+  });
+
+  it("does not treat tax as a discount when price_unit is tax-included and discount is 0", () => {
+    // tax-incl unit 116, qty 1, tax-excl subtotal 100, no discount
+    expect(
+      discountAmountFromOdooLine({
+        qty: 1,
+        price_unit: 116,
+        price_subtotal: 100,
+        discount: 0,
+      })
+    ).toEqual({ discount_amount: 0, discount_estimated: false });
+  });
+
+  it("falls back to the old formula and flags estimated when percent is missing", () => {
+    expect(
+      discountAmountFromOdooLine({
+        qty: 1,
+        price_unit: 116,
+        price_subtotal: 100,
+      })
+    ).toEqual({ discount_amount: 16, discount_estimated: true });
   });
 });
 

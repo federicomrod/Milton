@@ -22,12 +22,15 @@ export interface CappedSupabaseOptions {
   userId?: string | null;
   /** Simulated PostgREST/network failure for a specific page. */
   pageErrors?: PageErrorSpec[];
+  /** Columns that do not exist on a table — select including them errors. */
+  unknownColumns?: Record<string, string[]>;
 }
 
 export function createCappedSupabase(opts: CappedSupabaseOptions) {
   const maxRows = opts.maxRowsPerRequest ?? 1000;
   const userId = opts.userId === undefined ? "user-1" : opts.userId;
   const pageErrors = opts.pageErrors ?? [];
+  const unknownColumns = opts.unknownColumns ?? {};
 
   return {
     auth: {
@@ -41,7 +44,8 @@ export function createCappedSupabase(opts: CappedSupabaseOptions) {
         [...(opts.tables[table] ?? [])],
         maxRows,
         table,
-        pageErrors
+        pageErrors,
+        unknownColumns[table] ?? []
       );
     },
   };
@@ -53,16 +57,19 @@ class CappedQuery {
   private limitN = Number.POSITIVE_INFINITY;
   private head = false;
   private orders: { col: string; asc: boolean }[] = [];
+  private selected = "";
 
   constructor(
     private rows: MockRow[],
     private maxRows: number,
     private table: string,
-    private pageErrors: PageErrorSpec[]
+    private pageErrors: PageErrorSpec[],
+    private unknownCols: string[] = []
   ) {}
 
-  select(_cols?: unknown, opts?: { count?: string; head?: boolean }) {
+  select(cols?: unknown, opts?: { count?: string; head?: boolean }) {
     if (opts?.head) this.head = true;
+    if (typeof cols === "string") this.selected = cols;
     return this;
   }
 
@@ -126,6 +133,14 @@ class CappedQuery {
   }
 
   private pageError(): { message: string } | null {
+    const selected = this.selected.split(",").map((s) => s.trim());
+    for (const col of this.unknownCols) {
+      if (selected.includes(col)) {
+        return {
+          message: `column ${this.table}.${col} does not exist`,
+        };
+      }
+    }
     const hit = this.pageErrors.find(
       (e) => e.table === this.table && e.from === this.fromIdx
     );

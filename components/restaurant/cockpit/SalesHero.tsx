@@ -19,6 +19,7 @@ import type { CockpitSalesAggregate } from "@/lib/restaurant/cockpit-aggregates"
 import { DINNER_START_HOUR } from "@/lib/restaurant/sales-revenue";
 import { localeForCurrency } from "@/lib/restaurant/currency";
 import { SalesHeatmap } from "./SalesHeatmap";
+import { salesChannelLabel } from "@/lib/restaurant/sales-channel-labels";
 
 const MIX_COLORS = [
   "hsl(24 80% 50%)",
@@ -28,23 +29,6 @@ const MIX_COLORS = [
   "hsl(40 70% 44%)",
   "hsl(200 20% 40%)",
 ];
-
-const CHANNEL_LABELS: Record<string, { en: string; es: string }> = {
-  in_store: { en: "Eat In", es: "En salón" },
-  takeaway: { en: "To Go", es: "Para llevar" },
-  delivery: { en: "Delivery", es: "Domicilio" },
-  online: { en: "Online", es: "En línea" },
-  unknown: { en: "Unknown channel", es: "Canal desconocido" },
-};
-
-function mixLabel(key: string, lang: PreferredLanguage): string {
-  const known = CHANNEL_LABELS[key];
-  if (known) return lang === "es" ? known.es : known.en;
-  if (key === "unknown") {
-    return t(lang, "Unknown", "Desconocido");
-  }
-  return key;
-}
 
 export function SalesHero({
   cockpit,
@@ -130,7 +114,7 @@ export function SalesHero({
           currency={cockpit.currency}
           locale={locale}
           lang={lang}
-          labelFor={mixLabel}
+          labelFor={salesChannelLabel}
         />
         <MixChart
           title={t(lang, "Payment mix over time", "Mix de pagos en el tiempo")}

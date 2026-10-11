@@ -1,8 +1,8 @@
 // lib/restaurant/page-date-range.ts
 //
 // Shown period for operating pages (Cockpit / Sales / Menu / Costs).
-// PR 1 does not filter loaders by ?from=/?to= — the header displays the
-// sale-date span of the loaded data. Range filtering is PR 2.
+// Sales / Menu / Costs still show the loaded sale-date span. The Cockpit
+// honours ?period=last_7|month via lib/restaurant/cockpit-period.ts.
 
 import { DATE_RE } from "@/lib/restaurant/odoo/sync-window";
 import { formatYmd } from "@/lib/restaurant/odoo/sync-control";

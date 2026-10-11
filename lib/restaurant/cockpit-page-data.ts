@@ -18,6 +18,31 @@ import {
   type ProfitabilityData,
 } from "@/lib/restaurant/profitability-server";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
+import {
+  parseCockpitPeriodPreset,
+  resolveCockpitPeriod,
+  type CockpitPeriodPreset,
+} from "@/lib/restaurant/cockpit-period";
+import {
+  buildCockpitHeadline,
+  buildCockpitKpiStripModel,
+  buildCockpitPeriodSnapshot,
+  type CockpitKpiStripModel,
+  type CockpitPeriodSnapshot,
+} from "@/lib/restaurant/cockpit-executive";
+import { buildCockpitDataHealth } from "@/lib/restaurant/cockpit-data-health";
+import type { CockpitDataHealth } from "@/lib/restaurant/cockpit-data-health";
+import {
+  setupProgress,
+  type SetupProgress,
+} from "@/lib/restaurant/setup-progress";
+import { selectCockpitInsights } from "@/lib/restaurant/cockpit-insights";
+import {
+  cockpitInsightCacheKey,
+  wordCockpitInsights,
+  type WordedCockpitInsights,
+} from "@/lib/restaurant/cockpit-insights-ai";
 
 export interface CockpitPageModel {
   data: RestaurantDashboardData;
@@ -27,6 +52,21 @@ export interface CockpitPageModel {
 
 export interface MenuAreaModel {
   profitability: ProfitabilityData | null;
+}
+
+export interface CockpitExecutiveView {
+  snapshot: CockpitPeriodSnapshot;
+  kpis: CockpitKpiStripModel;
+  headline: string;
+  insights: WordedCockpitInsights;
+  health: CockpitDataHealth;
+  setup: SetupProgress | null;
+  lastSyncedAt: string | null;
+}
+
+export interface CockpitExecutivePageModel extends CockpitPageModel {
+  executive: CockpitExecutiveView | null;
+  periodPreset: CockpitPeriodPreset;
 }
 
 export async function loadCockpitPageModel(
@@ -136,4 +176,112 @@ export async function loadMenuAreaModel(
     console.error("[loadMenuAreaModel] failed:", err);
     return { profitability: null };
   }
+}
+
+/**
+ * Cockpit PR 2: same one paginated POS read as loadCockpitPageModel,
+ * then a single in-memory period aggregate. Company comes from auth,
+ * never from the request.
+ */
+export async function loadCockpitExecutivePage(
+  requestedLocationId?: string,
+  periodRaw?: string | null
+): Promise<CockpitExecutivePageModel> {
+  const periodPreset = parseCockpitPeriodPreset(periodRaw);
+  const base = await loadCockpitPageModel(requestedLocationId);
+  if (base.data.mode !== "live") {
+    return { ...base, executive: null, periodPreset };
+  }
+
+  const lang = base.data.preferredLanguage;
+  const chrome = await loadRestaurantShellChrome();
+  const period = resolveCockpitPeriod(
+    periodPreset,
+    base.data.cockpit.period_to
+  );
+  if (!period) {
+    return { ...base, executive: null, periodPreset };
+  }
+
+  const snapshot = buildCockpitPeriodSnapshot(base.data.posFactRows, period, {
+    timezone: base.data.timezone,
+    currency: base.data.cockpit.currency,
+    lang,
+    marginRows: base.profitability?.marginRows,
+  });
+
+  const week = {
+    thisWeek: base.data.cockpit.this_week ?? period.current,
+    lastWeek: base.data.cockpit.last_week ?? period.previous,
+    deltaPct: base.data.cockpit.week_delta_pct,
+  };
+  const kpis = buildCockpitKpiStripModel(snapshot, lang, week);
+  const headline = buildCockpitHeadline(snapshot, lang);
+
+  const recipeCoverage = recipeCoverageFromProfitability(base.profitability);
+  const health = buildCockpitDataHealth({
+    lang,
+    currency: snapshot.currency,
+    saleLineCount: base.data.rowCount,
+    otherCurrencyExcluded:
+      snapshot.other_currency_excluded ||
+      (base.profitability?.dataQuality.currency_mismatch_rows ?? 0),
+    dishesWithoutRecipe:
+      base.profitability?.kpis.menu_items_without_recipe ?? 0,
+    recipeCoveragePct: recipeCoverage,
+    costCoveragePct:
+      base.profitability?.kpis.cost_coverage_pct ?? snapshot.cost.coverage_pct,
+    lastSyncedAt: chrome.lastSyncedAt,
+    posConnected: Boolean(chrome.lastSyncedAt) || base.data.rowCount > 0,
+    salesLoaded: base.data.rowCount > 0 && !base.data.readError,
+    readError: Boolean(base.data.readError || base.profitability?.readError),
+    truncated: Boolean(base.data.truncated || base.profitability?.truncated),
+  });
+
+  const setup = base.profitability
+    ? setupProgress(
+        base.profitability.setupCounts,
+        base.profitability.dataQuality
+      )
+    : null;
+
+  const facts = selectCockpitInsights(snapshot, lang);
+  const insights = await wordCockpitInsights(
+    facts,
+    lang,
+    cockpitInsightCacheKey({
+      companyId: base.data.companyId,
+      locationId: requestedLocationId,
+      preset: period.preset,
+      from: period.current.from,
+      to: period.current.to,
+      lang,
+    })
+  );
+
+  return {
+    ...base,
+    periodPreset,
+    executive: {
+      snapshot,
+      kpis,
+      headline,
+      insights,
+      health,
+      setup,
+      lastSyncedAt: chrome.lastSyncedAt,
+    },
+  };
+}
+
+function recipeCoverageFromProfitability(
+  profitability: ProfitabilityData | null
+): number | null {
+  if (!profitability) return null;
+  const total = profitability.marginRows.reduce((s, r) => s + r.revenue, 0);
+  if (total <= 0) return 0;
+  const withRecipe = profitability.marginRows
+    .filter((r) => r.cost.status !== "missing_recipe")
+    .reduce((s, r) => s + r.revenue, 0);
+  return (withRecipe / total) * 100;
 }

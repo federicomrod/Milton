@@ -20,6 +20,7 @@ export function OperatingPageHeader({
   lang,
   showDateRange = true,
   shownRange = null,
+  dateRange,
   lastSyncedAt,
   isAdmin,
   trailing,
@@ -28,6 +29,8 @@ export function OperatingPageHeader({
   lang?: PreferredLanguage;
   showDateRange?: boolean;
   shownRange?: PageDateRange | null;
+  /** Replaces the read-only period chip (Cockpit period toggle). */
+  dateRange?: ReactNode;
   lastSyncedAt?: string | null;
   isAdmin?: boolean;
   trailing?: ReactNode;
@@ -46,9 +49,11 @@ export function OperatingPageHeader({
         <h1 className="text-lg font-semibold tracking-tight truncate">
           {title}
         </h1>
-        {showDateRange ? (
-          <DateRangeControl lang={resolvedLang} range={shownRange} />
-        ) : null}
+        {showDateRange
+          ? (dateRange ?? (
+              <DateRangeControl lang={resolvedLang} range={shownRange} />
+            ))
+          : null}
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <LastSyncedLabel syncedAt={resolvedSync} lang={resolvedLang} />

@@ -1,73 +1,58 @@
 // components/restaurant/cockpit/CockpitKpiStrip.tsx
 //
-// Above-the-fold KPI strip at 1280×800 (#123 / #85): net sales, average
-// ticket, tickets, week vs last week. Food cost % and margin appear only
-// when recipe costs exist.
+// Above-the-fold KPI strip at 1280×800 (#123 / #85 / #129).
+// Numbers and availability come from the backend DTO. Never a bare dash.
 
 "use client";
 
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
-import type { CockpitSalesAggregate } from "@/lib/restaurant/cockpit-aggregates";
 import { formatCompactDateRange } from "@/lib/restaurant/cockpit-aggregates";
 import { localeForCurrency } from "@/lib/restaurant/currency";
+import type { CockpitKpiStripModel } from "@/lib/restaurant/cockpit-executive";
+import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
 
 export function CockpitKpiStrip({
-  cockpit,
+  model,
   lang,
-  foodCostPct,
-  marginPct,
-  hasRecipeCosts,
 }: {
-  cockpit: CockpitSalesAggregate;
+  model: CockpitKpiStripModel;
   lang: PreferredLanguage;
-  foodCostPct: number | null;
-  marginPct: number | null;
-  hasRecipeCosts: boolean;
 }) {
-  const locale = localeForCurrency(cockpit.currency);
+  const locale = localeForCurrency(model.currency);
   const dateLocale = lang === "es" ? "es" : "en-GB";
   const money = new Intl.NumberFormat(locale, {
     style: "currency",
-    currency: /^[A-Z]{3}$/.test(cockpit.currency) ? cockpit.currency : "USD",
+    currency: /^[A-Z]{3}$/.test(model.currency) ? model.currency : "USD",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
   const moneyCompact = new Intl.NumberFormat(locale, {
     style: "currency",
-    currency: /^[A-Z]{3}$/.test(cockpit.currency) ? cockpit.currency : "USD",
+    currency: /^[A-Z]{3}$/.test(model.currency) ? model.currency : "USD",
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   });
-  const rev = cockpit.revenue;
-  const weekDelta = cockpit.week_delta_pct;
+  const rev = model.secondary;
+  const weekDelta = model.week_vs_last_week.delta_pct;
   const weekUp = weekDelta != null && weekDelta > 0;
   const weekDown = weekDelta != null && weekDelta < 0;
   const estimatedHint = rev.discounts_estimated
     ? ` ${t(lang, "(estimated)", "(estimado)")}`
     : "";
-  const periodLabel =
-    cockpit.period_from && cockpit.period_to
-      ? formatCompactDateRange(
-          cockpit.period_from,
-          cockpit.period_to,
-          dateLocale
-        )
-      : null;
-  const weekRangeLabel =
-    cockpit.this_week && cockpit.last_week
-      ? `${formatCompactDateRange(cockpit.this_week.from, cockpit.this_week.to, dateLocale)} vs ${formatCompactDateRange(cockpit.last_week.from, cockpit.last_week.to, dateLocale)}`
-      : t(lang, "needs two weeks of sales", "hacen falta dos semanas");
+  const weekRangeLabel = `${formatCompactDateRange(model.week_vs_last_week.this_week.from, model.week_vs_last_week.this_week.to, dateLocale)} vs ${formatCompactDateRange(model.week_vs_last_week.last_week.from, model.week_vs_last_week.last_week.to, dateLocale)}`;
 
   return (
     <section aria-label={t(lang, "Key numbers", "Cifras clave")}>
       <p className="text-[11px] text-muted-foreground mb-1">
         {t(lang, "Key numbers", "Cifras clave")}
-        {periodLabel ? ` · ${periodLabel}` : ""}
+        {model.period_label ? ` · ${model.period_label}` : ""}
       </p>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-2 xl:grid-cols-6 gap-1.5">
         <Kpi
           label={t(lang, "Net sales", "Ventas netas")}
-          value={moneyCompact.format(rev.net_sales)}
+          value={moneyCompact.format(model.net_sales.value)}
+          delta={model.net_sales.delta_pct}
+          lang={lang}
           sub={
             rev.tips > 0
               ? t(
@@ -75,24 +60,70 @@ export function CockpitKpiStrip({
                   `Tips ${money.format(rev.tips)} excluded`,
                   `Propinas ${money.format(rev.tips)} excluidas`
                 )
-              : undefined
+              : t(lang, "vs previous period", "vs periodo anterior")
           }
         />
+        {model.gross_margin_pct.available ? (
+          <Kpi
+            label={t(lang, "Gross margin %", "Margen bruto %")}
+            value={`${model.gross_margin_pct.value.toFixed(1)}%`}
+            delta={model.gross_margin_pct.delta_pct}
+            lang={lang}
+            sub={t(
+              lang,
+              "on covered net sales",
+              "sobre ventas netas cubiertas"
+            )}
+          />
+        ) : (
+          <NotAvailableYet
+            lang={lang}
+            compact
+            reason={model.gross_margin_pct.reason}
+            href={model.gross_margin_pct.href}
+            linkLabel={model.gross_margin_pct.link_label}
+          />
+        )}
+        {model.food_cost_pct.available ? (
+          <Kpi
+            label={t(lang, "Food cost %", "% costo de comida")}
+            value={`${model.food_cost_pct.value.toFixed(1)}%`}
+            delta={model.food_cost_pct.delta_pct}
+            lang={lang}
+            sub={t(
+              lang,
+              "on covered net sales",
+              "sobre ventas netas cubiertas"
+            )}
+          />
+        ) : (
+          <NotAvailableYet
+            lang={lang}
+            compact
+            reason={model.food_cost_pct.reason}
+            href={model.food_cost_pct.href}
+            linkLabel={model.food_cost_pct.link_label}
+          />
+        )}
         <Kpi
           label={t(lang, "Average ticket", "Ticket promedio")}
-          value={money.format(cockpit.avg_ticket)}
+          value={money.format(model.avg_ticket.value)}
+          delta={model.avg_ticket.delta_pct}
+          lang={lang}
           sub={t(lang, "per order · net", "por orden · neto")}
         />
         <Kpi
           label={t(lang, "Tickets", "Tickets")}
-          value={cockpit.tickets.toLocaleString(locale)}
+          value={model.tickets.value.toLocaleString(locale)}
+          delta={model.tickets.delta_pct}
+          lang={lang}
           sub={t(lang, "unique checks", "cuentas únicas")}
         />
         <Kpi
           label={t(lang, "Week vs last week", "Semana vs anterior")}
           value={
             weekDelta == null
-              ? "—"
+              ? t(lang, "No previous week", "Sin semana anterior")
               : `${weekUp ? "+" : ""}${weekDelta.toFixed(1)}%`
           }
           valueClass={
@@ -127,37 +158,6 @@ export function CockpitKpiStrip({
           </>
         ) : null}
       </p>
-
-      {hasRecipeCosts ? (
-        <div className="grid grid-cols-2 gap-1.5 mt-1.5">
-          <Kpi
-            label={t(lang, "Food cost %", "% costo de comida")}
-            value={foodCostPct != null ? `${foodCostPct.toFixed(1)}%` : "—"}
-            sub={t(
-              lang,
-              "on covered net sales",
-              "sobre ventas netas cubiertas"
-            )}
-          />
-          <Kpi
-            label={t(lang, "Margin", "Margen")}
-            value={marginPct != null ? `${marginPct.toFixed(1)}%` : "—"}
-            sub={t(
-              lang,
-              "on covered net sales",
-              "sobre ventas netas cubiertas"
-            )}
-          />
-        </div>
-      ) : (
-        <p className="text-[11px] text-muted-foreground mt-1">
-          {t(
-            lang,
-            "Add recipes to see food cost % and margin.",
-            "Agrega recetas para ver % de costo y margen."
-          )}
-        </p>
-      )}
     </section>
   );
 }
@@ -167,14 +167,26 @@ function Kpi({
   value,
   sub,
   valueClass,
+  delta,
+  lang,
 }: {
   label: string;
   value: string;
   sub?: string;
   valueClass?: string;
+  delta?: number | null;
+  lang?: PreferredLanguage;
 }) {
+  const deltaClass =
+    delta == null
+      ? ""
+      : delta > 0
+        ? "text-emerald-700 dark:text-emerald-400"
+        : delta < 0
+          ? "text-amber-800 dark:text-amber-300"
+          : "text-muted-foreground";
   return (
-    <div className="rounded-md border border-border bg-background px-2.5 py-1.5">
+    <div className="rounded-md border border-border bg-background px-2.5 py-1.5 min-h-[4.5rem]">
       <p
         className="text-[11px] font-medium text-muted-foreground truncate"
         title={label}
@@ -189,6 +201,13 @@ function Kpi({
       >
         {value}
       </p>
+      {delta !== undefined ? (
+        <p className={"text-[10px] tabular-nums " + deltaClass}>
+          {delta == null
+            ? t(lang ?? "es", "no previous period", "sin periodo anterior")
+            : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}%`}
+        </p>
+      ) : null}
       {sub ? (
         <p
           className="text-[10px] text-muted-foreground mt-0.5 leading-snug"

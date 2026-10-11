@@ -21,6 +21,7 @@
 import Link from "next/link";
 import { TrendingDown, AlertTriangle, ShieldAlert, Info } from "lucide-react";
 import type React from "react";
+import { Suspense } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { type TargetMap } from "@/lib/restaurant/supabase-targets";
@@ -38,7 +39,10 @@ import {
 } from "@/lib/restaurant/supabase-sales";
 import { type ProfitabilityData } from "@/lib/restaurant/profitability-server";
 import { PAGINATED_READ_SAFETY_CAP } from "@/lib/restaurant/paginated-read";
-import { loadCockpitPageModel } from "@/lib/restaurant/cockpit-page-data";
+import {
+  loadCockpitExecutivePage,
+  type CockpitExecutiveView,
+} from "@/lib/restaurant/cockpit-page-data";
 import {
   ProfitabilityKpisSection,
   MarginRiskSection,
@@ -51,19 +55,26 @@ import { CockpitTabs } from "@/components/restaurant/cockpit/CockpitTabs";
 import { CockpitKpiStrip } from "@/components/restaurant/cockpit/CockpitKpiStrip";
 import { RevenueAndChannelsTab } from "@/components/restaurant/cockpit/RevenueAndChannelsTab";
 import { MenuProfitabilityTab } from "@/components/restaurant/cockpit/MenuProfitabilityTab";
+import { CockpitPeriodControl } from "@/components/restaurant/cockpit/CockpitPeriodControl";
+import { CockpitHeadline } from "@/components/restaurant/cockpit/CockpitHeadline";
+import { CockpitHeroChart } from "@/components/restaurant/cockpit/CockpitHeroChart";
+import { CockpitChannelBreakdown } from "@/components/restaurant/cockpit/CockpitChannelBreakdown";
+import { CockpitInsightsCard } from "@/components/restaurant/cockpit/CockpitInsightsCard";
+import { CockpitOnboardingChip } from "@/components/restaurant/cockpit/CockpitOnboardingChip";
 import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   t,
   type PreferredLanguage,
 } from "@/lib/restaurant/language";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
-import { shownPeriodFromSales } from "@/lib/restaurant/page-date-range";
 import {
   DataHealthBanner,
   DataHealthIndicator,
 } from "@/components/restaurant/shell/DataHealthIndicator";
-import { BriefingCard } from "@/components/restaurant/BriefingCard";
+import { buildCockpitDataHealth } from "@/lib/restaurant/cockpit-data-health";
 import { RestaurantSetupChecklist } from "@/components/restaurant/RestaurantSetupChecklist";
+import { type CockpitPeriodPreset } from "@/lib/restaurant/cockpit-period";
+import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
 import {
   MOCK_MENU_ITEMS,
   MOCK_RECIPES,
@@ -174,78 +185,33 @@ function cockpitSampleCopy(
   return reason ? sampleCopyByReason[reason] : sampleCopyByReason.no_sales;
 }
 
-function CockpitDataHealth({
+function SampleDataHealth({
   lang,
-  mode,
   reason,
-  data,
-  profitability,
 }: {
   lang: PreferredLanguage;
-  mode: "live" | "sample";
   reason?: SampleReason;
-  data?: Extract<RestaurantDashboardData, { mode: "live" }>;
-  profitability?: ProfitabilityData | null;
 }) {
-  // System-language banners stay available here (not in the header).
-  // "Using uploaded POS data from Supabase. Recipe costing is pending until menu items, recipes, and supplier costs are linked."
-  const readError = Boolean(data?.readError || profitability?.readError);
-  let tone: "ok" | "warn" | "error" = mode === "live" ? "ok" : "warn";
-  if (readError) tone = "error";
-  else if (profitability && profitability.kpis.cost_coverage_pct === 0) {
-    tone = "warn";
-  }
-
+  const health = buildCockpitDataHealth({
+    lang,
+    currency: "USD",
+    saleLineCount: 0,
+    otherCurrencyExcluded: 0,
+    dishesWithoutRecipe: 0,
+    recipeCoveragePct: null,
+    costCoveragePct: 0,
+    lastSyncedAt: null,
+    posConnected: false,
+    salesLoaded: false,
+    readError: false,
+    truncated: false,
+  });
   return (
     <div className="space-y-2">
-      {readError ? (
-        <DataHealthBanner tone="error">
-          {t(
-            lang,
-            "Could not load all sales rows. Totals are unavailable — they are not a smaller number from a partial read. Try refreshing the page.",
-            "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial. Recarga la página."
-          )}
-        </DataHealthBanner>
-      ) : null}
-      <DataHealthIndicator lang={lang} tone={tone}>
-        {mode === "sample" ? (
-          <DataHealthBanner tone="warn">
-            {cockpitSampleCopy(lang, reason)}
-          </DataHealthBanner>
-        ) : readError ? (
-          <p className="text-xs text-muted-foreground">
-            {t(
-              lang,
-              "Sales rows could not be loaded completely.",
-              "No se pudieron cargar todas las filas de ventas."
-            )}
-          </p>
-        ) : profitability && profitability.kpis.cost_coverage_pct === 0 ? (
-          <DataHealthBanner tone="warn">
-            {t(
-              lang,
-              `Sales are loaded (${data?.rowCount.toLocaleString("es-MX")} rows). Costing is pending until ingredient costs and recipes are linked.`,
-              `Las ventas ya están cargadas (${data?.rowCount.toLocaleString("es-MX")} filas). El costeo espera a que conectes costos de ingredientes y recetas.`
-            )}
-          </DataHealthBanner>
-        ) : (
-          <DataHealthBanner tone="ok">
-            {t(
-              lang,
-              `${data?.rowCount.toLocaleString("es-MX")} sales rows loaded. Items with missing recipes or unit mismatches are flagged, not guessed.`,
-              `${data?.rowCount.toLocaleString("es-MX")} filas de ventas cargadas. Los platillos sin receta o con unidades distintas se marcan; no se inventan.`
-            )}
-          </DataHealthBanner>
-        )}
-        <p className="text-xs">
-          <Link
-            href="/dashboard/restaurant/upload"
-            className="font-medium text-primary hover:underline"
-          >
-            {t(lang, "Import POS Sales", "Importar ventas del POS")}
-          </Link>
-        </p>
-      </DataHealthIndicator>
+      <DataHealthBanner tone="warn">
+        {cockpitSampleCopy(lang, reason)}
+      </DataHealthBanner>
+      <DataHealthIndicator lang={lang} health={health} />
     </div>
   );
 }
@@ -258,6 +224,8 @@ function LiveRestaurantView({
   data,
   targets,
   profitability,
+  executive,
+  periodPreset,
 }: {
   data: Extract<RestaurantDashboardData, { mode: "live" }>;
   /** Daily KPI targets for the same company; empty when nothing is set. */
@@ -265,6 +233,8 @@ function LiveRestaurantView({
   /** Profitability aggregate; null when the load failed (we still render
    *  the POS explorer so the page degrades cleanly). */
   profitability: ProfitabilityData | null;
+  executive: CockpitExecutiveView | null;
+  periodPreset: CockpitPeriodPreset;
 }) {
   const lang: PreferredLanguage = data.preferredLanguage;
   // Tab content is built once on the server and passed through the
@@ -352,25 +322,76 @@ function LiveRestaurantView({
         <OperatingPageHeader
           title={t(lang, "Cockpit", "Cockpit")}
           lang={lang}
-          shownRange={shownPeriodFromSales(
-            data.cockpit.period_from,
-            data.cockpit.period_to
-          )}
+          dateRange={
+            <Suspense fallback={<PageSkeleton width="16rem" height="2rem" />}>
+              <CockpitPeriodControl
+                lang={lang}
+                preset={periodPreset}
+                range={
+                  executive
+                    ? executive.snapshot.period.current
+                    : data.cockpit.period_from && data.cockpit.period_to
+                      ? {
+                          from: data.cockpit.period_from,
+                          to: data.cockpit.period_to,
+                        }
+                      : null
+                }
+              />
+            </Suspense>
+          }
         />
-        <CockpitDataHealth
-          lang={lang}
-          mode="live"
-          data={data}
-          profitability={profitability}
-        />
+        {executive ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            {executive.setup ? (
+              <CockpitOnboardingChip lang={lang} progress={executive.setup} />
+            ) : null}
+            <DataHealthIndicator lang={lang} health={executive.health} />
+          </div>
+        ) : null}
 
-        <CockpitKpiStrip
-          cockpit={data.cockpit}
-          lang={lang}
-          foodCostPct={profitability?.kpis.food_cost_pct ?? null}
-          marginPct={profitability?.kpis.estimated_gross_margin_pct ?? null}
-          hasRecipeCosts={(profitability?.kpis.cost_coverage_pct ?? 0) > 0}
-        />
+        {executive ? <CockpitHeadline text={executive.headline} /> : null}
+
+        {executive ? (
+          <CockpitKpiStrip model={executive.kpis} lang={lang} />
+        ) : null}
+
+        {executive ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+            <div className="lg:col-span-2">
+              <CockpitHeroChart
+                lang={lang}
+                currency={executive.snapshot.currency}
+                points={executive.snapshot.daily}
+              />
+            </div>
+            <CockpitChannelBreakdown
+              lang={lang}
+              currency={executive.snapshot.currency}
+              channels={executive.snapshot.channels}
+            />
+          </div>
+        ) : null}
+
+        {executive ? (
+          <CockpitInsightsCard
+            lang={lang}
+            insights={executive.insights.insights}
+            source={executive.insights.source}
+          />
+        ) : null}
+
+        {executive?.health.tone === "error" ||
+        data.readError ||
+        profitability?.readError ? (
+          <DataHealthBanner tone="error">
+            {t(
+              lang,
+              "Could not load all sales rows. Totals are unavailable — they are not a smaller number from a partial read. Try refreshing the page.",
+              "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial. Recarga la página."
+            )}
+          </DataHealthBanner>
+        ) : null}
 
         {(data.truncated || profitability?.truncated) && (
           <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
@@ -406,11 +427,6 @@ function OverviewTab({
 }) {
   return (
     <div className="space-y-8">
-      <RestaurantSetupChecklist
-        setupCounts={profitability.setupCounts}
-        dataQuality={profitability.dataQuality}
-      />
-      <BriefingCard />
       <ProfitabilityKpisSection data={profitability} />
 
       {/* Two-column overview panel: top items + supplier price alerts */}
@@ -468,6 +484,10 @@ function SetupTab({
 }) {
   return (
     <div className="space-y-6">
+      <RestaurantSetupChecklist
+        setupCounts={profitability.setupCounts}
+        dataQuality={profitability.dataQuality}
+      />
       <DataQualityChecklistSection data={profitability} />
       {/* Pull two of the most actionable lists into this tab so the user
           can see what's actually blocking margin computation. */}
@@ -650,9 +670,8 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
           title={t(RESTAURANT_COCKPIT_DEFAULT_LANGUAGE, "Cockpit", "Cockpit")}
           lang={RESTAURANT_COCKPIT_DEFAULT_LANGUAGE}
         />
-        <CockpitDataHealth
+        <SampleDataHealth
           lang={RESTAURANT_COCKPIT_DEFAULT_LANGUAGE}
-          mode="sample"
           reason={reason}
         />
 
@@ -1079,11 +1098,11 @@ export default async function RestaurantCockpitPage({
   searchParams,
 }: {
   // Next.js 15+/16: searchParams is a Promise in a page Server Component.
-  searchParams: Promise<{ location?: string }>;
+  searchParams: Promise<{ location?: string; period?: string }>;
 }) {
-  const { location: requestedLocationId } = await searchParams;
-  const { data, targets, profitability } =
-    await loadCockpitPageModel(requestedLocationId);
+  const { location: requestedLocationId, period } = await searchParams;
+  const { data, targets, profitability, executive, periodPreset } =
+    await loadCockpitExecutivePage(requestedLocationId, period);
 
   if (data.mode === "live") {
     return (
@@ -1091,6 +1110,8 @@ export default async function RestaurantCockpitPage({
         data={data}
         targets={targets}
         profitability={profitability}
+        executive={executive}
+        periodPreset={periodPreset}
       />
     );
   }

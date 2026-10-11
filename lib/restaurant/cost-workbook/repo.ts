@@ -19,6 +19,7 @@ import type {
   UndoSnapshot,
   WorkbookMappingSource,
   WorkbookRowCandidate,
+  CompanyCostResetSummary,
 } from "./types";
 import { emptyUndoSnapshot } from "./types";
 
@@ -79,6 +80,8 @@ export interface CostWorkbookRepo {
   ): Promise<
     Array<Pick<CostWorkbookBatch, "id" | "undone_at" | "undo_snapshot">>
   >;
+  listBatchHistory(companyId: string): Promise<CostWorkbookBatch[]>;
+  resetCompanyCostCatalog(companyId: string): Promise<CompanyCostResetSummary>;
   listIngredientInputUsages(
     companyId: string,
     ingredientIds: string[]
@@ -318,6 +321,7 @@ function asBatch(row: Record<string, unknown>): CostWorkbookBatch {
     tab_summaries: (row.tab_summaries as TabImportSummary[]) ?? [],
     mapping_source:
       (row.mapping_source as CostWorkbookBatch["mapping_source"]) ?? "ai",
+    created_at: (row.created_at as string | null) ?? undefined,
     undone_at: (row.undone_at as string | null) ?? null,
     undo_snapshot:
       snapshotFromUnknown(row.undo_snapshot) ?? emptyUndoSnapshot(),
@@ -334,6 +338,154 @@ async function mapChunks<T>(
   for (let i = 0; i < items.length; i += WRITE_CHUNK) {
     await fn(items.slice(i, i + WRITE_CHUNK));
   }
+}
+
+async function deleteCompanyRows(
+  supabase: SupabaseClient,
+  table: string,
+  companyId: string
+): Promise<number> {
+  const { data, error } = await supabase
+    .from(table)
+    .delete()
+    .eq("company_id", companyId)
+    .select("id");
+  if (error) throw new Error(error.message);
+  return (data ?? []).length;
+}
+
+async function resetSupabaseCompanyCostCatalog(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<CompanyCostResetSummary> {
+  const menus = await supabase
+    .from("menu_items")
+    .select("id, source_type")
+    .eq("company_id", companyId);
+  if (menus.error) throw new Error(menus.error.message);
+  const importMenuIds = (
+    (menus.data ?? []) as Array<{ id: string; source_type: string | null }>
+  )
+    .filter((row) => row.source_type === "import")
+    .map((row) => String(row.id));
+  const keptManualMenuItems = (
+    (menus.data ?? []) as Array<{ source_type: string | null }>
+  ).filter((row) => row.source_type !== "import").length;
+
+  const mappings = await supabase
+    .from("pos_item_mappings")
+    .select("id, menu_item_id, match_type")
+    .eq("company_id", companyId);
+  if (mappings.error) throw new Error(mappings.error.message);
+  const importMenuSet = new Set(importMenuIds);
+  const importMappingIds = (
+    (mappings.data ?? []) as Array<{
+      id: string;
+      menu_item_id: string;
+      match_type: string | null;
+    }>
+  )
+    .filter(
+      (row) =>
+        row.match_type === "auto" || importMenuSet.has(String(row.menu_item_id))
+    )
+    .map((row) => String(row.id));
+  const keptManualPosMappings = (
+    (mappings.data ?? []) as Array<{
+      id: string;
+      menu_item_id: string;
+      match_type: string | null;
+    }>
+  ).filter(
+    (row) =>
+      row.match_type !== "auto" && !importMenuSet.has(String(row.menu_item_id))
+  ).length;
+
+  await deleteCompanyRows(supabase, "menu_recipe_inputs", companyId);
+  await deleteCompanyRows(supabase, "recipe_ingredients", companyId);
+  await deleteCompanyRows(supabase, "component_recipe_inputs", companyId);
+  const recipes = await deleteCompanyRows(supabase, "recipes", companyId);
+  await deleteCompanyRows(supabase, "component_recipes", companyId);
+  const components = await deleteCompanyRows(
+    supabase,
+    "prepared_components",
+    companyId
+  );
+
+  let importPosMappings = 0;
+  await mapChunks(importMappingIds, async (chunk) => {
+    const { data, error } = await supabase
+      .from("pos_item_mappings")
+      .delete()
+      .eq("company_id", companyId)
+      .in("id", chunk)
+      .select("id");
+    if (error) throw new Error(error.message);
+    importPosMappings += (data ?? []).length;
+  });
+
+  let importMenuItems = 0;
+  await mapChunks(importMenuIds, async (chunk) => {
+    const { data, error } = await supabase
+      .from("menu_items")
+      .delete()
+      .eq("company_id", companyId)
+      .eq("source_type", "import")
+      .in("id", chunk)
+      .select("id");
+    if (error) throw new Error(error.message);
+    importMenuItems += (data ?? []).length;
+  });
+
+  const costEntries = await deleteCompanyRows(
+    supabase,
+    "ingredient_cost_entries",
+    companyId
+  );
+  const supplierIngredientLinks = await deleteCompanyRows(
+    supabase,
+    "supplier_ingredients",
+    companyId
+  );
+  const ingredients = await deleteCompanyRows(
+    supabase,
+    "ingredients",
+    companyId
+  );
+  const reviewItems = await deleteCompanyRows(
+    supabase,
+    "cost_import_review_items",
+    companyId
+  );
+  const layoutMaps = await deleteCompanyRows(
+    supabase,
+    "cost_import_layout_maps",
+    companyId
+  );
+
+  const now = new Date().toISOString();
+  const { data: marked, error: batchError } = await supabase
+    .from("cost_import_batches")
+    .update({ undone_at: now })
+    .eq("company_id", companyId)
+    .is("undone_at", null)
+    .select("id");
+  if (batchError) throw new Error(batchError.message);
+
+  return {
+    cost_entries: costEntries,
+    ingredients,
+    supplier_ingredient_links: supplierIngredientLinks,
+    recipes,
+    components,
+    import_menu_items: importMenuItems,
+    import_pos_mappings: importPosMappings,
+    review_items: reviewItems,
+    layout_maps: layoutMaps,
+    batches_marked_undone: (marked ?? []).length,
+    kept_manual_menu_items: keptManualMenuItems,
+    kept_manual_pos_mappings: keptManualPosMappings,
+  };
 }
 
 export function createSupabaseCostWorkbookRepo(
@@ -451,6 +603,20 @@ export function createSupabaseCostWorkbookRepo(
         undo_snapshot:
           snapshotFromUnknown(row.undo_snapshot) ?? emptyUndoSnapshot(),
       }));
+    },
+
+    async listBatchHistory(companyId) {
+      const { data, error } = await supabase
+        .from("cost_import_batches")
+        .select("*")
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: false });
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map(asBatch);
+    },
+
+    async resetCompanyCostCatalog(companyId) {
+      return resetSupabaseCompanyCostCatalog(supabase, companyId);
     },
 
     async listIngredientInputUsages(companyId, ingredientIds) {

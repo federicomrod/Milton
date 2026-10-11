@@ -120,10 +120,12 @@ export function CostUploadForm({
   lang,
   locations,
   scope,
+  onCatalogChange,
 }: {
   lang: PreferredLanguage;
   locations: RestaurantLocationOption[];
   scope: UploadRestaurantScope;
+  onCatalogChange?: () => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [createMissing, setCreateMissing] = useState(true);
@@ -190,7 +192,11 @@ export function CostUploadForm({
         const wb = json as WorkbookSummary;
         setWorkbook(wb);
         setPendingReview(wb.review_items ?? []);
-      } else setSummary(json as UploadSummary);
+        onCatalogChange?.();
+      } else {
+        setSummary(json as UploadSummary);
+        onCatalogChange?.();
+      }
     } catch (err) {
       setError({
         error: t(lang, "Network error", "Error de red"),
@@ -573,6 +579,7 @@ export function CostUploadForm({
                     )
                   );
                   setPendingReview([]);
+                  onCatalogChange?.();
                 }
               } catch (err) {
                 setUndoMessage(

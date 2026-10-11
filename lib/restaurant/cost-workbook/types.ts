@@ -372,8 +372,51 @@ export interface CostWorkbookBatch {
   review_count: number;
   tab_summaries: TabImportSummary[];
   mapping_source: WorkbookMappingSource;
+  created_at?: string;
   undone_at: string | null;
   undo_snapshot: UndoSnapshot;
+}
+
+export type CostImportBatchStatus = "live" | "undone" | "partially_undone";
+
+export interface CostImportHistoryItem {
+  id: string;
+  filename: string;
+  created_at: string | null;
+  imported_count: number;
+  review_count: number;
+  ingredients_created: number;
+  menu_items_created: number;
+  recipes_created: number;
+  sub_recipes_created: number;
+  pos_links_created: number;
+  status: CostImportBatchStatus;
+  undone_at: string | null;
+}
+
+export interface UndoAllCostImportsResult {
+  ok: boolean;
+  undone: number;
+  skipped: number;
+  reason?: string;
+  failed_batch_id?: string;
+  failed_filename?: string;
+  warnings?: string[];
+}
+
+export interface CompanyCostResetSummary {
+  cost_entries: number;
+  ingredients: number;
+  supplier_ingredient_links: number;
+  recipes: number;
+  components: number;
+  import_menu_items: number;
+  import_pos_mappings: number;
+  review_items: number;
+  layout_maps: number;
+  batches_marked_undone: number;
+  kept_manual_menu_items: number;
+  kept_manual_pos_mappings: number;
 }
 
 export const PRICE_LIST_FIELDS = [

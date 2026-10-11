@@ -94,6 +94,17 @@ export {
   undoCostImportBatch,
 } from "./import";
 export {
+  costImportBatchStatus,
+  listCostImportHistory,
+  sortBatchesNewestFirst,
+  undoAllCostImportBatches,
+} from "./history";
+export {
+  RESET_CONFIRM_FALLBACK,
+  resetCompanyCostData,
+  resetConfirmationMatches,
+} from "./reset";
+export {
   PICK_RESTAURANT_ERROR_EN,
   PICK_RESTAURANT_ERROR_ES,
   resolveUploadRestaurantScope,
@@ -107,4 +118,7 @@ export type {
   CostTabType,
   WorkbookImportResult,
   TabImportSummary,
+  CostImportHistoryItem,
+  CompanyCostResetSummary,
+  UndoAllCostImportsResult,
 } from "./types";

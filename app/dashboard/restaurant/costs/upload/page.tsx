@@ -4,7 +4,7 @@
 
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import { resolveUploadRestaurantScope } from "@/lib/restaurant/cost-workbook";
-import { CostUploadForm } from "./upload-form";
+import { CostUploadPageClient } from "./upload-page-client";
 
 export default async function CostUploadPage({
   searchParams,
@@ -19,7 +19,7 @@ export default async function CostUploadPage({
   });
 
   return (
-    <CostUploadForm
+    <CostUploadPageClient
       lang={chrome.lang}
       locations={chrome.locations}
       scope={scope}

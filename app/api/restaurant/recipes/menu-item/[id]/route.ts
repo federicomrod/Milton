@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { handmadeSourcePatch } from "@/lib/restaurant/protect-imported-recipe";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -242,6 +243,7 @@ export async function PUT(
         serving_quantity: servingQuantity,
         serving_unit: servingUnit,
         notes,
+        ...handmadeSourcePatch(),
       })
       .eq("id", recipeId);
     if (error) {
@@ -268,6 +270,7 @@ export async function PUT(
         serving_unit: servingUnit,
         notes,
         version: 1,
+        ...handmadeSourcePatch(),
       })
       .select("id")
       .single();

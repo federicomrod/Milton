@@ -19,6 +19,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { WorkbookCostPanel } from "@/components/restaurant/WorkbookCostPanel";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
+import type { ComponentCostResult } from "@/types/restaurant-costing";
 
 type InputType = "ingredient" | "component";
 
@@ -78,12 +85,23 @@ export function ComponentRecipeBuilder({
   inputs: persistedInputs,
   ingredients,
   components,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  cost = null,
+  workbook = null,
 }: {
   component: ComponentRow;
   recipe: RecipeRow | null;
   inputs: PersistedInput[];
   ingredients: IngredientOption[];
   components: ComponentOption[];
+  lang?: PreferredLanguage;
+  cost?: Pick<ComponentCostResult, "batch_cost" | "status"> | null;
+  workbook?: {
+    excel_cost: number | null;
+    milton_cost: number | null;
+    match: "match" | "mismatch" | null;
+    source_type: string | null;
+  } | null;
 }) {
   const router = useRouter();
 
@@ -166,12 +184,23 @@ export function ComponentRecipeBuilder({
     if (!Number.isFinite(outQ) || outQ <= 0) {
       setSaveResult({
         kind: "error",
-        message: "Output quantity must be a positive number.",
+        message: t(
+          lang,
+          "Output quantity must be a positive number.",
+          "La cantidad de salida debe ser un número positivo."
+        ),
       });
       return;
     }
     if (!outputUnit.trim()) {
-      setSaveResult({ kind: "error", message: "Output unit is required." });
+      setSaveResult({
+        kind: "error",
+        message: t(
+          lang,
+          "Output unit is required.",
+          "La unidad de salida es obligatoria."
+        ),
+      });
       return;
     }
     let yieldNum: number | null = null;
@@ -180,7 +209,11 @@ export function ComponentRecipeBuilder({
       if (!Number.isFinite(yieldNum) || yieldNum <= 0 || yieldNum > 100) {
         setSaveResult({
           kind: "error",
-          message: "Yield % must be between 0 and 100 (or leave blank).",
+          message: t(
+            lang,
+            "Yield % must be between 0 and 100 (or leave blank).",
+            "El % de rendimiento debe estar entre 0 y 100 (o déjalo vacío)."
+          ),
         });
         return;
       }
@@ -282,7 +315,7 @@ export function ComponentRecipeBuilder({
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Back to Menu & Recipes
+          {t(lang, "Back to Menu & Recipes", "Volver a Menú y recetas")}
         </Link>
 
         <div className="flex items-center gap-3 flex-wrap">
@@ -304,25 +337,39 @@ export function ComponentRecipeBuilder({
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Component recipe</CardTitle>
+            <CardTitle className="text-sm">
+              {t(lang, "Component recipe", "Receta de la sub-receta")}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <WorkbookCostPanel
+              lang={lang}
+              cost={
+                cost ? { cost: cost.batch_cost, status: cost.status } : null
+              }
+              workbook={workbook}
+              batchLabel
+            />
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Status</span>
+                <span className="text-xs text-muted-foreground">
+                  {t(lang, "Status", "Estado")}
+                </span>
                 <select
                   value={status}
                   onChange={(e) => setStatus(e.target.value as typeof status)}
                   className="h-9 rounded-md border border-border bg-background px-2 text-sm"
                 >
-                  <option value="draft">draft</option>
-                  <option value="active">active</option>
-                  <option value="archived">archived</option>
+                  <option value="draft">{t(lang, "draft", "borrador")}</option>
+                  <option value="active">{t(lang, "active", "activa")}</option>
+                  <option value="archived">
+                    {t(lang, "archived", "archivada")}
+                  </option>
                 </select>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-muted-foreground">
-                  Output quantity
+                  {t(lang, "Output quantity", "Cantidad de salida")}
                 </span>
                 <Input
                   type="number"
@@ -336,7 +383,7 @@ export function ComponentRecipeBuilder({
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-muted-foreground">
-                  Output unit
+                  {t(lang, "Output unit", "Unidad de salida")}
                 </span>
                 <Input
                   value={outputUnit}
@@ -347,7 +394,7 @@ export function ComponentRecipeBuilder({
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-muted-foreground">
-                  Yield % (optional)
+                  {t(lang, "Yield % (optional)", "% de rendimiento (opcional)")}
                 </span>
                 <Input
                   type="number"
@@ -365,7 +412,9 @@ export function ComponentRecipeBuilder({
             {/* Inputs */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Inputs</h3>
+                <h3 className="text-sm font-semibold">
+                  {t(lang, "Inputs", "Insumos")}
+                </h3>
                 <div className="flex gap-2">
                   <Button
                     size="sm"
@@ -380,7 +429,7 @@ export function ComponentRecipeBuilder({
                     }
                   >
                     <Plus className="h-3.5 w-3.5" />
-                    Ingredient
+                    {t(lang, "Ingredient", "Ingrediente")}
                   </Button>
                   <Button
                     size="sm"
@@ -395,14 +444,18 @@ export function ComponentRecipeBuilder({
                     }
                   >
                     <Plus className="h-3.5 w-3.5" />
-                    Component
+                    {t(lang, "Component", "Sub-receta")}
                   </Button>
                 </div>
               </div>
 
               {drafts.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No inputs yet. Add ingredients and/or sub-components above.
+                  {t(
+                    lang,
+                    "No inputs yet. Add ingredients and/or sub-components above.",
+                    "Todavía no hay insumos. Agrega ingredientes o sub-recetas arriba."
+                  )}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -412,6 +465,7 @@ export function ComponentRecipeBuilder({
                       row={row}
                       ingredients={ingredients}
                       components={components}
+                      lang={lang}
                       onChange={(patch) => updateRow(row.uid, patch)}
                       onRemove={() => removeRow(row.uid)}
                     />
@@ -428,11 +482,13 @@ export function ComponentRecipeBuilder({
                 className="gap-1"
               >
                 <Save className="h-4 w-4" />
-                {saving ? "Saving…" : "Save component recipe"}
+                {saving
+                  ? t(lang, "Saving…", "Guardando…")
+                  : t(lang, "Save component recipe", "Guardar sub-receta")}
               </Button>
               {saveResult.kind === "ok" && (
                 <span className="text-sm text-green-700 dark:text-green-300">
-                  Recipe saved.
+                  {t(lang, "Recipe saved.", "Receta guardada.")}
                 </span>
               )}
               {saveResult.kind === "error" && (
@@ -441,8 +497,11 @@ export function ComponentRecipeBuilder({
                 </span>
               )}
               <span className="text-xs text-muted-foreground">
-                Replaces the full input list. Cost-per-output-unit will
-                recompute automatically once ingredient costs are available.
+                {t(
+                  lang,
+                  "Replaces the full input list. Saving an imported prep item protects it from the next workbook upload.",
+                  "Reemplaza toda la lista de insumos. Si guardas una sub-receta importada, un nuevo Excel no la va a pisar."
+                )}
               </span>
             </div>
           </CardContent>
@@ -456,12 +515,14 @@ function ComponentRecipeInputRow({
   row,
   ingredients,
   components,
+  lang,
   onChange,
   onRemove,
 }: {
   row: DraftInput;
   ingredients: IngredientOption[];
   components: ComponentOption[];
+  lang: PreferredLanguage;
   onChange: (patch: Partial<DraftInput>) => void;
   onRemove: () => void;
 }) {

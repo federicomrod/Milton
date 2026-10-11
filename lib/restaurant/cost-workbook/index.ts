@@ -70,6 +70,19 @@ export {
 } from "./duplicates";
 export { resolveSubRecipeYield } from "./recipes";
 export { resolveCatalogInput } from "./persist-recipes";
+export {
+  decideWorkbookCostMatch,
+  reconcileImportedWorkbookCosts,
+  workbookCostsMatch,
+  WORKBOOK_COST_ABS_TOLERANCE,
+  WORKBOOK_COST_REL_TOLERANCE,
+} from "./workbook-match";
+export {
+  handmadeRecipeExistsReason,
+  selfReferenceReason,
+  workbookMatchHeadline,
+} from "./copy";
+export { foldFooterLabel } from "./blocks";
 export { implausiblePriceReason } from "./plausibility";
 export { categoryForTab, resolveCategoryName } from "./categories";
 export { collectRecipeLines } from "./recipes";

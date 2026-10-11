@@ -22,6 +22,7 @@ import { layoutKeyForSheet } from "./header";
 import { evaluateWorkbookRow } from "./parse";
 import { dedupeWorkbookRows, persistSavedRows } from "./persist";
 import { linkMenuItemsToPos, persistWorkbookRecipes } from "./persist-recipes";
+import { reconcileImportedWorkbookCosts } from "./workbook-match";
 import { mapPool, WORKBOOK_AI_CONCURRENCY } from "./pool";
 import { matchesPreparedName, preparedNamesFromGroups } from "./prepared";
 import type { CostWorkbookRepo } from "./repo";
@@ -754,6 +755,13 @@ export async function importCostWorkbook(input: {
   skipped.push(...posStats.skipped);
   recipeStats.changes.created_mapping_ids.push(...posStats.mappingIds);
 
+  const recipeMatch = await reconcileImportedWorkbookCosts({
+    companyId: input.companyId,
+    repo: input.repo,
+    groups: recipeGroups,
+    lang,
+  });
+
   const reviewItems = await input.repo.insertReviewItems(
     toReview.map((r) => ({
       company_id: input.companyId,
@@ -787,14 +795,19 @@ export async function importCostWorkbook(input: {
   return {
     kind: "workbook",
     batch_id: batch.id,
-    headline: buildImportHeadline({
-      saved,
-      updated,
-      tabs: tabCount,
-      review,
-      skipped: skipped.length,
-      lang: input.lang,
-    }),
+    headline: [
+      buildImportHeadline({
+        saved,
+        updated,
+        tabs: tabCount,
+        review,
+        skipped: skipped.length,
+        lang: input.lang,
+      }),
+      recipeMatch.headline,
+    ]
+      .filter(Boolean)
+      .join(" "),
     imported_count: saved + updated,
     review_count: review,
     tab_count: tabCount,
@@ -830,6 +843,9 @@ export async function importCostWorkbook(input: {
     pos_links_created: posStats.linked,
     restaurant_name: input.restaurantName ?? null,
     location_id: input.locationId ?? null,
+    recipe_match: recipeMatch,
+    pos_unlinked_dishes: posStats.unlinkedDishes,
+    pos_unmatched_names: posStats.unmatchedPosNames,
   };
 }
 

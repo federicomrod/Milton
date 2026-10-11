@@ -40,12 +40,23 @@ import type {
   PreparedComponentListRow,
 } from "@/lib/restaurant/menu-recipes-server";
 import type { CostStatus } from "@/types/restaurant-costing";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 
 // ---------------------------------------------------------------------------
 // Page entry
 // ---------------------------------------------------------------------------
 
-export function MenuRecipesPage({ data }: { data: MenuRecipesData }) {
+export function MenuRecipesPage({
+  data,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+}: {
+  data: MenuRecipesData;
+  lang?: PreferredLanguage;
+}) {
   const router = useRouter();
   const refresh = () => router.refresh();
   const fmts = useMemo(() => makeFmts(data.currency), [data.currency]);
@@ -58,7 +69,7 @@ export function MenuRecipesPage({ data }: { data: MenuRecipesData }) {
           <div className="flex items-center gap-3">
             <BookOpen className="h-6 w-6 text-orange-500" />
             <h1 className="text-2xl font-bold tracking-tight">
-              Menu & Recipes
+              {t(lang, "Menu & Recipes", "Menú y recetas")}
             </h1>
             <Badge className="text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-0">
               Foundation
@@ -67,16 +78,17 @@ export function MenuRecipesPage({ data }: { data: MenuRecipesData }) {
           <Button asChild size="sm" variant="outline" className="gap-2">
             <Link href="/dashboard/restaurant/upload">
               <Upload className="h-4 w-4" />
-              Import POS Sales
+              {t(lang, "Import POS Sales", "Importar ventas del POS")}
             </Link>
           </Button>
         </div>
 
         <p className="text-sm text-muted-foreground -mt-4 max-w-3xl">
-          Map uploaded POS items to canonical menu items, build recipes from
-          ingredients and prepared components, and prepare the data for costing.
-          No margin math runs yet — that comes after supplier invoices are wired
-          in.
+          {t(
+            lang,
+            "Map POS items to dishes and open a recipe from any row. Prepared items (sub-recipes) live at the bottom of this page.",
+            "Relaciona los platillos del POS y abre la receta desde cualquier fila. Las sub-recetas están al final de esta página."
+          )}
         </p>
 
         <SummaryGrid summary={data.summary} />
@@ -86,14 +98,16 @@ export function MenuRecipesPage({ data }: { data: MenuRecipesData }) {
           menuItems={data.menuItems}
           fmts={fmts}
           onChange={refresh}
+          lang={lang}
         />
 
-        <MenuItemsSection rows={data.menuItems} fmts={fmts} />
+        <MenuItemsSection rows={data.menuItems} fmts={fmts} lang={lang} />
 
         <ComponentsSection
           components={data.components}
           onChange={refresh}
           currency={data.currency}
+          lang={lang}
         />
       </div>
     </div>
@@ -201,18 +215,20 @@ function UnmatchedSection({
   menuItems,
   fmts,
   onChange,
+  lang,
 }: {
   rows: UnmatchedPosItem[];
   menuItems: MenuItemListRow[];
   fmts: ReturnType<typeof makeFmts>;
   onChange: () => void;
+  lang: PreferredLanguage;
 }) {
   return (
     <section>
       <div className="flex items-center justify-between gap-4 mb-3">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <Link2 className="h-4 w-4 text-amber-600" />
-          Unmatched POS items
+          {t(lang, "Unmatched POS items", "Platillos del POS sin ligue")}
           <span className="text-sm font-normal text-muted-foreground">
             ({rows.length})
           </span>
@@ -534,9 +550,11 @@ function FieldLabel({
 function MenuItemsSection({
   rows,
   fmts,
+  lang,
 }: {
   rows: MenuItemListRow[];
   fmts: ReturnType<typeof makeFmts>;
+  lang: PreferredLanguage;
 }) {
   // Reads only — mutations live on the row-level "edit recipe" link, which
   // navigates to the detail page. router.refresh() is owned by the parent.
@@ -544,7 +562,7 @@ function MenuItemsSection({
     <section>
       <div className="flex items-center justify-between gap-4 mb-3">
         <h2 className="text-lg font-semibold">
-          Menu items{" "}
+          {t(lang, "Menu items", "Platillos")}{" "}
           <span className="text-sm font-normal text-muted-foreground">
             ({rows.length})
           </span>
@@ -663,8 +681,8 @@ function MenuItemsSection({
                             aria-label={`View recipe for ${r.name}`}
                           >
                             {r.recipe_status === "none"
-                              ? "Add recipe"
-                              : "Edit recipe"}
+                              ? t(lang, "Add recipe", "Agregar receta")
+                              : t(lang, "View recipe", "Ver receta")}
                           </Link>
                         </Button>
                       </td>
@@ -731,6 +749,8 @@ function CostStatusChip({ status }: { status: CostStatus }) {
         return "circular ref";
       case "inactive_recipe":
         return "recipe archived";
+      case "workbook_mismatch":
+        return "no coincide con el Excel";
       default:
         return "—";
     }
@@ -758,17 +778,19 @@ function ComponentsSection({
   components,
   onChange,
   currency,
+  lang,
 }: {
   components: PreparedComponentListRow[];
   onChange: () => void;
   currency: string;
+  lang: PreferredLanguage;
 }) {
   return (
-    <section>
+    <section id="prepared">
       <div className="flex items-center justify-between gap-4 mb-3">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-orange-500" />
-          Prepared components
+          {t(lang, "Prepared components", "Sub-recetas")}
           <span className="text-sm font-normal text-muted-foreground">
             ({components.length})
           </span>

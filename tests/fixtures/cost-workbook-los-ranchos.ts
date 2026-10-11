@@ -525,3 +525,99 @@ export function buildCostoRestauranteBlockWorkbook(): Buffer {
     XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
   );
 }
+
+/**
+ * Block layout covering footer typos, a sub-recipe used by a dish, a
+ * dish/sub-recipe name clash, and a printed total that must mismatch.
+ */
+export function buildWorkbookMatchFooterWorkbook(): Buffer {
+  const wb = XLSX.utils.book_new();
+  const header = [
+    "Articulo",
+    "Unidad Detalle",
+    "Cantidad",
+    "Costo Unitario",
+    "Total Costo",
+  ];
+
+  const sub = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["QUESO FRITO"],
+    header,
+    ["QUESO GRATINADO", "ONZA", 1, 0.15, 0.15],
+    ["COSTO TOTAL", "", "", "", 0.15],
+    ["PRECIO COSTO POR UNIDAD", "", "", "", 0.15],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["SALSA CASA"],
+    header,
+    ["TOMATE", "LIBRA", 2, 1, 2],
+    ["COSTO TOTAL", "", "", "", 2],
+    ["PRECIO LIBRA", "", "", "", 1],
+    ["PRECIOPOR ONZA", "", "", "", 0.0625],
+    ["PRECIO POR UNDIAD", "", "", "", 2],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["TORTA FRITA"],
+    header,
+    ["HARINA", "LIBRA", 1, 0.8, 0.8],
+    ["COSTO TOTAL", "", "", "", 0.8],
+    ["PRECIO COSTO TORTA", "", "", "", 0.8],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["TOSTONES"],
+    header,
+    ["PLATANO", "LIBRA", 1, 0.6, 0.6],
+    ["COSTO TOTAL", "", "", "", 0.6],
+    ["PRECIO COSTO POR UNIDAD", "", "", "", 0.6],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
+
+  const dishes = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["DEDOS DE QUESO"],
+    header,
+    ["QUESO FRITO", "ORDEN", 1, 0.15, 0.15],
+    ["COSTO TOTAL", "", "", "", 0.15],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 7.52],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["TOSTONES"],
+    header,
+    ["TOSTONES", "ORDEN", 1, 0.6, 0.6],
+    ["PLATANO", "ONZA", 2, 0.0375, 0.075],
+    ["COSTO TOTAL", "", "", "", 0.675],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 4],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["PLATO MALO"],
+    header,
+    ["TOMATE", "LIBRA", 1, 1, 1],
+    ["COSTO TOTAL", "", "", "", 9.99],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 12],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(dishes),
+    "DE LA PARRILLA"
+  );
+
+  const price = [
+    ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+    ["QUESO GRATINADO", 2.4, 0.15, ""],
+    ["TOMATE", 1, 0.0625, ""],
+    ["HARINA", 0.8, 0.05, ""],
+    ["PLATANO", 0.6, 0.0375, ""],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(price),
+    "Lista de precios"
+  );
+
+  return Buffer.from(
+    XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+  );
+}

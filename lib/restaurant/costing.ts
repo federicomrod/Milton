@@ -74,6 +74,14 @@ export interface CostingMenuRecipe {
   id: string;
   menu_item_id: string;
   status: "draft" | "active" | "archived" | string;
+  /** Imported recipes that do not match the workbook COSTO TOTAL. */
+  workbook_cost_match?: "match" | "mismatch" | null;
+}
+
+export function parseWorkbookCostMatch(
+  value: string | null | undefined
+): "match" | "mismatch" | null {
+  return value === "match" || value === "mismatch" ? value : null;
 }
 
 export interface CostingRecipeInput {
@@ -412,6 +420,7 @@ export function calculateComponentCost(
       complete: 0,
       missing_input_cost: 1,
       no_cost_entries: 1,
+      workbook_mismatch: 2,
       missing_unit_conversion: 2,
       missing_component_recipe: 3,
       inactive_recipe: 4,
@@ -576,6 +585,7 @@ export function calculateMenuItemCost(
       complete: 0,
       missing_input_cost: 1,
       no_cost_entries: 1,
+      workbook_mismatch: 2,
       missing_unit_conversion: 2,
       missing_component_recipe: 3,
       inactive_recipe: 4,
@@ -586,6 +596,17 @@ export function calculateMenuItemCost(
     for (const i of issues)
       if (priority[i.kind] > priority[worst]) worst = i.kind;
     return empty(worst, issues);
+  }
+
+  if (recipe.workbook_cost_match === "mismatch") {
+    const issues: CostIssue[] = [];
+    pushIssue(
+      issues,
+      "workbook_mismatch",
+      `${name} imported cost does not match the Excel COSTO TOTAL.`,
+      trail
+    );
+    return empty("workbook_mismatch", issues);
   }
 
   const cost = total;

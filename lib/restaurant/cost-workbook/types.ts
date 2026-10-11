@@ -147,6 +147,28 @@ export interface WorkbookImportResult {
   pos_links_created: number;
   restaurant_name?: string | null;
   location_id?: string | null;
+  recipe_match?: WorkbookRecipeMatchSummary;
+  pos_unlinked_dishes?: string[];
+  pos_unmatched_names?: string[];
+}
+
+export type WorkbookCostMatch = "match" | "mismatch";
+
+export interface WorkbookRecipeMismatch {
+  kind: "recipe" | "sub_recipe";
+  name: string;
+  excel_cost: number | null;
+  milton_cost: number | null;
+  reason: string;
+}
+
+export interface WorkbookRecipeMatchSummary {
+  dishes_matched: number;
+  dishes_total: number;
+  subs_matched: number;
+  subs_total: number;
+  mismatches: WorkbookRecipeMismatch[];
+  headline: string;
 }
 
 export interface CostWorkbookIngredient {
@@ -317,6 +339,10 @@ export interface ImportedRecipe {
   name: string;
   source_type: string | null;
   source_id: string | null;
+  workbook_cost_total?: number | null;
+  workbook_selling_price?: number | null;
+  workbook_computed_cost?: number | null;
+  workbook_cost_match?: WorkbookCostMatch | null;
 }
 
 export interface ImportedComponent {
@@ -335,6 +361,10 @@ export interface ImportedComponentRecipe {
   output_unit: string;
   source_type: string | null;
   source_id: string | null;
+  workbook_cost_total?: number | null;
+  workbook_unit_price?: number | null;
+  workbook_computed_cost?: number | null;
+  workbook_cost_match?: WorkbookCostMatch | null;
 }
 
 export interface RecipeLineCandidate {
@@ -360,6 +390,7 @@ export interface GroupedRecipe {
   cost_total?: number | null;
   price_per_lb?: number | null;
   price_per_oz?: number | null;
+  price_per_unit?: number | null;
 }
 
 export interface CostWorkbookBatch {

@@ -22,7 +22,8 @@ export type CostStatus =
   | "missing_unit_conversion"
   | "circular_component_reference"
   | "no_cost_entries"
-  | "inactive_recipe";
+  | "inactive_recipe"
+  | "workbook_mismatch";
 
 /** A single human-readable issue surfaced by the engine. The dashboard
  *  renders these next to the cost cell so the user knows exactly what

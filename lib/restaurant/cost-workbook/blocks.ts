@@ -26,8 +26,10 @@ import type {
 export const SHEET_TITLE_RE = /^restaurante\s+los\s+ranchos$/i;
 export const BANNER_RE = /^costo\s+restaurante$/i;
 export const COSTO_TOTAL_RE = /^costo\s+total$/i;
-export const PRECIO_LIBRA_RE = /^precio\s+por\s+libra$/i;
-export const PRECIO_ONZA_RE = /^precio\s+por\s+onza$/i;
+export const PRECIO_LIBRA_RE = /^precio(\s+de)?(\s+costo)?\s+(por\s+)?libra$/i;
+export const PRECIO_ONZA_RE = /^precio(\s+de)?(\s+costo)?\s+(por\s+)?onza$/i;
+export const PRECIO_UNIT_RE =
+  /^precio(\s+de)?(\s+costo)?\s+(por\s+)?(unidad|torta)$/i;
 export const PRECIO_VENTA_RE = /^precio\s+de\s+venta(\s+sin\s+iva)?$/i;
 export const MARGEN_RE = /^margen\s+de\s+contribuci[oó]n$/i;
 export const HASH_FILL_RE = /^#+$/;
@@ -45,6 +47,16 @@ function foldLabel(raw: string): string {
     .replace(/\p{M}/gu, "")
     .toLowerCase()
     .replace(/[$:]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Footer labels in the real Los Ranchos file include typos (PRECIOPOR,
+ *  UNDIAD) and extra words (PRECIO COSTO POR UNIDAD / TORTA). */
+export function foldFooterLabel(raw: string): string {
+  return foldLabel(raw)
+    .replace(/undiad/g, "unidad")
+    .replace(/preciopor/g, "precio por")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -129,13 +141,15 @@ function footerKind(
   | "costo_total"
   | "precio_lb"
   | "precio_oz"
+  | "precio_unit"
   | "precio_venta"
   | "margen"
   | null {
-  const label = foldLabel(firstText(cells));
+  const label = foldFooterLabel(firstText(cells));
   if (COSTO_TOTAL_RE.test(label)) return "costo_total";
   if (PRECIO_LIBRA_RE.test(label)) return "precio_lb";
   if (PRECIO_ONZA_RE.test(label)) return "precio_oz";
+  if (PRECIO_UNIT_RE.test(label)) return "precio_unit";
   if (PRECIO_VENTA_RE.test(label)) return "precio_venta";
   if (MARGEN_RE.test(label)) return "margen";
   return null;
@@ -251,12 +265,13 @@ function deriveYield(
     costTotal: number | null;
     pricePerLb: number | null;
     pricePerOz: number | null;
+    pricePerUnit: number | null;
   },
   lang: PreferredLanguage
 ):
   | { ok: true; quantity: number; unit: string }
   | { ok: false; reason: string } {
-  const { costTotal, pricePerLb, pricePerOz } = input;
+  const { costTotal, pricePerLb, pricePerOz, pricePerUnit } = input;
   if (costTotal == null || costTotal <= 0) {
     return { ok: false, reason: yieldUnknownReason(lang) };
   }
@@ -264,6 +279,8 @@ function deriveYield(
     pricePerLb != null && pricePerLb > 0 ? costTotal / pricePerLb : null;
   const fromOz =
     pricePerOz != null && pricePerOz > 0 ? costTotal / pricePerOz : null;
+  const fromUnit =
+    pricePerUnit != null && pricePerUnit > 0 ? costTotal / pricePerUnit : null;
   if (fromLb != null && fromOz != null) {
     const ozAsLb = fromOz / 16;
     const rel = Math.abs(fromLb - ozAsLb) / Math.max(fromLb, ozAsLb);
@@ -278,6 +295,7 @@ function deriveYield(
   }
   if (fromLb != null) return { ok: true, quantity: fromLb, unit: "lb" };
   if (fromOz != null) return { ok: true, quantity: fromOz, unit: "oz" };
+  if (fromUnit != null) return { ok: true, quantity: fromUnit, unit: "unit" };
   return { ok: false, reason: yieldUnknownReason(lang) };
 }
 
@@ -289,6 +307,7 @@ interface OpenBlock {
   costTotal: number | null;
   pricePerLb: number | null;
   pricePerOz: number | null;
+  pricePerUnit: number | null;
   sellingPrice: number | null;
 }
 
@@ -368,6 +387,7 @@ export function collectCostoRestauranteBlocks(input: {
         costTotal: current.costTotal,
         pricePerLb: current.pricePerLb,
         pricePerOz: current.pricePerOz,
+        pricePerUnit: current.pricePerUnit,
       },
       lang
     );
@@ -392,6 +412,7 @@ export function collectCostoRestauranteBlocks(input: {
       cost_total: current.costTotal,
       price_per_lb: current.pricePerLb,
       price_per_oz: current.pricePerOz,
+      price_per_unit: current.pricePerUnit,
     });
     open.block = null;
     pendingName = "";
@@ -408,6 +429,7 @@ export function collectCostoRestauranteBlocks(input: {
       costTotal: null,
       pricePerLb: null,
       pricePerOz: null,
+      pricePerUnit: null,
       sellingPrice: null,
     };
     phase = "in_block";
@@ -442,6 +464,8 @@ export function collectCostoRestauranteBlocks(input: {
           open.block.pricePerLb = amount;
         if (footer === "precio_oz" && amount != null)
           open.block.pricePerOz = amount;
+        if (footer === "precio_unit" && amount != null)
+          open.block.pricePerUnit = amount;
         if (footer === "precio_venta" && amount != null) {
           open.block.sellingPrice = amount;
         }

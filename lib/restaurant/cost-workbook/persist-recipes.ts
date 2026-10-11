@@ -1,7 +1,10 @@
 import { nameKey } from "@/lib/restaurant/cost-import";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { isImportProtectedSource } from "@/lib/restaurant/protect-imported-recipe";
 import { isSubRecipePortionUnit } from "@/lib/restaurant/units";
 import {
+  handmadeRecipeExistsReason,
+  selfReferenceReason,
   uncertainSubRecipeReason,
   unknownIngredientReason,
   unknownUnitReason,
@@ -33,9 +36,31 @@ export function resolveCatalogInput(
   ingredients: Array<{ id: string; name: string }>,
   components: Array<{ id: string; name: string }>,
   aliases: Map<string, string> = new Map(),
-  lang: PreferredLanguage = "en"
+  lang: PreferredLanguage = "en",
+  parentName?: string
 ): { ok: true; input: RecipeInputSnapshot } | { ok: false; reason: string } {
   const resolvedName = resolveAliasName(lineName, aliases);
+  if (parentName && nameKey(lineName) === nameKey(parentName)) {
+    const exactIngredient = ingredients.find(
+      (item) =>
+        nameKey(item.name) === nameKey(lineName) ||
+        nameKey(item.name) === nameKey(resolvedName)
+    );
+    if (exactIngredient) {
+      return {
+        ok: true,
+        input: {
+          input_type: "ingredient",
+          ingredient_id: exactIngredient.id,
+          component_id: null,
+          quantity: 0,
+          unit: "",
+          notes: null,
+        },
+      };
+    }
+    return { ok: false, reason: selfReferenceReason(lang, lineName) };
+  }
   const exactComponents = components.filter(
     (item) =>
       nameKey(item.name) === nameKey(lineName) ||
@@ -137,7 +162,7 @@ function withQty(
 }
 
 function isImported(sourceType: string | null | undefined): boolean {
-  return sourceType === "import";
+  return !isImportProtectedSource(sourceType);
 }
 
 export async function persistWorkbookRecipes(input: {
@@ -207,7 +232,8 @@ export async function persistWorkbookRecipes(input: {
         liveIngredients,
         liveComponents,
         input.aliases ?? new Map(),
-        lang
+        lang,
+        group.name
       );
       if (!resolved.ok) {
         review.push({
@@ -237,6 +263,24 @@ export async function persistWorkbookRecipes(input: {
               quantity: line.quantity,
             },
           });
+          continue;
+        }
+        const componentId = resolved.input.component_id;
+        const yieldRecipe = componentId
+          ? componentRecipeByComponentId.get(componentId)
+          : undefined;
+        if (
+          yieldRecipe &&
+          yieldRecipe.output_quantity > 0 &&
+          yieldRecipe.output_unit
+        ) {
+          inputs.push(
+            withQty(resolved.input, {
+              ...line,
+              quantity: line.quantity * yieldRecipe.output_quantity,
+              unit: yieldRecipe.output_unit,
+            })
+          );
           continue;
         }
         inputs.push(withQty(resolved.input, { ...line, unit: "portion" }));
@@ -278,7 +322,7 @@ export async function persistWorkbookRecipes(input: {
       skipped.push({
         tabName: group.tabName,
         rowIndex: 0,
-        reason: "handmade recipe exists",
+        reason: handmadeRecipeExistsReason(lang),
         raw: { recipe: group.name },
       });
       continue;
@@ -369,7 +413,7 @@ export async function persistWorkbookRecipes(input: {
       skipped.push({
         tabName: group.tabName,
         rowIndex: 0,
-        reason: "handmade recipe exists",
+        reason: handmadeRecipeExistsReason(lang),
         raw: { recipe: group.name },
       });
       continue;
@@ -439,9 +483,18 @@ export async function linkMenuItemsToPos(input: {
   review: ReviewCandidate[];
   skipped: SkipCandidate[];
   mappingIds: string[];
+  unlinkedDishes: string[];
+  unmatchedPosNames: string[];
 }> {
   if (input.menuItems.length === 0) {
-    return { linked: 0, review: [], skipped: [], mappingIds: [] };
+    return {
+      linked: 0,
+      review: [],
+      skipped: [],
+      mappingIds: [],
+      unlinkedDishes: [],
+      unmatchedPosNames: [],
+    };
   }
   const [posNames, existing] = await Promise.all([
     input.repo.listDistinctPosItemNames(
@@ -451,6 +504,7 @@ export async function linkMenuItemsToPos(input: {
     input.repo.listPosMappings(input.companyId),
   ]);
   const mapped = new Set(existing.map((row) => row.raw_pos_item_name));
+  const alreadyLinkedMenuIds = new Set(existing.map((row) => row.menu_item_id));
   const review: ReviewCandidate[] = [];
   const skipped: SkipCandidate[] = [];
   const toCreate: Array<{ rawPosItemName: string; menuItemId: string }> = [];
@@ -484,11 +538,24 @@ export async function linkMenuItemsToPos(input: {
     }))
   );
 
+  const newlyLinked = new Set(toCreate.map((row) => row.menuItemId));
+  const unlinkedDishes = input.menuItems
+    .filter(
+      (item) => !alreadyLinkedMenuIds.has(item.id) && !newlyLinked.has(item.id)
+    )
+    .map((item) => item.name);
+  const unmatchedPosNames = posNames.filter((posName) => {
+    if (mapped.has(posName)) return false;
+    return !toCreate.some((row) => row.rawPosItemName === posName);
+  });
+
   return {
     linked: created.length,
     review,
     skipped,
     mappingIds: created.map((row) => row.id),
+    unlinkedDishes,
+    unmatchedPosNames,
   };
 }
 

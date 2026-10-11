@@ -239,6 +239,32 @@ export interface CostWorkbookRepo {
     }>
   ): Promise<Array<{ id: string }>>;
   deletePosMappings(companyId: string, ids: string[]): Promise<number>;
+  updateRecipeWorkbookCheck(
+    companyId: string,
+    recipeId: string,
+    patch: {
+      workbook_cost_total: number | null;
+      workbook_selling_price: number | null;
+      workbook_computed_cost: number | null;
+      workbook_cost_match: "match" | "mismatch" | null;
+    }
+  ): Promise<void>;
+  updateComponentRecipeWorkbookCheck(
+    companyId: string,
+    recipeId: string,
+    patch: {
+      workbook_cost_total: number | null;
+      workbook_unit_price: number | null;
+      workbook_computed_cost: number | null;
+      workbook_cost_match: "match" | "mismatch" | null;
+    }
+  ): Promise<void>;
+  markRecipeManual(companyId: string, recipeId: string): Promise<void>;
+  markComponentManual(
+    companyId: string,
+    componentId: string,
+    componentRecipeId?: string | null
+  ): Promise<void>;
 }
 
 function asIngredient(row: Record<string, unknown>): CostWorkbookIngredient {
@@ -1463,6 +1489,49 @@ export function createSupabaseCostWorkbookRepo(
         .select("id");
       if (error) throw new Error(error.message);
       return (data ?? []).length;
+    },
+
+    async updateRecipeWorkbookCheck(companyId, recipeId, patch) {
+      const { error } = await supabase
+        .from("recipes")
+        .update(patch)
+        .eq("company_id", companyId)
+        .eq("id", recipeId);
+      if (error) throw new Error(error.message);
+    },
+
+    async updateComponentRecipeWorkbookCheck(companyId, recipeId, patch) {
+      const { error } = await supabase
+        .from("component_recipes")
+        .update(patch)
+        .eq("company_id", companyId)
+        .eq("id", recipeId);
+      if (error) throw new Error(error.message);
+    },
+
+    async markRecipeManual(companyId, recipeId) {
+      const { error } = await supabase
+        .from("recipes")
+        .update({ source_type: "manual" })
+        .eq("company_id", companyId)
+        .eq("id", recipeId);
+      if (error) throw new Error(error.message);
+    },
+
+    async markComponentManual(companyId, componentId, componentRecipeId) {
+      const { error: componentError } = await supabase
+        .from("prepared_components")
+        .update({ source_type: "manual" })
+        .eq("company_id", companyId)
+        .eq("id", componentId);
+      if (componentError) throw new Error(componentError.message);
+      if (!componentRecipeId) return;
+      const { error } = await supabase
+        .from("component_recipes")
+        .update({ source_type: "manual" })
+        .eq("company_id", companyId)
+        .eq("id", componentRecipeId);
+      if (error) throw new Error(error.message);
     },
   };
 }

@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { handmadeSourcePatch } from "@/lib/restaurant/protect-imported-recipe";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -261,6 +262,7 @@ export async function PUT(
         output_unit: outputUnit,
         yield_percentage: yieldPercentage,
         status,
+        ...handmadeSourcePatch(),
       })
       .eq("id", recipeId);
     if (error) {
@@ -280,6 +282,7 @@ export async function PUT(
         output_unit: outputUnit,
         yield_percentage: yieldPercentage,
         status,
+        ...handmadeSourcePatch(),
       })
       .select("id")
       .single();
@@ -291,6 +294,12 @@ export async function PUT(
     }
     recipeId = created.id;
   }
+
+  await auth.supabase
+    .from("prepared_components")
+    .update(handmadeSourcePatch())
+    .eq("company_id", auth.companyId)
+    .eq("id", componentId);
 
   // ---- Replace inputs ---------------------------------------------------
   const { error: delErr } = await auth.supabase

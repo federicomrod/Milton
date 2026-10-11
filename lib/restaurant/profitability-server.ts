@@ -18,9 +18,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   type CostingData,
+  type CostingMenuRecipe,
   type CostingRecipeInput,
   calculateAllComponentCosts,
   calculateAllMenuItemCosts,
+  parseWorkbookCostMatch,
 } from "@/lib/restaurant/costing";
 import type {
   IngredientCostEntry,
@@ -392,12 +394,16 @@ export async function fetchProfitabilityData(
         )
         .eq("company_id", companyId)
     ),
-    fetchAllRows<{ id: string; menu_item_id: string; status: string | null }>(
-      () =>
-        supabase
-          .from("recipes")
-          .select("id, menu_item_id, status")
-          .eq("company_id", companyId)
+    fetchAllRowsRetryingWithoutColumn<{
+      id: string;
+      menu_item_id: string;
+      status: string | null;
+      workbook_cost_match?: string | null;
+    }>(
+      "workbook_cost_match",
+      (select) =>
+        supabase.from("recipes").select(select).eq("company_id", companyId),
+      "id, menu_item_id, status, workbook_cost_match"
     ),
     fetchAllRows<{
       id: string;
@@ -585,8 +591,16 @@ export async function fetchProfitabilityData(
       },
     ])
   );
-  const menuRecipesByMenuItemId = new Map(
-    recipes.map((r) => [r.menu_item_id, { ...r, status: r.status ?? "draft" }])
+  const menuRecipesByMenuItemId = new Map<string, CostingMenuRecipe>(
+    recipes.map((r) => [
+      r.menu_item_id,
+      {
+        id: r.id,
+        menu_item_id: r.menu_item_id,
+        status: r.status ?? "draft",
+        workbook_cost_match: parseWorkbookCostMatch(r.workbook_cost_match),
+      },
+    ])
   );
   const costEntriesByIngredientId = new Map<string, IngredientCostEntry[]>();
   for (const e of costEntries) {

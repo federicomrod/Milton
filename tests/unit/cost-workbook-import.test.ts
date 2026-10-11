@@ -30,6 +30,8 @@ import {
   sheetLooksLikeCostoRestauranteBlocks,
   TOTAL_MISMATCH_REASON,
   YIELD_INCONSISTENT_REASON,
+  foldFooterLabel,
+  handmadeRecipeExistsReason,
   layoutKeyForSheet,
   mergeTypoDuplicates,
   nameMatchScore,
@@ -72,6 +74,7 @@ import {
   buildCostoRestauranteBlockWorkbook,
   buildSharedArticuloDishWorkbook,
   buildShiftedSubRecipeWorkbook,
+  buildWorkbookMatchFooterWorkbook,
 } from "../fixtures/cost-workbook-los-ranchos";
 import * as XLSX from "xlsx";
 import type {
@@ -3156,5 +3159,197 @@ describe("COSTO RESTAURANTE block layout", () => {
         ?.output_quantity
     ).toBeCloseTo(7.55 / 0.555, 5);
     expect(first.sub_recipes_created).toBe(1);
+  });
+
+  it("reads footer typos as yield, never as ingredient lines", () => {
+    expect(foldFooterLabel("PRECIOPOR ONZA")).toBe("precio por onza");
+    expect(foldFooterLabel("PRECIO POR UNDIAD")).toBe("precio por unidad");
+    expect(foldFooterLabel("PRECIO COSTO TORTA")).toBe("precio costo torta");
+    const sheets = readWorkbookSheets(buildWorkbookMatchFooterWorkbook());
+    const parsed = collectCostoRestauranteBlocks({
+      tabName: "SUB RECETAS",
+      tabKind: "sub_recipe",
+      aoa: sheets.find((sheet) => sheet.name === "SUB RECETAS")?.aoa ?? [],
+      lang: "es",
+    });
+    expect(
+      parsed.review.some((item) =>
+        /Falta la unidad \(PRECIO|unidad desconocida \(PRECIO/i.test(
+          item.reason
+        )
+      )
+    ).toBe(false);
+    const queso = parsed.groups.find((group) => group.name === "QUESO FRITO");
+    expect(queso?.output_quantity).toBeCloseTo(1, 5);
+    expect(queso?.output_unit).toBe("unit");
+    expect(queso?.price_per_unit).toBeCloseTo(0.15, 5);
+    const salsa = parsed.groups.find((group) => group.name === "SALSA CASA");
+    expect(salsa?.output_unit).toBe("lb");
+    expect(salsa?.output_quantity).toBeCloseTo(2, 5);
+    expect(
+      parsed.groups.find((group) => group.name === "TORTA FRITA")?.output_unit
+    ).toBe("unit");
+  });
+
+  it("matches Excel totals, skips a name-clash self-ref, and flags a mismatch", async () => {
+    const store = emptyStore();
+    store.posItemNames = ["DEDOS DE QUESO", "TOSTONES", "PLATO MALO"];
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildWorkbookMatchFooterWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      lang: "es",
+    });
+
+    expect(result.recipe_match?.dishes_total).toBeGreaterThanOrEqual(2);
+    expect(result.recipe_match?.headline).toMatch(
+      /platillos coinciden con el Excel/
+    );
+    const malo = result.recipe_match?.mismatches.find(
+      (row) => row.name === "PLATO MALO"
+    );
+    expect(malo).toBeTruthy();
+    expect(malo?.excel_cost).toBeCloseTo(9.99, 2);
+    expect(malo?.milton_cost ?? 0).toBeLessThan(2);
+    expect(
+      result.review_items.some((item) =>
+        item.reason.includes("referencia a sí misma")
+      )
+    ).toBe(true);
+    expect(
+      store.recipeInputs.some((row) => {
+        const recipe = store.recipes.find((r) => r.id === row.recipe_id);
+        const menu = store.menuItems.find((m) => m.id === recipe?.menu_item_id);
+        return (
+          menu?.name === "TOSTONES" &&
+          row.input_type === "component" &&
+          store.components.some(
+            (component) =>
+              component.id === row.component_id && component.name === "TOSTONES"
+          )
+        );
+      })
+    ).toBe(false);
+
+    const dedos = store.recipes.find((row) => row.name === "DEDOS DE QUESO");
+    expect(dedos?.workbook_cost_match).toBe("match");
+    const maloRecipe = store.recipes.find((row) => row.name === "PLATO MALO");
+    expect(maloRecipe?.workbook_cost_match).toBe("mismatch");
+
+    const costing = costingDataFromStore(store);
+    const maloMenu = store.menuItems.find((row) => row.name === "PLATO MALO");
+    const live = calculateMenuItemCost(maloMenu!.id, {
+      ...costing,
+      menuRecipesByMenuItemId: new Map(
+        [...costing.menuRecipesByMenuItemId.entries()].map(([id, recipe]) => [
+          id,
+          {
+            ...recipe,
+            workbook_cost_match:
+              id === maloMenu?.id ? "mismatch" : recipe.workbook_cost_match,
+          },
+        ])
+      ),
+    });
+    expect(live.status).toBe("workbook_mismatch");
+    expect(live.cost).toBeNull();
+  });
+
+  it("protects a hand-edited imported recipe from the next workbook upload", async () => {
+    const store = emptyStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const first = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildWorkbookMatchFooterWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      lang: "es",
+    });
+    expect(first.recipes_created).toBeGreaterThan(0);
+    const recipe = store.recipes.find((row) => row.name === "DEDOS DE QUESO");
+    expect(recipe?.source_type).toBe("import");
+    await repo.markRecipeManual(COMPANY, recipe!.id);
+    const input = store.recipeInputs.find(
+      (row) => row.recipe_id === recipe?.id
+    );
+    expect(input).toBeTruthy();
+    input!.quantity = 99;
+
+    const second = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildWorkbookMatchFooterWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      lang: "es",
+    });
+    expect(
+      second.skipped_reasons.some(
+        (row) => row.reason === handmadeRecipeExistsReason("es")
+      )
+    ).toBe(true);
+    expect(
+      store.recipeInputs.find((row) => row.id === input?.id)?.quantity
+    ).toBe(99);
+    expect(
+      store.recipes.find((row) => row.id === recipe?.id)?.source_type
+    ).toBe("manual");
+  });
+
+  it("protects a hand-edited imported prepared item from the next workbook upload", async () => {
+    const store = emptyStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const first = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildWorkbookMatchFooterWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      lang: "es",
+    });
+    expect(first.sub_recipes_created).toBeGreaterThan(0);
+    const component = store.components.find(
+      (row) => row.name === "QUESO FRITO"
+    );
+    expect(component?.source_type).toBe("import");
+    const componentRecipe = store.componentRecipes.find(
+      (row) => row.component_id === component?.id
+    );
+    expect(componentRecipe).toBeTruthy();
+    await repo.markComponentManual(COMPANY, component!.id, componentRecipe!.id);
+    const input = store.componentRecipeInputs.find(
+      (row) => row.component_recipe_id === componentRecipe?.id
+    );
+    expect(input).toBeTruthy();
+    input!.quantity = 99;
+
+    const second = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildWorkbookMatchFooterWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      lang: "es",
+    });
+    expect(
+      second.skipped_reasons.some(
+        (row) => row.reason === handmadeRecipeExistsReason("es")
+      )
+    ).toBe(true);
+    expect(
+      store.componentRecipeInputs.find((row) => row.id === input?.id)?.quantity
+    ).toBe(99);
+    expect(
+      store.components.find((row) => row.id === component?.id)?.source_type
+    ).toBe("manual");
   });
 });

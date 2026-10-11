@@ -144,12 +144,14 @@ export interface CostWorkbookIngredient {
   category?: string | null;
 }
 
+export type CostEntrySourceType = "manual" | "invoice_line" | "import" | "api";
+
 export interface CostWorkbookCostEntry {
   id: string;
   company_id: string;
   ingredient_id: string;
   supplier_id: string | null;
-  source_type: "import";
+  source_type: CostEntrySourceType;
   source_id: string | null;
   cost_date: string;
   quantity: number;
@@ -211,10 +213,14 @@ export interface UndoSnapshot {
   }>;
   deleted_ingredients: DeletedIngredientSnapshot[];
   deleted_cost_entries: CostWorkbookCostEntry[];
+  deleted_menu_recipe_inputs: DetachedRecipeInputSnapshot[];
+  deleted_component_recipe_inputs: DetachedRecipeInputSnapshot[];
+  deleted_supplier_ingredients: SupplierIngredientSnapshot[];
   ingredient_categories_before: Array<{
     id: string;
     category: string | null;
   }>;
+  undo_errors?: string[];
 }
 
 export interface DeletedIngredientSnapshot {
@@ -225,6 +231,35 @@ export interface DeletedIngredientSnapshot {
   default_unit: string | null;
   current_unit_cost: number;
   currency: string;
+}
+
+export interface DetachedRecipeInputSnapshot {
+  id: string;
+  company_id: string;
+  recipe_id: string | null;
+  component_recipe_id: string | null;
+  input_type: "ingredient" | "component";
+  ingredient_id: string | null;
+  component_id: string | null;
+  quantity: number;
+  unit: string;
+  notes: string | null;
+}
+
+export interface SupplierIngredientSnapshot {
+  id: string;
+  company_id: string;
+  supplier_id: string;
+  ingredient_id: string;
+  supplier_item_name: string | null;
+  supplier_sku: string | null;
+  preferred: boolean;
+}
+
+export interface IngredientInputUsage {
+  kind: "menu" | "component";
+  handmade: boolean;
+  snapshot: DetachedRecipeInputSnapshot;
 }
 
 export function emptyUndoSnapshot(): UndoSnapshot {
@@ -242,6 +277,9 @@ export function emptyUndoSnapshot(): UndoSnapshot {
     updated_components: [],
     deleted_ingredients: [],
     deleted_cost_entries: [],
+    deleted_menu_recipe_inputs: [],
+    deleted_component_recipe_inputs: [],
+    deleted_supplier_ingredients: [],
     ingredient_categories_before: [],
   };
 }
@@ -294,6 +332,8 @@ export interface GroupedRecipe {
   tabName: string;
   kind: "recipe" | "sub_recipe";
   lines: RecipeLineCandidate[];
+  output_quantity: number | null;
+  output_unit: string | null;
 }
 
 export interface CostWorkbookBatch {

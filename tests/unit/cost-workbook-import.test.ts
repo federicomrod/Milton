@@ -10,14 +10,18 @@ import type { IngredientCostEntry } from "@/types/restaurant-costing";
 import {
   approveReviewItem,
   buildImportHeadline,
+  canAutoLinkNames,
   damerauLevenshtein,
   implausiblePriceReason,
   importCostWorkbook,
   isObviousTypo,
   layoutKeyForSheet,
   mergeTypoDuplicates,
+  nameMatchScore,
   normalizeCostTabType,
+  resolveCatalogInput,
   resolvePriceListPrice,
+  resolveSubRecipeYield,
   undoCostImportBatch,
   unitsCompatible,
 } from "@/lib/restaurant/cost-workbook";
@@ -37,7 +41,11 @@ import {
 import { validateCostImportColumns } from "@/lib/restaurant/cost-import";
 import { buildLosRanchosCostWorkbook } from "../fixtures/cost-workbook-los-ranchos";
 import * as XLSX from "xlsx";
-import type { CostWorkbookCostEntry } from "@/lib/restaurant/cost-workbook/types";
+import type {
+  CostWorkbookCostEntry,
+  GroupedRecipe,
+} from "@/lib/restaurant/cost-workbook/types";
+import { emptyUndoSnapshot } from "@/lib/restaurant/cost-workbook/types";
 import {
   createMemoryCostWorkbookRepo,
   emptyMemoryStore,
@@ -204,6 +212,8 @@ function mockedAi(): WorkbookAi & {
           ...bind("artículo", "ingredient_name"),
           ...bind("cantidad", "quantity"),
           ...bind("unidad", "unit"),
+          ...bind("rendimiento", "output_quantity"),
+          ...bind("unidadsalida", "output_unit"),
         };
       }
       return {
@@ -999,15 +1009,30 @@ describe("workbook recipes, POS links, and cockpit COGS", () => {
 
 describe("workbook typo merge, units, categories, prepared items", () => {
   it("matches obvious typos and compatible units only", () => {
+    const cases: Array<[string, string, boolean]> = [
+      ["OIVA", "OLIVA", true],
+      ["ACIETE", "ACEITE", true],
+      ["ACEOTE", "ACEITE", true],
+      ["ADERESO", "ADEREZO", true],
+      ["ZANAHORA", "ZANAHORIA", true],
+      ["ARROI", "ARROZ", true],
+      ["AGUCATE", "AGUACATE", true],
+      ["ACEITE DE OIVA", "ACEITE DE OLIVA", true],
+      ["PIMIENTA", "PIMIENTO", false],
+      ["CEBOLLA", "CEBOLLIN", false],
+      ["QUESO", "QUESA", false],
+      ["CAMARON 21/25", "CAMARON 31/35", false],
+      ["TORTILLA 15CM", "TORTILLA 18CM", false],
+      ["AGUACATE", "AGUACATE HASS", false],
+      ["ACEITE DE OLIVA", "ACEITE DE OLIVA EXTRA VIRGEN", false],
+      ["LIMON", "LIMA", false],
+      ["Tomate", "Carne para asar", false],
+    ];
+    for (const [left, right, expected] of cases) {
+      expect(isObviousTypo(left, right), `${left} ↔ ${right}`).toBe(expected);
+      expect(isObviousTypo(right, left), `${right} ↔ ${left}`).toBe(expected);
+    }
     expect(damerauLevenshtein("zanahora", "zanahoria")).toBe(1);
-    expect(isObviousTypo("ACEITE DE OIVA", "ACEITE DE OLIVA")).toBe(true);
-    expect(isObviousTypo("ACIETE", "Aceite")).toBe(true);
-    expect(isObviousTypo("ACEOTE", "Aceite")).toBe(true);
-    expect(isObviousTypo("AGUCATE", "AGUACATE")).toBe(true);
-    expect(isObviousTypo("ADERESO", "ADEREZO")).toBe(true);
-    expect(isObviousTypo("ZANAHORA", "ZANAHORIA")).toBe(true);
-    expect(isObviousTypo("ARROI", "Arroz")).toBe(true);
-    expect(isObviousTypo("Tomate", "Carne para asar")).toBe(false);
     expect(unitsCompatible("lb", "oz")).toBe(true);
     expect(unitsCompatible("oz", "unit")).toBe(false);
   });
@@ -1112,7 +1137,7 @@ describe("workbook typo merge, units, categories, prepared items", () => {
     ).toBe(true);
   });
 
-  it("merges workbook typos into handmade Aceite / Arroz and leaves their names", async () => {
+  it("does not merge workbook typos into handmade Aceite / Arroz", async () => {
     const store = emptyStore();
     store.ingredients.push(
       {
@@ -1143,7 +1168,7 @@ describe("workbook typo merge, units, categories, prepared items", () => {
       "Lista de precios"
     );
     const repo = createMemoryCostWorkbookRepo(store);
-    await importCostWorkbook({
+    const result = await importCostWorkbook({
       companyId: COMPANY,
       filename: FILENAME,
       buffer: Buffer.from(
@@ -1154,12 +1179,25 @@ describe("workbook typo merge, units, categories, prepared items", () => {
       ai: mockedAi(),
     });
     expect(store.ingredients.map((item) => item.name).sort()).toEqual(
-      ["Aceite", "Arroz"].sort()
+      ["ACIETE", "ARROI", "Aceite", "Arroz"].sort()
     );
     expect(
       store.ingredients.find((item) => item.id === "ing-aceite")?.category
     ).toBe("Aceites");
+    expect(
+      store.ingredients.find((item) => item.id === "ing-aceite")?.name
+    ).toBe("Aceite");
     expect(store.costEntries).toHaveLength(2);
+    expect(
+      result.review_items.some((item) =>
+        item.reason.includes("looks like a typo of Aceite")
+      )
+    ).toBe(true);
+    expect(
+      result.review_items.some((item) =>
+        item.reason.includes("looks like a typo of Arroz")
+      )
+    ).toBe(true);
   });
 
   it("does not overwrite a handmade category", async () => {
@@ -1214,6 +1252,22 @@ describe("workbook typo merge, units, categories, prepared items", () => {
       notes: null,
       created_at: "2026-03-01T00:00:00.000Z",
     });
+    store.batches.push({
+      id: "batch-old",
+      company_id: COMPANY,
+      filename: "old.xlsx",
+      file_month: "2026-03-01",
+      currency: "USD",
+      imported_count: 1,
+      review_count: 0,
+      tab_summaries: [],
+      mapping_source: "ai",
+      undone_at: null,
+      undo_snapshot: {
+        ...emptyUndoSnapshot(),
+        created_ingredient_ids: ["ing-yuca-frita"],
+      },
+    });
     const repo = createMemoryCostWorkbookRepo(store);
     const result = await importCostWorkbook({
       companyId: COMPANY,
@@ -1253,7 +1307,7 @@ describe("workbook typo merge, units, categories, prepared items", () => {
       category: "Prep",
     });
     const repo = createMemoryCostWorkbookRepo(store);
-    await importCostWorkbook({
+    const result = await importCostWorkbook({
       companyId: COMPANY,
       filename: FILENAME,
       buffer: buildLosRanchosCostWorkbook(),
@@ -1271,5 +1325,457 @@ describe("workbook typo merge, units, categories, prepared items", () => {
     expect(store.components.some((item) => item.name === "TOSTONES")).toBe(
       true
     );
+    expect(
+      result.review_items.some(
+        (item) => item.reason === "looks like a prepared item"
+      )
+    ).toBe(true);
+  });
+});
+
+function recipeGroup(input: {
+  name: string;
+  lines: Array<{ name: string; quantity: number; unit: string }>;
+  output_quantity?: number | null;
+  output_unit?: string | null;
+}): GroupedRecipe {
+  return {
+    name: input.name,
+    tabName: "SUB RECETAS",
+    kind: "sub_recipe",
+    output_quantity: input.output_quantity ?? null,
+    output_unit: input.output_unit ?? null,
+    lines: input.lines.map((line, rowIndex) => ({
+      tabName: "SUB RECETAS",
+      rowIndex,
+      recipeName: input.name,
+      ingredient_name: line.name,
+      quantity: line.quantity,
+      unit: line.unit,
+      raw: {},
+    })),
+  };
+}
+
+describe("workbook import blockers", () => {
+  it("does not auto-link containment matches that differ by a whole token", () => {
+    const pairs = [
+      ["AGUACATE", "AGUACATE HASS"],
+      ["PIMIENTA", "PIMIENTA NEGRA"],
+      ["Hamburguesa Doble", "Hamburguesa"],
+      ["Margarita Fresa", "Margarita"],
+    ] as const;
+    for (const [left, right] of pairs) {
+      expect(canAutoLinkNames(left, right), `${left} ↔ ${right}`).toBe(false);
+      expect(nameMatchScore(left, right)).toBeGreaterThanOrEqual(0.55);
+      expect(nameMatchScore(left, right)).toBeLessThan(0.85);
+      expect(
+        resolveCatalogInput(left, [{ id: "ing", name: right }], []).ok
+      ).toBe(false);
+    }
+    expect(canAutoLinkNames("CARNE ASADA", "Carne Asada")).toBe(true);
+    expect(canAutoLinkNames("AGUCATE", "AGUACATE")).toBe(true);
+  });
+
+  it("sends POS containment names to review instead of auto-linking", async () => {
+    const store = emptyStore();
+    store.posItemNames = [
+      "Hamburguesa Doble",
+      "Margarita Fresa",
+      "Hamburguesa",
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+        ["Sal", "", "", 0.15],
+      ]),
+      "Lista de precios"
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Receta", "Ingrediente", "Cantidad", "Unidad"],
+        ["Hamburguesa", "Sal", 1, "g"],
+        ["Margarita", "Sal", 1, "g"],
+      ]),
+      "RECETAS"
+    );
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: Buffer.from(
+        XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+      ),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    expect(store.posMappings.map((row) => row.raw_pos_item_name)).toEqual([
+      "Hamburguesa",
+    ]);
+    expect(result.pos_links_created).toBe(1);
+    expect(
+      result.review_items.some((item) =>
+        item.reason.includes("Hamburguesa Doble")
+      )
+    ).toBe(true);
+    expect(
+      result.review_items.some((item) =>
+        item.reason.includes("Margarita Fresa")
+      )
+    ).toBe(true);
+  });
+
+  it("does not auto-resolve recipe lines to a longer contained name", async () => {
+    const store = emptyStore();
+    store.ingredients.push({
+      id: "ing-hass",
+      name: "AGUACATE HASS",
+      default_unit: "oz",
+      current_unit_cost: 0.8,
+      currency: "USD",
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+        ["Sal", "", "", 0.15],
+      ]),
+      "Lista de precios"
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Ingrediente", "Cantidad", "Unidad"],
+        ["AGUACATE", 50, "g"],
+        ["Sal", 1, "g"],
+      ]),
+      "RECETA Guacamole"
+    );
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: Buffer.from(
+        XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+      ),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    expect(
+      result.review_items.some((item) =>
+        item.reason.includes("AGUACATE ↔ AGUACATE HASS")
+      )
+    ).toBe(true);
+    expect(
+      store.recipeInputs.some((row) => row.ingredient_id === "ing-hass")
+    ).toBe(false);
+  });
+
+  it("uses mapped yield, or the sum of lines, and holds when yield is unknown", () => {
+    const mapped = resolveSubRecipeYield(
+      recipeGroup({
+        name: "Salsa",
+        output_quantity: 2,
+        output_unit: "kg",
+        lines: [{ name: "Tomate", quantity: 100, unit: "g" }],
+      })
+    );
+    expect(mapped).toEqual({ ok: true, quantity: 2, unit: "kg" });
+
+    const summed = resolveSubRecipeYield(
+      recipeGroup({
+        name: "Salsa ranchera",
+        lines: [
+          { name: "Tomate", quantity: 2, unit: "lb" },
+          { name: "Cebolla", quantity: 0.5, unit: "kg" },
+        ],
+      })
+    );
+    expect(summed.ok).toBe(true);
+    if (summed.ok) {
+      expect(summed.unit).toBe("lb");
+      expect(summed.quantity).toBeCloseTo(2 + 0.5 * (1000 / 453.59237), 2);
+    }
+
+    const unknown = resolveSubRecipeYield(
+      recipeGroup({
+        name: "Batter",
+        lines: [
+          { name: "Harina", quantity: 200, unit: "g" },
+          { name: "Huevo", quantity: 2, unit: "unit" },
+        ],
+      })
+    );
+    expect(unknown).toEqual({
+      ok: false,
+      reason: "can't tell the yield for Batter",
+    });
+  });
+
+  it("does not save a sub-recipe with a fake 1 unit yield", async () => {
+    const store = emptyStore();
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+        ["Harina", 0.8, 0.05, ""],
+      ]),
+      "Lista de precios"
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Receta", "Ingrediente", "Cantidad", "Unidad"],
+        ["Batter", "Harina", 200, "g"],
+        ["Batter", "Huevo", 2, "unidad"],
+      ]),
+      "SUB RECETAS"
+    );
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: Buffer.from(
+        XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+      ),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    expect(store.components.some((item) => item.name === "Batter")).toBe(false);
+    expect(
+      result.review_items.some(
+        (item) => item.reason === "can't tell the yield for Batter"
+      )
+    ).toBe(true);
+  });
+
+  it("costs a menu item as a portion of the sub-recipe yield", async () => {
+    const store = emptyStore();
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+        ["Tomate", 1.2, 0.075, ""],
+      ]),
+      "Lista de precios"
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        [
+          "Receta",
+          "Ingrediente",
+          "Cantidad",
+          "Unidad",
+          "Rendimiento",
+          "Unidad salida",
+        ],
+        ["Salsa base", "Tomate", 2, "kg", 2, "kg"],
+      ]),
+      "SUB RECETAS"
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Ingrediente", "Cantidad", "Unidad"],
+        ["Salsa base", 100, "g"],
+      ]),
+      "RECETA Taco"
+    );
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: Buffer.from(
+        XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+      ),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    expect(result.sub_recipes_created).toBe(1);
+    expect(store.componentRecipes[0]?.output_quantity).toBe(2);
+    expect(store.componentRecipes[0]?.output_unit).toBe("kg");
+    const data = costingDataFromStore(store);
+    const cost = calculateMenuItemCost(store.menuItems[0].id, data);
+    expect(cost.status).toBe("complete");
+    // 2 kg tomato at $1.20/lb. 2 kg ≈ 4.409 lb → batch ≈ $5.291.
+    // 100 g is 1/20 of 2 kg → ≈ $0.2645.
+    expect(cost.cost).toBeCloseTo(0.2645, 2);
+  });
+
+  it("leaves a previously imported prep item alone when a handmade recipe uses it", async () => {
+    const store = emptyStore();
+    store.ingredients.push({
+      id: "ing-yuca-frita",
+      name: "YUCA FRITA",
+      default_unit: "oz",
+      current_unit_cost: 0.05,
+      currency: "USD",
+    });
+    store.costEntries.push({
+      id: "cost-yuca-frita",
+      company_id: COMPANY,
+      ingredient_id: "ing-yuca-frita",
+      supplier_id: null,
+      source_type: "import",
+      source_id: "batch-old",
+      cost_date: "2026-03-01",
+      quantity: 1,
+      unit: "oz",
+      total_cost: 0.05,
+      unit_cost: 0.05,
+      normalized_unit: "oz",
+      normalized_unit_cost: 0.05,
+      currency: "USD",
+      notes: null,
+      created_at: "2026-03-01T00:00:00.000Z",
+    });
+    store.batches.push({
+      id: "batch-old",
+      company_id: COMPANY,
+      filename: "old.xlsx",
+      file_month: "2026-03-01",
+      currency: "USD",
+      imported_count: 1,
+      review_count: 0,
+      tab_summaries: [],
+      mapping_source: "ai",
+      undone_at: null,
+      undo_snapshot: {
+        ...emptyUndoSnapshot(),
+        created_ingredient_ids: ["ing-yuca-frita"],
+      },
+    });
+    store.menuItems.push({
+      id: "menu-hand",
+      name: "Yuca plate",
+      source_type: null,
+      source_id: null,
+    });
+    store.recipes.push({
+      id: "rec-hand",
+      menu_item_id: "menu-hand",
+      name: "Yuca plate",
+      source_type: null,
+      source_id: null,
+    });
+    store.recipeInputs.push({
+      id: "in-hand",
+      recipe_id: "rec-hand",
+      input_type: "ingredient",
+      ingredient_id: "ing-yuca-frita",
+      component_id: null,
+      quantity: 4,
+      unit: "oz",
+      notes: null,
+    });
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosCostWorkbook(),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    expect(store.ingredients.some((item) => item.id === "ing-yuca-frita")).toBe(
+      true
+    );
+    expect(store.recipeInputs.some((row) => row.id === "in-hand")).toBe(true);
+    expect(
+      result.review_items.some(
+        (item) => item.reason === "looks like a prepared item"
+      )
+    ).toBe(true);
+  });
+
+  it("blocks undoing an older batch after a newer import updated the same rows", async () => {
+    const store = emptyStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const first = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosCostWorkbook(),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosCostWorkbook({ carneLb: 6 }),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    const blocked = await undoCostImportBatch(repo, COMPANY, first.batch_id);
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) {
+      expect(blocked.reason).toMatch(/newer import/i);
+    }
+    expect(store.ingredients.length).toBeGreaterThan(0);
+  });
+
+  it("reports a partial undo when a leftover recipe line blocks ingredient delete", async () => {
+    const store = emptyStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosCostWorkbook(),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    const ingredientId = store.ingredients[0]?.id;
+    expect(ingredientId).toBeTruthy();
+    store.menuItems.push({
+      id: "menu-later",
+      name: "Later dish",
+      source_type: null,
+      source_id: null,
+    });
+    store.recipes.push({
+      id: "rec-later",
+      menu_item_id: "menu-later",
+      name: "Later dish",
+      source_type: null,
+      source_id: null,
+    });
+    store.recipeInputs.push({
+      id: "in-later",
+      recipe_id: "rec-later",
+      input_type: "ingredient",
+      ingredient_id: ingredientId,
+      component_id: null,
+      quantity: 1,
+      unit: "oz",
+      notes: null,
+    });
+    const undone = await undoCostImportBatch(repo, COMPANY, result.batch_id);
+    expect(undone.ok).toBe(true);
+    if (undone.ok) {
+      expect(undone.partial).toBe(true);
+      expect(undone.warnings?.some((row) => /ingredient/i.test(row))).toBe(
+        true
+      );
+    }
+    expect(store.ingredients.some((item) => item.id === ingredientId)).toBe(
+      true
+    );
+    expect(store.batches[0]?.undo_snapshot.undo_errors?.length).toBeGreaterThan(
+      0
+    );
+    expect(store.batches[0]?.undone_at).toBeTruthy();
   });
 });

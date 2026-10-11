@@ -2,7 +2,10 @@ import { normalizeUnit } from "@/lib/restaurant/units";
 import type { WorkbookAi } from "./ai";
 import { classifyCostTabHeuristic } from "./ai";
 import { categoryForTab } from "./categories";
-import { retireImportedPreparedIngredients } from "./convert";
+import {
+  importedIngredientIdsFromBatches,
+  retireImportedPreparedIngredients,
+} from "./convert";
 import { inferWorkbookDate } from "./date";
 import { mergeTypoDuplicates } from "./duplicates";
 import { layoutKeyForSheet } from "./header";
@@ -443,7 +446,17 @@ export async function importCostWorkbook(input: {
   const deduped = dedupeWorkbookRows(toSave);
   for (const skip of deduped.skipped) accountSkip(skip);
 
-  const merged = mergeTypoDuplicates(deduped.rows, existingIngredients);
+  const previousImportedIds = importedIngredientIdsFromBatches(
+    await input.repo.listBatches(input.companyId)
+  );
+  const merged = mergeTypoDuplicates(
+    deduped.rows,
+    existingIngredients.map((item) => ({
+      name: item.name,
+      default_unit: item.default_unit,
+      handmade: !previousImportedIds.includes(item.id),
+    }))
+  );
   for (const skip of merged.skipped) accountSkip(skip);
   for (const hint of merged.hints) accountReview(hint);
 
@@ -472,13 +485,19 @@ export async function importCostWorkbook(input: {
   const retired = await retireImportedPreparedIngredients({
     companyId: input.companyId,
     preparedNames,
+    importedIngredientIds: previousImportedIds,
     repo: input.repo,
   });
+  for (const hint of retired.hints) accountReview(hint);
   if (
-    retired.deleted_ingredients.length > 0 ||
-    retired.deleted_cost_entries.length > 0
+    retired.changes.deleted_ingredients.length > 0 ||
+    retired.changes.deleted_cost_entries.length > 0
   ) {
-    await input.repo.updateBatchSnapshot(input.companyId, batch.id, retired);
+    await input.repo.updateBatchSnapshot(
+      input.companyId,
+      batch.id,
+      retired.changes
+    );
   }
 
   const persistStats = await persistSavedRows({
@@ -517,8 +536,7 @@ export async function importCostWorkbook(input: {
   );
   const posStats = await linkMenuItemsToPos({
     companyId: input.companyId,
-    menuItems:
-      importedMenuItems.length > 0 ? importedMenuItems : createdMenuItems,
+    menuItems: importedMenuItems,
     repo: input.repo,
   });
   toReview.push(...posStats.review);
@@ -543,7 +561,7 @@ export async function importCostWorkbook(input: {
   }
 
   const snapshot = mergeUndoSnapshots(
-    mergeUndoSnapshots(retired, persistStats.changes),
+    mergeUndoSnapshots(retired.changes, persistStats.changes),
     recipeStats.changes
   );
   await input.repo.updateBatchSnapshot(input.companyId, batch.id, snapshot);
@@ -598,7 +616,13 @@ export async function undoCostImportBatch(
   companyId: string,
   batchId: string
 ): Promise<
-  | { ok: true; deleted: number; restored: number }
+  | {
+      ok: true;
+      deleted: number;
+      restored: number;
+      partial?: boolean;
+      warnings?: string[];
+    }
   | { ok: false; reason: string }
 > {
   const batch = await repo.getBatch(companyId, batchId);
@@ -606,6 +630,20 @@ export async function undoCostImportBatch(
   if (batch.undone_at) return { ok: false, reason: "Import already undone" };
 
   const snap = batch.undo_snapshot;
+  const watchedIds = [
+    ...snap.inserted_entry_ids,
+    ...snap.updated_entries.map((row) => row.id),
+  ];
+  const liveEntries = await repo.listCostEntriesByIds(companyId, watchedIds);
+  const newerOwns = liveEntries.some(
+    (entry) => entry.source_id && entry.source_id !== batchId
+  );
+  if (newerOwns) {
+    return {
+      ok: false,
+      reason: "A newer import updated these rows. Undo the newer import first.",
+    };
+  }
 
   if ((snap.deleted_ingredients ?? []).length > 0) {
     await repo.restoreIngredients(
@@ -622,6 +660,19 @@ export async function undoCostImportBatch(
   }
   if ((snap.deleted_cost_entries ?? []).length > 0) {
     await repo.restoreCostEntries(companyId, snap.deleted_cost_entries);
+  }
+  if ((snap.deleted_supplier_ingredients ?? []).length > 0) {
+    await repo.restoreSupplierIngredientLinks(
+      snap.deleted_supplier_ingredients
+    );
+  }
+  if ((snap.deleted_menu_recipe_inputs ?? []).length > 0) {
+    await repo.restoreMenuRecipeInputs(snap.deleted_menu_recipe_inputs);
+  }
+  if ((snap.deleted_component_recipe_inputs ?? []).length > 0) {
+    await repo.restoreComponentRecipeInputs(
+      snap.deleted_component_recipe_inputs
+    );
   }
   for (const recipe of snap.updated_recipes ?? []) {
     await repo.replaceRecipeInputs(companyId, recipe.id, recipe.inputs);
@@ -640,7 +691,15 @@ export async function undoCostImportBatch(
     companyId,
     snap.created_component_recipe_ids ?? []
   );
-  await repo.deleteComponents(companyId, snap.created_component_ids ?? []);
+
+  const warnings: string[] = [];
+  try {
+    await repo.deleteComponents(companyId, snap.created_component_ids ?? []);
+  } catch (err) {
+    warnings.push(
+      `Could not delete prepared items: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
 
   const deleted = await repo.deleteCostEntriesByIds(
     companyId,
@@ -654,7 +713,9 @@ export async function undoCostImportBatch(
     try {
       await repo.deleteIngredients(companyId, snap.created_ingredient_ids);
     } catch (err) {
-      console.error("[cost-workbook undo ingredients]", err);
+      warnings.push(
+        `Could not delete ingredients: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
   if (snap.ingredient_costs_before.length > 0) {
@@ -674,7 +735,22 @@ export async function undoCostImportBatch(
       }))
     );
   }
+  if (warnings.length > 0) {
+    await repo.updateBatchSnapshot(companyId, batchId, {
+      ...snap,
+      undo_errors: warnings,
+    });
+  }
   await repo.markBatchUndone(companyId, batchId);
+  if (warnings.length > 0) {
+    return {
+      ok: true,
+      deleted,
+      restored: snap.updated_entries.length,
+      partial: true,
+      warnings,
+    };
+  }
   return { ok: true, deleted, restored: snap.updated_entries.length };
 }
 

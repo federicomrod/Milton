@@ -60,7 +60,7 @@ export function buildLosRanchosCostWorkbook(opts?: {
     ["Ingrediente", "Cantidad", "Unidad", "Notas"],
     ["Carne para asar", 8, "oz", "por porción"],
     ["Tomate", 2, "oz", ""],
-    ["Salsa ranchera", 1, "unidad", "prep"],
+    ["Salsa ranchera", 2, "oz", "prep"],
     ["ZANAHORA", 1, "oz", "typo of zanahoria"],
   ];
   XLSX.utils.book_append_sheet(

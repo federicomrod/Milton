@@ -3,12 +3,14 @@ import type {
   CostWorkbookCostEntry,
   CostWorkbookIngredient,
   CostWorkbookReviewItem,
+  DetachedRecipeInputSnapshot,
   ImportedComponent,
   ImportedComponentRecipe,
   ImportedMenuItem,
   ImportedRecipe,
   RecipeInputSnapshot,
   SavedLayoutMap,
+  SupplierIngredientSnapshot,
   UndoSnapshot,
 } from "@/lib/restaurant/cost-workbook/types";
 import { emptyUndoSnapshot } from "@/lib/restaurant/cost-workbook/types";
@@ -34,6 +36,7 @@ export interface MemoryCostWorkbookStore {
     raw_pos_item_name: string;
     menu_item_id: string;
   }>;
+  supplierLinks: SupplierIngredientSnapshot[];
 }
 
 export function emptyMemoryStore(): MemoryCostWorkbookStore {
@@ -51,6 +54,7 @@ export function emptyMemoryStore(): MemoryCostWorkbookStore {
     componentRecipeInputs: [],
     posItemNames: [],
     posMappings: [],
+    supplierLinks: [],
   };
 }
 
@@ -117,9 +121,139 @@ export function createMemoryCostWorkbookRepo(
     },
     async deleteIngredients(_companyId, ids) {
       const remove = new Set(ids);
+      const blocked =
+        store.recipeInputs.some(
+          (row) => row.ingredient_id && remove.has(row.ingredient_id)
+        ) ||
+        store.componentRecipeInputs.some(
+          (row) => row.ingredient_id && remove.has(row.ingredient_id)
+        );
+      if (blocked) {
+        throw new Error("ingredient still referenced by a recipe line");
+      }
       const before = store.ingredients.length;
       store.ingredients = store.ingredients.filter((i) => !remove.has(i.id));
       return before - store.ingredients.length;
+    },
+    async listBatches(companyId) {
+      return store.batches
+        .filter((row) => row.company_id === companyId)
+        .map((row) => ({
+          id: row.id,
+          undone_at: row.undone_at,
+          undo_snapshot: row.undo_snapshot,
+        }));
+    },
+    async listIngredientInputUsages(_companyId, ingredientIds) {
+      const wanted = new Set(ingredientIds);
+      const usages = [];
+      for (const row of store.recipeInputs) {
+        if (!row.ingredient_id || !wanted.has(row.ingredient_id)) continue;
+        const recipe = store.recipes.find((item) => item.id === row.recipe_id);
+        usages.push({
+          kind: "menu" as const,
+          handmade: recipe?.source_type !== "import",
+          snapshot: {
+            id: row.id,
+            company_id: _companyId,
+            recipe_id: row.recipe_id,
+            component_recipe_id: null,
+            input_type: row.input_type,
+            ingredient_id: row.ingredient_id,
+            component_id: row.component_id,
+            quantity: row.quantity,
+            unit: row.unit,
+            notes: row.notes,
+          },
+        });
+      }
+      for (const row of store.componentRecipeInputs) {
+        if (!row.ingredient_id || !wanted.has(row.ingredient_id)) continue;
+        const recipe = store.componentRecipes.find(
+          (item) => item.id === row.component_recipe_id
+        );
+        usages.push({
+          kind: "component" as const,
+          handmade: recipe?.source_type !== "import",
+          snapshot: {
+            id: row.id,
+            company_id: _companyId,
+            recipe_id: null,
+            component_recipe_id: row.component_recipe_id,
+            input_type: row.input_type,
+            ingredient_id: row.ingredient_id,
+            component_id: row.component_id,
+            quantity: row.quantity,
+            unit: row.unit,
+            notes: row.notes,
+          },
+        });
+      }
+      return usages;
+    },
+    async listIngredientCostEntries(companyId, ingredientIds) {
+      const wanted = new Set(ingredientIds);
+      return store.costEntries.filter(
+        (row) => row.company_id === companyId && wanted.has(row.ingredient_id)
+      );
+    },
+    async listCostEntriesByIds(companyId, ids) {
+      const wanted = new Set(ids);
+      return store.costEntries.filter(
+        (row) => row.company_id === companyId && wanted.has(row.id)
+      );
+    },
+    async listSupplierIngredientLinks(companyId, ingredientIds) {
+      const wanted = new Set(ingredientIds);
+      return store.supplierLinks.filter(
+        (row) => row.company_id === companyId && wanted.has(row.ingredient_id)
+      );
+    },
+    async deleteSupplierIngredientLinks(companyId, ids) {
+      const remove = new Set(ids);
+      store.supplierLinks = store.supplierLinks.filter(
+        (row) => !(row.company_id === companyId && remove.has(row.id))
+      );
+    },
+    async restoreSupplierIngredientLinks(rows) {
+      for (const row of rows) {
+        if (store.supplierLinks.some((item) => item.id === row.id)) continue;
+        store.supplierLinks.push({ ...row });
+      }
+    },
+    async restoreMenuRecipeInputs(rows: DetachedRecipeInputSnapshot[]) {
+      for (const row of rows) {
+        if (!row.recipe_id) continue;
+        if (store.recipeInputs.some((item) => item.id === row.id)) continue;
+        store.recipeInputs.push({
+          id: row.id,
+          recipe_id: row.recipe_id,
+          input_type: row.input_type,
+          ingredient_id: row.ingredient_id,
+          component_id: row.component_id,
+          quantity: row.quantity,
+          unit: row.unit,
+          notes: row.notes,
+        });
+      }
+    },
+    async restoreComponentRecipeInputs(rows: DetachedRecipeInputSnapshot[]) {
+      for (const row of rows) {
+        if (!row.component_recipe_id) continue;
+        if (store.componentRecipeInputs.some((item) => item.id === row.id)) {
+          continue;
+        }
+        store.componentRecipeInputs.push({
+          id: row.id,
+          component_recipe_id: row.component_recipe_id,
+          input_type: row.input_type,
+          ingredient_id: row.ingredient_id,
+          component_id: row.component_id,
+          quantity: row.quantity,
+          unit: row.unit,
+          notes: row.notes,
+        });
+      }
     },
     async findWorkbookCostEntries(input) {
       const wanted = new Set(input.ingredientIds);
@@ -342,6 +476,16 @@ export function createMemoryCostWorkbookRepo(
     },
     async deleteComponents(_companyId, ids) {
       const remove = new Set(ids);
+      const blocked =
+        store.recipeInputs.some(
+          (row) => row.component_id && remove.has(row.component_id)
+        ) ||
+        store.componentRecipeInputs.some(
+          (row) => row.component_id && remove.has(row.component_id)
+        );
+      if (blocked) {
+        throw new Error("component still referenced by a recipe line");
+      }
       const before = store.components.length;
       const recipeIds = new Set(
         store.componentRecipes
@@ -391,6 +535,20 @@ export function createMemoryCostWorkbookRepo(
           unit: row.unit,
           notes: row.notes,
         }));
+    },
+    async updateComponentYield(input) {
+      const component = store.components.find(
+        (row) => row.id === input.componentId
+      );
+      if (component) component.output_unit = input.outputUnit;
+      if (!input.componentRecipeId) return;
+      const recipe = store.componentRecipes.find(
+        (row) => row.id === input.componentRecipeId
+      );
+      if (recipe) {
+        recipe.output_quantity = input.outputQuantity;
+        recipe.output_unit = input.outputUnit;
+      }
     },
     async replaceComponentRecipeInputs(_companyId, componentRecipeId, inputs) {
       store.componentRecipeInputs = store.componentRecipeInputs.filter(

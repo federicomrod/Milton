@@ -5,12 +5,16 @@ import type {
   CostWorkbookCostEntry,
   CostWorkbookIngredient,
   CostWorkbookReviewItem,
+  CostEntrySourceType,
+  DetachedRecipeInputSnapshot,
   ImportedComponent,
   ImportedComponentRecipe,
   ImportedMenuItem,
   ImportedRecipe,
+  IngredientInputUsage,
   RecipeInputSnapshot,
   SavedLayoutMap,
+  SupplierIngredientSnapshot,
   TabImportSummary,
   UndoSnapshot,
   WorkbookRowCandidate,
@@ -69,6 +73,38 @@ export interface CostWorkbookRepo {
     ingredientIds: string[]
   ): Promise<void>;
   deleteIngredients(companyId: string, ids: string[]): Promise<number>;
+  listBatches(
+    companyId: string
+  ): Promise<
+    Array<Pick<CostWorkbookBatch, "id" | "undone_at" | "undo_snapshot">>
+  >;
+  listIngredientInputUsages(
+    companyId: string,
+    ingredientIds: string[]
+  ): Promise<IngredientInputUsage[]>;
+  listIngredientCostEntries(
+    companyId: string,
+    ingredientIds: string[]
+  ): Promise<CostWorkbookCostEntry[]>;
+  listCostEntriesByIds(
+    companyId: string,
+    ids: string[]
+  ): Promise<CostWorkbookCostEntry[]>;
+  listSupplierIngredientLinks(
+    companyId: string,
+    ingredientIds: string[]
+  ): Promise<SupplierIngredientSnapshot[]>;
+  deleteSupplierIngredientLinks(
+    companyId: string,
+    ids: string[]
+  ): Promise<void>;
+  restoreSupplierIngredientLinks(
+    rows: SupplierIngredientSnapshot[]
+  ): Promise<void>;
+  restoreMenuRecipeInputs(rows: DetachedRecipeInputSnapshot[]): Promise<void>;
+  restoreComponentRecipeInputs(
+    rows: DetachedRecipeInputSnapshot[]
+  ): Promise<void>;
   findWorkbookCostEntries(input: {
     companyId: string;
     ingredientIds: string[];
@@ -168,6 +204,13 @@ export interface CostWorkbookRepo {
     componentRecipeId: string,
     inputs: RecipeInputSnapshot[]
   ): Promise<void>;
+  updateComponentYield(input: {
+    companyId: string;
+    componentId: string;
+    componentRecipeId?: string;
+    outputQuantity: number;
+    outputUnit: string;
+  }): Promise<void>;
   deleteComponentRecipes(companyId: string, ids: string[]): Promise<number>;
   listDistinctPosItemNames(companyId: string): Promise<string[]>;
   listPosMappings(
@@ -196,13 +239,25 @@ function asIngredient(row: Record<string, unknown>): CostWorkbookIngredient {
   };
 }
 
+function asCostSourceType(value: unknown): CostEntrySourceType {
+  if (
+    value === "manual" ||
+    value === "invoice_line" ||
+    value === "import" ||
+    value === "api"
+  ) {
+    return value;
+  }
+  return "import";
+}
+
 function asCostEntry(row: Record<string, unknown>): CostWorkbookCostEntry {
   return {
     id: String(row.id),
     company_id: String(row.company_id),
     ingredient_id: String(row.ingredient_id),
     supplier_id: (row.supplier_id as string | null) ?? null,
-    source_type: "import",
+    source_type: asCostSourceType(row.source_type),
     source_id: (row.source_id as string | null) ?? null,
     cost_date: String(row.cost_date),
     quantity: Number(row.quantity),
@@ -358,19 +413,200 @@ export function createSupabaseCostWorkbookRepo(
       });
     },
 
-    async detachIngredientInputs(_companyId, ingredientIds) {
+    async detachIngredientInputs(companyId, ingredientIds) {
       if (ingredientIds.length === 0) return;
       await mapChunks(ingredientIds, async (chunk) => {
         const recipeErr = await supabase
           .from("menu_recipe_inputs")
           .delete()
+          .eq("company_id", companyId)
           .in("ingredient_id", chunk);
         if (recipeErr.error) throw new Error(recipeErr.error.message);
         const componentErr = await supabase
           .from("component_recipe_inputs")
           .delete()
+          .eq("company_id", companyId)
           .in("ingredient_id", chunk);
         if (componentErr.error) throw new Error(componentErr.error.message);
+      });
+    },
+
+    async listBatches(companyId) {
+      const { data, error } = await supabase
+        .from("cost_import_batches")
+        .select("id, undone_at, undo_snapshot")
+        .eq("company_id", companyId);
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        id: String(row.id),
+        undone_at: (row.undone_at as string | null) ?? null,
+        undo_snapshot:
+          snapshotFromUnknown(row.undo_snapshot) ?? emptyUndoSnapshot(),
+      }));
+    },
+
+    async listIngredientInputUsages(companyId, ingredientIds) {
+      if (ingredientIds.length === 0) return [];
+      const usages: IngredientInputUsage[] = [];
+      await mapChunks(ingredientIds, async (chunk) => {
+        const menu = await supabase
+          .from("menu_recipe_inputs")
+          .select(
+            "id, company_id, recipe_id, input_type, ingredient_id, component_id, quantity, unit, notes, recipes!inner(source_type)"
+          )
+          .eq("company_id", companyId)
+          .in("ingredient_id", chunk);
+        if (menu.error) throw new Error(menu.error.message);
+        for (const row of (menu.data ?? []) as Record<string, unknown>[]) {
+          const recipe = row.recipes as { source_type?: string | null } | null;
+          usages.push({
+            kind: "menu",
+            handmade: recipe?.source_type !== "import",
+            snapshot: asDetachedInput(row, "menu"),
+          });
+        }
+        const component = await supabase
+          .from("component_recipe_inputs")
+          .select(
+            "id, company_id, component_recipe_id, input_type, ingredient_id, component_id, quantity, unit, notes, component_recipes!inner(source_type)"
+          )
+          .eq("company_id", companyId)
+          .in("ingredient_id", chunk);
+        if (component.error) throw new Error(component.error.message);
+        for (const row of (component.data ?? []) as Record<string, unknown>[]) {
+          const parent = row.component_recipes as {
+            source_type?: string | null;
+          } | null;
+          usages.push({
+            kind: "component",
+            handmade: parent?.source_type !== "import",
+            snapshot: asDetachedInput(row, "component"),
+          });
+        }
+      });
+      return usages;
+    },
+
+    async listIngredientCostEntries(companyId, ingredientIds) {
+      if (ingredientIds.length === 0) return [];
+      const found: CostWorkbookCostEntry[] = [];
+      await mapChunks(ingredientIds, async (chunk) => {
+        const { data, error } = await supabase
+          .from("ingredient_cost_entries")
+          .select(COST_ENTRY_SELECT)
+          .eq("company_id", companyId)
+          .in("ingredient_id", chunk);
+        if (error) throw new Error(error.message);
+        found.push(
+          ...((data ?? []) as Record<string, unknown>[]).map(asCostEntry)
+        );
+      });
+      return found;
+    },
+
+    async listCostEntriesByIds(companyId, ids) {
+      if (ids.length === 0) return [];
+      const found: CostWorkbookCostEntry[] = [];
+      await mapChunks(ids, async (chunk) => {
+        const { data, error } = await supabase
+          .from("ingredient_cost_entries")
+          .select(COST_ENTRY_SELECT)
+          .eq("company_id", companyId)
+          .in("id", chunk);
+        if (error) throw new Error(error.message);
+        found.push(
+          ...((data ?? []) as Record<string, unknown>[]).map(asCostEntry)
+        );
+      });
+      return found;
+    },
+
+    async listSupplierIngredientLinks(companyId, ingredientIds) {
+      if (ingredientIds.length === 0) return [];
+      const found: SupplierIngredientSnapshot[] = [];
+      await mapChunks(ingredientIds, async (chunk) => {
+        const { data, error } = await supabase
+          .from("supplier_ingredients")
+          .select(
+            "id, company_id, supplier_id, ingredient_id, supplier_item_name, supplier_sku, preferred"
+          )
+          .eq("company_id", companyId)
+          .in("ingredient_id", chunk);
+        if (error) throw new Error(error.message);
+        found.push(
+          ...((data ?? []) as Record<string, unknown>[]).map(asSupplierLink)
+        );
+      });
+      return found;
+    },
+
+    async deleteSupplierIngredientLinks(companyId, ids) {
+      if (ids.length === 0) return;
+      await mapChunks(ids, async (chunk) => {
+        const { error } = await supabase
+          .from("supplier_ingredients")
+          .delete()
+          .eq("company_id", companyId)
+          .in("id", chunk);
+        if (error) throw new Error(error.message);
+      });
+    },
+
+    async restoreSupplierIngredientLinks(rows) {
+      if (rows.length === 0) return;
+      await mapChunks(rows, async (chunk) => {
+        const { error } = await supabase.from("supplier_ingredients").insert(
+          chunk.map((row) => ({
+            id: row.id,
+            company_id: row.company_id,
+            supplier_id: row.supplier_id,
+            ingredient_id: row.ingredient_id,
+            supplier_item_name: row.supplier_item_name,
+            supplier_sku: row.supplier_sku,
+            preferred: row.preferred,
+          }))
+        );
+        if (error) throw new Error(error.message);
+      });
+    },
+
+    async restoreMenuRecipeInputs(rows) {
+      if (rows.length === 0) return;
+      await mapChunks(rows, async (chunk) => {
+        const { error } = await supabase.from("menu_recipe_inputs").insert(
+          chunk.map((row) => ({
+            id: row.id,
+            company_id: row.company_id,
+            recipe_id: row.recipe_id,
+            input_type: row.input_type,
+            ingredient_id: row.ingredient_id,
+            component_id: row.component_id,
+            quantity: row.quantity,
+            unit: row.unit,
+            notes: row.notes,
+          }))
+        );
+        if (error) throw new Error(error.message);
+      });
+    },
+
+    async restoreComponentRecipeInputs(rows) {
+      if (rows.length === 0) return;
+      await mapChunks(rows, async (chunk) => {
+        const { error } = await supabase.from("component_recipe_inputs").insert(
+          chunk.map((row) => ({
+            id: row.id,
+            company_id: row.company_id,
+            component_recipe_id: row.component_recipe_id,
+            input_type: row.input_type,
+            ingredient_id: row.ingredient_id,
+            component_id: row.component_id,
+            quantity: row.quantity,
+            unit: row.unit,
+            notes: row.notes,
+          }))
+        );
+        if (error) throw new Error(error.message);
       });
     },
 
@@ -880,6 +1116,25 @@ export function createSupabaseCostWorkbookRepo(
       return ((data ?? []) as Record<string, unknown>[]).map(asRecipeInput);
     },
 
+    async updateComponentYield(input) {
+      const { error: componentError } = await supabase
+        .from("prepared_components")
+        .update({ output_unit: input.outputUnit })
+        .eq("company_id", input.companyId)
+        .eq("id", input.componentId);
+      if (componentError) throw new Error(componentError.message);
+      if (!input.componentRecipeId) return;
+      const { error } = await supabase
+        .from("component_recipes")
+        .update({
+          output_quantity: input.outputQuantity,
+          output_unit: input.outputUnit,
+        })
+        .eq("company_id", input.companyId)
+        .eq("id", input.componentRecipeId);
+      if (error) throw new Error(error.message);
+    },
+
     async replaceComponentRecipeInputs(companyId, componentRecipeId, inputs) {
       const { error: delError } = await supabase
         .from("component_recipe_inputs")
@@ -998,5 +1253,38 @@ function asRecipeInput(row: Record<string, unknown>): RecipeInputSnapshot {
     quantity: Number(row.quantity ?? 0),
     unit: String(row.unit ?? ""),
     notes: (row.notes as string | null) ?? null,
+  };
+}
+
+function asDetachedInput(
+  row: Record<string, unknown>,
+  kind: "menu" | "component"
+): DetachedRecipeInputSnapshot {
+  return {
+    id: String(row.id),
+    company_id: String(row.company_id ?? ""),
+    recipe_id: kind === "menu" ? String(row.recipe_id ?? "") : null,
+    component_recipe_id:
+      kind === "component" ? String(row.component_recipe_id ?? "") : null,
+    input_type: row.input_type === "component" ? "component" : "ingredient",
+    ingredient_id: (row.ingredient_id as string | null) ?? null,
+    component_id: (row.component_id as string | null) ?? null,
+    quantity: Number(row.quantity ?? 0),
+    unit: String(row.unit ?? ""),
+    notes: (row.notes as string | null) ?? null,
+  };
+}
+
+function asSupplierLink(
+  row: Record<string, unknown>
+): SupplierIngredientSnapshot {
+  return {
+    id: String(row.id),
+    company_id: String(row.company_id ?? ""),
+    supplier_id: String(row.supplier_id ?? ""),
+    ingredient_id: String(row.ingredient_id ?? ""),
+    supplier_item_name: (row.supplier_item_name as string | null) ?? null,
+    supplier_sku: (row.supplier_sku as string | null) ?? null,
+    preferred: Boolean(row.preferred),
   };
 }

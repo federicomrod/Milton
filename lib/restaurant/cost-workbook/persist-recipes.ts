@@ -1,11 +1,7 @@
 import { nameKey } from "@/lib/restaurant/cost-import";
-import { resolveAliasName } from "./duplicates";
-import {
-  AUTO_NAME_SCORE,
-  REVIEW_NAME_SCORE,
-  bestNameMatch,
-  nameMatchScore,
-} from "./names";
+import { canAutoLinkNames, resolveAliasName } from "./duplicates";
+import { REVIEW_NAME_SCORE, bestNameMatch, nameMatchScore } from "./names";
+import { resolveSubRecipeYield } from "./recipes";
 import type { CostWorkbookRepo } from "./repo";
 import type {
   GroupedRecipe,
@@ -82,7 +78,7 @@ export function resolveCatalogInput(
         ? { kind: "ingredient" as const, hit: ingredientHit }
         : null;
 
-  if (best && best.hit.score >= AUTO_NAME_SCORE) {
+  if (best && canAutoLinkNames(resolvedName, best.hit.item.name)) {
     return {
       ok: true,
       input: {
@@ -209,6 +205,17 @@ export async function persistWorkbookRecipes(input: {
   for (const group of subGroups) {
     const inputs = resolveGroup(group);
     if (!inputs) continue;
+    const yieldResult = resolveSubRecipeYield(group);
+    if (!yieldResult.ok) {
+      review.push({
+        tabName: group.tabName,
+        rowIndex: 0,
+        reason: yieldResult.reason,
+        raw: { recipe: group.name },
+        suggested: { ingredient_name: group.name },
+      });
+      continue;
+    }
     const existing = componentByName.get(nameKey(group.name));
     if (existing && !isImported(existing.source_type)) {
       skipped.push({
@@ -238,25 +245,37 @@ export async function persistWorkbookRecipes(input: {
           previous.id,
           inputs
         );
+        await input.repo.updateComponentYield({
+          companyId: input.companyId,
+          componentId: existing.id,
+          componentRecipeId: previous.id,
+          outputQuantity: yieldResult.quantity,
+          outputUnit: yieldResult.unit,
+        });
       } else {
         const createdRecipe = await input.repo.createComponentRecipe({
           companyId: input.companyId,
           componentId: existing.id,
           name: `${group.name} recipe`,
-          outputQuantity: 1,
-          outputUnit: existing.output_unit || "unit",
+          outputQuantity: yieldResult.quantity,
+          outputUnit: yieldResult.unit,
           sourceId: input.batchId,
           inputs,
+        });
+        await input.repo.updateComponentYield({
+          companyId: input.companyId,
+          componentId: existing.id,
+          outputQuantity: yieldResult.quantity,
+          outputUnit: yieldResult.unit,
         });
         changes.created_component_recipe_ids.push(createdRecipe.id);
         componentRecipeByComponentId.set(existing.id, createdRecipe);
       }
     } else {
-      const outputUnit = "unit";
       component = await input.repo.createComponent({
         companyId: input.companyId,
         name: group.name,
-        outputUnit,
+        outputUnit: yieldResult.unit,
         sourceId: input.batchId,
       });
       changes.created_component_ids.push(component.id);
@@ -266,8 +285,8 @@ export async function persistWorkbookRecipes(input: {
         companyId: input.companyId,
         componentId: component.id,
         name: `${group.name} recipe`,
-        outputQuantity: 1,
-        outputUnit,
+        outputQuantity: yieldResult.quantity,
+        outputUnit: yieldResult.unit,
         sourceId: input.batchId,
         inputs,
       });
@@ -371,7 +390,7 @@ export async function linkMenuItemsToPos(input: {
     if (mapped.has(posName)) continue;
     const hit = bestNameMatch(posName, input.menuItems, (item) => item.name);
     if (!hit || hit.score < REVIEW_NAME_SCORE) continue;
-    if (hit.score >= AUTO_NAME_SCORE) {
+    if (canAutoLinkNames(posName, hit.item.name)) {
       toCreate.push({ rawPosItemName: posName, menuItemId: hit.item.id });
       continue;
     }

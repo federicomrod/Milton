@@ -2,6 +2,8 @@ import {
   emptyUndoSnapshot,
   type CostWorkbookCostEntry,
   type DeletedIngredientSnapshot,
+  type DetachedRecipeInputSnapshot,
+  type SupplierIngredientSnapshot,
   type UndoSnapshot,
 } from "./types";
 
@@ -85,10 +87,23 @@ export function mergeUndoSnapshots(
       ...(start.deleted_cost_entries ?? []),
       ...(extra.deleted_cost_entries ?? []),
     ],
+    deleted_menu_recipe_inputs: uniqueById([
+      ...(start.deleted_menu_recipe_inputs ?? []),
+      ...(extra.deleted_menu_recipe_inputs ?? []),
+    ]),
+    deleted_component_recipe_inputs: uniqueById([
+      ...(start.deleted_component_recipe_inputs ?? []),
+      ...(extra.deleted_component_recipe_inputs ?? []),
+    ]),
+    deleted_supplier_ingredients: uniqueById([
+      ...(start.deleted_supplier_ingredients ?? []),
+      ...(extra.deleted_supplier_ingredients ?? []),
+    ]),
     ingredient_categories_before: uniqueById([
       ...(start.ingredient_categories_before ?? []),
       ...(extra.ingredient_categories_before ?? []),
     ]),
+    undo_errors: [...(start.undo_errors ?? []), ...(extra.undo_errors ?? [])],
   };
 }
 
@@ -177,6 +192,36 @@ export function snapshotFromUnknown(value: unknown): UndoSnapshot {
             "ingredient_id" in row
           )
         )
+      : [],
+    deleted_menu_recipe_inputs: Array.isArray(raw.deleted_menu_recipe_inputs)
+      ? raw.deleted_menu_recipe_inputs.filter(
+          (row): row is DetachedRecipeInputSnapshot =>
+            Boolean(row && typeof row === "object" && "id" in row)
+        )
+      : [],
+    deleted_component_recipe_inputs: Array.isArray(
+      raw.deleted_component_recipe_inputs
+    )
+      ? raw.deleted_component_recipe_inputs.filter(
+          (row): row is DetachedRecipeInputSnapshot =>
+            Boolean(row && typeof row === "object" && "id" in row)
+        )
+      : [],
+    deleted_supplier_ingredients: Array.isArray(
+      raw.deleted_supplier_ingredients
+    )
+      ? raw.deleted_supplier_ingredients.filter(
+          (row): row is SupplierIngredientSnapshot =>
+            Boolean(
+              row &&
+              typeof row === "object" &&
+              "id" in row &&
+              "ingredient_id" in row
+            )
+        )
+      : [],
+    undo_errors: Array.isArray(raw.undo_errors)
+      ? raw.undo_errors.map(String)
       : [],
     ingredient_categories_before: Array.isArray(
       raw.ingredient_categories_before

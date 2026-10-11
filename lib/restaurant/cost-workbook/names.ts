@@ -29,8 +29,18 @@ export function nameMatchScore(a: string, b: string): number {
   if (nameKey(a) === nameKey(b)) return 1;
 
   if (left.includes(right) || right.includes(left)) {
+    const leftTokens = tokens(a);
+    const rightTokens = tokens(b);
+    const extraToken =
+      [...leftTokens].some((token) => !rightTokens.has(token)) ||
+      [...rightTokens].some((token) => !leftTokens.has(token));
     const ratio =
       Math.min(left.length, right.length) / Math.max(left.length, right.length);
+    if (extraToken) {
+      // Containment with a leftover whole token (AGUACATE ⊂ AGUACATE HASS)
+      // is review-only — never high enough to auto-link.
+      return Math.min(AUTO_NAME_SCORE - 0.01, REVIEW_NAME_SCORE + ratio * 0.28);
+    }
     return Math.min(0.98, 0.72 + ratio * 0.26);
   }
 

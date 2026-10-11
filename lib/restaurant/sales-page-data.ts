@@ -9,6 +9,11 @@ import {
   loadCockpitExecutiveFast,
   type CockpitExecutiveFastModel,
 } from "@/lib/restaurant/cockpit-page-data";
+import {
+  applyCockpitServerTimingHeader,
+  logCockpitTiming,
+  timeCockpitStep,
+} from "@/lib/restaurant/cockpit-timing";
 import { loadCachedPosSalesRows } from "@/lib/restaurant/pos-read-cache";
 import {
   buildCockpitSalesAggregate,
@@ -65,7 +70,18 @@ export async function loadSalesPageModel(
   requestedLocationId?: string,
   periodRaw?: string | null
 ): Promise<SalesPageModel> {
+  const started = Date.now();
   const periodPreset = parseCockpitPeriodPreset(periodRaw);
+  const finish = (extra: Record<string, unknown> = {}) => {
+    logCockpitTiming("sales-page", {
+      totalMs: Date.now() - started,
+      period: periodPreset,
+      location: requestedLocationId ?? null,
+      ...extra,
+    });
+    applyCockpitServerTimingHeader();
+  };
+
   const fast = await loadCockpitExecutiveFast(requestedLocationId, periodRaw);
   const base = {
     mode: fast.mode,
@@ -78,19 +94,23 @@ export async function loadSalesPageModel(
   };
 
   if (fast.mode !== "live" || !fast.scope) {
+    finish({ source: fast.mode });
     return { ...base, sales: null };
   }
 
   const period = resolveCockpitPeriod(periodPreset, fast.cockpit.period_to);
   if (!period) {
+    finish({ source: "no-period", location: fast.scope.locationId });
     return { ...base, sales: null };
   }
 
-  const pos = await loadCachedPosSalesRows(
-    fast.scope.companyId,
-    fast.scope.locationId
+  const pos = await timeCockpitStep(
+    "sales-pos-rows",
+    () => loadCachedPosSalesRows(fast.scope.companyId, fast.scope.locationId),
+    { location: fast.scope.locationId }
   );
   if (pos.error) {
+    finish({ source: "pos-error", location: fast.scope.locationId });
     return { ...base, sales: null };
   }
 
@@ -123,6 +143,12 @@ export async function loadSalesPageModel(
     }),
   });
 
+  finish({
+    source: "live",
+    rows: pos.rows.length,
+    filtered: filtered.length,
+    location: fast.scope.locationId,
+  });
   return {
     ...base,
     sales: {

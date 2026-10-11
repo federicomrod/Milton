@@ -40,6 +40,18 @@ describe("NotAvailableYet (#128)", () => {
   });
 });
 
+describe("shown period chip", () => {
+  it("is read-only and does not write ?from=/?to=", () => {
+    const src = read("components/restaurant/shell/DateRangeControl.tsx");
+    expect(src).toContain("data-readonly");
+    expect(src).toContain(
+      "El filtro por fechas llega con la siguiente versión"
+    );
+    expect(src).not.toContain("router.push");
+    expect(src).not.toContain("DATE_FROM_PARAM");
+  });
+});
+
 describe("last synced copy", () => {
   it("returns null when the timestamp is missing", () => {
     expect(lastSyncTimestamp(null)).toBeNull();

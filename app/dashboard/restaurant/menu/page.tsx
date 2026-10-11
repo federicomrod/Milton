@@ -13,14 +13,12 @@ import {
 } from "@/lib/restaurant/menu-recipes-server";
 import { MenuRecipesPage } from "@/components/restaurant/MenuRecipesPage";
 import { ComingSoonPage } from "@/components/restaurant/ComingSoonPage";
-import { loadCockpitPageModel } from "@/lib/restaurant/cockpit-page-data";
+import { loadMenuAreaModel } from "@/lib/restaurant/cockpit-page-data";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import { MenuProfitabilityTab } from "@/components/restaurant/cockpit/MenuProfitabilityTab";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
-import {
-  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
-  t,
-} from "@/lib/restaurant/language";
+import { t } from "@/lib/restaurant/language";
 
 export const dynamic = "force-dynamic";
 
@@ -52,11 +50,10 @@ export default async function MenuRecipesRoute({
   searchParams: Promise<{ location?: string }>;
 }) {
   const params = await searchParams;
-  const { data, profitability } = await loadCockpitPageModel(params.location);
-  const lang =
-    data.mode === "live"
-      ? data.preferredLanguage
-      : RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  const [{ lang }, { profitability }] = await Promise.all([
+    loadRestaurantShellChrome(),
+    loadMenuAreaModel(params.location),
+  ]);
   const result = await loadMenuRecipes();
 
   const header = (
@@ -94,18 +91,45 @@ export default async function MenuRecipesRoute({
       <>
         {header}
         <ComingSoonPage
-          title="Menu & Recipes"
+          lang={lang}
+          title={t(lang, "Menu & Recipes", "Menú y recetas")}
           icon={BookOpen}
-          tagline="Connect your account to a company to start building menu items and recipes."
-          description="The Menu & Recipes foundation will load once your account is linked to a company. Until then this page can't show your data."
+          tagline={t(
+            lang,
+            "Connect your account to a company to start building menu items and recipes.",
+            "Conecta tu cuenta a una empresa para empezar a armar platillos y recetas."
+          )}
+          description={t(
+            lang,
+            "This page will load once your account is linked to a company. Until then it can't show your data.",
+            "Esta página carga cuando tu cuenta está ligada a una empresa. Hasta entonces no puede mostrar tus datos."
+          )}
           planned={[
-            "Map uploaded POS items to canonical menu items",
-            "Track recipe status (none / draft / active)",
-            "Compose recipes from ingredients AND prepared components",
+            t(
+              lang,
+              "Map uploaded POS items to menu items",
+              "Relacionar los platillos del POS con el menú"
+            ),
+            t(
+              lang,
+              "Track recipe status (none / draft / active)",
+              "Seguir el estado de cada receta (sin receta / borrador / activa)"
+            ),
+            t(
+              lang,
+              "Compose recipes from ingredients and prepared components",
+              "Armar recetas con ingredientes y componentes preparados"
+            ),
           ]}
           related={[
-            { href: "/dashboard/restaurant", label: "Back to live sales" },
-            { href: "/dashboard/restaurant/upload", label: "Import POS Sales" },
+            {
+              href: "/dashboard/restaurant",
+              label: t(lang, "Back to live sales", "Volver a las ventas"),
+            },
+            {
+              href: "/dashboard/restaurant/upload",
+              label: t(lang, "Import POS Sales", "Importar ventas del POS"),
+            },
           ]}
         />
       </>
@@ -115,16 +139,36 @@ export default async function MenuRecipesRoute({
     <>
       {header}
       <ComingSoonPage
-        title="Menu & Recipes"
+        lang={lang}
+        title={t(lang, "Menu & Recipes", "Menú y recetas")}
         icon={BookOpen}
-        tagline="Menu data could not be loaded."
-        description="The Menu & Recipes foundation hit an error while loading. Check Supabase connectivity and refresh."
+        tagline={t(
+          lang,
+          "Menu data could not be loaded.",
+          "No se pudo cargar el menú."
+        )}
+        description={t(
+          lang,
+          "Something went wrong while loading the menu. Refresh the page and try again.",
+          "Algo falló al cargar el menú. Recarga la página e inténtalo de nuevo."
+        )}
         planned={[
-          "If you just ran the 004 migration, refresh this page",
-          "Verify pos_item_mappings, prepared_components, menu_recipe_inputs exist",
+          t(
+            lang,
+            "Refresh this page and try again",
+            "Recarga esta página e inténtalo de nuevo"
+          ),
+          t(
+            lang,
+            "If it keeps happening, check that your company is linked",
+            "Si sigue pasando, confirma que tu cuenta está ligada a una empresa"
+          ),
         ]}
         related={[
-          { href: "/dashboard/restaurant", label: "Back to live sales" },
+          {
+            href: "/dashboard/restaurant",
+            label: t(lang, "Back to live sales", "Volver a las ventas"),
+          },
         ]}
       />
     </>

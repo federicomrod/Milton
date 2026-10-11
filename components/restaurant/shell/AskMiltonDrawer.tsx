@@ -1,21 +1,12 @@
 // components/restaurant/shell/AskMiltonDrawer.tsx
 //
 // Opens the EXISTING Ask Milton workspace as a right-hand overlay.
-// Does not rebuild the assistant. Page context is passed as a short
-// viewing hint when we know the current route; the chat API itself is
-// unchanged (TODO: thread page context into /api/restaurant/ask-milton).
+// Mounts once and hides so the conversation survives close/reopen.
 
 "use client";
 
 import { usePathname } from "next/navigation";
 import { MessageSquareText, X } from "lucide-react";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { AskMiltonWorkspace } from "@/components/restaurant/AskMiltonWorkspace";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import {
@@ -40,19 +31,33 @@ export function AskMiltonDrawer({
   const pageLabel = pageContextLabel(pathname, lang);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton={false}
-        data-testid="ask-milton-drawer"
-        data-page-context={pathname}
-        className="fixed top-0 right-0 left-auto bottom-0 h-screen w-full max-w-[min(42rem,100vw)] translate-x-0 translate-y-0 rounded-none border-l p-0 gap-0 overflow-hidden flex flex-col sm:max-w-[min(42rem,100vw)]"
+    <div
+      hidden={!open}
+      className={open ? "fixed inset-0 z-50" : "hidden"}
+      data-testid="ask-milton-drawer"
+      data-page-context={pathname}
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/40"
+        aria-label={t(lang, "Close", "Cerrar")}
+        onClick={() => onOpenChange(false)}
+      />
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ask-milton-drawer-title"
+        className="absolute top-0 right-0 bottom-0 w-full max-w-[min(42rem,100vw)] bg-background border-l border-border shadow-lg flex flex-col"
       >
         <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border shrink-0">
           <div className="min-w-0">
-            <DialogTitle className="text-base font-semibold">
+            <h2
+              id="ask-milton-drawer-title"
+              className="text-base font-semibold"
+            >
               {t(lang, "Ask Milton", "Preguntar a Milton")}
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
               {pageLabel
                 ? t(lang, `Viewing ${pageLabel}`, `Viendo ${pageLabel}`)
                 : t(
@@ -60,23 +65,22 @@ export function AskMiltonDrawer({
                     "Ask about sales, menu, costs or the kitchen.",
                     "Pregúntale sobre ventas, menú, costos o la cocina."
                   )}
-            </DialogDescription>
+            </p>
           </div>
-          <DialogClose
+          <button
+            type="button"
             className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
             aria-label={t(lang, "Close", "Cerrar")}
+            onClick={() => onOpenChange(false)}
           >
             <X className="h-4 w-4" />
-          </DialogClose>
+          </button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
-          {/* TODO(#128): pass current page context into Ask Milton's API
-              once the route accepts it. The drawer already records
-              data-page-context and shows a viewing hint. */}
-          <AskMiltonWorkspace />
+          <AskMiltonWorkspace lang={lang} />
         </div>
-      </DialogContent>
-    </Dialog>
+      </aside>
+    </div>
   );
 }
 

@@ -3,6 +3,8 @@
 // Plain-language errors for the Sync now panel. Never forward raw Odoo
 // fault text, XML-RPC dumps, or `details` from the API.
 
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+
 const KNOWN_ERROR_CODES: Record<string, string> = {
   odoo_location_mapping_required:
     "Map every selected Odoo company to a Milton location before syncing.",
@@ -72,4 +74,114 @@ export function safeSyncErrorMessage(status: number, body: unknown): string {
     return "Network error. Check your connection and try again.";
   }
   return "Sync failed. Try again. If it keeps happening, check the Odoo connection.";
+}
+
+const EN_TO_ES: Array<[RegExp | string, string]> = [
+  [
+    "Check the date range. Use YYYY-MM-DD and stay within 92 days.",
+    "Revisa el rango de fechas. Usa AAAA-MM-DD y no pases de 92 días.",
+  ],
+  [
+    /capped at 92|spans \d+ days|92 days/i,
+    "Ese rango supera los 92 días. Elige un periodo más corto.",
+  ],
+  [
+    /start_date and end_date are required/i,
+    "Escribe una fecha de inicio y una de fin.",
+  ],
+  [
+    /start_date must be on or before/i,
+    "La fecha de inicio debe ser anterior o igual a la fecha de fin.",
+  ],
+  [
+    "Could not sign in to Odoo. Check the connection and API key.",
+    "No se pudo entrar a Odoo. Revisa la conexión y la clave.",
+  ],
+  [
+    "You need admin access to sync Odoo sales.",
+    "Necesitas ser administrador para sincronizar las ventas.",
+  ],
+  [
+    "This workspace is missing an Odoo API key. Save the connection first.",
+    "Falta la clave de Odoo. Guarda la conexión primero.",
+  ],
+  [
+    "No Odoo connection is set up for this workspace.",
+    "Este espacio aún no tiene una conexión a Odoo.",
+  ],
+  [
+    "Odoo is not fully set up for this workspace.",
+    "Odoo aún no está listo en este espacio.",
+  ],
+  [
+    "Odoo sync is not ready. Finish company selection and location mapping.",
+    "La sincronización de Odoo no está lista. Termina de elegir empresas y mapear ubicaciones.",
+  ],
+  [
+    "Could not reach Odoo. Try again in a few minutes.",
+    "No se pudo conectar con Odoo. Inténtalo en unos minutos.",
+  ],
+  [
+    "Network error. Check your connection and try again.",
+    "Error de red. Revisa tu conexión e inténtalo de nuevo.",
+  ],
+  [
+    "Sync failed. Try again. If it keeps happening, check the Odoo connection.",
+    "No se pudo sincronizar. Inténtalo de nuevo. Si sigue pasando, revisa la conexión a Odoo.",
+  ],
+  [
+    "Map every selected Odoo company to a Milton location before syncing.",
+    "Mapea cada empresa de Odoo a una ubicación de Milton antes de sincronizar.",
+  ],
+  [
+    "Choose which Odoo companies this workspace should sync, then try again.",
+    "Elige qué empresas de Odoo debe sincronizar este espacio e inténtalo de nuevo.",
+  ],
+  [
+    "The selected Odoo companies are no longer available. Re-select them in the company list.",
+    "Las empresas de Odoo que elegiste ya no están disponibles. Vuelve a seleccionarlas.",
+  ],
+];
+
+export function localizeSyncError(
+  lang: PreferredLanguage,
+  english: string
+): string {
+  if (lang !== "es") return english;
+  for (const [match, es] of EN_TO_ES) {
+    if (typeof match === "string") {
+      if (english === match || english.includes(match)) return es;
+    } else if (match.test(english)) {
+      return es;
+    }
+  }
+  return english;
+}
+
+export function safeSyncErrorMessageForLang(
+  lang: PreferredLanguage,
+  status: number,
+  body: unknown
+): string {
+  return localizeSyncError(lang, safeSyncErrorMessage(status, body));
+}
+
+export function localizedRangeParseError(
+  lang: PreferredLanguage,
+  error: string
+): string {
+  return localizeSyncError(
+    lang,
+    error.includes("capped") || error.includes("92")
+      ? "Check the date range. Use YYYY-MM-DD and stay within 92 days."
+      : error
+  );
+}
+
+export function rangeRequiredCopy(lang: PreferredLanguage): string {
+  return t(
+    lang,
+    "Enter a start and end date.",
+    "Escribe una fecha de inicio y una de fin."
+  );
 }

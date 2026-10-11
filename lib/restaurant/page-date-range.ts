@@ -1,10 +1,8 @@
 // lib/restaurant/page-date-range.ts
 //
-// Shared operating-page date range (Cockpit / Sales / Menu / Costs).
-// Stored in `?from=` / `?to=` (YYYY-MM-DD, inclusive). Pure — no I/O.
-// Presentation matches "Jul 1 - Jul 31, 2026". Defaults to the current
-// calendar month so a first visit has a concrete range without writing
-// the URL (the header writes params when the operator changes them).
+// Shown period for operating pages (Cockpit / Sales / Menu / Costs).
+// PR 1 does not filter loaders by ?from=/?to= — the header displays the
+// sale-date span of the loaded data. Range filtering is PR 2.
 
 import { DATE_RE } from "@/lib/restaurant/odoo/sync-window";
 import { formatYmd } from "@/lib/restaurant/odoo/sync-control";
@@ -21,6 +19,21 @@ export function defaultPageDateRange(now: Date = new Date()): PageDateRange {
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
   const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   return { from: formatYmd(start), to: formatYmd(end) };
+}
+
+/**
+ * Period the loaded cockpit data actually covers. Null when the model
+ * has no usable sale dates — the header then shows nothing rather than
+ * inventing the current calendar month.
+ */
+export function shownPeriodFromSales(
+  periodFrom: string | null | undefined,
+  periodTo: string | null | undefined
+): PageDateRange | null {
+  if (!isValidYmd(periodFrom) || !isValidYmd(periodTo)) return null;
+  return periodFrom <= periodTo
+    ? { from: periodFrom, to: periodTo }
+    : { from: periodTo, to: periodFrom };
 }
 
 export function isValidYmd(value: string | null | undefined): value is string {

@@ -324,10 +324,26 @@ export function dataSettingsLinkLabel(
   }
 }
 
+export function isDataSettingsLinkListed(
+  id: MappedLegacyRoute["id"],
+  opts: { isAdmin: boolean }
+): boolean {
+  if (id === "invitations") return opts.isAdmin;
+  if (id === "menu-recipes") return false;
+  if (id === "targets") return false;
+  return true;
+}
+
 export function routesForSection(
-  section: DataSettingsSectionId
+  section: DataSettingsSectionId,
+  opts?: { isAdmin?: boolean }
 ): MappedLegacyRoute[] {
-  return LEGACY_ROUTE_MAP.filter((route) => route.section === section);
+  const isAdmin = opts?.isAdmin ?? true;
+  return LEGACY_ROUTE_MAP.filter(
+    (route) =>
+      route.section === section &&
+      isDataSettingsLinkListed(route.id, { isAdmin })
+  );
 }
 
 export function everyRequiredLegacyRouteIsMapped(): boolean {

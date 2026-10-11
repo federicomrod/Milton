@@ -71,9 +71,9 @@ interface MenuItem {
 }
 
 const CONFIDENCE_LABELS: Record<string, string> = {
-  high: "High",
-  medium: "Medium",
-  low: "Low",
+  high: "Alta",
+  medium: "Media",
+  low: "Baja",
 };
 
 const CONFIDENCE_COLORS: Record<string, string> = {
@@ -111,7 +111,7 @@ export function KitchenRecipeDraftsCard({
       );
       if (cancelled) return;
       if (!res.ok) {
-        setError("Could not load drafts.");
+        setError("No se pudieron cargar los borradores.");
         return;
       }
       const data = await res.json();
@@ -203,7 +203,7 @@ export function KitchenRecipeDraftsCard({
     );
     if (!patchRes.ok) {
       const data = await patchRes.json().catch(() => ({}));
-      setError(data.error ?? "Could not save draft edits.");
+      setError(data.error ?? "No se pudieron guardar los cambios.");
       return;
     }
 
@@ -236,7 +236,7 @@ export function KitchenRecipeDraftsCard({
       setReloadKey((k) => k + 1);
     } else {
       const data = await res.json();
-      setError(data.error ?? "Confirm failed.");
+      setError(data.error ?? "No se pudo confirmar.");
     }
   };
 
@@ -345,10 +345,10 @@ export function KitchenRecipeDraftsCard({
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Recipes to Review</CardTitle>
+          <CardTitle>Recetas para revisar</CardTitle>
           <CardDescription>
-            Recipes sent by cooks via photo, voice, or text. Review and confirm
-            to add to menu.
+            Recetas que envían tus cocineros por foto, voz o texto. Revísalas y
+            confírmalas para agregarlas al menú.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -358,7 +358,7 @@ export function KitchenRecipeDraftsCard({
               onChange={(e) => setLocationId(e.target.value)}
               className={selectClass}
             >
-              <option value="">All locations</option>
+              <option value="">Todas las ubicaciones</option>
               {locations.map((loc) => (
                 <option key={loc.id} value={loc.id}>
                   {loc.name}
@@ -369,7 +369,7 @@ export function KitchenRecipeDraftsCard({
           {error && <p className="text-sm text-red-600">{error}</p>}
           {drafts.length === 0 && !error && (
             <p className="text-sm text-muted-foreground">
-              No pending recipe drafts.
+              No hay recetas pendientes.
             </p>
           )}
           <div className="space-y-3">
@@ -389,7 +389,7 @@ export function KitchenRecipeDraftsCard({
                           draft.confidence}
                       </Badge>
                       {draft.status === "awaiting_portions" && (
-                        <Badge variant="outline">Awaiting portions</Badge>
+                        <Badge variant="outline">Faltan porciones</Badge>
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">
@@ -398,9 +398,10 @@ export function KitchenRecipeDraftsCard({
                     </p>
                     {draft.portions && draft.per_portion_cost !== null && (
                       <p className="text-sm">
-                        {draft.portions} portion{draft.portions > 1 ? "s" : ""}{" "}
-                        • {draft.currency} {draft.per_portion_cost.toFixed(2)}{" "}
-                        per portion
+                        {draft.portions}{" "}
+                        {draft.portions > 1 ? "porciones" : "porción"} •{" "}
+                        {draft.currency} {draft.per_portion_cost.toFixed(2)} por
+                        porción
                       </p>
                     )}
                   </div>
@@ -411,14 +412,14 @@ export function KitchenRecipeDraftsCard({
                         variant="outline"
                         onClick={() => openEditor(draft)}
                       >
-                        Review
+                        Revisar
                       </Button>
                       <Button
                         size="sm"
                         variant="ghost"
                         onClick={() => handleReject(draft.id)}
                       >
-                        Reject
+                        Rechazar
                       </Button>
                     </div>
                   )}
@@ -433,21 +434,21 @@ export function KitchenRecipeDraftsCard({
         <Dialog open={!!editedDraft} onOpenChange={closeEditor}>
           <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Review Recipe</DialogTitle>
+              <DialogTitle>Revisar receta</DialogTitle>
               <DialogDescription>
-                Edit ingredients, quantities, and portions before confirming.
+                Edita ingredientes, cantidades y porciones antes de confirmar.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div>
-                <Label>Dish Name</Label>
+                <Label>Nombre del platillo</Label>
                 <Input
                   value={editedDraft.dish_name}
                   onChange={(e) => updateDishName(e.target.value)}
                 />
               </div>
               <div>
-                <Label>Portions</Label>
+                <Label>Porciones</Label>
                 <Input
                   type="number"
                   min="1"
@@ -460,16 +461,16 @@ export function KitchenRecipeDraftsCard({
                 />
               </div>
               <div>
-                <Label>Menu Item</Label>
+                <Label>Platillo del menú</Label>
                 <Select
                   value={selectedMenuItem}
                   onValueChange={setSelectedMenuItem}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Create new or pick existing" />
+                    <SelectValue placeholder="Crear uno nuevo o elegir uno existente" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="new">Create new menu item</SelectItem>
+                    <SelectItem value="new">Crear platillo nuevo</SelectItem>
                     {menuItems.map((item) => (
                       <SelectItem key={item.id} value={item.id}>
                         {item.name}
@@ -480,7 +481,7 @@ export function KitchenRecipeDraftsCard({
               </div>
               {selectedMenuItem === "new" && (
                 <div>
-                  <Label>Selling Price</Label>
+                  <Label>Precio de venta</Label>
                   <Input
                     type="number"
                     step="0.01"
@@ -492,9 +493,9 @@ export function KitchenRecipeDraftsCard({
               )}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <Label>Ingredients</Label>
+                  <Label>Ingredientes</Label>
                   <Button size="sm" variant="outline" onClick={addLine}>
-                    Add Line
+                    Agregar línea
                   </Button>
                 </div>
                 <div className="space-y-2">
@@ -509,7 +510,7 @@ export function KitchenRecipeDraftsCard({
                       >
                         <SelectTrigger>
                           <SelectValue
-                            placeholder={line.raw_name || "Select ingredient"}
+                            placeholder={line.raw_name || "Elegir ingrediente"}
                           />
                         </SelectTrigger>
                         <SelectContent>
@@ -523,7 +524,7 @@ export function KitchenRecipeDraftsCard({
                       <Input
                         type="number"
                         step="0.001"
-                        placeholder="Qty"
+                        placeholder="Cant."
                         value={line.total_quantity ?? ""}
                         onChange={(e) =>
                           updateLineQuantity(
@@ -533,7 +534,7 @@ export function KitchenRecipeDraftsCard({
                         }
                       />
                       <Input
-                        placeholder="Unit"
+                        placeholder="Unidad"
                         value={line.unit ?? ""}
                         onChange={(e) => updateLineUnit(idx, e.target.value)}
                       />
@@ -550,10 +551,10 @@ export function KitchenRecipeDraftsCard({
               </div>
               <div className="flex gap-2 justify-end pt-4">
                 <Button variant="outline" onClick={closeEditor}>
-                  Cancel
+                  Cancelar
                 </Button>
                 <Button onClick={handleConfirm} disabled={!canConfirm}>
-                  Confirm
+                  Confirmar
                 </Button>
               </div>
             </div>

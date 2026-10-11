@@ -25,6 +25,10 @@ export interface CockpitPageModel {
   profitability: ProfitabilityData | null;
 }
 
+export interface MenuAreaModel {
+  profitability: ProfitabilityData | null;
+}
+
 export async function loadCockpitPageModel(
   requestedLocationId?: string
 ): Promise<CockpitPageModel> {
@@ -86,4 +90,50 @@ export async function loadCockpitPageModel(
   }
 
   return { data, targets, profitability };
+}
+
+/**
+ * Menu area only — profitability (and its own POS fact read). Does not
+ * call fetchRealRestaurantDashboardData, so the Menu page avoids the
+ * extra full cockpit ~20k-row load.
+ */
+export async function loadMenuAreaModel(
+  requestedLocationId?: string
+): Promise<MenuAreaModel> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user?.id) return { profitability: null };
+
+    const companyId = await resolveCompanyIdForUser(supabase, user.id);
+    if (!companyId) return { profitability: null };
+
+    let selectedLocationId: string | null = null;
+    let selectedBrandId: string | null = null;
+    if (requestedLocationId) {
+      const context = await resolveRestaurantContext(
+        supabase,
+        companyId,
+        requestedLocationId
+      );
+      if (context.selected) {
+        selectedLocationId = context.selected.locationId;
+        selectedBrandId = context.selected.brandId;
+      }
+    }
+
+    const profitability = await fetchProfitabilityData(
+      supabase,
+      companyId,
+      selectedLocationId
+        ? { locationId: selectedLocationId, brandId: selectedBrandId }
+        : null
+    );
+    return { profitability };
+  } catch (err) {
+    console.error("[loadMenuAreaModel] failed:", err);
+    return { profitability: null };
+  }
 }

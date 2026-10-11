@@ -9,6 +9,7 @@ import {
 } from "@/components/restaurant/ProfitabilityCockpit";
 import { MenuProfitabilityTable } from "@/components/restaurant/cockpit/MenuProfitabilityTable";
 import type { ProfitabilityData } from "@/lib/restaurant/profitability-server";
+import { t } from "@/lib/restaurant/language";
 
 export function MenuProfitabilityTab({
   profitability,
@@ -24,7 +25,7 @@ export function MenuProfitabilityTab({
       <section>
         <div className="flex items-baseline justify-between mb-3 gap-3 flex-wrap">
           <h2 className="text-base font-semibold">
-            Menu profitability{" "}
+            {t("es", "Menu profitability", "Rentabilidad del menú")}{" "}
             <span className="text-sm font-normal text-muted-foreground">
               ({profitability.marginRows.length})
             </span>
@@ -38,7 +39,7 @@ export function MenuProfitabilityTab({
       <MarginRiskSection data={profitability} />
       <details className="rounded-md border border-border bg-background">
         <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium hover:bg-muted/30">
-          Costing setup checklist
+          {t("es", "Costing setup checklist", "Lista de costeo")}
         </summary>
         <div className="px-4 pb-4 pt-2">
           <DataQualityChecklistSection data={profitability} />

@@ -43,11 +43,6 @@ import {
   type NavItemConfig,
 } from "@/lib/restaurant/navigation";
 import {
-  DATE_FROM_PARAM,
-  DATE_TO_PARAM,
-  hasExplicitPageDateRange,
-} from "@/lib/restaurant/page-date-range";
-import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   t,
   type PreferredLanguage,
@@ -105,8 +100,6 @@ export function RestaurantShell({
             pathname={pathname}
             locations={locations}
             currentLocationId={null}
-            dateFrom={null}
-            dateTo={null}
             lang={lang}
           >
             {children}
@@ -138,19 +131,11 @@ function SearchParamsReader({
 }) {
   const searchParams = useSearchParams();
   const currentLocationId = searchParams.get("location");
-  const dateFrom = hasExplicitPageDateRange(searchParams)
-    ? searchParams.get(DATE_FROM_PARAM)
-    : null;
-  const dateTo = hasExplicitPageDateRange(searchParams)
-    ? searchParams.get(DATE_TO_PARAM)
-    : null;
   return (
     <RestaurantShellBody
       pathname={pathname}
       locations={locations}
       currentLocationId={currentLocationId}
-      dateFrom={dateFrom}
-      dateTo={dateTo}
       lang={lang}
     >
       {children}
@@ -162,16 +147,12 @@ function RestaurantShellBody({
   children,
   locations,
   currentLocationId,
-  dateFrom,
-  dateTo,
   pathname,
   lang,
 }: {
   children: React.ReactNode;
   locations: RestaurantShellLocation[];
   currentLocationId: string | null;
-  dateFrom: string | null;
-  dateTo: string | null;
   pathname: string;
   lang: PreferredLanguage;
 }) {
@@ -184,8 +165,6 @@ function RestaurantShellBody({
 
   const shellParams = {
     locationId: currentLocationId,
-    from: dateFrom,
-    to: dateTo,
   };
 
   return (
@@ -195,8 +174,6 @@ function RestaurantShellBody({
           locations={locations}
           currentLocationId={currentLocationId}
           pathname={pathname}
-          dateFrom={dateFrom}
-          dateTo={dateTo}
           lang={lang}
         />
         <SidebarNav pathname={pathname} shellParams={shellParams} lang={lang} />
@@ -266,8 +243,6 @@ function SidebarNav({
   pathname: string;
   shellParams: {
     locationId: string | null;
-    from: string | null;
-    to: string | null;
   };
   lang: PreferredLanguage;
 }) {
@@ -309,15 +284,11 @@ function SidebarBrand({
   locations,
   currentLocationId,
   pathname,
-  dateFrom,
-  dateTo,
   lang,
 }: {
   locations: RestaurantShellLocation[];
   currentLocationId: string | null;
   pathname: string;
-  dateFrom: string | null;
-  dateTo: string | null;
   lang: PreferredLanguage;
 }) {
   const router = useRouter();
@@ -333,8 +304,6 @@ function SidebarBrand({
   function switchTo(locationId: string | null) {
     const href = withShellParams(pathname, {
       locationId,
-      from: dateFrom,
-      to: dateTo,
     });
     router.push(href);
   }
@@ -344,8 +313,6 @@ function SidebarBrand({
       <Link
         href={withShellParams("/dashboard/restaurant", {
           locationId: currentLocationId,
-          from: dateFrom,
-          to: dateTo,
         })}
         className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
       >
@@ -407,8 +374,6 @@ function SidebarLink({
   pathname: string;
   shellParams: {
     locationId: string | null;
-    from: string | null;
-    to: string | null;
   };
   lang: PreferredLanguage;
 }) {

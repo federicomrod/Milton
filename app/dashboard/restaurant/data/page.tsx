@@ -26,7 +26,7 @@ const SECTIONS: DataSettingsSectionId[] = [
 ];
 
 export default async function DataSettingsPage() {
-  const { lang } = await loadRestaurantShellChrome();
+  const { lang, isAdmin } = await loadRestaurantShellChrome();
 
   return (
     <div className="w-full py-3 px-6 lg:px-10 space-y-6 max-w-3xl">
@@ -63,7 +63,7 @@ export default async function DataSettingsPage() {
       </section>
 
       {SECTIONS.filter((s) => s !== "data_health").map((section) => {
-        const links = routesForSection(section);
+        const links = routesForSection(section, { isAdmin });
         if (links.length === 0) return null;
         return (
           <section key={section} className="space-y-2">

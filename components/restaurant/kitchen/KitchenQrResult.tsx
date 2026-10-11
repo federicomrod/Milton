@@ -57,7 +57,7 @@ export function KitchenQrResult({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={qr.qr_png_data_url}
-        alt={`Kitchen QR for ${locationName}`}
+        alt={`QR de cocina para ${locationName}`}
         className="h-48 w-48"
       />
       <div className="flex flex-wrap gap-2">
@@ -66,18 +66,18 @@ export function KitchenQrResult({
           variant="outline"
           onClick={() => download(qr.qr_png_data_url, `${base}.png`)}
         >
-          Download PNG
+          Descargar PNG
         </Button>
         <Button size="sm" variant="outline" onClick={downloadSvg}>
-          Download SVG
+          Descargar SVG
         </Button>
         <Button size="sm" variant="outline" onClick={copy}>
-          {copied ? "Copied" : "Copy link"}
+          {copied ? "Copiado" : "Copiar enlace"}
         </Button>
       </div>
       <Alert>
         <AlertDescription>
-          We can&apos;t show this QR again. If the sheet is lost, rotate.
+          No podemos volver a mostrar este QR. Si se pierde la hoja, rótalo.
         </AlertDescription>
       </Alert>
     </div>

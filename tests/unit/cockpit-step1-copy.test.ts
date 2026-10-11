@@ -19,8 +19,10 @@ describe("cockpit step-1 review nits", () => {
   it("names the two revenue figures so the strip and Explorer cannot be confused", () => {
     const strip = read("components/restaurant/cockpit/CockpitKpiStrip.tsx");
     const explorer = read("components/restaurant/RestaurantSalesExplorer.tsx");
-    expect(strip).toContain("Net sales (all loaded data)");
-    expect(strip).toContain("not the Explorer date filter");
+    expect(strip).toContain("Net sales");
+    expect(strip).toContain("Ventas netas");
+    expect(strip).not.toContain("all loaded data");
+    expect(strip).not.toContain("todos los datos cargados");
     expect(explorer).toContain("Net sales (filtered)");
     expect(explorer).toContain("t(lang,");
   });

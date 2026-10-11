@@ -22,6 +22,17 @@ export const SYNC_DATE_PRESETS: Array<{
 
 export const DEFAULT_SYNC_PRESET: SyncDatePreset = "last_7_days";
 
+/** Inclusive last 31 days ending today — header Sync's own default. */
+export function defaultSyncWindow(now: Date = new Date()): {
+  start: string;
+  end: string;
+} {
+  const today = startOfLocalDay(now);
+  const start = new Date(today);
+  start.setDate(start.getDate() - 30);
+  return { start: formatYmd(start), end: formatYmd(today) };
+}
+
 export function formatYmd(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");

@@ -11,6 +11,7 @@ import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   t,
 } from "@/lib/restaurant/language";
+import { shownPeriodFromSales } from "@/lib/restaurant/page-date-range";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,18 @@ export default async function SalesAreaPage({
 
   return (
     <div className="w-full py-3 px-6 lg:px-10 space-y-3">
-      <OperatingPageHeader title={t(lang, "Sales", "Ventas")} lang={lang} />
+      <OperatingPageHeader
+        title={t(lang, "Sales", "Ventas")}
+        lang={lang}
+        shownRange={
+          data.mode === "live"
+            ? shownPeriodFromSales(
+                data.cockpit.period_from,
+                data.cockpit.period_to
+              )
+            : null
+        }
+      />
       {data.mode === "live" ? (
         <RevenueAndChannelsTab
           rows={data.explorerRows}

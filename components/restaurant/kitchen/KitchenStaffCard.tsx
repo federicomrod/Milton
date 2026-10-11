@@ -47,7 +47,7 @@ export function KitchenStaffCard({
         .order("joined_at", { ascending: false });
       if (cancelled) return;
       if (loadError) {
-        setError("Could not load cooks.");
+        setError("No se pudieron cargar los cocineros.");
         return;
       }
       setCooks((data ?? []) as Cook[]);
@@ -62,22 +62,22 @@ export function KitchenStaffCard({
     const res = await fetch(`/api/restaurant/kitchen/staff/${id}`, {
       method: "DELETE",
     });
-    if (!res.ok) setError("Could not remove the cook.");
+    if (!res.ok) setError("No se pudo quitar al cocinero.");
     setReloadKey((k) => k + 1);
   };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Cooks</CardTitle>
+        <CardTitle>Cocineros</CardTitle>
         <CardDescription>
-          Kitchen staff who joined by scanning a QR.
+          Personal de cocina que se unió escaneando un QR.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
         {error && <p className="text-sm text-destructive">{error}</p>}
         {cooks.length === 0 && (
-          <p className="text-sm text-muted-foreground">No cooks yet.</p>
+          <p className="text-sm text-muted-foreground">Aún no hay cocineros.</p>
         )}
         {cooks.map((c) => (
           <div
@@ -87,13 +87,13 @@ export function KitchenStaffCard({
             <div>
               <div className="font-medium">{c.display_name}</div>
               <div className="text-xs text-muted-foreground">
-                {names.get(c.location_id) ?? "Unknown location"} · joined{" "}
-                {new Date(c.joined_at).toLocaleDateString()}
+                {names.get(c.location_id) ?? "Ubicación desconocida"} · se unió{" "}
+                {new Date(c.joined_at).toLocaleDateString("es-MX")}
               </div>
             </div>
             {canManage && (
               <Button size="sm" variant="outline" onClick={() => remove(c.id)}>
-                Remove
+                Quitar
               </Button>
             )}
           </div>

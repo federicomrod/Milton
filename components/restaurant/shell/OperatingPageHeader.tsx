@@ -1,15 +1,15 @@
 // components/restaurant/shell/OperatingPageHeader.tsx
 //
 // Compact chrome for Cockpit / Sales / Menu / Costs / Kitchen:
-// title + optional date range on the left; last-synced + Sync on the right.
-// Restaurant selector stays in the sidebar. Header stays short so the
-// existing cockpit KPI strip still fits above the fold at 1280×800.
+// title + optional shown period on the left; last-synced + Sync on the right.
+// The period chip is the span of loaded data, not a working filter.
 
 "use client";
 
-import { Suspense, type ReactNode } from "react";
+import { Suspense, useSyncExternalStore, type ReactNode } from "react";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { formatLastSyncedAgo } from "@/lib/restaurant/last-synced";
+import type { PageDateRange } from "@/lib/restaurant/page-date-range";
 import { DateRangeControl } from "@/components/restaurant/shell/DateRangeControl";
 import { SyncNowButton } from "@/components/restaurant/shell/SyncNowButton";
 import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
@@ -19,6 +19,7 @@ export function OperatingPageHeader({
   title,
   lang,
   showDateRange = true,
+  shownRange = null,
   lastSyncedAt,
   isAdmin,
   trailing,
@@ -26,6 +27,7 @@ export function OperatingPageHeader({
   title: string;
   lang?: PreferredLanguage;
   showDateRange?: boolean;
+  shownRange?: PageDateRange | null;
   lastSyncedAt?: string | null;
   isAdmin?: boolean;
   trailing?: ReactNode;
@@ -34,11 +36,6 @@ export function OperatingPageHeader({
   const resolvedLang = lang ?? chrome.lang;
   const resolvedAdmin = isAdmin ?? chrome.isAdmin;
   const resolvedSync = lastSyncedAt ?? chrome.lastSyncedAt;
-  const lastSynced = formatLastSyncedAgo(
-    resolvedSync,
-    new Date(),
-    resolvedLang
-  );
 
   return (
     <header
@@ -50,34 +47,46 @@ export function OperatingPageHeader({
           {title}
         </h1>
         {showDateRange ? (
-          <Suspense
-            fallback={
-              <PageSkeleton
-                width="10rem"
-                height="2rem"
-                label={t(resolvedLang, "Date range", "Rango de fechas")}
-              />
-            }
-          >
-            <DateRangeControl lang={resolvedLang} />
-          </Suspense>
+          <DateRangeControl lang={resolvedLang} range={shownRange} />
         ) : null}
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {lastSynced ? (
-          <p
-            data-testid="header-last-synced"
-            className="text-xs text-muted-foreground whitespace-nowrap"
-          >
-            {lastSynced}
-          </p>
-        ) : null}
+        <LastSyncedLabel syncedAt={resolvedSync} lang={resolvedLang} />
         <Suspense fallback={<PageSkeleton width="4.5rem" height="2rem" />}>
           <SyncNowButton lang={resolvedLang} isAdmin={resolvedAdmin} />
         </Suspense>
         {trailing}
       </div>
     </header>
+  );
+}
+
+function useIsClient() {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+}
+
+function LastSyncedLabel({
+  syncedAt,
+  lang,
+}: {
+  syncedAt: string | null;
+  lang: PreferredLanguage;
+}) {
+  const isClient = useIsClient();
+  if (!isClient) return null;
+  const label = formatLastSyncedAgo(syncedAt, new Date(), lang);
+  if (!label) return null;
+  return (
+    <p
+      data-testid="header-last-synced"
+      className="text-xs text-muted-foreground whitespace-nowrap"
+    >
+      {label}
+    </p>
   );
 }
 

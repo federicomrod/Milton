@@ -22,6 +22,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { IngredientLatestCostRow } from "@/lib/restaurant/menu-recipes-server";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 
 const DEFAULT_UNITS = ["kg", "g", "l", "ml", "unit", "portion", "oz", "lb"];
 
@@ -34,10 +39,12 @@ export function IngredientsPage({
   ingredients,
   suppliers,
   companyCurrency = "USD",
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
 }: {
   ingredients: IngredientLatestCostRow[];
   suppliers: SupplierOption[];
   companyCurrency?: string;
+  lang?: PreferredLanguage;
 }) {
   return (
     <div className="w-full py-8 px-6 lg:px-10">
@@ -45,7 +52,9 @@ export function IngredientsPage({
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
             <Carrot className="h-6 w-6 text-orange-500" />
-            <h1 className="text-2xl font-bold tracking-tight">Ingredients</h1>
+            <h1 className="text-2xl font-bold tracking-tight">
+              {t(lang, "Ingredients", "Ingredientes")}
+            </h1>
             <Badge className="text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-0">
               Foundation
             </Badge>
@@ -54,25 +63,30 @@ export function IngredientsPage({
             <Button asChild size="sm" className="gap-2">
               <Link href="/dashboard/restaurant/costs/upload">
                 <Upload className="h-4 w-4" />
-                Import costs
+                {t(lang, "Import costs", "Importar costos")}
               </Link>
             </Button>
             <Button asChild size="sm" variant="outline">
-              <Link href="/dashboard/restaurant/menu">Back to Menu</Link>
+              <Link href="/dashboard/restaurant/menu">
+                {t(lang, "Back to Menu", "Volver al menú")}
+              </Link>
             </Button>
           </div>
         </div>
         <p className="text-sm text-muted-foreground -mt-4 max-w-3xl">
-          Raw materials used as inputs to prepared components and menu recipes.
-          Add manual cost entries to start the cost engine; supplier invoices
-          will feed the same table automatically in a later milestone.
+          {t(
+            lang,
+            "Raw materials used in prepared items and dish recipes. Add a cost here or import the workbook.",
+            "Materias primas de las sub-recetas y platillos. Agrega un costo aquí o importa el libro de Excel."
+          )}
         </p>
 
         {/* Add ingredient ---------------------------------------------- */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
-              <Plus className="h-4 w-4" /> Add ingredient
+              <Plus className="h-4 w-4" />{" "}
+              {t(lang, "Add ingredient", "Agregar ingrediente")}
             </CardTitle>
           </CardHeader>
           <CardContent>

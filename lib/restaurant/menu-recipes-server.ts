@@ -19,16 +19,19 @@ import type {
 } from "@/types/restaurant-costing";
 import {
   type CostingData,
+  type CostingMenuRecipe,
   type CostingRecipeInput,
   calculateAllComponentCosts,
   calculateAllMenuItemCosts,
   getLatestIngredientCost,
+  parseWorkbookCostMatch,
 } from "@/lib/restaurant/costing";
 import {
   fetchAllRows,
   succeededRows,
   warnIfTruncated,
 } from "@/lib/restaurant/paginated-read";
+import { fetchAllRowsRetryingWithoutColumn } from "@/lib/restaurant/missing-schema-column";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 
 // ---------------------------------------------------------------------------
@@ -154,6 +157,8 @@ interface RecipeRow {
   id: string;
   menu_item_id: string;
   status: string | null;
+  source_type?: string | null;
+  workbook_cost_match?: string | null;
 }
 
 /**
@@ -229,11 +234,11 @@ export async function fetchMenuRecipesData(
         .select("id, name, category, selling_price, currency, status, is_live")
         .eq("company_id", companyId)
     ),
-    fetchAllRows<RecipeRow>(() =>
-      supabase
-        .from("recipes")
-        .select("id, menu_item_id, status")
-        .eq("company_id", companyId)
+    fetchAllRowsRetryingWithoutColumn<RecipeRow>(
+      "workbook_cost_match",
+      (select) =>
+        supabase.from("recipes").select(select).eq("company_id", companyId),
+      "id, menu_item_id, status, source_type, workbook_cost_match"
     ),
     // Full input rows — quantities/units are required for cost math.
     fetchAllRows<{
@@ -503,8 +508,17 @@ export async function fetchMenuRecipesData(
       },
     ])
   );
-  const menuRecipesByMenuItemId = new Map(
-    recipes.map((r) => [r.menu_item_id, { ...r, status: r.status ?? "draft" }])
+  const menuRecipesByMenuItemId = new Map<string, CostingMenuRecipe>(
+    recipes.map((r) => [
+      r.menu_item_id,
+      {
+        id: r.id,
+        menu_item_id: r.menu_item_id,
+        status: r.status ?? "draft",
+        source_type: r.source_type ?? null,
+        workbook_cost_match: parseWorkbookCostMatch(r.workbook_cost_match),
+      },
+    ])
   );
   const costEntriesByIngredientId = new Map<string, IngredientCostEntry[]>();
   for (const e of costEntries) {

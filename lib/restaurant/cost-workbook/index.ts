@@ -69,7 +69,26 @@ export {
   unitsCompatible,
 } from "./duplicates";
 export { resolveSubRecipeYield } from "./recipes";
-export { resolveCatalogInput } from "./persist-recipes";
+export {
+  pickMenuItemForLocation,
+  resolveCatalogInput,
+  withQty,
+} from "./persist-recipes";
+export {
+  decideWorkbookCostMatch,
+  reconcileImportedWorkbookCosts,
+  workbookCostsMatch,
+  WORKBOOK_COST_ABS_TOLERANCE,
+  WORKBOOK_COST_REL_TOLERANCE,
+} from "./workbook-match";
+export {
+  handmadeNoLongerComparedNote,
+  handmadeRecipeExistsReason,
+  MISSING_WORKBOOK_COST_MIGRATION_ES,
+  selfReferenceReason,
+  workbookMatchHeadline,
+} from "./copy";
+export { foldFooterLabel } from "./blocks";
 export { implausiblePriceReason } from "./plausibility";
 export { categoryForTab, resolveCategoryName } from "./categories";
 export { collectRecipeLines } from "./recipes";
@@ -90,6 +109,8 @@ export {
   approveReviewItem,
   buildImportHeadline,
   importCostWorkbook,
+  isMissingWorkbookCostColumnsError,
+  MissingWorkbookCostColumnsError,
   skipReviewItem,
   undoCostImportBatch,
 } from "./import";

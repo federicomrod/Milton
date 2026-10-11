@@ -57,6 +57,7 @@ export interface MemoryCostWorkbookStore {
   mappingCompanyIds: Record<string, string>;
   posSalesItems: MemoryPosSale[];
   failResetStep?: CostResetStepId;
+  workbookCostColumns?: boolean;
 }
 
 export function emptyMemoryStore(): MemoryCostWorkbookStore {
@@ -657,6 +658,44 @@ export function createMemoryCostWorkbookRepo(
         (row) => !remove.has(row.id)
       );
       return before - store.posMappings.length;
+    },
+    async updateRecipeWorkbookCheck(_companyId, recipeId, patch) {
+      const recipe = store.recipes.find((row) => row.id === recipeId);
+      if (!recipe) return;
+      recipe.workbook_cost_total = patch.workbook_cost_total;
+      recipe.workbook_selling_price = patch.workbook_selling_price;
+      recipe.workbook_computed_cost = patch.workbook_computed_cost;
+      recipe.workbook_cost_match = patch.workbook_cost_match;
+    },
+    async updateComponentRecipeWorkbookCheck(_companyId, recipeId, patch) {
+      const recipe = store.componentRecipes.find((row) => row.id === recipeId);
+      if (!recipe) return;
+      recipe.workbook_cost_total = patch.workbook_cost_total;
+      recipe.workbook_unit_price = patch.workbook_unit_price;
+      recipe.workbook_computed_cost = patch.workbook_computed_cost;
+      recipe.workbook_cost_match = patch.workbook_cost_match;
+    },
+    async markRecipeManual(_companyId, recipeId) {
+      const recipe = store.recipes.find((row) => row.id === recipeId);
+      if (!recipe) return;
+      recipe.source_type = "manual";
+      recipe.workbook_cost_match = null;
+      recipe.workbook_computed_cost = null;
+    },
+    async markComponentManual(_companyId, componentId, componentRecipeId) {
+      const component = store.components.find((row) => row.id === componentId);
+      if (component) component.source_type = "manual";
+      if (!componentRecipeId) return;
+      const recipe = store.componentRecipes.find(
+        (row) => row.id === componentRecipeId
+      );
+      if (!recipe) return;
+      recipe.source_type = "manual";
+      recipe.workbook_cost_match = null;
+      recipe.workbook_computed_cost = null;
+    },
+    async hasWorkbookCostColumns() {
+      return store.workbookCostColumns !== false;
     },
   };
 }

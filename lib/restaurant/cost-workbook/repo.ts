@@ -1,4 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
+import {
+  handmadeSourceCorePatch,
+  handmadeSourcePatch,
+} from "@/lib/restaurant/protect-imported-recipe";
 import { snapshotFromUnknown } from "./snapshot";
 import type {
   CostWorkbookBatch,
@@ -239,6 +244,34 @@ export interface CostWorkbookRepo {
     }>
   ): Promise<Array<{ id: string }>>;
   deletePosMappings(companyId: string, ids: string[]): Promise<number>;
+  updateRecipeWorkbookCheck(
+    companyId: string,
+    recipeId: string,
+    patch: {
+      workbook_cost_total: number | null;
+      workbook_selling_price: number | null;
+      workbook_computed_cost: number | null;
+      workbook_cost_match: "match" | "mismatch" | null;
+    }
+  ): Promise<void>;
+  updateComponentRecipeWorkbookCheck(
+    companyId: string,
+    recipeId: string,
+    patch: {
+      workbook_cost_total: number | null;
+      workbook_unit_price: number | null;
+      workbook_computed_cost: number | null;
+      workbook_cost_match: "match" | "mismatch" | null;
+    }
+  ): Promise<void>;
+  markRecipeManual(companyId: string, recipeId: string): Promise<void>;
+  markComponentManual(
+    companyId: string,
+    componentId: string,
+    componentRecipeId?: string | null
+  ): Promise<void>;
+  /** False when migration 035 workbook_* columns are missing. */
+  hasWorkbookCostColumns(companyId: string): Promise<boolean>;
 }
 
 function asIngredient(row: Record<string, unknown>): CostWorkbookIngredient {
@@ -1463,6 +1496,78 @@ export function createSupabaseCostWorkbookRepo(
         .select("id");
       if (error) throw new Error(error.message);
       return (data ?? []).length;
+    },
+
+    async updateRecipeWorkbookCheck(companyId, recipeId, patch) {
+      const { error } = await supabase
+        .from("recipes")
+        .update(patch)
+        .eq("company_id", companyId)
+        .eq("id", recipeId);
+      if (error) throw new Error(error.message);
+    },
+
+    async updateComponentRecipeWorkbookCheck(companyId, recipeId, patch) {
+      const { error } = await supabase
+        .from("component_recipes")
+        .update(patch)
+        .eq("company_id", companyId)
+        .eq("id", recipeId);
+      if (error) throw new Error(error.message);
+    },
+
+    async markRecipeManual(companyId, recipeId) {
+      const { error } = await supabase
+        .from("recipes")
+        .update(handmadeSourcePatch())
+        .eq("company_id", companyId)
+        .eq("id", recipeId);
+      if (error && errorMentionsColumn(error, "workbook_cost_match")) {
+        const retry = await supabase
+          .from("recipes")
+          .update(handmadeSourceCorePatch())
+          .eq("company_id", companyId)
+          .eq("id", recipeId);
+        if (retry.error) throw new Error(retry.error.message);
+        return;
+      }
+      if (error) throw new Error(error.message);
+    },
+
+    async markComponentManual(companyId, componentId, componentRecipeId) {
+      const { error: componentError } = await supabase
+        .from("prepared_components")
+        .update(handmadeSourceCorePatch())
+        .eq("company_id", companyId)
+        .eq("id", componentId);
+      if (componentError) throw new Error(componentError.message);
+      if (!componentRecipeId) return;
+      const { error } = await supabase
+        .from("component_recipes")
+        .update(handmadeSourcePatch())
+        .eq("company_id", companyId)
+        .eq("id", componentRecipeId);
+      if (error && errorMentionsColumn(error, "workbook_cost_match")) {
+        const retry = await supabase
+          .from("component_recipes")
+          .update(handmadeSourceCorePatch())
+          .eq("company_id", companyId)
+          .eq("id", componentRecipeId);
+        if (retry.error) throw new Error(retry.error.message);
+        return;
+      }
+      if (error) throw new Error(error.message);
+    },
+
+    async hasWorkbookCostColumns(companyId) {
+      const { error } = await supabase
+        .from("recipes")
+        .select("id, workbook_cost_match")
+        .eq("company_id", companyId)
+        .limit(1);
+      if (!error) return true;
+      if (errorMentionsColumn(error, "workbook_cost_match")) return false;
+      throw new Error(error.message);
     },
   };
 }

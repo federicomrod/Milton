@@ -92,6 +92,81 @@ export function strayNameRowReason(lang: PreferredLanguage): string {
   );
 }
 
+export function handmadeRecipeExistsReason(lang: PreferredLanguage): string {
+  return t(lang, "handmade recipe exists", "la receta fue editada a mano");
+}
+
+export const MISSING_WORKBOOK_COST_MIGRATION_ES =
+  "Falta aplicar la migración 035 en la base de datos. Avísale al equipo técnico.";
+
+export function handmadeNoLongerComparedNote(lang: PreferredLanguage): string {
+  return t(
+    lang,
+    "Edited by hand, no longer compared with the Excel",
+    "Editada a mano, ya no se compara con el Excel"
+  );
+}
+
+export function selfReferenceReason(
+  lang: PreferredLanguage,
+  name: string
+): string {
+  return t(
+    lang,
+    `skipped a self-reference (${name})`,
+    `omití una referencia a sí misma (${name})`
+  );
+}
+
+export function workbookMismatchReason(
+  lang: PreferredLanguage,
+  excelCost: number | null,
+  miltonCost: number | null
+): string {
+  const excel =
+    excelCost == null
+      ? "—"
+      : excelCost.toLocaleString("es-MX", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+  const milton =
+    miltonCost == null
+      ? "—"
+      : miltonCost.toLocaleString("es-MX", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+  return t(
+    lang,
+    `Excel cost ${excel} does not match Milton cost ${milton}`,
+    `el costo del Excel (${excel}) no coincide con el de Milton (${milton})`
+  );
+}
+
+export function workbookMatchHeadline(input: {
+  lang: PreferredLanguage;
+  dishesMatched: number;
+  dishesTotal: number;
+  subsMatched: number;
+  subsTotal: number;
+}): string {
+  const dishes = t(
+    input.lang,
+    `${input.dishesMatched} of ${input.dishesTotal} dishes match the Excel`,
+    `${input.dishesMatched} de ${input.dishesTotal} platillos coinciden con el Excel`
+  );
+  const subs = t(
+    input.lang,
+    `${input.subsMatched} of ${input.subsTotal} sub-recipes match the Excel`,
+    `${input.subsMatched} de ${input.subsTotal} sub-recetas coinciden con el Excel`
+  );
+  if (input.dishesTotal === 0 && input.subsTotal === 0) return "";
+  if (input.dishesTotal === 0) return subs;
+  if (input.subsTotal === 0) return dishes;
+  return `${dishes}. ${subs}.`;
+}
+
 export function uncertainSubRecipeReason(
   lang: PreferredLanguage,
   detail: string

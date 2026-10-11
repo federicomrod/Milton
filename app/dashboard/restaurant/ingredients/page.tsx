@@ -17,6 +17,8 @@ import {
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { IngredientsPage } from "@/components/restaurant/IngredientsPage";
 import { ComingSoonPage } from "@/components/restaurant/ComingSoonPage";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
+import { t } from "@/lib/restaurant/language";
 
 export const dynamic = "force-dynamic";
 
@@ -72,28 +74,48 @@ async function loadIngredients(): Promise<LoadResult> {
 }
 
 export default async function IngredientsRoute() {
-  const result = await loadIngredients();
+  const [{ lang }, result] = await Promise.all([
+    loadRestaurantShellChrome(),
+    loadIngredients(),
+  ]);
   if (result.kind === "data") {
     return (
       <IngredientsPage
         ingredients={result.ingredients}
         suppliers={result.suppliers}
         companyCurrency={result.companyCurrency}
+        lang={lang}
       />
     );
   }
   return (
     <ComingSoonPage
-      title="Ingredients"
+      lang={lang}
+      title={t(lang, "Ingredients", "Ingredientes")}
       icon={Carrot}
-      tagline="Connect your account to a company to start tracking ingredients."
-      description="The Ingredients foundation will load once your account is linked to a company."
+      tagline={t(
+        lang,
+        "Connect your account to a company to start tracking ingredients.",
+        "Conecta tu cuenta a una empresa para registrar ingredientes."
+      )}
+      description={t(
+        lang,
+        "The Ingredients page loads once your account is linked to a company.",
+        "La página de ingredientes carga cuando tu cuenta está ligada a una empresa."
+      )}
       planned={[
-        "Define each ingredient with default unit and category",
-        "Connect ingredients to suppliers (next milestone)",
-        "Use ingredients as inputs to both prepared components and menu recipes",
+        t(
+          lang,
+          "Define each ingredient with default unit and category",
+          "Define cada ingrediente con unidad y categoría"
+        ),
       ]}
-      related={[{ href: "/dashboard/restaurant", label: "Back to live sales" }]}
+      related={[
+        {
+          href: "/dashboard/restaurant",
+          label: t(lang, "Back to live sales", "Volver a las ventas"),
+        },
+      ]}
     />
   );
 }

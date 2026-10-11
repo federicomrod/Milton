@@ -17,6 +17,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowUpDown, ArrowDown, ArrowUp } from "lucide-react";
@@ -43,6 +44,7 @@ const STATUS_TONE: Record<string, StatusTone> = {
   inactive_recipe: "yellow",
   missing_unit_conversion: "red",
   circular_component_reference: "red",
+  workbook_mismatch: "red",
 };
 
 const TONE_BG: Record<StatusTone, string> = {
@@ -60,6 +62,7 @@ const STATUS_LABEL: Record<string, string> = {
   circular_component_reference: "Referencia circular",
   no_cost_entries: "Sin costos",
   inactive_recipe: "Receta inactiva",
+  workbook_mismatch: "No coincide con el Excel",
 };
 
 function buildStatusTitle(row: MenuMarginRow, lang: PreferredLanguage): string {
@@ -359,6 +362,9 @@ export function MenuProfitabilityTable({
                     >
                       {t(lang, "FC %", "Costo %")}
                     </SortableTh>
+                    <th className="px-3 py-3 font-medium">
+                      {t(lang, "Recipe", "Receta")}
+                    </th>
                     <th
                       className="px-3 py-3 font-medium text-center w-10"
                       title={t(lang, "Status", "Estado")}
@@ -434,6 +440,16 @@ export function MenuProfitabilityTable({
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {showCostNumbers ? pct(r.cost.food_cost_pct) : "—"}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Link
+                            href={`/dashboard/restaurant/menu/${r.menu_item_id}`}
+                            className="text-xs font-medium text-orange-700 hover:underline dark:text-orange-300"
+                          >
+                            {r.cost.status === "missing_recipe"
+                              ? t(lang, "Add recipe", "Agregar receta")
+                              : t(lang, "View recipe", "Ver receta")}
+                          </Link>
                         </td>
                         <td className="px-3 py-2 text-center">
                           <StatusDot

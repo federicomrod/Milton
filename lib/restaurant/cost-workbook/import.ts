@@ -1,5 +1,6 @@
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { resolveUnitCell } from "@/lib/restaurant/units";
+import { MISSING_WORKBOOK_COST_MIGRATION_ES } from "./copy";
 import type { WorkbookAi } from "./ai";
 import { classifyCostTabHeuristic } from "./ai";
 import {
@@ -22,6 +23,7 @@ import { layoutKeyForSheet } from "./header";
 import { evaluateWorkbookRow } from "./parse";
 import { dedupeWorkbookRows, persistSavedRows } from "./persist";
 import { linkMenuItemsToPos, persistWorkbookRecipes } from "./persist-recipes";
+import { reconcileImportedWorkbookCosts } from "./workbook-match";
 import { mapPool, WORKBOOK_AI_CONCURRENCY } from "./pool";
 import { matchesPreparedName, preparedNamesFromGroups } from "./prepared";
 import type { CostWorkbookRepo } from "./repo";
@@ -268,6 +270,19 @@ async function resolveTab(input: {
   };
 }
 
+export class MissingWorkbookCostColumnsError extends Error {
+  constructor() {
+    super(MISSING_WORKBOOK_COST_MIGRATION_ES);
+    this.name = "MissingWorkbookCostColumnsError";
+  }
+}
+
+export function isMissingWorkbookCostColumnsError(
+  err: unknown
+): err is MissingWorkbookCostColumnsError {
+  return err instanceof MissingWorkbookCostColumnsError;
+}
+
 export async function importCostWorkbook(input: {
   companyId: string;
   filename: string;
@@ -283,6 +298,9 @@ export async function importCostWorkbook(input: {
   skipDuplicates?: boolean;
   lang?: PreferredLanguage;
 }): Promise<WorkbookImportResult> {
+  if (!(await input.repo.hasWorkbookCostColumns(input.companyId))) {
+    throw new MissingWorkbookCostColumnsError();
+  }
   const sheets =
     input.sheets ?? (input.buffer ? readWorkbookSheets(input.buffer) : []);
   const fileMonth =
@@ -754,6 +772,14 @@ export async function importCostWorkbook(input: {
   skipped.push(...posStats.skipped);
   recipeStats.changes.created_mapping_ids.push(...posStats.mappingIds);
 
+  const recipeMatch = await reconcileImportedWorkbookCosts({
+    companyId: input.companyId,
+    repo: input.repo,
+    groups: recipeGroups,
+    lang,
+    locationId: input.locationId ?? null,
+  });
+
   const reviewItems = await input.repo.insertReviewItems(
     toReview.map((r) => ({
       company_id: input.companyId,
@@ -787,14 +813,19 @@ export async function importCostWorkbook(input: {
   return {
     kind: "workbook",
     batch_id: batch.id,
-    headline: buildImportHeadline({
-      saved,
-      updated,
-      tabs: tabCount,
-      review,
-      skipped: skipped.length,
-      lang: input.lang,
-    }),
+    headline: [
+      buildImportHeadline({
+        saved,
+        updated,
+        tabs: tabCount,
+        review,
+        skipped: skipped.length,
+        lang: input.lang,
+      }),
+      recipeMatch.headline,
+    ]
+      .filter(Boolean)
+      .join(" "),
     imported_count: saved + updated,
     review_count: review,
     tab_count: tabCount,
@@ -830,6 +861,9 @@ export async function importCostWorkbook(input: {
     pos_links_created: posStats.linked,
     restaurant_name: input.restaurantName ?? null,
     location_id: input.locationId ?? null,
+    recipe_match: recipeMatch,
+    pos_unlinked_dishes: posStats.unlinkedDishes,
+    pos_unmatched_names: posStats.unmatchedPosNames,
   };
 }
 

@@ -100,7 +100,7 @@ export default async function MenuRecipesRoute({
     return (
       <>
         {header}
-        <MenuRecipesPage data={result.data} />
+        <MenuRecipesPage data={result.data} lang={lang} />
       </>
     );
   }

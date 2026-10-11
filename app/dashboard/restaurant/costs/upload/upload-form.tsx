@@ -107,6 +107,22 @@ interface WorkbookSummary {
   pos_links_created?: number;
   restaurant_name?: string | null;
   location_id?: string | null;
+  recipe_match?: {
+    dishes_matched: number;
+    dishes_total: number;
+    subs_matched: number;
+    subs_total: number;
+    headline: string;
+    mismatches: Array<{
+      kind: "recipe" | "sub_recipe";
+      name: string;
+      excel_cost: number | null;
+      milton_cost: number | null;
+      reason: string;
+    }>;
+  };
+  pos_unlinked_dishes?: string[];
+  pos_unmatched_names?: string[];
 }
 
 interface UploadError {
@@ -830,6 +846,37 @@ function WorkbookResult({
           <p className="text-sm text-muted-foreground">
             {workbook.skipped_plain}
           </p>
+        ) : null}
+        {workbook.recipe_match?.headline ? (
+          <p className="text-sm font-medium">
+            {workbook.recipe_match.headline}
+          </p>
+        ) : null}
+        {workbook.recipe_match &&
+        workbook.recipe_match.mismatches.length > 0 ? (
+          <div className="rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm space-y-1">
+            <p className="font-medium">
+              {t(
+                lang,
+                "Recipes that do not match the Excel",
+                "Recetas que no coinciden con el Excel"
+              )}
+            </p>
+            <ul className="space-y-1">
+              {workbook.recipe_match.mismatches.map((row) => (
+                <li key={`${row.kind}-${row.name}`}>
+                  <span className="font-medium">{row.name}</span>
+                  {": "}
+                  {t(lang, "Excel", "Excel")}{" "}
+                  {row.excel_cost == null ? "—" : row.excel_cost.toFixed(2)}
+                  {" · Milton "}
+                  {row.milton_cost == null ? "—" : row.milton_cost.toFixed(2)}
+                  {" — "}
+                  {row.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
         <div className="flex flex-wrap gap-2">
           <Button

@@ -51,6 +51,14 @@ export default async function CostsAreaPage({
             </Link>
           </li>
         ))}
+        <li>
+          <Link
+            href="/dashboard/restaurant/menu#prepared"
+            className="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+          >
+            {t(lang, "Prepared items", "Sub-recetas")}
+          </Link>
+        </li>
       </ul>
 
       {profitability ? (

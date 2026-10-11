@@ -8,6 +8,10 @@ import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
 import { RecipeBuilder } from "@/components/restaurant/RecipeBuilder";
 import { ComingSoonPage } from "@/components/restaurant/ComingSoonPage";
+import { fetchMenuRecipesData } from "@/lib/restaurant/menu-recipes-server";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
+import { t } from "@/lib/restaurant/language";
+import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +30,10 @@ interface RecipeRow {
   serving_quantity: number | null;
   serving_unit: string | null;
   notes: string | null;
+  source_type?: string | null;
+  workbook_cost_total?: number | null;
+  workbook_computed_cost?: number | null;
+  workbook_cost_match?: "match" | "mismatch" | null;
 }
 
 interface InputRow {
@@ -59,6 +67,7 @@ type LoadResult =
       inputs: InputRow[];
       ingredients: IngredientOption[];
       components: ComponentOption[];
+      cost: import("@/types/restaurant-costing").MenuItemCostResult | null;
     }
   | { kind: "no-company" }
   | { kind: "not-found" }
@@ -82,12 +91,30 @@ async function loadMenuItem(menuItemId: string): Promise<LoadResult> {
           .eq("company_id", companyId)
           .eq("id", menuItemId)
           .maybeSingle(),
-        supabase
-          .from("recipes")
-          .select("id, status, serving_quantity, serving_unit, notes")
-          .eq("company_id", companyId)
-          .eq("menu_item_id", menuItemId)
-          .maybeSingle(),
+        (async () => {
+          const full = await supabase
+            .from("recipes")
+            .select(
+              "id, status, serving_quantity, serving_unit, notes, source_type, workbook_cost_total, workbook_computed_cost, workbook_cost_match"
+            )
+            .eq("company_id", companyId)
+            .eq("menu_item_id", menuItemId)
+            .maybeSingle();
+          if (
+            full.error &&
+            errorMentionsColumn(full.error, "workbook_cost_total")
+          ) {
+            return supabase
+              .from("recipes")
+              .select(
+                "id, status, serving_quantity, serving_unit, notes, source_type"
+              )
+              .eq("company_id", companyId)
+              .eq("menu_item_id", menuItemId)
+              .maybeSingle();
+          }
+          return full;
+        })(),
         supabase
           .from("ingredients")
           .select("id, name, default_unit")
@@ -118,6 +145,12 @@ async function loadMenuItem(menuItemId: string): Promise<LoadResult> {
       inputs = (data ?? []) as InputRow[];
     }
 
+    const catalog = await fetchMenuRecipesData(supabase, companyId, {
+      posRows: [],
+    });
+    const cost =
+      catalog.menuItems.find((row) => row.id === menuItem.id)?.cost ?? null;
+
     return {
       kind: "data",
       menuItem,
@@ -125,6 +158,7 @@ async function loadMenuItem(menuItemId: string): Promise<LoadResult> {
       inputs,
       ingredients: (ingredientsRes.data ?? []) as IngredientOption[],
       components: (componentsRes.data ?? []) as ComponentOption[],
+      cost,
     };
   } catch (err) {
     console.error("[menu/[id]] failed:", err);
@@ -138,7 +172,10 @@ export default async function MenuItemDetailRoute({
   params: Promise<{ id: string }>;
 }) {
   const { id: menuItemId } = await params;
-  const result = await loadMenuItem(menuItemId);
+  const [{ lang }, result] = await Promise.all([
+    loadRestaurantShellChrome(),
+    loadMenuItem(menuItemId),
+  ]);
 
   if (result.kind === "not-found") return notFound();
 
@@ -150,31 +187,69 @@ export default async function MenuItemDetailRoute({
         inputs={result.inputs}
         ingredients={result.ingredients}
         components={result.components}
+        lang={lang}
+        cost={result.cost}
+        workbook={
+          result.recipe
+            ? {
+                excel_cost: result.recipe.workbook_cost_total ?? null,
+                milton_cost: result.recipe.workbook_computed_cost ?? null,
+                match: result.recipe.workbook_cost_match ?? null,
+                source_type: result.recipe.source_type ?? null,
+              }
+            : null
+        }
       />
     );
   }
   if (result.kind === "no-company") {
     return (
       <ComingSoonPage
-        title="Menu item"
+        lang={lang}
+        title={t(lang, "Menu item", "Platillo")}
         icon={BookOpen}
-        tagline="Connect your account to a company to edit recipes."
-        description="The recipe builder loads once your account is linked to a company."
+        tagline={t(
+          lang,
+          "Connect your account to a company to edit recipes.",
+          "Conecta tu cuenta a una empresa para editar recetas."
+        )}
+        description={t(
+          lang,
+          "The recipe builder loads once your account is linked to a company.",
+          "El editor de recetas carga cuando tu cuenta está ligada a una empresa."
+        )}
         planned={[]}
         related={[
-          { href: "/dashboard/restaurant/menu", label: "Back to Menu" },
+          {
+            href: "/dashboard/restaurant/menu",
+            label: t(lang, "Back to Menu", "Volver al menú"),
+          },
         ]}
       />
     );
   }
   return (
     <ComingSoonPage
-      title="Menu item"
+      lang={lang}
+      title={t(lang, "Menu item", "Platillo")}
       icon={BookOpen}
-      tagline="Could not load this menu item."
-      description="The detail page hit an error. If you just ran migration 004, refresh the page."
+      tagline={t(
+        lang,
+        "Could not load this menu item.",
+        "No se pudo cargar este platillo."
+      )}
+      description={t(
+        lang,
+        "The detail page hit an error. Refresh and try again.",
+        "La página falló. Recarga e inténtalo de nuevo."
+      )}
       planned={[]}
-      related={[{ href: "/dashboard/restaurant/menu", label: "Back to Menu" }]}
+      related={[
+        {
+          href: "/dashboard/restaurant/menu",
+          label: t(lang, "Back to Menu", "Volver al menú"),
+        },
+      ]}
     />
   );
 }

@@ -19,6 +19,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
+import type { MenuItemCostResult } from "@/types/restaurant-costing";
+import { WorkbookCostPanel } from "@/components/restaurant/WorkbookCostPanel";
 
 type InputType = "ingredient" | "component";
 
@@ -79,12 +86,23 @@ export function RecipeBuilder({
   inputs: persistedInputs,
   ingredients,
   components,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  cost = null,
+  workbook = null,
 }: {
   menuItem: MenuItem;
   recipe: Recipe | null;
   inputs: PersistedInput[];
   ingredients: IngredientOption[];
   components: ComponentOption[];
+  lang?: PreferredLanguage;
+  cost?: MenuItemCostResult | null;
+  workbook?: {
+    excel_cost: number | null;
+    milton_cost: number | null;
+    match: "match" | "mismatch" | null;
+    source_type: string | null;
+  } | null;
 }) {
   const router = useRouter();
 
@@ -167,14 +185,22 @@ export function RecipeBuilder({
       if (row.input_type === "ingredient" && !row.ingredient_id) {
         setSaveResult({
           kind: "error",
-          message: "Pick an ingredient for every ingredient row.",
+          message: t(
+            lang,
+            "Pick an ingredient for every ingredient row.",
+            "Elige un ingrediente en cada fila de ingrediente."
+          ),
         });
         return;
       }
       if (row.input_type === "component" && !row.component_id) {
         setSaveResult({
           kind: "error",
-          message: "Pick a component for every component row.",
+          message: t(
+            lang,
+            "Pick a component for every component row.",
+            "Elige un preparado en cada fila de sub-receta."
+          ),
         });
         return;
       }
@@ -182,12 +208,23 @@ export function RecipeBuilder({
       if (!Number.isFinite(q) || q <= 0) {
         setSaveResult({
           kind: "error",
-          message: "Every row needs a positive quantity.",
+          message: t(
+            lang,
+            "Every row needs a positive quantity.",
+            "Cada fila necesita una cantidad positiva."
+          ),
         });
         return;
       }
       if (!row.unit.trim()) {
-        setSaveResult({ kind: "error", message: "Every row needs a unit." });
+        setSaveResult({
+          kind: "error",
+          message: t(
+            lang,
+            "Every row needs a unit.",
+            "Cada fila necesita una unidad."
+          ),
+        });
         return;
       }
     }
@@ -268,7 +305,7 @@ export function RecipeBuilder({
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Back to Menu & Recipes
+          {t(lang, "Back to Menu & Recipes", "Volver a Menú y recetas")}
         </Link>
 
         <div className="flex items-center gap-3 flex-wrap">
@@ -288,25 +325,37 @@ export function RecipeBuilder({
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Recipe</CardTitle>
+            <CardTitle className="text-sm">
+              {t(lang, "Recipe", "Receta")}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <WorkbookCostPanel
+              lang={lang}
+              currency={menuItem.currency}
+              cost={cost}
+              workbook={workbook}
+            />
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Status</span>
+                <span className="text-xs text-muted-foreground">
+                  {t(lang, "Status", "Estado")}
+                </span>
                 <select
                   value={status}
                   onChange={(e) => setStatus(e.target.value as typeof status)}
                   className="h-9 rounded-md border border-border bg-background px-2 text-sm"
                 >
-                  <option value="draft">draft</option>
-                  <option value="active">active</option>
-                  <option value="archived">archived</option>
+                  <option value="draft">{t(lang, "draft", "borrador")}</option>
+                  <option value="active">{t(lang, "active", "activa")}</option>
+                  <option value="archived">
+                    {t(lang, "archived", "archivada")}
+                  </option>
                 </select>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-muted-foreground">
-                  Serving qty
+                  {t(lang, "Serving qty", "Cantidad por porción")}
                 </span>
                 <Input
                   type="number"
@@ -319,7 +368,7 @@ export function RecipeBuilder({
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-muted-foreground">
-                  Serving unit
+                  {t(lang, "Serving unit", "Unidad de la porción")}
                 </span>
                 <Input
                   value={servingUnit}
@@ -329,7 +378,9 @@ export function RecipeBuilder({
                 />
               </label>
               <label className="flex flex-col gap-1 md:col-span-1">
-                <span className="text-xs text-muted-foreground">Notes</span>
+                <span className="text-xs text-muted-foreground">
+                  {t(lang, "Notes", "Notas")}
+                </span>
                 <Input
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
@@ -342,7 +393,9 @@ export function RecipeBuilder({
             {/* Inputs */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Inputs</h3>
+                <h3 className="text-sm font-semibold">
+                  {t(lang, "Inputs", "Insumos")}
+                </h3>
                 <div className="flex gap-2">
                   <Button
                     size="sm"
@@ -352,12 +405,20 @@ export function RecipeBuilder({
                     disabled={ingredients.length === 0}
                     title={
                       ingredients.length === 0
-                        ? "Create at least one ingredient first"
-                        : "Add an ingredient row"
+                        ? t(
+                            lang,
+                            "Create at least one ingredient first",
+                            "Primero crea al menos un ingrediente"
+                          )
+                        : t(
+                            lang,
+                            "Add an ingredient row",
+                            "Agregar un ingrediente"
+                          )
                     }
                   >
                     <Plus className="h-3.5 w-3.5" />
-                    Ingredient
+                    {t(lang, "Ingredient", "Ingrediente")}
                   </Button>
                   <Button
                     size="sm"
@@ -367,20 +428,31 @@ export function RecipeBuilder({
                     disabled={components.length === 0}
                     title={
                       components.length === 0
-                        ? "Create at least one component first"
-                        : "Add a component row"
+                        ? t(
+                            lang,
+                            "Create at least one component first",
+                            "Primero crea al menos una sub-receta"
+                          )
+                        : t(
+                            lang,
+                            "Add a component row",
+                            "Agregar una sub-receta"
+                          )
                     }
                   >
                     <Plus className="h-3.5 w-3.5" />
-                    Component
+                    {t(lang, "Component", "Sub-receta")}
                   </Button>
                 </div>
               </div>
 
               {drafts.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No inputs yet. Add ingredients and/or prepared components
-                  above.
+                  {t(
+                    lang,
+                    "No inputs yet. Add ingredients and/or prepared components above.",
+                    "Todavía no hay insumos. Agrega ingredientes o sub-recetas arriba."
+                  )}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -390,6 +462,7 @@ export function RecipeBuilder({
                       row={row}
                       ingredients={ingredients}
                       components={components}
+                      lang={lang}
                       onChange={(patch) => updateRow(row.uid, patch)}
                       onRemove={() => removeRow(row.uid)}
                     />
@@ -406,11 +479,13 @@ export function RecipeBuilder({
                 className="gap-1"
               >
                 <Save className="h-4 w-4" />
-                {saving ? "Saving…" : "Save recipe"}
+                {saving
+                  ? t(lang, "Saving…", "Guardando…")
+                  : t(lang, "Save recipe", "Guardar receta")}
               </Button>
               {saveResult.kind === "ok" && (
                 <span className="text-sm text-green-700 dark:text-green-300">
-                  Recipe saved.
+                  {t(lang, "Recipe saved.", "Receta guardada.")}
                 </span>
               )}
               {saveResult.kind === "error" && (
@@ -419,7 +494,11 @@ export function RecipeBuilder({
                 </span>
               )}
               <span className="text-xs text-muted-foreground">
-                Replaces the full input list for this menu item.
+                {t(
+                  lang,
+                  "Replaces the full input list for this menu item. Saving an imported recipe protects it from the next workbook upload.",
+                  "Reemplaza toda la lista de insumos de este platillo. Si guardas una receta importada, un nuevo Excel no la va a pisar."
+                )}
               </span>
             </div>
           </CardContent>
@@ -433,19 +512,23 @@ function RecipeInputRow({
   row,
   ingredients,
   components,
+  lang,
   onChange,
   onRemove,
 }: {
   row: DraftInput;
   ingredients: IngredientOption[];
   components: ComponentOption[];
+  lang: PreferredLanguage;
   onChange: (patch: Partial<DraftInput>) => void;
   onRemove: () => void;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end rounded-md border border-border p-3 bg-muted/20">
       <label className="flex flex-col gap-1 md:col-span-2">
-        <span className="text-xs text-muted-foreground">Type</span>
+        <span className="text-xs text-muted-foreground">
+          {t(lang, "Type", "Tipo")}
+        </span>
         <select
           value={row.input_type}
           onChange={(e) => {
@@ -472,13 +555,19 @@ function RecipeInputRow({
           }}
           className="h-9 rounded-md border border-border bg-background px-2 text-sm"
         >
-          <option value="ingredient">Ingredient</option>
-          <option value="component">Component</option>
+          <option value="ingredient">
+            {t(lang, "Ingredient", "Ingrediente")}
+          </option>
+          <option value="component">
+            {t(lang, "Component", "Sub-receta")}
+          </option>
         </select>
       </label>
 
       <label className="flex flex-col gap-1 md:col-span-4">
-        <span className="text-xs text-muted-foreground">Source</span>
+        <span className="text-xs text-muted-foreground">
+          {t(lang, "Source", "Origen")}
+        </span>
         {row.input_type === "ingredient" ? (
           <select
             value={row.ingredient_id ?? ""}
@@ -488,7 +577,9 @@ function RecipeInputRow({
             className="h-9 rounded-md border border-border bg-background px-2 text-sm"
           >
             {ingredients.length === 0 && (
-              <option value="">No ingredients</option>
+              <option value="">
+                {t(lang, "No ingredients", "Sin ingredientes")}
+              </option>
             )}
             {ingredients.map((i) => (
               <option key={i.id} value={i.id}>
@@ -503,7 +594,11 @@ function RecipeInputRow({
             onChange={(e) => onChange({ component_id: e.target.value || null })}
             className="h-9 rounded-md border border-border bg-background px-2 text-sm"
           >
-            {components.length === 0 && <option value="">No components</option>}
+            {components.length === 0 && (
+              <option value="">
+                {t(lang, "No components", "Sin sub-recetas")}
+              </option>
+            )}
             {components.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({c.output_unit}) · {c.status}
@@ -514,7 +609,9 @@ function RecipeInputRow({
       </label>
 
       <label className="flex flex-col gap-1 md:col-span-2">
-        <span className="text-xs text-muted-foreground">Quantity</span>
+        <span className="text-xs text-muted-foreground">
+          {t(lang, "Quantity", "Cantidad")}
+        </span>
         <Input
           type="number"
           min={0}
@@ -526,7 +623,9 @@ function RecipeInputRow({
       </label>
 
       <label className="flex flex-col gap-1 md:col-span-2">
-        <span className="text-xs text-muted-foreground">Unit</span>
+        <span className="text-xs text-muted-foreground">
+          {t(lang, "Unit", "Unidad")}
+        </span>
         <Input
           value={row.unit}
           onChange={(e) => onChange({ unit: e.target.value })}
@@ -535,7 +634,9 @@ function RecipeInputRow({
       </label>
 
       <label className="flex flex-col gap-1 md:col-span-1">
-        <span className="text-xs text-muted-foreground">Notes</span>
+        <span className="text-xs text-muted-foreground">
+          {t(lang, "Notes", "Notas")}
+        </span>
         <Input
           value={row.notes}
           onChange={(e) => onChange({ notes: e.target.value })}
@@ -549,7 +650,7 @@ function RecipeInputRow({
           size="sm"
           variant="ghost"
           onClick={onRemove}
-          aria-label="Remove row"
+          aria-label={t(lang, "Remove row", "Quitar fila")}
           className="text-muted-foreground hover:text-red-700"
         >
           <Trash2 className="h-4 w-4" />

@@ -10,6 +10,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import {
+  errorMentionsColumn,
+  omitColumn,
+} from "@/lib/restaurant/missing-schema-column";
+import {
+  handmadeSourceCorePatch,
+  handmadeSourcePatch,
+} from "@/lib/restaurant/protect-imported-recipe";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -261,36 +269,82 @@ export async function PUT(
         output_unit: outputUnit,
         yield_percentage: yieldPercentage,
         status,
+        ...handmadeSourcePatch(),
       })
       .eq("id", recipeId);
-    if (error) {
+    if (error && errorMentionsColumn(error, "workbook_cost_match")) {
+      const retry = await auth.supabase
+        .from("component_recipes")
+        .update({
+          name: recipeName,
+          output_quantity: outputQuantity,
+          output_unit: outputUnit,
+          yield_percentage: yieldPercentage,
+          status,
+          ...handmadeSourceCorePatch(),
+        })
+        .eq("id", recipeId);
+      if (retry.error) {
+        console.error("[recipes/component PUT update]", retry.error);
+        return NextResponse.json(pgErr("Recipe update failed", retry.error), {
+          status: 500,
+        });
+      }
+    } else if (error) {
       console.error("[recipes/component PUT update]", error);
       return NextResponse.json(pgErr("Recipe update failed", error), {
         status: 500,
       });
     }
   } else {
+    const insertBody = {
+      company_id: auth.companyId,
+      component_id: componentId,
+      name: recipeName,
+      output_quantity: outputQuantity,
+      output_unit: outputUnit,
+      yield_percentage: yieldPercentage,
+      status,
+      ...handmadeSourcePatch(),
+    };
     const { data: created, error } = await auth.supabase
       .from("component_recipes")
-      .insert({
-        company_id: auth.companyId,
-        component_id: componentId,
-        name: recipeName,
-        output_quantity: outputQuantity,
-        output_unit: outputUnit,
-        yield_percentage: yieldPercentage,
-        status,
-      })
+      .insert(insertBody)
       .select("id")
       .single();
-    if (error || !created) {
+    if (error && errorMentionsColumn(error, "workbook_cost_match")) {
+      const retry = await auth.supabase
+        .from("component_recipes")
+        .insert(
+          omitColumn(
+            omitColumn(insertBody, "workbook_cost_match"),
+            "workbook_computed_cost"
+          )
+        )
+        .select("id")
+        .single();
+      if (retry.error || !retry.data) {
+        console.error("[recipes/component PUT insert]", retry.error);
+        return NextResponse.json(pgErr("Recipe insert failed", retry.error), {
+          status: 500,
+        });
+      }
+      recipeId = retry.data.id;
+    } else if (error || !created) {
       console.error("[recipes/component PUT insert]", error);
       return NextResponse.json(pgErr("Recipe insert failed", error), {
         status: 500,
       });
+    } else {
+      recipeId = created.id;
     }
-    recipeId = created.id;
   }
+
+  await auth.supabase
+    .from("prepared_components")
+    .update(handmadeSourceCorePatch())
+    .eq("company_id", auth.companyId)
+    .eq("id", componentId);
 
   // ---- Replace inputs ---------------------------------------------------
   const { error: delErr } = await auth.supabase

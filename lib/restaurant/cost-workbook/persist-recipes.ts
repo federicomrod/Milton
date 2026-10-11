@@ -1,7 +1,10 @@
 import { nameKey } from "@/lib/restaurant/cost-import";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { isImportProtectedSource } from "@/lib/restaurant/protect-imported-recipe";
 import { isSubRecipePortionUnit } from "@/lib/restaurant/units";
 import {
+  handmadeRecipeExistsReason,
+  selfReferenceReason,
   uncertainSubRecipeReason,
   unknownIngredientReason,
   unknownUnitReason,
@@ -33,9 +36,31 @@ export function resolveCatalogInput(
   ingredients: Array<{ id: string; name: string }>,
   components: Array<{ id: string; name: string }>,
   aliases: Map<string, string> = new Map(),
-  lang: PreferredLanguage = "en"
+  lang: PreferredLanguage = "en",
+  parentName?: string
 ): { ok: true; input: RecipeInputSnapshot } | { ok: false; reason: string } {
   const resolvedName = resolveAliasName(lineName, aliases);
+  if (parentName && nameKey(lineName) === nameKey(parentName)) {
+    const exactIngredient = ingredients.find(
+      (item) =>
+        nameKey(item.name) === nameKey(lineName) ||
+        nameKey(item.name) === nameKey(resolvedName)
+    );
+    if (exactIngredient) {
+      return {
+        ok: true,
+        input: {
+          input_type: "ingredient",
+          ingredient_id: exactIngredient.id,
+          component_id: null,
+          quantity: 0,
+          unit: "",
+          notes: null,
+        },
+      };
+    }
+    return { ok: false, reason: selfReferenceReason(lang, lineName) };
+  }
   const exactComponents = components.filter(
     (item) =>
       nameKey(item.name) === nameKey(lineName) ||
@@ -125,7 +150,7 @@ export function resolveCatalogInput(
   return { ok: false, reason: unknownIngredientReason(lang, lineName) };
 }
 
-function withQty(
+export function withQty(
   input: RecipeInputSnapshot,
   line: RecipeLineCandidate
 ): RecipeInputSnapshot {
@@ -136,8 +161,24 @@ function withQty(
   };
 }
 
+/** Pick the restaurant-scoped menu item when the schema has location_id. */
+export function pickMenuItemForLocation<
+  T extends { name: string; location_id?: string | null },
+>(items: T[], name: string, locationId?: string | null): T | undefined {
+  const key = nameKey(name);
+  const sameName = items.filter((row) => nameKey(row.name) === key);
+  if (sameName.length === 0) return undefined;
+  if (locationId) {
+    return (
+      sameName.find((row) => row.location_id === locationId) ??
+      sameName.find((row) => row.location_id == null)
+    );
+  }
+  return sameName.find((row) => row.location_id == null) ?? sameName[0];
+}
+
 function isImported(sourceType: string | null | undefined): boolean {
-  return sourceType === "import";
+  return !isImportProtectedSource(sourceType);
 }
 
 export async function persistWorkbookRecipes(input: {
@@ -201,15 +242,18 @@ export async function persistWorkbookRecipes(input: {
   const lang = input.lang ?? "en";
   const resolveGroup = (group: GroupedRecipe): RecipeInputSnapshot[] | null => {
     const inputs: RecipeInputSnapshot[] = [];
+    let incomplete = Boolean(group.incomplete_lines);
     for (const line of group.lines) {
       const resolved = resolveCatalogInput(
         line.ingredient_name,
         liveIngredients,
         liveComponents,
         input.aliases ?? new Map(),
-        lang
+        lang,
+        group.name
       );
       if (!resolved.ok) {
+        incomplete = true;
         review.push({
           tabName: line.tabName,
           rowIndex: line.rowIndex,
@@ -226,6 +270,7 @@ export async function persistWorkbookRecipes(input: {
       const rawUnit = rawLineUnit(line);
       if (isSubRecipePortionUnit(rawUnit)) {
         if (resolved.input.input_type !== "component") {
+          incomplete = true;
           review.push({
             tabName: line.tabName,
             rowIndex: line.rowIndex,
@@ -239,10 +284,35 @@ export async function persistWorkbookRecipes(input: {
           });
           continue;
         }
+        const componentId = resolved.input.component_id;
+        const yieldRecipe = componentId
+          ? componentRecipeByComponentId.get(componentId)
+          : undefined;
+        if (
+          yieldRecipe &&
+          yieldRecipe.output_quantity > 0 &&
+          yieldRecipe.output_unit
+        ) {
+          // 1 ORDEN / CONVOY is one plated prep of the sub-recipe: the
+          // Excel unit cost is that sub's COSTO TOTAL, not cost-per-lb.
+          // Storing qty × yield in the yield unit makes Milton's portion
+          // cost equal N × batch (see DEDOS DE QUESO / GUARNICION 1).
+          inputs.push(
+            withQty(resolved.input, {
+              ...line,
+              quantity: line.quantity * yieldRecipe.output_quantity,
+              unit: yieldRecipe.output_unit,
+            })
+          );
+          continue;
+        }
         inputs.push(withQty(resolved.input, { ...line, unit: "portion" }));
         continue;
       }
       inputs.push(withQty(resolved.input, line));
+    }
+    if (incomplete) {
+      return null;
     }
     if (inputs.length === 0) {
       skipped.push({
@@ -261,7 +331,6 @@ export async function persistWorkbookRecipes(input: {
 
   for (const group of subGroups) {
     const inputs = resolveGroup(group);
-    if (!inputs) continue;
     const yieldResult = resolveSubRecipeYield(group, lang);
     if (!yieldResult.ok) {
       review.push({
@@ -273,12 +342,13 @@ export async function persistWorkbookRecipes(input: {
       });
       continue;
     }
+    if (!inputs) continue;
     const existing = componentByName.get(nameKey(group.name));
     if (existing && !isImported(existing.source_type)) {
       skipped.push({
         tabName: group.tabName,
         rowIndex: 0,
-        reason: "handmade recipe exists",
+        reason: handmadeRecipeExistsReason(lang),
         raw: { recipe: group.name },
       });
       continue;
@@ -369,7 +439,7 @@ export async function persistWorkbookRecipes(input: {
       skipped.push({
         tabName: group.tabName,
         rowIndex: 0,
-        reason: "handmade recipe exists",
+        reason: handmadeRecipeExistsReason(lang),
         raw: { recipe: group.name },
       });
       continue;
@@ -439,9 +509,18 @@ export async function linkMenuItemsToPos(input: {
   review: ReviewCandidate[];
   skipped: SkipCandidate[];
   mappingIds: string[];
+  unlinkedDishes: string[];
+  unmatchedPosNames: string[];
 }> {
   if (input.menuItems.length === 0) {
-    return { linked: 0, review: [], skipped: [], mappingIds: [] };
+    return {
+      linked: 0,
+      review: [],
+      skipped: [],
+      mappingIds: [],
+      unlinkedDishes: [],
+      unmatchedPosNames: [],
+    };
   }
   const [posNames, existing] = await Promise.all([
     input.repo.listDistinctPosItemNames(
@@ -451,6 +530,7 @@ export async function linkMenuItemsToPos(input: {
     input.repo.listPosMappings(input.companyId),
   ]);
   const mapped = new Set(existing.map((row) => row.raw_pos_item_name));
+  const alreadyLinkedMenuIds = new Set(existing.map((row) => row.menu_item_id));
   const review: ReviewCandidate[] = [];
   const skipped: SkipCandidate[] = [];
   const toCreate: Array<{ rawPosItemName: string; menuItemId: string }> = [];
@@ -484,11 +564,24 @@ export async function linkMenuItemsToPos(input: {
     }))
   );
 
+  const newlyLinked = new Set(toCreate.map((row) => row.menuItemId));
+  const unlinkedDishes = input.menuItems
+    .filter(
+      (item) => !alreadyLinkedMenuIds.has(item.id) && !newlyLinked.has(item.id)
+    )
+    .map((item) => item.name);
+  const unmatchedPosNames = posNames.filter((posName) => {
+    if (mapped.has(posName)) return false;
+    return !toCreate.some((row) => row.rawPosItemName === posName);
+  });
+
   return {
     linked: created.length,
     review,
     skipped,
     mappingIds: created.map((row) => row.id),
+    unlinkedDishes,
+    unmatchedPosNames,
   };
 }
 

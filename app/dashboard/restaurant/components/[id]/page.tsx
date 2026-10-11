@@ -13,6 +13,10 @@ import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
 import { ComponentRecipeBuilder } from "@/components/restaurant/ComponentRecipeBuilder";
 import { ComingSoonPage } from "@/components/restaurant/ComingSoonPage";
+import { fetchMenuRecipesData } from "@/lib/restaurant/menu-recipes-server";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
+import { t } from "@/lib/restaurant/language";
+import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +35,10 @@ interface RecipeRow {
   output_unit: string | null;
   yield_percentage: number | null;
   status: string | null;
+  source_type?: string | null;
+  workbook_cost_total?: number | null;
+  workbook_computed_cost?: number | null;
+  workbook_cost_match?: "match" | "mismatch" | null;
 }
 
 interface InputRow {
@@ -64,6 +72,7 @@ type LoadResult =
       inputs: InputRow[];
       ingredients: IngredientOption[];
       components: ComponentOption[];
+      cost: import("@/types/restaurant-costing").ComponentCostResult | null;
     }
   | { kind: "no-company" }
   | { kind: "not-found" }
@@ -87,14 +96,30 @@ async function loadComponent(componentId: string): Promise<LoadResult> {
           .eq("company_id", companyId)
           .eq("id", componentId)
           .maybeSingle(),
-        supabase
-          .from("component_recipes")
-          .select(
-            "id, name, output_quantity, output_unit, yield_percentage, status"
-          )
-          .eq("company_id", companyId)
-          .eq("component_id", componentId)
-          .maybeSingle(),
+        (async () => {
+          const full = await supabase
+            .from("component_recipes")
+            .select(
+              "id, name, output_quantity, output_unit, yield_percentage, status, source_type, workbook_cost_total, workbook_computed_cost, workbook_cost_match"
+            )
+            .eq("company_id", companyId)
+            .eq("component_id", componentId)
+            .maybeSingle();
+          if (
+            full.error &&
+            errorMentionsColumn(full.error, "workbook_cost_total")
+          ) {
+            return supabase
+              .from("component_recipes")
+              .select(
+                "id, name, output_quantity, output_unit, yield_percentage, status, source_type"
+              )
+              .eq("company_id", companyId)
+              .eq("component_id", componentId)
+              .maybeSingle();
+          }
+          return full;
+        })(),
         supabase
           .from("ingredients")
           .select("id, name, default_unit")
@@ -127,6 +152,12 @@ async function loadComponent(componentId: string): Promise<LoadResult> {
       inputs = (data ?? []) as InputRow[];
     }
 
+    const catalog = await fetchMenuRecipesData(supabase, companyId, {
+      posRows: [],
+    });
+    const cost =
+      catalog.components.find((row) => row.id === component.id)?.cost ?? null;
+
     return {
       kind: "data",
       component,
@@ -134,6 +165,7 @@ async function loadComponent(componentId: string): Promise<LoadResult> {
       inputs,
       ingredients: (ingredientsRes.data ?? []) as IngredientOption[],
       components: (componentsRes.data ?? []) as ComponentOption[],
+      cost,
     };
   } catch (err) {
     console.error("[components/[id]] failed:", err);
@@ -147,7 +179,10 @@ export default async function ComponentRecipeRoute({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const result = await loadComponent(id);
+  const [{ lang }, result] = await Promise.all([
+    loadRestaurantShellChrome(),
+    loadComponent(id),
+  ]);
 
   if (result.kind === "not-found") return notFound();
 
@@ -159,21 +194,51 @@ export default async function ComponentRecipeRoute({
         inputs={result.inputs}
         ingredients={result.ingredients}
         components={result.components}
+        lang={lang}
+        cost={result.cost}
+        workbook={
+          result.recipe
+            ? {
+                excel_cost: result.recipe.workbook_cost_total ?? null,
+                milton_cost: result.recipe.workbook_computed_cost ?? null,
+                match: result.recipe.workbook_cost_match ?? null,
+                source_type: result.recipe.source_type ?? null,
+              }
+            : null
+        }
       />
     );
   }
   return (
     <ComingSoonPage
-      title="Component"
+      lang={lang}
+      title={t(lang, "Component", "Sub-receta")}
       icon={Sparkles}
       tagline={
         result.kind === "no-company"
-          ? "Connect your account to a company to edit component recipes."
-          : "Could not load this component."
+          ? t(
+              lang,
+              "Connect your account to a company to edit component recipes.",
+              "Conecta tu cuenta a una empresa para editar sub-recetas."
+            )
+          : t(
+              lang,
+              "Could not load this component.",
+              "No se pudo cargar esta sub-receta."
+            )
       }
-      description="The component recipe builder loads once your account is linked to a company and migration 004+006 have been applied."
+      description={t(
+        lang,
+        "The component recipe builder loads once your account is linked to a company.",
+        "El editor de sub-recetas carga cuando tu cuenta está ligada a una empresa."
+      )}
       planned={[]}
-      related={[{ href: "/dashboard/restaurant/menu", label: "Back to Menu" }]}
+      related={[
+        {
+          href: "/dashboard/restaurant/menu",
+          label: t(lang, "Back to Menu", "Volver al menú"),
+        },
+      ]}
     />
   );
 }

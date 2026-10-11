@@ -98,19 +98,20 @@ export async function loadSalesPageModel(
     return { ...base, sales: null };
   }
 
+  const scope = fast.scope;
   const period = resolveCockpitPeriod(periodPreset, fast.cockpit.period_to);
   if (!period) {
-    finish({ source: "no-period", location: fast.scope.locationId });
+    finish({ source: "no-period", location: scope.locationId });
     return { ...base, sales: null };
   }
 
   const pos = await timeCockpitStep(
     "sales-pos-rows",
-    () => loadCachedPosSalesRows(fast.scope.companyId, fast.scope.locationId),
-    { location: fast.scope.locationId }
+    () => loadCachedPosSalesRows(scope.companyId, scope.locationId),
+    { location: scope.locationId }
   );
   if (pos.error) {
-    finish({ source: "pos-error", location: fast.scope.locationId });
+    finish({ source: "pos-error", location: scope.locationId });
     return { ...base, sales: null };
   }
 
@@ -128,8 +129,8 @@ export async function loadSalesPageModel(
   });
   const phrases = cockpitComparisonPhrases(period, fast.lang);
   const interpretationCacheKey = cockpitInsightCacheKey({
-    companyId: `sales:${fast.scope.companyId}`,
-    locationId: fast.scope.locationId,
+    companyId: `sales:${scope.companyId}`,
+    locationId: scope.locationId,
     preset: period.preset,
     from: period.current.from,
     to: period.current.to,
@@ -147,7 +148,7 @@ export async function loadSalesPageModel(
     source: "live",
     rows: pos.rows.length,
     filtered: filtered.length,
-    location: fast.scope.locationId,
+    location: scope.locationId,
   });
   return {
     ...base,

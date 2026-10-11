@@ -21,7 +21,9 @@ describe("cockpit timing (#134)", () => {
     const rollup = read("lib/restaurant/cockpit-pos-rollup.ts");
     const proxy = read("proxy.ts");
     const sales = read("app/dashboard/restaurant/sales/page.tsx");
-    const salesDetalle = read("app/dashboard/restaurant/sales/detalle/page.tsx");
+    const salesDetalle = read(
+      "app/dashboard/restaurant/sales/detalle/page.tsx"
+    );
     const salesPageData = read("lib/restaurant/sales-page-data.ts");
     const menu = read("app/dashboard/restaurant/menu/page.tsx");
     const costs = read("app/dashboard/restaurant/costs/page.tsx");
@@ -36,7 +38,7 @@ describe("cockpit timing (#134)", () => {
     expect(pageData).toContain('timeCockpitStep("costs"');
     expect(sales).toMatch(/timeCockpitStep\(\s*"sales-route"/);
     expect(salesDetalle).toMatch(/timeCockpitStep\(\s*"sales-detalle-route"/);
-    expect(salesPageData).toContain('timeCockpitStep("sales-pos-rows"');
+    expect(salesPageData).toMatch(/timeCockpitStep\(\s*"sales-pos-rows"/);
     expect(salesPageData).toContain('logCockpitTiming("sales-page"');
     expect(menu).toContain('timeCockpitStep("menu-pos"');
     expect(costs).toMatch(/timeCockpitStep\(\s*"costs-route"/);

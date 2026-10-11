@@ -119,10 +119,14 @@ describe("Spanish completeness for Sales (#130)", () => {
     const explore = read("components/restaurant/sales/SalesExplore.tsx");
     const highlights = read("components/restaurant/sales/SalesHighlights.tsx");
     const chrome = read("components/restaurant/sales/SalesPageChrome.tsx");
+    const periodAsk = read(
+      "components/restaurant/sales/SalesPeriodAskButton.tsx"
+    );
     expect(highlights).toContain("Lo que destaca");
     expect(highlights).not.toContain("Preguntar a Milton");
     expect(highlights).not.toContain("openAskMilton");
-    expect(chrome).toContain("Preguntar a Milton sobre este periodo");
+    expect(chrome).toContain("SalesPeriodAskButton");
+    expect(periodAsk).toContain("Preguntar a Milton sobre este periodo");
     expect(understand).toContain("Ventas netas");
     expect(understand).toContain("Cuándo se vende");
     expect(understand).toContain("sales-ask-milton-heatmap");

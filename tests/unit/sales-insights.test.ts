@@ -182,7 +182,10 @@ describe("per-day averages beat raw totals (4 Mondays $1,000 vs 5 Fridays $900)"
     expect(slot?.title).toBe("Franja más fuerte");
     expect(slot?.body).toContain("$1,000 por lunes a las 12:00");
     expect(slot?.body).toContain("total de las 4 veces: $4,000");
-    expect(slot?.ask_question).toContain("franja más fuerte por promedio");
+    expect(slot?.ask_question).toContain(
+      "¿Por qué este periodo es tan fuerte?"
+    );
+    expect(slot?.ask_question).toContain("lunes 12:00");
   });
 });
 
@@ -219,7 +222,9 @@ describe("occurrence floors", () => {
     expect(insights.peak_slot).toBeNull();
     expect(insights.strongest_weekday).toBeNull();
     expect(insights.highlights).toEqual([]);
-    expect(insights.investigate_facts).toEqual([]);
+    expect(
+      insights.investigate_facts.filter((h) => h.id !== "best_date")
+    ).toEqual([]);
   });
 });
 

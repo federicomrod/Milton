@@ -124,16 +124,7 @@ export type RestaurantDashboardData =
        * Slim POS facts for `fetchProfitabilityData` so the cockpit request
        * does not page `pos_sales_items` a second time.
        */
-      posFactRows: Array<{
-        raw_item_name: string | null;
-        quantity: number | null;
-        gross_revenue: number | null;
-        net_revenue: number | null;
-        currency: string | null;
-        location_id: string | null;
-        is_tip?: boolean | null;
-        discount_amount?: number | null;
-      }>;
+      posFactRows: PosSalesItemRow[];
       cockpit: CockpitSalesAggregate;
       timezone: string;
       preferredLanguage: PreferredLanguage;

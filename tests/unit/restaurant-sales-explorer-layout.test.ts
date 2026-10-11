@@ -128,11 +128,15 @@ describe("RestaurantSalesExplorer filter logic and target math are unchanged", (
 
 describe("Revenue tab page chrome is trimmed without dropping copy", () => {
   it("still explains live vs sample mode in the header", () => {
-    expect(cockpitPage).toContain(
-      "Using uploaded POS data from Supabase. Recipe costing is pending until menu items, recipes, and supplier costs are linked."
-    );
-    expect(cockpitPage).toContain("Import POS Sales");
-    expect(cockpitPage).toContain("Costing is pending until");
+    expect(cockpitPage).toContain("Showing sample data");
+    expect(cockpitPage).toContain("Import POS sales");
+    expect(cockpitPage).toContain("<DataHealthIndicator");
+    const health = read("lib/restaurant/cockpit-data-health.ts");
+    expect(health).toContain("dishes that have a cost");
+    expect(health).toContain("platillos con costo");
+    const strip = read("lib/restaurant/cockpit-executive.ts");
+    expect(strip).toContain("Recipe costs are needed");
+    expect(strip).toContain("Se necesitan costos de recetas");
   });
 
   it("still mounts RestaurantSalesExplorer on the Revenue tab", () => {

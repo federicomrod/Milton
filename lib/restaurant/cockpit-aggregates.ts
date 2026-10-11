@@ -36,6 +36,7 @@ export const WEEK_LENGTH_DAYS = 7;
 export interface CockpitFactRow {
   sale_date: string;
   order_placed_at?: string | null;
+  menu_item_id?: string | null;
   raw_item_name?: string | null;
   item_name?: string | null;
   quantity?: number | null;

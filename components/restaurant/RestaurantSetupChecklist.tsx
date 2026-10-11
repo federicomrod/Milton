@@ -36,6 +36,11 @@ import type {
   DataQualityCounts,
 } from "@/lib/restaurant/profitability-server";
 import { t } from "@/lib/restaurant/language";
+import {
+  setupStepStatus,
+  SETUP_STEP_HREFS,
+  type SetupStepId,
+} from "@/lib/restaurant/setup-progress";
 
 const LS_KEY = "restaurantSetupChecklistCollapsed";
 
@@ -67,9 +72,9 @@ function deriveSteps(s: SetupCounts, dq: DataQualityCounts): ChecklistStep[] {
               "Upload your POS export to unlock revenue analytics and item performance.",
               "Sube tu exportación del POS para ver ventas e ítems."
             ),
-      href: "/dashboard/restaurant/upload",
+      href: SETUP_STEP_HREFS.pos,
       cta: t("es", "Import POS Sales", "Importar ventas del POS"),
-      status: s.pos_sales_count > 0 ? "done" : "missing",
+      status: setupStepStatus("pos" satisfies SetupStepId, s, dq),
     },
     {
       id: "costs",
@@ -90,9 +95,9 @@ function deriveSteps(s: SetupCounts, dq: DataQualityCounts): ChecklistStep[] {
               "Add supplier prices to start calculating food cost and gross margin.",
               "Agrega precios de proveedores para calcular costo de comida y margen."
             ),
-      href: "/dashboard/restaurant/costs/upload",
+      href: SETUP_STEP_HREFS.costs,
       cta: t("es", "Import Costs", "Importar costos"),
-      status: s.cost_entries_count > 0 ? "done" : "missing",
+      status: setupStepStatus("costs", s, dq),
     },
     {
       id: "menu",
@@ -119,14 +124,9 @@ function deriveSteps(s: SetupCounts, dq: DataQualityCounts): ChecklistStep[] {
                 "All POS items are mapped to menu items.",
                 "Todos los platillos del POS ya están ligados al menú."
               ),
-      href: "/dashboard/restaurant/menu",
+      href: SETUP_STEP_HREFS.menu,
       cta: t("es", "Open Menu & Mappings", "Abrir Menú y ligues"),
-      status:
-        s.menu_items_count === 0
-          ? "missing"
-          : dq.unmapped_pos_items > 0
-            ? "review"
-            : "done",
+      status: setupStepStatus("menu", s, dq),
     },
     {
       id: "recipes",
@@ -153,14 +153,9 @@ function deriveSteps(s: SetupCounts, dq: DataQualityCounts): ChecklistStep[] {
                 "All menu items have at least one recipe.",
                 "Todos los platillos ya tienen al menos una receta."
               ),
-      href: "/dashboard/restaurant/menu",
+      href: SETUP_STEP_HREFS.recipes,
       cta: t("es", "Open Recipes", "Abrir Recetas"),
-      status:
-        s.recipe_inputs_count === 0
-          ? "missing"
-          : dq.menu_items_without_recipe > 0
-            ? "review"
-            : "done",
+      status: setupStepStatus("recipes", s, dq),
     },
     {
       id: "invoices",
@@ -181,9 +176,9 @@ function deriveSteps(s: SetupCounts, dq: DataQualityCounts): ChecklistStep[] {
               "Upload supplier invoices to auto-populate ingredient costs and enable price-change alerts.",
               "Sube facturas de proveedores para llenar costos y ver alertas de precio."
             ),
-      href: "/dashboard/restaurant/invoices",
+      href: SETUP_STEP_HREFS.invoices,
       cta: t("es", "Open Invoices", "Abrir Facturas"),
-      status: s.supplier_invoices_count > 0 ? "done" : "missing",
+      status: setupStepStatus("invoices", s, dq),
     },
     {
       id: "agents",
@@ -200,9 +195,9 @@ function deriveSteps(s: SetupCounts, dq: DataQualityCounts): ChecklistStep[] {
               "Run your first agent to get automated margin analysis and supplier alerts.",
               "Corre tu primer agente para ver análisis de margen y alertas de proveedores."
             ),
-      href: "/dashboard/restaurant/agents",
+      href: SETUP_STEP_HREFS.agents,
       cta: t("es", "Open Agents", "Abrir Agentes"),
-      status: s.agent_runs_count > 0 ? "done" : "missing",
+      status: setupStepStatus("agents", s, dq),
     },
   ];
 }

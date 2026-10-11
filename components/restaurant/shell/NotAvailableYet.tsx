@@ -12,12 +12,15 @@ export function NotAvailableYet({
   reason,
   href,
   linkLabel,
+  compact = false,
 }: {
   lang?: PreferredLanguage;
   title?: string;
   reason: string;
   href?: string;
   linkLabel?: string;
+  /** Tight cell for the KPI strip — same copy, final slot size. */
+  compact?: boolean;
 }) {
   const heading = title ?? t(lang, "Not available yet", "Aún no disponible");
   const fallbackLink = t(lang, "Add costs →", "Agregar costos →");
@@ -25,14 +28,34 @@ export function NotAvailableYet({
   return (
     <div
       data-testid="not-available-yet"
-      className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-4"
+      className={
+        compact
+          ? "rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-1.5 min-h-[4.5rem]"
+          : "rounded-md border border-dashed border-border bg-muted/20 px-4 py-4"
+      }
     >
-      <p className="text-sm font-medium">{heading}</p>
-      <p className="text-sm text-muted-foreground mt-1">{reason}</p>
+      <p
+        className={compact ? "text-[11px] font-medium" : "text-sm font-medium"}
+      >
+        {heading}
+      </p>
+      <p
+        className={
+          compact
+            ? "text-[10px] text-muted-foreground mt-0.5 leading-snug"
+            : "text-sm text-muted-foreground mt-1"
+        }
+      >
+        {reason}
+      </p>
       {href ? (
         <Link
           href={href}
-          className="inline-block mt-2 text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
+          className={
+            compact
+              ? "inline-block mt-0.5 text-[11px] font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
+              : "inline-block mt-2 text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
+          }
         >
           {linkLabel ?? fallbackLink}
         </Link>

@@ -19,6 +19,8 @@
 //     and unsupported conversions return an explicit failure instead of
 //     guessing — same contract as the typed variant.
 
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { t } from "@/lib/restaurant/language";
 import type { UnitOfMeasure } from "@/types/restaurant";
 
 export type ConversionOk = { ok: true; value: number };
@@ -209,9 +211,6 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   porciones: "portion",
   serving: "portion",
   servings: "portion",
-  convoy: "portion",
-  orden: "portion",
-  ordenes: "portion",
   oz: "oz",
   onza: "oz",
   onzas: "oz",
@@ -431,11 +430,19 @@ export type ResolvedUnitCell =
  * sizes (BOLSA 5 LB, PAQUETE (14 UNIDADES)) expand. Anything else with
  * a pack size goes to needs-a-look in tú-neutral LatAm Spanish.
  */
+const SUB_RECIPE_PORTION_UNITS = new Set(["convoy", "orden", "ordenes"]);
+
+/** CONVOY / ORDEN are portion units only for an exact sub-recipe name. */
+export function isSubRecipePortionUnit(raw: string): boolean {
+  return SUB_RECIPE_PORTION_UNITS.has(foldUnitKey(raw));
+}
+
 export function resolveUnitCell(
-  raw: string | null | undefined
+  raw: string | null | undefined,
+  lang: PreferredLanguage = "en"
 ): ResolvedUnitCell {
   if (typeof raw !== "string" || !raw.trim()) {
-    return { ok: false, reason: "Missing unit" };
+    return { ok: false, reason: t(lang, "Missing unit", "Falta la unidad") };
   }
   const explicit = parseExplicitPackSize(raw);
   if (explicit) {
@@ -456,9 +463,15 @@ export function resolveUnitCell(
     };
   }
   if (isAmbiguousPackUnit(raw)) {
-    return { ok: false, reason: PACK_SIZE_REVIEW_REASON };
+    return {
+      ok: false,
+      reason: t(lang, "pack size, needs conversion", PACK_SIZE_REVIEW_REASON),
+    };
   }
-  return { ok: false, reason: `unknown unit (${raw})` };
+  return {
+    ok: false,
+    reason: t(lang, `unknown unit (${raw})`, `unidad desconocida (${raw})`),
+  };
 }
 
 function conversionSides(

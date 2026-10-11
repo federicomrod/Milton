@@ -3,6 +3,7 @@ import { resolveUnitCell } from "@/lib/restaurant/units";
 import type { WorkbookAi } from "./ai";
 import { classifyCostTabHeuristic } from "./ai";
 import {
+  collectCostoRestauranteBlockNames,
   collectCostoRestauranteBlocks,
   mappingFromCostoRestauranteHeader,
   sheetLooksLikeCostoRestauranteBlocks,
@@ -16,7 +17,7 @@ import {
 } from "./convert";
 import { inferWorkbookDate } from "./date";
 import { mergeTypoDuplicates } from "./duplicates";
-import { rowIsBlank } from "./cells";
+import { rowIsBlank, textAt } from "./cells";
 import { layoutKeyForSheet } from "./header";
 import { evaluateWorkbookRow } from "./parse";
 import { dedupeWorkbookRows, persistSavedRows } from "./persist";
@@ -318,6 +319,7 @@ export async function importCostWorkbook(input: {
     }
   );
 
+  const lang = input.lang ?? "en";
   const existingIngredients = await input.repo.listIngredients(input.companyId);
   const existingCategories = [
     ...new Set(
@@ -363,6 +365,30 @@ export async function importCostWorkbook(input: {
     });
   };
 
+  const knownSubRecipeNames = new Set<string>();
+  const existingComponents = await input.repo.listComponents(input.companyId);
+  for (const component of existingComponents) {
+    knownSubRecipeNames.add(component.name);
+  }
+  for (const resolved of resolvedTabs) {
+    if (resolved.tabType !== "sub_recipe") continue;
+    if (
+      resolved.sheet.aoa &&
+      sheetLooksLikeCostoRestauranteBlocks(resolved.sheet.aoa)
+    ) {
+      for (const name of collectCostoRestauranteBlockNames(
+        resolved.sheet.aoa
+      )) {
+        knownSubRecipeNames.add(name);
+      }
+      continue;
+    }
+    for (const row of resolved.sheet.dataRows) {
+      const named = textAt(row, resolved.mapping, "recipe_name");
+      if (named) knownSubRecipeNames.add(named);
+    }
+  }
+
   const processRecipeTab = (resolved: ResolvedTab) => {
     const { sheet, tabType, tabConfidence, mapping, mappingSource, note } =
       resolved;
@@ -372,6 +398,8 @@ export async function importCostWorkbook(input: {
         tabName: sheet.name,
         tabKind: tabType === "sub_recipe" ? "sub_recipe" : "recipe",
         aoa: sheet.aoa,
+        knownSubRecipeNames,
+        lang,
       });
       recipeGroups.push(...collected.groups);
       toReview.push(...collected.review);
@@ -448,6 +476,8 @@ export async function importCostWorkbook(input: {
       tabKind: tabType === "sub_recipe" ? "sub_recipe" : "recipe",
       dataRows: sheet.dataRows,
       mapping,
+      knownSubRecipeNames,
+      lang,
     });
     recipeGroups.push(...collected.groups);
     toReview.push(...collected.review);
@@ -542,6 +572,7 @@ export async function importCostWorkbook(input: {
         mapping,
         currency: input.currency,
         defaultDate: fileMonth,
+        lang,
       });
       if (result.ok) {
         const prepared = matchesPreparedName(
@@ -702,6 +733,7 @@ export async function importCostWorkbook(input: {
     aliases: merged.aliases,
     locationId: input.locationId ?? null,
     brandId: input.brandId ?? null,
+    lang,
   });
   toReview.push(...recipeStats.review);
   skipped.push(...recipeStats.skipped);
@@ -873,6 +905,19 @@ export async function undoCostImportBatch(
       component.id,
       component.inputs
     );
+    if (
+      component.component_id &&
+      component.output_quantity != null &&
+      component.output_unit
+    ) {
+      await repo.updateComponentYield({
+        companyId,
+        componentId: component.component_id,
+        componentRecipeId: component.id,
+        outputQuantity: component.output_quantity,
+        outputUnit: component.output_unit,
+      });
+    }
   }
   await repo.deletePosMappings(companyId, snap.created_mapping_ids ?? []);
   await repo.deleteRecipes(companyId, snap.created_recipe_ids ?? []);

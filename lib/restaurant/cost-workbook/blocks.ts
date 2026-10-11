@@ -2,9 +2,19 @@
 // workbooks. Banner / sheet title / per-block headers / footer rows
 // are never recipe names. Totals are recomputed from qty × unit cost.
 
-import { parseCostImportNumber } from "@/lib/restaurant/cost-import";
-import { resolveUnitCell } from "@/lib/restaurant/units";
+import { nameKey, parseCostImportNumber } from "@/lib/restaurant/cost-import";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import {
+  emptyRecipeNameReason,
+  missingRecipeNameReason,
+  missingUnitReason,
+  strayNameRowReason,
+  totalMismatchReason,
+  yieldInconsistentReason,
+  yieldUnknownReason,
+} from "./copy";
 import { normalizeHeaderToken } from "./header";
+import { resolveRecipeLineUnit } from "./portion-unit";
 import type {
   ColumnMapping,
   GroupedRecipe,
@@ -21,11 +31,9 @@ export const PRECIO_ONZA_RE = /^precio\s+por\s+onza$/i;
 export const PRECIO_VENTA_RE = /^precio\s+de\s+venta(\s+sin\s+iva)?$/i;
 export const MARGEN_RE = /^margen\s+de\s+contribuci[oó]n$/i;
 export const HASH_FILL_RE = /^#+$/;
-export const TOTAL_MISMATCH_REASON =
-  "el total no cuadra (cantidad × costo unitario)";
-export const YIELD_INCONSISTENT_REASON =
-  "no pude calcular el rendimiento: el costo total y el precio por libra/onza no coinciden";
-export const YIELD_UNKNOWN_REASON = "no pude calcular el rendimiento";
+export const TOTAL_MISMATCH_REASON = totalMismatchReason("es");
+export const YIELD_INCONSISTENT_REASON = yieldInconsistentReason("es");
+export const YIELD_UNKNOWN_REASON = yieldUnknownReason("es");
 
 const YIELD_TOLERANCE = 0.05;
 const TOTAL_ABS_TOLERANCE = 0.03;
@@ -238,16 +246,19 @@ function totalsMatch(expected: number, actual: number): boolean {
   return Math.abs(expected - actual) <= tol;
 }
 
-function deriveYield(input: {
-  costTotal: number | null;
-  pricePerLb: number | null;
-  pricePerOz: number | null;
-}):
+function deriveYield(
+  input: {
+    costTotal: number | null;
+    pricePerLb: number | null;
+    pricePerOz: number | null;
+  },
+  lang: PreferredLanguage
+):
   | { ok: true; quantity: number; unit: string }
   | { ok: false; reason: string } {
   const { costTotal, pricePerLb, pricePerOz } = input;
   if (costTotal == null || costTotal <= 0) {
-    return { ok: false, reason: YIELD_UNKNOWN_REASON };
+    return { ok: false, reason: yieldUnknownReason(lang) };
   }
   const fromLb =
     pricePerLb != null && pricePerLb > 0 ? costTotal / pricePerLb : null;
@@ -261,13 +272,13 @@ function deriveYield(input: {
         ? Math.abs(pricePerOz * 16 - pricePerLb) / pricePerLb
         : 1;
     if (rel > YIELD_TOLERANCE && priceRel > YIELD_TOLERANCE) {
-      return { ok: false, reason: YIELD_INCONSISTENT_REASON };
+      return { ok: false, reason: yieldInconsistentReason(lang) };
     }
     return { ok: true, quantity: fromLb, unit: "lb" };
   }
   if (fromLb != null) return { ok: true, quantity: fromLb, unit: "lb" };
   if (fromOz != null) return { ok: true, quantity: fromOz, unit: "oz" };
-  return { ok: false, reason: YIELD_UNKNOWN_REASON };
+  return { ok: false, reason: yieldUnknownReason(lang) };
 }
 
 interface OpenBlock {
@@ -281,20 +292,50 @@ interface OpenBlock {
   sellingPrice: number | null;
 }
 
+export function collectCostoRestauranteBlockNames(aoa: unknown[][]): string[] {
+  const names: string[] = [];
+  let phase: "idle" | "after_banner" | "in_block" = "idle";
+  for (const row of aoa) {
+    const cells = rowCells(row);
+    if (isBlankRow(cells) || isSheetTitle(cells)) continue;
+    if (isBanner(cells)) {
+      phase = "after_banner";
+      continue;
+    }
+    if (footerKind(cells)) continue;
+    if (isRepeatingBlockHeader(cells)) {
+      const overlap = headerOverlapName(cells);
+      if (overlap) names.push(overlap);
+      phase = "in_block";
+      continue;
+    }
+    if (isNameRow(cells) && (phase === "idle" || phase === "after_banner")) {
+      names.push(firstText(cells));
+      phase = "in_block";
+    }
+  }
+  return names;
+}
+
 export function collectCostoRestauranteBlocks(input: {
   tabName: string;
   tabKind: "recipe" | "sub_recipe";
   aoa: unknown[][];
+  knownSubRecipeNames?: Iterable<string>;
+  lang?: PreferredLanguage;
 }): {
   groups: GroupedRecipe[];
   review: ReviewCandidate[];
   skipped: SkipCandidate[];
 } {
+  const lang = input.lang ?? "en";
+  const knownSubRecipeNames = [...(input.knownSubRecipeNames ?? [])];
   const review: ReviewCandidate[] = [];
   const skipped: SkipCandidate[] = [];
   const groups: GroupedRecipe[] = [];
   const open: { block: OpenBlock | null } = { block: null };
   let pendingName = "";
+  let phase: "idle" | "after_banner" | "in_block" = "idle";
   let cols: Cols = {
     ingredient: 0,
     unit: 1,
@@ -305,16 +346,31 @@ export function collectCostoRestauranteBlocks(input: {
 
   const close = () => {
     const current = open.block;
-    if (!current || current.lines.length === 0) {
+    if (!current) {
+      pendingName = "";
+      return;
+    }
+    if (current.lines.length === 0) {
+      if (current.name) {
+        skipped.push({
+          tabName: input.tabName,
+          rowIndex: 0,
+          reason: emptyRecipeNameReason(lang),
+          raw: { recipe: current.name },
+        });
+      }
       open.block = null;
       pendingName = "";
       return;
     }
-    const yieldResult = deriveYield({
-      costTotal: current.costTotal,
-      pricePerLb: current.pricePerLb,
-      pricePerOz: current.pricePerOz,
-    });
+    const yieldResult = deriveYield(
+      {
+        costTotal: current.costTotal,
+        pricePerLb: current.pricePerLb,
+        pricePerOz: current.pricePerOz,
+      },
+      lang
+    );
     if (!yieldResult.ok && input.tabKind === "sub_recipe") {
       review.push({
         tabName: input.tabName,
@@ -343,7 +399,7 @@ export function collectCostoRestauranteBlocks(input: {
 
   const start = (name: string) => {
     const current = open.block;
-    if (current && current.lines.length > 0) close();
+    if (current && (current.lines.length > 0 || current.name)) close();
     open.block = {
       name: name.trim(),
       headerSeen: false,
@@ -354,6 +410,8 @@ export function collectCostoRestauranteBlocks(input: {
       pricePerOz: null,
       sellingPrice: null,
     };
+    phase = "in_block";
+    pendingName = "";
   };
 
   for (const [rowIndex, row] of input.aoa.entries()) {
@@ -369,8 +427,9 @@ export function collectCostoRestauranteBlocks(input: {
       continue;
     }
     if (isBanner(cells)) {
-      if (open.block && open.block.lines.length > 0) close();
+      close();
       pendingName = "";
+      phase = "after_banner";
       continue;
     }
     const footer = footerKind(cells);
@@ -399,13 +458,20 @@ export function collectCostoRestauranteBlocks(input: {
       cols = columnsFromBlockHeader(cells);
       const overlap = headerOverlapName(cells);
       const name = overlap ?? pendingName;
-      if (name) start(name);
-      else if (!open.block) start("");
+      if (overlap) {
+        if (!open.block || nameKey(open.block.name) !== nameKey(overlap)) {
+          start(overlap);
+        }
+      } else if (!open.block) {
+        if (pendingName) start(pendingName);
+        else if (phase === "idle" || phase === "after_banner") start("");
+      }
       if (open.block) {
         open.block.cols = cols;
         open.block.headerSeen = true;
         if (overlap && !open.block.name) open.block.name = overlap;
       }
+      phase = "in_block";
       pendingName = "";
       skipped.push({
         tabName: input.tabName,
@@ -417,9 +483,17 @@ export function collectCostoRestauranteBlocks(input: {
     }
     if (isNameRow(cells)) {
       const name = firstText(cells);
-      if (open.block && open.block.lines.length > 0) close();
-      pendingName = name;
-      start(name);
+      if (phase === "idle" || phase === "after_banner") {
+        pendingName = name;
+        start(name);
+        continue;
+      }
+      skipped.push({
+        tabName: input.tabName,
+        rowIndex,
+        reason: strayNameRowReason(lang),
+        raw: { name },
+      });
       continue;
     }
 
@@ -444,7 +518,7 @@ export function collectCostoRestauranteBlocks(input: {
       review.push({
         tabName: input.tabName,
         rowIndex,
-        reason: "Missing recipe name",
+        reason: missingRecipeNameReason(lang),
         raw: { Articulo: name, Unidad: unitRaw, Cantidad: qty },
         suggested: { ingredient_name: name, unit: unitRaw || undefined },
       });
@@ -453,8 +527,13 @@ export function collectCostoRestauranteBlocks(input: {
     const current = open.block;
 
     const resolvedUnit = unitRaw
-      ? resolveUnitCell(unitRaw)
-      : { ok: false as const, reason: "Missing unit" };
+      ? resolveRecipeLineUnit({
+          unitRaw,
+          ingredientName: name,
+          knownSubRecipeNames,
+          lang,
+        })
+      : { ok: false as const, reason: missingUnitReason(lang) };
     if (!resolvedUnit.ok) {
       review.push({
         tabName: input.tabName,
@@ -481,7 +560,7 @@ export function collectCostoRestauranteBlocks(input: {
         review.push({
           tabName: input.tabName,
           rowIndex,
-          reason: TOTAL_MISMATCH_REASON,
+          reason: totalMismatchReason(lang),
           raw: {
             Articulo: name,
             Cantidad: qty,
@@ -499,7 +578,11 @@ export function collectCostoRestauranteBlocks(input: {
       recipeName: current.name,
       ingredient_name: name,
       quantity: qty * resolvedUnit.quantityMultiplier,
-      unit: resolvedUnit.quantityMultiplier !== 1 ? resolvedUnit.unit : unitRaw,
+      unit:
+        resolvedUnit.quantityMultiplier !== 1 ||
+        resolvedUnit.canonical === "portion"
+          ? resolvedUnit.unit
+          : unitRaw,
       raw: {
         Articulo: name,
         "Unidad Detalle": unitRaw,

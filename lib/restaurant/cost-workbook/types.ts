@@ -224,6 +224,9 @@ export interface UndoSnapshot {
   updated_components: Array<{
     id: string;
     inputs: RecipeInputSnapshot[];
+    component_id?: string;
+    output_quantity?: number;
+    output_unit?: string;
   }>;
   deleted_ingredients: DeletedIngredientSnapshot[];
   deleted_cost_entries: CostWorkbookCostEntry[];

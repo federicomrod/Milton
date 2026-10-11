@@ -14,7 +14,12 @@ import {
   damerauLevenshtein,
   implausiblePriceReason,
   importCostWorkbook,
+  collectCostoRestauranteBlockNames,
   collectCostoRestauranteBlocks,
+  emptyRecipeNameReason,
+  isPackSizeReviewReason,
+  unknownIngredientReason,
+  unknownUnitReason,
   inferRecipeMappingFromContent,
   inferRecipeMappingDetails,
   isObviousTypo,
@@ -308,10 +313,10 @@ describe("units — Spanish + lb/oz", () => {
     expect(normalizeUnit("LIBRAS")).toBe("lb");
     expect(normalizeUnit("LITRO")).toBe("l");
     expect(normalizeUnit("SOBRES")).toBe("unit");
-    expect(normalizeUnit("CONVOY")).toBe("portion");
-    expect(normalizeUnit("ORDEN")).toBe("portion");
-    expect(resolveUnitCell("CONVOY").ok).toBe(true);
-    expect(resolveUnitCell("ORDEN").ok).toBe(true);
+    expect(normalizeUnit("CONVOY")).toBeNull();
+    expect(normalizeUnit("ORDEN")).toBeNull();
+    expect(resolveUnitCell("CONVOY").ok).toBe(false);
+    expect(resolveUnitCell("ORDEN").ok).toBe(false);
     expect(normalizeUnit("PIMIENTA")).toBeNull();
     expect(normalizeUnit("litra")).toBeNull();
     expect(normalizeUnit("GRANO")).toBeNull();
@@ -337,19 +342,21 @@ describe("units — Spanish + lb/oz", () => {
     expect(normalizeUnit("lb (net)")).toBe("lb");
     expect(normalizeUnit("GALÓN (US)")).toBe("gal");
 
-    expect(resolveUnitCell("PAQUETE (TORTILLA DE TACO 14 UNIDADES)")).toEqual({
+    expect(
+      resolveUnitCell("PAQUETE (TORTILLA DE TACO 14 UNIDADES)", "es")
+    ).toEqual({
       ok: false,
       reason: PACK_SIZE_REVIEW_REASON,
     });
-    expect(resolveUnitCell("SACO 25 KG (ARROZ)")).toEqual({
+    expect(resolveUnitCell("SACO 25 KG (ARROZ)", "es")).toEqual({
       ok: false,
       reason: PACK_SIZE_REVIEW_REASON,
     });
-    expect(resolveUnitCell("CAJA 12 x 500 g")).toEqual({
+    expect(resolveUnitCell("CAJA 12 x 500 g", "es")).toEqual({
       ok: false,
       reason: PACK_SIZE_REVIEW_REASON,
     });
-    expect(resolveUnitCell("CUBETA 18.9 L + 2 L")).toEqual({
+    expect(resolveUnitCell("CUBETA 18.9 L + 2 L", "es")).toEqual({
       ok: false,
       reason: PACK_SIZE_REVIEW_REASON,
     });
@@ -1147,8 +1154,8 @@ describe("workbook recipes, POS links, and cockpit COGS", () => {
     const unknownUnits = result.review_items.filter((item) =>
       item.reason.startsWith("unknown unit")
     );
-    const packSizeRows = result.review_items.filter(
-      (item) => item.reason === PACK_SIZE_REVIEW_REASON
+    const packSizeRows = result.review_items.filter((item) =>
+      isPackSizeReviewReason(item.reason)
     );
     const packUnits = packSizeRows.map((item) => item.suggested?.unit ?? "");
     expect(packUnits).toEqual(
@@ -1278,7 +1285,7 @@ describe("workbook recipes, POS links, and cockpit COGS", () => {
     expect(
       result.review_items.some(
         (item) =>
-          item.reason === PACK_SIZE_REVIEW_REASON &&
+          isPackSizeReviewReason(item.reason) &&
           item.suggested?.unit === "CAJA 12 x 500 g"
       )
     ).toBe(true);
@@ -2204,8 +2211,8 @@ describe("recipe mapping fallback and skip breakdown", () => {
     expect(result.menu_items_created).toBeGreaterThanOrEqual(1);
     expect(result.imported_count).toBeGreaterThan(0);
 
-    const packRows = result.review_items.filter(
-      (item) => item.reason === PACK_SIZE_REVIEW_REASON
+    const packRows = result.review_items.filter((item) =>
+      isPackSizeReviewReason(item.reason)
     );
     expect(packRows.length).toBeGreaterThanOrEqual(1);
     expect(
@@ -2728,6 +2735,7 @@ describe("COSTO RESTAURANTE block layout", () => {
       tabName: "SUB RECETAS",
       tabKind: "sub_recipe",
       aoa: sub?.aoa ?? [],
+      lang: "es",
     });
     const names = parsed.groups.map((group) => group.name);
     expect(names).toEqual(
@@ -2760,6 +2768,7 @@ describe("COSTO RESTAURANTE block layout", () => {
       tabName: "SUB RECETAS 2",
       tabKind: "sub_recipe",
       aoa: sheets.find((sheet) => sheet.name === "SUB RECETAS 2")?.aoa ?? [],
+      lang: "es",
     });
     expect(salsa.groups.map((group) => group.name)).toEqual(
       expect.arrayContaining([
@@ -2781,10 +2790,16 @@ describe("COSTO RESTAURANTE block layout", () => {
       )
     ).toBe(true);
 
+    const knownPrep = [
+      ...collectCostoRestauranteBlockNames(sub?.aoa ?? []),
+      ...salsa.groups.map((group) => group.name),
+    ];
     const dishes = collectCostoRestauranteBlocks({
       tabName: "DE LA PARRILLA",
       tabKind: "recipe",
       aoa: sheets.find((sheet) => sheet.name === "DE LA PARRILLA")?.aoa ?? [],
+      knownSubRecipeNames: knownPrep,
+      lang: "es",
     });
     expect(dishes.groups.map((group) => group.name)).toEqual(
       expect.arrayContaining(["CHURRASCO TIPICO 6", "CHURRASCO TIPICO 8"])
@@ -2810,6 +2825,8 @@ describe("COSTO RESTAURANTE block layout", () => {
       aoa:
         sheets.find((sheet) => sheet.name === "ESPECIALIDADES DE LA PARRILLA")
           ?.aoa ?? [],
+      knownSubRecipeNames: knownPrep,
+      lang: "es",
     });
     expect(
       especial.review.some((item) => item.reason === TOTAL_MISMATCH_REASON)
@@ -2863,9 +2880,23 @@ describe("COSTO RESTAURANTE block layout", () => {
     );
     expect(
       result.review_items.some((item) =>
-        /unknown unit \(CONVOY|ORDEN\)/i.test(item.reason)
+        /unknown unit \(CONVOY|ORDEN\)|unidad desconocida \(CONVOY|ORDEN\)/i.test(
+          item.reason
+        )
       )
     ).toBe(false);
+    expect(
+      store.recipeInputs.some(
+        (row) =>
+          row.input_type === "component" &&
+          row.unit === "portion" &&
+          store.components.some(
+            (component) =>
+              component.id === row.component_id &&
+              component.name === "GUARNICION 1"
+          )
+      )
+    ).toBe(true);
     expect(
       result.review_items.some(
         (item) => item.reason === PACK_SIZE_REVIEW_REASON
@@ -2876,5 +2907,207 @@ describe("COSTO RESTAURANTE block layout", () => {
         item.reason.includes(YIELD_INCONSISTENT_REASON)
       )
     ).toBe(true);
+  });
+
+  it("sends a plain ingredient with ORDEN and a price-list CONVOY to needs-a-look", async () => {
+    const store = emptyStore();
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["ITEM", "UNIDAD", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+        ["Sal convoy", "CONVOY", "", "", 1.2],
+        ["Tomate", "", 1.2, 0.075, ""],
+      ]),
+      "Lista de precios"
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Nombre", "Unidad", "Costo", "Cantidad", "Total"],
+        ["Sal", "ORDEN", 0.15, 1, 0.15],
+      ]),
+      "Carnes"
+    );
+    const repo = createMemoryCostWorkbookRepo(store);
+    const ai: WorkbookAi = {
+      classifyTab: async (input) => {
+        if (input.headers.includes("ITEM")) {
+          return { type: "price_list", confidence: 0.96 };
+        }
+        return { type: "category_cost", confidence: 0.93 };
+      },
+      mapColumns: async (input) => {
+        if (input.tabType === "price_list") {
+          return {
+            ingredient_name: { column: "ITEM", confidence: 0.93 },
+            unit: { column: "UNIDAD", confidence: 0.9 },
+            price_per_lb: { column: "LIBRA", confidence: 0.93 },
+            price_per_oz: { column: "ONZA", confidence: 0.93 },
+            price_per_unit: { column: "PRECIO UNITARIO", confidence: 0.8 },
+          };
+        }
+        return {
+          ingredient_name: { column: "Nombre", confidence: 0.9 },
+          unit: { column: "Unidad", confidence: 0.9 },
+          unit_price: { column: "Costo", confidence: 0.9 },
+          quantity: { column: "Cantidad", confidence: 0.9 },
+          total_cost: { column: "Total", confidence: 0.9 },
+        };
+      },
+    };
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: Buffer.from(
+        XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+      ),
+      currency: "USD",
+      repo,
+      ai,
+    });
+    expect(
+      result.review_items.some(
+        (item) => item.reason === unknownUnitReason("en", "ORDEN")
+      )
+    ).toBe(true);
+    expect(
+      result.review_items.some(
+        (item) => item.reason === unknownUnitReason("en", "CONVOY")
+      )
+    ).toBe(true);
+    expect(store.ingredients.some((row) => row.name === "Sal")).toBe(false);
+    expect(store.costEntries).toHaveLength(1);
+  });
+
+  it("does not start a new recipe from a stray single-cell row and logs empty names", () => {
+    const aoa = [
+      ["COSTO RESTAURANTE"],
+      ["QUESO FRITO"],
+      [
+        "Articulo",
+        "Unidad Detalle",
+        "Cantidad",
+        "Costo Unitario",
+        "Total Costo",
+      ],
+      ["QUESO GRATINADO", "ONZA", 1, 0.14, 0.14],
+      ["SAL"],
+      ["HARINA", "GRAMO", 5, 0.001, 0.005],
+      ["COSTO TOTAL", "", "", "", 0.145],
+      ["COSTO RESTAURANTE"],
+      ["NOMBRE VACIO"],
+      [
+        "Articulo",
+        "Unidad Detalle",
+        "Cantidad",
+        "Costo Unitario",
+        "Total Costo",
+      ],
+      ["COSTO TOTAL", "", "", "", 0],
+    ];
+    const parsed = collectCostoRestauranteBlocks({
+      tabName: "SUB RECETAS",
+      tabKind: "sub_recipe",
+      aoa,
+      lang: "es",
+    });
+    expect(parsed.groups.map((group) => group.name)).toEqual(["QUESO FRITO"]);
+    expect(parsed.groups[0]?.lines.map((line) => line.ingredient_name)).toEqual(
+      ["QUESO GRATINADO", "HARINA"]
+    );
+    expect(parsed.groups.some((group) => group.name === "SAL")).toBe(false);
+    expect(
+      parsed.skipped.some((item) => item.reason === emptyRecipeNameReason("es"))
+    ).toBe(true);
+  });
+
+  it("translates remaining review reasons with t()", () => {
+    expect(unknownUnitReason("es", "ORDEN")).toBe("unidad desconocida (ORDEN)");
+    expect(unknownIngredientReason("es", "Sal")).toBe(
+      "ingrediente desconocido (Sal)"
+    );
+    expect(unknownUnitReason("en", "CONVOY")).toBe("unknown unit (CONVOY)");
+    expect(resolveUnitCell("ORDEN", "es").reason).toBe(
+      "unidad desconocida (ORDEN)"
+    );
+    expect(resolveUnitCell("", "es").reason).toBe("Falta la unidad");
+  });
+
+  it("restores an imported sub-recipe yield when the later batch is undone", async () => {
+    const salsaSheet = (pricePerLb: number) => [
+      ["RESTAURANTE LOS RANCHOS"],
+      ["COSTO RESTAURANTE"],
+      ["SALSA TARTARA"],
+      [
+        "Articulo",
+        "Unidad Detalle",
+        "Cantidad",
+        "Costo Unitario",
+        "Total Costo",
+      ],
+      ["MAYONESA", "LIBRA", 7.7, 0.98, 7.55],
+      ["COSTO TOTAL", "", "", "", 7.55],
+      ["PRECIO POR LIBRA", "", "", "", pricePerLb],
+    ];
+    const workbook = (pricePerLb: number) => {
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.aoa_to_sheet([
+          ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+          ["MAYONESA", 0.98, 0.061, ""],
+        ]),
+        "Lista de precios"
+      );
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.aoa_to_sheet(salsaSheet(pricePerLb)),
+        "SUB RECETAS 2"
+      );
+      return Buffer.from(
+        XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+      );
+    };
+    const store = emptyStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const first = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: workbook(0.555),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+    });
+    const recipe = store.componentRecipes.find((row) =>
+      store.components.some(
+        (component) =>
+          component.id === row.component_id &&
+          component.name === "SALSA TARTARA"
+      )
+    );
+    expect(recipe?.output_quantity).toBeCloseTo(7.55 / 0.555, 5);
+    expect(recipe?.output_unit).toBe("lb");
+
+    const second = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: workbook(1.51),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+    });
+    expect(
+      store.componentRecipes.find((row) => row.id === recipe?.id)
+        ?.output_quantity
+    ).toBeCloseTo(7.55 / 1.51, 5);
+
+    const undone = await undoCostImportBatch(repo, COMPANY, second.batch_id);
+    expect(undone.ok).toBe(true);
+    expect(
+      store.componentRecipes.find((row) => row.id === recipe?.id)
+        ?.output_quantity
+    ).toBeCloseTo(7.55 / 0.555, 5);
+    expect(first.sub_recipes_created).toBe(1);
   });
 });

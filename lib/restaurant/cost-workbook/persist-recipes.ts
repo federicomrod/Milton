@@ -1,5 +1,13 @@
 import { nameKey } from "@/lib/restaurant/cost-import";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { isSubRecipePortionUnit } from "@/lib/restaurant/units";
+import {
+  uncertainSubRecipeReason,
+  unknownIngredientReason,
+  unknownUnitReason,
+} from "./copy";
 import { canAutoLinkNames, resolveAliasName } from "./duplicates";
+import { rawLineUnit } from "./portion-unit";
 import {
   AUTO_NAME_SCORE,
   REVIEW_NAME_SCORE,
@@ -24,7 +32,8 @@ export function resolveCatalogInput(
   lineName: string,
   ingredients: Array<{ id: string; name: string }>,
   components: Array<{ id: string; name: string }>,
-  aliases: Map<string, string> = new Map()
+  aliases: Map<string, string> = new Map(),
+  lang: PreferredLanguage = "en"
 ): { ok: true; input: RecipeInputSnapshot } | { ok: false; reason: string } {
   const resolvedName = resolveAliasName(lineName, aliases);
   const exactComponents = components.filter(
@@ -35,7 +44,7 @@ export function resolveCatalogInput(
   if (exactComponents.length > 1) {
     return {
       ok: false,
-      reason: `sub-receta incierta (${lineName})`,
+      reason: uncertainSubRecipeReason(lang, lineName),
     };
   }
   const exactComponent = exactComponents[0];
@@ -79,7 +88,10 @@ export function resolveCatalogInput(
   if (componentHit && componentHit.score >= AUTO_NAME_SCORE) {
     return {
       ok: false,
-      reason: `sub-receta incierta (${lineName} ↔ ${componentHit.item.name})`,
+      reason: uncertainSubRecipeReason(
+        lang,
+        `${lineName} ↔ ${componentHit.item.name}`
+      ),
     };
   }
   const ingredientHit = bestNameMatch(
@@ -110,7 +122,7 @@ export function resolveCatalogInput(
       reason: `ingredient name unsure (${lineName} ↔ ${best.hit.item.name})`,
     };
   }
-  return { ok: false, reason: `unknown ingredient (${lineName})` };
+  return { ok: false, reason: unknownIngredientReason(lang, lineName) };
 }
 
 function withQty(
@@ -137,6 +149,7 @@ export async function persistWorkbookRecipes(input: {
   aliases?: Map<string, string>;
   locationId?: string | null;
   brandId?: string | null;
+  lang?: PreferredLanguage;
 }): Promise<{
   menuItemsCreated: number;
   recipesCreated: number;
@@ -185,6 +198,7 @@ export async function persistWorkbookRecipes(input: {
   const skipped: SkipCandidate[] = [];
   const changes = emptyUndoSnapshot();
 
+  const lang = input.lang ?? "en";
   const resolveGroup = (group: GroupedRecipe): RecipeInputSnapshot[] | null => {
     const inputs: RecipeInputSnapshot[] = [];
     for (const line of group.lines) {
@@ -192,7 +206,8 @@ export async function persistWorkbookRecipes(input: {
         line.ingredient_name,
         liveIngredients,
         liveComponents,
-        input.aliases ?? new Map()
+        input.aliases ?? new Map(),
+        lang
       );
       if (!resolved.ok) {
         review.push({
@@ -206,6 +221,25 @@ export async function persistWorkbookRecipes(input: {
             quantity: line.quantity,
           },
         });
+        continue;
+      }
+      const rawUnit = rawLineUnit(line);
+      if (isSubRecipePortionUnit(rawUnit)) {
+        if (resolved.input.input_type !== "component") {
+          review.push({
+            tabName: line.tabName,
+            rowIndex: line.rowIndex,
+            reason: unknownUnitReason(lang, rawUnit),
+            raw: line.raw,
+            suggested: {
+              ingredient_name: line.ingredient_name,
+              unit: rawUnit,
+              quantity: line.quantity,
+            },
+          });
+          continue;
+        }
+        inputs.push(withQty(resolved.input, { ...line, unit: "portion" }));
         continue;
       }
       inputs.push(withQty(resolved.input, line));
@@ -228,7 +262,7 @@ export async function persistWorkbookRecipes(input: {
   for (const group of subGroups) {
     const inputs = resolveGroup(group);
     if (!inputs) continue;
-    const yieldResult = resolveSubRecipeYield(group);
+    const yieldResult = resolveSubRecipeYield(group, lang);
     if (!yieldResult.ok) {
       review.push({
         tabName: group.tabName,
@@ -262,6 +296,9 @@ export async function persistWorkbookRecipes(input: {
         changes.updated_components.push({
           id: previous.id,
           inputs: previousInputs,
+          component_id: existing.id,
+          output_quantity: previous.output_quantity,
+          output_unit: previous.output_unit,
         });
         await input.repo.replaceComponentRecipeInputs(
           input.companyId,

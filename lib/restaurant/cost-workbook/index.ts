@@ -14,6 +14,7 @@ export {
   type WorkbookAi,
 } from "./ai";
 export {
+  collectCostoRestauranteBlockNames,
   collectCostoRestauranteBlocks,
   mappingFromCostoRestauranteHeader,
   readNumericCell,
@@ -33,7 +34,18 @@ export {
   resolvePriceListPrice,
   totalsMatch,
 } from "./parse";
-export { mappingSourceLabel, tabTypeLabel } from "./copy";
+export {
+  emptyRecipeNameReason,
+  isPackSizeReviewReason,
+  mappingSourceLabel,
+  missingRecipeNameReason,
+  missingUnitReason,
+  packSizeReviewReason,
+  tabTypeLabel,
+  totalMismatchReason,
+  unknownIngredientReason,
+  unknownUnitReason,
+} from "./copy";
 export {
   formatSkipBreakdownSentence,
   groupSkipReasons,

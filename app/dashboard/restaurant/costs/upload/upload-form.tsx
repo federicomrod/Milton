@@ -224,8 +224,8 @@ export function CostUploadForm({
           <p className="text-base text-muted-foreground mt-2">
             {t(
               lang,
-              "Bulk-load supplier cost observations from a CSV or a multi-tab workbook. High-confidence rows save immediately into ingredient_cost_entries so the cockpit can show margins. Rows Milton is unsure about wait in a needs-a-look list and never block anything.",
-              "Carga los costos de tus proveedores desde un CSV o un libro con varias pestañas. Las filas con alta confianza se guardan de una vez en ingredient_cost_entries para que el cockpit muestre márgenes. Las filas que Milton no tiene claras quedan en una lista de “necesitan una mirada” y no bloquean nada."
+              "Bulk-load supplier cost observations from a CSV or a multi-tab workbook. High-confidence rows save immediately into ingredient_cost_entries so the cockpit can show margins. Rows Milton is unsure about wait in a needs-a-look list and never block anything. If a printed Total Costo does not match quantity × unit cost, the line is still imported with the recomputed cost and flagged.",
+              "Carga los costos de tus proveedores desde un CSV o un libro con varias pestañas. Las filas con alta confianza se guardan de una vez en ingredient_cost_entries para que el cockpit muestre márgenes. Las filas que Milton no tiene claras quedan en una lista de “necesitan una mirada” y no bloquean nada. Si el Total Costo impreso no cuadra con cantidad × costo unitario, la fila se importa igual con el costo recalculado y queda marcada."
             )}
           </p>
         </div>

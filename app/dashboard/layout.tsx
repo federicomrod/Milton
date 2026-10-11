@@ -287,8 +287,10 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
           <ComparisonProvider>
             <div style={{ position: "relative", minHeight: "100vh" }}>
               {children}
-              {/* Chat Toggle Button - Hide when chat is open */}
-              {!isChatOpen && (
+              {/* Legacy Milton chat — hidden on restaurant routes; those
+                  use the Ask Milton drawer in RestaurantShell. */}
+              {!isChatOpen &&
+                !pathname?.startsWith("/dashboard/restaurant") && (
                 <button
                   aria-label="Open Milton Chat"
                   onClick={() => setIsChatOpen(true)}
@@ -313,7 +315,7 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
                   💬
                 </button>
               )}
-              {/* Sliding Chat Panel */}
+              {!pathname?.startsWith("/dashboard/restaurant") && (
               <div
                 className="fixed top-0 right-0 h-screen w-[33.333vw] max-w-[420px] min-w-[320px] bg-background shadow-[0_0_24px_rgba(0,0,0,0.2)] z-[10000] flex flex-col transition-transform duration-300 ease-out"
                 style={{
@@ -324,6 +326,7 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
                   <MiltonChat onClose={() => setIsChatOpen(false)} />
                 </div>
               </div>
+              )}
             </div>
           </ComparisonProvider>
         </DashboardKpisProvider>

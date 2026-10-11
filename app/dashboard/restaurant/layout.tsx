@@ -11,20 +11,22 @@
 // data-status redirect already exempts /dashboard/restaurant/*.
 
 import { RestaurantShell } from "@/components/restaurant/RestaurantShell";
-import { createClient } from "@/lib/supabase/server";
-import { listRestaurantLocationsForCurrentUser } from "@/lib/restaurant/restaurant-context-server";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 
 export default async function RestaurantSubRoutesLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  let locations: { id: string; name: string }[] = [];
-  try {
-    const supabase = await createClient();
-    locations = await listRestaurantLocationsForCurrentUser(supabase);
-  } catch (err) {
-    console.error("[RestaurantSubRoutesLayout] locations load failed:", err);
-  }
-  return <RestaurantShell locations={locations}>{children}</RestaurantShell>;
+  const chrome = await loadRestaurantShellChrome();
+  return (
+    <RestaurantShell
+      locations={chrome.locations}
+      lang={chrome.lang}
+      isAdmin={chrome.isAdmin}
+      lastSyncedAt={chrome.lastSyncedAt}
+    >
+      {children}
+    </RestaurantShell>
+  );
 }

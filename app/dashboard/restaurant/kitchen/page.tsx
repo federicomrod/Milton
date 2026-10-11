@@ -18,6 +18,8 @@ import { KitchenQrCard } from "@/components/restaurant/kitchen/KitchenQrCard";
 import { KitchenStaffCard } from "@/components/restaurant/kitchen/KitchenStaffCard";
 import { KitchenReportsCard } from "@/components/restaurant/kitchen/KitchenReportsCard";
 import { KitchenRecipeDraftsCard } from "@/components/restaurant/kitchen/KitchenRecipeDraftsCard";
+import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
+import { t } from "@/lib/restaurant/language";
 
 export const dynamic = "force-dynamic";
 
@@ -44,8 +46,11 @@ export default async function KitchenPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-8">
-      <div>
-        <h1 className="text-2xl font-semibold">Kitchen (Telegram)</h1>
+      <div className="space-y-2">
+        <OperatingPageHeader
+          title={t("en", "Kitchen", "Cocina")}
+          showDateRange={false}
+        />
         <p className="text-sm text-muted-foreground">
           Let your cooks report what&apos;s running out, 86&apos;d or wasted —
           by text, voice note or photo — just by scanning a QR.

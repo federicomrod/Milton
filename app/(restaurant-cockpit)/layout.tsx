@@ -7,22 +7,22 @@
 // same shell via that path's own layout.
 
 import { RestaurantShell } from "@/components/restaurant/RestaurantShell";
-import { createClient } from "@/lib/supabase/server";
-import { listRestaurantLocationsForCurrentUser } from "@/lib/restaurant/restaurant-context-server";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 
 export default async function RestaurantCockpitGroupLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Best-effort: an env/auth failure here should never break the page —
-  // the switcher just renders with an empty (single-restaurant) list.
-  let locations: { id: string; name: string }[] = [];
-  try {
-    const supabase = await createClient();
-    locations = await listRestaurantLocationsForCurrentUser(supabase);
-  } catch (err) {
-    console.error("[RestaurantCockpitGroupLayout] locations load failed:", err);
-  }
-  return <RestaurantShell locations={locations}>{children}</RestaurantShell>;
+  const chrome = await loadRestaurantShellChrome();
+  return (
+    <RestaurantShell
+      locations={chrome.locations}
+      lang={chrome.lang}
+      isAdmin={chrome.isAdmin}
+      lastSyncedAt={chrome.lastSyncedAt}
+    >
+      {children}
+    </RestaurantShell>
+  );
 }

@@ -20,21 +20,15 @@
 
 import Link from "next/link";
 import {
-  Flame,
   TrendingDown,
   AlertTriangle,
   ShieldAlert,
   Info,
-  Upload,
 } from "lucide-react";
 import type React from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { createClient } from "@/lib/supabase/server";
-import { RestaurantSalesExplorer } from "@/components/restaurant/RestaurantSalesExplorer";
 import {
-  getRestaurantKpiTargets,
   type TargetMap,
 } from "@/lib/restaurant/supabase-targets";
 import {
@@ -46,17 +40,14 @@ import {
   getOpenRecommendations,
 } from "@/lib/restaurant/calculations";
 import {
-  fetchRealRestaurantDashboardData,
-  resolveCompanyIdForUser,
   type RestaurantDashboardData,
   type SampleReason,
 } from "@/lib/restaurant/supabase-sales";
 import {
-  fetchProfitabilityData,
   type ProfitabilityData,
 } from "@/lib/restaurant/profitability-server";
 import { PAGINATED_READ_SAFETY_CAP } from "@/lib/restaurant/paginated-read";
-import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
+import { loadCockpitPageModel } from "@/lib/restaurant/cockpit-page-data";
 import {
   ProfitabilityKpisSection,
   MarginRiskSection,
@@ -66,10 +57,15 @@ import {
   SupplierPriceAlerts,
 } from "@/components/restaurant/ProfitabilityCockpit";
 import { CockpitTabs } from "@/components/restaurant/cockpit/CockpitTabs";
-import { MenuProfitabilityTable } from "@/components/restaurant/cockpit/MenuProfitabilityTable";
 import { CockpitKpiStrip } from "@/components/restaurant/cockpit/CockpitKpiStrip";
-import { SalesHero } from "@/components/restaurant/cockpit/SalesHero";
+import { RevenueAndChannelsTab } from "@/components/restaurant/cockpit/RevenueAndChannelsTab";
+import { MenuProfitabilityTab } from "@/components/restaurant/cockpit/MenuProfitabilityTab";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
+import {
+  DataHealthBanner,
+  DataHealthIndicator,
+} from "@/components/restaurant/shell/DataHealthIndicator";
 import { BriefingCard } from "@/components/restaurant/BriefingCard";
 import { RestaurantSetupChecklist } from "@/components/restaurant/RestaurantSetupChecklist";
 import {
@@ -148,15 +144,7 @@ function KpiCard({
   );
 }
 
-function PageHeader({
-  mode,
-  reason,
-}: {
-  mode: "live" | "sample";
-  reason?: SampleReason;
-}) {
-  const liveCopy =
-    "Using uploaded POS data from Supabase. Recipe costing is pending until menu items, recipes, and supplier costs are linked.";
+function cockpitSampleCopy(reason?: SampleReason): string {
   const sampleCopyByReason: Record<SampleReason, string> = {
     unauthenticated:
       "Using sample pilot data — sign in to see your own data. Upload POS sales to see live revenue and item performance.",
@@ -169,41 +157,69 @@ function PageHeader({
     env_missing:
       "Using sample pilot data — Supabase is not configured in this environment.",
   };
-  const sampleCopy = reason
+  return reason
     ? sampleCopyByReason[reason]
     : sampleCopyByReason.no_sales;
+}
 
-  // The sidebar already shows the brand ("Pinche Gringo BBQ") in its
-  // restaurant selector, so the page header is now a single tight row:
-  // page title + mode badge on the left, Import POS Sales on the right.
-  // Per-mode helper copy moves underneath as one muted line.
+function CockpitDataHealth({
+  lang,
+  mode,
+  reason,
+  data,
+  profitability,
+}: {
+  lang: PreferredLanguage;
+  mode: "live" | "sample";
+  reason?: SampleReason;
+  data?: Extract<RestaurantDashboardData, { mode: "live" }>;
+  profitability?: ProfitabilityData | null;
+}) {
+  // System-language banners stay available here (not in the header).
+  // "Using uploaded POS data from Supabase. Recipe costing is pending until menu items, recipes, and supplier costs are linked."
+  const liveCopy =
+    "Using uploaded POS data from Supabase. Recipe costing is pending until menu items, recipes, and supplier costs are linked.";
+  let tone: "ok" | "warn" | "error" = mode === "live" ? "ok" : "warn";
+  if (data?.readError || profitability?.readError) tone = "error";
+  else if (profitability && profitability.kpis.cost_coverage_pct === 0) {
+    tone = "warn";
+  }
+
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3 min-w-0">
-          <Flame className="h-5 w-5 text-orange-500 shrink-0" />
-          <h1 className="text-xl font-bold tracking-tight">Cockpit</h1>
-          {mode === "live" ? (
-            <Badge className="text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0">
-              Live POS data
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="text-xs font-medium">
-              Sample pilot data
-            </Badge>
-          )}
-        </div>
-        <Button asChild size="sm" className="gap-2">
-          <Link href="/dashboard/restaurant/upload">
-            <Upload className="h-4 w-4" />
-            Import POS Sales
-          </Link>
-        </Button>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        {mode === "live" ? liveCopy : sampleCopy}
+    <DataHealthIndicator lang={lang} tone={tone}>
+      {mode === "sample" ? (
+        <DataHealthBanner tone="warn">{cockpitSampleCopy(reason)}</DataHealthBanner>
+      ) : data?.readError || profitability?.readError ? (
+        <DataHealthBanner tone="error">
+          Could not load all sales rows. Totals are unavailable — they are
+          not a smaller number from a partial read. Try refreshing the page.
+        </DataHealthBanner>
+      ) : profitability && profitability.kpis.cost_coverage_pct === 0 ? (
+        <DataHealthBanner tone="warn">
+          Sales data is loaded ({data?.rowCount.toLocaleString("es-MX")} row
+          {data?.rowCount === 1 ? "" : "s"}). Costing is pending until
+          ingredient costs and recipes are linked.
+        </DataHealthBanner>
+      ) : (
+        <DataHealthBanner tone="ok">
+          {data?.rowCount.toLocaleString("es-MX")} POS sale row
+          {data?.rowCount === 1 ? "" : "s"} loaded from Supabase. Items with
+          missing recipes or unit mismatches are flagged rather than
+          estimated.
+        </DataHealthBanner>
+      )}
+      {mode === "live" ? (
+        <p className="text-xs text-muted-foreground">{liveCopy}</p>
+      ) : null}
+      <p className="text-xs">
+        <Link
+          href="/dashboard/restaurant/upload"
+          className="font-medium text-primary hover:underline"
+        >
+          Import POS Sales
+        </Link>
       </p>
-    </div>
+    </DataHealthIndicator>
   );
 }
 
@@ -303,40 +319,15 @@ function LiveRestaurantView({
       ];
 
   return (
-    <div className="w-full py-4 px-6 lg:px-10">
+    <div className="w-full py-3 px-6 lg:px-10">
       <div className="space-y-3">
-        <PageHeader mode="live" />
-
-        {/* Live-mode banner — adapts to costing state. A POS read error
-            must never look like sample/pilot data: show the warning. */}
-        {data.readError || profitability?.readError ? (
-          <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 py-1.5 px-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>
-              Could not load all sales rows. Totals are unavailable — they are
-              not a smaller number from a partial read. Try refreshing the page.
-            </span>
-          </div>
-        ) : profitability && profitability.kpis.cost_coverage_pct === 0 ? (
-          <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 py-1.5 px-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
-            <Info className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>
-              Sales data is loaded ({data.rowCount.toLocaleString("es-MX")} row
-              {data.rowCount === 1 ? "" : "s"}). Costing is pending until
-              ingredient costs and recipes are linked.
-            </span>
-          </div>
-        ) : (
-          <div className="rounded-md border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20 py-1.5 px-3 text-sm text-green-900 dark:text-green-200 flex items-start gap-2">
-            <Info className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>
-              {data.rowCount.toLocaleString("es-MX")} POS sale row
-              {data.rowCount === 1 ? "" : "s"} loaded from Supabase. Items with
-              missing recipes or unit mismatches are flagged rather than
-              estimated.
-            </span>
-          </div>
-        )}
+        <OperatingPageHeader title={t(lang, "Cockpit", "Cockpit")} lang={lang} />
+        <CockpitDataHealth
+          lang={lang}
+          mode="live"
+          data={data}
+          profitability={profitability}
+        />
 
         <CockpitKpiStrip
           cockpit={data.cockpit}
@@ -408,74 +399,6 @@ function OverviewTab({
             body={`Invoice ingestion will plug supplier invoices directly into your ${rowCount.toLocaleString("es-MX")} POS rows + cost data. Currently in design.`}
           />
         </div>
-      </section>
-    </div>
-  );
-}
-
-function MenuProfitabilityTab({
-  profitability,
-}: {
-  profitability: ProfitabilityData;
-}) {
-  return (
-    <div className="space-y-6">
-      {/* TODO(step 2, #123): category mix + popularity vs margin dish matrix
-          once recipe costs exist. Left out of step 1 so this PR stays to
-          revenue definition + Sales hero. */}
-      <ProfitabilityKpisSection data={profitability} />
-      <section>
-        <div className="flex items-baseline justify-between mb-3 gap-3 flex-wrap">
-          <h2 className="text-base font-semibold">
-            Menu profitability{" "}
-            <span className="text-sm font-normal text-muted-foreground">
-              ({profitability.marginRows.length})
-            </span>
-          </h2>
-        </div>
-        <MenuProfitabilityTable
-          rows={profitability.marginRows}
-          currency={profitability.kpis.currency}
-        />
-      </section>
-      <MarginRiskSection data={profitability} />
-      {/* Collapsible checklist — the long version lives in the Setup tab.
-          Here it acts as a quick "what's blocking margin" peek. */}
-      <details className="rounded-md border border-border bg-background">
-        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium hover:bg-muted/30">
-          Costing setup checklist
-        </summary>
-        <div className="px-4 pb-4 pt-2">
-          <DataQualityChecklistSection data={profitability} />
-        </div>
-      </details>
-    </div>
-  );
-}
-
-function RevenueAndChannelsTab({
-  rows,
-  targets,
-  displayCurrency,
-  cockpit,
-  lang,
-}: {
-  rows: Extract<RestaurantDashboardData, { mode: "live" }>["explorerRows"];
-  targets: TargetMap;
-  displayCurrency?: string;
-  cockpit: Extract<RestaurantDashboardData, { mode: "live" }>["cockpit"];
-  lang: PreferredLanguage;
-}) {
-  return (
-    <div className="space-y-6">
-      <SalesHero cockpit={cockpit} lang={lang} />
-      <section>
-        <RestaurantSalesExplorer
-          rows={rows}
-          initialTargets={targets}
-          displayCurrency={displayCurrency}
-          lang={lang}
-        />
       </section>
     </div>
   );
@@ -640,7 +563,8 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
   return (
     <div className="w-full py-8 px-6 lg:px-10">
       <div className="space-y-8">
-        <PageHeader mode="sample" reason={reason} />
+        <OperatingPageHeader title="Cockpit" />
+        <CockpitDataHealth lang="en" mode="sample" reason={reason} />
 
         {/* KPIs */}
         <section>
@@ -933,76 +857,8 @@ export default async function RestaurantCockpitPage({
   searchParams: Promise<{ location?: string }>;
 }) {
   const { location: requestedLocationId } = await searchParams;
-
-  // Defensive: createClient() throws when Supabase env vars are missing.
-  // Treat that as sample mode rather than crashing the page.
-  let data: RestaurantDashboardData;
-  let targets: TargetMap = {};
-  let profitability: ProfitabilityData | null = null;
-  try {
-    const supabase = await createClient();
-
-    // Multi-Restaurant UX v1: resolve + validate the requested location
-    // against the caller's OWN company before trusting it for anything.
-    // An id for another company (or garbage) simply never matches and we
-    // silently fall back to consolidated — see resolveRestaurantContext's
-    // security note. Only bother with this lookup when a location was
-    // actually requested, to keep the common consolidated path cheap.
-    let selectedLocationId: string | null = null;
-    let selectedBrandId: string | null = null;
-    if (requestedLocationId) {
-      const { data: userData } = await supabase.auth.getUser();
-      if (userData.user?.id) {
-        const companyIdForContext = await resolveCompanyIdForUser(
-          supabase,
-          userData.user.id
-        );
-        if (companyIdForContext) {
-          const context = await resolveRestaurantContext(
-            supabase,
-            companyIdForContext,
-            requestedLocationId
-          );
-          if (context.selected) {
-            selectedLocationId = context.selected.locationId;
-            selectedBrandId = context.selected.brandId;
-          }
-        }
-      }
-    }
-
-    data = await fetchRealRestaurantDashboardData(supabase, selectedLocationId);
-    // Targets + profitability are scoped per-company; only load them when
-    // we resolved a company (live mode). Each loader degrades independently
-    // so a single failure doesn't blank the cockpit.
-    if (data.mode === "live") {
-      try {
-        targets = await getRestaurantKpiTargets(supabase, data.companyId);
-      } catch (err) {
-        console.error("[RestaurantCockpitPage] targets load failed:", err);
-        targets = {};
-      }
-      try {
-        profitability = await fetchProfitabilityData(
-          supabase,
-          data.companyId,
-          selectedLocationId
-            ? { locationId: selectedLocationId, brandId: selectedBrandId }
-            : null,
-          data.readError ? undefined : { posRows: data.posFactRows }
-        );
-      } catch (err) {
-        console.error(
-          "[RestaurantCockpitPage] profitability load failed:",
-          err
-        );
-        profitability = null;
-      }
-    }
-  } catch (err) {
-    console.error("[RestaurantCockpitPage] Supabase init failed:", err);
-    data = { mode: "sample", reason: "env_missing" };
-  }
+  const { data, targets, profitability } =
+    await loadCockpitPageModel(requestedLocationId);
 
   if (data.mode === "live") {
     return (

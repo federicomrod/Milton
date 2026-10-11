@@ -8,7 +8,10 @@ const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 describe("cockpit step-1 review nits", () => {
   it("does not render a visible TODO step 2 box on the Menu tab", () => {
     const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
-    expect(page).toContain("TODO(step 2, #123)");
+    const menuTab = read(
+      "components/restaurant/cockpit/MenuProfitabilityTab.tsx"
+    );
+    expect(page + menuTab).toContain("TODO(step 2, #123)");
     expect(page).not.toContain("TODO step 2: category mix");
     expect(page).not.toContain("TODO paso 2:");
   });

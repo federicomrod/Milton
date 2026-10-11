@@ -17,7 +17,8 @@ import type {
 export function resolveSubRecipeYield(
   group: GroupedRecipe
 ):
-  { ok: true; quantity: number; unit: string } | { ok: false; reason: string } {
+  | { ok: true; quantity: number; unit: string }
+  | { ok: false; reason: string } {
   const mappedQty = group.output_quantity;
   const mappedUnit = group.output_unit?.trim() ?? "";
   if (mappedQty != null && mappedQty > 0 && mappedUnit) {

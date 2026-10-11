@@ -1,4 +1,6 @@
 import type {
+  CompanyCostResetSummary,
+  CostResetStepId,
   CostWorkbookBatch,
   CostWorkbookCostEntry,
   CostWorkbookIngredient,
@@ -15,6 +17,17 @@ import type {
 } from "@/lib/restaurant/cost-workbook/types";
 import { emptyUndoSnapshot } from "@/lib/restaurant/cost-workbook/types";
 import type { CostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
+import {
+  runResetSteps,
+  summaryFromResetSteps,
+} from "@/lib/restaurant/cost-workbook/reset";
+
+export interface MemoryPosSale {
+  id: string;
+  company_id: string;
+  raw_item_name: string;
+  menu_item_id: string | null;
+}
 
 export interface MemoryCostWorkbookStore {
   ingredients: CostWorkbookIngredient[];
@@ -37,8 +50,13 @@ export interface MemoryCostWorkbookStore {
     raw_pos_item_name: string;
     menu_item_id: string;
     location_id?: string | null;
+    match_type?: "auto" | "manual" | "suggested";
   }>;
   supplierLinks: SupplierIngredientSnapshot[];
+  companyByEntityId: Record<string, string>;
+  mappingCompanyIds: Record<string, string>;
+  posSalesItems: MemoryPosSale[];
+  failResetStep?: CostResetStepId;
 }
 
 export function emptyMemoryStore(): MemoryCostWorkbookStore {
@@ -58,6 +76,9 @@ export function emptyMemoryStore(): MemoryCostWorkbookStore {
     posItemLocationIds: [],
     posMappings: [],
     supplierLinks: [],
+    companyByEntityId: {},
+    mappingCompanyIds: {},
+    posSalesItems: [],
   };
 }
 
@@ -80,6 +101,7 @@ export function createMemoryCostWorkbookRepo(
           currency: input.currency,
           category: input.category ?? null,
         };
+        store.companyByEntityId[row.id] = input.companyId;
         store.ingredients.push(row);
         return row;
       });
@@ -103,6 +125,7 @@ export function createMemoryCostWorkbookRepo(
     async restoreIngredients(rows) {
       for (const row of rows) {
         if (store.ingredients.some((item) => item.id === row.id)) continue;
+        store.companyByEntityId[row.id] = row.companyId;
         store.ingredients.push({
           id: row.id,
           name: row.name,
@@ -146,6 +169,14 @@ export function createMemoryCostWorkbookRepo(
           undone_at: row.undone_at,
           undo_snapshot: row.undo_snapshot,
         }));
+    },
+    async listBatchHistory(companyId) {
+      return store.batches
+        .filter((row) => row.company_id === companyId)
+        .map((row) => ({ ...row }));
+    },
+    async resetCompanyCostCatalog(companyId) {
+      return resetMemoryCompanyCostCatalog(store, companyId);
     },
     async listIngredientInputUsages(_companyId, ingredientIds) {
       const wanted = new Set(ingredientIds);
@@ -221,6 +252,7 @@ export function createMemoryCostWorkbookRepo(
     async restoreSupplierIngredientLinks(rows) {
       for (const row of rows) {
         if (store.supplierLinks.some((item) => item.id === row.id)) continue;
+        store.companyByEntityId[row.id] = row.company_id;
         store.supplierLinks.push({ ...row });
       }
     },
@@ -275,6 +307,7 @@ export function createMemoryCostWorkbookRepo(
           id: id(),
           created_at: new Date().toISOString(),
         };
+        store.companyByEntityId[row.id] = row.company_id;
         store.costEntries.push(row);
         return row;
       });
@@ -290,6 +323,7 @@ export function createMemoryCostWorkbookRepo(
     },
     async restoreCostEntries(companyId, entries) {
       for (const entry of entries) {
+        store.companyByEntityId[entry.id] = companyId;
         const idx = store.costEntries.findIndex(
           (e) => e.company_id === companyId && e.id === entry.id
         );
@@ -308,7 +342,8 @@ export function createMemoryCostWorkbookRepo(
     async listMappings() {
       return [...store.mappings];
     },
-    async upsertMapping(_companyId, mapping) {
+    async upsertMapping(companyId, mapping) {
+      store.mappingCompanyIds[mapping.layout_key] = companyId;
       const idx = store.mappings.findIndex(
         (m) => m.layout_key === mapping.layout_key
       );
@@ -326,9 +361,11 @@ export function createMemoryCostWorkbookRepo(
         review_count: input.reviewCount,
         tab_summaries: input.tabSummaries,
         mapping_source: input.mappingSource,
+        created_at: new Date(Date.now() + store.batches.length).toISOString(),
         undone_at: null,
         undo_snapshot: emptyUndoSnapshot(),
       };
+      store.companyByEntityId[row.id] = input.companyId;
       store.batches.push(row);
       return row;
     },
@@ -352,10 +389,14 @@ export function createMemoryCostWorkbookRepo(
       if (batch) batch.undo_snapshot = snapshot;
     },
     async insertReviewItems(items) {
-      const created = items.map((item) => ({
-        ...item,
-        id: id(),
-      }));
+      const created = items.map((item) => {
+        const row = {
+          ...item,
+          id: id(),
+        };
+        store.companyByEntityId[row.id] = row.company_id;
+        return row;
+      });
       store.reviewItems.push(...created);
       return created;
     },
@@ -393,6 +434,7 @@ export function createMemoryCostWorkbookRepo(
         brand_id: input.brandId ?? null,
         selling_price: input.sellingPrice ?? 0,
       };
+      store.companyByEntityId[row.id] = input.companyId;
       store.menuItems.push(row);
       return row;
     },
@@ -427,6 +469,7 @@ export function createMemoryCostWorkbookRepo(
         source_type: "import",
         source_id: input.sourceId,
       };
+      store.companyByEntityId[row.id] = input.companyId;
       store.recipes.push(row);
       store.recipeInputs.push(
         ...input.inputs.map((line) => ({
@@ -477,6 +520,7 @@ export function createMemoryCostWorkbookRepo(
         source_type: "import",
         source_id: input.sourceId,
       };
+      store.companyByEntityId[row.id] = input.companyId;
       store.components.push(row);
       return row;
     },
@@ -520,6 +564,7 @@ export function createMemoryCostWorkbookRepo(
         source_type: "import",
         source_id: input.sourceId,
       };
+      store.companyByEntityId[row.id] = input.companyId;
       store.componentRecipes.push(row);
       store.componentRecipeInputs.push(
         ...input.inputs.map((line) => ({
@@ -597,7 +642,9 @@ export function createMemoryCostWorkbookRepo(
           raw_pos_item_name: input.rawPosItemName,
           menu_item_id: input.menuItemId,
           location_id: input.locationId ?? null,
+          match_type: "auto" as const,
         };
+        store.companyByEntityId[row.id] = input.companyId;
         store.posMappings.push(row);
         return { id: row.id };
       });
@@ -612,4 +659,155 @@ export function createMemoryCostWorkbookRepo(
       return before - store.posMappings.length;
     },
   };
+}
+
+async function resetMemoryCompanyCostCatalog(
+  store: MemoryCostWorkbookStore,
+  companyId: string
+): Promise<CompanyCostResetSummary> {
+  const ours = (id: string, rowCompany?: string | null) =>
+    (rowCompany != null && rowCompany === companyId) ||
+    store.companyByEntityId[id] === companyId;
+
+  const importMenuItems = store.menuItems.filter(
+    (row) => ours(row.id) && row.source_type === "import"
+  );
+  const importMenuIds = new Set(importMenuItems.map((row) => row.id));
+  const keptManualMenuItems = store.menuItems.filter(
+    (row) => ours(row.id) && row.source_type !== "import"
+  ).length;
+
+  const importMappings = store.posMappings.filter(
+    (row) =>
+      ours(row.id) &&
+      (row.match_type === "auto" || importMenuIds.has(row.menu_item_id))
+  );
+  const importMappingIds = new Set(importMappings.map((row) => row.id));
+  const keptManualPosMappings = store.posMappings.filter(
+    (row) =>
+      ours(row.id) &&
+      !importMappingIds.has(row.id) &&
+      !importMenuIds.has(row.menu_item_id)
+  ).length;
+
+  const steps = await runResetSteps(async (id: CostResetStepId) => {
+    if (store.failResetStep === id) {
+      throw new Error(`forced ${id} failure`);
+    }
+    switch (id) {
+      case "menu_recipe_inputs": {
+        const recipeIds = new Set(
+          store.recipes.filter((row) => ours(row.id)).map((row) => row.id)
+        );
+        const before = store.recipeInputs.length;
+        store.recipeInputs = store.recipeInputs.filter(
+          (row) => !recipeIds.has(row.recipe_id)
+        );
+        return before - store.recipeInputs.length;
+      }
+      case "recipe_ingredients":
+        return 0;
+      case "component_recipe_inputs": {
+        const componentRecipeIds = new Set(
+          store.componentRecipes
+            .filter((row) => ours(row.id))
+            .map((row) => row.id)
+        );
+        const before = store.componentRecipeInputs.length;
+        store.componentRecipeInputs = store.componentRecipeInputs.filter(
+          (row) => !componentRecipeIds.has(row.component_recipe_id)
+        );
+        return before - store.componentRecipeInputs.length;
+      }
+      case "recipes": {
+        const before = store.recipes.filter((row) => ours(row.id)).length;
+        store.recipes = store.recipes.filter((row) => !ours(row.id));
+        return before;
+      }
+      case "component_recipes": {
+        const before = store.componentRecipes.filter((row) =>
+          ours(row.id)
+        ).length;
+        store.componentRecipes = store.componentRecipes.filter(
+          (row) => !ours(row.id)
+        );
+        return before;
+      }
+      case "prepared_components": {
+        const before = store.components.filter((row) => ours(row.id)).length;
+        store.components = store.components.filter((row) => !ours(row.id));
+        return before;
+      }
+      case "import_pos_mappings": {
+        const before = store.posMappings.length;
+        store.posMappings = store.posMappings.filter(
+          (row) => !importMappingIds.has(row.id)
+        );
+        return before - store.posMappings.length;
+      }
+      case "import_menu_items": {
+        const before = store.menuItems.length;
+        store.menuItems = store.menuItems.filter(
+          (row) => !importMenuIds.has(row.id)
+        );
+        return before - store.menuItems.length;
+      }
+      case "ingredient_cost_entries": {
+        const before = store.costEntries.filter(
+          (row) => row.company_id === companyId
+        ).length;
+        store.costEntries = store.costEntries.filter(
+          (row) => row.company_id !== companyId
+        );
+        return before;
+      }
+      case "supplier_ingredients": {
+        const before = store.supplierLinks.filter(
+          (row) => row.company_id === companyId
+        ).length;
+        store.supplierLinks = store.supplierLinks.filter(
+          (row) => row.company_id !== companyId
+        );
+        return before;
+      }
+      case "ingredients": {
+        const before = store.ingredients.filter((row) => ours(row.id)).length;
+        store.ingredients = store.ingredients.filter((row) => !ours(row.id));
+        return before;
+      }
+      case "cost_import_review_items": {
+        const before = store.reviewItems.filter(
+          (row) => row.company_id === companyId
+        ).length;
+        store.reviewItems = store.reviewItems.filter(
+          (row) => row.company_id !== companyId
+        );
+        return before;
+      }
+      case "cost_import_layout_maps": {
+        const before = store.mappings.filter(
+          (row) => store.mappingCompanyIds[row.layout_key] === companyId
+        ).length;
+        store.mappings = store.mappings.filter(
+          (row) => store.mappingCompanyIds[row.layout_key] !== companyId
+        );
+        return before;
+      }
+      case "batches_marked_undone": {
+        const liveBatches = store.batches.filter(
+          (row) => row.company_id === companyId && !row.undone_at
+        );
+        const now = new Date().toISOString();
+        for (const batch of liveBatches) {
+          batch.undone_at = now;
+        }
+        return liveBatches.length;
+      }
+    }
+  });
+
+  return summaryFromResetSteps(steps, {
+    kept_manual_menu_items: keptManualMenuItems,
+    kept_manual_pos_mappings: keptManualPosMappings,
+  });
 }

@@ -40,6 +40,8 @@ import {
   resolvePriceListPrice,
   resolveSubRecipeYield,
   undoCostImportBatch,
+  undoAllCostImportBatches,
+  listCostImportHistory,
   uniquifyHeaders,
   unitsCompatible,
   classifyCostTabHeuristic,
@@ -2062,6 +2064,47 @@ describe("workbook import blockers", () => {
       expect(blocked.reason).toMatch(/newer import/i);
     }
     expect(store.ingredients.length).toBeGreaterThan(0);
+  });
+
+  it("undo-all walks newest to oldest so overlapping batches can both come off", async () => {
+    const store = emptyStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const first = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosCostWorkbook(),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    const second = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosCostWorkbook({ carneLb: 6 }),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+
+    const history = await listCostImportHistory(repo, COMPANY);
+    expect(history.map((row) => row.id)).toEqual([
+      second.batch_id,
+      first.batch_id,
+    ]);
+    expect(history.every((row) => row.status === "live")).toBe(true);
+
+    const blocked = await undoCostImportBatch(repo, COMPANY, first.batch_id);
+    expect(blocked.ok).toBe(false);
+
+    const undone = await undoAllCostImportBatches(repo, COMPANY);
+    expect(undone.ok).toBe(true);
+    expect(undone.undone).toBe(2);
+    expect(store.costEntries).toHaveLength(0);
+    expect(store.ingredients).toHaveLength(0);
+    expect(store.menuItems).toHaveLength(0);
+    expect(store.batches.every((batch) => batch.undone_at)).toBe(true);
+    const after = await listCostImportHistory(repo, COMPANY);
+    expect(after.every((row) => row.status === "undone")).toBe(true);
   });
 
   it("reports a partial undo when a leftover recipe line blocks ingredient delete", async () => {

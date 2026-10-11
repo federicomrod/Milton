@@ -1,49 +1,23 @@
 // Plain-code parsing + validation. AI never invents these numbers.
 
-import {
-  parseCostImportDate,
-  parseCostImportNumber,
-} from "@/lib/restaurant/cost-import";
+import { parseCostImportDate } from "@/lib/restaurant/cost-import";
 import {
   currencyMismatchReason,
   normalizeCurrency,
 } from "@/lib/restaurant/currency";
 import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
+import { numberAt, textAt } from "./cells";
+import { implausiblePriceReason } from "./plausibility";
+import { skipReasonForWorkbookRow } from "./skip";
 import type {
   ColumnMapping,
   CostTabType,
   ReviewCandidate,
   WorkbookRowCandidate,
 } from "./types";
-import { HIGH_COLUMN_CONFIDENCE } from "./types";
-
-const TOTAL_ROW_RE = /^(total|sub[\s-]?total|totales|subtotales|suma)(\b|:|$)/i;
 
 const MATH_ABS_TOL = 0.05;
 const MATH_REL_TOL = 0.02;
-
-function textAt(
-  row: Record<string, unknown>,
-  mapping: ColumnMapping,
-  field: string
-): string | null {
-  const col = mapping[field]?.column;
-  if (!col) return null;
-  const raw = row[col];
-  if (raw === null || raw === undefined) return null;
-  const s = String(raw).trim();
-  return s === "" ? null : s;
-}
-
-function numberAt(
-  row: Record<string, unknown>,
-  mapping: ColumnMapping,
-  field: string
-): number | null {
-  const col = mapping[field]?.column;
-  if (!col) return null;
-  return parseCostImportNumber(row[col]);
-}
 
 export function totalsMatch(
   quantity: number,
@@ -73,14 +47,7 @@ export function isSkippableWorkbookRow(
   row: Record<string, unknown>,
   mapping: ColumnMapping
 ): boolean {
-  if (tabType !== "category_cost" && tabType !== "purchases") return false;
-  const name = textAt(row, mapping, "ingredient_name");
-  if (!name) {
-    return Object.values(row).every(
-      (value) => String(value ?? "").trim() === ""
-    );
-  }
-  return TOTAL_ROW_RE.test(name.trim());
+  return skipReasonForWorkbookRow(tabType, row, mapping) !== null;
 }
 
 function currencyReviewReason(
@@ -95,21 +62,6 @@ function currencyReviewReason(
     return currencyMismatchReason(raw.trim().toUpperCase(), companyCurrency);
   }
   return currencyMismatchReason(normalized, companyCurrency);
-}
-
-function mappingConfidence(mapping: ColumnMapping, field: string): number {
-  return mapping[field]?.confidence ?? 0;
-}
-
-function columnUnsure(mapping: ColumnMapping, fields: string[]): string | null {
-  for (const field of fields) {
-    const binding = mapping[field];
-    if (!binding?.column) continue;
-    if (binding.confidence < HIGH_COLUMN_CONFIDENCE) {
-      return `column unsure (${field} ← ${binding.column})`;
-    }
-  }
-  return null;
 }
 
 function baseCandidate(
@@ -193,12 +145,6 @@ function evaluatePriceListRow(
 ):
   | { ok: true; value: WorkbookRowCandidate }
   | { ok: false; review: ReviewCandidate } {
-  const unsure = columnUnsure(mapping, [
-    "ingredient_name",
-    "price_per_lb",
-    "price_per_oz",
-    "price_per_unit",
-  ]);
   const name = textAt(row, mapping, "ingredient_name");
   const fail = (reason: string): { ok: false; review: ReviewCandidate } => ({
     ok: false,
@@ -217,41 +163,20 @@ function evaluatePriceListRow(
   });
 
   if (!name) return fail("Missing ingredient name");
-  if (unsure) return fail(unsure);
-  if (mappingConfidence(mapping, "ingredient_name") < HIGH_COLUMN_CONFIDENCE) {
-    return fail("column unsure (ingredient name)");
-  }
 
-  const priceLb = numberAt(row, mapping, "price_per_lb");
-  const priceOz = numberAt(row, mapping, "price_per_oz");
-  const priceUnit = numberAt(row, mapping, "price_per_unit");
+  const resolved = resolvePriceListPrice({
+    priceLb: numberAt(row, mapping, "price_per_lb"),
+    priceOz: numberAt(row, mapping, "price_per_oz"),
+    priceUnit: numberAt(row, mapping, "price_per_unit"),
+  });
+  if (!resolved.ok) return fail(resolved.reason);
 
-  if (
-    priceLb !== null &&
-    priceOz !== null &&
-    priceLb > 0 &&
-    priceOz > 0 &&
-    !pricesConvert(priceLb, "lb", priceOz, "oz")
-  ) {
-    return fail(
-      "quantity x price doesn't match total (lb/oz prices don't convert)"
-    );
-  }
-
-  let unit = "";
-  let unitPrice = 0;
-  if (priceLb !== null && priceLb > 0) {
-    unit = "lb";
-    unitPrice = priceLb;
-  } else if (priceOz !== null && priceOz > 0) {
-    unit = "oz";
-    unitPrice = priceOz;
-  } else if (priceUnit !== null && priceUnit > 0) {
-    unit = "unit";
-    unitPrice = priceUnit;
-  } else {
-    return fail("Missing unit price");
-  }
+  const implausible = implausiblePriceReason(
+    name,
+    resolved.unit,
+    resolved.unitPrice
+  );
+  if (implausible) return fail(implausible);
 
   return {
     ok: true,
@@ -259,11 +184,52 @@ function evaluatePriceListRow(
       ...baseCandidate(tabName, rowIndex, row, currency, defaultDate),
       ingredient_name: name,
       quantity: 1,
-      unit,
-      unit_price: unitPrice,
-      total_cost: unitPrice,
+      unit: resolved.unit,
+      unit_price: resolved.unitPrice,
+      total_cost: resolved.unitPrice,
     },
   };
+}
+
+/**
+ * On LIBRA / ONZA price-list tabs the unit is the column the price
+ * actually sits in. Never guess lb vs oz. PRECIO UNITARIO is per-each
+ * only when neither mass column has a price.
+ */
+export function resolvePriceListPrice(input: {
+  priceLb: number | null;
+  priceOz: number | null;
+  priceUnit: number | null;
+}):
+  | { ok: true; unit: "lb" | "oz" | "unit"; unitPrice: number }
+  | { ok: false; reason: string } {
+  const priceLb = input.priceLb;
+  const priceOz = input.priceOz;
+  const priceUnit = input.priceUnit;
+  const hasLb = priceLb !== null && priceLb > 0;
+  const hasOz = priceOz !== null && priceOz > 0;
+  const hasEach = priceUnit !== null && priceUnit > 0;
+
+  if (hasLb && hasOz && priceLb !== null && priceOz !== null) {
+    if (!pricesConvert(priceLb, "lb", priceOz, "oz")) {
+      return {
+        ok: false,
+        reason:
+          "quantity x price doesn't match total (lb/oz prices don't convert)",
+      };
+    }
+    return { ok: true, unit: "lb", unitPrice: priceLb };
+  }
+  if (hasLb && priceLb !== null) {
+    return { ok: true, unit: "lb", unitPrice: priceLb };
+  }
+  if (hasOz && priceOz !== null) {
+    return { ok: true, unit: "oz", unitPrice: priceOz };
+  }
+  if (hasEach && priceUnit !== null) {
+    return { ok: true, unit: "unit", unitPrice: priceUnit };
+  }
+  return { ok: false, reason: "Missing unit price" };
 }
 
 function evaluateQuantityCostRow(
@@ -277,13 +243,6 @@ function evaluateQuantityCostRow(
 ):
   | { ok: true; value: WorkbookRowCandidate }
   | { ok: false; review: ReviewCandidate } {
-  const unsure = columnUnsure(mapping, [
-    "ingredient_name",
-    "unit",
-    "unit_price",
-    "quantity",
-    "total_cost",
-  ]);
   const name = textAt(row, mapping, "ingredient_name");
   const fail = (
     reason: string,
@@ -300,7 +259,6 @@ function evaluateQuantityCostRow(
   });
 
   if (!name) return fail("Missing ingredient name");
-  if (unsure) return fail(unsure);
 
   const unitRaw = textAt(row, mapping, "unit");
   if (!unitRaw) return fail("Missing unit", { ingredient_name: name });
@@ -360,6 +318,17 @@ function evaluateQuantityCostRow(
     resolvedPrice < 0
   ) {
     return fail("Missing cost", { ingredient_name: name, unit: unitRaw });
+  }
+
+  const implausible = implausiblePriceReason(name, unitRaw, resolvedPrice);
+  if (implausible) {
+    return fail(implausible, {
+      ingredient_name: name,
+      unit: unitRaw,
+      unit_price: resolvedPrice,
+      total_cost: resolvedTotal,
+      quantity,
+    });
   }
 
   return {

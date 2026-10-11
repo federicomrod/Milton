@@ -56,6 +56,8 @@ interface WorkbookTabSummary {
   review_count: number;
   preview: Record<string, unknown>[];
   note?: string;
+  skipped_count?: number;
+  skipped_reasons?: Array<{ reason: string; count: number }>;
 }
 
 interface WorkbookReviewItem {
@@ -86,6 +88,11 @@ interface WorkbookSummary {
   costs_updated: number;
   saved_count?: number;
   skipped_count?: number;
+  skipped_reasons?: Array<{ reason: string; count: number }>;
+  menu_items_created?: number;
+  recipes_created?: number;
+  sub_recipes_created?: number;
+  pos_links_created?: number;
 }
 
 interface UploadError {
@@ -465,7 +472,7 @@ export default function CostUploadPage() {
                   setUndoMessage(json.error ?? "Undo failed");
                 } else {
                   setUndoMessage(
-                    `Undone. Removed ${json.deleted_cost_entries ?? 0} cost rows.`
+                    `Undone. Removed ${json.deleted_cost_entries ?? 0} cost rows and the menu items, recipes, and POS links this import created.`
                   );
                   setPendingReview([]);
                 }
@@ -616,7 +623,8 @@ function tabTypeLabel(type: string): string {
   if (type === "price_list") return "Price list";
   if (type === "category_cost") return "Category costs";
   if (type === "purchases") return "Purchases";
-  if (type === "recipe") return "Recipes, coming soon";
+  if (type === "recipe") return "Recipe";
+  if (type === "sub_recipe") return "Sub-recipe";
   return "Skipped";
 }
 
@@ -656,9 +664,15 @@ function WorkbookResult({
           Mapping:{" "}
           {workbook.mapping_source === "saved" ? "remembered layout" : "AI"}.
           {workbook.recipe_tab_count > 0
-            ? ` ${workbook.recipe_tab_count} recipe tab${
-                workbook.recipe_tab_count === 1 ? "" : "s"
-              } listed as coming soon.`
+            ? ` ${workbook.recipes_created ?? 0} recipe${
+                (workbook.recipes_created ?? 0) === 1 ? "" : "s"
+              }, ${workbook.sub_recipes_created ?? 0} sub-recipe${
+                (workbook.sub_recipes_created ?? 0) === 1 ? "" : "s"
+              }, ${workbook.menu_items_created ?? 0} menu item${
+                (workbook.menu_items_created ?? 0) === 1 ? "" : "s"
+              }, ${workbook.pos_links_created ?? 0} POS link${
+                (workbook.pos_links_created ?? 0) === 1 ? "" : "s"
+              }.`
             : ""}
         </p>
         <div className="flex flex-wrap gap-2">
@@ -730,8 +744,24 @@ function WorkbookResult({
                       .join(" · ")}
                   </p>
                 )}
+                {(tab.skipped_reasons?.length ?? 0) > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Skipped:{" "}
+                    {(tab.skipped_reasons ?? [])
+                      .map((row) => `${row.count} ${row.reason}`)
+                      .join(", ")}
+                  </p>
+                )}
               </div>
             ))}
+            {(workbook.skipped_reasons?.length ?? 0) > 0 && (
+              <p className="text-xs text-muted-foreground">
+                All skipped:{" "}
+                {(workbook.skipped_reasons ?? [])
+                  .map((row) => `${row.count} ${row.reason}`)
+                  .join(", ")}
+              </p>
+            )}
           </div>
         )}
 

@@ -15,8 +15,23 @@ export {
 export {
   evaluateWorkbookRow,
   isSkippableWorkbookRow,
+  resolvePriceListPrice,
   totalsMatch,
 } from "./parse";
+export { groupSkipReasons, skipReasonForWorkbookRow } from "./skip";
+export { nameMatchScore, normalizeMatchName } from "./names";
+export {
+  canAutoLinkNames,
+  damerauLevenshtein,
+  isObviousTypo,
+  mergeTypoDuplicates,
+  unitsCompatible,
+} from "./duplicates";
+export { resolveSubRecipeYield } from "./recipes";
+export { resolveCatalogInput } from "./persist-recipes";
+export { implausiblePriceReason } from "./plausibility";
+export { categoryForTab, resolveCategoryName } from "./categories";
+export { collectRecipeLines } from "./recipes";
 export {
   firstSheetRawRows,
   isWorkbookLimitError,

@@ -1,23 +1,40 @@
 import { normalizeUnit } from "@/lib/restaurant/units";
 import type { WorkbookAi } from "./ai";
 import { classifyCostTabHeuristic } from "./ai";
-import { layoutKeyForSheet } from "./header";
-import { evaluateWorkbookRow, isSkippableWorkbookRow } from "./parse";
-import { dedupeWorkbookRows, persistSavedRows } from "./persist";
-import { mapPool, WORKBOOK_AI_CONCURRENCY } from "./pool";
-import type { CostWorkbookRepo } from "./repo";
+import { categoryForTab } from "./categories";
+import {
+  importedIngredientIdsFromBatches,
+  retireImportedPreparedIngredients,
+} from "./convert";
 import { inferWorkbookDate } from "./date";
+import { mergeTypoDuplicates } from "./duplicates";
+import { layoutKeyForSheet } from "./header";
+import { evaluateWorkbookRow } from "./parse";
+import { dedupeWorkbookRows, persistSavedRows } from "./persist";
+import { linkMenuItemsToPos, persistWorkbookRecipes } from "./persist-recipes";
+import { mapPool, WORKBOOK_AI_CONCURRENCY } from "./pool";
+import { matchesPreparedName, preparedNamesFromGroups } from "./prepared";
+import type { CostWorkbookRepo } from "./repo";
+import { collectRecipeLines } from "./recipes";
 import { mappingPassesSanity } from "./sanity";
 import { readWorkbookSheets } from "./sheets";
+import {
+  groupSkipReasons,
+  isNoPriceReviewReason,
+  skipReasonForWorkbookRow,
+} from "./skip";
 import { mergeUndoSnapshots } from "./snapshot";
 import {
   HIGH_TAB_CONFIDENCE,
+  emptyUndoSnapshot,
   type ColumnMapping,
   type CostTabType,
   type DetectedSheet,
+  type GroupedRecipe,
   type MappingSource,
   type ReviewCandidate,
   type SavedLayoutMap,
+  type SkipCandidate,
   type TabImportSummary,
   type WorkbookImportResult,
   type WorkbookRowCandidate,
@@ -47,6 +64,13 @@ function requiredMapped(type: CostTabType, mapping: ColumnMapping): boolean {
   }
   if (type === "purchases" || type === "category_cost") {
     return Boolean(mapping.ingredient_name?.column);
+  }
+  if (type === "recipe" || type === "sub_recipe") {
+    return Boolean(
+      mapping.ingredient_name?.column &&
+      mapping.quantity?.column &&
+      mapping.unit?.column
+    );
   }
   return false;
 }
@@ -89,7 +113,6 @@ async function resolveTab(input: {
     const saved = savedByKey.get(layoutKeyForSheet(sheet.headers, type));
     if (!saved || saved.tab_confidence < HIGH_TAB_CONFIDENCE) return undefined;
     if (
-      saved.tab_type !== "recipe" &&
       saved.tab_type !== "ignore" &&
       !mappingPassesSanity({
         tabType: saved.tab_type,
@@ -135,7 +158,7 @@ async function resolveTab(input: {
   }
 
   let mapping: ColumnMapping = {};
-  if (classified.type !== "recipe" && classified.type !== "ignore") {
+  if (classified.type !== "ignore") {
     mapping = await ai.mapColumns({
       tabType: classified.type,
       headers: sheet.headers,
@@ -144,7 +167,6 @@ async function resolveTab(input: {
   }
 
   const sane =
-    classified.type === "recipe" ||
     classified.type === "ignore" ||
     mappingPassesSanity({
       tabType: classified.type,
@@ -196,135 +218,193 @@ export async function importCostWorkbook(input: {
     })
   );
 
+  const existingIngredients = await input.repo.listIngredients(input.companyId);
+  const existingCategories = [
+    ...new Set(
+      existingIngredients
+        .map((item) => item.category)
+        .filter((value): value is string => Boolean(value?.trim()))
+    ),
+  ];
+
   const toSave: WorkbookRowCandidate[] = [];
   const toReview: ReviewCandidate[] = [];
+  const skipped: SkipCandidate[] = [];
+  const recipeGroups: GroupedRecipe[] = [];
   const tabSummaries: TabImportSummary[] = [];
   const mapsToPersist: SavedLayoutMap[] = [];
   const sources: Array<MappingSource | "none"> = [];
   let recipeTabCount = 0;
   let costTabCount = 0;
-  let skippedCount = 0;
 
-  for (const resolved of resolvedTabs) {
+  const rememberMapping = (
+    resolved: ResolvedTab,
+    tabType: CostTabType,
+    mapping: ColumnMapping
+  ) => {
+    if (resolved.mappingSource === "saved" || !resolved.persistMapping) return;
+    if (
+      !mappingPassesSanity({
+        tabType,
+        dataRows: resolved.sheet.dataRows,
+        mapping,
+        currency: input.currency,
+        defaultDate: fileMonth,
+      })
+    ) {
+      return;
+    }
+    mapsToPersist.push({
+      layout_key: layoutKeyForSheet(resolved.sheet.headers, tabType),
+      tab_name: resolved.sheet.name,
+      tab_type: tabType,
+      column_mapping: mapping,
+      header_fingerprint: resolved.sheet.headerFingerprint,
+      tab_confidence: resolved.tabConfidence,
+    });
+  };
+
+  const processRecipeTab = (resolved: ResolvedTab) => {
     const { sheet, tabType, tabConfidence, mapping, mappingSource, note } =
       resolved;
-    sources.push(mappingSource);
+    recipeTabCount += 1;
+    const collected = collectRecipeLines({
+      tabName: sheet.name,
+      tabKind: tabType === "sub_recipe" ? "sub_recipe" : "recipe",
+      dataRows: sheet.dataRows,
+      mapping,
+    });
+    recipeGroups.push(...collected.groups);
+    toReview.push(...collected.review);
+    skipped.push(...collected.skipped);
+    rememberMapping(resolved, tabType, mapping);
+    tabSummaries.push({
+      name: sheet.name,
+      type: tabType,
+      confidence: tabConfidence,
+      mapping_source: mappingSource,
+      column_mapping: mapping,
+      imported_count: collected.groups.reduce(
+        (sum, group) => sum + group.lines.length,
+        0
+      ),
+      review_count: collected.review.length,
+      skipped_count: collected.skipped.length,
+      skipped_reasons: groupSkipReasons(collected.skipped),
+      preview: sheet.sampleRows,
+      note:
+        note ??
+        (tabType === "sub_recipe" ? "sub-recipe / prep item" : "recipe"),
+    });
+  };
 
-    if (tabType === "recipe") {
-      recipeTabCount += 1;
+  for (const resolved of resolvedTabs) {
+    sources.push(resolved.mappingSource);
+    if (resolved.tabType === "ignore") {
       tabSummaries.push({
-        name: sheet.name,
-        type: tabType,
-        confidence: tabConfidence,
-        mapping_source: mappingSource,
-        column_mapping: mapping,
+        name: resolved.sheet.name,
+        type: resolved.tabType,
+        confidence: resolved.tabConfidence,
+        mapping_source: resolved.mappingSource,
+        column_mapping: resolved.mapping,
         imported_count: 0,
         review_count: 0,
-        preview: sheet.sampleRows,
-        note: "recipes, coming soon",
-      });
-      if (resolved.persistMapping && mappingSource !== "saved") {
-        mapsToPersist.push({
-          layout_key: layoutKeyForSheet(sheet.headers, "recipe"),
-          tab_name: sheet.name,
-          tab_type: "recipe",
-          column_mapping: {},
-          header_fingerprint: sheet.headerFingerprint,
-          tab_confidence: tabConfidence,
-        });
-      }
-      continue;
-    }
-
-    if (tabType === "ignore") {
-      tabSummaries.push({
-        name: sheet.name,
-        type: tabType,
-        confidence: tabConfidence,
-        mapping_source: mappingSource,
-        column_mapping: mapping,
-        imported_count: 0,
-        review_count: 0,
-        preview: sheet.sampleRows,
+        skipped_count: 0,
+        skipped_reasons: [],
+        preview: resolved.sheet.sampleRows,
         note: "skipped",
       });
       continue;
     }
+    if (resolved.tabType === "recipe" || resolved.tabType === "sub_recipe") {
+      processRecipeTab(resolved);
+    }
+  }
 
-    costTabCount += 1;
-    const tabLow =
-      tabConfidence < HIGH_TAB_CONFIDENCE || !requiredMapped(tabType, mapping);
-    let imported = 0;
-    let review = 0;
+  const preparedNames = preparedNamesFromGroups(recipeGroups);
 
-    if (tabLow) {
-      toReview.push({
-        tabName: sheet.name,
-        rowIndex: sheet.headerRowIndex,
-        reason: "column unsure",
-        raw: { headers: sheet.headers, sample: sheet.sampleRows },
-        suggested: null,
-      });
-      review += 1;
-      for (const [i, row] of sheet.dataRows.entries()) {
-        if (isSkippableWorkbookRow(tabType, row, mapping)) {
-          skippedCount += 1;
-          continue;
-        }
-        toReview.push({
-          tabName: sheet.name,
-          rowIndex: i,
-          reason: "column unsure",
-          raw: row,
-          suggested: null,
-        });
-        review += 1;
-      }
-    } else {
-      for (const [i, row] of sheet.dataRows.entries()) {
-        if (isSkippableWorkbookRow(tabType, row, mapping)) {
-          skippedCount += 1;
-          continue;
-        }
-        const result = evaluateWorkbookRow({
-          tabType,
-          tabName: sheet.name,
-          rowIndex: i,
-          row,
-          mapping,
-          currency: input.currency,
-          defaultDate: fileMonth,
-        });
-        if (result.ok) {
-          toSave.push(result.value);
-          imported += 1;
-        } else {
-          toReview.push(result.review);
-          review += 1;
-        }
-      }
-      if (
-        resolved.persistMapping &&
-        mappingSource !== "saved" &&
-        mappingPassesSanity({
-          tabType,
-          dataRows: sheet.dataRows,
-          mapping,
-          currency: input.currency,
-          defaultDate: fileMonth,
-        })
-      ) {
-        mapsToPersist.push({
-          layout_key: layoutKeyForSheet(sheet.headers, tabType),
-          tab_name: sheet.name,
-          tab_type: tabType,
-          column_mapping: mapping,
-          header_fingerprint: sheet.headerFingerprint,
-          tab_confidence: tabConfidence,
-        });
-      }
+  for (const resolved of resolvedTabs) {
+    const { sheet, tabType, tabConfidence, mapping, mappingSource, note } =
+      resolved;
+    if (
+      tabType === "ignore" ||
+      tabType === "recipe" ||
+      tabType === "sub_recipe"
+    ) {
+      continue;
     }
 
+    costTabCount += 1;
+    let imported = 0;
+    let review = 0;
+    const tabSkips: SkipCandidate[] = [];
+    const category = categoryForTab(tabType, sheet.name, existingCategories);
+
+    for (const [i, row] of sheet.dataRows.entries()) {
+      const skipReason = skipReasonForWorkbookRow(tabType, row, mapping);
+      if (skipReason) {
+        tabSkips.push({
+          tabName: sheet.name,
+          rowIndex: i,
+          reason: skipReason,
+          raw: row,
+        });
+        continue;
+      }
+      if (!requiredMapped(tabType, mapping)) {
+        tabSkips.push({
+          tabName: sheet.name,
+          rowIndex: i,
+          reason: "no price",
+          raw: row,
+        });
+        continue;
+      }
+      const result = evaluateWorkbookRow({
+        tabType,
+        tabName: sheet.name,
+        rowIndex: i,
+        row,
+        mapping,
+        currency: input.currency,
+        defaultDate: fileMonth,
+      });
+      if (result.ok) {
+        const prepared = matchesPreparedName(
+          result.value.ingredient_name,
+          preparedNames
+        );
+        if (prepared) {
+          tabSkips.push({
+            tabName: sheet.name,
+            rowIndex: i,
+            reason: "prepared item / sub-recipe",
+            raw: row,
+          });
+          continue;
+        }
+        toSave.push({
+          ...result.value,
+          category,
+        });
+        imported += 1;
+        continue;
+      }
+      if (isNoPriceReviewReason(result.review.reason)) {
+        tabSkips.push({
+          tabName: sheet.name,
+          rowIndex: i,
+          reason: "no price",
+          raw: row,
+        });
+        continue;
+      }
+      toReview.push(result.review);
+      review += 1;
+    }
+
+    skipped.push(...tabSkips);
+    rememberMapping(resolved, tabType, mapping);
     tabSummaries.push({
       name: sheet.name,
       type: tabType,
@@ -333,17 +413,52 @@ export async function importCostWorkbook(input: {
       column_mapping: mapping,
       imported_count: imported,
       review_count: review,
+      skipped_count: tabSkips.length,
+      skipped_reasons: groupSkipReasons(tabSkips),
       preview: sheet.sampleRows,
       note,
     });
   }
 
-  const deduped = dedupeWorkbookRows(toSave);
-  skippedCount += deduped.skipped.length;
-  for (const skip of deduped.skipped) {
+  const accountSkip = (skip: ReviewCandidate | SkipCandidate) => {
+    skipped.push({
+      tabName: skip.tabName,
+      rowIndex: skip.rowIndex,
+      reason: skip.reason,
+      raw: skip.raw,
+    });
     const tab = tabSummaries.find((t) => t.name === skip.tabName);
     if (tab && tab.imported_count > 0) tab.imported_count -= 1;
-  }
+    if (tab) {
+      tab.skipped_count += 1;
+      tab.skipped_reasons = groupSkipReasons(
+        skipped.filter((row) => row.tabName === tab.name)
+      );
+    }
+  };
+
+  const accountReview = (item: ReviewCandidate) => {
+    toReview.push(item);
+    const tab = tabSummaries.find((t) => t.name === item.tabName);
+    if (tab) tab.review_count += 1;
+  };
+
+  const deduped = dedupeWorkbookRows(toSave);
+  for (const skip of deduped.skipped) accountSkip(skip);
+
+  const previousImportedIds = importedIngredientIdsFromBatches(
+    await input.repo.listBatches(input.companyId)
+  );
+  const merged = mergeTypoDuplicates(
+    deduped.rows,
+    existingIngredients.map((item) => ({
+      name: item.name,
+      default_unit: item.default_unit,
+      handmade: !previousImportedIds.includes(item.id),
+    }))
+  );
+  for (const skip of merged.skipped) accountSkip(skip);
+  for (const hint of merged.hints) accountReview(hint);
 
   const usedSources = sources.filter((s) => s === "ai" || s === "saved");
   const mappingSource: "ai" | "saved" | "mixed" =
@@ -360,18 +475,36 @@ export async function importCostWorkbook(input: {
     filename: input.filename,
     fileMonth,
     currency: input.currency,
-    importedCount: deduped.rows.length,
+    importedCount: merged.rows.length,
     reviewCount: toReview.length,
     tabSummaries,
     mappingSource,
     createdBy: input.createdBy ?? null,
   });
 
+  const retired = await retireImportedPreparedIngredients({
+    companyId: input.companyId,
+    preparedNames,
+    importedIngredientIds: previousImportedIds,
+    repo: input.repo,
+  });
+  for (const hint of retired.hints) accountReview(hint);
+  if (
+    retired.changes.deleted_ingredients.length > 0 ||
+    retired.changes.deleted_cost_entries.length > 0
+  ) {
+    await input.repo.updateBatchSnapshot(
+      input.companyId,
+      batch.id,
+      retired.changes
+    );
+  }
+
   const persistStats = await persistSavedRows({
     companyId: input.companyId,
     currency: input.currency,
     batchId: batch.id,
-    rows: deduped.rows,
+    rows: merged.rows,
     repo: input.repo,
   });
 
@@ -383,6 +516,32 @@ export async function importCostWorkbook(input: {
       tab.review_count += 1;
     }
   }
+
+  const recipeStats = await persistWorkbookRecipes({
+    companyId: input.companyId,
+    batchId: batch.id,
+    currency: input.currency,
+    groups: recipeGroups,
+    repo: input.repo,
+    aliases: merged.aliases,
+  });
+  toReview.push(...recipeStats.review);
+  skipped.push(...recipeStats.skipped);
+
+  const createdMenuItems = await input.repo.listMenuItems(input.companyId);
+  const importedMenuItems = createdMenuItems.filter(
+    (item) =>
+      item.source_id === batch.id ||
+      recipeStats.changes.created_menu_item_ids.includes(item.id)
+  );
+  const posStats = await linkMenuItemsToPos({
+    companyId: input.companyId,
+    menuItems: importedMenuItems,
+    repo: input.repo,
+  });
+  toReview.push(...posStats.review);
+  skipped.push(...posStats.skipped);
+  recipeStats.changes.created_mapping_ids.push(...posStats.mappingIds);
 
   const reviewItems = await input.repo.insertReviewItems(
     toReview.map((r) => ({
@@ -401,15 +560,16 @@ export async function importCostWorkbook(input: {
     await input.repo.upsertMapping(input.companyId, map);
   }
 
-  await input.repo.updateBatchSnapshot(
-    input.companyId,
-    batch.id,
-    persistStats.changes
+  const snapshot = mergeUndoSnapshots(
+    mergeUndoSnapshots(retired.changes, persistStats.changes),
+    recipeStats.changes
   );
+  await input.repo.updateBatchSnapshot(input.companyId, batch.id, snapshot);
 
   const saved = persistStats.inserted;
   const updated = persistStats.updated;
   const review = toReview.length;
+  const skippedReasons = groupSkipReasons(skipped);
 
   return {
     kind: "workbook",
@@ -419,7 +579,7 @@ export async function importCostWorkbook(input: {
       updated,
       tabs: costTabCount,
       review,
-      skipped: skippedCount,
+      skipped: skipped.length,
     }),
     imported_count: saved + updated,
     review_count: review,
@@ -442,7 +602,12 @@ export async function importCostWorkbook(input: {
     ingredients_created: persistStats.ingredientsCreated,
     costs_updated: updated,
     saved_count: saved,
-    skipped_count: skippedCount,
+    skipped_count: skipped.length,
+    skipped_reasons: skippedReasons,
+    menu_items_created: recipeStats.menuItemsCreated,
+    recipes_created: recipeStats.recipesCreated,
+    sub_recipes_created: recipeStats.subRecipesCreated,
+    pos_links_created: posStats.linked,
   };
 }
 
@@ -451,7 +616,13 @@ export async function undoCostImportBatch(
   companyId: string,
   batchId: string
 ): Promise<
-  | { ok: true; deleted: number; restored: number }
+  | {
+      ok: true;
+      deleted: number;
+      restored: number;
+      partial?: boolean;
+      warnings?: string[];
+    }
   | { ok: false; reason: string }
 > {
   const batch = await repo.getBatch(companyId, batchId);
@@ -459,6 +630,77 @@ export async function undoCostImportBatch(
   if (batch.undone_at) return { ok: false, reason: "Import already undone" };
 
   const snap = batch.undo_snapshot;
+  const watchedIds = [
+    ...snap.inserted_entry_ids,
+    ...snap.updated_entries.map((row) => row.id),
+  ];
+  const liveEntries = await repo.listCostEntriesByIds(companyId, watchedIds);
+  const newerOwns = liveEntries.some(
+    (entry) => entry.source_id && entry.source_id !== batchId
+  );
+  if (newerOwns) {
+    return {
+      ok: false,
+      reason: "A newer import updated these rows. Undo the newer import first.",
+    };
+  }
+
+  if ((snap.deleted_ingredients ?? []).length > 0) {
+    await repo.restoreIngredients(
+      snap.deleted_ingredients.map((row) => ({
+        id: row.id,
+        companyId: companyId,
+        name: row.name,
+        category: row.category,
+        defaultUnit: row.default_unit,
+        currentUnitCost: row.current_unit_cost,
+        currency: row.currency,
+      }))
+    );
+  }
+  if ((snap.deleted_cost_entries ?? []).length > 0) {
+    await repo.restoreCostEntries(companyId, snap.deleted_cost_entries);
+  }
+  if ((snap.deleted_supplier_ingredients ?? []).length > 0) {
+    await repo.restoreSupplierIngredientLinks(
+      snap.deleted_supplier_ingredients
+    );
+  }
+  if ((snap.deleted_menu_recipe_inputs ?? []).length > 0) {
+    await repo.restoreMenuRecipeInputs(snap.deleted_menu_recipe_inputs);
+  }
+  if ((snap.deleted_component_recipe_inputs ?? []).length > 0) {
+    await repo.restoreComponentRecipeInputs(
+      snap.deleted_component_recipe_inputs
+    );
+  }
+  for (const recipe of snap.updated_recipes ?? []) {
+    await repo.replaceRecipeInputs(companyId, recipe.id, recipe.inputs);
+  }
+  for (const component of snap.updated_components ?? []) {
+    await repo.replaceComponentRecipeInputs(
+      companyId,
+      component.id,
+      component.inputs
+    );
+  }
+  await repo.deletePosMappings(companyId, snap.created_mapping_ids ?? []);
+  await repo.deleteRecipes(companyId, snap.created_recipe_ids ?? []);
+  await repo.deleteMenuItems(companyId, snap.created_menu_item_ids ?? []);
+  await repo.deleteComponentRecipes(
+    companyId,
+    snap.created_component_recipe_ids ?? []
+  );
+
+  const warnings: string[] = [];
+  try {
+    await repo.deleteComponents(companyId, snap.created_component_ids ?? []);
+  } catch (err) {
+    warnings.push(
+      `Could not delete prepared items: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
   const deleted = await repo.deleteCostEntriesByIds(
     companyId,
     snap.inserted_entry_ids
@@ -471,7 +713,9 @@ export async function undoCostImportBatch(
     try {
       await repo.deleteIngredients(companyId, snap.created_ingredient_ids);
     } catch (err) {
-      console.error("[cost-workbook undo ingredients]", err);
+      warnings.push(
+        `Could not delete ingredients: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
   if (snap.ingredient_costs_before.length > 0) {
@@ -483,7 +727,30 @@ export async function undoCostImportBatch(
       }))
     );
   }
+  if ((snap.ingredient_categories_before ?? []).length > 0) {
+    await repo.updateIngredientCategories(
+      snap.ingredient_categories_before.map((row) => ({
+        ingredientId: row.id,
+        category: row.category,
+      }))
+    );
+  }
+  if (warnings.length > 0) {
+    await repo.updateBatchSnapshot(companyId, batchId, {
+      ...snap,
+      undo_errors: warnings,
+    });
+  }
   await repo.markBatchUndone(companyId, batchId);
+  if (warnings.length > 0) {
+    return {
+      ok: true,
+      deleted,
+      restored: snap.updated_entries.length,
+      partial: true,
+      warnings,
+    };
+  }
   return { ok: true, deleted, restored: snap.updated_entries.length };
 }
 
@@ -534,6 +801,45 @@ export async function approveReviewItem(
   if (!totalCheck.ok) return totalCheck;
 
   const suggested = item.suggested ?? {};
+  if (item.reason.startsWith("POS name unsure")) {
+    const menuName = edits.ingredient_name ?? suggested.ingredient_name ?? null;
+    const posName =
+      (typeof suggested.notes === "string" && suggested.notes) ||
+      (typeof item.raw_values.raw_pos_item_name === "string"
+        ? item.raw_values.raw_pos_item_name
+        : null);
+    if (!menuName || !posName) {
+      return { ok: false, reason: "Missing POS match" };
+    }
+    const menuItems = await repo.listMenuItems(companyId);
+    const menu = menuItems.find(
+      (row) => row.name.trim().toLowerCase() === menuName.trim().toLowerCase()
+    );
+    if (!menu) return { ok: false, reason: "Menu item not found" };
+    const created = await repo.createPosMappings([
+      {
+        companyId,
+        rawPosItemName: posName,
+        menuItemId: menu.id,
+      },
+    ]);
+    if (created[0]) {
+      await repo.updateBatchSnapshot(
+        companyId,
+        item.batch_id,
+        mergeUndoSnapshots(batch.undo_snapshot, {
+          ...emptyUndoSnapshot(),
+          created_mapping_ids: [created[0].id],
+        })
+      );
+    }
+    await repo.updateReviewItem(companyId, reviewId, {
+      status: "approved",
+      resolved_at: new Date().toISOString(),
+    });
+    return { ok: true };
+  }
+
   const name = edits.ingredient_name ?? suggested.ingredient_name ?? null;
   const unit = edits.unit ?? suggested.unit ?? null;
   const quantity = quantityCheck.value ?? suggested.quantity ?? 1;

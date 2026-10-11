@@ -1,4 +1,6 @@
 import { evaluateWorkbookRow, isSkippableWorkbookRow } from "./parse";
+import { evaluateRecipeLine, isTitleRow } from "./recipes";
+import { recipeNameFromSheet } from "./names";
 import { normalizeUnit } from "@/lib/restaurant/units";
 import type { ColumnMapping, CostTabType } from "./types";
 
@@ -11,8 +13,26 @@ export function mappingPassesSanity(input: {
   currency: string;
   defaultDate: string;
 }): boolean {
-  if (input.tabType === "recipe") return true;
   if (input.tabType === "ignore") return false;
+  if (input.tabType === "recipe" || input.tabType === "sub_recipe") {
+    const evaluated: boolean[] = [];
+    for (const [rowIndex, row] of input.dataRows.entries()) {
+      if (isSkippableWorkbookRow(input.tabType, row, input.mapping)) continue;
+      if (isTitleRow(row, input.mapping)) continue;
+      const result = evaluateRecipeLine({
+        tabName: "sanity",
+        rowIndex,
+        recipeName: recipeNameFromSheet("sanity"),
+        row,
+        mapping: input.mapping,
+      });
+      evaluated.push(result.ok);
+    }
+    if (evaluated.length === 0) return false;
+    return (
+      evaluated.filter(Boolean).length / evaluated.length > SANITY_PASS_RATIO
+    );
+  }
 
   const evaluated: Array<{ ok: boolean; unit?: string }> = [];
   for (const [rowIndex, row] of input.dataRows.entries()) {

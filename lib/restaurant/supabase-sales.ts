@@ -157,26 +157,28 @@ export type SampleReason =
 type SupabaseLike = SupabaseClient;
 
 // ---------------------------------------------------------------------------
-// Company resolution — mirrors the fallback chain in
-// app/api/restaurant/pos/upload/route.ts so the dashboard sees a company
-// for the same set of users that the upload route does.
+// Company resolution — same sources as
+// app/api/restaurant/pos/upload/route.ts, memberships first. Restaurant
+// companies have no created_by (001 / 026); querying it first was a
+// failed PostgREST hop on every cockpit load.
 // ---------------------------------------------------------------------------
 
 export async function resolveCompanyIdForUser(
   supabase: SupabaseLike,
   userId: string
 ): Promise<string | null> {
-  // Step 1 — companies.created_by
+  // Restaurant schema has no companies.created_by (001 / 026). Hitting that
+  // column first costs a failed PostgREST round trip on every cockpit load.
+  // Memberships is the real owner path; keep created_by last for legacy.
   {
     const { data, error } = await supabase
-      .from("companies")
-      .select("id")
-      .eq("created_by", userId)
+      .from("company_memberships")
+      .select("company_id")
+      .eq("user_id", userId)
       .maybeSingle();
-    if (!error && data?.id) return data.id;
+    if (!error && data?.company_id) return data.company_id;
   }
 
-  // Step 2 — profiles.id (Supabase pattern where profiles.id IS auth.uid())
   {
     const { data, error } = await supabase
       .from("profiles")
@@ -186,7 +188,6 @@ export async function resolveCompanyIdForUser(
     if (!error && data?.company_id) return data.company_id;
   }
 
-  // Step 3 — profiles.user_id (older schema variant)
   {
     const { data, error } = await supabase
       .from("profiles")
@@ -196,14 +197,13 @@ export async function resolveCompanyIdForUser(
     if (!error && data?.company_id) return data.company_id;
   }
 
-  // Step 4 — company_memberships.user_id
   {
     const { data, error } = await supabase
-      .from("company_memberships")
-      .select("company_id")
-      .eq("user_id", userId)
+      .from("companies")
+      .select("id")
+      .eq("created_by", userId)
       .maybeSingle();
-    if (!error && data?.company_id) return data.company_id;
+    if (!error && data?.id) return data.id;
   }
 
   return null;

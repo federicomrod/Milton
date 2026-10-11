@@ -8,6 +8,7 @@ import {
   loadSalesExplorerModel,
   loadSalesHeroModel,
 } from "@/lib/restaurant/cockpit-page-data";
+import { timeCockpitStep } from "@/lib/restaurant/cockpit-timing";
 import { SalesHero } from "@/components/restaurant/cockpit/SalesHero";
 import { RestaurantSalesExplorer } from "@/components/restaurant/RestaurantSalesExplorer";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
@@ -65,7 +66,11 @@ export default async function SalesAreaPage({
   searchParams: Promise<{ location?: string }>;
 }) {
   const { location } = await searchParams;
-  const hero = await loadSalesHeroModel(location);
+  const hero = await timeCockpitStep(
+    "sales-route",
+    () => loadSalesHeroModel(location),
+    { location: location ?? null }
+  );
   const lang =
     hero.mode === "live" ? hero.lang : RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
 

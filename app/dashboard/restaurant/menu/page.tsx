@@ -7,7 +7,9 @@
 import { BookOpen } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
+import { getCachedAuthUser } from "@/lib/restaurant/auth-user";
 import { loadCachedPosSalesRows } from "@/lib/restaurant/pos-read-cache";
+import { timeCockpitStep } from "@/lib/restaurant/cockpit-timing";
 import {
   fetchMenuRecipesData,
   type MenuRecipesData,
@@ -31,26 +33,28 @@ type LoadResult =
 async function loadMenuRecipes(): Promise<LoadResult> {
   try {
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user = await getCachedAuthUser();
     if (!user) return { kind: "no-company" };
     const companyId = await resolveCompanyIdForUser(supabase, user.id);
     if (!companyId) return { kind: "no-company" };
-    const pos = await loadCachedPosSalesRows(companyId, null);
-    const data = await fetchMenuRecipesData(supabase, companyId, {
-      posRows: pos.error
-        ? undefined
-        : pos.rows.map((row) => ({
-            raw_item_name: row.raw_item_name,
-            quantity: row.quantity,
-            gross_revenue: row.gross_revenue,
-            net_revenue: row.net_revenue,
-            order_id: row.order_id,
-            check_id: row.check_id,
-            currency: row.currency,
-          })),
-    });
+    const pos = await timeCockpitStep("menu-pos", () =>
+      loadCachedPosSalesRows(companyId, null)
+    );
+    const data = await timeCockpitStep("menu-recipes", () =>
+      fetchMenuRecipesData(supabase, companyId, {
+        posRows: pos.error
+          ? undefined
+          : pos.rows.map((row) => ({
+              raw_item_name: row.raw_item_name,
+              quantity: row.quantity,
+              gross_revenue: row.gross_revenue,
+              net_revenue: row.net_revenue,
+              order_id: row.order_id,
+              check_id: row.check_id,
+              currency: row.currency,
+            })),
+      })
+    );
     return { kind: "data", data };
   } catch (err) {
     console.error("[/dashboard/restaurant/menu] failed:", err);

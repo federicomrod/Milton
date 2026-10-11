@@ -14,7 +14,10 @@
 // rather than trusting a client-supplied id directly.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
+import {
+  getCachedAuthUser,
+  getCachedCompanyId,
+} from "@/lib/restaurant/auth-user";
 
 export interface RestaurantLocationOption {
   id: string;
@@ -90,9 +93,9 @@ export async function resolveRestaurantContext(
 export async function listRestaurantLocationsForCurrentUser(
   supabase: SupabaseClient
 ): Promise<RestaurantLocationOption[]> {
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user?.id) return [];
-  const companyId = await resolveCompanyIdForUser(supabase, userData.user.id);
+  const user = await getCachedAuthUser();
+  if (!user?.id) return [];
+  const companyId = await getCachedCompanyId(user.id);
   if (!companyId) return [];
   const { locations } = await resolveRestaurantContext(
     supabase,

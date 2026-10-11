@@ -27,9 +27,17 @@ import {
 import {
   buildCockpitPeriodSnapshotFromRollup,
   fetchCockpitPosRollup,
-  logCockpitTiming,
   rollupToCockpitSalesAggregate,
 } from "@/lib/restaurant/cockpit-pos-rollup";
+import {
+  applyCockpitServerTimingHeader,
+  logCockpitTiming,
+  timeCockpitStep,
+} from "@/lib/restaurant/cockpit-timing";
+import {
+  getCachedAuthUser,
+  getCachedCompanyId,
+} from "@/lib/restaurant/auth-user";
 import {
   loadCachedPosSalesRows,
   loadCachedProfitability,
@@ -178,35 +186,36 @@ export async function loadMenuAreaModel(
   requestedLocationId?: string
 ): Promise<MenuAreaModel> {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user?.id) return { profitability: null };
+    return await timeCockpitStep("menu", async () => {
+      const supabase = await createClient();
+      const user = await getCachedAuthUser();
+      if (!user?.id) return { profitability: null };
 
-    const companyId = await resolveCompanyIdForUser(supabase, user.id);
-    if (!companyId) return { profitability: null };
+      const companyId = await getCachedCompanyId(user.id);
+      if (!companyId) return { profitability: null };
 
-    let selectedLocationId: string | null = null;
-    let selectedBrandId: string | null = null;
-    if (requestedLocationId) {
-      const context = await resolveRestaurantContext(
-        supabase,
-        companyId,
-        requestedLocationId
-      );
-      if (context.selected) {
-        selectedLocationId = context.selected.locationId;
-        selectedBrandId = context.selected.brandId;
+      let selectedLocationId: string | null = null;
+      let selectedBrandId: string | null = null;
+      if (requestedLocationId) {
+        const context = await resolveRestaurantContext(
+          supabase,
+          companyId,
+          requestedLocationId
+        );
+        if (context.selected) {
+          selectedLocationId = context.selected.locationId;
+          selectedBrandId = context.selected.brandId;
+        }
       }
-    }
 
-    const profitability = await loadCachedProfitability(
-      companyId,
-      selectedLocationId,
-      selectedBrandId
-    );
-    return { profitability };
+      const profitability = await loadCachedProfitability(
+        companyId,
+        selectedLocationId,
+        selectedBrandId
+      );
+      applyCockpitServerTimingHeader();
+      return { profitability };
+    });
   } catch (err) {
     console.error("[loadMenuAreaModel] failed:", err);
     return { profitability: null };
@@ -422,7 +431,11 @@ export interface SalesAreaModel {
   displayCurrency: string;
 }
 
-async function resolveCockpitScope(requestedLocationId?: string): Promise<
+const resolveCockpitScope = cache(resolveCockpitScopeUncached);
+
+async function resolveCockpitScopeUncached(
+  requestedLocationId?: string
+): Promise<
   | {
       ok: true;
       supabase: Awaited<ReturnType<typeof createClient>>;
@@ -431,29 +444,35 @@ async function resolveCockpitScope(requestedLocationId?: string): Promise<
   | { ok: false; reason: SampleReason }
 > {
   try {
-    const supabase = await createClient();
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user?.id) return { ok: false, reason: "unauthenticated" };
-    const companyId = await resolveCompanyIdForUser(supabase, userData.user.id);
-    if (!companyId) return { ok: false, reason: "no_company" };
-    let locationId: string | null = null;
-    let brandId: string | null = null;
-    if (requestedLocationId) {
-      const context = await resolveRestaurantContext(
-        supabase,
-        companyId,
-        requestedLocationId
-      );
-      if (context.selected) {
-        locationId = context.selected.locationId;
-        brandId = context.selected.brandId;
-      }
-    }
-    return {
-      ok: true,
-      supabase,
-      scope: { companyId, locationId, brandId },
-    };
+    return await timeCockpitStep(
+      "scope",
+      async () => {
+        const supabase = await createClient();
+        const user = await getCachedAuthUser();
+        if (!user?.id) return { ok: false, reason: "unauthenticated" as const };
+        const companyId = await getCachedCompanyId(user.id);
+        if (!companyId) return { ok: false, reason: "no_company" as const };
+        let locationId: string | null = null;
+        let brandId: string | null = null;
+        if (requestedLocationId) {
+          const context = await resolveRestaurantContext(
+            supabase,
+            companyId,
+            requestedLocationId
+          );
+          if (context.selected) {
+            locationId = context.selected.locationId;
+            brandId = context.selected.brandId;
+          }
+        }
+        return {
+          ok: true as const,
+          supabase,
+          scope: { companyId, locationId, brandId },
+        };
+      },
+      { location: requestedLocationId ?? null }
+    );
   } catch (err) {
     console.error("[resolveCockpitScope] failed:", err);
     return { ok: false, reason: "env_missing" };
@@ -581,6 +600,17 @@ async function loadCockpitExecutiveFastUncached(
   requestedLocationId?: string,
   periodRaw?: string | null
 ): Promise<CockpitExecutiveFastModel> {
+  try {
+    return await loadCockpitExecutiveFastBody(requestedLocationId, periodRaw);
+  } finally {
+    applyCockpitServerTimingHeader();
+  }
+}
+
+async function loadCockpitExecutiveFastBody(
+  requestedLocationId?: string,
+  periodRaw?: string | null
+): Promise<CockpitExecutiveFastModel> {
   const periodPreset = parseCockpitPeriodPreset(periodRaw);
   const chrome = await loadRestaurantShellChrome();
   const lang = chrome.lang;
@@ -604,11 +634,18 @@ async function loadCockpitExecutiveFastUncached(
     };
   }
   const { supabase, scope } = resolved;
-  const [currency, timezone] = await Promise.all([
-    resolveCompanyCurrency(supabase, scope.companyId),
-    resolvePosTimezone(supabase, scope.companyId),
-  ]);
   const started = Date.now();
+  const [currency, timezone, posConnected] = await Promise.all([
+    timeCockpitStep("currency", () =>
+      resolveCompanyCurrency(supabase, scope.companyId)
+    ),
+    timeCockpitStep("timezone", () =>
+      resolvePosTimezone(supabase, scope.companyId)
+    ),
+    timeCockpitStep("pos-connection", () =>
+      companyHasActivePosConnection(scope.companyId)
+    ),
+  ]);
   const rpc = await fetchCockpitPosRollup(supabase, scope.companyId, {
     locationId: scope.locationId,
     timezone,
@@ -649,7 +686,11 @@ async function loadCockpitExecutiveFastUncached(
       lastSyncedAt: chrome.lastSyncedAt,
     };
   } else {
-    const pos = await loadCachedPosSalesRows(scope.companyId, scope.locationId);
+    const pos = await timeCockpitStep(
+      "pos-rows",
+      () => loadCachedPosSalesRows(scope.companyId, scope.locationId),
+      { source: "rows" }
+    );
     if (pos.error) {
       readError = true;
       cockpit = emptyCockpitSalesAggregate(timezone, currency);
@@ -695,7 +736,6 @@ async function loadCockpitExecutiveFastUncached(
           })
         : null;
     if (snapshot) {
-      const posConnected = await companyHasActivePosConnection(scope.companyId);
       executive = executiveFromSnapshot(snapshot, lang, cockpit, {
         companyId: scope.companyId,
         locationId: scope.locationId,
@@ -713,6 +753,7 @@ async function loadCockpitExecutiveFastUncached(
   logCockpitTiming("executive-fast", {
     source: rollupSource,
     rpcMs: rpc.elapsedMs,
+    rpcError: rpc.error?.message ?? null,
     totalMs: Date.now() - started,
     rows: rowCount,
     location: scope.locationId,
@@ -753,16 +794,19 @@ async function loadCockpitTabsModelUncached(
     };
   }
   const started = Date.now();
-  const profitability = await loadCachedProfitability(
-    resolved.scope.companyId,
-    resolved.scope.locationId,
-    resolved.scope.brandId
+  const profitability = await timeCockpitStep("tabs-profitability", () =>
+    loadCachedProfitability(
+      resolved.scope.companyId,
+      resolved.scope.locationId,
+      resolved.scope.brandId
+    )
   );
   logCockpitTiming("tabs", {
     totalMs: Date.now() - started,
     posRows: profitability.setupCounts.pos_sales_count,
     location: resolved.scope.locationId,
   });
+  applyCockpitServerTimingHeader();
   return {
     lang: chrome.lang,
     profitability,
@@ -843,13 +887,14 @@ async function loadSalesExplorerModelUncached(
   }
   const cockpit = buildCockpitSalesAggregate(pos.rows, { timezone, currency });
   const explorerRows = pos.rows.map(toExplorerRow);
-  logCockpitTiming("sales-explorer", {
+  logCockpitTiming("sales", {
     totalMs: Date.now() - started,
     rows: explorerRows.length,
     pages: pos.pages ?? 0,
     payloadBytes: Buffer.byteLength(JSON.stringify(explorerRows)),
     location: resolved.scope.locationId,
   });
+  applyCockpitServerTimingHeader();
   return {
     mode: "live",
     lang: chrome.lang,
@@ -865,21 +910,26 @@ export async function loadPeriodCostSnapshot(
   period: CockpitPeriod,
   options: { timezone: string; currency: string; lang: PreferredLanguage }
 ): Promise<CockpitPeriodSnapshot | null> {
-  const resolved = await resolveCockpitScope(requestedLocationId);
-  if (!resolved.ok) return null;
-  const [pos, profitability] = await Promise.all([
-    loadCachedPosSalesRows(resolved.scope.companyId, resolved.scope.locationId),
-    loadCachedProfitability(
-      resolved.scope.companyId,
-      resolved.scope.locationId,
-      resolved.scope.brandId
-    ),
-  ]);
-  if (pos.error || pos.rows.length === 0) return null;
-  return buildCockpitPeriodSnapshot(pos.rows, period, {
-    timezone: options.timezone,
-    currency: options.currency,
-    lang: options.lang,
-    marginRows: profitability.marginRows,
+  return timeCockpitStep("costs", async () => {
+    const resolved = await resolveCockpitScope(requestedLocationId);
+    if (!resolved.ok) return null;
+    const [pos, profitability] = await Promise.all([
+      loadCachedPosSalesRows(
+        resolved.scope.companyId,
+        resolved.scope.locationId
+      ),
+      loadCachedProfitability(
+        resolved.scope.companyId,
+        resolved.scope.locationId,
+        resolved.scope.brandId
+      ),
+    ]);
+    if (pos.error || pos.rows.length === 0) return null;
+    return buildCockpitPeriodSnapshot(pos.rows, period, {
+      timezone: options.timezone,
+      currency: options.currency,
+      lang: options.lang,
+      marginRows: profitability.marginRows,
+    });
   });
 }

@@ -10,6 +10,7 @@ import { COSTS_HREF, MENU_HREF } from "@/lib/restaurant/navigation";
 import {
   cockpitComparisonPhrases,
   formatCockpitMoney,
+  polishCockpitCopy,
   type CockpitPeriodSnapshot,
   type DailyNetPoint,
 } from "@/lib/restaurant/cockpit-executive";
@@ -33,7 +34,7 @@ const URL_RE = /https?:\/\/|www\./i;
 const UP_WORDS =
   /subi(?:o|ó|eron)|aument(?:o|ó|aron)|creci(?:o|ó|eron)|arriba|higher|rose|increased|grew/i;
 const DOWN_WORDS =
-  /baj(?:o|ó|aron)|cay(?:o|ó|eron)|abajo|decreased|fell|dropped|\bdown\b/i;
+  /baj(?:o|ó|aron)|cay(?:o|ó|eron)|abajo|disminuy(?:o|ó|eron)|decreased|fell|dropped|\bdown\b/i;
 
 export type CockpitInsightKind =
   | "data_health_costs"
@@ -117,15 +118,21 @@ export function selectCockpitInsights(
         cost_coverage_pct: snapshot.cost.coverage_pct,
         net_sales: round2(snapshot.current.net_sales),
       },
-      title: t(
+      title: polishInsight(
         lang,
-        "Recipe costs are still missing",
-        "Todavía faltan los costos de recetas"
+        t(
+          lang,
+          "Recipe costs are still missing",
+          "Todavía faltan los costos de recetas"
+        )
       ),
-      body: t(
+      body: polishInsight(
         lang,
-        `Cost coverage is ${snapshot.cost.coverage_pct.toFixed(1)}% of net sales. Gross margin % and food cost % stay hidden until dishes have a cost.`,
-        `La cobertura de costos es ${snapshot.cost.coverage_pct.toFixed(1)}% de las ventas netas. El margen bruto % y el % de costo de comida se ocultan hasta que los platillos tengan costo.`
+        t(
+          lang,
+          `Cost coverage is ${snapshot.cost.coverage_pct.toFixed(1)}% of net sales. Gross margin % and food cost % stay hidden until dishes have a cost.`,
+          `La cobertura de costos es ${snapshot.cost.coverage_pct.toFixed(1)}% de las ventas netas. El margen bruto % y el % de costo de comida se ocultan hasta que los platillos tengan costo.`
+        )
       ),
       action: {
         label: t(lang, "Add costs", "Agregar costos"),
@@ -142,15 +149,21 @@ export function selectCockpitInsights(
         dishes_without_recipe: missing,
         cost_coverage_pct: snapshot.cost.coverage_pct,
       },
-      title: t(
+      title: polishInsight(
         lang,
-        "Sold dishes are still missing recipes",
-        "Todavía faltan recetas en platillos vendidos"
+        t(
+          lang,
+          "Sold dishes are still missing recipes",
+          "Todavía faltan recetas en platillos vendidos"
+        )
       ),
-      body: t(
+      body: polishInsight(
         lang,
-        `${missing} sold dishes have no recipe, so their cost stays hidden.`,
-        `${missing} ${missing === 1 ? "platillo vendido no tiene receta" : "platillos vendidos no tienen receta"}, así que su costo sigue oculto.`
+        t(
+          lang,
+          `${missing} sold dishes have no recipe, so their cost stays hidden.`,
+          `${missing} ${missing === 1 ? "platillo vendido no tiene receta" : "platillos vendidos no tienen receta"}, así que su costo sigue oculto.`
+        )
       ),
       action: {
         label: t(lang, "Add recipes", "Agregar recetas"),
@@ -169,15 +182,21 @@ export function selectCockpitInsights(
         name: dish.name,
         margin_pct: round1(dish.margin_pct),
       },
-      title: t(
+      title: polishInsight(
         lang,
-        "A dish is running a thin margin",
-        "Un platillo tiene margen bajo"
+        t(
+          lang,
+          "A dish is running a thin margin",
+          "Un platillo tiene margen bajo"
+        )
       ),
-      body: t(
+      body: polishInsight(
         lang,
-        `${dish.name} is at ${round1(dish.margin_pct)}% gross margin.`,
-        `${dish.name} está en ${round1(dish.margin_pct)}% de margen bruto.`
+        t(
+          lang,
+          `${dish.name} is at ${dish.margin_pct.toFixed(1)}% gross margin.`,
+          `${dish.name} está en ${dish.margin_pct.toFixed(1)}% de margen bruto.`
+        )
       ),
       action: {
         label: t(lang, "Review the dish", "Revisar el platillo"),
@@ -221,18 +240,21 @@ export function selectCockpitInsights(
           tickets: best.current_tickets,
           partial_anchor_excluded: partialAnchor ? 1 : 0,
         },
-        title: capitalizeInsightTitle(
+        title: polishInsight(
+          lang,
           t(
             lang,
             `${weekday} was the strongest day${soFar}`,
             `El ${weekday} fue el mejor día${soFar}`
-          ),
-          lang
+          )
         ),
-        body: t(
+        body: polishInsight(
           lang,
-          `${weekday} did ${money(best.current_net)} in net sales, ${round1(bestDev * 100)}% above the daily average of ${money(avg)}.`,
-          `${weekday} hizo ${money(best.current_net)} en ventas netas, ${round1(bestDev * 100)}% arriba del promedio diario de ${money(avg)}.`
+          t(
+            lang,
+            `${weekday} did ${money(best.current_net)} in net sales, ${(bestDev * 100).toFixed(1)}% above the daily average of ${money(avg)}.`,
+            `${weekday} hizo ${money(best.current_net)} en ventas netas, ${(bestDev * 100).toFixed(1)}% arriba del promedio diario de ${money(avg)}.`
+          )
         ),
       });
     }
@@ -251,18 +273,21 @@ export function selectCockpitInsights(
           tickets: worst.current_tickets,
           partial_anchor_excluded: partialAnchor ? 1 : 0,
         },
-        title: capitalizeInsightTitle(
+        title: polishInsight(
+          lang,
           t(
             lang,
             `${weekday} was the softest day${soFar}`,
             `El ${weekday} fue el día más flojo${soFar}`
-          ),
-          lang
+          )
         ),
-        body: t(
+        body: polishInsight(
           lang,
-          `${weekday} did ${money(worst.current_net)} in net sales, ${Math.abs(round1(worstDev * 100))}% below the daily average of ${money(avg)}.`,
-          `${weekday} hizo ${money(worst.current_net)} en ventas netas, ${Math.abs(round1(worstDev * 100))}% abajo del promedio diario de ${money(avg)}.`
+          t(
+            lang,
+            `${weekday} did ${money(worst.current_net)} in net sales, ${Math.abs(worstDev * 100).toFixed(1)}% below the daily average of ${money(avg)}.`,
+            `${weekday} hizo ${money(worst.current_net)} en ventas netas, ${Math.abs(worstDev * 100).toFixed(1)}% abajo del promedio diario de ${money(avg)}.`
+          )
         ),
       });
     }
@@ -284,18 +309,21 @@ export function selectCockpitInsights(
         delta_pp: shifted.delta_pp,
         net_sales: shifted.net_sales,
       },
-      title: capitalizeInsightTitle(
+      title: polishInsight(
+        lang,
         t(
           lang,
           `${shifted.label} share shifted`,
           `Cambió la participación de ${shifted.label}`
-        ),
-        lang
+        )
       ),
-      body: t(
+      body: polishInsight(
         lang,
-        `${shifted.label} is ${shifted.share_pct.toFixed(1)}% of net sales (${up ? "+" : ""}${shifted.delta_pp.toFixed(1)} pp vs the previous period).`,
-        `${shifted.label} es el ${shifted.share_pct.toFixed(1)}% de las ventas netas (${up ? "+" : ""}${shifted.delta_pp.toFixed(1)} pp vs el periodo anterior).`
+        t(
+          lang,
+          `${shifted.label} is ${shifted.share_pct.toFixed(1)}% of net sales (${up ? "+" : ""}${shifted.delta_pp.toFixed(1)} pp vs the previous period).`,
+          `${shifted.label} es el ${shifted.share_pct.toFixed(1)}% de las ventas netas (${up ? "+" : ""}${shifted.delta_pp.toFixed(1)} pp frente al periodo anterior).`
+        )
       ),
     });
   }
@@ -315,11 +343,17 @@ export function selectCockpitInsights(
         delta_pct: ticketDelta,
         tickets: snapshot.current.tickets,
       },
-      title: t(lang, "Average ticket moved", "El ticket promedio se movió"),
-      body: t(
+      title: polishInsight(
         lang,
-        `Average ticket is ${money(snapshot.current.avg_ticket)} (${fmtSignedPct(ticketDelta)} vs the previous period) across ${snapshot.current.tickets} tickets.`,
-        `El ticket promedio es ${money(snapshot.current.avg_ticket)} (${fmtSignedPct(ticketDelta)} vs el periodo anterior) en ${snapshot.current.tickets} tickets.`
+        t(lang, "Average ticket moved", "El ticket promedio se movió")
+      ),
+      body: polishInsight(
+        lang,
+        t(
+          lang,
+          `Average ticket is ${money(snapshot.current.avg_ticket)}, ${ticketDelta > 0 ? "up" : "down"} ${Math.abs(ticketDelta).toFixed(1)}% versus the previous period, across ${snapshot.current.tickets} tickets.`,
+          `El ticket promedio es ${money(snapshot.current.avg_ticket)}, ${ticketDelta > 0 ? "sube" : "baja"} ${Math.abs(ticketDelta).toFixed(1)}% frente al periodo anterior, en ${snapshot.current.tickets} tickets.`
+        )
       ),
     });
   }
@@ -331,6 +365,14 @@ export function selectCockpitInsights(
   if (salesDelta !== null && Math.abs(salesDelta) >= 5) {
     const verb =
       salesDelta > 0 ? t(lang, "rose", "subieron") : t(lang, "fell", "bajaron");
+    const tipsNote =
+      snapshot.current.tips > 0
+        ? t(
+            lang,
+            ` Tips ${money(snapshot.current.tips)} stay on their own line.`,
+            ` Las propinas ${money(snapshot.current.tips)} siguen en su propia línea.`
+          )
+        : "";
     candidates.push({
       id: "sales_change",
       kind: "sales_change",
@@ -341,18 +383,21 @@ export function selectCockpitInsights(
         delta_pct: salesDelta,
         tips: round2(snapshot.current.tips),
       },
-      title: capitalizeInsightTitle(
+      title: polishInsight(
+        lang,
         t(
           lang,
-          `Net sales vs ${phrases.previousPhrase}`,
-          `Ventas netas vs ${phrases.previousPhrase}`
-        ),
-        lang
+          "Net sales versus the previous stretch",
+          "Ventas netas frente al tramo anterior"
+        )
       ),
-      body: t(
+      body: polishInsight(
         lang,
-        `Net sales ${verb} to ${money(snapshot.current.net_sales)} (${Math.abs(salesDelta).toFixed(1)}% versus ${phrases.previousPhrase}). Tips ${money(snapshot.current.tips)} stay on their own line.`,
-        `Las ventas netas ${verb} a ${money(snapshot.current.net_sales)} (${Math.abs(salesDelta).toFixed(1)}% frente a ${phrases.previousPhrase}). Las propinas ${money(snapshot.current.tips)} siguen en su propia línea.`
+        t(
+          lang,
+          `Net sales ${verb} to ${money(snapshot.current.net_sales)}, ${Math.abs(salesDelta).toFixed(1)}% ${phrases.frenteAPrevious}.${tipsNote}`,
+          `Las ventas netas ${verb} a ${money(snapshot.current.net_sales)}, ${Math.abs(salesDelta).toFixed(1)}% ${phrases.frenteAPrevious}.${tipsNote}`
+        )
       ),
     });
   }
@@ -368,14 +413,17 @@ export function selectCockpitInsights(
 export function wordedFromFacts(
   facts: CockpitInsightFact[]
 ): WordedCockpitInsight[] {
-  return facts.slice(0, MAX_COCKPIT_INSIGHTS).map((fact) => ({
-    id: fact.id,
-    kind: fact.kind,
-    title: capitalizeInsightTitle(fact.title, titleLangGuess(fact.title)),
-    body: fact.body,
-    action: fact.action,
-    facts: fact.facts,
-  }));
+  return facts.slice(0, MAX_COCKPIT_INSIGHTS).map((fact) => {
+    const lang = titleLangGuess(fact.title);
+    return {
+      id: fact.id,
+      kind: fact.kind,
+      title: polishInsight(lang, fact.title),
+      body: polishInsight(lang, fact.body),
+      action: fact.action,
+      facts: fact.facts,
+    };
+  });
 }
 
 /**
@@ -387,7 +435,7 @@ export function aiWordingIsGrounded(
   facts: Record<string, number | string | null>
 ): boolean {
   const allowed = allowedNumberTokens(facts);
-  const used = extractNumberTokens(text);
+  const used = extractNumberTokens(stripHarmlessPeriodCounts(text));
   return used.every((token) => allowed.has(token));
 }
 
@@ -420,7 +468,7 @@ export function aiWordingPassesGuards(
   const combined = `${title} ${body}`;
   if (URL_RE.test(combined)) return false;
   if (directionContradictsDelta(combined, facts)) return false;
-  const digits = extractNumberTokens(combined);
+  const digits = extractNumberTokens(stripHarmlessPeriodCounts(combined));
   if (digits.length === 0) {
     return !textHasInjectionPattern(combined);
   }
@@ -454,8 +502,8 @@ export function applyAiWordingOrFallback(
     const lang = titleLangGuess(match.title);
     return {
       ...base,
-      title: capitalizeInsightTitle(match.title.trim(), lang),
-      body: match.body.trim(),
+      title: polishInsight(lang, match.title.trim()),
+      body: polishInsight(lang, match.body.trim()),
     };
   });
   return { insights, usedFallback };
@@ -474,6 +522,15 @@ export function capitalizeInsightTitle(
   if (!trimmed) return trimmed;
   const locale = lang === "es" ? "es" : "en-US";
   return trimmed.charAt(0).toLocaleUpperCase(locale) + trimmed.slice(1);
+}
+
+function polishInsight(lang: PreferredLanguage, text: string): string {
+  return polishCockpitCopy(lang, capitalizeInsightTitle(text, lang));
+}
+
+/** "7 días" is period language, not an invented KPI figure. */
+function stripHarmlessPeriodCounts(text: string): string {
+  return text.replace(/\b\d+\s*días\b/gi, "");
 }
 
 function allowedNumberTokens(
@@ -528,11 +585,6 @@ function weekdayLabel(dateKey: string, lang: PreferredLanguage): string {
     weekday: "long",
     timeZone: "UTC",
   }).format(date);
-}
-
-function fmtSignedPct(n: number): string {
-  const sign = n > 0 ? "+" : "";
-  return `${sign}${n.toFixed(1)}%`;
 }
 
 function deltaFrom(current: number, previous: number): number | null {

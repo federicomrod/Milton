@@ -8,7 +8,10 @@
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { formatCompactDateRange } from "@/lib/restaurant/cockpit-aggregates";
 import { localeForCurrency } from "@/lib/restaurant/currency";
-import type { CockpitKpiStripModel } from "@/lib/restaurant/cockpit-executive";
+import {
+  polishCockpitCopy,
+  type CockpitKpiStripModel,
+} from "@/lib/restaurant/cockpit-executive";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
 
 export function CockpitKpiStrip({
@@ -59,12 +62,22 @@ export function CockpitKpiStrip({
           lang={lang}
           sub={
             rev.tips > 0
-              ? t(
+              ? polishCockpitCopy(
                   lang,
-                  `Tips ${money.format(rev.tips)} excluded`,
-                  `Propinas ${money.format(rev.tips)} excluidas`
+                  t(
+                    lang,
+                    `Tips ${money.format(rev.tips)} excluded`,
+                    `Propinas ${money.format(rev.tips)} excluidas`
+                  )
                 )
-              : t(lang, "vs previous period", "vs periodo anterior")
+              : polishCockpitCopy(
+                  lang,
+                  t(
+                    lang,
+                    "versus the previous period",
+                    "frente al periodo anterior"
+                  )
+                )
           }
         />
         {model.gross_margin_pct.available ? (

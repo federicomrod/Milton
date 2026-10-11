@@ -131,7 +131,30 @@ export interface CockpitPeriodSnapshot {
 export interface CockpitComparisonPhrases {
   currentPhrase: string;
   previousPhrase: string;
+  /** Already-contracted "de …" / "for …" for the current window. */
+  deCurrent: string;
+  /** Already-contracted "frente a/al …" / "versus …" for the previous window. */
+  frenteAPrevious: string;
   chipLabel: string;
+}
+
+/**
+ * Spanish article contractions. Only the article `el` (not ella, ellos,
+ * electrónico…). `de el` → `del`, `a el` → `al`.
+ */
+export function contractEs(text: string): string {
+  return text
+    .replace(/ {2,}/g, " ")
+    .replace(/\b([Dd])e el\b/g, (_m, d: string) => (d === "D" ? "Del" : "del"))
+    .replace(/\b([Aa]) el\b/g, (_m, a: string) => (a === "A" ? "Al" : "al"))
+    .trim();
+}
+
+export function polishCockpitCopy(
+  lang: PreferredLanguage,
+  text: string
+): string {
+  return lang === "es" ? contractEs(text) : text;
 }
 
 function emptyBucket(): {
@@ -233,20 +256,32 @@ export function cockpitComparisonPhrases(
     dateLocale
   );
   if (period.preset === "last_7") {
-    return {
+    return polishPhrases(lang, {
       currentPhrase: t(lang, "the last 7 days", "los últimos 7 días"),
       previousPhrase: t(lang, "the 7 days before", "los 7 días anteriores"),
+      deCurrent: t(lang, "for the last 7 days", "de los últimos 7 días"),
+      frenteAPrevious: t(
+        lang,
+        "versus the 7 days before",
+        "frente a los 7 días anteriores"
+      ),
       chipLabel: currentRange,
-    };
+    });
   }
   if (period.month_complete) {
-    return {
+    return polishPhrases(lang, {
       currentPhrase: t(lang, "this month", "este mes"),
       previousPhrase: t(lang, "the previous month", "el mes anterior"),
+      deCurrent: t(lang, "for this month", "de este mes"),
+      frenteAPrevious: t(
+        lang,
+        "versus the previous month",
+        "frente al mes anterior"
+      ),
       chipLabel: `${currentRange} vs ${previousRange}`,
-    };
+    });
   }
-  return {
+  return polishPhrases(lang, {
     currentPhrase: t(
       lang,
       `this month to date (${currentRange})`,
@@ -257,11 +292,35 @@ export function cockpitComparisonPhrases(
       `the same days of the previous month (${previousRange})`,
       `el mismo tramo del mes anterior (${previousRange})`
     ),
+    deCurrent: t(
+      lang,
+      `for this month to date (${currentRange})`,
+      `del mes en curso (${currentRange})`
+    ),
+    frenteAPrevious: t(
+      lang,
+      `versus the same days of the previous month (${previousRange})`,
+      `frente al mismo tramo del mes anterior (${previousRange})`
+    ),
     chipLabel: t(
       lang,
       `Month to date vs same days last month · ${currentRange} vs ${previousRange}`,
       `Mes en curso vs mismo tramo del mes anterior · ${currentRange} vs ${previousRange}`
     ),
+  });
+}
+
+function polishPhrases(
+  lang: PreferredLanguage,
+  phrases: CockpitComparisonPhrases
+): CockpitComparisonPhrases {
+  if (lang !== "es") return phrases;
+  return {
+    currentPhrase: contractEs(phrases.currentPhrase),
+    previousPhrase: contractEs(phrases.previousPhrase),
+    deCurrent: contractEs(phrases.deCurrent),
+    frenteAPrevious: contractEs(phrases.frenteAPrevious),
+    chipLabel: contractEs(phrases.chipLabel),
   };
 }
 
@@ -533,31 +592,43 @@ export function buildCockpitHeadline(
   const phrases = cockpitComparisonPhrases(snapshot.period, lang);
 
   if (delta === null) {
-    return t(
+    return polishCockpitCopy(
       lang,
-      `Net sales for ${phrases.currentPhrase}: ${net}. There is no previous period to compare yet.`,
-      `Ventas netas de ${phrases.currentPhrase}: ${net}. Aún no hay un periodo anterior para comparar.`
+      t(
+        lang,
+        `Net sales ${phrases.deCurrent}: ${net}. There is no previous period to compare yet.`,
+        `Ventas netas ${phrases.deCurrent}: ${net}. Aún no hay un periodo anterior para comparar.`
+      )
     );
   }
   if (delta === 0) {
-    return t(
+    return polishCockpitCopy(
       lang,
-      `Net sales for ${phrases.currentPhrase}: ${net}, in line with ${phrases.previousPhrase}.`,
-      `Ventas netas de ${phrases.currentPhrase}: ${net}, en línea con ${phrases.previousPhrase}.`
+      t(
+        lang,
+        `Net sales ${phrases.deCurrent}: ${net}, in line with ${phrases.previousPhrase}.`,
+        `Ventas netas ${phrases.deCurrent}: ${net}, en línea con ${phrases.previousPhrase}.`
+      )
     );
   }
   const abs = `${Math.abs(delta).toFixed(1)}%`;
   if (delta > 0) {
-    return t(
+    return polishCockpitCopy(
       lang,
-      `Net sales for ${phrases.currentPhrase}: ${net}. Up ${abs} versus ${phrases.previousPhrase}.`,
-      `Ventas netas de ${phrases.currentPhrase}: ${net}. Subió ${abs} frente a ${phrases.previousPhrase}.`
+      t(
+        lang,
+        `Net sales ${phrases.deCurrent}: ${net}. Up ${abs} ${phrases.frenteAPrevious}.`,
+        `Ventas netas ${phrases.deCurrent}: ${net}. Subió ${abs} ${phrases.frenteAPrevious}.`
+      )
     );
   }
-  return t(
+  return polishCockpitCopy(
     lang,
-    `Net sales for ${phrases.currentPhrase}: ${net}. Down ${abs} versus ${phrases.previousPhrase}.`,
-    `Ventas netas de ${phrases.currentPhrase}: ${net}. Bajó ${abs} frente a ${phrases.previousPhrase}.`
+    t(
+      lang,
+      `Net sales ${phrases.deCurrent}: ${net}. Down ${abs} ${phrases.frenteAPrevious}.`,
+      `Ventas netas ${phrases.deCurrent}: ${net}. Bajó ${abs} ${phrases.frenteAPrevious}.`
+    )
   );
 }
 

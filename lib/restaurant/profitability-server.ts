@@ -131,6 +131,7 @@ export interface SetupCounts {
   recipe_inputs_count: number;
   supplier_invoices_count: number;
   agent_runs_count: number;
+  ingredients_count: number;
 }
 
 export interface ProfitabilityData {
@@ -821,6 +822,7 @@ export async function fetchProfitabilityData(
     recipe_inputs_count: recipeInputs.length,
     supplier_invoices_count: supplierInvoicesCountRes.count ?? 0,
     agent_runs_count: agentRunsCountRes.count ?? 0,
+    ingredients_count: ingredients.length,
   };
 
   return {

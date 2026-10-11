@@ -33,13 +33,17 @@ export function CockpitKpiStrip({
     maximumFractionDigits: 0,
   });
   const rev = model.secondary;
-  const weekDelta = model.week_vs_last_week.delta_pct;
+  const week = model.week_vs_last_week;
+  const weekDelta = week.delta_pct;
   const weekUp = weekDelta != null && weekDelta > 0;
   const weekDown = weekDelta != null && weekDelta < 0;
   const estimatedHint = rev.discounts_estimated
     ? ` ${t(lang, "(estimated)", "(estimado)")}`
     : "";
-  const weekRangeLabel = `${formatCompactDateRange(model.week_vs_last_week.this_week.from, model.week_vs_last_week.this_week.to, dateLocale)} vs ${formatCompactDateRange(model.week_vs_last_week.last_week.from, model.week_vs_last_week.last_week.to, dateLocale)}`;
+  const weekRangeLabel =
+    week.available && week.this_week && week.last_week
+      ? `${formatCompactDateRange(week.this_week.from, week.this_week.to, dateLocale)} vs ${formatCompactDateRange(week.last_week.from, week.last_week.to, dateLocale)}`
+      : t(lang, "This week is not available yet.", "Aún no disponible");
 
   return (
     <section aria-label={t(lang, "Key numbers", "Cifras clave")}>
@@ -119,22 +123,33 @@ export function CockpitKpiStrip({
           lang={lang}
           sub={t(lang, "unique checks", "cuentas únicas")}
         />
-        <Kpi
-          label={t(lang, "Week vs last week", "Semana vs anterior")}
-          value={
-            weekDelta == null
-              ? t(lang, "No previous week", "Sin semana anterior")
-              : `${weekUp ? "+" : ""}${weekDelta.toFixed(1)}%`
-          }
-          valueClass={
-            weekUp
-              ? "text-emerald-700 dark:text-emerald-400"
-              : weekDown
-                ? "text-amber-800 dark:text-amber-300"
-                : undefined
-          }
-          sub={weekRangeLabel}
-        />
+        {week.available ? (
+          <Kpi
+            label={t(lang, "Week vs last week", "Semana vs anterior")}
+            value={
+              weekDelta == null
+                ? t(lang, "No previous week", "Sin semana anterior")
+                : `${weekUp ? "+" : ""}${weekDelta.toFixed(1)}%`
+            }
+            valueClass={
+              weekUp
+                ? "text-emerald-700 dark:text-emerald-400"
+                : weekDown
+                  ? "text-amber-800 dark:text-amber-300"
+                  : undefined
+            }
+            sub={weekRangeLabel}
+          />
+        ) : (
+          <NotAvailableYet
+            lang={lang}
+            compact
+            reason={
+              week.reason ??
+              t(lang, "This week is not available yet.", "Aún no disponible")
+            }
+          />
+        )}
       </div>
 
       <p className="text-[11px] text-muted-foreground mt-1">

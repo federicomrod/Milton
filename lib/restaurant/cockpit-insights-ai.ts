@@ -2,8 +2,10 @@
 //
 // Words the already-selected Cockpit insights. OpenAI may only rephrase;
 // every number must already be in the facts or we keep the fallback.
-// 10s timeout. Cache per company + period for 90s.
+// 10s timeout. Cache per company + resolved location + period + facts.
+// LRU-bounded so a Sync (new facts hash / data version) refreshes.
 
+import { createHash } from "crypto";
 import {
   applyAiWordingOrFallback,
   wordedFromFacts,
@@ -14,6 +16,7 @@ import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 export const COCKPIT_INSIGHT_CACHE_TTL_MS = 90_000;
 export const COCKPIT_INSIGHT_AI_TIMEOUT_MS = 10_000;
+export const COCKPIT_INSIGHT_CACHE_MAX_ENTRIES = 200;
 
 const cache = new Map<
   string,
@@ -25,6 +28,25 @@ export interface WordedCockpitInsights {
   source: "openai" | "deterministic";
 }
 
+export function hashCockpitInsightFacts(facts: CockpitInsightFact[]): string {
+  const payload = facts
+    .map((fact) => {
+      const keys = Object.keys(fact.facts).sort();
+      const pairs = keys.map((key) => `${key}=${String(fact.facts[key])}`);
+      return `${fact.id}:${pairs.join(",")}`;
+    })
+    .sort()
+    .join("|");
+  return createHash("sha256").update(payload).digest("hex").slice(0, 20);
+}
+
+export function cockpitFactsDataVersion(input: {
+  latestSaleDate?: string | null;
+  rowCount: number;
+}): string {
+  return `${input.latestSaleDate ?? "none"}:${input.rowCount}`;
+}
+
 export function cockpitInsightCacheKey(parts: {
   companyId: string;
   locationId?: string | null;
@@ -32,6 +54,8 @@ export function cockpitInsightCacheKey(parts: {
   from: string;
   to: string;
   lang: PreferredLanguage;
+  factsHash: string;
+  dataVersion: string;
 }): string {
   return [
     parts.companyId,
@@ -40,7 +64,13 @@ export function cockpitInsightCacheKey(parts: {
     parts.from,
     parts.to,
     parts.lang,
+    parts.factsHash,
+    parts.dataVersion,
   ].join(":");
+}
+
+export function insightCacheSizeForTests(): number {
+  return cache.size;
 }
 
 export function readInsightCache(key: string): WordedCockpitInsights | null {
@@ -50,6 +80,8 @@ export function readInsightCache(key: string): WordedCockpitInsights | null {
     cache.delete(key);
     return null;
   }
+  cache.delete(key);
+  cache.set(key, hit);
   return hit.value;
 }
 
@@ -59,7 +91,13 @@ export function writeInsightCache(
   now = Date.now(),
   ttlMs = COCKPIT_INSIGHT_CACHE_TTL_MS
 ): void {
+  if (cache.has(key)) cache.delete(key);
   cache.set(key, { expiresAt: now + ttlMs, value });
+  while (cache.size > COCKPIT_INSIGHT_CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
 }
 
 export function clearInsightCacheForTests(): void {
@@ -140,7 +178,8 @@ async function callInsightOpenAI(
             "3. Copy numeric values exactly as given (you may add $ or %).",
             "4. Write in the requested language. Neutral Latin American Spanish with tú when es.",
             "5. Each insight: one title (max 12 words) and one body (max 2 sentences).",
-            '6. JSON only: {"insights":[{"id","title","body"}]}',
+            "6. Do not include URLs. Do not contradict the sign of delta_pct / vs_average_pct.",
+            '7. JSON only: {"insights":[{"id","title","body"}]}',
           ].join("\n"),
         },
         {

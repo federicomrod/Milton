@@ -94,16 +94,16 @@ export function DataHealthIndicator({
 function HealthRow({ item }: { item: DataHealthItem }) {
   return (
     <li className="text-sm">
-      <p className="font-medium inline-flex items-center gap-1.5">
+      <p
+        className="font-medium inline-flex items-center gap-1.5"
+        title={item.tooltip}
+      >
         <span aria-hidden className={dotClass(item.tone)}>
           ●
         </span>
         {item.label}
       </p>
       <p className="text-xs text-muted-foreground mt-0.5 pl-4">{item.detail}</p>
-      {item.tooltip ? (
-        <p className="text-[11px] text-muted-foreground pl-4">{item.tooltip}</p>
-      ) : null}
     </li>
   );
 }

@@ -6,13 +6,39 @@
 // sentence. Metric names match the owners' email briefing.
 
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
-import { COSTS_HREF } from "@/lib/restaurant/navigation";
-import type { CockpitPeriodSnapshot } from "@/lib/restaurant/cockpit-executive";
+import { COSTS_HREF, MENU_HREF } from "@/lib/restaurant/navigation";
+import {
+  cockpitComparisonPhrases,
+  formatCockpitMoney,
+  type CockpitPeriodSnapshot,
+  type DailyNetPoint,
+} from "@/lib/restaurant/cockpit-executive";
 
 export const MAX_COCKPIT_INSIGHTS = 3;
+export const AI_TITLE_MAX_LEN = 80;
+export const AI_BODY_MAX_LEN = 280;
+
+export const AI_INJECTION_PATTERNS: RegExp[] = [
+  /ignore (all |the )?(previous|above|prior) instructions/i,
+  /system prompt/i,
+  /you are now/i,
+  /```/,
+  /<script/i,
+  /javascript:/i,
+  /\[INST\]/i,
+  /<\|.*?\|>/,
+];
+
+const URL_RE = /https?:\/\/|www\./i;
+const UP_WORDS =
+  /subi(?:o|ó|eron)|aument(?:o|ó|aron)|creci(?:o|ó|eron)|arriba|higher|rose|increased|grew/i;
+const DOWN_WORDS =
+  /baj(?:o|ó|aron)|cay(?:o|ó|eron)|abajo|decreased|fell|dropped|\bdown\b/i;
 
 export type CockpitInsightKind =
   | "data_health_costs"
+  | "missing_recipes"
+  | "low_margin_dish"
   | "best_day"
   | "worst_day"
   | "channel_shift"
@@ -38,8 +64,15 @@ export interface WordedCockpitInsight {
   facts: Record<string, number | string | null>;
 }
 
+export interface CockpitInsightContext {
+  lowMarginDish?: { name: string; margin_pct: number } | null;
+  dishesWithoutRecipe?: number;
+}
+
 const KIND_ORDER: CockpitInsightKind[] = [
   "data_health_costs",
+  "missing_recipes",
+  "low_margin_dish",
   "best_day",
   "worst_day",
   "channel_shift",
@@ -47,11 +80,33 @@ const KIND_ORDER: CockpitInsightKind[] = [
   "sales_change",
 ];
 
+export function isPartialAnchorDay(
+  day: DailyNetPoint,
+  daysWithSales: DailyNetPoint[],
+  snapshot: CockpitPeriodSnapshot
+): boolean {
+  if (day.date !== snapshot.period.current.to) return false;
+  const others = daysWithSales.filter((d) => d.date !== day.date);
+  if (others.length === 0) return true;
+  const sorted = others.map((d) => d.current_tickets).sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median =
+    sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  const thinVsMedian = day.current_tickets < median * 0.5;
+  // Complete months keep a full last day unless it is clearly thin.
+  // last_7 / month-to-date treat the latest synced day as in-progress.
+  if (snapshot.period.month_complete) return thinVsMedian;
+  return true;
+}
+
 export function selectCockpitInsights(
   snapshot: CockpitPeriodSnapshot,
-  lang: PreferredLanguage
+  lang: PreferredLanguage,
+  context: CockpitInsightContext = {}
 ): CockpitInsightFact[] {
   const candidates: CockpitInsightFact[] = [];
+  const phrases = cockpitComparisonPhrases(snapshot.period, lang);
+  const money = (n: number) => formatCockpitMoney(n, snapshot.currency);
 
   if (snapshot.cost.coverage_pct <= 0) {
     candidates.push({
@@ -77,17 +132,76 @@ export function selectCockpitInsights(
         href: `${COSTS_HREF}/upload`,
       },
     });
+  } else if ((context.dishesWithoutRecipe ?? 0) > 0) {
+    const missing = context.dishesWithoutRecipe ?? 0;
+    candidates.push({
+      id: "missing_recipes",
+      kind: "missing_recipes",
+      score: 900,
+      facts: {
+        dishes_without_recipe: missing,
+        cost_coverage_pct: snapshot.cost.coverage_pct,
+      },
+      title: t(
+        lang,
+        "Sold dishes are still missing recipes",
+        "Todavía faltan recetas en platillos vendidos"
+      ),
+      body: t(
+        lang,
+        `${missing} sold dishes have no recipe, so their cost stays hidden.`,
+        `${missing} ${missing === 1 ? "platillo vendido no tiene receta" : "platillos vendidos no tienen receta"}, así que su costo sigue oculto.`
+      ),
+      action: {
+        label: t(lang, "Add recipes", "Agregar recetas"),
+        href: MENU_HREF,
+      },
+    });
+  }
+
+  if (context.lowMarginDish && snapshot.cost.coverage_pct > 0) {
+    const dish = context.lowMarginDish;
+    candidates.push({
+      id: "low_margin_dish",
+      kind: "low_margin_dish",
+      score: 85,
+      facts: {
+        name: dish.name,
+        margin_pct: round1(dish.margin_pct),
+      },
+      title: t(
+        lang,
+        "A dish is running a thin margin",
+        "Un platillo tiene margen bajo"
+      ),
+      body: t(
+        lang,
+        `${dish.name} is at ${round1(dish.margin_pct)}% gross margin.`,
+        `${dish.name} está en ${round1(dish.margin_pct)}% de margen bruto.`
+      ),
+      action: {
+        label: t(lang, "Review the dish", "Revisar el platillo"),
+        href: MENU_HREF,
+      },
+    });
   }
 
   const daysWithSales = snapshot.daily.filter((d) => d.current_net > 0);
-  if (daysWithSales.length >= 3) {
+  const partialAnchor = daysWithSales.find((d) =>
+    isPartialAnchorDay(d, daysWithSales, snapshot)
+  );
+  const rankedDays = daysWithSales.filter(
+    (d) => !isPartialAnchorDay(d, daysWithSales, snapshot)
+  );
+  const soFar =
+    partialAnchor !== undefined ? t(lang, " so far", " hasta ahora") : "";
+  if (rankedDays.length >= 3) {
     const avg =
-      daysWithSales.reduce((s, d) => s + d.current_net, 0) /
-      daysWithSales.length;
-    const best = daysWithSales.reduce((a, b) =>
+      rankedDays.reduce((s, d) => s + d.current_net, 0) / rankedDays.length;
+    const best = rankedDays.reduce((a, b) =>
       b.current_net > a.current_net ? b : a
     );
-    const worst = daysWithSales.reduce((a, b) =>
+    const worst = rankedDays.reduce((a, b) =>
       b.current_net < a.current_net ? b : a
     );
     const bestDev = avg > 0 ? (best.current_net - avg) / avg : 0;
@@ -105,16 +219,20 @@ export function selectCockpitInsights(
           average: round2(avg),
           vs_average_pct: round1(bestDev * 100),
           tickets: best.current_tickets,
+          partial_anchor_excluded: partialAnchor ? 1 : 0,
         },
-        title: t(
-          lang,
-          `${weekday} was the strongest day`,
-          `${weekday} fue el mejor día`
+        title: capitalizeInsightTitle(
+          t(
+            lang,
+            `${weekday} was the strongest day${soFar}`,
+            `El ${weekday} fue el mejor día${soFar}`
+          ),
+          lang
         ),
         body: t(
           lang,
-          `${weekday} did ${fmtMoney(best.current_net, snapshot.currency, lang)} in net sales, ${round1(bestDev * 100)}% above the daily average of ${fmtMoney(avg, snapshot.currency, lang)}.`,
-          `${weekday} hizo ${fmtMoney(best.current_net, snapshot.currency, lang)} en ventas netas, ${round1(bestDev * 100)}% arriba del promedio diario de ${fmtMoney(avg, snapshot.currency, lang)}.`
+          `${weekday} did ${money(best.current_net)} in net sales, ${round1(bestDev * 100)}% above the daily average of ${money(avg)}.`,
+          `${weekday} hizo ${money(best.current_net)} en ventas netas, ${round1(bestDev * 100)}% arriba del promedio diario de ${money(avg)}.`
         ),
       });
     }
@@ -131,16 +249,20 @@ export function selectCockpitInsights(
           average: round2(avg),
           vs_average_pct: round1(worstDev * 100),
           tickets: worst.current_tickets,
+          partial_anchor_excluded: partialAnchor ? 1 : 0,
         },
-        title: t(
-          lang,
-          `${weekday} was the softest day`,
-          `${weekday} fue el día más flojo`
+        title: capitalizeInsightTitle(
+          t(
+            lang,
+            `${weekday} was the softest day${soFar}`,
+            `El ${weekday} fue el día más flojo${soFar}`
+          ),
+          lang
         ),
         body: t(
           lang,
-          `${weekday} did ${fmtMoney(worst.current_net, snapshot.currency, lang)} in net sales, ${Math.abs(round1(worstDev * 100))}% below the daily average of ${fmtMoney(avg, snapshot.currency, lang)}.`,
-          `${weekday} hizo ${fmtMoney(worst.current_net, snapshot.currency, lang)} en ventas netas, ${Math.abs(round1(worstDev * 100))}% abajo del promedio diario de ${fmtMoney(avg, snapshot.currency, lang)}.`
+          `${weekday} did ${money(worst.current_net)} in net sales, ${Math.abs(round1(worstDev * 100))}% below the daily average of ${money(avg)}.`,
+          `${weekday} hizo ${money(worst.current_net)} en ventas netas, ${Math.abs(round1(worstDev * 100))}% abajo del promedio diario de ${money(avg)}.`
         ),
       });
     }
@@ -162,10 +284,13 @@ export function selectCockpitInsights(
         delta_pp: shifted.delta_pp,
         net_sales: shifted.net_sales,
       },
-      title: t(
-        lang,
-        `${shifted.label} share shifted`,
-        `Cambió la participación de ${shifted.label}`
+      title: capitalizeInsightTitle(
+        t(
+          lang,
+          `${shifted.label} share shifted`,
+          `Cambió la participación de ${shifted.label}`
+        ),
+        lang
       ),
       body: t(
         lang,
@@ -193,8 +318,8 @@ export function selectCockpitInsights(
       title: t(lang, "Average ticket moved", "El ticket promedio se movió"),
       body: t(
         lang,
-        `Average ticket is ${fmtMoney(snapshot.current.avg_ticket, snapshot.currency, lang)} (${fmtSignedPct(ticketDelta)} vs the previous period) across ${snapshot.current.tickets} tickets.`,
-        `El ticket promedio es ${fmtMoney(snapshot.current.avg_ticket, snapshot.currency, lang)} (${fmtSignedPct(ticketDelta)} vs el periodo anterior) en ${snapshot.current.tickets} tickets.`
+        `Average ticket is ${money(snapshot.current.avg_ticket)} (${fmtSignedPct(ticketDelta)} vs the previous period) across ${snapshot.current.tickets} tickets.`,
+        `El ticket promedio es ${money(snapshot.current.avg_ticket)} (${fmtSignedPct(ticketDelta)} vs el periodo anterior) en ${snapshot.current.tickets} tickets.`
       ),
     });
   }
@@ -204,6 +329,8 @@ export function selectCockpitInsights(
     snapshot.previous.net_sales
   );
   if (salesDelta !== null && Math.abs(salesDelta) >= 5) {
+    const verb =
+      salesDelta > 0 ? t(lang, "rose", "subieron") : t(lang, "fell", "bajaron");
     candidates.push({
       id: "sales_change",
       kind: "sales_change",
@@ -214,15 +341,18 @@ export function selectCockpitInsights(
         delta_pct: salesDelta,
         tips: round2(snapshot.current.tips),
       },
-      title: t(
-        lang,
-        "Net sales vs the previous period",
-        "Ventas netas vs el periodo anterior"
+      title: capitalizeInsightTitle(
+        t(
+          lang,
+          `Net sales vs ${phrases.previousPhrase}`,
+          `Ventas netas vs ${phrases.previousPhrase}`
+        ),
+        lang
       ),
       body: t(
         lang,
-        `Net sales are ${fmtMoney(snapshot.current.net_sales, snapshot.currency, lang)} (${fmtSignedPct(salesDelta)} vs the previous period). Tips ${fmtMoney(snapshot.current.tips, snapshot.currency, lang)} stay on their own line.`,
-        `Las ventas netas son ${fmtMoney(snapshot.current.net_sales, snapshot.currency, lang)} (${fmtSignedPct(salesDelta)} vs el periodo anterior). Las propinas ${fmtMoney(snapshot.current.tips, snapshot.currency, lang)} siguen en su propia línea.`
+        `Net sales ${verb} to ${money(snapshot.current.net_sales)} (${Math.abs(salesDelta).toFixed(1)}% versus ${phrases.previousPhrase}). Tips ${money(snapshot.current.tips)} stay on their own line.`,
+        `Las ventas netas ${verb} a ${money(snapshot.current.net_sales)} (${Math.abs(salesDelta).toFixed(1)}% frente a ${phrases.previousPhrase}). Las propinas ${money(snapshot.current.tips)} siguen en su propia línea.`
       ),
     });
   }
@@ -241,7 +371,7 @@ export function wordedFromFacts(
   return facts.slice(0, MAX_COCKPIT_INSIGHTS).map((fact) => ({
     id: fact.id,
     kind: fact.kind,
-    title: fact.title,
+    title: capitalizeInsightTitle(fact.title, titleLangGuess(fact.title)),
     body: fact.body,
     action: fact.action,
     facts: fact.facts,
@@ -259,6 +389,43 @@ export function aiWordingIsGrounded(
   const allowed = allowedNumberTokens(facts);
   const used = extractNumberTokens(text);
   return used.every((token) => allowed.has(token));
+}
+
+export function textHasInjectionPattern(text: string): boolean {
+  return AI_INJECTION_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+export function directionContradictsDelta(
+  text: string,
+  facts: Record<string, number | string | null>
+): boolean {
+  const delta = signedFact(facts);
+  if (delta === null || delta === 0) return false;
+  const hasUp = UP_WORDS.test(text);
+  const hasDown = DOWN_WORDS.test(text);
+  if (delta > 0 && hasDown && !hasUp) return true;
+  if (delta < 0 && hasUp && !hasDown) return true;
+  return false;
+}
+
+export function aiWordingPassesGuards(
+  title: string,
+  body: string,
+  facts: Record<string, number | string | null>
+): boolean {
+  if (title.trim().length === 0 || body.trim().length === 0) return false;
+  if (title.length > AI_TITLE_MAX_LEN || body.length > AI_BODY_MAX_LEN) {
+    return false;
+  }
+  const combined = `${title} ${body}`;
+  if (URL_RE.test(combined)) return false;
+  if (directionContradictsDelta(combined, facts)) return false;
+  const digits = extractNumberTokens(combined);
+  if (digits.length === 0) {
+    return !textHasInjectionPattern(combined);
+  }
+  if (textHasInjectionPattern(combined)) return false;
+  return aiWordingIsGrounded(combined, facts);
 }
 
 export function applyAiWordingOrFallback(
@@ -280,14 +447,14 @@ export function applyAiWordingOrFallback(
       usedFallback = true;
       return base;
     }
-    const combined = `${match.title} ${match.body}`;
-    if (!aiWordingIsGrounded(combined, base.facts)) {
+    if (!aiWordingPassesGuards(match.title, match.body, base.facts)) {
       usedFallback = true;
       return base;
     }
+    const lang = titleLangGuess(match.title);
     return {
       ...base,
-      title: match.title.trim(),
+      title: capitalizeInsightTitle(match.title.trim(), lang),
       body: match.body.trim(),
     };
   });
@@ -297,6 +464,16 @@ export function applyAiWordingOrFallback(
 export function extractNumberTokens(text: string): string[] {
   const matches = text.match(/[-+]?\d[\d.,]*/g) ?? [];
   return matches.map(normalizeNumberToken).filter((token) => token.length > 0);
+}
+
+export function capitalizeInsightTitle(
+  title: string,
+  lang: PreferredLanguage
+): string {
+  const trimmed = title.trim();
+  if (!trimmed) return trimmed;
+  const locale = lang === "es" ? "es" : "en-US";
+  return trimmed.charAt(0).toLocaleUpperCase(locale) + trimmed.slice(1);
 }
 
 function allowedNumberTokens(
@@ -353,23 +530,6 @@ function weekdayLabel(dateKey: string, lang: PreferredLanguage): string {
   }).format(date);
 }
 
-function fmtMoney(
-  amount: number,
-  currency: string,
-  lang: PreferredLanguage
-): string {
-  const locale = lang === "es" ? "es-MX" : "en-US";
-  try {
-    return new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency: /^[A-Z]{3}$/.test(currency) ? currency : "USD",
-      maximumFractionDigits: 0,
-    }).format(amount);
-  } catch {
-    return `${Math.round(amount)} ${currency}`;
-  }
-}
-
 function fmtSignedPct(n: number): string {
   const sign = n > 0 ? "+" : "";
   return `${sign}${n.toFixed(1)}%`;
@@ -379,6 +539,20 @@ function deltaFrom(current: number, previous: number): number | null {
   if (!Number.isFinite(current) || !Number.isFinite(previous)) return null;
   if (previous === 0) return current === 0 ? 0 : null;
   return Math.round(((current - previous) / previous) * 1000) / 10;
+}
+
+function signedFact(
+  facts: Record<string, number | string | null>
+): number | null {
+  for (const key of ["delta_pct", "vs_average_pct", "delta_pp"]) {
+    const value = facts[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function titleLangGuess(title: string): PreferredLanguage {
+  return /[áéíóúñ¿¡]|el |la |los |las |fue |del /i.test(title) ? "es" : "en";
 }
 
 function round2(n: number): number {

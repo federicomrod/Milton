@@ -5,9 +5,12 @@
 //
 // Metric definitions match cockpit-aggregates + the owners' email briefing:
 //   net sales = posted revenue excluding tips
-//   avg ticket = net / unique checks
+//   avg ticket = net / unique checks (same orderKey as the week aggregate)
 //   cost coverage = share of net sales from dishes with a cost
 //   food cost % / gross margin % = on covered net sales only
+//
+// Day buckets use the heatmap local date (order_placed_at in the POS
+// timezone, fallback sale_date) so CSV imports cannot drift a day.
 
 import {
   addClassifiedLine,
@@ -18,9 +21,12 @@ import {
 } from "@/lib/restaurant/sales-revenue";
 import type { CockpitFactRow } from "@/lib/restaurant/cockpit-aggregates";
 import { formatCompactDateRange } from "@/lib/restaurant/cockpit-aggregates";
+import { localeForCurrency } from "@/lib/restaurant/currency";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { salesChannelLabel } from "@/lib/restaurant/sales-channel-labels";
 import { COSTS_HREF } from "@/lib/restaurant/navigation";
+import { localWeekdayAndHour } from "@/lib/restaurant/pos-local-time";
+import { normalizeTimezone } from "@/lib/restaurant/email/preferences";
 import {
   type CockpitPeriod,
   type InclusiveDateRange,
@@ -84,9 +90,11 @@ export type MoneyKpi = AvailableKpi;
 export type CostKpi = AvailableKpi | UnavailableKpi;
 
 export interface WeekDeltaKpi {
+  available: boolean;
   delta_pct: number | null;
-  this_week: InclusiveDateRange;
-  last_week: InclusiveDateRange;
+  this_week: InclusiveDateRange | null;
+  last_week: InclusiveDateRange | null;
+  reason?: string;
 }
 
 export interface CockpitKpiStripModel {
@@ -116,7 +124,14 @@ export interface CockpitPeriodSnapshot {
   daily: DailyNetPoint[];
   channels: ChannelShare[];
   cost: PeriodCostKpis;
+  previous_cost: PeriodCostKpis;
   other_currency_excluded: number;
+}
+
+export interface CockpitComparisonPhrases {
+  currentPhrase: string;
+  previousPhrase: string;
+  chipLabel: string;
 }
 
 function emptyBucket(): {
@@ -149,6 +164,7 @@ function finalizeBucket(bucket: ReturnType<typeof emptyBucket>): PeriodBucket {
   };
 }
 
+/** Same key as the week aggregate: distinct check ids, then order id. */
 function orderKey(row: CockpitFactRow): string | null {
   return row.check_id ?? row.order_id ?? null;
 }
@@ -162,6 +178,91 @@ function quantityOf(row: CockpitFactRow): number {
 function channelKey(row: CockpitFactRow): string {
   const raw = row.sales_channel?.trim();
   return raw && raw.length > 0 ? raw : "unknown";
+}
+
+export function localSaleDateKey(
+  row: Pick<CockpitFactRow, "sale_date" | "order_placed_at">,
+  timezone: string
+): string {
+  return localWeekdayAndHour(
+    {
+      sale_date: row.sale_date,
+      order_placed_at: row.order_placed_at ?? null,
+    },
+    timezone
+  ).dateKey;
+}
+
+export function formatCockpitMoney(
+  amount: number,
+  currency: string,
+  fractionDigits = 0
+): string {
+  const code = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
+  const locale = localeForCurrency(code);
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: code,
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    }).format(amount);
+  } catch {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    }).format(amount);
+  }
+}
+
+export function cockpitComparisonPhrases(
+  period: CockpitPeriod,
+  lang: PreferredLanguage
+): CockpitComparisonPhrases {
+  const dateLocale = lang === "es" ? "es" : "en-GB";
+  const currentRange = formatCompactDateRange(
+    period.current.from,
+    period.current.to,
+    dateLocale
+  );
+  const previousRange = formatCompactDateRange(
+    period.previous.from,
+    period.previous.to,
+    dateLocale
+  );
+  if (period.preset === "last_7") {
+    return {
+      currentPhrase: t(lang, "the last 7 days", "los últimos 7 días"),
+      previousPhrase: t(lang, "the 7 days before", "los 7 días anteriores"),
+      chipLabel: currentRange,
+    };
+  }
+  if (period.month_complete) {
+    return {
+      currentPhrase: t(lang, "this month", "este mes"),
+      previousPhrase: t(lang, "the previous month", "el mes anterior"),
+      chipLabel: `${currentRange} vs ${previousRange}`,
+    };
+  }
+  return {
+    currentPhrase: t(
+      lang,
+      `this month to date (${currentRange})`,
+      `el mes en curso (${currentRange})`
+    ),
+    previousPhrase: t(
+      lang,
+      `the same days of the previous month (${previousRange})`,
+      `el mismo tramo del mes anterior (${previousRange})`
+    ),
+    chipLabel: t(
+      lang,
+      `Month to date vs same days last month · ${currentRange} vs ${previousRange}`,
+      `Mes en curso vs mismo tramo del mes anterior · ${currentRange} vs ${previousRange}`
+    ),
+  };
 }
 
 export function buildCockpitPeriodSnapshot(
@@ -179,6 +280,7 @@ export function buildCockpitPeriodSnapshot(
   }
 ): CockpitPeriodSnapshot {
   const currency = options.currency;
+  const timezone = normalizeTimezone(options.timezone) ?? "UTC";
   const current = emptyBucket();
   const previous = emptyBucket();
   const currentByDay = new Map<string, { net: number; orders: Set<string> }>();
@@ -186,6 +288,7 @@ export function buildCockpitPeriodSnapshot(
   const currentChannel = new Map<string, number>();
   const previousChannel = new Map<string, number>();
   const currentRows: CockpitFactRow[] = [];
+  const previousRows: CockpitFactRow[] = [];
   let otherCurrencyExcluded = 0;
 
   const bumpDay = (
@@ -209,10 +312,12 @@ export function buildCockpitPeriodSnapshot(
       otherCurrencyExcluded += 1;
       continue;
     }
+    const dateKey = localSaleDateKey(row, timezone);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) continue;
     const line = classifySaleLine(row);
     const key = orderKey(row);
-    const inCurrent = inInclusiveRange(row.sale_date, period.current);
-    const inPrevious = inInclusiveRange(row.sale_date, period.previous);
+    const inCurrent = inInclusiveRange(dateKey, period.current);
+    const inPrevious = inInclusiveRange(dateKey, period.previous);
     if (!inCurrent && !inPrevious) continue;
 
     const apply = (bucket: ReturnType<typeof emptyBucket>) => {
@@ -225,7 +330,7 @@ export function buildCockpitPeriodSnapshot(
     if (inCurrent) {
       apply(current);
       currentRows.push(row);
-      bumpDay(currentByDay, row.sale_date, line.net, key);
+      bumpDay(currentByDay, dateKey, line.net, key);
       if (!line.isTip) {
         const ch = channelKey(row);
         currentChannel.set(ch, (currentChannel.get(ch) ?? 0) + line.net);
@@ -233,7 +338,8 @@ export function buildCockpitPeriodSnapshot(
     }
     if (inPrevious) {
       apply(previous);
-      bumpDay(previousByDay, row.sale_date, line.net, key);
+      previousRows.push(row);
+      bumpDay(previousByDay, dateKey, line.net, key);
       if (!line.isTip) {
         const ch = channelKey(row);
         previousChannel.set(ch, (previousChannel.get(ch) ?? 0) + line.net);
@@ -300,16 +406,18 @@ export function buildCockpitPeriodSnapshot(
 
   const lookup = itemCostLookupFromMarginRows(options.marginRows ?? []);
   const cost = periodCostKpisFromRows(currentRows, lookup, currency);
+  const previousCost = periodCostKpisFromRows(previousRows, lookup, currency);
 
   return {
     period,
     currency: currency ?? "USD",
-    timezone: options.timezone ?? "UTC",
+    timezone,
     current: currentFinal,
     previous: previousFinal,
     daily,
     channels,
     cost,
+    previous_cost: previousCost,
     other_currency_excluded: otherCurrencyExcluded,
   };
 }
@@ -331,8 +439,8 @@ export function buildCockpitKpiStripModel(
   snapshot: CockpitPeriodSnapshot,
   lang: PreferredLanguage,
   weekWindows: {
-    thisWeek: InclusiveDateRange;
-    lastWeek: InclusiveDateRange;
+    thisWeek: InclusiveDateRange | null;
+    lastWeek: InclusiveDateRange | null;
     deltaPct: number | null;
   }
 ): CockpitKpiStripModel {
@@ -345,15 +453,21 @@ export function buildCockpitKpiStripModel(
   });
 
   const costAvailable = snapshot.cost.coverage_pct > 0;
+  const previousCostAvailable = snapshot.previous_cost.coverage_pct > 0;
   const costKpi = (value: number | null, previous: number | null): CostKpi => {
     if (!costAvailable || value === null) return unavailableCostKpi(lang);
     return {
       available: true,
       value,
       previous: previous ?? 0,
-      delta_pct: previous === null ? null : deltaPct(value, previous),
+      delta_pct:
+        !previousCostAvailable || previous === null
+          ? null
+          : deltaPct(value, previous),
     };
   };
+
+  const weekAvailable = weekWindows.thisWeek !== null;
 
   return {
     currency: snapshot.currency,
@@ -371,13 +485,32 @@ export function buildCockpitKpiStripModel(
       snapshot.previous.avg_ticket
     ),
     tickets: withDelta(snapshot.current.tickets, snapshot.previous.tickets),
-    week_vs_last_week: {
-      delta_pct: weekWindows.deltaPct,
-      this_week: weekWindows.thisWeek,
-      last_week: weekWindows.lastWeek,
-    },
-    gross_margin_pct: costKpi(snapshot.cost.gross_margin_pct, null),
-    food_cost_pct: costKpi(snapshot.cost.food_cost_pct, null),
+    week_vs_last_week: weekAvailable
+      ? {
+          available: true,
+          delta_pct: weekWindows.deltaPct,
+          this_week: weekWindows.thisWeek,
+          last_week: weekWindows.lastWeek,
+        }
+      : {
+          available: false,
+          delta_pct: null,
+          this_week: null,
+          last_week: weekWindows.lastWeek,
+          reason: t(
+            lang,
+            "This week is not available yet.",
+            "Aún no disponible"
+          ),
+        },
+    gross_margin_pct: costKpi(
+      snapshot.cost.gross_margin_pct,
+      snapshot.previous_cost.gross_margin_pct
+    ),
+    food_cost_pct: costKpi(
+      snapshot.cost.food_cost_pct,
+      snapshot.previous_cost.food_cost_pct
+    ),
     secondary: {
       gross_sales: snapshot.current.gross_sales,
       discounts: snapshot.current.discounts,
@@ -392,49 +525,39 @@ export function buildCockpitHeadline(
   snapshot: CockpitPeriodSnapshot,
   lang: PreferredLanguage
 ): string {
-  const locale = lang === "es" ? "es-MX" : "en-US";
-  const money = new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency: /^[A-Z]{3}$/.test(snapshot.currency) ? snapshot.currency : "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  });
-  const net = money.format(snapshot.current.net_sales);
+  const net = formatCockpitMoney(snapshot.current.net_sales, snapshot.currency);
   const delta = deltaPct(
     snapshot.current.net_sales,
     snapshot.previous.net_sales
   );
-  const periodPhrase =
-    snapshot.period.preset === "last_7"
-      ? t(lang, "the last 7 days", "los últimos 7 días")
-      : t(lang, "this month", "este mes");
-  const previousPhrase =
-    snapshot.period.preset === "last_7"
-      ? t(lang, "the 7 days before", "los 7 días anteriores")
-      : t(lang, "the previous month", "el mes anterior");
+  const phrases = cockpitComparisonPhrases(snapshot.period, lang);
 
   if (delta === null) {
     return t(
       lang,
-      `Net sales for ${periodPhrase}: ${net}. There is no previous period to compare yet.`,
-      `Ventas netas de ${periodPhrase}: ${net}. Aún no hay un periodo anterior para comparar.`
+      `Net sales for ${phrases.currentPhrase}: ${net}. There is no previous period to compare yet.`,
+      `Ventas netas de ${phrases.currentPhrase}: ${net}. Aún no hay un periodo anterior para comparar.`
     );
   }
-  const sign = delta > 0 ? "+" : "";
-  const deltaLabel = `${sign}${delta.toFixed(1)}%`;
   if (delta === 0) {
     return t(
       lang,
-      `Net sales for ${periodPhrase}: ${net}, in line with ${previousPhrase}.`,
-      `Ventas netas de ${periodPhrase}: ${net}, en línea con ${previousPhrase}.`
+      `Net sales for ${phrases.currentPhrase}: ${net}, in line with ${phrases.previousPhrase}.`,
+      `Ventas netas de ${phrases.currentPhrase}: ${net}, en línea con ${phrases.previousPhrase}.`
     );
   }
-  const direction =
-    delta > 0 ? t(lang, "above", "arriba de") : t(lang, "below", "abajo de");
+  const abs = `${Math.abs(delta).toFixed(1)}%`;
+  if (delta > 0) {
+    return t(
+      lang,
+      `Net sales for ${phrases.currentPhrase}: ${net}. Up ${abs} versus ${phrases.previousPhrase}.`,
+      `Ventas netas de ${phrases.currentPhrase}: ${net}. Subió ${abs} frente a ${phrases.previousPhrase}.`
+    );
+  }
   return t(
     lang,
-    `Net sales for ${periodPhrase}: ${net} (${deltaLabel} ${direction} ${previousPhrase}).`,
-    `Ventas netas de ${periodPhrase}: ${net} (${deltaLabel} ${direction} ${previousPhrase}).`
+    `Net sales for ${phrases.currentPhrase}: ${net}. Down ${abs} versus ${phrases.previousPhrase}.`,
+    `Ventas netas de ${phrases.currentPhrase}: ${net}. Bajó ${abs} frente a ${phrases.previousPhrase}.`
   );
 }
 

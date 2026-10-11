@@ -56,10 +56,20 @@ import { CockpitKpiStrip } from "@/components/restaurant/cockpit/CockpitKpiStrip
 import { RevenueAndChannelsTab } from "@/components/restaurant/cockpit/RevenueAndChannelsTab";
 import { MenuProfitabilityTab } from "@/components/restaurant/cockpit/MenuProfitabilityTab";
 import { CockpitPeriodControl } from "@/components/restaurant/cockpit/CockpitPeriodControl";
-import { CockpitHeadline } from "@/components/restaurant/cockpit/CockpitHeadline";
-import { CockpitHeroChart } from "@/components/restaurant/cockpit/CockpitHeroChart";
+import {
+  CockpitHeadline,
+  CockpitHeadlineSkeleton,
+} from "@/components/restaurant/cockpit/CockpitHeadline";
+import {
+  CockpitHeroChart,
+  CockpitHeroChartSkeleton,
+} from "@/components/restaurant/cockpit/CockpitHeroChart";
 import { CockpitChannelBreakdown } from "@/components/restaurant/cockpit/CockpitChannelBreakdown";
-import { CockpitInsightsCard } from "@/components/restaurant/cockpit/CockpitInsightsCard";
+import {
+  CockpitInsightsCard,
+  CockpitInsightsCardSkeleton,
+} from "@/components/restaurant/cockpit/CockpitInsightsCard";
+import { CockpitInsightsUpgrade } from "@/components/restaurant/cockpit/CockpitInsightsUpgrade";
 import { CockpitOnboardingChip } from "@/components/restaurant/cockpit/CockpitOnboardingChip";
 import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
@@ -337,6 +347,7 @@ function LiveRestaurantView({
                         }
                       : null
                 }
+                comparisonLabel={executive?.comparisonLabel}
               />
             </Suspense>
           }
@@ -350,7 +361,11 @@ function LiveRestaurantView({
           </div>
         ) : null}
 
-        {executive ? <CockpitHeadline text={executive.headline} /> : null}
+        {executive ? (
+          <CockpitHeadline text={executive.headline} />
+        ) : (
+          <CockpitHeadlineSkeleton />
+        )}
 
         {executive ? (
           <CockpitKpiStrip model={executive.kpis} lang={lang} />
@@ -371,15 +386,29 @@ function LiveRestaurantView({
               channels={executive.snapshot.channels}
             />
           </div>
-        ) : null}
+        ) : (
+          <CockpitHeroChartSkeleton />
+        )}
 
         {executive ? (
-          <CockpitInsightsCard
-            lang={lang}
-            insights={executive.insights.insights}
-            source={executive.insights.source}
-          />
-        ) : null}
+          <Suspense
+            fallback={
+              <CockpitInsightsCard
+                lang={lang}
+                insights={executive.insights.insights}
+                source="deterministic"
+              />
+            }
+          >
+            <CockpitInsightsUpgrade
+              facts={executive.insightFacts}
+              lang={lang}
+              cacheKey={executive.insightCacheKey}
+            />
+          </Suspense>
+        ) : (
+          <CockpitInsightsCardSkeleton />
+        )}
 
         {executive?.health.tone === "error" ||
         data.readError ||

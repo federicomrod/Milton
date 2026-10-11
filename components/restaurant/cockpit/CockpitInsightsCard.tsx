@@ -27,11 +27,15 @@ export function CockpitInsightsCard({
           <Sparkles className="h-3.5 w-3.5" />
           {t(lang, "Milton briefing", "Briefing de Milton")}
         </h2>
-        <span className="text-[10px] text-muted-foreground">
-          {source === "openai"
-            ? t(lang, "Wording by Milton", "Redacción de Milton")
-            : t(lang, "Deterministic wording", "Redacción determinista")}
-        </span>
+        {source === "openai" ? (
+          <span className="text-[10px] text-muted-foreground">
+            {t(lang, "Wording by Milton", "Redacción de Milton")}
+          </span>
+        ) : (
+          <span className="text-[10px] text-muted-foreground">
+            {t(lang, "Automatic summary", "Resumen automático")}
+          </span>
+        )}
       </div>
       {insights.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -55,12 +59,17 @@ export function CockpitInsightsCard({
                 {insight.body}
               </p>
               {insight.action ? (
-                <Link
-                  href={insight.action.href}
-                  className="inline-block mt-0.5 text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
-                >
-                  {insight.action.label}
-                </Link>
+                <p className="mt-0.5 text-xs">
+                  <span className="text-muted-foreground">
+                    {t(lang, "What to do", "Qué hacer")}:{" "}
+                  </span>
+                  <Link
+                    href={insight.action.href}
+                    className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
+                  >
+                    {insight.action.label}
+                  </Link>
+                </p>
               ) : null}
             </li>
           ))}

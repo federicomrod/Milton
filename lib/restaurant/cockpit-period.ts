@@ -28,6 +28,13 @@ export interface CockpitPeriod {
   preset: CockpitPeriodPreset;
   current: InclusiveDateRange;
   previous: InclusiveDateRange;
+  /**
+   * Month preset only. True when the anchor is the last calendar day
+   * (full month vs full previous month). False for month-to-date, which
+   * compares day 1..N of this month with day 1..N of the previous month
+   * (clamped). Null for last_7.
+   */
+  month_complete: boolean | null;
 }
 
 export function parseCockpitPeriodPreset(
@@ -90,6 +97,17 @@ export function previousMonthEnd(dateKey: string): string {
   return shiftDateKey(monthStart(dateKey), -1);
 }
 
+/** Clamp a day-of-month onto the month that ends on `monthEndKey`. */
+export function clampDayOfMonth(
+  monthEndKey: string,
+  dayOfMonth: number
+): string {
+  if (!isYmd(monthEndKey)) return monthEndKey;
+  const last = Number(monthEndKey.slice(8));
+  const day = Math.min(Math.max(Math.trunc(dayOfMonth), 1), last);
+  return `${monthEndKey.slice(0, 8)}${String(day).padStart(2, "0")}`;
+}
+
 export function resolveCockpitPeriod(
   preset: CockpitPeriodPreset,
   latestSaleDate: string | null | undefined
@@ -107,16 +125,24 @@ export function resolveCockpitPeriod(
       preset,
       current: { from: currentFrom, to: currentTo },
       previous: { from: previousFrom, to: previousTo },
+      month_complete: null,
     };
   }
   const currentFrom = monthStart(latestSaleDate);
-  const currentTo = monthEnd(latestSaleDate);
-  const prevTo = previousMonthEnd(latestSaleDate);
-  const prevFrom = monthStart(prevTo);
+  const calendarEnd = monthEnd(latestSaleDate);
+  const monthComplete = latestSaleDate === calendarEnd;
+  const currentTo = monthComplete ? calendarEnd : latestSaleDate;
+  const prevMonthLast = previousMonthEnd(latestSaleDate);
+  const prevFrom = monthStart(prevMonthLast);
+  const dayOfMonth = Number(latestSaleDate.slice(8));
+  const prevTo = monthComplete
+    ? prevMonthLast
+    : clampDayOfMonth(prevMonthLast, dayOfMonth);
   return {
     preset,
     current: { from: currentFrom, to: currentTo },
     previous: { from: prevFrom, to: prevTo },
+    month_complete: monthComplete,
   };
 }
 

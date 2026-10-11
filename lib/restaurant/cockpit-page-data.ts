@@ -28,6 +28,7 @@ import {
   buildCockpitHeadline,
   buildCockpitKpiStripModel,
   buildCockpitPeriodSnapshot,
+  cockpitComparisonPhrases,
   type CockpitKpiStripModel,
   type CockpitPeriodSnapshot,
 } from "@/lib/restaurant/cockpit-executive";
@@ -37,17 +38,22 @@ import {
   setupProgress,
   type SetupProgress,
 } from "@/lib/restaurant/setup-progress";
-import { selectCockpitInsights } from "@/lib/restaurant/cockpit-insights";
 import {
+  selectCockpitInsights,
+  wordedFromFacts,
+  type CockpitInsightFact,
+} from "@/lib/restaurant/cockpit-insights";
+import {
+  cockpitFactsDataVersion,
   cockpitInsightCacheKey,
-  wordCockpitInsights,
+  hashCockpitInsightFacts,
   type WordedCockpitInsights,
 } from "@/lib/restaurant/cockpit-insights-ai";
-
 export interface CockpitPageModel {
   data: RestaurantDashboardData;
   targets: TargetMap;
   profitability: ProfitabilityData | null;
+  resolvedLocationId: string | null;
 }
 
 export interface MenuAreaModel {
@@ -59,6 +65,9 @@ export interface CockpitExecutiveView {
   kpis: CockpitKpiStripModel;
   headline: string;
   insights: WordedCockpitInsights;
+  insightFacts: CockpitInsightFact[];
+  insightCacheKey: string;
+  comparisonLabel: string;
   health: CockpitDataHealth;
   setup: SetupProgress | null;
   lastSyncedAt: string | null;
@@ -75,11 +84,11 @@ export async function loadCockpitPageModel(
   let data: RestaurantDashboardData;
   let targets: TargetMap = {};
   let profitability: ProfitabilityData | null = null;
+  let selectedLocationId: string | null = null;
 
   try {
     const supabase = await createClient();
 
-    let selectedLocationId: string | null = null;
     let selectedBrandId: string | null = null;
     if (requestedLocationId) {
       const { data: userData } = await supabase.auth.getUser();
@@ -129,7 +138,12 @@ export async function loadCockpitPageModel(
     data = { mode: "sample", reason: "env_missing" };
   }
 
-  return { data, targets, profitability };
+  return {
+    data,
+    targets,
+    profitability,
+    resolvedLocationId: selectedLocationId,
+  };
 }
 
 /**
@@ -211,14 +225,33 @@ export async function loadCockpitExecutivePage(
   });
 
   const week = {
-    thisWeek: base.data.cockpit.this_week ?? period.current,
-    lastWeek: base.data.cockpit.last_week ?? period.previous,
+    thisWeek: base.data.cockpit.this_week
+      ? {
+          from: base.data.cockpit.this_week.from,
+          to: base.data.cockpit.this_week.to,
+        }
+      : null,
+    lastWeek: base.data.cockpit.last_week
+      ? {
+          from: base.data.cockpit.last_week.from,
+          to: base.data.cockpit.last_week.to,
+        }
+      : null,
     deltaPct: base.data.cockpit.week_delta_pct,
   };
   const kpis = buildCockpitKpiStripModel(snapshot, lang, week);
   const headline = buildCockpitHeadline(snapshot, lang);
+  const comparisonLabel = cockpitComparisonPhrases(period, lang).chipLabel;
 
   const recipeCoverage = recipeCoverageFromProfitability(base.profitability);
+  const ingredientsTotal = base.profitability?.setupCounts.ingredients_count;
+  const ingredientsWithout =
+    base.profitability?.dataQuality.ingredients_without_cost_entries;
+  const ingredientsWithCost =
+    ingredientsTotal != null && ingredientsWithout != null
+      ? Math.max(0, ingredientsTotal - ingredientsWithout)
+      : null;
+  const posConnected = await companyHasActivePosConnection(base.data.companyId);
   const health = buildCockpitDataHealth({
     lang,
     currency: snapshot.currency,
@@ -229,10 +262,12 @@ export async function loadCockpitExecutivePage(
     dishesWithoutRecipe:
       base.profitability?.kpis.menu_items_without_recipe ?? 0,
     recipeCoveragePct: recipeCoverage,
-    costCoveragePct:
-      base.profitability?.kpis.cost_coverage_pct ?? snapshot.cost.coverage_pct,
+    costCoveragePct: snapshot.cost.coverage_pct,
+    allTimeCostCoveragePct: base.profitability?.kpis.cost_coverage_pct ?? null,
+    ingredientsWithCost,
+    ingredientsTotal: ingredientsTotal ?? null,
     lastSyncedAt: chrome.lastSyncedAt,
-    posConnected: Boolean(chrome.lastSyncedAt) || base.data.rowCount > 0,
+    posConnected,
     salesLoaded: base.data.rowCount > 0 && !base.data.readError,
     readError: Boolean(base.data.readError || base.profitability?.readError),
     truncated: Boolean(base.data.truncated || base.profitability?.truncated),
@@ -245,19 +280,34 @@ export async function loadCockpitExecutivePage(
       )
     : null;
 
-  const facts = selectCockpitInsights(snapshot, lang);
-  const insights = await wordCockpitInsights(
-    facts,
+  const lowMargin = base.profitability?.lowMargin[0];
+  const facts = selectCockpitInsights(snapshot, lang, {
+    lowMarginDish: lowMargin
+      ? {
+          name: lowMargin.name,
+          margin_pct: lowMargin.cost.gross_margin_pct ?? 0,
+        }
+      : null,
+    dishesWithoutRecipe:
+      base.profitability?.kpis.menu_items_without_recipe ?? 0,
+  });
+  const insights: WordedCockpitInsights = {
+    insights: wordedFromFacts(facts),
+    source: "deterministic",
+  };
+  const insightCacheKey = cockpitInsightCacheKey({
+    companyId: base.data.companyId,
+    locationId: base.resolvedLocationId,
+    preset: period.preset,
+    from: period.current.from,
+    to: period.current.to,
     lang,
-    cockpitInsightCacheKey({
-      companyId: base.data.companyId,
-      locationId: requestedLocationId,
-      preset: period.preset,
-      from: period.current.from,
-      to: period.current.to,
-      lang,
-    })
-  );
+    factsHash: hashCockpitInsightFacts(facts),
+    dataVersion: cockpitFactsDataVersion({
+      latestSaleDate: base.data.cockpit.period_to,
+      rowCount: base.data.rowCount,
+    }),
+  });
 
   return {
     ...base,
@@ -267,11 +317,34 @@ export async function loadCockpitExecutivePage(
       kpis,
       headline,
       insights,
+      insightFacts: facts,
+      insightCacheKey,
+      comparisonLabel,
       health,
       setup,
       lastSyncedAt: chrome.lastSyncedAt,
     },
   };
+}
+
+async function companyHasActivePosConnection(
+  companyId: string
+): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("restaurant_pos_connections")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+    if (error) return false;
+    return Boolean((data as { id?: string } | null)?.id);
+  } catch (err) {
+    console.error("[loadCockpitExecutivePage] pos connection:", err);
+    return false;
+  }
 }
 
 function recipeCoverageFromProfitability(

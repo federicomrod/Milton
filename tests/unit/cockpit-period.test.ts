@@ -38,6 +38,7 @@ describe("cockpit period contract (#129)", () => {
       preset: "last_7",
       current: { from: "2026-07-25", to: "2026-07-31" },
       previous: { from: "2026-07-18", to: "2026-07-24" },
+      month_complete: null,
     });
   });
 
@@ -46,6 +47,7 @@ describe("cockpit period contract (#129)", () => {
       preset: "month",
       current: { from: "2026-07-01", to: "2026-07-31" },
       previous: { from: "2026-06-01", to: "2026-06-30" },
+      month_complete: true,
     });
     expect(enumerateDates("2026-06-01", "2026-06-30")).toHaveLength(30);
     expect(enumerateDates("2026-07-01", "2026-07-31")).toHaveLength(31);

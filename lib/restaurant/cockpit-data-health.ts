@@ -31,7 +31,12 @@ export interface DataHealthInput {
   otherCurrencyExcluded: number;
   dishesWithoutRecipe: number;
   recipeCoveragePct: number | null;
+  /** Sales-weighted cost coverage for the SELECTED cockpit period. */
   costCoveragePct: number;
+  /** All-time cost coverage, shown separately when provided. */
+  allTimeCostCoveragePct?: number | null;
+  ingredientsWithCost?: number | null;
+  ingredientsTotal?: number | null;
   lastSyncedAt: string | null;
   posConnected: boolean;
   salesLoaded: boolean;
@@ -124,13 +129,13 @@ export function buildCockpitDataHealth(
           )
         : t(
             lang,
-            "Every selling dish has a recipe",
-            "Todos los platillos tienen receta"
+            "Every sold dish has a recipe",
+            "Todos los platillos vendidos tienen receta"
           ),
     detail: t(
       lang,
-      "Dishes without a recipe cannot be costed.",
-      "Los platillos sin receta no se pueden costear."
+      "Sold dishes without a recipe cannot be costed.",
+      "Los platillos vendidos sin receta no se pueden costear."
     ),
     tone: input.dishesWithoutRecipe > 0 ? "warn" : "ok",
     issue: input.dishesWithoutRecipe > 0,
@@ -151,39 +156,67 @@ export function buildCockpitDataHealth(
           )
         : t(
             lang,
-            `Recipe coverage ${recipePct.toFixed(1)}% of sales`,
-            `Cobertura de recetas ${recipePct.toFixed(1)}% de las ventas`
+            `Recipe coverage ${recipePct.toFixed(1)}% — sold dishes with a recipe`,
+            `Cobertura de recetas ${recipePct.toFixed(1)}% — platillos vendidos con receta`
           ),
     detail: t(
       lang,
-      "Share of net sales from dishes that have a recipe.",
-      "Parte de las ventas netas que viene de platillos con receta."
+      "Share of net sales from sold dishes that have a recipe.",
+      "Parte de las ventas netas que viene de platillos vendidos con receta."
     ),
     tone: recipePct === null ? "warn" : recipePct < 80 ? "warn" : "ok",
     issue: recipePct === null || recipePct < 80,
   });
 
   const costPct = Math.round(input.costCoveragePct * 10) / 10;
+  const ingredientTooltip =
+    input.ingredientsWithCost != null &&
+    input.ingredientsTotal != null &&
+    input.ingredientsTotal > 0
+      ? t(
+          lang,
+          `${input.ingredientsWithCost} of ${input.ingredientsTotal} ingredients have a cost`,
+          `${input.ingredientsWithCost} de ${input.ingredientsTotal} ingredientes con costo`
+        )
+      : undefined;
   items.push({
     id: "cost_coverage",
     label: t(
       lang,
-      `Cost coverage ${costPct.toFixed(1)}% of sales`,
-      `Cobertura de costos ${costPct.toFixed(1)}% de las ventas`
+      `Cost coverage ${costPct.toFixed(1)}% of this period`,
+      `Cobertura de costos ${costPct.toFixed(1)}% de este periodo`
     ),
     detail: t(
       lang,
-      "Share of net sales from dishes that have a cost — not the share of ingredients mapped.",
-      "Parte de las ventas netas que viene de platillos con costo — no el porcentaje de ingredientes ligados."
+      "Share of net sales in the selected period from dishes that have a cost — not the share of ingredients mapped.",
+      "Parte de las ventas netas del periodo seleccionado que viene de platillos con costo — no el porcentaje de ingredientes ligados."
     ),
     tone: costPct === 0 ? "warn" : costPct < 80 ? "warn" : "ok",
     issue: costPct < 80,
-    tooltip: t(
-      lang,
-      "Ingredient mapping counts belong in a tooltip only.",
-      "Los conteos de ingredientes ligados van solo en el tooltip."
-    ),
+    tooltip: ingredientTooltip,
   });
+
+  if (
+    input.allTimeCostCoveragePct != null &&
+    Number.isFinite(input.allTimeCostCoveragePct)
+  ) {
+    const allTimePct = Math.round(input.allTimeCostCoveragePct * 10) / 10;
+    items.push({
+      id: "cost_coverage_all_time",
+      label: t(
+        lang,
+        `All-time cost coverage ${allTimePct.toFixed(1)}% of sales`,
+        `Cobertura de costos histórica ${allTimePct.toFixed(1)}% de las ventas`
+      ),
+      detail: t(
+        lang,
+        "All loaded sales, not just the selected period.",
+        "Todas las ventas cargadas, no solo el periodo seleccionado."
+      ),
+      tone: allTimePct === 0 ? "warn" : allTimePct < 80 ? "warn" : "ok",
+      issue: false,
+    });
+  }
 
   const lastSync = formatLastSyncedAgo(
     input.lastSyncedAt,

@@ -47,10 +47,23 @@ export function CockpitHeroChart({
     ...p,
     label: shortDay(p.date, dateLocale),
   }));
+  const summary =
+    points.length === 0
+      ? t(
+          lang,
+          "No daily net sales in this period.",
+          "No hay ventas netas diarias en este periodo."
+        )
+      : t(
+          lang,
+          `Daily net sales from ${points[0].date} to ${points[points.length - 1].date}.`,
+          `Ventas netas diarias del ${points[0].date} al ${points[points.length - 1].date}.`
+        );
 
   return (
     <section
       data-testid="cockpit-hero-chart"
+      aria-label={summary}
       className="rounded-md border border-border px-3 py-2.5 min-h-[220px]"
     >
       <h2 className="text-sm font-semibold">
@@ -73,71 +86,99 @@ export function CockpitHeroChart({
           )}
         />
       ) : (
-        <div className="h-[168px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart
-              data={data}
-              margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-              <YAxis
-                tick={{ fontSize: 10 }}
-                width={64}
-                tickFormatter={(n: number) => moneyAxis.format(n)}
-              />
-              <Tooltip
-                content={({ active, payload }) => {
-                  if (!active || !payload?.[0]) return null;
-                  const point = payload[0].payload as DailyNetPoint & {
-                    label: string;
-                  };
-                  const vs =
-                    point.vs_previous_pct == null
-                      ? t(lang, "no previous day", "sin día anterior")
-                      : `${point.vs_previous_pct > 0 ? "+" : ""}${point.vs_previous_pct.toFixed(1)}%`;
-                  return (
-                    <div className="rounded-md border border-border bg-background px-2.5 py-2 text-xs shadow-sm">
-                      <p className="font-medium mb-1">{point.label}</p>
-                      <p>
-                        {t(lang, "Net sales", "Ventas netas")}{" "}
-                        {money.format(point.current_net)}
-                      </p>
-                      <p>
-                        {t(lang, "vs previous", "vs anterior")} {vs}
-                      </p>
-                      <p>
-                        {t(lang, "Tickets", "Tickets")} {point.current_tickets}
-                      </p>
-                      <p>
-                        {t(lang, "Avg ticket", "Ticket promedio")}{" "}
-                        {money.format(point.current_avg_ticket)}
-                      </p>
-                    </div>
-                  );
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="current_net"
-                name="current"
-                stroke="hsl(24 80% 45%)"
-                strokeWidth={2}
-                dot={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="previous_net"
-                name="previous"
-                stroke="hsl(210 20% 45%)"
-                strokeWidth={1.5}
-                strokeDasharray="5 4"
-                dot={false}
-                connectNulls
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        <>
+          <table className="sr-only">
+            <caption>{summary}</caption>
+            <thead>
+              <tr>
+                <th>{t(lang, "Date", "Fecha")}</th>
+                <th>{t(lang, "Net sales", "Ventas netas")}</th>
+                <th>{t(lang, "Previous period", "Periodo anterior")}</th>
+                <th>{t(lang, "Tickets", "Tickets")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {points.map((point) => (
+                <tr key={point.date}>
+                  <td>{point.date}</td>
+                  <td>{money.format(point.current_net)}</td>
+                  <td>
+                    {point.previous_net == null
+                      ? t(lang, "n/a", "n/d")
+                      : money.format(point.previous_net)}
+                  </td>
+                  <td>{point.current_tickets}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="h-[168px]" aria-hidden="true">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={data}
+                margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                <YAxis
+                  tick={{ fontSize: 10 }}
+                  width={64}
+                  tickFormatter={(n: number) => moneyAxis.format(n)}
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.[0]) return null;
+                    const point = payload[0].payload as DailyNetPoint & {
+                      label: string;
+                    };
+                    const vs =
+                      point.vs_previous_pct == null
+                        ? t(lang, "no previous day", "sin día anterior")
+                        : `${point.vs_previous_pct > 0 ? "+" : ""}${point.vs_previous_pct.toFixed(1)}%`;
+                    return (
+                      <div className="rounded-md border border-border bg-background px-2.5 py-2 text-xs shadow-sm">
+                        <p className="font-medium mb-1">{point.label}</p>
+                        <p>
+                          {t(lang, "Net sales", "Ventas netas")}{" "}
+                          {money.format(point.current_net)}
+                        </p>
+                        <p>
+                          {t(lang, "vs previous", "vs anterior")} {vs}
+                        </p>
+                        <p>
+                          {t(lang, "Tickets", "Tickets")}{" "}
+                          {point.current_tickets}
+                        </p>
+                        <p>
+                          {t(lang, "Avg ticket", "Ticket promedio")}{" "}
+                          {money.format(point.current_avg_ticket)}
+                        </p>
+                      </div>
+                    );
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="current_net"
+                  name="current"
+                  stroke="hsl(24 80% 45%)"
+                  strokeWidth={2}
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="previous_net"
+                  name="previous"
+                  stroke="hsl(210 20% 45%)"
+                  strokeWidth={1.5}
+                  strokeDasharray="5 4"
+                  dot={false}
+                  connectNulls
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </>
       )}
     </section>
   );

@@ -137,6 +137,9 @@ describe("headline is deterministic from backend numbers", () => {
     const headline = buildCockpitHeadline(snap, "es");
     expect(headline).toContain("Ventas netas");
     expect(headline).toContain("últimos 7 días");
-    expect(headline).toMatch(/\+50\.0%/);
+    expect(headline).toContain("Subió 50.0%");
+    expect(headline).toContain("frente a los 7 días anteriores");
+    expect(headline).not.toMatch(/abajo/);
+    expect(headline).not.toContain("USD");
   });
 });

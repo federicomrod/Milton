@@ -21,10 +21,12 @@ export function CockpitPeriodControl({
   lang = "es",
   preset,
   range,
+  comparisonLabel,
 }: {
   lang?: PreferredLanguage;
   preset: CockpitPeriodPreset;
   range: { from: string; to: string } | null;
+  comparisonLabel?: string | null;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -65,10 +67,10 @@ export function CockpitPeriodControl({
           {t(lang, "Month", "Mes")}
         </ToggleGroupItem>
       </ToggleGroup>
-      {rangeLabel ? (
+      {comparisonLabel || rangeLabel ? (
         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
           <CalendarRange className="h-3.5 w-3.5 shrink-0" />
-          {rangeLabel}
+          {comparisonLabel ?? rangeLabel}
         </span>
       ) : null}
     </div>

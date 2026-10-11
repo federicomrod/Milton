@@ -5,6 +5,7 @@
 import { parseCostImportNumber } from "@/lib/restaurant/cost-import";
 import { resolveUnitCell } from "@/lib/restaurant/units";
 import { mapColumnsHeuristic } from "./ai";
+import { sanitizeColumnMapping } from "./mapping";
 import { mappingSanityScore, SANITY_PASS_RATIO } from "./sanity";
 import type { ColumnMapping, CostTabType, MappingSource } from "./types";
 
@@ -133,8 +134,10 @@ export function inferRecipeMappingFromContent(
   if (ingredientCol) mapping.ingredient_name = bind(ingredientCol.col);
   if (qtyCol) mapping.quantity = bind(qtyCol.col);
   if (unitCol) mapping.unit = bind(unitCol.col);
-  if (recipeCol) mapping.recipe_name = bind(recipeCol.col, 0.8);
-  return mapping;
+  if (recipeCol && recipeCol.col !== ingredientCol?.col) {
+    mapping.recipe_name = bind(recipeCol.col, 0.8);
+  }
+  return sanitizeColumnMapping(mapping);
 }
 
 export function pickMappingSampleRows(
@@ -209,8 +212,9 @@ export async function resolveRecipeMapping(input: {
       defaultDate: input.defaultDate,
     });
 
+  const cleanedAi = sanitizeColumnMapping(input.aiMapping);
   const candidates: MappingCandidate[] = [
-    { mapping: input.aiMapping, source: "ai", score: scoreOf(input.aiMapping) },
+    { mapping: cleanedAi, source: "ai", score: scoreOf(cleanedAi) },
   ];
 
   const bestSoFar = () =>
@@ -224,11 +228,13 @@ export async function resolveRecipeMapping(input: {
       score: scoreOf(content),
     });
 
-    const headerMap = mapColumnsHeuristic({
-      tabType: input.tabType,
-      headers: input.headers,
-      sampleRows: input.sampleRows,
-    });
+    const headerMap = sanitizeColumnMapping(
+      mapColumnsHeuristic({
+        tabType: input.tabType,
+        headers: input.headers,
+        sampleRows: input.sampleRows,
+      })
+    );
     candidates.push({
       mapping: headerMap,
       source: "heuristic",
@@ -244,10 +250,11 @@ export async function resolveRecipeMapping(input: {
         headers: input.headers,
         sampleRows: betterSample,
       });
+      const cleanedRetry = sanitizeColumnMapping(retried);
       candidates.push({
-        mapping: retried,
+        mapping: cleanedRetry,
         source: "ai",
-        score: scoreOf(retried),
+        score: scoreOf(cleanedRetry),
       });
     }
   }

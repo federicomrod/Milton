@@ -236,3 +236,103 @@ export function buildShiftedSubRecipeWorkbook(): Buffer {
     XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
   );
 }
+
+/**
+ * Real Los Ranchos layout without client data: Articulo / Unidad Detalle /
+ * Cantidad / Costo Unitario / Total Costo, block title rows, no Receta
+ * column, a dish that uses a sub-recipe by name, GRAM0, a pack size, a
+ * plate-cost summary tab, plus a price list and a category-cost sheet.
+ */
+export function buildTitleBlockRecipeWorkbook(): Buffer {
+  const wb = XLSX.utils.book_new();
+  const headers = [
+    "Articulo",
+    "Unidad Detalle",
+    "Cantidad",
+    "Costo Unitario",
+    "Total Costo",
+  ];
+
+  const priceList = [
+    ["BODEGA VIRTUAL — ABRIL 2026"],
+    [],
+    ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+    ["Perejil", 2.4, 0.15, ""],
+    ["Ajo", 3.2, 0.2, ""],
+    ["Gallo pinto", "", 0.11, ""],
+    ["Frijoles fritos", "", 0.045, ""],
+    ["Tostones", "", "", 0.05],
+    ["Carne para asar", 4.8, 0.3, ""],
+    ["Tortilla", "", "", 2.5],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(priceList),
+    "BODEGA VIRTUAL"
+  );
+
+  const sub = [
+    ["SUB RECETAS"],
+    [],
+    headers,
+    ["GUARNICION 1"],
+    ["Gallo pinto", "ONZA", 4.5, 0.11, 0.495],
+    ["Frijoles fritos", "ONZA", 2.5, 0.045, 0.1125],
+    ["CHIMICHURRI CASA"],
+    ["Perejil", "GRAM0", 80, 0.02, 1.6],
+    ["Ajo", "GRMO", 20, 0.05, 1],
+    ["Tortilla taco", "PAQUETE (TORTILLA DE TACO 14 UNIDADES)", 1, 2.5, 2.5],
+    ["TOTAL", "", "", "", ""],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
+
+  const dishes = [
+    ["ENTRADAS INDIVIDUALES"],
+    [],
+    headers,
+    ["TOSTONES CASA"],
+    ["Tostones", "UNIDAD", 3, 0.05, 0.15],
+    ["GUARNICION 1", "ORDEN", 1, "", ""],
+    ["CARNE ASADA"],
+    ["Carne para asar", "ONZA", 8, 0.3, 2.4],
+    ["CHIMICHURRI CASA", "ONZA", 1, "", ""],
+    ["TOTAL", "", "", "", ""],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(dishes),
+    "ENTRADAS INDIVIDUALES"
+  );
+
+  const category = [
+    ["DE LA PARRILLA"],
+    [],
+    headers,
+    ["Carne para asar", "ONZA", 6, 0.3, 1.8],
+    ["Frijoles fritos", "ONZA", 2.5, 0.045, 0.1125],
+    ["Gallo pinto", "ONZA", 1.5, 0.11, 0.165],
+    ["TOTAL", "", "", "", 2.0775],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(category),
+    "DE LA PARRILLA"
+  );
+
+  const menu = [
+    ["COSTOS RESTAURANTE 2026"],
+    [],
+    ["MENU", "COSTO DEL PLATO", "FOOD COST", "PRECIO VENTA"],
+    ["TOSTONES CASA", 2.29567, 0.97787, 7.52],
+    ["CARNE ASADA", 3.45, 0.42, 8.2],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(menu),
+    "COSTOS RESTAURANTE 2026"
+  );
+
+  return Buffer.from(
+    XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+  );
+}

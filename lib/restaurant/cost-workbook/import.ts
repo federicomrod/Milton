@@ -3,6 +3,8 @@ import type { WorkbookAi } from "./ai";
 import { classifyCostTabHeuristic } from "./ai";
 import { categoryForTab } from "./categories";
 import { resolveRecipeMapping } from "./infer-mapping";
+import { mappingHasOverlappingRoles, sanitizeColumnMapping } from "./mapping";
+import { refineCostTabType } from "./tab-type";
 import {
   importedIngredientIdsFromBatches,
   retireImportedPreparedIngredients,
@@ -116,6 +118,7 @@ async function resolveTab(input: {
   const trySaved = (type: CostTabType): SavedLayoutMap | undefined => {
     const saved = savedByKey.get(layoutKeyForSheet(sheet.headers, type));
     if (!saved || saved.tab_confidence < HIGH_TAB_CONFIDENCE) return undefined;
+    if (mappingHasOverlappingRoles(saved.column_mapping)) return undefined;
     if (
       saved.tab_type !== "ignore" &&
       !mappingPassesSanity({
@@ -131,7 +134,13 @@ async function resolveTab(input: {
     return saved;
   };
 
-  const savedHeuristic = trySaved(heuristic.type);
+  const refinedHeuristic = refineCostTabType({
+    sheetName: sheet.name,
+    headers: sheet.headers,
+    dataRows: sheet.dataRows,
+    classified: heuristic,
+  });
+  const savedHeuristic = trySaved(refinedHeuristic.type);
   if (savedHeuristic) {
     return {
       sheet,
@@ -143,10 +152,15 @@ async function resolveTab(input: {
     };
   }
 
-  const classified = await ai.classifyTab({
+  const classified = refineCostTabType({
     sheetName: sheet.name,
     headers: sheet.headers,
-    sampleRows: sheet.sampleRows,
+    dataRows: sheet.dataRows,
+    classified: await ai.classifyTab({
+      sheetName: sheet.name,
+      headers: sheet.headers,
+      sampleRows: sheet.sampleRows,
+    }),
   });
   const savedClassified = trySaved(classified.type);
   if (savedClassified) {
@@ -163,11 +177,13 @@ async function resolveTab(input: {
 
   let mapping: ColumnMapping = {};
   if (classified.type !== "ignore") {
-    mapping = await ai.mapColumns({
-      tabType: classified.type,
-      headers: sheet.headers,
-      sampleRows: sheet.sampleRows,
-    });
+    mapping = sanitizeColumnMapping(
+      await ai.mapColumns({
+        tabType: classified.type,
+        headers: sheet.headers,
+        sampleRows: sheet.sampleRows,
+      })
+    );
   }
 
   if (classified.type === "recipe" || classified.type === "sub_recipe") {
@@ -181,14 +197,16 @@ async function resolveTab(input: {
       currency,
       defaultDate,
     });
+    const clean = sanitizeColumnMapping(resolved.mapping);
     return {
       sheet,
       tabType: classified.type,
       tabConfidence: classified.confidence,
-      mapping: resolved.mapping,
+      mapping: clean,
       mappingSource: resolved.mappingSource,
       note: classified.notes,
-      persistMapping: resolved.persistMapping,
+      persistMapping:
+        resolved.persistMapping && !mappingHasOverlappingRoles(clean),
     };
   }
 
@@ -287,6 +305,7 @@ export async function importCostWorkbook(input: {
     mapping: ColumnMapping
   ) => {
     if (resolved.mappingSource === "saved" || !resolved.persistMapping) return;
+    if (mappingHasOverlappingRoles(mapping)) return;
     if (
       !mappingPassesSanity({
         tabType,

@@ -42,7 +42,14 @@ export { resolveSubRecipeYield } from "./recipes";
 export { resolveCatalogInput } from "./persist-recipes";
 export { implausiblePriceReason } from "./plausibility";
 export { categoryForTab, resolveCategoryName } from "./categories";
-export { collectRecipeLines } from "./recipes";
+export { collectRecipeLines, isTitleRow } from "./recipes";
+export { mappingHasOverlappingRoles, sanitizeColumnMapping } from "./mapping";
+export {
+  isMenuSummaryTab,
+  isSubRecipeTabName,
+  looksLikeTitleBlockRecipes,
+  refineCostTabType,
+} from "./tab-type";
 export {
   firstSheetRawRows,
   isWorkbookLimitError,

@@ -123,6 +123,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   grms: "g",
   grmo: "g",
   grako: "g",
+  gram0: "g",
   gramo: "g",
   gramos: "g",
   gram: "g",
@@ -201,6 +202,8 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   portions: "portion",
   porcion: "portion",
   porciones: "portion",
+  orden: "portion",
+  ordenes: "portion",
   serving: "portion",
   servings: "portion",
   oz: "oz",
@@ -318,7 +321,7 @@ function editDistance(left: string, right: string): number {
 }
 
 /**
- * One-edit typos of long measure words only (GRAMO→GRMO/GRAKO).
+ * One-edit typos of long measure words only (GRAMO→GRMO/GRAKO/GRAM0).
  * Ambiguous hits (LITRA → litro or libra) stay unknown.
  */
 function fuzzyMeasureUnit(folded: string): UnitOfMeasure | null {

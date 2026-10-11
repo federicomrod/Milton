@@ -4,6 +4,8 @@
 import { classifyDataset } from "@/lib/ai/dataset-classifier";
 import { suggestColumnMappings } from "@/lib/ai/column-mapper";
 import { normalizeHeaderToken } from "./header";
+import { sanitizeColumnMapping } from "./mapping";
+import { isMenuSummaryTab } from "./tab-type";
 import {
   COST_TAB_TYPES,
   targetFieldsForTab,
@@ -32,12 +34,13 @@ export interface WorkbookAi {
 const CLASSIFIER_CONTEXT =
   "Restaurant ingredient-cost workbook. Classify this sheet as exactly one of: " +
   "price_list (item + unit prices such as per lb/oz), " +
-  "category_cost (food-category sheet with name/unit/cost/quantity/total), " +
+  "category_cost (food-category sheet with name/unit/cost/quantity/total and no dish title rows), " +
   "purchases (one purchase per row with date/supplier/qty/total), " +
-  "recipe (ingredient lines for a finished dish / menu item), " +
-  "sub_recipe (prep item / sub-receta / mise-en-place used inside recipes), " +
-  "ignore (cover, index, empty, or unrelated). " +
+  "recipe (ingredient lines for a finished dish / menu item; menu-section tabs such as ENTRADAS, GUARNICIONES, PARRILLADAS, ENSALADAS with a name-only title row above each dish), " +
+  "sub_recipe (prep item / sub-receta / mise-en-place used inside recipes — ONLY tabs named SUB RECETAS, SUB RECIPE, or PREPARACION), " +
+  "ignore (cover, index, empty, unrelated, or a dish summary / menu list with MENU + COSTO DEL PLATO / sale price and no ingredient unit column). " +
   "A tab named SUB RECETAS or similar is sub_recipe even if it also has cost columns. " +
+  "A tab named COSTOS RESTAURANTE or a MENU / COSTO DEL PLATO summary is ignore, not recipe. " +
   "Set detectedTable to that exact token.";
 
 const TYPE_ALIASES: Record<string, CostTabType> = {
@@ -110,6 +113,14 @@ export function classifyCostTabHeuristic(
     `${input.sheetName} ${input.headers.join(" ")}`
   );
 
+  if (isMenuSummaryTab(input.sheetName, input.headers)) {
+    return {
+      type: "ignore",
+      confidence: 0.93,
+      notes: "heuristic menu list / plate-cost summary",
+    };
+  }
+
   if (
     hasAny(set, ["item", "nombre", "producto", "ingrediente"]) &&
     hasAny(set, ["libra", "onza", "preciounitario"])
@@ -152,7 +163,15 @@ export function classifyCostTabHeuristic(
   }
 
   if (
-    hasAny(set, ["nombre", "producto", "item", "ingrediente", "ingredient"]) &&
+    hasAny(set, [
+      "nombre",
+      "producto",
+      "item",
+      "ingrediente",
+      "ingredient",
+      "articulo",
+      "artículo",
+    ]) &&
     hasAny(set, ["unidad", "unit", "uom"]) &&
     hasAny(set, ["costo", "precio", "cost", "price"]) &&
     hasAny(set, ["cantidad", "qty", "quantity", "total"])
@@ -217,7 +236,7 @@ export function mapColumnsHeuristic(input: MapColumnsInput): ColumnMapping {
       mapping[field.name] = { column: hit, confidence: 0.9 };
     }
   }
-  return mapping;
+  return sanitizeColumnMapping(mapping);
 }
 
 export async function classifyCostTabWithAi(
@@ -245,15 +264,24 @@ export async function mapColumnsWithAi(
 ): Promise<ColumnMapping> {
   const fields = targetFieldsForTab(input.tabType);
   if (fields.length === 0) return {};
+  const recipeHint =
+    input.tabType === "recipe" || input.tabType === "sub_recipe"
+      ? " One file column fills exactly one role. recipe_name is a dedicated dish/prep name column — if the sheet only has Articulo/Item for ingredients, leave recipe_name unmapped (title rows name the dish). Do not map output_quantity or output_unit to the same columns as quantity or unit."
+      : "";
   const result = await suggestColumnMappings({
     headers: input.headers,
     sampleRows: input.sampleRows,
     targetFields: [...fields],
     tableName: `cost_workbook_${input.tabType}`,
+    extraInstructions: recipeHint || undefined,
   });
   const mapping: ColumnMapping = {};
+  const usedColumns = new Set<string>();
   for (const m of result.mappings) {
     if (!m.originalColumn || m.standardField === "unmapped") continue;
+    const columnKey = m.originalColumn.toLowerCase();
+    if (usedColumns.has(columnKey)) continue;
+    usedColumns.add(columnKey);
     mapping[m.standardField] = {
       column: m.originalColumn,
       confidence: m.confidence,
@@ -262,7 +290,7 @@ export async function mapColumnsWithAi(
   if (Object.keys(mapping).length === 0) {
     return mapColumnsHeuristic(input);
   }
-  return mapping;
+  return sanitizeColumnMapping(mapping);
 }
 
 export function createDefaultWorkbookAi(): WorkbookAi {

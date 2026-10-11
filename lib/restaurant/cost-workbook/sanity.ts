@@ -1,4 +1,5 @@
 import { evaluateWorkbookRow, isSkippableWorkbookRow } from "./parse";
+import { mappingHasOverlappingRoles } from "./mapping";
 import { evaluateRecipeLine, isTitleRow } from "./recipes";
 import { recipeNameFromSheet } from "./names";
 import { normalizeUnit } from "@/lib/restaurant/units";
@@ -14,6 +15,7 @@ export function mappingSanityScore(input: {
   defaultDate: string;
 }): number {
   if (input.tabType === "ignore") return 0;
+  if (mappingHasOverlappingRoles(input.mapping)) return 0;
   if (input.tabType === "recipe" || input.tabType === "sub_recipe") {
     const evaluated: boolean[] = [];
     for (const [rowIndex, row] of input.dataRows.entries()) {

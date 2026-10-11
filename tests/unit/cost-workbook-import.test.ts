@@ -2937,7 +2937,7 @@ describe("COSTO RESTAURANTE block layout", () => {
         }
         return { type: "category_cost", confidence: 0.93 };
       },
-      mapColumns: async (input) => {
+      mapColumns: async (input): Promise<ColumnMapping> => {
         if (input.tabType === "price_list") {
           return {
             ingredient_name: { column: "ITEM", confidence: 0.93 },
@@ -3028,10 +3028,14 @@ describe("COSTO RESTAURANTE block layout", () => {
       "ingrediente desconocido (Sal)"
     );
     expect(unknownUnitReason("en", "CONVOY")).toBe("unknown unit (CONVOY)");
-    expect(resolveUnitCell("ORDEN", "es").reason).toBe(
-      "unidad desconocida (ORDEN)"
-    );
-    expect(resolveUnitCell("", "es").reason).toBe("Falta la unidad");
+    expect(resolveUnitCell("ORDEN", "es")).toEqual({
+      ok: false,
+      reason: "unidad desconocida (ORDEN)",
+    });
+    expect(resolveUnitCell("", "es")).toEqual({
+      ok: false,
+      reason: "Falta la unidad",
+    });
   });
 
   it("restores an imported sub-recipe yield when the later batch is undone", async () => {

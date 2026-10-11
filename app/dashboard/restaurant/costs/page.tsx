@@ -54,7 +54,7 @@ export default async function CostsAreaPage({
       </ul>
 
       {profitability ? (
-        <SupplierTrendsSection data={profitability} />
+        <SupplierTrendsSection data={profitability} lang={lang} />
       ) : (
         <NotAvailableYet
           lang={lang}

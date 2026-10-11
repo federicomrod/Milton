@@ -224,7 +224,7 @@ function RestaurantShellChrome({
         <SidebarNav pathname={pathname} shellParams={shellParams} lang={lang} />
         <div className="px-3 pb-3 space-y-3">
           <AskMiltonButton lang={lang} onClick={() => openAskMilton()} />
-          <SidebarFooter />
+          <SidebarFooter lang={lang} />
         </div>
       </aside>
 
@@ -444,10 +444,10 @@ function SidebarLink({
   );
 }
 
-function SidebarFooter() {
+function SidebarFooter({ lang }: { lang: PreferredLanguage }) {
   return (
     <div className="border-t border-border pt-3">
-      <LogoutButton />
+      <LogoutButton lang={lang} />
     </div>
   );
 }

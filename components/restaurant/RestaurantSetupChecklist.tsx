@@ -35,7 +35,11 @@ import type {
   SetupCounts,
   DataQualityCounts,
 } from "@/lib/restaurant/profitability-server";
-import { t } from "@/lib/restaurant/language";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import {
   setupStepStatus,
   SETUP_STEP_HREFS,
@@ -55,148 +59,152 @@ interface ChecklistStep {
   status: StepStatus;
 }
 
-function deriveSteps(s: SetupCounts, dq: DataQualityCounts): ChecklistStep[] {
+function deriveSteps(
+  s: SetupCounts,
+  dq: DataQualityCounts,
+  lang: PreferredLanguage
+): ChecklistStep[] {
   return [
     {
       id: "pos",
-      label: t("es", "Upload POS sales", "Cargar ventas del POS"),
+      label: t(lang, "Upload POS sales", "Cargar ventas del POS"),
       description:
         s.pos_sales_count > 0
           ? t(
-              "es",
+              lang,
               `${s.pos_sales_count.toLocaleString("es-MX")} sale rows loaded from your POS export.`,
               `${s.pos_sales_count.toLocaleString("es-MX")} filas de ventas cargadas desde tu POS.`
             )
           : t(
-              "es",
+              lang,
               "Upload your POS export to unlock revenue analytics and item performance.",
               "Sube tu exportación del POS para ver ventas e ítems."
             ),
       href: SETUP_STEP_HREFS.pos,
-      cta: t("es", "Import POS Sales", "Importar ventas del POS"),
+      cta: t(lang, "Import POS Sales", "Importar ventas del POS"),
       status: setupStepStatus("pos" satisfies SetupStepId, s, dq),
     },
     {
       id: "costs",
       label: t(
-        "es",
+        lang,
         "Import ingredient costs",
         "Importar costos de ingredientes"
       ),
       description:
         s.cost_entries_count > 0
           ? t(
-              "es",
+              lang,
               `${s.cost_entries_count.toLocaleString("es-MX")} cost entries imported.`,
               `${s.cost_entries_count.toLocaleString("es-MX")} costos importados.`
             )
           : t(
-              "es",
+              lang,
               "Add supplier prices to start calculating food cost and gross margin.",
               "Agrega precios de proveedores para calcular costo de comida y margen."
             ),
       href: SETUP_STEP_HREFS.costs,
-      cta: t("es", "Import Costs", "Importar costos"),
+      cta: t(lang, "Import Costs", "Importar costos"),
       status: setupStepStatus("costs", s, dq),
     },
     {
       id: "menu",
       label: t(
-        "es",
+        lang,
         "Review menu items & POS mappings",
         "Revisar platillos y ligues del POS"
       ),
       description:
         s.menu_items_count === 0
           ? t(
-              "es",
+              lang,
               "No menu items found. Visit the Menu page to create or sync your menu.",
               "No hay platillos. Ve a Menú para crearlos o sincronizarlos."
             )
           : dq.unmapped_pos_items > 0
             ? t(
-                "es",
+                lang,
                 `${dq.unmapped_pos_items} POS item${dq.unmapped_pos_items === 1 ? "" : "s"} not yet mapped to a menu item — link them to enable costing.`,
                 `${dq.unmapped_pos_items} ${dq.unmapped_pos_items === 1 ? "platillo del POS no está ligado" : "platillos del POS no están ligados"} al menú. Lígales para poder costear.`
               )
             : t(
-                "es",
+                lang,
                 "All POS items are mapped to menu items.",
                 "Todos los platillos del POS ya están ligados al menú."
               ),
       href: SETUP_STEP_HREFS.menu,
-      cta: t("es", "Open Menu & Mappings", "Abrir Menú y ligues"),
+      cta: t(lang, "Open Menu & Mappings", "Abrir Menú y ligues"),
       status: setupStepStatus("menu", s, dq),
     },
     {
       id: "recipes",
       label: t(
-        "es",
+        lang,
         "Create recipes & components",
         "Crear recetas y componentes"
       ),
       description:
         s.recipe_inputs_count === 0
           ? t(
-              "es",
+              lang,
               "No recipe inputs yet. Add ingredients to your recipes to unlock per-dish costing.",
               "Aún no hay insumos de receta. Agrega ingredientes para costear cada platillo."
             )
           : dq.menu_items_without_recipe > 0
             ? t(
-                "es",
+                lang,
                 `${dq.menu_items_without_recipe} menu item${dq.menu_items_without_recipe === 1 ? "" : "s"} still missing a recipe — complete them to unlock full margin coverage.`,
                 `${dq.menu_items_without_recipe} ${dq.menu_items_without_recipe === 1 ? "platillo todavía no tiene" : "platillos todavía no tienen"} receta. Complétalos para ver el margen completo.`
               )
             : t(
-                "es",
+                lang,
                 "All menu items have at least one recipe.",
                 "Todos los platillos ya tienen al menos una receta."
               ),
       href: SETUP_STEP_HREFS.recipes,
-      cta: t("es", "Open Recipes", "Abrir Recetas"),
+      cta: t(lang, "Open Recipes", "Abrir Recetas"),
       status: setupStepStatus("recipes", s, dq),
     },
     {
       id: "invoices",
       label: t(
-        "es",
+        lang,
         "Upload or create supplier invoices",
         "Subir o crear facturas de proveedores"
       ),
       description:
         s.supplier_invoices_count > 0
           ? t(
-              "es",
+              lang,
               `${s.supplier_invoices_count} invoice${s.supplier_invoices_count === 1 ? "" : "s"} on record. Keep uploading to track supplier price trends.`,
               `${s.supplier_invoices_count} ${s.supplier_invoices_count === 1 ? "factura registrada" : "facturas registradas"}. Sigue subiendo para ver cambios de precio.`
             )
           : t(
-              "es",
+              lang,
               "Upload supplier invoices to auto-populate ingredient costs and enable price-change alerts.",
               "Sube facturas de proveedores para llenar costos y ver alertas de precio."
             ),
       href: SETUP_STEP_HREFS.invoices,
-      cta: t("es", "Open Invoices", "Abrir Facturas"),
+      cta: t(lang, "Open Invoices", "Abrir Facturas"),
       status: setupStepStatus("invoices", s, dq),
     },
     {
       id: "agents",
-      label: t("es", "Run agents", "Correr agentes"),
+      label: t(lang, "Run agents", "Correr agentes"),
       description:
         s.agent_runs_count > 0
           ? t(
-              "es",
+              lang,
               `${s.agent_runs_count} agent run${s.agent_runs_count === 1 ? "" : "s"} completed. Schedule regular runs to keep recommendations fresh.`,
               `${s.agent_runs_count} ${s.agent_runs_count === 1 ? "corrida lista" : "corridas listas"}. Programa corridas para mantener las recomendaciones al día.`
             )
           : t(
-              "es",
+              lang,
               "Run your first agent to get automated margin analysis and supplier alerts.",
               "Corre tu primer agente para ver análisis de margen y alertas de proveedores."
             ),
       href: SETUP_STEP_HREFS.agents,
-      cta: t("es", "Open Agents", "Abrir Agentes"),
+      cta: t(lang, "Open Agents", "Abrir Agentes"),
       status: setupStepStatus("agents", s, dq),
     },
   ];
@@ -210,10 +218,10 @@ function StatusIcon({ status }: { status: StepStatus }) {
   return <Circle className="h-4 w-4 text-muted-foreground/50 shrink-0" />;
 }
 
-function statusLabel(status: StepStatus): string {
-  if (status === "done") return t("es", "Done", "Listo");
-  if (status === "review") return t("es", "Needs review", "Hay que revisar");
-  return t("es", "Not started", "Sin empezar");
+function statusLabel(status: StepStatus, lang: PreferredLanguage): string {
+  if (status === "done") return t(lang, "Done", "Listo");
+  if (status === "review") return t(lang, "Needs review", "Hay que revisar");
+  return t(lang, "Not started", "Sin empezar");
 }
 
 function statusClass(status: StepStatus): string {
@@ -225,11 +233,13 @@ function statusClass(status: StepStatus): string {
 export function RestaurantSetupChecklist({
   setupCounts,
   dataQuality,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
 }: {
   setupCounts: SetupCounts;
   dataQuality: DataQualityCounts;
+  lang?: PreferredLanguage;
 }) {
-  const steps = deriveSteps(setupCounts, dataQuality);
+  const steps = deriveSteps(setupCounts, dataQuality, lang);
   const doneCount = steps.filter((s) => s.status === "done").length;
 
   // Smart default: collapse when mostly done (≥4/6). Expanded when fresh setup.
@@ -272,7 +282,7 @@ export function RestaurantSetupChecklist({
           <div className="flex-1 min-w-0">
             <CardTitle className="text-base font-semibold">
               {t(
-                "es",
+                lang,
                 "Set up your restaurant control tower",
                 "Prepara el cockpit de tu restaurante"
               )}
@@ -280,7 +290,7 @@ export function RestaurantSetupChecklist({
             {collapsed ? (
               <p className="text-xs text-muted-foreground mt-1">
                 {t(
-                  "es",
+                  lang,
                   `${doneCount}/${steps.length} steps complete`,
                   `${doneCount}/${steps.length} pasos listos`
                 )}
@@ -288,7 +298,7 @@ export function RestaurantSetupChecklist({
             ) : (
               <p className="text-sm text-muted-foreground mt-1">
                 {t(
-                  "es",
+                  lang,
                   "Complete these steps to unlock recipe margins, supplier alerts, and Milton recommendations.",
                   "Completa estos pasos para ver márgenes, alertas de proveedores y recomendaciones de Milton."
                 )}
@@ -316,12 +326,12 @@ export function RestaurantSetupChecklist({
               aria-label={
                 collapsed
                   ? t(
-                      "es",
+                      lang,
                       "Expand setup checklist",
                       "Mostrar la lista de configuración"
                     )
                   : t(
-                      "es",
+                      lang,
                       "Collapse setup checklist",
                       "Ocultar la lista de configuración"
                     )
@@ -366,7 +376,7 @@ export function RestaurantSetupChecklist({
                         "text-xs font-medium " + statusClass(step.status)
                       }
                     >
-                      {statusLabel(step.status)}
+                      {statusLabel(step.status, lang)}
                     </span>
                   </div>
                   {step.status !== "done" && (
@@ -401,14 +411,14 @@ export function RestaurantSetupChecklist({
               <div>
                 <span className="text-sm font-medium">
                   {t(
-                    "es",
+                    lang,
                     "Ask Milton your first question",
                     "Hazle tu primera pregunta a Milton"
                   )}
                 </span>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {t(
-                    "es",
+                    lang,
                     "Explore insights, get recommendations, or ask about margins, suppliers, and trends.",
                     "Explora, pide recomendaciones o pregunta por márgenes, proveedores y tendencias."
                   )}
@@ -422,7 +432,7 @@ export function RestaurantSetupChecklist({
               className="shrink-0 h-7 text-xs gap-1 bg-orange-600 hover:bg-orange-700"
             >
               <Link href="/dashboard/restaurant/briefing">
-                {t("es", "Ask Milton", "Preguntar a Milton")}
+                {t(lang, "Ask Milton", "Preguntar a Milton")}
                 <ArrowRight className="h-3 w-3" />
               </Link>
             </Button>

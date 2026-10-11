@@ -11,6 +11,11 @@
 "use client";
 
 import { useState } from "react";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 
 export interface CockpitTab {
   id: string;
@@ -25,6 +30,7 @@ export function CockpitTabs({
   defaultTab,
   value,
   onChange,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
 }: {
   tabs: CockpitTab[];
   defaultTab?: string;
@@ -32,6 +38,7 @@ export function CockpitTabs({
    *  controlled tab strip and the parent owns the active state. */
   value?: string;
   onChange?: (id: string) => void;
+  lang?: PreferredLanguage;
 }) {
   const [internalActive, setInternalActive] = useState<string>(
     defaultTab ?? tabs[0]?.id ?? ""
@@ -52,7 +59,7 @@ export function CockpitTabs({
       <div className="sticky top-0 z-20 -mx-6 lg:-mx-10 px-6 lg:px-10 mb-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
         <nav
           className="flex gap-1 overflow-x-auto"
-          aria-label="Cockpit sections"
+          aria-label={t(lang, "Cockpit sections", "Secciones del cockpit")}
           role="tablist"
         >
           {tabs.map((t) => {

@@ -231,7 +231,7 @@ function OverviewTab({
 }) {
   return (
     <div className="space-y-8">
-      <ProfitabilityKpisSection data={profitability} />
+      <ProfitabilityKpisSection data={profitability} lang={lang} />
 
       {/* Two-column overview panel: top items + supplier price alerts */}
       <section>
@@ -239,13 +239,13 @@ function OverviewTab({
           {t(lang, "Today's attention", "Atención de hoy")}
         </h2>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ItemsNeedingAttention data={profitability} />
-          <SupplierPriceAlerts data={profitability} />
+          <ItemsNeedingAttention data={profitability} lang={lang} />
+          <SupplierPriceAlerts data={profitability} lang={lang} />
         </div>
       </section>
 
       {/* Margin risk (compact: 2 most actionable cards on Overview) */}
-      <MarginRiskSection data={profitability} compact />
+      <MarginRiskSection data={profitability} compact lang={lang} />
 
       {/* Placeholders for future signals — clearly labelled. */}
       <section>
@@ -291,8 +291,9 @@ function SetupTab({
       <RestaurantSetupChecklist
         setupCounts={profitability.setupCounts}
         dataQuality={profitability.dataQuality}
+        lang={lang}
       />
-      <DataQualityChecklistSection data={profitability} />
+      <DataQualityChecklistSection data={profitability} lang={lang} />
       {/* Pull two of the most actionable lists into this tab so the user
           can see what's actually blocking margin computation. */}
       <section>
@@ -1036,12 +1037,14 @@ async function CockpitTabsFromModel({
           id: "menu",
           label: t(lang, "Menu Profitability", "Rentabilidad del menú"),
           badge: issueCount > 0 ? String(issueCount) : undefined,
-          content: <MenuProfitabilityTab profitability={profitability} />,
+          content: (
+            <MenuProfitabilityTab profitability={profitability} lang={lang} />
+          ),
         },
         {
           id: "suppliers",
           label: t(lang, "Suppliers & Costs", "Proveedores y costos"),
-          content: <SupplierTrendsSection data={profitability} />,
+          content: <SupplierTrendsSection data={profitability} lang={lang} />,
         },
         {
           id: "revenue",
@@ -1089,7 +1092,7 @@ async function CockpitTabsFromModel({
           </span>
         </div>
       ) : null}
-      <CockpitTabs tabs={tabs} defaultTab="overview" />
+      <CockpitTabs tabs={tabs} defaultTab="overview" lang={lang} />
     </>
   );
 }

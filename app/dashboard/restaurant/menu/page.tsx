@@ -79,7 +79,7 @@ export default async function MenuRecipesRoute({
       <OperatingPageHeader title={t(lang, "Menu", "Menú")} lang={lang} />
       <div className="mt-3 mb-4">
         {profitability ? (
-          <MenuProfitabilityTab profitability={profitability} />
+          <MenuProfitabilityTab profitability={profitability} lang={lang} />
         ) : (
           <NotAvailableYet
             lang={lang}

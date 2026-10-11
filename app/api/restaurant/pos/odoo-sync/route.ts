@@ -674,12 +674,18 @@ export async function POST(req: NextRequest) {
             dimensions == null || dimensions.categoryReadFailed,
         })
       );
-      const batch = omitIsTip
-        ? omitColumnFromRows(mapped, "is_tip")
-        : mapped;
-      const doUpsert = (next: typeof batch) =>
-        supabase.from("pos_sales_items").upsert(next, upsertOpts);
-      const { error: upsertError, count, omittedColumn } = omitIsTip
+      const batch = omitIsTip ? omitColumnFromRows(mapped, "is_tip") : mapped;
+      const doUpsert = async (next: typeof batch) => {
+        const result = await supabase
+          .from("pos_sales_items")
+          .upsert(next, upsertOpts);
+        return { error: result.error, count: result.count };
+      };
+      const {
+        error: upsertError,
+        count,
+        omittedColumn,
+      } = omitIsTip
         ? await doUpsert(batch).then((r) => ({
             error: r.error,
             count: r.count ?? batch.length,

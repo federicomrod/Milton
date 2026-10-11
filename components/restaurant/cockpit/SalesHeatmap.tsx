@@ -39,12 +39,16 @@ export function SalesHeatmap({
   lang,
   metric = "net",
   compact = false,
+  selected = null,
+  onSelectCell,
 }: {
   cells: HeatmapDisplayCell[];
   currency: string;
   lang: PreferredLanguage;
   metric?: HeatmapMetric;
   compact?: boolean;
+  selected?: HeatmapDisplayCell | null;
+  onSelectCell?: (cell: HeatmapDisplayCell) => void;
 }) {
   const [focus, setFocus] = useState<HeatmapDisplayCell | null>(null);
   const locale = localeForCurrency(currency);
@@ -129,9 +133,12 @@ export function SalesHeatmap({
                         rx={3}
                         fill={cellFill(intensity)}
                         stroke={
-                          focus &&
-                          focus.weekday === weekday &&
-                          focus.hour === hour
+                          (selected &&
+                            selected.weekday === weekday &&
+                            selected.hour === hour) ||
+                          (focus &&
+                            focus.weekday === weekday &&
+                            focus.hour === hour)
                             ? "hsl(24 80% 40%)"
                             : "transparent"
                         }
@@ -162,6 +169,32 @@ export function SalesHeatmap({
                           )
                         }
                         onBlur={() => setFocus(null)}
+                        onClick={() =>
+                          onSelectCell?.(
+                            cell ?? {
+                              weekday,
+                              weekday_key: "Sunday",
+                              hour,
+                              net_sales: 0,
+                              tickets: 0,
+                            }
+                          )
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") {
+                            return;
+                          }
+                          event.preventDefault();
+                          onSelectCell?.(
+                            cell ?? {
+                              weekday,
+                              weekday_key: "Sunday",
+                              hour,
+                              net_sales: 0,
+                              tickets: 0,
+                            }
+                          );
+                        }}
                       >
                         <title>{exact}</title>
                       </rect>

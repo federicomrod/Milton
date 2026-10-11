@@ -1,6 +1,7 @@
 // components/restaurant/sales/SalesPageChrome.tsx
 //
 // Shared Sales / detalle header: period chip honours the cockpit contract.
+// One Ask Milton action sits top-right of the Sales header.
 
 import { Suspense } from "react";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
@@ -8,6 +9,7 @@ import { CockpitPeriodControl } from "@/components/restaurant/cockpit/CockpitPer
 import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import type { CockpitPeriodPreset } from "@/lib/restaurant/cockpit-period";
+import { SalesPeriodAskButton } from "./SalesPeriodAskButton";
 
 export function SalesPageHeader({
   lang,
@@ -15,12 +17,14 @@ export function SalesPageHeader({
   periodPreset,
   range,
   comparisonLabel,
+  periodAskQuestion,
 }: {
   lang: PreferredLanguage;
   title?: string;
   periodPreset: CockpitPeriodPreset;
   range: { from: string; to: string } | null;
   comparisonLabel?: string | null;
+  periodAskQuestion?: string | null;
 }) {
   return (
     <OperatingPageHeader
@@ -35,6 +39,11 @@ export function SalesPageHeader({
             comparisonLabel={comparisonLabel}
           />
         </Suspense>
+      }
+      trailing={
+        periodAskQuestion ? (
+          <SalesPeriodAskButton question={periodAskQuestion} lang={lang} />
+        ) : null
       }
     />
   );

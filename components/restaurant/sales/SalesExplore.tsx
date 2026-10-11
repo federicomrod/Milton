@@ -4,11 +4,10 @@
 
 "use client";
 
-import { useState } from "react";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import {
-  DEFAULT_SALES_EXPLORE_TAB,
   parseSalesExploreTab,
+  salesExploreHash,
   type SalesExploreTab,
 } from "@/lib/restaurant/sales-explore";
 import type { SalesInsights } from "@/lib/restaurant/sales-insights";
@@ -26,22 +25,21 @@ export function SalesExplore({
   currency,
   lang,
   detailHref,
+  tab,
+  onTabChange,
 }: {
   insights: SalesInsights;
   currency: string;
   lang: PreferredLanguage;
   detailHref: string;
+  tab: SalesExploreTab;
+  onTabChange: (tab: SalesExploreTab) => void;
 }) {
-  const [tab, setTab] = useState<SalesExploreTab>(DEFAULT_SALES_EXPLORE_TAB);
-  const hash =
-    tab === "categories"
-      ? "categorias"
-      : tab === "payments"
-        ? "pagos"
-        : "canales";
+  const hash = salesExploreHash(tab);
 
   return (
     <section
+      id="explorar"
       data-testid="sales-explore"
       data-explore-tab={tab}
       className="rounded-md border border-border bg-background px-3 py-3 space-y-3"
@@ -53,7 +51,7 @@ export function SalesExplore({
         <ToggleGroup
           type="single"
           value={tab}
-          onValueChange={(value) => setTab(parseSalesExploreTab(value))}
+          onValueChange={(value) => onTabChange(parseSalesExploreTab(value))}
           variant="outline"
           size="sm"
           aria-label={t(lang, "Explore", "Explorar")}

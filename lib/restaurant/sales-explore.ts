@@ -27,6 +27,12 @@ export function isSalesExploreTab(value: unknown): value is SalesExploreTab {
   return value === "channels" || value === "categories" || value === "payments";
 }
 
+export function salesExploreHash(tab: SalesExploreTab): string {
+  if (tab === "categories") return "categorias";
+  if (tab === "payments") return "pagos";
+  return "canales";
+}
+
 /** Sales / detalle links that keep location + the cockpit period param. */
 export function salesHref(
   path: string,

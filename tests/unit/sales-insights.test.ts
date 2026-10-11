@@ -21,9 +21,12 @@ import {
   MIN_PEAK_SLOT_OCCURRENCES,
   MIN_TICKETS_FOR_DAYPART_SHARE,
   MIN_WEEKDAY_OCCURRENCES,
+  MAX_SALES_HIGHLIGHTS,
+  heatmapCellAskQuestion,
   rankCategories,
   salesDayStatsFromRows,
   ticketCountLabel,
+  topMixShare,
   weekdayLabel,
   type PeakSlot,
   type WeekdayStat,
@@ -31,6 +34,7 @@ import {
 import {
   bumpAskMiltonPrefill,
   parseSalesExploreTab,
+  salesExploreHash,
   salesHref,
 } from "@/lib/restaurant/sales-explore";
 import { contractEs } from "@/lib/restaurant/cockpit-executive";
@@ -154,9 +158,9 @@ describe("per-day averages beat raw totals (4 Mondays $1,000 vs 5 Fridays $900)"
     expect(insights.strongest_weekday?.weekday).toBe(1);
     expect(insights.highlights.some((h) => /lunes/.test(h.body))).toBe(true);
     expect(insights.highlights.some((h) => h.id === "strongest_weekday")).toBe(
-      true
+      false
     );
-    const strongest = insights.highlights.find(
+    const strongest = insights.investigate_facts.find(
       (h) => h.id === "strongest_weekday"
     );
     expect(strongest?.title).toBe("Día más fuerte");
@@ -214,7 +218,8 @@ describe("occurrence floors", () => {
     expect(insights.availability).toBe("ready");
     expect(insights.peak_slot).toBeNull();
     expect(insights.strongest_weekday).toBeNull();
-    expect(insights.highlights.filter((h) => h.id !== "best_date")).toEqual([]);
+    expect(insights.highlights).toEqual([]);
+    expect(insights.investigate_facts).toEqual([]);
   });
 });
 
@@ -233,13 +238,18 @@ describe("empty and single-day states", () => {
     expect(insights.daypart.available).toBe(false);
     expect(insights.daypart.winner).toBeNull();
     expect(insights.daypart.reason).toBe("No hay ventas en este periodo.");
-    const daypart = insights.summaries.find((s) => s.id === "daypart");
-    expect(daypart?.value).toBe("Aún no disponible");
-    expect(daypart?.available).toBe(false);
-    expect(daypart?.hint).toBe("No hay ventas en este periodo.");
-    expect(insights.summaries.find((s) => s.id === "net_sales")?.value).toBe(
-      "Aún no disponible"
-    );
+    expect(insights.summaries.map((s) => s.id)).toEqual([
+      "channels",
+      "payments",
+      "categories",
+    ]);
+    expect(insights.summaries.every((s) => s.available === false)).toBe(true);
+    expect(
+      insights.summaries.every((s) => s.value === "Aún no disponible")
+    ).toBe(true);
+    expect(insights.summaries[0]?.hint).toBe("No hay ventas en este periodo.");
+    expect(insights.highlights.some((h) => h.id === "daypart")).toBe(false);
+    expect(insights.period_ask_question).toContain("este periodo");
     expect(JSON.stringify(insights)).not.toContain("Empate");
     expect(JSON.stringify(insights)).not.toContain("$0.00 en 0 tickets");
   });
@@ -270,9 +280,11 @@ describe("empty and single-day states", () => {
     expect(insights.interpretation).toBeNull();
     expect(insights.daypart.available).toBe(false);
     expect(insights.daypart.lunch_share_pct).toBeNull();
-    expect(insights.summaries.find((s) => s.id === "daypart")?.value).toBe(
-      "Aún no disponible"
-    );
+    expect(insights.highlights.some((h) => h.id === "daypart")).toBe(false);
+    const channels = insights.summaries.find((s) => s.id === "channels");
+    expect(channels?.available).toBe(true);
+    expect(channels?.value).toContain("En salón");
+    expect(channels?.value).toContain("100%");
     const blob = JSON.stringify(insights);
     expect(blob).not.toContain("Día más fuerte");
     expect(blob).not.toContain("la cena concentra el 100");
@@ -437,31 +449,141 @@ describe("buildSalesInsights — money, Spanish, no invented numbers", () => {
     expect(agg.revenue.net_sales).toBe(8500);
     expect(agg.revenue.tips).toBe(20);
     const insights = buildSalesInsights(agg, "es", stats);
-    expect(insights.summaries[0].value).toBe("$8,500.00");
+    expect(insights.summaries.map((s) => s.id)).toEqual([
+      "channels",
+      "payments",
+      "categories",
+    ]);
+    expect(insights.summaries[0].value).toContain("En salón");
+    expect(insights.summaries[0].value).toContain("100%");
     expect(insights.summaries[0].value).not.toContain("USD");
-    expect(insights.summaries[0].hint).toContain("$20.00");
+    expect(insights.summaries[0].hint).toContain("$8,500.00");
+    expect(insights.summaries[0].hint).not.toContain("USD");
   });
 
   it("is deterministic and Spanish-complete without de el / a el", () => {
-    const a = buildSalesInsights(agg, "es", stats);
-    const b = buildSalesInsights(agg, "es", stats);
+    const a = buildSalesInsights(agg, "es", stats, {
+      period: { from: "2026-07-03", to: "2026-07-31" },
+    });
+    const b = buildSalesInsights(agg, "es", stats, {
+      period: { from: "2026-07-03", to: "2026-07-31" },
+    });
     expect(a.peak_slot).toEqual(b.peak_slot);
     expect(a.strongest_weekday).toEqual(b.strongest_weekday);
     expect(a.interpretation?.body).toEqual(b.interpretation?.body);
-    expect(a.highlights.map((h) => h.title)).toContain("Día más fuerte");
+    expect(a.highlights.map((h) => h.title)).not.toContain("Día más fuerte");
+    expect(a.investigate_facts.map((h) => h.title)).toContain("Día más fuerte");
     expect(a.highlights.map((h) => h.title)).toContain("Franja más fuerte");
+    expect(a.highlights.map((h) => h.id)).toEqual(
+      expect.arrayContaining(["peak_slot", "weakest_weekday"])
+    );
+    expect(a.highlights.length).toBeLessThanOrEqual(MAX_SALES_HIGHLIGHTS);
     expect(a.interpretation?.title).toBe("La lectura de Milton");
     expect(a.interpretation?.body).toMatch(/lunes/);
     expect(a.interpretation?.body).not.toMatch(/\bde el\b/);
     expect(a.interpretation?.body).not.toMatch(/\ba el\b/);
     expect(weekdayLabel(5, "es")).toBe("viernes");
     expect(hourLabel(20)).toBe("20:00");
-    for (const highlight of a.highlights) {
+    expect(a.period_ask_question).toContain("¿Qué destaca de las ventas");
+    expect(a.period_ask_question).not.toMatch(/\bde el\b/);
+    expect(contractEs(a.period_ask_question)).toBe(a.period_ask_question);
+    for (const highlight of [...a.highlights, ...a.investigate_facts]) {
       if (!highlight.ask_question) continue;
       expect(highlight.ask_question).toMatch(/¿/);
       expect(highlight.ask_question).not.toMatch(/\bde el\b/);
       expect(contractEs(highlight.ask_question)).toBe(highlight.ask_question);
     }
+  });
+});
+
+describe("mix summaries + Ask Milton + 3-fact cap", () => {
+  it("names the top channel, payment and category with share", () => {
+    const rows = [
+      ...julyUnequalWeekdays(),
+      row({
+        sale_date: "2026-07-06",
+        order_placed_at: mondayNoonUtc("2026-07-06"),
+        check_id: "del-1",
+        sales_channel: "delivery",
+        payment_type: "cash",
+        category: "Bebidas",
+        gross_revenue: 500,
+      }),
+    ];
+    const insights = buildSalesInsights(
+      buildCockpitSalesAggregate(rows, { timezone: ES, currency: "USD" }),
+      "es",
+      salesDayStatsFromRows(rows, { timezone: ES, currency: "USD" })
+    );
+    const channels = insights.summaries.find((s) => s.id === "channels");
+    const payments = insights.summaries.find((s) => s.id === "payments");
+    const categories = insights.summaries.find((s) => s.id === "categories");
+    expect(channels?.available).toBe(true);
+    expect(channels?.value).toContain("En salón");
+    expect(channels?.explore_tab).toBe("channels");
+    expect(payments?.value).toContain("Tarjeta");
+    expect(payments?.explore_tab).toBe("payments");
+    expect(categories?.value).toContain("Mains");
+    expect(categories?.explore_tab).toBe("categories");
+    expect(topMixShare(insights.channel_mix)?.share_pct).toBe(94.4);
+    expect(JSON.stringify(insights.summaries)).not.toContain("Ventas netas");
+    expect(JSON.stringify(insights.summaries)).not.toContain("Ticket promedio");
+    expect(JSON.stringify(insights.summaries)).not.toContain(
+      "Almuerzo vs cena"
+    );
+  });
+
+  it("caps Understand highlights at 3 and moves leftover facts to Investigate", () => {
+    const rows: CockpitFactRow[] = [];
+    for (let i = 0; i < 12; i++) {
+      const date = JULY_MONDAYS[i % JULY_MONDAYS.length];
+      rows.push(
+        row({
+          sale_date: date,
+          order_placed_at: mondayNoonUtc(date),
+          check_id: `mon-t-${i}`,
+          gross_revenue: 80,
+        })
+      );
+    }
+    for (let i = 0; i < 12; i++) {
+      const date = JULY_FRIDAYS[i % JULY_FRIDAYS.length];
+      rows.push(
+        row({
+          sale_date: date,
+          order_placed_at: fridayEightPmUtc(date),
+          check_id: `fri-t-${i}`,
+          gross_revenue: 40,
+        })
+      );
+    }
+    const insights = buildSalesInsights(
+      buildCockpitSalesAggregate(rows, { timezone: ES, currency: "USD" }),
+      "es",
+      salesDayStatsFromRows(rows, { timezone: ES, currency: "USD" }),
+      { period: { from: "2026-07-03", to: "2026-07-31" } }
+    );
+    expect(insights.daypart.available).toBe(true);
+    expect(insights.highlights).toHaveLength(3);
+    expect(insights.highlights.map((h) => h.id)).toEqual([
+      "peak_slot",
+      "weakest_weekday",
+      "daypart",
+    ]);
+    expect(insights.highlights.find((h) => h.id === "daypart")?.body).toContain(
+      "Gana el almuerzo"
+    );
+    expect(insights.investigate_facts.map((h) => h.id)).toEqual([
+      "strongest_weekday",
+      "best_date",
+    ]);
+    expect(insights.period_ask_question).toContain(
+      "¿Qué destaca de las ventas"
+    );
+    expect(insights.detail_ask_question).toContain("detalle de ventas");
+    expect(heatmapCellAskQuestion(4, 21, "es")).toBe(
+      "¿Por qué este periodo es tan fuerte? (jueves 21:00)"
+    );
   });
 });
 
@@ -471,6 +593,12 @@ describe("explore switcher + href helpers", () => {
     expect(parseSalesExploreTab("categories")).toBe("categories");
     expect(parseSalesExploreTab("payments")).toBe("payments");
     expect(parseSalesExploreTab("nope")).toBe("channels");
+  });
+
+  it("maps explore tabs to detalle hashes", () => {
+    expect(salesExploreHash("channels")).toBe("canales");
+    expect(salesExploreHash("categories")).toBe("categorias");
+    expect(salesExploreHash("payments")).toBe("pagos");
   });
 
   it("keeps location and month period on detalle links", () => {

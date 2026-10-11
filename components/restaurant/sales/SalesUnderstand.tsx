@@ -1,6 +1,6 @@
 // components/restaurant/sales/SalesUnderstand.tsx
 //
-// Default Sales view: compact heatmap + highlights + 2–3 summaries.
+// Default Sales view: compact heatmap + highlights + mix summaries.
 // Numbers arrive already computed.
 
 "use client";
@@ -8,14 +8,18 @@
 import { useState } from "react";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import type { SalesInsights } from "@/lib/restaurant/sales-insights";
+import { heatmapCellAskQuestion } from "@/lib/restaurant/sales-insights";
 import { DINNER_START_HOUR } from "@/lib/restaurant/sales-revenue";
+import type { SalesExploreTab } from "@/lib/restaurant/sales-explore";
 import {
   SalesHeatmap,
+  type HeatmapDisplayCell,
   type HeatmapMetric,
 } from "@/components/restaurant/cockpit/SalesHeatmap";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { SalesHighlights } from "./SalesHighlights";
 import { SalesDetailLink } from "./SalesDetailLink";
+import { SalesContextualAsk } from "./SalesContextualAsk";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
 
 export function SalesUnderstand({
@@ -24,14 +28,23 @@ export function SalesUnderstand({
   timezone,
   lang,
   detailHref,
+  onOpenExplore,
 }: {
   insights: SalesInsights;
   currency: string;
   timezone: string;
   lang: PreferredLanguage;
   detailHref: string;
+  onOpenExplore?: (tab: SalesExploreTab) => void;
 }) {
   const [metric, setMetric] = useState<HeatmapMetric>("net");
+  const [selectedCell, setSelectedCell] = useState<HeatmapDisplayCell | null>(
+    null
+  );
+  const cellQuestion =
+    selectedCell && selectedCell.net_sales > 0
+      ? heatmapCellAskQuestion(selectedCell.weekday, selectedCell.hour, lang)
+      : null;
 
   return (
     <section data-testid="sales-understand" className="space-y-3">
@@ -75,7 +88,17 @@ export function SalesUnderstand({
             lang={lang}
             metric={metric}
             compact
+            selected={selectedCell}
+            onSelectCell={setSelectedCell}
           />
+          {cellQuestion ? (
+            <div className="mt-1">
+              <SalesContextualAsk
+                question={cellQuestion}
+                testId="sales-ask-milton-heatmap"
+              />
+            </div>
+          ) : null}
           <div className="mt-1 flex justify-end">
             <SalesDetailLink href={`${detailHref}#horario`} lang={lang} />
           </div>
@@ -93,9 +116,13 @@ export function SalesUnderstand({
       >
         {insights.summaries.map((row) =>
           row.available ? (
-            <div
+            <button
               key={row.id}
-              className="rounded-md border border-border px-3 py-2"
+              type="button"
+              data-testid={`sales-summary-${row.id}`}
+              data-explore-tab={row.explore_tab}
+              onClick={() => onOpenExplore?.(row.explore_tab)}
+              className="rounded-md border border-border px-3 py-2 text-left hover:border-orange-300 dark:hover:border-orange-800 transition-colors"
             >
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                 {row.label}
@@ -104,7 +131,7 @@ export function SalesUnderstand({
                 {row.value}
               </p>
               <p className="text-[11px] text-muted-foreground">{row.hint}</p>
-            </div>
+            </button>
           ) : (
             <NotAvailableYet
               key={row.id}

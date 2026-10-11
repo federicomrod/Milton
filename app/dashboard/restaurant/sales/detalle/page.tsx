@@ -9,6 +9,8 @@ import Link from "next/link";
 import { loadSalesPageModel } from "@/lib/restaurant/sales-page-data";
 import { SalesHero } from "@/components/restaurant/cockpit/SalesHero";
 import { DeferredSalesExplorer } from "@/components/restaurant/sales/DeferredSalesExplorer";
+import { SalesInvestigateFacts } from "@/components/restaurant/sales/SalesInvestigateFacts";
+import { SalesContextualAsk } from "@/components/restaurant/sales/SalesContextualAsk";
 import { SalesPageHeader } from "@/components/restaurant/sales/SalesPageChrome";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
 import {
@@ -53,6 +55,7 @@ export default async function SalesDetailPage({
               : null
         }
         comparisonLabel={sales?.comparisonLabel}
+        periodAskQuestion={sales?.insights.period_ask_question}
       />
       <p className="text-xs">
         <Link
@@ -75,6 +78,14 @@ export default async function SalesDetailPage({
             )}
           </p>
           <SalesHero cockpit={sales.scoped} lang={lang} />
+          <SalesInvestigateFacts
+            facts={sales.insights.investigate_facts}
+            lang={lang}
+          />
+          <SalesContextualAsk
+            question={sales.insights.detail_ask_question}
+            testId="sales-ask-milton-detail"
+          />
           <section id="categorias">
             <DeferredSalesExplorer
               locationId={location}

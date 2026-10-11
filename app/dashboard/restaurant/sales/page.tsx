@@ -7,13 +7,11 @@
 
 import { Suspense } from "react";
 import { loadSalesPageModel } from "@/lib/restaurant/sales-page-data";
-import { SalesUnderstand } from "@/components/restaurant/sales/SalesUnderstand";
-import { SalesExplore } from "@/components/restaurant/sales/SalesExplore";
+import { SalesPageLive } from "@/components/restaurant/sales/SalesPageLive";
 import { SalesInterpretation } from "@/components/restaurant/sales/SalesInterpretation";
 import { SalesInterpretationUpgrade } from "@/components/restaurant/sales/SalesInterpretationUpgrade";
 import { SalesPageHeader } from "@/components/restaurant/sales/SalesPageChrome";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
-import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
 import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   t,
@@ -55,16 +53,16 @@ export default async function SalesAreaPage({
               : null
         }
         comparisonLabel={sales?.comparisonLabel}
+        periodAskQuestion={sales?.insights.period_ask_question}
       />
       {mode === "live" && sales ? (
-        <>
-          <SalesUnderstand
-            insights={sales.insights}
-            currency={sales.scoped.currency}
-            timezone={sales.scoped.timezone}
-            lang={lang}
-            detailHref={detailHref}
-          />
+        <SalesPageLive
+          insights={sales.insights}
+          currency={sales.scoped.currency}
+          timezone={sales.scoped.timezone}
+          lang={lang}
+          detailHref={detailHref}
+        >
           {sales.insights.interpretation && sales.interpretationFact ? (
             <Suspense
               fallback={
@@ -83,19 +81,7 @@ export default async function SalesAreaPage({
               />
             </Suspense>
           ) : null}
-          <Suspense
-            fallback={
-              <PageSkeleton height="14rem" className="w-full" lang={lang} />
-            }
-          >
-            <SalesExplore
-              insights={sales.insights}
-              currency={sales.scoped.currency}
-              lang={lang}
-              detailHref={detailHref}
-            />
-          </Suspense>
-        </>
+        </SalesPageLive>
       ) : mode === "live" ? (
         <NotAvailableYet
           lang={lang}

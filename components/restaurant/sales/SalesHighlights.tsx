@@ -1,15 +1,12 @@
 // components/restaurant/sales/SalesHighlights.tsx
 //
-// "Lo que destaca" — peak / strongest / weakest, already computed.
-
-"use client";
+// "Lo que destaca" — up to 3 deterministic facts. No per-item Ask Milton.
 
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import type {
   SalesAvailability,
   SalesHighlight,
 } from "@/lib/restaurant/sales-insights";
-import { useAskMiltonController } from "@/components/restaurant/shell/ask-milton-controller";
 
 export function SalesHighlights({
   highlights,
@@ -20,8 +17,6 @@ export function SalesHighlights({
   availability: SalesAvailability;
   lang: PreferredLanguage;
 }) {
-  const { openAskMilton } = useAskMiltonController();
-
   return (
     <section
       data-testid="sales-highlights"
@@ -50,21 +45,11 @@ export function SalesHighlights({
       ) : (
         <ul className="space-y-3">
           {highlights.map((item) => (
-            <li key={item.id} className="space-y-1">
+            <li key={item.id} data-testid={`sales-highlight-${item.id}`}>
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                 {item.title}
               </p>
               <p className="text-sm font-medium leading-snug">{item.body}</p>
-              {item.ask_question ? (
-                <button
-                  type="button"
-                  data-testid={`ask-milton-${item.id}`}
-                  onClick={() => openAskMilton(item.ask_question ?? undefined)}
-                  className="text-xs font-medium text-orange-700 dark:text-orange-300 hover:underline underline-offset-2"
-                >
-                  {t(lang, "Ask Milton", "Preguntar a Milton")}
-                </button>
-              ) : null}
             </li>
           ))}
         </ul>

@@ -103,7 +103,9 @@ export async function loadSalesPageModel(
     timezone: fast.timezone,
     currency: fast.currency,
   });
-  const insights = buildSalesInsights(scoped, fast.lang, stats);
+  const insights = buildSalesInsights(scoped, fast.lang, stats, {
+    period: period.current,
+  });
   const phrases = cockpitComparisonPhrases(period, fast.lang);
   const interpretationCacheKey = cockpitInsightCacheKey({
     companyId: `sales:${fast.scope.companyId}`,

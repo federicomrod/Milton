@@ -18,6 +18,10 @@ const SALES_REACT = [
   "components/restaurant/sales/SalesRankedBars.tsx",
   "components/restaurant/sales/SalesInterpretation.tsx",
   "components/restaurant/sales/DeferredSalesExplorer.tsx",
+  "components/restaurant/sales/SalesPageLive.tsx",
+  "components/restaurant/sales/SalesPeriodAskButton.tsx",
+  "components/restaurant/sales/SalesContextualAsk.tsx",
+  "components/restaurant/sales/SalesInvestigateFacts.tsx",
   "app/dashboard/restaurant/sales/page.tsx",
   "app/dashboard/restaurant/sales/detalle/page.tsx",
 ];
@@ -45,8 +49,15 @@ describe("Sales page IA (#130)", () => {
     expect(SALES_DETAIL_HREF).toBe("/dashboard/restaurant/sales/detalle");
     const sales = read("app/dashboard/restaurant/sales/page.tsx");
     const detalle = read("app/dashboard/restaurant/sales/detalle/page.tsx");
-    expect(sales).toContain("SalesUnderstand");
-    expect(sales).toContain("SalesExplore");
+    expect(sales).toContain("SalesPageLive");
+    expect(sales).not.toContain("<SalesUnderstand");
+    expect(sales).not.toContain("<SalesExplore");
+    expect(read("components/restaurant/sales/SalesPageLive.tsx")).toContain(
+      "SalesUnderstand"
+    );
+    expect(read("components/restaurant/sales/SalesPageLive.tsx")).toContain(
+      "onOpenExplore"
+    );
     expect(sales).not.toContain("RestaurantSalesExplorer");
     expect(sales).not.toContain("explorerRows");
     expect(sales).not.toContain("loadCockpitPageModel");
@@ -107,15 +118,26 @@ describe("Spanish completeness for Sales (#130)", () => {
     const understand = read("components/restaurant/sales/SalesUnderstand.tsx");
     const explore = read("components/restaurant/sales/SalesExplore.tsx");
     const highlights = read("components/restaurant/sales/SalesHighlights.tsx");
+    const chrome = read("components/restaurant/sales/SalesPageChrome.tsx");
     expect(highlights).toContain("Lo que destaca");
+    expect(highlights).not.toContain("Preguntar a Milton");
+    expect(highlights).not.toContain("openAskMilton");
+    expect(chrome).toContain("Preguntar a Milton sobre este periodo");
     expect(understand).toContain("Ventas netas");
     expect(understand).toContain("Cuándo se vende");
+    expect(understand).toContain("sales-ask-milton-heatmap");
     expect(explore).toContain("Canales");
     expect(explore).toContain("Categorías");
     expect(explore).toContain("Pagos");
     expect(explore).toContain("Ver todas");
     expect(read("components/restaurant/sales/SalesDetailLink.tsx")).toContain(
       "Ver detalles"
+    );
+    expect(read("app/dashboard/restaurant/sales/detalle/page.tsx")).toContain(
+      "SalesInvestigateFacts"
+    );
+    expect(read("app/dashboard/restaurant/sales/detalle/page.tsx")).toContain(
+      "sales-ask-milton-detail"
     );
     expect(read("lib/restaurant/sales-insights.ts")).toContain(
       "La lectura de Milton"
@@ -126,7 +148,13 @@ describe("Spanish completeness for Sales (#130)", () => {
     expect(read("lib/restaurant/sales-insights.ts")).toContain(
       "Franja más fuerte"
     );
+    expect(read("lib/restaurant/sales-insights.ts")).toContain(
+      "Almuerzo vs cena"
+    );
     expect(read("lib/restaurant/sales-insights.ts")).toContain("por promedio");
+    expect(read("lib/restaurant/sales-insights.ts")).toContain(
+      "MAX_SALES_HIGHLIGHTS = 3"
+    );
   });
 
   it("does not put English chrome in t() Spanish slots", () => {
@@ -183,10 +211,18 @@ describe("existing aggregate totals stay on the same net definition", () => {
       salesDayStatsFromRows(rows, { currency: "USD" })
     );
     expect(insights.availability).toBe("insufficient");
-    expect(insights.summaries[0].value).toBe("$85,923.59");
-    expect(insights.summaries[0].value).not.toContain("USD");
-    expect(insights.summaries.find((s) => s.id === "daypart")?.value).toBe(
-      "Aún no disponible"
+    expect(insights.summaries.map((s) => s.id)).toEqual([
+      "channels",
+      "payments",
+      "categories",
+    ]);
+    expect(insights.summaries.every((s) => !s.value.includes("USD"))).toBe(
+      true
     );
+    expect(
+      insights.summaries.find((s) => s.id === "channels")?.value
+    ).toContain("En salón");
+    expect(insights.highlights.some((h) => h.id === "daypart")).toBe(false);
+    expect(insights.highlights.length).toBeLessThanOrEqual(3);
   });
 });

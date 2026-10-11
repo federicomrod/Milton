@@ -32,7 +32,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { POSSalesItem } from "@/types/restaurant";
 import { warnIfTruncated } from "@/lib/restaurant/paginated-read";
-import { logCockpitTiming } from "@/lib/restaurant/cockpit-pos-rollup";
+import { logCockpitTiming } from "@/lib/restaurant/cockpit-timing";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import {
   resolveRestaurantCockpitLanguage,

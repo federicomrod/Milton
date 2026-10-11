@@ -4,7 +4,6 @@
 // so Fede can grep Vercel logs. The same marks are formatted as a
 // Server-Timing header for the browser Network tab.
 
-import { AsyncLocalStorage } from "node:async_hooks";
 import { cache } from "react";
 
 export type CockpitTimingMark = {
@@ -15,20 +14,10 @@ export type CockpitTimingMark = {
 
 type TimingStore = { marks: CockpitTimingMark[] };
 
-const als = new AsyncLocalStorage<TimingStore>();
-
 const reactTimingStore = cache((): TimingStore => ({ marks: [] }));
 
 function timingStore(): TimingStore {
-  const fromAls = als.getStore();
-  if (fromAls) return fromAls;
-  const fromReact = reactTimingStore();
-  try {
-    als.enterWith(fromReact);
-  } catch {
-    // enterWith is unavailable in some runtimes; logs still work.
-  }
-  return fromReact;
+  return reactTimingStore();
 }
 
 const NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;

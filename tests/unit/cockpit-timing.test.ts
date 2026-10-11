@@ -24,7 +24,7 @@ describe("cockpit timing (#134)", () => {
     const menu = read("app/dashboard/restaurant/menu/page.tsx");
     const costs = read("app/dashboard/restaurant/costs/page.tsx");
     expect(chrome).toContain('timeCockpitStep("chrome"');
-    expect(pageData).toContain('timeCockpitStep("scope"');
+    expect(pageData).toMatch(/timeCockpitStep\(\s*"scope"/);
     expect(pageData).toContain('timeCockpitStep("currency"');
     expect(pageData).toContain('timeCockpitStep("timezone"');
     expect(pageData).toContain('timeCockpitStep("pos-connection"');
@@ -32,9 +32,9 @@ describe("cockpit timing (#134)", () => {
     expect(pageData).toContain('logCockpitTiming("tabs"');
     expect(pageData).toContain('logCockpitTiming("sales"');
     expect(pageData).toContain('timeCockpitStep("costs"');
-    expect(sales).toContain('timeCockpitStep("sales-route"');
+    expect(sales).toMatch(/timeCockpitStep\(\s*"sales-route"/);
     expect(menu).toContain('timeCockpitStep("menu-pos"');
-    expect(costs).toContain('timeCockpitStep("costs-route"');
+    expect(costs).toMatch(/timeCockpitStep\(\s*"costs-route"/);
     expect(proxy).toContain('console.info("[cockpit-timing] proxy"');
     expect(proxy).toContain("Server-Timing");
     expect(read("instrumentation.ts")).toContain("installCockpitServerTiming");

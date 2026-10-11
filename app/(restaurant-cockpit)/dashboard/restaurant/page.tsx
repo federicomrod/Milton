@@ -928,8 +928,6 @@ async function CockpitLiveBody({
       lang={lang}
       initialPreset={fast.periodPreset}
       executives={fast.executives}
-      readError={Boolean(executive?.health.tone === "error" || fast.readError)}
-      truncated={fast.truncated}
       costSlot={
         <Suspense fallback={<CockpitCostKpisSkeleton />}>
           <CockpitBothCostKpis
@@ -963,6 +961,29 @@ async function CockpitLiveBody({
         )
       }
     >
+      {executive?.health.tone === "error" || fast.readError ? (
+        <DataHealthBanner tone="error">
+          {t(
+            lang,
+            "Could not load all sales rows. Totals are unavailable — they are not a smaller number from a partial read. Try refreshing the page.",
+            "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial. Recarga la página."
+          )}
+        </DataHealthBanner>
+      ) : null}
+
+      {fast.truncated && (
+        <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            {t(
+              lang,
+              `Totals may be incomplete. This view stopped after ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} rows. The numbers shown are partial.`,
+              `Los totales pueden estar incompletos. Esta vista se detuvo después de ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} filas. Los números que ves son parciales.`
+            )}
+          </span>
+        </div>
+      )}
+
       <Suspense
         fallback={
           <div className="space-y-3">

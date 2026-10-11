@@ -15,8 +15,6 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
-import { PAGINATED_READ_SAFETY_CAP } from "@/lib/restaurant/paginated-read";
 import {
   COCKPIT_PERIOD_PARAM,
   DEFAULT_COCKPIT_PERIOD,
@@ -28,10 +26,7 @@ import type {
   CockpitExecutivesByPeriod,
 } from "@/lib/restaurant/cockpit-page-data";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
-import {
-  DataHealthBanner,
-  DataHealthIndicator,
-} from "@/components/restaurant/shell/DataHealthIndicator";
+import { DataHealthIndicator } from "@/components/restaurant/shell/DataHealthIndicator";
 import { CockpitOnboardingChip } from "@/components/restaurant/cockpit/CockpitOnboardingChip";
 import { CockpitPeriodControl } from "@/components/restaurant/cockpit/CockpitPeriodControl";
 import { CockpitHeadline } from "@/components/restaurant/cockpit/CockpitHeadline";
@@ -45,8 +40,6 @@ export function CockpitPeriodShell({
   lang,
   initialPreset,
   executives,
-  readError,
-  truncated,
   costSlot,
   insightsUpgrade,
   children,
@@ -54,8 +47,6 @@ export function CockpitPeriodShell({
   lang: PreferredLanguage;
   initialPreset: CockpitPeriodPreset;
   executives: CockpitExecutivesByPeriod;
-  readError: boolean;
-  truncated: boolean;
   costSlot?: ReactNode;
   insightsUpgrade?: ReactNode;
   children?: ReactNode;
@@ -151,29 +142,6 @@ export function CockpitPeriodShell({
               />
             )
           ) : null}
-
-          {executive?.health.tone === "error" || readError ? (
-            <DataHealthBanner tone="error">
-              {t(
-                lang,
-                "Could not load all sales rows. Totals are unavailable — they are not a smaller number from a partial read. Try refreshing the page.",
-                "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial. Recarga la página."
-              )}
-            </DataHealthBanner>
-          ) : null}
-
-          {truncated && (
-            <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>
-                {t(
-                  lang,
-                  `Totals may be incomplete. This view stopped after ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} rows. The numbers shown are partial.`,
-                  `Los totales pueden estar incompletos. Esta vista se detuvo después de ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} filas. Los números que ves son parciales.`
-                )}
-              </span>
-            </div>
-          )}
 
           {children}
         </div>

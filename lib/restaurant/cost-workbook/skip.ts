@@ -1,3 +1,4 @@
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { textAt, numberAt, rowIsBlank } from "./cells";
 import type {
   ColumnMapping,
@@ -7,10 +8,10 @@ import type {
 } from "./types";
 
 export const TOTAL_ROW_RE =
-  /^(total|sub[\s-]?total|totales|subtotales|suma)(\b|:|$)/i;
+  /^(total|sub[\s-]?total|totales|subtotales|suma|costo\s+total|precio\s+por\s+libra|precio\s+por\s+onza|precio\s+de\s+venta|margen\s+de\s+contribuci)(\b|:|$)/i;
 
 const HEADERISH_RE =
-  /^(item|nombre|producto|ingrediente|ingredient|articulo|artículo|unidad|unit|costo|precio|cantidad|quantity|total|libra|onza)$/i;
+  /^(item|nombre|producto|ingrediente|ingredient|articulo|artículo|unidad(\s+detalle)?|unit|costo(\s+unitario)?|precio|cantidad|quantity|total(\s+costo)?|libra|onza|costo\s+restaurante|restaurante\s+los\s+ranchos)$/i;
 
 const NO_PRICE_REASONS = new Set(["Missing unit price", "Missing cost"]);
 
@@ -65,4 +66,72 @@ export function formatSkipSummary(reasons: SkipReasonCount[]): string {
       row.count === 1 ? `1 ${row.reason}` : `${row.count} ${row.reason}`
     )
     .join(", ");
+}
+
+export const PREVIOUS_DUPLICATE_REASON = "exact duplicate of a previous upload";
+
+const BLANK_OR_TITLE_REASONS = new Set(["blank", "header/total row"]);
+
+export interface SkippedRowBreakdown {
+  previous_duplicates: number;
+  blank_or_title: number;
+  other: number;
+}
+
+export function summarizeSkippedRows(
+  skips: SkipCandidate[]
+): SkippedRowBreakdown {
+  const breakdown: SkippedRowBreakdown = {
+    previous_duplicates: 0,
+    blank_or_title: 0,
+    other: 0,
+  };
+  for (const skip of skips) {
+    if (skip.reason === PREVIOUS_DUPLICATE_REASON) {
+      breakdown.previous_duplicates += 1;
+    } else if (BLANK_OR_TITLE_REASONS.has(skip.reason)) {
+      breakdown.blank_or_title += 1;
+    } else {
+      breakdown.other += 1;
+    }
+  }
+  return breakdown;
+}
+
+export function formatSkipBreakdownSentence(
+  total: number,
+  breakdown: SkippedRowBreakdown,
+  lang: PreferredLanguage = "en"
+): string {
+  if (total === 0) return "";
+  const noun = t(
+    lang,
+    total === 1 ? "row" : "rows",
+    total === 1 ? "fila" : "filas"
+  );
+  const dup = t(
+    lang,
+    breakdown.previous_duplicates === 1
+      ? "1 was an exact duplicate of a previous upload"
+      : `${breakdown.previous_duplicates} were exact duplicates of a previous upload`,
+    breakdown.previous_duplicates === 1
+      ? "1 era un duplicado exacto de una carga anterior"
+      : `${breakdown.previous_duplicates} eran duplicados exactos de una carga anterior`
+  );
+  const blank = t(
+    lang,
+    breakdown.blank_or_title === 1
+      ? "1 was a blank or title row"
+      : `${breakdown.blank_or_title} were blank or title rows`,
+    breakdown.blank_or_title === 1
+      ? "1 era una fila en blanco o de título"
+      : `${breakdown.blank_or_title} eran filas en blanco o de título`
+  );
+  return t(
+    lang,
+    `Of the ${total} skipped ${noun}, ${dup} and ${blank}.`,
+    total === 1
+      ? `De la ${total} fila omitida, ${dup} y ${blank}.`
+      : `De las ${total} filas omitidas, ${dup} y ${blank}.`
+  );
 }

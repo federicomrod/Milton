@@ -4,6 +4,7 @@ export {
   headerFingerprint,
   layoutKeyForHeaders,
   layoutKeyForSheet,
+  uniquifyHeaders,
 } from "./header";
 export {
   classifyCostTabHeuristic,
@@ -13,12 +14,52 @@ export {
   type WorkbookAi,
 } from "./ai";
 export {
+  collectCostoRestauranteBlockNames,
+  collectCostoRestauranteBlocks,
+  mappingFromCostoRestauranteHeader,
+  readNumericCell,
+  sheetLooksLikeCostoRestauranteBlocks,
+  TOTAL_MISMATCH_REASON,
+  YIELD_INCONSISTENT_REASON,
+} from "./blocks";
+export {
+  countDishTitleBlocks,
+  looksLikeCostSummaryTab,
+  looksLikeDishRecipeTab,
+  refineTabClassification,
+} from "./classify";
+export {
   evaluateWorkbookRow,
   isSkippableWorkbookRow,
   resolvePriceListPrice,
   totalsMatch,
 } from "./parse";
-export { groupSkipReasons, skipReasonForWorkbookRow } from "./skip";
+export {
+  emptyRecipeNameReason,
+  isPackSizeReviewReason,
+  mappingSourceLabel,
+  missingRecipeNameReason,
+  missingUnitReason,
+  packSizeReviewReason,
+  tabTypeLabel,
+  totalMismatchReason,
+  unknownIngredientReason,
+  unknownUnitReason,
+} from "./copy";
+export {
+  formatSkipBreakdownSentence,
+  groupSkipReasons,
+  PREVIOUS_DUPLICATE_REASON,
+  skipReasonForWorkbookRow,
+  summarizeSkippedRows,
+} from "./skip";
+export {
+  AMBIGUOUS_MAPPING_REASON,
+  OVERLAPPING_MAPPING_REASON,
+  inferRecipeMappingDetails,
+  inferRecipeMappingFromContent,
+  pickMappingSampleRows,
+} from "./infer-mapping";
 export { nameMatchScore, normalizeMatchName } from "./names";
 export {
   canAutoLinkNames,
@@ -57,7 +98,11 @@ export {
   PICK_RESTAURANT_ERROR_ES,
   resolveUploadRestaurantScope,
 } from "./scope";
-export { mappingPassesSanity } from "./sanity";
+export {
+  mappingPassesSanity,
+  mappingSanityScore,
+  recipeMappingHasDistinctRoles,
+} from "./sanity";
 export type {
   CostTabType,
   WorkbookImportResult,

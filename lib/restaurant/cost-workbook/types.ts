@@ -17,6 +17,7 @@ export const HIGH_TAB_CONFIDENCE = 0.8;
 export const HIGH_COLUMN_CONFIDENCE = 0.75;
 
 export type MappingSource = "ai" | "saved" | "heuristic";
+export type WorkbookMappingSource = "ai" | "saved" | "mixed" | "heuristic";
 
 export interface ColumnBinding {
   column: string;
@@ -53,6 +54,8 @@ export interface DetectedSheet {
   /** Set when the sheet was kept so the headline can count it, but
    *  there was no usable header row to map. */
   emptyReason?: string;
+  /** Raw AOA used to parse repeating COSTO RESTAURANTE blocks. */
+  aoa?: unknown[][];
 }
 
 export interface WorkbookRowCandidate {
@@ -113,7 +116,7 @@ export interface WorkbookImportResult {
   review_count: number;
   tab_count: number;
   recipe_tab_count: number;
-  mapping_source: "ai" | "saved" | "mixed";
+  mapping_source: WorkbookMappingSource;
   default_currency: string;
   file_month: string | null;
   filename: string;
@@ -132,6 +135,12 @@ export interface WorkbookImportResult {
   saved_count: number;
   skipped_count: number;
   skipped_reasons: SkipReasonCount[];
+  skipped_breakdown: {
+    previous_duplicates: number;
+    blank_or_title: number;
+    other: number;
+  };
+  skipped_plain: string;
   menu_items_created: number;
   recipes_created: number;
   sub_recipes_created: number;
@@ -215,6 +224,9 @@ export interface UndoSnapshot {
   updated_components: Array<{
     id: string;
     inputs: RecipeInputSnapshot[];
+    component_id?: string;
+    output_quantity?: number;
+    output_unit?: string;
   }>;
   deleted_ingredients: DeletedIngredientSnapshot[];
   deleted_cost_entries: CostWorkbookCostEntry[];
@@ -296,6 +308,7 @@ export interface ImportedMenuItem {
   source_id: string | null;
   location_id?: string | null;
   brand_id?: string | null;
+  selling_price?: number | null;
 }
 
 export interface ImportedRecipe {
@@ -341,6 +354,12 @@ export interface GroupedRecipe {
   lines: RecipeLineCandidate[];
   output_quantity: number | null;
   output_unit: string | null;
+  /** Repeating COSTO RESTAURANTE blocks — do not invent a yield. */
+  block_layout?: boolean;
+  selling_price?: number | null;
+  cost_total?: number | null;
+  price_per_lb?: number | null;
+  price_per_oz?: number | null;
 }
 
 export interface CostWorkbookBatch {
@@ -352,7 +371,7 @@ export interface CostWorkbookBatch {
   imported_count: number;
   review_count: number;
   tab_summaries: TabImportSummary[];
-  mapping_source: "ai" | "saved" | "mixed";
+  mapping_source: WorkbookMappingSource;
   undone_at: string | null;
   undo_snapshot: UndoSnapshot;
 }

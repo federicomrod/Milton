@@ -1,13 +1,23 @@
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { resolveUnitCell } from "@/lib/restaurant/units";
 import type { WorkbookAi } from "./ai";
 import { classifyCostTabHeuristic } from "./ai";
+import {
+  collectCostoRestauranteBlockNames,
+  collectCostoRestauranteBlocks,
+  mappingFromCostoRestauranteHeader,
+  sheetLooksLikeCostoRestauranteBlocks,
+} from "./blocks";
+import { refineTabClassification } from "./classify";
 import { categoryForTab } from "./categories";
+import { resolveRecipeMapping } from "./infer-mapping";
 import {
   importedIngredientIdsFromBatches,
   retireImportedPreparedIngredients,
 } from "./convert";
 import { inferWorkbookDate } from "./date";
 import { mergeTypoDuplicates } from "./duplicates";
+import { rowIsBlank, textAt } from "./cells";
 import { layoutKeyForSheet } from "./header";
 import { evaluateWorkbookRow } from "./parse";
 import { dedupeWorkbookRows, persistSavedRows } from "./persist";
@@ -19,9 +29,11 @@ import { collectRecipeLines } from "./recipes";
 import { mappingPassesSanity } from "./sanity";
 import { readWorkbookSheets } from "./sheets";
 import {
+  formatSkipBreakdownSentence,
   groupSkipReasons,
   isNoPriceReviewReason,
   skipReasonForWorkbookRow,
+  summarizeSkippedRows,
 } from "./skip";
 import { mergeUndoSnapshots } from "./snapshot";
 import {
@@ -37,6 +49,7 @@ import {
   type SkipCandidate,
   type TabImportSummary,
   type WorkbookImportResult,
+  type WorkbookMappingSource,
   type WorkbookRowCandidate,
 } from "./types";
 
@@ -46,11 +59,26 @@ export function buildImportHeadline(input: {
   tabs: number;
   review: number;
   skipped: number;
+  lang?: PreferredLanguage;
 }): string {
-  const look =
-    input.review === 1 ? "1 needs a look." : `${input.review} need a look.`;
-  const skip = input.skipped === 1 ? "1 skipped." : `${input.skipped} skipped.`;
-  return `Saved ${input.saved}, updated ${input.updated} from ${input.tabs} tabs. ${look} ${skip}`;
+  const lang = input.lang ?? "en";
+  const look = t(
+    lang,
+    input.review === 1 ? "1 needs a look." : `${input.review} need a look.`,
+    input.review === 1
+      ? "1 necesita una mirada."
+      : `${input.review} necesitan una mirada.`
+  );
+  const skip = t(
+    lang,
+    input.skipped === 1 ? "1 skipped." : `${input.skipped} skipped.`,
+    input.skipped === 1 ? "1 omitida." : `${input.skipped} omitidas.`
+  );
+  return t(
+    lang,
+    `Saved ${input.saved}, updated ${input.updated} from ${input.tabs} tabs. ${look} ${skip}`,
+    `Se guardaron ${input.saved}, se actualizaron ${input.updated} de ${input.tabs} pestañas. ${look} ${skip}`
+  );
 }
 
 function requiredMapped(type: CostTabType, mapping: ColumnMapping): boolean {
@@ -94,6 +122,7 @@ interface ResolvedTab {
   mappingSource: MappingSource | "none";
   note?: string;
   persistMapping: boolean;
+  mappingHoldReason?: string;
 }
 
 async function resolveTab(input: {
@@ -108,6 +137,8 @@ async function resolveTab(input: {
     sheetName: sheet.name,
     headers: sheet.headers,
     sampleRows: sheet.sampleRows,
+    dataRows: sheet.dataRows,
+    aoa: sheet.aoa,
   });
   const trySaved = (type: CostTabType): SavedLayoutMap | undefined => {
     const saved = savedByKey.get(layoutKeyForSheet(sheet.headers, type));
@@ -139,10 +170,16 @@ async function resolveTab(input: {
     };
   }
 
-  const classified = await ai.classifyTab({
+  const classified = refineTabClassification({
+    proposed: await ai.classifyTab({
+      sheetName: sheet.name,
+      headers: sheet.headers,
+      sampleRows: sheet.sampleRows,
+    }),
     sheetName: sheet.name,
     headers: sheet.headers,
-    sampleRows: sheet.sampleRows,
+    dataRows: sheet.dataRows,
+    aoa: sheet.aoa,
   });
   const savedClassified = trySaved(classified.type);
   if (savedClassified) {
@@ -157,6 +194,27 @@ async function resolveTab(input: {
     };
   }
 
+  if (
+    (classified.type === "recipe" || classified.type === "sub_recipe") &&
+    sheet.aoa &&
+    sheetLooksLikeCostoRestauranteBlocks(sheet.aoa)
+  ) {
+    const mapping = mappingFromCostoRestauranteHeader(sheet.aoa);
+    return {
+      sheet,
+      tabType: classified.type,
+      tabConfidence: classified.confidence,
+      mapping,
+      mappingSource: "heuristic",
+      note: classified.notes,
+      persistMapping: Boolean(
+        mapping.ingredient_name?.column &&
+        mapping.quantity?.column &&
+        mapping.unit?.column
+      ),
+    };
+  }
+
   let mapping: ColumnMapping = {};
   if (classified.type !== "ignore") {
     mapping = await ai.mapColumns({
@@ -164,6 +222,29 @@ async function resolveTab(input: {
       headers: sheet.headers,
       sampleRows: sheet.sampleRows,
     });
+  }
+
+  if (classified.type === "recipe" || classified.type === "sub_recipe") {
+    const resolved = await resolveRecipeMapping({
+      tabType: classified.type,
+      headers: sheet.headers,
+      dataRows: sheet.dataRows,
+      sampleRows: sheet.sampleRows,
+      aiMapping: mapping,
+      mapColumns: (args) => ai.mapColumns(args),
+      currency,
+      defaultDate,
+    });
+    return {
+      sheet,
+      tabType: classified.type,
+      tabConfidence: classified.confidence,
+      mapping: resolved.mapping,
+      mappingSource: resolved.mappingSource,
+      note: classified.notes,
+      persistMapping: resolved.persistMapping,
+      mappingHoldReason: resolved.holdReason,
+    };
   }
 
   const sane =
@@ -199,6 +280,8 @@ export async function importCostWorkbook(input: {
   locationId?: string | null;
   brandId?: string | null;
   restaurantName?: string | null;
+  skipDuplicates?: boolean;
+  lang?: PreferredLanguage;
 }): Promise<WorkbookImportResult> {
   const sheets =
     input.sheets ?? (input.buffer ? readWorkbookSheets(input.buffer) : []);
@@ -236,6 +319,7 @@ export async function importCostWorkbook(input: {
     }
   );
 
+  const lang = input.lang ?? "en";
   const existingIngredients = await input.repo.listIngredients(input.companyId);
   const existingCategories = [
     ...new Set(
@@ -281,15 +365,119 @@ export async function importCostWorkbook(input: {
     });
   };
 
+  const knownSubRecipeNames = new Set<string>();
+  const existingComponents = await input.repo.listComponents(input.companyId);
+  for (const component of existingComponents) {
+    knownSubRecipeNames.add(component.name);
+  }
+  for (const resolved of resolvedTabs) {
+    if (resolved.tabType !== "sub_recipe") continue;
+    if (
+      resolved.sheet.aoa &&
+      sheetLooksLikeCostoRestauranteBlocks(resolved.sheet.aoa)
+    ) {
+      for (const name of collectCostoRestauranteBlockNames(
+        resolved.sheet.aoa
+      )) {
+        knownSubRecipeNames.add(name);
+      }
+      continue;
+    }
+    for (const row of resolved.sheet.dataRows) {
+      const named = textAt(row, resolved.mapping, "recipe_name");
+      if (named) knownSubRecipeNames.add(named);
+    }
+  }
+
   const processRecipeTab = (resolved: ResolvedTab) => {
     const { sheet, tabType, tabConfidence, mapping, mappingSource, note } =
       resolved;
     recipeTabCount += 1;
+    if (sheet.aoa && sheetLooksLikeCostoRestauranteBlocks(sheet.aoa)) {
+      const collected = collectCostoRestauranteBlocks({
+        tabName: sheet.name,
+        tabKind: tabType === "sub_recipe" ? "sub_recipe" : "recipe",
+        aoa: sheet.aoa,
+        knownSubRecipeNames,
+        lang,
+      });
+      recipeGroups.push(...collected.groups);
+      toReview.push(...collected.review);
+      skipped.push(...collected.skipped);
+      const blockMap =
+        requiredMapped(tabType, mapping) &&
+        mapping.ingredient_name?.column !== mapping.recipe_name?.column
+          ? mapping
+          : mappingFromCostoRestauranteHeader(sheet.aoa);
+      rememberMapping(resolved, tabType, blockMap);
+      tabSummaries.push({
+        name: sheet.name,
+        type: tabType,
+        confidence: tabConfidence,
+        mapping_source: mappingSource,
+        column_mapping: blockMap,
+        imported_count: collected.groups.reduce(
+          (sum, group) => sum + group.lines.length,
+          0
+        ),
+        review_count: collected.review.length,
+        skipped_count: collected.skipped.length,
+        skipped_reasons: groupSkipReasons(collected.skipped),
+        preview: sheet.sampleRows,
+        note:
+          note ??
+          (tabType === "sub_recipe" ? "sub-recipe / prep item" : "recipe"),
+      });
+      return;
+    }
+    if (resolved.mappingHoldReason || !requiredMapped(tabType, mapping)) {
+      const reason =
+        resolved.mappingHoldReason ??
+        "No está claro qué columna es la unidad, la cantidad o el ingrediente.";
+      const review: ReviewCandidate[] = [];
+      const tabSkips: SkipCandidate[] = [];
+      for (const [i, row] of sheet.dataRows.entries()) {
+        if (rowIsBlank(row)) {
+          tabSkips.push({
+            tabName: sheet.name,
+            rowIndex: i,
+            reason: "blank",
+            raw: row,
+          });
+          continue;
+        }
+        review.push({
+          tabName: sheet.name,
+          rowIndex: i,
+          reason,
+          raw: row,
+          suggested: null,
+        });
+      }
+      toReview.push(...review);
+      skipped.push(...tabSkips);
+      tabSummaries.push({
+        name: sheet.name,
+        type: tabType,
+        confidence: tabConfidence,
+        mapping_source: mappingSource,
+        column_mapping: mapping,
+        imported_count: 0,
+        review_count: review.length,
+        skipped_count: tabSkips.length,
+        skipped_reasons: groupSkipReasons(tabSkips),
+        preview: sheet.sampleRows,
+        note: note ?? reason,
+      });
+      return;
+    }
     const collected = collectRecipeLines({
       tabName: sheet.name,
       tabKind: tabType === "sub_recipe" ? "sub_recipe" : "recipe",
       dataRows: sheet.dataRows,
       mapping,
+      knownSubRecipeNames,
+      lang,
     });
     recipeGroups.push(...collected.groups);
     toReview.push(...collected.review);
@@ -384,6 +572,7 @@ export async function importCostWorkbook(input: {
         mapping,
         currency: input.currency,
         defaultDate: fileMonth,
+        lang,
       });
       if (result.ok) {
         const prepared = matchesPreparedName(
@@ -476,15 +665,15 @@ export async function importCostWorkbook(input: {
   for (const skip of merged.skipped) accountSkip(skip);
   for (const hint of merged.hints) accountReview(hint);
 
-  const usedSources = sources.filter((s) => s === "ai" || s === "saved");
-  const mappingSource: "ai" | "saved" | "mixed" =
+  const usedSources = sources.filter(
+    (s): s is MappingSource => s === "ai" || s === "saved" || s === "heuristic"
+  );
+  const mappingSource: WorkbookMappingSource =
     usedSources.length === 0
       ? "ai"
-      : usedSources.every((s) => s === "saved")
-        ? "saved"
-        : usedSources.every((s) => s === "ai")
-          ? "ai"
-          : "mixed";
+      : usedSources.every((s) => s === usedSources[0])
+        ? usedSources[0]
+        : "mixed";
 
   const batch = await input.repo.createBatch({
     companyId: input.companyId,
@@ -522,7 +711,9 @@ export async function importCostWorkbook(input: {
     batchId: batch.id,
     rows: merged.rows,
     repo: input.repo,
+    skipDuplicates: input.skipDuplicates,
   });
+  for (const skip of persistStats.skipped) accountSkip(skip);
 
   for (const fail of persistStats.failed) {
     toReview.push(fail);
@@ -542,6 +733,7 @@ export async function importCostWorkbook(input: {
     aliases: merged.aliases,
     locationId: input.locationId ?? null,
     brandId: input.brandId ?? null,
+    lang,
   });
   toReview.push(...recipeStats.review);
   skipped.push(...recipeStats.skipped);
@@ -589,6 +781,7 @@ export async function importCostWorkbook(input: {
   const updated = persistStats.updated;
   const review = toReview.length;
   const skippedReasons = groupSkipReasons(skipped);
+  const skippedBreakdown = summarizeSkippedRows(skipped);
   const tabCount = resolvedTabs.length;
 
   return {
@@ -600,6 +793,7 @@ export async function importCostWorkbook(input: {
       tabs: tabCount,
       review,
       skipped: skipped.length,
+      lang: input.lang,
     }),
     imported_count: saved + updated,
     review_count: review,
@@ -624,6 +818,12 @@ export async function importCostWorkbook(input: {
     saved_count: saved,
     skipped_count: skipped.length,
     skipped_reasons: skippedReasons,
+    skipped_breakdown: skippedBreakdown,
+    skipped_plain: formatSkipBreakdownSentence(
+      skipped.length,
+      skippedBreakdown,
+      input.lang
+    ),
     menu_items_created: recipeStats.menuItemsCreated,
     recipes_created: recipeStats.recipesCreated,
     sub_recipes_created: recipeStats.subRecipesCreated,
@@ -705,6 +905,19 @@ export async function undoCostImportBatch(
       component.id,
       component.inputs
     );
+    if (
+      component.component_id &&
+      component.output_quantity != null &&
+      component.output_unit
+    ) {
+      await repo.updateComponentYield({
+        companyId,
+        componentId: component.component_id,
+        componentRecipeId: component.id,
+        outputQuantity: component.output_quantity,
+        outputUnit: component.output_unit,
+      });
+    }
   }
   await repo.deletePosMappings(companyId, snap.created_mapping_ids ?? []);
   await repo.deleteRecipes(companyId, snap.created_recipe_ids ?? []);

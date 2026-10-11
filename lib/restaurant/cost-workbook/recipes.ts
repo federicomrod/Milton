@@ -1,10 +1,17 @@
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import {
   convertUnitStr,
   normalizeUnit,
   resolveUnitCell,
 } from "@/lib/restaurant/units";
 import { numberAt, textAt } from "./cells";
+import {
+  missingIngredientNameReason,
+  missingUnitReason,
+  yieldUnknownForReason,
+} from "./copy";
 import { recipeNameFromSheet } from "./names";
+import { resolveRecipeLineUnit } from "./portion-unit";
 import { skipReasonForWorkbookRow } from "./skip";
 import type {
   ColumnMapping,
@@ -15,18 +22,25 @@ import type {
 } from "./types";
 
 export function resolveSubRecipeYield(
-  group: GroupedRecipe
+  group: GroupedRecipe,
+  lang: PreferredLanguage = "en"
 ):
   | { ok: true; quantity: number; unit: string }
   | { ok: false; reason: string } {
   const mappedQty = group.output_quantity;
   const mappedUnit = group.output_unit?.trim() ?? "";
+  if (group.block_layout && (mappedQty == null || !mappedUnit)) {
+    return {
+      ok: false,
+      reason: yieldUnknownForReason(lang, group.name),
+    };
+  }
   if (mappedQty != null && mappedQty > 0 && mappedUnit) {
-    const resolved = resolveUnitCell(mappedUnit);
+    const resolved = resolveUnitCell(mappedUnit, lang);
     if (!resolved.ok) {
       return {
         ok: false,
-        reason: `can't tell the yield for ${group.name} (${resolved.reason})`,
+        reason: `${yieldUnknownForReason(lang, group.name)} (${resolved.reason})`,
       };
     }
     return {
@@ -40,7 +54,7 @@ export function resolveSubRecipeYield(
   if (summed) return { ok: true, ...summed };
   return {
     ok: false,
-    reason: `can't tell the yield for ${group.name}`,
+    reason: yieldUnknownForReason(lang, group.name),
   };
 }
 
@@ -66,10 +80,13 @@ export function evaluateRecipeLine(input: {
   recipeName: string;
   row: Record<string, unknown>;
   mapping: ColumnMapping;
+  knownSubRecipeNames?: Iterable<string>;
+  lang?: PreferredLanguage;
 }):
   | { ok: true; value: RecipeLineCandidate }
   | { ok: false; review: ReviewCandidate } {
   const { tabName, rowIndex, recipeName, row, mapping } = input;
+  const lang = input.lang ?? "en";
   const name = textAt(row, mapping, "ingredient_name");
   const fail = (reason: string): { ok: false; review: ReviewCandidate } => ({
     ok: false,
@@ -87,10 +104,15 @@ export function evaluateRecipeLine(input: {
     },
   });
 
-  if (!name) return fail("Missing ingredient name");
+  if (!name) return fail(missingIngredientNameReason(lang));
   const unitRaw = textAt(row, mapping, "unit");
-  if (!unitRaw) return fail("Missing unit");
-  const resolvedUnit = resolveUnitCell(unitRaw);
+  if (!unitRaw) return fail(missingUnitReason(lang));
+  const resolvedUnit = resolveRecipeLineUnit({
+    unitRaw,
+    ingredientName: name,
+    knownSubRecipeNames: input.knownSubRecipeNames ?? [],
+    lang,
+  });
   if (!resolvedUnit.ok) return fail(resolvedUnit.reason);
   const qty = numberAt(row, mapping, "quantity");
   if (qty === null || qty <= 0) {
@@ -105,7 +127,11 @@ export function evaluateRecipeLine(input: {
       recipeName,
       ingredient_name: name,
       quantity: qty * resolvedUnit.quantityMultiplier,
-      unit: resolvedUnit.quantityMultiplier !== 1 ? resolvedUnit.unit : unitRaw,
+      unit:
+        resolvedUnit.quantityMultiplier !== 1 ||
+        resolvedUnit.canonical === "portion"
+          ? resolvedUnit.unit
+          : unitRaw,
       raw: row,
     },
   };
@@ -130,6 +156,8 @@ export function collectRecipeLines(input: {
   tabKind: "recipe" | "sub_recipe";
   dataRows: Record<string, unknown>[];
   mapping: ColumnMapping;
+  knownSubRecipeNames?: Iterable<string>;
+  lang?: PreferredLanguage;
 }): {
   groups: GroupedRecipe[];
   review: ReviewCandidate[];
@@ -197,6 +225,8 @@ export function collectRecipeLines(input: {
       recipeName: currentName,
       row,
       mapping: input.mapping,
+      knownSubRecipeNames: input.knownSubRecipeNames,
+      lang: input.lang,
     });
     if (!evaluated.ok) {
       review.push(evaluated.review);

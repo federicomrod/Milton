@@ -391,6 +391,7 @@ export function createMemoryCostWorkbookRepo(
         source_id: input.sourceId,
         location_id: input.locationId ?? null,
         brand_id: input.brandId ?? null,
+        selling_price: input.sellingPrice ?? 0,
       };
       store.menuItems.push(row);
       return row;

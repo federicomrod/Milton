@@ -17,6 +17,7 @@ import type {
   SupplierIngredientSnapshot,
   TabImportSummary,
   UndoSnapshot,
+  WorkbookMappingSource,
   WorkbookRowCandidate,
 } from "./types";
 import { emptyUndoSnapshot } from "./types";
@@ -31,7 +32,7 @@ export interface CreateBatchInput {
   importedCount: number;
   reviewCount: number;
   tabSummaries: TabImportSummary[];
-  mappingSource: "ai" | "saved" | "mixed";
+  mappingSource: WorkbookMappingSource;
   createdBy?: string | null;
 }
 
@@ -159,6 +160,7 @@ export interface CostWorkbookRepo {
     category?: string | null;
     locationId?: string | null;
     brandId?: string | null;
+    sellingPrice?: number | null;
   }): Promise<ImportedMenuItem>;
   deleteMenuItems(companyId: string, ids: string[]): Promise<number>;
   listRecipes(companyId: string): Promise<ImportedRecipe[]>;
@@ -857,7 +859,7 @@ export function createSupabaseCostWorkbookRepo(
           company_id: input.companyId,
           name: input.name,
           category: input.category ?? null,
-          selling_price: 0,
+          selling_price: input.sellingPrice ?? 0,
           currency: input.currency,
           source_type: "import",
           source_id: input.sourceId,
@@ -877,6 +879,7 @@ export function createSupabaseCostWorkbookRepo(
         location_id:
           (data.location_id as string | null) ?? input.locationId ?? null,
         brand_id: (data.brand_id as string | null) ?? input.brandId ?? null,
+        selling_price: input.sellingPrice ?? 0,
       };
     },
 

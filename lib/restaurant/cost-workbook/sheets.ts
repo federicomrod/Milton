@@ -1,5 +1,9 @@
 import * as XLSX from "xlsx";
 import {
+  mappingFromCostoRestauranteHeader,
+  sheetLooksLikeCostoRestauranteBlocks,
+} from "./blocks";
+import {
   detectHeaderRow,
   headerFingerprint,
   layoutKeyForHeaders,
@@ -82,6 +86,25 @@ export function readWorkbookSheetsFromWorkbook(
   for (const { name, aoa } of parsed) {
     const detected = detectHeaderRow(aoa);
     if (!detected) {
+      if (sheetLooksLikeCostoRestauranteBlocks(aoa)) {
+        const mapping = mappingFromCostoRestauranteHeader(aoa);
+        const headers = [
+          mapping.ingredient_name?.column,
+          mapping.unit?.column,
+          mapping.quantity?.column,
+        ].filter((header): header is string => Boolean(header));
+        sheets.push({
+          name,
+          headerRowIndex: 0,
+          headers,
+          dataRows: [],
+          sampleRows: [],
+          headerFingerprint: headerFingerprint(headers),
+          layoutKey: layoutKeyForHeaders(headers),
+          aoa,
+        });
+        continue;
+      }
       sheets.push({
         name,
         headerRowIndex: 0,
@@ -91,6 +114,7 @@ export function readWorkbookSheetsFromWorkbook(
         headerFingerprint: headerFingerprint([]),
         layoutKey: layoutKeyForHeaders([]),
         emptyReason: "no header row",
+        aoa,
       });
       continue;
     }
@@ -107,6 +131,7 @@ export function readWorkbookSheetsFromWorkbook(
       sampleRows: dataRows.slice(0, 3),
       headerFingerprint: headerFingerprint(detected.headers),
       layoutKey: layoutKeyForHeaders(detected.headers),
+      aoa,
     });
   }
   return sheets;

@@ -51,6 +51,7 @@ import {
   resolveUploadRestaurantScope,
   shouldUseWorkbookImport,
 } from "@/lib/restaurant/cost-workbook";
+import { resolveRestaurantCockpitLanguage } from "@/lib/restaurant/language";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 
 export const dynamic = "force-dynamic";
@@ -131,6 +132,14 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    const { data: companyLangRow } = await supabase
+      .from("companies")
+      .select("preferred_language")
+      .eq("id", companyId)
+      .maybeSingle();
+    const lang = resolveRestaurantCockpitLanguage(
+      companyLangRow?.preferred_language
+    );
 
     // --- Parse file -------------------------------------------------------
     const isCSV = file.name.toLowerCase().endsWith(".csv");
@@ -202,6 +211,8 @@ export async function POST(req: NextRequest) {
             locationId: restaurantScope.locationId,
             brandId: restaurantScope.brandId,
             restaurantName: restaurantScope.name,
+            skipDuplicates,
+            lang,
           });
           return NextResponse.json(result);
         } catch (err) {

@@ -6,8 +6,10 @@ import {
 import { normalizeUnit } from "@/lib/restaurant/units";
 import type { CostWorkbookRepo } from "./repo";
 import { cloneCostEntry, costMonthKey } from "./snapshot";
+import { PREVIOUS_DUPLICATE_REASON } from "./skip";
 import type {
   ReviewCandidate,
+  SkipCandidate,
   UndoSnapshot,
   WorkbookRowCandidate,
 } from "./types";
@@ -49,17 +51,29 @@ export function dedupeWorkbookRows(rows: WorkbookRowCandidate[]): {
   return { rows: kept, skipped };
 }
 
+function sameCostNumbers(
+  left: { quantity: number; total_cost: number },
+  right: { quantity: number; total_cost: number }
+): boolean {
+  return (
+    Math.abs(left.quantity - right.quantity) < 1e-9 &&
+    Math.abs(left.total_cost - right.total_cost) < 1e-9
+  );
+}
+
 export async function persistSavedRows(input: {
   companyId: string;
   currency: string;
   batchId: string;
   rows: WorkbookRowCandidate[];
   repo: CostWorkbookRepo;
+  skipDuplicates?: boolean;
 }): Promise<{
   ingredientsCreated: number;
   inserted: number;
   updated: number;
   failed: ReviewCandidate[];
+  skipped: SkipCandidate[];
   changes: UndoSnapshot;
 }> {
   const ingredients = await input.repo.listIngredients(input.companyId);
@@ -167,6 +181,7 @@ export async function persistSavedRows(input: {
     id: string;
     patch: IngredientCostEntryInsert;
   }> = [];
+  const skipped: SkipCandidate[] = [];
   const ingredientCostUpdates = new Map<
     string,
     { currentUnitCost: number; currency: string }
@@ -182,6 +197,21 @@ export async function persistSavedRows(input: {
     };
     const monthKey = `${ingredient.id}|${costMonthKey(item.row.cost_date)}`;
     const existing = existingByKey.get(monthKey);
+    if (
+      existing &&
+      input.skipDuplicates &&
+      existing.cost_date === insert.cost_date &&
+      existing.unit === insert.unit &&
+      sameCostNumbers(existing, insert)
+    ) {
+      skipped.push({
+        tabName: item.row.tabName,
+        rowIndex: item.row.rowIndex,
+        reason: PREVIOUS_DUPLICATE_REASON,
+        raw: item.row.raw,
+      });
+      continue;
+    }
     if (existing) {
       updates.push({ id: existing.id, patch: insert });
       changes.updated_entries.push({
@@ -255,6 +285,7 @@ export async function persistSavedRows(input: {
     inserted: insertedRows.length,
     updated: updates.length,
     failed,
+    skipped,
     changes,
   };
 }

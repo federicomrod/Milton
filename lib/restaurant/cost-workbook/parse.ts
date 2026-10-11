@@ -1,12 +1,14 @@
 // Plain-code parsing + validation. AI never invents these numbers.
 
 import { parseCostImportDate } from "@/lib/restaurant/cost-import";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import {
   currencyMismatchReason,
   normalizeCurrency,
 } from "@/lib/restaurant/currency";
 import { convertUnitPriceStr, resolveUnitCell } from "@/lib/restaurant/units";
 import { numberAt, textAt } from "./cells";
+import { missingIngredientNameReason, missingUnitReason } from "./copy";
 import { implausiblePriceReason } from "./plausibility";
 import { skipReasonForWorkbookRow } from "./skip";
 import type {
@@ -93,11 +95,13 @@ export function evaluateWorkbookRow(input: {
   mapping: ColumnMapping;
   currency: string;
   defaultDate: string;
+  lang?: PreferredLanguage;
 }):
   | { ok: true; value: WorkbookRowCandidate }
   | { ok: false; review: ReviewCandidate } {
   const { tabType, tabName, rowIndex, row, mapping, currency, defaultDate } =
     input;
+  const lang = input.lang ?? "en";
 
   const currencyReason = currencyReviewReason(row, mapping, currency);
   if (currencyReason) {
@@ -121,7 +125,8 @@ export function evaluateWorkbookRow(input: {
       row,
       mapping,
       currency,
-      defaultDate
+      defaultDate,
+      lang
     );
   }
   return evaluateQuantityCostRow(
@@ -131,7 +136,8 @@ export function evaluateWorkbookRow(input: {
     mapping,
     currency,
     defaultDate,
-    tabType === "purchases"
+    tabType === "purchases",
+    lang
   );
 }
 
@@ -141,7 +147,8 @@ function evaluatePriceListRow(
   row: Record<string, unknown>,
   mapping: ColumnMapping,
   currency: string,
-  defaultDate: string
+  defaultDate: string,
+  lang: PreferredLanguage
 ):
   | { ok: true; value: WorkbookRowCandidate }
   | { ok: false; review: ReviewCandidate } {
@@ -162,7 +169,13 @@ function evaluatePriceListRow(
     },
   });
 
-  if (!name) return fail("Missing ingredient name");
+  if (!name) return fail(missingIngredientNameReason(lang));
+
+  const unitRaw = textAt(row, mapping, "unit");
+  if (unitRaw) {
+    const resolvedUnit = resolveUnitCell(unitRaw, lang);
+    if (!resolvedUnit.ok) return fail(resolvedUnit.reason);
+  }
 
   const resolved = resolvePriceListPrice({
     priceLb: numberAt(row, mapping, "price_per_lb"),
@@ -239,7 +252,8 @@ function evaluateQuantityCostRow(
   mapping: ColumnMapping,
   currency: string,
   defaultDate: string,
-  requireQuantity: boolean
+  requireQuantity: boolean,
+  lang: PreferredLanguage
 ):
   | { ok: true; value: WorkbookRowCandidate }
   | { ok: false; review: ReviewCandidate } {
@@ -258,11 +272,11 @@ function evaluateQuantityCostRow(
     },
   });
 
-  if (!name) return fail("Missing ingredient name");
+  if (!name) return fail(missingIngredientNameReason(lang));
 
   const unitRaw = textAt(row, mapping, "unit");
-  if (!unitRaw) return fail("Missing unit", { ingredient_name: name });
-  const resolvedUnit = resolveUnitCell(unitRaw);
+  if (!unitRaw) return fail(missingUnitReason(lang), { ingredient_name: name });
+  const resolvedUnit = resolveUnitCell(unitRaw, lang);
   if (!resolvedUnit.ok) {
     return fail(resolvedUnit.reason, {
       ingredient_name: name,

@@ -19,6 +19,8 @@
 //     and unsupported conversions return an explicit failure instead of
 //     guessing — same contract as the typed variant.
 
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { t } from "@/lib/restaurant/language";
 import type { UnitOfMeasure } from "@/types/restaurant";
 
 export type ConversionOk = { ok: true; value: number };
@@ -113,13 +115,21 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   kgs: "kg",
   kilo: "kg",
   kilos: "kg",
+  "kilo(s)": "kg",
   kilogram: "kg",
   kilograms: "kg",
   g: "g",
   gr: "g",
   grs: "g",
+  gm: "g",
+  grm: "g",
+  grms: "g",
+  grmo: "g",
+  grako: "g",
+  gram0: "g",
   gramo: "g",
   gramos: "g",
+  "gramo(s)": "g",
   gram: "g",
   grams: "g",
   // volume
@@ -128,6 +138,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   ltr: "l",
   litro: "l",
   litros: "l",
+  "litro(s)": "l",
   liter: "l",
   liters: "l",
   litre: "l",
@@ -142,6 +153,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   gals: "gal",
   galon: "gal",
   galones: "gal",
+  "galon(es)": "gal",
   gallon: "gal",
   gallons: "gal",
   // discrete — bare kitchen pack words stay "each"; a size next to them
@@ -150,6 +162,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   units: "unit",
   unidad: "unit",
   unidades: "unit",
+  "unidad(es)": "unit",
   unida: "unit",
   unid: "unit",
   und: "unit",
@@ -201,6 +214,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   oz: "oz",
   onza: "oz",
   onzas: "oz",
+  "onza(s)": "oz",
   onz: "oz",
   ounce: "oz",
   ounces: "oz",
@@ -208,6 +222,7 @@ const UNIT_SYNONYMS: Record<string, UnitOfMeasure> = {
   lbs: "lb",
   libra: "lb",
   libras: "lb",
+  "libra(s)": "lb",
   pound: "lb",
   pounds: "lb",
 };
@@ -415,11 +430,19 @@ export type ResolvedUnitCell =
  * sizes (BOLSA 5 LB, PAQUETE (14 UNIDADES)) expand. Anything else with
  * a pack size goes to needs-a-look in tú-neutral LatAm Spanish.
  */
+const SUB_RECIPE_PORTION_UNITS = new Set(["convoy", "orden", "ordenes"]);
+
+/** CONVOY / ORDEN are portion units only for an exact sub-recipe name. */
+export function isSubRecipePortionUnit(raw: string): boolean {
+  return SUB_RECIPE_PORTION_UNITS.has(foldUnitKey(raw));
+}
+
 export function resolveUnitCell(
-  raw: string | null | undefined
+  raw: string | null | undefined,
+  lang: PreferredLanguage = "en"
 ): ResolvedUnitCell {
   if (typeof raw !== "string" || !raw.trim()) {
-    return { ok: false, reason: "Missing unit" };
+    return { ok: false, reason: t(lang, "Missing unit", "Falta la unidad") };
   }
   const explicit = parseExplicitPackSize(raw);
   if (explicit) {
@@ -440,9 +463,15 @@ export function resolveUnitCell(
     };
   }
   if (isAmbiguousPackUnit(raw)) {
-    return { ok: false, reason: PACK_SIZE_REVIEW_REASON };
+    return {
+      ok: false,
+      reason: t(lang, "pack size, needs conversion", PACK_SIZE_REVIEW_REASON),
+    };
   }
-  return { ok: false, reason: `unknown unit (${raw})` };
+  return {
+    ok: false,
+    reason: t(lang, `unknown unit (${raw})`, `unidad desconocida (${raw})`),
+  };
 }
 
 function conversionSides(

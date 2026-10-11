@@ -1,6 +1,19 @@
 import { nameKey } from "@/lib/restaurant/cost-import";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { isSubRecipePortionUnit } from "@/lib/restaurant/units";
+import {
+  uncertainSubRecipeReason,
+  unknownIngredientReason,
+  unknownUnitReason,
+} from "./copy";
 import { canAutoLinkNames, resolveAliasName } from "./duplicates";
-import { REVIEW_NAME_SCORE, bestNameMatch, nameMatchScore } from "./names";
+import { rawLineUnit } from "./portion-unit";
+import {
+  AUTO_NAME_SCORE,
+  REVIEW_NAME_SCORE,
+  bestNameMatch,
+  nameMatchScore,
+} from "./names";
 import { resolveSubRecipeYield } from "./recipes";
 import type { CostWorkbookRepo } from "./repo";
 import type {
@@ -19,14 +32,22 @@ export function resolveCatalogInput(
   lineName: string,
   ingredients: Array<{ id: string; name: string }>,
   components: Array<{ id: string; name: string }>,
-  aliases: Map<string, string> = new Map()
+  aliases: Map<string, string> = new Map(),
+  lang: PreferredLanguage = "en"
 ): { ok: true; input: RecipeInputSnapshot } | { ok: false; reason: string } {
   const resolvedName = resolveAliasName(lineName, aliases);
-  const exactComponent = components.find(
+  const exactComponents = components.filter(
     (item) =>
       nameKey(item.name) === nameKey(lineName) ||
       nameKey(item.name) === nameKey(resolvedName)
   );
+  if (exactComponents.length > 1) {
+    return {
+      ok: false,
+      reason: uncertainSubRecipeReason(lang, lineName),
+    };
+  }
+  const exactComponent = exactComponents[0];
   if (exactComponent) {
     return {
       ok: true,
@@ -64,27 +85,31 @@ export function resolveCatalogInput(
     components,
     (item) => item.name
   );
+  if (componentHit && componentHit.score >= AUTO_NAME_SCORE) {
+    return {
+      ok: false,
+      reason: uncertainSubRecipeReason(
+        lang,
+        `${lineName} ↔ ${componentHit.item.name}`
+      ),
+    };
+  }
   const ingredientHit = bestNameMatch(
     resolvedName,
     ingredients,
     (item) => item.name
   );
-  const best =
-    (componentHit?.score ?? 0) >= (ingredientHit?.score ?? 0)
-      ? componentHit
-        ? { kind: "component" as const, hit: componentHit }
-        : null
-      : ingredientHit
-        ? { kind: "ingredient" as const, hit: ingredientHit }
-        : null;
+  const best = ingredientHit
+    ? { kind: "ingredient" as const, hit: ingredientHit }
+    : null;
 
   if (best && canAutoLinkNames(resolvedName, best.hit.item.name)) {
     return {
       ok: true,
       input: {
-        input_type: best.kind,
-        ingredient_id: best.kind === "ingredient" ? best.hit.item.id : null,
-        component_id: best.kind === "component" ? best.hit.item.id : null,
+        input_type: "ingredient",
+        ingredient_id: best.hit.item.id,
+        component_id: null,
         quantity: 0,
         unit: "",
         notes: null,
@@ -97,7 +122,7 @@ export function resolveCatalogInput(
       reason: `ingredient name unsure (${lineName} ↔ ${best.hit.item.name})`,
     };
   }
-  return { ok: false, reason: `unknown ingredient (${lineName})` };
+  return { ok: false, reason: unknownIngredientReason(lang, lineName) };
 }
 
 function withQty(
@@ -124,6 +149,7 @@ export async function persistWorkbookRecipes(input: {
   aliases?: Map<string, string>;
   locationId?: string | null;
   brandId?: string | null;
+  lang?: PreferredLanguage;
 }): Promise<{
   menuItemsCreated: number;
   recipesCreated: number;
@@ -172,6 +198,7 @@ export async function persistWorkbookRecipes(input: {
   const skipped: SkipCandidate[] = [];
   const changes = emptyUndoSnapshot();
 
+  const lang = input.lang ?? "en";
   const resolveGroup = (group: GroupedRecipe): RecipeInputSnapshot[] | null => {
     const inputs: RecipeInputSnapshot[] = [];
     for (const line of group.lines) {
@@ -179,7 +206,8 @@ export async function persistWorkbookRecipes(input: {
         line.ingredient_name,
         liveIngredients,
         liveComponents,
-        input.aliases ?? new Map()
+        input.aliases ?? new Map(),
+        lang
       );
       if (!resolved.ok) {
         review.push({
@@ -193,6 +221,25 @@ export async function persistWorkbookRecipes(input: {
             quantity: line.quantity,
           },
         });
+        continue;
+      }
+      const rawUnit = rawLineUnit(line);
+      if (isSubRecipePortionUnit(rawUnit)) {
+        if (resolved.input.input_type !== "component") {
+          review.push({
+            tabName: line.tabName,
+            rowIndex: line.rowIndex,
+            reason: unknownUnitReason(lang, rawUnit),
+            raw: line.raw,
+            suggested: {
+              ingredient_name: line.ingredient_name,
+              unit: rawUnit,
+              quantity: line.quantity,
+            },
+          });
+          continue;
+        }
+        inputs.push(withQty(resolved.input, { ...line, unit: "portion" }));
         continue;
       }
       inputs.push(withQty(resolved.input, line));
@@ -215,7 +262,7 @@ export async function persistWorkbookRecipes(input: {
   for (const group of subGroups) {
     const inputs = resolveGroup(group);
     if (!inputs) continue;
-    const yieldResult = resolveSubRecipeYield(group);
+    const yieldResult = resolveSubRecipeYield(group, lang);
     if (!yieldResult.ok) {
       review.push({
         tabName: group.tabName,
@@ -249,6 +296,9 @@ export async function persistWorkbookRecipes(input: {
         changes.updated_components.push({
           id: previous.id,
           inputs: previousInputs,
+          component_id: existing.id,
+          output_quantity: previous.output_quantity,
+          output_unit: previous.output_unit,
         });
         await input.repo.replaceComponentRecipeInputs(
           input.companyId,
@@ -336,6 +386,7 @@ export async function persistWorkbookRecipes(input: {
         sourceId: input.batchId,
         locationId,
         brandId,
+        sellingPrice: group.selling_price ?? 0,
       });
       changes.created_menu_item_ids.push(menuItem.id);
       menuByName.set(menuKey(menuItem.name, menuItem.location_id), menuItem);

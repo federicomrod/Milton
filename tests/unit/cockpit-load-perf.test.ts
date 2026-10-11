@@ -22,6 +22,14 @@ describe("cockpit load split (#134)", () => {
     expect(read("app/dashboard/restaurant/sales/page.tsx")).not.toContain(
       "loadCockpitPageModel"
     );
+    expect(read("app/dashboard/restaurant/sales/page.tsx")).not.toContain(
+      "explorerRows"
+    );
+    const salesLoader = read("lib/restaurant/sales-page-data.ts");
+    expect(salesLoader).toContain("loadCockpitExecutiveFast");
+    expect(salesLoader).toContain("loadCachedPosSalesRows");
+    expect(salesLoader).not.toContain("loadCockpitPageModel");
+    expect(salesLoader).not.toContain("explorerRows");
     expect(read("app/dashboard/restaurant/costs/page.tsx")).toContain(
       "loadMenuAreaModel"
     );

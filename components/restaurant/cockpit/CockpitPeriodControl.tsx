@@ -1,7 +1,7 @@
 // components/restaurant/cockpit/CockpitPeriodControl.tsx
 //
-// Cockpit-only period toggle: last 7 days / month. Other pages keep the
-// read-only DateRangeControl. Writes ?period= last_7|month.
+// Period toggle: last 7 days / month. Cockpit and Sales honour
+// lib/restaurant/cockpit-period.ts. Writes ?period= last_7|month.
 
 "use client";
 

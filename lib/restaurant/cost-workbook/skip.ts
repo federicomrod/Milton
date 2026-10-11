@@ -67,8 +67,7 @@ export function formatSkipSummary(reasons: SkipReasonCount[]): string {
     .join(", ");
 }
 
-export const PREVIOUS_DUPLICATE_REASON =
-  "exact duplicate of a previous upload";
+export const PREVIOUS_DUPLICATE_REASON = "exact duplicate of a previous upload";
 
 const BLANK_OR_TITLE_REASONS = new Set(["blank", "header/total row"]);
 
@@ -78,7 +77,9 @@ export interface SkippedRowBreakdown {
   other: number;
 }
 
-export function summarizeSkippedRows(skips: SkipCandidate[]): SkippedRowBreakdown {
+export function summarizeSkippedRows(
+  skips: SkipCandidate[]
+): SkippedRowBreakdown {
   const breakdown: SkippedRowBreakdown = {
     previous_duplicates: 0,
     blank_or_title: 0,

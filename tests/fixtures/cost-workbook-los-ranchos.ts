@@ -212,6 +212,7 @@ export function buildShiftedSubRecipeWorkbook(): Buffer {
     ],
     ["YUCA FRITA"],
     ["YUCA FRITA", "Yuca", 2, "LB", 0.8, 1.6],
+    ["TOTAL", "", "", "", "", ""],
   ];
   XLSX.utils.book_append_sheet(
     wb,

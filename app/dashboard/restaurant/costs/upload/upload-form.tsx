@@ -740,7 +740,9 @@ function WorkbookResult({
             : ""}
         </p>
         {workbook.skipped_plain ? (
-          <p className="text-sm text-muted-foreground">{workbook.skipped_plain}</p>
+          <p className="text-sm text-muted-foreground">
+            {workbook.skipped_plain}
+          </p>
         ) : null}
         <div className="flex flex-wrap gap-2">
           <Button

@@ -2071,7 +2071,7 @@ function aiMappingUnitToIngredientName(): WorkbookAi & {
 } {
   const base = mockedAi();
   const mapColumns = vi.fn(
-    async (input: { tabType: string; headers: string[] }) => {
+    async (input: Parameters<WorkbookAi["mapColumns"]>[0]) => {
       const mapped = await base.mapColumns(input);
       if (input.tabType !== "sub_recipe") return mapped;
       const ingredient = input.headers.find((header) =>
@@ -2089,9 +2089,9 @@ function aiMappingUnitToIngredientName(): WorkbookAi & {
 
 describe("recipe mapping fallback and skip breakdown", () => {
   it("uniquifies blank and duplicate headers", () => {
-    expect(uniquifyHeaders(["Receta", "Ingrediente", "Cantidad", "", "Costo"])).toEqual(
-      ["Receta", "Ingrediente", "Cantidad", "__col_3", "Costo"]
-    );
+    expect(
+      uniquifyHeaders(["Receta", "Ingrediente", "Cantidad", "", "Costo"])
+    ).toEqual(["Receta", "Ingrediente", "Cantidad", "__col_3", "Costo"]);
     expect(uniquifyHeaders(["Ingrediente", "Cantidad", "Ingrediente"])).toEqual(
       ["Ingrediente", "Cantidad", "Ingrediente_2"]
     );
@@ -2173,9 +2173,11 @@ describe("recipe mapping fallback and skip breakdown", () => {
       )
     ).toBe(false);
 
+    expect(result.skipped_count).toBeGreaterThan(0);
+    expect(result.skipped_breakdown.previous_duplicates).toBe(0);
+    expect(result.skipped_breakdown.blank_or_title).toBeGreaterThan(0);
     expect(result.skipped_plain).toMatch(/exact duplicate/i);
     expect(result.skipped_plain).toMatch(/blank or title/i);
-    expect(result.skipped_breakdown.previous_duplicates).toBe(0);
   });
 
   it("does not reuse a saved mapping that now fails sanity", async () => {
@@ -2217,7 +2219,9 @@ describe("recipe mapping fallback and skip breakdown", () => {
     expect(result.sub_recipes_created).toBeGreaterThanOrEqual(2);
     expect(ai.mapColumns).toHaveBeenCalled();
 
-    const saved = store.mappings.find((row) => row.tab_name === "SUB RECETAS 2");
+    const saved = store.mappings.find(
+      (row) => row.tab_name === "SUB RECETAS 2"
+    );
     expect(saved?.column_mapping.unit?.column).toBe("__col_3");
     expect(saved?.column_mapping.unit?.column).not.toBe("Ingrediente");
   });

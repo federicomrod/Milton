@@ -504,8 +504,7 @@ export async function importCostWorkbook(input: {
   for (const hint of merged.hints) accountReview(hint);
 
   const usedSources = sources.filter(
-    (s): s is MappingSource =>
-      s === "ai" || s === "saved" || s === "heuristic"
+    (s): s is MappingSource => s === "ai" || s === "saved" || s === "heuristic"
   );
   const mappingSource: WorkbookMappingSource =
     usedSources.length === 0

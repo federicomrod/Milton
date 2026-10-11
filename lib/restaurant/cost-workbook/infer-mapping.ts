@@ -5,15 +5,8 @@
 import { parseCostImportNumber } from "@/lib/restaurant/cost-import";
 import { resolveUnitCell } from "@/lib/restaurant/units";
 import { mapColumnsHeuristic } from "./ai";
-import {
-  mappingSanityScore,
-  SANITY_PASS_RATIO,
-} from "./sanity";
-import type {
-  ColumnMapping,
-  CostTabType,
-  MappingSource,
-} from "./types";
+import { mappingSanityScore, SANITY_PASS_RATIO } from "./sanity";
+import type { ColumnMapping, CostTabType, MappingSource } from "./types";
 
 const UNIT_RATIO = 0.4;
 const QTY_RATIO = 0.4;
@@ -80,7 +73,10 @@ function columnStats(rows: Record<string, unknown>[]): ColumnStats[] {
   });
 }
 
-function bind(column: string, confidence = 0.86): { column: string; confidence: number } {
+function bind(
+  column: string,
+  confidence = 0.86
+): { column: string; confidence: number } {
   return { column, confidence };
 }
 
@@ -98,14 +94,11 @@ export function inferRecipeMappingFromContent(
   const unitCol = stats
     .filter((col) => col.units / col.nonempty >= UNIT_RATIO)
     .sort(
-      (a, b) =>
-        b.units / b.nonempty - a.units / a.nonempty || b.units - a.units
+      (a, b) => b.units / b.nonempty - a.units / a.nonempty || b.units - a.units
     )[0];
 
   const qtyCandidates = stats.filter(
-    (col) =>
-      col.col !== unitCol?.col &&
-      col.numbers / col.nonempty >= QTY_RATIO
+    (col) => col.col !== unitCol?.col && col.numbers / col.nonempty >= QTY_RATIO
   );
   const qtyCol = qtyCandidates.slice().sort((a, b) => {
     if (unitCol) {
@@ -123,24 +116,17 @@ export function inferRecipeMappingFromContent(
   if (unitCol) used.add(unitCol.col);
   if (qtyCol) used.add(qtyCol.col);
 
-  const ingredientCol = stats
-    .filter((col) => !used.has(col.col) && col.texts - col.units > 0)
-    .sort((a, b) => {
-      const aScore = a.texts - a.units + a.uniqueTexts * 0.5;
-      const bScore = b.texts - b.units + b.uniqueTexts * 0.5;
-      return bScore - aScore;
-    })[0];
-  if (ingredientCol) used.add(ingredientCol.col);
-
-  const recipeCol = stats
-    .filter(
-      (col) =>
-        !used.has(col.col) &&
-        col.texts > 0 &&
-        col.uniqueTexts < col.texts * 0.7
-    )
+  const textCols = stats.filter(
+    (col) => !used.has(col.col) && col.texts - col.units > 0
+  );
+  const recipeCol = textCols
+    .filter((col) => col.texts >= 2 && col.uniqueTexts < col.texts * 0.7)
+    .sort((a, b) => a.uniqueTexts / a.texts - b.uniqueTexts / b.texts)[0];
+  const ingredientCol = textCols
+    .filter((col) => col.col !== recipeCol?.col)
     .sort(
-      (a, b) => a.uniqueTexts / a.texts - b.uniqueTexts / b.texts
+      (a, b) =>
+        b.uniqueTexts - a.uniqueTexts || b.texts - b.units - (a.texts - a.units)
     )[0];
 
   const mapping: ColumnMapping = {};

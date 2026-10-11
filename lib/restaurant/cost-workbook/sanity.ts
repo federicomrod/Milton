@@ -50,8 +50,7 @@ export function mappingSanityScore(input: {
     });
   }
   if (evaluated.length === 0) return 0;
-  const rowRatio =
-    evaluated.filter((row) => row.ok).length / evaluated.length;
+  const rowRatio = evaluated.filter((row) => row.ok).length / evaluated.length;
 
   if (input.tabType !== "price_list") {
     const unitCol = input.mapping.unit?.column;

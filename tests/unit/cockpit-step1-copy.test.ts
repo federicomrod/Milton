@@ -8,7 +8,10 @@ const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 describe("cockpit step-1 review nits", () => {
   it("does not render a visible TODO step 2 box on the Menu tab", () => {
     const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
-    expect(page).toContain("TODO(step 2, #123)");
+    const menuTab = read(
+      "components/restaurant/cockpit/MenuProfitabilityTab.tsx"
+    );
+    expect(page + menuTab).toContain("TODO(step 2, #123)");
     expect(page).not.toContain("TODO step 2: category mix");
     expect(page).not.toContain("TODO paso 2:");
   });
@@ -16,8 +19,10 @@ describe("cockpit step-1 review nits", () => {
   it("names the two revenue figures so the strip and Explorer cannot be confused", () => {
     const strip = read("components/restaurant/cockpit/CockpitKpiStrip.tsx");
     const explorer = read("components/restaurant/RestaurantSalesExplorer.tsx");
-    expect(strip).toContain("Net sales (all loaded data)");
-    expect(strip).toContain("not the Explorer date filter");
+    expect(strip).toContain("Net sales");
+    expect(strip).toContain("Ventas netas");
+    expect(strip).not.toContain("all loaded data");
+    expect(strip).not.toContain("todos los datos cargados");
     expect(explorer).toContain("Net sales (filtered)");
     expect(explorer).toContain("t(lang,");
   });

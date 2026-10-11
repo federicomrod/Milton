@@ -18,6 +18,9 @@ import { KitchenQrCard } from "@/components/restaurant/kitchen/KitchenQrCard";
 import { KitchenStaffCard } from "@/components/restaurant/kitchen/KitchenStaffCard";
 import { KitchenReportsCard } from "@/components/restaurant/kitchen/KitchenReportsCard";
 import { KitchenRecipeDraftsCard } from "@/components/restaurant/kitchen/KitchenRecipeDraftsCard";
+import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
+import { t } from "@/lib/restaurant/language";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 
 export const dynamic = "force-dynamic";
 
@@ -41,14 +44,22 @@ export default async function KitchenPage() {
   ]);
   const canManage = canManageKitchenQr({ isMiltonAdmin, membershipRole });
   const locations = (locationsRes.data ?? []) as { id: string; name: string }[];
+  const { lang } = await loadRestaurantShellChrome();
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-8">
-      <div>
-        <h1 className="text-2xl font-semibold">Kitchen (Telegram)</h1>
+      <div className="space-y-2">
+        <OperatingPageHeader
+          title={t(lang, "Kitchen", "Cocina")}
+          lang={lang}
+          showDateRange={false}
+        />
         <p className="text-sm text-muted-foreground">
-          Let your cooks report what&apos;s running out, 86&apos;d or wasted —
-          by text, voice note or photo — just by scanning a QR.
+          {t(
+            lang,
+            "Let your cooks report what's running out, 86'd or wasted — by text, voice note or photo — just by scanning a QR.",
+            "Tus cocineros pueden avisar qué se está acabando, qué está agotado (86) o qué se desperdició — por texto, nota de voz o foto — solo escaneando un código QR."
+          )}
         </p>
       </div>
       <KitchenQrCard canManage={canManage} />

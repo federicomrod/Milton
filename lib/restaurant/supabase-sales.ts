@@ -34,7 +34,7 @@ import type { POSSalesItem } from "@/types/restaurant";
 import { warnIfTruncated } from "@/lib/restaurant/paginated-read";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import {
-  resolvePreferredLanguage,
+  resolveRestaurantCockpitLanguage,
   type PreferredLanguage,
 } from "@/lib/restaurant/language";
 import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
@@ -577,10 +577,10 @@ async function resolveCompanyPreferredLanguage(
       .select("preferred_language")
       .eq("id", companyId)
       .maybeSingle();
-    return resolvePreferredLanguage(data?.preferred_language);
+    return resolveRestaurantCockpitLanguage(data?.preferred_language);
   } catch (err) {
     console.error("[supabase-sales] preferred_language lookup:", err);
-    return resolvePreferredLanguage(null);
+    return resolveRestaurantCockpitLanguage(null);
   }
 }
 

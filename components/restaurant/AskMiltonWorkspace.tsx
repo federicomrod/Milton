@@ -12,7 +12,9 @@
 
 import {
   Suspense,
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -39,6 +41,53 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { withLocationParam } from "@/components/restaurant/RestaurantShell";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+
+const MiltonUiLang = createContext<PreferredLanguage>("es");
+function useMiltonLang(): PreferredLanguage {
+  return useContext(MiltonUiLang);
+}
+
+function suggestedQuestions(lang: PreferredLanguage): string[] {
+  return [
+    t(
+      lang,
+      "What are my biggest margin risks?",
+      "¿Cuáles son mis mayores riesgos de margen?"
+    ),
+    t(
+      lang,
+      "Which dishes should I fix first?",
+      "¿Qué platos debo corregir primero?"
+    ),
+    t(
+      lang,
+      "Which suppliers increased prices?",
+      "¿Qué proveedores subieron los precios?"
+    ),
+    t(
+      lang,
+      "Which ingredients are most expensive?",
+      "¿Qué ingredientes salen más caros?"
+    ),
+    t(
+      lang,
+      "Which menu items have missing recipes?",
+      "¿Qué platillos no tienen receta?"
+    ),
+    t(
+      lang,
+      "Where is cost coverage incomplete?",
+      "¿Dónde está incompleta la cobertura de costo?"
+    ),
+    t(
+      lang,
+      "What changed after the latest invoice?",
+      "¿Qué cambió después de la última factura?"
+    ),
+    t(lang, "What should I do this week?", "¿Qué debería hacer esta semana?"),
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Types — locally declared to avoid pulling server-only modules client-side.
@@ -111,49 +160,52 @@ interface ChatTurn {
   answer?: AnswerPayload;
 }
 
-const SUGGESTED_QUESTIONS = [
-  "What are my biggest margin risks?",
-  "Which dishes should I fix first?",
-  "Which suppliers increased prices?",
-  "Which ingredients are most expensive?",
-  "Which menu items have missing recipes?",
-  "Where is cost coverage incomplete?",
-  "What changed after the latest invoice?",
-  "What should I do this week?",
-];
-
-const SOURCE_AREA_LABEL: Record<string, string> = {
-  sales: "Sales",
-  menu: "Menu",
-  supplier: "Supplier",
-  invoice: "Invoice",
-  agent: "Agent",
-  data_quality: "Data quality",
-};
+function sourceAreaLabel(key: string, lang: PreferredLanguage): string {
+  switch (key) {
+    case "sales":
+      return t(lang, "Sales", "Ventas");
+    case "menu":
+      return t(lang, "Menu", "Menú");
+    case "supplier":
+      return t(lang, "Supplier", "Proveedor");
+    case "invoice":
+      return t(lang, "Invoice", "Factura");
+    case "agent":
+      return t(lang, "Agent", "Agente");
+    case "data_quality":
+      return t(lang, "Data quality", "Calidad de los datos");
+    default:
+      return key;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Workspace
 // ---------------------------------------------------------------------------
 
-export function AskMiltonWorkspace() {
+export function AskMiltonWorkspace({
+  lang = "es",
+}: {
+  lang?: PreferredLanguage;
+}) {
   return (
-    <div className="space-y-6">
-      <ExecutiveBriefingPanel />
-      {/* ChatWorkspace calls useSearchParams() (for ?location=), which
-          requires a Suspense boundary — the fallback resolves instantly
-          on the client. */}
-      <Suspense fallback={<ChatWorkspaceSkeleton />}>
-        <ChatWorkspace />
-      </Suspense>
-    </div>
+    <MiltonUiLang.Provider value={lang}>
+      <div className="space-y-6">
+        <ExecutiveBriefingPanel />
+        <Suspense fallback={<ChatWorkspaceSkeleton />}>
+          <ChatWorkspace />
+        </Suspense>
+      </div>
+    </MiltonUiLang.Provider>
   );
 }
 
 function ChatWorkspaceSkeleton() {
+  const lang = useMiltonLang();
   return (
     <Card className="overflow-hidden">
       <CardContent className="p-6 text-sm text-muted-foreground">
-        Loading Ask Milton...
+        {t(lang, "Loading Ask Milton...", "Cargando Preguntar a Milton...")}
       </CardContent>
     </Card>
   );
@@ -173,12 +225,13 @@ function ExecutiveBriefingPanel() {
 }
 
 function ExecutiveBriefingPanelSkeleton() {
+  const lang = useMiltonLang();
   return (
     <Card>
       <CardContent className="pt-4 pb-4">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Sparkles className="h-4 w-4" />
-          Loading briefing...
+          {t(lang, "Loading briefing...", "Cargando el briefing...")}
         </div>
       </CardContent>
     </Card>
@@ -186,6 +239,7 @@ function ExecutiveBriefingPanelSkeleton() {
 }
 
 function ExecutiveBriefingPanelInner() {
+  const lang = useMiltonLang();
   const [data, setData] = useState<BriefingPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -207,17 +261,25 @@ function ExecutiveBriefingPanelInner() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(body?.error ?? `HTTP ${res.status}`);
+        setError(
+          typeof body?.error === "string"
+            ? body.error
+            : t(
+                lang,
+                "Could not load the briefing",
+                "No se pudo cargar el briefing"
+              )
+        );
         setData(null);
         return;
       }
       setData(body as BriefingPayload);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error");
+    } catch {
+      setError(t(lang, "Network error", "Error de red"));
     } finally {
       setLoading(false);
     }
-  }, [locationId]);
+  }, [locationId, lang]);
 
   useEffect(() => {
     void load();
@@ -230,7 +292,9 @@ function ExecutiveBriefingPanelInner() {
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-orange-100 dark:bg-orange-900/40">
             <Sparkles className="h-4 w-4 text-orange-600 dark:text-orange-300" />
           </span>
-          <h2 className="text-base font-semibold">Executive briefing</h2>
+          <h2 className="text-base font-semibold">
+            {t(lang, "Executive briefing", "Briefing ejecutivo")}
+          </h2>
           {data && <SourceBadge source={data.source} />}
           <Button
             size="sm"
@@ -242,19 +306,28 @@ function ExecutiveBriefingPanelInner() {
             <RefreshCw
               className={"h-3.5 w-3.5 " + (loading ? "animate-spin" : "")}
             />
-            Refresh
+            {t(lang, "Refresh", "Actualizar")}
           </Button>
         </div>
 
         {loading && !data && (
           <p className="text-sm text-muted-foreground">
-            Reading your latest restaurant numbers…
+            {t(
+              lang,
+              "Reading your latest restaurant numbers…",
+              "Leyendo los números más recientes…"
+            )}
           </p>
         )}
         {error && (
           <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
             <AlertTriangle className="h-3.5 w-3.5" />
-            Could not load briefing: {error}
+            {t(
+              lang,
+              "Could not load briefing:",
+              "No se pudo cargar el briefing:"
+            )}{" "}
+            {error}
           </p>
         )}
 
@@ -271,17 +344,21 @@ function ExecutiveBriefingPanelInner() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <BriefingList
-                title="Top risks"
+                title={t(lang, "Top risks", "Principales riesgos")}
                 items={data.briefing.top_risks}
                 tone="risk"
               />
               <BriefingList
-                title="Top opportunities"
+                title={t(
+                  lang,
+                  "Top opportunities",
+                  "Principales oportunidades"
+                )}
                 items={data.briefing.top_opportunities}
                 tone="opportunity"
               />
               <BriefingList
-                title="Recommended actions"
+                title={t(lang, "Recommended actions", "Acciones recomendadas")}
                 items={data.briefing.recommended_actions}
                 tone="action"
               />
@@ -334,6 +411,7 @@ function BriefingList({
 }
 
 function SourceBadge({ source }: { source: "openai" | "deterministic" }) {
+  const lang = useMiltonLang();
   return (
     <Badge
       variant="outline"
@@ -347,12 +425,12 @@ function SourceBadge({ source }: { source: "openai" | "deterministic" }) {
       {source === "openai" ? (
         <>
           <Sparkles className="h-3 w-3 inline mr-1" />
-          AI answer
+          {t(lang, "AI answer", "Respuesta de IA")}
         </>
       ) : (
         <>
           <Cpu className="h-3 w-3 inline mr-1" />
-          Rule-based
+          {t(lang, "Rule-based", "Por reglas")}
         </>
       )}
     </Badge>
@@ -364,6 +442,7 @@ function SourceBadge({ source }: { source: "openai" | "deterministic" }) {
 // ---------------------------------------------------------------------------
 
 function ChatWorkspace() {
+  const lang = useMiltonLang();
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
@@ -421,7 +500,15 @@ function ChatWorkspace() {
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
-          setError(body?.error ?? `HTTP ${res.status}`);
+          setError(
+            typeof body?.error === "string"
+              ? body.error
+              : t(
+                  lang,
+                  "Could not get an answer",
+                  "No se pudo obtener una respuesta"
+                )
+          );
           return;
         }
         const answer = body as AnswerPayload;
@@ -432,13 +519,13 @@ function ChatWorkspace() {
           answer,
         };
         setTurns((prev) => [...prev, assistantTurn]);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Network error");
+      } catch {
+        setError(t(lang, "Network error", "Error de red"));
       } finally {
         setPending(false);
       }
     },
-    [pending, turns, locationId]
+    [pending, turns, locationId, lang]
   );
 
   const onSubmit = (e: FormEvent) => {
@@ -495,7 +582,11 @@ function ChatWorkspace() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onTextareaKey}
-              placeholder="Ask Milton about sales, margins, suppliers, recipes…"
+              placeholder={t(
+                lang,
+                "Ask Milton about sales, margins, suppliers, recipes…",
+                "Pregúntale a Milton sobre ventas, márgenes, proveedores, recetas…"
+              )}
               rows={2}
               className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 dark:focus:ring-orange-800/50"
               disabled={pending}
@@ -510,19 +601,15 @@ function ChatWorkspace() {
               ) : (
                 <Send className="h-4 w-4" />
               )}
-              Send
+              {t(lang, "Send", "Enviar")}
             </Button>
           </div>
           <p className="text-[11px] text-muted-foreground mt-2">
-            Milton can propose actions from chat. You still approve and execute
-            actions in the{" "}
-            <Link
-              href="/dashboard/restaurant/agents"
-              className="underline hover:text-foreground transition-colors"
-            >
-              Agents workspace
-            </Link>
-            .
+            {t(
+              lang,
+              "Milton can propose actions from chat. You still approve them in Agents.",
+              "Milton puede proponer acciones desde el chat. Tú las apruebas en Agentes."
+            )}
           </p>
         </form>
       </CardContent>
@@ -541,13 +628,14 @@ function SuggestedQuestions({
   onPick: (q: string) => void;
   disabled: boolean;
 }) {
+  const lang = useMiltonLang();
   return (
     <div className="border-b border-border px-4 sm:px-6 py-4 bg-muted/20">
       <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium mb-2">
-        Suggested questions
+        {t(lang, "Suggested questions", "Preguntas sugeridas")}
       </p>
       <div className="flex flex-wrap gap-2">
-        {SUGGESTED_QUESTIONS.map((q) => (
+        {suggestedQuestions(lang).map((q) => (
           <button
             key={q}
             type="button"
@@ -564,18 +652,25 @@ function SuggestedQuestions({
 }
 
 function EmptyState() {
+  const lang = useMiltonLang();
   return (
     <div className="flex flex-col items-center text-center py-8">
       <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-orange-100 dark:bg-orange-900/40 mb-3">
         <Sparkles className="h-5 w-5 text-orange-600 dark:text-orange-300" />
       </span>
       <p className="text-sm font-semibold">
-        Ask Milton anything about your data
+        {t(
+          lang,
+          "Ask Milton anything about your data",
+          "Pregúntale a Milton sobre tus datos"
+        )}
       </p>
       <p className="text-xs text-muted-foreground max-w-md mt-1">
-        Try a suggested question above, or type your own. Milton uses your
-        sales, recipes, suppliers and invoices — and tells you when something is
-        missing.
+        {t(
+          lang,
+          "Try a suggested question above, or type your own. Milton uses your sales, recipes, suppliers and invoices — and tells you when something is missing.",
+          "Usa una pregunta sugerida o escribe la tuya. Milton usa tus ventas, recetas, proveedores y facturas, y te dice cuando falta algo."
+        )}
       </p>
     </div>
   );
@@ -590,6 +685,7 @@ function MessageBubble({
   onFollowup: (q: string) => void;
   disabled: boolean;
 }) {
+  const lang = useMiltonLang();
   // Multi-Restaurant UX v1: links surfaced inside an answer (related_links,
   // suggested action chips) must carry the current selection forward too —
   // otherwise following one silently drops back to consolidated. Read
@@ -631,12 +727,12 @@ function MessageBubble({
               <span
                 key={i}
                 className="inline-flex items-center gap-1 text-[11px] rounded-md border border-border bg-background px-2 py-1"
-                title={SOURCE_AREA_LABEL[f.source_area] ?? f.source_area}
+                title={sourceAreaLabel(f.source_area, lang)}
               >
                 <span className="text-muted-foreground">{f.label}:</span>
                 <span className="font-medium">{f.value}</span>
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wide ml-1">
-                  {SOURCE_AREA_LABEL[f.source_area] ?? f.source_area}
+                  {sourceAreaLabel(f.source_area, lang)}
                 </span>
               </span>
             ))}
@@ -729,11 +825,12 @@ function SuggestedActionChips({
   actions: SuggestedActionLocal[];
   disabled: boolean;
 }) {
+  const lang = useMiltonLang();
   return (
     <div className="space-y-1.5 pt-0.5">
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium flex items-center gap-1">
         <Zap className="h-3 w-3" />
-        Suggested actions
+        {t(lang, "Suggested actions", "Acciones sugeridas")}
       </p>
       <div className="flex flex-wrap gap-2">
         {actions.map((action, i) => (
@@ -751,6 +848,7 @@ function SuggestedActionChip({
   action: SuggestedActionLocal;
   disabled: boolean;
 }) {
+  const lang = useMiltonLang();
   const [state, setState] = useState<ChipActionState>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const locationId = useSearchParams().get("location");
@@ -777,7 +875,11 @@ function SuggestedActionChip({
         setState("success");
       }
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Network error");
+      setErrorMsg(
+        err instanceof Error
+          ? err.message
+          : t(lang, "Network error", "Error de red")
+      );
       setState("error");
     }
   };
@@ -815,21 +917,25 @@ function SuggestedActionChip({
     return (
       <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/30 px-3 py-1.5 flex-wrap">
         <span className="text-orange-900 dark:text-orange-200 font-medium">
-          Create this as an agent action?
+          {t(
+            lang,
+            "Create this as an agent action?",
+            "¿Crear esto como acción?"
+          )}
         </span>
         <button
           type="button"
           onClick={() => void handleConfirm()}
           className="rounded border border-orange-300 dark:border-orange-700 bg-orange-500 text-white px-2 py-0.5 hover:bg-orange-600 transition-colors"
         >
-          Yes
+          {t(lang, "Yes", "Sí")}
         </button>
         <button
           type="button"
           onClick={() => setState("idle")}
           className="rounded border border-border px-2 py-0.5 hover:bg-muted transition-colors text-muted-foreground"
         >
-          No
+          {t(lang, "No", "No")}
         </button>
       </span>
     );
@@ -839,7 +945,7 @@ function SuggestedActionChip({
     return (
       <span className="inline-flex items-center gap-1.5 text-xs rounded-full border border-border bg-muted/40 px-2.5 py-1 text-muted-foreground">
         <Loader2 className="h-3 w-3 animate-spin" />
-        Creating…
+        {t(lang, "Creating…", "Creando…")}
       </span>
     );
   }
@@ -849,13 +955,13 @@ function SuggestedActionChip({
       <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1 flex-wrap">
         <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
         <span className="text-emerald-800 dark:text-emerald-300 font-medium">
-          Action created
+          {t(lang, "Action created", "Acción creada")}
         </span>
         <Link
           href="/dashboard/restaurant/agents"
           className="inline-flex items-center gap-0.5 text-emerald-700 dark:text-emerald-400 underline hover:no-underline"
         >
-          View in Agents
+          {t(lang, "View in Agents", "Ver en Agentes")}
           <ArrowRight className="h-3 w-3" />
         </Link>
       </span>
@@ -867,13 +973,17 @@ function SuggestedActionChip({
       <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-1 flex-wrap">
         <Info className="h-3 w-3 text-amber-600 dark:text-amber-400" />
         <span className="text-amber-800 dark:text-amber-300">
-          An open action already exists for this item.
+          {t(
+            lang,
+            "An open action already exists for this item.",
+            "Ya hay una acción abierta para esto."
+          )}
         </span>
         <Link
           href="/dashboard/restaurant/agents"
           className="inline-flex items-center gap-0.5 text-amber-700 dark:text-amber-400 underline hover:no-underline"
         >
-          View in Agents
+          {t(lang, "View in Agents", "Ver en Agentes")}
           <ArrowRight className="h-3 w-3" />
         </Link>
       </span>
@@ -885,14 +995,14 @@ function SuggestedActionChip({
     <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 px-3 py-1 flex-wrap">
       <AlertTriangle className="h-3 w-3 text-red-500" />
       <span className="text-red-700 dark:text-red-400">
-        {errorMsg ?? "Something went wrong"}
+        {errorMsg ?? t(lang, "Something went wrong", "Algo salió mal")}
       </span>
       <button
         type="button"
         onClick={() => setState("idle")}
         className="underline text-red-700 dark:text-red-400 hover:no-underline"
       >
-        Retry
+        {t(lang, "Retry", "Reintentar")}
       </button>
     </span>
   );

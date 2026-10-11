@@ -61,25 +61,12 @@ export function CockpitKpiStrip({
   return (
     <section aria-label={t(lang, "Key numbers", "Cifras clave")}>
       <p className="text-[11px] text-muted-foreground mb-1">
-        {t(
-          lang,
-          "KPI strip · all loaded data",
-          "Cifras clave · todos los datos cargados"
-        )}
+        {t(lang, "Key numbers", "Cifras clave")}
         {periodLabel ? ` · ${periodLabel}` : ""}
-        {t(
-          lang,
-          " (not the Explorer date filter)",
-          " (no el filtro de fechas del Explorer)"
-        )}
       </p>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
         <Kpi
-          label={t(
-            lang,
-            "Net sales (all loaded data)",
-            "Ventas netas (todos los datos cargados)"
-          )}
+          label={t(lang, "Net sales", "Ventas netas")}
           value={moneyCompact.format(rev.net_sales)}
           sub={
             rev.tips > 0

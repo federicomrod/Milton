@@ -35,6 +35,7 @@ import type {
   SetupCounts,
   DataQualityCounts,
 } from "@/lib/restaurant/profitability-server";
+import { t } from "@/lib/restaurant/language";
 
 const LS_KEY = "restaurantSetupChecklistCollapsed";
 
@@ -53,37 +54,73 @@ function deriveSteps(s: SetupCounts, dq: DataQualityCounts): ChecklistStep[] {
   return [
     {
       id: "pos",
-      label: "Upload POS sales",
+      label: t("es", "Upload POS sales", "Cargar ventas del POS"),
       description:
         s.pos_sales_count > 0
-          ? `${s.pos_sales_count.toLocaleString()} sale rows loaded from your POS export.`
-          : "Upload your POS export to unlock revenue analytics and item performance.",
+          ? t(
+              "es",
+              `${s.pos_sales_count.toLocaleString("es-MX")} sale rows loaded from your POS export.`,
+              `${s.pos_sales_count.toLocaleString("es-MX")} filas de ventas cargadas desde tu POS.`
+            )
+          : t(
+              "es",
+              "Upload your POS export to unlock revenue analytics and item performance.",
+              "Sube tu exportación del POS para ver ventas e ítems."
+            ),
       href: "/dashboard/restaurant/upload",
-      cta: "Import POS Sales",
+      cta: t("es", "Import POS Sales", "Importar ventas del POS"),
       status: s.pos_sales_count > 0 ? "done" : "missing",
     },
     {
       id: "costs",
-      label: "Import ingredient costs",
+      label: t(
+        "es",
+        "Import ingredient costs",
+        "Importar costos de ingredientes"
+      ),
       description:
         s.cost_entries_count > 0
-          ? `${s.cost_entries_count.toLocaleString()} cost entries imported.`
-          : "Add supplier prices to start calculating food cost and gross margin.",
+          ? t(
+              "es",
+              `${s.cost_entries_count.toLocaleString("es-MX")} cost entries imported.`,
+              `${s.cost_entries_count.toLocaleString("es-MX")} costos importados.`
+            )
+          : t(
+              "es",
+              "Add supplier prices to start calculating food cost and gross margin.",
+              "Agrega precios de proveedores para calcular costo de comida y margen."
+            ),
       href: "/dashboard/restaurant/costs/upload",
-      cta: "Import Costs",
+      cta: t("es", "Import Costs", "Importar costos"),
       status: s.cost_entries_count > 0 ? "done" : "missing",
     },
     {
       id: "menu",
-      label: "Review menu items & POS mappings",
+      label: t(
+        "es",
+        "Review menu items & POS mappings",
+        "Revisar platillos y ligues del POS"
+      ),
       description:
         s.menu_items_count === 0
-          ? "No menu items found. Visit the Menu page to create or sync your menu."
+          ? t(
+              "es",
+              "No menu items found. Visit the Menu page to create or sync your menu.",
+              "No hay platillos. Ve a Menú para crearlos o sincronizarlos."
+            )
           : dq.unmapped_pos_items > 0
-            ? `${dq.unmapped_pos_items} POS item${dq.unmapped_pos_items === 1 ? "" : "s"} not yet mapped to a menu item — link them to enable costing.`
-            : "All POS items are mapped to menu items.",
+            ? t(
+                "es",
+                `${dq.unmapped_pos_items} POS item${dq.unmapped_pos_items === 1 ? "" : "s"} not yet mapped to a menu item — link them to enable costing.`,
+                `${dq.unmapped_pos_items} ${dq.unmapped_pos_items === 1 ? "platillo del POS no está ligado" : "platillos del POS no están ligados"} al menú. Lígales para poder costear.`
+              )
+            : t(
+                "es",
+                "All POS items are mapped to menu items.",
+                "Todos los platillos del POS ya están ligados al menú."
+              ),
       href: "/dashboard/restaurant/menu",
-      cta: "Open Menu & Mappings",
+      cta: t("es", "Open Menu & Mappings", "Abrir Menú y ligues"),
       status:
         s.menu_items_count === 0
           ? "missing"
@@ -93,15 +130,31 @@ function deriveSteps(s: SetupCounts, dq: DataQualityCounts): ChecklistStep[] {
     },
     {
       id: "recipes",
-      label: "Create recipes & components",
+      label: t(
+        "es",
+        "Create recipes & components",
+        "Crear recetas y componentes"
+      ),
       description:
         s.recipe_inputs_count === 0
-          ? "No recipe inputs yet. Add ingredients to your recipes to unlock per-dish costing."
+          ? t(
+              "es",
+              "No recipe inputs yet. Add ingredients to your recipes to unlock per-dish costing.",
+              "Aún no hay insumos de receta. Agrega ingredientes para costear cada platillo."
+            )
           : dq.menu_items_without_recipe > 0
-            ? `${dq.menu_items_without_recipe} menu item${dq.menu_items_without_recipe === 1 ? "" : "s"} still missing a recipe — complete them to unlock full margin coverage.`
-            : "All menu items have at least one recipe.",
+            ? t(
+                "es",
+                `${dq.menu_items_without_recipe} menu item${dq.menu_items_without_recipe === 1 ? "" : "s"} still missing a recipe — complete them to unlock full margin coverage.`,
+                `${dq.menu_items_without_recipe} ${dq.menu_items_without_recipe === 1 ? "platillo todavía no tiene" : "platillos todavía no tienen"} receta. Complétalos para ver el margen completo.`
+              )
+            : t(
+                "es",
+                "All menu items have at least one recipe.",
+                "Todos los platillos ya tienen al menos una receta."
+              ),
       href: "/dashboard/restaurant/menu",
-      cta: "Open Recipes",
+      cta: t("es", "Open Recipes", "Abrir Recetas"),
       status:
         s.recipe_inputs_count === 0
           ? "missing"
@@ -111,24 +164,44 @@ function deriveSteps(s: SetupCounts, dq: DataQualityCounts): ChecklistStep[] {
     },
     {
       id: "invoices",
-      label: "Upload or create supplier invoices",
+      label: t(
+        "es",
+        "Upload or create supplier invoices",
+        "Subir o crear facturas de proveedores"
+      ),
       description:
         s.supplier_invoices_count > 0
-          ? `${s.supplier_invoices_count} invoice${s.supplier_invoices_count === 1 ? "" : "s"} on record. Keep uploading to track supplier price trends.`
-          : "Upload supplier invoices to auto-populate ingredient costs and enable price-change alerts.",
+          ? t(
+              "es",
+              `${s.supplier_invoices_count} invoice${s.supplier_invoices_count === 1 ? "" : "s"} on record. Keep uploading to track supplier price trends.`,
+              `${s.supplier_invoices_count} ${s.supplier_invoices_count === 1 ? "factura registrada" : "facturas registradas"}. Sigue subiendo para ver cambios de precio.`
+            )
+          : t(
+              "es",
+              "Upload supplier invoices to auto-populate ingredient costs and enable price-change alerts.",
+              "Sube facturas de proveedores para llenar costos y ver alertas de precio."
+            ),
       href: "/dashboard/restaurant/invoices",
-      cta: "Open Invoices",
+      cta: t("es", "Open Invoices", "Abrir Facturas"),
       status: s.supplier_invoices_count > 0 ? "done" : "missing",
     },
     {
       id: "agents",
-      label: "Run agents",
+      label: t("es", "Run agents", "Correr agentes"),
       description:
         s.agent_runs_count > 0
-          ? `${s.agent_runs_count} agent run${s.agent_runs_count === 1 ? "" : "s"} completed. Schedule regular runs to keep recommendations fresh.`
-          : "Run your first agent to get automated margin analysis and supplier alerts.",
+          ? t(
+              "es",
+              `${s.agent_runs_count} agent run${s.agent_runs_count === 1 ? "" : "s"} completed. Schedule regular runs to keep recommendations fresh.`,
+              `${s.agent_runs_count} ${s.agent_runs_count === 1 ? "corrida lista" : "corridas listas"}. Programa corridas para mantener las recomendaciones al día.`
+            )
+          : t(
+              "es",
+              "Run your first agent to get automated margin analysis and supplier alerts.",
+              "Corre tu primer agente para ver análisis de margen y alertas de proveedores."
+            ),
       href: "/dashboard/restaurant/agents",
-      cta: "Open Agents",
+      cta: t("es", "Open Agents", "Abrir Agentes"),
       status: s.agent_runs_count > 0 ? "done" : "missing",
     },
   ];
@@ -143,9 +216,9 @@ function StatusIcon({ status }: { status: StepStatus }) {
 }
 
 function statusLabel(status: StepStatus): string {
-  if (status === "done") return "Done";
-  if (status === "review") return "Needs review";
-  return "Not started";
+  if (status === "done") return t("es", "Done", "Listo");
+  if (status === "review") return t("es", "Needs review", "Hay que revisar");
+  return t("es", "Not started", "Sin empezar");
 }
 
 function statusClass(status: StepStatus): string {
@@ -203,16 +276,27 @@ export function RestaurantSetupChecklist({
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <CardTitle className="text-base font-semibold">
-              Set up your restaurant control tower
+              {t(
+                "es",
+                "Set up your restaurant control tower",
+                "Prepara el cockpit de tu restaurante"
+              )}
             </CardTitle>
             {collapsed ? (
               <p className="text-xs text-muted-foreground mt-1">
-                {doneCount}/{steps.length} steps complete
+                {t(
+                  "es",
+                  `${doneCount}/${steps.length} steps complete`,
+                  `${doneCount}/${steps.length} pasos listos`
+                )}
               </p>
             ) : (
               <p className="text-sm text-muted-foreground mt-1">
-                Complete these steps to unlock recipe margins, supplier alerts,
-                and Milton recommendations.
+                {t(
+                  "es",
+                  "Complete these steps to unlock recipe margins, supplier alerts, and Milton recommendations.",
+                  "Completa estos pasos para ver márgenes, alertas de proveedores y recomendaciones de Milton."
+                )}
               </p>
             )}
           </div>
@@ -236,8 +320,16 @@ export function RestaurantSetupChecklist({
               onClick={toggle}
               aria-label={
                 collapsed
-                  ? "Expand setup checklist"
-                  : "Collapse setup checklist"
+                  ? t(
+                      "es",
+                      "Expand setup checklist",
+                      "Mostrar la lista de configuración"
+                    )
+                  : t(
+                      "es",
+                      "Collapse setup checklist",
+                      "Ocultar la lista de configuración"
+                    )
               }
               className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
             >
@@ -313,11 +405,18 @@ export function RestaurantSetupChecklist({
               </span>
               <div>
                 <span className="text-sm font-medium">
-                  Ask Milton your first question
+                  {t(
+                    "es",
+                    "Ask Milton your first question",
+                    "Hazle tu primera pregunta a Milton"
+                  )}
                 </span>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Explore insights, get recommendations, or ask about margins,
-                  suppliers, and trends.
+                  {t(
+                    "es",
+                    "Explore insights, get recommendations, or ask about margins, suppliers, and trends.",
+                    "Explora, pide recomendaciones o pregunta por márgenes, proveedores y tendencias."
+                  )}
                 </p>
               </div>
             </div>
@@ -328,7 +427,7 @@ export function RestaurantSetupChecklist({
               className="shrink-0 h-7 text-xs gap-1 bg-orange-600 hover:bg-orange-700"
             >
               <Link href="/dashboard/restaurant/briefing">
-                Ask Milton
+                {t("es", "Ask Milton", "Preguntar a Milton")}
                 <ArrowRight className="h-3 w-3" />
               </Link>
             </Button>

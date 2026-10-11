@@ -45,7 +45,7 @@ export function KitchenQrCard({ canManage }: { canManage: boolean }) {
       const res = await fetch("/api/restaurant/kitchen/qr");
       if (cancelled) return;
       if (!res.ok) {
-        setError("Could not load QR status.");
+        setError("No se pudo cargar el estado del QR.");
         return;
       }
       const data = await res.json();
@@ -69,8 +69,8 @@ export function KitchenQrCard({ canManage }: { canManage: boolean }) {
       if (!res.ok) {
         setError(
           res.status === 403
-            ? "Only owners can create or rotate QRs."
-            : "Could not create the QR."
+            ? "Solo los dueños pueden crear o rotar QRs."
+            : "No se pudo crear el QR."
         );
       } else {
         setCreated({ qr: await res.json(), name: loc.name });
@@ -84,16 +84,18 @@ export function KitchenQrCard({ canManage }: { canManage: boolean }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Wall QR per location</CardTitle>
+        <CardTitle>QR de pared por ubicación</CardTitle>
         <CardDescription>
-          Cooks scan the QR on the wall to join their location on Telegram. No
-          Milton account needed.
+          Tus cocineros escanean el QR de la pared para unirse a su ubicación en
+          Telegram. No necesitan una cuenta de Milton.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {error && <p className="text-sm text-destructive">{error}</p>}
         {locations.length === 0 && (
-          <p className="text-sm text-muted-foreground">No locations yet.</p>
+          <p className="text-sm text-muted-foreground">
+            Aún no hay ubicaciones.
+          </p>
         )}
         {locations.map((loc) => (
           <div
@@ -104,15 +106,17 @@ export function KitchenQrCard({ canManage }: { canManage: boolean }) {
               <div className="font-medium">{loc.name}</div>
               <div className="text-xs text-muted-foreground">
                 {loc.has_active_qr
-                  ? `Active QR since ${new Date(loc.qr_created_at ?? "").toLocaleDateString()}`
-                  : "No QR yet"}{" "}
-                · {loc.active_staff_count} active cook
-                {loc.active_staff_count === 1 ? "" : "s"}
+                  ? `QR activo desde ${new Date(loc.qr_created_at ?? "").toLocaleDateString("es-MX")}`
+                  : "Aún no hay QR"}{" "}
+                · {loc.active_staff_count}{" "}
+                {loc.active_staff_count === 1
+                  ? "cocinero activo"
+                  : "cocineros activos"}
               </div>
             </div>
             <div className="flex items-center gap-2">
               <Badge variant={loc.has_active_qr ? "default" : "secondary"}>
-                {loc.has_active_qr ? "QR active" : "No QR"}
+                {loc.has_active_qr ? "QR activo" : "Sin QR"}
               </Badge>
               {canManage && (
                 <Button
@@ -126,8 +130,8 @@ export function KitchenQrCard({ canManage }: { canManage: boolean }) {
                   }
                 >
                   {loc.has_active_qr
-                    ? "Rotate QR (old sheet stops working)"
-                    : "Create QR"}
+                    ? "Rotar QR (la hoja vieja deja de servir)"
+                    : "Crear QR"}
                 </Button>
               )}
             </div>
@@ -138,16 +142,16 @@ export function KitchenQrCard({ canManage }: { canManage: boolean }) {
         )}
         {!canManage && (
           <p className="text-xs text-muted-foreground">
-            Only restaurant owners can create or rotate QRs.
+            Solo los dueños del restaurante pueden crear o rotar QRs.
           </p>
         )}
       </CardContent>
       <ConfirmDialog
         open={confirmFor !== null}
         onOpenChange={(o) => !o && setConfirmFor(null)}
-        title="Rotate this QR?"
-        description="The printed sheet stops working immediately. Cooks who already joined stay joined. You'll get a new QR to print."
-        confirmText="Rotate QR"
+        title="¿Rotar este QR?"
+        description="La hoja impresa deja de servir de inmediato. Los cocineros que ya se unieron se quedan. Vas a recibir un QR nuevo para imprimir."
+        confirmText="Rotar QR"
         variant="destructive"
         onConfirm={() => confirmFor && void createOrRotate(confirmFor)}
       />

@@ -136,8 +136,12 @@ describe("Revenue tab page chrome is trimmed without dropping copy", () => {
   });
 
   it("still mounts RestaurantSalesExplorer on the Revenue tab", () => {
-    expect(cockpitPage).toContain("<RestaurantSalesExplorer");
-    expect(cockpitPage).toContain("rows={rows}");
-    expect(cockpitPage).toContain("initialTargets={targets}");
+    const salesTab = read(
+      "components/restaurant/cockpit/RevenueAndChannelsTab.tsx"
+    );
+    expect(cockpitPage).toContain("<RevenueAndChannelsTab");
+    expect(salesTab).toContain("<RestaurantSalesExplorer");
+    expect(salesTab).toContain("rows={rows}");
+    expect(salesTab).toContain("initialTargets={targets}");
   });
 });

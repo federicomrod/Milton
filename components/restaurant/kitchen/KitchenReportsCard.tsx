@@ -28,10 +28,10 @@ interface Report {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  running_out: "Running out",
-  "86": "86'd",
-  waste: "Waste",
-  unclassified: "Unclassified",
+  running_out: "Se acaba",
+  "86": "86",
+  waste: "Merma",
+  unclassified: "Sin clasificar",
 };
 
 const selectClass =
@@ -60,7 +60,7 @@ export function KitchenReportsCard({
       const res = await fetch(`/api/restaurant/kitchen/reports?${params}`);
       if (cancelled) return;
       if (!res.ok) {
-        setError("Could not load reports.");
+        setError("No se pudieron cargar los reportes.");
         return;
       }
       const data = await res.json();
@@ -79,25 +79,25 @@ export function KitchenReportsCard({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ report_type }),
     });
-    if (!res.ok) setError("Could not update the report.");
+    if (!res.ok) setError("No se pudo actualizar el reporte.");
     setReloadKey((k) => k + 1);
   };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Reports</CardTitle>
+        <CardTitle>Reportes</CardTitle>
         <CardDescription>
-          Items running out, 86&apos;d items and waste reported by your cooks.
+          Platillos que se acaban, 86 y merma que reportan tus cocineros.
         </CardDescription>
         <div className="flex flex-wrap gap-2 pt-2">
           <select
             className={selectClass}
-            aria-label="Filter by location"
+            aria-label="Filtrar por ubicación"
             value={locationId}
             onChange={(e) => setLocationId(e.target.value)}
           >
-            <option value="">All locations</option>
+            <option value="">Todas las ubicaciones</option>
             {locations.map((l) => (
               <option key={l.id} value={l.id}>
                 {l.name}
@@ -106,11 +106,11 @@ export function KitchenReportsCard({
           </select>
           <select
             className={selectClass}
-            aria-label="Filter by type"
+            aria-label="Filtrar por tipo"
             value={type}
             onChange={(e) => setType(e.target.value)}
           >
-            <option value="">All types</option>
+            <option value="">Todos los tipos</option>
             {Object.entries(TYPE_LABELS).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -122,7 +122,7 @@ export function KitchenReportsCard({
       <CardContent className="space-y-3">
         {error && <p className="text-sm text-destructive">{error}</p>}
         {reports.length === 0 && (
-          <p className="text-sm text-muted-foreground">No reports yet.</p>
+          <p className="text-sm text-muted-foreground">Aún no hay reportes.</p>
         )}
         {reports.map((r) => (
           <div key={r.id} className="space-y-2 border-b pb-3 text-sm">
@@ -135,7 +135,7 @@ export function KitchenReportsCard({
               {canManage ? (
                 <select
                   className={selectClass}
-                  aria-label="Report type"
+                  aria-label="Tipo de reporte"
                   value={r.report_type}
                   onChange={(e) => reclassify(r.id, e.target.value)}
                 >
@@ -161,7 +161,7 @@ export function KitchenReportsCard({
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={`/api/restaurant/kitchen/reports/${r.id}/media`}
-                  alt="Photo from the kitchen"
+                  alt="Foto de la cocina"
                   className="h-24 rounded-md border object-cover"
                   loading="lazy"
                 />

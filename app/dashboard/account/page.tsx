@@ -78,12 +78,11 @@ export default function AccountPage() {
       <div className="container mx-auto p-6 max-w-4xl">
         <Card>
           <CardHeader>
-            <CardTitle>Error Loading Account</CardTitle>
+            <CardTitle>No se pudo cargar la cuenta</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="p-3 rounded bg-destructive/10 text-destructive border border-destructive/20">
-              Failed to load your account information. Please try refreshing the
-              page.
+              No se pudo cargar la información de tu cuenta. Recarga la página.
             </div>
           </CardContent>
         </Card>
@@ -97,15 +96,15 @@ export default function AccountPage() {
       <div className="mb-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Account</h1>
+            <h1 className="text-3xl font-bold text-foreground">Cuenta</h1>
             <p className="text-muted-foreground mt-1">
-              Manage your company profile and account settings
+              Administra el perfil de tu empresa y tu cuenta
             </p>
           </div>
           <Link href="/dashboard/settings">
             <Button className="gap-2">
               <Edit className="h-4 w-4" />
-              Edit Profile
+              Editar perfil
             </Button>
           </Link>
         </div>
@@ -116,18 +115,20 @@ export default function AccountPage() {
         {/* Company Information */}
         <Card>
           <CardHeader>
-            <CardTitle>Company Information</CardTitle>
-            <CardDescription>Your company profile details</CardDescription>
+            <CardTitle>Información de la empresa</CardTitle>
+            <CardDescription>Datos del perfil de tu empresa</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-start gap-3">
               <Building2 className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Company Name
+                  Nombre de la empresa
                 </p>
                 <p className="text-base text-foreground">
-                  {companyLoading ? "Loading..." : company?.name || "Not set"}
+                  {companyLoading
+                    ? "Cargando..."
+                    : company?.name || "Sin definir"}
                 </p>
               </div>
             </div>
@@ -136,12 +137,12 @@ export default function AccountPage() {
               <MapPin className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Industry
+                  Industria
                 </p>
                 <p className="text-base text-foreground">
                   {companyLoading
-                    ? "Loading..."
-                    : company?.industry || "Not set"}
+                    ? "Cargando..."
+                    : company?.industry || "Sin definir"}
                 </p>
               </div>
             </div>
@@ -150,10 +151,10 @@ export default function AccountPage() {
               <Globe className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Timezone
+                  Zona horaria
                 </p>
                 <p className="text-base text-foreground">
-                  {profile?.timezone || "Not set"}
+                  {profile?.timezone || "Sin definir"}
                 </p>
               </div>
             </div>
@@ -163,9 +164,9 @@ export default function AccountPage() {
         {/* Account Status */}
         <Card>
           <CardHeader>
-            <CardTitle>Account Status</CardTitle>
+            <CardTitle>Estado de la cuenta</CardTitle>
             <CardDescription>
-              Your subscription and billing information
+              Tu suscripción y datos de facturación
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -177,7 +178,7 @@ export default function AccountPage() {
                 </p>
                 <div className="flex items-center gap-2 mt-1">
                   <Badge variant="default">
-                    {profile?.billing_status || "Free Trial"}
+                    {profile?.billing_status || "Prueba gratis"}
                   </Badge>
                 </div>
               </div>
@@ -190,7 +191,7 @@ export default function AccountPage() {
                   Email
                 </p>
                 <p className="text-base text-foreground">
-                  {userEmail || "Not available"}
+                  {userEmail || "No disponible"}
                 </p>
               </div>
             </div>
@@ -199,16 +200,16 @@ export default function AccountPage() {
               <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Member Since
+                  Miembro desde
                 </p>
                 <p className="text-base text-foreground">
                   {profile?.created_at
-                    ? new Date(profile.created_at).toLocaleDateString("en-US", {
+                    ? new Date(profile.created_at).toLocaleDateString("es-MX", {
                         year: "numeric",
                         month: "long",
                         day: "numeric",
                       })
-                    : "N/A"}
+                    : "N/D"}
                 </p>
               </div>
             </div>
@@ -218,15 +219,15 @@ export default function AccountPage() {
         {/* User Preferences */}
         <Card>
           <CardHeader>
-            <CardTitle>Preferences</CardTitle>
-            <CardDescription>Your display and format settings</CardDescription>
+            <CardTitle>Preferencias</CardTitle>
+            <CardDescription>Cómo se muestran fechas y números</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-start gap-3">
               <DollarSign className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Currency
+                  Moneda
                 </p>
                 <p className="text-base text-foreground">
                   {profile?.currency || "EUR"}
@@ -238,7 +239,7 @@ export default function AccountPage() {
               <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Date Format
+                  Formato de fecha
                 </p>
                 <p className="text-base text-foreground">
                   {profile?.date_format || "DD/MM/YYYY"}
@@ -250,7 +251,7 @@ export default function AccountPage() {
               <Hash className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Number Format
+                  Formato de número
                 </p>
                 <p className="text-base text-foreground">
                   {profile?.number_format || "1,000.00"}
@@ -262,10 +263,14 @@ export default function AccountPage() {
               <Palette className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Theme
+                  Tema
                 </p>
                 <p className="text-base text-foreground capitalize">
-                  {profile?.theme || "Light"}
+                  {profile?.theme === "dark"
+                    ? "Oscuro"
+                    : profile?.theme === "light"
+                      ? "Claro"
+                      : profile?.theme || "Claro"}
                 </p>
               </div>
             </div>
@@ -282,22 +287,22 @@ export default function AccountPage() {
       {/* Quick Actions */}
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-          <CardDescription>Common account management tasks</CardDescription>
+          <CardTitle>Acciones rápidas</CardTitle>
+          <CardDescription>Tareas frecuentes de tu cuenta</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-3">
             <Link href="/dashboard/settings">
-              <Button variant="outline">Update Profile</Button>
+              <Button variant="outline">Actualizar perfil</Button>
             </Link>
             <Link href="/dashboard">
-              <Button variant="outline">View Dashboard</Button>
+              <Button variant="outline">Ver el Cockpit</Button>
             </Link>
             <Button variant="outline" disabled>
-              Manage Billing
+              Administrar facturación
             </Button>
             <Button variant="outline" disabled>
-              Team Members
+              Equipo
             </Button>
           </div>
         </CardContent>

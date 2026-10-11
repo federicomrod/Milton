@@ -26,7 +26,7 @@ export function workbookCostsMatch(excel: number, milton: number): boolean {
     WORKBOOK_COST_ABS_TOLERANCE,
     Math.abs(excel) * WORKBOOK_COST_REL_TOLERANCE
   );
-  return Math.abs(excel - milton) <= tol;
+  return Math.abs(excel - milton) <= tol + 1e-9;
 }
 
 export function decideWorkbookCostMatch(

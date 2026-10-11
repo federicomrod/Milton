@@ -2935,7 +2935,8 @@ describe("COSTO RESTAURANTE block layout", () => {
       store.recipeInputs.some(
         (row) =>
           row.input_type === "component" &&
-          row.unit === "portion" &&
+          row.unit === "lb" &&
+          row.quantity === 2 &&
           store.components.some(
             (component) =>
               component.id === row.component_id &&

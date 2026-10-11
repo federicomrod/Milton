@@ -305,9 +305,9 @@ describe("missing is_tip column — retry without it", () => {
     expect(data.readError).toBeFalsy();
     expect(data.overview.net_sales).toBe(20);
     expect(data.overview.tips).toBe(5);
-    expect(data.explorerRows.find((r) => r.item_name === "PROPINA SUGERIDA")?.is_tip).toBe(
-      true
-    );
+    expect(
+      data.explorerRows.find((r) => r.item_name === "PROPINA SUGERIDA")?.is_tip
+    ).toBe(true);
   });
 
   it("profitability retries the POS read without is_tip", async () => {

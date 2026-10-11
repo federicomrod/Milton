@@ -10,7 +10,7 @@ describe("errorMentionsColumn", () => {
   it("matches Postgres and PostgREST missing-column wording", () => {
     expect(
       errorMentionsColumn(
-        { message: 'column pos_sales_items.is_tip does not exist' },
+        { message: "column pos_sales_items.is_tip does not exist" },
         "is_tip"
       )
     ).toBe(true);
@@ -36,10 +36,7 @@ describe("dropColumnFromSelect / omitColumnFromRows", () => {
       dropColumnFromSelect("id, sale_date, is_tip, quantity", "is_tip")
     ).toBe("id, sale_date, quantity");
     expect(
-      omitColumnFromRows(
-        [{ id: 1, is_tip: true, name: "Propina" }],
-        "is_tip"
-      )
+      omitColumnFromRows([{ id: 1, is_tip: true, name: "Propina" }], "is_tip")
     ).toEqual([{ id: 1, name: "Propina" }]);
   });
 });
@@ -54,7 +51,8 @@ describe("upsertRetryingWithoutColumn", () => {
         if (rows.some((r) => "is_tip" in r)) {
           return {
             error: {
-              message: 'column "is_tip" of relation "pos_sales_items" does not exist',
+              message:
+                'column "is_tip" of relation "pos_sales_items" does not exist',
             },
             count: null,
           };

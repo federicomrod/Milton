@@ -26,7 +26,9 @@ export function errorMentionsColumn(
 ): boolean {
   if (!error) return false;
   const hay = [error.message, error.details, error.hint, error.code]
-    .filter((part): part is string => typeof part === "string" && part.length > 0)
+    .filter(
+      (part): part is string => typeof part === "string" && part.length > 0
+    )
     .join(" ")
     .toLowerCase();
   return hay.includes(column.toLowerCase());
@@ -86,7 +88,11 @@ export async function upsertRetryingWithoutColumn<T extends object>(
 ): Promise<{ error: SchemaErrorLike; count: number; omittedColumn: boolean }> {
   const first = await upsert(rows);
   if (!first.error) {
-    return { error: null, count: first.count ?? rows.length, omittedColumn: false };
+    return {
+      error: null,
+      count: first.count ?? rows.length,
+      omittedColumn: false,
+    };
   }
   if (!errorMentionsColumn(first.error, column)) {
     return { error: first.error, count: 0, omittedColumn: false };

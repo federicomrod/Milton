@@ -146,17 +146,29 @@ export function CockpitKpiStrip({
           <Kpi
             label={t(lang, "Food cost %", "% costo de comida")}
             value={foodCostPct != null ? `${foodCostPct.toFixed(1)}%` : "—"}
-            sub={t(lang, "on covered net sales", "sobre ventas netas cubiertas")}
+            sub={t(
+              lang,
+              "on covered net sales",
+              "sobre ventas netas cubiertas"
+            )}
           />
           <Kpi
             label={t(lang, "Margin", "Margen")}
             value={marginPct != null ? `${marginPct.toFixed(1)}%` : "—"}
-            sub={t(lang, "on covered net sales", "sobre ventas netas cubiertas")}
+            sub={t(
+              lang,
+              "on covered net sales",
+              "sobre ventas netas cubiertas"
+            )}
           />
         </div>
       ) : (
         <p className="text-[11px] text-muted-foreground mt-1">
-          {t(lang, "Add recipes to see food cost % and margin.", "Agrega recetas para ver % de costo y margen.")}
+          {t(
+            lang,
+            "Add recipes to see food cost % and margin.",
+            "Agrega recetas para ver % de costo y margen."
+          )}
         </p>
       )}
     </section>
@@ -176,7 +188,10 @@ function Kpi({
 }) {
   return (
     <div className="rounded-md border border-border bg-background px-2.5 py-1.5">
-      <p className="text-[11px] font-medium text-muted-foreground truncate" title={label}>
+      <p
+        className="text-[11px] font-medium text-muted-foreground truncate"
+        title={label}
+      >
         {label}
       </p>
       <p
@@ -188,7 +203,10 @@ function Kpi({
         {value}
       </p>
       {sub ? (
-        <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug" title={sub}>
+        <p
+          className="text-[10px] text-muted-foreground mt-0.5 leading-snug"
+          title={sub}
+        >
           {sub}
         </p>
       ) : null}

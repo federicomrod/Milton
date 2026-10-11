@@ -8,12 +8,17 @@ import {
   weekWindowsFromAnchor,
   type CockpitFactRow,
 } from "@/lib/restaurant/cockpit-aggregates";
-import { toSalesFactRow, buildSalesSnapshot } from "@/lib/restaurant/ask-milton-sales";
+import {
+  toSalesFactRow,
+  buildSalesSnapshot,
+} from "@/lib/restaurant/ask-milton-sales";
 import type { PosSalesItemRow } from "@/lib/restaurant/supabase-sales";
 
 const ES = "America/El_Salvador";
 
-function row(partial: Partial<CockpitFactRow> & Pick<CockpitFactRow, "sale_date">): CockpitFactRow {
+function row(
+  partial: Partial<CockpitFactRow> & Pick<CockpitFactRow, "sale_date">
+): CockpitFactRow {
   return {
     raw_item_name: "Pupusa",
     quantity: 1,

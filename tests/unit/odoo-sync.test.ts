@@ -166,7 +166,16 @@ describe("transformOdooOrders", () => {
   it("marks Propina lines as tips", () => {
     const { rows } = transformOdooOrders(
       [paidOrder],
-      [makeLine({ full_product_name: "Propina", price_subtotal: 5, price_subtotal_incl: 5, qty: 1, price_unit: 5, discount: 0 })],
+      [
+        makeLine({
+          full_product_name: "Propina",
+          price_subtotal: 5,
+          price_subtotal_incl: 5,
+          qty: 1,
+          price_unit: 5,
+          discount: 0,
+        }),
+      ],
       baseCtx()
     );
     expect(rows[0].is_tip).toBe(true);

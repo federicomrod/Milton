@@ -1634,11 +1634,7 @@ export function RestaurantSalesExplorer({
         )}
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
           <KpiCard
-            label={t(
-              lang,
-              "Net sales (filtered)",
-              "Ventas netas (filtradas)"
-            )}
+            label={t(lang, "Net sales (filtered)", "Ventas netas (filtradas)")}
             value={fmts.int.format(aggs.totalRevenue)}
             sub={`${fmts.code} ${t(lang, "net · date filter", "neto · filtro de fechas")}`}
             delta={computeDelta(

@@ -57,21 +57,15 @@ describe("isTipLineName", () => {
 
 describe("isTipSaleRow", () => {
   it("lets the is_tip column win over the name", () => {
-    expect(
-      isTipSaleRow({ is_tip: true, raw_item_name: "Pupusa" })
-    ).toBe(true);
-    expect(
-      isTipSaleRow({ is_tip: false, raw_item_name: "Propina" })
-    ).toBe(false);
+    expect(isTipSaleRow({ is_tip: true, raw_item_name: "Pupusa" })).toBe(true);
+    expect(isTipSaleRow({ is_tip: false, raw_item_name: "Propina" })).toBe(
+      false
+    );
   });
 
   it("falls back to the product name when the column is null", () => {
-    expect(
-      isTipSaleRow({ is_tip: null, raw_item_name: "Propina" })
-    ).toBe(true);
-    expect(
-      isTipSaleRow({ item_name: "Propina Voluntaria" })
-    ).toBe(true);
+    expect(isTipSaleRow({ is_tip: null, raw_item_name: "Propina" })).toBe(true);
+    expect(isTipSaleRow({ item_name: "Propina Voluntaria" })).toBe(true);
   });
 });
 

@@ -65,7 +65,11 @@ export function SalesHero({
     <div className="space-y-4">
       <section>
         <h2 className="text-base font-semibold mb-1">
-          {t(lang, "Net sales by hour × weekday", "Ventas netas por hora × día")}
+          {t(
+            lang,
+            "Net sales by hour × weekday",
+            "Ventas netas por hora × día"
+          )}
         </h2>
         <p className="text-xs text-muted-foreground mb-2">
           {t(
@@ -112,7 +116,11 @@ export function SalesHero({
 
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <MixChart
-          title={t(lang, "Channel mix over time", "Mix de canales en el tiempo")}
+          title={t(
+            lang,
+            "Channel mix over time",
+            "Mix de canales en el tiempo"
+          )}
           subtitle={t(
             lang,
             "Calendar weeks Mon–Sun (not the rolling 7-day KPI window).",
@@ -125,11 +133,7 @@ export function SalesHero({
           labelFor={mixLabel}
         />
         <MixChart
-          title={t(
-            lang,
-            "Payment mix over time",
-            "Mix de pagos en el tiempo"
-          )}
+          title={t(lang, "Payment mix over time", "Mix de pagos en el tiempo")}
           subtitle={t(
             lang,
             "Calendar weeks Mon–Sun (not the rolling 7-day KPI window).",
@@ -202,7 +206,10 @@ function MixChart({
       )}
       <div className="h-44">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+          <AreaChart
+            data={data}
+            margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+          >
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
             <XAxis dataKey="period" tick={{ fontSize: 10 }} />
             <YAxis

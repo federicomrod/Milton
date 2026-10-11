@@ -163,7 +163,10 @@ export function postedRevenue(row: {
   net_revenue?: number | null;
   revenue?: number | null;
 }): number {
-  if (typeof row.gross_revenue === "number" && Number.isFinite(row.gross_revenue)) {
+  if (
+    typeof row.gross_revenue === "number" &&
+    Number.isFinite(row.gross_revenue)
+  ) {
     return row.gross_revenue;
   }
   if (typeof row.net_revenue === "number" && Number.isFinite(row.net_revenue)) {

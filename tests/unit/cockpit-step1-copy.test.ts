@@ -19,7 +19,7 @@ describe("cockpit step-1 review nits", () => {
     expect(strip).toContain("Net sales (all loaded data)");
     expect(strip).toContain("not the Explorer date filter");
     expect(explorer).toContain("Net sales (filtered)");
-    expect(explorer).toContain('t(lang,');
+    expect(explorer).toContain("t(lang,");
   });
 
   it("labels week vs last week with the actual date ranges", () => {
@@ -39,7 +39,7 @@ describe("cockpit step-1 review nits", () => {
     expect(heat).toContain("<title>{exact}</title>");
     expect(heat).toContain("onMouseEnter");
     expect(heat).toContain("onFocus");
-    expect(heat).toContain("aria-live=\"polite\"");
+    expect(heat).toContain('aria-live="polite"');
   });
 
   it("isolates the pending service-charge decision in one constant", () => {

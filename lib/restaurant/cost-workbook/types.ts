@@ -420,11 +420,10 @@ export type CostResetStepId =
   | "cost_import_layout_maps"
   | "batches_marked_undone";
 
-export type CostResetStepStatus = "completed" | "failed";
+export type CostResetStepStatus = "completed" | "failed" | "skipped";
 
 export interface CostResetStepResult {
   id: CostResetStepId;
-  label_en: string;
   label_es: string;
   status: CostResetStepStatus;
   deleted: number;

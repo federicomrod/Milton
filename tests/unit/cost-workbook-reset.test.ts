@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
 import {
+  RESET_CONFIRM_FALLBACK,
   canManageCompanyCostReset,
   formatResetPartialFailureEs,
   multiRestaurantResetWarningEs,
@@ -12,6 +13,7 @@ import {
   resetConfirmationMatches,
   runResetSteps,
 } from "@/lib/restaurant/cost-workbook";
+import { loadCompanyMembershipRole } from "@/lib/restaurant/cost-workbook/reset-auth";
 import {
   createMemoryCostWorkbookRepo,
   emptyMemoryStore,
@@ -374,14 +376,54 @@ describe("resetCompanyCostData", () => {
     );
   });
 
+  it("matches both restaurant names even when one name contains y", () => {
+    const target = {
+      companyName: "Grupo Ranchos",
+      restaurantNames: ["Los Ranchos", "Pollo y Más"],
+    };
+    expect(resetConfirmationAccepted("Los Ranchos y Pollo y Más", target)).toBe(
+      true
+    );
+    expect(resetConfirmationAccepted("Pollo y Más y Los Ranchos", target)).toBe(
+      true
+    );
+    expect(resetConfirmationAccepted("Pollo y Más", target)).toBe(false);
+    expect(resetConfirmationAccepted("Los Ranchos", target)).toBe(false);
+  });
+
+  it("does not accept START OVER when a restaurant or account name exists", () => {
+    expect(
+      resetConfirmationAccepted("START OVER", {
+        companyName: "Los Ranchos",
+        restaurantNames: ["Los Ranchos"],
+      })
+    ).toBe(false);
+    expect(
+      resetConfirmationAccepted("EMPEZAR DE NUEVO", {
+        companyName: "Los Ranchos",
+        restaurantNames: ["Los Ranchos"],
+      })
+    ).toBe(false);
+    expect(RESET_CONFIRM_FALLBACK).toBe("EMPEZAR DE NUEVO");
+    expect(
+      resetConfirmationAccepted("EMPEZAR DE NUEVO", {
+        companyName: null,
+        restaurantNames: [],
+      })
+    ).toBe(true);
+  });
+
   it("reports completed and failed reset steps with deleted-row counts", async () => {
+    const called: string[] = [];
     const steps = await runResetSteps(async (id) => {
+      called.push(id);
       if (id === "ingredients") throw new Error("ingredients blocked");
       if (id === "recipes") return 3;
       return 0;
     });
     const failed = steps.find((step) => step.id === "ingredients");
     const recipes = steps.find((step) => step.id === "recipes");
+    const batches = steps.find((step) => step.id === "batches_marked_undone");
     expect(recipes).toEqual(
       expect.objectContaining({
         status: "completed",
@@ -395,12 +437,15 @@ describe("resetCompanyCostData", () => {
         error: "ingredients blocked",
       })
     );
+    expect(batches?.status).toBe("skipped");
+    expect(called).not.toContain("batches_marked_undone");
     const message = formatResetPartialFailureEs(steps);
     expect(message).toContain("El reinicio quedó a medias");
     expect(message).toContain("Vuelve a pulsar para terminar");
     expect(message).toContain("recetas (3)");
     expect(message).toContain("ingredientes (ingredients blocked)");
     expect(message).toContain("no se puede deshacer");
+    expect(message).toContain("Pasos que no se corrieron");
   });
 
   it("returns per-step counts when a catalog reset fails halfway and a re-run finishes", async () => {
@@ -416,6 +461,16 @@ describe("resetCompanyCostData", () => {
       },
     ]);
     await repo.insertCostEntries([costEntry(COMPANY_A, ingA.id, "import")]);
+    await repo.createBatch({
+      companyId: COMPANY_A,
+      filename: "ranchos.xlsx",
+      fileMonth: "2026-04-01",
+      currency: "USD",
+      importedCount: 1,
+      reviewCount: 0,
+      tabSummaries: [],
+      mappingSource: "ai",
+    });
     store.failResetStep = "ingredients";
 
     const first = await resetCompanyCostData(repo, COMPANY_A);
@@ -428,10 +483,15 @@ describe("resetCompanyCostData", () => {
     const costs = first.steps.find(
       (step) => step.id === "ingredient_cost_entries"
     );
+    const batches = first.steps.find(
+      (step) => step.id === "batches_marked_undone"
+    );
     expect(failed?.status).toBe("failed");
     expect(failed?.error).toContain("ingredients");
     expect(costs?.status).toBe("completed");
     expect(costs?.deleted).toBe(1);
+    expect(batches?.status).toBe("skipped");
+    expect(store.batches[0]?.undone_at).toBeNull();
 
     store.failResetStep = undefined;
     const second = await resetCompanyCostData(repo, COMPANY_A);
@@ -444,15 +504,36 @@ describe("resetCompanyCostData", () => {
     );
   });
 
-  it("restricts start-over and undo-all to owner/admin when role exists", () => {
+  it("allows owner/admin and denies member or a missing role", () => {
     expect(canManageCompanyCostReset({ role: "owner" })).toBe(true);
     expect(canManageCompanyCostReset({ role: "admin" })).toBe(true);
     expect(canManageCompanyCostReset({ role: "manager" })).toBe(false);
     expect(canManageCompanyCostReset({ role: "member" })).toBe(false);
     expect(canManageCompanyCostReset({ role: "viewer" })).toBe(false);
-    expect(
-      canManageCompanyCostReset({ role: null, roleColumnMissing: true })
-    ).toBe(true);
+    expect(canManageCompanyCostReset({ role: null })).toBe(false);
+    expect(canManageCompanyCostReset({ role: undefined })).toBe(false);
+  });
+
+  it("denies a membership read error even when the message contains role", async () => {
+    const supabase = {
+      from() {
+        return this;
+      },
+      select() {
+        return this;
+      },
+      eq() {
+        return this;
+      },
+      maybeSingle: async () => ({
+        data: null,
+        error: { message: 'role "authenticator" does not exist' },
+      }),
+    };
+    await expect(
+      loadCompanyMembershipRole(supabase as never, "co-ranchos", "user-1")
+    ).rejects.toThrow(/role "authenticator"/);
+    expect(canManageCompanyCostReset({ role: null })).toBe(false);
   });
 });
 
@@ -466,6 +547,7 @@ describe("cost reset server and UI copy", () => {
     expect(src).toContain("restaurantContext.locations.map");
     expect(src).not.toContain("Type the restaurant name to confirm");
     expect(src).not.toContain('error: "Reset failed"');
+    expect(src).not.toContain("error_en");
     expect(src).toContain("RESET_FAILED_ERROR_ES");
     expect(src).toContain("canManageCompanyCostReset");
   });
@@ -480,5 +562,17 @@ describe("cost reset server and UI copy", () => {
     expect(src).toContain("no se puede deshacer");
     expect(src).toContain("canManageReset");
     expect(src).toContain("disabled={resetting || !confirmName.trim()}");
+    expect(src).not.toContain("t(lang");
+    expect(src).not.toContain("START OVER");
+    expect(src).not.toContain("error_en");
+  });
+
+  it("does not bypass the role check on a column-missing heuristic", () => {
+    const auth = read("lib/restaurant/cost-workbook/reset-auth.ts");
+    expect(auth).not.toContain("roleColumnMissing");
+    expect(auth).not.toContain("errorMentionsColumn");
+    const reset = read("lib/restaurant/cost-workbook/reset.ts");
+    expect(reset).not.toContain("roleColumnMissing");
+    expect(reset).toContain('role === "owner" || input.role === "admin"');
   });
 });

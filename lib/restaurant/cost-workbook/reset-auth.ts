@@ -1,9 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 
 export interface CompanyMembershipRoleLoad {
   role: string | null;
-  roleColumnMissing: boolean;
 }
 
 export async function loadCompanyMembershipRole(
@@ -18,15 +16,11 @@ export async function loadCompanyMembershipRole(
     .eq("user_id", userId)
     .maybeSingle();
 
-  if (error && errorMentionsColumn(error, "role")) {
-    return { role: null, roleColumnMissing: true };
-  }
   if (error) {
     throw new Error(error.message);
   }
   return {
     role: typeof data?.role === "string" ? data.role : null,
-    roleColumnMissing: false,
   };
 }
 

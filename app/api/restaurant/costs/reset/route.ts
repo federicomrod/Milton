@@ -2,10 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
   createSupabaseCostWorkbookRepo,
-  PICK_RESTAURANT_ERROR_EN,
   PICK_RESTAURANT_ERROR_ES,
   RESET_FAILED_ERROR_ES,
-  RESET_FORBIDDEN_ERROR_EN,
   RESET_FORBIDDEN_ERROR_ES,
   RESET_PARTIAL_ERROR_ES,
   resetCompanyCostData,
@@ -38,17 +36,13 @@ export async function POST(req: NextRequest) {
     const message = err instanceof Error ? err.message : "Error";
     console.error("[costs/reset] role", message);
     return NextResponse.json(
-      { error: RESET_FORBIDDEN_ERROR_ES, error_en: RESET_FORBIDDEN_ERROR_EN },
+      { error: RESET_FORBIDDEN_ERROR_ES, code: "forbidden" },
       { status: 403 }
     );
   }
   if (!canManageCompanyCostReset(membership)) {
     return NextResponse.json(
-      {
-        error: RESET_FORBIDDEN_ERROR_ES,
-        error_en: RESET_FORBIDDEN_ERROR_EN,
-        code: "forbidden",
-      },
+      { error: RESET_FORBIDDEN_ERROR_ES, code: "forbidden" },
       { status: 403 }
     );
   }
@@ -78,7 +72,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error: PICK_RESTAURANT_ERROR_ES,
-        error_en: PICK_RESTAURANT_ERROR_EN,
         code: scope.code,
       },
       { status: 400 }
@@ -136,9 +129,6 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error";
     console.error("[costs/reset]", message);
-    return NextResponse.json(
-      { error: RESET_FAILED_ERROR_ES, details: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: RESET_FAILED_ERROR_ES }, { status: 500 });
   }
 }

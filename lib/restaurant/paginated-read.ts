@@ -39,7 +39,18 @@ export interface FetchAllRowsResult<T> {
   /** True when `safetyCap` was reached and more rows may exist. */
   truncated: boolean;
   error: { message?: string } | null;
+  /** HTTP pages issued (including empty trailing pages in a parallel wave). */
+  pages?: number;
+  /** Wall time for the whole walk. */
+  elapsedMs?: number;
 }
+
+/**
+ * Pages fetched at once after we know the first page is full.
+ * Staging July data is ~8–20 pages; 8 concurrent PostgREST calls turns
+ * ~20 sequential round trips into 2–3 waves.
+ */
+export const PARALLEL_PAGE_CONCURRENCY = 8;
 
 /**
  * Rows from a succeeded read. On error this is always `[]` — never a
@@ -74,6 +85,10 @@ export interface OrderableQuery {
  * Load every row matching `makeQuery()`, paging past the 1,000-row cap.
  * `makeQuery` must return a **fresh** builder each call — PostgREST
  * builders accumulate `.order()` / `.range()` if reused.
+ *
+ * Pages after the first run in waves of PARALLEL_PAGE_CONCURRENCY so a
+ * 20k-row month is a handful of round trips, not 20 sequential ones.
+ * Any page error still fail-closes (empty rows + error).
  */
 export async function fetchAllRows<T>(
   makeQuery: () => OrderableQuery,
@@ -85,31 +100,96 @@ export async function fetchAllRows<T>(
     POSTGREST_MAX_ROWS
   );
   const safetyCap = options.safetyCap ?? PAGINATED_READ_SAFETY_CAP;
+  const started = Date.now();
 
-  const rows: T[] = [];
-  let from = 0;
+  const empty = (
+    error: { message?: string } | null,
+    pages: number
+  ): FetchAllRowsResult<T> => ({
+    rows: [],
+    truncated: false,
+    error,
+    pages,
+    elapsedMs: Date.now() - started,
+  });
 
-  while (from < safetyCap) {
-    const to = Math.min(from + pageSize - 1, safetyCap - 1);
-    const expected = to - from + 1;
-    const { data, error } = await makeQuery()
-      .order(orderBy, { ascending: true })
-      .range(from, to);
-    if (error) {
-      // Fail closed: a mid-loop error must not look like a complete read.
-      // Callers that only check `truncated` (or treat a short `rows` as
-      // "that's all of them") would otherwise show silent partial totals.
-      return { rows: [], truncated: false, error };
-    }
-    const page = (data ?? []) as T[];
-    rows.push(...page);
-    if (page.length < expected) {
-      return { rows, truncated: false, error: null };
-    }
-    from += pageSize;
+  const firstTo = Math.min(pageSize - 1, safetyCap - 1);
+  const firstExpected = firstTo + 1;
+  const first = await makeQuery()
+    .order(orderBy, { ascending: true })
+    .range(0, firstTo);
+  if (first.error) {
+    return empty(first.error, 1);
+  }
+  const firstPage = (first.data ?? []) as T[];
+  if (firstPage.length < firstExpected) {
+    return {
+      rows: firstPage,
+      truncated: false,
+      error: null,
+      pages: 1,
+      elapsedMs: Date.now() - started,
+    };
   }
 
-  return { rows, truncated: true, error: null };
+  const rows: T[] = [...firstPage];
+  let from = pageSize;
+  let pages = 1;
+
+  while (from < safetyCap) {
+    const batchStarts: number[] = [];
+    for (
+      let i = 0;
+      i < PARALLEL_PAGE_CONCURRENCY && from + i * pageSize < safetyCap;
+      i++
+    ) {
+      batchStarts.push(from + i * pageSize);
+    }
+    const results = await Promise.all(
+      batchStarts.map(async (start) => {
+        const to = Math.min(start + pageSize - 1, safetyCap - 1);
+        const expected = to - start + 1;
+        const { data, error } = await makeQuery()
+          .order(orderBy, { ascending: true })
+          .range(start, to);
+        return { start, expected, data, error };
+      })
+    );
+    pages += results.length;
+    results.sort((a, b) => a.start - b.start);
+    for (const result of results) {
+      if (result.error) {
+        return empty(result.error, pages);
+      }
+    }
+    let short = false;
+    for (const result of results) {
+      const page = (result.data ?? []) as T[];
+      rows.push(...page);
+      if (page.length < result.expected) {
+        short = true;
+        break;
+      }
+    }
+    if (short) {
+      return {
+        rows,
+        truncated: false,
+        error: null,
+        pages,
+        elapsedMs: Date.now() - started,
+      };
+    }
+    from += batchStarts.length * pageSize;
+  }
+
+  return {
+    rows,
+    truncated: true,
+    error: null,
+    pages,
+    elapsedMs: Date.now() - started,
+  };
 }
 
 /** Log when a safety cap truncated a read so it never fails silently. */

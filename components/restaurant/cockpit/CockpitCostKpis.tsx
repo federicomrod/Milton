@@ -1,0 +1,138 @@
+// components/restaurant/cockpit/CockpitCostKpis.tsx
+//
+// Period food-cost / margin cells for the KPI strip. Loaded after the
+// sales numbers so the strip is not blocked on the POS page-walk.
+
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { buildCockpitKpiStripModel } from "@/lib/restaurant/cockpit-executive";
+import { loadPeriodCostSnapshot } from "@/lib/restaurant/cockpit-page-data";
+import type { CockpitPeriod } from "@/lib/restaurant/cockpit-period";
+import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
+import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
+
+export function CockpitCostKpisSkeleton() {
+  return (
+    <>
+      <PageSkeleton height="4.5rem" width="100%" label="gross margin" />
+      <PageSkeleton height="4.5rem" width="100%" label="food cost" />
+    </>
+  );
+}
+
+export async function CockpitCostKpis({
+  locationId,
+  period,
+  timezone,
+  currency,
+  lang,
+  week,
+}: {
+  locationId?: string;
+  period: CockpitPeriod;
+  timezone: string;
+  currency: string;
+  lang: PreferredLanguage;
+  week: {
+    thisWeek: { from: string; to: string } | null;
+    lastWeek: { from: string; to: string } | null;
+    deltaPct: number | null;
+  };
+}) {
+  const snapshot = await loadPeriodCostSnapshot(locationId, period, {
+    timezone,
+    currency,
+    lang,
+  });
+  if (!snapshot) {
+    return <CockpitCostKpisSkeleton />;
+  }
+  const model = buildCockpitKpiStripModel(snapshot, lang, week);
+  return <CockpitCostKpiCells lang={lang} model={model} />;
+}
+
+function CockpitCostKpiCells({
+  model,
+  lang,
+}: {
+  lang: PreferredLanguage;
+  model: ReturnType<typeof buildCockpitKpiStripModel>;
+}) {
+  return (
+    <>
+      {model.gross_margin_pct.available ? (
+        <div className="rounded-md border border-border bg-background px-2.5 py-1.5 min-h-[4.5rem]">
+          <p className="text-[11px] font-medium text-muted-foreground truncate">
+            {t(lang, "Gross margin %", "Margen bruto %")}
+          </p>
+          <p className="text-lg font-semibold tabular-nums leading-tight">
+            {model.gross_margin_pct.value.toFixed(1)}%
+          </p>
+          <p
+            className={
+              "text-[10px] tabular-nums " +
+              (model.gross_margin_pct.delta_pct == null
+                ? "text-muted-foreground"
+                : model.gross_margin_pct.delta_pct > 0
+                  ? "text-emerald-700 dark:text-emerald-400"
+                  : model.gross_margin_pct.delta_pct < 0
+                    ? "text-amber-800 dark:text-amber-300"
+                    : "text-muted-foreground")
+            }
+          >
+            {model.gross_margin_pct.delta_pct == null
+              ? t(lang, "no previous period", "sin periodo anterior")
+              : `${model.gross_margin_pct.delta_pct > 0 ? "+" : ""}${model.gross_margin_pct.delta_pct.toFixed(1)}%`}
+          </p>
+          <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+            {t(lang, "on covered net sales", "sobre ventas netas cubiertas")}
+          </p>
+        </div>
+      ) : (
+        <NotAvailableYet
+          lang={lang}
+          compact
+          reason={model.gross_margin_pct.reason}
+          href={model.gross_margin_pct.href}
+          linkLabel={model.gross_margin_pct.link_label}
+        />
+      )}
+      {model.food_cost_pct.available ? (
+        <div className="rounded-md border border-border bg-background px-2.5 py-1.5 min-h-[4.5rem]">
+          <p className="text-[11px] font-medium text-muted-foreground truncate">
+            {t(lang, "Food cost %", "% costo de comida")}
+          </p>
+          <p className="text-lg font-semibold tabular-nums leading-tight">
+            {model.food_cost_pct.value.toFixed(1)}%
+          </p>
+          <p
+            className={
+              "text-[10px] tabular-nums " +
+              (model.food_cost_pct.delta_pct == null
+                ? "text-muted-foreground"
+                : model.food_cost_pct.delta_pct > 0
+                  ? "text-emerald-700 dark:text-emerald-400"
+                  : model.food_cost_pct.delta_pct < 0
+                    ? "text-amber-800 dark:text-amber-300"
+                    : "text-muted-foreground")
+            }
+          >
+            {model.food_cost_pct.delta_pct == null
+              ? t(lang, "no previous period", "sin periodo anterior")
+              : `${model.food_cost_pct.delta_pct > 0 ? "+" : ""}${model.food_cost_pct.delta_pct.toFixed(1)}%`}
+          </p>
+          <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+            {t(lang, "on covered net sales", "sobre ventas netas cubiertas")}
+          </p>
+        </div>
+      ) : (
+        <NotAvailableYet
+          lang={lang}
+          compact
+          reason={model.food_cost_pct.reason}
+          href={model.food_cost_pct.href}
+          linkLabel={model.food_cost_pct.link_label}
+        />
+      )}
+    </>
+  );
+}

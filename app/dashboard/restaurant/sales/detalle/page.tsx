@@ -1,12 +1,14 @@
 // app/dashboard/restaurant/sales/detalle/page.tsx
 //
 // Investigate: existing lunch/dinner, mix-over-time, category grid and
-// explorer. Nothing was deleted from the previous Sales tab — it lives here.
+// explorer. SalesHero follows the header period. The explorer is loaded
+// from /api/restaurant/cockpit-sales and filtered to the same period —
+// it is not serialized on the Sales first paint.
 
 import Link from "next/link";
 import { loadSalesPageModel } from "@/lib/restaurant/sales-page-data";
 import { SalesHero } from "@/components/restaurant/cockpit/SalesHero";
-import { RestaurantSalesExplorer } from "@/components/restaurant/RestaurantSalesExplorer";
+import { DeferredSalesExplorer } from "@/components/restaurant/sales/DeferredSalesExplorer";
 import { SalesPageHeader } from "@/components/restaurant/sales/SalesPageChrome";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
 import {
@@ -24,12 +26,14 @@ export default async function SalesDetailPage({
   searchParams: Promise<{ location?: string; period?: string }>;
 }) {
   const { location, period } = await searchParams;
-  const { data, targets, profitability, sales, periodPreset } =
-    await loadSalesPageModel(location, period);
-  const lang =
-    data.mode === "live"
-      ? data.preferredLanguage
-      : RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  const {
+    mode,
+    lang: modelLang,
+    sales,
+    periodPreset,
+    latestSaleDate,
+  } = await loadSalesPageModel(location, period);
+  const lang = modelLang || RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
   const backHref = salesHref(SALES_HREF, {
     locationId: location,
     period: periodPreset,
@@ -44,13 +48,8 @@ export default async function SalesDetailPage({
         range={
           sales
             ? sales.period.current
-            : data.mode === "live" &&
-                data.cockpit.period_from &&
-                data.cockpit.period_to
-              ? {
-                  from: data.cockpit.period_from,
-                  to: data.cockpit.period_to,
-                }
+            : mode === "live" && latestSaleDate
+              ? { from: latestSaleDate, to: latestSaleDate }
               : null
         }
         comparisonLabel={sales?.comparisonLabel}
@@ -63,7 +62,7 @@ export default async function SalesDetailPage({
           {t(lang, "← Back to Sales", "← Volver a Ventas")}
         </Link>
       </p>
-      {data.mode === "live" && sales ? (
+      {mode === "live" && sales ? (
         <div className="space-y-6">
           <p
             className="text-xs text-muted-foreground"
@@ -77,12 +76,9 @@ export default async function SalesDetailPage({
           </p>
           <SalesHero cockpit={sales.scoped} lang={lang} />
           <section id="categorias">
-            <RestaurantSalesExplorer
-              rows={sales.explorerRows}
-              initialTargets={targets}
-              displayCurrency={
-                profitability?.kpis.currency ?? data.overview.currency
-              }
+            <DeferredSalesExplorer
+              locationId={location}
+              period={sales.period.current}
               lang={lang}
             />
           </section>

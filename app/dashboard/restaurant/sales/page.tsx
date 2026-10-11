@@ -2,6 +2,8 @@
 //
 // Sales area — Understand / Explore. Investigate lives one level deeper
 // at /detalle. KPI math stays in lib/restaurant/sales-insights.ts.
+// First paint uses the cached rollup/POS path from #136 and does not
+// serialize explorer rows.
 
 import { Suspense } from "react";
 import { loadSalesPageModel } from "@/lib/restaurant/sales-page-data";
@@ -27,14 +29,14 @@ export default async function SalesAreaPage({
   searchParams: Promise<{ location?: string; period?: string }>;
 }) {
   const { location, period } = await searchParams;
-  const { data, sales, periodPreset } = await loadSalesPageModel(
-    location,
-    period
-  );
-  const lang =
-    data.mode === "live"
-      ? data.preferredLanguage
-      : RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  const {
+    mode,
+    lang: modelLang,
+    sales,
+    periodPreset,
+    latestSaleDate,
+  } = await loadSalesPageModel(location, period);
+  const lang = modelLang || RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
   const detailHref = salesHref(SALES_DETAIL_HREF, {
     locationId: location,
     period: periodPreset,
@@ -48,18 +50,13 @@ export default async function SalesAreaPage({
         range={
           sales
             ? sales.period.current
-            : data.mode === "live" &&
-                data.cockpit.period_from &&
-                data.cockpit.period_to
-              ? {
-                  from: data.cockpit.period_from,
-                  to: data.cockpit.period_to,
-                }
+            : mode === "live" && latestSaleDate
+              ? { from: latestSaleDate, to: latestSaleDate }
               : null
         }
         comparisonLabel={sales?.comparisonLabel}
       />
-      {data.mode === "live" && sales ? (
+      {mode === "live" && sales ? (
         <>
           <SalesUnderstand
             insights={sales.insights}
@@ -99,7 +96,7 @@ export default async function SalesAreaPage({
             />
           </Suspense>
         </>
-      ) : data.mode === "live" ? (
+      ) : mode === "live" ? (
         <NotAvailableYet
           lang={lang}
           reason={t(

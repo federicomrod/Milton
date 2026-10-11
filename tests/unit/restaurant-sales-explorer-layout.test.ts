@@ -143,7 +143,7 @@ describe("Revenue tab page chrome is trimmed without dropping copy", () => {
     const salesTab = read(
       "components/restaurant/cockpit/RevenueAndChannelsTab.tsx"
     );
-    expect(cockpitPage).toContain("<RevenueAndChannelsTab");
+    expect(cockpitPage).toContain("<DeferredSalesTab");
     expect(salesTab).toContain("<RestaurantSalesExplorer");
     expect(salesTab).toContain("rows={rows}");
     expect(salesTab).toContain("initialTargets={targets}");

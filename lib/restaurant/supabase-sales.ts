@@ -32,6 +32,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { POSSalesItem } from "@/types/restaurant";
 import { warnIfTruncated } from "@/lib/restaurant/paginated-read";
+import { logCockpitTiming } from "@/lib/restaurant/cockpit-pos-rollup";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import {
   resolveRestaurantCockpitLanguage,
@@ -518,6 +519,12 @@ export async function fetchRealRestaurantDashboardData(
     warnIfTruncated("supabase-sales pos_sales_items", result);
     rawRows = result.rows;
     truncated = result.truncated;
+    logCockpitTiming("pos-rows", {
+      pages: result.pages,
+      elapsedMs: result.elapsedMs,
+      rows: result.rows.length,
+      location: selectedLocationId,
+    });
   } catch (err) {
     console.error("[supabase-sales] pos_sales_items read threw:", err);
     return liveReadError(supabase, companyId);
@@ -580,7 +587,7 @@ async function resolveCompanyPreferredLanguage(
  * client-side explorer renders against. Numeric coercion mirrors the rules
  * used by `toPOSSalesItem` so totals on the page agree row-for-row.
  */
-function toExplorerRow(row: PosSalesItemRow): ExplorerRow {
+export function toExplorerRow(row: PosSalesItemRow): ExplorerRow {
   const qty =
     typeof row.quantity === "number" && Number.isFinite(row.quantity)
       ? row.quantity

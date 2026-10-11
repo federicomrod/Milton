@@ -24,6 +24,8 @@ export interface CappedSupabaseOptions {
   pageErrors?: PageErrorSpec[];
   /** Columns that do not exist on a table — select including them errors. */
   unknownColumns?: Record<string, string[]>;
+  /** Artificial per-page delay so tests can measure sequential vs parallel. */
+  delayMs?: number;
 }
 
 export function createCappedSupabase(opts: CappedSupabaseOptions) {
@@ -45,7 +47,8 @@ export function createCappedSupabase(opts: CappedSupabaseOptions) {
         maxRows,
         table,
         pageErrors,
-        unknownColumns[table] ?? []
+        unknownColumns[table] ?? [],
+        opts.delayMs ?? 0
       );
     },
   };
@@ -64,7 +67,8 @@ class CappedQuery {
     private maxRows: number,
     private table: string,
     private pageErrors: PageErrorSpec[],
-    private unknownCols: string[] = []
+    private unknownCols: string[] = [],
+    private delayMs = 0
   ) {}
 
   select(cols?: unknown, opts?: { count?: string; head?: boolean }) {
@@ -164,6 +168,9 @@ class CappedQuery {
   }
 
   private async execute() {
+    if (this.delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.delayMs));
+    }
     const fail = this.pageError();
     if (fail) {
       return { data: null, error: fail, count: null };

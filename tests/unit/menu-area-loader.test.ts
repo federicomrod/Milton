@@ -16,7 +16,7 @@ describe("Menu area loader (#128 review N2)", () => {
     const start = src.indexOf("export async function loadMenuAreaModel");
     expect(start).toBeGreaterThan(-1);
     const fn = src.slice(start);
-    expect(fn).toContain("fetchProfitabilityData");
+    expect(fn).toContain("loadCachedProfitability");
     expect(fn).not.toContain("fetchRealRestaurantDashboardData");
   });
 });

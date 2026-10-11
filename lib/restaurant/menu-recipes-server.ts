@@ -161,9 +161,15 @@ interface RecipeRow {
  * client-side. Tenant-scoped via RLS — we still pass company_id explicitly
  * because the user could in principle belong to multiple companies.
  */
+export interface FetchMenuRecipesOptions {
+  /** Reuse POS rows already loaded in this request. */
+  posRows?: PosRow[];
+}
+
 export async function fetchMenuRecipesData(
   supabase: SupabaseClient,
-  companyId: string | null
+  companyId: string | null,
+  options?: FetchMenuRecipesOptions
 ): Promise<MenuRecipesData> {
   if (!companyId) {
     return {
@@ -197,14 +203,20 @@ export async function fetchMenuRecipesData(
     ingredientsRes,
     costEntriesRes,
   ] = await Promise.all([
-    fetchAllRows<PosRow>(() =>
-      supabase
-        .from("pos_sales_items")
-        .select(
-          "raw_item_name, quantity, gross_revenue, net_revenue, order_id, check_id, currency"
-        )
-        .eq("company_id", companyId)
-    ),
+    options?.posRows
+      ? Promise.resolve({
+          rows: options.posRows,
+          truncated: false,
+          error: null as { message?: string } | null,
+        })
+      : fetchAllRows<PosRow>(() =>
+          supabase
+            .from("pos_sales_items")
+            .select(
+              "raw_item_name, quantity, gross_revenue, net_revenue, order_id, check_id, currency"
+            )
+            .eq("company_id", companyId)
+        ),
     fetchAllRows<MappingRow>(() =>
       supabase
         .from("pos_item_mappings")

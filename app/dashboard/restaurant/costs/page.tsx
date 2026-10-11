@@ -4,15 +4,12 @@
 // Cost-page redesign is out of scope (PR 4 / #131).
 
 import Link from "next/link";
-import { loadCockpitPageModel } from "@/lib/restaurant/cockpit-page-data";
+import { loadMenuAreaModel } from "@/lib/restaurant/cockpit-page-data";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import { SupplierTrendsSection } from "@/components/restaurant/ProfitabilityCockpit";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
-import {
-  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
-  t,
-  type PreferredLanguage,
-} from "@/lib/restaurant/language";
+import { t } from "@/lib/restaurant/language";
 import {
   dataSettingsLinkLabel,
   routesForSection,
@@ -26,11 +23,10 @@ export default async function CostsAreaPage({
   searchParams: Promise<{ location?: string }>;
 }) {
   const { location } = await searchParams;
-  const { data, profitability } = await loadCockpitPageModel(location);
-  const lang: PreferredLanguage =
-    data.mode === "live"
-      ? data.preferredLanguage
-      : RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  const [{ lang }, { profitability }] = await Promise.all([
+    loadRestaurantShellChrome(),
+    loadMenuAreaModel(location),
+  ]);
   const costLinks = routesForSection("data_sources").filter((route) =>
     ["import-costs", "ingredients", "suppliers", "supplier-invoices"].includes(
       route.id

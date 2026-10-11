@@ -1,13 +1,15 @@
 // lib/restaurant/sales-page-data.ts
 //
-// Sales page loader (#130). Reuses the one paginated POS read from
-// loadCockpitPageModel, then honours the cockpit period contract and
-// builds deterministic sales insights. No extra POS round-trip.
+// Sales page loader (#130). Uses the request-level cached POS / rollup
+// path from #136 (loadCockpitExecutiveFast + loadCachedPosSalesRows).
+// Insights stay in sales-insights.ts. Explorer rows are not serialized
+// here — detalle fetches them from /api/restaurant/cockpit-sales.
 
 import {
-  loadCockpitPageModel,
-  type CockpitPageModel,
+  loadCockpitExecutiveFast,
+  type CockpitExecutiveFastModel,
 } from "@/lib/restaurant/cockpit-page-data";
+import { loadCachedPosSalesRows } from "@/lib/restaurant/pos-read-cache";
 import {
   buildCockpitSalesAggregate,
   type CockpitSalesAggregate,
@@ -28,10 +30,10 @@ import {
   type CockpitPeriod,
   type CockpitPeriodPreset,
 } from "@/lib/restaurant/cockpit-period";
-import type { ExplorerRow } from "@/lib/restaurant/supabase-sales";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import type { SampleReason } from "@/lib/restaurant/supabase-sales";
 import {
   buildSalesInsights,
-  filterExplorerRowsForPeriod,
   filterRowsForSalesPeriod,
   salesDayStatsFromRows,
   type SalesInsights,
@@ -44,14 +46,19 @@ export interface SalesPageView {
   phrases: CockpitComparisonPhrases;
   scoped: CockpitSalesAggregate;
   insights: SalesInsights;
-  explorerRows: ExplorerRow[];
   interpretationFact: CockpitInsightFact | null;
   interpretationCacheKey: string;
 }
 
-export interface SalesPageModel extends CockpitPageModel {
-  sales: SalesPageView | null;
+export interface SalesPageModel {
+  mode: CockpitExecutiveFastModel["mode"];
+  reason?: SampleReason;
+  lang: PreferredLanguage;
+  timezone: string;
+  currency: string;
   periodPreset: CockpitPeriodPreset;
+  latestSaleDate: string | null;
+  sales: SalesPageView | null;
 }
 
 export async function loadSalesPageModel(
@@ -59,54 +66,63 @@ export async function loadSalesPageModel(
   periodRaw?: string | null
 ): Promise<SalesPageModel> {
   const periodPreset = parseCockpitPeriodPreset(periodRaw);
-  const base = await loadCockpitPageModel(requestedLocationId);
-  if (base.data.mode !== "live") {
-    return { ...base, sales: null, periodPreset };
-  }
-
-  const lang = base.data.preferredLanguage;
-  const period = resolveCockpitPeriod(
+  const fast = await loadCockpitExecutiveFast(requestedLocationId, periodRaw);
+  const base = {
+    mode: fast.mode,
+    reason: fast.reason,
+    lang: fast.lang,
+    timezone: fast.timezone,
+    currency: fast.currency,
     periodPreset,
-    base.data.cockpit.period_to
-  );
-  if (!period) {
-    return { ...base, sales: null, periodPreset };
+    latestSaleDate: fast.cockpit.period_to,
+  };
+
+  if (fast.mode !== "live" || !fast.scope) {
+    return { ...base, sales: null };
   }
 
-  const timezone = base.data.timezone;
-  const currency = base.data.cockpit.currency;
-  const filtered = filterRowsForSalesPeriod(
-    base.data.posFactRows,
-    period,
-    timezone
+  const period = resolveCockpitPeriod(periodPreset, fast.cockpit.period_to);
+  if (!period) {
+    return { ...base, sales: null };
+  }
+
+  const pos = await loadCachedPosSalesRows(
+    fast.scope.companyId,
+    fast.scope.locationId
   );
-  const scoped = buildCockpitSalesAggregate(filtered, { timezone, currency });
-  const stats = salesDayStatsFromRows(filtered, { timezone, currency });
-  const insights = buildSalesInsights(scoped, lang, stats);
-  const explorerRows = filterExplorerRowsForPeriod(
-    base.data.explorerRows,
-    period
-  );
-  const phrases = cockpitComparisonPhrases(period, lang);
+  if (pos.error) {
+    return { ...base, sales: null };
+  }
+
+  const filtered = filterRowsForSalesPeriod(pos.rows, period, fast.timezone);
+  const scoped = buildCockpitSalesAggregate(filtered, {
+    timezone: fast.timezone,
+    currency: fast.currency,
+  });
+  const stats = salesDayStatsFromRows(filtered, {
+    timezone: fast.timezone,
+    currency: fast.currency,
+  });
+  const insights = buildSalesInsights(scoped, fast.lang, stats);
+  const phrases = cockpitComparisonPhrases(period, fast.lang);
   const interpretationCacheKey = cockpitInsightCacheKey({
-    companyId: `sales:${base.data.companyId}`,
-    locationId: base.resolvedLocationId,
+    companyId: `sales:${fast.scope.companyId}`,
+    locationId: fast.scope.locationId,
     preset: period.preset,
     from: period.current.from,
     to: period.current.to,
-    lang,
+    lang: fast.lang,
     factsHash: insights.interpretationFact
       ? hashCockpitInsightFacts([insights.interpretationFact])
       : "none",
     dataVersion: cockpitFactsDataVersion({
-      latestSaleDate: base.data.cockpit.period_to,
-      rowCount: base.data.rowCount,
+      latestSaleDate: fast.cockpit.period_to,
+      rowCount: fast.rowCount,
     }),
   });
 
   return {
     ...base,
-    periodPreset,
     sales: {
       period,
       periodPreset,
@@ -114,7 +130,6 @@ export async function loadSalesPageModel(
       phrases,
       scoped,
       insights,
-      explorerRows,
       interpretationFact: insights.interpretationFact,
       interpretationCacheKey,
     },

@@ -17,6 +17,7 @@ const SALES_REACT = [
   "components/restaurant/sales/SalesHighlights.tsx",
   "components/restaurant/sales/SalesRankedBars.tsx",
   "components/restaurant/sales/SalesInterpretation.tsx",
+  "components/restaurant/sales/DeferredSalesExplorer.tsx",
   "app/dashboard/restaurant/sales/page.tsx",
   "app/dashboard/restaurant/sales/detalle/page.tsx",
 ];
@@ -47,25 +48,35 @@ describe("Sales page IA (#130)", () => {
     expect(sales).toContain("SalesUnderstand");
     expect(sales).toContain("SalesExplore");
     expect(sales).not.toContain("RestaurantSalesExplorer");
+    expect(sales).not.toContain("explorerRows");
+    expect(sales).not.toContain("loadCockpitPageModel");
     expect(detalle).toContain("<SalesHero");
-    expect(detalle).toContain("<RestaurantSalesExplorer");
-    expect(detalle).toContain("sales.explorerRows");
+    expect(detalle).toContain("DeferredSalesExplorer");
+    expect(detalle).not.toContain("sales.explorerRows");
     expect(detalle).toContain("mismo periodo que el encabezado");
     expect(detalle).toContain('id="categorias"');
+    expect(
+      read("components/restaurant/sales/DeferredSalesExplorer.tsx")
+    ).toContain("/api/restaurant/cockpit-sales");
   });
 
   it("honours the cockpit period contract on Sales", () => {
     const page = read("app/dashboard/restaurant/sales/page.tsx");
     const chrome = read("components/restaurant/sales/SalesPageChrome.tsx");
     const loader = read("lib/restaurant/sales-page-data.ts");
+    expect(loader).toContain("loadCockpitExecutiveFast");
+    expect(loader).toContain("loadCachedPosSalesRows");
+    expect(loader).not.toContain("loadCockpitPageModel");
     expect(loader).toContain("parseCockpitPeriodPreset");
     expect(loader).toContain("resolveCockpitPeriod");
     expect(loader).toContain("filterRowsForSalesPeriod");
-    expect(loader).toContain("filterExplorerRowsForPeriod");
     expect(loader).toContain("salesDayStatsFromRows");
     expect(loader).toContain("buildCockpitSalesAggregate");
     expect(chrome).toContain("CockpitPeriodControl");
     expect(page).not.toContain("shownPeriodFromSales");
+    expect(
+      read("components/restaurant/sales/DeferredSalesExplorer.tsx")
+    ).toContain("inInclusiveRange");
   });
 
   it("does not put KPI aggregation in React", () => {
@@ -85,7 +96,9 @@ describe("Sales page IA (#130)", () => {
     expect(page).toContain("<Suspense");
     expect(page).toContain("SalesInterpretationUpgrade");
     expect(loading).toContain("PageSkeleton");
+    expect(loading).toContain("lg:grid-cols-3");
     expect(loading).not.toContain("Reading your latest restaurant numbers");
+    expect(loading).not.toContain('label="explorer"');
   });
 });
 

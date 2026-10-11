@@ -17,7 +17,6 @@ import {
   fetchProfitabilityData,
   type ProfitabilitySelection,
 } from "@/lib/restaurant/profitability-server";
-import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
 import {
   resolvePreferredLanguage,
   t,
@@ -239,52 +238,23 @@ export async function buildBriefingContext(
   const data = await fetchProfitabilityData(supabase, companyId, selected);
   const currency = data.kpis.currency;
 
-  // ---- POS-level orders + avg ticket (counts distinct check_id when present) ----
-  // We don't pull all rows again — orders is intentionally null when the POS
-  // export was a daily summary (no check_id). The reason field tells the model
-  // exactly that so it doesn't make a number up.
+  // Distinct checks come from the profitability POS read — do not page
+  // pos_sales_items a second time just for check_id.
   let orders: number | null = null;
   let ordersReason: string | undefined;
-  try {
-    const checksRes = await fetchAllRows<{ check_id: string | null }>(() => {
-      let checksQuery = supabase
-        .from("pos_sales_items")
-        .select("check_id")
-        .eq("company_id", companyId)
-        .not("check_id", "is", null);
-      if (selected) {
-        checksQuery = checksQuery.eq("location_id", selected.locationId);
-      }
-      return checksQuery;
-    });
-    if (checksRes.error) {
-      ordersReason = t(
-        preferredLanguage,
-        "Could not read check_id from pos_sales_items.",
-        "No se pudo leer check_id de pos_sales_items."
-      );
-    } else {
-      warnIfTruncated("briefing-context pos_sales_items check_id", checksRes);
-      const distinct = new Set<string>();
-      for (const row of checksRes.rows) {
-        if (row.check_id) distinct.add(row.check_id);
-      }
-      if (distinct.size > 0) {
-        orders = distinct.size;
-      } else {
-        ordersReason = t(
-          preferredLanguage,
-          "POS rows have no check_id (summary export) — orders not counted.",
-          "Las filas del POS no tienen check_id (exportación resumida) — no se contaron órdenes."
-        );
-      }
-    }
-  } catch (err) {
-    console.error("[briefing-context] orders lookup:", err);
+  if (data.readError) {
     ordersReason = t(
       preferredLanguage,
-      "Unexpected error counting orders.",
-      "Error inesperado al contar las órdenes."
+      "Could not read check_id from pos_sales_items.",
+      "No se pudo leer check_id de pos_sales_items."
+    );
+  } else if (data.distinct_check_count > 0) {
+    orders = data.distinct_check_count;
+  } else {
+    ordersReason = t(
+      preferredLanguage,
+      "POS rows have no check_id (summary export) — orders not counted.",
+      "Las filas del POS no tienen check_id (exportación resumida) — no se contaron órdenes."
     );
   }
 

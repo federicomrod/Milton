@@ -7,6 +7,7 @@
 import { BookOpen } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
+import { loadCachedPosSalesRows } from "@/lib/restaurant/pos-read-cache";
 import {
   fetchMenuRecipesData,
   type MenuRecipesData,
@@ -36,7 +37,20 @@ async function loadMenuRecipes(): Promise<LoadResult> {
     if (!user) return { kind: "no-company" };
     const companyId = await resolveCompanyIdForUser(supabase, user.id);
     if (!companyId) return { kind: "no-company" };
-    const data = await fetchMenuRecipesData(supabase, companyId);
+    const pos = await loadCachedPosSalesRows(companyId, null);
+    const data = await fetchMenuRecipesData(supabase, companyId, {
+      posRows: pos.error
+        ? undefined
+        : pos.rows.map((row) => ({
+            raw_item_name: row.raw_item_name,
+            quantity: row.quantity,
+            gross_revenue: row.gross_revenue,
+            net_revenue: row.net_revenue,
+            order_id: row.order_id,
+            check_id: row.check_id,
+            currency: row.currency,
+          })),
+    });
     return { kind: "data", data };
   } catch (err) {
     console.error("[/dashboard/restaurant/menu] failed:", err);
@@ -50,11 +64,11 @@ export default async function MenuRecipesRoute({
   searchParams: Promise<{ location?: string }>;
 }) {
   const params = await searchParams;
-  const [{ lang }, { profitability }] = await Promise.all([
+  const [{ lang }, { profitability }, result] = await Promise.all([
     loadRestaurantShellChrome(),
     loadMenuAreaModel(params.location),
+    loadMenuRecipes(),
   ]);
-  const result = await loadMenuRecipes();
 
   const header = (
     <div className="w-full px-6 lg:px-10 pt-3">

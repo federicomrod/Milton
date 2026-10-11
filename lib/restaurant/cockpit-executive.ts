@@ -106,6 +106,8 @@ export interface CockpitKpiStripModel {
   week_vs_last_week: WeekDeltaKpi;
   gross_margin_pct: CostKpi;
   food_cost_pct: CostKpi;
+  /** True while period cost KPIs are still loading (do not show "Add costs"). */
+  cost_pending?: boolean;
   secondary: {
     gross_sales: number;
     discounts: number;

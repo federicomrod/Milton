@@ -3,6 +3,7 @@
 // Shared loader for the cockpit and the thin Sales / Menu / Costs routes.
 // Same fetches as the original cockpit page — no KPI math lives here.
 
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import {
   getRestaurantKpiTargets,
@@ -11,8 +12,28 @@ import {
 import {
   fetchRealRestaurantDashboardData,
   resolveCompanyIdForUser,
+  toExplorerRow,
+  type ExplorerRow,
   type RestaurantDashboardData,
+  type SampleReason,
 } from "@/lib/restaurant/supabase-sales";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
+import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
+import {
+  buildCockpitSalesAggregate,
+  emptyCockpitSalesAggregate,
+  type CockpitSalesAggregate,
+} from "@/lib/restaurant/cockpit-aggregates";
+import {
+  buildCockpitPeriodSnapshotFromRollup,
+  fetchCockpitPosRollup,
+  logCockpitTiming,
+  rollupToCockpitSalesAggregate,
+} from "@/lib/restaurant/cockpit-pos-rollup";
+import {
+  loadCachedPosSalesRows,
+  loadCachedProfitability,
+} from "@/lib/restaurant/pos-read-cache";
 import {
   fetchProfitabilityData,
   type ProfitabilityData,
@@ -22,8 +43,13 @@ import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server
 import {
   parseCockpitPeriodPreset,
   resolveCockpitPeriod,
+  type CockpitPeriod,
   type CockpitPeriodPreset,
 } from "@/lib/restaurant/cockpit-period";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import {
   buildCockpitHeadline,
   buildCockpitKpiStripModel,
@@ -178,12 +204,10 @@ export async function loadMenuAreaModel(
       }
     }
 
-    const profitability = await fetchProfitabilityData(
-      supabase,
+    const profitability = await loadCachedProfitability(
       companyId,
-      selectedLocationId
-        ? { locationId: selectedLocationId, brandId: selectedBrandId }
-        : null
+      selectedLocationId,
+      selectedBrandId
     );
     return { profitability };
   } catch (err) {
@@ -357,4 +381,497 @@ function recipeCoverageFromProfitability(
     .filter((r) => r.cost.status !== "missing_recipe")
     .reduce((s, r) => s + r.revenue, 0);
   return (withRecipe / total) * 100;
+}
+
+export interface CockpitScope {
+  companyId: string;
+  locationId: string | null;
+  brandId: string | null;
+}
+
+export interface CockpitExecutiveFastModel {
+  mode: "live" | "sample";
+  reason?: SampleReason;
+  scope: CockpitScope | null;
+  lang: PreferredLanguage;
+  timezone: string;
+  currency: string;
+  rowCount: number;
+  truncated: boolean;
+  readError: boolean;
+  rollupSource: "rpc" | "rows" | "none";
+  cockpit: CockpitSalesAggregate;
+  executive: CockpitExecutiveView | null;
+  periodPreset: CockpitPeriodPreset;
+  lastSyncedAt: string | null;
+}
+
+export interface CockpitTabsModel {
+  lang: PreferredLanguage;
+  profitability: ProfitabilityData | null;
+  rowCount: number;
+  readError: boolean;
+  truncated: boolean;
+  resolvedLocationId: string | null;
+}
+
+export interface SalesAreaModel {
+  mode: "live" | "sample";
+  reason?: SampleReason;
+  lang: PreferredLanguage;
+  cockpit: CockpitSalesAggregate;
+  explorerRows: ExplorerRow[];
+  targets: TargetMap;
+  displayCurrency: string;
+}
+
+async function resolveCockpitScope(
+  requestedLocationId?: string
+): Promise<
+  | { ok: true; supabase: Awaited<ReturnType<typeof createClient>>; scope: CockpitScope }
+  | { ok: false; reason: SampleReason }
+> {
+  try {
+    const supabase = await createClient();
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user?.id) return { ok: false, reason: "unauthenticated" };
+    const companyId = await resolveCompanyIdForUser(supabase, userData.user.id);
+    if (!companyId) return { ok: false, reason: "no_company" };
+    let locationId: string | null = null;
+    let brandId: string | null = null;
+    if (requestedLocationId) {
+      const context = await resolveRestaurantContext(
+        supabase,
+        companyId,
+        requestedLocationId
+      );
+      if (context.selected) {
+        locationId = context.selected.locationId;
+        brandId = context.selected.brandId;
+      }
+    }
+    return {
+      ok: true,
+      supabase,
+      scope: { companyId, locationId, brandId },
+    };
+  } catch (err) {
+    console.error("[resolveCockpitScope] failed:", err);
+    return { ok: false, reason: "env_missing" };
+  }
+}
+
+function weekFromCockpit(cockpit: CockpitSalesAggregate) {
+  return {
+    thisWeek: cockpit.this_week
+      ? { from: cockpit.this_week.from, to: cockpit.this_week.to }
+      : null,
+    lastWeek: cockpit.last_week
+      ? { from: cockpit.last_week.from, to: cockpit.last_week.to }
+      : null,
+    deltaPct: cockpit.week_delta_pct,
+  };
+}
+
+function executiveFromSnapshot(
+  snapshot: CockpitPeriodSnapshot,
+  lang: PreferredLanguage,
+  cockpit: CockpitSalesAggregate,
+  extras: {
+    companyId: string;
+    locationId: string | null;
+    profitability: ProfitabilityData | null;
+    rowCount: number;
+    lastSyncedAt: string | null;
+    posConnected: boolean;
+    readError: boolean;
+    truncated: boolean;
+    costPending?: boolean;
+  }
+): CockpitExecutiveView {
+  const kpis = buildCockpitKpiStripModel(
+    snapshot,
+    lang,
+    weekFromCockpit(cockpit)
+  );
+  if (extras.costPending) kpis.cost_pending = true;
+  const headline = buildCockpitHeadline(snapshot, lang);
+  const comparisonLabel = cockpitComparisonPhrases(snapshot.period, lang).chipLabel;
+  const recipeCoverage = recipeCoverageFromProfitability(extras.profitability);
+  const ingredientsTotal = extras.profitability?.setupCounts.ingredients_count;
+  const ingredientsWithout =
+    extras.profitability?.dataQuality.ingredients_without_cost_entries;
+  const ingredientsWithCost =
+    ingredientsTotal != null && ingredientsWithout != null
+      ? Math.max(0, ingredientsTotal - ingredientsWithout)
+      : null;
+  const health = buildCockpitDataHealth({
+    lang,
+    currency: snapshot.currency,
+    saleLineCount: extras.rowCount,
+    otherCurrencyExcluded:
+      snapshot.other_currency_excluded ||
+      (extras.profitability?.dataQuality.currency_mismatch_rows ?? 0),
+    dishesWithoutRecipe:
+      extras.profitability?.kpis.menu_items_without_recipe ?? 0,
+    recipeCoveragePct: recipeCoverage,
+    costCoveragePct: snapshot.cost.coverage_pct,
+    allTimeCostCoveragePct: extras.profitability?.kpis.cost_coverage_pct ?? null,
+    ingredientsWithCost,
+    ingredientsTotal: ingredientsTotal ?? null,
+    lastSyncedAt: extras.lastSyncedAt,
+    posConnected: extras.posConnected,
+    salesLoaded: extras.rowCount > 0 && !extras.readError,
+    readError: extras.readError,
+    truncated: extras.truncated,
+  });
+  const setup = extras.profitability
+    ? setupProgress(
+        extras.profitability.setupCounts,
+        extras.profitability.dataQuality
+      )
+    : null;
+  const lowMargin = extras.profitability?.lowMargin[0];
+  const facts = selectCockpitInsights(snapshot, lang, {
+    lowMarginDish: lowMargin
+      ? {
+          name: lowMargin.name,
+          margin_pct: lowMargin.cost.gross_margin_pct ?? 0,
+        }
+      : null,
+    dishesWithoutRecipe:
+      extras.profitability?.kpis.menu_items_without_recipe ?? 0,
+  });
+  return {
+    snapshot,
+    kpis,
+    headline,
+    insights: { insights: wordedFromFacts(facts), source: "deterministic" },
+    insightFacts: facts,
+    insightCacheKey: cockpitInsightCacheKey({
+      companyId: extras.companyId,
+      locationId: extras.locationId,
+      preset: snapshot.period.preset,
+      from: snapshot.period.current.from,
+      to: snapshot.period.current.to,
+      lang,
+      factsHash: hashCockpitInsightFacts(facts),
+      dataVersion: cockpitFactsDataVersion({
+        latestSaleDate: cockpit.period_to,
+        rowCount: extras.rowCount,
+      }),
+    }),
+    comparisonLabel,
+    health,
+    setup,
+    lastSyncedAt: extras.lastSyncedAt,
+  };
+}
+
+/**
+ * Fast executive strip: one RPC (or a fallback row walk). Does not wait
+ * for profitability or explorer rows.
+ */
+export const loadCockpitExecutiveFast = cache(loadCockpitExecutiveFastUncached);
+
+async function loadCockpitExecutiveFastUncached(
+  requestedLocationId?: string,
+  periodRaw?: string | null
+): Promise<CockpitExecutiveFastModel> {
+  const periodPreset = parseCockpitPeriodPreset(periodRaw);
+  const chrome = await loadRestaurantShellChrome();
+  const lang = chrome.lang;
+  const resolved = await resolveCockpitScope(requestedLocationId);
+  if (!resolved.ok) {
+    return {
+      mode: "sample",
+      reason: resolved.reason,
+      scope: null,
+      lang,
+      timezone: "UTC",
+      currency: "USD",
+      rowCount: 0,
+      truncated: false,
+      readError: false,
+      rollupSource: "none",
+      cockpit: emptyCockpitSalesAggregate(),
+      executive: null,
+      periodPreset,
+      lastSyncedAt: chrome.lastSyncedAt,
+    };
+  }
+  const { supabase, scope } = resolved;
+  const [currency, timezone] = await Promise.all([
+    resolveCompanyCurrency(supabase, scope.companyId),
+    resolvePosTimezone(supabase, scope.companyId),
+  ]);
+  const started = Date.now();
+  const rpc = await fetchCockpitPosRollup(supabase, scope.companyId, {
+    locationId: scope.locationId,
+    timezone,
+    currency,
+  });
+  let cockpit: CockpitSalesAggregate;
+  let rowCount = 0;
+  let truncated = false;
+  let readError = false;
+  let rollupSource: "rpc" | "rows" = "rows";
+  let snapshotRows: Parameters<typeof buildCockpitPeriodSnapshot>[0] | null =
+    null;
+
+  if (rpc.rollup && rpc.rollup.row_count > 0) {
+    rollupSource = "rpc";
+    rowCount = rpc.rollup.row_count;
+    cockpit = rollupToCockpitSalesAggregate(rpc.rollup, { timezone, currency });
+  } else if (rpc.rollup && rpc.rollup.row_count === 0 && !rpc.missing && !rpc.error) {
+    return {
+      mode: "sample",
+      reason: "no_sales",
+      scope,
+      lang,
+      timezone,
+      currency,
+      rowCount: 0,
+      truncated: false,
+      readError: false,
+      rollupSource: "rpc",
+      cockpit: emptyCockpitSalesAggregate(timezone, currency),
+      executive: null,
+      periodPreset,
+      lastSyncedAt: chrome.lastSyncedAt,
+    };
+  } else {
+    const pos = await loadCachedPosSalesRows(scope.companyId, scope.locationId);
+    if (pos.error) {
+      readError = true;
+      cockpit = emptyCockpitSalesAggregate(timezone, currency);
+    } else if (pos.rows.length === 0) {
+      return {
+        mode: "sample",
+        reason: "no_sales",
+        scope,
+        lang,
+        timezone,
+        currency,
+        rowCount: 0,
+        truncated: false,
+        readError: false,
+        rollupSource: "rows",
+        cockpit: emptyCockpitSalesAggregate(timezone, currency),
+        executive: null,
+        periodPreset,
+        lastSyncedAt: chrome.lastSyncedAt,
+      };
+    } else {
+      snapshotRows = pos.rows;
+      rowCount = pos.rows.length;
+      truncated = pos.truncated;
+      cockpit = buildCockpitSalesAggregate(pos.rows, { timezone, currency });
+    }
+  }
+
+  const period = resolveCockpitPeriod(periodPreset, cockpit.period_to);
+  let executive: CockpitExecutiveView | null = null;
+  if (period) {
+    const snapshot = snapshotRows
+      ? buildCockpitPeriodSnapshot(snapshotRows, period, {
+          timezone,
+          currency,
+          lang,
+        })
+      : rpc.rollup
+        ? buildCockpitPeriodSnapshotFromRollup(rpc.rollup, period, {
+            timezone,
+            currency,
+            lang,
+          })
+        : null;
+    if (snapshot) {
+      const posConnected = await companyHasActivePosConnection(scope.companyId);
+      executive = executiveFromSnapshot(snapshot, lang, cockpit, {
+        companyId: scope.companyId,
+        locationId: scope.locationId,
+        profitability: null,
+        rowCount,
+        lastSyncedAt: chrome.lastSyncedAt,
+        posConnected,
+        readError,
+        truncated,
+        costPending: true,
+      });
+    }
+  }
+
+  logCockpitTiming("executive-fast", {
+    source: rollupSource,
+    rpcMs: rpc.elapsedMs,
+    totalMs: Date.now() - started,
+    rows: rowCount,
+    location: scope.locationId,
+  });
+
+  return {
+    mode: "live",
+    scope,
+    lang,
+    timezone,
+    currency,
+    rowCount,
+    truncated,
+    readError,
+    rollupSource,
+    cockpit,
+    executive,
+    periodPreset,
+    lastSyncedAt: chrome.lastSyncedAt,
+  };
+}
+
+export const loadCockpitTabsModel = cache(loadCockpitTabsModelUncached);
+
+async function loadCockpitTabsModelUncached(
+  requestedLocationId?: string
+): Promise<CockpitTabsModel> {
+  const chrome = await loadRestaurantShellChrome();
+  const resolved = await resolveCockpitScope(requestedLocationId);
+  if (!resolved.ok) {
+    return {
+      lang: chrome.lang,
+      profitability: null,
+      rowCount: 0,
+      readError: false,
+      truncated: false,
+      resolvedLocationId: null,
+    };
+  }
+  const started = Date.now();
+  const profitability = await loadCachedProfitability(
+    resolved.scope.companyId,
+    resolved.scope.locationId,
+    resolved.scope.brandId
+  );
+  logCockpitTiming("tabs", {
+    totalMs: Date.now() - started,
+    posRows: profitability.setupCounts.pos_sales_count,
+    location: resolved.scope.locationId,
+  });
+  return {
+    lang: chrome.lang,
+    profitability,
+    rowCount: profitability.setupCounts.pos_sales_count,
+    readError: profitability.readError,
+    truncated: profitability.truncated,
+    resolvedLocationId: resolved.scope.locationId,
+  };
+}
+
+export async function loadSalesHeroModel(
+  requestedLocationId?: string
+): Promise<{
+  mode: "live" | "sample";
+  reason?: SampleReason;
+  lang: PreferredLanguage;
+  cockpit: CockpitSalesAggregate;
+}> {
+  const fast = await loadCockpitExecutiveFast(requestedLocationId);
+  return {
+    mode: fast.mode,
+    reason: fast.reason,
+    lang: fast.lang,
+    cockpit: fast.cockpit,
+  };
+}
+
+export const loadSalesExplorerModel = cache(loadSalesExplorerModelUncached);
+
+async function loadSalesExplorerModelUncached(
+  requestedLocationId?: string
+): Promise<SalesAreaModel> {
+  const chrome = await loadRestaurantShellChrome();
+  const resolved = await resolveCockpitScope(requestedLocationId);
+  if (!resolved.ok) {
+    return {
+      mode: "sample",
+      reason: resolved.reason,
+      lang: chrome.lang,
+      cockpit: emptyCockpitSalesAggregate(),
+      explorerRows: [],
+      targets: {},
+      displayCurrency: "USD",
+    };
+  }
+  const started = Date.now();
+  const [currency, timezone, pos, targets] = await Promise.all([
+    resolveCompanyCurrency(resolved.supabase, resolved.scope.companyId),
+    resolvePosTimezone(resolved.supabase, resolved.scope.companyId),
+    loadCachedPosSalesRows(resolved.scope.companyId, resolved.scope.locationId),
+    getRestaurantKpiTargets(resolved.supabase, resolved.scope.companyId).catch(
+      (err) => {
+        console.error("[loadSalesExplorerModel] targets:", err);
+        return {} as TargetMap;
+      }
+    ),
+  ]);
+  if (pos.error) {
+    return {
+      mode: "live",
+      lang: chrome.lang,
+      cockpit: emptyCockpitSalesAggregate(timezone, currency),
+      explorerRows: [],
+      targets,
+      displayCurrency: currency,
+    };
+  }
+  if (pos.rows.length === 0) {
+    return {
+      mode: "sample",
+      reason: "no_sales",
+      lang: chrome.lang,
+      cockpit: emptyCockpitSalesAggregate(timezone, currency),
+      explorerRows: [],
+      targets,
+      displayCurrency: currency,
+    };
+  }
+  const cockpit = buildCockpitSalesAggregate(pos.rows, { timezone, currency });
+  const explorerRows = pos.rows.map(toExplorerRow);
+  logCockpitTiming("sales-explorer", {
+    totalMs: Date.now() - started,
+    rows: explorerRows.length,
+    pages: pos.pages,
+    payloadBytes: Buffer.byteLength(JSON.stringify(explorerRows)),
+    location: resolved.scope.locationId,
+  });
+  return {
+    mode: "live",
+    lang: chrome.lang,
+    cockpit,
+    explorerRows,
+    targets,
+    displayCurrency: currency,
+  };
+}
+
+export async function loadPeriodCostSnapshot(
+  requestedLocationId: string | undefined,
+  period: CockpitPeriod,
+  options: { timezone: string; currency: string; lang: PreferredLanguage }
+): Promise<CockpitPeriodSnapshot | null> {
+  const resolved = await resolveCockpitScope(requestedLocationId);
+  if (!resolved.ok) return null;
+  const [pos, profitability] = await Promise.all([
+    loadCachedPosSalesRows(resolved.scope.companyId, resolved.scope.locationId),
+    loadCachedProfitability(
+      resolved.scope.companyId,
+      resolved.scope.locationId,
+      resolved.scope.brandId
+    ),
+  ]);
+  if (pos.error || pos.rows.length === 0) return null;
+  return buildCockpitPeriodSnapshot(pos.rows, period, {
+    timezone: options.timezone,
+    currency: options.currency,
+    lang: options.lang,
+    marginRows: profitability.marginRows,
+  });
 }

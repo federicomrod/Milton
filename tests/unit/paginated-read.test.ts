@@ -3,6 +3,7 @@ import {
   fetchAllRows,
   POSTGREST_MAX_ROWS,
   PAGINATED_READ_SAFETY_CAP,
+  PARALLEL_PAGE_CONCURRENCY,
 } from "@/lib/restaurant/paginated-read";
 import { createCappedSupabase } from "./helpers/capped-supabase";
 
@@ -30,7 +31,8 @@ describe("fetchAllRows", () => {
     expect(result.rows).toHaveLength(2_500);
     expect(result.rows[0].id).toBe("row-00000");
     expect(result.rows[2_499].id).toBe("row-02499");
-    expect(pages).toBe(3);
+    expect(pages).toBeGreaterThanOrEqual(3);
+    expect(result.pages).toBe(pages);
   });
 
   it("a single unbounded / high-limit request on the same mock is truncated", async () => {
@@ -98,8 +100,25 @@ describe("fetchAllRows", () => {
     expect(result.rows).toHaveLength(2_000);
     expect(result.rows[0].id).toBe("row-00000");
     expect(result.rows[1_999].id).toBe("row-01999");
-    // Two full pages plus a short (empty) page that proves the end.
-    expect(pages).toBe(3);
+    expect(pages).toBeGreaterThanOrEqual(3);
+  });
+
+  it("parallel waves beat sequential pages on a delayed 8k-row read", async () => {
+    const all = rows(8_000);
+    const delayMs = 25;
+    const supabase = createCappedSupabase({
+      tables: { items: all },
+      maxRowsPerRequest: POSTGREST_MAX_ROWS,
+      delayMs,
+    });
+    const result = await fetchAllRows<{ id: string; n: number }>(() =>
+      supabase.from("items").select("id, n")
+    );
+    expect(result.rows).toHaveLength(8_000);
+    expect(result.error).toBeNull();
+    const sequentialEstimate = 8 * delayMs;
+    expect(result.elapsedMs).toBeLessThan(sequentialEstimate);
+    expect(PARALLEL_PAGE_CONCURRENCY).toBeGreaterThanOrEqual(8);
   });
 
   it("an empty table returns no rows and no error", async () => {

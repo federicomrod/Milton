@@ -41,9 +41,10 @@ import {
 } from "@/lib/restaurant/cockpit-page-data";
 import { DeferredSalesTab } from "@/components/restaurant/cockpit/DeferredSalesTab";
 import {
-  CockpitCostKpis,
+  CockpitBothCostKpis,
   CockpitCostKpisSkeleton,
 } from "@/components/restaurant/cockpit/CockpitCostKpis";
+import { CockpitPeriodShell } from "@/components/restaurant/cockpit/CockpitPeriodShell";
 import {
   ProfitabilityKpisSection,
   MarginRiskSection,
@@ -53,24 +54,14 @@ import {
   SupplierPriceAlerts,
 } from "@/components/restaurant/ProfitabilityCockpit";
 import { CockpitTabs } from "@/components/restaurant/cockpit/CockpitTabs";
-import { CockpitKpiStrip } from "@/components/restaurant/cockpit/CockpitKpiStrip";
 import { MenuProfitabilityTab } from "@/components/restaurant/cockpit/MenuProfitabilityTab";
-import { CockpitPeriodControl } from "@/components/restaurant/cockpit/CockpitPeriodControl";
-import {
-  CockpitHeadline,
-  CockpitHeadlineSkeleton,
-} from "@/components/restaurant/cockpit/CockpitHeadline";
-import {
-  CockpitHeroChart,
-  CockpitHeroChartSkeleton,
-} from "@/components/restaurant/cockpit/CockpitHeroChart";
-import { CockpitChannelBreakdown } from "@/components/restaurant/cockpit/CockpitChannelBreakdown";
+import { CockpitHeadlineSkeleton } from "@/components/restaurant/cockpit/CockpitHeadline";
+import { CockpitHeroChartSkeleton } from "@/components/restaurant/cockpit/CockpitHeroChart";
 import {
   CockpitInsightsCard,
   CockpitInsightsCardSkeleton,
 } from "@/components/restaurant/cockpit/CockpitInsightsCard";
 import { CockpitInsightsUpgrade } from "@/components/restaurant/cockpit/CockpitInsightsUpgrade";
-import { CockpitOnboardingChip } from "@/components/restaurant/cockpit/CockpitOnboardingChip";
 import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   t,
@@ -933,87 +924,23 @@ async function CockpitLiveBody({
     deltaPct: fast.cockpit.week_delta_pct,
   };
   return (
-    <div className="w-full py-3 px-6 lg:px-10">
-      <div className="space-y-3">
-        <OperatingPageHeader
-          title={t(lang, "Cockpit", "Cockpit")}
-          lang={lang}
-          dateRange={
-            <Suspense fallback={<PageSkeleton width="16rem" height="2rem" />}>
-              <CockpitPeriodControl
-                lang={lang}
-                preset={fast.periodPreset}
-                range={
-                  executive
-                    ? executive.snapshot.period.current
-                    : fast.cockpit.period_from && fast.cockpit.period_to
-                      ? {
-                          from: fast.cockpit.period_from,
-                          to: fast.cockpit.period_to,
-                        }
-                      : null
-                }
-                comparisonLabel={executive?.comparisonLabel}
-              />
-            </Suspense>
-          }
-        />
-        {executive ? (
-          <div className="flex items-center gap-2 flex-wrap">
-            {executive.setup ? (
-              <CockpitOnboardingChip lang={lang} progress={executive.setup} />
-            ) : null}
-            <DataHealthIndicator lang={lang} health={executive.health} />
-          </div>
-        ) : null}
-
-        {executive ? (
-          <CockpitHeadline text={executive.headline} />
-        ) : (
-          <CockpitHeadlineSkeleton />
-        )}
-
-        {executive ? (
-          <CockpitKpiStrip
-            model={executive.kpis}
+    <CockpitPeriodShell
+      lang={lang}
+      initialPreset={fast.periodPreset}
+      executives={fast.executives}
+      costSlot={
+        <Suspense fallback={<CockpitCostKpisSkeleton />}>
+          <CockpitBothCostKpis
+            locationId={location}
+            timezone={fast.timezone}
+            currency={fast.currency}
             lang={lang}
-            costSlot={
-              executive.snapshot ? (
-                <Suspense fallback={<CockpitCostKpisSkeleton />}>
-                  <CockpitCostKpis
-                    locationId={location}
-                    period={executive.snapshot.period}
-                    timezone={fast.timezone}
-                    currency={fast.currency}
-                    lang={lang}
-                    week={week}
-                  />
-                </Suspense>
-              ) : undefined
-            }
+            week={week}
           />
-        ) : null}
-
-        {executive ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
-            <div className="lg:col-span-2">
-              <CockpitHeroChart
-                lang={lang}
-                currency={executive.snapshot.currency}
-                points={executive.snapshot.daily}
-              />
-            </div>
-            <CockpitChannelBreakdown
-              lang={lang}
-              currency={executive.snapshot.currency}
-              channels={executive.snapshot.channels}
-            />
-          </div>
-        ) : (
-          <CockpitHeroChartSkeleton />
-        )}
-
-        {executive ? (
+        </Suspense>
+      }
+      insightsUpgrade={
+        executive ? (
           <Suspense
             fallback={
               <CockpitInsightsCard
@@ -1031,43 +958,43 @@ async function CockpitLiveBody({
           </Suspense>
         ) : (
           <CockpitInsightsCardSkeleton />
-        )}
+        )
+      }
+    >
+      {executive?.health.tone === "error" || fast.readError ? (
+        <DataHealthBanner tone="error">
+          {t(
+            lang,
+            "Could not load all sales rows. Totals are unavailable — they are not a smaller number from a partial read. Try refreshing the page.",
+            "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial. Recarga la página."
+          )}
+        </DataHealthBanner>
+      ) : null}
 
-        {executive?.health.tone === "error" || fast.readError ? (
-          <DataHealthBanner tone="error">
+      {fast.truncated && (
+        <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
             {t(
               lang,
-              "Could not load all sales rows. Totals are unavailable — they are not a smaller number from a partial read. Try refreshing the page.",
-              "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial. Recarga la página."
+              `Totals may be incomplete. This view stopped after ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} rows. The numbers shown are partial.`,
+              `Los totales pueden estar incompletos. Esta vista se detuvo después de ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} filas. Los números que ves son parciales.`
             )}
-          </DataHealthBanner>
-        ) : null}
+          </span>
+        </div>
+      )}
 
-        {fast.truncated && (
-          <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>
-              {t(
-                lang,
-                `Totals may be incomplete. This view stopped after ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} rows. The numbers shown are partial.`,
-                `Los totales pueden estar incompletos. Esta vista se detuvo después de ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} filas. Los números que ves son parciales.`
-              )}
-            </span>
+      <Suspense
+        fallback={
+          <div className="space-y-3">
+            <PageSkeleton height="2.5rem" width="100%" label="tabs" />
+            <PageSkeleton height="16rem" width="100%" label="overview" />
           </div>
-        )}
-
-        <Suspense
-          fallback={
-            <div className="space-y-3">
-              <PageSkeleton height="2.5rem" width="100%" label="tabs" />
-              <PageSkeleton height="16rem" width="100%" label="overview" />
-            </div>
-          }
-        >
-          <CockpitTabsFromModel location={location} lang={lang} />
-        </Suspense>
-      </div>
-    </div>
+        }
+      >
+        <CockpitTabsFromModel location={location} lang={lang} />
+      </Suspense>
+    </CockpitPeriodShell>
   );
 }
 

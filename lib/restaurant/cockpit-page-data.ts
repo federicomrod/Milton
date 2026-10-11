@@ -22,9 +22,11 @@ import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
 import {
   buildCockpitSalesAggregate,
   emptyCockpitSalesAggregate,
+  type CockpitFactRow,
   type CockpitSalesAggregate,
 } from "@/lib/restaurant/cockpit-aggregates";
 import {
+  EMPTY_PERIOD_COST,
   buildCockpitPeriodSnapshotFromRollup,
   fetchCockpitPosRollup,
   rollupToCockpitSalesAggregate,
@@ -49,17 +51,26 @@ import {
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import {
+  inInclusiveRange,
   parseCockpitPeriodPreset,
   resolveCockpitPeriod,
   type CockpitPeriod,
   type CockpitPeriodPreset,
+  type InclusiveDateRange,
 } from "@/lib/restaurant/cockpit-period";
+import {
+  itemCostLookupFromMarginRows,
+  periodCostKpisFromProductLines,
+  productLinesFromCostRows,
+  type PeriodCostKpis,
+} from "@/lib/restaurant/cockpit-cost-coverage";
 import { type PreferredLanguage } from "@/lib/restaurant/language";
 import {
   buildCockpitHeadline,
   buildCockpitKpiStripModel,
   buildCockpitPeriodSnapshot,
   cockpitComparisonPhrases,
+  localSaleDateKey,
   type CockpitKpiStripModel,
   type CockpitPeriodSnapshot,
 } from "@/lib/restaurant/cockpit-executive";
@@ -395,6 +406,22 @@ export interface CockpitScope {
   brandId: string | null;
 }
 
+export type CockpitExecutivesByPeriod = {
+  last_7: CockpitExecutiveView | null;
+  month: CockpitExecutiveView | null;
+};
+
+export interface PeriodCostPair {
+  cost: PeriodCostKpis;
+  previous_cost: PeriodCostKpis;
+}
+
+export interface BothPeriodCostKpis {
+  last_7: PeriodCostPair | null;
+  month: PeriodCostPair | null;
+  source: "memory" | "rows" | "empty" | "none";
+}
+
 export interface CockpitExecutiveFastModel {
   mode: "live" | "sample";
   reason?: SampleReason;
@@ -408,9 +435,68 @@ export interface CockpitExecutiveFastModel {
   rollupSource: "rpc" | "rows" | "none";
   cockpit: CockpitSalesAggregate;
   executive: CockpitExecutiveView | null;
+  executives: CockpitExecutivesByPeriod;
   periodPreset: CockpitPeriodPreset;
   lastSyncedAt: string | null;
 }
+
+function emptyExecutives(): CockpitExecutivesByPeriod {
+  return { last_7: null, month: null };
+}
+
+const PERIOD_COST_BUNDLE_TTL_MS = 90_000;
+const periodCostBundleCache = new Map<
+  string,
+  { expiresAt: number; value: BothPeriodCostKpis }
+>();
+
+export function clearPeriodCostBundleCacheForTests(): void {
+  periodCostBundleCache.clear();
+}
+
+function readPeriodCostBundleCache(key: string): BothPeriodCostKpis | null {
+  const hit = periodCostBundleCache.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) {
+    periodCostBundleCache.delete(key);
+    return null;
+  }
+  periodCostBundleCache.delete(key);
+  periodCostBundleCache.set(key, hit);
+  return hit.value;
+}
+
+function writePeriodCostBundleCache(
+  key: string,
+  value: BothPeriodCostKpis
+): void {
+  if (periodCostBundleCache.has(key)) periodCostBundleCache.delete(key);
+  periodCostBundleCache.set(key, {
+    expiresAt: Date.now() + PERIOD_COST_BUNDLE_TTL_MS,
+    value,
+  });
+  while (periodCostBundleCache.size > 50) {
+    const oldest = periodCostBundleCache.keys().next().value;
+    if (oldest === undefined) break;
+    periodCostBundleCache.delete(oldest);
+  }
+}
+
+const loadCachedCockpitPosRollup = cache(
+  async (
+    companyId: string,
+    locationId: string | null,
+    timezone: string,
+    currency: string
+  ) => {
+    const supabase = await createClient();
+    return fetchCockpitPosRollup(supabase, companyId, {
+      locationId,
+      timezone,
+      currency,
+    });
+  }
+);
 
 export interface CockpitTabsModel {
   lang: PreferredLanguage;
@@ -629,6 +715,7 @@ async function loadCockpitExecutiveFastBody(
       rollupSource: "none",
       cockpit: emptyCockpitSalesAggregate(),
       executive: null,
+      executives: emptyExecutives(),
       periodPreset,
       lastSyncedAt: chrome.lastSyncedAt,
     };
@@ -646,11 +733,12 @@ async function loadCockpitExecutiveFastBody(
       companyHasActivePosConnection(scope.companyId)
     ),
   ]);
-  const rpc = await fetchCockpitPosRollup(supabase, scope.companyId, {
-    locationId: scope.locationId,
+  const rpc = await loadCachedCockpitPosRollup(
+    scope.companyId,
+    scope.locationId,
     timezone,
-    currency,
-  });
+    currency
+  );
   let cockpit: CockpitSalesAggregate;
   let rowCount = 0;
   let truncated = false;
@@ -682,6 +770,7 @@ async function loadCockpitExecutiveFastBody(
       rollupSource: "rpc",
       cockpit: emptyCockpitSalesAggregate(timezone, currency),
       executive: null,
+      executives: emptyExecutives(),
       periodPreset,
       lastSyncedAt: chrome.lastSyncedAt,
     };
@@ -708,6 +797,7 @@ async function loadCockpitExecutiveFastBody(
         rollupSource: "rows",
         cockpit: emptyCockpitSalesAggregate(timezone, currency),
         executive: null,
+        executives: emptyExecutives(),
         periodPreset,
         lastSyncedAt: chrome.lastSyncedAt,
       };
@@ -719,9 +809,21 @@ async function loadCockpitExecutiveFastBody(
     }
   }
 
-  const period = resolveCockpitPeriod(periodPreset, cockpit.period_to);
-  let executive: CockpitExecutiveView | null = null;
-  if (period) {
+  const extras = {
+    companyId: scope.companyId,
+    locationId: scope.locationId,
+    profitability: null,
+    rowCount,
+    lastSyncedAt: chrome.lastSyncedAt,
+    posConnected,
+    readError,
+    truncated,
+    costPending: true,
+  };
+  const executives = emptyExecutives();
+  for (const preset of ["last_7", "month"] as const) {
+    const period = resolveCockpitPeriod(preset, cockpit.period_to);
+    if (!period) continue;
     const snapshot = snapshotRows
       ? buildCockpitPeriodSnapshot(snapshotRows, period, {
           timezone,
@@ -736,19 +838,15 @@ async function loadCockpitExecutiveFastBody(
           })
         : null;
     if (snapshot) {
-      executive = executiveFromSnapshot(snapshot, lang, cockpit, {
-        companyId: scope.companyId,
-        locationId: scope.locationId,
-        profitability: null,
-        rowCount,
-        lastSyncedAt: chrome.lastSyncedAt,
-        posConnected,
-        readError,
-        truncated,
-        costPending: true,
-      });
+      executives[preset] = executiveFromSnapshot(
+        snapshot,
+        lang,
+        cockpit,
+        extras
+      );
     }
   }
+  const executive = executives[periodPreset];
 
   logCockpitTiming("executive-fast", {
     source: rollupSource,
@@ -757,6 +855,9 @@ async function loadCockpitExecutiveFastBody(
     totalMs: Date.now() - started,
     rows: rowCount,
     location: scope.locationId,
+    periods: (["last_7", "month"] as const).filter(
+      (preset) => executives[preset] != null
+    ),
   });
 
   return {
@@ -771,6 +872,7 @@ async function loadCockpitExecutiveFastBody(
     rollupSource,
     cockpit,
     executive,
+    executives,
     periodPreset,
     lastSyncedAt: chrome.lastSyncedAt,
   };
@@ -906,31 +1008,174 @@ async function loadSalesExplorerModelUncached(
   };
 }
 
+export const loadBothPeriodCostKpis = cache(loadBothPeriodCostKpisUncached);
+
+async function loadBothPeriodCostKpisUncached(
+  requestedLocationId: string | undefined,
+  options: { timezone: string; currency: string }
+): Promise<BothPeriodCostKpis> {
+  return timeCockpitStep("costs", async () => {
+    const empty: BothPeriodCostKpis = {
+      last_7: null,
+      month: null,
+      source: "none",
+    };
+    const resolved = await resolveCockpitScope(requestedLocationId);
+    if (!resolved.ok) return empty;
+    const started = Date.now();
+    const rpc = await loadCachedCockpitPosRollup(
+      resolved.scope.companyId,
+      resolved.scope.locationId,
+      options.timezone,
+      options.currency
+    );
+    const latestSaleDate = rpc.rollup?.period_to ?? null;
+    const cacheKey = [
+      resolved.scope.companyId,
+      resolved.scope.locationId ?? "all",
+      latestSaleDate ?? "none",
+      rpc.rollup?.row_count ?? 0,
+    ].join(":");
+    const cached = readPeriodCostBundleCache(cacheKey);
+    if (cached) {
+      logCockpitTiming("costs", {
+        ms: Date.now() - started,
+        source: "memory",
+        location: resolved.scope.locationId,
+      });
+      return cached;
+    }
+
+    const profitability = await loadCachedProfitability(
+      resolved.scope.companyId,
+      resolved.scope.locationId,
+      resolved.scope.brandId
+    );
+    const hasCompleteCost = profitability.marginRows.some(
+      (row) =>
+        row.cost.status === "complete" &&
+        row.cost.cost !== null &&
+        Number.isFinite(row.cost.cost)
+    );
+    if (!hasCompleteCost) {
+      const emptyPair: PeriodCostPair = {
+        cost: EMPTY_PERIOD_COST,
+        previous_cost: EMPTY_PERIOD_COST,
+      };
+      const value: BothPeriodCostKpis = {
+        last_7: emptyPair,
+        month: emptyPair,
+        source: "empty",
+      };
+      writePeriodCostBundleCache(cacheKey, value);
+      logCockpitTiming("costs", {
+        ms: Date.now() - started,
+        source: "empty",
+        location: resolved.scope.locationId,
+      });
+      return value;
+    }
+
+    const pos = await loadCachedPosSalesRows(
+      resolved.scope.companyId,
+      resolved.scope.locationId
+    );
+    if (pos.error || pos.rows.length === 0) return empty;
+    const lookup = itemCostLookupFromMarginRows(profitability.marginRows);
+    const anchor = latestSaleDate ?? maxSaleDate(pos.rows, options.timezone);
+    const value: BothPeriodCostKpis = {
+      last_7: null,
+      month: null,
+      source: "rows",
+    };
+    for (const preset of ["last_7", "month"] as const) {
+      const period = resolveCockpitPeriod(preset, anchor);
+      if (!period) continue;
+      value[preset] = {
+        cost: periodCostKpisFromProductLines(
+          productLinesFromCostRows(
+            rowsInCockpitRange(pos.rows, period.current, options.timezone),
+            options.currency
+          ),
+          lookup,
+          options.currency
+        ),
+        previous_cost: periodCostKpisFromProductLines(
+          productLinesFromCostRows(
+            rowsInCockpitRange(pos.rows, period.previous, options.timezone),
+            options.currency
+          ),
+          lookup,
+          options.currency
+        ),
+      };
+    }
+    writePeriodCostBundleCache(cacheKey, value);
+    logCockpitTiming("costs", {
+      ms: Date.now() - started,
+      source: "rows",
+      rows: pos.rows.length,
+      location: resolved.scope.locationId,
+      periods: (["last_7", "month"] as const).filter(
+        (preset) => value[preset] != null
+      ),
+    });
+    return value;
+  });
+}
+
 export async function loadPeriodCostSnapshot(
   requestedLocationId: string | undefined,
   period: CockpitPeriod,
   options: { timezone: string; currency: string; lang: PreferredLanguage }
 ): Promise<CockpitPeriodSnapshot | null> {
-  return timeCockpitStep("costs", async () => {
-    const resolved = await resolveCockpitScope(requestedLocationId);
-    if (!resolved.ok) return null;
-    const [pos, profitability] = await Promise.all([
-      loadCachedPosSalesRows(
-        resolved.scope.companyId,
-        resolved.scope.locationId
-      ),
-      loadCachedProfitability(
-        resolved.scope.companyId,
-        resolved.scope.locationId,
-        resolved.scope.brandId
-      ),
-    ]);
-    if (pos.error || pos.rows.length === 0) return null;
-    return buildCockpitPeriodSnapshot(pos.rows, period, {
-      timezone: options.timezone,
-      currency: options.currency,
-      lang: options.lang,
-      marginRows: profitability.marginRows,
-    });
+  const both = await loadBothPeriodCostKpis(requestedLocationId, options);
+  const pair = both[period.preset];
+  if (!pair) return null;
+  const resolved = await resolveCockpitScope(requestedLocationId);
+  if (!resolved.ok) return null;
+  const rpc = await loadCachedCockpitPosRollup(
+    resolved.scope.companyId,
+    resolved.scope.locationId,
+    options.timezone,
+    options.currency
+  );
+  const snapshot = rpc.rollup
+    ? buildCockpitPeriodSnapshotFromRollup(rpc.rollup, period, {
+        timezone: options.timezone,
+        currency: options.currency,
+        lang: options.lang,
+      })
+    : null;
+  if (!snapshot) return null;
+  return {
+    ...snapshot,
+    cost: pair.cost,
+    previous_cost: pair.previous_cost,
+  };
+}
+
+function rowsInCockpitRange(
+  rows: CockpitFactRow[],
+  range: InclusiveDateRange,
+  timezone: string
+): CockpitFactRow[] {
+  return rows.filter((row) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(row.sale_date)) return false;
+    const dateKey = localSaleDateKey(row, timezone);
+    return (
+      /^\d{4}-\d{2}-\d{2}$/.test(dateKey) && inInclusiveRange(dateKey, range)
+    );
   });
+}
+
+function maxSaleDate(rows: CockpitFactRow[], timezone: string): string | null {
+  let max: string | null = null;
+  for (const row of rows) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(row.sale_date)) continue;
+    const dateKey = localSaleDateKey(row, timezone);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) continue;
+    if (max === null || dateKey > max) max = dateKey;
+  }
+  return max;
 }

@@ -42,6 +42,11 @@ describe("cockpit timing (#134)", () => {
     );
     expect(pageData).toContain('logCockpitTiming("sales"');
     expect(pageData).toContain('timeCockpitStep("costs"');
+    expect(pageData).toContain("loadBothPeriodCostKpis");
+    expect(pageData).toContain("periods:");
+    expect(read("lib/restaurant/cockpit-insights-ai.ts")).toContain(
+      'logCockpitTiming("insights"'
+    );
     expect(sales).toMatch(/timeCockpitStep\(\s*"sales-route"/);
     expect(salesDetalle).toMatch(/timeCockpitStep\(\s*"sales-detalle-route"/);
     expect(salesPageData).toMatch(/timeCockpitStep\(\s*"sales-pos-rows"/);

@@ -12,6 +12,8 @@ describe("cockpit load split (#134)", () => {
   it("the cockpit page streams the executive strip before tab bodies", () => {
     const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
     expect(page).toContain("loadCockpitExecutiveFast");
+    expect(page).toContain("CockpitPeriodShell");
+    expect(page).toContain("CockpitBothCostKpis");
     expect(page).toContain("CockpitTabsFromModel");
     expect(page).toContain("<DeferredSalesTab");
     expect(page).not.toContain("loadCockpitExecutivePage");

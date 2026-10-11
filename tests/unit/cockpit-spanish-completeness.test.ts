@@ -14,6 +14,7 @@ const SHELL_FILES = [
   "components/restaurant/shell/AskMiltonDrawer.tsx",
   "components/restaurant/cockpit/CockpitKpiStrip.tsx",
   "components/restaurant/cockpit/CockpitPeriodControl.tsx",
+  "components/restaurant/cockpit/CockpitPeriodShell.tsx",
   "components/restaurant/cockpit/CockpitInsightsCard.tsx",
   "components/restaurant/cockpit/CockpitOnboardingChip.tsx",
   "components/restaurant/AskMiltonWorkspace.tsx",

@@ -12,6 +12,7 @@ const NEW_FILES = [
   "lib/restaurant/cockpit-insights.ts",
   "lib/restaurant/cockpit-data-health.ts",
   "components/restaurant/cockpit/CockpitPeriodControl.tsx",
+  "components/restaurant/cockpit/CockpitPeriodShell.tsx",
   "components/restaurant/cockpit/CockpitKpiStrip.tsx",
   "components/restaurant/cockpit/CockpitHeroChart.tsx",
   "components/restaurant/cockpit/CockpitChannelBreakdown.tsx",

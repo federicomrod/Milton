@@ -678,7 +678,11 @@ describe("data health, local dates, and first paint", () => {
     expect(loader).not.toContain("await wordCockpitInsights");
     const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
     expect(page).toContain("CockpitInsightsUpgrade");
+    expect(page).toContain("CockpitPeriodShell");
     expect(page).toContain("<Suspense");
+    expect(
+      read("components/restaurant/cockpit/CockpitInsightsUpgrade.tsx")
+    ).toContain("blockOnMiss: false");
     expect(page).toContain("CockpitHeadlineSkeleton");
     expect(page).toContain("CockpitHeroChartSkeleton");
     const hero = read("components/restaurant/cockpit/CockpitHeroChart.tsx");

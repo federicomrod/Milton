@@ -13,6 +13,7 @@ import {
   type WordedCockpitInsight,
 } from "@/lib/restaurant/cockpit-insights";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { logCockpitTiming } from "@/lib/restaurant/cockpit-timing";
 
 export const COCKPIT_INSIGHT_CACHE_TTL_MS = 90_000;
 export const COCKPIT_INSIGHT_AI_TIMEOUT_MS = 10_000;
@@ -107,11 +108,20 @@ export function clearInsightCacheForTests(): void {
 export async function wordCockpitInsights(
   facts: CockpitInsightFact[],
   lang: PreferredLanguage,
-  cacheKey?: string
+  cacheKey?: string,
+  options: { blockOnMiss?: boolean } = {}
 ): Promise<WordedCockpitInsights> {
+  const started = Date.now();
   if (cacheKey) {
     const cached = readInsightCache(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      logCockpitTiming("insights", {
+        ms: Date.now() - started,
+        source: cached.source,
+        cache: "hit",
+      });
+      return cached;
+    }
   }
 
   const fallback: WordedCockpitInsights = {
@@ -120,9 +130,40 @@ export async function wordCockpitInsights(
   };
   if (facts.length === 0) {
     if (cacheKey) writeInsightCache(cacheKey, fallback);
+    logCockpitTiming("insights", {
+      ms: Date.now() - started,
+      source: "deterministic",
+      cache: "empty",
+    });
     return fallback;
   }
 
+  const blockOnMiss = options.blockOnMiss !== false;
+  if (!blockOnMiss) {
+    void wordAndCacheInsights(facts, lang, cacheKey);
+    logCockpitTiming("insights", {
+      ms: Date.now() - started,
+      source: "deterministic",
+      cache: "miss",
+      desc: "nonblocking",
+    });
+    return fallback;
+  }
+
+  const result = await wordAndCacheInsights(facts, lang, cacheKey);
+  logCockpitTiming("insights", {
+    ms: Date.now() - started,
+    source: result.source,
+    cache: "miss",
+  });
+  return result;
+}
+
+async function wordAndCacheInsights(
+  facts: CockpitInsightFact[],
+  lang: PreferredLanguage,
+  cacheKey?: string
+): Promise<WordedCockpitInsights> {
   const ai = await callInsightOpenAI(facts, lang);
   const applied = applyAiWordingOrFallback(facts, ai);
   const result: WordedCockpitInsights = {

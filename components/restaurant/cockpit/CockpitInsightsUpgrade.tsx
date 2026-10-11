@@ -17,7 +17,9 @@ export async function CockpitInsightsUpgrade({
   lang: PreferredLanguage;
   cacheKey: string;
 }) {
-  const worded = await wordCockpitInsights(facts, lang, cacheKey);
+  const worded = await wordCockpitInsights(facts, lang, cacheKey, {
+    blockOnMiss: false,
+  });
   return (
     <CockpitInsightsCard
       lang={lang}

@@ -750,7 +750,7 @@ function CostStatusChip({ status }: { status: CostStatus }) {
       case "inactive_recipe":
         return "recipe archived";
       case "workbook_mismatch":
-        return "no coincide con el Excel";
+        return "no cuadra con el Excel";
       default:
         return "—";
     }

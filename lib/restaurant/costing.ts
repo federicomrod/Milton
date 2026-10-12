@@ -30,6 +30,8 @@
 
 import { convertUnitStr, normalizeUnit } from "@/lib/restaurant/units";
 import { shouldApplyWorkbookMismatch } from "@/lib/restaurant/protect-imported-recipe";
+import { workbookMismatchEngineMessage } from "@/lib/restaurant/cost-workbook/copy";
+import { pickApprovedVersion } from "@/lib/restaurant/recipe-versions";
 import type {
   CostIssue,
   ComponentCostResult,
@@ -62,6 +64,28 @@ export interface CostingComponentRecipe {
   output_quantity: number;
   output_unit: string;
   status: "draft" | "active" | "archived" | string;
+}
+
+export interface CostingMenuRecipeVersion {
+  id: string;
+  recipe_id: string;
+  menu_item_id: string;
+  version_number: number;
+  status: "approved" | "in_review" | string;
+  effective_date: string | null;
+  source_type?: string | null;
+}
+
+export interface CostingComponentRecipeVersion {
+  id: string;
+  component_recipe_id: string;
+  component_id: string;
+  version_number: number;
+  status: "approved" | "in_review" | string;
+  effective_date: string | null;
+  output_quantity: number;
+  output_unit: string;
+  source_type?: string | null;
 }
 
 export interface CostingMenuItem {
@@ -109,6 +133,16 @@ export interface CostingData {
   /** All cost entries grouped by ingredient_id. Ordering does NOT need
    *  to be pre-sorted; the engine picks the latest as-of `asOfDate`. */
   costEntriesByIngredientId: Map<string, IngredientCostEntry[]>;
+  /** Approved + in-review versions. Costing reads pick the approved
+   *  version in force for `asOfDate`. Missing maps fall back to the
+   *  working recipe (first-version semantics). */
+  menuRecipeVersionsByMenuItemId?: Map<string, CostingMenuRecipeVersion[]>;
+  menuRecipeVersionInputsByVersionId?: Map<string, CostingRecipeInput[]>;
+  componentRecipeVersionsByComponentId?: Map<
+    string,
+    CostingComponentRecipeVersion[]
+  >;
+  componentRecipeVersionInputsByVersionId?: Map<string, CostingRecipeInput[]>;
 }
 
 export interface CostingOptions {
@@ -135,12 +169,15 @@ export function getLatestIngredientCost(
   const entries = data.costEntriesByIngredientId.get(ingredientId) ?? [];
   const asOf = options?.asOfDate;
 
-  // Filter by as-of, then sort by cost_date desc then created_at desc as
-  // a deterministic tie-break. We don't mutate the caller's array.
-  const eligible = entries.filter((e) => !asOf || e.cost_date <= asOf);
+  // Filter by as-of on the price's effective date (fall back to cost_date
+  // for rows that predate 036), then sort newest first.
+  const entryDate = (e: IngredientCostEntry) => e.effective_date || e.cost_date;
+  const eligible = entries.filter((e) => !asOf || entryDate(e) <= asOf);
   eligible.sort((a, b) => {
-    if (a.cost_date < b.cost_date) return 1;
-    if (a.cost_date > b.cost_date) return -1;
+    const aDate = entryDate(a);
+    const bDate = entryDate(b);
+    if (aDate < bDate) return 1;
+    if (aDate > bDate) return -1;
     // Same date: most-recently-created wins (e.g. duplicate observation
     // for the same supplier shipment is corrected later that day).
     if ((a.created_at ?? "") < (b.created_at ?? "")) return 1;
@@ -165,8 +202,85 @@ export function getLatestIngredientCost(
     unit_cost: latest.normalized_unit_cost,
     unit: latest.normalized_unit,
     status: "complete",
-    cost_date: latest.cost_date,
+    cost_date: entryDate(latest),
     currency: latest.currency,
+  };
+}
+
+function menuRecipeForAsOf(
+  menuItemId: string,
+  data: CostingData,
+  asOfDate?: string
+): {
+  recipe: CostingMenuRecipe | undefined;
+  inputs: CostingRecipeInput[];
+  applyWorkbookMismatch: boolean;
+} {
+  const working = data.menuRecipesByMenuItemId.get(menuItemId);
+  const versions = data.menuRecipeVersionsByMenuItemId?.get(menuItemId) ?? [];
+  const picked = pickApprovedVersion(versions, asOfDate);
+  if (!picked) {
+    return {
+      recipe: working,
+      inputs: working
+        ? (data.menuRecipeInputsByRecipeId.get(working.id) ?? [])
+        : [],
+      applyWorkbookMismatch: true,
+    };
+  }
+  const inputs =
+    data.menuRecipeVersionInputsByVersionId?.get(picked.id) ??
+    (working ? (data.menuRecipeInputsByRecipeId.get(working.id) ?? []) : []);
+  const latestApproved = pickApprovedVersion(versions);
+  const isCurrent = latestApproved?.id === picked.id;
+  return {
+    recipe: {
+      id: picked.recipe_id,
+      menu_item_id: picked.menu_item_id,
+      status: "active",
+      source_type: picked.source_type ?? working?.source_type ?? null,
+      workbook_cost_match: isCurrent
+        ? (working?.workbook_cost_match ?? null)
+        : null,
+    },
+    inputs,
+    applyWorkbookMismatch: isCurrent,
+  };
+}
+
+function componentRecipeForAsOf(
+  componentId: string,
+  data: CostingData,
+  asOfDate?: string
+): {
+  recipe: CostingComponentRecipe | undefined;
+  inputs: CostingRecipeInput[];
+} {
+  const working = data.componentRecipesByComponentId.get(componentId);
+  const versions =
+    data.componentRecipeVersionsByComponentId?.get(componentId) ?? [];
+  const picked = pickApprovedVersion(versions, asOfDate);
+  if (!picked) {
+    return {
+      recipe: working,
+      inputs: working
+        ? (data.componentRecipeInputsByRecipeId.get(working.id) ?? [])
+        : [],
+    };
+  }
+  return {
+    recipe: {
+      id: picked.component_recipe_id,
+      component_id: picked.component_id,
+      output_quantity: picked.output_quantity,
+      output_unit: picked.output_unit,
+      status: "active",
+    },
+    inputs:
+      data.componentRecipeVersionInputsByVersionId?.get(picked.id) ??
+      (working
+        ? (data.componentRecipeInputsByRecipeId.get(working.id) ?? [])
+        : []),
   };
 }
 
@@ -262,10 +376,13 @@ export function calculateComponentCost(
   path: string[] = []
 ): ComponentCostResult {
   const component = data.componentsById.get(componentId);
-  const recipe = data.componentRecipesByComponentId.get(componentId);
-  const inputs = recipe
-    ? (data.componentRecipeInputsByRecipeId.get(recipe.id) ?? [])
-    : [];
+  const resolved = componentRecipeForAsOf(
+    componentId,
+    data,
+    options?.asOfDate
+  );
+  const recipe = resolved.recipe;
+  const inputs = resolved.inputs;
   const name = component?.name ?? "(unknown component)";
   const trail = [...path, name];
 
@@ -457,10 +574,9 @@ export function calculateMenuItemCost(
   options?: CostingOptions
 ): MenuItemCostResult {
   const menuItem = data.menuItemsById.get(menuItemId);
-  const recipe = data.menuRecipesByMenuItemId.get(menuItemId);
-  const inputs = recipe
-    ? (data.menuRecipeInputsByRecipeId.get(recipe.id) ?? [])
-    : [];
+  const resolved = menuRecipeForAsOf(menuItemId, data, options?.asOfDate);
+  const recipe = resolved.recipe;
+  const inputs = resolved.inputs;
   const name = menuItem?.name ?? "(unknown menu item)";
   const trail = [name];
 
@@ -600,12 +716,12 @@ export function calculateMenuItemCost(
     return empty(worst, issues);
   }
 
-  if (shouldApplyWorkbookMismatch(recipe)) {
+  if (resolved.applyWorkbookMismatch && shouldApplyWorkbookMismatch(recipe)) {
     const issues: CostIssue[] = [];
     pushIssue(
       issues,
       "workbook_mismatch",
-      `${name} imported cost does not match the Excel COSTO TOTAL.`,
+      workbookMismatchEngineMessage("es", name),
       trail
     );
     return empty("workbook_mismatch", issues);

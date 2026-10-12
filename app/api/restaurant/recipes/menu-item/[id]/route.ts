@@ -21,6 +21,7 @@ import {
   handmadeSourceCorePatch,
   handmadeSourcePatch,
 } from "@/lib/restaurant/protect-imported-recipe";
+import { syncApprovedMenuRecipeVersion } from "@/lib/restaurant/sync-recipe-version";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -253,7 +254,11 @@ export async function PUT(
         ...handmadeSourcePatch(),
       })
       .eq("id", recipeId);
-    if (error && errorMentionsColumn(error, "workbook_cost_match")) {
+    if (
+      error &&
+      (errorMentionsColumn(error, "workbook_cost_match") ||
+        errorMentionsColumn(error, "workbook_variance_amount"))
+    ) {
       const retry = await auth.supabase
         .from("recipes")
         .update({
@@ -300,7 +305,11 @@ export async function PUT(
       .insert(insertBody)
       .select("id")
       .single();
-    if (error && errorMentionsColumn(error, "workbook_cost_match")) {
+    if (
+      error &&
+      (errorMentionsColumn(error, "workbook_cost_match") ||
+        errorMentionsColumn(error, "workbook_variance_amount"))
+    ) {
       const retry = await auth.supabase
         .from("recipes")
         .insert(
@@ -357,6 +366,28 @@ export async function PUT(
         buildPgErrorBody("Could not write inputs", insErr),
         { status: 500 }
       );
+    }
+  }
+
+  if (status === "active") {
+    try {
+      await syncApprovedMenuRecipeVersion({
+        supabase: auth.supabase,
+        companyId: auth.companyId,
+        recipeId,
+        menuItemId,
+        sourceType: "manual",
+        inputs: inputs.map((row) => ({
+          input_type: row.input_type,
+          ingredient_id: row.ingredient_id,
+          component_id: row.component_id,
+          quantity: row.quantity,
+          unit: row.unit,
+          notes: row.notes,
+        })),
+      });
+    } catch (err) {
+      console.error("[recipes/menu-item PUT version]", err);
     }
   }
 

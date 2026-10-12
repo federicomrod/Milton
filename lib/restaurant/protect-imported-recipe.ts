@@ -25,10 +25,14 @@ export function handmadeSourceCorePatch(): {
 export function handmadeWorkbookClearPatch(): {
   workbook_cost_match: null;
   workbook_computed_cost: null;
+  workbook_variance_amount: null;
+  workbook_variance_pct: null;
 } {
   return {
     workbook_cost_match: null,
     workbook_computed_cost: null,
+    workbook_variance_amount: null,
+    workbook_variance_pct: null,
   };
 }
 
@@ -36,6 +40,8 @@ export function handmadeSourcePatch(): {
   source_type: typeof MANUAL_RECIPE_SOURCE;
   workbook_cost_match: null;
   workbook_computed_cost: null;
+  workbook_variance_amount: null;
+  workbook_variance_pct: null;
 } {
   return {
     ...handmadeSourceCorePatch(),

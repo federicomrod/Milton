@@ -34,6 +34,8 @@ interface RecipeRow {
   workbook_cost_total?: number | null;
   workbook_computed_cost?: number | null;
   workbook_cost_match?: "match" | "mismatch" | null;
+  workbook_variance_amount?: number | null;
+  workbook_variance_pct?: number | null;
 }
 
 interface InputRow {
@@ -95,7 +97,7 @@ async function loadMenuItem(menuItemId: string): Promise<LoadResult> {
           const full = await supabase
             .from("recipes")
             .select(
-              "id, status, serving_quantity, serving_unit, notes, source_type, workbook_cost_total, workbook_computed_cost, workbook_cost_match"
+              "id, status, serving_quantity, serving_unit, notes, source_type, workbook_cost_total, workbook_computed_cost, workbook_cost_match, workbook_variance_amount, workbook_variance_pct"
             )
             .eq("company_id", companyId)
             .eq("menu_item_id", menuItemId)
@@ -196,6 +198,8 @@ export default async function MenuItemDetailRoute({
                 milton_cost: result.recipe.workbook_computed_cost ?? null,
                 match: result.recipe.workbook_cost_match ?? null,
                 source_type: result.recipe.source_type ?? null,
+                variance_amount: result.recipe.workbook_variance_amount ?? null,
+                variance_pct: result.recipe.workbook_variance_pct ?? null,
               }
             : null
         }

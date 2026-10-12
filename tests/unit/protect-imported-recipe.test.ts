@@ -20,6 +20,8 @@ describe("protect imported recipes after a hand edit", () => {
       source_type: MANUAL_RECIPE_SOURCE,
       workbook_cost_match: null,
       workbook_computed_cost: null,
+      workbook_variance_amount: null,
+      workbook_variance_pct: null,
     });
   });
 
@@ -49,11 +51,11 @@ describe("protect imported recipes after a hand edit", () => {
 });
 
 describe("workbook cost match tolerance", () => {
-  it("matches within $0.01 or 1%", () => {
-    expect(workbookCostsMatch(1, 1.01)).toBe(true);
-    expect(workbookCostsMatch(1, 1.03)).toBe(false);
-    expect(workbookCostsMatch(10, 10.1)).toBe(true);
-    expect(workbookCostsMatch(10, 10.2)).toBe(false);
+  it("matches within $0.05 or 2%", () => {
+    expect(workbookCostsMatch(1, 1.05)).toBe(true);
+    expect(workbookCostsMatch(1, 1.06)).toBe(false);
+    expect(workbookCostsMatch(10, 10.2)).toBe(true);
+    expect(workbookCostsMatch(10, 10.3)).toBe(false);
     expect(decideWorkbookCostMatch(2, null)).toBe("mismatch");
     expect(decideWorkbookCostMatch(null, 2)).toBeNull();
     expect(decideWorkbookCostMatch(0.15, 0.15)).toBe("match");

@@ -488,8 +488,8 @@ export function unavailableCostKpi(lang: PreferredLanguage): UnavailableKpi {
     available: false,
     reason: t(
       lang,
-      "Recipe costs are needed",
-      "Se necesitan costos de recetas"
+      "Pending recipes",
+      "Pendiente de recetas"
     ),
     href: `${COSTS_HREF}/upload`,
     link_label: t(lang, "Add costs", "Agregar costos"),

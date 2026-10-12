@@ -8,7 +8,12 @@ import {
 } from "@/lib/restaurant/currency";
 import { convertUnitPriceStr, resolveUnitCell } from "@/lib/restaurant/units";
 import { numberAt, textAt } from "./cells";
-import { missingIngredientNameReason, missingUnitReason } from "./copy";
+import {
+  missingIngredientNameReason,
+  missingUnitReason,
+  positiveQuantityReason,
+} from "./copy";
+import { resolveIngredientPriceDate } from "@/lib/restaurant/price-date";
 import { implausiblePriceReason } from "./plausibility";
 import { skipReasonForWorkbookRow } from "./skip";
 import type {
@@ -95,6 +100,9 @@ export function evaluateWorkbookRow(input: {
   mapping: ColumnMapping;
   currency: string;
   defaultDate: string;
+  /** True when defaultDate came from a dated price list (file/sheet date). */
+  datedPriceList?: boolean;
+  uploadDate?: string;
   lang?: PreferredLanguage;
 }):
   | { ok: true; value: WorkbookRowCandidate }
@@ -118,6 +126,7 @@ export function evaluateWorkbookRow(input: {
     };
   }
 
+  const uploadDate = input.uploadDate ?? defaultDate;
   if (tabType === "price_list") {
     return evaluatePriceListRow(
       tabName,
@@ -126,7 +135,9 @@ export function evaluateWorkbookRow(input: {
       mapping,
       currency,
       defaultDate,
-      lang
+      lang,
+      Boolean(input.datedPriceList),
+      uploadDate
     );
   }
   return evaluateQuantityCostRow(
@@ -137,7 +148,8 @@ export function evaluateWorkbookRow(input: {
     currency,
     defaultDate,
     tabType === "purchases",
-    lang
+    lang,
+    uploadDate
   );
 }
 
@@ -148,7 +160,9 @@ function evaluatePriceListRow(
   mapping: ColumnMapping,
   currency: string,
   defaultDate: string,
-  lang: PreferredLanguage
+  lang: PreferredLanguage,
+  datedPriceList: boolean,
+  uploadDate: string
 ):
   | { ok: true; value: WorkbookRowCandidate }
   | { ok: false; review: ReviewCandidate } {
@@ -191,15 +205,22 @@ function evaluatePriceListRow(
   );
   if (implausible) return fail(implausible);
 
+  const priced = resolveIngredientPriceDate({
+    priceListDate: datedPriceList ? defaultDate : null,
+    uploadDate,
+    kind: "price_list",
+  });
   return {
     ok: true,
     value: {
-      ...baseCandidate(tabName, rowIndex, row, currency, defaultDate),
+      ...baseCandidate(tabName, rowIndex, row, currency, priced.effective_date),
       ingredient_name: name,
       quantity: 1,
       unit: resolved.unit,
       unit_price: resolved.unitPrice,
       total_cost: resolved.unitPrice,
+      effective_date: priced.effective_date,
+      date_source: priced.date_source,
     },
   };
 }
@@ -253,7 +274,8 @@ function evaluateQuantityCostRow(
   currency: string,
   defaultDate: string,
   requireQuantity: boolean,
-  lang: PreferredLanguage
+  lang: PreferredLanguage,
+  uploadDate: string
 ):
   | { ok: true; value: WorkbookRowCandidate }
   | { ok: false; review: ReviewCandidate } {
@@ -288,13 +310,17 @@ function evaluateQuantityCostRow(
   const unitPrice = numberAt(row, mapping, "unit_price");
   const total = numberAt(row, mapping, "total_cost");
   const dateRaw = textAt(row, mapping, "cost_date");
-  const costDate = dateRaw
-    ? (parseCostImportDate(dateRaw) ?? defaultDate)
-    : defaultDate;
+  const parsedRowDate = dateRaw ? parseCostImportDate(dateRaw) : null;
+  const priced = resolveIngredientPriceDate({
+    recordDate: parsedRowDate,
+    uploadDate,
+    kind: requireQuantity ? "invoice" : "workbook",
+  });
+  const costDate = priced.effective_date;
   const supplier = textAt(row, mapping, "supplier_name");
 
   if (requireQuantity && (qty === null || qty <= 0)) {
-    return fail("Quantity must be a positive number", {
+    return fail(positiveQuantityReason(lang), {
       ingredient_name: name,
     });
   }
@@ -366,6 +392,8 @@ function evaluateQuantityCostRow(
       unit_price: resolvedPrice,
       total_cost: resolvedTotal,
       cost_date: costDate,
+      effective_date: priced.effective_date,
+      date_source: priced.date_source,
       supplier_name: supplier,
     },
   };

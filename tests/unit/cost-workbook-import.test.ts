@@ -14,7 +14,9 @@ import {
   damerauLevenshtein,
   implausiblePriceReason,
   importCostWorkbook,
+  isMissingImportCosting036Error,
   isMissingWorkbookCostColumnsError,
+  MISSING_IMPORT_COSTING_036_ES,
   MISSING_WORKBOOK_COST_MIGRATION_ES,
   collectCostoRestauranteBlockNames,
   collectCostoRestauranteBlocks,
@@ -3206,7 +3208,7 @@ describe("COSTO RESTAURANTE block layout", () => {
 
     expect(result.recipe_match?.dishes_total).toBeGreaterThanOrEqual(2);
     expect(result.recipe_match?.headline).toMatch(
-      /platillos coinciden con el Excel/
+      /platillos cuadran con el Excel/
     );
     const malo = result.recipe_match?.mismatches.find(
       (row) => row.name === "PLATO MALO"
@@ -3242,8 +3244,12 @@ describe("COSTO RESTAURANTE block layout", () => {
 
     const dedos = store.recipes.find((row) => row.name === "DEDOS DE QUESO");
     expect(dedos?.workbook_cost_match).toBe("match");
+    expect(dedos?.workbook_variance_amount).toBeCloseTo(0, 2);
+    expect(dedos?.workbook_variance_pct).toBeCloseTo(0, 2);
     const maloRecipe = store.recipes.find((row) => row.name === "PLATO MALO");
     expect(maloRecipe?.workbook_cost_match).toBe("mismatch");
+    expect(maloRecipe?.workbook_variance_amount).not.toBeNull();
+    expect(maloRecipe?.workbook_variance_pct).not.toBeNull();
 
     const costing = costingDataFromStore(store);
     const maloMenu = store.menuItems.find((row) => row.name === "PLATO MALO");
@@ -3448,6 +3454,130 @@ describe("COSTO RESTAURANTE block layout", () => {
     expect(store.recipes).toHaveLength(0);
     expect(store.ingredients).toHaveLength(0);
     expect(store.reviewItems).toHaveLength(0);
+  });
+
+  it("fails fast before writing when migration 036 columns are missing", async () => {
+    const store = emptyStore();
+    store.importCosting036Columns = false;
+    const repo = createMemoryCostWorkbookRepo(store);
+    await expect(
+      importCostWorkbook({
+        companyId: COMPANY,
+        filename: FILENAME,
+        buffer: buildWorkbookMatchFooterWorkbook(),
+        currency: "USD",
+        repo,
+        ai: aiSharedArticuloAsRecipeAndIngredient(),
+        lang: "es",
+      })
+    ).rejects.toSatisfy((err) => {
+      expect(isMissingImportCosting036Error(err)).toBe(true);
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toBe(MISSING_IMPORT_COSTING_036_ES);
+      return true;
+    });
+    expect(store.batches).toHaveLength(0);
+    expect(store.recipes).toHaveLength(0);
+    expect(store.ingredients).toHaveLength(0);
+  });
+
+  it("skips hand-edited recipes when reconciling Excel totals", async () => {
+    const store = emptyStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildWorkbookMatchFooterWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      lang: "es",
+    });
+    const recipe = store.recipes.find((row) => row.name === "DEDOS DE QUESO");
+    expect(recipe?.workbook_cost_match).toBe("match");
+    await repo.markRecipeManual(COMPANY, recipe!.id);
+    const second = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildWorkbookMatchFooterWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      lang: "es",
+    });
+    expect(
+      store.recipes.find((row) => row.id === recipe?.id)?.workbook_cost_match
+    ).toBeNull();
+    expect(
+      second.recipe_match?.mismatches.some((row) => row.name === "DEDOS DE QUESO")
+    ).toBe(false);
+  });
+
+  it("undo restores workbook_* and source_type from the previous import", async () => {
+    const store = emptyStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const first = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildWorkbookMatchFooterWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      lang: "es",
+    });
+    expect(first.recipes_created).toBeGreaterThan(0);
+    const recipe = store.recipes.find((row) => row.name === "DEDOS DE QUESO");
+    expect(recipe?.source_type).toBe("import");
+    expect(recipe?.workbook_cost_match).toBe("match");
+    recipe!.workbook_cost_match = "mismatch";
+    recipe!.workbook_variance_amount = 1.25;
+    recipe!.workbook_variance_pct = 12.5;
+
+    const second = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildWorkbookMatchFooterWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      lang: "es",
+    });
+    expect(second.recipes_created).toBe(0);
+    expect(
+      store.recipes.find((row) => row.id === recipe?.id)?.workbook_cost_match
+    ).toBe("match");
+    expect(
+      store.recipes.find((row) => row.id === recipe?.id)?.workbook_variance_amount
+    ).toBeCloseTo(0, 2);
+
+    const undone = await undoCostImportBatch(repo, COMPANY, second.batch_id);
+    expect(undone.ok).toBe(true);
+    const restored = store.recipes.find((row) => row.id === recipe?.id);
+    expect(restored?.source_type).toBe("import");
+    expect(restored?.workbook_cost_match).toBe("mismatch");
+    expect(restored?.workbook_variance_amount).toBeCloseTo(1.25, 2);
+    expect(restored?.workbook_variance_pct).toBeCloseTo(12.5, 2);
+  });
+
+  it("period costing picks recipe versions in server code only", () => {
+    const pageData = readFileSync(
+      "lib/restaurant/cockpit-page-data.ts",
+      "utf8"
+    );
+    expect(pageData).toContain("itemCostLookupForPeriod");
+    expect(pageData).toContain("asOfDate");
+    const cockpit = readFileSync(
+      "components/restaurant/ProfitabilityCockpit.tsx",
+      "utf8"
+    );
+    expect(cockpit).not.toMatch(/asOfDate/);
+    expect(cockpit).not.toMatch(/pickApprovedVersion/);
+    const table = readFileSync(
+      "components/restaurant/cockpit/MenuProfitabilityTable.tsx",
+      "utf8"
+    );
+    expect(table).not.toMatch(/asOfDate/);
+    expect(table).not.toMatch(/pickApprovedVersion/);
   });
 
   it("computes 1 ORDEN as the sub-recipe batch so the dish matches Excel", async () => {

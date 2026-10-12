@@ -45,9 +45,11 @@ import {
   loadCachedProfitability,
 } from "@/lib/restaurant/pos-read-cache";
 import {
+  costingDataFromProfitability,
   fetchProfitabilityData,
   type ProfitabilityData,
 } from "@/lib/restaurant/profitability-server";
+import { calculateAllMenuItemCosts } from "@/lib/restaurant/costing";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import {
@@ -1081,7 +1083,6 @@ async function loadBothPeriodCostKpisUncached(
       resolved.scope.locationId
     );
     if (pos.error || pos.rows.length === 0) return empty;
-    const lookup = itemCostLookupFromMarginRows(profitability.marginRows);
     const anchor = latestSaleDate ?? maxSaleDate(pos.rows, options.timezone);
     const value: BothPeriodCostKpis = {
       last_7: null,
@@ -1097,7 +1098,7 @@ async function loadBothPeriodCostKpisUncached(
             rowsInCockpitRange(pos.rows, period.current, options.timezone),
             options.currency
           ),
-          lookup,
+          itemCostLookupForPeriod(profitability, period.current.to),
           options.currency
         ),
         previous_cost: periodCostKpisFromProductLines(
@@ -1105,7 +1106,7 @@ async function loadBothPeriodCostKpisUncached(
             rowsInCockpitRange(pos.rows, period.previous, options.timezone),
             options.currency
           ),
-          lookup,
+          itemCostLookupForPeriod(profitability, period.previous.to),
           options.currency
         ),
       };
@@ -1167,6 +1168,28 @@ function rowsInCockpitRange(
       /^\d{4}-\d{2}-\d{2}$/.test(dateKey) && inInclusiveRange(dateKey, range)
     );
   });
+}
+
+function itemCostLookupForPeriod(
+  profitability: ProfitabilityData,
+  asOfDate: string
+) {
+  const names = itemCostLookupFromMarginRows(profitability.marginRows);
+  const costing = costingDataFromProfitability(profitability);
+  if (!costing) return names;
+  const costs = calculateAllMenuItemCosts(costing, { asOfDate });
+  const unitCostByMenuItemId = new Map<string, number | null>();
+  for (const [id, cost] of costs) {
+    const complete =
+      cost.status === "complete" &&
+      cost.cost !== null &&
+      Number.isFinite(cost.cost);
+    unitCostByMenuItemId.set(id, complete ? cost.cost : null);
+  }
+  return {
+    unitCostByMenuItemId,
+    menuItemIdByRawName: names.menuItemIdByRawName,
+  };
 }
 
 function maxSaleDate(rows: CockpitFactRow[], timezone: string): string | null {

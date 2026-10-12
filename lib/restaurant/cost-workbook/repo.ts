@@ -4,6 +4,10 @@ import {
   handmadeSourceCorePatch,
   handmadeSourcePatch,
 } from "@/lib/restaurant/protect-imported-recipe";
+import type {
+  ComponentRecipeVersionRecord,
+  RecipeVersionRecord,
+} from "@/lib/restaurant/recipe-versions";
 import { snapshotFromUnknown } from "./snapshot";
 import type {
   CostWorkbookBatch,
@@ -252,6 +256,8 @@ export interface CostWorkbookRepo {
       workbook_selling_price: number | null;
       workbook_computed_cost: number | null;
       workbook_cost_match: "match" | "mismatch" | null;
+      workbook_variance_amount: number | null;
+      workbook_variance_pct: number | null;
     }
   ): Promise<void>;
   updateComponentRecipeWorkbookCheck(
@@ -262,8 +268,68 @@ export interface CostWorkbookRepo {
       workbook_unit_price: number | null;
       workbook_computed_cost: number | null;
       workbook_cost_match: "match" | "mismatch" | null;
+      workbook_variance_amount: number | null;
+      workbook_variance_pct: number | null;
     }
   ): Promise<void>;
+  restoreRecipeHeader(
+    companyId: string,
+    recipeId: string,
+    patch: {
+      source_type?: string | null;
+      workbook_cost_total?: number | null;
+      workbook_selling_price?: number | null;
+      workbook_computed_cost?: number | null;
+      workbook_cost_match?: "match" | "mismatch" | null;
+      workbook_variance_amount?: number | null;
+      workbook_variance_pct?: number | null;
+    }
+  ): Promise<void>;
+  restoreComponentRecipeHeader(
+    companyId: string,
+    recipeId: string,
+    patch: {
+      source_type?: string | null;
+      workbook_cost_total?: number | null;
+      workbook_unit_price?: number | null;
+      workbook_computed_cost?: number | null;
+      workbook_cost_match?: "match" | "mismatch" | null;
+      workbook_variance_amount?: number | null;
+      workbook_variance_pct?: number | null;
+    }
+  ): Promise<void>;
+  listRecipeVersions(
+    companyId: string,
+    recipeId: string
+  ): Promise<RecipeVersionRecord[]>;
+  insertRecipeVersion(input: {
+    companyId: string;
+    recipeId: string;
+    menuItemId: string;
+    versionNumber: number;
+    status: "approved" | "in_review";
+    effectiveDate: string | null;
+    sourceType?: string | null;
+    inputs: RecipeInputSnapshot[];
+  }): Promise<{ id: string }>;
+  listComponentRecipeVersions(
+    companyId: string,
+    componentRecipeId: string
+  ): Promise<ComponentRecipeVersionRecord[]>;
+  insertComponentRecipeVersion(input: {
+    companyId: string;
+    componentRecipeId: string;
+    componentId: string;
+    versionNumber: number;
+    status: "approved" | "in_review";
+    effectiveDate: string | null;
+    outputQuantity: number;
+    outputUnit: string;
+    sourceType?: string | null;
+    inputs: RecipeInputSnapshot[];
+  }): Promise<{ id: string }>;
+  deleteRecipeVersions(companyId: string, ids: string[]): Promise<void>;
+  deleteComponentRecipeVersions(companyId: string, ids: string[]): Promise<void>;
   markRecipeManual(companyId: string, recipeId: string): Promise<void>;
   markComponentManual(
     companyId: string,
@@ -272,6 +338,8 @@ export interface CostWorkbookRepo {
   ): Promise<void>;
   /** False when migration 035 workbook_* columns are missing. */
   hasWorkbookCostColumns(companyId: string): Promise<boolean>;
+  /** False when migration 036 variance / date columns are missing. */
+  hasImportCosting036Columns(companyId: string): Promise<boolean>;
 }
 
 function asIngredient(row: Record<string, unknown>): CostWorkbookIngredient {
@@ -306,6 +374,17 @@ function asCostEntry(row: Record<string, unknown>): CostWorkbookCostEntry {
     source_type: asCostSourceType(row.source_type),
     source_id: (row.source_id as string | null) ?? null,
     cost_date: String(row.cost_date),
+    effective_date: row.effective_date
+      ? String(row.effective_date)
+      : String(row.cost_date),
+    date_source:
+      row.date_source === "invoice" ||
+      row.date_source === "dated_price_list" ||
+      row.date_source === "upload" ||
+      row.date_source === "confirmation" ||
+      row.date_source === "manual"
+        ? row.date_source
+        : "upload",
     quantity: Number(row.quantity),
     unit: String(row.unit),
     total_cost: Number(row.total_cost),
@@ -364,7 +443,7 @@ function asBatch(row: Record<string, unknown>): CostWorkbookBatch {
 }
 
 const COST_ENTRY_SELECT =
-  "id, company_id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at";
+  "id, company_id, ingredient_id, supplier_id, source_type, source_id, cost_date, effective_date, date_source, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at";
 
 async function mapChunks<T>(
   items: T[],
@@ -1136,7 +1215,9 @@ export function createSupabaseCostWorkbookRepo(
     async listRecipes(companyId) {
       const { data, error } = await supabase
         .from("recipes")
-        .select("id, menu_item_id, name, source_type, source_id")
+        .select(
+          "id, menu_item_id, name, source_type, source_id, workbook_cost_total, workbook_selling_price, workbook_computed_cost, workbook_cost_match, workbook_variance_amount, workbook_variance_pct"
+        )
         .eq("company_id", companyId);
       if (error) throw new Error(error.message);
       return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
@@ -1145,6 +1226,16 @@ export function createSupabaseCostWorkbookRepo(
         name: String(row.name ?? ""),
         source_type: (row.source_type as string | null) ?? null,
         source_id: (row.source_id as string | null) ?? null,
+        workbook_cost_total: numOrNull(row.workbook_cost_total),
+        workbook_selling_price: numOrNull(row.workbook_selling_price),
+        workbook_computed_cost: numOrNull(row.workbook_computed_cost),
+        workbook_cost_match:
+          row.workbook_cost_match === "match" ||
+          row.workbook_cost_match === "mismatch"
+            ? row.workbook_cost_match
+            : null,
+        workbook_variance_amount: numOrNull(row.workbook_variance_amount),
+        workbook_variance_pct: numOrNull(row.workbook_variance_pct),
       }));
     },
 
@@ -1295,7 +1386,7 @@ export function createSupabaseCostWorkbookRepo(
       const { data, error } = await supabase
         .from("component_recipes")
         .select(
-          "id, component_id, name, output_quantity, output_unit, source_type, source_id"
+          "id, component_id, name, output_quantity, output_unit, source_type, source_id, workbook_cost_total, workbook_unit_price, workbook_computed_cost, workbook_cost_match, workbook_variance_amount, workbook_variance_pct"
         )
         .eq("company_id", companyId);
       if (error) throw new Error(error.message);
@@ -1307,6 +1398,16 @@ export function createSupabaseCostWorkbookRepo(
         output_unit: String(row.output_unit ?? "unit"),
         source_type: (row.source_type as string | null) ?? null,
         source_id: (row.source_id as string | null) ?? null,
+        workbook_cost_total: numOrNull(row.workbook_cost_total),
+        workbook_unit_price: numOrNull(row.workbook_unit_price),
+        workbook_computed_cost: numOrNull(row.workbook_computed_cost),
+        workbook_cost_match:
+          row.workbook_cost_match === "match" ||
+          row.workbook_cost_match === "mismatch"
+            ? row.workbook_cost_match
+            : null,
+        workbook_variance_amount: numOrNull(row.workbook_variance_amount),
+        workbook_variance_pct: numOrNull(row.workbook_variance_pct),
       }));
     },
 
@@ -1522,7 +1623,11 @@ export function createSupabaseCostWorkbookRepo(
         .update(handmadeSourcePatch())
         .eq("company_id", companyId)
         .eq("id", recipeId);
-      if (error && errorMentionsColumn(error, "workbook_cost_match")) {
+      if (
+        error &&
+        (errorMentionsColumn(error, "workbook_cost_match") ||
+          errorMentionsColumn(error, "workbook_variance_amount"))
+      ) {
         const retry = await supabase
           .from("recipes")
           .update(handmadeSourceCorePatch())
@@ -1547,7 +1652,11 @@ export function createSupabaseCostWorkbookRepo(
         .update(handmadeSourcePatch())
         .eq("company_id", companyId)
         .eq("id", componentRecipeId);
-      if (error && errorMentionsColumn(error, "workbook_cost_match")) {
+      if (
+        error &&
+        (errorMentionsColumn(error, "workbook_cost_match") ||
+          errorMentionsColumn(error, "workbook_variance_amount"))
+      ) {
         const retry = await supabase
           .from("component_recipes")
           .update(handmadeSourceCorePatch())
@@ -1559,6 +1668,150 @@ export function createSupabaseCostWorkbookRepo(
       if (error) throw new Error(error.message);
     },
 
+    async restoreRecipeHeader(companyId, recipeId, patch) {
+      const { error } = await supabase
+        .from("recipes")
+        .update(patch)
+        .eq("company_id", companyId)
+        .eq("id", recipeId);
+      if (error) throw new Error(error.message);
+    },
+
+    async restoreComponentRecipeHeader(companyId, recipeId, patch) {
+      const { error } = await supabase
+        .from("component_recipes")
+        .update(patch)
+        .eq("company_id", companyId)
+        .eq("id", recipeId);
+      if (error) throw new Error(error.message);
+    },
+
+    async listRecipeVersions(companyId, recipeId) {
+      const { data, error } = await supabase
+        .from("recipe_versions")
+        .select(
+          "id, recipe_id, menu_item_id, version_number, status, effective_date, source_type"
+        )
+        .eq("company_id", companyId)
+        .eq("recipe_id", recipeId)
+        .order("version_number", { ascending: true });
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map(asRecipeVersion);
+    },
+
+    async insertRecipeVersion(input) {
+      const { data, error } = await supabase
+        .from("recipe_versions")
+        .insert({
+          company_id: input.companyId,
+          recipe_id: input.recipeId,
+          menu_item_id: input.menuItemId,
+          version_number: input.versionNumber,
+          status: input.status,
+          effective_date: input.effectiveDate,
+          source_type: input.sourceType ?? null,
+        })
+        .select("id")
+        .single();
+      if (error || !data) {
+        throw new Error(error?.message ?? "recipe version insert failed");
+      }
+      if (input.inputs.length > 0) {
+        const { error: inputError } = await supabase
+          .from("recipe_version_inputs")
+          .insert(
+            input.inputs.map((row) => ({
+              company_id: input.companyId,
+              recipe_version_id: data.id,
+              input_type: row.input_type,
+              ingredient_id: row.ingredient_id,
+              component_id: row.component_id,
+              quantity: row.quantity,
+              unit: row.unit,
+              notes: row.notes,
+            }))
+          );
+        if (inputError) throw new Error(inputError.message);
+      }
+      return { id: String(data.id) };
+    },
+
+    async listComponentRecipeVersions(companyId, componentRecipeId) {
+      const { data, error } = await supabase
+        .from("component_recipe_versions")
+        .select(
+          "id, component_recipe_id, component_id, version_number, status, effective_date, output_quantity, output_unit, source_type"
+        )
+        .eq("company_id", companyId)
+        .eq("component_recipe_id", componentRecipeId)
+        .order("version_number", { ascending: true });
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map(
+        asComponentRecipeVersion
+      );
+    },
+
+    async insertComponentRecipeVersion(input) {
+      const { data, error } = await supabase
+        .from("component_recipe_versions")
+        .insert({
+          company_id: input.companyId,
+          component_recipe_id: input.componentRecipeId,
+          component_id: input.componentId,
+          version_number: input.versionNumber,
+          status: input.status,
+          effective_date: input.effectiveDate,
+          output_quantity: input.outputQuantity,
+          output_unit: input.outputUnit,
+          source_type: input.sourceType ?? null,
+        })
+        .select("id")
+        .single();
+      if (error || !data) {
+        throw new Error(
+          error?.message ?? "component recipe version insert failed"
+        );
+      }
+      if (input.inputs.length > 0) {
+        const { error: inputError } = await supabase
+          .from("component_recipe_version_inputs")
+          .insert(
+            input.inputs.map((row) => ({
+              company_id: input.companyId,
+              component_recipe_version_id: data.id,
+              input_type: row.input_type,
+              ingredient_id: row.ingredient_id,
+              component_id: row.component_id,
+              quantity: row.quantity,
+              unit: row.unit,
+              notes: row.notes,
+            }))
+          );
+        if (inputError) throw new Error(inputError.message);
+      }
+      return { id: String(data.id) };
+    },
+
+    async deleteRecipeVersions(companyId, ids) {
+      if (ids.length === 0) return;
+      const { error } = await supabase
+        .from("recipe_versions")
+        .delete()
+        .eq("company_id", companyId)
+        .in("id", ids);
+      if (error) throw new Error(error.message);
+    },
+
+    async deleteComponentRecipeVersions(companyId, ids) {
+      if (ids.length === 0) return;
+      const { error } = await supabase
+        .from("component_recipe_versions")
+        .delete()
+        .eq("company_id", companyId)
+        .in("id", ids);
+      if (error) throw new Error(error.message);
+    },
+
     async hasWorkbookCostColumns(companyId) {
       const { error } = await supabase
         .from("recipes")
@@ -1567,6 +1820,17 @@ export function createSupabaseCostWorkbookRepo(
         .limit(1);
       if (!error) return true;
       if (errorMentionsColumn(error, "workbook_cost_match")) return false;
+      throw new Error(error.message);
+    },
+
+    async hasImportCosting036Columns(companyId) {
+      const { error } = await supabase
+        .from("recipes")
+        .select("id, workbook_variance_amount")
+        .eq("company_id", companyId)
+        .limit(1);
+      if (!error) return true;
+      if (errorMentionsColumn(error, "workbook_variance_amount")) return false;
       throw new Error(error.message);
     },
   };
@@ -1613,5 +1877,39 @@ function asSupplierLink(
     supplier_item_name: (row.supplier_item_name as string | null) ?? null,
     supplier_sku: (row.supplier_sku as string | null) ?? null,
     preferred: Boolean(row.preferred),
+  };
+}
+
+function numOrNull(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function asRecipeVersion(row: Record<string, unknown>): RecipeVersionRecord {
+  return {
+    id: String(row.id),
+    recipe_id: String(row.recipe_id),
+    menu_item_id: String(row.menu_item_id),
+    version_number: Number(row.version_number ?? 1),
+    status: row.status === "in_review" ? "in_review" : "approved",
+    effective_date: row.effective_date ? String(row.effective_date) : null,
+    source_type: (row.source_type as string | null) ?? null,
+  };
+}
+
+function asComponentRecipeVersion(
+  row: Record<string, unknown>
+): ComponentRecipeVersionRecord {
+  return {
+    id: String(row.id),
+    component_recipe_id: String(row.component_recipe_id),
+    component_id: String(row.component_id),
+    version_number: Number(row.version_number ?? 1),
+    status: row.status === "in_review" ? "in_review" : "approved",
+    effective_date: row.effective_date ? String(row.effective_date) : null,
+    output_quantity: Number(row.output_quantity ?? 1),
+    output_unit: String(row.output_unit ?? "unit"),
+    source_type: (row.source_type as string | null) ?? null,
   };
 }

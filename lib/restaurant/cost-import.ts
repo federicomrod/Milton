@@ -198,7 +198,7 @@ export function normalizeCostImportRow(
       ok: false,
       error: {
         rowIndex,
-        reason: "Quantity must be a positive number",
+        reason: "La cantidad tiene que ser un número positivo",
         ingredient_name: ingredientName,
       },
     };
@@ -263,6 +263,13 @@ export interface IngredientCostEntryInsert {
   source_type: "import";
   source_id: string | null;
   cost_date: string;
+  effective_date?: string;
+  date_source?:
+    | "invoice"
+    | "dated_price_list"
+    | "upload"
+    | "confirmation"
+    | "manual";
   quantity: number;
   unit: string;
   total_cost: number;
@@ -320,6 +327,8 @@ export function buildIngredientCostEntryInsert(params: {
       source_type: "import",
       source_id: params.sourceId ?? null,
       cost_date: row.cost_date,
+      effective_date: row.cost_date,
+      date_source: "upload",
       quantity: row.quantity,
       unit: row.unit,
       total_cost: row.total_cost,

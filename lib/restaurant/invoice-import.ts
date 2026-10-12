@@ -179,7 +179,7 @@ export function normalizeInvoiceImportRow(
       ok: false,
       error: {
         rowIndex,
-        reason: "Quantity must be a positive number",
+        reason: "La cantidad tiene que ser un número positivo",
         description,
       },
     };

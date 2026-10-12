@@ -62,7 +62,7 @@ const STATUS_LABEL: Record<string, string> = {
   circular_component_reference: "Referencia circular",
   no_cost_entries: "Sin costos",
   inactive_recipe: "Receta inactiva",
-  workbook_mismatch: "No coincide con el Excel",
+  workbook_mismatch: "No cuadra con el Excel",
 };
 
 function buildStatusTitle(row: MenuMarginRow, lang: PreferredLanguage): string {

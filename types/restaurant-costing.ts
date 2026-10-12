@@ -45,6 +45,8 @@ export interface IngredientCostEntry {
   source_type: "manual" | "invoice_line" | "import" | "api";
   source_id: string | null;
   cost_date: string;
+  effective_date?: string | null;
+  date_source?: "invoice" | "dated_price_list" | "upload" | "confirmation" | "manual" | null;
   quantity: number;
   unit: string;
   total_cost: number;

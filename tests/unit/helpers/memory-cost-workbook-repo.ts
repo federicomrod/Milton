@@ -1,4 +1,8 @@
 import type {
+  ComponentRecipeVersionRecord,
+  RecipeVersionRecord,
+} from "@/lib/restaurant/recipe-versions";
+import type {
   CompanyCostResetSummary,
   CostResetStepId,
   CostWorkbookBatch,
@@ -58,6 +62,13 @@ export interface MemoryCostWorkbookStore {
   posSalesItems: MemoryPosSale[];
   failResetStep?: CostResetStepId;
   workbookCostColumns?: boolean;
+  importCosting036Columns?: boolean;
+  recipeVersions: Array<
+    RecipeVersionRecord & { inputs: RecipeInputSnapshot[] }
+  >;
+  componentRecipeVersions: Array<
+    ComponentRecipeVersionRecord & { inputs: RecipeInputSnapshot[] }
+  >;
 }
 
 export function emptyMemoryStore(): MemoryCostWorkbookStore {
@@ -80,6 +91,8 @@ export function emptyMemoryStore(): MemoryCostWorkbookStore {
     companyByEntityId: {},
     mappingCompanyIds: {},
     posSalesItems: [],
+    recipeVersions: [],
+    componentRecipeVersions: [],
   };
 }
 
@@ -666,6 +679,8 @@ export function createMemoryCostWorkbookRepo(
       recipe.workbook_selling_price = patch.workbook_selling_price;
       recipe.workbook_computed_cost = patch.workbook_computed_cost;
       recipe.workbook_cost_match = patch.workbook_cost_match;
+      recipe.workbook_variance_amount = patch.workbook_variance_amount;
+      recipe.workbook_variance_pct = patch.workbook_variance_pct;
     },
     async updateComponentRecipeWorkbookCheck(_companyId, recipeId, patch) {
       const recipe = store.componentRecipes.find((row) => row.id === recipeId);
@@ -674,6 +689,70 @@ export function createMemoryCostWorkbookRepo(
       recipe.workbook_unit_price = patch.workbook_unit_price;
       recipe.workbook_computed_cost = patch.workbook_computed_cost;
       recipe.workbook_cost_match = patch.workbook_cost_match;
+      recipe.workbook_variance_amount = patch.workbook_variance_amount;
+      recipe.workbook_variance_pct = patch.workbook_variance_pct;
+    },
+    async restoreRecipeHeader(_companyId, recipeId, patch) {
+      const recipe = store.recipes.find((row) => row.id === recipeId);
+      if (!recipe) return;
+      Object.assign(recipe, patch);
+    },
+    async restoreComponentRecipeHeader(_companyId, recipeId, patch) {
+      const recipe = store.componentRecipes.find((row) => row.id === recipeId);
+      if (!recipe) return;
+      Object.assign(recipe, patch);
+    },
+    async listRecipeVersions(_companyId, recipeId) {
+      return store.recipeVersions
+        .filter((row) => row.recipe_id === recipeId)
+        .map(({ inputs: _inputs, ...row }) => row);
+    },
+    async insertRecipeVersion(input) {
+      const row = {
+        id: id(),
+        recipe_id: input.recipeId,
+        menu_item_id: input.menuItemId,
+        version_number: input.versionNumber,
+        status: input.status,
+        effective_date: input.effectiveDate,
+        source_type: input.sourceType ?? null,
+        inputs: input.inputs,
+      };
+      store.recipeVersions.push(row);
+      return { id: row.id };
+    },
+    async listComponentRecipeVersions(_companyId, componentRecipeId) {
+      return store.componentRecipeVersions
+        .filter((row) => row.component_recipe_id === componentRecipeId)
+        .map(({ inputs: _inputs, ...row }) => row);
+    },
+    async insertComponentRecipeVersion(input) {
+      const row = {
+        id: id(),
+        component_recipe_id: input.componentRecipeId,
+        component_id: input.componentId,
+        version_number: input.versionNumber,
+        status: input.status,
+        effective_date: input.effectiveDate,
+        output_quantity: input.outputQuantity,
+        output_unit: input.outputUnit,
+        source_type: input.sourceType ?? null,
+        inputs: input.inputs,
+      };
+      store.componentRecipeVersions.push(row);
+      return { id: row.id };
+    },
+    async deleteRecipeVersions(_companyId, ids) {
+      const remove = new Set(ids);
+      store.recipeVersions = store.recipeVersions.filter(
+        (row) => !remove.has(row.id)
+      );
+    },
+    async deleteComponentRecipeVersions(_companyId, ids) {
+      const remove = new Set(ids);
+      store.componentRecipeVersions = store.componentRecipeVersions.filter(
+        (row) => !remove.has(row.id)
+      );
     },
     async markRecipeManual(_companyId, recipeId) {
       const recipe = store.recipes.find((row) => row.id === recipeId);
@@ -681,6 +760,8 @@ export function createMemoryCostWorkbookRepo(
       recipe.source_type = "manual";
       recipe.workbook_cost_match = null;
       recipe.workbook_computed_cost = null;
+      recipe.workbook_variance_amount = null;
+      recipe.workbook_variance_pct = null;
     },
     async markComponentManual(_companyId, componentId, componentRecipeId) {
       const component = store.components.find((row) => row.id === componentId);
@@ -693,9 +774,14 @@ export function createMemoryCostWorkbookRepo(
       recipe.source_type = "manual";
       recipe.workbook_cost_match = null;
       recipe.workbook_computed_cost = null;
+      recipe.workbook_variance_amount = null;
+      recipe.workbook_variance_pct = null;
     },
     async hasWorkbookCostColumns() {
       return store.workbookCostColumns !== false;
+    },
+    async hasImportCosting036Columns() {
+      return store.importCosting036Columns !== false;
     },
   };
 }

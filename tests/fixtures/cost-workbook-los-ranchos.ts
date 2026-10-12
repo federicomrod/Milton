@@ -757,3 +757,57 @@ export function buildIncompleteDishWorkbook(): Buffer {
     XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
   );
 }
+
+/**
+ * Sub-recipe with only COSTO TOTAL (no $/lb, $/oz, or unit price).
+ * Yield must be assumed, never confirmed, and dishes that use it stay
+ * in review — never costed and never Cuadra con Excel.
+ */
+export function buildAssumedYieldWorkbook(): Buffer {
+  const wb = XLSX.utils.book_new();
+  const header = [
+    "Articulo",
+    "Unidad Detalle",
+    "Cantidad",
+    "Costo Unitario",
+    "Total Costo",
+  ];
+  const sub = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["QUESO FRITO"],
+    header,
+    ["QUESO GRATINADO", "ONZA", 1, 0.15, 0.15],
+    ["COSTO TOTAL", "", "", "", 0.15],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
+
+  const dishes = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["DEDOS DE QUESO"],
+    header,
+    ["QUESO FRITO", "ORDEN", 1, 0.15, 0.15],
+    ["COSTO TOTAL", "", "", "", 0.15],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 7.52],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(dishes),
+    "DE LA PARRILLA"
+  );
+
+  const price = [
+    ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+    ["QUESO GRATINADO", 2.4, 0.15, ""],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(price),
+    "Lista de precios"
+  );
+
+  return Buffer.from(
+    XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+  );
+}

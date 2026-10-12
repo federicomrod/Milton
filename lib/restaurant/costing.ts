@@ -220,6 +220,9 @@ function menuRecipeForAsOf(
   const versions = data.menuRecipeVersionsByMenuItemId?.get(menuItemId) ?? [];
   const picked = pickApprovedVersion(versions, asOfDate);
   if (!picked) {
+    if (versions.length > 0) {
+      return { recipe: undefined, inputs: [], applyWorkbookMismatch: false };
+    }
     return {
       recipe: working,
       inputs: working
@@ -261,6 +264,9 @@ function componentRecipeForAsOf(
     data.componentRecipeVersionsByComponentId?.get(componentId) ?? [];
   const picked = pickApprovedVersion(versions, asOfDate);
   if (!picked) {
+    if (versions.length > 0) {
+      return { recipe: undefined, inputs: [] };
+    }
     return {
       recipe: working,
       inputs: working

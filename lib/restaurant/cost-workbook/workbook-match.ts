@@ -16,6 +16,13 @@ import type {
   WorkbookRecipeMatchSummary,
   WorkbookRecipeMismatch,
 } from "./types";
+
+function subYieldUnconfirmed(group: GroupedRecipe): boolean {
+  if (group.kind !== "sub_recipe") return false;
+  return Boolean(
+    group.yield_assumed || group.output_quantity == null || !group.output_unit
+  );
+}
 import {
   decideWorkbookCostMatch,
   workbookCostsMatch,
@@ -205,6 +212,13 @@ export async function reconcileImportedWorkbookCosts(input: {
   let dishesTotal = 0;
   let subsMatched = 0;
   let subsTotal = 0;
+  const unconfirmedSubs = new Set(
+    input.groups.filter(subYieldUnconfirmed).map((group) => nameKey(group.name))
+  );
+  const usesUnconfirmedSub = (group: GroupedRecipe) =>
+    group.lines.some((line) =>
+      unconfirmedSubs.has(nameKey(line.ingredient_name))
+    );
 
   for (const group of input.groups) {
     if (group.cost_total == null || !Number.isFinite(group.cost_total)) {
@@ -217,6 +231,25 @@ export async function reconcileImportedWorkbookCosts(input: {
         : undefined;
       if (!component || !recipe) continue;
       if (recipe.source_type !== "import") continue;
+      if (subYieldUnconfirmed(group)) {
+        await input.repo.updateComponentRecipeWorkbookCheck(
+          input.companyId,
+          recipe.id,
+          {
+            workbook_cost_total: group.cost_total,
+            workbook_unit_price:
+              group.price_per_unit ??
+              group.price_per_lb ??
+              group.price_per_oz ??
+              null,
+            workbook_computed_cost: null,
+            workbook_cost_match: null,
+            workbook_variance_amount: null,
+            workbook_variance_pct: null,
+          }
+        );
+        continue;
+      }
       subsTotal += 1;
       const costed = calculateComponentCost(component.id, data);
       const milton =
@@ -269,6 +302,17 @@ export async function reconcileImportedWorkbookCosts(input: {
     const recipe = menu ? recipeByMenuId.get(menu.id) : undefined;
     if (!menu || !recipe) continue;
     if (recipe.source_type !== "import") continue;
+    if (usesUnconfirmedSub(group)) {
+      await input.repo.updateRecipeWorkbookCheck(input.companyId, recipe.id, {
+        workbook_cost_total: group.cost_total,
+        workbook_selling_price: group.selling_price ?? null,
+        workbook_computed_cost: null,
+        workbook_cost_match: null,
+        workbook_variance_amount: null,
+        workbook_variance_pct: null,
+      });
+      continue;
+    }
     dishesTotal += 1;
     const costed = calculateMenuItemCost(menu.id, data);
     const milton =

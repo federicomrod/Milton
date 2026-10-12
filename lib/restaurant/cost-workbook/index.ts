@@ -23,6 +23,7 @@ export {
   sheetLooksLikeCostoRestauranteBlocks,
   stripFooterAmount,
   TOTAL_MISMATCH_REASON,
+  YIELD_ASSUMED_REASON,
   YIELD_INCONSISTENT_REASON,
 } from "./blocks";
 export {
@@ -38,6 +39,7 @@ export {
   totalsMatch,
 } from "./parse";
 export {
+  assumedYieldReason,
   emptyRecipeNameReason,
   isPackSizeReviewReason,
   mappingSourceLabel,

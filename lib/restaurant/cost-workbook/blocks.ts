@@ -11,6 +11,7 @@ import {
   positiveQuantityReason,
   strayNameRowReason,
   totalMismatchReason,
+  assumedYieldReason,
   yieldInconsistentReason,
   yieldUnknownReason,
 } from "./copy";
@@ -37,6 +38,7 @@ export const HASH_FILL_RE = /^#+$/;
 export const TOTAL_MISMATCH_REASON = totalMismatchReason("es");
 export const YIELD_INCONSISTENT_REASON = yieldInconsistentReason("es");
 export const YIELD_UNKNOWN_REASON = yieldUnknownReason("es");
+export const YIELD_ASSUMED_REASON = assumedYieldReason("es");
 
 const YIELD_TOLERANCE = 0.05;
 const TOTAL_ABS_TOLERANCE = 0.03;
@@ -147,7 +149,7 @@ type FooterKind =
 /** Drop a trailing amount so "PRECIO POR LIBRA $0.42" still matches. */
 export function stripFooterAmount(raw: string): string {
   return foldFooterLabel(raw)
-    .replace(/(?:^|\s)\d+(?:[.,]\d+)?$/g, "")
+    .replace(/(?:^|\s)\$?\d+(?:[.,]\d+)?$/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -178,7 +180,7 @@ function footerKind(cells: unknown[]): FooterKind | null {
 function numberFromFooterLabel(raw: string): number | null {
   if (!footerKindFromLabel(raw)) return null;
   const folded = foldFooterLabel(raw);
-  const match = folded.match(/(\d+(?:[.,]\d+)?)$/);
+  const match = folded.match(/\$?(\d+(?:[.,]\d+)?)$/);
   if (!match) return null;
   return parseCostImportNumber(match[1]);
 }
@@ -311,7 +313,7 @@ function deriveYield(
   },
   lang: PreferredLanguage
 ):
-  | { ok: true; quantity: number; unit: string }
+  | { ok: true; quantity: number; unit: string; assumed?: boolean }
   | { ok: false; reason: string } {
   const { costTotal, pricePerLb, pricePerOz, pricePerUnit } = input;
   if (costTotal == null || costTotal <= 0) {
@@ -339,8 +341,8 @@ function deriveYield(
   if (fromOz != null) return { ok: true, quantity: fromOz, unit: "oz" };
   if (fromUnit != null) return { ok: true, quantity: fromUnit, unit: "unit" };
   // Per-order preps (QUESO FRITO) print COSTO TOTAL and no $/lb. One
-  // batch is one unit / one ORDEN — not a guessed sum of mixed lines.
-  return { ok: true, quantity: 1, unit: "unit" };
+  // batch is one unit / one ORDEN — assumed, never a confirmed yield.
+  return { ok: true, assumed: true, quantity: 1, unit: "unit" };
 }
 
 interface OpenBlock {
@@ -436,11 +438,14 @@ export function collectCostoRestauranteBlocks(input: {
       },
       lang
     );
-    if (!yieldResult.ok && input.tabKind === "sub_recipe") {
+    const assumed = Boolean(yieldResult.ok && yieldResult.assumed);
+    if (input.tabKind === "sub_recipe" && (!yieldResult.ok || assumed)) {
       review.push({
         tabName: input.tabName,
         rowIndex: 0,
-        reason: `${yieldResult.reason} (${current.name})`,
+        reason: assumed
+          ? `${assumedYieldReason(lang)} (${current.name})`
+          : `${yieldResult.reason} (${current.name})`,
         raw: { recipe: current.name },
         suggested: { ingredient_name: current.name },
       });
@@ -453,6 +458,7 @@ export function collectCostoRestauranteBlocks(input: {
       output_quantity: yieldResult.ok ? yieldResult.quantity : null,
       output_unit: yieldResult.ok ? yieldResult.unit : null,
       block_layout: true,
+      yield_assumed: assumed || undefined,
       selling_price: current.sellingPrice,
       cost_total: current.costTotal,
       price_per_lb: current.pricePerLb,

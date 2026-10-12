@@ -184,6 +184,10 @@ function isImported(sourceType: string | null | undefined): boolean {
   return !isImportProtectedSource(sourceType);
 }
 
+function yieldNeedsReview(group: GroupedRecipe, yieldOk: boolean): boolean {
+  return !yieldOk || Boolean(group.yield_assumed);
+}
+
 export async function persistWorkbookRecipes(input: {
   companyId: string;
   batchId: string;
@@ -352,6 +356,9 @@ export async function persistWorkbookRecipes(input: {
     if (!inputs) continue;
     const yieldQuantity = yieldResult.ok ? yieldResult.quantity : 1;
     const yieldUnit = yieldResult.ok ? yieldResult.unit : "unit";
+    const versionStatus = yieldNeedsReview(group, yieldResult.ok)
+      ? "in_review"
+      : "approved";
     const existing = componentByName.get(nameKey(group.name));
     if (existing && !isImported(existing.source_type)) {
       skipped.push({
@@ -430,7 +437,7 @@ export async function persistWorkbookRecipes(input: {
           componentRecipeId: createdRecipe.id,
           componentId: existing.id,
           versionNumber: 1,
-          status: "approved",
+          status: versionStatus,
           effectiveDate: null,
           outputQuantity: yieldQuantity,
           outputUnit: yieldUnit,
@@ -468,7 +475,7 @@ export async function persistWorkbookRecipes(input: {
         componentRecipeId: createdRecipe.id,
         componentId: component.id,
         versionNumber: 1,
-        status: "approved",
+        status: versionStatus,
         effectiveDate: null,
         outputQuantity: yieldQuantity,
         outputUnit: yieldUnit,

@@ -150,6 +150,23 @@ describe("buildScopedCall — registered models × methods", () => {
     expect(JSON.stringify(out.args)).not.toContain("company_id");
   });
 
+  it("read injects context and company_id on fields, not a domain", () => {
+    const out = buildScopedCall(
+      "pos.order.line",
+      "read",
+      [[11, 12]],
+      { fields: ["id", "full_product_name"] },
+      scope
+    );
+    expect(out.args).toEqual([[11, 12]]);
+    expect(out.kwargs.fields).toEqual([
+      "id",
+      "full_product_name",
+      "company_id",
+    ]);
+    expect(out.kwargs.context).toEqual({ allowed_company_ids: [7, 9] });
+  });
+
   it("fields_get keeps an optional field-name list in args[0]", () => {
     const out = buildScopedCall(
       "product.product",
@@ -247,7 +264,7 @@ describe("buildScopedCall — rejections", () => {
       OdooCompanyScopeError
     );
   });
-  it.each(["create", "write", "unlink", "read", "search", "name_get"])(
+  it.each(["create", "write", "unlink", "search", "name_get"])(
     "rejects method %s",
     (m) => {
       expect(() => ok("pos.order", m)).toThrow(OdooCompanyScopeError);
@@ -436,7 +453,7 @@ describe("scopedExecuteKw — mocked RPC", () => {
     const attempts: [string, string, Record<string, never> | object][] = [
       ["res.partner", "search_read", {}],
       ["pos.order", "write", {}],
-      ["pos.order", "read", {}],
+      ["pos.order", "unlink", {}],
       ["pos.order", "search_read", { context: { allowed_company_ids: [1] } }],
       ["pos.order", "search_read", { context: { force_company: 1 } }],
     ];

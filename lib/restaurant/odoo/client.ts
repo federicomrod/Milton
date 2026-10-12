@@ -1,11 +1,11 @@
 // lib/restaurant/odoo/client.ts
 //
-// Thin Odoo XML-RPC client: authenticate() + unsafeExecuteKw(). No env var
-// access here — credentials are passed in explicitly by the caller (the
-// sync API route), which is the only place that should know where a
-// secret comes from. Keeps this module trivially unit-testable with a
-// mocked fetch. unsafeExecuteKw() is hard-read-only (search_read,
-// search_count, fields_get); authenticate() stays on common.authenticate.
+// Thin Odoo XML-RPC client: authenticate() + unsafeExecuteKw() +
+// getOdooVersion(). No env var access here — credentials are passed in
+// explicitly by the caller. Keeps this module trivially unit-testable with
+// a mocked fetch. unsafeExecuteKw() is hard-read-only (fields_get,
+// search_count, search_read, read); authenticate() and getOdooVersion()
+// stay on /xmlrpc/2/common.
 //
 // MULTI-COMPANY SAFETY: unsafeExecuteKw() performs NO company scoping.
 // Only lib/restaurant/odoo/scoped.ts may import it; every route/lib must
@@ -20,6 +20,7 @@ import {
   assertNoRedirect,
   parseAllowedHosts,
 } from "./allowed-hosts";
+import { isOdooReadOnlyMethod } from "./read-only-methods";
 
 export interface OdooCredentials {
   /** e.g. "https://pilot-restaurant.odoo.com" — no trailing slash. */
@@ -96,13 +97,24 @@ export async function authenticate(creds: OdooCredentials): Promise<number> {
   return result;
 }
 
-// Hard read-only allowlist: the last line of defense before any execute_kw
-// network I/O. Do not widen. Authenticate stays on common.authenticate.
-const READ_ONLY_METHODS = new Set([
-  "search_read",
-  "search_count",
-  "fields_get",
-]);
+/**
+ * Asks /xmlrpc/2/common for the server version. Not an execute_kw call —
+ * no model method, no writes. Host allowlist still applies. Returns null
+ * when the payload is not a struct (caller treats that as "unavailable").
+ */
+export async function getOdooVersion(
+  creds: OdooCredentials
+): Promise<Record<string, unknown> | null> {
+  const allowedHosts = parseAllowedHosts();
+  assertOdooBaseUrlAllowed(creds.baseUrl, allowedHosts);
+  const url = `${creds.baseUrl}/xmlrpc/2/common`;
+  const body = encodeMethodCall("version", []);
+  const result = await postXmlRpc(url, body);
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return null;
+  }
+  return result as Record<string, unknown>;
+}
 
 /**
  * Calls execute_kw on /xmlrpc/2/object with args/kwargs passed through
@@ -120,7 +132,7 @@ export async function unsafeExecuteKw(
   args: XmlRpcValue[],
   kwargs: Record<string, XmlRpcValue> = {}
 ): Promise<XmlRpcValue> {
-  if (!READ_ONLY_METHODS.has(method)) {
+  if (!isOdooReadOnlyMethod(method)) {
     throw new OdooRpcError(
       `Odoo method not permitted (read-only client): ${method}`,
       "readonly"

@@ -16,13 +16,16 @@
 //
 // Only this module may import unsafeExecuteKw from ./client (a content
 // test enforces it). Models must be registered in ODOO_MODEL_COMPANY_POLICY
-// — adding one is a deliberate, reviewed edit. Only search_read,
-// search_count and fields_get are permitted; Milton makes no writes to Odoo.
-// fields_get is schema introspection (no domain) and does not return records.
+// — adding one is a deliberate, reviewed edit. Only the read-only
+// allowlist (fields_get, search_count, search_read, read) is permitted;
+// Milton makes no writes to Odoo. fields_get is schema introspection
+// (no domain). read() takes ids, not a domain — company isolation is
+// context.allowed_company_ids plus assertRecordsInScope() on the result.
 //
 // Design brief: "Odoo multi-company isolation" (r1-pilot).
 
 import { unsafeExecuteKw, OdooRpcError, type OdooCredentials } from "./client";
+import { isOdooReadOnlyMethod } from "./read-only-methods";
 import type { XmlRpcValue } from "./xmlrpc";
 
 export interface OdooScope {
@@ -63,7 +66,6 @@ export const ODOO_MODEL_COMPANY_POLICY: Readonly<
   "product.category": "no_company_field",
 });
 
-const ALLOWED_METHODS = new Set(["search_read", "search_count", "fields_get"]);
 const WRITE_METHODS = new Set([
   "create",
   "write",
@@ -120,14 +122,9 @@ export function buildScopedCall(
   const { companyIds } = assertOdooScope(scope?.companyIds);
 
   // 2. Method allowlist.
-  if (!ALLOWED_METHODS.has(method)) {
-    if (WRITE_METHODS.has(method)) {
+  if (!isOdooReadOnlyMethod(method)) {
+    if (WRITE_METHODS.has(method) || method.startsWith("action_")) {
       throw new OdooCompanyScopeError("write methods are not permitted");
-    }
-    if (method === "read") {
-      throw new OdooCompanyScopeError(
-        'read() has no domain and is not permitted; use search_read with [["id","in",ids]]'
-      );
     }
     throw new OdooCompanyScopeError(`Odoo method not permitted: ${method}`);
   }
@@ -177,6 +174,27 @@ export function buildScopedCall(
         context: scopedContext,
       },
     };
+  }
+
+  // read() takes an id list, not a domain. Inject context + company_id
+  // on fields so assertRecordsInScope() can still run after the fetch.
+  if (method === "read") {
+    const ids = args[0];
+    if (!Array.isArray(ids)) {
+      throw new OdooCompanyScopeError("read() args[0] must be an id list");
+    }
+    const scopedKwargs: Record<string, XmlRpcValue> = {
+      ...callerKwargs,
+      context: scopedContext,
+    };
+    if (
+      (policy === "strict" || policy === "shared_or_company") &&
+      Array.isArray(callerKwargs.fields) &&
+      !callerKwargs.fields.includes("company_id")
+    ) {
+      scopedKwargs.fields = [...callerKwargs.fields, "company_id"];
+    }
+    return { args: [...args], kwargs: scopedKwargs };
   }
 
   // 5. Domain injection (prepended: Odoo ANDs top-level terms, so this is

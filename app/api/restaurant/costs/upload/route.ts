@@ -397,7 +397,7 @@ export async function POST(req: NextRequest) {
             name: sampleRow.ingredient_name,
             category: null,
             default_unit: defaultUnit,
-            current_unit_cost: 0,
+            current_unit_cost: null,
             currency: sampleRow.currency,
           })
           .select("id, default_unit")

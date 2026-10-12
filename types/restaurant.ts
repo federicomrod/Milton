@@ -108,7 +108,7 @@ export interface Ingredient {
   name: string;
   category: string;
   default_unit: UnitOfMeasure;
-  current_unit_cost: number; // fallback when no invoice line is available
+  current_unit_cost: number | null; // null = pending price, never a real $0
   currency: string;
   supplier_id?: string;
   created_at: string;

@@ -207,7 +207,13 @@ export function pendingRecipesLabel(lang: PreferredLanguage): string {
 }
 
 export function isPendingRecipeCostStatus(status: string): boolean {
-  return status === "missing_recipe" || status === "missing_component_recipe";
+  return (
+    status === "missing_recipe" ||
+    status === "missing_component_recipe" ||
+    status === "no_cost_entries" ||
+    status === "missing_input_cost" ||
+    status === "missing_ingredient_cost"
+  );
 }
 
 export function notAvailableYetLabel(lang: PreferredLanguage): string {

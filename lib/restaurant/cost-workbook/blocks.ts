@@ -439,16 +439,24 @@ export function collectCostoRestauranteBlocks(input: {
       lang
     );
     const assumed = Boolean(yieldResult.ok && yieldResult.assumed);
-    if (input.tabKind === "sub_recipe" && (!yieldResult.ok || assumed)) {
-      review.push({
-        tabName: input.tabName,
-        rowIndex: 0,
-        reason: assumed
-          ? `${assumedYieldReason(lang)} (${current.name})`
-          : `${yieldResult.reason} (${current.name})`,
-        raw: { recipe: current.name },
-        suggested: { ingredient_name: current.name },
-      });
+    if (input.tabKind === "sub_recipe") {
+      if (assumed) {
+        review.push({
+          tabName: input.tabName,
+          rowIndex: 0,
+          reason: `${assumedYieldReason(lang)} (${current.name})`,
+          raw: { recipe: current.name },
+          suggested: { ingredient_name: current.name },
+        });
+      } else if (!yieldResult.ok) {
+        review.push({
+          tabName: input.tabName,
+          rowIndex: 0,
+          reason: `${yieldResult.reason} (${current.name})`,
+          raw: { recipe: current.name },
+          suggested: { ingredient_name: current.name },
+        });
+      }
     }
     groups.push({
       name: current.name,

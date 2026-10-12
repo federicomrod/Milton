@@ -217,7 +217,17 @@ function costingDataFromStore(store: MemoryCostWorkbookStore): CostingData {
     menuRecipesByMenuItemId,
     menuRecipeInputsByRecipeId,
     costEntriesByIngredientId: entriesByIngredient,
-    menuRecipeVersionsByMenuItemId: store.recipeVersions.reduce((map, row) => {
+  };
+  calculateAllComponentCosts(data);
+  return data;
+}
+
+function costingDataFromStoreWithVersions(
+  store: MemoryCostWorkbookStore
+): CostingData {
+  const data = costingDataFromStore(store);
+  data.menuRecipeVersionsByMenuItemId = store.recipeVersions.reduce(
+    (map, row) => {
       const list = map.get(row.menu_item_id) ?? [];
       list.push({
         id: row.id,
@@ -230,34 +240,32 @@ function costingDataFromStore(store: MemoryCostWorkbookStore): CostingData {
       });
       map.set(row.menu_item_id, list);
       return map;
-    }, new Map()),
-    menuRecipeVersionInputsByVersionId: new Map(
-      store.recipeVersions.map((row) => [row.id, row.inputs])
-    ),
-    componentRecipeVersionsByComponentId: store.componentRecipeVersions.reduce(
-      (map, row) => {
-        const list = map.get(row.component_id) ?? [];
-        list.push({
-          id: row.id,
-          component_recipe_id: row.component_recipe_id,
-          component_id: row.component_id,
-          version_number: row.version_number,
-          status: row.status,
-          effective_date: row.effective_date,
-          output_quantity: row.output_quantity,
-          output_unit: row.output_unit,
-          source_type: row.source_type,
-        });
-        map.set(row.component_id, list);
-        return map;
-      },
-      new Map()
-    ),
-    componentRecipeVersionInputsByVersionId: new Map(
-      store.componentRecipeVersions.map((row) => [row.id, row.inputs])
-    ),
-  };
-  calculateAllComponentCosts(data);
+    },
+    new Map()
+  );
+  data.menuRecipeVersionInputsByVersionId = new Map(
+    store.recipeVersions.map((row) => [row.id, row.inputs])
+  );
+  data.componentRecipeVersionsByComponentId =
+    store.componentRecipeVersions.reduce((map, row) => {
+      const list = map.get(row.component_id) ?? [];
+      list.push({
+        id: row.id,
+        component_recipe_id: row.component_recipe_id,
+        component_id: row.component_id,
+        version_number: row.version_number,
+        status: row.status,
+        effective_date: row.effective_date,
+        output_quantity: row.output_quantity,
+        output_unit: row.output_unit,
+        source_type: row.source_type,
+      });
+      map.set(row.component_id, list);
+      return map;
+    }, new Map());
+  data.componentRecipeVersionInputsByVersionId = new Map(
+    store.componentRecipeVersions.map((row) => [row.id, row.inputs])
+  );
   return data;
 }
 
@@ -3054,31 +3062,44 @@ describe("COSTO RESTAURANTE block layout", () => {
   });
 
   it("parses PRECIO POR LIBRA $0.42 and PRECIO POR ONZA $0.015625 as yield", () => {
+    const header = [
+      "Articulo",
+      "Unidad Detalle",
+      "Cantidad",
+      "Costo Unitario",
+      "Total Costo",
+    ];
     const parsed = collectCostoRestauranteBlocks({
       tabName: "SUB RECETAS",
       tabKind: "sub_recipe",
       lang: "es",
       aoa: [
         ["COSTO RESTAURANTE"],
-        ["DEMIGLASS"],
-        [
-          "Articulo",
-          "Unidad Detalle",
-          "Cantidad",
-          "Costo Unitario",
-          "Total Costo",
-        ],
-        ["HUESO", "LIBRA", 4, 0.4, 1.6],
+        ["FONDO PARA SOPA DE TORTILLA"],
+        header,
+        ["TOMATE", "LIBRA", 0.5, 0.96, 0.48],
         ["COSTO TOTAL", "", "", "", 3.36],
         ["PRECIO POR LIBRA $0.42"],
+        [],
+        ["COSTO RESTAURANTE"],
+        ["DEMIGLASS"],
+        header,
+        ["HUESO", "LIBRA", 4, 0.4, 1.6],
+        ["COSTO TOTAL", "", "", "", 2],
         ["PRECIO POR ONZA $0.015625"],
       ],
     });
+    const fondo = parsed.groups.find(
+      (group) => group.name === "FONDO PARA SOPA DE TORTILLA"
+    );
+    expect(fondo?.price_per_lb).toBeCloseTo(0.42, 5);
+    expect(fondo?.output_unit).toBe("lb");
+    expect(fondo?.output_quantity).toBeCloseTo(8, 5);
+    expect(fondo?.yield_assumed).toBeFalsy();
     const demi = parsed.groups.find((group) => group.name === "DEMIGLASS");
-    expect(demi?.price_per_lb).toBeCloseTo(0.42, 5);
     expect(demi?.price_per_oz).toBeCloseTo(0.015625, 6);
-    expect(demi?.output_unit).toBe("lb");
-    expect(demi?.output_quantity).toBeCloseTo(8, 5);
+    expect(demi?.output_unit).toBe("oz");
+    expect(demi?.output_quantity).toBeCloseTo(128, 5);
     expect(demi?.yield_assumed).toBeFalsy();
   });
 
@@ -3238,7 +3259,7 @@ describe("COSTO RESTAURANTE block layout", () => {
 
     const costed = calculateMenuItemCost(
       store.menuItems.find((row) => row.name === "DEDOS DE QUESO")!.id,
-      costingDataFromStore(store)
+      costingDataFromStoreWithVersions(store)
     );
     expect(costed.status).not.toBe("complete");
     expect(costed.cost).toBeNull();

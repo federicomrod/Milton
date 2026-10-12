@@ -14,6 +14,25 @@ export {
   type WorkbookAi,
 } from "./ai";
 export {
+  SIN_SUGERENCIA,
+  bindProposalToParsedBlock,
+  parseRecipeProposal,
+  proposeRecipeHeuristic,
+  recipeProposalSchema,
+  type ProposeRecipeResult,
+  type RecipeProposal,
+  type RecipeSuggestionProduct,
+} from "./propose-recipe";
+export { collectWorkbookCandidateBlocks } from "./collect-blocks";
+export {
+  checkRecipeProposal,
+  catalogFromBlocks,
+} from "./recipe-suggestion-checks";
+export {
+  runRecipeSuggestions,
+  proposeRecipeForProduct,
+} from "./recipe-suggestion";
+export {
   collectCostoRestauranteBlockNames,
   collectCostoRestauranteBlocks,
   alignFilledDownBlockRow,
@@ -108,6 +127,7 @@ export {
   workbookMatchLabel,
   workbookMismatchEngineMessage,
   workbookMismatchLabel,
+  workbookMismatchReason,
 } from "./copy";
 export { foldFooterLabel } from "./blocks";
 export { implausiblePriceReason } from "./plausibility";

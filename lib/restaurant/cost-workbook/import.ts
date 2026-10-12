@@ -3,6 +3,7 @@ import { resolveUnitCell } from "@/lib/restaurant/units";
 import {
   MISSING_IMPORT_COSTING_036_ES,
   MISSING_WORKBOOK_COST_MIGRATION_ES,
+  isPosNameUnsureReason,
   persistWriteFailedReason,
   positiveQuantityReason,
 } from "./copy";
@@ -823,6 +824,7 @@ export async function importCostWorkbook(input: {
     menuItems: importedMenuItems,
     repo: input.repo,
     locationId: input.locationId ?? null,
+    lang,
   });
   toReview.push(...posStats.review);
   skipped.push(...posStats.skipped);
@@ -1036,6 +1038,14 @@ export async function undoCostImportBatch(
     });
   }
   await repo.deletePosMappings(companyId, snap.created_mapping_ids ?? []);
+  await repo.deletePosProductLinks(
+    companyId,
+    snap.created_pos_product_link_ids ?? []
+  );
+  const previousLinks = snap.updated_pos_product_links ?? [];
+  if (previousLinks.length > 0) {
+    await repo.restorePosProductLinks(previousLinks.map((row) => row.before));
+  }
   await repo.deleteRecipes(companyId, snap.created_recipe_ids ?? []);
   await repo.deleteMenuItems(companyId, snap.created_menu_item_ids ?? []);
   await repo.deleteComponentRecipes(
@@ -1152,7 +1162,7 @@ export async function approveReviewItem(
   if (!totalCheck.ok) return totalCheck;
 
   const suggested = item.suggested ?? {};
-  if (item.reason.startsWith("POS name unsure")) {
+  if (isPosNameUnsureReason(item.reason)) {
     const menuName = edits.ingredient_name ?? suggested.ingredient_name ?? null;
     const posName =
       (typeof suggested.notes === "string" && suggested.notes) ||

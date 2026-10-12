@@ -11,6 +11,7 @@ export interface RecipeVersionRecord {
   /** NULL = first approved version, applies to all loaded history. */
   effective_date: string | null;
   source_type?: string | null;
+  notes?: string | null;
 }
 
 export interface ComponentRecipeVersionRecord {

@@ -1,5 +1,6 @@
 import { matchesPreparedName } from "./prepared";
 import type { CostWorkbookRepo } from "./repo";
+import { looksLikePreparedItemReason } from "./copy";
 import type {
   DeletedIngredientSnapshot,
   ReviewCandidate,
@@ -29,7 +30,7 @@ export async function retireImportedPreparedIngredients(input: {
   const hintFor = (name: string): ReviewCandidate => ({
     tabName: "ingredients",
     rowIndex: 0,
-    reason: "looks like a prepared item",
+    reason: looksLikePreparedItemReason("es"),
     raw: { ingredient_name: name },
     suggested: { ingredient_name: name },
   });

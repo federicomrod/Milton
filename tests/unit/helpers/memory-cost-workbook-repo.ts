@@ -1,3 +1,4 @@
+import type { PosProductLinkRecord } from "@/lib/restaurant/pos-product-links";
 import type {
   ComponentRecipeVersionRecord,
   RecipeVersionRecord,
@@ -66,11 +67,15 @@ export interface MemoryCostWorkbookStore {
   workbookCostColumns?: boolean;
   importCosting036Columns?: boolean;
   recipeVersions: Array<
-    RecipeVersionRecord & { inputs: RecipeInputSnapshot[] }
+    RecipeVersionRecord & {
+      inputs: RecipeInputSnapshot[];
+      notes?: string | null;
+    }
   >;
   componentRecipeVersions: Array<
     ComponentRecipeVersionRecord & { inputs: RecipeInputSnapshot[] }
   >;
+  posProductLinks: PosProductLinkRecord[];
 }
 
 export function emptyMemoryStore(): MemoryCostWorkbookStore {
@@ -95,6 +100,7 @@ export function emptyMemoryStore(): MemoryCostWorkbookStore {
     posSalesItems: [],
     recipeVersions: [],
     componentRecipeVersions: [],
+    posProductLinks: [],
   };
 }
 
@@ -728,9 +734,11 @@ export function createMemoryCostWorkbookRepo(
         status: input.status,
         effective_date: input.effectiveDate,
         source_type: input.sourceType ?? null,
+        notes: input.notes ?? null,
         inputs: input.inputs,
       };
       store.recipeVersions.push(row);
+      store.companyByEntityId[row.id] = input.companyId;
       return { id: row.id };
     },
     async listComponentRecipeVersions(_companyId, componentRecipeId) {
@@ -794,6 +802,77 @@ export function createMemoryCostWorkbookRepo(
     },
     async hasImportCosting036Columns() {
       return store.importCosting036Columns !== false;
+    },
+    async listPosProductLinks(companyId, locationId) {
+      return store.posProductLinks.filter((row) => {
+        if (row.company_id !== companyId) return false;
+        if (locationId && row.location_id && row.location_id !== locationId) {
+          return false;
+        }
+        return true;
+      });
+    },
+    async upsertPosProductLink(companyId, link) {
+      if (link.link_state === "confirmado") {
+        throw new Error(
+          "Solo una persona puede marcar el vínculo como Confirmado."
+        );
+      }
+      const existing = store.posProductLinks.find(
+        (row) =>
+          row.company_id === companyId &&
+          row.odoo_product_id === link.odoo_product_id &&
+          (row.location_id ?? null) === (link.location_id ?? null)
+      );
+      if (existing?.link_state === "confirmado") {
+        return {
+          id: existing.id ?? "",
+          created: false,
+          before: { ...existing },
+        };
+      }
+      if (existing) {
+        const before = { ...existing };
+        existing.menu_item_id = link.menu_item_id;
+        existing.classification = link.classification;
+        existing.evidence = { ...link.evidence };
+        existing.link_state = "sugerido";
+        existing.confirmed_by = null;
+        existing.confirmed_at = null;
+        existing.confirmed_how = null;
+        existing.odoo_name = link.odoo_name;
+        return { id: existing.id ?? "", created: false, before };
+      }
+      const created: PosProductLinkRecord = {
+        ...link,
+        id: id(),
+        company_id: companyId,
+        link_state: "sugerido",
+        confirmed_by: null,
+        confirmed_at: null,
+        confirmed_how: null,
+      };
+      store.posProductLinks.push(created);
+      store.companyByEntityId[created.id!] = companyId;
+      return { id: created.id!, created: true, before: null };
+    },
+    async deletePosProductLinks(companyId, ids) {
+      const remove = new Set(ids);
+      const before = store.posProductLinks.length;
+      store.posProductLinks = store.posProductLinks.filter(
+        (row) => !(row.company_id === companyId && row.id && remove.has(row.id))
+      );
+      return before - store.posProductLinks.length;
+    },
+    async restorePosProductLinks(rows) {
+      for (const row of rows) {
+        if (!row.id) continue;
+        const idx = store.posProductLinks.findIndex(
+          (item) => item.id === row.id
+        );
+        if (idx >= 0) store.posProductLinks[idx] = { ...row };
+        else store.posProductLinks.push({ ...row });
+      }
     },
   };
 }

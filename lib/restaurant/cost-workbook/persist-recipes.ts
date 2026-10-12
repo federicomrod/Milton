@@ -11,6 +11,8 @@ import {
   unknownIngredientReason,
   unknownUnitReason,
   unsureIngredientNameReason,
+  noUsableRecipeLinesReason,
+  posNameUnsureReason,
 } from "./copy";
 import { canAutoLinkNames, resolveAliasName } from "./duplicates";
 import { rawLineUnit } from "./portion-unit";
@@ -480,7 +482,7 @@ export async function persistWorkbookRecipes(input: {
         skipped.push({
           tabName: group.tabName,
           rowIndex: groupRowIndex(group),
-          reason: "no usable recipe lines",
+          reason: noUsableRecipeLinesReason(lang),
           raw: { recipe: group.name },
         });
         return null;
@@ -809,6 +811,7 @@ export async function linkMenuItemsToPos(input: {
   menuItems: ImportedMenuItem[];
   repo: CostWorkbookRepo;
   locationId?: string | null;
+  lang?: PreferredLanguage;
 }): Promise<{
   linked: number;
   review: ReviewCandidate[];
@@ -851,7 +854,7 @@ export async function linkMenuItemsToPos(input: {
     review.push({
       tabName: "POS",
       rowIndex: 0,
-      reason: `POS name unsure (${posName} ↔ ${hit.item.name})`,
+      reason: posNameUnsureReason(input.lang ?? "en", posName, hit.item.name),
       raw: { raw_pos_item_name: posName, menu_item_name: hit.item.name },
       suggested: {
         ingredient_name: hit.item.name,

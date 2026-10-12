@@ -273,6 +273,11 @@ export interface UndoSnapshot {
   }>;
   created_recipe_version_ids?: string[];
   created_component_recipe_version_ids?: string[];
+  created_pos_product_link_ids?: string[];
+  updated_pos_product_links?: Array<{
+    id: string;
+    before: import("@/lib/restaurant/pos-product-links").PosProductLinkRecord;
+  }>;
   deleted_ingredients: DeletedIngredientSnapshot[];
   deleted_cost_entries: CostWorkbookCostEntry[];
   deleted_menu_recipe_inputs: DetachedRecipeInputSnapshot[];
@@ -339,6 +344,8 @@ export function emptyUndoSnapshot(): UndoSnapshot {
     updated_components: [],
     created_recipe_version_ids: [],
     created_component_recipe_version_ids: [],
+    created_pos_product_link_ids: [],
+    updated_pos_product_links: [],
     deleted_ingredients: [],
     deleted_cost_entries: [],
     deleted_menu_recipe_inputs: [],
@@ -434,6 +441,9 @@ export interface GroupedRecipe {
    * recipe (that is how a dish like Pollo Empanizado ends up at $0.20).
    */
   incomplete_lines?: boolean;
+  /** Lines sent to review (unknown unit, missing cost, …) but still
+   *  part of the block so a suggestion can mark them Pendiente. */
+  pending_lines?: RecipeLineCandidate[];
   /** 0-based sheet row of the name / first header for this block. */
   start_row_index?: number;
 }

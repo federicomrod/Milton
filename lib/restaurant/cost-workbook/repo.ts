@@ -55,7 +55,7 @@ export interface CostWorkbookRepo {
       companyId: string;
       name: string;
       defaultUnit: string;
-      currentUnitCost: number;
+      currentUnitCost: number | null;
       currency: string;
       category?: string | null;
     }>
@@ -63,7 +63,7 @@ export interface CostWorkbookRepo {
   updateIngredientCosts(
     updates: Array<{
       ingredientId: string;
-      currentUnitCost: number;
+      currentUnitCost: number | null;
       currency: string;
     }>
   ): Promise<void>;
@@ -77,7 +77,7 @@ export interface CostWorkbookRepo {
       name: string;
       category: string | null;
       defaultUnit: string | null;
-      currentUnitCost: number;
+      currentUnitCost: number | null;
       currency: string;
     }>
   ): Promise<void>;
@@ -329,7 +329,10 @@ export interface CostWorkbookRepo {
     inputs: RecipeInputSnapshot[];
   }): Promise<{ id: string }>;
   deleteRecipeVersions(companyId: string, ids: string[]): Promise<void>;
-  deleteComponentRecipeVersions(companyId: string, ids: string[]): Promise<void>;
+  deleteComponentRecipeVersions(
+    companyId: string,
+    ids: string[]
+  ): Promise<void>;
   markRecipeManual(companyId: string, recipeId: string): Promise<void>;
   markComponentManual(
     companyId: string,
@@ -347,7 +350,10 @@ function asIngredient(row: Record<string, unknown>): CostWorkbookIngredient {
     id: String(row.id),
     name: String(row.name ?? ""),
     default_unit: (row.default_unit as string | null) ?? null,
-    current_unit_cost: Number(row.current_unit_cost ?? 0),
+    current_unit_cost:
+      row.current_unit_cost == null || row.current_unit_cost === ""
+        ? null
+        : Number(row.current_unit_cost),
     currency: String(row.currency ?? "USD"),
     category: (row.category as string | null) ?? null,
   };

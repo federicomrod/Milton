@@ -1,13 +1,16 @@
-import { nameKey } from "@/lib/restaurant/cost-import";
+import { nameKey, parseCostImportNumber } from "@/lib/restaurant/cost-import";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { isImportProtectedSource } from "@/lib/restaurant/protect-imported-recipe";
-import { isSubRecipePortionUnit } from "@/lib/restaurant/units";
+import { isSubRecipePortionUnit, normalizeUnit } from "@/lib/restaurant/units";
 import {
+  dishCreatedRecipeFailedReason,
   handmadeRecipeExistsReason,
+  persistWriteFailedReason,
   selfReferenceReason,
   uncertainSubRecipeReason,
   unknownIngredientReason,
   unknownUnitReason,
+  unsureIngredientNameReason,
 } from "./copy";
 import { canAutoLinkNames, resolveAliasName } from "./duplicates";
 import { rawLineUnit } from "./portion-unit";
@@ -127,27 +130,19 @@ export function resolveCatalogInput(
     ingredients,
     (item) => item.name
   );
-  const best = ingredientHit
-    ? { kind: "ingredient" as const, hit: ingredientHit }
-    : null;
-
-  if (best && canAutoLinkNames(resolvedName, best.hit.item.name)) {
-    return {
-      ok: true,
-      input: {
-        input_type: "ingredient",
-        ingredient_id: best.hit.item.id,
-        component_id: null,
-        quantity: 0,
-        unit: "",
-        notes: null,
-      },
-    };
-  }
-  if (best && best.hit.score >= REVIEW_NAME_SCORE) {
+  const typoIngredient = ingredients.find((item) =>
+    canAutoLinkNames(resolvedName, item.name)
+  );
+  const reviewIngredient =
+    ingredientHit &&
+    (ingredientHit.score >= REVIEW_NAME_SCORE ||
+      canAutoLinkNames(resolvedName, ingredientHit.item.name))
+      ? ingredientHit.item
+      : typoIngredient;
+  if (reviewIngredient) {
     return {
       ok: false,
-      reason: `ingredient name unsure (${lineName} ↔ ${best.hit.item.name})`,
+      reason: unsureIngredientNameReason(lang, lineName, reviewIngredient.name),
     };
   }
   return { ok: false, reason: unknownIngredientReason(lang, lineName) };
@@ -188,6 +183,131 @@ function yieldNeedsReview(group: GroupedRecipe, yieldOk: boolean): boolean {
   return !yieldOk || Boolean(group.yield_assumed);
 }
 
+function groupRowIndex(group: GroupedRecipe): number {
+  return group.start_row_index ?? group.lines[0]?.rowIndex ?? 0;
+}
+
+function writeErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function lineUnitCost(line: RecipeLineCandidate): number | null {
+  const n =
+    parseCostImportNumber(line.raw["Costo Unitario"]) ??
+    parseCostImportNumber(line.raw.Costo) ??
+    parseCostImportNumber(line.raw.unit_cost);
+  return n != null && n > 0 ? n : null;
+}
+
+async function ensureIngredientsFromRecipeLines(input: {
+  companyId: string;
+  currency: string;
+  groups: GroupedRecipe[];
+  repo: CostWorkbookRepo;
+  liveIngredients: Array<{ id: string; name: string }>;
+  liveComponents: Array<{ id: string; name: string }>;
+  aliases: Map<string, string>;
+  changes: UndoSnapshot;
+}): Promise<void> {
+  const prepNames = new Set(
+    input.liveComponents.map((item) => nameKey(item.name))
+  );
+  for (const group of input.groups) {
+    if (group.kind === "sub_recipe") prepNames.add(nameKey(group.name));
+  }
+  const seen = new Set(input.liveIngredients.map((item) => nameKey(item.name)));
+  const toCreate: Array<{
+    companyId: string;
+    name: string;
+    defaultUnit: string;
+    currentUnitCost: number | null;
+    currency: string;
+  }> = [];
+  for (const group of input.groups) {
+    for (const line of group.lines) {
+      const key = nameKey(line.ingredient_name);
+      if (!key || seen.has(key) || prepNames.has(key)) continue;
+      if (nameKey(group.name) === key) continue;
+      const resolved = resolveCatalogInput(
+        line.ingredient_name,
+        input.liveIngredients,
+        input.liveComponents,
+        input.aliases,
+        "en",
+        group.name
+      );
+      if (resolved.ok) continue;
+      if (
+        resolved.reason !==
+          unknownIngredientReason("en", line.ingredient_name) &&
+        resolved.reason !== unknownIngredientReason("es", line.ingredient_name)
+      ) {
+        continue;
+      }
+      seen.add(key);
+      toCreate.push({
+        companyId: input.companyId,
+        name: line.ingredient_name,
+        defaultUnit: normalizeUnit(line.unit) ?? line.unit,
+        currentUnitCost: lineUnitCost(line),
+        currency: input.currency,
+      });
+    }
+  }
+  if (toCreate.length === 0) return;
+  const created = await input.repo.createIngredients(toCreate);
+  for (const ingredient of created) {
+    input.liveIngredients.push({ id: ingredient.id, name: ingredient.name });
+    input.changes.created_ingredient_ids.push(ingredient.id);
+  }
+}
+
+export class PersistWorkbookRecipesError extends Error {
+  readonly changes: UndoSnapshot;
+  readonly review: ReviewCandidate[];
+  readonly skipped: SkipCandidate[];
+  readonly menuItemsCreated: number;
+  readonly recipesCreated: number;
+  readonly subRecipesCreated: number;
+
+  constructor(
+    message: string,
+    stats: {
+      changes: UndoSnapshot;
+      review: ReviewCandidate[];
+      skipped: SkipCandidate[];
+    }
+  ) {
+    super(message);
+    this.name = "PersistWorkbookRecipesError";
+    this.changes = stats.changes;
+    this.review = stats.review;
+    this.skipped = stats.skipped;
+    this.menuItemsCreated = stats.changes.created_menu_item_ids.length;
+    this.recipesCreated = stats.changes.created_recipe_ids.length;
+    this.subRecipesCreated = stats.changes.created_component_ids.length;
+  }
+}
+
+export function persistStatsFromError(err: unknown): {
+  menuItemsCreated: number;
+  recipesCreated: number;
+  subRecipesCreated: number;
+  review: ReviewCandidate[];
+  skipped: SkipCandidate[];
+  changes: UndoSnapshot;
+} | null {
+  if (!(err instanceof PersistWorkbookRecipesError)) return null;
+  return {
+    menuItemsCreated: err.menuItemsCreated,
+    recipesCreated: err.recipesCreated,
+    subRecipesCreated: err.subRecipesCreated,
+    review: err.review,
+    skipped: err.skipped,
+    changes: err.changes,
+  };
+}
+
 export async function persistWorkbookRecipes(input: {
   companyId: string;
   batchId: string;
@@ -199,6 +319,7 @@ export async function persistWorkbookRecipes(input: {
   brandId?: string | null;
   lang?: PreferredLanguage;
   effectiveDate?: string | null;
+  createMissingIngredients?: boolean;
 }): Promise<{
   menuItemsCreated: number;
   recipesCreated: number;
@@ -246,360 +367,441 @@ export async function persistWorkbookRecipes(input: {
   const review: ReviewCandidate[] = [];
   const skipped: SkipCandidate[] = [];
   const changes = emptyUndoSnapshot();
-
   const lang = input.lang ?? "en";
-  const resolveGroup = (group: GroupedRecipe): RecipeInputSnapshot[] | null => {
-    const inputs: RecipeInputSnapshot[] = [];
-    let incomplete = Boolean(group.incomplete_lines);
-    for (const line of group.lines) {
-      const resolved = resolveCatalogInput(
-        line.ingredient_name,
-        liveIngredients,
-        liveComponents,
-        input.aliases ?? new Map(),
-        lang,
-        group.name
-      );
-      if (!resolved.ok) {
-        incomplete = true;
-        review.push({
-          tabName: line.tabName,
-          rowIndex: line.rowIndex,
-          reason: resolved.reason,
-          raw: line.raw,
-          suggested: {
-            ingredient_name: line.ingredient_name,
-            unit: line.unit,
-            quantity: line.quantity,
-          },
+
+  const fail = (err: unknown): never => {
+    throw new PersistWorkbookRecipesError(writeErrorMessage(err), {
+      changes,
+      review,
+      skipped,
+    });
+  };
+
+  try {
+    if (input.createMissingIngredients !== false) {
+      try {
+        await ensureIngredientsFromRecipeLines({
+          companyId: input.companyId,
+          currency: input.currency,
+          groups: input.groups,
+          repo: input.repo,
+          liveIngredients,
+          liveComponents,
+          aliases: input.aliases ?? new Map(),
+          changes,
         });
-        continue;
+      } catch (err) {
+        review.push({
+          tabName: input.groups[0]?.tabName ?? "",
+          rowIndex: 0,
+          reason: persistWriteFailedReason(lang, writeErrorMessage(err)),
+          raw: { error: writeErrorMessage(err) },
+          suggested: null,
+        });
       }
-      const rawUnit = rawLineUnit(line);
-      if (isSubRecipePortionUnit(rawUnit)) {
-        if (resolved.input.input_type !== "component") {
+    }
+    const resolveGroup = (
+      group: GroupedRecipe
+    ): RecipeInputSnapshot[] | null => {
+      const inputs: RecipeInputSnapshot[] = [];
+      let incomplete = Boolean(group.incomplete_lines);
+      for (const line of group.lines) {
+        const resolved = resolveCatalogInput(
+          line.ingredient_name,
+          liveIngredients,
+          liveComponents,
+          input.aliases ?? new Map(),
+          lang,
+          group.name
+        );
+        if (!resolved.ok) {
           incomplete = true;
           review.push({
             tabName: line.tabName,
             rowIndex: line.rowIndex,
-            reason: unknownUnitReason(lang, rawUnit),
+            reason: resolved.reason,
             raw: line.raw,
             suggested: {
               ingredient_name: line.ingredient_name,
-              unit: rawUnit,
+              unit: line.unit,
               quantity: line.quantity,
             },
           });
           continue;
         }
-        const componentId = resolved.input.component_id;
-        const yieldRecipe = componentId
-          ? componentRecipeByComponentId.get(componentId)
-          : undefined;
-        if (
-          yieldRecipe &&
-          yieldRecipe.output_quantity > 0 &&
-          yieldRecipe.output_unit
-        ) {
-          // 1 ORDEN / CONVOY is one plated prep of the sub-recipe: the
-          // Excel unit cost is that sub's COSTO TOTAL, not cost-per-lb.
-          // Storing qty × yield in the yield unit makes Milton's portion
-          // cost equal N × batch (see DEDOS DE QUESO / GUARNICION 1).
-          inputs.push(
-            withQty(resolved.input, {
-              ...line,
-              quantity: line.quantity * yieldRecipe.output_quantity,
-              unit: yieldRecipe.output_unit,
-            })
-          );
+        const rawUnit = rawLineUnit(line);
+        if (isSubRecipePortionUnit(rawUnit)) {
+          if (resolved.input.input_type !== "component") {
+            incomplete = true;
+            review.push({
+              tabName: line.tabName,
+              rowIndex: line.rowIndex,
+              reason: unknownUnitReason(lang, rawUnit),
+              raw: line.raw,
+              suggested: {
+                ingredient_name: line.ingredient_name,
+                unit: rawUnit,
+                quantity: line.quantity,
+              },
+            });
+            continue;
+          }
+          const componentId = resolved.input.component_id;
+          const yieldRecipe = componentId
+            ? componentRecipeByComponentId.get(componentId)
+            : undefined;
+          if (
+            yieldRecipe &&
+            yieldRecipe.output_quantity > 0 &&
+            yieldRecipe.output_unit
+          ) {
+            // 1 ORDEN / CONVOY is one plated prep of the sub-recipe: the
+            // Excel unit cost is that sub's COSTO TOTAL, not cost-per-lb.
+            // Storing qty × yield in the yield unit makes Milton's portion
+            // cost equal N × batch (see DEDOS DE QUESO / GUARNICION 1).
+            inputs.push(
+              withQty(resolved.input, {
+                ...line,
+                quantity: line.quantity * yieldRecipe.output_quantity,
+                unit: yieldRecipe.output_unit,
+              })
+            );
+            continue;
+          }
+          inputs.push(withQty(resolved.input, { ...line, unit: "portion" }));
           continue;
         }
-        inputs.push(withQty(resolved.input, { ...line, unit: "portion" }));
-        continue;
+        inputs.push(withQty(resolved.input, line));
       }
-      inputs.push(withQty(resolved.input, line));
-    }
-    if (incomplete) {
-      return null;
-    }
-    if (inputs.length === 0) {
-      skipped.push({
-        tabName: group.tabName,
-        rowIndex: 0,
-        reason: "no usable recipe lines",
-        raw: { recipe: group.name },
-      });
-      return null;
-    }
-    return inputs;
-  };
-
-  const subGroups = input.groups.filter((group) => group.kind === "sub_recipe");
-  const menuGroups = input.groups.filter((group) => group.kind === "recipe");
-
-  for (const group of subGroups) {
-    const inputs = resolveGroup(group);
-    const yieldResult = resolveSubRecipeYield(group, lang);
-    if (!yieldResult.ok) {
-      review.push({
-        tabName: group.tabName,
-        rowIndex: 0,
-        reason: yieldResult.reason,
-        raw: { recipe: group.name },
-        suggested: { ingredient_name: group.name },
-      });
-      // Non-block tabs must not invent a 1-unit yield (Batter). Block
-      // layouts still import in a reviewable state so a missing yield
-      // does not drop every dish that uses the prep.
-      if (!group.block_layout) continue;
-    }
-    if (!inputs) continue;
-    const yieldQuantity = yieldResult.ok ? yieldResult.quantity : 1;
-    const yieldUnit = yieldResult.ok ? yieldResult.unit : "unit";
-    const versionStatus = yieldNeedsReview(group, yieldResult.ok)
-      ? "in_review"
-      : "approved";
-    const existing = componentByName.get(nameKey(group.name));
-    if (existing && !isImported(existing.source_type)) {
-      skipped.push({
-        tabName: group.tabName,
-        rowIndex: 0,
-        reason: handmadeRecipeExistsReason(lang),
-        raw: { recipe: group.name },
-      });
-      continue;
-    }
-
-    let component: ImportedComponent;
-    if (existing && isImported(existing.source_type)) {
-      component = existing;
-      const previous = componentRecipeByComponentId.get(existing.id);
-      if (previous) {
-        const previousInputs = await input.repo.listComponentRecipeInputs(
-          input.companyId,
-          previous.id
-        );
-        const assumedOrUnknown = yieldNeedsReview(group, yieldResult.ok);
-        if (!assumedOrUnknown) {
-          changes.updated_components.push({
-            id: previous.id,
-            inputs: previousInputs,
-            component_id: existing.id,
-            output_quantity: previous.output_quantity,
-            output_unit: previous.output_unit,
-            source_type: previous.source_type,
-            workbook_cost_total: previous.workbook_cost_total ?? null,
-            workbook_unit_price: previous.workbook_unit_price ?? null,
-            workbook_computed_cost: previous.workbook_computed_cost ?? null,
-            workbook_cost_match: previous.workbook_cost_match ?? null,
-            workbook_variance_amount: previous.workbook_variance_amount ?? null,
-            workbook_variance_pct: previous.workbook_variance_pct ?? null,
-          });
-        }
-        await snapshotComponentRecipeVersion({
-          repo: input.repo,
-          companyId: input.companyId,
-          recipe: previous,
-          previousInputs,
-          nextInputs: inputs,
-          nextOutputQuantity: yieldQuantity,
-          nextOutputUnit: yieldUnit,
-          assumed: assumedOrUnknown,
-          changes,
-          effectiveDate: input.effectiveDate ?? null,
+      if (incomplete) {
+        return null;
+      }
+      if (inputs.length === 0) {
+        skipped.push({
+          tabName: group.tabName,
+          rowIndex: groupRowIndex(group),
+          reason: "no usable recipe lines",
+          raw: { recipe: group.name },
         });
-        if (!assumedOrUnknown) {
-          await input.repo.replaceComponentRecipeInputs(
-            input.companyId,
-            previous.id,
-            inputs
-          );
-          await input.repo.updateComponentYield({
+        return null;
+      }
+      return inputs;
+    };
+
+    const subGroups = input.groups.filter(
+      (group) => group.kind === "sub_recipe"
+    );
+    const menuGroups = input.groups.filter((group) => group.kind === "recipe");
+
+    for (const group of subGroups) {
+      try {
+        const inputs = resolveGroup(group);
+        const yieldResult = resolveSubRecipeYield(group, lang);
+        if (!yieldResult.ok) {
+          review.push({
+            tabName: group.tabName,
+            rowIndex: groupRowIndex(group),
+            reason: yieldResult.reason,
+            raw: { recipe: group.name },
+            suggested: { ingredient_name: group.name },
+          });
+          // Non-block tabs must not invent a 1-unit yield (Batter). Block
+          // layouts still import in a reviewable state so a missing yield
+          // does not drop every dish that uses the prep.
+          if (!group.block_layout) continue;
+        }
+        if (!inputs) continue;
+        const yieldQuantity = yieldResult.ok ? yieldResult.quantity : 1;
+        const yieldUnit = yieldResult.ok ? yieldResult.unit : "unit";
+        const versionStatus = yieldNeedsReview(group, yieldResult.ok)
+          ? "in_review"
+          : "approved";
+        const existing = componentByName.get(nameKey(group.name));
+        if (existing && !isImported(existing.source_type)) {
+          skipped.push({
+            tabName: group.tabName,
+            rowIndex: groupRowIndex(group),
+            reason: handmadeRecipeExistsReason(lang),
+            raw: { recipe: group.name },
+          });
+          continue;
+        }
+
+        let component: ImportedComponent;
+        if (existing && isImported(existing.source_type)) {
+          component = existing;
+          const previous = componentRecipeByComponentId.get(existing.id);
+          if (previous) {
+            const previousInputs = await input.repo.listComponentRecipeInputs(
+              input.companyId,
+              previous.id
+            );
+            const assumedOrUnknown = yieldNeedsReview(group, yieldResult.ok);
+            if (!assumedOrUnknown) {
+              changes.updated_components.push({
+                id: previous.id,
+                inputs: previousInputs,
+                component_id: existing.id,
+                output_quantity: previous.output_quantity,
+                output_unit: previous.output_unit,
+                source_type: previous.source_type,
+                workbook_cost_total: previous.workbook_cost_total ?? null,
+                workbook_unit_price: previous.workbook_unit_price ?? null,
+                workbook_computed_cost: previous.workbook_computed_cost ?? null,
+                workbook_cost_match: previous.workbook_cost_match ?? null,
+                workbook_variance_amount:
+                  previous.workbook_variance_amount ?? null,
+                workbook_variance_pct: previous.workbook_variance_pct ?? null,
+              });
+            }
+            await snapshotComponentRecipeVersion({
+              repo: input.repo,
+              companyId: input.companyId,
+              recipe: previous,
+              previousInputs,
+              nextInputs: inputs,
+              nextOutputQuantity: yieldQuantity,
+              nextOutputUnit: yieldUnit,
+              assumed: assumedOrUnknown,
+              changes,
+              effectiveDate: input.effectiveDate ?? null,
+            });
+            if (!assumedOrUnknown) {
+              await input.repo.replaceComponentRecipeInputs(
+                input.companyId,
+                previous.id,
+                inputs
+              );
+              await input.repo.updateComponentYield({
+                companyId: input.companyId,
+                componentId: existing.id,
+                componentRecipeId: previous.id,
+                outputQuantity: yieldQuantity,
+                outputUnit: yieldUnit,
+              });
+            }
+          } else {
+            const createdRecipe = await input.repo.createComponentRecipe({
+              companyId: input.companyId,
+              componentId: existing.id,
+              name: `${group.name} recipe`,
+              outputQuantity: yieldQuantity,
+              outputUnit: yieldUnit,
+              sourceId: input.batchId,
+              inputs,
+            });
+            await input.repo.updateComponentYield({
+              companyId: input.companyId,
+              componentId: existing.id,
+              outputQuantity: yieldQuantity,
+              outputUnit: yieldUnit,
+            });
+            changes.created_component_recipe_ids.push(createdRecipe.id);
+            componentRecipeByComponentId.set(existing.id, createdRecipe);
+            const version = await input.repo.insertComponentRecipeVersion({
+              companyId: input.companyId,
+              componentRecipeId: createdRecipe.id,
+              componentId: existing.id,
+              versionNumber: 1,
+              status: versionStatus,
+              effectiveDate: null,
+              outputQuantity: yieldQuantity,
+              outputUnit: yieldUnit,
+              sourceType: "import",
+              inputs,
+            });
+            changes.created_component_recipe_version_ids = [
+              ...(changes.created_component_recipe_version_ids ?? []),
+              version.id,
+            ];
+          }
+        } else {
+          component = await input.repo.createComponent({
             companyId: input.companyId,
-            componentId: existing.id,
-            componentRecipeId: previous.id,
+            name: group.name,
+            outputUnit: yieldUnit,
+            sourceId: input.batchId,
+          });
+          changes.created_component_ids.push(component.id);
+          componentByName.set(nameKey(group.name), component);
+          liveComponents.push({ id: component.id, name: component.name });
+          const createdRecipe = await input.repo.createComponentRecipe({
+            companyId: input.companyId,
+            componentId: component.id,
+            name: `${group.name} recipe`,
             outputQuantity: yieldQuantity,
             outputUnit: yieldUnit,
+            sourceId: input.batchId,
+            inputs,
           });
+          changes.created_component_recipe_ids.push(createdRecipe.id);
+          componentRecipeByComponentId.set(component.id, createdRecipe);
+          const version = await input.repo.insertComponentRecipeVersion({
+            companyId: input.companyId,
+            componentRecipeId: createdRecipe.id,
+            componentId: component.id,
+            versionNumber: 1,
+            status: versionStatus,
+            effectiveDate: null,
+            outputQuantity: yieldQuantity,
+            outputUnit: yieldUnit,
+            sourceType: "import",
+            inputs,
+          });
+          changes.created_component_recipe_version_ids = [
+            ...(changes.created_component_recipe_version_ids ?? []),
+            version.id,
+          ];
         }
-      } else {
-        const createdRecipe = await input.repo.createComponentRecipe({
-          companyId: input.companyId,
-          componentId: existing.id,
-          name: `${group.name} recipe`,
-          outputQuantity: yieldQuantity,
-          outputUnit: yieldUnit,
-          sourceId: input.batchId,
-          inputs,
+      } catch (err) {
+        review.push({
+          tabName: group.tabName,
+          rowIndex: groupRowIndex(group),
+          reason: persistWriteFailedReason(
+            lang,
+            writeErrorMessage(err),
+            group.name
+          ),
+          raw: { recipe: group.name, error: writeErrorMessage(err) },
+          suggested: { ingredient_name: group.name },
         });
-        await input.repo.updateComponentYield({
-          companyId: input.companyId,
-          componentId: existing.id,
-          outputQuantity: yieldQuantity,
-          outputUnit: yieldUnit,
-        });
-        changes.created_component_recipe_ids.push(createdRecipe.id);
-        componentRecipeByComponentId.set(existing.id, createdRecipe);
-        const version = await input.repo.insertComponentRecipeVersion({
-          companyId: input.companyId,
-          componentRecipeId: createdRecipe.id,
-          componentId: existing.id,
-          versionNumber: 1,
-          status: versionStatus,
-          effectiveDate: null,
-          outputQuantity: yieldQuantity,
-          outputUnit: yieldUnit,
-          sourceType: "import",
-          inputs,
-        });
-        changes.created_component_recipe_version_ids = [
-          ...(changes.created_component_recipe_version_ids ?? []),
-          version.id,
-        ];
       }
-    } else {
-      component = await input.repo.createComponent({
-        companyId: input.companyId,
-        name: group.name,
-        outputUnit: yieldUnit,
-        sourceId: input.batchId,
-      });
-      changes.created_component_ids.push(component.id);
-      componentByName.set(nameKey(group.name), component);
-      liveComponents.push({ id: component.id, name: component.name });
-      const createdRecipe = await input.repo.createComponentRecipe({
-        companyId: input.companyId,
-        componentId: component.id,
-        name: `${group.name} recipe`,
-        outputQuantity: yieldQuantity,
-        outputUnit: yieldUnit,
-        sourceId: input.batchId,
-        inputs,
-      });
-      changes.created_component_recipe_ids.push(createdRecipe.id);
-      componentRecipeByComponentId.set(component.id, createdRecipe);
-      const version = await input.repo.insertComponentRecipeVersion({
-        companyId: input.companyId,
-        componentRecipeId: createdRecipe.id,
-        componentId: component.id,
-        versionNumber: 1,
-        status: versionStatus,
-        effectiveDate: null,
-        outputQuantity: yieldQuantity,
-        outputUnit: yieldUnit,
-        sourceType: "import",
-        inputs,
-      });
-      changes.created_component_recipe_version_ids = [
-        ...(changes.created_component_recipe_version_ids ?? []),
-        version.id,
-      ];
     }
+
+    for (const group of menuGroups) {
+      let createdMenuThisRound = false;
+      try {
+        const inputs = resolveGroup(group);
+        if (!inputs) continue;
+        const existingMenu =
+          menuByName.get(menuKey(group.name, locationId)) ??
+          menuByName.get(menuKey(group.name, null));
+        const existingRecipe = existingMenu
+          ? recipeByMenuId.get(existingMenu.id)
+          : undefined;
+
+        if (existingRecipe && !isImported(existingRecipe.source_type)) {
+          skipped.push({
+            tabName: group.tabName,
+            rowIndex: groupRowIndex(group),
+            reason: handmadeRecipeExistsReason(lang),
+            raw: { recipe: group.name },
+          });
+          continue;
+        }
+
+        let menuItem: ImportedMenuItem;
+        if (existingMenu) {
+          menuItem = existingMenu;
+        } else {
+          menuItem = await input.repo.createMenuItem({
+            companyId: input.companyId,
+            name: group.name,
+            currency: input.currency,
+            sourceId: input.batchId,
+            locationId,
+            brandId,
+            sellingPrice: group.selling_price ?? 0,
+          });
+          changes.created_menu_item_ids.push(menuItem.id);
+          menuByName.set(
+            menuKey(menuItem.name, menuItem.location_id),
+            menuItem
+          );
+          createdMenuThisRound = true;
+        }
+
+        if (existingRecipe && isImported(existingRecipe.source_type)) {
+          const previousInputs = await input.repo.listRecipeInputs(
+            input.companyId,
+            existingRecipe.id
+          );
+          changes.updated_recipes.push({
+            id: existingRecipe.id,
+            inputs: previousInputs,
+            source_type: existingRecipe.source_type,
+            workbook_cost_total: existingRecipe.workbook_cost_total ?? null,
+            workbook_selling_price:
+              existingRecipe.workbook_selling_price ?? null,
+            workbook_computed_cost:
+              existingRecipe.workbook_computed_cost ?? null,
+            workbook_cost_match: existingRecipe.workbook_cost_match ?? null,
+            workbook_variance_amount:
+              existingRecipe.workbook_variance_amount ?? null,
+            workbook_variance_pct: existingRecipe.workbook_variance_pct ?? null,
+          });
+          await snapshotMenuRecipeVersion({
+            repo: input.repo,
+            companyId: input.companyId,
+            recipe: existingRecipe,
+            previousInputs,
+            nextInputs: inputs,
+            changes,
+            effectiveDate: input.effectiveDate ?? null,
+          });
+          await input.repo.replaceRecipeInputs(
+            input.companyId,
+            existingRecipe.id,
+            inputs
+          );
+        } else {
+          const created = await input.repo.createRecipe({
+            companyId: input.companyId,
+            menuItemId: menuItem.id,
+            name: group.name,
+            sourceId: input.batchId,
+            inputs,
+          });
+          changes.created_recipe_ids.push(created.id);
+          recipeByMenuId.set(menuItem.id, created);
+          const version = await input.repo.insertRecipeVersion({
+            companyId: input.companyId,
+            recipeId: created.id,
+            menuItemId: menuItem.id,
+            versionNumber: 1,
+            status: "approved",
+            effectiveDate: null,
+            sourceType: "import",
+            inputs,
+          });
+          changes.created_recipe_version_ids = [
+            ...(changes.created_recipe_version_ids ?? []),
+            version.id,
+          ];
+        }
+      } catch (err) {
+        review.push({
+          tabName: group.tabName,
+          rowIndex: groupRowIndex(group),
+          reason: createdMenuThisRound
+            ? dishCreatedRecipeFailedReason(
+                lang,
+                group.name,
+                writeErrorMessage(err)
+              )
+            : persistWriteFailedReason(
+                lang,
+                writeErrorMessage(err),
+                group.name
+              ),
+          raw: { recipe: group.name, error: writeErrorMessage(err) },
+          suggested: { ingredient_name: group.name },
+        });
+      }
+    }
+
+    return {
+      menuItemsCreated: changes.created_menu_item_ids.length,
+      recipesCreated: changes.created_recipe_ids.length,
+      subRecipesCreated: changes.created_component_ids.length,
+      review,
+      skipped,
+      changes,
+    };
+  } catch (err) {
+    if (err instanceof PersistWorkbookRecipesError) throw err;
+    return fail(err);
   }
-
-  for (const group of menuGroups) {
-    const inputs = resolveGroup(group);
-    if (!inputs) continue;
-    const existingMenu =
-      menuByName.get(menuKey(group.name, locationId)) ??
-      menuByName.get(menuKey(group.name, null));
-    const existingRecipe = existingMenu
-      ? recipeByMenuId.get(existingMenu.id)
-      : undefined;
-
-    if (existingRecipe && !isImported(existingRecipe.source_type)) {
-      skipped.push({
-        tabName: group.tabName,
-        rowIndex: 0,
-        reason: handmadeRecipeExistsReason(lang),
-        raw: { recipe: group.name },
-      });
-      continue;
-    }
-
-    let menuItem: ImportedMenuItem;
-    if (existingMenu) {
-      menuItem = existingMenu;
-    } else {
-      menuItem = await input.repo.createMenuItem({
-        companyId: input.companyId,
-        name: group.name,
-        currency: input.currency,
-        sourceId: input.batchId,
-        locationId,
-        brandId,
-        sellingPrice: group.selling_price ?? 0,
-      });
-      changes.created_menu_item_ids.push(menuItem.id);
-      menuByName.set(menuKey(menuItem.name, menuItem.location_id), menuItem);
-    }
-
-    if (existingRecipe && isImported(existingRecipe.source_type)) {
-      const previousInputs = await input.repo.listRecipeInputs(
-        input.companyId,
-        existingRecipe.id
-      );
-      changes.updated_recipes.push({
-        id: existingRecipe.id,
-        inputs: previousInputs,
-        source_type: existingRecipe.source_type,
-        workbook_cost_total: existingRecipe.workbook_cost_total ?? null,
-        workbook_selling_price: existingRecipe.workbook_selling_price ?? null,
-        workbook_computed_cost: existingRecipe.workbook_computed_cost ?? null,
-        workbook_cost_match: existingRecipe.workbook_cost_match ?? null,
-        workbook_variance_amount:
-          existingRecipe.workbook_variance_amount ?? null,
-        workbook_variance_pct: existingRecipe.workbook_variance_pct ?? null,
-      });
-      await snapshotMenuRecipeVersion({
-        repo: input.repo,
-        companyId: input.companyId,
-        recipe: existingRecipe,
-        previousInputs,
-        nextInputs: inputs,
-        changes,
-        effectiveDate: input.effectiveDate ?? null,
-      });
-      await input.repo.replaceRecipeInputs(
-        input.companyId,
-        existingRecipe.id,
-        inputs
-      );
-    } else {
-      const created = await input.repo.createRecipe({
-        companyId: input.companyId,
-        menuItemId: menuItem.id,
-        name: group.name,
-        sourceId: input.batchId,
-        inputs,
-      });
-      changes.created_recipe_ids.push(created.id);
-      recipeByMenuId.set(menuItem.id, created);
-      const version = await input.repo.insertRecipeVersion({
-        companyId: input.companyId,
-        recipeId: created.id,
-        menuItemId: menuItem.id,
-        versionNumber: 1,
-        status: "approved",
-        effectiveDate: null,
-        sourceType: "import",
-        inputs,
-      });
-      changes.created_recipe_version_ids = [
-        ...(changes.created_recipe_version_ids ?? []),
-        version.id,
-      ];
-    }
-  }
-
-  return {
-    menuItemsCreated: changes.created_menu_item_ids.length,
-    recipesCreated: changes.created_recipe_ids.length,
-    subRecipesCreated: changes.created_component_ids.length,
-    review,
-    skipped,
-    changes,
-  };
 }
 
 export async function linkMenuItemsToPos(input: {

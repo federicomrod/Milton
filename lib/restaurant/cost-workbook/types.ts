@@ -179,7 +179,7 @@ export interface CostWorkbookIngredient {
   id: string;
   name: string;
   default_unit: string | null;
-  current_unit_cost: number;
+  current_unit_cost: number | null;
   currency: string;
   category?: string | null;
 }
@@ -238,7 +238,7 @@ export interface UndoSnapshot {
   created_ingredient_ids: string[];
   ingredient_costs_before: Array<{
     id: string;
-    current_unit_cost: number;
+    current_unit_cost: number | null;
     currency: string;
   }>;
   created_menu_item_ids: string[];
@@ -291,7 +291,7 @@ export interface DeletedIngredientSnapshot {
   name: string;
   category: string | null;
   default_unit: string | null;
-  current_unit_cost: number;
+  current_unit_cost: number | null;
   currency: string;
 }
 
@@ -420,7 +420,11 @@ export interface GroupedRecipe {
    *  confirmed yield and never a match with Excel. */
   yield_assumed?: boolean;
   selling_price?: number | null;
+  /** Printed COSTO TOTAL footer. Never an inferred sum of lines. */
   cost_total?: number | null;
+  /** Sum of line totals when the footer is missing. Not cost_total. */
+  inferred_cost_total?: number | null;
+  cost_total_inferred?: boolean;
   price_per_lb?: number | null;
   price_per_oz?: number | null;
   price_per_unit?: number | null;
@@ -430,6 +434,8 @@ export interface GroupedRecipe {
    * recipe (that is how a dish like Pollo Empanizado ends up at $0.20).
    */
   incomplete_lines?: boolean;
+  /** 0-based sheet row of the name / first header for this block. */
+  start_row_index?: number;
 }
 
 export interface CostWorkbookBatch {

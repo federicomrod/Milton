@@ -864,3 +864,202 @@ export function buildAssumedDemiglassWorkbook(): Buffer {
     footers: [["COSTO TOTAL", "", "", "", 3.2]],
   });
 }
+
+/**
+ * Mirrors the real Los Ranchos layout without client data: banner,
+ * filled-down names (header overlap + extra ingredient column),
+ * repeated headers, blank separators, $ in footer labels, Cantidad 0
+ * on footer rows, a block starting deep in the sheet, GRAM0, one
+ * unknown unit (APIO), and a dish that uses an assumed-yield prep.
+ * QUESO CREMADO is only on the recipe lines, not the price list.
+ */
+export function buildRealLayoutCostoRestauranteWorkbook(): Buffer {
+  const wb = XLSX.utils.book_new();
+  const overlapHeader = (name: string) => [
+    name,
+    "Unidad Detalle",
+    "Cantidad",
+    "Costo Unitario",
+    "Total Costo",
+  ];
+  const filled = (
+    name: string,
+    ingredient: string,
+    unit: string,
+    qty: number,
+    unitCost: number,
+    total: number
+  ) => [name, ingredient, unit, qty, unitCost, total];
+
+  const sub: Array<Array<string | number>> = [
+    ["RESTAURANTE LOS RANCHOS"],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["QUESO FRITO"],
+    overlapHeader("QUESO FRITO"),
+    filled("QUESO FRITO", "QUESO CREMADO", "ONZA", 1.14, 0.1475, 0.16815),
+    filled("QUESO FRITO", "HARINA", "GRAM0", 5, 0.0017, 0.0085),
+    filled("QUESO FRITO", "ACEITE", "ONZA", 0.1, 0.08, 0.008),
+    ["QUESO FRITO", "COSTO TOTAL", 0, 0, 0],
+    [],
+  ];
+  for (let i = 0; i < 28; i += 1) sub.push([]);
+  sub.push(
+    ["COSTO RESTAURANTE"],
+    ["DEMIGLASS"],
+    overlapHeader("DEMIGLASS"),
+    filled("DEMIGLASS", "HUESO", "LIBRA", 4, 0.4, 1.6),
+    filled("DEMIGLASS", "AGUA", "LITRO", 4, 0.1, 0.4),
+    ["DEMIGLASS", "COSTO TOTAL", 0, 0, 0],
+    ["DEMIGLASS", "PRECIO POR LIBRA $0.25"],
+    ["PRECIO POR ONZA $0.015625"],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["ROLL VEGETALES"],
+    overlapHeader("ROLL VEGETALES"),
+    filled("ROLL VEGETALES", "ZANAHORIA", "ONZA", 2, 0.05, 0.1),
+    filled("ROLL VEGETALES", "APIO", "APIO", 1, 0.2, 0.2),
+    ["ROLL VEGETALES", "COSTO TOTAL", 0, 0, 0, 0.3]
+  );
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
+
+  const dishes = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["DEDOS DE QUESO"],
+    overlapHeader("DEDOS DE QUESO"),
+    filled("DEDOS DE QUESO", "QUESO FRITO", "ORDEN", 1, 0.18465, 0.18465),
+    ["DEDOS DE QUESO", "COSTO TOTAL", 0, 0, 0, 0.18465],
+    ["DEDOS DE QUESO", "PRECIO DE VENTA SIN IVA", 0, 0, 0, 7.52],
+    ["MARGEN DE CONTRIBUCION", "", "", "", 7.3],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(dishes),
+    "ENTRADAS INDIVIDUALES"
+  );
+
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([
+      ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+      ["HARINA", 0.544, 0.034, ""],
+      ["ACEITE", 1.92, 0.12, ""],
+      ["HUESO", 0.4, 0.025, ""],
+      ["AGUA", "", 0.025, 0.4],
+      ["ZANAHORIA", "", 0.05, ""],
+    ]),
+    "BODEGA VIRTUAL"
+  );
+
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([
+      ["COSTOS RESTAURANTE 2026"],
+      ["Concepto", "Enero", "Febrero", "Total"],
+      ["Alquiler", 2000, 2000, 4000],
+    ]),
+    "COSTOS RESTAURANTE 2026"
+  );
+
+  return Buffer.from(
+    XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+  );
+}
+
+/**
+ * Real-layout shape: empty column A, filled-down recipe name, comma
+ * decimals, ORDEN on an exact sub-recipe, a typo line, and a missing
+ * COSTO TOTAL that must stay inferred. Synthetic names only.
+ */
+export function buildLeadingEmptyOrdenCommaWorkbook(): Buffer {
+  const wb = XLSX.utils.book_new();
+  const e = "";
+  const overlap = (name: string) => [
+    e,
+    name,
+    "Unidad Detalle",
+    "Cantidad",
+    "Costo Unitario",
+    "Total Costo",
+  ];
+  const filled = (
+    recipe: string,
+    ingredient: string,
+    unit: string,
+    qty: string | number,
+    unitCost: string | number,
+    total: string | number
+  ) => [e, recipe, ingredient, unit, qty, unitCost, total];
+
+  const sub: Array<Array<string | number>> = [
+    [e, "RESTAURANTE LOS RANCHOS"],
+    [],
+    [e, "COSTO RESTAURANTE"],
+    [e, "GUARNICION 1"],
+    overlap("GUARNICION 1"),
+    filled("GUARNICION 1", "PAPA", "LIBRA", "0,5", "$ 0,60", "$ 0,30"),
+    [e, "GUARNICION 1", "COSTO TOTAL", "", "", "", "$ 0,30"],
+    [e, "GUARNICION 1", "PRECIO POR LIBRA", "", "", "", "$ 0,30"],
+    [],
+    [e, "COSTO RESTAURANTE"],
+    [e, "DEMIGLASS"],
+    overlap("DEMIGLASS"),
+    filled("DEMIGLASS", "HUESO", "LIBRA", 4, "$ 0,40", "$ 1,60"),
+    filled("DEMIGLASS", "AGUA", "LITRO", 4, "$ 0,10", "$ 0,40"),
+    [e, "DEMIGLASS", "PRECIO POR LIBRA $0,25"],
+    [],
+    [e, "COSTO RESTAURANTE"],
+    [e, "DEDOS DE QUESO"],
+    overlap("DEDOS DE QUESO"),
+    filled(
+      "DEDOS DE QUESO",
+      "QUESO CREMADO",
+      "ONZA",
+      "1,14",
+      "$ 0,18",
+      "$ 0,21"
+    ),
+    filled("DEDOS DE QUESO", "EMPANIZAOR", "ONZA", "0,25", "$ 0,09", "$ 0,02"),
+    [e, "DEDOS DE QUESO", "COSTO TOTAL", "", "", "", "$ 0,23"],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
+
+  const dishes = [
+    [e, "COSTO RESTAURANTE"],
+    [e, "PUYASO"],
+    overlap("PUYASO"),
+    filled("PUYASO", "PUYASO", "ONZA", 8, "$ 0,57857", "$ 4,62857"),
+    filled("PUYASO", "GUARNICION 1", "ORDEN", 2, "$ 0,23513", "$ 0,47025"),
+    [e, "PUYASO", "COSTO TOTAL", "", "", "", "$ 5,10"],
+    [e, "PUYASO", "PRECIO DE VENTA SIN IVA", "", "", "", "$ 17,69"],
+    [],
+    [e, "COSTO RESTAURANTE"],
+    [e, "PLATO RARO"],
+    overlap("PLATO RARO"),
+    filled("PLATO RARO", "SAL", "GRAMO", "1,234", "$ 0,01", "$ 12,34"),
+    [e, "PLATO RARO", "COSTO TOTAL", "", "", "", "$ 12,34"],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(dishes),
+    "DE LA PARRILLA"
+  );
+
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([
+      ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+      ["PAPA", 0.6, 0.0375, ""],
+      ["HUESO", 0.4, 0.025, ""],
+      ["AGUA", "", 0.025, 0.4],
+      ["PUYASO", 9.257, 0.57857, ""],
+      ["EMPANIZADOR", "", 0.09, ""],
+    ]),
+    "Lista de precios"
+  );
+
+  return Buffer.from(
+    XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+  );
+}

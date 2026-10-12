@@ -18,11 +18,13 @@ export function resolveRecipeLineUnit(input: {
 }): ResolvedUnitCell {
   const lang = input.lang ?? "en";
   if (isSubRecipePortionUnit(input.unitRaw)) {
-    const key = nameKey(input.ingredientName);
-    const matches = [...input.knownSubRecipeNames].filter(
-      (name) => nameKey(name) === key
+    const key = nameKey(input.ingredientName).replace(/\s+/g, " ");
+    const matches = new Set(
+      [...input.knownSubRecipeNames]
+        .map((name) => nameKey(name).replace(/\s+/g, " "))
+        .filter((name) => name === key)
     );
-    if (matches.length === 1) {
+    if (matches.size === 1) {
       return {
         ok: true,
         unit: "portion",

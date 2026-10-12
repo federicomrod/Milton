@@ -219,7 +219,7 @@ export async function POST(
             name: newName,
             category: newCategory,
             default_unit: newDefaultUnit,
-            current_unit_cost: 0,
+            current_unit_cost: null,
             currency: await resolveCompanyCurrency(supabase, companyId),
           })
           .select("id, name")
@@ -465,7 +465,7 @@ export async function POST(
           name: newName,
           category: newCategory,
           default_unit: newDefaultUnit,
-          current_unit_cost: 0,
+          current_unit_cost: null,
           currency: resolveWriteCurrency(
             invoice.currency,
             await resolveCompanyCurrency(supabase, companyId)

@@ -41,6 +41,9 @@ import {
   fetchAskMiltonSalesSnapshot,
   type AskMiltonSalesSnapshot,
 } from "@/lib/restaurant/ask-milton-sales";
+import { pendingRecipesLabel } from "@/lib/restaurant/cost-workbook/copy";
+import { type PreferredLanguage } from "@/lib/restaurant/language";
+import { positiveUnitCost } from "@/lib/restaurant/unit-cost";
 
 // ---------------------------------------------------------------------------
 // Extra shapes layered on top of BriefingContext
@@ -68,9 +71,27 @@ export interface AskMiltonIngredientCost {
   name: string;
   category: string | null;
   default_unit: string;
-  current_unit_cost: number;
+  current_unit_cost: number | null;
+  pending_label: string | null;
   currency: string;
   supplier_name: string | null;
+}
+
+/**
+ * Resolve a displayable Ask Milton unit cost. Null / 0 cache is pending,
+ * never a fabricated $0.
+ */
+export function resolveAskMiltonIngredientUnitCost(
+  latestEntryCost: number | null | undefined,
+  cachedUnitCost: number | null | undefined,
+  lang: PreferredLanguage = "es"
+): { current_unit_cost: number | null; pending_label: string | null } {
+  const costValue = positiveUnitCost(latestEntryCost ?? cachedUnitCost);
+  return {
+    current_unit_cost:
+      costValue != null ? Math.round(costValue * 100) / 100 : null,
+    pending_label: costValue == null ? pendingRecipesLabel(lang) : null,
+  };
 }
 
 export interface AskMiltonAgentActionSummary {
@@ -526,12 +547,18 @@ export async function buildAskMiltonContext(
     );
   }
 
+  const pendingLang: PreferredLanguage = briefing.preferred_language;
   const toIngredientCost = (r: IngredientRow): AskMiltonIngredientCost => {
     // Prefer authoritative cost from ingredient_cost_entries; fall back to
-    // ingredients.current_unit_cost only when no entry exists.
+    // ingredients.current_unit_cost only when no entry exists. Null stays
+    // null — a pending price is never shown as $0.
     const latestEntry = latestCostByIngredientId.get(r.id);
-    const costValue =
-      latestEntry?.normalized_unit_cost ?? r.current_unit_cost ?? 0;
+    const { current_unit_cost, pending_label } =
+      resolveAskMiltonIngredientUnitCost(
+        latestEntry?.normalized_unit_cost,
+        r.current_unit_cost,
+        pendingLang
+      );
     const costCurrency =
       latestEntry?.currency ?? r.currency ?? fallbackCurrency;
     const supplierFromEntry = latestEntry?.supplier_id
@@ -542,7 +569,8 @@ export async function buildAskMiltonContext(
       name: r.name,
       category: r.category,
       default_unit: latestEntry?.normalized_unit ?? r.default_unit,
-      current_unit_cost: Math.round(costValue * 100) / 100,
+      current_unit_cost,
+      pending_label,
       currency: costCurrency,
       supplier_name:
         supplierFromEntry ??
@@ -559,7 +587,10 @@ export async function buildAskMiltonContext(
       const latestEntry = latestCostByIngredientId.get(r.id);
       return {
         row: r,
-        sortCost: latestEntry?.normalized_unit_cost ?? r.current_unit_cost ?? 0,
+        sortCost:
+          positiveUnitCost(
+            latestEntry?.normalized_unit_cost ?? r.current_unit_cost
+          ) ?? 0,
       };
     })
     .filter(({ sortCost }) => sortCost > 0)
@@ -791,9 +822,11 @@ export async function buildAskMiltonContext(
     }
 
     // Use authoritative cost from entries; fall back to cached field.
+    // Null / 0 cache is pending — never a fabricated $0.
     const latestEntry = latestCostByIngredientId.get(ingredientId);
-    const unitCost =
-      latestEntry?.normalized_unit_cost ?? ing.current_unit_cost ?? null;
+    const unitCost = positiveUnitCost(
+      latestEntry?.normalized_unit_cost ?? ing.current_unit_cost
+    );
     const unitLabel = latestEntry?.normalized_unit ?? ing.default_unit;
     const currency = latestEntry?.currency ?? ing.currency ?? fallbackCurrency;
 

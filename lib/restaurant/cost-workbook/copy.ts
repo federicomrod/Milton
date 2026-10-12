@@ -84,6 +84,71 @@ export function yieldUnknownForReason(
   );
 }
 
+export function unsureIngredientNameReason(
+  lang: PreferredLanguage,
+  lineName: string,
+  existingName: string
+): string {
+  return t(
+    lang,
+    `ingredient name unsure (${lineName} ↔ ${existingName})`,
+    `no estoy seguro de si ${lineName} es ${existingName}`
+  );
+}
+
+export function inferredCostTotalReason(
+  lang: PreferredLanguage,
+  name: string
+): string {
+  return t(
+    lang,
+    `I added up the line totals for ${name} because the Excel has no COSTO TOTAL. Check the yield before you use it.`,
+    `sumé los totales de las líneas de ${name} porque el Excel no trae COSTO TOTAL. Revisa el rendimiento antes de usarlo.`
+  );
+}
+
+export function ambiguousNumberReason(
+  lang: PreferredLanguage,
+  raw: string
+): string {
+  return t(
+    lang,
+    `this number is ambiguous (${raw})`,
+    `este número es ambiguo (${raw})`
+  );
+}
+
+export function dishCreatedRecipeFailedReason(
+  lang: PreferredLanguage,
+  name: string,
+  detail: string
+): string {
+  return t(
+    lang,
+    `I created the dish ${name} but I couldn't save its recipe: ${detail}`,
+    `creé el platillo ${name} pero no pude guardar su receta: ${detail}`
+  );
+}
+
+export function persistWriteFailedReason(
+  lang: PreferredLanguage,
+  detail: string,
+  name?: string
+): string {
+  if (name) {
+    return t(
+      lang,
+      `I couldn't save ${name}: ${detail}`,
+      `no pude guardar ${name}: ${detail}`
+    );
+  }
+  return t(
+    lang,
+    `I couldn't save the recipes: ${detail}`,
+    `no pude guardar las recetas: ${detail}`
+  );
+}
+
 export function emptyRecipeNameReason(lang: PreferredLanguage): string {
   return t(
     lang,
@@ -142,7 +207,13 @@ export function pendingRecipesLabel(lang: PreferredLanguage): string {
 }
 
 export function isPendingRecipeCostStatus(status: string): boolean {
-  return status === "missing_recipe" || status === "missing_component_recipe";
+  return (
+    status === "missing_recipe" ||
+    status === "missing_component_recipe" ||
+    status === "no_cost_entries" ||
+    status === "missing_input_cost" ||
+    status === "missing_ingredient_cost"
+  );
 }
 
 export function notAvailableYetLabel(lang: PreferredLanguage): string {

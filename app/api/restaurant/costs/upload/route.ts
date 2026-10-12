@@ -215,6 +215,7 @@ export async function POST(req: NextRequest) {
             restaurantName: restaurantScope.name,
             skipDuplicates,
             lang,
+            createMissingIngredients,
           });
           return NextResponse.json(result);
         } catch (err) {
@@ -229,7 +230,8 @@ export async function POST(req: NextRequest) {
           console.error("[costs/upload workbook]", message);
           return NextResponse.json(
             {
-              error: "Workbook import failed",
+              error:
+                "No pude guardar esta carga. Revisa el mensaje o avísale al equipo técnico.",
               details: message,
             },
             { status: 500 }
@@ -395,7 +397,7 @@ export async function POST(req: NextRequest) {
             name: sampleRow.ingredient_name,
             category: null,
             default_unit: defaultUnit,
-            current_unit_cost: 0,
+            current_unit_cost: null,
             currency: sampleRow.currency,
           })
           .select("id, default_unit")

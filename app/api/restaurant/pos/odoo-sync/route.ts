@@ -42,6 +42,7 @@ import {
 import {
   transformOdooOrders,
   normalizeMatchKey,
+  optionalLineComboFields,
   ODOO_COMPLETED_STATES,
   type OdooPosOrderRaw,
   type OdooPosOrderLineRaw,
@@ -69,8 +70,14 @@ import {
 import type { RestaurantPosConnection } from "@/types/restaurant";
 import {
   omitColumnFromRows,
-  upsertRetryingWithoutColumn,
+  upsertRetryingWithoutColumns,
 } from "@/lib/restaurant/missing-schema-column";
+
+const OPTIONAL_SALES_COLUMNS = [
+  "is_tip",
+  "combo_parent_external_line_id",
+  "combo_parent_odoo_product_id",
+] as const;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -495,7 +502,7 @@ export async function POST(req: NextRequest) {
 
     // --- Fetch lines for those orders --------------------------------------
     const orderIds = orders.map((o) => o.id);
-    const lineFields = [
+    const baseLineFields = [
       "id",
       "order_id",
       "product_id",
@@ -507,6 +514,25 @@ export async function POST(req: NextRequest) {
       "discount",
       "uuid",
       "company_id",
+    ];
+    let availableLineFields = new Set<string>();
+    try {
+      const detected = await scopedCall("pos.order.line", "fields_get", [], {
+        attributes: ["string", "type"],
+      });
+      if (
+        detected &&
+        typeof detected === "object" &&
+        !Array.isArray(detected)
+      ) {
+        availableLineFields = new Set(Object.keys(detected));
+      }
+    } catch (err) {
+      logOdooFault("[Odoo Sync] pos.order.line fields_get failed:", err);
+    }
+    const lineFields = [
+      ...baseLineFields,
+      ...optionalLineComboFields(availableLineFields),
     ];
 
     let lines: OdooPosOrderLineRaw[];
@@ -524,18 +550,40 @@ export async function POST(req: NextRequest) {
         ? result
         : []) as unknown as OdooPosOrderLineRaw[];
     } catch (err) {
-      const statusClass = logOdooFault(
-        "[Odoo Sync] pos.order.line search_read failed:",
+      // combo_parent_id can 500 on a version where fields_get lied or
+      // the field is unreadable; retry the known-safe base list so
+      // older Odoo still syncs stand-alone lines.
+      logOdooFault(
+        "[Odoo Sync] pos.order.line search_read with optional fields failed, retrying base fields:",
         err
       );
-      const status = err instanceof OdooRpcError ? 502 : 500;
-      return NextResponse.json(
-        {
-          error: "Failed to fetch Odoo POS order lines",
-          details: odooFaultDetails(statusClass),
-        },
-        { status }
-      );
+      try {
+        const result = await scopedExecuteKw(
+          creds,
+          uid,
+          scope,
+          "pos.order.line",
+          "search_read",
+          [[["order_id", "in", orderIds]]],
+          { fields: baseLineFields }
+        );
+        lines = (Array.isArray(result)
+          ? result
+          : []) as unknown as OdooPosOrderLineRaw[];
+      } catch (retryErr) {
+        const statusClass = logOdooFault(
+          "[Odoo Sync] pos.order.line search_read failed:",
+          retryErr
+        );
+        const status = retryErr instanceof OdooRpcError ? 502 : 500;
+        return NextResponse.json(
+          {
+            error: "Failed to fetch Odoo POS order lines",
+            details: odooFaultDetails(statusClass),
+          },
+          { status }
+        );
+      }
     }
 
     try {
@@ -658,10 +706,11 @@ export async function POST(req: NextRequest) {
     }
 
     // --- Upsert (idempotent on company_id, pos_source, external_line_id) --
-    // Migration 030 is applied by hand. If is_tip is not on the table
-    // yet, strip it and retry so Sync now still writes the sale rows.
+    // Migrations 030 / 038 are applied by hand. If is_tip or the combo
+    // parent columns are not on the table yet, strip them and retry so
+    // Sync now still writes the sale rows.
     let upserted = 0;
-    let omitIsTip = false;
+    const omittedSalesColumns = new Set<string>();
     const upsertOpts = {
       onConflict: "company_id,pos_source,external_line_id",
       count: "exact" as const,
@@ -674,25 +723,31 @@ export async function POST(req: NextRequest) {
             dimensions == null || dimensions.categoryReadFailed,
         })
       );
-      const batch = omitIsTip ? omitColumnFromRows(mapped, "is_tip") : mapped;
+      let batch = mapped;
+      for (const column of omittedSalesColumns) {
+        batch = omitColumnFromRows(batch, column);
+      }
       const doUpsert = async (next: typeof batch) => {
         const result = await supabase
           .from("pos_sales_items")
           .upsert(next, upsertOpts);
         return { error: result.error, count: result.count };
       };
+      const pendingOptional = OPTIONAL_SALES_COLUMNS.filter(
+        (column) => !omittedSalesColumns.has(column)
+      );
       const {
         error: upsertError,
         count,
-        omittedColumn,
-      } = omitIsTip
+        omittedColumns,
+      } = pendingOptional.length === 0
         ? await doUpsert(batch).then((r) => ({
             error: r.error,
             count: r.count ?? batch.length,
-            omittedColumn: true,
+            omittedColumns: [] as string[],
           }))
-        : await upsertRetryingWithoutColumn("is_tip", doUpsert, batch);
-      if (omittedColumn) omitIsTip = true;
+        : await upsertRetryingWithoutColumns(pendingOptional, doUpsert, batch);
+      for (const column of omittedColumns) omittedSalesColumns.add(column);
       if (upsertError) {
         console.error(
           "[Odoo Sync] upsert failed:",

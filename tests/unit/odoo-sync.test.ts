@@ -5,6 +5,7 @@ import {
   deriveLocalSaleDate,
   normalizeMatchKey,
   discountAmountFromOdooLine,
+  optionalLineComboFields,
   type OdooPosOrderRaw,
   type OdooPosOrderLineRaw,
   type OdooSyncContext,
@@ -149,6 +150,9 @@ describe("transformOdooOrders", () => {
       odoo_company_id: 1,
       odoo_company_name: "Roma Norte Co",
     });
+    expect(row.combo_parent_external_line_id).toBeNull();
+    expect(row.combo_parent_odoo_product_id).toBeNull();
+    expect(row.source_metadata.combo_parent_id).toBeNull();
   });
 
   it("flags discount as estimated when Odoo omits the percent", () => {
@@ -371,5 +375,77 @@ describe("transformOdooOrders — multi-brand matching (Multi-Restaurant v1)", (
     // Neither brand's Coke is guessed — there is no unscoped "Coke" in
     // this fixture's index, so it's correctly unmatched.
     expect(rows[0].menu_item_id).toBeNull();
+  });
+});
+
+describe("optionalLineComboFields — older Odoo", () => {
+  it("does not request combo_parent_id unless fields_get reports it", () => {
+    expect(optionalLineComboFields(new Set(["qty", "price_unit"]))).toEqual([]);
+    expect(optionalLineComboFields(null)).toEqual([]);
+    expect(optionalLineComboFields(new Set(["combo_parent_id"]))).toEqual([
+      "combo_parent_id",
+    ]);
+  });
+});
+
+describe("transformOdooOrders — native Odoo combos", () => {
+  it("keeps the parent-child relation when the parent is $0 and children carry the price", () => {
+    const parent = makeLine({
+      id: 700,
+      product_id: [10, "Combo Almuerzo"],
+      full_product_name: "Combo Almuerzo",
+      qty: 1,
+      price_unit: 0,
+      price_subtotal: 0,
+      price_subtotal_incl: 0,
+      discount: 0,
+    });
+    const childA = makeLine({
+      id: 701,
+      product_id: [11, "Hamburguesa"],
+      full_product_name: "Hamburguesa",
+      qty: 1,
+      price_unit: 80,
+      price_subtotal: 80,
+      price_subtotal_incl: 92.8,
+      discount: 0,
+      combo_parent_id: [700, "Combo Almuerzo"],
+    });
+    const childB = makeLine({
+      id: 702,
+      product_id: [12, "Papas"],
+      full_product_name: "Papas",
+      qty: 1,
+      price_unit: 40,
+      price_subtotal: 40,
+      price_subtotal_incl: 46.4,
+      discount: 0,
+      combo_parent_id: [700, "Combo Almuerzo"],
+    });
+    const { rows, skipped } = transformOdooOrders(
+      [paidOrder],
+      [parent, childA, childB],
+      baseCtx()
+    );
+    expect(skipped).toHaveLength(0);
+    expect(rows).toHaveLength(3);
+    const byId = new Map(rows.map((r) => [r.external_line_id, r]));
+    expect(byId.get("700")?.net_revenue).toBe(0);
+    expect(byId.get("700")?.combo_parent_external_line_id).toBeNull();
+    expect(byId.get("701")?.combo_parent_external_line_id).toBe("700");
+    expect(byId.get("701")?.combo_parent_odoo_product_id).toBe(10);
+    expect(byId.get("701")?.net_revenue).toBe(80);
+    expect(byId.get("702")?.combo_parent_external_line_id).toBe("700");
+    expect(byId.get("702")?.combo_parent_odoo_product_id).toBe(10);
+    expect(byId.get("702")?.source_metadata.combo_parent_id).toBe(700);
+    expect(byId.get("702")?.source_metadata.combo_parent_product_id).toBe(10);
+  });
+
+  it("leaves lines without combo_parent_id working as today", () => {
+    const { rows } = transformOdooOrders([paidOrder], [makeLine()], baseCtx());
+    expect(rows).toHaveLength(1);
+    expect(rows[0].menu_item_id).toBe("menu-item-1");
+    expect(rows[0].combo_parent_external_line_id).toBeNull();
+    expect(rows[0].combo_parent_odoo_product_id).toBeNull();
   });
 });

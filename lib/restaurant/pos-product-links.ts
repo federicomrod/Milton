@@ -1,0 +1,182 @@
+// lib/restaurant/pos-product-links.ts
+//
+// POS product classification and link states (#162 / #163).
+// POS is the source of truth. AI / fuzzy matching may only suggest.
+// Only a person moves a link to Confirmado — never the sync, never a
+// ranking pass, never a missing-row default.
+
+export const POS_PRODUCT_CLASSIFICATIONS = [
+  "por_clasificar",
+  "requiere_receta",
+  "componente",
+  "no_requiere_costeo",
+] as const;
+export type PosProductClassification =
+  (typeof POS_PRODUCT_CLASSIFICATIONS)[number];
+
+export const POS_PRODUCT_LINK_STATES = [
+  "sin_vincular",
+  "sugerido",
+  "confirmado",
+] as const;
+export type PosProductLinkState = (typeof POS_PRODUCT_LINK_STATES)[number];
+
+export const LINK_STATE_LABELS: Record<PosProductLinkState, string> = {
+  sin_vincular: "Sin vincular",
+  sugerido: "Sugerido",
+  confirmado: "Confirmado",
+};
+
+export const CLASSIFICATION_LABELS: Record<PosProductClassification, string> = {
+  por_clasificar: "Por clasificar",
+  requiere_receta: "Requiere receta",
+  componente: "Componente",
+  no_requiere_costeo: "No requiere costeo",
+};
+
+export interface PosProductLinkRecord {
+  id?: string;
+  company_id: string;
+  location_id: string | null;
+  odoo_product_id: number;
+  odoo_name: string;
+  classification: PosProductClassification;
+  menu_item_id: string | null;
+  link_state: PosProductLinkState;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  confirmed_how: string | null;
+  evidence: Record<string, unknown>;
+}
+
+export interface LinkConfirmation {
+  confirmed_by: string;
+  confirmed_at: string;
+  confirmed_how: string;
+}
+
+export function isPosProductClassification(
+  value: unknown
+): value is PosProductClassification {
+  return (
+    typeof value === "string" &&
+    (POS_PRODUCT_CLASSIFICATIONS as readonly string[]).includes(value)
+  );
+}
+
+export function isPosProductLinkState(
+  value: unknown
+): value is PosProductLinkState {
+  return (
+    typeof value === "string" &&
+    (POS_PRODUCT_LINK_STATES as readonly string[]).includes(value)
+  );
+}
+
+/** Implicit row when sales exist but nobody has classified or linked yet. */
+export function unlinkedPosProduct(
+  input: Pick<
+    PosProductLinkRecord,
+    "company_id" | "odoo_product_id" | "odoo_name"
+  > & { location_id?: string | null }
+): PosProductLinkRecord {
+  return {
+    company_id: input.company_id,
+    location_id: input.location_id ?? null,
+    odoo_product_id: input.odoo_product_id,
+    odoo_name: input.odoo_name,
+    classification: "por_clasificar",
+    menu_item_id: null,
+    link_state: "sin_vincular",
+    confirmed_by: null,
+    confirmed_at: null,
+    confirmed_how: null,
+    evidence: {},
+  };
+}
+
+/**
+ * Suggestion only. Never writes confirmado, confirmed_by, confirmed_at
+ * or confirmed_how — a person must call confirmPosProductLink.
+ */
+export function suggestPosProductLink(
+  base: PosProductLinkRecord,
+  input: {
+    menu_item_id: string;
+    evidence: Record<string, unknown>;
+    classification?: PosProductClassification;
+  }
+): PosProductLinkRecord {
+  return {
+    ...base,
+    menu_item_id: input.menu_item_id,
+    classification: input.classification ?? base.classification,
+    evidence: { ...input.evidence },
+    link_state: "sugerido",
+    confirmed_by: null,
+    confirmed_at: null,
+    confirmed_how: null,
+  };
+}
+
+export function confirmPosProductLinkError(
+  confirmation: Partial<LinkConfirmation> | null | undefined
+): string | null {
+  const by = confirmation?.confirmed_by?.trim() ?? "";
+  const at = confirmation?.confirmed_at?.trim() ?? "";
+  const how = confirmation?.confirmed_how?.trim() ?? "";
+  if (!by || !at || !how) {
+    return "Solo una persona puede marcar el vínculo como Confirmado. Indica quién, cuándo y cómo.";
+  }
+  return null;
+}
+
+/**
+ * The only function that may set link_state to confirmado.
+ * Requires a recorded person (who / when / how).
+ */
+export function confirmPosProductLink(
+  base: PosProductLinkRecord,
+  confirmation: LinkConfirmation
+): PosProductLinkRecord {
+  const error = confirmPosProductLinkError(confirmation);
+  if (error) {
+    throw new Error(error);
+  }
+  return {
+    ...base,
+    link_state: "confirmado",
+    confirmed_by: confirmation.confirmed_by.trim(),
+    confirmed_at: confirmation.confirmed_at.trim(),
+    confirmed_how: confirmation.confirmed_how.trim(),
+  };
+}
+
+/**
+ * Location-specific link wins; otherwise the company-wide (NULL location)
+ * row. Other companies are ignored — caller still passes companyId.
+ */
+export function matchPosProductLink(
+  links: readonly PosProductLinkRecord[],
+  companyId: string,
+  odooProductId: number,
+  locationId: string | null
+): PosProductLinkRecord | null {
+  const same = links.filter(
+    (link) =>
+      link.company_id === companyId && link.odoo_product_id === odooProductId
+  );
+  if (locationId) {
+    const scoped = same.find((link) => link.location_id === locationId);
+    if (scoped) return scoped;
+  }
+  return same.find((link) => link.location_id == null) ?? null;
+}
+
+export function odooProductIdFromMetadata(
+  meta: Record<string, unknown> | null | undefined
+): number | null {
+  if (!meta) return null;
+  const raw = meta.product_id ?? meta.odoo_product_id;
+  return typeof raw === "number" && Number.isInteger(raw) ? raw : null;
+}

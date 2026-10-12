@@ -347,6 +347,13 @@ export interface PosSalesItemRow {
    * legacy rows — readers fall back to the product name.
    */
   is_tip?: boolean | null;
+  /**
+   * Odoo pos.order.line id of the native combo parent (migration 038).
+   * Null on older Odoo and on stand-alone lines.
+   */
+  combo_parent_external_line_id?: string | null;
+  /** Odoo product.product id of that combo parent (migration 038). */
+  combo_parent_odoo_product_id?: number | null;
 }
 
 /**

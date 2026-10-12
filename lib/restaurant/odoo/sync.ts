@@ -75,6 +75,11 @@ export interface OdooPosOrderLineRaw {
   uuid?: string | false;
   /** Odoo res.company (stored related of order_id.company_id). */
   company_id: OdooMany2one;
+  /**
+   * Native Odoo 18 combo parent line. Present only when fields_get
+   * reports `combo_parent_id` — older Odoo omits the field entirely.
+   */
+  combo_parent_id?: OdooMany2one;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +146,13 @@ export interface CanonicalOdooSaleRow {
   source_metadata: Record<string, unknown>;
   /** True when the product name is a Propina / tip line. */
   is_tip: boolean;
+  /**
+   * Odoo pos.order.line id of the native combo parent, when
+   * combo_parent_id was present on the payload. NULL otherwise.
+   */
+  combo_parent_external_line_id: string | null;
+  /** Odoo product.product id of that combo parent, when resolvable. */
+  combo_parent_odoo_product_id: number | null;
 }
 
 export interface SkippedLine {
@@ -165,6 +177,35 @@ export function normalizeMatchKey(s: string): string {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Request `combo_parent_id` only when fields_get says the field exists. */
+export const OPTIONAL_LINE_COMBO_FIELDS = ["combo_parent_id"] as const;
+
+export function optionalLineComboFields(
+  available: Set<string> | null | undefined
+): string[] {
+  if (!available) return [];
+  return OPTIONAL_LINE_COMBO_FIELDS.filter((field) => available.has(field));
+}
+
+export function comboParentLineIdFromRaw(
+  line: Pick<OdooPosOrderLineRaw, "combo_parent_id">
+): number | null {
+  const value = line.combo_parent_id;
+  if (Array.isArray(value) && typeof value[0] === "number") return value[0];
+  return null;
+}
+
+export function productIdByLineId(
+  lines: ReadonlyArray<Pick<OdooPosOrderLineRaw, "id" | "product_id">>
+): Map<number, number> {
+  const map = new Map<number, number>();
+  for (const line of lines) {
+    const productId = line.product_id ? line.product_id[0] : null;
+    if (typeof productId === "number") map.set(line.id, productId);
+  }
+  return map;
 }
 
 /**
@@ -262,6 +303,7 @@ export function transformOdooOrders(
 
   const rows: CanonicalOdooSaleRow[] = [];
   const skipped: SkippedLine[] = [];
+  const productByLineId = productIdByLineId(lines);
 
   for (const line of lines) {
     const orderId = Array.isArray(line.order_id) ? line.order_id[0] : null;
@@ -374,6 +416,11 @@ export function transformOdooOrders(
     const saleDate = deriveLocalSaleDate(orderPlacedAt, ctx.timezone);
 
     const productId = line.product_id ? line.product_id[0] : null;
+    const comboParentLineId = comboParentLineIdFromRaw(line);
+    const comboParentProductId =
+      comboParentLineId !== null
+        ? (productByLineId.get(comboParentLineId) ?? null)
+        : null;
     const categories =
       productId !== null
         ? (ctx.categoryByProductId?.get(productId) ?? null)
@@ -405,6 +452,9 @@ export function transformOdooOrders(
       unit_price: priceUnit,
       order_placed_at: orderPlacedAt,
       is_tip: isTipLineName(rawItemName),
+      combo_parent_external_line_id:
+        comboParentLineId !== null ? String(comboParentLineId) : null,
+      combo_parent_odoo_product_id: comboParentProductId,
       source_metadata: {
         order_pos_reference: order.pos_reference || null,
         order_uuid: order.uuid || null,
@@ -418,6 +468,8 @@ export function transformOdooOrders(
         state: order.state,
         sales_channel_source: ctx.channelSourceByOrderId?.get(order.id) ?? null,
         discount_estimated,
+        combo_parent_id: comboParentLineId,
+        combo_parent_product_id: comboParentProductId,
       },
     });
   }

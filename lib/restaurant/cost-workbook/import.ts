@@ -328,8 +328,11 @@ export async function importCostWorkbook(input: {
     input.filename,
     sheets.map((s) => s.name)
   );
-  const uploadDate = new Date().toISOString().slice(0, 10);
-  const fileMonth = inferredListDate ?? uploadDate;
+  // Dated files use their own month as the upload date so April and May
+  // stay separate. Wall-clock today is only the fallback when the file
+  // has no date of its own.
+  const uploadDate = inferredListDate ?? new Date().toISOString().slice(0, 10);
+  const fileMonth = uploadDate;
 
   const savedMaps = await input.repo.listMappings(input.companyId);
   const savedByKey = new Map(savedMaps.map((m) => [m.layout_key, m]));
@@ -1175,8 +1178,7 @@ export async function approveReviewItem(
   const resolvedUnit = resolveUnitCell(unit);
   if (!resolvedUnit.ok) return { ok: false, reason: resolvedUnit.reason };
   if (!total || total < 0) return { ok: false, reason: "Missing cost" };
-  if (quantity <= 0)
-    return { ok: false, reason: positiveQuantityReason("es") };
+  if (quantity <= 0) return { ok: false, reason: positiveQuantityReason("es") };
 
   const persistQuantity = quantity * resolvedUnit.quantityMultiplier;
   const persistUnit =

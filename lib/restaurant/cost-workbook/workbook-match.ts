@@ -111,7 +111,9 @@ export async function costingDataFromWorkbookRepo(
         menu_item_id: row.menu_item_id,
         status: "active" as const,
         source_type: row.source_type,
-        workbook_cost_match: row.workbook_cost_match ?? null,
+        // Recompute the Excel check from live costs. A stored mismatch
+        // would otherwise block costing and lock the recipe as mismatch.
+        workbook_cost_match: null,
       },
     ])
   );

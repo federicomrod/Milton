@@ -33,6 +33,7 @@ import {
 } from "@/lib/restaurant/paginated-read";
 import { fetchAllRowsRetryingWithoutColumn } from "@/lib/restaurant/missing-schema-column";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
+import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -355,6 +356,20 @@ export async function fetchMenuRecipesData(
       costEntriesRes.error.message
     );
 
+  const versions = await fetchCostingRecipeVersions(supabase, companyId);
+  if (versions.recipeVersionsError) {
+    console.error(
+      "[menu-recipes] recipe_versions:",
+      versions.recipeVersionsError
+    );
+  }
+  if (versions.componentVersionsError) {
+    console.error(
+      "[menu-recipes] component_recipe_versions:",
+      versions.componentVersionsError
+    );
+  }
+
   warnIfTruncated("menu-recipes pos_sales_items", posRes);
   warnIfTruncated("menu-recipes menu_recipe_inputs", recipeInputsRes);
   warnIfTruncated("menu-recipes ingredient_cost_entries", costEntriesRes);
@@ -535,6 +550,13 @@ export async function fetchMenuRecipesData(
     menuRecipesByMenuItemId,
     menuRecipeInputsByRecipeId: menuInputsByRecipeId,
     costEntriesByIngredientId,
+    menuRecipeVersionsByMenuItemId: versions.menuRecipeVersionsByMenuItemId,
+    menuRecipeVersionInputsByVersionId:
+      versions.menuRecipeVersionInputsByVersionId,
+    componentRecipeVersionsByComponentId:
+      versions.componentRecipeVersionsByComponentId,
+    componentRecipeVersionInputsByVersionId:
+      versions.componentRecipeVersionInputsByVersionId,
   };
   const componentCosts = calculateAllComponentCosts(costingData);
   const menuItemCosts = calculateAllMenuItemCosts(costingData);

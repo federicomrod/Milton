@@ -811,3 +811,56 @@ export function buildAssumedYieldWorkbook(): Buffer {
     XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
   );
 }
+
+function demiglassWorkbook(opts: {
+  lines: Array<Array<string | number>>;
+  footers: Array<Array<string | number>>;
+}): Buffer {
+  const wb = XLSX.utils.book_new();
+  const header = [
+    "Articulo",
+    "Unidad Detalle",
+    "Cantidad",
+    "Costo Unitario",
+    "Total Costo",
+  ];
+  const sub = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["DEMIGLASS"],
+    header,
+    ...opts.lines,
+    ...opts.footers,
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([
+      ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+      ["HUESO", 0.4, 0.025, ""],
+    ]),
+    "Lista de precios"
+  );
+  return Buffer.from(
+    XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+  );
+}
+
+/** Confirmed DEMIGLASS yield: COSTO TOTAL $2 / $0.25 per lb = 8 lb. */
+export function buildConfirmedDemiglassWorkbook(): Buffer {
+  return demiglassWorkbook({
+    lines: [["HUESO", "LIBRA", 4, 0.4, 1.6]],
+    footers: [
+      ["COSTO TOTAL", "", "", "", 2],
+      ["PRECIO POR LIBRA", "", "", "", 0.25],
+    ],
+  });
+}
+
+/** Same prep with only COSTO TOTAL — assumed 1-unit yield, different qty. */
+export function buildAssumedDemiglassWorkbook(): Buffer {
+  return demiglassWorkbook({
+    lines: [["HUESO", "LIBRA", 8, 0.4, 3.2]],
+    footers: [["COSTO TOTAL", "", "", "", 3.2]],
+  });
+}

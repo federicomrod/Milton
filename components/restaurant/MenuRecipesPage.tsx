@@ -41,6 +41,10 @@ import type {
 } from "@/lib/restaurant/menu-recipes-server";
 import type { CostStatus } from "@/types/restaurant-costing";
 import {
+  isPendingRecipeCostStatus,
+  pendingRecipesLabel,
+} from "@/lib/restaurant/cost-workbook/copy";
+import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   t,
   type PreferredLanguage,
@@ -635,7 +639,7 @@ function MenuItemsSection({
                         r.cost.cost !== null ? (
                           fmts.dec2.format(r.cost.cost)
                         ) : (
-                          <CostStatusChip status={r.cost.status} />
+                          <CostStatusChip status={r.cost.status} lang={lang} />
                         )}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums">
@@ -731,15 +735,16 @@ function RecipeStatusBadge({
  * cost when status !== "complete"); the title attribute carries the
  * actual issue messages for tooltip on hover.
  */
-function CostStatusChip({ status }: { status: CostStatus }) {
+function CostStatusChip({
+  status,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+}: {
+  status: CostStatus;
+  lang?: PreferredLanguage;
+}) {
   const label = (() => {
+    if (isPendingRecipeCostStatus(status)) return pendingRecipesLabel(lang);
     switch (status) {
-      case "missing_recipe":
-        return "no recipe";
-      case "missing_component_recipe":
-        // Distinguished from "no recipe" — this item HAS a recipe, but a
-        // component it uses doesn't have one of its own yet.
-        return "component recipe missing";
       case "missing_input_cost":
       case "no_cost_entries":
         return "missing cost";
@@ -850,6 +855,7 @@ function ComponentsSection({
                         component={c}
                         striped={i % 2 === 1}
                         onChange={onChange}
+                        lang={lang}
                         currency={
                           c.cost.status === "complete" &&
                           c.cost.cost_per_output_unit !== null
@@ -1014,12 +1020,14 @@ function ComponentRow({
   striped,
   onChange,
   currency,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
 }: {
   component: PreparedComponentListRow;
   striped: boolean;
   onChange: () => void;
   /** Display currency for the cost column. Null hides the formatter. */
   currency: string | null;
+  lang?: PreferredLanguage;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -1131,7 +1139,7 @@ function ComponentRow({
             </span>
           </span>
         ) : (
-          <CostStatusChip status={component.cost.status} />
+          <CostStatusChip status={component.cost.status} lang={lang} />
         )}
       </td>
       <td className="px-4 py-3">

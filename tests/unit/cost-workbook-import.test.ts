@@ -88,6 +88,8 @@ import {
   buildOrdenPortionCostWorkbook,
   buildIncompleteDishWorkbook,
   buildAssumedYieldWorkbook,
+  buildConfirmedDemiglassWorkbook,
+  buildAssumedDemiglassWorkbook,
 } from "../fixtures/cost-workbook-los-ranchos";
 import * as XLSX from "xlsx";
 import type {
@@ -3317,6 +3319,77 @@ describe("COSTO RESTAURANTE block layout", () => {
         item.reason.includes(YIELD_ASSUMED_REASON)
       )
     ).toBe(true);
+  });
+
+  it("keeps the working yield when a later import only has an assumed yield", async () => {
+    const store = emptyStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const first = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildConfirmedDemiglassWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      lang: "es",
+    });
+    expect(first.sub_recipes_created).toBe(1);
+    const component = store.components.find((row) => row.name === "DEMIGLASS");
+    expect(component).toBeTruthy();
+    const working = store.componentRecipes.find(
+      (row) => row.component_id === component?.id
+    );
+    expect(working?.output_quantity).toBeCloseTo(8, 5);
+    expect(working?.output_unit).toBe("lb");
+    const workingInputs = store.componentRecipeInputs.filter(
+      (row) => row.component_recipe_id === working?.id
+    );
+    expect(workingInputs).toHaveLength(1);
+    expect(workingInputs[0]?.quantity).toBeCloseTo(4, 5);
+    expect(workingInputs[0]?.unit).toBe("lb");
+
+    const second = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildAssumedDemiglassWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      lang: "es",
+    });
+    expect(second.sub_recipes_created).toBe(0);
+    expect(
+      second.review_items.some((item) =>
+        item.reason.includes(YIELD_ASSUMED_REASON)
+      )
+    ).toBe(true);
+
+    const stillWorking = store.componentRecipes.find(
+      (row) => row.component_id === component?.id
+    );
+    expect(stillWorking?.output_quantity).toBeCloseTo(8, 5);
+    expect(stillWorking?.output_unit).toBe("lb");
+    const stillInputs = store.componentRecipeInputs.filter(
+      (row) => row.component_recipe_id === stillWorking?.id
+    );
+    expect(stillInputs).toHaveLength(1);
+    expect(stillInputs[0]?.quantity).toBeCloseTo(4, 5);
+    expect(stillInputs[0]?.unit).toBe("lb");
+
+    const versions = store.componentRecipeVersions
+      .filter((row) => row.component_id === component?.id)
+      .sort((a, b) => a.version_number - b.version_number);
+    expect(versions.length).toBeGreaterThanOrEqual(2);
+    const approved = versions.filter((row) => row.status === "approved");
+    expect(approved[0]?.output_quantity).toBeCloseTo(8, 5);
+    expect(approved[0]?.output_unit).toBe("lb");
+    const review = versions[versions.length - 1];
+    expect(review?.status).toBe("in_review");
+    expect(review?.output_quantity).toBeCloseTo(1, 5);
+    expect(review?.output_unit).toBe("unit");
+    expect(review?.inputs).toHaveLength(1);
+    expect(review?.inputs[0]?.quantity).toBeCloseTo(8, 5);
+    expect(review?.inputs[0]?.unit).toBe("lb");
   });
 
   it("sends a plain ingredient with ORDEN and a price-list CONVOY to needs-a-look", async () => {

@@ -91,6 +91,7 @@ export {
   handmadeRecipeExistsReason,
   MISSING_IMPORT_COSTING_036_ES,
   MISSING_WORKBOOK_COST_MIGRATION_ES,
+  isPendingRecipeCostStatus,
   pendingRecipesLabel,
   positiveQuantityReason,
   selfReferenceReason,

@@ -379,41 +379,49 @@ export async function persistWorkbookRecipes(input: {
           input.companyId,
           previous.id
         );
-        changes.updated_components.push({
-          id: previous.id,
-          inputs: previousInputs,
-          component_id: existing.id,
-          output_quantity: previous.output_quantity,
-          output_unit: previous.output_unit,
-          source_type: previous.source_type,
-          workbook_cost_total: previous.workbook_cost_total ?? null,
-          workbook_unit_price: previous.workbook_unit_price ?? null,
-          workbook_computed_cost: previous.workbook_computed_cost ?? null,
-          workbook_cost_match: previous.workbook_cost_match ?? null,
-          workbook_variance_amount: previous.workbook_variance_amount ?? null,
-          workbook_variance_pct: previous.workbook_variance_pct ?? null,
-        });
+        const assumedOrUnknown = yieldNeedsReview(group, yieldResult.ok);
+        if (!assumedOrUnknown) {
+          changes.updated_components.push({
+            id: previous.id,
+            inputs: previousInputs,
+            component_id: existing.id,
+            output_quantity: previous.output_quantity,
+            output_unit: previous.output_unit,
+            source_type: previous.source_type,
+            workbook_cost_total: previous.workbook_cost_total ?? null,
+            workbook_unit_price: previous.workbook_unit_price ?? null,
+            workbook_computed_cost: previous.workbook_computed_cost ?? null,
+            workbook_cost_match: previous.workbook_cost_match ?? null,
+            workbook_variance_amount: previous.workbook_variance_amount ?? null,
+            workbook_variance_pct: previous.workbook_variance_pct ?? null,
+          });
+        }
         await snapshotComponentRecipeVersion({
           repo: input.repo,
           companyId: input.companyId,
           recipe: previous,
           previousInputs,
           nextInputs: inputs,
+          nextOutputQuantity: yieldQuantity,
+          nextOutputUnit: yieldUnit,
+          assumed: assumedOrUnknown,
           changes,
           effectiveDate: input.effectiveDate ?? null,
         });
-        await input.repo.replaceComponentRecipeInputs(
-          input.companyId,
-          previous.id,
-          inputs
-        );
-        await input.repo.updateComponentYield({
-          companyId: input.companyId,
-          componentId: existing.id,
-          componentRecipeId: previous.id,
-          outputQuantity: yieldQuantity,
-          outputUnit: yieldUnit,
-        });
+        if (!assumedOrUnknown) {
+          await input.repo.replaceComponentRecipeInputs(
+            input.companyId,
+            previous.id,
+            inputs
+          );
+          await input.repo.updateComponentYield({
+            companyId: input.companyId,
+            componentId: existing.id,
+            componentRecipeId: previous.id,
+            outputQuantity: yieldQuantity,
+            outputUnit: yieldUnit,
+          });
+        }
       } else {
         const createdRecipe = await input.repo.createComponentRecipe({
           companyId: input.companyId,
@@ -733,6 +741,9 @@ async function snapshotComponentRecipeVersion(input: {
   recipe: ImportedComponentRecipe;
   previousInputs: RecipeInputSnapshot[];
   nextInputs: RecipeInputSnapshot[];
+  nextOutputQuantity: number;
+  nextOutputUnit: string;
+  assumed?: boolean;
   changes: UndoSnapshot;
   effectiveDate: string | null;
 }): Promise<void> {
@@ -763,10 +774,12 @@ async function snapshotComponentRecipeVersion(input: {
     versionNumber: nextVersionNumber(
       existing.length === 0 ? [{ version_number: 1 }] : existing
     ),
-    status: "in_review",
+    // Assumed/unknown yields stay in_review so costing will not pick
+    // the guessed 1-unit batch. The working copy is left alone.
+    status: input.assumed ? "in_review" : "in_review",
     effectiveDate: input.effectiveDate,
-    outputQuantity: input.recipe.output_quantity,
-    outputUnit: input.recipe.output_unit,
+    outputQuantity: input.nextOutputQuantity,
+    outputUnit: input.nextOutputUnit,
     sourceType: "import",
     inputs: input.nextInputs,
   });

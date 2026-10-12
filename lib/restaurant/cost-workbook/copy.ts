@@ -141,6 +141,10 @@ export function pendingRecipesLabel(lang: PreferredLanguage): string {
   return t(lang, "Pending recipes", "Pendiente de recetas");
 }
 
+export function isPendingRecipeCostStatus(status: string): boolean {
+  return status === "missing_recipe" || status === "missing_component_recipe";
+}
+
 export function notAvailableYetLabel(lang: PreferredLanguage): string {
   return t(lang, "Not available yet", "Aún no disponible");
 }

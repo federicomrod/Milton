@@ -80,6 +80,11 @@ export function MenuRecipesPage({
             </Badge>
           </div>
           <Button asChild size="sm" variant="outline" className="gap-2">
+            <Link href="/dashboard/restaurant/menu/recetas">
+              {t(lang, "Load recipes", "Cargar recetas")}
+            </Link>
+          </Button>
+          <Button asChild size="sm" variant="outline" className="gap-2">
             <Link href="/dashboard/restaurant/upload">
               <Upload className="h-4 w-4" />
               {t(lang, "Import POS Sales", "Importar ventas del POS")}

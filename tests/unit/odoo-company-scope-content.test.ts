@@ -142,6 +142,24 @@ describe("read-only paths", () => {
     }
   });
 
+  it("the combo diagnostics route performs no writes", () => {
+    const src = read("app/api/restaurant/pos/odoo-combo-diagnostics/route.ts");
+    for (const needle of [
+      ".insert(",
+      ".update(",
+      ".upsert(",
+      ".delete(",
+      '"create"',
+      '"write"',
+      '"unlink"',
+    ]) {
+      expect(src).not.toContain(needle);
+    }
+    expect(src).toContain("canAccessOdooComboDiagnostics");
+    expect(src).toContain("loadOdooSession");
+    expect(src).toContain("assertOdooScope");
+  });
+
   it("the odoo-companies GET handler performs no writes", () => {
     const src = read("app/api/restaurant/pos/odoo-companies/route.ts");
     const get = src.split("export async function POST")[0];
@@ -168,6 +186,7 @@ describe("Odoo routes never leak err.message or raw fault text", () => {
         "app/api/admin/odoo/location-mapping/route.ts",
         "app/api/admin/odoo/test-connection/route.ts",
         "app/api/restaurant/pos/odoo-audit/route.ts",
+        "app/api/restaurant/pos/odoo-combo-diagnostics/route.ts",
         "app/api/restaurant/pos/odoo-companies/route.ts",
         "app/api/restaurant/pos/odoo-connection/route.ts",
         "app/api/restaurant/pos/odoo-sync/route.ts",
@@ -220,12 +239,15 @@ describe("Odoo routes never leak err.message or raw fault text", () => {
 });
 
 describe("Milton company stays server-side", () => {
-  it.each(["odoo-sync", "odoo-connection", "odoo-companies", "odoo-audit"])(
-    "%s never reads body.company_id",
-    (route) => {
-      const src = read(`app/api/restaurant/pos/${route}/route.ts`);
-      expect(src).not.toMatch(/body\.company_id/);
-      expect(src).not.toMatch(/searchParams\.get\(["']company_id["']\)/);
-    }
-  );
+  it.each([
+    "odoo-sync",
+    "odoo-connection",
+    "odoo-companies",
+    "odoo-audit",
+    "odoo-combo-diagnostics",
+  ])("%s never reads body.company_id", (route) => {
+    const src = read(`app/api/restaurant/pos/${route}/route.ts`);
+    expect(src).not.toMatch(/body\.company_id/);
+    expect(src).not.toMatch(/searchParams\.get\(["']company_id["']\)/);
+  });
 });

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  effectiveDateForNewApprovedVersion,
   nextVersionNumber,
   pickApprovedVersion,
+  todayUtcDate,
 } from "@/lib/restaurant/recipe-versions";
 
 const v = (
@@ -37,15 +39,44 @@ describe("pickApprovedVersion", () => {
   });
 
   it("returns null when nothing is approved", () => {
-    expect(pickApprovedVersion([v(1, "in_review", null)], "2026-10-01")).toBeNull();
+    expect(
+      pickApprovedVersion([v(1, "in_review", null)], "2026-10-01")
+    ).toBeNull();
   });
 });
 
 describe("nextVersionNumber", () => {
   it("increments from the highest version", () => {
     expect(nextVersionNumber([])).toBe(1);
-    expect(nextVersionNumber([{ version_number: 1 }, { version_number: 3 }])).toBe(
-      4
+    expect(
+      nextVersionNumber([{ version_number: 1 }, { version_number: 3 }])
+    ).toBe(4);
+  });
+});
+
+describe("effectiveDateForNewApprovedVersion", () => {
+  it("gives the first approved version a NULL date when none is approved yet", () => {
+    expect(effectiveDateForNewApprovedVersion([])).toBeNull();
+    expect(
+      effectiveDateForNewApprovedVersion([v(1, "in_review", null)])
+    ).toBeNull();
+    expect(
+      effectiveDateForNewApprovedVersion([
+        v(1, "in_review", null),
+        v(2, "in_review", "2026-10-01"),
+      ])
+    ).toBeNull();
+  });
+
+  it("dates a later approved version today so earlier periods stay put", () => {
+    expect(effectiveDateForNewApprovedVersion([v(1, "approved", null)])).toBe(
+      todayUtcDate()
     );
+    expect(
+      effectiveDateForNewApprovedVersion([
+        v(1, "approved", null),
+        v(2, "in_review", "2026-10-01"),
+      ])
+    ).toBe(todayUtcDate());
   });
 });

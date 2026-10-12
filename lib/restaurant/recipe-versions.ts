@@ -74,6 +74,22 @@ export function nextVersionNumber(
   );
 }
 
+export function hasApprovedVersion(
+  versions: Array<{ status: string }>
+): boolean {
+  return versions.some((row) => row.status === "approved");
+}
+
+/**
+ * First approved version covers all loaded history (NULL date).
+ * Later approved versions start today and never rewrite earlier periods.
+ */
+export function effectiveDateForNewApprovedVersion(
+  versions: Array<{ status: string }>
+): string | null {
+  return hasApprovedVersion(versions) ? todayUtcDate() : null;
+}
+
 export function todayUtcDate(): string {
   return new Date().toISOString().slice(0, 10);
 }

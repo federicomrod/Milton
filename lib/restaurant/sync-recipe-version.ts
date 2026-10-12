@@ -1,9 +1,18 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RecipeInputSnapshot } from "@/lib/restaurant/cost-workbook/types";
 import {
+  effectiveDateForNewApprovedVersion,
   nextVersionNumber,
-  todayUtcDate,
 } from "@/lib/restaurant/recipe-versions";
+
+export const RECIPE_VERSIONS_READ_ERROR_ES =
+  "No pude leer las versiones de la receta. Avísale al equipo técnico.";
+export const COMPONENT_RECIPE_VERSIONS_READ_ERROR_ES =
+  "No pude leer las versiones de la sub-receta. Avísale al equipo técnico.";
+export const RECIPE_VERSIONS_WRITE_ERROR_ES =
+  "No pude guardar la versión de la receta. Avísale al equipo técnico.";
+export const COMPONENT_RECIPE_VERSIONS_WRITE_ERROR_ES =
+  "No pude guardar la versión de la sub-receta. Avísale al equipo técnico.";
 
 type VersionRow = {
   id: string;
@@ -12,8 +21,7 @@ type VersionRow = {
   effective_date: string | null;
 };
 
-function isFirstApproved(versions: VersionRow[]): boolean {
-  if (versions.length === 0) return true;
+function isSoleFirstApproved(versions: VersionRow[]): boolean {
   return (
     versions.length === 1 &&
     versions[0].status === "approved" &&
@@ -21,10 +29,32 @@ function isFirstApproved(versions: VersionRow[]): boolean {
   );
 }
 
+function throwReadError(kind: "recipe" | "component", message?: string): never {
+  const base =
+    kind === "recipe"
+      ? RECIPE_VERSIONS_READ_ERROR_ES
+      : COMPONENT_RECIPE_VERSIONS_READ_ERROR_ES;
+  throw new Error(message ? `${base} (${message})` : base);
+}
+
+function throwWriteError(
+  kind: "recipe" | "component",
+  message?: string
+): never {
+  const base =
+    kind === "recipe"
+      ? RECIPE_VERSIONS_WRITE_ERROR_ES
+      : COMPONENT_RECIPE_VERSIONS_WRITE_ERROR_ES;
+  throw new Error(message ? `${base} (${message})` : base);
+}
+
 /**
- * Hand save / Aprobar: the first approved version stays the one that
- * applies to all history (NULL effective_date). Later approved versions
- * get today's date and never rewrite earlier periods.
+ * Hand save: recorded as approved for now. Today, hand-entered recipes
+ * already count. The Aprobar gate for hand edits comes in #164.
+ *
+ * When no approved version exists yet, the first approved version gets
+ * a NULL effective_date so it covers all loaded history. Later approved
+ * versions get today's date and never rewrite earlier periods.
  */
 export async function syncApprovedMenuRecipeVersion(input: {
   supabase: SupabaseClient;
@@ -41,11 +71,10 @@ export async function syncApprovedMenuRecipeVersion(input: {
     .eq("recipe_id", input.recipeId)
     .order("version_number", { ascending: true });
   if (listed.error) {
-    if (/recipe_versions/i.test(listed.error.message ?? "")) return;
-    throw new Error(listed.error.message ?? "recipe_versions read failed");
+    throwReadError("recipe", listed.error.message);
   }
   const versions = (listed.data ?? []) as VersionRow[];
-  if (isFirstApproved(versions) && versions[0]) {
+  if (isSoleFirstApproved(versions) && versions[0]) {
     await replaceVersionInputs(
       input.supabase,
       "recipe_version_inputs",
@@ -64,12 +93,14 @@ export async function syncApprovedMenuRecipeVersion(input: {
       menu_item_id: input.menuItemId,
       version_number: versions.length === 0 ? 1 : nextVersionNumber(versions),
       status: "approved",
-      effective_date: versions.length === 0 ? null : todayUtcDate(),
+      effective_date: effectiveDateForNewApprovedVersion(versions),
       source_type: input.sourceType ?? "manual",
     })
     .select("id")
     .single();
-  if (created.error || !created.data) return;
+  if (created.error || !created.data) {
+    throwWriteError("recipe", created.error?.message);
+  }
   await insertVersionInputs(
     input.supabase,
     "recipe_version_inputs",
@@ -80,6 +111,10 @@ export async function syncApprovedMenuRecipeVersion(input: {
   );
 }
 
+/**
+ * Hand save: recorded as approved for now. Today, hand-entered recipes
+ * already count. The Aprobar gate for hand edits comes in #164.
+ */
 export async function syncApprovedComponentRecipeVersion(input: {
   supabase: SupabaseClient;
   companyId: string;
@@ -97,13 +132,10 @@ export async function syncApprovedComponentRecipeVersion(input: {
     .eq("component_recipe_id", input.componentRecipeId)
     .order("version_number", { ascending: true });
   if (listed.error) {
-    if (/component_recipe_versions/i.test(listed.error.message ?? "")) return;
-    throw new Error(
-      listed.error.message ?? "component_recipe_versions read failed"
-    );
+    throwReadError("component", listed.error.message);
   }
   const versions = (listed.data ?? []) as VersionRow[];
-  if (isFirstApproved(versions) && versions[0]) {
+  if (isSoleFirstApproved(versions) && versions[0]) {
     await input.supabase
       .from("component_recipe_versions")
       .update({
@@ -130,14 +162,16 @@ export async function syncApprovedComponentRecipeVersion(input: {
       component_id: input.componentId,
       version_number: versions.length === 0 ? 1 : nextVersionNumber(versions),
       status: "approved",
-      effective_date: versions.length === 0 ? null : todayUtcDate(),
+      effective_date: effectiveDateForNewApprovedVersion(versions),
       output_quantity: input.outputQuantity,
       output_unit: input.outputUnit,
       source_type: input.sourceType ?? "manual",
     })
     .select("id")
     .single();
-  if (created.error || !created.data) return;
+  if (created.error || !created.data) {
+    throwWriteError("component", created.error?.message);
+  }
   await insertVersionInputs(
     input.supabase,
     "component_recipe_version_inputs",

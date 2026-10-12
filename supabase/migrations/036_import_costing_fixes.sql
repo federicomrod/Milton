@@ -11,9 +11,11 @@
 --
 -- DESIGN: Additive. No DROP of tables or columns. New nullable columns
 -- and new version tables only. Existing ingredient_cost_entries rows
--- are backfilled with date_source = 'upload' and effective_date =
--- cost_date. Existing active recipes become version 1, approved, with
--- a NULL effective_date (applies to all history).
+-- get effective_date = cost_date and date_source mapped from
+-- source_type (invoice_line → invoice, manual → manual, else upload).
+-- Existing active recipes become approved v1 with a NULL effective_date
+-- (applies to all history). Draft recipes become in_review v1.
+-- Archived recipes are skipped.
 --
 -- IMPORTANT: This file is for repo history. Supabase migrations are not
 -- applied from the repo by CI yet, so this SQL must also be pasted
@@ -45,7 +47,11 @@ ALTER TABLE public.ingredient_cost_entries
   ADD COLUMN IF NOT EXISTS date_source text NULL;
 
 UPDATE public.ingredient_cost_entries
-SET date_source = 'upload'
+SET date_source = CASE source_type
+  WHEN 'invoice_line' THEN 'invoice'
+  WHEN 'manual' THEN 'manual'
+  ELSE 'upload'
+END
 WHERE date_source IS NULL;
 
 UPDATE public.ingredient_cost_entries
@@ -158,7 +164,8 @@ CREATE TABLE IF NOT EXISTS public.component_recipe_version_inputs (
 CREATE INDEX IF NOT EXISTS component_recipe_version_inputs_version_idx
   ON public.component_recipe_version_inputs (component_recipe_version_id);
 
--- First approved version of each existing recipe: applies to all history.
+-- Active recipes: approved v1 covering all history (NULL effective_date).
+-- Draft recipes: in_review. Archived recipes are skipped — nobody approved them.
 INSERT INTO public.recipe_versions (
   company_id,
   recipe_id,
@@ -176,16 +183,20 @@ SELECT
   r.id,
   r.menu_item_id,
   1,
-  'approved',
+  CASE
+    WHEN r.status = 'active' THEN 'approved'
+    ELSE 'in_review'
+  END,
   NULL,
   r.serving_quantity,
   r.serving_unit,
   r.notes,
   r.source_type
 FROM public.recipes r
-WHERE NOT EXISTS (
-  SELECT 1 FROM public.recipe_versions v WHERE v.recipe_id = r.id
-);
+WHERE r.status IN ('active', 'draft')
+  AND NOT EXISTS (
+    SELECT 1 FROM public.recipe_versions v WHERE v.recipe_id = r.id
+  );
 
 INSERT INTO public.recipe_version_inputs (
   company_id,
@@ -232,17 +243,21 @@ SELECT
   c.id,
   c.component_id,
   1,
-  'approved',
+  CASE
+    WHEN c.status = 'active' THEN 'approved'
+    ELSE 'in_review'
+  END,
   NULL,
   c.output_quantity,
   c.output_unit,
   c.source_type
 FROM public.component_recipes c
-WHERE NOT EXISTS (
-  SELECT 1
-  FROM public.component_recipe_versions v
-  WHERE v.component_recipe_id = c.id
-);
+WHERE c.status IN ('active', 'draft')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.component_recipe_versions v
+    WHERE v.component_recipe_id = c.id
+  );
 
 INSERT INTO public.component_recipe_version_inputs (
   company_id,

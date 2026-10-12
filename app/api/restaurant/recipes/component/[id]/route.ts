@@ -410,6 +410,15 @@ export async function PUT(
       });
     } catch (err) {
       console.error("[recipes/component PUT version]", err);
+      return NextResponse.json(
+        {
+          error:
+            err instanceof Error
+              ? err.message
+              : "No pude guardar la versión de la sub-receta. Avísale al equipo técnico.",
+        },
+        { status: 500 }
+      );
     }
   }
 

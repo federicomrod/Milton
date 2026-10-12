@@ -8,6 +8,7 @@ import {
   emptyRecipeNameReason,
   missingRecipeNameReason,
   missingUnitReason,
+  positiveQuantityReason,
   strayNameRowReason,
   totalMismatchReason,
   yieldInconsistentReason,
@@ -577,7 +578,7 @@ export function collectCostoRestauranteBlocks(input: {
       review.push({
         tabName: input.tabName,
         rowIndex,
-        reason: "Quantity must be a positive number",
+        reason: positiveQuantityReason(lang),
         raw: { Articulo: name, Unidad: unitRaw, Cantidad: qty },
         suggested: { ingredient_name: name, unit: unitRaw },
       });

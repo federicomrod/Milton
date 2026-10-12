@@ -39,6 +39,8 @@ interface RecipeRow {
   workbook_cost_total?: number | null;
   workbook_computed_cost?: number | null;
   workbook_cost_match?: "match" | "mismatch" | null;
+  workbook_variance_amount?: number | null;
+  workbook_variance_pct?: number | null;
 }
 
 interface InputRow {
@@ -100,7 +102,7 @@ async function loadComponent(componentId: string): Promise<LoadResult> {
           const full = await supabase
             .from("component_recipes")
             .select(
-              "id, name, output_quantity, output_unit, yield_percentage, status, source_type, workbook_cost_total, workbook_computed_cost, workbook_cost_match"
+              "id, name, output_quantity, output_unit, yield_percentage, status, source_type, workbook_cost_total, workbook_computed_cost, workbook_cost_match, workbook_variance_amount, workbook_variance_pct"
             )
             .eq("company_id", companyId)
             .eq("component_id", componentId)
@@ -203,6 +205,8 @@ export default async function ComponentRecipeRoute({
                 milton_cost: result.recipe.workbook_computed_cost ?? null,
                 match: result.recipe.workbook_cost_match ?? null,
                 source_type: result.recipe.source_type ?? null,
+                variance_amount: result.recipe.workbook_variance_amount ?? null,
+                variance_pct: result.recipe.workbook_variance_pct ?? null,
               }
             : null
         }

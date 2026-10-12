@@ -114,6 +114,11 @@ export async function persistSavedRows(input: {
         supplier_sku: null,
       },
     });
+    if (built.ok) {
+      built.insert.effective_date =
+        row.effective_date ?? row.cost_date;
+      built.insert.date_source = row.date_source ?? "upload";
+    }
     if (!built.ok) {
       failed.push({
         tabName: row.tabName,

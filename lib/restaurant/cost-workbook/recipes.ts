@@ -8,6 +8,7 @@ import { numberAt, textAt } from "./cells";
 import {
   missingIngredientNameReason,
   missingUnitReason,
+  positiveQuantityReason,
   yieldUnknownForReason,
 } from "./copy";
 import { recipeNameFromSheet } from "./names";
@@ -116,7 +117,7 @@ export function evaluateRecipeLine(input: {
   if (!resolvedUnit.ok) return fail(resolvedUnit.reason);
   const qty = numberAt(row, mapping, "quantity");
   if (qty === null || qty <= 0) {
-    return fail("Quantity must be a positive number");
+    return fail(positiveQuantityReason(lang));
   }
 
   return {

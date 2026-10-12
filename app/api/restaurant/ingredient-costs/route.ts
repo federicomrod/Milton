@@ -194,6 +194,8 @@ export async function POST(req: NextRequest) {
       source_type: "manual",
       source_id: null,
       cost_date: costDate,
+      effective_date: costDate,
+      date_source: "manual",
       quantity,
       unit,
       total_cost: totalCost,

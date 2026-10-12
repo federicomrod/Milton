@@ -135,8 +135,10 @@ describe("Revenue tab page chrome is trimmed without dropping copy", () => {
     expect(health).toContain("dishes that have a cost");
     expect(health).toContain("platillos con costo");
     const strip = read("lib/restaurant/cockpit-executive.ts");
-    expect(strip).toContain("Recipe costs are needed");
-    expect(strip).toContain("Se necesitan costos de recetas");
+    expect(strip).toContain("pendingRecipesLabel");
+    const copy = read("lib/restaurant/cost-workbook/copy.ts");
+    expect(copy).toContain("Pending recipes");
+    expect(copy).toContain("Pendiente de recetas");
   });
 
   it("still mounts RestaurantSalesExplorer on the Revenue tab", () => {

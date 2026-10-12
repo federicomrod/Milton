@@ -99,6 +99,44 @@ export function handmadeRecipeExistsReason(lang: PreferredLanguage): string {
 export const MISSING_WORKBOOK_COST_MIGRATION_ES =
   "Falta aplicar la migración 035 en la base de datos. Avísale al equipo técnico.";
 
+export const MISSING_IMPORT_COSTING_036_ES =
+  "Falta aplicar la migración 036 en la base de datos. Avísale al equipo técnico.";
+
+export function positiveQuantityReason(lang: PreferredLanguage): string {
+  return t(
+    lang,
+    "Quantity must be a positive number",
+    "La cantidad tiene que ser un número positivo"
+  );
+}
+
+export function workbookMatchLabel(lang: PreferredLanguage): string {
+  return t(lang, "Matches the Excel", "Cuadra con Excel");
+}
+
+export function workbookMismatchLabel(lang: PreferredLanguage): string {
+  return t(lang, "Does not match the Excel", "No cuadra con el Excel");
+}
+
+export function workbookMismatchEngineMessage(
+  lang: PreferredLanguage,
+  name: string
+): string {
+  return t(
+    lang,
+    `${name} imported cost does not match the Excel COSTO TOTAL.`,
+    `El costo importado de ${name} no cuadra con el COSTO TOTAL del Excel.`
+  );
+}
+
+export function pendingRecipesLabel(lang: PreferredLanguage): string {
+  return t(lang, "Pending recipes", "Pendiente de recetas");
+}
+
+export function notAvailableYetLabel(lang: PreferredLanguage): string {
+  return t(lang, "Not available yet", "Aún no disponible");
+}
+
 export function handmadeNoLongerComparedNote(lang: PreferredLanguage): string {
   return t(
     lang,
@@ -154,12 +192,12 @@ export function workbookMatchHeadline(input: {
   const dishes = t(
     input.lang,
     `${input.dishesMatched} of ${input.dishesTotal} dishes match the Excel`,
-    `${input.dishesMatched} de ${input.dishesTotal} platillos coinciden con el Excel`
+    `${input.dishesMatched} de ${input.dishesTotal} platillos cuadran con el Excel`
   );
   const subs = t(
     input.lang,
     `${input.subsMatched} of ${input.subsTotal} sub-recipes match the Excel`,
-    `${input.subsMatched} de ${input.subsTotal} sub-recetas coinciden con el Excel`
+    `${input.subsMatched} de ${input.subsTotal} sub-recetas cuadran con el Excel`
   );
   if (input.dishesTotal === 0 && input.subsTotal === 0) return "";
   if (input.dishesTotal === 0) return subs;

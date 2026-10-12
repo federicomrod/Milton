@@ -118,6 +118,8 @@ interface WorkbookSummary {
       name: string;
       excel_cost: number | null;
       milton_cost: number | null;
+      variance_amount?: number | null;
+      variance_pct?: number | null;
       reason: string;
     }>;
   };
@@ -871,6 +873,17 @@ function WorkbookResult({
                   {row.excel_cost == null ? "—" : row.excel_cost.toFixed(2)}
                   {" · Milton "}
                   {row.milton_cost == null ? "—" : row.milton_cost.toFixed(2)}
+                  {row.variance_amount != null &&
+                  Number.isFinite(row.variance_amount)
+                    ? ` · ${t(lang, "var", "var.")} ${
+                        row.variance_amount >= 0 ? "+" : ""
+                      }${row.variance_amount.toFixed(2)}${
+                        row.variance_pct != null &&
+                        Number.isFinite(row.variance_pct)
+                          ? ` (${row.variance_pct >= 0 ? "+" : ""}${row.variance_pct.toFixed(1)}%)`
+                          : ""
+                      }`
+                    : ""}
                   {" — "}
                   {row.reason}
                 </li>

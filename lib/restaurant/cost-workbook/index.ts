@@ -84,9 +84,15 @@ export {
 export {
   handmadeNoLongerComparedNote,
   handmadeRecipeExistsReason,
+  MISSING_IMPORT_COSTING_036_ES,
   MISSING_WORKBOOK_COST_MIGRATION_ES,
+  pendingRecipesLabel,
+  positiveQuantityReason,
   selfReferenceReason,
   workbookMatchHeadline,
+  workbookMatchLabel,
+  workbookMismatchEngineMessage,
+  workbookMismatchLabel,
 } from "./copy";
 export { foldFooterLabel } from "./blocks";
 export { implausiblePriceReason } from "./plausibility";
@@ -109,7 +115,9 @@ export {
   approveReviewItem,
   buildImportHeadline,
   importCostWorkbook,
+  isMissingImportCosting036Error,
   isMissingWorkbookCostColumnsError,
+  MissingImportCosting036Error,
   MissingWorkbookCostColumnsError,
   skipReviewItem,
   undoCostImportBatch,

@@ -1,4 +1,9 @@
-import { handmadeNoLongerComparedNote } from "@/lib/restaurant/cost-workbook/copy";
+import {
+  handmadeNoLongerComparedNote,
+  notAvailableYetLabel,
+  workbookMatchLabel,
+  workbookMismatchLabel,
+} from "@/lib/restaurant/cost-workbook/copy";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { isImportProtectedSource } from "@/lib/restaurant/protect-imported-recipe";
 import type { MenuItemCostResult } from "@/types/restaurant-costing";
@@ -32,6 +37,8 @@ export function WorkbookCostPanel({
     milton_cost: number | null;
     match: "match" | "mismatch" | null;
     source_type: string | null;
+    variance_amount?: number | null;
+    variance_pct?: number | null;
   } | null;
   batchLabel?: boolean;
 }) {
@@ -55,7 +62,7 @@ export function WorkbookCostPanel({
         {cost && cost.status !== "complete" ? (
           <span className="text-xs text-amber-700 dark:text-amber-300 ml-2">
             {cost.status === "workbook_mismatch"
-              ? t(lang, "does not match the Excel", "no coincide con el Excel")
+              ? workbookMismatchLabel(lang)
               : t(lang, "cost incomplete", "costo incompleto")}
           </span>
         ) : null}
@@ -74,13 +81,30 @@ export function WorkbookCostPanel({
             </span>
           ) : workbook?.match === "match" ? (
             <span className="ml-2 text-xs text-green-700 dark:text-green-300">
-              {t(lang, "matches the Excel", "coincide con el Excel")}
+              {workbookMatchLabel(lang)}
             </span>
           ) : workbook?.match === "mismatch" ? (
             <span className="ml-2 text-xs text-red-700 dark:text-red-300">
-              {t(lang, "does not match the Excel", "no coincide con el Excel")}
+              {workbookMismatchLabel(lang)}
             </span>
           ) : null}
+        </p>
+      ) : null}
+      {imported && workbook?.match != null ? (
+        <p className="text-xs text-muted-foreground">
+          {t(lang, "Variance", "Variación")}:{" "}
+          {workbook.variance_amount == null ||
+          !Number.isFinite(workbook.variance_amount)
+            ? notAvailableYetLabel(lang)
+            : `${workbook.variance_amount >= 0 ? "+" : ""}${money(
+                workbook.variance_amount,
+                currency ?? null
+              )}${
+                workbook.variance_pct == null ||
+                !Number.isFinite(workbook.variance_pct)
+                  ? ""
+                  : ` (${workbook.variance_pct >= 0 ? "+" : ""}${workbook.variance_pct.toFixed(1)}%)`
+              }`}
         </p>
       ) : null}
     </div>

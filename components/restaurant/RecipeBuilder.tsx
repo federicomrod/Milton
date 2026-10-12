@@ -102,6 +102,8 @@ export function RecipeBuilder({
     milton_cost: number | null;
     match: "match" | "mismatch" | null;
     source_type: string | null;
+    variance_amount?: number | null;
+    variance_pct?: number | null;
   } | null;
 }) {
   const router = useRouter();

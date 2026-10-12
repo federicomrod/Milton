@@ -18,6 +18,7 @@ import {
   handmadeSourceCorePatch,
   handmadeSourcePatch,
 } from "@/lib/restaurant/protect-imported-recipe";
+import { syncApprovedComponentRecipeVersion } from "@/lib/restaurant/sync-recipe-version";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -272,7 +273,11 @@ export async function PUT(
         ...handmadeSourcePatch(),
       })
       .eq("id", recipeId);
-    if (error && errorMentionsColumn(error, "workbook_cost_match")) {
+    if (
+      error &&
+      (errorMentionsColumn(error, "workbook_cost_match") ||
+        errorMentionsColumn(error, "workbook_variance_amount"))
+    ) {
       const retry = await auth.supabase
         .from("component_recipes")
         .update({
@@ -312,7 +317,11 @@ export async function PUT(
       .insert(insertBody)
       .select("id")
       .single();
-    if (error && errorMentionsColumn(error, "workbook_cost_match")) {
+    if (
+      error &&
+      (errorMentionsColumn(error, "workbook_cost_match") ||
+        errorMentionsColumn(error, "workbook_variance_amount"))
+    ) {
       const retry = await auth.supabase
         .from("component_recipes")
         .insert(
@@ -340,11 +349,18 @@ export async function PUT(
     }
   }
 
-  await auth.supabase
+  const { error: sourceTypeErr } = await auth.supabase
     .from("prepared_components")
     .update(handmadeSourceCorePatch())
     .eq("company_id", auth.companyId)
     .eq("id", componentId);
+  if (sourceTypeErr) {
+    console.error("[recipes/component PUT source_type]", sourceTypeErr);
+    return NextResponse.json(
+      pgErr("No pude marcar la sub-receta como editada a mano", sourceTypeErr),
+      { status: 500 }
+    );
+  }
 
   // ---- Replace inputs ---------------------------------------------------
   const { error: delErr } = await auth.supabase
@@ -370,6 +386,39 @@ export async function PUT(
       return NextResponse.json(pgErr("Could not write inputs", insErr), {
         status: 500,
       });
+    }
+  }
+
+  if (status === "active") {
+    try {
+      await syncApprovedComponentRecipeVersion({
+        supabase: auth.supabase,
+        companyId: auth.companyId,
+        componentRecipeId: recipeId,
+        componentId,
+        outputQuantity,
+        outputUnit,
+        sourceType: "manual",
+        inputs: inputs.map((row) => ({
+          input_type: row.input_type,
+          ingredient_id: row.ingredient_id,
+          component_id: row.component_id,
+          quantity: row.quantity,
+          unit: row.unit,
+          notes: row.notes,
+        })),
+      });
+    } catch (err) {
+      console.error("[recipes/component PUT version]", err);
+      return NextResponse.json(
+        {
+          error:
+            err instanceof Error
+              ? err.message
+              : "No pude guardar la versión de la sub-receta. Avísale al equipo técnico.",
+        },
+        { status: 500 }
+      );
     }
   }
 

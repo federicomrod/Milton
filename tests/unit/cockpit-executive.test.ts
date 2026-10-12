@@ -86,7 +86,7 @@ describe("not-available cost KPIs", () => {
   it("uses the recipe-cost reason and the cost-import link — never a dash", () => {
     const na = unavailableCostKpi("es");
     expect(na.available).toBe(false);
-    expect(na.reason).toBe("Se necesitan costos de recetas");
+    expect(na.reason).toBe("Pendiente de recetas");
     expect(na.link_label).toBe("Agregar costos");
     expect(na.href).toBe("/dashboard/restaurant/costs/upload");
     expect(JSON.stringify(na)).not.toContain("—");
@@ -107,9 +107,7 @@ describe("not-available cost KPIs", () => {
     expect(strip.gross_margin_pct.available).toBe(false);
     expect(strip.food_cost_pct.available).toBe(false);
     if (!strip.gross_margin_pct.available) {
-      expect(strip.gross_margin_pct.reason).toBe(
-        "Se necesitan costos de recetas"
-      );
+      expect(strip.gross_margin_pct.reason).toBe("Pendiente de recetas");
     }
     expect(strip.net_sales.available).toBe(true);
     expect(strip.tickets.available).toBe(true);

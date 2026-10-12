@@ -67,6 +67,8 @@ export interface WorkbookRowCandidate {
   total_cost: number;
   unit_price: number;
   cost_date: string;
+  effective_date?: string;
+  date_source?: import("@/lib/restaurant/price-date").PriceDateSource;
   supplier_name: string | null;
   currency: string;
   notes: string | null;
@@ -159,6 +161,8 @@ export interface WorkbookRecipeMismatch {
   name: string;
   excel_cost: number | null;
   milton_cost: number | null;
+  variance_amount: number | null;
+  variance_pct: number | null;
   reason: string;
 }
 
@@ -190,6 +194,9 @@ export interface CostWorkbookCostEntry {
   source_type: CostEntrySourceType;
   source_id: string | null;
   cost_date: string;
+  /** Set when the row knows its own date or a dated price list's date. */
+  date_source?: import("@/lib/restaurant/price-date").PriceDateSource;
+  effective_date?: string;
   quantity: number;
   unit: string;
   total_cost: number;
@@ -242,6 +249,13 @@ export interface UndoSnapshot {
   updated_recipes: Array<{
     id: string;
     inputs: RecipeInputSnapshot[];
+    source_type?: string | null;
+    workbook_cost_total?: number | null;
+    workbook_selling_price?: number | null;
+    workbook_computed_cost?: number | null;
+    workbook_cost_match?: WorkbookCostMatch | null;
+    workbook_variance_amount?: number | null;
+    workbook_variance_pct?: number | null;
   }>;
   updated_components: Array<{
     id: string;
@@ -249,7 +263,16 @@ export interface UndoSnapshot {
     component_id?: string;
     output_quantity?: number;
     output_unit?: string;
+    source_type?: string | null;
+    workbook_cost_total?: number | null;
+    workbook_unit_price?: number | null;
+    workbook_computed_cost?: number | null;
+    workbook_cost_match?: WorkbookCostMatch | null;
+    workbook_variance_amount?: number | null;
+    workbook_variance_pct?: number | null;
   }>;
+  created_recipe_version_ids?: string[];
+  created_component_recipe_version_ids?: string[];
   deleted_ingredients: DeletedIngredientSnapshot[];
   deleted_cost_entries: CostWorkbookCostEntry[];
   deleted_menu_recipe_inputs: DetachedRecipeInputSnapshot[];
@@ -314,6 +337,8 @@ export function emptyUndoSnapshot(): UndoSnapshot {
     created_mapping_ids: [],
     updated_recipes: [],
     updated_components: [],
+    created_recipe_version_ids: [],
+    created_component_recipe_version_ids: [],
     deleted_ingredients: [],
     deleted_cost_entries: [],
     deleted_menu_recipe_inputs: [],
@@ -343,6 +368,8 @@ export interface ImportedRecipe {
   workbook_selling_price?: number | null;
   workbook_computed_cost?: number | null;
   workbook_cost_match?: WorkbookCostMatch | null;
+  workbook_variance_amount?: number | null;
+  workbook_variance_pct?: number | null;
 }
 
 export interface ImportedComponent {
@@ -365,6 +392,8 @@ export interface ImportedComponentRecipe {
   workbook_unit_price?: number | null;
   workbook_computed_cost?: number | null;
   workbook_cost_match?: WorkbookCostMatch | null;
+  workbook_variance_amount?: number | null;
+  workbook_variance_pct?: number | null;
 }
 
 export interface RecipeLineCandidate {

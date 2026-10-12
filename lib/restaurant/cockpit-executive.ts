@@ -40,6 +40,7 @@ import {
   periodCostKpisFromRows,
   type PeriodCostKpis,
 } from "@/lib/restaurant/cockpit-cost-coverage";
+import { pendingRecipesLabel } from "@/lib/restaurant/cost-workbook/copy";
 
 export interface PeriodBucket {
   net_sales: number;
@@ -486,11 +487,7 @@ export function buildCockpitPeriodSnapshot(
 export function unavailableCostKpi(lang: PreferredLanguage): UnavailableKpi {
   return {
     available: false,
-    reason: t(
-      lang,
-      "Recipe costs are needed",
-      "Se necesitan costos de recetas"
-    ),
+    reason: pendingRecipesLabel(lang),
     href: `${COSTS_HREF}/upload`,
     link_label: t(lang, "Add costs", "Agregar costos"),
   };

@@ -34,9 +34,7 @@ function spanishSlots(src: string): string[] {
 
 describe("Spanish completeness for the executive cockpit (#129)", () => {
   it("ships the required Spanish operator copy", () => {
-    expect(unavailableCostKpi("es").reason).toBe(
-      "Se necesitan costos de recetas"
-    );
+    expect(unavailableCostKpi("es").reason).toBe("Pendiente de recetas");
     expect(unavailableCostKpi("es").link_label).toBe("Agregar costos");
     const strip = read("components/restaurant/cockpit/CockpitKpiStrip.tsx");
     expect(strip).toContain("Ventas netas");

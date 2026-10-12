@@ -1,6 +1,11 @@
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { resolveUnitCell } from "@/lib/restaurant/units";
-import { MISSING_WORKBOOK_COST_MIGRATION_ES } from "./copy";
+import {
+  MISSING_IMPORT_COSTING_036_ES,
+  MISSING_WORKBOOK_COST_MIGRATION_ES,
+  positiveQuantityReason,
+} from "./copy";
+import { resolveIngredientPriceDate } from "@/lib/restaurant/price-date";
 import type { WorkbookAi } from "./ai";
 import { classifyCostTabHeuristic } from "./ai";
 import {
@@ -283,6 +288,19 @@ export function isMissingWorkbookCostColumnsError(
   return err instanceof MissingWorkbookCostColumnsError;
 }
 
+export class MissingImportCosting036Error extends Error {
+  constructor() {
+    super(MISSING_IMPORT_COSTING_036_ES);
+    this.name = "MissingImportCosting036Error";
+  }
+}
+
+export function isMissingImportCosting036Error(
+  err: unknown
+): err is MissingImportCosting036Error {
+  return err instanceof MissingImportCosting036Error;
+}
+
 export async function importCostWorkbook(input: {
   companyId: string;
   filename: string;
@@ -301,13 +319,20 @@ export async function importCostWorkbook(input: {
   if (!(await input.repo.hasWorkbookCostColumns(input.companyId))) {
     throw new MissingWorkbookCostColumnsError();
   }
+  if (!(await input.repo.hasImportCosting036Columns(input.companyId))) {
+    throw new MissingImportCosting036Error();
+  }
   const sheets =
     input.sheets ?? (input.buffer ? readWorkbookSheets(input.buffer) : []);
-  const fileMonth =
-    inferWorkbookDate(
-      input.filename,
-      sheets.map((s) => s.name)
-    ) ?? new Date().toISOString().slice(0, 10);
+  const inferredListDate = inferWorkbookDate(
+    input.filename,
+    sheets.map((s) => s.name)
+  );
+  // Dated files use their own month as the upload date so April and May
+  // stay separate. Wall-clock today is only the fallback when the file
+  // has no date of its own.
+  const uploadDate = inferredListDate ?? new Date().toISOString().slice(0, 10);
+  const fileMonth = uploadDate;
 
   const savedMaps = await input.repo.listMappings(input.companyId);
   const savedByKey = new Map(savedMaps.map((m) => [m.layout_key, m]));
@@ -590,6 +615,8 @@ export async function importCostWorkbook(input: {
         mapping,
         currency: input.currency,
         defaultDate: fileMonth,
+        datedPriceList: Boolean(inferredListDate) && tabType === "price_list",
+        uploadDate,
         lang,
       });
       if (result.ok) {
@@ -752,6 +779,7 @@ export async function importCostWorkbook(input: {
     locationId: input.locationId ?? null,
     brandId: input.brandId ?? null,
     lang,
+    effectiveDate: fileMonth,
   });
   toReview.push(...recipeStats.review);
   skipped.push(...recipeStats.skipped);
@@ -930,8 +958,25 @@ export async function undoCostImportBatch(
       snap.deleted_component_recipe_inputs
     );
   }
+  await repo.deleteRecipeVersions(
+    companyId,
+    snap.created_recipe_version_ids ?? []
+  );
+  await repo.deleteComponentRecipeVersions(
+    companyId,
+    snap.created_component_recipe_version_ids ?? []
+  );
   for (const recipe of snap.updated_recipes ?? []) {
     await repo.replaceRecipeInputs(companyId, recipe.id, recipe.inputs);
+    await repo.restoreRecipeHeader(companyId, recipe.id, {
+      source_type: recipe.source_type,
+      workbook_cost_total: recipe.workbook_cost_total,
+      workbook_selling_price: recipe.workbook_selling_price,
+      workbook_computed_cost: recipe.workbook_computed_cost,
+      workbook_cost_match: recipe.workbook_cost_match,
+      workbook_variance_amount: recipe.workbook_variance_amount,
+      workbook_variance_pct: recipe.workbook_variance_pct,
+    });
   }
   for (const component of snap.updated_components ?? []) {
     await repo.replaceComponentRecipeInputs(
@@ -952,6 +997,15 @@ export async function undoCostImportBatch(
         outputUnit: component.output_unit,
       });
     }
+    await repo.restoreComponentRecipeHeader(companyId, component.id, {
+      source_type: component.source_type,
+      workbook_cost_total: component.workbook_cost_total,
+      workbook_unit_price: component.workbook_unit_price,
+      workbook_computed_cost: component.workbook_computed_cost,
+      workbook_cost_match: component.workbook_cost_match,
+      workbook_variance_amount: component.workbook_variance_amount,
+      workbook_variance_pct: component.workbook_variance_pct,
+    });
   }
   await repo.deletePosMappings(companyId, snap.created_mapping_ids ?? []);
   await repo.deleteRecipes(companyId, snap.created_recipe_ids ?? []);
@@ -1113,17 +1167,18 @@ export async function approveReviewItem(
   const unit = edits.unit ?? suggested.unit ?? null;
   const quantity = quantityCheck.value ?? suggested.quantity ?? 1;
   const total = totalCheck.value ?? suggested.total_cost ?? null;
-  const costDate =
-    edits.cost_date ??
-    suggested.cost_date ??
-    new Date().toISOString().slice(0, 10);
+  const priced = resolveIngredientPriceDate({
+    recordDate: edits.cost_date ?? suggested.cost_date ?? null,
+    uploadDate: new Date().toISOString().slice(0, 10),
+    kind: "confirmation",
+  });
+  const costDate = priced.effective_date;
   if (!name) return { ok: false, reason: "Missing ingredient name" };
   if (!unit) return { ok: false, reason: "Missing unit" };
   const resolvedUnit = resolveUnitCell(unit);
   if (!resolvedUnit.ok) return { ok: false, reason: resolvedUnit.reason };
   if (!total || total < 0) return { ok: false, reason: "Missing cost" };
-  if (quantity <= 0)
-    return { ok: false, reason: "Quantity must be a positive number" };
+  if (quantity <= 0) return { ok: false, reason: positiveQuantityReason("es") };
 
   const persistQuantity = quantity * resolvedUnit.quantityMultiplier;
   const persistUnit =
@@ -1143,6 +1198,8 @@ export async function approveReviewItem(
         total_cost: total,
         unit_price: total / persistQuantity,
         cost_date: costDate,
+        effective_date: priced.effective_date,
+        date_source: priced.date_source,
         supplier_name: suggested.supplier_name ?? null,
         currency,
         notes: null,

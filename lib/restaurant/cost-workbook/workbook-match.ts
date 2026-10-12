@@ -16,28 +16,21 @@ import type {
   WorkbookRecipeMatchSummary,
   WorkbookRecipeMismatch,
 } from "./types";
+import {
+  decideWorkbookCostMatch,
+  workbookCostsMatch,
+  workbookVarianceFields,
+  WORKBOOK_COST_ABS_TOLERANCE,
+  WORKBOOK_COST_REL_TOLERANCE,
+} from "./variance";
 
-/** Match if |Excel − Milton| ≤ max($0.01, 1% of the Excel total). */
-export const WORKBOOK_COST_ABS_TOLERANCE = 0.01;
-export const WORKBOOK_COST_REL_TOLERANCE = 0.01;
-
-export function workbookCostsMatch(excel: number, milton: number): boolean {
-  if (!Number.isFinite(excel) || !Number.isFinite(milton)) return false;
-  const tol = Math.max(
-    WORKBOOK_COST_ABS_TOLERANCE,
-    Math.abs(excel) * WORKBOOK_COST_REL_TOLERANCE
-  );
-  return Math.abs(excel - milton) <= tol + 1e-9;
-}
-
-export function decideWorkbookCostMatch(
-  excel: number | null | undefined,
-  milton: number | null | undefined
-): WorkbookCostMatch | null {
-  if (excel == null || !Number.isFinite(excel)) return null;
-  if (milton == null || !Number.isFinite(milton)) return "mismatch";
-  return workbookCostsMatch(excel, milton) ? "match" : "mismatch";
-}
+export {
+  decideWorkbookCostMatch,
+  workbookCostsMatch,
+  workbookVarianceFields,
+  WORKBOOK_COST_ABS_TOLERANCE,
+  WORKBOOK_COST_REL_TOLERANCE,
+};
 
 function mismatchReason(
   lang: PreferredLanguage,
@@ -118,7 +111,9 @@ export async function costingDataFromWorkbookRepo(
         menu_item_id: row.menu_item_id,
         status: "active" as const,
         source_type: row.source_type,
-        workbook_cost_match: row.workbook_cost_match ?? null,
+        // Recompute the Excel check from live costs. A stored mismatch
+        // would otherwise block costing and lock the recipe as mismatch.
+        workbook_cost_match: null,
       },
     ])
   );
@@ -152,6 +147,8 @@ export async function costingDataFromWorkbookRepo(
       source_type: entry.source_type,
       source_id: entry.source_id,
       cost_date: entry.cost_date,
+      effective_date: entry.effective_date ?? entry.cost_date,
+      date_source: entry.date_source ?? "upload",
       quantity: entry.quantity,
       unit: entry.unit,
       total_cost: entry.total_cost,
@@ -219,6 +216,7 @@ export async function reconcileImportedWorkbookCosts(input: {
         ? componentRecipeByComponentId.get(component.id)
         : undefined;
       if (!component || !recipe) continue;
+      if (recipe.source_type !== "import") continue;
       subsTotal += 1;
       const costed = calculateComponentCost(component.id, data);
       const milton =
@@ -226,6 +224,7 @@ export async function reconcileImportedWorkbookCosts(input: {
           ? costed.batch_cost
           : null;
       const match = decideWorkbookCostMatch(group.cost_total, milton);
+      const variance = workbookVarianceFields(group.cost_total, milton);
       if (match === "match") subsMatched += 1;
       else {
         mismatches.push({
@@ -233,6 +232,8 @@ export async function reconcileImportedWorkbookCosts(input: {
           name: group.name,
           excel_cost: group.cost_total,
           milton_cost: milton,
+          variance_amount: variance.workbook_variance_amount,
+          variance_pct: variance.workbook_variance_pct,
           reason: mismatchReason(
             lang,
             group.cost_total,
@@ -253,6 +254,8 @@ export async function reconcileImportedWorkbookCosts(input: {
             null,
           workbook_computed_cost: milton,
           workbook_cost_match: match,
+          workbook_variance_amount: variance.workbook_variance_amount,
+          workbook_variance_pct: variance.workbook_variance_pct,
         }
       );
       continue;
@@ -265,11 +268,13 @@ export async function reconcileImportedWorkbookCosts(input: {
     );
     const recipe = menu ? recipeByMenuId.get(menu.id) : undefined;
     if (!menu || !recipe) continue;
+    if (recipe.source_type !== "import") continue;
     dishesTotal += 1;
     const costed = calculateMenuItemCost(menu.id, data);
     const milton =
       costed.status === "complete" && costed.cost != null ? costed.cost : null;
     const match = decideWorkbookCostMatch(group.cost_total, milton);
+    const variance = workbookVarianceFields(group.cost_total, milton);
     if (match === "match") dishesMatched += 1;
     else {
       mismatches.push({
@@ -277,6 +282,8 @@ export async function reconcileImportedWorkbookCosts(input: {
         name: group.name,
         excel_cost: group.cost_total,
         milton_cost: milton,
+        variance_amount: variance.workbook_variance_amount,
+        variance_pct: variance.workbook_variance_pct,
         reason: mismatchReason(
           lang,
           group.cost_total,
@@ -290,6 +297,8 @@ export async function reconcileImportedWorkbookCosts(input: {
       workbook_selling_price: group.selling_price ?? null,
       workbook_computed_cost: milton,
       workbook_cost_match: match,
+      workbook_variance_amount: variance.workbook_variance_amount,
+      workbook_variance_pct: variance.workbook_variance_pct,
     });
   }
 

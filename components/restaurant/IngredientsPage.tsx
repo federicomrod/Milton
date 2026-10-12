@@ -327,7 +327,7 @@ function AddCostEntryForm({
       return;
     }
     if (!Number.isFinite(qNum) || qNum <= 0) {
-      setError("Quantity must be a positive number.");
+      setError("La cantidad tiene que ser un número positivo.");
       return;
     }
     if (!Number.isFinite(tNum) || tNum < 0) {

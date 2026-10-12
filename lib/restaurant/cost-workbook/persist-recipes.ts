@@ -18,11 +18,14 @@ import {
   nameMatchScore,
 } from "./names";
 import { resolveSubRecipeYield } from "./recipes";
+import { nextVersionNumber } from "@/lib/restaurant/recipe-versions";
 import type { CostWorkbookRepo } from "./repo";
 import type {
   GroupedRecipe,
   ImportedComponent,
+  ImportedComponentRecipe,
   ImportedMenuItem,
+  ImportedRecipe,
   RecipeInputSnapshot,
   RecipeLineCandidate,
   ReviewCandidate,
@@ -191,6 +194,7 @@ export async function persistWorkbookRecipes(input: {
   locationId?: string | null;
   brandId?: string | null;
   lang?: PreferredLanguage;
+  effectiveDate?: string | null;
 }): Promise<{
   menuItemsCreated: number;
   recipesCreated: number;
@@ -369,6 +373,22 @@ export async function persistWorkbookRecipes(input: {
           component_id: existing.id,
           output_quantity: previous.output_quantity,
           output_unit: previous.output_unit,
+          source_type: previous.source_type,
+          workbook_cost_total: previous.workbook_cost_total ?? null,
+          workbook_unit_price: previous.workbook_unit_price ?? null,
+          workbook_computed_cost: previous.workbook_computed_cost ?? null,
+          workbook_cost_match: previous.workbook_cost_match ?? null,
+          workbook_variance_amount: previous.workbook_variance_amount ?? null,
+          workbook_variance_pct: previous.workbook_variance_pct ?? null,
+        });
+        await snapshotComponentRecipeVersion({
+          repo: input.repo,
+          companyId: input.companyId,
+          recipe: previous,
+          previousInputs,
+          nextInputs: inputs,
+          changes,
+          effectiveDate: input.effectiveDate ?? null,
         });
         await input.repo.replaceComponentRecipeInputs(
           input.companyId,
@@ -400,6 +420,22 @@ export async function persistWorkbookRecipes(input: {
         });
         changes.created_component_recipe_ids.push(createdRecipe.id);
         componentRecipeByComponentId.set(existing.id, createdRecipe);
+        const version = await input.repo.insertComponentRecipeVersion({
+          companyId: input.companyId,
+          componentRecipeId: createdRecipe.id,
+          componentId: existing.id,
+          versionNumber: 1,
+          status: "approved",
+          effectiveDate: null,
+          outputQuantity: yieldResult.quantity,
+          outputUnit: yieldResult.unit,
+          sourceType: "import",
+          inputs,
+        });
+        changes.created_component_recipe_version_ids = [
+          ...(changes.created_component_recipe_version_ids ?? []),
+          version.id,
+        ];
       }
     } else {
       component = await input.repo.createComponent({
@@ -422,6 +458,22 @@ export async function persistWorkbookRecipes(input: {
       });
       changes.created_component_recipe_ids.push(createdRecipe.id);
       componentRecipeByComponentId.set(component.id, createdRecipe);
+      const version = await input.repo.insertComponentRecipeVersion({
+        companyId: input.companyId,
+        componentRecipeId: createdRecipe.id,
+        componentId: component.id,
+        versionNumber: 1,
+        status: "approved",
+        effectiveDate: null,
+        outputQuantity: yieldResult.quantity,
+        outputUnit: yieldResult.unit,
+        sourceType: "import",
+        inputs,
+      });
+      changes.created_component_recipe_version_ids = [
+        ...(changes.created_component_recipe_version_ids ?? []),
+        version.id,
+      ];
     }
   }
 
@@ -470,6 +522,22 @@ export async function persistWorkbookRecipes(input: {
       changes.updated_recipes.push({
         id: existingRecipe.id,
         inputs: previousInputs,
+        source_type: existingRecipe.source_type,
+        workbook_cost_total: existingRecipe.workbook_cost_total ?? null,
+        workbook_selling_price: existingRecipe.workbook_selling_price ?? null,
+        workbook_computed_cost: existingRecipe.workbook_computed_cost ?? null,
+        workbook_cost_match: existingRecipe.workbook_cost_match ?? null,
+        workbook_variance_amount: existingRecipe.workbook_variance_amount ?? null,
+        workbook_variance_pct: existingRecipe.workbook_variance_pct ?? null,
+      });
+      await snapshotMenuRecipeVersion({
+        repo: input.repo,
+        companyId: input.companyId,
+        recipe: existingRecipe,
+        previousInputs,
+        nextInputs: inputs,
+        changes,
+        effectiveDate: input.effectiveDate ?? null,
       });
       await input.repo.replaceRecipeInputs(
         input.companyId,
@@ -486,6 +554,20 @@ export async function persistWorkbookRecipes(input: {
       });
       changes.created_recipe_ids.push(created.id);
       recipeByMenuId.set(menuItem.id, created);
+      const version = await input.repo.insertRecipeVersion({
+        companyId: input.companyId,
+        recipeId: created.id,
+        menuItemId: menuItem.id,
+        versionNumber: 1,
+        status: "approved",
+        effectiveDate: null,
+        sourceType: "import",
+        inputs,
+      });
+      changes.created_recipe_version_ids = [
+        ...(changes.created_recipe_version_ids ?? []),
+        version.id,
+      ];
     }
   }
 
@@ -587,4 +669,94 @@ export async function linkMenuItemsToPos(input: {
 
 export function posMatchScore(posName: string, menuName: string): number {
   return nameMatchScore(posName, menuName);
+}
+
+async function snapshotMenuRecipeVersion(input: {
+  repo: CostWorkbookRepo;
+  companyId: string;
+  recipe: ImportedRecipe;
+  previousInputs: RecipeInputSnapshot[];
+  nextInputs: RecipeInputSnapshot[];
+  changes: UndoSnapshot;
+  effectiveDate: string | null;
+}): Promise<void> {
+  const existing = await input.repo.listRecipeVersions(
+    input.companyId,
+    input.recipe.id
+  );
+  const createdIds = input.changes.created_recipe_version_ids ?? [];
+  if (existing.length === 0) {
+    const first = await input.repo.insertRecipeVersion({
+      companyId: input.companyId,
+      recipeId: input.recipe.id,
+      menuItemId: input.recipe.menu_item_id,
+      versionNumber: 1,
+      status: "approved",
+      effectiveDate: null,
+      sourceType: input.recipe.source_type,
+      inputs: input.previousInputs,
+    });
+    createdIds.push(first.id);
+  }
+  const next = await input.repo.insertRecipeVersion({
+    companyId: input.companyId,
+    recipeId: input.recipe.id,
+    menuItemId: input.recipe.menu_item_id,
+    versionNumber: nextVersionNumber(
+      existing.length === 0 ? [{ version_number: 1 }] : existing
+    ),
+    status: "in_review",
+    effectiveDate: input.effectiveDate,
+    sourceType: "import",
+    inputs: input.nextInputs,
+  });
+  createdIds.push(next.id);
+  input.changes.created_recipe_version_ids = createdIds;
+}
+
+async function snapshotComponentRecipeVersion(input: {
+  repo: CostWorkbookRepo;
+  companyId: string;
+  recipe: ImportedComponentRecipe;
+  previousInputs: RecipeInputSnapshot[];
+  nextInputs: RecipeInputSnapshot[];
+  changes: UndoSnapshot;
+  effectiveDate: string | null;
+}): Promise<void> {
+  const existing = await input.repo.listComponentRecipeVersions(
+    input.companyId,
+    input.recipe.id
+  );
+  const createdIds = input.changes.created_component_recipe_version_ids ?? [];
+  if (existing.length === 0) {
+    const first = await input.repo.insertComponentRecipeVersion({
+      companyId: input.companyId,
+      componentRecipeId: input.recipe.id,
+      componentId: input.recipe.component_id,
+      versionNumber: 1,
+      status: "approved",
+      effectiveDate: null,
+      outputQuantity: input.recipe.output_quantity,
+      outputUnit: input.recipe.output_unit,
+      sourceType: input.recipe.source_type,
+      inputs: input.previousInputs,
+    });
+    createdIds.push(first.id);
+  }
+  const next = await input.repo.insertComponentRecipeVersion({
+    companyId: input.companyId,
+    componentRecipeId: input.recipe.id,
+    componentId: input.recipe.component_id,
+    versionNumber: nextVersionNumber(
+      existing.length === 0 ? [{ version_number: 1 }] : existing
+    ),
+    status: "in_review",
+    effectiveDate: input.effectiveDate,
+    outputQuantity: input.recipe.output_quantity,
+    outputUnit: input.recipe.output_unit,
+    sourceType: "import",
+    inputs: input.nextInputs,
+  });
+  createdIds.push(next.id);
+  input.changes.created_component_recipe_version_ids = createdIds;
 }

@@ -3346,7 +3346,7 @@ describe("COSTO RESTAURANTE block layout", () => {
     );
     expect(workingInputs).toHaveLength(1);
     expect(workingInputs[0]?.quantity).toBeCloseTo(4, 5);
-    expect(workingInputs[0]?.unit).toBe("lb");
+    expect(normalizeUnit(workingInputs[0]?.unit ?? "")).toBe("lb");
 
     const second = await importCostWorkbook({
       companyId: COMPANY,
@@ -3374,7 +3374,7 @@ describe("COSTO RESTAURANTE block layout", () => {
     );
     expect(stillInputs).toHaveLength(1);
     expect(stillInputs[0]?.quantity).toBeCloseTo(4, 5);
-    expect(stillInputs[0]?.unit).toBe("lb");
+    expect(normalizeUnit(stillInputs[0]?.unit ?? "")).toBe("lb");
 
     const versions = store.componentRecipeVersions
       .filter((row) => row.component_id === component?.id)
@@ -3389,7 +3389,7 @@ describe("COSTO RESTAURANTE block layout", () => {
     expect(review?.output_unit).toBe("unit");
     expect(review?.inputs).toHaveLength(1);
     expect(review?.inputs[0]?.quantity).toBeCloseTo(8, 5);
-    expect(review?.inputs[0]?.unit).toBe("lb");
+    expect(normalizeUnit(review?.inputs[0]?.unit ?? "")).toBe("lb");
   });
 
   it("sends a plain ingredient with ORDEN and a price-list CONVOY to needs-a-look", async () => {

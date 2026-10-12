@@ -4,6 +4,7 @@ import {
   errorMentionsColumn,
   omitColumnFromRows,
   upsertRetryingWithoutColumn,
+  upsertRetryingWithoutColumns,
 } from "@/lib/restaurant/missing-schema-column";
 
 describe("errorMentionsColumn", () => {
@@ -82,5 +83,49 @@ describe("upsertRetryingWithoutColumn", () => {
     expect(result.error?.message).toBe("unique constraint");
     expect(result.omittedColumn).toBe(false);
     expect(calls).toBe(1);
+  });
+});
+
+describe("upsertRetryingWithoutColumns", () => {
+  it("strips each missing optional column until the upsert succeeds", async () => {
+    const calls: Array<string[]> = [];
+    const result = await upsertRetryingWithoutColumns(
+      [
+        "is_tip",
+        "combo_parent_external_line_id",
+        "combo_parent_odoo_product_id",
+      ],
+      async (rows) => {
+        const keys = Object.keys(rows[0] ?? {});
+        calls.push(keys);
+        if (keys.includes("is_tip")) {
+          return { error: { message: 'column "is_tip" does not exist' } };
+        }
+        if (keys.includes("combo_parent_external_line_id")) {
+          return {
+            error: {
+              message: 'column "combo_parent_external_line_id" does not exist',
+            },
+          };
+        }
+        return { error: null, count: 1 };
+      },
+      [
+        {
+          id: "1",
+          is_tip: false,
+          combo_parent_external_line_id: "9",
+          combo_parent_odoo_product_id: 3,
+        },
+      ]
+    );
+    expect(result.error).toBeNull();
+    expect(result.omittedColumns).toEqual([
+      "is_tip",
+      "combo_parent_external_line_id",
+    ]);
+    expect(calls.at(-1) ?? []).not.toContain("is_tip");
+    expect(calls.at(-1) ?? []).not.toContain("combo_parent_external_line_id");
+    expect(calls.at(-1) ?? []).toContain("combo_parent_odoo_product_id");
   });
 });

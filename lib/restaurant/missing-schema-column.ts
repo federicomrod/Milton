@@ -78,6 +78,24 @@ export async function fetchAllRowsRetryingWithoutColumn<T>(
   );
 }
 
+export async function fetchAllRowsRetryingWithoutColumns<T>(
+  columns: readonly string[],
+  makeQuery: (select: string) => OrderableQuery,
+  selectWithColumns: string,
+  options?: FetchAllRowsOptions
+): Promise<FetchAllRowsResult<T>> {
+  let select = selectWithColumns;
+  let last = await fetchAllRows<T>(() => makeQuery(select), options);
+  if (!last.error) return last;
+  for (const column of columns) {
+    if (!errorMentionsColumn(last.error, column)) continue;
+    select = dropColumnFromSelect(select, column);
+    last = await fetchAllRows<T>(() => makeQuery(select), options);
+    if (!last.error) return last;
+  }
+  return last;
+}
+
 export async function upsertRetryingWithoutColumn<T extends object>(
   column: string,
   upsert: (rows: T[]) => Promise<{
@@ -107,4 +125,46 @@ export async function upsertRetryingWithoutColumn<T extends object>(
     count: second.count ?? stripped.length,
     omittedColumn: true,
   };
+}
+
+/**
+ * Same retry, for several hand-applied columns (is_tip, combo parent
+ * fields). Omits each named column only when the error mentions it.
+ */
+export async function upsertRetryingWithoutColumns<T extends object>(
+  columns: readonly string[],
+  upsert: (rows: T[]) => Promise<{
+    error: SchemaErrorLike;
+    count?: number | null;
+  }>,
+  rows: T[]
+): Promise<{
+  error: SchemaErrorLike;
+  count: number;
+  omittedColumns: string[];
+}> {
+  let current = rows;
+  const omittedColumns: string[] = [];
+  let last = await upsert(current);
+  if (!last.error) {
+    return {
+      error: null,
+      count: last.count ?? current.length,
+      omittedColumns,
+    };
+  }
+  for (const column of columns) {
+    if (!errorMentionsColumn(last.error, column)) continue;
+    current = omitColumnFromRows(current, column);
+    omittedColumns.push(column);
+    last = await upsert(current);
+    if (!last.error) {
+      return {
+        error: null,
+        count: last.count ?? current.length,
+        omittedColumns,
+      };
+    }
+  }
+  return { error: last.error, count: 0, omittedColumns };
 }

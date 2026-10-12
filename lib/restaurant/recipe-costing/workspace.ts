@@ -1,8 +1,14 @@
 import type { PosProductLinkRecord } from "@/lib/restaurant/pos-product-links";
+import {
+  CLASSIFICATION_LABELS,
+  LINK_STATE_LABELS,
+} from "@/lib/restaurant/pos-product-links";
 import type { RankedPosProduct } from "@/lib/restaurant/pos-product-list";
 import { hasApprovedVersion } from "@/lib/restaurant/recipe-versions";
 import type { RecipeVersionRecord } from "@/lib/restaurant/recipe-versions";
 import {
+  canConfirmSuggestedLink,
+  isBoundSuggestion,
   parseSuggestionEvidence,
   type SuggestionEvidenceView,
 } from "./evidence";
@@ -103,7 +109,14 @@ export interface VincularProductRow {
   can_undo: boolean;
   filter_bucket: VincularFilter | "todos";
   action_label: string;
+  can_confirm_suggestion: boolean;
+  suggestion_bound: boolean;
   evidence: SuggestionEvidenceView;
+  preview_lines: ReturnType<typeof toReviewLine>[];
+  milton_cost_label: string | null;
+  excel_total_label: string | null;
+  confidence_label: string | null;
+  source_label: string | null;
 }
 
 export interface SuggestionBatchRow {
@@ -160,6 +173,17 @@ export interface RecipeCostingWorkspace {
   editor: RecipeEditorView | null;
   menu_costeado: boolean;
   footer: string;
+  combo_sync_hint: string | null;
+  latest_upload: {
+    id: string;
+    filename: string;
+    created_at: string | null;
+    has_candidate_blocks: boolean;
+  } | null;
+  timings?: {
+    load_ms: number;
+    path: "full" | "validar";
+  };
 }
 
 export interface RecipeEditorView {
@@ -194,6 +218,47 @@ export interface WorkspaceVersion extends RecipeVersionRecord {
   notes?: string | null;
 }
 
+/** Stub ranked products from links — used by Validar so we skip the sales scan. */
+export function rankedProductsFromLinks(
+  links: readonly PosProductLinkRecord[],
+  selectedOdooProductId?: number | null
+): RankedPosProduct[] {
+  const products = links.map((link) => ({
+    odoo_product_id: link.odoo_product_id,
+    odoo_name: link.odoo_name,
+    net_sales: 0,
+    share_of_net_sales: 0,
+    is_combo: false,
+    components: [],
+    classification: link.classification,
+    classification_label: CLASSIFICATION_LABELS[link.classification],
+    link_state: link.link_state,
+    link_state_label: LINK_STATE_LABELS[link.link_state],
+    menu_item_id: link.menu_item_id,
+    counts_toward_coverage: false,
+  }));
+  if (
+    selectedOdooProductId != null &&
+    !products.some((row) => row.odoo_product_id === selectedOdooProductId)
+  ) {
+    products.unshift({
+      odoo_product_id: selectedOdooProductId,
+      odoo_name: `Odoo #${selectedOdooProductId}`,
+      net_sales: 0,
+      share_of_net_sales: 0,
+      is_combo: false,
+      components: [],
+      classification: "por_clasificar",
+      classification_label: CLASSIFICATION_LABELS.por_clasificar,
+      link_state: "sin_vincular",
+      link_state_label: LINK_STATE_LABELS.sin_vincular,
+      menu_item_id: null,
+      counts_toward_coverage: false,
+    });
+  }
+  return products;
+}
+
 export function classifyTodoKind(input: {
   product: RankedPosProduct;
   evidence: SuggestionEvidenceView;
@@ -219,9 +284,11 @@ export function classifyTodoKind(input: {
     return "por_revisar";
   }
   if (isAmbiguousEvidence(input.evidence)) return "ambiguo";
-  if (input.product.link_state === "sugerido") return "sugerido";
+  if (input.product.link_state === "sugerido") {
+    return isBoundSuggestion(input.evidence) ? "sugerido" : "sin_receta";
+  }
   if (input.product.link_state === "sin_vincular") {
-    return input.evidence.block_name ? "sugerido" : "sin_receta";
+    return isBoundSuggestion(input.evidence) ? "sugerido" : "sin_receta";
   }
   return "por_revisar";
 }
@@ -365,6 +432,9 @@ export function buildRecipeCostingWorkspace(input: {
   coveredNetSales: number;
   selectedOdooProductId?: number | null;
   lastProgress?: string | null;
+  comboSyncHint?: string | null;
+  latestUpload?: RecipeCostingWorkspace["latest_upload"];
+  timings?: RecipeCostingWorkspace["timings"];
 }): RecipeCostingWorkspace {
   const currency = input.currency || "USD";
   const versionsByMenu = new Map<string, WorkspaceVersion[]>();
@@ -383,6 +453,8 @@ export function buildRecipeCostingWorkspace(input: {
   const products: VincularProductRow[] = input.products.map((product) => {
     const link = linkByProduct.get(product.odoo_product_id);
     const evidence = parseSuggestionEvidence(link?.evidence);
+    const bound = isBoundSuggestion(evidence);
+    const canConfirm = canConfirmSuggestedLink(evidence);
     const recipeName =
       (product.menu_item_id ? menuName.get(product.menu_item_id) : null) ??
       evidence.block_name;
@@ -410,7 +482,11 @@ export function buildRecipeCostingWorkspace(input: {
       link_state_label: product.link_state_label,
       menu_item_id: product.menu_item_id,
       recipe_name: recipeName ?? null,
-      evidence_label: evidenceSentence(evidence),
+      evidence_label: bound
+        ? evidenceSentence(evidence)
+        : product.link_state === "sugerido"
+          ? "La sugerencia no trae ingredientes"
+          : evidenceSentence(evidence),
       confirmed: product.link_state === "confirmado",
       can_undo: product.link_state === "confirmado",
       filter_bucket: product.is_combo
@@ -424,8 +500,42 @@ export function buildRecipeCostingWorkspace(input: {
         link_state: product.link_state,
         recipe_name: recipeName ?? null,
         ambiguous: isAmbiguousEvidence(evidence),
+        can_confirm: canConfirm,
       }),
+      can_confirm_suggestion:
+        bound && canConfirm && product.link_state === "sugerido",
+      suggestion_bound: bound,
       evidence,
+      preview_lines: evidence.lines.map((line) =>
+        toReviewLine(line, currency, evidence.milton_cost)
+      ),
+      milton_cost_label:
+        evidence.milton_cost != null
+          ? formatMoneyEs(evidence.milton_cost, currency)
+          : null,
+      excel_total_label:
+        evidence.excel_total != null
+          ? formatMoneyEs(evidence.excel_total, currency)
+          : null,
+      confidence_label:
+        evidence.confidence != null
+          ? formatPctLabel(shareToPct(evidence.confidence))
+          : null,
+      source_label: bound
+        ? [
+            evidence.tab ? `hoja ${evidence.tab}` : null,
+            evidence.block_name,
+            evidence.lines.some((line) => line.source_row != null)
+              ? `filas ${evidence.lines
+                  .map((line) => line.source_row)
+                  .filter((row): row is number => row != null)
+                  .slice(0, 8)
+                  .join(", ")}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : null,
     };
   });
 
@@ -712,6 +822,9 @@ export function buildRecipeCostingWorkspace(input: {
     editor,
     menu_costeado: menuCosteado,
     footer: COSTING_FOOTERS[view],
+    combo_sync_hint: input.comboSyncHint ?? null,
+    latest_upload: input.latestUpload ?? null,
+    timings: input.timings,
   };
 }
 
@@ -721,11 +834,12 @@ function vincularActionLabel(input: {
   link_state: string;
   recipe_name: string | null;
   ambiguous: boolean;
+  can_confirm: boolean;
 }): string {
   if (input.confirmed) return "Cambiar";
   if (input.is_combo) return "Ver partes";
   if (input.ambiguous) return "Elegir";
-  if (input.link_state === "sugerido") return "Confirmar";
+  if (input.link_state === "sugerido" && input.can_confirm) return "Confirmar";
   if (!input.recipe_name) return "Crear receta";
   return "Elegir";
 }
@@ -790,6 +904,7 @@ function buildEditorFromReview(
         block_name: item.block_name,
         confidence: null,
         evidence_text: null,
+        source: null,
         yield: { value: null, unit: null, source: null },
         excel_total: null,
         milton_cost: null,

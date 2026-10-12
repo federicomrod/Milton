@@ -288,6 +288,8 @@ export interface UndoSnapshot {
     category: string | null;
   }>;
   undo_errors?: string[];
+  /** Compact parsed recipe blocks from this upload. Not used by undo. */
+  candidate_blocks?: import("./stored-blocks").StoredRecipeBlock[];
 }
 
 export interface DeletedIngredientSnapshot {

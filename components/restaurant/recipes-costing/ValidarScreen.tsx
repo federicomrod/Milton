@@ -212,6 +212,15 @@ function Editor({
               </tr>
             </thead>
             <tbody>
+              {editor.lines.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-4 text-sm text-slate-600">
+                    Esta receta no tiene ingredientes. No la apruebes. Vuelve a
+                    Vincular, genera sugerencias desde tu archivo o créala a
+                    mano.
+                  </td>
+                </tr>
+              ) : null}
               {editor.lines.map((line) => (
                 <LineRow
                   key={`${line.raw_name}-${line.source_row}`}

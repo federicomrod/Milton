@@ -24,6 +24,7 @@ export interface SuggestionEvidenceView {
   block_name: string | null;
   confidence: number | null;
   evidence_text: string | null;
+  source: string | null;
   yield: SuggestionYieldView;
   excel_total: number | null;
   milton_cost: number | null;
@@ -36,6 +37,27 @@ export interface SuggestionEvidenceView {
   lines: SuggestionLineView[];
   recipe_version_id: string | null;
   filename: string | null;
+}
+
+/** True only when the suggestion is tied to a parsed workbook block with lines. */
+export function isBoundSuggestion(evidence: SuggestionEvidenceView): boolean {
+  return Boolean(
+    evidence.tab && evidence.block_name && evidence.lines.length > 0
+  );
+}
+
+/**
+ * Confirmar is for a parsed workbook recipe, or for a person who picked
+ * / created one on purpose. A name-only leftover (exact-name onto an
+ * empty draft) is not a suggestion.
+ */
+export function canConfirmSuggestedLink(
+  evidence: SuggestionEvidenceView
+): boolean {
+  if (isBoundSuggestion(evidence)) return true;
+  return (
+    evidence.source === "manual_pick" || evidence.source === "create_recipe"
+  );
 }
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
@@ -115,6 +137,7 @@ export function parseSuggestionEvidence(
     block_name: asString(ev.block_name),
     confidence: asNumber(ev.confidence),
     evidence_text: evidenceText,
+    source: asString(ev.source),
     yield: {
       value: asNumber(yieldRaw?.value),
       unit: asString(yieldRaw?.unit),

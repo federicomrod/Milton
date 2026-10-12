@@ -36,6 +36,7 @@ import {
   type CheckedRecipeProposal,
 } from "./recipe-suggestion-checks";
 import type { CostWorkbookRepo } from "./repo";
+import { compactCandidateBlocks } from "./stored-blocks";
 import type { GroupedRecipe, RecipeInputSnapshot } from "./types";
 import { emptyUndoSnapshot } from "./types";
 
@@ -333,6 +334,26 @@ export async function runRecipeSuggestions(input: {
       subRecipes: catalogSubs,
       lang,
     });
+    if (checked.lines.length === 0 || !checked.proposal.tab) {
+      sinSugerencia += 1;
+      items.push({
+        odoo_product_id: product.odoo_product_id,
+        odoo_name: product.odoo_name,
+        result: SIN_SUGERENCIA,
+        status: null,
+        menu_item_id: existingMenu?.id ?? null,
+        recipe_id: existingRecipe?.id ?? null,
+        recipe_version_id: null,
+        link_state: existingLink?.link_state ?? "sin_vincular",
+        pending: true,
+        reasons: [SIN_SUGERENCIA],
+        evidence: {},
+        excel_match: null,
+        milton_cost: null,
+        excel_total: null,
+      });
+      continue;
+    }
     const evidence = evidenceFor(checked);
     const resolvedInputs = inputsFromChecked(
       checked,
@@ -437,6 +458,7 @@ export async function runRecipeSuggestions(input: {
     });
   }
 
+  changes.candidate_blocks = compactCandidateBlocks(input.candidateBlocks);
   await input.repo.updateBatchSnapshot(input.companyId, batch.id, changes);
   return {
     batch_id: batch.id,

@@ -24,6 +24,8 @@ export function VincularScreen({
   onChange,
   onCreate,
   onUndo,
+  onGenerateSuggestions,
+  generateBusy,
   busy,
 }: {
   data: RecipeCostingWorkspace;
@@ -33,6 +35,8 @@ export function VincularScreen({
   onChange: (product: VincularProductRow, menuItemId: string) => void;
   onCreate: (product: VincularProductRow) => void;
   onUndo: (product: VincularProductRow) => void;
+  onGenerateSuggestions: () => void;
+  generateBusy: boolean;
   busy: boolean;
 }) {
   const [filter, setFilter] = useState<VincularFilter>("por_resolver");
@@ -58,9 +62,16 @@ export function VincularScreen({
 
   return (
     <div>
-      <div className="mb-1 text-[10.5px] text-slate-400">
-        Menú › Recetas y costeo ›{" "}
-        <b className="text-slate-900">Paso 2 de 4 · Vincular recetas</b>
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-[10.5px] text-slate-400">
+        <span>
+          Menú › Recetas y costeo ›{" "}
+          <b className="text-slate-900">Paso 2 de 4 · Vincular recetas</b>
+        </span>
+        <GhostBtn disabled={generateBusy} onClick={onGenerateSuggestions}>
+          {generateBusy
+            ? "Generando sugerencias…"
+            : "Generar sugerencias desde tu archivo"}
+        </GhostBtn>
       </div>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,2.1fr)_minmax(0,1fr)]">
         <Card className="p-3">
@@ -150,7 +161,7 @@ export function VincularScreen({
                         >
                           Cambiar
                         </button>
-                      ) : row.action_label === "Confirmar" ? (
+                      ) : row.can_confirm_suggestion ? (
                         <PrimaryBtn
                           disabled={busy}
                           onClick={(event) => {
@@ -237,6 +248,8 @@ function SidePanel({
   onUndo: () => void;
 }) {
   const ev = product.evidence;
+  const bound = product.suggestion_bound;
+  const canConfirm = product.can_confirm_suggestion;
   return (
     <div>
       <div className="text-xs font-medium text-slate-500">
@@ -254,13 +267,27 @@ function SidePanel({
           <b className="text-sm">
             {ev.block_name ?? product.recipe_name ?? "Sin receta"}
           </b>
-          {ev.tab ? (
+          {product.source_label ? (
+            <span className="text-[10.5px] text-slate-400">
+              {" "}
+              · {product.source_label}
+            </span>
+          ) : ev.tab ? (
             <span className="text-[10.5px] text-slate-400">
               {" "}
               · hoja {ev.tab}
             </span>
           ) : null}
         </div>
+        {ev.confidence != null || ev.evidence_text ? (
+          <div className="mt-1 text-[11px] text-slate-600">
+            {product.confidence_label
+              ? `Confianza ${product.confidence_label}`
+              : null}
+            {product.confidence_label && ev.evidence_text ? " · " : null}
+            {ev.evidence_text}
+          </div>
+        ) : null}
         {ev.reasons.slice(0, 3).map((reason) => (
           <div key={reason} className="mt-1 flex gap-1.5 text-[11.8px]">
             <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-100 text-[10px] font-bold text-amber-800">
@@ -269,26 +296,110 @@ function SidePanel({
             {reason}
           </div>
         ))}
-        {ev.reasons.length === 0 && ev.block_name ? (
+        {!bound ? (
           <div className="mt-1 flex gap-1.5 text-[11.8px]">
-            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-bold text-emerald-700">
-              ✓
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-100 text-[10px] font-bold text-amber-800">
+              !
             </span>
-            Nombre sugerido desde tu archivo
+            {product.preview_lines.length === 0
+              ? "Esta sugerencia no trae ingredientes. No confirmes un nombre vacío."
+              : "Esta sugerencia no está atada a un bloque de tu Excel."}
           </div>
         ) : null}
       </div>
+
+      {product.preview_lines.length > 0 ? (
+        <div className="mb-2.5 overflow-x-auto">
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="text-left text-[10px] font-semibold text-slate-400">
+                <th className="pb-1 pr-2">Ingrediente</th>
+                <th className="pb-1 pr-2 text-right">Cant.</th>
+                <th className="pb-1 pr-2">Unidad</th>
+                <th className="pb-1 pr-2 text-right">Costo unit.</th>
+                <th className="pb-1 text-right">Aporte</th>
+              </tr>
+            </thead>
+            <tbody>
+              {product.preview_lines.map((line) => (
+                <tr
+                  key={`${line.raw_name}-${line.source_row}`}
+                  className="border-t border-slate-100"
+                >
+                  <td className="py-1 pr-2">
+                    <b>{line.raw_name}</b>
+                    {line.pending ? (
+                      <div className="text-[10px] text-amber-700">
+                        Pendiente
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="py-1 pr-2 text-right">{line.qty || "—"}</td>
+                  <td className="py-1 pr-2">{line.unit || "—"}</td>
+                  <td className="py-1 pr-2 text-right">
+                    {line.unit_cost_label}
+                  </td>
+                  <td className="py-1 text-right font-semibold">
+                    {line.aporte_label}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="mb-2.5 text-[12px] text-slate-600">
+          No hay líneas de receta para mostrar. Genera sugerencias desde tu
+          archivo o crea la receta a mano.
+        </p>
+      )}
+
+      <div className="mb-2.5 grid grid-cols-2 gap-2">
+        <div className="rounded-[9px] border border-slate-100 px-2.5 py-2">
+          <div className="text-[10.5px] text-slate-500">Costo Milton</div>
+          <div className="text-sm font-bold">
+            {product.milton_cost_label ?? "Pendiente"}
+          </div>
+        </div>
+        <div className="rounded-[9px] border border-slate-100 px-2.5 py-2">
+          <div className="text-[10.5px] text-slate-500">
+            Tu Excel (COSTO TOTAL)
+          </div>
+          <div className="text-sm font-bold">
+            {product.excel_total_label ?? "—"}
+          </div>
+        </div>
+      </div>
+
       <div className="flex flex-wrap gap-1.5">
-        <PrimaryBtn
-          disabled={busy || !product.menu_item_id}
-          onClick={onConfirm}
+        {canConfirm ? (
+          <PrimaryBtn
+            disabled={busy || !product.menu_item_id}
+            onClick={onConfirm}
+          >
+            Confirmar vínculo
+          </PrimaryBtn>
+        ) : null}
+        <GhostBtn
+          disabled={busy}
+          onClick={() => onPicking(!picking)}
+          className={
+            !canConfirm
+              ? "border-[#151c2c] bg-[#151c2c] text-white hover:bg-[#0f1522]"
+              : undefined
+          }
         >
-          Confirmar vínculo
-        </PrimaryBtn>
-        <GhostBtn disabled={busy} onClick={() => onPicking(!picking)}>
           Elegir otra
         </GhostBtn>
-        <GhostBtn disabled={busy} onClick={onCreate}>
+        <GhostBtn
+          disabled={busy}
+          onClick={onCreate}
+          className={
+            !canConfirm
+              ? "border-[#f28c28] bg-[#f28c28] text-white hover:bg-[#e07b1a]"
+              : undefined
+          }
+        >
           Crear receta
         </GhostBtn>
         {product.can_undo ? (

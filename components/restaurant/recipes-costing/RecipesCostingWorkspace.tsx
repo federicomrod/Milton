@@ -145,6 +145,32 @@ export function RecipesCostingWorkspace({
     }
   }
 
+  async function generateFromStoredUpload() {
+    setWorkbookBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/restaurant/recipes/suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "latest_upload", limit: 20 }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        suggested?: number;
+        sin_sugerencia?: number;
+      };
+      if (!res.ok)
+        throw new Error(json.error ?? "No pude generar las sugerencias.");
+      await reload();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No pude generar las sugerencias."
+      );
+    } finally {
+      setWorkbookBusy(false);
+    }
+  }
+
   return (
     <div className="w-full px-6 pb-10 pt-2 lg:px-10">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -212,6 +238,8 @@ export function RecipesCostingWorkspace({
           selectedId={selectedId}
           onSelect={(id) => replaceParams({ vista: "vincular", producto: id })}
           onConfirm={(product) => void confirmProduct(product)}
+          onGenerateSuggestions={() => void generateFromStoredUpload()}
+          generateBusy={workbookBusy}
           onChange={(product, menuItemId) =>
             void mutate(() =>
               post("/api/restaurant/pos/links/change", {
@@ -281,6 +309,8 @@ export function RecipesCostingWorkspace({
         <ResumenScreen
           data={data}
           onOpen={open}
+          onGenerateSuggestions={() => void generateFromStoredUpload()}
+          generateBusy={workbookBusy}
           onUndoBatch={(batchId) =>
             void mutate(async () => {
               const res = await fetch(

@@ -199,7 +199,9 @@ export function proposeRecipeHeuristic(
     input.product.odoo_name,
     input.candidateBlocks
   );
-  if (!block || block.lines.length === 0) return SIN_SUGERENCIA;
+  const lineCount =
+    (block?.lines.length ?? 0) + (block?.pending_lines?.length ?? 0);
+  if (!block || lineCount === 0) return SIN_SUGERENCIA;
   return proposalFromBlock(block, {
     confidence: 1,
     evidence: `nombre exacto: ${block.name} (${block.tabName})`,

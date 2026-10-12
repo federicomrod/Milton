@@ -7,10 +7,14 @@ export function ResumenScreen({
   data,
   onOpen,
   onUndoBatch,
+  onGenerateSuggestions,
+  generateBusy,
 }: {
   data: RecipeCostingWorkspace;
   onOpen: (view: "vincular" | "validar", odooProductId?: number) => void;
   onUndoBatch: (batchId: string) => void;
+  onGenerateSuggestions: () => void;
+  generateBusy: boolean;
 }) {
   const { coverage, stepper, next_dish, classification } = data;
   return (
@@ -107,6 +111,20 @@ export function ResumenScreen({
           <div className="mt-1.5 text-[10.5px] text-slate-400">
             {data.last_progress}
           </div>
+          <div className="mt-3 text-left">
+            <GhostBtn disabled={generateBusy} onClick={onGenerateSuggestions}>
+              {generateBusy
+                ? "Generando sugerencias…"
+                : "Generar sugerencias desde tu archivo"}
+            </GhostBtn>
+            <div className="mt-1 text-[10.5px] text-slate-400">
+              {data.latest_upload?.has_candidate_blocks
+                ? `Usa ${data.latest_upload.filename}. Milton propone; tú confirmas.`
+                : data.latest_upload
+                  ? `Ya subiste ${data.latest_upload.filename}, pero hay que volver a subirlo una vez en Costos para guardar los bloques de receta.`
+                  : "Primero sube el Excel en Costos › Subir costos."}
+            </div>
+          </div>
         </div>
       </Card>
 
@@ -196,6 +214,11 @@ export function ResumenScreen({
               Revisar clasificación →
             </button>
           </div>
+          {data.combo_sync_hint ? (
+            <div className="mb-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-950">
+              {data.combo_sync_hint}
+            </div>
+          ) : null}
           {classification.map((row) => (
             <div
               key={row.id}

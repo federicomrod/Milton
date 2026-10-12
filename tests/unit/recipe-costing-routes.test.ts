@@ -19,6 +19,14 @@ describe("recipe costing routes", () => {
     expect(ui).toContain("coverage.coverage_label");
     expect(ui).not.toMatch(/coverage_pct\s*[+\-*/]/);
     expect(ui).not.toMatch(/net_sales\s*[+\-*/]/);
+
+    const vincular = read(
+      "components/restaurant/recipes-costing/VincularScreen.tsx"
+    );
+    expect(vincular).toContain("preview_lines");
+    expect(vincular).toContain("Costo Milton");
+    expect(vincular).toContain("Generar sugerencias desde tu archivo");
+    expect(vincular).not.toMatch(/qty\s*\*\s*unit_cost/);
   });
 
   it("does not add vercel, CI or secret files", () => {

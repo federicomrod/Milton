@@ -221,7 +221,11 @@ export async function reconcileImportedWorkbookCosts(input: {
     );
 
   for (const group of input.groups) {
-    if (group.cost_total == null || !Number.isFinite(group.cost_total)) {
+    if (
+      group.cost_total_inferred ||
+      group.cost_total == null ||
+      !Number.isFinite(group.cost_total)
+    ) {
       continue;
     }
     if (group.kind === "sub_recipe") {

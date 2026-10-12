@@ -17,6 +17,7 @@ export {
   collectCostoRestauranteBlockNames,
   collectCostoRestauranteBlocks,
   alignFilledDownBlockRow,
+  headerOverlap,
   footerAmount,
   footerKindFromLabel,
   mappingFromCostoRestauranteHeader,
@@ -41,7 +42,10 @@ export {
 } from "./parse";
 export {
   assumedYieldReason,
+  ambiguousNumberReason,
+  dishCreatedRecipeFailedReason,
   emptyRecipeNameReason,
+  inferredCostTotalReason,
   persistWriteFailedReason,
   isPackSizeReviewReason,
   mappingSourceLabel,
@@ -52,6 +56,7 @@ export {
   totalMismatchReason,
   unknownIngredientReason,
   unknownUnitReason,
+  unsureIngredientNameReason,
 } from "./copy";
 export {
   formatSkipBreakdownSentence,
@@ -77,6 +82,8 @@ export {
 } from "./duplicates";
 export { resolveSubRecipeYield } from "./recipes";
 export {
+  PersistWorkbookRecipesError,
+  persistStatsFromError,
   pickMenuItemForLocation,
   resolveCatalogInput,
   withQty,

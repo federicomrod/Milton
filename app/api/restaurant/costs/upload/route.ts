@@ -215,6 +215,7 @@ export async function POST(req: NextRequest) {
             restaurantName: restaurantScope.name,
             skipDuplicates,
             lang,
+            createMissingIngredients,
           });
           return NextResponse.json(result);
         } catch (err) {

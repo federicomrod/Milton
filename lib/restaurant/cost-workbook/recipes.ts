@@ -4,8 +4,10 @@ import {
   normalizeUnit,
   resolveUnitCell,
 } from "@/lib/restaurant/units";
+import { inspectCostImportNumber } from "@/lib/restaurant/cost-import";
 import { numberAt, textAt } from "./cells";
 import {
+  ambiguousNumberReason,
   missingIngredientNameReason,
   missingUnitReason,
   positiveQuantityReason,
@@ -115,6 +117,13 @@ export function evaluateRecipeLine(input: {
     lang,
   });
   if (!resolvedUnit.ok) return fail(resolvedUnit.reason);
+  const qtyCol = mapping.quantity?.column;
+  const qtyInspected = qtyCol
+    ? inspectCostImportNumber(row[qtyCol])
+    : { kind: "blank" as const };
+  if (qtyInspected.kind === "ambiguous") {
+    return fail(ambiguousNumberReason(lang, qtyInspected.raw));
+  }
   const qty = numberAt(row, mapping, "quantity");
   if (qty === null || qty <= 0) {
     return fail(positiveQuantityReason(lang));

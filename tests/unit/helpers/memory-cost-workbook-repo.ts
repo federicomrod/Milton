@@ -62,6 +62,7 @@ export interface MemoryCostWorkbookStore {
   posSalesItems: MemoryPosSale[];
   failResetStep?: CostResetStepId;
   failNextComponentCreate?: string;
+  failNextRecipeCreate?: string;
   workbookCostColumns?: boolean;
   importCosting036Columns?: boolean;
   recipeVersions: Array<
@@ -477,6 +478,11 @@ export function createMemoryCostWorkbookRepo(
       return [...store.recipes];
     },
     async createRecipe(input) {
+      if (store.failNextRecipeCreate) {
+        const message = store.failNextRecipeCreate;
+        store.failNextRecipeCreate = undefined;
+        throw new Error(message);
+      }
       const row: ImportedRecipe = {
         id: id(),
         menu_item_id: input.menuItemId,

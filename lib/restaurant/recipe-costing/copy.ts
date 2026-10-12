@@ -90,12 +90,14 @@ export function productReason(input: {
   currency?: string;
 }): string {
   const first = input.evidence.reasons.find((reason) => reason.trim());
-  if (first) return first;
   if (input.kind === "falta_precio") {
     const line = input.evidence.lines.find((row) => row.pending);
-    return line
-      ? `Falta el precio de ${line.raw_name}.`
-      : "Falta el precio de un ingrediente.";
+    return (
+      first ??
+      (line
+        ? `Falta el precio de ${line.raw_name}.`
+        : "Falta el precio de un ingrediente.")
+    );
   }
   if (
     input.kind === "por_revisar" &&
@@ -113,13 +115,18 @@ export function productReason(input: {
       input.evidence.variance_pct != null
         ? formatPctLabel(Math.abs(input.evidence.variance_pct))
         : null;
-    const gap = pct ? ` es ${pct} distinto` : " no coincide";
-    return `El costo de Milton (${milton})${gap} que tu Excel (${excel}).`;
+    const gap = pct ? ` es ${pct} menor` : " no coincide";
+    const sentence = `El costo de Milton (${milton})${gap} que tu Excel (${excel}).`;
+    if (first && !/excel|costo de milton/i.test(first)) {
+      return `${sentence} ${first}`;
+    }
+    return sentence;
   }
   if (input.kind === "sugerido") {
     const name = input.evidence.block_name ?? input.odoo_name;
     return `Milton sugiere «${name}». Confírmalo.`;
   }
+  if (first) return first;
   if (input.kind === "ambiguo") {
     return "Hay más de una receta posible en tu archivo. Elige una.";
   }

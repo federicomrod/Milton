@@ -165,6 +165,9 @@ export function buildApprovalChecklist(input: {
   const hasComputedCost = miltonCost != null && miltonCost > 0;
   const excelMatch = input.evidence.excel_match;
   const excelOk = excelMatch === "match";
+  const yieldName =
+    input.evidence.lines.find((line) => line.sub_recipe_match)?.raw_name ??
+    null;
 
   const blockers: string[] = [];
   if (!hasLines) blockers.push("La receta no tiene ingredientes.");
@@ -231,7 +234,9 @@ export function buildApprovalChecklist(input: {
         ? "La receta no tiene un rendimiento conocido"
         : yieldConfirmed
           ? "Rendimiento confirmado"
-          : "Rendimiento por confirmar",
+          : yieldName
+            ? `Rendimiento de ${yieldName} por confirmar`
+            : "Rendimiento por confirmar",
     },
     {
       id: "cost",
@@ -244,7 +249,7 @@ export function buildApprovalChecklist(input: {
     {
       id: "excel",
       ok: excelOk,
-      warn: !excelOk,
+      warn: !excelOk && excelMatch !== "mismatch",
       label: excelOk
         ? "Cuadra con Excel"
         : excelMatch === "mismatch"

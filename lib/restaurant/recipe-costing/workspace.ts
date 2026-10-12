@@ -304,8 +304,9 @@ export function classifyTodoKind(input: {
 }): TodoKind | null {
   if (input.approved && input.product.link_state === "confirmado") return null;
   if (input.product.classification === "no_requiere_costeo") return null;
-  if (input.product.is_combo && input.product.components.length === 0) {
-    return "combo";
+  if (input.product.classification === "componente") return null;
+  if (input.product.is_combo) {
+    return input.product.components.length === 0 ? "combo" : null;
   }
   if (
     input.evidence.lines.some((line) => line.pending && line.unit_cost == null)

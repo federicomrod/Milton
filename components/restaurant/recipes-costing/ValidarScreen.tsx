@@ -219,6 +219,7 @@ function Editor({
                   yieldValue={editor.yield_value}
                   yieldAssumed={editor.yield_assumed}
                   yieldNote={editor.yield_note}
+                  showYieldRow={shouldShowYieldRow(line, editor)}
                   busy={busy}
                   onFix={(patch) =>
                     onFix({
@@ -355,11 +356,30 @@ function CheckIcon({ ok, warn }: { ok: boolean; warn?: boolean }) {
   );
 }
 
+function shouldShowYieldRow(
+  line: RecipeEditorView["lines"][number],
+  editor: RecipeEditorView
+): boolean {
+  if (!line.is_sub_recipe || editor.yield_value == null) return false;
+  const mentioned = editor.lines.filter((row) => {
+    if (!row.is_sub_recipe) return false;
+    const haystack = `${editor.yield_note ?? ""} ${editor.variance_note ?? ""}`;
+    return haystack.toLowerCase().includes(row.raw_name.toLowerCase());
+  });
+  if (mentioned.length > 0) {
+    return mentioned[0]?.raw_name === line.raw_name;
+  }
+  return (
+    editor.lines.find((row) => row.is_sub_recipe)?.raw_name === line.raw_name
+  );
+}
+
 function LineRow({
   line,
   yieldValue,
   yieldAssumed,
   yieldNote,
+  showYieldRow,
   busy,
   onFix,
 }: {
@@ -367,6 +387,7 @@ function LineRow({
   yieldValue: number | null;
   yieldAssumed: boolean;
   yieldNote: string | null;
+  showYieldRow: boolean;
   busy: boolean;
   onFix: (patch: {
     unit?: string;
@@ -452,7 +473,7 @@ function LineRow({
           {line.dish_pct_label}
         </td>
       </tr>
-      {line.is_sub_recipe ? (
+      {showYieldRow ? (
         <tr>
           <td
             colSpan={6}

@@ -175,4 +175,36 @@ describe("approval checklist gate", () => {
       false
     );
   });
+
+  it("marks an Excel mismatch as a hard fail and names the yield to confirm", () => {
+    const mismatch = buildApprovalChecklist({
+      link_state: "confirmado",
+      evidence: parseSuggestionEvidence({
+        pending: true,
+        excel_match: "mismatch",
+        milton_cost: 2.54,
+        excel_total: 3.8,
+        yield: { value: 28, unit: "porciones", source: "assumed" },
+        lines: [
+          {
+            raw_name: "Empanizado",
+            qty: 1,
+            unit: "porción",
+            unit_cost: 0.21,
+            pending: false,
+            flags: ["ok"],
+            sub_recipe_match: "Empanizado",
+          },
+        ],
+      }),
+    });
+    const excel = mismatch.items.find((item) => item.id === "excel");
+    const yieldItem = mismatch.items.find((item) => item.id === "yield");
+    expect(excel?.ok).toBe(false);
+    expect(excel?.warn).toBe(false);
+    expect(excel?.label).toMatch(/Diferencia con Excel/);
+    expect(yieldItem?.label).toBe(
+      "Rendimiento de Empanizado por confirmar"
+    );
+  });
 });

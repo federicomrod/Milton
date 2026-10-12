@@ -146,10 +146,8 @@ export function MenuCosteadoScreen({
                 >
                   <td className="py-2.5 font-semibold">{row.odoo_name}</td>
                   <td className="py-2.5">
-                    <Chip tone={toneForKind(row.display_state_label)}>
-                      {row.display_state_label === "No requiere"
-                        ? row.kind_label
-                        : row.display_state_label}
+                    <Chip tone={excludedChip(row).tone}>
+                      {excludedChip(row).label}
                     </Chip>
                     <span className="ml-1 text-[10.8px] text-[#5b6476]">
                       {excludedReason(row.kind_label, row.is_combo)}
@@ -266,6 +264,28 @@ export function MenuCosteadoScreen({
       </div>
     </div>
   );
+}
+
+function excludedChip(row: {
+  is_combo: boolean;
+  kind_label: string;
+  display_state_label: string;
+  display_state_tone: "ok" | "sug" | "warn" | "bad" | "grey" | "pur";
+  classification: string;
+  net_sales: number;
+  units_sold: number;
+}): { label: string; tone: "ok" | "sug" | "warn" | "bad" | "grey" | "pur" } {
+  if (row.is_combo) return { label: "Combo", tone: "pur" };
+  if (row.kind_label === "Cargo") return { label: "Cargo", tone: "grey" };
+  if (row.kind_label === "Modificador")
+    return { label: "Modificador", tone: "grey" };
+  if (row.display_state_label === "Reventa")
+    return { label: "Reventa", tone: "sug" };
+  if (row.net_sales === 0 && row.units_sold === 0)
+    return { label: "No vendido", tone: "grey" };
+  if (row.classification === "no_requiere_costeo")
+    return { label: "No requiere", tone: "grey" };
+  return { label: row.display_state_label, tone: row.display_state_tone };
 }
 
 function excludedReason(kind: string, isCombo: boolean): string {

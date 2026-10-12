@@ -65,6 +65,22 @@ describe("pending lines never show $0", () => {
     expect(line.cost_label).toBe("Pendiente");
     expect(line.unit_cost).toBeNull();
   });
+
+  it("shows gram costs per kg like the mockup", () => {
+    const line = toReviewLine({
+      source_row: 48,
+      raw_name: "Pechuga de pollo",
+      ingredient_match: null,
+      sub_recipe_match: null,
+      qty: 200,
+      unit: "g",
+      unit_cost: 0.0062,
+      flags: ["ok"],
+      pending: false,
+      reasons: [],
+    });
+    expect(line.unit_cost_label).toMatch(/\$6\.20 \/ kg/);
+  });
 });
 
 describe("review grouped by tab", () => {
@@ -526,6 +542,49 @@ describe("visual product kinds and display states", () => {
       true
     );
     expect(plato?.action_label).toBe("Crear receta");
+  });
+
+  it("keeps combos with parts and modifiers out of Qué falta", () => {
+    const workspace = buildRecipeCostingWorkspace({
+      companyId: "co-a",
+      companyName: "Los Ranchos",
+      currency: "USD",
+      periodLabel: null,
+      view: "resumen",
+      actor: { user_id: "u", role: "owner", is_milton_staff: false },
+      products: [
+        product({
+          odoo_product_id: 1,
+          odoo_name: "Combo familiar",
+          net_sales: 10,
+          is_combo: true,
+          components: [{ odoo_product_id: 9, odoo_name: "Carne", net_sales: 8 }],
+        }),
+        product({
+          odoo_product_id: 2,
+          odoo_name: "Extra queso",
+          net_sales: 4,
+          classification: "componente",
+          classification_label: "Componente",
+        }),
+        product({
+          odoo_product_id: 3,
+          odoo_name: "Sopa de res",
+          net_sales: 6,
+        }),
+      ],
+      links: [],
+      versions: [],
+      menuItems: [],
+      batches: [],
+      coveragePct: 0,
+      netSales: 20,
+      coveredNetSales: 0,
+    });
+    expect(
+      workspace.todos.map((row) => row.odoo_name)
+    ).toEqual(["Sopa de res"]);
+    expect(workspace.todos[0]?.action_label).toBe("Crear receta");
   });
 });
 

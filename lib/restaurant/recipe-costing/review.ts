@@ -54,6 +54,31 @@ export function isUncertainEvidence(evidence: SuggestionEvidenceView): boolean {
   return evidence.lines.some((line) => line.pending);
 }
 
+function purchaseUnitCostLabel(
+  label: string,
+  amount: number | null,
+  unit: string
+): string {
+  if (amount == null || !unit) return label;
+  const folded = unit
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+  if (folded === "g" || folded === "gr" || folded.startsWith("gramo")) {
+    return `${formatMoneyEs(amount * 1000)} / kg`;
+  }
+  if (folded === "ml") {
+    return `${formatMoneyEs(amount * 1000)} / L`;
+  }
+  if (folded === "unidad" || folded === "u" || folded.startsWith("unidad")) {
+    return `${label} / u`;
+  }
+  if (folded.startsWith("porcion")) {
+    return `${label} / porción`;
+  }
+  return `${label} / ${unit}`;
+}
+
 export function toReviewLine(
   line: SuggestionLineView,
   currency?: string,
@@ -80,10 +105,7 @@ export function toReviewLine(
     pending: line.pending,
     cost_label: cost.label,
     unit_cost: cost.amount,
-    unit_cost_label:
-      cost.amount != null && line.unit
-        ? `${cost.label} / ${line.unit}`
-        : cost.label,
+    unit_cost_label: purchaseUnitCostLabel(cost.label, cost.amount, line.unit),
     aporte,
     aporte_label: aporte != null ? formatMoneyEs(aporte, currency) : cost.label,
     dish_pct: dishPct,

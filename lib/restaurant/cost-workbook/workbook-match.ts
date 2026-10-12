@@ -46,11 +46,15 @@ function mismatchReason(
   engineMessage?: string
 ): string {
   const base = workbookMismatchReason(lang, excel, milton);
-  if (engineMessage) return `${base} — ${engineMessage}`;
-  if (milton == null) {
-    return `${base} — ${engineMessage ?? "Milton no pudo costear la receta"}`;
-  }
-  return base;
+  const extra =
+    engineMessage?.trim() ||
+    (milton == null
+      ? lang === "es"
+        ? "No pude costear la receta."
+        : "I could not cost the recipe."
+      : "");
+  if (!extra) return base;
+  return `${base} ${extra}`.replace(/\s+/g, " ").trim();
 }
 
 export async function costingDataFromWorkbookRepo(

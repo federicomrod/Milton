@@ -1063,3 +1063,79 @@ export function buildLeadingEmptyOrdenCommaWorkbook(): Buffer {
     XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
   );
 }
+
+/**
+ * Synthetic Los Ranchos COSTO RESTAURANTE blocks for AI recipe
+ * suggestions. No client data. Covers APIO-as-unit, QUESILLO without
+ * cost, confirmed DEMIGLASS per-lb/oz, and a clean dish.
+ */
+export function buildRecipeSuggestionWorkbook(): Buffer {
+  const wb = XLSX.utils.book_new();
+  const header = () => [
+    "Articulo",
+    "Unidad Detalle",
+    "Cantidad",
+    "Costo Unitario",
+    "Total Costo",
+  ];
+  const line = (
+    ingredient: string,
+    unit: string,
+    qty: number,
+    unitCost: number | "",
+    total: number | ""
+  ) => [ingredient, unit, qty, unitCost, total];
+
+  const sub: Array<Array<string | number>> = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["DEMIGLASS"],
+    header(),
+    line("HUESO", "LIBRA", 4, 0.4, 1.6),
+    line("AGUA", "LITRO", 4, 0.1, 0.4),
+    ["DEMIGLASS", "COSTO TOTAL", 0, 0, 2],
+    ["DEMIGLASS", "PRECIO POR LIBRA", 0, 0, 0.25],
+    ["PRECIO POR ONZA $0.015625"],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
+
+  const dishes: Array<Array<string | number>> = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["BISTEC TIPICO"],
+    header(),
+    line("TOMATE", "LIBRA", 0.5, 0.96, 0.48),
+    line("CEBOLLA", "LIBRA", 0.25, 0.8, 0.2),
+    ["BISTEC TIPICO", "COSTO TOTAL", 0, 0, 0.68],
+    ["BISTEC TIPICO", "PRECIO POR UNIDAD", 0, 0, 0.68],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["SALSA DEMIGLASS PLATO"],
+    header(),
+    line("DEMIGLASS", "ONZA", 2, 0.015625, 0.03125),
+    ["SALSA DEMIGLASS PLATO", "COSTO TOTAL", 0, 0, 0.03125],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["ROLL VEGETALES"],
+    header(),
+    line("ZANAHORIA", "ONZA", 2, 0.05, 0.1),
+    line("APIO", "APIO", 1, 0.2, 0.2),
+    ["ROLL VEGETALES", "COSTO TOTAL", 0, 0, 0.3],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["CHURRASCO QUESILLO"],
+    header(),
+    line("PUYASO", "ONZA", 8, 0.58, 4.64),
+    line("QUESILLO", "ONZA", 2, "", ""),
+    ["CHURRASCO QUESILLO", "COSTO TOTAL", 0, 0, 4.64],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(dishes),
+    "DE LA PARRILLA"
+  );
+
+  return Buffer.from(
+    XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+  );
+}

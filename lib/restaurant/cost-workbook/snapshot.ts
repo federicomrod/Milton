@@ -87,6 +87,14 @@ export function mergeUndoSnapshots(
       ...(start.created_component_recipe_version_ids ?? []),
       ...(extra.created_component_recipe_version_ids ?? []),
     ],
+    created_pos_product_link_ids: [
+      ...(start.created_pos_product_link_ids ?? []),
+      ...(extra.created_pos_product_link_ids ?? []),
+    ],
+    updated_pos_product_links: [
+      ...(start.updated_pos_product_links ?? []),
+      ...(extra.updated_pos_product_links ?? []),
+    ],
     deleted_ingredients: [
       ...(start.deleted_ingredients ?? []),
       ...(extra.deleted_ingredients ?? []),
@@ -235,6 +243,23 @@ export function snapshotFromUnknown(value: unknown): UndoSnapshot {
       raw.created_component_recipe_version_ids
     )
       ? raw.created_component_recipe_version_ids.map(String)
+      : [],
+    created_pos_product_link_ids: Array.isArray(
+      raw.created_pos_product_link_ids
+    )
+      ? raw.created_pos_product_link_ids.map(String)
+      : [],
+    updated_pos_product_links: Array.isArray(raw.updated_pos_product_links)
+      ? raw.updated_pos_product_links.filter(
+          (
+            row
+          ): row is NonNullable<
+            UndoSnapshot["updated_pos_product_links"]
+          >[number] =>
+            Boolean(
+              row && typeof row === "object" && "id" in row && "before" in row
+            )
+        )
       : [],
     undo_errors: Array.isArray(raw.undo_errors)
       ? raw.undo_errors.map(String)

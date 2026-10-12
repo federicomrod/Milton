@@ -392,6 +392,7 @@ interface OpenBlock {
   pricePerUnit: number | null;
   sellingPrice: number | null;
   incompleteLines: boolean;
+  pendingLines: RecipeLineCandidate[];
 }
 
 function looksLikeUnitCell(raw: string): boolean {
@@ -616,6 +617,8 @@ export function collectCostoRestauranteBlocks(input: {
       price_per_oz: current.pricePerOz,
       price_per_unit: current.pricePerUnit,
       incomplete_lines: current.incompleteLines,
+      pending_lines:
+        current.pendingLines.length > 0 ? current.pendingLines : undefined,
       start_row_index: current.startRowIndex,
     });
     open.block = null;
@@ -639,6 +642,7 @@ export function collectCostoRestauranteBlocks(input: {
       pricePerUnit: null,
       sellingPrice: null,
       incompleteLines: false,
+      pendingLines: [],
     };
     phase = "in_block";
     pendingName = "";
@@ -769,6 +773,22 @@ export function collectCostoRestauranteBlocks(input: {
       : { ok: false as const, reason: missingUnitReason(lang) };
     if (!resolvedUnit.ok) {
       current.incompleteLines = true;
+      current.pendingLines = current.pendingLines ?? [];
+      current.pendingLines.push({
+        tabName: input.tabName,
+        rowIndex,
+        recipeName: current.name,
+        ingredient_name: name,
+        quantity: qty && qty > 0 ? qty : 0,
+        unit: unitRaw || "",
+        raw: {
+          Articulo: name,
+          Unidad: unitRaw,
+          Cantidad: qty,
+          "Costo Unitario": unitCost,
+          "Total Costo": printedTotal,
+        },
+      });
       review.push({
         tabName: input.tabName,
         rowIndex,

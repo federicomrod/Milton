@@ -8,6 +8,69 @@ export function unknownUnitReason(
   return t(lang, `unknown unit (${raw})`, `unidad desconocida (${raw})`);
 }
 
+export function unitLooksLikeNameReason(
+  lang: PreferredLanguage,
+  raw: string
+): string {
+  return t(
+    lang,
+    `This line is pending: the unit (${raw}) looks like an ingredient name.`,
+    `esta línea quedó pendiente: la unidad (${raw}) parece el nombre de un ingrediente`
+  );
+}
+
+export function missingCostPendingReason(
+  lang: PreferredLanguage,
+  name: string
+): string {
+  return t(
+    lang,
+    `This line is pending: ${name} has no cost. I did not put $0.`,
+    `esta línea quedó pendiente: falta el costo de ${name}. No puse $0`
+  );
+}
+
+export function posNameUnsureReason(
+  lang: PreferredLanguage,
+  posName: string,
+  menuName: string
+): string {
+  return t(
+    lang,
+    `POS name unsure (${posName} ↔ ${menuName})`,
+    `no estoy seguro de si el nombre del POS (${posName}) es ${menuName}`
+  );
+}
+
+export function isPosNameUnsureReason(reason: string): boolean {
+  return (
+    reason.startsWith("POS name unsure") ||
+    reason.startsWith("no estoy seguro de si el nombre del POS")
+  );
+}
+
+export function noUsableRecipeLinesReason(lang: PreferredLanguage): string {
+  return t(
+    lang,
+    "no usable recipe lines",
+    "esta receta no tiene líneas que pueda usar"
+  );
+}
+
+export function looksLikePreparedItemReason(lang: PreferredLanguage): string {
+  return t(
+    lang,
+    "looks like a prepared item",
+    "parece un preparado / sub-receta"
+  );
+}
+
+export function suggestionVersionNotes(
+  status: "borrador" | "lista_para_aprobar"
+): string {
+  return status === "lista_para_aprobar" ? "Lista para aprobar" : "Borrador";
+}
+
 export function unknownIngredientReason(
   lang: PreferredLanguage,
   name: string
@@ -246,14 +309,18 @@ export function workbookMismatchReason(
 ): string {
   const excel =
     excelCost == null
-      ? "—"
+      ? lang === "es"
+        ? "sin dato"
+        : "n/a"
       : excelCost.toLocaleString("es-MX", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         });
   const milton =
     miltonCost == null
-      ? "—"
+      ? lang === "es"
+        ? "sin costo"
+        : "no cost"
       : miltonCost.toLocaleString("es-MX", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,

@@ -350,7 +350,11 @@ function mockedAi(): WorkbookAi & {
     }
   );
 
-  return { classifyTab, mapColumns };
+  return {
+    classifyTab,
+    mapColumns,
+    proposeRecipe: async () => "sin sugerencia" as const,
+  };
 }
 
 describe("units — Spanish + lb/oz", () => {
@@ -1755,7 +1759,9 @@ describe("workbook typo merge, units, categories, prepared items", () => {
     );
     expect(
       result.review_items.some(
-        (item) => item.reason === "looks like a prepared item"
+        (item) =>
+          item.reason === "looks like a prepared item" ||
+          item.reason === "parece un preparado / sub-receta"
       )
     ).toBe(true);
   });
@@ -2122,7 +2128,9 @@ describe("workbook import blockers", () => {
     expect(store.recipeInputs.some((row) => row.id === "in-hand")).toBe(true);
     expect(
       result.review_items.some(
-        (item) => item.reason === "looks like a prepared item"
+        (item) =>
+          item.reason === "looks like a prepared item" ||
+          item.reason === "parece un preparado / sub-receta"
       )
     ).toBe(true);
   });
@@ -2268,7 +2276,11 @@ function aiMappingUnitToIngredientName(): WorkbookAi & {
       };
     }
   );
-  return { classifyTab: base.classifyTab, mapColumns };
+  return {
+    classifyTab: base.classifyTab,
+    mapColumns,
+    proposeRecipe: async () => "sin sugerencia" as const,
+  };
 }
 
 describe("recipe mapping fallback and skip breakdown", () => {
@@ -2688,7 +2700,11 @@ function aiSharedArticuloAsRecipeAndIngredient(): WorkbookAi & {
       };
     }
   );
-  return { classifyTab, mapColumns };
+  return {
+    classifyTab,
+    mapColumns,
+    proposeRecipe: async () => "sin sugerencia" as const,
+  };
 }
 
 describe("shared Articulo dish tabs and cost summary", () => {
@@ -2833,6 +2849,7 @@ describe("shared Articulo dish tabs and cost summary", () => {
         quantity: { column: "Uno", confidence: 0.9 },
         unit: { column: "Unidad", confidence: 0.9 },
       }),
+      proposeRecipe: async () => "sin sugerencia",
     };
     const result = await importCostWorkbook({
       companyId: COMPANY,
@@ -3452,6 +3469,7 @@ describe("COSTO RESTAURANTE block layout", () => {
           total_cost: { column: "Total", confidence: 0.9 },
         };
       },
+      proposeRecipe: async () => "sin sugerencia",
     };
     const result = await importCostWorkbook({
       companyId: COMPANY,
@@ -4183,6 +4201,7 @@ describe("COSTO RESTAURANTE block layout", () => {
 
 function contentOnlyWorkbookAi(): WorkbookAi {
   return {
+    proposeRecipe: async () => "sin sugerencia",
     classifyTab: async (input) => {
       const name = input.sheetName.toLowerCase();
       if (name.includes("bodega") || input.headers.includes("ITEM")) {

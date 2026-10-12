@@ -4,6 +4,11 @@ import {
   handmadeSourceCorePatch,
   handmadeSourcePatch,
 } from "@/lib/restaurant/protect-imported-recipe";
+import type { PosProductLinkRecord } from "@/lib/restaurant/pos-product-links";
+import {
+  isPosProductClassification,
+  isPosProductLinkState,
+} from "@/lib/restaurant/pos-product-links";
 import type {
   ComponentRecipeVersionRecord,
   RecipeVersionRecord,
@@ -310,8 +315,23 @@ export interface CostWorkbookRepo {
     status: "approved" | "in_review";
     effectiveDate: string | null;
     sourceType?: string | null;
+    notes?: string | null;
     inputs: RecipeInputSnapshot[];
   }): Promise<{ id: string }>;
+  listPosProductLinks(
+    companyId: string,
+    locationId?: string | null
+  ): Promise<PosProductLinkRecord[]>;
+  upsertPosProductLink(
+    companyId: string,
+    link: PosProductLinkRecord
+  ): Promise<{
+    id: string;
+    created: boolean;
+    before: PosProductLinkRecord | null;
+  }>;
+  deletePosProductLinks(companyId: string, ids: string[]): Promise<number>;
+  restorePosProductLinks(rows: PosProductLinkRecord[]): Promise<void>;
   listComponentRecipeVersions(
     companyId: string,
     componentRecipeId: string
@@ -343,6 +363,36 @@ export interface CostWorkbookRepo {
   hasWorkbookCostColumns(companyId: string): Promise<boolean>;
   /** False when migration 036 variance / date columns are missing. */
   hasImportCosting036Columns(companyId: string): Promise<boolean>;
+}
+
+function asPosProductLink(row: Record<string, unknown>): PosProductLinkRecord {
+  return {
+    id: typeof row.id === "string" ? row.id : undefined,
+    company_id: String(row.company_id),
+    location_id: typeof row.location_id === "string" ? row.location_id : null,
+    odoo_product_id: Number(row.odoo_product_id),
+    odoo_name: String(row.odoo_name ?? ""),
+    classification: isPosProductClassification(row.classification)
+      ? row.classification
+      : "por_clasificar",
+    menu_item_id:
+      typeof row.menu_item_id === "string" ? row.menu_item_id : null,
+    link_state: isPosProductLinkState(row.link_state)
+      ? row.link_state
+      : "sin_vincular",
+    confirmed_by:
+      typeof row.confirmed_by === "string" ? row.confirmed_by : null,
+    confirmed_at:
+      typeof row.confirmed_at === "string" ? row.confirmed_at : null,
+    confirmed_how:
+      typeof row.confirmed_how === "string" ? row.confirmed_how : null,
+    evidence:
+      row.evidence &&
+      typeof row.evidence === "object" &&
+      !Array.isArray(row.evidence)
+        ? (row.evidence as Record<string, unknown>)
+        : {},
+  };
 }
 
 function asIngredient(row: Record<string, unknown>): CostWorkbookIngredient {
@@ -1716,6 +1766,7 @@ export function createSupabaseCostWorkbookRepo(
           status: input.status,
           effective_date: input.effectiveDate,
           source_type: input.sourceType ?? null,
+          notes: input.notes ?? null,
         })
         .select("id")
         .single();
@@ -1838,6 +1889,114 @@ export function createSupabaseCostWorkbookRepo(
       if (!error) return true;
       if (errorMentionsColumn(error, "workbook_variance_amount")) return false;
       throw new Error(error.message);
+    },
+
+    async listPosProductLinks(companyId, locationId) {
+      let q = supabase
+        .from("pos_product_links")
+        .select(
+          "id, company_id, location_id, odoo_product_id, odoo_name, classification, menu_item_id, link_state, confirmed_by, confirmed_at, confirmed_how, evidence"
+        )
+        .eq("company_id", companyId);
+      if (locationId) q = q.eq("location_id", locationId);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map(asPosProductLink);
+    },
+
+    async upsertPosProductLink(companyId, link) {
+      if (link.link_state === "confirmado") {
+        throw new Error(
+          "Solo una persona puede marcar el vínculo como Confirmado."
+        );
+      }
+      let existingQuery = supabase
+        .from("pos_product_links")
+        .select(
+          "id, company_id, location_id, odoo_product_id, odoo_name, classification, menu_item_id, link_state, confirmed_by, confirmed_at, confirmed_how, evidence"
+        )
+        .eq("company_id", companyId)
+        .eq("odoo_product_id", link.odoo_product_id);
+      existingQuery = link.location_id
+        ? existingQuery.eq("location_id", link.location_id)
+        : existingQuery.is("location_id", null);
+      const existingRes = await existingQuery.maybeSingle();
+      if (existingRes.error) throw new Error(existingRes.error.message);
+      const existing = existingRes.data
+        ? asPosProductLink(existingRes.data as Record<string, unknown>)
+        : null;
+      if (existing?.link_state === "confirmado") {
+        return {
+          id: existing.id ?? "",
+          created: false,
+          before: existing,
+        };
+      }
+      const payload = {
+        company_id: companyId,
+        location_id: link.location_id,
+        odoo_product_id: link.odoo_product_id,
+        odoo_name: link.odoo_name,
+        classification: link.classification,
+        menu_item_id: link.menu_item_id,
+        link_state: link.link_state,
+        confirmed_by: null,
+        confirmed_at: null,
+        confirmed_how: null,
+        evidence: link.evidence,
+        updated_at: new Date().toISOString(),
+      };
+      if (existing?.id) {
+        const { error } = await supabase
+          .from("pos_product_links")
+          .update(payload)
+          .eq("company_id", companyId)
+          .eq("id", existing.id);
+        if (error) throw new Error(error.message);
+        return { id: existing.id, created: false, before: existing };
+      }
+      const { data, error } = await supabase
+        .from("pos_product_links")
+        .insert(payload)
+        .select("id")
+        .single();
+      if (error || !data) {
+        throw new Error(error?.message ?? "pos product link insert failed");
+      }
+      return { id: String(data.id), created: true, before: null };
+    },
+
+    async deletePosProductLinks(companyId, ids) {
+      if (ids.length === 0) return 0;
+      const { error, count } = await supabase
+        .from("pos_product_links")
+        .delete({ count: "exact" })
+        .eq("company_id", companyId)
+        .in("id", ids);
+      if (error) throw new Error(error.message);
+      return count ?? ids.length;
+    },
+
+    async restorePosProductLinks(rows) {
+      if (rows.length === 0) return;
+      for (const row of rows) {
+        if (!row.id) continue;
+        const { error } = await supabase.from("pos_product_links").upsert({
+          id: row.id,
+          company_id: row.company_id,
+          location_id: row.location_id,
+          odoo_product_id: row.odoo_product_id,
+          odoo_name: row.odoo_name,
+          classification: row.classification,
+          menu_item_id: row.menu_item_id,
+          link_state: row.link_state,
+          confirmed_by: row.confirmed_by,
+          confirmed_at: row.confirmed_at,
+          confirmed_how: row.confirmed_how,
+          evidence: row.evidence,
+        });
+        if (error) throw new Error(error.message);
+      }
     },
   };
 }

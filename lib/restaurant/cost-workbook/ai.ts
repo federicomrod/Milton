@@ -12,6 +12,13 @@ import {
   type CostTabType,
   type TabClassification,
 } from "./types";
+import type { GroupedRecipe } from "./types";
+import {
+  proposeRecipeHeuristic,
+  proposeRecipeWithAi,
+  type ProposeRecipeResult,
+  type RecipeSuggestionProduct,
+} from "./propose-recipe";
 
 export interface ClassifyTabInput {
   sheetName: string;
@@ -28,6 +35,10 @@ export interface MapColumnsInput {
 export interface WorkbookAi {
   classifyTab(input: ClassifyTabInput): Promise<TabClassification>;
   mapColumns(input: MapColumnsInput): Promise<ColumnMapping>;
+  proposeRecipe(
+    product: RecipeSuggestionProduct,
+    candidateBlocks: readonly GroupedRecipe[]
+  ): Promise<ProposeRecipeResult>;
 }
 
 const CLASSIFIER_CONTEXT =
@@ -295,6 +306,14 @@ export function createDefaultWorkbookAi(): WorkbookAi {
       } catch (err) {
         console.error("[cost-workbook map]", err);
         return mapColumnsHeuristic(input);
+      }
+    },
+    async proposeRecipe(product, candidateBlocks) {
+      try {
+        return await proposeRecipeWithAi({ product, candidateBlocks });
+      } catch (err) {
+        console.error("[cost-workbook proposeRecipe]", err);
+        return proposeRecipeHeuristic({ product, candidateBlocks });
       }
     },
   };

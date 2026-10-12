@@ -120,4 +120,62 @@ describe("POST /api/restaurant/recipes/suggestions", () => {
       })
     );
   });
+
+  it("accepts JSON latest_upload without a new file", async () => {
+    const runSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      batch_id: "b2",
+      suggested: 3,
+      skipped: 0,
+      sin_sugerencia: 1,
+      items: [],
+      skips: [],
+      net_sales: 0,
+      coverage_pct: 0,
+      product_count: 10,
+      source: "latest_upload",
+    });
+    vi.doMock("@/lib/restaurant/api-auth", () => ({
+      authAndCompany: vi.fn().mockResolvedValue({
+        ok: true,
+        supabase: {},
+        companyId: "company-123",
+        userId: "user-1",
+      }),
+    }));
+    vi.doMock("@/lib/restaurant/recipe-suggestion-server", () => ({
+      runRecipeSuggestionsForCompany: runSpy,
+    }));
+    vi.doMock("@/lib/restaurant/currency", () => ({
+      resolveCompanyCurrency: vi.fn().mockResolvedValue("USD"),
+    }));
+    vi.doMock("@/lib/restaurant/language", () => ({
+      resolveRestaurantCockpitLanguage: () => "es",
+    }));
+    vi.doMock("@/lib/restaurant/cost-workbook", () => ({
+      createDefaultWorkbookAi: () => ({ id: "ai" }),
+      isWorkbookLimitError: () => false,
+    }));
+
+    const { POST } =
+      await import("@/app/api/restaurant/recipes/suggestions/route");
+    const response = await POST(
+      new Request("http://localhost/api/restaurant/recipes/suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "latest_upload", limit: 20 }),
+      }) as never
+    );
+    expect(response.status).toBe(200);
+    expect(runSpy).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        companyId: "company-123",
+        fromLatestUpload: true,
+        limit: 20,
+      })
+    );
+    expect(routeSrc).toContain("latest_upload");
+    expect(routeSrc).not.toMatch(/form\.get\(["']company_id["']\)/);
+  });
 });

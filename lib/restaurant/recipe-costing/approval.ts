@@ -122,6 +122,21 @@ function hasPendingPrice(line: SuggestionLineView): boolean {
   );
 }
 
+function computedMiltonCost(evidence: SuggestionEvidenceView): number | null {
+  if (evidence.milton_cost != null && Number.isFinite(evidence.milton_cost)) {
+    return evidence.milton_cost;
+  }
+  if (evidence.lines.length === 0) return null;
+  if (evidence.lines.some((line) => line.pending || line.unit_cost == null)) {
+    return null;
+  }
+  const total = evidence.lines.reduce(
+    (sum, line) => sum + line.qty * (line.unit_cost ?? 0),
+    0
+  );
+  return Number.isFinite(total) && total > 0 ? total : null;
+}
+
 export function buildApprovalChecklist(input: {
   link_state: string | null;
   evidence: SuggestionEvidenceView;
@@ -130,23 +145,47 @@ export function buildApprovalChecklist(input: {
   odoo_product_id?: number | null;
 }): ApprovalChecklist {
   const linked = input.link_state === "confirmado";
-  const noPending = !input.evidence.lines.some((line) => line.pending);
-  const unitsValid = !input.evidence.lines.some(hasPendingUnit);
-  const pricesPresent = !input.evidence.lines.some(hasPendingPrice);
+  const hasLines = input.evidence.lines.length > 0;
+  const noPending =
+    hasLines && !input.evidence.lines.some((line) => line.pending);
+  const unitsValid = hasLines && !input.evidence.lines.some(hasPendingUnit);
+  const pricesPresent = hasLines && !input.evidence.lines.some(hasPendingPrice);
+  const yieldValue = input.evidence.yield.value;
+  const yieldSource = input.evidence.yield.source;
+  const hasKnownYield =
+    yieldValue != null && yieldValue > 0 && Boolean(yieldSource);
   const yieldAssumed =
-    input.evidence.yield.source === "assumed" ||
+    yieldSource === "assumed" ||
     input.evidence.reasons.some((reason) =>
       /rendimiento asumido|assumed yield/i.test(reason)
     );
-  const yieldConfirmed = input.yield_confirmed ?? !yieldAssumed;
-  const excelOk = input.evidence.excel_match !== "mismatch";
+  const yieldConfirmed =
+    hasKnownYield && (input.yield_confirmed ?? !yieldAssumed);
+  const miltonCost = computedMiltonCost(input.evidence);
+  const hasComputedCost = miltonCost != null && miltonCost > 0;
+  const excelMatch = input.evidence.excel_match;
+  const excelOk = excelMatch === "match";
+  const yieldName =
+    input.evidence.lines.find((line) => line.sub_recipe_match)?.raw_name ??
+    null;
 
   const blockers: string[] = [];
-  if (!noPending)
+  if (!hasLines) blockers.push("La receta no tiene ingredientes.");
+  if (!hasComputedCost) {
+    blockers.push("La receta no tiene un costo calculado.");
+  }
+  if (!hasKnownYield) {
+    blockers.push("La receta no tiene un rendimiento conocido.");
+  }
+  if (!noPending && hasLines) {
     blockers.push("Hay líneas pendientes. No dejes ninguna en $0.");
-  if (!yieldConfirmed)
+  }
+  if (hasKnownYield && !yieldConfirmed) {
     blockers.push("Confirma el rendimiento antes de aprobar.");
-  if (!unitsValid) blockers.push("Hay unidades que no se pueden convertir.");
+  }
+  if (!unitsValid && hasLines) {
+    blockers.push("Hay unidades que no se pueden convertir.");
+  }
 
   const items: ApprovalChecklist["items"] = [
     {
@@ -160,36 +199,62 @@ export function buildApprovalChecklist(input: {
         : "Todavía no está Confirmado el vínculo con el POS",
     },
     {
+      id: "ingredients",
+      ok: hasLines,
+      warn: !hasLines,
+      label: hasLines
+        ? "La receta tiene ingredientes"
+        : "La receta no tiene ingredientes",
+    },
+    {
       id: "prices",
       ok: pricesPresent,
       warn: !pricesPresent,
-      label: pricesPresent
-        ? "Todos los ingredientes tienen precio"
-        : "Falta el precio de al menos un ingrediente",
+      label: !hasLines
+        ? "La receta no tiene ingredientes"
+        : pricesPresent
+          ? "Todos los ingredientes tienen precio"
+          : "Falta el precio de al menos un ingrediente",
     },
     {
       id: "units",
       ok: unitsValid,
       warn: !unitsValid,
-      label: unitsValid
-        ? "Todas las unidades se pueden convertir"
-        : "Hay unidades que no se pueden convertir",
+      label: !hasLines
+        ? "La receta no tiene ingredientes"
+        : unitsValid
+          ? "Todas las unidades se pueden convertir"
+          : "Hay unidades que no se pueden convertir",
     },
     {
       id: "yield",
       ok: yieldConfirmed,
       warn: !yieldConfirmed,
-      label: yieldConfirmed
-        ? "Rendimiento confirmado"
-        : "Rendimiento por confirmar",
+      label: !hasKnownYield
+        ? "La receta no tiene un rendimiento conocido"
+        : yieldConfirmed
+          ? "Rendimiento confirmado"
+          : yieldName
+            ? `Rendimiento de ${yieldName} por confirmar`
+            : "Rendimiento por confirmar",
+    },
+    {
+      id: "cost",
+      ok: hasComputedCost,
+      warn: !hasComputedCost,
+      label: hasComputedCost
+        ? "La receta tiene un costo calculado"
+        : "La receta no tiene un costo calculado",
     },
     {
       id: "excel",
       ok: excelOk,
-      warn: !excelOk,
+      warn: !excelOk && excelMatch !== "mismatch",
       label: excelOk
         ? "Cuadra con Excel"
-        : "Diferencia con Excel mayor a 2% o $0.05 (o explícala)",
+        : excelMatch === "mismatch"
+          ? "Diferencia con Excel mayor a 2% o $0.05 (o explícala)"
+          : "Sin dato de Excel para comparar",
     },
   ];
 
@@ -200,7 +265,14 @@ export function buildApprovalChecklist(input: {
     units_valid: unitsValid,
     prices_present: pricesPresent,
     excel_within_tolerance: excelOk,
-    ready: noPending && yieldConfirmed && unitsValid,
+    ready:
+      hasLines &&
+      hasComputedCost &&
+      hasKnownYield &&
+      noPending &&
+      yieldConfirmed &&
+      unitsValid &&
+      pricesPresent,
     blockers,
     items,
   };

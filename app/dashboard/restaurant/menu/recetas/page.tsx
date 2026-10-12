@@ -28,7 +28,7 @@ export default async function RecetasCosteoPage({
   const auth = await authAndCompany();
   if (!auth.ok) {
     return (
-      <div className="w-full px-6 pt-3 lg:px-10">
+      <div className="w-full px-[22px] pt-3">
         <OperatingPageHeader title={t(lang, "Menu", "Menú")} lang={lang} />
         <Suspense fallback={null}>
           <MenuAreaTabs lang={lang} active="recetas" />
@@ -56,20 +56,12 @@ export default async function RecetasCosteoPage({
 
   return (
     <div className="w-full pt-3">
-      <div className="px-6 lg:px-10">
-        <OperatingPageHeader title={t(lang, "Menu", "Menú")} lang={lang} />
-        <Suspense fallback={null}>
-          <MenuAreaTabs lang={lang} active="recetas" />
-        </Suspense>
-      </div>
       {loaded.ok ? (
         <Suspense fallback={null}>
           <RecipesCostingWorkspace initial={loaded.workspace} />
         </Suspense>
       ) : (
-        <p className="px-6 pt-6 text-sm text-red-700 lg:px-10">
-          {loaded.error}
-        </p>
+        <p className="px-[22px] pt-6 text-sm text-red-700">{loaded.error}</p>
       )}
     </div>
   );

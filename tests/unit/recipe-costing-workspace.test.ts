@@ -14,6 +14,7 @@ import { parseSuggestionEvidence } from "@/lib/restaurant/recipe-costing/evidenc
 import {
   buildRecipeCostingWorkspace,
   matchesVincularFilter,
+  rankedProductsFromLinks,
 } from "@/lib/restaurant/recipe-costing/workspace";
 
 function product(
@@ -22,6 +23,8 @@ function product(
 ): RankedPosProduct {
   return {
     share_of_net_sales: 0,
+    units_sold: 0,
+    category: null,
     is_combo: false,
     components: [],
     classification: "requiere_receta",
@@ -61,6 +64,22 @@ describe("pending lines never show $0", () => {
     });
     expect(line.cost_label).toBe("Pendiente");
     expect(line.unit_cost).toBeNull();
+  });
+
+  it("shows gram costs per kg like the mockup", () => {
+    const line = toReviewLine({
+      source_row: 48,
+      raw_name: "Pechuga de pollo",
+      ingredient_match: null,
+      sub_recipe_match: null,
+      qty: 200,
+      unit: "g",
+      unit_cost: 0.0062,
+      flags: ["ok"],
+      pending: false,
+      reasons: [],
+    });
+    expect(line.unit_cost_label).toMatch(/\$6\.20 \/ kg/);
   });
 });
 
@@ -360,6 +379,212 @@ describe("recipe costing workspace resume", () => {
     expect(workspace.products).toHaveLength(1);
     expect(workspace.products[0]?.is_combo).toBe(true);
     expect(workspace.products[0]?.components).toHaveLength(2);
+  });
+});
+
+describe("Validar slim product list", () => {
+  it("builds editor stubs from links without scanning 410 sales rows", () => {
+    const links = Array.from({ length: 410 }, (_, index) => ({
+      ...unlinkedPosProduct({
+        company_id: "co-a",
+        odoo_product_id: index + 1,
+        odoo_name: `Plato ${index + 1}`,
+      }),
+    }));
+    const started = Date.now();
+    const products = rankedProductsFromLinks(links, 7);
+    const workspace = buildRecipeCostingWorkspace({
+      companyId: "co-a",
+      companyName: null,
+      currency: "USD",
+      periodLabel: null,
+      view: "validar",
+      actor: { user_id: "u", role: "owner", is_milton_staff: false },
+      products,
+      links,
+      versions: [],
+      menuItems: [],
+      batches: [],
+      coveragePct: 0,
+      netSales: 0,
+      coveredNetSales: 0,
+      selectedOdooProductId: 7,
+      timings: { load_ms: Date.now() - started, path: "validar" },
+    });
+    const elapsed = Date.now() - started;
+    expect(workspace.products).toHaveLength(410);
+    expect(workspace.editor?.odoo_product_id).toBe(7);
+    expect(workspace.timings?.path).toBe("validar");
+    expect(elapsed).toBeLessThan(200);
+  });
+});
+
+describe("unbound name-only suggestion", () => {
+  it("does not treat an empty exact-name leftover as Confirmable", () => {
+    const workspace = buildRecipeCostingWorkspace({
+      companyId: "co-a",
+      companyName: null,
+      currency: "USD",
+      periodLabel: null,
+      view: "vincular",
+      actor: { user_id: "u", role: "owner", is_milton_staff: false },
+      products: [
+        product({
+          odoo_product_id: 7576,
+          odoo_name: "Parrillada Pinolera (3 personas)",
+          net_sales: 6161,
+          share_of_net_sales: 0.045,
+          link_state: "sugerido",
+          link_state_label: "Sugerido",
+          menu_item_id: "menu-empty",
+        }),
+      ],
+      links: [
+        {
+          ...unlinkedPosProduct({
+            company_id: "co-a",
+            odoo_product_id: 7576,
+            odoo_name: "Parrillada Pinolera (3 personas)",
+          }),
+          menu_item_id: "menu-empty",
+          link_state: "sugerido",
+          evidence: { block_name: "Parrillada Pinolera (3 personas)" },
+        },
+      ],
+      versions: [
+        {
+          id: "ver-empty",
+          recipe_id: "rec-empty",
+          menu_item_id: "menu-empty",
+          version_number: 1,
+          status: "in_review",
+          effective_date: null,
+          notes: "Borrador",
+        },
+      ],
+      menuItems: [
+        { id: "menu-empty", name: "Parrillada Pinolera (3 personas)" },
+      ],
+      batches: [],
+      coveragePct: 0,
+      netSales: 6161,
+      coveredNetSales: 0,
+      selectedOdooProductId: 7576,
+    });
+    const row = workspace.products[0];
+    expect(row?.suggestion_bound).toBe(false);
+    expect(row?.can_confirm_suggestion).toBe(false);
+    expect(row?.action_label).not.toBe("Confirmar");
+    expect(row?.evidence_label).toMatch(/no trae ingredientes/i);
+    expect(workspace.editor?.checklist.ready).toBe(false);
+    expect(
+      workspace.editor?.checklist.items.find((item) => item.id === "excel")
+        ?.label
+    ).toBe("Sin dato de Excel para comparar");
+    expect(workspace.todos[0]?.kind).toBe("sin_receta");
+  });
+});
+
+describe("visual product kinds and display states", () => {
+  it("labels drinks, combos and missing recipes like the mockup", () => {
+    const workspace = buildRecipeCostingWorkspace({
+      companyId: "co-a",
+      companyName: "Los Ranchos",
+      currency: "USD",
+      periodLabel: null,
+      view: "resumen",
+      actor: { user_id: "u", role: "owner", is_milton_staff: false },
+      products: [
+        product({
+          odoo_product_id: 1,
+          odoo_name: "Pollo empanizado",
+          net_sales: 80,
+          units_sold: 401,
+          category: "Platos fuertes",
+          share_of_net_sales: 0.8,
+        }),
+        product({
+          odoo_product_id: 2,
+          odoo_name: "Coca-Cola 12 oz",
+          net_sales: 10,
+          units_sold: 1320,
+          category: "Bebidas",
+          classification: "no_requiere_costeo",
+          classification_label: "No requiere costeo",
+          share_of_net_sales: 0.1,
+        }),
+        product({
+          odoo_product_id: 3,
+          odoo_name: "Combo familiar",
+          net_sales: 10,
+          is_combo: true,
+          share_of_net_sales: 0.1,
+        }),
+      ],
+      links: [],
+      versions: [],
+      menuItems: [],
+      batches: [],
+      coveragePct: 0,
+      netSales: 100,
+      coveredNetSales: 0,
+    });
+    const plato = workspace.products.find((row) => row.odoo_product_id === 1);
+    const bebida = workspace.products.find((row) => row.odoo_product_id === 2);
+    const combo = workspace.products.find((row) => row.odoo_product_id === 3);
+    expect(plato?.kind_label).toBe("Plato");
+    expect(plato?.units_label).toMatch(/401/);
+    expect(bebida?.kind_label).toBe("Bebida");
+    expect(bebida?.display_state_label).toBe("Reventa");
+    expect(combo?.display_state_label).toBe("Combo");
+    expect(combo?.action_label).toBe("Ver partes");
+    expect(workspace.classification.some((row) => row.id === "bebidas")).toBe(
+      true
+    );
+    expect(plato?.action_label).toBe("Crear receta");
+  });
+
+  it("keeps combos with parts and modifiers out of Qué falta", () => {
+    const workspace = buildRecipeCostingWorkspace({
+      companyId: "co-a",
+      companyName: "Los Ranchos",
+      currency: "USD",
+      periodLabel: null,
+      view: "resumen",
+      actor: { user_id: "u", role: "owner", is_milton_staff: false },
+      products: [
+        product({
+          odoo_product_id: 1,
+          odoo_name: "Combo familiar",
+          net_sales: 10,
+          is_combo: true,
+          components: [{ odoo_product_id: 9, odoo_name: "Carne", net_sales: 8 }],
+        }),
+        product({
+          odoo_product_id: 2,
+          odoo_name: "Extra queso",
+          net_sales: 4,
+          classification: "componente",
+          classification_label: "Componente",
+        }),
+        product({
+          odoo_product_id: 3,
+          odoo_name: "Sopa de res",
+          net_sales: 6,
+        }),
+      ],
+      links: [],
+      versions: [],
+      menuItems: [],
+      batches: [],
+      coveragePct: 0,
+      netSales: 20,
+      coveredNetSales: 0,
+    });
+    expect(
+      workspace.todos.map((row) => row.odoo_name)
+    ).toEqual(["Sopa de res"]);
+    expect(workspace.todos[0]?.action_label).toBe("Crear receta");
   });
 });
 

@@ -49,6 +49,7 @@ import {
   summarizeSkippedRows,
 } from "./skip";
 import { mergeUndoSnapshots } from "./snapshot";
+import { compactCandidateBlocks } from "./stored-blocks";
 import {
   HIGH_TAB_CONFIDENCE,
   emptyUndoSnapshot,
@@ -859,6 +860,7 @@ export async function importCostWorkbook(input: {
     mergeUndoSnapshots(retired.changes, persistStats.changes),
     recipeStats.changes
   );
+  snapshot.candidate_blocks = compactCandidateBlocks(recipeGroups);
   await input.repo.updateBatchSnapshot(input.companyId, batch.id, snapshot);
 
   const saved = persistStats.inserted;

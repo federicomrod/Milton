@@ -7,6 +7,20 @@ import {
   undoTouchesApprovedOrManual,
 } from "@/lib/restaurant/recipe-costing/link-actions";
 
+const boundEvidence = {
+  tab: "PLATOS",
+  block_name: "Pupusa revuelta",
+  lines: [
+    {
+      raw_name: "Masa",
+      qty: 1,
+      unit: "porción",
+      unit_cost: 0.4,
+      pending: false,
+    },
+  ],
+};
+
 const base = unlinkedPosProduct({
   company_id: "co-a",
   odoo_product_id: 1102,
@@ -19,7 +33,7 @@ describe("confirm and undo POS links", () => {
       ...base,
       menu_item_id: "menu-1",
       link_state: "sugerido" as const,
-      evidence: { block_name: "Pupusa revuelta" },
+      evidence: boundEvidence,
     };
     const result = confirmLinkResult(suggested, {
       confirmed_by: "user-1",
@@ -49,7 +63,7 @@ describe("confirm and undo POS links", () => {
       ...base,
       menu_item_id: "menu-1",
       link_state: "sugerido" as const,
-      evidence: { block_name: "Pupusa revuelta" },
+      evidence: boundEvidence,
     };
     const confirmed = confirmLinkResult(suggested, {
       confirmed_by: "user-1",
@@ -67,6 +81,7 @@ describe("confirm and undo POS links", () => {
     expect(undone.link.confirmed_how).toBeNull();
     expect(undone.link.menu_item_id).toBe("menu-1");
     expect(undone.link.evidence.block_name).toBe("Pupusa revuelta");
+    expect(Array.isArray(undone.link.evidence.lines)).toBe(true);
     expect(undoTouchesApprovedOrManual({ recipe_status: "in_review" })).toBe(
       false
     );
@@ -83,7 +98,12 @@ describe("confirm and undo POS links", () => {
 
   it("change link goes back to Sugerido and keeps an undo snapshot", () => {
     const confirmed = confirmLinkResult(
-      { ...base, menu_item_id: "menu-1", link_state: "sugerido" },
+      {
+        ...base,
+        menu_item_id: "menu-1",
+        link_state: "sugerido",
+        evidence: boundEvidence,
+      },
       {
         confirmed_by: "user-1",
         confirmed_at: "2026-10-12T18:00:00.000Z",
@@ -108,5 +128,24 @@ describe("confirm and undo POS links", () => {
       confirmed_how: "en_pantalla",
     });
     expect(undone.ok).toBe(true);
+  });
+
+  it("refuses to confirm a name-only leftover without recipe lines", () => {
+    const result = confirmLinkResult(
+      {
+        ...base,
+        menu_item_id: "menu-1",
+        link_state: "sugerido",
+        evidence: { block_name: "Parrillada Pinolera (3 personas)" },
+      },
+      {
+        confirmed_by: "user-1",
+        confirmed_at: "2026-10-12T18:00:00.000Z",
+        confirmed_how: "en_pantalla",
+      }
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/no trae la receta/i);
   });
 });

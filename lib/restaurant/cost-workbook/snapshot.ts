@@ -1,3 +1,4 @@
+import { candidateBlocksFromUnknown } from "./stored-blocks";
 import {
   emptyUndoSnapshot,
   type CostWorkbookCostEntry,
@@ -120,6 +121,7 @@ export function mergeUndoSnapshots(
       ...(extra.ingredient_categories_before ?? []),
     ]),
     undo_errors: [...(start.undo_errors ?? []), ...(extra.undo_errors ?? [])],
+    candidate_blocks: extra.candidate_blocks ?? start.candidate_blocks,
   };
 }
 
@@ -272,5 +274,6 @@ export function snapshotFromUnknown(value: unknown): UndoSnapshot {
             Boolean(row && typeof row === "object" && "id" in row)
         )
       : [],
+    candidate_blocks: candidateBlocksFromUnknown(raw.candidate_blocks),
   };
 }

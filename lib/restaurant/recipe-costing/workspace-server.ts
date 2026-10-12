@@ -5,8 +5,10 @@ import {
   loadCompanyName,
 } from "@/lib/restaurant/cost-workbook/reset-auth";
 import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
-import { listCostImportHistory } from "@/lib/restaurant/cost-workbook/history";
+import { sortBatchesNewestFirst } from "@/lib/restaurant/cost-workbook/history";
+import { candidateBlocksFromUnknown } from "@/lib/restaurant/cost-workbook/stored-blocks";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
+import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 import { formatPageDateRangeLabel } from "@/lib/restaurant/page-date-range";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
@@ -17,10 +19,14 @@ import {
 } from "@/lib/restaurant/pos-product-links";
 import {
   buildRecipeCostingWorkspace,
+  rankedProductsFromLinks,
   type RecipeCostingView,
   type RecipeCostingWorkspace,
   type WorkspaceVersion,
 } from "./workspace";
+
+export const COMBO_SYNC_HINT =
+  "Los campos de combo ya existen, pero ninguna venta los trae. Sincroniza el POS de nuevo para que Odoo marque los combos.";
 
 function asLink(row: Record<string, unknown>): PosProductLinkRecord | null {
   const odooProductId = row.odoo_product_id;
@@ -70,6 +76,29 @@ export function parseCostingView(value: string | null): RecipeCostingView {
   return "resumen";
 }
 
+async function probeComboSyncHint(
+  supabase: SupabaseClient,
+  companyId: string,
+  hasCombos: boolean
+): Promise<string | null> {
+  if (hasCombos) return null;
+  const { data, error } = await supabase
+    .from("pos_sales_items")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("pos_source", "odoo")
+    .not("combo_parent_odoo_product_id", "is", null)
+    .limit(1);
+  if (error) {
+    if (errorMentionsColumn(error, "combo_parent_odoo_product_id")) {
+      return null;
+    }
+    return null;
+  }
+  if (data && data.length > 0) return null;
+  return COMBO_SYNC_HINT;
+}
+
 export async function loadRecipeCostingWorkspace(
   supabase: SupabaseClient,
   input: {
@@ -84,22 +113,28 @@ export async function loadRecipeCostingWorkspace(
 ): Promise<
   { ok: true; workspace: RecipeCostingWorkspace } | { ok: false; error: string }
 > {
+  const started = Date.now();
+  const view = input.view ?? "resumen";
+  const slimValidar = view === "validar";
+
   const [list, roleLoad, companyName, currency, isMiltonStaff] =
     await Promise.all([
-      loadPosProductList(supabase, {
-        companyId: input.companyId,
-        startDate: input.startDate,
-        endDate: input.endDate,
-        locationId: input.locationId,
-      }),
+      slimValidar
+        ? Promise.resolve(null)
+        : loadPosProductList(supabase, {
+            companyId: input.companyId,
+            startDate: input.startDate,
+            endDate: input.endDate,
+            locationId: input.locationId,
+          }),
       loadCompanyMembershipRole(supabase, input.companyId, input.userId),
       loadCompanyName(supabase, input.companyId),
       resolveCompanyCurrency(supabase, input.companyId),
       isUserAdminServer(input.userId),
     ]);
-  if (!list.ok) return list;
+  if (list && !list.ok) return list;
 
-  const [linksRes, versionsRes, menuRes] = await Promise.all([
+  const [linksRes, versionsRes, menuRes, history] = await Promise.all([
     fetchAllRows<Record<string, unknown>>(() =>
       supabase
         .from("pos_product_links")
@@ -116,12 +151,20 @@ export async function loadRecipeCostingWorkspace(
         )
         .eq("company_id", input.companyId)
     ),
-    fetchAllRows<{ id: string; name: string }>(() =>
+    fetchAllRows<{
+      id: string;
+      name: string;
+      category: string | null;
+      selling_price: number | null;
+    }>(() =>
       supabase
         .from("menu_items")
-        .select("id, name")
+        .select("id, name, category, selling_price")
         .eq("company_id", input.companyId)
     ),
+    createSupabaseCostWorkbookRepo(supabase)
+      .listBatchHistory(input.companyId)
+      .catch(() => []),
   ]);
   if (linksRes.error) {
     return { ok: false, error: "No se pudieron leer los vínculos POS." };
@@ -133,27 +176,44 @@ export async function loadRecipeCostingWorkspace(
     return { ok: false, error: "No se pudieron leer los platillos." };
   }
 
-  let batches: RecipeCostingWorkspace["batches"] = [];
-  try {
-    const history = await listCostImportHistory(
-      createSupabaseCostWorkbookRepo(supabase),
-      input.companyId
-    );
-    batches = history
-      .filter((row) => row.status === "live")
-      .map((row) => ({
-        id: row.id,
-        filename: row.filename,
-        created_at: row.created_at,
-        can_undo: row.status === "live",
-      }));
-  } catch {
-    batches = [];
-  }
+  const liveHistory = sortBatchesNewestFirst(
+    history.filter((row) => !row.undone_at)
+  );
+  const batches: RecipeCostingWorkspace["batches"] = liveHistory.map((row) => ({
+    id: row.id,
+    filename: row.filename,
+    created_at: row.created_at ?? null,
+    can_undo: !row.undone_at,
+  }));
+  const latestLive = liveHistory[0] ?? null;
+  const latestUpload = latestLive
+    ? {
+        id: latestLive.id,
+        filename: latestLive.filename,
+        created_at: latestLive.created_at ?? null,
+        has_candidate_blocks:
+          candidateBlocksFromUnknown(latestLive.undo_snapshot.candidate_blocks)
+            .length > 0,
+      }
+    : null;
 
   const links = (linksRes.rows ?? [])
     .map(asLink)
     .filter((row): row is PosProductLinkRecord => row !== null);
+
+  const products = slimValidar
+    ? rankedProductsFromLinks(links, input.selectedOdooProductId)
+    : list && list.ok
+      ? list.list.products
+      : [];
+
+  const comboSyncHint = slimValidar
+    ? null
+    : await probeComboSyncHint(
+        supabase,
+        input.companyId,
+        products.some((product) => product.is_combo)
+      );
 
   const confirmedAt = links
     .map((link) => link.confirmed_at)
@@ -181,22 +241,28 @@ export async function loadRecipeCostingWorkspace(
       companyName,
       currency: currency || "USD",
       periodLabel,
-      view: input.view ?? "resumen",
+      view,
       actor: {
         user_id: input.userId,
         role: roleLoad.role,
         is_milton_staff: isMiltonStaff,
       },
-      products: list.list.products,
+      products,
       links,
       versions: versionsRes.rows ?? [],
       menuItems: menuRes.rows ?? [],
       batches,
-      coveragePct: list.list.coverage_pct,
-      netSales: list.list.net_sales,
-      coveredNetSales: list.list.covered_net_sales,
+      coveragePct: list && list.ok ? list.list.coverage_pct : 0,
+      netSales: list && list.ok ? list.list.net_sales : 0,
+      coveredNetSales: list && list.ok ? list.list.covered_net_sales : 0,
       selectedOdooProductId: input.selectedOdooProductId ?? null,
       lastProgress,
+      comboSyncHint,
+      latestUpload,
+      timings: {
+        load_ms: Date.now() - started,
+        path: slimValidar ? "validar" : "full",
+      },
     }),
   };
 }

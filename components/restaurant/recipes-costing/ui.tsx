@@ -8,12 +8,12 @@ export function Chip({
   children: React.ReactNode;
 }) {
   const tones = {
-    ok: "bg-emerald-50 text-emerald-800",
-    sug: "bg-blue-50 text-blue-800",
-    warn: "bg-amber-50 text-amber-800",
-    bad: "bg-red-50 text-red-700",
-    grey: "bg-slate-100 text-slate-600",
-    pur: "bg-violet-50 text-violet-800",
+    ok: "bg-[#e7f6ee] text-[#1f7a45]",
+    sug: "bg-[#e9efff] text-[#3557c9]",
+    warn: "bg-[#fff4e5] text-[#a35a00]",
+    bad: "bg-[#fdecec] text-[#c03535]",
+    grey: "bg-[#f1f3f7] text-[#5b6476]",
+    pur: "bg-[#f2ecff] text-[#6b3fc9]",
   };
   return (
     <span
@@ -31,7 +31,7 @@ export function toneForKind(
   kind: string
 ): "ok" | "sug" | "warn" | "bad" | "grey" | "pur" {
   if (kind === "Confirmado" || kind === "Aprobado") return "ok";
-  if (kind === "Sugerido") return "sug";
+  if (kind === "Sugerido" || kind === "Reventa") return "sug";
   if (kind === "Por revisar" || kind === "Falta precio") return "warn";
   if (kind === "Ambiguo") return "bad";
   if (kind === "Combo") return "pur";

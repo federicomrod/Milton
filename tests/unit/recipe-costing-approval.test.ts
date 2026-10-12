@@ -109,4 +109,102 @@ describe("approval checklist gate", () => {
     expect(ready.units_valid).toBe(true);
     expect(ready.ready).toBe(true);
   });
+
+  it("blocks an empty recipe even when Excel is unknown", () => {
+    const empty = buildApprovalChecklist({
+      link_state: "confirmado",
+      odoo_name: "Parrillada Pinolera (3 personas)",
+      odoo_product_id: 7576,
+      evidence: parseSuggestionEvidence({
+        block_name: "Parrillada Pinolera (3 personas)",
+        pending: false,
+        yield: { value: null, unit: null, source: null },
+        excel_match: null,
+        milton_cost: null,
+        lines: [],
+      }),
+    });
+    expect(empty.ready).toBe(false);
+    expect(empty.prices_present).toBe(false);
+    expect(empty.units_valid).toBe(false);
+    expect(empty.yield_confirmed).toBe(false);
+    expect(empty.excel_within_tolerance).toBe(false);
+    expect(empty.blockers).toContain("La receta no tiene ingredientes.");
+    expect(empty.blockers).toContain("La receta no tiene un costo calculado.");
+    expect(empty.blockers).toContain(
+      "La receta no tiene un rendimiento conocido."
+    );
+    expect(empty.items.find((item) => item.id === "ingredients")?.ok).toBe(
+      false
+    );
+    expect(empty.items.find((item) => item.id === "excel")?.label).toBe(
+      "Sin dato de Excel para comparar"
+    );
+    expect(empty.items.map((item) => item.label).join(" ")).not.toMatch(
+      /Cuadra con Excel/
+    );
+  });
+
+  it("does not treat unknown Excel as a match on a complete recipe", () => {
+    const unknownExcel = buildApprovalChecklist({
+      link_state: "confirmado",
+      evidence: parseSuggestionEvidence({
+        pending: false,
+        yield: { value: 1, unit: "orden", source: "excel" },
+        excel_match: null,
+        milton_cost: 4.2,
+        lines: [
+          {
+            raw_name: "Carne",
+            qty: 200,
+            unit: "g",
+            unit_cost: 0.021,
+            pending: false,
+            flags: ["ok"],
+            reasons: [],
+          },
+        ],
+      }),
+    });
+    expect(unknownExcel.ready).toBe(true);
+    expect(unknownExcel.excel_within_tolerance).toBe(false);
+    expect(unknownExcel.items.find((item) => item.id === "excel")?.label).toBe(
+      "Sin dato de Excel para comparar"
+    );
+    expect(unknownExcel.items.find((item) => item.id === "excel")?.ok).toBe(
+      false
+    );
+  });
+
+  it("marks an Excel mismatch as a hard fail and names the yield to confirm", () => {
+    const mismatch = buildApprovalChecklist({
+      link_state: "confirmado",
+      evidence: parseSuggestionEvidence({
+        pending: true,
+        excel_match: "mismatch",
+        milton_cost: 2.54,
+        excel_total: 3.8,
+        yield: { value: 28, unit: "porciones", source: "assumed" },
+        lines: [
+          {
+            raw_name: "Empanizado",
+            qty: 1,
+            unit: "porción",
+            unit_cost: 0.21,
+            pending: false,
+            flags: ["ok"],
+            sub_recipe_match: "Empanizado",
+          },
+        ],
+      }),
+    });
+    const excel = mismatch.items.find((item) => item.id === "excel");
+    const yieldItem = mismatch.items.find((item) => item.id === "yield");
+    expect(excel?.ok).toBe(false);
+    expect(excel?.warn).toBe(false);
+    expect(excel?.label).toMatch(/Diferencia con Excel/);
+    expect(yieldItem?.label).toBe(
+      "Rendimiento de Empanizado por confirmar"
+    );
+  });
 });

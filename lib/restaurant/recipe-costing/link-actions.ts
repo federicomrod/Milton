@@ -7,7 +7,9 @@ import {
 } from "@/lib/restaurant/pos-product-links";
 import {
   UNDO_EVIDENCE_KEY,
+  canConfirmSuggestedLink,
   evidenceWithoutUndo,
+  parseSuggestionEvidence,
   readUndoSnapshot,
 } from "./evidence";
 
@@ -19,6 +21,9 @@ export const UNDO_CONFIRM_ERROR =
 
 export const UNDO_NOT_CONFIRMED_ERROR =
   "Este vínculo no está Confirmado, no hay nada que deshacer.";
+
+export const UNBOUND_CONFIRM_ERROR =
+  "Esta sugerencia no trae la receta. Elige otra o créala antes de confirmar.";
 
 export interface LinkUndoSnapshot {
   classification: PosProductLinkRecord["classification"];
@@ -61,6 +66,9 @@ export function confirmLinkResult(
   const error = confirmPosProductLinkError(confirmation);
   if (error || !confirmation) {
     return { ok: false, error: error ?? CONFIRM_LINK_ERROR };
+  }
+  if (!canConfirmSuggestedLink(parseSuggestionEvidence(base.evidence))) {
+    return { ok: false, error: UNBOUND_CONFIRM_ERROR };
   }
   const confirmed = confirmPosProductLink(base, {
     confirmed_by: confirmation.confirmed_by!.trim(),

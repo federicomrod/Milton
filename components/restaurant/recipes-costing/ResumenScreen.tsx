@@ -1,71 +1,50 @@
 "use client";
 
-import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
+import type {
+  RecipeCostingView,
+  RecipeCostingWorkspace,
+} from "@/lib/restaurant/recipe-costing/workspace";
+import { Stepper } from "./Stepper";
 import { Card, Chip, GhostBtn, PrimaryBtn, toneForKind } from "./ui";
 
 export function ResumenScreen({
   data,
   onOpen,
   onUndoBatch,
+  onGenerateSuggestions,
+  onUploadWorkbook,
+  generateBusy,
 }: {
   data: RecipeCostingWorkspace;
-  onOpen: (view: "vincular" | "validar", odooProductId?: number) => void;
+  onOpen: (view: RecipeCostingView, odooProductId?: number) => void;
   onUndoBatch: (batchId: string) => void;
+  onGenerateSuggestions: () => void;
+  onUploadWorkbook: (file: File) => void;
+  generateBusy: boolean;
 }) {
   const { coverage, stepper, next_dish, classification } = data;
   return (
     <div className="space-y-3">
-      <Card>
-        <div className="grid grid-cols-1 gap-2.5 md:grid-cols-4">
-          {stepper.map((step) => (
-            <div
-              key={step.id}
-              className={
-                "flex gap-2.5 rounded-[10px] border p-2.5 " +
-                (step.state === "cur"
-                  ? "border-amber-300 bg-amber-50"
-                  : "border-slate-100")
-              }
-            >
-              <div
-                className={
-                  "flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full text-xs font-bold " +
-                  (step.state === "done"
-                    ? "bg-emerald-600 text-white"
-                    : step.state === "cur"
-                      ? "bg-[#f28c28] text-white"
-                      : "bg-slate-100 text-slate-500")
-                }
-              >
-                {step.state === "done" ? "✓" : step.id}
-              </div>
-              <div>
-                <div className="text-[12.5px] font-semibold">{step.title}</div>
-                <div className="mt-0.5 text-[11px] text-slate-500">
-                  {step.detail}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+      <Card className="p-4">
+        <Stepper steps={stepper} onOpen={onOpen} />
       </Card>
 
       <Card className="grid items-center gap-4 md:grid-cols-[1.25fr_1fr]">
         <div>
-          <div className="text-xs font-semibold text-slate-500">
+          <div className="text-[11.5px] font-semibold text-[#6b7385]">
             Ventas netas con costo aprobado
           </div>
-          <div className="mt-1 flex items-baseline gap-2.5">
-            <span className="text-[28px] font-extrabold leading-none">
+          <div className="mt-1 flex flex-wrap items-baseline gap-2.5">
+            <span className="text-[28px] font-extrabold leading-none text-[#1b2333]">
               {coverage.coverage_label}
             </span>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-[#5b6476]">
               {coverage.covered_label} de {coverage.net_sales_label}
-              {data.period_label ? ` · ${data.period_label}` : ""}
               {` · ${coverage.dishes_approved} de ${coverage.dishes_need_recipe} platos`}
+              {data.period_label ? ` · ${data.period_label}` : ""}
             </span>
           </div>
-          <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-slate-100">
+          <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-[#eef0f4]">
             {coverage.slices
               .filter((slice) => slice.pct > 0)
               .map((slice) => (
@@ -75,7 +54,7 @@ export function ResumenScreen({
                 />
               ))}
           </div>
-          <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] text-slate-500">
+          <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] text-[#6b7385]">
             {coverage.slices.map((slice) => (
               <span key={slice.id} className="inline-flex items-center gap-1">
                 <i
@@ -88,24 +67,49 @@ export function ResumenScreen({
           </div>
         </div>
         <div className="text-right">
-          <div className="mb-2 text-xs text-slate-500">
+          <div className="mb-2 text-xs text-[#5b6476]">
             {coverage.margins_note}
           </div>
           <PrimaryBtn
             className="px-4 py-2 text-[13px]"
             disabled={!next_dish}
             onClick={() =>
-              next_dish &&
-              onOpen(
-                next_dish.view as "vincular" | "validar",
-                next_dish.odoo_product_id
-              )
+              next_dish && onOpen(next_dish.view, next_dish.odoo_product_id)
             }
           >
             {next_dish?.label ?? "Nada pendiente"}
           </PrimaryBtn>
-          <div className="mt-1.5 text-[10.5px] text-slate-400">
+          <div className="mt-1.5 text-[10.5px] text-[#8a92a3]">
             {data.last_progress}
+          </div>
+          <div className="mt-3 flex flex-wrap justify-end gap-2">
+            <GhostBtn disabled={generateBusy} onClick={onGenerateSuggestions}>
+              {generateBusy
+                ? "Generando sugerencias…"
+                : "Generar sugerencias desde tu archivo"}
+            </GhostBtn>
+            <label className="inline-flex cursor-pointer items-center">
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) onUploadWorkbook(file);
+                  event.target.value = "";
+                }}
+              />
+              <span className="inline-flex">
+                <GhostBtn disabled={generateBusy}>Cargar recetas</GhostBtn>
+              </span>
+            </label>
+          </div>
+          <div className="mt-1 text-left text-[10.5px] text-[#8a92a3]">
+            {data.latest_upload?.has_candidate_blocks
+              ? `Usa ${data.latest_upload.filename}. Milton propone; tú confirmas.`
+              : data.latest_upload
+                ? `Ya subiste ${data.latest_upload.filename}, pero hay que volver a subirlo una vez en Costos para guardar los bloques de receta.`
+                : "Primero sube el Excel en Costos › Subir costos."}
           </div>
         </div>
       </Card>
@@ -116,13 +120,13 @@ export function ResumenScreen({
             <h2 className="text-[15px] font-semibold">
               Qué falta, por impacto en ventas
             </h2>
-            <span className="ml-2.5 text-[11.5px] text-slate-400">
+            <span className="ml-2.5 text-[11.5px] text-[#8a92a3]">
               Primero lo que más vende
             </span>
           </div>
           <table className="w-full text-[11.8px]">
             <thead>
-              <tr className="text-left text-[10.5px] font-semibold text-slate-400">
+              <tr className="text-left text-[10.5px] font-semibold text-[#8a92a3]">
                 <th className="pb-1.5 pr-2" />
                 <th className="pb-1.5 pr-2">Plato del POS</th>
                 <th className="pb-1.5 pr-2">Por qué falta</th>
@@ -135,11 +139,13 @@ export function ResumenScreen({
               {data.todos.map((row) => (
                 <tr
                   key={row.odoo_product_id}
-                  className="border-t border-slate-100"
+                  className="border-t border-[#f2f3f6]"
                 >
-                  <td className="py-1.5 pr-2 text-slate-400">{row.rank}</td>
+                  <td className="py-1.5 pr-2 text-[#8a92a3]">{row.rank}</td>
                   <td className="py-1.5 pr-2 font-semibold">{row.odoo_name}</td>
-                  <td className="py-1.5 pr-2 text-slate-500">{row.reason}</td>
+                  <td className="py-1.5 pr-2 text-[10.8px] text-[#5b6476]">
+                    {row.reason}
+                  </td>
                   <td className="py-1.5 pr-2">
                     <Chip tone={toneForKind(row.kind_label)}>
                       {row.kind_label}
@@ -148,12 +154,7 @@ export function ResumenScreen({
                   <td className="py-1.5 pr-2 text-right">{row.share_label}</td>
                   <td className="py-1.5 text-right">
                     <GhostBtn
-                      onClick={() =>
-                        onOpen(
-                          row.view as "vincular" | "validar",
-                          row.odoo_product_id
-                        )
-                      }
+                      onClick={() => onOpen(row.view, row.odoo_product_id)}
                     >
                       {row.action_label}
                     </GhostBtn>
@@ -162,7 +163,7 @@ export function ResumenScreen({
               ))}
               {data.todos.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-4 text-slate-400">
+                  <td colSpan={6} className="py-4 text-[#8a92a3]">
                     No hay pendientes. Ya puedes leer los márgenes aprobados.
                   </td>
                 </tr>
@@ -170,13 +171,13 @@ export function ResumenScreen({
             </tbody>
           </table>
           {data.todos_total > data.todos.length ? (
-            <div className="mt-2 flex justify-between text-[10.5px] text-slate-400">
+            <div className="mt-2 flex justify-between text-[10.5px] text-[#8a92a3]">
               <span>
                 {data.todos.length} de {data.todos_total} pendientes
               </span>
               <button
                 type="button"
-                className="font-semibold text-blue-700"
+                className="font-semibold text-[#3557c9]"
                 onClick={() => onOpen("vincular")}
               >
                 Ver todos →
@@ -190,31 +191,36 @@ export function ResumenScreen({
             <h2 className="text-[15px] font-semibold">Tu menú en Odoo</h2>
             <button
               type="button"
-              className="ml-auto text-xs font-semibold text-blue-700"
+              className="ml-auto text-xs font-semibold text-[#3557c9]"
               onClick={() => onOpen("vincular")}
             >
               Revisar clasificación →
             </button>
           </div>
+          {data.combo_sync_hint ? (
+            <div className="mb-2 rounded-[10px] border border-[#f5c98b] bg-[#fff8ec] px-3 py-2.5 text-xs text-[#5b4515]">
+              {data.combo_sync_hint}
+            </div>
+          ) : null}
           {classification.map((row) => (
             <div
               key={row.id}
-              className="flex items-center justify-between border-t border-slate-100 py-1.5 text-[12px]"
+              className="flex items-center justify-between border-t border-[#f2f3f6] py-1.5 text-[11.8px]"
             >
               <span>{row.label}</span>
               <span>
                 <b>{row.count}</b>{" "}
-                <span className="text-[10.5px] text-slate-400">{row.hint}</span>
+                <span className="text-[10.5px] text-[#8a92a3]">{row.hint}</span>
               </span>
             </div>
           ))}
-          <div className="mt-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-950">
+          <div className="mt-2 rounded-[10px] border border-[#f5c98b] bg-[#fff8ec] px-3 py-2.5 text-xs text-[#5b4515]">
             <b>Quién aprueba:</b>{" "}
             {data.who_approves.replace("Quién aprueba: ", "")}
           </div>
           {data.batches.length > 0 ? (
             <div className="mt-3 space-y-1.5">
-              <div className="text-xs font-semibold text-slate-500">
+              <div className="text-xs font-semibold text-[#6b7385]">
                 Sugerencias para deshacer
               </div>
               {data.batches.map((batch) => (

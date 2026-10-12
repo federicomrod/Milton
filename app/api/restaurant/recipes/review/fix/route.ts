@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
         typeof body.unit_cost === "number"
           ? body.unit_cost
           : Number(body.unit_cost) || undefined,
+      addLine: body.add_line === true,
     });
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });

@@ -33,6 +33,11 @@ export {
   proposeRecipeForProduct,
 } from "./recipe-suggestion";
 export {
+  compactCandidateBlocks,
+  expandCandidateBlocks,
+  candidateBlocksFromUnknown,
+} from "./stored-blocks";
+export {
   collectCostoRestauranteBlockNames,
   collectCostoRestauranteBlocks,
   alignFilledDownBlockRow,

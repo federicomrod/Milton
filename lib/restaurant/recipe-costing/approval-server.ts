@@ -95,6 +95,19 @@ export async function approveRecipeVersion(input: {
     );
     evidence = parseSuggestionEvidence(link?.evidence);
   }
+  const { count: inputCount, error: inputError } = await input.supabase
+    .from("recipe_version_inputs")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", input.companyId)
+    .eq("recipe_version_id", input.recipeVersionId);
+  if (inputError) throw new Error(inputError.message);
+  if ((inputCount ?? 0) === 0 && evidence.lines.length === 0) {
+    return {
+      ok: false,
+      error: "La receta no tiene ingredientes.",
+    };
+  }
+
   const checklist = buildApprovalChecklist({
     link_state: input.odooProductId != null ? "confirmado" : "sugerido",
     evidence,

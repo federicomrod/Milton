@@ -35,6 +35,8 @@ import {
   TOTAL_MISMATCH_REASON,
   YIELD_INCONSISTENT_REASON,
   foldFooterLabel,
+  footerAmount,
+  footerKindFromLabel,
   handmadeRecipeExistsReason,
   layoutKeyForSheet,
   mergeTypoDuplicates,
@@ -2808,8 +2810,21 @@ describe("COSTO RESTAURANTE block layout", () => {
         "QUESO FRITO",
         "FONDO PARA SOPA DE TORTILLA",
         "FONDO DE RES",
+        "DEMIGLASS",
       ])
     );
+    const quesoFrito = parsed.groups.find(
+      (group) => group.name === "QUESO FRITO"
+    );
+    expect(quesoFrito?.output_quantity).toBeCloseTo(1, 5);
+    expect(quesoFrito?.output_unit).toBe("unit");
+    expect(quesoFrito?.cost_total).toBeCloseTo(0.21354, 5);
+    const demiglass = parsed.groups.find((group) => group.name === "DEMIGLASS");
+    expect(demiglass?.output_unit).toBe("lb");
+    expect(demiglass?.output_quantity).toBeCloseTo(8, 5);
+    expect(demiglass?.cost_total).toBeCloseTo(2, 5);
+    expect(demiglass?.price_per_lb).toBeCloseTo(0.25, 5);
+    expect(demiglass?.price_per_oz).toBeCloseTo(0.015625, 5);
     expect(names).not.toEqual(expect.arrayContaining(["COSTO RESTAURANTE"]));
     expect(names).not.toEqual(
       expect.arrayContaining(["RESTAURANTE LOS RANCHOS"])
@@ -2954,6 +2969,102 @@ describe("COSTO RESTAURANTE block layout", () => {
         item.reason.includes(YIELD_INCONSISTENT_REASON)
       )
     ).toBe(true);
+  });
+
+  it("reads dirty Los Ranchos footers instead of storing Cantidad=0 as the total", () => {
+    expect(footerKindFromLabel("COSTO TOTAL")).toBe("costo_total");
+    expect(footerKindFromLabel("DEMIGLASS")).toBeNull();
+    expect(footerKindFromLabel("PRECIO POR ONZA $0.015625")).toBe("precio_oz");
+    expect(footerKindFromLabel("PRECIO COSTO POR UNIDAD")).toBe("precio_unit");
+    expect(
+      footerAmount(["COSTO TOTAL", "", 0, 0, 0.21354], {
+        ingredient: 0,
+        unit: 1,
+        qty: 2,
+        unitCost: 3,
+        total: 4,
+      })
+    ).toBeCloseTo(0.21354, 5);
+    expect(
+      footerAmount(["DEMIGLASS", "PRECIO POR LIBRA", 0, 0, 0.25], {
+        ingredient: 0,
+        unit: 1,
+        qty: 2,
+        unitCost: 3,
+        total: 4,
+      })
+    ).toBeCloseTo(0.25, 5);
+    expect(footerAmount(["PRECIO POR ONZA $0.015625"])).toBeCloseTo(
+      0.015625,
+      5
+    );
+  });
+
+  it("imports the full Los Ranchos block fixture with yields and dishes", async () => {
+    // Staging 2026-10-12 (r1-staging after #160/#173), same real workbook:
+    //   saved 77, review 693, skipped 473, recipes 0, sub-recipes 0, dishes 0.
+    // Before this fix, dirty footers (Cantidad=0, name filled down column A,
+    // "PRECIO POR ONZA $0.015625") left QUESO FRITO / DEMIGLASS with no
+    // yield; persist then dropped those preps and every dish that used them.
+    // After on this fixture: 10 sub-recipes, 4 recipes / dishes, 6 review
+    // (pack size + FONDO DE RES inconsistent + a few unknown units).
+    const store = emptyStore();
+    store.posItemNames = [
+      "CHURRASCO TIPICO 6",
+      "DEDOS DE QUESO",
+      "SALSA DEMIGLASS PLATO",
+    ];
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildCostoRestauranteBlockWorkbook(),
+      currency: "USD",
+      repo,
+      ai: aiSharedArticuloAsRecipeAndIngredient(),
+      locationId: "loc-ranchos",
+      lang: "es",
+    });
+
+    expect(result.sub_recipes_created).toBe(10);
+    expect(result.recipes_created).toBe(4);
+    expect(result.menu_items_created).toBe(4);
+    expect(result.review_count).toBe(6);
+    expect(
+      result.review_items.some((item) =>
+        /no pude calcular el rendimiento \(QUESO FRITO\)/.test(item.reason)
+      )
+    ).toBe(false);
+    expect(
+      result.review_items.some((item) =>
+        /no pude calcular el rendimiento \(DEMIGLASS\)/.test(item.reason)
+      )
+    ).toBe(false);
+
+    const queso = store.componentRecipes.find((row) =>
+      store.components.some(
+        (component) =>
+          component.id === row.component_id && component.name === "QUESO FRITO"
+      )
+    );
+    expect(queso?.output_quantity).toBeCloseTo(1, 5);
+    expect(queso?.output_unit).toBe("unit");
+    const demi = store.componentRecipes.find((row) =>
+      store.components.some(
+        (component) =>
+          component.id === row.component_id && component.name === "DEMIGLASS"
+      )
+    );
+    expect(demi?.output_quantity).toBeCloseTo(8, 5);
+    expect(demi?.output_unit).toBe("lb");
+    expect(store.menuItems.map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        "DEDOS DE QUESO",
+        "SALSA DEMIGLASS PLATO",
+        "CHURRASCO TIPICO 6",
+      ])
+    );
+    expect(store.recipes.length).toBeGreaterThan(0);
   });
 
   it("sends a plain ingredient with ORDEN and a price-list CONVOY to needs-a-look", async () => {
@@ -3509,7 +3620,9 @@ describe("COSTO RESTAURANTE block layout", () => {
       store.recipes.find((row) => row.id === recipe?.id)?.workbook_cost_match
     ).toBeNull();
     expect(
-      second.recipe_match?.mismatches.some((row) => row.name === "DEDOS DE QUESO")
+      second.recipe_match?.mismatches.some(
+        (row) => row.name === "DEDOS DE QUESO"
+      )
     ).toBe(false);
   });
 
@@ -3547,7 +3660,8 @@ describe("COSTO RESTAURANTE block layout", () => {
       store.recipes.find((row) => row.id === recipe?.id)?.workbook_cost_match
     ).toBe("match");
     expect(
-      store.recipes.find((row) => row.id === recipe?.id)?.workbook_variance_amount
+      store.recipes.find((row) => row.id === recipe?.id)
+        ?.workbook_variance_amount
     ).toBeCloseTo(0, 2);
 
     const undone = await undoCostImportBatch(repo, COMPANY, second.batch_id);

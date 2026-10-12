@@ -413,7 +413,8 @@ export interface GroupedRecipe {
   lines: RecipeLineCandidate[];
   output_quantity: number | null;
   output_unit: string | null;
-  /** Repeating COSTO RESTAURANTE blocks — do not invent a yield. */
+  /** Repeating COSTO RESTAURANTE blocks — yield comes from footers,
+   *  not a sum of mixed ingredient lines. */
   block_layout?: boolean;
   selling_price?: number | null;
   cost_total?: number | null;

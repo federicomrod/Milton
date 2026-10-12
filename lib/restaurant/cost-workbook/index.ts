@@ -16,9 +16,12 @@ export {
 export {
   collectCostoRestauranteBlockNames,
   collectCostoRestauranteBlocks,
+  footerAmount,
+  footerKindFromLabel,
   mappingFromCostoRestauranteHeader,
   readNumericCell,
   sheetLooksLikeCostoRestauranteBlocks,
+  stripFooterAmount,
   TOTAL_MISMATCH_REASON,
   YIELD_INCONSISTENT_REASON,
 } from "./blocks";

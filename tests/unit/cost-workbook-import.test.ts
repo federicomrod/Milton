@@ -4475,8 +4475,28 @@ describe("cost workbook review-blocker follow-ups", () => {
     );
   });
 
+  function seedCatalog(store: MemoryCostWorkbookStore) {
+    store.ingredients.push(
+      {
+        id: "ing-emp",
+        name: "EMPANIZADOR",
+        default_unit: "oz",
+        current_unit_cost: 0.09,
+        currency: "USD",
+      },
+      {
+        id: "ing-puyaso",
+        name: "PUYASO",
+        default_unit: "oz",
+        current_unit_cost: 0.58,
+        currency: "USD",
+      }
+    );
+  }
+
   it("creates a missing recipe-line ingredient only when the toggle is on, with a null price", async () => {
     const off = emptyStore();
+    seedCatalog(off);
     const offResult = await importCostWorkbook({
       companyId: COMPANY,
       filename: FILENAME,
@@ -4497,6 +4517,7 @@ describe("cost workbook review-blocker follow-ups", () => {
     ).toBe(true);
 
     const on = emptyStore();
+    seedCatalog(on);
     const onResult = await importCostWorkbook({
       companyId: COMPANY,
       filename: FILENAME,
@@ -4544,6 +4565,7 @@ describe("cost workbook review-blocker follow-ups", () => {
 
   it("keeps a created dish in undo when its recipe write fails", async () => {
     const store = emptyStore();
+    seedCatalog(store);
     store.failNextRecipeCreate = "recipes_pkey";
     const result = await importCostWorkbook({
       companyId: COMPANY,

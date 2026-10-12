@@ -130,18 +130,19 @@ export function resolveCatalogInput(
     ingredients,
     (item) => item.name
   );
-  const best = ingredientHit
-    ? { kind: "ingredient" as const, hit: ingredientHit }
-    : null;
-
-  if (
-    best &&
-    (best.hit.score >= REVIEW_NAME_SCORE ||
-      canAutoLinkNames(resolvedName, best.hit.item.name))
-  ) {
+  const typoIngredient = ingredients.find((item) =>
+    canAutoLinkNames(resolvedName, item.name)
+  );
+  const reviewIngredient =
+    ingredientHit &&
+    (ingredientHit.score >= REVIEW_NAME_SCORE ||
+      canAutoLinkNames(resolvedName, ingredientHit.item.name))
+      ? ingredientHit.item
+      : typoIngredient;
+  if (reviewIngredient) {
     return {
       ok: false,
-      reason: unsureIngredientNameReason(lang, lineName, best.hit.item.name),
+      reason: unsureIngredientNameReason(lang, lineName, reviewIngredient.name),
     };
   }
   return { ok: false, reason: unknownIngredientReason(lang, lineName) };

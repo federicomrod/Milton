@@ -16,10 +16,14 @@ export {
 export {
   collectCostoRestauranteBlockNames,
   collectCostoRestauranteBlocks,
+  footerAmount,
+  footerKindFromLabel,
   mappingFromCostoRestauranteHeader,
   readNumericCell,
   sheetLooksLikeCostoRestauranteBlocks,
+  stripFooterAmount,
   TOTAL_MISMATCH_REASON,
+  YIELD_ASSUMED_REASON,
   YIELD_INCONSISTENT_REASON,
 } from "./blocks";
 export {
@@ -35,6 +39,7 @@ export {
   totalsMatch,
 } from "./parse";
 export {
+  assumedYieldReason,
   emptyRecipeNameReason,
   isPackSizeReviewReason,
   mappingSourceLabel,
@@ -86,6 +91,7 @@ export {
   handmadeRecipeExistsReason,
   MISSING_IMPORT_COSTING_036_ES,
   MISSING_WORKBOOK_COST_MIGRATION_ES,
+  isPendingRecipeCostStatus,
   pendingRecipesLabel,
   positiveQuantityReason,
   selfReferenceReason,

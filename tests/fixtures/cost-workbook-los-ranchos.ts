@@ -340,7 +340,8 @@ export function buildCostoRestauranteBlockWorkbook(): Buffer {
     ["QUESO GRATINADO", "ONZA", 1, 0.14754, 0.14754],
     ["HARINA", "GRAMO", 5, 0.0012, 0.006],
     ["ACEITE", "ONZA", 0.5, 0.12, 0.06],
-    ["COSTO TOTAL", "", "", "", 0.21354],
+    ["COSTO TOTAL", "", 0, 0, 0.21354],
+    ["PRECIO COSTO POR UNIDAD", "", 0, 0, 0.21354],
     [],
     ["COSTO RESTAURANTE"],
     [
@@ -370,6 +371,15 @@ export function buildCostoRestauranteBlockWorkbook(): Buffer {
     ["COSTO TOTAL", "", "", "", 1.0],
     ["PRECIO POR LIBRA", "", "", "", 1],
     ["PRECIO POR ONZA", "", "", "", 1],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["DEMIGLASS"],
+    header,
+    ["HUESO", "LIBRA", 4, 0.4, 1.6],
+    ["AGUA", "LITRO", 4, 0.1, 0.4],
+    ["DEMIGLASS", "COSTO TOTAL", 0, 0, 2],
+    ["DEMIGLASS", "PRECIO POR LIBRA", 0, 0, 0.25],
+    ["PRECIO POR ONZA $0.015625"],
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
 
@@ -461,6 +471,20 @@ export function buildCostoRestauranteBlockWorkbook(): Buffer {
     ["COSTO TOTAL", "", "", "", 6.144],
     ["PRECIO DE VENTA SIN IVA", "", "", "", 21.233],
     ["MARGEN DE CONTRIBUCION", "", "", "", 13.771],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["DEDOS DE QUESO"],
+    header,
+    ["QUESO FRITO", "ORDEN", 1, 0.21354, 0.21354],
+    ["COSTO TOTAL", "", 0, 0, 0.21354],
+    ["PRECIO DE VENTA SIN IVA", "", 0, 0, 7.52],
+    [],
+    ["COSTO RESTAURANTE"],
+    ["SALSA DEMIGLASS PLATO"],
+    header,
+    ["DEMIGLASS", "ONZA", 2, 0.015625, 0.03125],
+    ["COSTO TOTAL", "", 0, 0, 0.03125],
+    ["PRECIO DE VENTA SIN IVA", "", 0, 0, 8],
   ];
   XLSX.utils.book_append_sheet(
     wb,
@@ -498,11 +522,11 @@ export function buildCostoRestauranteBlockWorkbook(): Buffer {
   const price = [
     ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
     ["QUESO GRATINADO", 2.36, 0.14754, ""],
-    ["HARINA", "", "", 0.0012],
+    ["HARINA", 0.544, 0.034, 0.0012],
     ["ACEITE", 1.92, 0.12, ""],
     ["TOMATE", 0.96, 0.06, ""],
     ["CEBOLLA", 0.8, 0.05, ""],
-    ["AGUA", "", "", 0.4],
+    ["AGUA", "", 0.025, 0.4],
     ["HUESO", 0.4, 0.025, ""],
     ["MAYONESA", 0.98051948, 0.06128, ""],
     ["SAL", "", 0.02, ""],
@@ -513,7 +537,7 @@ export function buildCostoRestauranteBlockWorkbook(): Buffer {
     ["PAPA", 0.6, 0.0375, ""],
     ["CHURRASCO DE RES", 9.753, 0.60958, ""],
     ["FRIJOL FRITO", "", 0.045, ""],
-    ["PLATANO FRITO", "", "", 0.05],
+    ["PLATANO FRITO", "", 0.05, 0.05],
     ["PUYASO", 9.257, 0.57857, ""],
     ["ENTRAÑA", 12.267, 0.76667, ""],
   ];
@@ -732,4 +756,111 @@ export function buildIncompleteDishWorkbook(): Buffer {
   return Buffer.from(
     XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
   );
+}
+
+/**
+ * Sub-recipe with only COSTO TOTAL (no $/lb, $/oz, or unit price).
+ * Yield must be assumed, never confirmed, and dishes that use it stay
+ * in review — never costed and never Cuadra con Excel.
+ */
+export function buildAssumedYieldWorkbook(): Buffer {
+  const wb = XLSX.utils.book_new();
+  const header = [
+    "Articulo",
+    "Unidad Detalle",
+    "Cantidad",
+    "Costo Unitario",
+    "Total Costo",
+  ];
+  const sub = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["QUESO FRITO"],
+    header,
+    ["QUESO GRATINADO", "ONZA", 1, 0.15, 0.15],
+    ["COSTO TOTAL", "", "", "", 0.15],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
+
+  const dishes = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["DEDOS DE QUESO"],
+    header,
+    ["QUESO FRITO", "ORDEN", 1, 0.15, 0.15],
+    ["COSTO TOTAL", "", "", "", 0.15],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 7.52],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(dishes),
+    "DE LA PARRILLA"
+  );
+
+  const price = [
+    ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+    ["QUESO GRATINADO", 2.4, 0.15, ""],
+  ];
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet(price),
+    "Lista de precios"
+  );
+
+  return Buffer.from(
+    XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+  );
+}
+
+function demiglassWorkbook(opts: {
+  lines: Array<Array<string | number>>;
+  footers: Array<Array<string | number>>;
+}): Buffer {
+  const wb = XLSX.utils.book_new();
+  const header = [
+    "Articulo",
+    "Unidad Detalle",
+    "Cantidad",
+    "Costo Unitario",
+    "Total Costo",
+  ];
+  const sub = [
+    ["RESTAURANTE LOS RANCHOS"],
+    ["COSTO RESTAURANTE"],
+    ["DEMIGLASS"],
+    header,
+    ...opts.lines,
+    ...opts.footers,
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([
+      ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
+      ["HUESO", 0.4, 0.025, ""],
+    ]),
+    "Lista de precios"
+  );
+  return Buffer.from(
+    XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer
+  );
+}
+
+/** Confirmed DEMIGLASS yield: COSTO TOTAL $2 / $0.25 per lb = 8 lb. */
+export function buildConfirmedDemiglassWorkbook(): Buffer {
+  return demiglassWorkbook({
+    lines: [["HUESO", "LIBRA", 4, 0.4, 1.6]],
+    footers: [
+      ["COSTO TOTAL", "", "", "", 2],
+      ["PRECIO POR LIBRA", "", "", "", 0.25],
+    ],
+  });
+}
+
+/** Same prep with only COSTO TOTAL — assumed 1-unit yield, different qty. */
+export function buildAssumedDemiglassWorkbook(): Buffer {
+  return demiglassWorkbook({
+    lines: [["HUESO", "LIBRA", 8, 0.4, 3.2]],
+    footers: [["COSTO TOTAL", "", "", "", 3.2]],
+  });
 }

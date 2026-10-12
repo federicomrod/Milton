@@ -184,6 +184,10 @@ function isImported(sourceType: string | null | undefined): boolean {
   return !isImportProtectedSource(sourceType);
 }
 
+function yieldNeedsReview(group: GroupedRecipe, yieldOk: boolean): boolean {
+  return !yieldOk || Boolean(group.yield_assumed);
+}
+
 export async function persistWorkbookRecipes(input: {
   companyId: string;
   batchId: string;
@@ -344,9 +348,17 @@ export async function persistWorkbookRecipes(input: {
         raw: { recipe: group.name },
         suggested: { ingredient_name: group.name },
       });
-      continue;
+      // Non-block tabs must not invent a 1-unit yield (Batter). Block
+      // layouts still import in a reviewable state so a missing yield
+      // does not drop every dish that uses the prep.
+      if (!group.block_layout) continue;
     }
     if (!inputs) continue;
+    const yieldQuantity = yieldResult.ok ? yieldResult.quantity : 1;
+    const yieldUnit = yieldResult.ok ? yieldResult.unit : "unit";
+    const versionStatus = yieldNeedsReview(group, yieldResult.ok)
+      ? "in_review"
+      : "approved";
     const existing = componentByName.get(nameKey(group.name));
     if (existing && !isImported(existing.source_type)) {
       skipped.push({
@@ -367,56 +379,64 @@ export async function persistWorkbookRecipes(input: {
           input.companyId,
           previous.id
         );
-        changes.updated_components.push({
-          id: previous.id,
-          inputs: previousInputs,
-          component_id: existing.id,
-          output_quantity: previous.output_quantity,
-          output_unit: previous.output_unit,
-          source_type: previous.source_type,
-          workbook_cost_total: previous.workbook_cost_total ?? null,
-          workbook_unit_price: previous.workbook_unit_price ?? null,
-          workbook_computed_cost: previous.workbook_computed_cost ?? null,
-          workbook_cost_match: previous.workbook_cost_match ?? null,
-          workbook_variance_amount: previous.workbook_variance_amount ?? null,
-          workbook_variance_pct: previous.workbook_variance_pct ?? null,
-        });
+        const assumedOrUnknown = yieldNeedsReview(group, yieldResult.ok);
+        if (!assumedOrUnknown) {
+          changes.updated_components.push({
+            id: previous.id,
+            inputs: previousInputs,
+            component_id: existing.id,
+            output_quantity: previous.output_quantity,
+            output_unit: previous.output_unit,
+            source_type: previous.source_type,
+            workbook_cost_total: previous.workbook_cost_total ?? null,
+            workbook_unit_price: previous.workbook_unit_price ?? null,
+            workbook_computed_cost: previous.workbook_computed_cost ?? null,
+            workbook_cost_match: previous.workbook_cost_match ?? null,
+            workbook_variance_amount: previous.workbook_variance_amount ?? null,
+            workbook_variance_pct: previous.workbook_variance_pct ?? null,
+          });
+        }
         await snapshotComponentRecipeVersion({
           repo: input.repo,
           companyId: input.companyId,
           recipe: previous,
           previousInputs,
           nextInputs: inputs,
+          nextOutputQuantity: yieldQuantity,
+          nextOutputUnit: yieldUnit,
+          assumed: assumedOrUnknown,
           changes,
           effectiveDate: input.effectiveDate ?? null,
         });
-        await input.repo.replaceComponentRecipeInputs(
-          input.companyId,
-          previous.id,
-          inputs
-        );
-        await input.repo.updateComponentYield({
-          companyId: input.companyId,
-          componentId: existing.id,
-          componentRecipeId: previous.id,
-          outputQuantity: yieldResult.quantity,
-          outputUnit: yieldResult.unit,
-        });
+        if (!assumedOrUnknown) {
+          await input.repo.replaceComponentRecipeInputs(
+            input.companyId,
+            previous.id,
+            inputs
+          );
+          await input.repo.updateComponentYield({
+            companyId: input.companyId,
+            componentId: existing.id,
+            componentRecipeId: previous.id,
+            outputQuantity: yieldQuantity,
+            outputUnit: yieldUnit,
+          });
+        }
       } else {
         const createdRecipe = await input.repo.createComponentRecipe({
           companyId: input.companyId,
           componentId: existing.id,
           name: `${group.name} recipe`,
-          outputQuantity: yieldResult.quantity,
-          outputUnit: yieldResult.unit,
+          outputQuantity: yieldQuantity,
+          outputUnit: yieldUnit,
           sourceId: input.batchId,
           inputs,
         });
         await input.repo.updateComponentYield({
           companyId: input.companyId,
           componentId: existing.id,
-          outputQuantity: yieldResult.quantity,
-          outputUnit: yieldResult.unit,
+          outputQuantity: yieldQuantity,
+          outputUnit: yieldUnit,
         });
         changes.created_component_recipe_ids.push(createdRecipe.id);
         componentRecipeByComponentId.set(existing.id, createdRecipe);
@@ -425,10 +445,10 @@ export async function persistWorkbookRecipes(input: {
           componentRecipeId: createdRecipe.id,
           componentId: existing.id,
           versionNumber: 1,
-          status: "approved",
+          status: versionStatus,
           effectiveDate: null,
-          outputQuantity: yieldResult.quantity,
-          outputUnit: yieldResult.unit,
+          outputQuantity: yieldQuantity,
+          outputUnit: yieldUnit,
           sourceType: "import",
           inputs,
         });
@@ -441,7 +461,7 @@ export async function persistWorkbookRecipes(input: {
       component = await input.repo.createComponent({
         companyId: input.companyId,
         name: group.name,
-        outputUnit: yieldResult.unit,
+        outputUnit: yieldUnit,
         sourceId: input.batchId,
       });
       changes.created_component_ids.push(component.id);
@@ -451,8 +471,8 @@ export async function persistWorkbookRecipes(input: {
         companyId: input.companyId,
         componentId: component.id,
         name: `${group.name} recipe`,
-        outputQuantity: yieldResult.quantity,
-        outputUnit: yieldResult.unit,
+        outputQuantity: yieldQuantity,
+        outputUnit: yieldUnit,
         sourceId: input.batchId,
         inputs,
       });
@@ -463,10 +483,10 @@ export async function persistWorkbookRecipes(input: {
         componentRecipeId: createdRecipe.id,
         componentId: component.id,
         versionNumber: 1,
-        status: "approved",
+        status: versionStatus,
         effectiveDate: null,
-        outputQuantity: yieldResult.quantity,
-        outputUnit: yieldResult.unit,
+        outputQuantity: yieldQuantity,
+        outputUnit: yieldUnit,
         sourceType: "import",
         inputs,
       });
@@ -527,7 +547,8 @@ export async function persistWorkbookRecipes(input: {
         workbook_selling_price: existingRecipe.workbook_selling_price ?? null,
         workbook_computed_cost: existingRecipe.workbook_computed_cost ?? null,
         workbook_cost_match: existingRecipe.workbook_cost_match ?? null,
-        workbook_variance_amount: existingRecipe.workbook_variance_amount ?? null,
+        workbook_variance_amount:
+          existingRecipe.workbook_variance_amount ?? null,
         workbook_variance_pct: existingRecipe.workbook_variance_pct ?? null,
       });
       await snapshotMenuRecipeVersion({
@@ -720,6 +741,9 @@ async function snapshotComponentRecipeVersion(input: {
   recipe: ImportedComponentRecipe;
   previousInputs: RecipeInputSnapshot[];
   nextInputs: RecipeInputSnapshot[];
+  nextOutputQuantity: number;
+  nextOutputUnit: string;
+  assumed?: boolean;
   changes: UndoSnapshot;
   effectiveDate: string | null;
 }): Promise<void> {
@@ -750,10 +774,12 @@ async function snapshotComponentRecipeVersion(input: {
     versionNumber: nextVersionNumber(
       existing.length === 0 ? [{ version_number: 1 }] : existing
     ),
-    status: "in_review",
+    // Assumed/unknown yields stay in_review so costing will not pick
+    // the guessed 1-unit batch. The working copy is left alone.
+    status: input.assumed ? "in_review" : "in_review",
     effectiveDate: input.effectiveDate,
-    outputQuantity: input.recipe.output_quantity,
-    outputUnit: input.recipe.output_unit,
+    outputQuantity: input.nextOutputQuantity,
+    outputUnit: input.nextOutputUnit,
     sourceType: "import",
     inputs: input.nextInputs,
   });

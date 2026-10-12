@@ -1,6 +1,8 @@
 import {
   handmadeNoLongerComparedNote,
+  isPendingRecipeCostStatus,
   notAvailableYetLabel,
+  pendingRecipesLabel,
   workbookMatchLabel,
   workbookMismatchLabel,
 } from "@/lib/restaurant/cost-workbook/copy";
@@ -42,9 +44,10 @@ export function WorkbookCostPanel({
   } | null;
   batchLabel?: boolean;
 }) {
+  const pending = cost ? isPendingRecipeCostStatus(cost.status) : false;
   const live =
     cost?.status === "complete" && cost.cost != null ? cost.cost : null;
-  const milton = live ?? workbook?.milton_cost ?? null;
+  const milton = pending ? null : (live ?? workbook?.milton_cost ?? null);
   const handmade = isImportProtectedSource(workbook?.source_type);
   const imported = workbook?.source_type === "import";
   return (
@@ -61,9 +64,11 @@ export function WorkbookCostPanel({
         </span>
         {cost && cost.status !== "complete" ? (
           <span className="text-xs text-amber-700 dark:text-amber-300 ml-2">
-            {cost.status === "workbook_mismatch"
-              ? workbookMismatchLabel(lang)
-              : t(lang, "cost incomplete", "costo incompleto")}
+            {pending
+              ? pendingRecipesLabel(lang)
+              : cost.status === "workbook_mismatch"
+                ? workbookMismatchLabel(lang)
+                : t(lang, "cost incomplete", "costo incompleto")}
           </span>
         ) : null}
       </p>

@@ -11,6 +11,7 @@ import {
   positiveQuantityReason,
   strayNameRowReason,
   totalMismatchReason,
+  assumedYieldReason,
   yieldInconsistentReason,
   yieldUnknownReason,
 } from "./copy";
@@ -30,13 +31,14 @@ export const COSTO_TOTAL_RE = /^costo\s+total$/i;
 export const PRECIO_LIBRA_RE = /^precio(\s+de)?(\s+costo)?\s+(por\s+)?libra$/i;
 export const PRECIO_ONZA_RE = /^precio(\s+de)?(\s+costo)?\s+(por\s+)?onza$/i;
 export const PRECIO_UNIT_RE =
-  /^precio(\s+de)?(\s+costo)?\s+(por\s+)?(unidad|torta)$/i;
+  /^precio(\s+de)?(\s+costo)?\s+(por\s+)?(unidad|unitario|torta|orden|porcion)$/i;
 export const PRECIO_VENTA_RE = /^precio\s+de\s+venta(\s+sin\s+iva)?$/i;
 export const MARGEN_RE = /^margen\s+de\s+contribuci[oó]n$/i;
 export const HASH_FILL_RE = /^#+$/;
 export const TOTAL_MISMATCH_REASON = totalMismatchReason("es");
 export const YIELD_INCONSISTENT_REASON = yieldInconsistentReason("es");
 export const YIELD_UNKNOWN_REASON = yieldUnknownReason("es");
+export const YIELD_ASSUMED_REASON = assumedYieldReason("es");
 
 const YIELD_TOLERANCE = 0.05;
 const TOTAL_ABS_TOLERANCE = 0.03;
@@ -136,17 +138,24 @@ export function headerOverlapName(cells: unknown[]): string | null {
   return restLooksLikeHeader ? first : null;
 }
 
-function footerKind(
-  cells: unknown[]
-):
+type FooterKind =
   | "costo_total"
   | "precio_lb"
   | "precio_oz"
   | "precio_unit"
   | "precio_venta"
-  | "margen"
-  | null {
-  const label = foldFooterLabel(firstText(cells));
+  | "margen";
+
+/** Drop a trailing amount so "PRECIO POR LIBRA $0.42" still matches. */
+export function stripFooterAmount(raw: string): string {
+  return foldFooterLabel(raw)
+    .replace(/(?:^|\s)\$?\d+(?:[.,]\d+)?$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function footerKindFromLabel(raw: string): FooterKind | null {
+  const label = stripFooterAmount(raw);
   if (COSTO_TOTAL_RE.test(label)) return "costo_total";
   if (PRECIO_LIBRA_RE.test(label)) return "precio_lb";
   if (PRECIO_ONZA_RE.test(label)) return "precio_oz";
@@ -154,6 +163,48 @@ function footerKind(
   if (PRECIO_VENTA_RE.test(label)) return "precio_venta";
   if (MARGEN_RE.test(label)) return "margen";
   return null;
+}
+
+function footerKind(cells: unknown[]): FooterKind | null {
+  // Real files fill the recipe name down column A, so the footer label
+  // is often the second text cell, not the first.
+  for (const cell of cells) {
+    const text = cellText(cell);
+    if (!text) continue;
+    const kind = footerKindFromLabel(text);
+    if (kind) return kind;
+  }
+  return null;
+}
+
+function numberFromFooterLabel(raw: string): number | null {
+  if (!footerKindFromLabel(raw)) return null;
+  const folded = foldFooterLabel(raw);
+  const match = folded.match(/\$?(\d+(?:[.,]\d+)?)$/);
+  if (!match) return null;
+  return parseCostImportNumber(match[1]);
+}
+
+/** Prefer the Total Costo column, then a label+value cell, then the last
+ *  positive number. `firstNumber` used to grab a 0 in Cantidad and store
+ *  that as COSTO TOTAL, which made every yield fail. */
+export function footerAmount(cells: unknown[], cols?: Cols): number | null {
+  if (cols) {
+    const fromTotal = readNumericCell(cells[cols.total]);
+    if (fromTotal != null && fromTotal > 0) return fromTotal;
+  }
+  let embedded: number | null = null;
+  for (const cell of cells) {
+    const n = numberFromFooterLabel(cellText(cell));
+    if (n != null && n > 0) embedded = n;
+  }
+  if (embedded != null) return embedded;
+  let last: number | null = null;
+  for (const cell of cells) {
+    const n = readNumericCell(cell);
+    if (n != null && n > 0) last = n;
+  }
+  return last;
 }
 
 function isNameRow(cells: unknown[]): boolean {
@@ -248,14 +299,6 @@ export function sheetLooksLikeCostoRestauranteBlocks(
   return headers >= 2 || (banners >= 1 && headers >= 1);
 }
 
-function firstNumber(cells: unknown[]): number | null {
-  for (const cell of cells) {
-    const n = readNumericCell(cell);
-    if (n !== null) return n;
-  }
-  return null;
-}
-
 function totalsMatch(expected: number, actual: number): boolean {
   const tol = TOTAL_ABS_TOLERANCE + Math.abs(expected) * TOTAL_REL_TOLERANCE;
   return Math.abs(expected - actual) <= tol;
@@ -270,7 +313,7 @@ function deriveYield(
   },
   lang: PreferredLanguage
 ):
-  | { ok: true; quantity: number; unit: string }
+  | { ok: true; quantity: number; unit: string; assumed?: boolean }
   | { ok: false; reason: string } {
   const { costTotal, pricePerLb, pricePerOz, pricePerUnit } = input;
   if (costTotal == null || costTotal <= 0) {
@@ -297,7 +340,9 @@ function deriveYield(
   if (fromLb != null) return { ok: true, quantity: fromLb, unit: "lb" };
   if (fromOz != null) return { ok: true, quantity: fromOz, unit: "oz" };
   if (fromUnit != null) return { ok: true, quantity: fromUnit, unit: "unit" };
-  return { ok: false, reason: yieldUnknownReason(lang) };
+  // Per-order preps (QUESO FRITO) print COSTO TOTAL and no $/lb. One
+  // batch is one unit / one ORDEN — assumed, never a confirmed yield.
+  return { ok: true, assumed: true, quantity: 1, unit: "unit" };
 }
 
 interface OpenBlock {
@@ -393,14 +438,25 @@ export function collectCostoRestauranteBlocks(input: {
       },
       lang
     );
-    if (!yieldResult.ok && input.tabKind === "sub_recipe") {
-      review.push({
-        tabName: input.tabName,
-        rowIndex: 0,
-        reason: `${yieldResult.reason} (${current.name})`,
-        raw: { recipe: current.name },
-        suggested: { ingredient_name: current.name },
-      });
+    const assumed = Boolean(yieldResult.ok && yieldResult.assumed);
+    if (input.tabKind === "sub_recipe") {
+      if (assumed) {
+        review.push({
+          tabName: input.tabName,
+          rowIndex: 0,
+          reason: `${assumedYieldReason(lang)} (${current.name})`,
+          raw: { recipe: current.name },
+          suggested: { ingredient_name: current.name },
+        });
+      } else if (!yieldResult.ok) {
+        review.push({
+          tabName: input.tabName,
+          rowIndex: 0,
+          reason: `${yieldResult.reason} (${current.name})`,
+          raw: { recipe: current.name },
+          suggested: { ingredient_name: current.name },
+        });
+      }
     }
     groups.push({
       name: current.name,
@@ -410,6 +466,7 @@ export function collectCostoRestauranteBlocks(input: {
       output_quantity: yieldResult.ok ? yieldResult.quantity : null,
       output_unit: yieldResult.ok ? yieldResult.unit : null,
       block_layout: true,
+      yield_assumed: assumed || undefined,
       selling_price: current.sellingPrice,
       cost_total: current.costTotal,
       price_per_lb: current.pricePerLb,
@@ -460,19 +517,13 @@ export function collectCostoRestauranteBlocks(input: {
     }
     const footer = footerKind(cells);
     if (footer) {
-      const amount = firstNumber(cells.slice(1)) ?? firstNumber(cells);
-      if (open.block) {
-        if (footer === "costo_total" && amount != null)
-          open.block.costTotal = amount;
-        if (footer === "precio_lb" && amount != null)
-          open.block.pricePerLb = amount;
-        if (footer === "precio_oz" && amount != null)
-          open.block.pricePerOz = amount;
-        if (footer === "precio_unit" && amount != null)
-          open.block.pricePerUnit = amount;
-        if (footer === "precio_venta" && amount != null) {
-          open.block.sellingPrice = amount;
-        }
+      const amount = footerAmount(cells, open.block?.cols ?? cols);
+      if (open.block && amount != null) {
+        if (footer === "costo_total") open.block.costTotal = amount;
+        if (footer === "precio_lb") open.block.pricePerLb = amount;
+        if (footer === "precio_oz") open.block.pricePerOz = amount;
+        if (footer === "precio_unit") open.block.pricePerUnit = amount;
+        if (footer === "precio_venta") open.block.sellingPrice = amount;
       }
       skipped.push({
         tabName: input.tabName,
@@ -485,7 +536,6 @@ export function collectCostoRestauranteBlocks(input: {
     if (isRepeatingBlockHeader(cells)) {
       cols = columnsFromBlockHeader(cells);
       const overlap = headerOverlapName(cells);
-      const name = overlap ?? pendingName;
       if (overlap) {
         if (!open.block || nameKey(open.block.name) !== nameKey(overlap)) {
           start(overlap);

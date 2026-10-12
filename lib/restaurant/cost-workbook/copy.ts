@@ -65,6 +65,14 @@ export function yieldUnknownReason(lang: PreferredLanguage): string {
   );
 }
 
+export function assumedYieldReason(lang: PreferredLanguage): string {
+  return t(
+    lang,
+    "Assumed yield: 1 order (the Excel only has COSTO TOTAL)",
+    "Rendimiento asumido: 1 orden (el Excel solo trae COSTO TOTAL)"
+  );
+}
+
 export function yieldUnknownForReason(
   lang: PreferredLanguage,
   name: string
@@ -131,6 +139,10 @@ export function workbookMismatchEngineMessage(
 
 export function pendingRecipesLabel(lang: PreferredLanguage): string {
   return t(lang, "Pending recipes", "Pendiente de recetas");
+}
+
+export function isPendingRecipeCostStatus(status: string): boolean {
+  return status === "missing_recipe" || status === "missing_component_recipe";
 }
 
 export function notAvailableYetLabel(lang: PreferredLanguage): string {

@@ -21,6 +21,7 @@ export function formatMoneyEs(
     return new Intl.NumberFormat("es-MX", {
       style: "currency",
       currency: safe,
+      currencyDisplay: "narrowSymbol",
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
     }).format(amount);

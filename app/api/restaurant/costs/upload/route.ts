@@ -229,7 +229,8 @@ export async function POST(req: NextRequest) {
           console.error("[costs/upload workbook]", message);
           return NextResponse.json(
             {
-              error: "Workbook import failed",
+              error:
+                "No pude guardar esta carga. Revisa el mensaje o avísale al equipo técnico.",
               details: message,
             },
             { status: 500 }

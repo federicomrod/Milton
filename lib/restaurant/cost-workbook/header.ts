@@ -103,7 +103,7 @@ export interface HeaderDetection {
  */
 export function detectHeaderRow(
   rows: unknown[][],
-  scan = 20
+  scan = 80
 ): HeaderDetection | null {
   let best: { index: number; score: number } | null = null;
   const limit = Math.min(rows.length, scan);

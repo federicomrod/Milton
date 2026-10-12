@@ -84,6 +84,25 @@ export function yieldUnknownForReason(
   );
 }
 
+export function persistWriteFailedReason(
+  lang: PreferredLanguage,
+  detail: string,
+  name?: string
+): string {
+  if (name) {
+    return t(
+      lang,
+      `I couldn't save ${name}: ${detail}`,
+      `no pude guardar ${name}: ${detail}`
+    );
+  }
+  return t(
+    lang,
+    `I couldn't save the recipes: ${detail}`,
+    `no pude guardar las recetas: ${detail}`
+  );
+}
+
 export function emptyRecipeNameReason(lang: PreferredLanguage): string {
   return t(
     lang,

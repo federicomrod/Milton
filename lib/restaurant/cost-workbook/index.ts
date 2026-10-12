@@ -16,6 +16,7 @@ export {
 export {
   collectCostoRestauranteBlockNames,
   collectCostoRestauranteBlocks,
+  alignFilledDownBlockRow,
   footerAmount,
   footerKindFromLabel,
   mappingFromCostoRestauranteHeader,
@@ -41,6 +42,7 @@ export {
 export {
   assumedYieldReason,
   emptyRecipeNameReason,
+  persistWriteFailedReason,
   isPackSizeReviewReason,
   mappingSourceLabel,
   missingRecipeNameReason,

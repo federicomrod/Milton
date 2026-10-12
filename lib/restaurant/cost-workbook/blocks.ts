@@ -5,6 +5,11 @@
 import { nameKey, parseCostImportNumber } from "@/lib/restaurant/cost-import";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import {
+  isSubRecipePortionUnit,
+  PACK_SIZE_REVIEW_REASON,
+  resolveUnitCell,
+} from "@/lib/restaurant/units";
+import {
   emptyRecipeNameReason,
   missingRecipeNameReason,
   missingUnitReason,
@@ -347,6 +352,7 @@ function deriveYield(
 
 interface OpenBlock {
   name: string;
+  startRowIndex: number;
   headerSeen: boolean;
   cols: Cols;
   lines: RecipeLineCandidate[];
@@ -356,6 +362,71 @@ interface OpenBlock {
   pricePerUnit: number | null;
   sellingPrice: number | null;
   incompleteLines: boolean;
+}
+
+function looksLikeUnitCell(raw: string): boolean {
+  if (!raw) return false;
+  if (isSubRecipePortionUnit(raw)) return true;
+  const resolved = resolveUnitCell(raw);
+  if (resolved.ok) return true;
+  return resolved.reason === PACK_SIZE_REVIEW_REASON;
+}
+
+/** Filled-down recipe name in column A adds an extra cell, so Articulo
+ *  lands in the unit column unless we shift one to the right. */
+export function alignFilledDownBlockRow(
+  cells: unknown[],
+  cols: Cols,
+  recipeName: string
+): {
+  name: string;
+  unitRaw: string;
+  qty: number | null;
+  unitCost: number | null;
+  printedTotal: number | null;
+} {
+  const read = (offset: number) => ({
+    name: cellText(cells[cols.ingredient + offset]),
+    unitRaw: cellText(cells[cols.unit + offset]),
+    qty: readNumericCell(cells[cols.qty + offset]),
+    unitCost: readNumericCell(cells[cols.unitCost + offset]),
+    printedTotal: readNumericCell(cells[cols.total + offset]),
+  });
+  const base = read(0);
+  if (!recipeName || nameKey(base.name) !== nameKey(recipeName)) return base;
+  const shifted = read(1);
+  if (!shifted.name) return base;
+  const baseLooksLikeLine =
+    looksLikeUnitCell(base.unitRaw) && base.qty != null && base.qty > 0;
+  const shiftedLooksLikeLine =
+    looksLikeUnitCell(shifted.unitRaw) &&
+    shifted.qty != null &&
+    shifted.qty > 0;
+  if (shiftedLooksLikeLine && !baseLooksLikeLine) return shifted;
+  if (shiftedLooksLikeLine && nameKey(shifted.name) !== nameKey(recipeName)) {
+    return shifted;
+  }
+  return base;
+}
+
+function inferCostTotalFromLines(lines: RecipeLineCandidate[]): number | null {
+  let sum = 0;
+  let any = false;
+  for (const line of lines) {
+    const printed = readNumericCell(line.raw["Total Costo"]);
+    if (printed != null && printed > 0) {
+      sum += printed;
+      any = true;
+      continue;
+    }
+    const unitCost = readNumericCell(line.raw["Costo Unitario"]);
+    const qty = readNumericCell(line.raw.Cantidad);
+    if (unitCost != null && qty != null && unitCost > 0 && qty > 0) {
+      sum += unitCost * qty;
+      any = true;
+    }
+  }
+  return any && sum > 0 ? sum : null;
 }
 
 export function collectCostoRestauranteBlockNames(aoa: unknown[][]): string[] {
@@ -420,7 +491,7 @@ export function collectCostoRestauranteBlocks(input: {
       if (current.name) {
         skipped.push({
           tabName: input.tabName,
-          rowIndex: 0,
+          rowIndex: current.startRowIndex,
           reason: emptyRecipeNameReason(lang),
           raw: { recipe: current.name },
         });
@@ -428,6 +499,10 @@ export function collectCostoRestauranteBlocks(input: {
       open.block = null;
       pendingName = "";
       return;
+    }
+    if (current.costTotal == null || current.costTotal <= 0) {
+      const inferred = inferCostTotalFromLines(current.lines);
+      if (inferred != null) current.costTotal = inferred;
     }
     const yieldResult = deriveYield(
       {
@@ -443,7 +518,7 @@ export function collectCostoRestauranteBlocks(input: {
       if (assumed) {
         review.push({
           tabName: input.tabName,
-          rowIndex: 0,
+          rowIndex: current.startRowIndex,
           reason: `${assumedYieldReason(lang)} (${current.name})`,
           raw: { recipe: current.name },
           suggested: { ingredient_name: current.name },
@@ -451,7 +526,7 @@ export function collectCostoRestauranteBlocks(input: {
       } else if (!yieldResult.ok) {
         review.push({
           tabName: input.tabName,
-          rowIndex: 0,
+          rowIndex: current.startRowIndex,
           reason: `${yieldResult.reason} (${current.name})`,
           raw: { recipe: current.name },
           suggested: { ingredient_name: current.name },
@@ -473,16 +548,18 @@ export function collectCostoRestauranteBlocks(input: {
       price_per_oz: current.pricePerOz,
       price_per_unit: current.pricePerUnit,
       incomplete_lines: current.incompleteLines,
+      start_row_index: current.startRowIndex,
     });
     open.block = null;
     pendingName = "";
   };
 
-  const start = (name: string) => {
+  const start = (name: string, rowIndex: number) => {
     const current = open.block;
     if (current && (current.lines.length > 0 || current.name)) close();
     open.block = {
       name: name.trim(),
+      startRowIndex: rowIndex,
       headerSeen: false,
       cols,
       lines: [],
@@ -538,11 +615,13 @@ export function collectCostoRestauranteBlocks(input: {
       const overlap = headerOverlapName(cells);
       if (overlap) {
         if (!open.block || nameKey(open.block.name) !== nameKey(overlap)) {
-          start(overlap);
+          start(overlap, rowIndex);
         }
       } else if (!open.block) {
-        if (pendingName) start(pendingName);
-        else if (phase === "idle" || phase === "after_banner") start("");
+        if (pendingName) start(pendingName, rowIndex);
+        else if (phase === "idle" || phase === "after_banner") {
+          start("", rowIndex);
+        }
       }
       if (open.block) {
         open.block.cols = cols;
@@ -563,7 +642,7 @@ export function collectCostoRestauranteBlocks(input: {
       const name = firstText(cells);
       if (phase === "idle" || phase === "after_banner") {
         pendingName = name;
-        start(name);
+        start(name, rowIndex);
         continue;
       }
       skipped.push({
@@ -575,11 +654,16 @@ export function collectCostoRestauranteBlocks(input: {
       continue;
     }
 
-    const name = cellText(cells[cols.ingredient]);
-    const unitRaw = cellText(cells[cols.unit]);
-    const qty = readNumericCell(cells[cols.qty]);
-    const unitCost = readNumericCell(cells[cols.unitCost]);
-    const printedTotal = readNumericCell(cells[cols.total]);
+    const aligned = alignFilledDownBlockRow(
+      cells,
+      open.block?.cols ?? cols,
+      open.block?.name || pendingName
+    );
+    const name = aligned.name;
+    const unitRaw = aligned.unitRaw;
+    const qty = aligned.qty;
+    const unitCost = aligned.unitCost;
+    const printedTotal = aligned.printedTotal;
     if (!name) {
       skipped.push({
         tabName: input.tabName,
@@ -590,7 +674,7 @@ export function collectCostoRestauranteBlocks(input: {
       continue;
     }
     if (!open.block || !open.block.name) {
-      if (pendingName) start(pendingName);
+      if (pendingName) start(pendingName, rowIndex);
     }
     if (!open.block?.name) {
       review.push({

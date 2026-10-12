@@ -3,6 +3,7 @@ import { resolveUnitCell } from "@/lib/restaurant/units";
 import {
   MISSING_IMPORT_COSTING_036_ES,
   MISSING_WORKBOOK_COST_MIGRATION_ES,
+  persistWriteFailedReason,
   positiveQuantityReason,
 } from "./copy";
 import { resolveIngredientPriceDate } from "@/lib/restaurant/price-date";
@@ -769,18 +770,38 @@ export async function importCostWorkbook(input: {
     }
   }
 
-  const recipeStats = await persistWorkbookRecipes({
-    companyId: input.companyId,
-    batchId: batch.id,
-    currency: input.currency,
-    groups: recipeGroups,
-    repo: input.repo,
-    aliases: merged.aliases,
-    locationId: input.locationId ?? null,
-    brandId: input.brandId ?? null,
-    lang,
-    effectiveDate: fileMonth,
-  });
+  let recipeStats: Awaited<ReturnType<typeof persistWorkbookRecipes>>;
+  try {
+    recipeStats = await persistWorkbookRecipes({
+      companyId: input.companyId,
+      batchId: batch.id,
+      currency: input.currency,
+      groups: recipeGroups,
+      repo: input.repo,
+      aliases: merged.aliases,
+      locationId: input.locationId ?? null,
+      brandId: input.brandId ?? null,
+      lang,
+      effectiveDate: fileMonth,
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    toReview.push({
+      tabName: input.filename,
+      rowIndex: 0,
+      reason: persistWriteFailedReason(lang, detail),
+      raw: { error: detail },
+      suggested: null,
+    });
+    recipeStats = {
+      menuItemsCreated: 0,
+      recipesCreated: 0,
+      subRecipesCreated: 0,
+      review: [],
+      skipped: [],
+      changes: emptyUndoSnapshot(),
+    };
+  }
   toReview.push(...recipeStats.review);
   skipped.push(...recipeStats.skipped);
 

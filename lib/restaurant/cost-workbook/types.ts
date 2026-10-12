@@ -430,6 +430,8 @@ export interface GroupedRecipe {
    * recipe (that is how a dish like Pollo Empanizado ends up at $0.20).
    */
   incomplete_lines?: boolean;
+  /** 0-based sheet row of the name / first header for this block. */
+  start_row_index?: number;
 }
 
 export interface CostWorkbookBatch {

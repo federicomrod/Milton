@@ -76,7 +76,7 @@ export function MenuRecipesPage({
               {t(lang, "Menu & Recipes", "Menú y recetas")}
             </h1>
             <Badge className="text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-0">
-              Foundation
+              Recetas y costeo
             </Badge>
           </div>
           <Button asChild size="sm" variant="outline" className="gap-2">
@@ -159,29 +159,33 @@ function SummaryGrid({ summary }: { summary: MenuRecipesData["summary"] }) {
     tone: "warn" | "neutral" | "ok";
   }[] = [
     {
-      label: "Unmatched POS items",
+      label: "Platillos del POS sin ligue",
       value: summary.unmatched_pos_count,
       tone: "warn",
     },
     {
-      label: "Menu items without recipe",
+      label: "Platillos sin receta",
       value: summary.menu_items_without_recipe,
       tone: "warn",
     },
-    { label: "Draft recipes", value: summary.draft_recipes, tone: "neutral" },
-    { label: "Active recipes", value: summary.active_recipes, tone: "ok" },
     {
-      label: "Prepared components",
+      label: "Recetas en borrador",
+      value: summary.draft_recipes,
+      tone: "neutral",
+    },
+    { label: "Recetas activas", value: summary.active_recipes, tone: "ok" },
+    {
+      label: "Componentes preparados",
       value: summary.prepared_components_count,
       tone: "neutral",
     },
     {
-      label: "Fully costed items",
+      label: "Platillos con costo completo",
       value: summary.menu_items_fully_costed,
       tone: "ok",
     },
     {
-      label: "Items with cost issues",
+      label: "Platillos con problemas de costo",
       value: summary.menu_items_with_cost_issues,
       tone: "warn",
     },
@@ -248,7 +252,7 @@ function UnmatchedSection({
           <CardContent className="py-6">
             <p className="text-sm text-muted-foreground flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-green-600" />
-              All POS item names are mapped to a menu item.
+              Todos los platillos del POS ya están ligados a un platillo.
             </p>
           </CardContent>
         </Card>
@@ -259,13 +263,15 @@ function UnmatchedSection({
               <table className="w-full text-sm">
                 <thead className="border-b border-border bg-muted/40">
                   <tr className="text-left text-xs text-muted-foreground">
-                    <th className="px-4 py-3 font-medium">Raw POS item name</th>
-                    <th className="px-4 py-3 font-medium text-right">Units</th>
+                    <th className="px-4 py-3 font-medium">Nombre en el POS</th>
                     <th className="px-4 py-3 font-medium text-right">
-                      Revenue
+                      Unidades
                     </th>
-                    <th className="px-4 py-3 font-medium text-right">Orders</th>
-                    <th className="px-4 py-3 font-medium">Action</th>
+                    <th className="px-4 py-3 font-medium text-right">Ventas</th>
+                    <th className="px-4 py-3 font-medium text-right">
+                      Órdenes
+                    </th>
+                    <th className="px-4 py-3 font-medium">Acción</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -330,7 +336,7 @@ function UnmatchedRow({
               onClick={() => setMode(mode === "create" ? "idle" : "create")}
             >
               <Plus className="h-3.5 w-3.5" />
-              Create menu item
+              Crear platillo
             </Button>
             <Button
               variant={mode === "match" ? "default" : "outline"}
@@ -340,12 +346,12 @@ function UnmatchedRow({
               disabled={menuItems.length === 0}
               title={
                 menuItems.length === 0
-                  ? "No existing menu items yet"
-                  : "Pick an existing menu item"
+                  ? "Aún no hay platillos"
+                  : "Elige un platillo existente"
               }
             >
               <Link2 className="h-3.5 w-3.5" />
-              Match existing
+              Ligar existente
             </Button>
           </div>
         </td>
@@ -443,7 +449,7 @@ function CreateMenuItemForm({
           className="h-9"
         />
       </FieldLabel>
-      <FieldLabel label="Selling price">
+      <FieldLabel label="Precio de venta">
         <Input
           type="number"
           min={0}
@@ -456,7 +462,7 @@ function CreateMenuItemForm({
       </FieldLabel>
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={submit} disabled={pending || !name.trim()}>
-          {pending ? "Saving…" : "Create & map"}
+          {pending ? "Guardando…" : "Crear y ligar"}
         </Button>
         {error && (
           <span className="text-xs text-red-700 dark:text-red-300">
@@ -511,7 +517,7 @@ function MatchExistingForm({
 
   return (
     <div className="flex items-end gap-3 flex-wrap">
-      <FieldLabel label="Map to menu item">
+      <FieldLabel label="Ligar a platillo">
         <select
           value={menuItemId}
           onChange={(e) => setMenuItemId(e.target.value)}
@@ -526,7 +532,7 @@ function MatchExistingForm({
         </select>
       </FieldLabel>
       <Button size="sm" onClick={submit} disabled={pending || !menuItemId}>
-        {pending ? "Saving…" : "Save mapping"}
+        {pending ? "Guardando…" : "Guardar ligue"}
       </Button>
       {error && (
         <span className="text-xs text-red-700 dark:text-red-300">{error}</span>
@@ -581,7 +587,8 @@ function MenuItemsSection({
         <Card>
           <CardContent className="py-6">
             <p className="text-sm text-muted-foreground">
-              No menu items yet. Create one from an unmatched POS row above, or{" "}
+              Aún no hay platillos. Crea uno desde un renglón del POS sin ligue,
+              o{" "}
               <Link
                 href="/dashboard/restaurant/upload"
                 className="underline hover:no-underline"
@@ -968,7 +975,7 @@ function CreateComponentForm({
           className="h-9"
         />
       </FieldLabel>
-      <FieldLabel label="Output unit">
+      <FieldLabel label="Unidad de salida">
         <Input
           value={outputUnit}
           onChange={(e) => setOutputUnit(e.target.value)}
@@ -993,7 +1000,7 @@ function CreateComponentForm({
           onClick={submit}
           disabled={pending || !name.trim() || !!duplicate}
         >
-          {pending ? "Saving…" : "Add component"}
+          {pending ? "Guardando…" : "Agregar componente"}
         </Button>
         {duplicate && !error && (
           <span className="text-xs text-amber-700 dark:text-amber-300">
@@ -1154,7 +1161,9 @@ function ComponentRow({
               href={`/dashboard/restaurant/components/${component.id}`}
               aria-label={`Edit recipe for ${component.name}`}
             >
-              {component.recipe_input_count > 0 ? "Edit recipe" : "Add recipe"}
+              {component.recipe_input_count > 0
+                ? "Editar receta"
+                : "Agregar receta"}
             </Link>
           </Button>
           {isArchived ? (
@@ -1184,8 +1193,8 @@ function ComponentRow({
             className="text-muted-foreground hover:text-red-700"
             title={
               component.recipe_input_count > 0
-                ? "This component is used by a recipe — archive is safer"
-                : "Delete permanently"
+                ? "Esta sub-receta se usa en un platillo — archivar es más seguro"
+                : "Borrar para siempre"
             }
           >
             Delete

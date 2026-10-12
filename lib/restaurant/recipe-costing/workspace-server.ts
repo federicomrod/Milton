@@ -151,10 +151,15 @@ export async function loadRecipeCostingWorkspace(
         )
         .eq("company_id", input.companyId)
     ),
-    fetchAllRows<{ id: string; name: string }>(() =>
+    fetchAllRows<{
+      id: string;
+      name: string;
+      category: string | null;
+      selling_price: number | null;
+    }>(() =>
       supabase
         .from("menu_items")
-        .select("id, name")
+        .select("id, name, category, selling_price")
         .eq("company_id", input.companyId)
     ),
     createSupabaseCostWorkbookRepo(supabase)

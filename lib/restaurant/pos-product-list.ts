@@ -22,6 +22,8 @@ export interface PosSaleLineForProductList {
   company_id: string;
   location_id?: string | null;
   raw_item_name: string;
+  quantity?: number | null;
+  category?: string | null;
   gross_revenue?: number | null;
   net_revenue?: number | null;
   is_tip?: boolean | null;
@@ -47,6 +49,8 @@ export interface RankedPosProduct {
   odoo_name: string;
   net_sales: number;
   share_of_net_sales: number;
+  units_sold: number;
+  category: string | null;
   is_combo: boolean;
   components: ComboComponentShare[];
   classification: PosProductClassification;
@@ -93,6 +97,8 @@ interface Accumulator {
   odoo_name: string;
   net_sales: number;
   standalone_net: number;
+  units_sold: number;
+  category: string | null;
   is_combo: boolean;
   components: Map<number, ComboComponentShare>;
 }
@@ -138,6 +144,8 @@ export function buildPosProductList(input: {
       odoo_name: name.trim(),
       net_sales: 0,
       standalone_net: 0,
+      units_sold: 0,
+      category: null,
       is_combo: false,
       components: new Map(),
     };
@@ -183,6 +191,14 @@ export function buildPosProductList(input: {
     const product = ensure(ownProductId, line.raw_item_name);
     product.net_sales = round2(product.net_sales + classified.net);
     product.standalone_net = round2(product.standalone_net + classified.net);
+    const qty =
+      typeof line.quantity === "number" && Number.isFinite(line.quantity)
+        ? line.quantity
+        : 0;
+    product.units_sold = round2(product.units_sold + qty);
+    if (!product.category && line.category?.trim()) {
+      product.category = line.category.trim();
+    }
   }
 
   const approvedByMenuItem = new Map<string, Array<{ status: string }>>();
@@ -227,6 +243,8 @@ export function buildPosProductList(input: {
       odoo_name: acc.odoo_name || link.odoo_name,
       net_sales: acc.net_sales,
       share_of_net_sales: 0,
+      units_sold: acc.units_sold,
+      category: acc.category,
       is_combo: acc.is_combo,
       components: [...acc.components.values()].sort(
         (a, b) =>

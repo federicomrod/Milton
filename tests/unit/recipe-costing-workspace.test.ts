@@ -23,6 +23,8 @@ function product(
 ): RankedPosProduct {
   return {
     share_of_net_sales: 0,
+    units_sold: 0,
+    category: null,
     is_combo: false,
     components: [],
     classification: "requiere_receta",
@@ -464,6 +466,66 @@ describe("unbound name-only suggestion", () => {
         ?.label
     ).toBe("Sin dato de Excel para comparar");
     expect(workspace.todos[0]?.kind).toBe("sin_receta");
+  });
+});
+
+describe("visual product kinds and display states", () => {
+  it("labels drinks, combos and missing recipes like the mockup", () => {
+    const workspace = buildRecipeCostingWorkspace({
+      companyId: "co-a",
+      companyName: "Los Ranchos",
+      currency: "USD",
+      periodLabel: null,
+      view: "resumen",
+      actor: { user_id: "u", role: "owner", is_milton_staff: false },
+      products: [
+        product({
+          odoo_product_id: 1,
+          odoo_name: "Pollo empanizado",
+          net_sales: 80,
+          units_sold: 401,
+          category: "Platos fuertes",
+          share_of_net_sales: 0.8,
+        }),
+        product({
+          odoo_product_id: 2,
+          odoo_name: "Coca-Cola 12 oz",
+          net_sales: 10,
+          units_sold: 1320,
+          category: "Bebidas",
+          classification: "no_requiere_costeo",
+          classification_label: "No requiere costeo",
+          share_of_net_sales: 0.1,
+        }),
+        product({
+          odoo_product_id: 3,
+          odoo_name: "Combo familiar",
+          net_sales: 10,
+          is_combo: true,
+          share_of_net_sales: 0.1,
+        }),
+      ],
+      links: [],
+      versions: [],
+      menuItems: [],
+      batches: [],
+      coveragePct: 0,
+      netSales: 100,
+      coveredNetSales: 0,
+    });
+    const plato = workspace.products.find((row) => row.odoo_product_id === 1);
+    const bebida = workspace.products.find((row) => row.odoo_product_id === 2);
+    const combo = workspace.products.find((row) => row.odoo_product_id === 3);
+    expect(plato?.kind_label).toBe("Plato");
+    expect(plato?.units_label).toMatch(/401/);
+    expect(bebida?.kind_label).toBe("Bebida");
+    expect(bebida?.display_state_label).toBe("Reventa");
+    expect(combo?.display_state_label).toBe("Combo");
+    expect(combo?.action_label).toBe("Ver partes");
+    expect(workspace.classification.some((row) => row.id === "bebidas")).toBe(
+      true
+    );
+    expect(plato?.action_label).toBe("Crear receta");
   });
 });
 

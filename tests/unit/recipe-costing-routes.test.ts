@@ -27,6 +27,45 @@ describe("recipe costing routes", () => {
     expect(vincular).toContain("Costo Milton");
     expect(vincular).toContain("Generar sugerencias desde tu archivo");
     expect(vincular).not.toMatch(/qty\s*\*\s*unit_cost/);
+    expect(vincular).toContain("display_state_label");
+    expect(vincular).toContain("Confirmar vínculo");
+    expect(vincular).toContain("Compartir receta");
+  });
+
+  it("matches the approved Recetas y costeo chrome", () => {
+    const workspace = read(
+      "components/restaurant/recipes-costing/RecipesCostingWorkspace.tsx"
+    );
+    expect(workspace).toContain("CostingHeader");
+    expect(workspace).not.toMatch(/\["resumen", "Resumen"\]/);
+    expect(workspace).toContain('view === "menu-costeado"');
+    expect(workspace).not.toContain("|| data.menu_costeado");
+
+    const header = read(
+      "components/restaurant/recipes-costing/CostingHeader.tsx"
+    );
+    expect(header).toContain("Preguntar a Milton");
+    expect(header).toContain("odooSyncLabel");
+    expect(header).toContain("Recetas y costeo");
+    expect(header).toContain("Paso 2 de 4");
+
+    const resumen = read(
+      "components/restaurant/recipes-costing/ResumenScreen.tsx"
+    );
+    expect(resumen).toContain("Tu menú en Odoo");
+    expect(resumen).toContain("Stepper");
+
+    const validar = read(
+      "components/restaurant/recipes-costing/ValidarScreen.tsx"
+    );
+    expect(validar).toContain("+ Agregar ingrediente");
+    expect(validar).toContain("Margen con el costo actual");
+    expect(validar).not.toContain("Solo lo incierto, por pestaña");
+
+    const menuPage = read("app/dashboard/restaurant/menu/page.tsx");
+    expect(menuPage).toContain("/dashboard/restaurant/menu/recetas");
+    expect(menuPage).not.toContain("UNMATCHED POS ITEMS");
+    expect(menuPage).not.toContain("Create menu item");
   });
 
   it("does not add vercel, CI or secret files", () => {

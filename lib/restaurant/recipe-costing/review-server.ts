@@ -17,6 +17,7 @@ export async function applyReviewFix(input: {
   quantity?: number;
   yieldValue?: number;
   unitCost?: number;
+  addLine?: boolean;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const link = await loadPosProductLink(
     input.supabase,
@@ -40,7 +41,30 @@ export async function applyReviewFix(input: {
     );
   });
   if (index < 0) {
-    return { ok: false, error: "No encontré esa línea para corregir." };
+    if (!input.addLine) {
+      return { ok: false, error: "No encontré esa línea para corregir." };
+    }
+    lines.push({
+      raw_name: input.rawName,
+      qty: input.quantity ?? 1,
+      unit: input.unit ?? "g",
+      unit_cost: input.unitCost ?? null,
+      pending: input.unitCost == null,
+      flags: input.unitCost == null ? ["pendiente_costo"] : ["ok"],
+      reasons: [],
+      source_row: null,
+    });
+    evidence.lines = lines;
+    evidence.pending = lines.some((raw) => parseSuggestionLine(raw)?.pending);
+    if (link.id) {
+      const { error } = await input.supabase
+        .from("pos_product_links")
+        .update({ evidence, updated_at: new Date().toISOString() })
+        .eq("company_id", input.companyId)
+        .eq("id", link.id);
+      if (error) throw new Error(error.message);
+    }
+    return { ok: true };
   }
   const current = parseSuggestionLine(lines[index]);
   if (!current)

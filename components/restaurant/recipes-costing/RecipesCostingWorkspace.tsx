@@ -8,11 +8,12 @@ import type {
   VincularProductRow,
 } from "@/lib/restaurant/recipe-costing/workspace";
 import { ConfirmHowDialog } from "./ConfirmHowDialog";
+import { CostingHeader } from "./CostingHeader";
 import { MenuCosteadoScreen } from "./MenuCosteadoScreen";
 import { ResumenScreen } from "./ResumenScreen";
 import { ValidarScreen } from "./ValidarScreen";
 import { VincularScreen } from "./VincularScreen";
-import { GhostBtn, PrimaryBtn } from "./ui";
+import { PrimaryBtn } from "./ui";
 
 function viewFromParam(
   value: string | null,
@@ -172,59 +173,35 @@ export function RecipesCostingWorkspace({
   }
 
   return (
-    <div className="w-full px-6 pb-10 pt-2 lg:px-10">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-xl font-semibold">
-            {view === "vincular"
-              ? "Vincular productos del POS con recetas"
-              : view === "validar"
-                ? "Validar receta"
-                : "Recetas y costeo"}
-          </h2>
-        </div>
-        <label className="inline-flex cursor-pointer items-center">
-          <input
-            type="file"
-            accept=".xlsx,.xls"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void runWorkbook(file);
-              event.target.value = "";
-            }}
-          />
-          <span className="inline-flex">
-            <GhostBtn disabled={workbookBusy}>
-              {workbookBusy ? "Generando sugerencias…" : "Cargar recetas"}
-            </GhostBtn>
-          </span>
-        </label>
-      </div>
-
-      <div className="mb-3 flex gap-5 border-b border-slate-200 text-[12.5px] text-slate-500">
-        {(
-          [
-            ["resumen", "Resumen"],
-            ["vincular", "Vincular"],
-            ["validar", "Validar"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => open(id)}
-            className={
-              "border-b-2 py-1.5 " +
-              (view === id || (view === "menu-costeado" && id === "resumen")
-                ? "border-orange-600 font-semibold text-orange-700"
-                : "border-transparent")
-            }
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+    <div className="w-full px-[22px] pb-10 pt-2">
+      <CostingHeader
+        view={view}
+        breadcrumbExtra={
+          view === "validar" &&
+          data.editor?.review_index &&
+          data.editor.review_total ? (
+            <span>
+              {" "}
+              · plato {data.editor.review_index} de {data.editor.review_total}{" "}
+              por revisar
+              {data.editor.next_odoo_product_id ? (
+                <button
+                  type="button"
+                  className="ml-2 font-semibold text-[#3557c9]"
+                  onClick={() =>
+                    replaceParams({
+                      vista: "validar",
+                      producto: data.editor!.next_odoo_product_id,
+                    })
+                  }
+                >
+                  Siguiente →
+                </button>
+              ) : null}
+            </span>
+          ) : null
+        }
+      />
 
       {error ? (
         <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -261,6 +238,15 @@ export function RecipesCostingWorkspace({
             void mutate(() =>
               post("/api/restaurant/pos/links/undo", {
                 odoo_product_id: product.odoo_product_id,
+              })
+            )
+          }
+          onShare={(target, menuItemId) =>
+            void mutate(() =>
+              post("/api/restaurant/pos/links/change", {
+                odoo_product_id: target.odoo_product_id,
+                odoo_name: target.odoo_name,
+                menu_item_id: menuItemId,
               })
             )
           }
@@ -303,13 +289,14 @@ export function RecipesCostingWorkspace({
           }}
           busy={busy}
         />
-      ) : view === "menu-costeado" || data.menu_costeado ? (
+      ) : view === "menu-costeado" ? (
         <MenuCosteadoScreen data={data} onOpen={open} />
       ) : (
         <ResumenScreen
           data={data}
           onOpen={open}
           onGenerateSuggestions={() => void generateFromStoredUpload()}
+          onUploadWorkbook={(file) => void runWorkbook(file)}
           generateBusy={workbookBusy}
           onUndoBatch={(batchId) =>
             void mutate(async () => {
@@ -327,10 +314,16 @@ export function RecipesCostingWorkspace({
         />
       )}
 
-      <div className="mt-6 flex items-center justify-between text-[10.5px] text-slate-500">
+      <div className="mt-6 flex items-center justify-between text-[10.5px] text-[#6b7385]">
         <span>
-          <b className="text-slate-900">Base:</b>{" "}
-          {data.footer.replace("Base: ", "")}
+          {data.footer.startsWith("Base:") ? (
+            <>
+              <b className="text-[#1b2333]">Base:</b>{" "}
+              {data.footer.replace("Base: ", "")}
+            </>
+          ) : (
+            data.footer
+          )}
         </span>
       </div>
 

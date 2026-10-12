@@ -51,7 +51,7 @@ describe("cockpit timing (#134)", () => {
     expect(salesDetalle).toMatch(/timeCockpitStep\(\s*"sales-detalle-route"/);
     expect(salesPageData).toMatch(/timeCockpitStep\(\s*"sales-pos-rows"/);
     expect(salesPageData).toContain('logCockpitTiming("sales-page"');
-    expect(menu).toContain('timeCockpitStep("menu-pos"');
+    expect(menu).toContain("loadMenuAreaModel");
     expect(costs).toMatch(/timeCockpitStep\(\s*"costs-route"/);
     expect(proxy).toContain('console.info("[cockpit-timing] proxy"');
     expect(proxy).toContain("Server-Timing");

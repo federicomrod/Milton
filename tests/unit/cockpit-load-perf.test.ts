@@ -39,7 +39,10 @@ describe("cockpit load split (#134)", () => {
       "loadCockpitPageModel"
     );
     expect(read("app/dashboard/restaurant/menu/page.tsx")).toContain(
-      "loadCachedPosSalesRows"
+      "loadMenuAreaModel"
+    );
+    expect(read("app/dashboard/restaurant/menu/page.tsx")).not.toContain(
+      "MenuRecipesPage"
     );
   });
 

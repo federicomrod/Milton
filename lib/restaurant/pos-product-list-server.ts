@@ -23,6 +23,8 @@ const SALES_SELECT = [
   "company_id",
   "location_id",
   "raw_item_name",
+  "quantity",
+  "category",
   "gross_revenue",
   "net_revenue",
   "is_tip",
@@ -36,6 +38,7 @@ const OPTIONAL_SALES_COLUMNS = [
   "combo_parent_external_line_id",
   "combo_parent_odoo_product_id",
   "is_tip",
+  "category",
 ] as const;
 
 export interface LoadPosProductListParams {

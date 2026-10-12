@@ -27,118 +27,45 @@ export function ValidarScreen({
     quantity?: number;
     yield_value?: number;
     unit_cost?: number;
+    add_line?: boolean;
   }) => void;
   onApprove: () => void;
   onSubmit: () => void;
   busy: boolean;
 }) {
-  const [openTabs, setOpenTabs] = useState<Record<string, boolean>>({});
   const editor = data.editor;
 
-  return (
-    <div>
-      <div className="mb-1.5 text-[10.5px] text-slate-400">
-        Menú › Recetas y costeo ›{" "}
-        <b className="text-slate-900">Paso 3 de 4 · Validar</b>
-        {editor?.review_index && editor.review_total ? (
-          <span>
-            {" "}
-            · plato {editor.review_index} de {editor.review_total} por revisar
-          </span>
-        ) : data.review_tabs.length > 0 ? (
-          <span>
-            {" "}
-            · {data.review_tabs.reduce((n, tab) => n + tab.item_count, 0)} por
-            revisar
-          </span>
-        ) : null}
-        {editor?.next_odoo_product_id ? (
-          <button
-            type="button"
-            className="ml-2 font-semibold text-blue-700"
-            onClick={() => onOpenProduct(editor.next_odoo_product_id!)}
+  if (!editor) {
+    return (
+      <Card className="p-4">
+        <p className="text-sm text-[#5b6476]">
+          No hay un plato ya vinculado para validar. Si un plato ya cuadra,
+          apruébalo desde su receta. Si falta el vínculo, vuelve a Vincular.
+        </p>
+        {data.review_tabs[0]?.items[0] ? (
+          <GhostBtn
+            className="mt-3"
+            onClick={() =>
+              onOpenProduct(data.review_tabs[0].items[0].odoo_product_id)
+            }
           >
-            Siguiente →
-          </button>
+            Abrir el primero por revisar
+          </GhostBtn>
         ) : null}
-      </div>
-
-      <Card className="mb-3 p-3">
-        <div className="mb-2 text-[15px] font-semibold">
-          Solo lo incierto, por pestaña
-        </div>
-        {data.review_tabs.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            No hay líneas inciertas. Si un plato ya cuadra, apruébalo desde su
-            receta.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {data.review_tabs.map((tab) => {
-              const open = openTabs[tab.tab] ?? false;
-              return (
-                <div
-                  key={tab.tab}
-                  className="rounded-lg border border-slate-100"
-                >
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between px-3 py-2 text-left"
-                    onClick={() =>
-                      setOpenTabs((prev) => ({ ...prev, [tab.tab]: !open }))
-                    }
-                  >
-                    <span>
-                      <b>{tab.tab}</b>
-                      <span className="ml-2 text-[11px] text-slate-500">
-                        {tab.summary}
-                      </span>
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      {tab.item_count} {open ? "▾" : "▸"}
-                    </span>
-                  </button>
-                  {open
-                    ? tab.items.map((item) => (
-                        <button
-                          key={item.odoo_product_id}
-                          type="button"
-                          className="flex w-full items-center justify-between border-t border-slate-100 px-3 py-2 text-left text-[12px] hover:bg-amber-50"
-                          onClick={() => onOpenProduct(item.odoo_product_id)}
-                        >
-                          <span>
-                            <b>{item.odoo_name}</b>
-                            <span className="ml-2 text-slate-500">
-                              {item.reason}
-                            </span>
-                          </span>
-                          <span className="text-slate-400">
-                            {item.pending
-                              ? "Pendiente"
-                              : item.milton_cost_label}
-                          </span>
-                        </button>
-                      ))
-                    : null}
-                </div>
-              );
-            })}
-          </div>
-        )}
       </Card>
+    );
+  }
 
-      {editor ? (
-        <Editor
-          editor={editor}
-          actor={data.actor}
-          busy={busy}
-          onChangeLink={() => onChangeLink(editor.odoo_product_id)}
-          onFix={onFix}
-          onApprove={onApprove}
-          onSubmit={onSubmit}
-        />
-      ) : null}
-    </div>
+  return (
+    <Editor
+      editor={editor}
+      actor={data.actor}
+      busy={busy}
+      onChangeLink={() => onChangeLink(editor.odoo_product_id)}
+      onFix={onFix}
+      onApprove={onApprove}
+      onSubmit={onSubmit}
+    />
   );
 }
 
@@ -163,46 +90,110 @@ function Editor({
     quantity?: number;
     yield_value?: number;
     unit_cost?: number;
+    add_line?: boolean;
   }) => void;
   onApprove: () => void;
   onSubmit: () => void;
 }) {
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newQty, setNewQty] = useState("1");
+  const [newUnit, setNewUnit] = useState("g");
+  const [saved, setSaved] = useState(false);
+
   return (
     <div>
-      <Card className="mb-2.5 flex items-center gap-3 p-2.5">
-        <div className="h-11 w-11 rounded-lg bg-gradient-to-br from-amber-300 to-amber-700" />
+      <Card className="mb-2.5 flex flex-wrap items-center gap-3 p-2.5">
+        <div className="h-11 w-11 rounded-[9px] bg-gradient-to-br from-[#f6c27a] to-[#c9772b]" />
         <div>
           <div className="text-[17px] font-extrabold">
             {editor.odoo_name} <Chip tone="warn">{editor.version_label}</Chip>
           </div>
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-[#5b6476]">
             Odoo #{editor.odoo_product_id}
+            {editor.category ? ` · ${editor.category}` : ""}
+            {editor.pos_price_label
+              ? ` · precio ${editor.pos_price_label}`
+              : ""}
+            {editor.units_label ? ` · ${editor.units_label}` : ""}
             {editor.share_label ? ` · ${editor.share_label}` : ""}
             {" · "}
             <button
               type="button"
-              className="font-semibold text-blue-700"
+              className="font-semibold text-[#3557c9]"
               onClick={onChangeLink}
             >
               cambiar vínculo
             </button>
           </div>
         </div>
+        <div className="ml-auto text-right">
+          <div className="text-[11.5px] text-[#6b7385]">
+            Margen con el costo actual
+          </div>
+          <div className="text-[15px] font-bold">
+            {editor.margin_label ?? "—"}
+          </div>
+          {editor.margin_hint ? (
+            <div className="text-[10.5px] text-[#8a92a3]">
+              {editor.margin_hint}
+            </div>
+          ) : null}
+        </div>
       </Card>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.8fr_1fr]">
         <Card className="p-3">
-          <div className="mb-2 flex items-center">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
             <h2 className="text-[15px] font-semibold">
               Ingredientes por porción
             </h2>
-            <span className="ml-2 text-[11.5px] text-slate-400">
+            <span className="text-[11.5px] text-[#8a92a3]">
               Edita cantidades, unidades o rendimientos
             </span>
+            <GhostBtn className="ml-auto" onClick={() => setAdding((v) => !v)}>
+              + Agregar ingrediente
+            </GhostBtn>
           </div>
+          {adding ? (
+            <div className="mb-2 flex flex-wrap items-center gap-2 rounded-[10px] border border-[#f5c98b] bg-[#fff8ec] p-2">
+              <input
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                placeholder="Ingrediente"
+                className="rounded-md border border-[#d5dae3] bg-white px-2 py-1 text-xs"
+              />
+              <input
+                value={newQty}
+                onChange={(event) => setNewQty(event.target.value)}
+                className="w-16 rounded-md border border-[#d5dae3] bg-white px-2 py-1 text-right text-xs"
+              />
+              <input
+                value={newUnit}
+                onChange={(event) => setNewUnit(event.target.value)}
+                className="w-16 rounded-md border border-[#d5dae3] bg-white px-2 py-1 text-xs"
+              />
+              <GhostBtn
+                disabled={busy || !newName.trim()}
+                onClick={() => {
+                  onFix({
+                    odoo_product_id: editor.odoo_product_id,
+                    raw_name: newName.trim(),
+                    quantity: Number(newQty) || 1,
+                    unit: newUnit.trim() || "g",
+                    add_line: true,
+                  });
+                  setNewName("");
+                  setAdding(false);
+                }}
+              >
+                Agregar
+              </GhostBtn>
+            </div>
+          ) : null}
           <table className="w-full text-[11.8px]">
             <thead>
-              <tr className="text-left text-[10.5px] font-semibold text-slate-400">
+              <tr className="text-left text-[10.5px] font-semibold text-[#8a92a3]">
                 <th className="pb-1.5">Ingrediente</th>
                 <th className="pb-1.5 text-right">Cantidad</th>
                 <th className="pb-1.5">Unidad</th>
@@ -214,7 +205,7 @@ function Editor({
             <tbody>
               {editor.lines.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-4 text-sm text-slate-600">
+                  <td colSpan={6} className="py-4 text-sm text-[#5b6476]">
                     Esta receta no tiene ingredientes. No la apruebes. Vuelve a
                     Vincular, genera sugerencias desde tu archivo o créala a
                     mano.
@@ -240,7 +231,7 @@ function Editor({
                 />
               ))}
               {editor.portion_cost_label ? (
-                <tr className="border-t border-slate-100">
+                <tr className="border-t border-[#f2f3f6]">
                   <td colSpan={4} className="py-2 text-right font-semibold">
                     Costo por porción vendible
                   </td>
@@ -252,48 +243,50 @@ function Editor({
               ) : null}
             </tbody>
           </table>
-          <div className="mt-1.5 text-[10.5px] text-slate-400">
+          <div className="mt-1.5 text-[10.5px] text-[#8a92a3]">
             {editor.excel_row_label ? (
               <>
                 Excel original: {editor.excel_row_label}
-                <span className="ml-1 font-semibold text-blue-700">
+                <span className="ml-1 font-semibold text-[#3557c9]">
                   ver fila
                 </span>
               </>
             ) : (
-              "Sin fila de Excel vinculada"
+              "Sin fila de Excel vinculada · tus correcciones quedan protegidas en futuras importaciones"
             )}
-            {" · tus correcciones quedan protegidas en futuras importaciones"}
+            {editor.excel_row_label
+              ? " · tus correcciones quedan protegidas en futuras importaciones"
+              : null}
           </div>
         </Card>
 
         <Card className="p-3">
           <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-[9px] border border-slate-100 px-2.5 py-2">
-              <div className="text-xs text-slate-500">Costo Milton</div>
+            <div className="rounded-[9px] border border-[#eef0f4] px-2.5 py-2">
+              <div className="text-xs text-[#6b7385]">Costo Milton</div>
               <div className="text-xl font-bold">
                 {editor.milton_cost_label ?? "Pendiente"}
               </div>
-              <div className="text-[10.5px] text-slate-400">por porción</div>
+              <div className="text-[10.5px] text-[#8a92a3]">por porción</div>
             </div>
-            <div className="rounded-[9px] border border-slate-100 px-2.5 py-2">
-              <div className="text-xs text-slate-500">
+            <div className="rounded-[9px] border border-[#eef0f4] px-2.5 py-2">
+              <div className="text-xs text-[#6b7385]">
                 Tu Excel (COSTO TOTAL)
               </div>
               <div className="text-xl font-bold">
                 {editor.excel_total_label ?? "—"}
               </div>
-              <div className="text-[10.5px] text-slate-400">
+              <div className="text-[10.5px] text-[#8a92a3]">
                 referencia, no verdad absoluta
               </div>
             </div>
           </div>
           {editor.variance_note ? (
-            <div className="mt-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-950">
+            <div className="mt-2 rounded-[10px] border border-[#f5c98b] bg-[#fff8ec] px-3 py-2.5 text-xs text-[#5b4515]">
               {editor.variance_note}
             </div>
           ) : null}
-          <div className="mb-1 mt-2.5 text-xs font-semibold text-slate-500">
+          <div className="mb-1 mt-2.5 text-xs font-semibold text-[#6b7385]">
             Antes de aprobar
           </div>
           {editor.checklist.items.map((item) => (
@@ -301,21 +294,22 @@ function Editor({
               key={item.id}
               className="flex items-center gap-1.5 py-0.5 text-[11.8px]"
             >
-              <span
-                className={
-                  "flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold " +
-                  (item.ok
-                    ? "bg-emerald-100 text-emerald-700"
-                    : "bg-red-100 text-red-600")
-                }
-              >
-                {item.ok ? "✓" : "×"}
-              </span>
+              <CheckIcon
+                ok={item.ok}
+                warn={!item.ok && (item.warn || item.id === "yield")}
+              />
               {item.label}
             </div>
           ))}
-          <div className="mt-2 flex flex-wrap gap-1.5 border-t border-slate-100 pt-2">
-            <GhostBtn disabled={busy}>Guardar borrador</GhostBtn>
+          <div className="mt-2 flex flex-wrap gap-1.5 border-t border-[#eef0f4] pt-2">
+            <GhostBtn
+              disabled={busy}
+              onClick={() => {
+                setSaved(true);
+              }}
+            >
+              {saved ? "Borrador guardado" : "Guardar borrador"}
+            </GhostBtn>
             {actor.can_approve ? (
               <DarkBtn
                 disabled={busy || !editor.checklist.ready}
@@ -329,13 +323,35 @@ function Editor({
               </DarkBtn>
             )}
           </div>
-          <div className="mt-1.5 text-[10.5px] text-slate-400">
+          <div className="mt-1.5 text-[10.5px] text-[#8a92a3]">
             Solo el dueño o un admin aprueba. Al aprobar, esta versión empieza a
             contar en los márgenes.
           </div>
         </Card>
       </div>
     </div>
+  );
+}
+
+function CheckIcon({ ok, warn }: { ok: boolean; warn?: boolean }) {
+  if (ok) {
+    return (
+      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#e7f6ee] text-[10px] font-bold text-[#1f9d55]">
+        ✓
+      </span>
+    );
+  }
+  if (warn) {
+    return (
+      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#fff4e5] text-[10px] font-bold text-[#c2700a]">
+        !
+      </span>
+    );
+  }
+  return (
+    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#fdecec] text-[10px] font-bold text-[#d14343]">
+      ×
+    </span>
   );
 }
 
@@ -366,12 +382,20 @@ function LineRow({
 
   return (
     <>
-      <tr className="border-t border-slate-100">
+      <tr className="border-t border-[#f2f3f6]">
         <td className="py-1.5 pr-2">
           <b>{line.raw_name}</b>
-          {line.pending ? (
-            <div className="text-[10.5px] text-amber-700">Pendiente</div>
-          ) : null}
+          <div className="text-[10.5px] text-[#8a92a3]">
+            {line.source_note
+              ? line.is_sub_recipe
+                ? `${line.source_note}${yieldNote ? ` · ${yieldNote}` : ""}`
+                : line.source_note
+              : line.pending
+                ? "Pendiente"
+                : line.is_sub_recipe
+                  ? "Preparación"
+                  : null}
+          </div>
         </td>
         <td className="py-1.5 pr-2 text-right">
           <input
@@ -384,7 +408,12 @@ function LineRow({
                 onFix({ quantity: n });
               }
             }}
-            className="inline-block min-w-11 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-right"
+            className={
+              "inline-block min-w-11 rounded-md border bg-white px-1.5 py-0.5 text-right " +
+              (line.is_sub_recipe && yieldAssumed
+                ? "border-[#f5a524] bg-[#fff8ec] font-bold"
+                : "border-[#d5dae3]")
+            }
           />
         </td>
         <td className="py-1.5 pr-2">
@@ -396,7 +425,7 @@ function LineRow({
               if (unit.trim() && unit.trim() !== line.unit)
                 onFix({ unit: unit.trim() });
             }}
-            className="w-16 rounded-md border border-slate-200 bg-white px-1.5 py-0.5"
+            className="w-16 rounded-md border border-[#d5dae3] bg-white px-1.5 py-0.5"
           />
         </td>
         <td className="py-1.5 text-right">
@@ -410,7 +439,7 @@ function LineRow({
                 const n = Number(price);
                 if (Number.isFinite(n) && n > 0) onFix({ unit_cost: n });
               }}
-              className="w-20 rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-right font-bold"
+              className="w-20 rounded-md border border-[#f5a524] bg-[#fff8ec] px-1.5 py-0.5 text-right font-bold"
             />
           ) : (
             line.unit_cost_label
@@ -419,17 +448,20 @@ function LineRow({
         <td className="py-1.5 text-right font-semibold">
           {line.pending ? "Pendiente" : line.aporte_label}
         </td>
-        <td className="py-1.5 text-right text-slate-400">
+        <td className="py-1.5 text-right text-[#8a92a3]">
           {line.dish_pct_label}
         </td>
       </tr>
       {line.is_sub_recipe ? (
         <tr>
-          <td colSpan={6} className="bg-amber-50 px-2.5 py-1.5 text-[11.5px]">
-            ↳ Preparación {line.raw_name}
-            {yieldNote ? ` · ${yieldNote}` : ""}
+          <td
+            colSpan={6}
+            className="bg-[#fff8ec] px-2.5 py-1.5 pl-5 text-[11.5px]"
+          >
+            ↳ <b>Preparación {line.raw_name}:</b>
+            {yieldNote ? ` ${yieldNote}` : ""}
             {yieldAssumed ? " · rendimiento por confirmar" : ""}
-            {": rinde "}
+            {" · rinde "}
             <input
               value={yieldQty}
               disabled={busy}
@@ -438,7 +470,7 @@ function LineRow({
                 const n = Number(yieldQty);
                 if (Number.isFinite(n) && n > 0) onFix({ yield_value: n });
               }}
-              className="inline-block min-w-11 rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-right font-bold"
+              className="inline-block min-w-11 rounded-md border border-[#f5a524] bg-[#fff8ec] px-1.5 py-0.5 text-right font-bold"
             />{" "}
             porciones
           </td>

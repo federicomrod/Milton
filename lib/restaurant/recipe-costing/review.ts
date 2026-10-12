@@ -19,6 +19,7 @@ export interface ReviewLineView {
   flags: string[];
   reasons: string[];
   is_sub_recipe: boolean;
+  source_note: string | null;
 }
 
 export interface ReviewItemView {
@@ -90,6 +91,11 @@ export function toReviewLine(
     flags: line.flags,
     reasons: line.reasons,
     is_sub_recipe: Boolean(line.sub_recipe_match),
+    source_note: Boolean(line.sub_recipe_match)
+      ? "Preparación"
+      : (line.reasons.find((reason) =>
+          /compra|proveedor|oct|sep|nov|dic/i.test(reason)
+        ) ?? null),
   };
 }
 

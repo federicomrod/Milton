@@ -148,3 +148,19 @@ export function whoApprovesNote(companyName: string | null): string {
   const who = companyName?.trim() || "tu restaurante";
   return `Quién aprueba: el dueño o un admin de ${who}. Milton prepara; una persona confirma.`;
 }
+
+export const COSTING_FOOTERS = {
+  resumen:
+    "Base: el POS dice qué se vende; el Excel solo aporta recetas y costos.",
+  vincular:
+    "El POS manda: cada fila es un producto real de Odoo con su ID. Lo confirmado por una persona nunca lo pisa una nueva importación.",
+  validar:
+    "Estados de una receta: Importada → Borrador → Lista para aprobar → Aprobada (versionada) → Necesita revisión si cambia un precio o sub-receta.",
+  "menu-costeado":
+    "Base: el POS dice qué se vende; el Excel solo aporta recetas y costos.",
+} as const;
+
+export function isAmbiguousEvidence(evidence: SuggestionEvidenceView): boolean {
+  const text = `${evidence.reasons.join(" ")} ${evidence.evidence_text ?? ""}`;
+  return /ambigu|2 recetas|más de una receta|2 opciones/i.test(text);
+}

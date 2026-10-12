@@ -10,6 +10,7 @@ import { Card, Chip, DarkBtn, GhostBtn } from "./ui";
 export function ValidarScreen({
   data,
   onOpenProduct,
+  onChangeLink,
   onFix,
   onApprove,
   onSubmit,
@@ -17,6 +18,7 @@ export function ValidarScreen({
 }: {
   data: RecipeCostingWorkspace;
   onOpenProduct: (odooProductId: number) => void;
+  onChangeLink: (odooProductId: number) => void;
   onFix: (input: {
     odoo_product_id: number;
     raw_name: string;
@@ -38,12 +40,26 @@ export function ValidarScreen({
       <div className="mb-1.5 text-[10.5px] text-slate-400">
         Menú › Recetas y costeo ›{" "}
         <b className="text-slate-900">Paso 3 de 4 · Validar</b>
-        {data.review_tabs.length > 0 ? (
+        {editor?.review_index && editor.review_total ? (
+          <span>
+            {" "}
+            · plato {editor.review_index} de {editor.review_total} por revisar
+          </span>
+        ) : data.review_tabs.length > 0 ? (
           <span>
             {" "}
             · {data.review_tabs.reduce((n, tab) => n + tab.item_count, 0)} por
             revisar
           </span>
+        ) : null}
+        {editor?.next_odoo_product_id ? (
+          <button
+            type="button"
+            className="ml-2 font-semibold text-blue-700"
+            onClick={() => onOpenProduct(editor.next_odoo_product_id!)}
+          >
+            Siguiente →
+          </button>
         ) : null}
       </div>
 
@@ -116,6 +132,7 @@ export function ValidarScreen({
           editor={editor}
           actor={data.actor}
           busy={busy}
+          onChangeLink={() => onChangeLink(editor.odoo_product_id)}
           onFix={onFix}
           onApprove={onApprove}
           onSubmit={onSubmit}
@@ -129,6 +146,7 @@ function Editor({
   editor,
   actor,
   busy,
+  onChangeLink,
   onFix,
   onApprove,
   onSubmit,
@@ -136,6 +154,7 @@ function Editor({
   editor: RecipeEditorView;
   actor: RecipeCostingWorkspace["actor"];
   busy: boolean;
+  onChangeLink: () => void;
   onFix: (input: {
     odoo_product_id: number;
     raw_name: string;
@@ -159,6 +178,14 @@ function Editor({
           <div className="text-xs text-slate-500">
             Odoo #{editor.odoo_product_id}
             {editor.share_label ? ` · ${editor.share_label}` : ""}
+            {" · "}
+            <button
+              type="button"
+              className="font-semibold text-blue-700"
+              onClick={onChangeLink}
+            >
+              cambiar vínculo
+            </button>
           </div>
         </div>
       </Card>
@@ -180,6 +207,8 @@ function Editor({
                 <th className="pb-1.5 text-right">Cantidad</th>
                 <th className="pb-1.5">Unidad</th>
                 <th className="pb-1.5 text-right">Costo unitario</th>
+                <th className="pb-1.5 text-right">Aporte</th>
+                <th className="pb-1.5 text-right">% plato</th>
               </tr>
             </thead>
             <tbody>
@@ -189,6 +218,7 @@ function Editor({
                   line={line}
                   yieldValue={editor.yield_value}
                   yieldAssumed={editor.yield_assumed}
+                  yieldNote={editor.yield_note}
                   busy={busy}
                   onFix={(patch) =>
                     onFix({
@@ -200,12 +230,30 @@ function Editor({
                   }
                 />
               ))}
+              {editor.portion_cost_label ? (
+                <tr className="border-t border-slate-100">
+                  <td colSpan={4} className="py-2 text-right font-semibold">
+                    Costo por porción vendible
+                  </td>
+                  <td className="py-2 text-right text-sm font-bold">
+                    {editor.portion_cost_label}
+                  </td>
+                  <td />
+                </tr>
+              ) : null}
             </tbody>
           </table>
           <div className="mt-1.5 text-[10.5px] text-slate-400">
-            {editor.excel_row_label
-              ? `Excel original: ${editor.excel_row_label}`
-              : "Sin fila de Excel vinculada"}
+            {editor.excel_row_label ? (
+              <>
+                Excel original: {editor.excel_row_label}
+                <span className="ml-1 font-semibold text-blue-700">
+                  ver fila
+                </span>
+              </>
+            ) : (
+              "Sin fila de Excel vinculada"
+            )}
             {" · tus correcciones quedan protegidas en futuras importaciones"}
           </div>
         </Card>
@@ -286,12 +334,14 @@ function LineRow({
   line,
   yieldValue,
   yieldAssumed,
+  yieldNote,
   busy,
   onFix,
 }: {
   line: RecipeEditorView["lines"][number];
   yieldValue: number | null;
   yieldAssumed: boolean;
+  yieldNote: string | null;
   busy: boolean;
   onFix: (patch: {
     unit?: string;
@@ -354,14 +404,21 @@ function LineRow({
               className="w-20 rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-right font-bold"
             />
           ) : (
-            line.cost_label
+            line.unit_cost_label
           )}
+        </td>
+        <td className="py-1.5 text-right font-semibold">
+          {line.pending ? "Pendiente" : line.aporte_label}
+        </td>
+        <td className="py-1.5 text-right text-slate-400">
+          {line.dish_pct_label}
         </td>
       </tr>
       {line.is_sub_recipe ? (
         <tr>
-          <td colSpan={4} className="bg-amber-50 px-2.5 py-1.5 text-[11.5px]">
+          <td colSpan={6} className="bg-amber-50 px-2.5 py-1.5 text-[11.5px]">
             ↳ Preparación {line.raw_name}
+            {yieldNote ? ` · ${yieldNote}` : ""}
             {yieldAssumed ? " · rendimiento por confirmar" : ""}
             {": rinde "}
             <input

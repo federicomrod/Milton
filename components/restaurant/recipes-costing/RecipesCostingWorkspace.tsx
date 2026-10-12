@@ -244,6 +244,9 @@ export function RecipesCostingWorkspace({
           onOpenProduct={(id) =>
             replaceParams({ vista: "validar", producto: id })
           }
+          onChangeLink={(id) =>
+            replaceParams({ vista: "vincular", producto: id })
+          }
           onFix={(body) =>
             void mutate(() => post("/api/restaurant/recipes/review/fix", body))
           }

@@ -1,6 +1,6 @@
 import { workbookMatchLabel } from "@/lib/restaurant/cost-workbook/copy";
 import type { SuggestionEvidenceView, SuggestionLineView } from "./evidence";
-import { lineCostDisplay } from "./format";
+import { formatMoneyEs, formatPctLabel, lineCostDisplay } from "./format";
 import { excelTabSummary } from "./copy";
 
 export interface ReviewLineView {
@@ -11,6 +11,11 @@ export interface ReviewLineView {
   pending: boolean;
   cost_label: string;
   unit_cost: number | null;
+  unit_cost_label: string;
+  aporte: number | null;
+  aporte_label: string;
+  dish_pct: number | null;
+  dish_pct_label: string;
   flags: string[];
   reasons: string[];
   is_sub_recipe: boolean;
@@ -50,13 +55,22 @@ export function isUncertainEvidence(evidence: SuggestionEvidenceView): boolean {
 
 export function toReviewLine(
   line: SuggestionLineView,
-  currency?: string
+  currency?: string,
+  portionCost?: number | null
 ): ReviewLineView {
   const cost = lineCostDisplay({
     pending: line.pending,
     unit_cost: line.unit_cost,
     currency,
   });
+  const aporte =
+    !line.pending && cost.amount != null && line.qty > 0
+      ? Math.round(line.qty * cost.amount * 100) / 100
+      : null;
+  const dishPct =
+    aporte != null && portionCost != null && portionCost > 0
+      ? Math.round((aporte / portionCost) * 100)
+      : null;
   return {
     source_row: line.source_row,
     raw_name: line.raw_name,
@@ -65,6 +79,14 @@ export function toReviewLine(
     pending: line.pending,
     cost_label: cost.label,
     unit_cost: cost.amount,
+    unit_cost_label:
+      cost.amount != null && line.unit
+        ? `${cost.label} / ${line.unit}`
+        : cost.label,
+    aporte,
+    aporte_label: aporte != null ? formatMoneyEs(aporte, currency) : cost.label,
+    dish_pct: dishPct,
+    dish_pct_label: dishPct != null ? formatPctLabel(dishPct) : "—",
     flags: line.flags,
     reasons: line.reasons,
     is_sub_recipe: Boolean(line.sub_recipe_match),

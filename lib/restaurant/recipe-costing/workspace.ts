@@ -14,9 +14,11 @@ import {
   shareToPct,
 } from "./format";
 import {
+  COSTING_FOOTERS,
   TODO_KIND_ACTIONS,
   TODO_KIND_LABELS,
   evidenceSentence,
+  isAmbiguousEvidence,
   productReason,
   whoApprovesNote,
   type TodoKind,
@@ -100,6 +102,7 @@ export interface VincularProductRow {
   confirmed: boolean;
   can_undo: boolean;
   filter_bucket: VincularFilter | "todos";
+  action_label: string;
   evidence: SuggestionEvidenceView;
 }
 
@@ -175,6 +178,11 @@ export interface RecipeEditorView {
   yield_value: number | null;
   yield_unit: string | null;
   yield_assumed: boolean;
+  yield_note: string | null;
+  portion_cost_label: string | null;
+  review_index: number | null;
+  review_total: number;
+  next_odoo_product_id: number | null;
 }
 
 export interface WorkspaceMenuItem {
@@ -210,6 +218,7 @@ export function classifyTodoKind(input: {
   if (input.evidence.pending || input.evidence.excel_match === "mismatch") {
     return "por_revisar";
   }
+  if (isAmbiguousEvidence(input.evidence)) return "ambiguo";
   if (input.product.link_state === "sugerido") return "sugerido";
   if (input.product.link_state === "sin_vincular") {
     return input.evidence.block_name ? "sugerido" : "sin_receta";
@@ -409,6 +418,13 @@ export function buildRecipeCostingWorkspace(input: {
         : product.link_state === "confirmado"
           ? "confirmados"
           : "por_resolver",
+      action_label: vincularActionLabel({
+        confirmed: product.link_state === "confirmado",
+        is_combo: product.is_combo,
+        link_state: product.link_state,
+        recipe_name: recipeName ?? null,
+        ambiguous: isAmbiguousEvidence(evidence),
+      }),
       evidence,
     };
   });
@@ -497,7 +513,9 @@ export function buildRecipeCostingWorkspace(input: {
           evidence.excel_total != null
             ? formatMoneyEs(evidence.excel_total, currency)
             : null,
-        lines: evidence.lines.map((line) => toReviewLine(line, currency)),
+        lines: evidence.lines.map((line) =>
+          toReviewLine(line, currency, evidence.milton_cost)
+        ),
       });
     }
   }
@@ -536,7 +554,8 @@ export function buildRecipeCostingWorkspace(input: {
       (row) => row.odoo_product_id === input.selectedOdooProductId
     ) ?? null;
 
-  const editor = selected
+  const reviewOrder = reviewItems.map((item) => item.odoo_product_id);
+  let editor = selected
     ? buildEditorView({
         product: selected,
         versions: selected.menu_item_id
@@ -552,6 +571,16 @@ export function buildRecipeCostingWorkspace(input: {
           currency
         )
       : null;
+  if (editor) {
+    const idx = reviewOrder.indexOf(editor.odoo_product_id);
+    editor = {
+      ...editor,
+      review_index: idx >= 0 ? idx + 1 : null,
+      review_total: reviewOrder.length,
+      next_odoo_product_id:
+        idx >= 0 ? (reviewOrder[idx + 1] ?? reviewOrder[0] ?? null) : null,
+    };
+  }
 
   const menuCosteado =
     unresolved === 0 && reviewItems.length === 0 && input.products.length > 0;
@@ -682,9 +711,23 @@ export function buildRecipeCostingWorkspace(input: {
     selected,
     editor,
     menu_costeado: menuCosteado,
-    footer:
-      "Base: el POS dice qué se vende; el Excel solo aporta recetas y costos.",
+    footer: COSTING_FOOTERS[view],
   };
+}
+
+function vincularActionLabel(input: {
+  confirmed: boolean;
+  is_combo: boolean;
+  link_state: string;
+  recipe_name: string | null;
+  ambiguous: boolean;
+}): string {
+  if (input.confirmed) return "Cambiar";
+  if (input.is_combo) return "Ver partes";
+  if (input.ambiguous) return "Elegir";
+  if (input.link_state === "sugerido") return "Confirmar";
+  if (!input.recipe_name) return "Crear receta";
+  return "Elegir";
 }
 
 function buildEditorView(input: {
@@ -740,6 +783,8 @@ function buildEditorFromReview(
     variance_note: item.reason,
     checklist: buildApprovalChecklist({
       link_state: null,
+      odoo_name: item.odoo_name,
+      odoo_product_id: item.odoo_product_id,
       evidence: {
         tab: item.tab,
         block_name: item.block_name,
@@ -774,6 +819,11 @@ function buildEditorFromReview(
     yield_value: null,
     yield_unit: null,
     yield_assumed: false,
+    yield_note: null,
+    portion_cost_label: item.milton_cost_label,
+    review_index: null,
+    review_total: 0,
+    next_odoo_product_id: null,
   };
 }
 
@@ -802,6 +852,20 @@ function editorFromEvidence(input: {
     if (ev.reasons[0]) varianceNote = `${varianceNote} ${ev.reasons[0]}`;
   }
   const firstRow = ev.lines.find((line) => line.source_row != null)?.source_row;
+  const portionCost =
+    ev.milton_cost ??
+    (ev.lines.every((line) => !line.pending && line.unit_cost != null)
+      ? ev.lines.reduce(
+          (sum, line) => sum + line.qty * (line.unit_cost ?? 0),
+          0
+        )
+      : null);
+  const yieldNote =
+    ev.yield.value != null
+      ? ev.yield.source === "assumed"
+        ? `Rendimiento por confirmar: ${ev.yield.value}${ev.yield.unit ? ` ${ev.yield.unit}` : ""}`
+        : `Rinde ${ev.yield.value}${ev.yield.unit ? ` ${ev.yield.unit}` : ""}`
+      : null;
   return {
     odoo_product_id: input.product.odoo_product_id,
     odoo_name: input.product.odoo_name,
@@ -810,22 +874,34 @@ function editorFromEvidence(input: {
     version_label: input.version_label,
     share_label: `${input.product.share_label} de las ventas`,
     excel_row_label:
-      ev.tab && firstRow != null
-        ? `hoja ${ev.tab} › fila ${firstRow}`
-        : ev.tab
-          ? `hoja ${ev.tab}`
-          : null,
+      ev.filename && ev.tab && firstRow != null
+        ? `${ev.filename} › hoja ${ev.tab} › fila ${firstRow}`
+        : ev.tab && firstRow != null
+          ? `hoja ${ev.tab} › fila ${firstRow}`
+          : ev.tab
+            ? `hoja ${ev.tab}`
+            : ev.filename,
     milton_cost_label: milton,
     excel_total_label: excel,
     variance_note: varianceNote,
     checklist: buildApprovalChecklist({
       link_state: input.product.link_state,
       evidence: ev,
+      odoo_name: input.product.odoo_name,
+      odoo_product_id: input.product.odoo_product_id,
     }),
-    lines: ev.lines.map((line) => toReviewLine(line, input.currency)),
+    lines: ev.lines.map((line) =>
+      toReviewLine(line, input.currency, portionCost)
+    ),
     yield_value: ev.yield.value,
     yield_unit: ev.yield.unit,
     yield_assumed: ev.yield.source === "assumed",
+    yield_note: yieldNote,
+    portion_cost_label:
+      portionCost != null ? formatMoneyEs(portionCost, input.currency) : milton,
+    review_index: null,
+    review_total: 0,
+    next_odoo_product_id: null,
   };
 }
 

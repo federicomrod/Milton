@@ -145,12 +145,12 @@ export function VincularScreen({
                           className="text-[10.5px] text-slate-400"
                           onClick={(event) => {
                             event.stopPropagation();
-                            onUndo(row);
+                            onSelect(row.odoo_product_id);
                           }}
                         >
-                          Deshacer
+                          Cambiar
                         </button>
-                      ) : row.link_state === "sugerido" ? (
+                      ) : row.action_label === "Confirmar" ? (
                         <PrimaryBtn
                           disabled={busy}
                           onClick={(event) => {
@@ -160,7 +160,7 @@ export function VincularScreen({
                         >
                           Confirmar
                         </PrimaryBtn>
-                      ) : (
+                      ) : row.action_label === "Crear receta" ? (
                         <GhostBtn
                           disabled={busy}
                           onClick={(event) => {
@@ -169,6 +169,16 @@ export function VincularScreen({
                           }}
                         >
                           Crear receta
+                        </GhostBtn>
+                      ) : (
+                        <GhostBtn
+                          disabled={busy}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onSelect(row.odoo_product_id);
+                          }}
+                        >
+                          {row.action_label}
                         </GhostBtn>
                       )}
                     </td>
@@ -287,6 +297,29 @@ function SidePanel({
           </GhostBtn>
         ) : null}
       </div>
+      {menuItems.filter((item) => item.id !== product.menu_item_id).length >
+      0 ? (
+        <div className="mt-3">
+          <div className="text-xs font-semibold text-slate-500">
+            Otras opciones
+          </div>
+          {menuItems
+            .filter((item) => item.id !== product.menu_item_id)
+            .slice(0, 4)
+            .map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                disabled={busy}
+                onClick={() => onChange(item.id)}
+                className="flex w-full items-center justify-between py-1 text-left text-[11.8px] hover:text-blue-700"
+              >
+                <span>{item.name}</span>
+                <span className="text-slate-400">elegir</span>
+              </button>
+            ))}
+        </div>
+      ) : null}
       {picking ? (
         <label className="mt-3 block text-xs font-semibold text-slate-500">
           Elige otra receta

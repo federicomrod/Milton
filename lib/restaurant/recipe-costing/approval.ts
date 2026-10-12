@@ -126,6 +126,8 @@ export function buildApprovalChecklist(input: {
   link_state: string | null;
   evidence: SuggestionEvidenceView;
   yield_confirmed?: boolean;
+  odoo_name?: string | null;
+  odoo_product_id?: number | null;
 }): ApprovalChecklist {
   const linked = input.link_state === "confirmado";
   const noPending = !input.evidence.lines.some((line) => line.pending);
@@ -152,7 +154,9 @@ export function buildApprovalChecklist(input: {
       ok: linked,
       warn: !linked,
       label: linked
-        ? "Vinculado al POS"
+        ? input.odoo_name && input.odoo_product_id
+          ? `Vinculado al POS: ${input.odoo_name} (Odoo #${input.odoo_product_id})`
+          : "Vinculado al POS"
         : "Todavía no está Confirmado el vínculo con el POS",
     },
     {

@@ -302,7 +302,30 @@ describe("recipe costing workspace resume", () => {
     expect(workspace.review_tabs[0]?.tab).toBe("PLATOS");
     const pendingLine = workspace.review_tabs[0]?.items[0]?.lines[0];
     expect(pendingLine?.cost_label).toBe("Pendiente");
+    expect(pendingLine?.aporte_label).toBe("Pendiente");
     expect(JSON.stringify(workspace)).not.toMatch(/"\$0"/);
+  });
+
+  it("computes aporte from qty × unit cost and never $0 on a pending line", () => {
+    const priced = toReviewLine(
+      {
+        source_row: 1,
+        raw_name: "Pechuga",
+        ingredient_match: "Pechuga",
+        sub_recipe_match: null,
+        qty: 0.2,
+        unit: "kg",
+        unit_cost: 6.2,
+        flags: ["ok"],
+        pending: false,
+        reasons: [],
+      },
+      "USD",
+      2.54
+    );
+    expect(priced.aporte).toBe(1.24);
+    expect(priced.aporte_label).toMatch(/1[.,]24/);
+    expect(priced.dish_pct_label).toBe("49%");
   });
 
   it("shows a combo as one product", () => {

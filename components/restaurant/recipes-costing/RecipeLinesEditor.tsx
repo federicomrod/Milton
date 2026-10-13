@@ -289,6 +289,13 @@ export function RecipeLinesEditor({
               onUnit={(unit) =>
                 void send({ action: "update", input_id: line.input_id, unit })
               }
+              onAnswerUnit={(unit) =>
+                void send({
+                  action: "answer_unit",
+                  input_id: line.input_id,
+                  unit,
+                })
+              }
               onPrice={(unit, cost) =>
                 void send({
                   action: "set_price",
@@ -374,6 +381,7 @@ function Row({
   onRemove,
   onQty,
   onUnit,
+  onAnswerUnit,
   onPrice,
 }: {
   line: EditorLine;
@@ -384,6 +392,7 @@ function Row({
   onRemove: () => void;
   onQty: (qty: number) => void;
   onUnit: (unit: string) => void;
+  onAnswerUnit: (unit: string) => void;
   onPrice: (unit: string, cost: number) => void;
 }) {
   const [qty, setQty] = useState(String(line.qty || ""));
@@ -435,6 +444,29 @@ function Row({
                 ? `${line.kind === "component" ? " · " : ""}del Excel: ${line.raw_name}`
                 : null}
             </div>
+            {line.unit_question ? (
+              <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[11px]">
+                Tu archivo dice{" "}
+                {UNIT_LABEL[line.unit_question.written] ??
+                  line.unit_question.written}
+                , pero su precio corresponde a{" "}
+                {UNIT_LABEL[line.unit_question.suggested] ??
+                  line.unit_question.suggested}
+                . ¿Cuál es?
+                {editable ? (
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {[
+                      line.unit_question.suggested,
+                      line.unit_question.written,
+                    ].map((unit) => (
+                      <GhostBtn key={unit} onClick={() => onAnswerUnit(unit)}>
+                        {line.qty} {UNIT_LABEL[unit] ?? unit}
+                      </GhostBtn>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </>
         )}
       </td>
@@ -516,6 +548,11 @@ function Row({
                 .filter(Boolean)
                 .join(" · ")}
             </div>
+            {line.excel_unit_cost !== null ? (
+              <div className="text-[10px] text-[#8a92a3]">
+                en tu Excel: {money(line.excel_unit_cost)}
+              </div>
+            ) : null}
           </span>
         ) : line.unit_cost !== null ? (
           `${money(line.unit_cost)}/${UNIT_LABEL[line.unit] ?? line.unit}`

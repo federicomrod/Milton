@@ -38,6 +38,12 @@ export function parseEditorAction(
         unit: str(body.unit) ?? undefined,
       };
     }
+    case "answer_unit": {
+      const inputId = str(body.input_id);
+      const unit = str(body.unit);
+      if (!inputId || !unit) return null;
+      return { action: "answer_unit", input_id: inputId, unit };
+    }
     case "change_item": {
       const inputId = str(body.input_id);
       const kind = kindOf(body.kind);

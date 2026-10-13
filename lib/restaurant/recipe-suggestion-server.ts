@@ -12,6 +12,11 @@ import {
   expandCandidateBlocks,
 } from "@/lib/restaurant/cost-workbook/stored-blocks";
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
+import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
+import {
+  refreshEvidence,
+  withCachedCatalog,
+} from "@/lib/restaurant/recipe-costing/editor-service";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import type { GroupedRecipe } from "@/lib/restaurant/cost-workbook/types";
 
@@ -102,6 +107,24 @@ export async function runRecipeSuggestionsForCompany(
     lang: params.lang ?? "es",
     createdBy: params.createdBy ?? null,
   });
+
+  // Cost the new drafts from the catalog right away, so the first thing a
+  // person sees is the catalog price, never the Excel's own number.
+  const editorStore = withCachedCatalog(createSupabaseEditorStore(supabase));
+  for (const item of result.items) {
+    if (item.result !== "sugerido") continue;
+    try {
+      await refreshEvidence({
+        store: editorStore,
+        companyId: params.companyId,
+        odooProductId: item.odoo_product_id,
+        locationId: params.locationId ?? null,
+        userId: params.createdBy ?? null,
+      });
+    } catch (err) {
+      console.error("[recipe-suggestions refresh]", err);
+    }
+  }
 
   return {
     ok: true as const,

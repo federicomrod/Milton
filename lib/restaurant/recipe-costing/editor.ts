@@ -77,6 +77,10 @@ export interface EditorLine {
   possible_match: PossibleMatch | null;
   /** Position in the cached evidence this line came from (null if added). */
   evidence_index: number | null;
+  /** The written unit may be wrong: the person confirms one. */
+  unit_question: { written: string; suggested: string } | null;
+  /** Unit cost the Excel line showed (evidence only, never used as price). */
+  excel_unit_cost: number | null;
 }
 
 export interface EvidenceLineIn {
@@ -90,6 +94,8 @@ export interface EvidenceLineIn {
   reasons: string[];
   flags: string[];
   input_id?: string | null;
+  unit_question?: { written: string; suggested: string } | null;
+  excel_unit_cost?: number | null;
 }
 
 function key(value: string): string {
@@ -182,6 +188,8 @@ export function hydrateLines(input: {
       source_row: number | null;
       reasons: string[];
       evidence_index: number | null;
+      unit_question?: { written: string; suggested: string } | null;
+      excel_unit_cost?: number | null;
     }
   ): EditorLine => {
     const cost = costInput(data, {
@@ -191,10 +199,13 @@ export function hydrateLines(input: {
       quantity: row.quantity,
       unit: row.unit,
     });
-    const pending = cost.amount === null;
-    const flags = pending
-      ? [cost.reason === "unit" ? FLAG_PENDING_UNIT : FLAG_PENDING_COST]
-      : [FLAG_OK];
+    const question = raw.unit_question ?? null;
+    const pending = cost.amount === null || question !== null;
+    const flags = question
+      ? [FLAG_PENDING_UNIT]
+      : pending
+        ? [cost.reason === "unit" ? FLAG_PENDING_UNIT : FLAG_PENDING_COST]
+        : [FLAG_OK];
     return {
       key: row.id,
       input_id: row.id,
@@ -217,6 +228,8 @@ export function hydrateLines(input: {
       reasons: raw.reasons,
       possible_match: null,
       evidence_index: raw.evidence_index,
+      unit_question: question,
+      excel_unit_cost: raw.excel_unit_cost ?? null,
     };
   };
 
@@ -230,60 +243,62 @@ export function hydrateLines(input: {
   }
 
   let unresolvedIndex = 0;
+  const findInput = (line: EvidenceLineIn): VersionInput | undefined => {
+    if (line.input_id) {
+      const byId = input.inputs.find((r) => r.id === line.input_id);
+      if (byId) return byId;
+    }
+    const wanted = line.sub_recipe_match ?? line.ingredient_match;
+    if (!wanted && line.pending) return undefined;
+    const candidates = inputByKey.get(key(wanted ?? line.raw_name)) ?? [];
+    return (
+      candidates.find(
+        (r) => !used.has(r.id) && Math.abs(r.quantity - line.qty) < 1e-9
+      ) ?? candidates.find((r) => !used.has(r.id))
+    );
+  };
+
   for (const [evidenceIndex, line] of input.evidenceLines.entries()) {
-    if (line.pending && !line.input_id) {
-      // Not resolved to anything yet. Offer a match, never apply it.
-      const matchName = line.sub_recipe_match ?? line.ingredient_match;
-      const direct = line.input_id
-        ? input.inputs.find((row) => row.id === line.input_id)
-        : undefined;
-      void direct;
-      lines.push({
-        key: `u:${unresolvedIndex++}`,
-        input_id: null,
-        kind: "unresolved",
-        ingredient_id: null,
-        component_id: null,
-        name: null,
-        raw_name: line.raw_name,
-        source_row: line.source_row,
-        qty: line.qty,
-        unit: line.unit,
-        unit_cost: null,
-        amount: null,
-        price: null,
-        pending: true,
-        flags: [FLAG_PENDING_INGREDIENT],
-        reasons: line.reasons,
-        possible_match: names.suggest(matchName ?? line.raw_name),
-        evidence_index: evidenceIndex,
-      });
+    const row = findInput(line);
+    if (row && !used.has(row.id)) {
+      used.add(row.id);
+      lines.push(
+        toLine(row, {
+          raw_name: line.raw_name,
+          source_row: line.source_row,
+          reasons: line.reasons,
+          evidence_index: evidenceIndex,
+          unit_question: line.unit_question ?? null,
+          excel_unit_cost: line.excel_unit_cost ?? null,
+        })
+      );
       continue;
     }
-    // A resolved evidence line: find its input.
-    let row: VersionInput | undefined;
-    if (line.input_id) {
-      row = input.inputs.find((r) => r.id === line.input_id);
-    }
-    if (!row) {
-      const wanted =
-        line.sub_recipe_match ?? line.ingredient_match ?? line.raw_name;
-      const candidates = inputByKey.get(key(wanted)) ?? [];
-      row =
-        candidates.find(
-          (r) => !used.has(r.id) && Math.abs(r.quantity - line.qty) < 1e-9
-        ) ?? candidates.find((r) => !used.has(r.id));
-    }
-    if (!row || used.has(row.id)) continue;
-    used.add(row.id);
-    lines.push(
-      toLine(row, {
-        raw_name: line.raw_name,
-        source_row: line.source_row,
-        reasons: line.reasons,
-        evidence_index: evidenceIndex,
-      })
-    );
+    if (!line.pending) continue; // stale cache line with no input behind it
+    // Not resolved to anything yet. Offer a match, never apply it.
+    const matchName = line.sub_recipe_match ?? line.ingredient_match;
+    lines.push({
+      key: `u:${unresolvedIndex++}`,
+      input_id: null,
+      kind: "unresolved",
+      ingredient_id: null,
+      component_id: null,
+      name: null,
+      raw_name: line.raw_name,
+      source_row: line.source_row,
+      qty: line.qty,
+      unit: line.unit,
+      unit_cost: null,
+      amount: null,
+      price: null,
+      pending: true,
+      flags: [FLAG_PENDING_INGREDIENT],
+      reasons: line.reasons,
+      possible_match: names.suggest(matchName ?? line.raw_name),
+      evidence_index: evidenceIndex,
+      unit_question: null,
+      excel_unit_cost: line.excel_unit_cost ?? null,
+    });
   }
 
   // Inputs the person added (or that no evidence line claims).
@@ -296,6 +311,8 @@ export function hydrateLines(input: {
         source_row: null,
         reasons: [],
         evidence_index: null,
+        unit_question: null,
+        excel_unit_cost: null,
       })
     );
   }
@@ -321,6 +338,8 @@ export function evidenceLineFrom(line: EditorLine): Record<string, unknown> {
     input_id: line.input_id,
     ingredient_id: line.ingredient_id,
     component_id: line.component_id,
+    unit_question: line.unit_question,
+    excel_unit_cost: line.excel_unit_cost,
   };
 }
 

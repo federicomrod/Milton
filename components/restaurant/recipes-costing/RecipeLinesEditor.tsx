@@ -5,6 +5,7 @@ import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service
 import {
   FLAG_NEW_SUGGESTED,
   needsTypedQuantity,
+  optimisticLine,
   type EditorLine,
   type PickerOption,
 } from "@/lib/restaurant/recipe-costing/editor";
@@ -167,8 +168,17 @@ export function RecipeLinesEditor({
     };
   }, [query, reloadKey]);
 
-  async function send(body: Record<string, unknown>): Promise<boolean> {
-    setBusy(true);
+  async function send(
+    body: Record<string, unknown>,
+    /** Show the change right away (quantity, line price); no lock. */
+    optimistic?: { inputId: string; qty?: number; unit_cost?: number | null }
+  ): Promise<boolean> {
+    const before = state;
+    if (optimistic && state) {
+      setState(optimisticLine(state, optimistic.inputId, optimistic));
+    } else {
+      setBusy(true);
+    }
     setError(null);
     const res = await call("/api/restaurant/recipes/editor", {
       method: "POST",
@@ -177,6 +187,7 @@ export function RecipeLinesEditor({
     });
     setBusy(false);
     if (!res.ok) {
+      if (optimistic && before) setState(before);
       setError(res.error);
       return false;
     }
@@ -329,11 +340,14 @@ export function RecipeLinesEditor({
                 void send({ action: "remove", line_key: line.key })
               }
               onQty={(qty) =>
-                void send({
-                  action: "update",
-                  input_id: line.input_id,
-                  quantity: qty,
-                })
+                void send(
+                  {
+                    action: "update",
+                    input_id: line.input_id,
+                    quantity: qty,
+                  },
+                  line.input_id ? { inputId: line.input_id, qty } : undefined
+                )
               }
               onUnit={(unit) =>
                 void send({ action: "update", input_id: line.input_id, unit })
@@ -367,11 +381,16 @@ export function RecipeLinesEditor({
                 })
               }
               onLineCost={(cost) =>
-                void send({
-                  action: "set_line_cost",
-                  input_id: line.input_id,
-                  unit_cost: cost,
-                })
+                void send(
+                  {
+                    action: "set_line_cost",
+                    input_id: line.input_id,
+                    unit_cost: cost,
+                  },
+                  line.input_id
+                    ? { inputId: line.input_id, unit_cost: cost }
+                    : undefined
+                )
               }
             />
           ))}
@@ -477,10 +496,26 @@ function Row({
   const [qty, setQty] = useState(String(line.qty || ""));
   const [price, setPrice] = useState("");
   const [editingPrice, setEditingPrice] = useState(false);
+  /** One click on a price opens the field to type a new one. */
+  const editPrice = (content: React.ReactNode) =>
+    editable ? (
+      <button
+        type="button"
+        title="Clic para cambiar el precio"
+        onClick={() => setEditingPrice(true)}
+        className="rounded px-0.5 text-right hover:bg-[#eef3ff] hover:underline"
+      >
+        {content}
+      </button>
+    ) : (
+      content
+    );
   const [linePrice, setLinePrice] = useState(
     line.unit_cost !== null ? String(Number(line.unit_cost.toFixed(5))) : ""
   );
   const unresolved = line.kind === "unresolved";
+  /** A preparation not approved yet and no price of its own: it waits. */
+  const waitingPrep = line.kind === "component" && line.amount === null;
   // A line from the menu says what, not how much: the person types both
   // before it is matched or created. Never an assumed quantity.
   const fromMenu = unresolved && needsTypedQuantity(line);
@@ -497,7 +532,8 @@ function Row({
   return (
     <tr
       className={
-        "border-t border-[#f2f3f6] " + (unresolved ? "bg-[#fff8ec]" : "")
+        "border-t border-[#f2f3f6] " +
+        (unresolved || waitingPrep ? "bg-[#fff8ec]" : "")
       }
     >
       <td className="py-1.5 pr-2 align-top">
@@ -590,8 +626,7 @@ function Row({
               {line.kind === "component" ? (
                 <>
                   Preparación
-                  {line.amount === null ? " · por aprobar" : ""}
-                  {onOpenPreparation ? (
+                  {onOpenPreparation && !waitingPrep ? (
                     <>
                       {" · "}
                       <button
@@ -612,6 +647,19 @@ function Row({
                 ? `${line.kind === "component" ? " · " : ""}del Excel: ${line.raw_name}`
                 : null}
             </div>
+            {waitingPrep ? (
+              <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[11px] text-[#5b4515]">
+                Aprueba primero la preparación <b>{line.name}</b>, o escribe
+                aquí el precio de esta línea.
+                {onOpenPreparation ? (
+                  <div className="mt-1">
+                    <GhostBtn onClick={onOpenPreparation}>
+                      Abrir en Preparaciones
+                    </GhostBtn>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {line.unit_question ? (
               <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[11px]">
                 Tu archivo dice{" "}
@@ -739,12 +787,16 @@ function Row({
         ) : unresolved ? (
           "—"
         ) : line.own_cost && line.unit_cost !== null ? (
-          <span>
-            {money(line.unit_cost)}/{UNIT_LABEL[line.unit] ?? line.unit}
-            <div className="text-[10px] text-[#8a92a3]">
-              del Excel{line.cost_source ? ` · ${line.cost_source}` : ""}
-            </div>
-          </span>
+          editPrice(
+            <span>
+              {money(line.unit_cost)}/{UNIT_LABEL[line.unit] ?? line.unit}
+              <div className="text-[10px] text-[#8a92a3]">
+                {line.cost_source === "manual"
+                  ? "precio de esta línea"
+                  : `del Excel${line.cost_source ? ` · ${line.cost_source}` : ""}`}
+              </div>
+            </span>
+          )
         ) : line.kind === "ingredient" &&
           !line.price &&
           line.catalog_question ? (
@@ -798,32 +850,36 @@ function Row({
             </GhostBtn>
           </div>
         ) : line.price ? (
-          <span
-            title={priceLabel({
-              ...line.price,
-              unit: line.price.unit,
-              unit_cost: line.price.unit_cost,
-              price_date: line.price.date,
-              price_source: line.price.source,
-            })}
-          >
-            {money(line.price.unit_cost)}/
-            {UNIT_LABEL[line.price.unit] ?? line.price.unit}
-            <div className="text-[10px] text-[#8a92a3]">
-              {[monthLabel(line.price.date), line.price.source]
-                .filter(Boolean)
-                .join(" · ")}
-            </div>
-            {line.excel_unit_cost !== null ? (
+          editPrice(
+            <span
+              title={priceLabel({
+                ...line.price,
+                unit: line.price.unit,
+                unit_cost: line.price.unit_cost,
+                price_date: line.price.date,
+                price_source: line.price.source,
+              })}
+            >
+              {money(line.price.unit_cost)}/
+              {UNIT_LABEL[line.price.unit] ?? line.price.unit}
               <div className="text-[10px] text-[#8a92a3]">
-                en tu Excel: {money(line.excel_unit_cost)}
+                {[monthLabel(line.price.date), line.price.source]
+                  .filter(Boolean)
+                  .join(" · ")}
               </div>
-            ) : null}
-          </span>
+              {line.excel_unit_cost !== null ? (
+                <div className="text-[10px] text-[#8a92a3]">
+                  en tu Excel: {money(line.excel_unit_cost)}
+                </div>
+              ) : null}
+            </span>
+          )
         ) : line.unit_cost !== null ? (
-          `${money(line.unit_cost)}/${UNIT_LABEL[line.unit] ?? line.unit}`
+          editPrice(
+            `${money(line.unit_cost)}/${UNIT_LABEL[line.unit] ?? line.unit}`
+          )
         ) : (
-          "Pendiente"
+          editPrice("Pendiente")
         )}
       </td>
       <td className="py-1.5 text-right align-top font-semibold">

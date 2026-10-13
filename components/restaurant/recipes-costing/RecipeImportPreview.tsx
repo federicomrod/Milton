@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GhostBtn, PrimaryBtn } from "./ui";
 
 interface PreviewRow {
@@ -52,6 +52,7 @@ export function RecipeImportPreview({
   locationId,
   busyExternal,
   onImported,
+  onDishes,
 }: {
   /** The saved upload (draft); changes when a new file is picked. */
   draftToken: string | null;
@@ -60,6 +61,8 @@ export function RecipeImportPreview({
   locationId: string | null;
   busyExternal: boolean;
   onImported: () => void;
+  /** How many dishes the file's recipes hold (0 = none to import). */
+  onDishes?: (count: number) => void;
 }) {
   const [preview, setPreview] = useState<RecipePreview | null>(null);
   const [imported, setImported] = useState<Imported | null>(
@@ -73,6 +76,11 @@ export function RecipeImportPreview({
   }, [initialImported]);
 
   const hasImported = imported !== null;
+  // Read through a ref: a new callback from the parent must not refetch.
+  const onDishesRef = useRef(onDishes);
+  useEffect(() => {
+    onDishesRef.current = onDishes;
+  }, [onDishes]);
   useEffect(() => {
     if (!draftToken || hasImported) return;
     let cancelled = false;
@@ -87,7 +95,10 @@ export function RecipeImportPreview({
       .then(async (res) => {
         const json = (await res.json()) as RecipePreview & { error?: string };
         if (!res.ok) throw new Error(json.error ?? "No pude leer las recetas.");
-        if (!cancelled) setPreview(json);
+        if (!cancelled) {
+          setPreview(json);
+          onDishesRef.current?.(json.dishes ?? 0);
+        }
       })
       .catch((err: unknown) => {
         if (!cancelled) {

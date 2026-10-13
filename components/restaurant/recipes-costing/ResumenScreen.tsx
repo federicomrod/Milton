@@ -23,7 +23,8 @@ export function ResumenScreen({
 }: {
   data: RecipeCostingWorkspace;
   onOpen: (view: RecipeCostingView, odooProductId?: number) => void;
-  onUndoBatch: (batchId: string) => void;
+  /** Undo every batch of one file (newest first). */
+  onUndoBatch: (batchIds: string[]) => void;
   /** After "Subir Excel de costos": prepare the dishes from that file. */
   onUploaded: () => void;
   generateBusy: boolean;
@@ -281,8 +282,16 @@ export function ResumenScreen({
                   key={batch.id}
                   className="flex items-center justify-between gap-2 text-[11px]"
                 >
-                  <span className="truncate">{batch.filename}</span>
-                  <GhostBtn onClick={() => onUndoBatch(batch.id)}>
+                  <span className="truncate">
+                    {batch.filename}
+                    {batch.uploads > 1 ? (
+                      <span className="text-[#8a92a3]">
+                        {" "}
+                        · {batch.uploads} cargas
+                      </span>
+                    ) : null}
+                  </span>
+                  <GhostBtn onClick={() => onUndoBatch(batch.batch_ids)}>
                     Deshacer lote
                   </GhostBtn>
                 </div>

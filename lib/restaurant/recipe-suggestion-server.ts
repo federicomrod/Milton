@@ -83,6 +83,27 @@ export async function runRecipeSuggestionsForCompany(
   });
   if (!list.ok) return list;
 
+  // Once the file's recipes were imported from the Excel ("Importar"),
+  // the AI adds nothing: no drafts, no questions, no extra batch.
+  const repoForCheck = createSupabaseCostWorkbookRepo(supabase);
+  const live = await repoForCheck.listLiveBatchSummaries(params.companyId);
+  if (live.some((row) => row.is_recipe_import)) {
+    return {
+      ok: true as const,
+      net_sales: list.list.net_sales,
+      coverage_pct: list.list.coverage_pct,
+      product_count: 0,
+      source: "latest_upload" as const,
+      from_excel_import: true,
+      batch_id: null,
+      suggested: 0,
+      skipped: 0,
+      sin_sugerencia: 0,
+      items: [],
+      skips: [],
+    };
+  }
+
   // The recipes always come from the cost file already uploaded with
   // "Subir Excel de costos" (the one upload); this never takes a file.
   const stored = await loadStoredCandidateBlocks(supabase, params.companyId);

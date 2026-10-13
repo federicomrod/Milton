@@ -103,6 +103,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const started = Date.now();
   try {
     const result = await applyEdit(
       {
@@ -115,13 +116,18 @@ export async function POST(req: NextRequest) {
       },
       action
     );
+    const ms = Date.now() - started;
+    // One line per save, to measure it in the logs (no client data).
+    console.info(`[recipes/editor] ${action.action} ${ms}ms`);
     if (!result.ok) {
       return NextResponse.json(
         { error: result.error },
         { status: result.status ?? 400 }
       );
     }
-    return NextResponse.json(result.state);
+    return NextResponse.json(result.state, {
+      headers: { "Server-Timing": `edit;dur=${ms}` },
+    });
   } catch (err) {
     console.error("[recipes/editor POST]", err);
     return NextResponse.json(

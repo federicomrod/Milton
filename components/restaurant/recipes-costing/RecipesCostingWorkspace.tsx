@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   RecipeCostingView,
@@ -152,6 +152,24 @@ export function RecipesCostingWorkspace({
     setData(initial);
   }, [initial]);
 
+  // After an edit the line is already on screen (the editor shows the
+  // server's answer); the dish summary catches up once, after a burst of
+  // edits, instead of one full reload per save.
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleReloadDish = useCallback(() => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    reloadTimer.current = setTimeout(() => {
+      reloadTimer.current = null;
+      void reloadDish().catch(() => undefined);
+    }, 600);
+  }, [reloadDish]);
+  useEffect(
+    () => () => {
+      if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    },
+    []
+  );
+
   async function mutate(fn: () => Promise<void>) {
     setBusy(true);
     setError(null);
@@ -165,11 +183,17 @@ export function RecipesCostingWorkspace({
     }
   }
 
-  function openPreparation(componentId: string | null) {
+  function openPreparation(
+    componentId: string | null,
+    opts: { fromDish?: boolean } = {}
+  ) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("vista", "preparaciones");
     if (componentId) params.set("prep", componentId);
     else params.delete("prep");
+    // Opened from a dish: Preparaciones offers the way back to it.
+    if (opts.fromDish) params.set("desde", "plato");
+    else if (!componentId) params.delete("desde");
     startNavigation(() => {
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     });
@@ -344,7 +368,7 @@ export function RecipesCostingWorkspace({
             locationId={searchParams.get("location")}
             busy={busy}
             onSelect={(id) => replaceParams({ vista: "plato", producto: id })}
-            onEdited={() => void reloadDish().catch(() => undefined)}
+            onEdited={scheduleReloadDish}
             onPost={postAndReload}
             onConfirm={() => void confirmDish()}
             onSkip={() => goTo(data.editor?.next_odoo_product_id)}
@@ -357,13 +381,32 @@ export function RecipesCostingWorkspace({
                 })
               )
             }
-            onOpenPreparation={openPreparation}
+            onOpenPreparation={(id) => openPreparation(id, { fromDish: true })}
           />
         ) : view === "preparaciones" ? (
           <PreparacionesScreen
             data={data}
             selectedId={searchParams.get("prep")}
-            onSelect={openPreparation}
+            onSelect={(id) =>
+              openPreparation(id, {
+                fromDish: searchParams.get("desde") === "plato",
+              })
+            }
+            onBackToDish={
+              searchParams.get("desde") === "plato" && selectedId
+                ? () => {
+                    const params = new URLSearchParams(searchParams.toString());
+                    params.set("vista", "plato");
+                    params.delete("prep");
+                    params.delete("desde");
+                    startNavigation(() => {
+                      router.replace(`${pathname}?${params.toString()}`, {
+                        scroll: false,
+                      });
+                    });
+                  }
+                : undefined
+            }
             onChanged={() => void mutate(async () => undefined)}
             locationId={searchParams.get("location")}
           />
@@ -379,17 +422,18 @@ export function RecipesCostingWorkspace({
             onPost={postAndReload}
             locationId={searchParams.get("location")}
             onResetDone={() => void reload().catch(() => undefined)}
-            onUndoBatch={(batchId) =>
+            onUndoBatch={(batchIds) =>
               void mutate(async () => {
-                const res = await fetch(
-                  `/api/restaurant/costs/batches/${batchId}/undo`,
-                  {
-                    method: "POST",
-                  }
-                );
-                const json = (await res.json()) as { error?: string };
-                if (!res.ok)
-                  throw new Error(json.error ?? "No pude deshacer el lote.");
+                // Newest first, so a newer batch never blocks an older one.
+                for (const batchId of batchIds) {
+                  const res = await fetch(
+                    `/api/restaurant/costs/batches/${batchId}/undo`,
+                    { method: "POST" }
+                  );
+                  const json = (await res.json()) as { error?: string };
+                  if (!res.ok)
+                    throw new Error(json.error ?? "No pude deshacer el lote.");
+                }
               })
             }
           />

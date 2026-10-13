@@ -171,6 +171,45 @@ export interface SuggestionBatchRow {
   filename: string;
   created_at: string | null;
   can_undo: boolean;
+  /** Every live batch of this file, newest first (undone together). */
+  batch_ids: string[];
+  /** How many uploads/runs of the file the row stands for. */
+  uploads: number;
+}
+
+/**
+ * One row per file in "Sugerencias para deshacer": the price list, the
+ * recipe import and each suggestion chunk of the same file are one entry.
+ * Input newest first; the row keeps the newest batch's date.
+ */
+export function groupBatchesByFile(
+  rows: ReadonlyArray<{
+    id: string;
+    filename: string;
+    created_at?: string | null;
+    undone_at: string | null;
+  }>
+): SuggestionBatchRow[] {
+  const byFile = new Map<string, SuggestionBatchRow>();
+  for (const row of rows) {
+    const file = row.filename.replace(/ · recetas$/, "").trim();
+    const key = file.toLowerCase();
+    const group = byFile.get(key);
+    if (group) {
+      group.batch_ids.push(row.id);
+      group.uploads += 1;
+      continue;
+    }
+    byFile.set(key, {
+      id: row.id,
+      filename: file,
+      created_at: row.created_at ?? null,
+      can_undo: !row.undone_at,
+      batch_ids: [row.id],
+      uploads: 1,
+    });
+  }
+  return [...byFile.values()];
 }
 
 export interface RecipeCostingWorkspace {

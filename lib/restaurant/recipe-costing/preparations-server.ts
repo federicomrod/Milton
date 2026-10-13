@@ -81,7 +81,7 @@ export async function loadPreparationsOverview(
   // Dishes sold, with the preparations their current recipe uses.
   const dishes = (products.ok ? products.list.products : []).flatMap(
     (product) => {
-      if (!product.menu_item_id) return [];
+      if (!product.menu_item_id || !product.in_food_sales) return [];
       const rows =
         versions.menuRecipeVersionsByMenuItemId.get(product.menu_item_id) ?? [];
       const current = latest(rows);
@@ -102,7 +102,8 @@ export async function loadPreparationsOverview(
   const impact = preparationImpact({
     dishes,
     children,
-    totalNetSales: products.ok ? products.list.net_sales : 0,
+    // Shares of food sales: the same denominator as coverage.
+    totalNetSales: products.ok ? products.list.food_net_sales : 0,
   });
 
   const openByComponent = new Map<

@@ -485,8 +485,8 @@ export async function runRecipeSuggestions(input: {
           location_id: locationId,
         });
       const suggestedLink = suggestPosProductLink(baseLink, {
+        // The treatment stays what a person chose (or por_clasificar).
         menu_item_id: menuItem.id,
-        classification: "requiere_receta",
         evidence,
       });
       const savedLink = await input.repo.upsertPosProductLink(

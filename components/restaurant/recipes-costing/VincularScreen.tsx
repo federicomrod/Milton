@@ -7,6 +7,8 @@ import type {
   RecipeCostingWorkspace,
 } from "@/lib/restaurant/recipe-costing/workspace";
 import { matchesVincularFilter } from "@/lib/restaurant/recipe-costing/workspace";
+import { TREATMENT_RULES } from "@/lib/restaurant/pos-treatments";
+import { TreatmentControl, type PostFn } from "./TreatmentPanel";
 import { Card, Chip, GhostBtn, PrimaryBtn } from "./ui";
 
 const FILTERS: Array<{ id: VincularFilter; label: string }> = [
@@ -28,6 +30,7 @@ export function VincularScreen({
   onGenerateSuggestions,
   generateBusy,
   busy,
+  onPost,
 }: {
   data: RecipeCostingWorkspace;
   selectedId: number | null;
@@ -40,6 +43,7 @@ export function VincularScreen({
   onGenerateSuggestions: () => void;
   generateBusy: boolean;
   busy: boolean;
+  onPost: PostFn;
 }) {
   const [filter, setFilter] = useState<VincularFilter>("por_resolver");
   const [query, setQuery] = useState("");
@@ -137,8 +141,8 @@ export function VincularScreen({
                     <td className="py-1.5 pr-2">
                       {row.is_combo
                         ? "Por sus partes"
-                        : row.classification === "no_requiere_costeo"
-                          ? "No requiere costeo"
+                        : !TREATMENT_RULES[row.treatment].needs_recipe
+                          ? row.treatment_label
                           : (row.recipe_name ?? "—")}
                     </td>
                     <td className="py-1.5 pr-2 text-[10.8px] text-[#5b6476]">
@@ -172,6 +176,16 @@ export function VincularScreen({
         <Card className="p-3.5">
           {selected ? (
             <SidePanel
+              key={selected.odoo_product_id}
+              treatment={
+                <TreatmentControl
+                  product={selected}
+                  options={data.treatment_options}
+                  canEdit={data.actor.can_submit}
+                  busy={busy}
+                  onPost={onPost}
+                />
+              }
               product={selected}
               products={data.products}
               menuItems={data.menu_items}
@@ -263,6 +277,7 @@ function RowAction({
 }
 
 function SidePanel({
+  treatment,
   product,
   products,
   menuItems,
@@ -275,6 +290,7 @@ function SidePanel({
   onUndo,
   onShare,
 }: {
+  treatment: React.ReactNode;
   product: VincularProductRow;
   products: VincularProductRow[];
   menuItems: Array<{ id: string; name: string; selling_price?: number | null }>;
@@ -311,8 +327,12 @@ function SidePanel({
         {product.pos_price_label
           ? `Precio POS ${product.pos_price_label} · `
           : ""}
-        {product.units_label} · {product.share_label} de las ventas
+        {product.units_label} ·{" "}
+        {product.in_food_sales
+          ? `${product.share_label} de las ventas de comida`
+          : "no cuenta en la cobertura"}
       </div>
+      {treatment}
       <div className="my-2.5 rounded-[10px] border border-[#c9d4ef] bg-[#f6f8ff] p-2.5">
         <div className="text-[11.5px] text-[#6b7385]">Sugerencia de Milton</div>
         <div>

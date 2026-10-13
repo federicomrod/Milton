@@ -1,5 +1,6 @@
 // What approving a preparation unlocks: how many dishes use it (directly
-// or inside another preparation) and what share of net sales they carry.
+// or inside another preparation) and what share of food net sales they
+// carry.
 // Pure; used to order the Preparaciones list by impact (premise 10).
 
 export interface ImpactDish {
@@ -52,11 +53,12 @@ export function preparationImpact(input: {
   return out;
 }
 
-/** Spanish one-liner used on the list: "Desbloquea 7 platos · 24% de ventas". */
+/** Spanish one-liner used on the list:
+ *  "Desbloquea 7 platos · 24% de ventas de comida". */
 export function impactLabel(impact: PreparationImpact | undefined): string {
   if (!impact || impact.dishes === 0) return "Ningún plato vendido la usa";
   const dishes = `${impact.dishes} ${impact.dishes === 1 ? "plato" : "platos"}`;
   return `Desbloquea ${dishes} · ${impact.share_pct.toLocaleString("es", {
     maximumFractionDigits: 1,
-  })}% de ventas`;
+  })}% de ventas de comida`;
 }

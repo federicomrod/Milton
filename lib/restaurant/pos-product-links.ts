@@ -5,14 +5,27 @@
 // Only a person moves a link to Confirmado — never the sync, never a
 // ranking pass, never a missing-row default.
 
+// How each POS product is costed (premise 8). Only a person sets a
+// treatment; code may suggest one. Migration 040 widens the CHECK.
 export const POS_PRODUCT_CLASSIFICATIONS = [
   "por_clasificar",
-  "requiere_receta",
-  "componente",
-  "no_requiere_costeo",
+  "plato_preparado",
+  "reventa",
+  "modificador_con_costo",
+  "modificador_sin_costo",
+  "combo",
+  "excluido",
 ] as const;
 export type PosProductClassification =
   (typeof POS_PRODUCT_CLASSIFICATIONS)[number];
+
+/** Values written before migration 040, read as their treatment. */
+export const LEGACY_CLASSIFICATIONS: Record<string, PosProductClassification> =
+  {
+    requiere_receta: "plato_preparado",
+    componente: "modificador_con_costo",
+    no_requiere_costeo: "excluido",
+  };
 
 export const POS_PRODUCT_LINK_STATES = [
   "sin_vincular",
@@ -29,9 +42,12 @@ export const LINK_STATE_LABELS: Record<PosProductLinkState, string> = {
 
 export const CLASSIFICATION_LABELS: Record<PosProductClassification, string> = {
   por_clasificar: "Por clasificar",
-  requiere_receta: "Requiere receta",
-  componente: "Componente",
-  no_requiere_costeo: "No requiere costeo",
+  plato_preparado: "Plato preparado",
+  reventa: "Reventa",
+  modificador_con_costo: "Modificador con costo",
+  modificador_sin_costo: "Modificador sin costo",
+  combo: "Combo",
+  excluido: "Excluido (no es comida)",
 };
 
 export interface PosProductLinkRecord {
@@ -49,6 +65,9 @@ export interface PosProductLinkRecord {
   evidence: Record<string, unknown>;
 }
 
+/** Evidence key holding who chose the treatment (kept across suggestions). */
+export const TREATMENT_EVIDENCE_KEY = "treatment";
+
 export interface LinkConfirmation {
   confirmed_by: string;
   confirmed_at: string;
@@ -62,6 +81,18 @@ export function isPosProductClassification(
     typeof value === "string" &&
     (POS_PRODUCT_CLASSIFICATIONS as readonly string[]).includes(value)
   );
+}
+
+/** Stored value -> treatment. Legacy values map to their new name;
+ *  anything unknown is "por_clasificar". */
+export function classificationFromStored(
+  value: unknown
+): PosProductClassification {
+  if (isPosProductClassification(value)) return value;
+  if (typeof value === "string" && LEGACY_CLASSIFICATIONS[value]) {
+    return LEGACY_CLASSIFICATIONS[value]!;
+  }
+  return "por_clasificar";
 }
 
 export function isPosProductLinkState(
@@ -111,7 +142,12 @@ export function suggestPosProductLink(
     ...base,
     menu_item_id: input.menu_item_id,
     classification: input.classification ?? base.classification,
-    evidence: { ...input.evidence },
+    evidence: {
+      ...input.evidence,
+      ...(base.evidence[TREATMENT_EVIDENCE_KEY]
+        ? { [TREATMENT_EVIDENCE_KEY]: base.evidence[TREATMENT_EVIDENCE_KEY] }
+        : {}),
+    },
     link_state: "sugerido",
     confirmed_by: null,
     confirmed_at: null,

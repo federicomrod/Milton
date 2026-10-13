@@ -13,7 +13,7 @@ import { formatPageDateRangeLabel } from "@/lib/restaurant/page-date-range";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
 import {
-  isPosProductClassification,
+  classificationFromStored,
   isPosProductLinkState,
   type PosProductLinkRecord,
 } from "@/lib/restaurant/pos-product-links";
@@ -42,9 +42,7 @@ function asLink(row: Record<string, unknown>): PosProductLinkRecord | null {
     location_id: typeof row.location_id === "string" ? row.location_id : null,
     odoo_product_id: odooProductId,
     odoo_name: row.odoo_name,
-    classification: isPosProductClassification(row.classification)
-      ? row.classification
-      : "por_clasificar",
+    classification: classificationFromStored(row.classification),
     menu_item_id:
       typeof row.menu_item_id === "string" ? row.menu_item_id : null,
     link_state: isPosProductLinkState(row.link_state)
@@ -255,7 +253,8 @@ export async function loadRecipeCostingWorkspace(
       menuItems: menuRes.rows ?? [],
       batches,
       coveragePct: list && list.ok ? list.list.coverage_pct : 0,
-      netSales: list && list.ok ? list.list.net_sales : 0,
+      netSales: list && list.ok ? list.list.food_net_sales : 0,
+      excludedNetSales: list && list.ok ? list.list.excluded_net_sales : 0,
       coveredNetSales: list && list.ok ? list.list.covered_net_sales : 0,
       selectedOdooProductId: input.selectedOdooProductId ?? null,
       lastProgress,

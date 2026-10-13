@@ -77,7 +77,14 @@ export function productKindLabel(input: {
   category?: string | null;
 }): ProductKindLabel {
   if (input.is_combo) return "Combo";
-  if (input.classification === "componente") return "Modificador";
+  if (
+    input.classification === "modificador_con_costo" ||
+    input.classification === "modificador_sin_costo"
+  ) {
+    return "Modificador";
+  }
+  if (input.classification === "excluido") return "Cargo";
+  if (input.classification === "reventa") return "Bebida";
   if (looksLikeCargo(input.name)) return "Cargo";
   if (looksLikeDrink({ name: input.name, category: input.category })) {
     return "Bebida";
@@ -97,14 +104,15 @@ export function displayStateForProduct(input: {
 }): { label: DisplayStateLabel; tone: ChipTone } {
   if (input.is_combo) return { label: "Combo", tone: "pur" };
   if (
-    input.kind_label === "Cargo" ||
-    input.classification === "no_requiere_costeo"
+    input.classification === "excluido" ||
+    input.classification === "modificador_sin_costo"
   ) {
-    return input.kind_label === "Bebida"
-      ? { label: "Reventa", tone: "sug" }
-      : { label: "No requiere", tone: "grey" };
+    return { label: "No requiere", tone: "grey" };
   }
   if (input.confirmed) return { label: "Confirmado", tone: "ok" };
+  if (input.classification === "reventa") {
+    return { label: "Reventa", tone: "sug" };
+  }
   if (input.ambiguous) return { label: "Ambiguo", tone: "bad" };
   if (input.suggested && input.bound) return { label: "Sugerido", tone: "sug" };
   if (!input.recipe_name || !input.bound)

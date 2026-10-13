@@ -6,7 +6,7 @@ import {
 } from "@/lib/restaurant/protect-imported-recipe";
 import type { PosProductLinkRecord } from "@/lib/restaurant/pos-product-links";
 import {
-  isPosProductClassification,
+  classificationFromStored,
   isPosProductLinkState,
 } from "@/lib/restaurant/pos-product-links";
 import type {
@@ -405,9 +405,7 @@ function asPosProductLink(row: Record<string, unknown>): PosProductLinkRecord {
     location_id: typeof row.location_id === "string" ? row.location_id : null,
     odoo_product_id: Number(row.odoo_product_id),
     odoo_name: String(row.odoo_name ?? ""),
-    classification: isPosProductClassification(row.classification)
-      ? row.classification
-      : "por_clasificar",
+    classification: classificationFromStored(row.classification),
     menu_item_id:
       typeof row.menu_item_id === "string" ? row.menu_item_id : null,
     link_state: isPosProductLinkState(row.link_state)

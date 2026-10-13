@@ -1,4 +1,5 @@
 import {
+  classificationFromStored,
   confirmPosProductLink,
   confirmPosProductLinkError,
   suggestPosProductLink,
@@ -101,7 +102,7 @@ export function changeLinkResult(
   }
   const suggested = suggestPosProductLink(base, {
     menu_item_id: menuItemId,
-    classification: input.classification ?? "requiere_receta",
+    classification: input.classification,
     evidence: {
       source: "manual_pick",
       ...(input.evidence ?? {}),
@@ -145,11 +146,9 @@ export function undoConfirmedLinkResult(
   if (stored) {
     const snap: LinkUndoSnapshot = {
       classification:
-        stored.classification === "requiere_receta" ||
-        stored.classification === "componente" ||
-        stored.classification === "no_requiere_costeo"
-          ? stored.classification
-          : base.classification,
+        stored.classification === undefined
+          ? base.classification
+          : classificationFromStored(stored.classification),
       menu_item_id:
         typeof stored.menu_item_id === "string" ? stored.menu_item_id : null,
       link_state:

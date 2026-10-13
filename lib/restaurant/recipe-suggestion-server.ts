@@ -12,6 +12,7 @@ import {
   findRecipeSource,
 } from "@/lib/restaurant/cost-workbook/stored-blocks";
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
+import type { RankedPosProduct } from "@/lib/restaurant/pos-product-list";
 import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
 import {
   refreshEvidence,
@@ -62,6 +63,19 @@ export async function loadStoredCandidateBlocks(
   };
 }
 
+/** Only products whose treatment takes a recipe from the file: dishes,
+ *  costed modifiers, and products nobody has classified yet. Combos go by
+ *  their parts; reventa is one line picked by a person; excluded and
+ *  no-cost products need nothing. Order stays by sales. */
+export function wantsSuggestion(product: RankedPosProduct): boolean {
+  if (product.is_combo) return false;
+  return (
+    product.treatment === "por_clasificar" ||
+    product.treatment === "plato_preparado" ||
+    product.treatment === "modificador_con_costo"
+  );
+}
+
 export async function runRecipeSuggestionsForCompany(
   supabase: SupabaseClient,
   params: RunRecipeSuggestionsParams
@@ -93,7 +107,7 @@ export async function runRecipeSuggestionsForCompany(
   const repo = createSupabaseCostWorkbookRepo(supabase);
   const result = await runRecipeSuggestions({
     companyId: params.companyId,
-    products: list.list.products,
+    products: list.list.products.filter(wantsSuggestion),
     candidateBlocks: blocks,
     repo,
     ai: params.ai ?? createDefaultWorkbookAi(),
@@ -129,7 +143,7 @@ export async function runRecipeSuggestionsForCompany(
     ok: true as const,
     net_sales: list.list.net_sales,
     coverage_pct: list.list.coverage_pct,
-    product_count: list.list.products.length,
+    product_count: list.list.products.filter(wantsSuggestion).length,
     source: params.buffer ? ("file" as const) : ("latest_upload" as const),
     ...result,
   };

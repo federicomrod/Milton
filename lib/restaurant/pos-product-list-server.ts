@@ -8,7 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { fetchAllRowsRetryingWithoutColumns } from "@/lib/restaurant/missing-schema-column";
 import {
-  isPosProductClassification,
+  classificationFromStored,
   isPosProductLinkState,
   type PosProductLinkRecord,
 } from "@/lib/restaurant/pos-product-links";
@@ -66,9 +66,7 @@ function asLink(row: Record<string, unknown>): PosProductLinkRecord | null {
     location_id: typeof row.location_id === "string" ? row.location_id : null,
     odoo_product_id: odooProductId,
     odoo_name: row.odoo_name,
-    classification: isPosProductClassification(row.classification)
-      ? row.classification
-      : "por_clasificar",
+    classification: classificationFromStored(row.classification),
     menu_item_id:
       typeof row.menu_item_id === "string" ? row.menu_item_id : null,
     link_state: isPosProductLinkState(row.link_state)

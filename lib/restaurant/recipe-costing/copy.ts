@@ -90,6 +90,8 @@ export function productReason(input: {
   odoo_name: string;
   is_combo: boolean;
   has_components: boolean;
+  /** Combo parts marked excluido. */
+  excluded_parts?: readonly string[];
   currency?: string;
 }): string {
   const first = input.evidence.reasons.find((reason) => reason.trim());
@@ -128,6 +130,9 @@ export function productReason(input: {
   if (input.kind === "sugerido") {
     const name = input.evidence.block_name ?? input.odoo_name;
     return `Milton sugiere «${name}». Confírmalo.`;
+  }
+  if (input.kind === "combo" && input.excluded_parts?.length) {
+    return `Una parte está marcada como «no es comida» (${input.excluded_parts.join(", ")}): sin su costo el combo no cuenta.`;
   }
   if (input.kind === "reventa") {
     return "Se vende como lo compras: elige qué compras y su costo es lo que pagas.";

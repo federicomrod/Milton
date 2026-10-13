@@ -16,7 +16,11 @@ import {
   undoConfirmedLinkResult,
 } from "./link-actions";
 import type { RecipeActor } from "./approval";
-import { actorCanConfirmLink, actorCanSubmitForApproval } from "./approval";
+import {
+  actorCanApprove,
+  actorCanConfirmLink,
+  actorCanSubmitForApproval,
+} from "./approval";
 import { isConfirmedHow } from "./copy";
 
 function asLink(row: Record<string, unknown>): PosProductLinkRecord | null {
@@ -339,6 +343,10 @@ export const TREATMENT_MIGRATION_ERROR =
   "Falta aplicar la migración 040 en la base de datos para guardar cómo se costea cada producto.";
 export const TREATMENT_ROLE_ERROR =
   "Solo el dueño, un admin, un gerente o el equipo de Milton puede clasificar productos.";
+export const EXCLUDE_ROLE_ERROR =
+  "Solo el dueño o un admin (o el equipo de Milton con la confirmación del cliente) puede marcar un producto como «no es comida», porque deja de contar en la cobertura. Elige otro tratamiento o pídeles que lo marquen. No se guardó nada.";
+export const EXCLUDE_CLIENT_CONFIRMATION_ERROR =
+  "Si marcas un producto como «no es comida» en nombre del cliente, registra cómo lo confirmó. No se guardó nada.";
 export const MAX_TREATMENT_ITEMS = 300;
 
 export interface TreatmentItem {
@@ -362,6 +370,8 @@ export async function setPosProductTreatments(input: {
   locationId?: string | null;
   /** "sugerencia" when the person accepted Milton's suggestion. */
   source: "manual" | "sugerencia";
+  /** Milton staff: how the client confirmed an exclusion. */
+  confirmedHow?: string | null;
 }): Promise<{ ok: true; saved: number } | { ok: false; error: string }> {
   if (!actorCanSubmitForApproval(input.actor)) {
     return { ok: false, error: TREATMENT_ROLE_ERROR };
@@ -373,6 +383,24 @@ export async function setPosProductTreatments(input: {
   for (const item of input.items) {
     if (!PICKABLE_TREATMENTS.includes(item.treatment)) {
       return { ok: false, error: "Ese tratamiento no existe." };
+    }
+  }
+  // Excluding takes sales out of the coverage denominator, so it needs the
+  // same roles as approving a recipe (premise 9).
+  const how = input.confirmedHow?.trim() || null;
+  if (input.items.some((item) => item.treatment === "excluido")) {
+    const allowed = actorCanApprove(input.actor, {
+      confirmed_by: input.actor.user_id,
+      confirmed_at: new Date().toISOString(),
+      confirmed_how: how ?? undefined,
+    });
+    if (!allowed.ok) {
+      return {
+        ok: false,
+        error: input.actor.is_milton_staff
+          ? EXCLUDE_CLIENT_CONFIRMATION_ERROR
+          : EXCLUDE_ROLE_ERROR,
+      };
     }
   }
 
@@ -418,6 +446,9 @@ export async function setPosProductTreatments(input: {
             by: input.actor.user_id,
             at,
             source: item.source ?? input.source,
+            ...(item.treatment === "excluido" && how
+              ? { confirmed_how: how }
+              : {}),
           },
         },
       });

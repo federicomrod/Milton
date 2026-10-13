@@ -7,8 +7,9 @@
 //   and an approved recipe (reventa is a one-line recipe: what you buy).
 // - Modificador sin costo: a person said it carries no cost; it counts as
 //   costed at zero.
-// - Combo: costed by its parts; covered when every part is covered (or
-//   when the combo itself has a confirmed, approved recipe).
+// - Combo: costed by its parts; covered when every part's cost is known (or
+//   when the combo itself has a confirmed, approved recipe). A part marked
+//   excluido keeps the combo uncovered.
 // - Excluido: not food (tips, service charges, merchandise…). It leaves the
 //   coverage denominator, which is "food net sales".
 // - Por clasificar: treated like a dish until a person decides.
@@ -102,10 +103,12 @@ export interface CoverageState {
   approved: boolean;
 }
 
-/** A combo part (or any product) whose cost is known. */
+/** A combo part (or any product) whose cost is known: a person said it
+ *  costs nothing (modificador sin costo), or it has a confirmed link and an
+ *  approved recipe. An excluded part is NOT a known cost: counting it would
+ *  cost it at $0 without anyone saying so. */
 export function isCostKnown(state: CoverageState): boolean {
   if (state.treatment === "modificador_sin_costo") return true;
-  if (state.treatment === "excluido") return true;
   return state.confirmed && state.approved;
 }
 

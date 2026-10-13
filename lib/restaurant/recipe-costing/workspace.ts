@@ -299,6 +299,7 @@ export function rankedProductsFromLinks(
     category: null,
     is_combo: false,
     components: [],
+    excluded_parts: [],
     classification: link.classification,
     classification_label: CLASSIFICATION_LABELS[link.classification],
     treatment: link.classification,
@@ -323,6 +324,7 @@ export function rankedProductsFromLinks(
       category: null,
       is_combo: false,
       components: [],
+      excluded_parts: [],
       classification: "por_clasificar",
       classification_label: CLASSIFICATION_LABELS.por_clasificar,
       treatment: "por_clasificar",
@@ -350,6 +352,7 @@ export function classifyTodoKind(input: {
   }
   if (treatment === "combo" || input.product.is_combo) {
     if (input.product.counts_toward_coverage) return null;
+    if (input.product.excluded_parts.length > 0) return "combo";
     return input.product.components.length === 0 ? "combo" : null;
   }
   if (treatment === "reventa" && !input.product.menu_item_id) {
@@ -713,6 +716,7 @@ export function buildRecipeCostingWorkspace(input: {
           odoo_name: product.odoo_name,
           is_combo: product.is_combo,
           has_components: product.components.length > 0,
+          excluded_parts: product.excluded_parts,
           currency,
         }),
         share_pct: shareToPct(product.share_of_food_sales),
@@ -744,6 +748,7 @@ export function buildRecipeCostingWorkspace(input: {
           odoo_name: product.odoo_name,
           is_combo: product.is_combo,
           has_components: product.components.length > 0,
+          excluded_parts: product.excluded_parts,
           currency,
         }),
         milton_cost_label:

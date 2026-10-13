@@ -64,6 +64,8 @@ export interface RankedPosProduct {
   category: string | null;
   is_combo: boolean;
   components: ComboComponentShare[];
+  /** Combo parts a person marked excluido: the combo stays uncovered. */
+  excluded_parts: string[];
   /** Saved treatment ("por_clasificar" when nobody chose one). */
   classification: PosProductClassification;
   classification_label: string;
@@ -300,6 +302,15 @@ export function buildPosProductList(input: {
       units_sold: acc.units_sold,
       category: acc.category,
       is_combo: acc.is_combo,
+      excluded_parts: acc.is_combo
+        ? [...acc.components.values()]
+            .filter(
+              (part) =>
+                coverageStateFor(part.odoo_product_id, false).treatment ===
+                "excluido"
+            )
+            .map((part) => part.odoo_name)
+        : [],
       components: [...acc.components.values()].sort(
         (a, b) =>
           b.net_sales - a.net_sales ||

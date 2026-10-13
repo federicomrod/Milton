@@ -1,6 +1,5 @@
 import { readFileSync } from "fs";
 import { join } from "path";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 import type { RankedPosProduct } from "@/lib/restaurant/pos-product-list";
 import { TREATMENT_RULES } from "@/lib/restaurant/pos-treatments";
@@ -12,79 +11,12 @@ import {
 import { buildRecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
 import { wantsSuggestion } from "@/lib/restaurant/recipe-suggestion-server";
 
+import {
+  fakeLinksSupabase as fakeSupabase,
+  type Row,
+} from "./helpers/fake-links-supabase";
+
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
-
-type Row = Record<string, unknown>;
-
-/** Just enough of the Supabase client for pos_product_links. */
-function fakeSupabase(rows: Row[], opts: { rejectNewValues?: boolean } = {}) {
-  const legacy = new Set([
-    "por_clasificar",
-    "requiere_receta",
-    "componente",
-    "no_requiere_costeo",
-  ]);
-  const check = (payload: Row) =>
-    opts.rejectNewValues && !legacy.has(String(payload.classification))
-      ? {
-          message:
-            'new row violates check constraint "pos_product_links_classification_chk"',
-        }
-      : null;
-  return {
-    from() {
-      const filters: Array<[string, unknown]> = [];
-      let inFilter: [string, unknown[]] | null = null;
-      let mode: "select" | "update" | "insert" = "select";
-      let payload: Row = {};
-      const match = (row: Row) =>
-        filters.every(([k, v]) => row[k] === v) &&
-        (!inFilter || inFilter[1].includes(row[inFilter[0]]));
-      const builder = {
-        select() {
-          return builder;
-        },
-        eq(k: string, v: unknown) {
-          filters.push([k, v]);
-          return builder;
-        },
-        in(k: string, v: unknown[]) {
-          inFilter = [k, v];
-          return builder;
-        },
-        update(p: Row) {
-          mode = "update";
-          payload = p;
-          return builder;
-        },
-        insert(p: Row) {
-          mode = "insert";
-          payload = p;
-          return builder;
-        },
-        single() {
-          const error = check(payload);
-          if (error) return Promise.resolve({ data: null, error });
-          const row = { ...payload, id: `link-${rows.length + 1}` };
-          rows.push(row);
-          return Promise.resolve({ data: { id: row.id }, error: null });
-        },
-        then(resolve: (v: unknown) => void) {
-          if (mode === "update") {
-            const error = check(payload);
-            if (!error) {
-              for (const row of rows)
-                if (match(row)) Object.assign(row, payload);
-            }
-            return resolve({ error });
-          }
-          return resolve({ data: rows.filter(match), error: null });
-        },
-      };
-      return builder;
-    },
-  } as unknown as SupabaseClient;
-}
 
 const owner = { user_id: "u-1", role: "owner", is_milton_staff: false };
 
@@ -194,6 +126,7 @@ function product(
     category: null,
     is_combo: false,
     components: [],
+    excluded_parts: [],
     classification_label: "",
     suggested_treatment: null,
     in_food_sales: TREATMENT_RULES[treatment].in_food_sales,

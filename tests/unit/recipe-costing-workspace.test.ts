@@ -34,6 +34,7 @@ function product(
     category: null,
     is_combo: false,
     components: [],
+    excluded_parts: [],
     classification_label: "Plato preparado",
     suggested_treatment: null,
     in_food_sales: TREATMENT_RULES[treatment].in_food_sales,

@@ -1,10 +1,12 @@
 // POST /api/restaurant/pos/links/treatment
 // Body: { items: [{ odoo_product_id, odoo_name, treatment, source? }],
-//         location_id?, source?: "manual" | "sugerencia" }
+//         location_id?, source?: "manual" | "sugerencia", confirmed_how? }
 // source "sugerencia" records that the person accepted Milton's suggestion.
 //
 // A person saves how each POS product is costed (premise 8). Owner, admin,
-// manager or Milton staff. Only the classification changes: never the link
+// manager or Milton staff; "excluido" only for the roles that approve recipes
+// (owner or admin; Milton staff with confirmed_how from the client), because
+// it takes sales out of coverage. Only the classification changes: never the link
 // state, the recipe or a confirmation. Company and user come from auth.
 
 import { NextRequest, NextResponse } from "next/server";
@@ -12,6 +14,8 @@ import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { isPosProductClassification } from "@/lib/restaurant/pos-product-links";
 import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
 import {
+  EXCLUDE_CLIENT_CONFIRMATION_ERROR,
+  EXCLUDE_ROLE_ERROR,
   TREATMENT_MIGRATION_ERROR,
   TREATMENT_ROLE_ERROR,
   setPosProductTreatments,
@@ -85,10 +89,14 @@ export async function POST(req: NextRequest) {
       locationId:
         typeof body.location_id === "string" ? body.location_id : null,
       source: body.source === "sugerencia" ? "sugerencia" : "manual",
+      confirmedHow:
+        typeof body.confirmed_how === "string" ? body.confirmed_how : null,
     });
     if (!result.ok) {
       const status =
-        result.error === TREATMENT_ROLE_ERROR
+        result.error === TREATMENT_ROLE_ERROR ||
+        result.error === EXCLUDE_ROLE_ERROR ||
+        result.error === EXCLUDE_CLIENT_CONFIRMATION_ERROR
           ? 403
           : result.error === TREATMENT_MIGRATION_ERROR
             ? 409

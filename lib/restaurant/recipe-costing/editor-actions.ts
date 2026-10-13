@@ -62,7 +62,14 @@ export function parseEditorAction(
       const kind = kindOf(body.kind);
       const id = str(body.id);
       if (!lineKey || !kind || !id) return null;
-      return { action: "resolve", line_key: lineKey, kind, id };
+      return {
+        action: "resolve",
+        line_key: lineKey,
+        kind,
+        id,
+        quantity: num(body.quantity),
+        line_unit: str(body.line_unit) ?? undefined,
+      };
     }
     case "remove": {
       const lineKey = str(body.line_key);

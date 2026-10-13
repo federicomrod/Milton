@@ -24,6 +24,18 @@ export const FLAG_PENDING_INGREDIENT = "pendiente_ingrediente";
 export const FLAG_PENDING_COST = "pendiente_costo";
 export const FLAG_PENDING_UNIT = "pendiente_unidad";
 export const FLAG_OK = "ok";
+/** A line read from the restaurant's menu: it says what, never how much. */
+export const FLAG_FROM_MENU = "del_menu";
+export const FLAG_PENDING_QTY = "pendiente_cantidad";
+export const FLAG_NEW_SUGGESTED = "nuevo_sugerido";
+
+/** True for a line from the menu that still has no quantity. */
+export function needsTypedQuantity(line: {
+  flags: readonly string[];
+  qty: number;
+}): boolean {
+  return line.flags.includes(FLAG_FROM_MENU) && !(line.qty > 0);
+}
 
 export type EditorLineKind = "ingredient" | "component" | "unresolved";
 
@@ -303,7 +315,15 @@ export function hydrateLines(input: {
       amount: null,
       price: null,
       pending: true,
-      flags: [FLAG_PENDING_INGREDIENT],
+      flags: [
+        FLAG_PENDING_INGREDIENT,
+        ...line.flags.filter(
+          (flag) =>
+            flag === FLAG_FROM_MENU ||
+            flag === FLAG_PENDING_QTY ||
+            flag === FLAG_NEW_SUGGESTED
+        ),
+      ],
       reasons: line.reasons,
       possible_match: names.suggest(matchName ?? line.raw_name),
       evidence_index: evidenceIndex,

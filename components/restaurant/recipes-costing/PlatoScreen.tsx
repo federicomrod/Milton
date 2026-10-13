@@ -234,10 +234,30 @@ function Dish({
             ) : editor.excel_match === "mismatch" ? (
               <Chip tone="warn">No cuadra con Excel</Chip>
             ) : null}
+            {editor.menu_source ? <Chip tone="sug">Del menú</Chip> : null}
           </div>
           {editor.excel_row_label ? (
             <div className="mt-1 text-[10.5px] text-[#8a92a3]">
               Sugerido desde tu Excel: {editor.excel_row_label}
+            </div>
+          ) : null}
+          {editor.menu_source ? (
+            <div className="mt-1.5 rounded-md border border-[#eef0f4] bg-[#fafbfc] px-2.5 py-1.5 text-[11.5px] text-[#5b6476]">
+              <b className="text-[#1b2333]">
+                En tu menú: {editor.menu_source.dish}
+              </b>
+              {editor.menu_source.price_label
+                ? ` · ${editor.menu_source.price_label}`
+                : ""}
+              {editor.menu_source.description ? (
+                <div className="mt-0.5 italic">
+                  «{editor.menu_source.description}»
+                </div>
+              ) : null}
+              <div className="mt-0.5 text-[10.5px] text-[#8a92a3]">
+                El menú dice qué lleva, no cuánto. Escribe la cantidad de cada
+                componente.
+              </div>
             </div>
           ) : null}
         </div>

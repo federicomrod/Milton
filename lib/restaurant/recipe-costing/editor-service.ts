@@ -24,6 +24,7 @@ import {
   buildPickerOptions,
   hydrateLines,
   latestPrice,
+  needsTypedQuantity,
   rebuildEvidence,
   type CatalogQuestion,
   type EditorLine,
@@ -557,6 +558,9 @@ export type EditorAction =
       line_key: string;
       kind: "ingredient" | "component";
       id: string;
+      /** Typed by the person; required for a line read from the menu. */
+      quantity?: number;
+      line_unit?: string;
     }
   | { action: "remove"; line_key: string }
   | {
@@ -595,6 +599,31 @@ export type EditorAction =
     };
 
 const MAX_NAME = 120;
+
+const TYPE_QUANTITY_FIRST =
+  "Escribe cuánto lleva el plato (cantidad y unidad) antes de elegir.";
+
+/**
+ * Quantity and unit for an unresolved line that is being resolved. What
+ * the person typed wins; else what the file said. A line read from the
+ * menu has no quantity, so it needs one typed: null means "ask first",
+ * never an assumed 1.
+ */
+function amountForLine(
+  line: EditorLine,
+  typed: { quantity?: number; unit?: string },
+  fallbackUnit: string
+): { quantity: number; unit: string } | null {
+  if (needsTypedQuantity(line)) {
+    const quantity = cleanQuantity(typed.quantity);
+    const unit = cleanUnit(typed.unit);
+    return quantity && unit ? { quantity, unit } : null;
+  }
+  return {
+    quantity: cleanQuantity(typed.quantity) ?? cleanQuantity(line.qty) ?? 1,
+    unit: cleanUnit(typed.unit) ?? cleanUnit(line.unit) ?? fallbackUnit,
+  };
+}
 
 function cleanQuantity(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0
@@ -834,14 +863,20 @@ export async function applyEdit(
           status: 400,
         };
       }
-      const unit = cleanUnit(line.unit) ?? "unit";
-      const qty = cleanQuantity(line.qty) ?? 1;
+      const amount = amountForLine(
+        line,
+        { quantity: action.quantity, unit: action.line_unit },
+        "unit"
+      );
+      if (!amount) {
+        return { ok: false, error: TYPE_QUANTITY_FIRST, status: 400 };
+      }
       const row = await ctx.store.insertInput(ctx.companyId, version!, {
         input_type: action.kind,
         ingredient_id: action.kind === "ingredient" ? action.id : null,
         component_id: action.kind === "component" ? action.id : null,
-        quantity: qty,
-        unit,
+        quantity: amount.quantity,
+        unit: amount.unit,
       });
       const name = nameOfItem(action.kind, action.id);
       bind(line, row, name, action.kind);
@@ -872,6 +907,20 @@ export async function applyEdit(
       break;
     }
     case "create_ingredient": {
+      // A menu line needs its quantity typed before anything is created.
+      if (action.line_key) {
+        const target = await lineByKey(action.line_key);
+        if (
+          target?.kind === "unresolved" &&
+          !amountForLine(
+            target,
+            { quantity: action.quantity, unit: action.line_unit },
+            "unit"
+          )
+        ) {
+          return { ok: false, error: TYPE_QUANTITY_FIRST, status: 400 };
+        }
+      }
       const name =
         typeof action.name === "string"
           ? action.name.trim().replace(/\s+/g, " ")
@@ -930,12 +979,17 @@ export async function applyEdit(
       if (action.line_key) {
         const line = await lineByKey(action.line_key);
         if (line && line.kind === "unresolved") {
+          const amount = amountForLine(
+            line,
+            { quantity: action.quantity, unit: action.line_unit },
+            unit
+          )!;
           const row = await ctx.store.insertInput(ctx.companyId, version!, {
             input_type: "ingredient",
             ingredient_id: created.id,
             component_id: null,
-            quantity: cleanQuantity(line.qty) ?? 1,
-            unit: cleanUnit(line.unit) ?? unit,
+            quantity: amount.quantity,
+            unit: amount.unit,
           });
           bind(line, row, created.name, "ingredient");
           if (normalizeMatchName(line.raw_name) !== normalizeMatchName(name)) {
@@ -968,13 +1022,19 @@ export async function applyEdit(
       }
       if (action.line_key && version?.status === "in_review") {
         const line = await lineByKey(action.line_key);
-        if (line && line.kind === "unresolved") {
+        // A menu line without its quantity stays pending; the answer
+        // about the price list is kept either way.
+        const amount =
+          line && line.kind === "unresolved"
+            ? amountForLine(line, {}, action.unit)
+            : null;
+        if (line && amount) {
           const row = await ctx.store.insertInput(ctx.companyId, version, {
             input_type: "ingredient",
             ingredient_id: answered.ingredientId,
             component_id: null,
-            quantity: cleanQuantity(line.qty) ?? 1,
-            unit: cleanUnit(line.unit) ?? action.unit,
+            quantity: amount.quantity,
+            unit: amount.unit,
           });
           const fresh = await ctx.store.loadCosting(ctx.companyId);
           bind(
@@ -989,6 +1049,20 @@ export async function applyEdit(
       break;
     }
     case "create_preparation": {
+      // A menu line needs its quantity typed before anything is created.
+      if (action.line_key) {
+        const target = await lineByKey(action.line_key);
+        if (
+          target?.kind === "unresolved" &&
+          !amountForLine(
+            target,
+            { quantity: action.quantity, unit: action.line_unit },
+            "unit"
+          )
+        ) {
+          return { ok: false, error: TYPE_QUANTITY_FIRST, status: 400 };
+        }
+      }
       const name =
         typeof action.name === "string"
           ? action.name.trim().replace(/\s+/g, " ")
@@ -1028,12 +1102,17 @@ export async function applyEdit(
       if (action.line_key) {
         const line = await lineByKey(action.line_key);
         if (line && line.kind === "unresolved") {
+          const amount = amountForLine(
+            line,
+            { quantity: action.quantity, unit: action.line_unit },
+            yieldUnit
+          )!;
           const row = await ctx.store.insertInput(ctx.companyId, version!, {
             input_type: "component",
             ingredient_id: null,
             component_id: created.id,
-            quantity: cleanQuantity(line.qty) ?? 1,
-            unit: cleanUnit(line.unit) ?? yieldUnit,
+            quantity: amount.quantity,
+            unit: amount.unit,
           });
           bind(line, row, created.name, "component");
         }

@@ -14,6 +14,7 @@ import type { RecipeVersionRecord } from "@/lib/restaurant/recipe-versions";
 import {
   canConfirmSuggestedLink,
   isBoundSuggestion,
+  isMenuSuggestion,
   parseSuggestionEvidence,
   type SuggestionEvidenceView,
 } from "./evidence";
@@ -271,6 +272,12 @@ export interface RecipeEditorView {
   margin_label: string | null;
   margin_hint: string | null;
   excel_row_label: string | null;
+  /** What the restaurant's menu says, when the draft came from it. */
+  menu_source: {
+    dish: string;
+    description: string | null;
+    price_label: string | null;
+  } | null;
   milton_cost_label: string | null;
   excel_total_label: string | null;
   variance_note: string | null;
@@ -386,10 +393,14 @@ export function classifyTodoKind(input: {
   }
   if (isAmbiguousEvidence(input.evidence)) return "ambiguo";
   if (input.product.link_state === "sugerido") {
-    return isBoundSuggestion(input.evidence) ? "sugerido" : "sin_receta";
+    return isBoundSuggestion(input.evidence) || isMenuSuggestion(input.evidence)
+      ? "sugerido"
+      : "sin_receta";
   }
   if (input.product.link_state === "sin_vincular") {
-    return isBoundSuggestion(input.evidence) ? "sugerido" : "sin_receta";
+    return isBoundSuggestion(input.evidence) || isMenuSuggestion(input.evidence)
+      ? "sugerido"
+      : "sin_receta";
   }
   return "por_revisar";
 }
@@ -485,7 +496,8 @@ export function buildRecipeCostingWorkspace(input: {
   const products: VincularProductRow[] = input.products.map((product) => {
     const link = linkByProduct.get(product.odoo_product_id);
     const evidence = parseSuggestionEvidence(link?.evidence);
-    const bound = isBoundSuggestion(evidence);
+    const fromMenu = isMenuSuggestion(evidence);
+    const bound = isBoundSuggestion(evidence) || fromMenu;
     const canConfirm = canConfirmSuggestedLink(evidence);
     const menu = product.menu_item_id
       ? menuById.get(product.menu_item_id)
@@ -513,19 +525,21 @@ export function buildRecipeCostingWorkspace(input: {
       bound,
       recipe_name: recipeName ?? null,
     });
-    const sourceLabel = bound
-      ? [
-          evidence.tab ? `hoja ${evidence.tab}` : null,
-          evidence.lines.some((line) => line.source_row != null)
-            ? `fila ${
-                evidence.lines.find((line) => line.source_row != null)
-                  ?.source_row
-              }`
-            : null,
-        ]
-          .filter(Boolean)
-          .join(", ")
-      : null;
+    const sourceLabel = fromMenu
+      ? "del menú"
+      : bound
+        ? [
+            evidence.tab ? `hoja ${evidence.tab}` : null,
+            evidence.lines.some((line) => line.source_row != null)
+              ? `fila ${
+                  evidence.lines.find((line) => line.source_row != null)
+                    ?.source_row
+                }`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(", ")
+        : null;
     return {
       odoo_product_id: product.odoo_product_id,
       odoo_name: product.odoo_name,
@@ -1069,6 +1083,18 @@ function editorFromEvidence(input: {
           : ev.tab
             ? `hoja ${ev.tab}`
             : ev.filename,
+    menu_source: ev.menu
+      ? {
+          dish: ev.menu.variant
+            ? `${ev.menu.dish} (${ev.menu.variant})`
+            : ev.menu.dish,
+          description: ev.menu.description,
+          price_label:
+            ev.menu.price != null
+              ? formatMoneyEs(ev.menu.price, input.currency)
+              : null,
+        }
+      : null,
     milton_cost_label: milton,
     excel_total_label: excel,
     variance_note: varianceNote,

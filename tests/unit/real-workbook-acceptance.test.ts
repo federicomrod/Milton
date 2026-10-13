@@ -19,6 +19,8 @@ import {
   planCatalog,
 } from "@/lib/restaurant/price-catalog/apply";
 import { collectWorkbookCandidateBlocks } from "@/lib/restaurant/cost-workbook/collect-blocks";
+import { bestNameMatch } from "@/lib/restaurant/cost-workbook/names";
+import { matchExistingIngredient } from "@/lib/restaurant/recipe-costing/ingredient-match";
 import { readCatalogFromBuffer } from "@/lib/restaurant/price-catalog/server";
 import type { WorkbookAi } from "@/lib/restaurant/cost-workbook";
 import {
@@ -179,5 +181,92 @@ describe.skipIf(!path)("real workbook acceptance (aggregates only)", () => {
     expect(aggregates.ingredients_saved).toBeLessThanOrEqual(
       aggregates.catalog_rows
     );
+  });
+
+  it("how many recipe lines need no click, one click, or a pick (Validar)", async () => {
+    const buffer = readFileSync(path as string);
+    const { read, observations } = readCatalogFromBuffer(buffer);
+    const confirmed: Record<string, { unit: "oz" | "lb" | "unit" | "g" }> = {};
+    for (const row of read!.rows) {
+      if (row.status === "check_unit" && row.unit) {
+        confirmed[row.key] = { unit: row.unit };
+      }
+    }
+    const store = emptyMemoryStore();
+    await applyPriceCatalog({
+      repo: createMemoryCostWorkbookRepo(store),
+      companyId: "co-real",
+      userId: "u-real",
+      currency: "USD",
+      filename: "real-workbook-Abril-2026.xlsx",
+      read: read!,
+      observations,
+      decisions: { rows: confirmed, conflicts: {} },
+    });
+
+    const blocks = collectWorkbookCandidateBlocks({ buffer, lang: "es" });
+    const refs = store.ingredients.map((row) => ({
+      id: row.id,
+      name: row.name,
+      default_unit: row.default_unit,
+    }));
+    const preparations = blocks.subRecipes.map((block) => ({
+      id: block.name,
+      name: block.name,
+    }));
+    const exactPrep = new Set(preparations.map((p) => plainName(p.name)));
+
+    function classify(name: string): "none" | "one" | "pick" {
+      const hit = matchExistingIngredient(name, refs);
+      if (hit.kind === "exact") return "none";
+      if (exactPrep.has(plainName(name))) return "none";
+      if (hit.kind === "possible") return "one";
+      const prep = bestNameMatch(name, preparations, (p) => p.name);
+      if (prep && prep.score >= 0.85) return "one";
+      return "pick";
+    }
+
+    function tally(groups: typeof blocks.dishes) {
+      const counts = { none: 0, one: 0, pick: 0 };
+      const pickNames = new Map<string, number>();
+      for (const block of groups) {
+        for (const line of block.lines) {
+          const kind = classify(line.ingredient_name);
+          counts[kind] += 1;
+          if (kind === "pick") {
+            const key = plainName(line.ingredient_name);
+            pickNames.set(key, (pickNames.get(key) ?? 0) + 1);
+          }
+        }
+      }
+      const total = counts.none + counts.one + counts.pick;
+      // If the 20 most repeated unknown names were decided once (each
+      // decision is remembered), how many lines would still need a pick?
+      const top20 = [...pickNames.values()]
+        .sort((a, b) => b - a)
+        .slice(0, 20)
+        .reduce((sum, n) => sum + n, 0);
+      return {
+        lines: total,
+        no_click: counts.none,
+        one_click_proposal: counts.one,
+        needs_pick_or_create: counts.pick,
+        distinct_names_needing_pick: pickNames.size,
+        needs_pick_after_top_20_decided: counts.pick - top20,
+      };
+    }
+
+    const dishes = tally(blocks.dishes);
+    const subs = tally(blocks.subRecipes);
+    console.log(
+      "REAL-FILE VALIDAR " +
+        JSON.stringify({
+          dish_blocks: blocks.dishes.length,
+          dishes,
+          sub_recipe_blocks: blocks.subRecipes.length,
+          subs,
+        })
+    );
+    expect(dishes.lines).toBeGreaterThan(0);
   });
 });

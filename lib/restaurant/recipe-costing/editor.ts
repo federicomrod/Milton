@@ -19,7 +19,6 @@ import {
 import { decideWorkbookCostMatch } from "@/lib/restaurant/cost-workbook/variance";
 import { workbookVarianceFields } from "@/lib/restaurant/cost-workbook/variance";
 import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
-import { convertUnitPriceStr } from "@/lib/restaurant/units";
 
 export const FLAG_PENDING_INGREDIENT = "pendiente_ingrediente";
 export const FLAG_PENDING_COST = "pendiente_costo";
@@ -462,10 +461,4 @@ export function latestPrice(
     date: latest.cost_date,
     source: sourceOf(entry?.id),
   };
-}
-
-/** A price expressed per another unit, or null when not convertible. */
-export function priceInUnit(price: PriceMeta, unit: string): number | null {
-  const converted = convertUnitPriceStr(price.unit_cost, price.unit, unit);
-  return converted.ok ? converted.value : null;
 }

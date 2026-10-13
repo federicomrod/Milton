@@ -61,7 +61,7 @@ export function IngredientsPage({
           </div>
           <div className="flex items-center gap-2">
             <Button asChild size="sm" className="gap-2">
-              <Link href="/dashboard/restaurant/costs/upload">
+              <Link href="/dashboard/restaurant/menu/recetas">
                 <Upload className="h-4 w-4" />
                 {t(lang, "Import costs", "Importar costos")}
               </Link>

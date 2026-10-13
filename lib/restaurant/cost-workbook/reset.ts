@@ -7,7 +7,15 @@ import type {
 
 export const RESET_CONFIRM_FALLBACK = "EMPEZAR DE NUEVO";
 
+// What "Empezar de nuevo" clears, in order: everything the costing setup
+// produced, so the next cost-file upload behaves like a first one. Never
+// POS sales, the Odoo connection, or menu items the costing flow did not
+// create. Uploads are kept as an archive (marked undone, never read again
+// as a recipe source). Review rows go first so an early failure can never
+// leave them behind (#188).
 export const COST_RESET_STEP_IDS = [
+  "cost_import_review_items",
+  "pos_product_links",
   "menu_recipe_inputs",
   "recipe_ingredients",
   "component_recipe_inputs",
@@ -15,30 +23,32 @@ export const COST_RESET_STEP_IDS = [
   "component_recipes",
   "prepared_components",
   "import_pos_mappings",
-  "import_menu_items",
+  "costing_menu_items",
+  "ingredient_aliases",
   "ingredient_cost_entries",
   "supplier_ingredients",
   "ingredients",
-  "cost_import_review_items",
   "cost_import_layout_maps",
   "batches_marked_undone",
 ] as const satisfies readonly CostResetStepId[];
 
 export const COST_RESET_STEP_LABELS: Record<CostResetStepId, string> = {
+  cost_import_review_items: "filas por revisar",
+  pos_product_links: "vínculos y tratamientos de productos del POS",
   menu_recipe_inputs: "líneas de receta",
   recipe_ingredients: "ingredientes de receta (legado)",
-  component_recipe_inputs: "líneas de sub-receta",
-  recipes: "recetas",
-  component_recipes: "recetas de sub-receta",
-  prepared_components: "sub-recetas",
+  component_recipe_inputs: "líneas de preparación",
+  recipes: "recetas y sus versiones",
+  component_recipes: "recetas de preparación y sus versiones",
+  prepared_components: "preparaciones",
   import_pos_mappings: "vínculos POS importados",
-  import_menu_items: "platillos importados",
+  costing_menu_items: "platillos creados al costear",
+  ingredient_aliases: "nombres recordados",
   ingredient_cost_entries: "costos",
   supplier_ingredients: "vínculos de proveedor",
   ingredients: "ingredientes",
-  cost_import_review_items: "filas por revisar",
   cost_import_layout_maps: "mapas de columnas",
-  batches_marked_undone: "cargas marcadas como deshechas",
+  batches_marked_undone: "cargas archivadas (deshechas)",
 };
 
 export const RESET_FORBIDDEN_ERROR_ES =
@@ -252,8 +262,10 @@ export function emptyResetSummary(): CompanyCostResetSummary {
     supplier_ingredient_links: 0,
     recipes: 0,
     components: 0,
-    import_menu_items: 0,
+    pos_product_links: 0,
+    costing_menu_items: 0,
     import_pos_mappings: 0,
+    ingredient_aliases: 0,
     review_items: 0,
     layout_maps: 0,
     batches_marked_undone: 0,
@@ -284,8 +296,10 @@ export function summaryFromResetSteps(
     supplier_ingredient_links: countResetStep(steps, "supplier_ingredients"),
     recipes: countResetStep(steps, "recipes"),
     components: countResetStep(steps, "prepared_components"),
-    import_menu_items: countResetStep(steps, "import_menu_items"),
+    pos_product_links: countResetStep(steps, "pos_product_links"),
+    costing_menu_items: countResetStep(steps, "costing_menu_items"),
     import_pos_mappings: countResetStep(steps, "import_pos_mappings"),
+    ingredient_aliases: countResetStep(steps, "ingredient_aliases"),
     review_items: countResetStep(steps, "cost_import_review_items"),
     layout_maps: countResetStep(steps, "cost_import_layout_maps"),
     batches_marked_undone: countResetStep(steps, "batches_marked_undone"),
@@ -295,22 +309,18 @@ export function summaryFromResetSteps(
   };
 }
 
+/**
+ * Run every step, even after one fails: each step only deletes its own
+ * company's rows, so a later step never depends on an earlier success
+ * (the order only keeps foreign keys happy). A failure is reported and the
+ * reset can be pressed again to finish.
+ */
 export async function runResetSteps(
   execute: (id: CostResetStepId) => Promise<number>
 ): Promise<CostResetStepResult[]> {
   const steps: CostResetStepResult[] = [];
-  let failed = false;
   for (const id of COST_RESET_STEP_IDS) {
     const label_es = COST_RESET_STEP_LABELS[id];
-    if (failed) {
-      steps.push({
-        id,
-        label_es,
-        status: "skipped",
-        deleted: 0,
-      });
-      continue;
-    }
     try {
       const deleted = await execute(id);
       steps.push({
@@ -320,7 +330,6 @@ export async function runResetSteps(
         deleted,
       });
     } catch (err) {
-      failed = true;
       steps.push({
         id,
         label_es,
@@ -355,7 +364,9 @@ export function formatResetPartialFailureEs(
     skipped.length > 0
       ? skipped.map((step) => step.label_es).join(", ")
       : "ninguno";
-  return `El reinicio quedó a medias. Lo que ya se borró no se puede deshacer. Pasos listos: ${doneText}. Pasos que no se completaron: ${failText}. Pasos que no se corrieron: ${skippedText}. Vuelve a pulsar para terminar.`;
+  const skippedPart =
+    skipped.length > 0 ? ` Pasos que no se corrieron: ${skippedText}.` : "";
+  return `El reinicio quedó a medias. Lo que ya se borró no se puede deshacer. Pasos listos: ${doneText}. Pasos que no se completaron: ${failText}.${skippedPart} Vuelve a pulsar para terminar.`;
 }
 
 export async function resetCompanyCostData(

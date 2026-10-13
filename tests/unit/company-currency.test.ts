@@ -291,7 +291,6 @@ describe("cockpit KPIs use company currency, not the first menu item", () => {
 
 describe("listed create/upload paths no longer hardcode an MXN fallback", () => {
   const files = [
-    "app/api/restaurant/costs/upload/route.ts",
     "app/api/restaurant/ingredients/route.ts",
     "app/api/restaurant/ingredient-costs/route.ts",
     "app/api/restaurant/menu-items/route.ts",

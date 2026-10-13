@@ -1,9 +1,12 @@
 // POST /api/restaurant/recipes/suggestions
 //
-// Run AI recipe suggestions for the top N POS products (or one product)
-// against an uploaded COSTO RESTAURANTE workbook, or against the latest
-// live Costos upload already stored on the company. Ranking stays on the
-// server. Company comes from auth, never from the request.
+// Body (JSON): { limit?, offset?, odoo_product_id?, start_date?, end_date?,
+//               location_id? }
+//
+// Prepare dish drafts for the top POS products (or one product) from the
+// cost file already uploaded with "Subir Excel de costos" — the one upload;
+// this route never takes a file. Owner, admin, manager or Milton staff.
+// Ranking stays on the server. Company comes from auth.
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
@@ -16,12 +19,12 @@ import {
 } from "@/lib/restaurant/recipe-suggestion-server";
 import { createDefaultWorkbookAi } from "@/lib/restaurant/cost-workbook";
 import { isWorkbookLimitError } from "@/lib/restaurant/cost-workbook";
+import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
+import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 300;
-
-const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
 function readLimit(raw: unknown): number | { error: string } {
   if (raw == null || raw === "") return 20;
@@ -79,68 +82,39 @@ export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
-  const contentType = req.headers.get("content-type") ?? "";
-  let buffer: Buffer | undefined;
-  let filename = "recetas.xlsx";
-  let fromLatestUpload = false;
-  let limitRaw: unknown;
-  let offsetRaw: unknown;
-  let productRaw: unknown;
-  let startParam: string | null = null;
-  let endParam: string | null = null;
-  let locationId: string | null = null;
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json(
+      {
+        error:
+          "Envía JSON. El archivo se sube una sola vez, en «Subir Excel de costos».",
+      },
+      { status: 400 }
+    );
+  }
+  const limitRaw = body.limit;
+  const offsetRaw = body.offset;
+  const productRaw = body.odoo_product_id;
+  const startParam =
+    typeof body.start_date === "string" ? body.start_date : null;
+  const endParam = typeof body.end_date === "string" ? body.end_date : null;
+  const locationId =
+    typeof body.location_id === "string" && body.location_id.trim()
+      ? body.location_id.trim()
+      : null;
 
-  if (contentType.includes("application/json")) {
-    let body: Record<string, unknown>;
-    try {
-      body = (await req.json()) as Record<string, unknown>;
-    } catch {
-      return NextResponse.json(
-        { error: "El cuerpo tiene que ser JSON." },
-        { status: 400 }
-      );
-    }
-    fromLatestUpload = body.source === "latest_upload" || body.source == null;
-    limitRaw = body.limit;
-    offsetRaw = body.offset;
-    productRaw = body.odoo_product_id;
-    startParam = typeof body.start_date === "string" ? body.start_date : null;
-    endParam = typeof body.end_date === "string" ? body.end_date : null;
-    locationId =
-      typeof body.location_id === "string" && body.location_id.trim()
-        ? body.location_id.trim()
-        : null;
-  } else {
-    const form = await req.formData();
-    const file = form.get("file");
-    if (file instanceof File) {
-      if (file.size > MAX_FILE_BYTES) {
-        return NextResponse.json(
-          { error: "El archivo pesa más de 15 MB." },
-          { status: 400 }
-        );
-      }
-      buffer = Buffer.from(await file.arrayBuffer());
-      filename = file.name || "recetas.xlsx";
-    } else {
-      fromLatestUpload = true;
-    }
-    limitRaw = form.get("limit");
-    offsetRaw = form.get("offset");
-    productRaw = form.get("odoo_product_id");
-    startParam =
-      typeof form.get("start_date") === "string"
-        ? String(form.get("start_date"))
-        : null;
-    endParam =
-      typeof form.get("end_date") === "string"
-        ? String(form.get("end_date"))
-        : null;
-    locationId =
-      typeof form.get("location_id") === "string" &&
-      String(form.get("location_id")).trim()
-        ? String(form.get("location_id")).trim()
-        : null;
+  const actor = await loadRecipeActor(
+    auth.supabase,
+    auth.companyId,
+    auth.userId
+  );
+  if (!actorCanSubmitForApproval(actor)) {
+    return NextResponse.json(
+      { error: "Tu rol no puede preparar recetas." },
+      { status: 403 }
+    );
   }
 
   const limit = readLimit(limitRaw);
@@ -166,9 +140,6 @@ export async function POST(req: NextRequest) {
   try {
     const result = await runRecipeSuggestionsForCompany(auth.supabase, {
       companyId: auth.companyId,
-      buffer,
-      filename,
-      fromLatestUpload: !buffer && fromLatestUpload,
       currency: currency || "USD",
       limit,
       offset,

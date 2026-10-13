@@ -11,8 +11,8 @@ describe("recipe costing routes", () => {
     expect(costing).toContain("loadRecipeCostingWorkspace");
     expect(costing).not.toMatch(/searchParams\.get\(["']company_id["']\)/);
 
-    const confirm = read("app/api/restaurant/pos/links/confirm/route.ts");
-    expect(confirm).toContain("confirmPosLinkForCompany");
+    const confirm = read("app/api/restaurant/recipes/plato/confirm/route.ts");
+    expect(confirm).toContain("confirmPlato");
     expect(confirm).toContain("authAndCompany");
 
     const ui = read("components/restaurant/recipes-costing/ResumenScreen.tsx");
@@ -70,8 +70,8 @@ describe("recipe costing routes", () => {
 
   it("does not add vercel, CI or secret files", () => {
     const files = [
-      "app/api/restaurant/pos/links/confirm/route.ts",
-      "app/api/restaurant/recipes/approve/route.ts",
+      "app/api/restaurant/recipes/plato/confirm/route.ts",
+      "app/api/restaurant/recipes/dish-yield/route.ts",
       "components/restaurant/recipes-costing/RecipesCostingWorkspace.tsx",
     ];
     for (const file of files) {

@@ -4,7 +4,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { WorkbookAi } from "@/lib/restaurant/cost-workbook/ai";
 import { createDefaultWorkbookAi } from "@/lib/restaurant/cost-workbook/ai";
-import { collectWorkbookCandidateBlocks } from "@/lib/restaurant/cost-workbook/collect-blocks";
 import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
 import { runRecipeSuggestions } from "@/lib/restaurant/cost-workbook/recipe-suggestion";
 import {
@@ -26,8 +25,6 @@ export const NO_STORED_BLOCKS_ERROR =
 
 export interface RunRecipeSuggestionsParams {
   companyId: string;
-  buffer?: Buffer;
-  filename?: string;
   currency: string;
   limit?: number;
   odooProductId?: number;
@@ -37,8 +34,6 @@ export interface RunRecipeSuggestionsParams {
   lang?: PreferredLanguage;
   createdBy?: string | null;
   ai?: WorkbookAi;
-  /** Use the latest live Costos upload's stored blocks (no xlsx). */
-  fromLatestUpload?: boolean;
   /** Skip this many products (by sales) — for running in small chunks. */
   offset?: number;
 }
@@ -88,21 +83,12 @@ export async function runRecipeSuggestionsForCompany(
   });
   if (!list.ok) return list;
 
-  let blocks: GroupedRecipe[];
-  let filename = params.filename || "recetas.xlsx";
-  if (params.buffer) {
-    blocks = collectWorkbookCandidateBlocks({
-      buffer: params.buffer,
-      lang: params.lang ?? "es",
-    }).all;
-  } else if (params.fromLatestUpload) {
-    const stored = await loadStoredCandidateBlocks(supabase, params.companyId);
-    if (!stored.ok) return stored;
-    blocks = stored.blocks;
-    filename = stored.filename;
-  } else {
-    return { ok: false as const, error: NO_STORED_BLOCKS_ERROR };
-  }
+  // The recipes always come from the cost file already uploaded with
+  // "Subir Excel de costos" (the one upload); this never takes a file.
+  const stored = await loadStoredCandidateBlocks(supabase, params.companyId);
+  if (!stored.ok) return stored;
+  const blocks: GroupedRecipe[] = stored.blocks;
+  const filename = stored.filename;
 
   const repo = createSupabaseCostWorkbookRepo(supabase);
   const result = await runRecipeSuggestions({
@@ -144,7 +130,7 @@ export async function runRecipeSuggestionsForCompany(
     net_sales: list.list.net_sales,
     coverage_pct: list.list.coverage_pct,
     product_count: list.list.products.filter(wantsSuggestion).length,
-    source: params.buffer ? ("file" as const) : ("latest_upload" as const),
+    source: "latest_upload" as const,
     ...result,
   };
 }

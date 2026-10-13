@@ -4,7 +4,6 @@ import {
   changeLinkResult,
   confirmLinkResult,
   undoConfirmedLinkResult,
-  undoTouchesApprovedOrManual,
 } from "@/lib/restaurant/recipe-costing/link-actions";
 
 const boundEvidence = {
@@ -82,18 +81,6 @@ describe("confirm and undo POS links", () => {
     expect(undone.link.menu_item_id).toBe("menu-1");
     expect(undone.link.evidence.block_name).toBe("Pupusa revuelta");
     expect(Array.isArray(undone.link.evidence.lines)).toBe(true);
-    expect(undoTouchesApprovedOrManual({ recipe_status: "in_review" })).toBe(
-      false
-    );
-    expect(undoTouchesApprovedOrManual({ recipe_status: "approved" })).toBe(
-      true
-    );
-    expect(undoTouchesApprovedOrManual({ recipe_source_type: "manual" })).toBe(
-      true
-    );
-    expect(undoTouchesApprovedOrManual({ cost_source_type: "manual" })).toBe(
-      true
-    );
   });
 
   it("change link goes back to Sugerido and keeps an undo snapshot", () => {

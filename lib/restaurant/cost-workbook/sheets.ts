@@ -19,35 +19,12 @@ export {
   WorkbookLimitError,
 } from "./limits";
 
-export function shouldUseWorkbookImport(
-  isCsv: boolean,
-  columnsOk: boolean
-): boolean {
-  return !isCsv && !columnsOk;
-}
-
 export function readXlsxWorkbook(buffer: Buffer): XLSX.WorkBook {
   return XLSX.read(buffer, {
     type: "buffer",
     raw: true,
     cellDates: false,
   });
-}
-
-export function firstSheetRawRows(workbook: XLSX.WorkBook): {
-  headers: string[];
-  rawRows: Record<string, unknown>[];
-} {
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) return { headers: [], rawRows: [] };
-  const ws = workbook.Sheets[sheetName];
-  if (!ws) return { headers: [], rawRows: [] };
-  const rawRows = XLSX.utils.sheet_to_json(ws, {
-    raw: true,
-    defval: "",
-  }) as Record<string, unknown>[];
-  const headers = rawRows.length > 0 ? Object.keys(rawRows[0]) : [];
-  return { headers, rawRows };
 }
 
 export function readWorkbookSheetsFromWorkbook(
@@ -135,10 +112,6 @@ export function readWorkbookSheetsFromWorkbook(
     });
   }
   return sheets;
-}
-
-export function readWorkbookSheets(buffer: Buffer): DetectedSheet[] {
-  return readWorkbookSheetsFromWorkbook(readXlsxWorkbook(buffer));
 }
 
 export function isWorkbookLimitError(err: unknown): err is WorkbookLimitError {

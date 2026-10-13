@@ -942,12 +942,20 @@ async function resetMemoryCompanyCostCatalog(
     (rowCompany != null && rowCompany === companyId) ||
     store.companyByEntityId[id] === companyId;
 
+  // Costing-created menu items: imported, or pointed at by a POS link.
+  const linkedMenuIds = new Set(
+    store.posProductLinks
+      .filter((row) => row.company_id === companyId && row.menu_item_id)
+      .map((row) => row.menu_item_id as string)
+  );
   const importMenuItems = store.menuItems.filter(
-    (row) => ours(row.id) && row.source_type === "import"
+    (row) =>
+      ours(row.id) &&
+      (row.source_type === "import" || linkedMenuIds.has(row.id))
   );
   const importMenuIds = new Set(importMenuItems.map((row) => row.id));
   const keptManualMenuItems = store.menuItems.filter(
-    (row) => ours(row.id) && row.source_type !== "import"
+    (row) => ours(row.id) && !importMenuIds.has(row.id)
   ).length;
 
   const importMappings = store.posMappings.filter(
@@ -993,18 +1001,43 @@ async function resetMemoryCompanyCostCatalog(
         return before - store.componentRecipeInputs.length;
       }
       case "recipes": {
-        const before = store.recipes.filter((row) => ours(row.id)).length;
-        store.recipes = store.recipes.filter((row) => !ours(row.id));
-        return before;
+        const gone = new Set(
+          store.recipes.filter((row) => ours(row.id)).map((row) => row.id)
+        );
+        store.recipes = store.recipes.filter((row) => !gone.has(row.id));
+        // Versions and their lines cascade with the recipe.
+        store.recipeVersions = store.recipeVersions.filter(
+          (row) => !gone.has(row.recipe_id)
+        );
+        return gone.size;
       }
       case "component_recipes": {
-        const before = store.componentRecipes.filter((row) =>
-          ours(row.id)
-        ).length;
-        store.componentRecipes = store.componentRecipes.filter(
-          (row) => !ours(row.id)
+        const gone = new Set(
+          store.componentRecipes
+            .filter((row) => ours(row.id))
+            .map((row) => row.id)
         );
-        return before;
+        store.componentRecipes = store.componentRecipes.filter(
+          (row) => !gone.has(row.id)
+        );
+        store.componentRecipeVersions = store.componentRecipeVersions.filter(
+          (row) => !gone.has(row.component_recipe_id)
+        );
+        return gone.size;
+      }
+      case "pos_product_links": {
+        const before = store.posProductLinks.length;
+        store.posProductLinks = store.posProductLinks.filter(
+          (row) => row.company_id !== companyId
+        );
+        return before - store.posProductLinks.length;
+      }
+      case "ingredient_aliases": {
+        const before = store.aliases.length;
+        store.aliases = store.aliases.filter(
+          (row) => row.company_id !== companyId
+        );
+        return before - store.aliases.length;
       }
       case "prepared_components": {
         const before = store.components.filter((row) => ours(row.id)).length;
@@ -1018,7 +1051,7 @@ async function resetMemoryCompanyCostCatalog(
         );
         return before - store.posMappings.length;
       }
-      case "import_menu_items": {
+      case "costing_menu_items": {
         const before = store.menuItems.length;
         store.menuItems = store.menuItems.filter(
           (row) => !importMenuIds.has(row.id)

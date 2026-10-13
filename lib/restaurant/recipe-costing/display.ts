@@ -1,5 +1,5 @@
 import type { SuggestionEvidenceView } from "./evidence";
-import { formatMoneyEs, formatPctLabel } from "./format";
+import { formatMoneyEs } from "./format";
 
 export type ProductKindLabel =
   | "Plato"
@@ -121,15 +121,6 @@ export function displayStateForProduct(input: {
   return { label: "Sin vincular", tone: "grey" };
 }
 
-export function toneForDisplayState(label: string): ChipTone {
-  if (label === "Confirmado" || label === "Aprobado") return "ok";
-  if (label === "Sugerido" || label === "Reventa") return "sug";
-  if (label === "Por revisar" || label === "Falta precio") return "warn";
-  if (label === "Ambiguo") return "bad";
-  if (label === "Combo") return "pur";
-  return "grey";
-}
-
 export interface EvidenceCheckItem {
   ok: boolean;
   warn: boolean;
@@ -220,14 +211,6 @@ export function odooSyncLabel(
     month: "short",
     year: "numeric",
   })}`;
-}
-
-export function marginLabel(
-  sellingPrice: number | null,
-  cost: number | null
-): string | null {
-  if (sellingPrice == null || sellingPrice <= 0 || cost == null) return null;
-  return formatPctLabel(((sellingPrice - cost) / sellingPrice) * 100);
 }
 
 export function posPriceFromSales(

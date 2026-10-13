@@ -36,12 +36,3 @@ export function resolveRecipeLineUnit(input: {
   }
   return resolveUnitCell(input.unitRaw, lang);
 }
-
-export function rawLineUnit(line: {
-  unit: string;
-  raw: Record<string, unknown>;
-}): string {
-  const fromRaw = line.raw["Unidad Detalle"] ?? line.raw["Unidad"];
-  if (typeof fromRaw === "string" && fromRaw.trim()) return fromRaw.trim();
-  return line.unit;
-}

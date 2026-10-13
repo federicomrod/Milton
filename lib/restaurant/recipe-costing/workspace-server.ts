@@ -7,6 +7,12 @@ import {
 import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
 import { sortBatchesNewestFirst } from "@/lib/restaurant/cost-workbook/history";
 import { findRecipeSource } from "@/lib/restaurant/cost-workbook/stored-blocks";
+import {
+  canManageCompanyCostReset,
+  multiRestaurantResetWarningEs,
+  resetConfirmPromptEs,
+} from "@/lib/restaurant/cost-workbook/reset";
+import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 import { formatPageDateRangeLabel } from "@/lib/restaurant/page-date-range";
@@ -230,6 +236,28 @@ export async function loadRecipeCostingWorkspace(
     ? `Puedes guardar y seguir después · último avance: ${lastAt.slice(0, 16).replace("T", " ")}`
     : "Puedes guardar y seguir después. El avance queda guardado.";
 
+  // "Empezar de nuevo" lives on Resumen, for the owner or an admin only.
+  let reset: RecipeCostingWorkspace["reset"] = null;
+  if (view === "resumen" && canManageCompanyCostReset(roleLoad)) {
+    const context = await resolveRestaurantContext(
+      supabase,
+      input.companyId,
+      input.locationId ?? null
+    );
+    const names = context.locations.map((row) => row.name);
+    reset = {
+      prompt: resetConfirmPromptEs({ companyName, restaurantNames: names }),
+      warning:
+        names.length > 1
+          ? multiRestaurantResetWarningEs(
+              names,
+              context.locations.find((row) => row.id === input.locationId)
+                ?.name ?? names[0]!
+            )
+          : null,
+    };
+  }
+
   const periodLabel =
     input.startDate && input.endDate
       ? formatPageDateRangeLabel(
@@ -264,6 +292,7 @@ export async function loadRecipeCostingWorkspace(
       lastProgress,
       comboSyncHint,
       latestUpload,
+      reset,
       timings: {
         load_ms: Date.now() - started,
         path: editorOnly ? "plato_editor" : "full",

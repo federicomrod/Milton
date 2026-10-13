@@ -62,19 +62,7 @@ describe("POST /api/restaurant/recipes/suggestions", () => {
     expect(runSpy).not.toHaveBeenCalled();
   });
 
-  it("passes the auth company id, not a form company id", async () => {
-    const runSpy = vi.fn().mockResolvedValue({
-      ok: true,
-      batch_id: "b1",
-      suggested: 0,
-      skipped: 0,
-      sin_sugerencia: 0,
-      items: [],
-      skips: [],
-      net_sales: 0,
-      coverage_pct: 0,
-      product_count: 0,
-    });
+  function mockSignedIn(role: string, runSpy: ReturnType<typeof vi.fn>) {
     vi.doMock("@/lib/restaurant/api-auth", () => ({
       authAndCompany: vi.fn().mockResolvedValue({
         ok: true,
@@ -83,7 +71,15 @@ describe("POST /api/restaurant/recipes/suggestions", () => {
         userId: "user-1",
       }),
     }));
+    vi.doMock("@/lib/restaurant/recipe-costing/actor-server", () => ({
+      loadRecipeActor: vi.fn().mockResolvedValue({
+        user_id: "user-1",
+        role,
+        is_milton_staff: false,
+      }),
+    }));
     vi.doMock("@/lib/restaurant/recipe-suggestion-server", () => ({
+      NO_STORED_BLOCKS_ERROR: "x",
       runRecipeSuggestionsForCompany: runSpy,
     }));
     vi.doMock("@/lib/restaurant/currency", () => ({
@@ -96,33 +92,10 @@ describe("POST /api/restaurant/recipes/suggestions", () => {
       createDefaultWorkbookAi: () => ({ id: "ai" }),
       isWorkbookLimitError: () => false,
     }));
+  }
 
-    const { POST } =
-      await import("@/app/api/restaurant/recipes/suggestions/route");
-    const form = new FormData();
-    form.set("file", new File([new Uint8Array([1, 2, 3])], "recetas.xlsx"));
-    form.set("company_id", "other");
-    form.set("limit", "5");
-    form.set("odoo_product_id", "12");
-    const response = await POST(
-      new Request("http://localhost/api/restaurant/recipes/suggestions", {
-        method: "POST",
-        body: form,
-      }) as never
-    );
-    expect(response.status).toBe(200);
-    expect(runSpy).toHaveBeenCalledWith(
-      {},
-      expect.objectContaining({
-        companyId: "company-123",
-        limit: 5,
-        odooProductId: 12,
-      })
-    );
-  });
-
-  it("accepts JSON latest_upload without a new file", async () => {
-    const runSpy = vi.fn().mockResolvedValue({
+  const ok = () =>
+    vi.fn().mockResolvedValue({
       ok: true,
       batch_id: "b2",
       suggested: 3,
@@ -135,47 +108,65 @@ describe("POST /api/restaurant/recipes/suggestions", () => {
       product_count: 10,
       source: "latest_upload",
     });
-    vi.doMock("@/lib/restaurant/api-auth", () => ({
-      authAndCompany: vi.fn().mockResolvedValue({
-        ok: true,
-        supabase: {},
-        companyId: "company-123",
-        userId: "user-1",
-      }),
-    }));
-    vi.doMock("@/lib/restaurant/recipe-suggestion-server", () => ({
-      runRecipeSuggestionsForCompany: runSpy,
-    }));
-    vi.doMock("@/lib/restaurant/currency", () => ({
-      resolveCompanyCurrency: vi.fn().mockResolvedValue("USD"),
-    }));
-    vi.doMock("@/lib/restaurant/language", () => ({
-      resolveRestaurantCockpitLanguage: () => "es",
-    }));
-    vi.doMock("@/lib/restaurant/cost-workbook", () => ({
-      createDefaultWorkbookAi: () => ({ id: "ai" }),
-      isWorkbookLimitError: () => false,
-    }));
 
+  const json = (body: Record<string, unknown>) =>
+    new Request("http://localhost/api/restaurant/recipes/suggestions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }) as never;
+
+  it("uses the auth company id, never one from the request", async () => {
+    const runSpy = ok();
+    mockSignedIn("owner", runSpy);
     const { POST } =
       await import("@/app/api/restaurant/recipes/suggestions/route");
     const response = await POST(
-      new Request("http://localhost/api/restaurant/recipes/suggestions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: "latest_upload", limit: 20 }),
-      }) as never
+      json({ company_id: "other", limit: 5, odoo_product_id: 12 })
     );
     expect(response.status).toBe(200);
     expect(runSpy).toHaveBeenCalledWith(
       {},
       expect.objectContaining({
         companyId: "company-123",
-        fromLatestUpload: true,
-        limit: 20,
+        limit: 5,
+        odooProductId: 12,
       })
     );
-    expect(routeSrc).toContain("latest_upload");
-    expect(routeSrc).not.toMatch(/form\.get\(["']company_id["']\)/);
+  });
+
+  it("reads the cost file already uploaded; it never takes a file itself", async () => {
+    const runSpy = ok();
+    mockSignedIn("manager", runSpy);
+    const { POST } =
+      await import("@/app/api/restaurant/recipes/suggestions/route");
+    const response = await POST(json({ limit: 20 }));
+    expect(response.status).toBe(200);
+    expect(runSpy.mock.calls[0]![1]).not.toHaveProperty("buffer");
+
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array([1, 2, 3])], "recetas.xlsx"));
+    const upload = await POST(
+      new Request("http://localhost/api/restaurant/recipes/suggestions", {
+        method: "POST",
+        body: form,
+      }) as never
+    );
+    expect(upload.status).toBe(400);
+    expect(((await upload.json()) as { error: string }).error).toMatch(
+      /Subir Excel de costos/
+    );
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(routeSrc).not.toContain("formData");
+  });
+
+  it("a viewer cannot prepare recipes", async () => {
+    const runSpy = ok();
+    mockSignedIn("viewer", runSpy);
+    const { POST } =
+      await import("@/app/api/restaurant/recipes/suggestions/route");
+    const response = await POST(json({ limit: 5 }));
+    expect(response.status).toBe(403);
+    expect(runSpy).not.toHaveBeenCalled();
   });
 });

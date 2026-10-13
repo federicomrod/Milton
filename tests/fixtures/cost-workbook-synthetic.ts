@@ -1,13 +1,13 @@
 import * as XLSX from "xlsx";
 
 /**
- * Synthetic Los Ranchos-shaped workbook. No client data.
+ * Synthetic kitchen cost workbook. No client data.
  * Price list (ambiguous PRECIO UNITARIO) + recipe + sub-recipe + two
  * Spanish category tabs with title rows above headers, typo pairs,
  * LIBRA/ONZA unit cases, an implausible per-gram price, and prepared
  * items that also appear on SUB RECETAS.
  */
-export function buildLosRanchosCostWorkbook(opts?: {
+export function buildSyntheticCostWorkbook(opts?: {
   carneLb?: number;
   /** Write the recipe's carrot line as a typo (ZANAHORA). Default: correct. */
   typoedRecipeLine?: boolean;
@@ -17,7 +17,7 @@ export function buildLosRanchosCostWorkbook(opts?: {
   const wb = XLSX.utils.book_new();
 
   const priceList = [
-    ["LISTA DE PRECIOS LOS RANCHOS — ABRIL 2026"],
+    ["LISTA DE PRECIOS DE PRUEBA — ABRIL 2026"],
     [],
     ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
     ["Carne para asar", carneLb, carneOz, ""],
@@ -25,10 +25,10 @@ export function buildLosRanchosCostWorkbook(opts?: {
     ["Sal", "", "", 0.15],
     ["Cebolla", 1.8, 0.1125, ""],
     ["Aceite rancio", "", "", "n/a"],
-    ["ACEITE DE OLIVA", "", 0.3556, ""],
-    ["ACEITE DE OIVA", 0.3556, "", ""],
-    ["ZANAHORIA", "", 0.0169, ""],
-    ["ZANAHORA", "", 0.0494, ""],
+    ["ACEITE DE OLIVA", "", 0.3125, ""],
+    ["ACEITE DE OIVA", 0.3125, "", ""],
+    ["ZANAHORIA", "", 0.0188, ""],
+    ["ZANAHORA", "", 0.0525, ""],
     ["AGUACATE", "", 0.55, ""],
     ["AGUCATE", "", "", 0.55],
     ["YUCA FRITA", 0.8, 0.05, ""],
@@ -107,15 +107,15 @@ export function buildLosRanchosCostWorkbook(opts?: {
 }
 
 /**
- * Same shape as the April Los Ranchos file, plus the Latin American
+ * Same shape as a real kitchen cost file, plus the Latin American
  * kitchen units that the real SUB RECETAS tab uses (GALON, PAQUETE,
  * SOBRES, UNIDA, BOLSA, CAJA), parenthetical / mixed / oversized pack
  * sizes that must go to needs-a-look, one genuinely bad row (ingredient
  * name in the unit column), a cover tab with no headers, and a second
  * recipe tab. No client data.
  */
-export function buildLosRanchosKitchenUnitsWorkbook(): Buffer {
-  const wb = XLSX.read(buildLosRanchosCostWorkbook(), { type: "buffer" });
+export function buildSyntheticKitchenUnitsWorkbook(): Buffer {
+  const wb = XLSX.read(buildSyntheticCostWorkbook(), { type: "buffer" });
 
   const sub = [
     ["SUB RECETAS"],
@@ -139,7 +139,7 @@ export function buildLosRanchosKitchenUnitsWorkbook(): Buffer {
   wb.Sheets["SUB RECETAS"] = XLSX.utils.aoa_to_sheet(sub);
 
   const price = [
-    ["LISTA DE PRECIOS LOS RANCHOS — ABRIL 2026"],
+    ["LISTA DE PRECIOS DE PRUEBA — ABRIL 2026"],
     [],
     ["ITEM", "LIBRA", "ONZA", "PRECIO UNITARIO"],
     ["Carne para asar", 4.8, 0.3, ""],
@@ -152,14 +152,14 @@ export function buildLosRanchosKitchenUnitsWorkbook(): Buffer {
     ["ADEREZO", "", "", 1.2],
     ["Yuca", 0.8, 0.05, ""],
     ["Platano", 0.6, 0.0375, ""],
-    ["ZANAHORIA", "", 0.0169, ""],
-    ["ZANAHORA", "", 0.0494, ""],
+    ["ZANAHORIA", "", 0.0188, ""],
+    ["ZANAHORA", "", 0.0525, ""],
   ];
   wb.Sheets["Lista de precios"] = XLSX.utils.aoa_to_sheet(price);
 
   XLSX.utils.book_append_sheet(
     wb,
-    XLSX.utils.aoa_to_sheet([["INDICE"], ["Los Ranchos — costos abril"], [""]]),
+    XLSX.utils.aoa_to_sheet([["INDICE"], ["Restaurante de prueba — costos abril"], [""]]),
     "INDICE"
   );
 
@@ -247,7 +247,7 @@ export function buildShiftedSubRecipeWorkbook(): Buffer {
 }
 
 /**
- * Staging Los Ranchos shape without client data: dish tabs use a
+ * A kitchen cost-file shape without client data: dish tabs use a
  * shared Articulo column (title-row dish name, then ingredients),
  * GRAM0 as a zero-for-O typo, and a yearly cost-summary tab that
  * must not become recipes.
@@ -323,7 +323,7 @@ export function buildSharedArticuloDishWorkbook(): Buffer {
 }
 
 /**
- * Real Los Ranchos block layout (no client data): COSTO RESTAURANTE
+ * Kitchen cost-file block layout (no client data): COSTO RESTAURANTE
  * banners, per-block headers, merged name-on-header, no-banner first
  * block, ####### totals, dish sale-price footers, and CONVOY/ORDEN
  * sub-recipe references.
@@ -339,7 +339,7 @@ export function buildCostoRestauranteBlockWorkbook(): Buffer {
   ];
 
   const sub = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     [],
     ["COSTO RESTAURANTE"],
     ["QUESO FRITO"],
@@ -391,13 +391,13 @@ export function buildCostoRestauranteBlockWorkbook(): Buffer {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
 
   const sub2 = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     ["SALSA TARTARA"],
     header,
-    ["MAYONESA", "LIBRA", 7.7, 0.98051948, 7.55],
+    ["MAYONESA", "LIBRA", 7.7, 0.9, 6.93],
     ["CEBOLLA", "ONZA", 2, 0.05, "#######"],
     ["SAL", "ONZA", 0.5, 0.02, 0.01],
-    ["COSTO TOTAL", "", "", "", 7.55],
+    ["COSTO TOTAL", "", "", "", 6.93],
     ["PRECIO POR LIBRA", "", "", "", 0.555],
     ["PRECIO POR ONZA", "", "", "", 0.0346875],
     [],
@@ -425,7 +425,7 @@ export function buildCostoRestauranteBlockWorkbook(): Buffer {
     ["PRECIO POR LIBRA", "", "", "", 1.2],
     [],
     ["COSTO RESTAURANTE"],
-    ["CONVOY ENSALADA Y CALDO"],
+    ["CONVOY DE LA CASA"],
     header,
     ["LECHUGA", "ONZA", 2, 0.05, 0.1],
     ["FONDO DE RES", "ONZA", 4, 0.2, 0.8],
@@ -453,38 +453,38 @@ export function buildCostoRestauranteBlockWorkbook(): Buffer {
   );
 
   const parrilla = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     [],
     ["COSTO RESTAURANTE"],
-    ["CHURRASCO TIPICO 6"],
+    ["ASADO TIPICO 6"],
     header,
-    ["CHURRASCO DE RES", "ONZA", 6, 0.60958, 3.65748],
+    ["CARNE ASADA", "ONZA", 6, 0.47125, 2.8275],
     ["FRIJOL FRITO", "ONZA", 2.5, 0.045, 0.1125],
     ["PLATANO FRITO", "UNIDAD", 5, 0.05, 0.25],
     ["GUACAMOL", "ONZA", 2.5, 0.15, 0.375],
     ["CHIMICHURRI", "ONZA", 0.25, 0.03, 0.0075],
-    ["CONVOY ENSALADA Y CALDO", "CONVOY", 1, 0.89245, 0.89245],
+    ["CONVOY DE LA CASA", "CONVOY", 1, 0.8132, 0.8132],
     ["SAL", "GRAMO", 3, 0.0011, 0.0033],
-    ["COSTO TOTAL", "", "", "", 5.298],
-    ["PRECIO DE VENTA SIN IVA", "", "", "", 17.699],
-    ["MARGEN DE CONTRIBUCION", "", "", "", 11.73, 0.6628],
+    ["COSTO TOTAL", "", "", "", 4.389],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 13.274],
+    ["MARGEN DE CONTRIBUCION", "", "", "", 8.885, 0.6694],
     [],
     ["COSTO RESTAURANTE"],
-    ["CHURRASCO TIPICO 8"],
+    ["ASADO TIPICO 8"],
     header,
-    ["CHURRASCO DE RES", "ONZA", 8, 0.60958, 4.87664],
+    ["CARNE ASADA", "ONZA", 8, 0.47125, 3.77],
     ["GUACAMOL", "ONZA", 2.5, 0.15, 0.375],
-    ["CONVOY ENSALADA Y CALDO", "CONVOY", 1, 0.89245, 0.89245],
-    ["COSTO TOTAL", "", "", "", 6.144],
-    ["PRECIO DE VENTA SIN IVA", "", "", "", 21.233],
-    ["MARGEN DE CONTRIBUCION", "", "", "", 13.771],
+    ["CONVOY DE LA CASA", "CONVOY", 1, 0.8132, 0.8132],
+    ["COSTO TOTAL", "", "", "", 4.958],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 15.929],
+    ["MARGEN DE CONTRIBUCION", "", "", "", 10.971],
     [],
     ["COSTO RESTAURANTE"],
     ["DEDOS DE QUESO"],
     header,
     ["QUESO FRITO", "ORDEN", 1, 0.21354, 0.21354],
     ["COSTO TOTAL", "", 0, 0, 0.21354],
-    ["PRECIO DE VENTA SIN IVA", "", 0, 0, 7.52],
+    ["PRECIO DE VENTA SIN IVA", "", 0, 0, 8.4],
     [],
     ["COSTO RESTAURANTE"],
     ["SALSA DEMIGLASS PLATO"],
@@ -500,25 +500,25 @@ export function buildCostoRestauranteBlockWorkbook(): Buffer {
   );
 
   const especial = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     ["COSTO RESTAURANTE"],
-    ["PUYASO"],
+    ["CORTE DE LA CASA"],
     header,
-    ["PUYASO", "ONZA", 8, 0.57857, 4.62856],
+    ["CORTE DE LA CASA", "ONZA", 8, 0.5125, 4.1],
     ["GUARNICION 1", "ORDEN", 2, 0.3, 0.6],
-    ["CONVOY ENSALADA Y CALDO", "ORDEN", 1, 0.89245, 99],
-    ["COSTO TOTAL", "", "", "", 6.12],
-    ["PRECIO DE VENTA SIN IVA", "", "", "", 17.68],
-    ["MARGEN DE CONTRIBUCION", "", "", "", 11.7],
+    ["CONVOY DE LA CASA", "ORDEN", 1, 0.8132, 99],
+    ["COSTO TOTAL", "", "", "", 5.51],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 14.2],
+    ["MARGEN DE CONTRIBUCION", "", "", "", 8.69],
     [],
     ["COSTO RESTAURANTE"],
     ["ENTRAÑA"],
     header,
-    ["ENTRAÑA", "ONZA", 8, 0.76667, 6.13336],
+    ["ENTRAÑA", "ONZA", 8, 0.6875, 5.5],
     ["ENSALADA", "ORDEN", 1, 0.15, 0.15],
-    ["COSTO TOTAL", "", "", "", 6.283],
-    ["PRECIO DE VENTA SIN IVA", "", "", "", 20.38],
-    ["MARGEN DE CONTRIBUCION", "", "", "", 16.09],
+    ["COSTO TOTAL", "", "", "", 5.65],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 16.5],
+    ["MARGEN DE CONTRIBUCION", "", "", "", 10.85],
   ];
   XLSX.utils.book_append_sheet(
     wb,
@@ -542,11 +542,11 @@ export function buildCostoRestauranteBlockWorkbook(): Buffer {
     ["AGUACATE", 1.2, 0.075, ""],
     ["LECHUGA", "", 0.05, ""],
     ["PAPA", 0.6, 0.0375, ""],
-    ["CHURRASCO DE RES", 9.753, 0.60958, ""],
+    ["CARNE ASADA", 7.54, 0.47125, ""],
     ["FRIJOL FRITO", "", 0.045, ""],
     ["PLATANO FRITO", "", 0.05, 0.05],
-    ["PUYASO", 9.257, 0.57857, ""],
-    ["ENTRAÑA", 12.267, 0.76667, ""],
+    ["CORTE DE LA CASA", 8.2, 0.5125, ""],
+    ["ENTRAÑA", 11, 0.6875, ""],
   ];
   XLSX.utils.book_append_sheet(
     wb,
@@ -574,7 +574,7 @@ export function buildWorkbookMatchFooterWorkbook(): Buffer {
   ];
 
   const sub = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     ["COSTO RESTAURANTE"],
     ["QUESO FRITO"],
     header,
@@ -608,13 +608,13 @@ export function buildWorkbookMatchFooterWorkbook(): Buffer {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
 
   const dishes = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     ["COSTO RESTAURANTE"],
     ["DEDOS DE QUESO"],
     header,
     ["QUESO FRITO", "ORDEN", 1, 0.15, 0.15],
     ["COSTO TOTAL", "", "", "", 0.15],
-    ["PRECIO DE VENTA SIN IVA", "", "", "", 7.52],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 8.4],
     [],
     ["COSTO RESTAURANTE"],
     ["TOSTONES"],
@@ -671,7 +671,7 @@ export function buildOrdenPortionCostWorkbook(): Buffer {
     "Total Costo",
   ];
   const sub = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     ["COSTO RESTAURANTE"],
     ["PAPAS FRITAS"],
     header,
@@ -682,7 +682,7 @@ export function buildOrdenPortionCostWorkbook(): Buffer {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
 
   const dishes = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     ["COSTO RESTAURANTE"],
     ["BISTEC"],
     header,
@@ -736,7 +736,7 @@ export function buildIncompleteDishWorkbook(): Buffer {
     "Total Costo",
   ];
   const dishes = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     ["COSTO RESTAURANTE"],
     ["POLLO EMPANIZADO"],
     header,
@@ -780,7 +780,7 @@ export function buildAssumedYieldWorkbook(): Buffer {
     "Total Costo",
   ];
   const sub = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     ["COSTO RESTAURANTE"],
     ["QUESO FRITO"],
     header,
@@ -790,13 +790,13 @@ export function buildAssumedYieldWorkbook(): Buffer {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
 
   const dishes = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     ["COSTO RESTAURANTE"],
     ["DEDOS DE QUESO"],
     header,
     ["QUESO FRITO", "ORDEN", 1, 0.15, 0.15],
     ["COSTO TOTAL", "", "", "", 0.15],
-    ["PRECIO DE VENTA SIN IVA", "", "", "", 7.52],
+    ["PRECIO DE VENTA SIN IVA", "", "", "", 8.4],
   ];
   XLSX.utils.book_append_sheet(
     wb,
@@ -832,7 +832,7 @@ function demiglassWorkbook(opts: {
     "Total Costo",
   ];
   const sub = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     ["COSTO RESTAURANTE"],
     ["DEMIGLASS"],
     header,
@@ -873,7 +873,7 @@ export function buildAssumedDemiglassWorkbook(): Buffer {
 }
 
 /**
- * Mirrors the real Los Ranchos layout without client data: banner,
+ * Mirrors a kitchen cost-file layout without client data: banner,
  * filled-down names (header overlap + extra ingredient column),
  * repeated headers, blank separators, $ in footer labels, Cantidad 0
  * on footer rows, a block starting deep in the sheet, GRAM0, one
@@ -899,13 +899,13 @@ export function buildRealLayoutCostoRestauranteWorkbook(): Buffer {
   ) => [name, ingredient, unit, qty, unitCost, total];
 
   const sub: Array<Array<string | number>> = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     [],
     ["COSTO RESTAURANTE"],
     ["QUESO FRITO"],
     overlapHeader("QUESO FRITO"),
-    filled("QUESO FRITO", "QUESO CREMADO", "ONZA", 1.14, 0.1475, 0.16815),
-    filled("QUESO FRITO", "HARINA", "GRAM0", 5, 0.0017, 0.0085),
+    filled("QUESO FRITO", "QUESO CREMADO", "ONZA", 1.2, 0.125, 0.15),
+    filled("QUESO FRITO", "HARINA", "GRAM0", 5, 0.002, 0.01),
     filled("QUESO FRITO", "ACEITE", "ONZA", 0.1, 0.08, 0.008),
     ["QUESO FRITO", "COSTO TOTAL", 0, 0, 0],
     [],
@@ -931,13 +931,13 @@ export function buildRealLayoutCostoRestauranteWorkbook(): Buffer {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
 
   const dishes = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     ["COSTO RESTAURANTE"],
     ["DEDOS DE QUESO"],
     overlapHeader("DEDOS DE QUESO"),
     filled("DEDOS DE QUESO", "QUESO FRITO", "ORDEN", 1, 0.18465, 0.18465),
     ["DEDOS DE QUESO", "COSTO TOTAL", 0, 0, 0, 0.18465],
-    ["DEDOS DE QUESO", "PRECIO DE VENTA SIN IVA", 0, 0, 0, 7.52],
+    ["DEDOS DE QUESO", "PRECIO DE VENTA SIN IVA", 0, 0, 0, 8.4],
     ["MARGEN DE CONTRIBUCION", "", "", "", 7.3],
   ];
   XLSX.utils.book_append_sheet(
@@ -1000,7 +1000,7 @@ export function buildLeadingEmptyOrdenCommaWorkbook(): Buffer {
   ) => [e, recipe, ingredient, unit, qty, unitCost, total];
 
   const sub: Array<Array<string | number>> = [
-    [e, "RESTAURANTE LOS RANCHOS"],
+    [e, "RESTAURANTE DE PRUEBA"],
     [],
     [e, "COSTO RESTAURANTE"],
     [e, "GUARNICION 1"],
@@ -1034,12 +1034,12 @@ export function buildLeadingEmptyOrdenCommaWorkbook(): Buffer {
 
   const dishes = [
     [e, "COSTO RESTAURANTE"],
-    [e, "PUYASO"],
-    overlap("PUYASO"),
-    filled("PUYASO", "PUYASO", "ONZA", 8, "$ 0,57857", "$ 4,62857"),
-    filled("PUYASO", "GUARNICION 1", "ORDEN", 2, "$ 0,23513", "$ 0,47025"),
-    [e, "PUYASO", "COSTO TOTAL", "", "", "", "$ 5,10"],
-    [e, "PUYASO", "PRECIO DE VENTA SIN IVA", "", "", "", "$ 17,69"],
+    [e, "CORTE DE LA CASA"],
+    overlap("CORTE DE LA CASA"),
+    filled("CORTE DE LA CASA", "CORTE DE LA CASA", "ONZA", 8, "$ 0,51250", "$ 4,10000"),
+    filled("CORTE DE LA CASA", "GUARNICION 1", "ORDEN", 2, "$ 0,25000", "$ 0,50000"),
+    [e, "CORTE DE LA CASA", "COSTO TOTAL", "", "", "", "$ 4,60"],
+    [e, "CORTE DE LA CASA", "PRECIO DE VENTA SIN IVA", "", "", "", "$ 13,27"],
     [],
     [e, "COSTO RESTAURANTE"],
     [e, "PLATO RARO"],
@@ -1060,7 +1060,7 @@ export function buildLeadingEmptyOrdenCommaWorkbook(): Buffer {
       ["PAPA", 0.6, 0.0375, ""],
       ["HUESO", 0.4, 0.025, ""],
       ["AGUA", "", 0.025, 0.4],
-      ["PUYASO", 9.257, 0.57857, ""],
+      ["CORTE DE LA CASA", 8.2, 0.5125, ""],
       ["EMPANIZADOR", "", 0.09, ""],
     ]),
     "Lista de precios"
@@ -1072,7 +1072,7 @@ export function buildLeadingEmptyOrdenCommaWorkbook(): Buffer {
 }
 
 /**
- * Synthetic Los Ranchos COSTO RESTAURANTE blocks for AI recipe
+ * Synthetic COSTO RESTAURANTE blocks for AI recipe
  * suggestions. No client data. Covers APIO-as-unit, QUESILLO without
  * cost, confirmed DEMIGLASS per-lb/oz, and a clean dish.
  */
@@ -1094,7 +1094,7 @@ export function buildRecipeSuggestionWorkbook(): Buffer {
   ) => [ingredient, unit, qty, unitCost, total];
 
   const sub: Array<Array<string | number>> = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     ["COSTO RESTAURANTE"],
     ["DEMIGLASS"],
     header(),
@@ -1107,7 +1107,7 @@ export function buildRecipeSuggestionWorkbook(): Buffer {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sub), "SUB RECETAS");
 
   const dishes: Array<Array<string | number>> = [
-    ["RESTAURANTE LOS RANCHOS"],
+    ["RESTAURANTE DE PRUEBA"],
     ["COSTO RESTAURANTE"],
     ["BISTEC TIPICO"],
     header(),
@@ -1130,11 +1130,11 @@ export function buildRecipeSuggestionWorkbook(): Buffer {
     ["ROLL VEGETALES", "COSTO TOTAL", 0, 0, 0.3],
     [],
     ["COSTO RESTAURANTE"],
-    ["CHURRASCO QUESILLO"],
+    ["ASADO CON QUESILLO"],
     header(),
-    line("PUYASO", "ONZA", 8, 0.58, 4.64),
+    line("CORTE DE LA CASA", "ONZA", 8, 0.5, 4),
     line("QUESILLO", "ONZA", 2, "", ""),
-    ["CHURRASCO QUESILLO", "COSTO TOTAL", 0, 0, 4.64],
+    ["ASADO CON QUESILLO", "COSTO TOTAL", 0, 0, 4],
   ];
   XLSX.utils.book_append_sheet(
     wb,

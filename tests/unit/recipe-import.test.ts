@@ -76,7 +76,7 @@ describe("translating the cost file", () => {
       source_tab: "DE LA PARRILLA",
       source_cell: "B8",
     });
-    expect(asado.excel_price_sin_iva).toBeCloseTo(19.99 / 1.13, 6);
+    expect(asado.excel_price_sin_iva).toBeCloseTo(14.5 / 1.13, 6);
     expect(asado.calculated_cost).toBeCloseTo(3.203, 6);
     expect(asado.flags).not.toContain("excel_no_cuadra");
   });
@@ -104,7 +104,7 @@ describe("translating the cost file", () => {
     const six = line(byName("ASADO DE PRUEBA 6"), "ASADO DE RES");
     const eight = line(byName("ASADO DE PRUEBA 8"), "ASADO DE RES");
     expect(six.unit_cost).toBe(0.5);
-    expect(eight.unit_cost).toBe(0.55);
+    expect(eight.unit_cost).toBe(0.56);
     expect(six.flags).toContain("costo_distinto");
     expect(eight.flags).toContain("costo_distinto");
   });
@@ -112,8 +112,8 @@ describe("translating the cost file", () => {
   it("says when the Excel's own COSTO TOTAL leaves a line out", () => {
     const eight = byName("ASADO DE PRUEBA 8");
     expect(line(eight, "ACEITE").flags).toContain("fuera_del_total_excel");
-    expect(eight.calculated_cost).toBeCloseTo(4.48, 6);
-    expect(eight.excel_total_cost).toBe(4.4);
+    expect(eight.calculated_cost).toBeCloseTo(4.56, 6);
+    expect(eight.excel_total_cost).toBe(4.48);
     expect(eight.flags).toContain("excel_no_cuadra");
   });
 
@@ -182,7 +182,7 @@ describe("planning the import", () => {
     {
       odoo_product_id: 1,
       odoo_name: "Asado de Prueba (6 onz.)",
-      pos_price: 19.99,
+      pos_price: 14.5,
       link_state: "sin_vincular",
     },
     {
@@ -194,7 +194,7 @@ describe("planning the import", () => {
     {
       odoo_product_id: 3,
       odoo_name: "Parrillada de Prueba (3 personas)",
-      pos_price: 48.99,
+      pos_price: 31.5,
       link_state: "sin_vincular",
     },
   ];
@@ -211,7 +211,7 @@ describe("planning the import", () => {
     plan.dishes.find((d) => d.recipe.name === name)!;
 
   it("links by name + size, confirmed by price × 1.13", () => {
-    expect(excelPriceWithIva(byName("ASADO DE PRUEBA 6"))).toBe(19.99);
+    expect(excelPriceWithIva(byName("ASADO DE PRUEBA 6"))).toBe(14.5);
     expect(dish("ASADO DE PRUEBA 6").pos?.odoo_product_id).toBe(1);
     expect(dish("PARRILLADA DE PRUEBA PARA 3").pos?.odoo_product_id).toBe(3);
   });
@@ -252,8 +252,8 @@ describe("planning the import", () => {
   it("previews one row per dish: our cost, Excel total, match, flags", () => {
     const row = plan.preview.rows.find((r) => r.dish === "ASADO DE PRUEBA 8")!;
     expect(row).toMatchObject({
-      calculated_cost: 4.48,
-      excel_total_cost: 4.4,
+      calculated_cost: 4.56,
+      excel_total_cost: 4.48,
       match: false,
     });
     expect(row.flags.join(" ")).toMatch(/Excel no cuadra/);
@@ -266,7 +266,7 @@ describe("planning the import", () => {
       {
         odoo_product_id: 9,
         odoo_name: "Pollo Asado (6 onz.)",
-        pos_price: 19.99,
+        pos_price: 14.5,
         link_state: null,
       },
     ]);
@@ -283,9 +283,9 @@ describe("a recipe line with its own cost", () => {
         component_id: null,
         quantity: 6,
         unit: "oz",
-        unit_cost: 0.6095833333,
+        unit_cost: 0.42,
       })
-    ).toBeCloseTo(3.6575, 6);
+    ).toBeCloseTo(2.52, 6);
     expect(
       lineOwnCost({
         input_type: "ingredient",
@@ -315,10 +315,7 @@ describe("a recipe line with its own cost", () => {
       componentRecipesByComponentId: new Map(),
       componentRecipeInputsByRecipeId: new Map(),
       menuItemsById: new Map([
-        [
-          "m",
-          { id: "m", name: "Plato", selling_price: 19.99, currency: "USD" },
-        ],
+        ["m", { id: "m", name: "Plato", selling_price: 14.5, currency: "USD" }],
       ]),
       menuRecipesByMenuItemId: new Map([
         ["m", { id: "r", menu_item_id: "m", status: "active" }],
@@ -408,7 +405,7 @@ describe("writing the import (in-memory repository)", () => {
         {
           odoo_product_id: 1,
           odoo_name: "Asado de Prueba (6 onz.)",
-          pos_price: 19.99,
+          pos_price: 14.5,
           link_state: "sin_vincular",
         },
       ],
@@ -526,7 +523,7 @@ describe("writing the import (in-memory repository)", () => {
         {
           odoo_product_id: 1,
           odoo_name: "Asado de Prueba (6 onz.)",
-          pos_price: 19.99,
+          pos_price: 14.5,
           link_state: "sin_vincular",
         },
       ],

@@ -553,6 +553,17 @@ describe("cost reset server and UI copy", () => {
     expect(src).not.toContain("error_en");
     expect(src).toContain("RESET_FAILED_ERROR_ES");
     expect(src).toContain("canManageCompanyCostReset");
+    // Company-wide: never refused for not picking a restaurant.
+    expect(src).not.toContain("resolveUploadRestaurantScope");
+    expect(src).not.toContain("PICK_RESTAURANT_ERROR_ES");
+  });
+
+  it("keeps the error on screen after a refused reset (no reload)", () => {
+    const src = read("components/restaurant/recipes-costing/ResetPanel.tsx");
+    const success = src.slice(src.indexOf("setDone(true)"));
+    expect(success.slice(0, 200)).toContain("onDone()");
+    const finallyBlock = src.slice(src.indexOf("} finally {"));
+    expect(finallyBlock.slice(0, 80)).not.toContain("onDone()");
   });
 
   it("Empezar de nuevo lives in Recetas y costeo, owner/admin only, with typed confirmation", () => {

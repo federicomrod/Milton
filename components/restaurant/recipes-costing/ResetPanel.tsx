@@ -52,12 +52,13 @@ export function ResetPanel({
         setDone(true);
         setTyped("");
         setOpen(false);
+        // Reload only after a real reset; on a refusal the error stays.
+        onDone();
       }
     } catch {
       setError("No se pudo empezar de nuevo.");
     } finally {
       setBusy(false);
-      onDone();
     }
   }
 

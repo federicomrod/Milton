@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRecipeSuggestionWorkbook } from "@/tests/fixtures/cost-workbook-los-ranchos";
+import { buildRecipeSuggestionWorkbook } from "@/tests/fixtures/cost-workbook-synthetic";
 import {
   SIN_SUGERENCIA,
   bindProposalToParsedBlock,
@@ -37,7 +37,7 @@ function products() {
     { odoo_product_id: 1, odoo_name: "BISTEC TIPICO", net_sales: 400 },
     { odoo_product_id: 2, odoo_name: "SALSA DEMIGLASS PLATO", net_sales: 200 },
     { odoo_product_id: 3, odoo_name: "ROLL VEGETALES", net_sales: 150 },
-    { odoo_product_id: 4, odoo_name: "CHURRASCO QUESILLO", net_sales: 80 },
+    { odoo_product_id: 4, odoo_name: "ASADO CON QUESILLO", net_sales: 80 },
   ];
 }
 
@@ -146,7 +146,7 @@ describe("AI recipe suggestions", () => {
     expect(apio?.flags).toEqual(expect.arrayContaining(["pendiente_unidad"]));
 
     const quesillo = result.items.find(
-      (row) => row.odoo_name === "CHURRASCO QUESILLO"
+      (row) => row.odoo_name === "ASADO CON QUESILLO"
     );
     expect(quesillo?.status).toBe("borrador");
     expect(quesillo?.pending).toBe(true);
@@ -350,7 +350,7 @@ describe("AI recipe suggestions", () => {
       ...confirmed,
       id: "link-conf",
       odoo_product_id: 4,
-      odoo_name: "CHURRASCO QUESILLO",
+      odoo_name: "ASADO CON QUESILLO",
     });
     const again = await runRecipeSuggestions({
       companyId: COMPANY,

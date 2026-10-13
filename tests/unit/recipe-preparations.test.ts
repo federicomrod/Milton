@@ -321,3 +321,34 @@ describe("parsing", () => {
     expect(parseEditorAction({ action: "set_yield", unit: "oz" })).toBeNull();
   });
 });
+
+describe("price edited inline on a preparation line", () => {
+  it("saves that line's own price, costed right away", async () => {
+    const k = kitchen();
+    const prepCtx = {
+      store: createMemoryEditorStore(k),
+      companyId: "co-1",
+      odooProductId: 0,
+      componentId: "c-salsa",
+      locationId: null,
+      userId: "u1",
+    };
+    const r = await applyEdit(prepCtx, {
+      action: "set_line_cost",
+      input_id: "pin-1",
+      unit_cost: 0.05,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const tomate = r.state.lines.find((l) => l.input_id === "pin-1")!;
+    expect(tomate.amount).toBeCloseTo(0.8, 6);
+    expect(tomate.own_cost).toBe(true);
+    expect(
+      k.preparations[0].inputs.find((i) => i.id === "pin-1")
+    ).toMatchObject({ unit_cost: 0.05, cost_source: "manual" });
+    // The list's price was not touched.
+    expect(
+      k.entries.find((e) => e.ingredient_id === "i-tomate")?.unit_cost
+    ).toBe(0.04);
+  });
+});

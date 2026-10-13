@@ -56,10 +56,13 @@ export function PreparacionesScreen({
   onSelect,
   onChanged,
   locationId,
+  onBackToDish,
 }: {
   data: RecipeCostingWorkspace;
   selectedId: string | null;
   onSelect: (componentId: string | null) => void;
+  /** Set when the person came from a dish: back to it. */
+  onBackToDish?: () => void;
   /** Refresh the workspace (coverage, dishes) after an approval. */
   onChanged: () => void;
   locationId?: string | null;
@@ -100,6 +103,15 @@ export function PreparacionesScreen({
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1.6fr]">
       <Card className="p-3">
+        {onBackToDish ? (
+          <button
+            type="button"
+            onClick={onBackToDish}
+            className="mb-2 text-[11.5px] font-semibold text-[#3557c9]"
+          >
+            ← Volver al plato
+          </button>
+        ) : null}
         <div className="mb-2">
           <h2 className="text-[15px] font-semibold">
             Preparaciones de tu cocina

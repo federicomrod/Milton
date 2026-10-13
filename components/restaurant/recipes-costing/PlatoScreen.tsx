@@ -261,15 +261,20 @@ function Dish({
             </div>
           ) : null}
         </div>
-        <div className="w-full sm:w-64">
-          <TreatmentControl
-            product={product}
-            options={data.treatment_options}
-            canEdit={data.actor.can_submit}
-            busy={busy}
-            onPost={onPost}
-          />
-        </div>
+        <details className="w-full sm:w-64">
+          <summary className="cursor-pointer text-[11.5px] font-semibold text-[#6b7385]">
+            Cómo se costea: {product.treatment_label}
+          </summary>
+          <div className="mt-1.5">
+            <TreatmentControl
+              product={product}
+              options={data.treatment_options}
+              canEdit={data.actor.can_submit}
+              busy={busy}
+              onPost={onPost}
+            />
+          </div>
+        </details>
       </Card>
 
       {!takesRecipe ? (
@@ -279,7 +284,7 @@ function Dish({
             : `Este producto no lleva receta (${product.treatment_label}).`}
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.8fr_1fr]">
+        <div className="grid grid-cols-1 gap-3">
           <Card className="p-3">
             {hasRecipe ? (
               <RecipeLinesEditor

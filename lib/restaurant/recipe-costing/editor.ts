@@ -495,3 +495,47 @@ export function latestPrice(
     source: sourceOf(entry?.id),
   };
 }
+
+/**
+ * What the screen shows right away while a quantity or a line price is
+ * saved (the server's answer replaces it). Same rule as the engine for a
+ * line with a known cost per unit: amount = quantity × unit cost. Anything
+ * the line cannot cost stays as it was (Pendiente, never $0).
+ */
+export function optimisticLine<
+  S extends { lines: EditorLine[]; total_cost: number | null },
+>(
+  state: S,
+  inputId: string,
+  patch: { qty?: number; unit_cost?: number | null }
+): S {
+  const lines = state.lines.map((line) => {
+    if (line.input_id !== inputId) return line;
+    const qty = patch.qty ?? line.qty;
+    if (patch.unit_cost === null) {
+      // Back to the list's price: the server decides it.
+      return { ...line, qty };
+    }
+    const unitCost = patch.unit_cost ?? line.unit_cost;
+    const amount =
+      unitCost !== null && unitCost > 0 && qty > 0
+        ? qty * unitCost
+        : line.amount;
+    return {
+      ...line,
+      qty,
+      unit_cost: unitCost,
+      amount,
+      own_cost: patch.unit_cost !== undefined ? true : line.own_cost,
+      pending: amount === null ? line.pending : false,
+    };
+  });
+  const allCosted = lines.every((line) => line.amount !== null);
+  return {
+    ...state,
+    lines,
+    total_cost: allCosted
+      ? lines.reduce((sum, line) => sum + (line.amount ?? 0), 0)
+      : state.total_cost,
+  };
+}

@@ -128,6 +128,8 @@ export function PriceCatalogPanel({
   >({});
   const [reviewedUnits, setReviewedUnits] = useState(false);
   const [open, setOpen] = useState<OpenConflict[]>([]);
+  /** Dishes the file's recipes hold: when > 0 they come from "Importar". */
+  const [recipeDishes, setRecipeDishes] = useState(0);
   /** True once the saved choices are back; only then do edits get saved. */
   const [hydrated, setHydrated] = useState(false);
 
@@ -321,7 +323,10 @@ export function PriceCatalogPanel({
       setSaved(json);
       setPreview(null);
       void loadOpen();
-      onUploaded?.();
+      // The file has its own recipes: they come in with "Importar" below,
+      // so no AI suggestions (they would only add drafts and questions).
+      if (recipeDishes > 0 || recipesImported) onRecipesImported?.();
+      else onUploaded?.();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "No pude guardar la lista."
@@ -744,6 +749,7 @@ export function PriceCatalogPanel({
         locationId={locationId}
         busyExternal={busy || busyExternal}
         onImported={() => onRecipesImported?.()}
+        onDishes={setRecipeDishes}
       />
 
       {open.length > 0 ? (

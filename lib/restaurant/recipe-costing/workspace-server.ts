@@ -23,6 +23,7 @@ import {
   type PosProductLinkRecord,
 } from "@/lib/restaurant/pos-product-links";
 import {
+  groupBatchesByFile,
   buildRecipeCostingWorkspace,
   rankedProductsFromLinks,
   type RecipeCostingView,
@@ -187,12 +188,8 @@ export async function loadRecipeCostingWorkspace(
   const liveHistory = sortBatchesNewestFirst(
     history.filter((row) => !row.undone_at)
   );
-  const batches: RecipeCostingWorkspace["batches"] = liveHistory.map((row) => ({
-    id: row.id,
-    filename: row.filename,
-    created_at: row.created_at ?? null,
-    can_undo: !row.undone_at,
-  }));
+  const batches: RecipeCostingWorkspace["batches"] =
+    groupBatchesByFile(liveHistory);
   // The upload suggestions will read: the newest live one with recipe
   // blocks, not merely the newest one.
   const source = liveHistory.find((row) => row.has_recipe_blocks) ?? null;

@@ -12,6 +12,7 @@
 // - After every edit the cached evidence is rebuilt from the inputs, so the
 //   screen, the checklist and the approved recipe agree.
 
+import { approvalRecord, type ApprovalRecord } from "./approval-audit";
 import type { CostingData } from "@/lib/restaurant/costing";
 import {
   normalizeMatchName,
@@ -125,10 +126,12 @@ export interface EditorStore {
     version: VersionRef,
     input: { quantity: number; unit: string }
   ): Promise<void>;
-  /** Preparations only: mark the in-review version approved. */
+  /** Preparations only: mark the in-review version approved, recording
+   *  who approved it, when and how (migration 041). */
   approvePreparationVersion(
     companyId: string,
-    version: VersionRef
+    version: VersionRef,
+    approval: ApprovalRecord
   ): Promise<void>;
   /** Close the open review item once the preparation is approved. */
   resolveHolder(companyId: string, holder: EvidenceHolder): Promise<void>;
@@ -1087,7 +1090,11 @@ export function withCachedCatalog(store: EditorStore): EditorStore {
 // ---------------------------------------------------------------------------
 
 export async function approvePreparation(
-  ctx: Ctx & { componentId: string }
+  ctx: Ctx & {
+    componentId: string;
+    /** Milton staff: how the client confirmed. */
+    confirmedHow?: string | null;
+  }
 ): Promise<
   | { ok: true; state: EditorState; refreshed_dishes: number }
   | { ok: false; error: string; status?: number }
@@ -1118,7 +1125,14 @@ export async function approvePreparation(
       status: 400,
     };
   }
-  await ctx.store.approvePreparationVersion(ctx.companyId, version);
+  if (!ctx.userId) {
+    return { ok: false, error: "Falta quién aprueba.", status: 400 };
+  }
+  await ctx.store.approvePreparationVersion(
+    ctx.companyId,
+    version,
+    approvalRecord({ userId: ctx.userId, how: ctx.confirmedHow })
+  );
   await ctx.store.resolveHolder(ctx.companyId, holder);
 
   // Dishes that use it now have a cost for that line.

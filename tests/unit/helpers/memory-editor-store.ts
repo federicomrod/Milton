@@ -11,6 +11,7 @@ import type {
   VersionRef,
 } from "@/lib/restaurant/recipe-costing/editor-service";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
+import type { ApprovalRecord } from "@/lib/restaurant/recipe-costing/approval-audit";
 
 export interface MemoryEditorState {
   companyId: string;
@@ -54,6 +55,8 @@ export interface MemoryEditorState {
     /** The open review item that holds its evidence, if any. */
     holder: { id: string; evidence: Record<string, unknown> } | null;
     resolved?: boolean;
+    /** Who approved it (migration 041). */
+    approval?: ApprovalRecord;
   }>;
 }
 
@@ -259,12 +262,13 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
       prep.version.output_quantity = input.quantity;
       prep.version.output_unit = input.unit;
     },
-    async approvePreparationVersion(companyId, version) {
+    async approvePreparationVersion(companyId, version, approval) {
       const prep = prepOf(companyId, version);
       if (!prep?.version || prep.version.status !== "in_review") {
         throw new Error("not in review");
       }
       prep.version.status = "approved";
+      prep.approval = { ...approval };
     },
     async resolveHolder(companyId, holder) {
       if (!mine(companyId) || holder.kind !== "preparation" || !holder.id)

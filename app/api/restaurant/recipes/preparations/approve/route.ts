@@ -62,6 +62,10 @@ export async function POST(req: NextRequest) {
       locationId: null,
       componentId,
       userId: auth.userId,
+      confirmedHow:
+        typeof body.confirmed_how === "string" && body.confirmed_how.trim()
+          ? body.confirmed_how.trim()
+          : null,
     });
     if (!result.ok) {
       return NextResponse.json(

@@ -261,6 +261,12 @@ describe("approving a preparation", () => {
     expect(r.ok).toBe(true);
     expect(s.preparations[0].version!.status).toBe("approved");
     expect(s.preparations[0].resolved).toBe(true);
+    // Who approved it, when and how (migration 041).
+    expect(s.preparations[0].approval).toMatchObject({
+      approved_by: "u1",
+      approved_how: "en_pantalla",
+    });
+    expect(s.preparations[0].approval?.approved_at).toMatch(/^\d{4}-/);
     if (r.ok) {
       expect(r.state.editable).toBe(false);
       // (16 oz × 0.04 + 1 oz × 0.01) / 16 oz

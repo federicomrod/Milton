@@ -277,7 +277,7 @@ function Dish({
               <div className="space-y-2 text-sm text-[#5b6476]">
                 <p>
                   Este plato todavía no tiene receta. Si tu Excel la trae,
-                  genera sugerencias desde Resumen; si no, créala aquí.
+                  súbelo en Resumen y se prepara solo; si no, créala aquí.
                 </p>
                 {data.actor.can_submit ? (
                   <div className="flex flex-wrap gap-1.5">

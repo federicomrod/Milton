@@ -218,7 +218,7 @@ describe("route and screen guards", () => {
     );
     expect(ui).toContain("const SUGGESTION_CHUNK = 5;");
     expect(ui).toContain("json.next_offset == null");
-    expect(ui).toContain("Generando sugerencias…");
+    expect(ui).toContain("Preparando tus platos desde el archivo…");
     expect(ui).toContain("quedó guardado");
   });
 

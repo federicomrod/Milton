@@ -226,7 +226,7 @@ export function RecipesCostingWorkspace({
    * Generate suggestions a few dishes at a time (top sellers first), so no
    * single request runs long and one failure never loses earlier work.
    */
-  async function runSuggestions(file?: File) {
+  async function runSuggestions() {
     const url = "/api/restaurant/recipes/suggestions";
     setWorkbookBusy(true);
     setError(null);
@@ -234,29 +234,19 @@ export function RecipesCostingWorkspace({
     const totals = { suggested: 0, sinSugerencia: 0, skipped: 0 };
     let offset = 0;
     let total: number | null = null;
-    let pendingFile = file;
     try {
       for (let guard = 0; guard < 40; guard++) {
         setProgress({ done: offset, total });
-        let res: Response;
-        if (pendingFile) {
-          const form = new FormData();
-          form.set("file", pendingFile);
-          form.set("limit", String(SUGGESTION_CHUNK));
-          form.set("offset", String(offset));
-          res = await fetch(url, { method: "POST", body: form });
-          pendingFile = undefined;
-        } else {
-          res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              source: "latest_upload",
-              limit: SUGGESTION_CHUNK,
-              offset,
-            }),
-          });
-        }
+        // The recipes come from the file just uploaded (kept with it).
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            source: "latest_upload",
+            limit: SUGGESTION_CHUNK,
+            offset,
+          }),
+        });
         const json = (await res.json().catch(() => ({}))) as {
           error?: string;
           suggested?: number;
@@ -266,7 +256,9 @@ export function RecipesCostingWorkspace({
           next_offset?: number | null;
         };
         if (!res.ok) {
-          throw new Error(json.error ?? "No pude generar las sugerencias.");
+          throw new Error(
+            json.error ?? "No pude preparar tus platos desde el archivo."
+          );
         }
         totals.suggested += json.suggested ?? 0;
         totals.sinSugerencia += json.sin_sugerencia ?? 0;
@@ -276,7 +268,7 @@ export function RecipesCostingWorkspace({
         offset = json.next_offset;
       }
       setNotice(
-        `Listo: ${totals.suggested} ${totals.suggested === 1 ? "plato sugerido" : "platos sugeridos"}` +
+        `Listo: ${totals.suggested} ${totals.suggested === 1 ? "plato preparado" : "platos preparados"} desde tu archivo` +
           `, ${totals.sinSugerencia} sin sugerencia` +
           (totals.skipped > 0
             ? `, ${totals.skipped} ya resueltos o con receta propia.`
@@ -285,7 +277,9 @@ export function RecipesCostingWorkspace({
       await reload();
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "No pude generar las sugerencias.";
+        err instanceof Error
+          ? err.message
+          : "No pude preparar tus platos desde el archivo.";
       setError(
         totals.suggested > 0
           ? `${message} Lo que ya se generó (${totals.suggested} platos) quedó guardado.`
@@ -314,7 +308,7 @@ export function RecipesCostingWorkspace({
       ) : null}
       {progress ? (
         <div className="mb-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-          Generando sugerencias…{" "}
+          Preparando tus platos desde el archivo…{" "}
           {progress.total
             ? `${Math.min(progress.done, progress.total)} de ${progress.total} platos (los que más venden primero)`
             : "empezando por los platos que más venden"}
@@ -361,8 +355,7 @@ export function RecipesCostingWorkspace({
         <ResumenScreen
           data={data}
           onOpen={open}
-          onGenerateSuggestions={() => void runSuggestions()}
-          onUploadWorkbook={(file) => void runSuggestions(file)}
+          onUploaded={() => void runSuggestions()}
           generateBusy={workbookBusy}
           busy={busy}
           onPost={postAndReload}

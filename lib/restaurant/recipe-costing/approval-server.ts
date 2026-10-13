@@ -6,6 +6,7 @@ import {
   buildApprovalChecklist,
   type RecipeActor,
 } from "./approval";
+import { approvalRecord, updateWithApprovalAudit } from "./approval-audit";
 import { parseSuggestionEvidence } from "./evidence";
 import { loadPosProductLink } from "./link-actions-server";
 
@@ -131,15 +132,23 @@ export async function approveRecipeVersion(input: {
     ? `Aprobada. El cliente confirmó por ${confirmation.confirmed_how} el ${confirmation.confirmed_at.slice(0, 10)}.`
     : "Aprobada";
 
-  const { error } = await input.supabase
-    .from("recipe_versions")
-    .update({
+  await updateWithApprovalAudit(
+    (payload) =>
+      input.supabase
+        .from("recipe_versions")
+        .update(payload)
+        .eq("company_id", input.companyId)
+        .eq("id", input.recipeVersionId),
+    {
       status: "approved",
       notes: note,
       effective_date: effectiveDateForNewApprovedVersion(siblings.data ?? []),
+    },
+    approvalRecord({
+      userId: input.actor.user_id,
+      how: confirmation.confirmed_how,
+      at: confirmation.confirmed_at,
     })
-    .eq("company_id", input.companyId)
-    .eq("id", input.recipeVersionId);
-  if (error) throw new Error(error.message);
+  );
   return { ok: true };
 }

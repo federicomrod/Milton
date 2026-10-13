@@ -12,6 +12,7 @@
 // - After every edit the cached evidence is rebuilt from the inputs, so the
 //   screen, the checklist and the approved recipe agree.
 
+import { approvalRecord, type ApprovalRecord } from "./approval-audit";
 import type { CostingData } from "@/lib/restaurant/costing";
 import {
   normalizeMatchName,
@@ -24,6 +25,7 @@ import {
   hydrateLines,
   latestPrice,
   rebuildEvidence,
+  type CatalogQuestion,
   type EditorLine,
   type EvidenceLineIn,
   type PickerOption,
@@ -125,10 +127,12 @@ export interface EditorStore {
     version: VersionRef,
     input: { quantity: number; unit: string }
   ): Promise<void>;
-  /** Preparations only: mark the in-review version approved. */
+  /** Preparations only: mark the in-review version approved, recording
+   *  who approved it, when and how (migration 041). */
   approvePreparationVersion(
     companyId: string,
-    version: VersionRef
+    version: VersionRef,
+    approval: ApprovalRecord
   ): Promise<void>;
   /** Close the open review item once the preparation is approved. */
   resolveHolder(companyId: string, holder: EvidenceHolder): Promise<void>;
@@ -148,6 +152,17 @@ export interface EditorStore {
     input: { name: string; outputQuantity: number; outputUnit: string }
   ): Promise<{ id: string; name: string }>;
   addCostEntry(companyId: string, entry: NewCostEntry): Promise<void>;
+  /** Unclear price-list rows still open. */
+  catalogQuestions(companyId: string): Promise<CatalogQuestion[]>;
+  /** The person picked how an unclear price-list row reads. Adds the
+   *  ingredient (in that unit) if it is not in the list yet. */
+  answerCatalogQuestion(
+    companyId: string,
+    itemId: string,
+    unit: string
+  ): Promise<
+    { ok: true; ingredientId: string } | { ok: false; reason: string }
+  >;
   loadAliases(companyId: string): Promise<Map<string, string>>;
   rememberAlias(input: {
     companyId: string;
@@ -345,6 +360,37 @@ async function build(
     },
   });
 
+  // A line whose ingredient sits on an unclear price-list row: ask how the
+  // row reads, right on the line (by ingredient, or by the exact name for
+  // a line that is not in the list yet).
+  if (
+    lines.some(
+      (line) =>
+        (line.ingredient_id && !line.price) || line.kind === "unresolved"
+    )
+  ) {
+    const questions = (await ctx.store.catalogQuestions(ctx.companyId)).filter(
+      (q) => q.options.length > 0
+    );
+    const byIngredient = new Map(
+      questions.filter((q) => q.ingredient_id).map((q) => [q.ingredient_id!, q])
+    );
+    const byName = new Map(
+      questions.map((q) => [normalizeMatchName(q.name), q])
+    );
+    for (const line of lines) {
+      if (line.kind === "unresolved") {
+        const q = byName.get(normalizeMatchName(line.raw_name));
+        if (q) line.catalog_question = q;
+      } else if (line.ingredient_id && !line.price) {
+        const q =
+          byIngredient.get(line.ingredient_id) ??
+          byName.get(normalizeMatchName(line.name ?? ""));
+        if (q) line.catalog_question = q;
+      }
+    }
+  }
+
   const editable = version?.status === "in_review";
   const isPrep = Boolean(loaded.preparation);
   const anyPending = lines.some((line) => line.pending);
@@ -530,6 +576,13 @@ export type EditorAction =
       unit_cost: number;
     }
   | {
+      action: "answer_catalog_unit";
+      item_id: string;
+      unit: string;
+      /** An unresolved line that names this row: use the ingredient there. */
+      line_key?: string;
+    }
+  | {
       action: "create_preparation";
       name: string;
       /** How much one batch yields, as the person states it. */
@@ -572,7 +625,10 @@ export async function applyEdit(
   }
 
   // Prices are not part of a version: setting one is allowed on any recipe.
-  if (action.action !== "set_price") {
+  if (
+    action.action !== "set_price" &&
+    action.action !== "answer_catalog_unit"
+  ) {
     if (!version) {
       return {
         ok: false,
@@ -901,6 +957,37 @@ export async function applyEdit(
       }
       break;
     }
+    case "answer_catalog_unit": {
+      const answered = await ctx.store.answerCatalogQuestion(
+        ctx.companyId,
+        action.item_id,
+        action.unit
+      );
+      if (!answered.ok) {
+        return { ok: false, error: answered.reason, status: 400 };
+      }
+      if (action.line_key && version?.status === "in_review") {
+        const line = await lineByKey(action.line_key);
+        if (line && line.kind === "unresolved") {
+          const row = await ctx.store.insertInput(ctx.companyId, version, {
+            input_type: "ingredient",
+            ingredient_id: answered.ingredientId,
+            component_id: null,
+            quantity: cleanQuantity(line.qty) ?? 1,
+            unit: cleanUnit(line.unit) ?? action.unit,
+          });
+          const fresh = await ctx.store.loadCosting(ctx.companyId);
+          bind(
+            line,
+            row,
+            fresh.data.ingredientsById.get(answered.ingredientId)?.name ??
+              line.raw_name,
+            "ingredient"
+          );
+        }
+      }
+      break;
+    }
     case "create_preparation": {
       const name =
         typeof action.name === "string"
@@ -1087,7 +1174,11 @@ export function withCachedCatalog(store: EditorStore): EditorStore {
 // ---------------------------------------------------------------------------
 
 export async function approvePreparation(
-  ctx: Ctx & { componentId: string }
+  ctx: Ctx & {
+    componentId: string;
+    /** Milton staff: how the client confirmed. */
+    confirmedHow?: string | null;
+  }
 ): Promise<
   | { ok: true; state: EditorState; refreshed_dishes: number }
   | { ok: false; error: string; status?: number }
@@ -1118,7 +1209,14 @@ export async function approvePreparation(
       status: 400,
     };
   }
-  await ctx.store.approvePreparationVersion(ctx.companyId, version);
+  if (!ctx.userId) {
+    return { ok: false, error: "Falta quién aprueba.", status: 400 };
+  }
+  await ctx.store.approvePreparationVersion(
+    ctx.companyId,
+    version,
+    approvalRecord({ userId: ctx.userId, how: ctx.confirmedHow })
+  );
   await ctx.store.resolveHolder(ctx.companyId, holder);
 
   // Dishes that use it now have a cost for that line.

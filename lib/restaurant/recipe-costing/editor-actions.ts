@@ -89,6 +89,17 @@ export function parseEditorAction(
       if (!id || !unit || cost === undefined) return null;
       return { action: "set_price", ingredient_id: id, unit, unit_cost: cost };
     }
+    case "answer_catalog_unit": {
+      const itemId = str(body.item_id);
+      const unit = str(body.unit);
+      if (!itemId || !unit) return null;
+      return {
+        action: "answer_catalog_unit",
+        item_id: itemId,
+        unit,
+        line_key: str(body.line_key) ?? undefined,
+      };
+    }
     case "create_preparation": {
       const name = str(body.name);
       const yieldUnit = str(body.yield_unit);

@@ -3,7 +3,10 @@
 import type { CostingData } from "@/lib/restaurant/costing";
 import { aliasKeyFor } from "@/lib/restaurant/cost-workbook/repo";
 import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
-import type { VersionInput } from "@/lib/restaurant/recipe-costing/editor";
+import type {
+  CatalogQuestion,
+  VersionInput,
+} from "@/lib/restaurant/recipe-costing/editor";
 import type {
   EditorStore,
   LinkRef,
@@ -11,6 +14,7 @@ import type {
   VersionRef,
 } from "@/lib/restaurant/recipe-costing/editor-service";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
+import type { ApprovalRecord } from "@/lib/restaurant/recipe-costing/approval-audit";
 
 export interface MemoryEditorState {
   companyId: string;
@@ -45,6 +49,15 @@ export interface MemoryEditorState {
   }>;
   failAlias?: boolean;
   seq: number;
+  /** Open unclear price-list rows (catalog_row review items). */
+  catalogRows?: Array<{
+    id: string;
+    name: string;
+    ingredient_id: string | null;
+    reason: string;
+    options: Array<{ unit: string; unit_cost: number }>;
+    status: "pending" | "approved";
+  }>;
   /** Preparations with their own (draft or approved) version. */
   preparations: Array<{
     component_id: string;
@@ -54,6 +67,8 @@ export interface MemoryEditorState {
     /** The open review item that holds its evidence, if any. */
     holder: { id: string; evidence: Record<string, unknown> } | null;
     resolved?: boolean;
+    /** Who approved it (migration 041). */
+    approval?: ApprovalRecord;
   }>;
 }
 
@@ -259,12 +274,13 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
       prep.version.output_quantity = input.quantity;
       prep.version.output_unit = input.unit;
     },
-    async approvePreparationVersion(companyId, version) {
+    async approvePreparationVersion(companyId, version, approval) {
       const prep = prepOf(companyId, version);
       if (!prep?.version || prep.version.status !== "in_review") {
         throw new Error("not in review");
       }
       prep.version.status = "approved";
+      prep.approval = { ...approval };
     },
     async resolveHolder(companyId, holder) {
       if (!mine(companyId) || holder.kind !== "preparation" || !holder.id)
@@ -328,6 +344,45 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
         holder: null,
       });
       return { id, name: input.name };
+    },
+    async catalogQuestions(companyId) {
+      if (!mine(companyId)) return [];
+      return (state.catalogRows ?? [])
+        .filter((row) => row.status === "pending")
+        .map(
+          (row): CatalogQuestion => ({
+            item_id: row.id,
+            name: row.name,
+            ingredient_id: row.ingredient_id,
+            reason: row.reason,
+            options: row.options.map((o) => ({ ...o })),
+          })
+        );
+    },
+    async answerCatalogQuestion(companyId, itemId, unit) {
+      const row = (state.catalogRows ?? []).find((r) => r.id === itemId);
+      if (!mine(companyId) || !row || row.status !== "pending") {
+        return { ok: false, reason: "No encontré esa fila de tu lista." };
+      }
+      const option = row.options.find((o) => o.unit === unit);
+      if (!option) return { ok: false, reason: "Esa opción no existe." };
+      let ingredientId = row.ingredient_id;
+      if (!ingredientId) {
+        ingredientId = `ing-row-${++state.seq}`;
+        state.ingredients.push({
+          id: ingredientId,
+          name: row.name,
+          default_unit: option.unit,
+        });
+      }
+      state.entries.push(
+        entry(ingredientId, option.unit, option.unit_cost, {
+          id: `e-catalog-${++state.seq}`,
+          notes: "Lista · fila (unidad confirmada)",
+        })
+      );
+      row.status = "approved";
+      return { ok: true, ingredientId };
     },
     async addCostEntry(_companyId, e: NewCostEntry) {
       const ing = state.ingredients.find((r) => r.id === e.ingredientId)!;

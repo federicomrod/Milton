@@ -2,6 +2,7 @@
 // company that came from auth; ids from the client are only ever matched
 // inside that company.
 
+import { updateWithApprovalAudit } from "./approval-audit";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   CostingComponentRecipe,
@@ -10,7 +11,14 @@ import type {
 } from "@/lib/restaurant/costing";
 import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
 import { buildIngredientCostEntryInsert } from "@/lib/restaurant/cost-import";
-import { aliasKeyFor } from "@/lib/restaurant/cost-workbook/repo";
+import {
+  aliasKeyFor,
+  createSupabaseCostWorkbookRepo,
+} from "@/lib/restaurant/cost-workbook/repo";
+import {
+  CATALOG_ROW_KIND,
+  answerCatalogRow,
+} from "@/lib/restaurant/price-catalog/apply";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { fetchAllRowsRetryingWithoutColumns } from "@/lib/restaurant/missing-schema-column";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
@@ -25,7 +33,7 @@ import type {
   NewCostEntry,
   VersionRef,
 } from "./editor-service";
-import type { VersionInput } from "./editor";
+import type { CatalogQuestion, VersionInput } from "./editor";
 
 function inputTable(version: VersionRef): { table: string; fk: string } {
   return version.kind === "preparation"
@@ -375,7 +383,7 @@ export function createSupabaseEditorStore(
       }
     },
 
-    async approvePreparationVersion(companyId, version) {
+    async approvePreparationVersion(companyId, version, approval) {
       if (version.kind !== "preparation" || !version.component_recipe_id) {
         throw new Error("No es una preparación.");
       }
@@ -385,18 +393,22 @@ export function createSupabaseEditorStore(
         .eq("company_id", companyId)
         .eq("component_recipe_id", version.component_recipe_id);
       if (siblings.error) throw new Error(siblings.error.message);
-      const { error } = await supabase
-        .from("component_recipe_versions")
-        .update({
+      await updateWithApprovalAudit(
+        (payload) =>
+          supabase
+            .from("component_recipe_versions")
+            .update(payload)
+            .eq("company_id", companyId)
+            .eq("id", version.id)
+            .eq("status", "in_review"),
+        {
           status: "approved",
           effective_date: effectiveDateForNewApprovedVersion(
             (siblings.data ?? []) as Array<{ status: string }>
           ),
-        })
-        .eq("company_id", companyId)
-        .eq("id", version.id)
-        .eq("status", "in_review");
-      if (error) throw new Error(error.message);
+        },
+        approval
+      );
     },
 
     async resolveHolder(companyId, holder) {
@@ -555,6 +567,57 @@ export function createSupabaseEditorStore(
         throw new Error(version.error.message);
       }
       return { id: componentId, name: String(comp.data.name) };
+    },
+
+    async catalogQuestions(companyId) {
+      const { data, error } = await supabase
+        .from("cost_import_review_items")
+        .select("id, reason, raw_values")
+        .eq("company_id", companyId)
+        .eq("status", "pending")
+        .eq("raw_values->>kind", CATALOG_ROW_KIND);
+      if (error) throw new Error(error.message);
+      const out: CatalogQuestion[] = [];
+      for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+        const raw = (row.raw_values ?? {}) as Record<string, unknown>;
+        if (typeof raw.name !== "string" || !raw.name.trim()) continue;
+        const options = (Array.isArray(raw.options) ? raw.options : [])
+          .map((o) => o as Record<string, unknown>)
+          .filter(
+            (o) =>
+              typeof o.unit === "string" &&
+              typeof o.unit_cost === "number" &&
+              o.unit_cost > 0
+          )
+          .map((o) => ({
+            unit: String(o.unit),
+            unit_cost: Number(o.unit_cost),
+          }));
+        out.push({
+          item_id: String(row.id),
+          name: raw.name,
+          ingredient_id:
+            typeof raw.ingredient_id === "string" ? raw.ingredient_id : null,
+          reason: String(row.reason ?? ""),
+          options,
+        });
+      }
+      return out;
+    },
+
+    async answerCatalogQuestion(companyId, itemId, unit) {
+      const currency =
+        (await resolveCompanyCurrency(supabase, companyId)) || "USD";
+      const result = await answerCatalogRow({
+        repo: createSupabaseCostWorkbookRepo(supabase),
+        companyId,
+        currency,
+        reviewId: itemId,
+        unit,
+      });
+      return result.ok
+        ? { ok: true, ingredientId: result.ingredientId }
+        : result;
     },
 
     async addCostEntry(companyId, entry: NewCostEntry) {

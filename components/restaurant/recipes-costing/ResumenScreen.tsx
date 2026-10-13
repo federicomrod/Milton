@@ -5,7 +5,6 @@ import type {
   RecipeCostingWorkspace,
 } from "@/lib/restaurant/recipe-costing/workspace";
 import { PriceCatalogPanel } from "./PriceCatalogPanel";
-import { Stepper } from "./Stepper";
 import { ClassifyQueuePanel, type PostFn } from "./TreatmentPanel";
 import { Card, Chip, GhostBtn, PrimaryBtn, toneForKind } from "./ui";
 
@@ -13,8 +12,7 @@ export function ResumenScreen({
   data,
   onOpen,
   onUndoBatch,
-  onGenerateSuggestions,
-  onUploadWorkbook,
+  onUploaded,
   generateBusy,
   busy,
   onPost,
@@ -22,22 +20,39 @@ export function ResumenScreen({
   data: RecipeCostingWorkspace;
   onOpen: (view: RecipeCostingView, odooProductId?: number) => void;
   onUndoBatch: (batchId: string) => void;
-  onGenerateSuggestions: () => void;
-  onUploadWorkbook: (file: File) => void;
+  /** After "Subir Excel de costos": prepare the dishes from that file. */
+  onUploaded: () => void;
   generateBusy: boolean;
   busy: boolean;
   onPost: PostFn;
 }) {
-  const { coverage, stepper, next_dish, classification } = data;
+  const { coverage, next_dish, classification } = data;
   return (
     <div className="space-y-3">
-      <Card className="p-4">
-        <Stepper steps={stepper} onOpen={onOpen} />
+      <Card className="grid gap-2 p-4 md:grid-cols-3">
+        {data.setup_checklist.map((item) => (
+          <div key={item.id} className="flex items-start gap-2">
+            <span
+              className={
+                "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold " +
+                (item.done
+                  ? "bg-[#e7f6ee] text-[#1f9d55]"
+                  : "bg-[#fff4e5] text-[#c2700a]")
+              }
+            >
+              {item.done ? "✓" : "!"}
+            </span>
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold">{item.label}</div>
+              <div className="truncate text-[11.5px] text-[#6b7385]">
+                {item.detail}
+              </div>
+            </div>
+          </div>
+        ))}
       </Card>
 
-      <PriceCatalogPanel />
-
-      <Card className="grid items-center gap-4 md:grid-cols-[1.25fr_1fr]">
+      <Card className="grid items-center gap-4 md:grid-cols-[1.4fr_1fr]">
         <div>
           <div className="text-[11.5px] font-semibold text-[#6b7385]">
             Ventas de comida con costo aprobado
@@ -52,17 +67,30 @@ export function ResumenScreen({
               {data.period_label ? ` · ${data.period_label}` : ""}
             </span>
           </div>
-          <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-[#eef0f4]">
-            {coverage.slices
-              .filter((slice) => slice.pct > 0)
-              .map((slice) => (
-                <div
-                  key={slice.id}
-                  style={{ width: `${slice.pct}%`, background: slice.color }}
-                />
-              ))}
+          <div className="relative mt-2">
+            <div className="flex h-2.5 overflow-hidden rounded-full bg-[#eef0f4]">
+              {coverage.slices
+                .filter((slice) => slice.pct > 0)
+                .map((slice) => (
+                  <div
+                    key={slice.id}
+                    style={{ width: `${slice.pct}%`, background: slice.color }}
+                  />
+                ))}
+            </div>
+            <div
+              className="absolute -top-1 h-[18px] w-0.5 bg-[#1b2333]"
+              style={{ left: `${coverage.goal_pct}%` }}
+              title={`Meta ${coverage.goal_pct}%`}
+            />
+            <div
+              className="absolute top-3.5 -translate-x-1/2 text-[10px] font-semibold text-[#1b2333]"
+              style={{ left: `${coverage.goal_pct}%` }}
+            >
+              Meta {coverage.goal_pct}%
+            </div>
           </div>
-          <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] text-[#6b7385]">
+          <div className="mt-5 flex flex-wrap gap-3 text-[11px] text-[#6b7385]">
             {coverage.slices.map((slice) => (
               <span key={slice.id} className="inline-flex items-center gap-1">
                 <i
@@ -73,11 +101,10 @@ export function ResumenScreen({
               </span>
             ))}
           </div>
-          {coverage.excluded_note ? (
-            <div className="mt-1 text-[10.5px] text-[#8a92a3]">
-              {coverage.excluded_note}
-            </div>
-          ) : null}
+          <div className="mt-1 text-[10.5px] text-[#8a92a3]">
+            {coverage.goal_note}
+            {coverage.excluded_note ? ` ${coverage.excluded_note}` : ""}
+          </div>
         </div>
         <div className="text-right">
           <div className="mb-2 text-xs text-[#5b6476]">
@@ -87,7 +114,7 @@ export function ResumenScreen({
             className="px-4 py-2 text-[13px]"
             disabled={!next_dish}
             onClick={() =>
-              next_dish && onOpen(next_dish.view, next_dish.odoo_product_id)
+              next_dish && onOpen("plato", next_dish.odoo_product_id)
             }
           >
             {next_dish?.label ?? "Nada pendiente"}
@@ -96,39 +123,15 @@ export function ResumenScreen({
             {data.last_progress}
           </div>
           <div className="mt-3 flex flex-wrap justify-end gap-2">
+            <GhostBtn onClick={() => onOpen("plato")}>Plato por plato</GhostBtn>
             <GhostBtn onClick={() => onOpen("preparaciones")}>
               Preparaciones
             </GhostBtn>
-            <GhostBtn disabled={generateBusy} onClick={onGenerateSuggestions}>
-              {generateBusy
-                ? "Generando sugerencias…"
-                : "Generar sugerencias desde tu archivo"}
-            </GhostBtn>
-            <label className="inline-flex cursor-pointer items-center">
-              <input
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) onUploadWorkbook(file);
-                  event.target.value = "";
-                }}
-              />
-              <span className="inline-flex">
-                <GhostBtn disabled={generateBusy}>Cargar recetas</GhostBtn>
-              </span>
-            </label>
-          </div>
-          <div className="mt-1 text-left text-[10.5px] text-[#8a92a3]">
-            {data.latest_upload?.has_candidate_blocks
-              ? `Usa ${data.latest_upload.filename}. Milton propone; tú confirmas.`
-              : data.latest_upload
-                ? `Ya subiste ${data.latest_upload.filename}, pero no tiene recetas guardadas. Súbelo otra vez en «Lista de precios de tus ingredientes» o con «Cargar recetas».`
-                : "Primero sube tu archivo en «Lista de precios de tus ingredientes»."}
           </div>
         </div>
       </Card>
+
+      <PriceCatalogPanel onUploaded={onUploaded} busyExternal={generateBusy} />
 
       <ClassifyQueuePanel
         rows={data.classify_queue}

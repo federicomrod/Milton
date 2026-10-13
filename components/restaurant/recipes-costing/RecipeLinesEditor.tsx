@@ -337,6 +337,14 @@ export function RecipeLinesEditor({
                   ? () => onOpenPreparation(line.component_id!)
                   : undefined
               }
+              onCatalogUnit={(itemId, unit, lineKey) =>
+                void send({
+                  action: "answer_catalog_unit",
+                  item_id: itemId,
+                  unit,
+                  ...(lineKey ? { line_key: lineKey } : {}),
+                })
+              }
               onPrice={(unit, cost) =>
                 void send({
                   action: "set_price",
@@ -425,6 +433,7 @@ function Row({
   onAnswerUnit,
   onOpenPreparation,
   onPrice,
+  onCatalogUnit,
 }: {
   line: EditorLine;
   editable: boolean;
@@ -437,6 +446,7 @@ function Row({
   onAnswerUnit: (unit: string) => void;
   onOpenPreparation?: () => void;
   onPrice: (unit: string, cost: number) => void;
+  onCatalogUnit: (itemId: string, unit: string, lineKey?: string) => void;
 }) {
   const [qty, setQty] = useState(String(line.qty || ""));
   const [price, setPrice] = useState("");
@@ -454,9 +464,35 @@ function Row({
         {unresolved ? (
           <>
             <b>{line.raw_name}</b>
-            <div className="text-[10.5px] text-[#a35a00]">
-              No está en tu lista. Elige cuál es.
-            </div>
+            {line.catalog_question ? (
+              <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[11px]">
+                Está en tu lista de precios, pero no dice en qué unidad viene el
+                precio. ¿Cuál es?
+                {editable ? (
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {line.catalog_question.options.map((option) => (
+                      <GhostBtn
+                        key={option.unit}
+                        onClick={() =>
+                          onCatalogUnit(
+                            line.catalog_question!.item_id,
+                            option.unit,
+                            line.key
+                          )
+                        }
+                      >
+                        {money(option.unit_cost)} por{" "}
+                        {UNIT_LABEL[option.unit] ?? option.unit}
+                      </GhostBtn>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="text-[10.5px] text-[#a35a00]">
+                No está en tu lista. Elige cuál es.
+              </div>
+            )}
             {editable ? (
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {line.possible_match ? (
@@ -569,6 +605,28 @@ function Row({
       <td className="py-1.5 text-right align-top">
         {unresolved ? (
           "—"
+        ) : line.kind === "ingredient" &&
+          !line.price &&
+          line.catalog_question ? (
+          <div className="text-left text-[11px]">
+            <div className="text-[#a35a00]">
+              Tu lista no deja clara la unidad. ¿Cuál es?
+            </div>
+            <div className="mt-1 flex flex-wrap justify-end gap-1">
+              {line.catalog_question.options.map((option) => (
+                <GhostBtn
+                  key={option.unit}
+                  disabled={!editable}
+                  onClick={() =>
+                    onCatalogUnit(line.catalog_question!.item_id, option.unit)
+                  }
+                >
+                  {money(option.unit_cost)} por{" "}
+                  {UNIT_LABEL[option.unit] ?? option.unit}
+                </GhostBtn>
+              ))}
+            </div>
+          </div>
         ) : line.kind === "ingredient" && !line.price ? (
           <div className="flex items-center justify-end gap-1">
             <input

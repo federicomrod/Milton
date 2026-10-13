@@ -66,7 +66,8 @@ export async function POST(
           quantity: body.quantity,
           total_cost: body.total_cost,
           cost_date: body.cost_date,
-        }
+        },
+        auth.userId
       );
       if (!result.ok) {
         return NextResponse.json({ error: result.reason }, { status: 400 });

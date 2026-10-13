@@ -357,7 +357,8 @@ export function mergeTypoDuplicates(
         tabName: winner.tabName,
         rowIndex: winner.rowIndex,
         reason: possibleIngredientMatchReason(lang, suggestedName),
-        raw: winner.raw,
+        // Keep what was typed so a confirmed match can be remembered.
+        raw: { ...winner.raw, typed_name: winner.ingredient_name },
         suggested: {
           ingredient_name: suggestedName,
           unit: winner.unit,

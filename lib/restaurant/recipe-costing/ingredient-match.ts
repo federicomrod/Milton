@@ -22,12 +22,23 @@ export type IngredientNameMatch =
   | { kind: "ambiguous" }
   | { kind: "none" };
 
+/**
+ * `aliases` are names a person already confirmed (normalised alias ->
+ * ingredient id). A remembered alias counts as an exact match.
+ */
 export function matchExistingIngredient(
   name: string,
-  catalog: readonly CatalogIngredientRef[]
+  catalog: readonly CatalogIngredientRef[],
+  aliases?: ReadonlyMap<string, string>
 ): IngredientNameMatch {
   const key = normalizeMatchName(name);
   if (!key) return { kind: "none" };
+
+  const remembered = aliases?.get(key);
+  if (remembered) {
+    const target = catalog.find((item) => item.id === remembered);
+    if (target) return { kind: "exact", ingredient: target };
+  }
 
   const exact = catalog.filter((item) => normalizeMatchName(item.name) === key);
   if (exact.length === 1) return { kind: "exact", ingredient: exact[0] };

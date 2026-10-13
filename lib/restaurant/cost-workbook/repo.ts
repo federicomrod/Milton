@@ -363,6 +363,39 @@ export interface CostWorkbookRepo {
   hasWorkbookCostColumns(companyId: string): Promise<boolean>;
   /** False when migration 036 variance / date columns are missing. */
   hasImportCosting036Columns(companyId: string): Promise<boolean>;
+  /** False when migration 039 (chosen cost + ingredient_aliases) is missing. */
+  hasPriceCatalog039(companyId: string): Promise<boolean>;
+  listIngredientAliases(companyId: string): Promise<IngredientAliasRecord[]>;
+  /** Remember that a name means an existing ingredient. Per company. */
+  upsertIngredientAlias(input: {
+    companyId: string;
+    aliasName: string;
+    ingredientId: string;
+    createdBy?: string | null;
+  }): Promise<void>;
+  /** Record which cost entry a person chose for an ingredient. */
+  setIngredientChosenCost(input: {
+    companyId: string;
+    ingredientId: string;
+    costEntryId: string;
+    chosenBy: string | null;
+  }): Promise<void>;
+}
+
+export interface IngredientAliasRecord {
+  alias_key: string;
+  alias_name: string;
+  ingredient_id: string;
+}
+
+/** Same normalisation the alias table stores: upper case, no accents. */
+export function aliasKeyFor(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function asPosProductLink(row: Record<string, unknown>): PosProductLinkRecord {
@@ -1889,6 +1922,73 @@ export function createSupabaseCostWorkbookRepo(
       if (!error) return true;
       if (errorMentionsColumn(error, "workbook_variance_amount")) return false;
       throw new Error(error.message);
+    },
+
+    async hasPriceCatalog039(companyId) {
+      const cols = await supabase
+        .from("ingredients")
+        .select("id, chosen_cost_entry_id")
+        .eq("company_id", companyId)
+        .limit(1);
+      if (cols.error) {
+        if (errorMentionsColumn(cols.error, "chosen_cost_entry_id")) {
+          return false;
+        }
+        throw new Error(cols.error.message);
+      }
+      const table = await supabase
+        .from("ingredient_aliases")
+        .select("id")
+        .eq("company_id", companyId)
+        .limit(1);
+      if (table.error) {
+        const text = `${table.error.message} ${table.error.code ?? ""}`;
+        if (/ingredient_aliases|42P01|PGRST205/i.test(text)) return false;
+        throw new Error(table.error.message);
+      }
+      return true;
+    },
+
+    async listIngredientAliases(companyId) {
+      const { data, error } = await supabase
+        .from("ingredient_aliases")
+        .select("alias_key, alias_name, ingredient_id")
+        .eq("company_id", companyId);
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        alias_key: String(row.alias_key),
+        alias_name: String(row.alias_name),
+        ingredient_id: String(row.ingredient_id),
+      }));
+    },
+
+    async upsertIngredientAlias(input) {
+      const key = aliasKeyFor(input.aliasName);
+      if (!key) return;
+      const { error } = await supabase.from("ingredient_aliases").upsert(
+        {
+          company_id: input.companyId,
+          alias_key: key,
+          alias_name: input.aliasName.trim(),
+          ingredient_id: input.ingredientId,
+          created_by: input.createdBy ?? null,
+        },
+        { onConflict: "company_id,alias_key" }
+      );
+      if (error) throw new Error(error.message);
+    },
+
+    async setIngredientChosenCost(input) {
+      const { error } = await supabase
+        .from("ingredients")
+        .update({
+          chosen_cost_entry_id: input.costEntryId,
+          chosen_by: input.chosenBy,
+          chosen_at: new Date().toISOString(),
+        })
+        .eq("company_id", input.companyId)
+        .eq("id", input.ingredientId);
+      if (error) throw new Error(error.message);
     },
 
     async listPosProductLinks(companyId, locationId) {

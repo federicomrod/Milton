@@ -1,0 +1,583 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CostConflict } from "@/lib/restaurant/price-catalog/conflicts";
+import type {
+  CatalogUnit,
+  PriceCatalogRow,
+} from "@/lib/restaurant/price-catalog/reader";
+import { Card, Chip, GhostBtn, PrimaryBtn } from "./ui";
+
+const UNIT_LABEL: Record<CatalogUnit, string> = {
+  oz: "onza",
+  lb: "libra",
+  unit: "unidad",
+  g: "gramo",
+};
+
+function money(value: number): string {
+  const text = value >= 1 ? value.toFixed(2) : value.toPrecision(3);
+  return `$${Number(text)}`;
+}
+
+interface Preview {
+  sheet: string;
+  rows: PriceCatalogRow[];
+  conflicts: CostConflict[];
+  summary: {
+    rows: number;
+    ready: number;
+    need_decision: number;
+    preparations: number;
+    conflicts: number;
+  };
+}
+
+interface Saved {
+  batch_id: string;
+  saved: number;
+  ingredients_created: number;
+  pending_rows: number;
+  preparations_left_out: number;
+  conflicts_decided: number;
+  conflicts_open: number;
+}
+
+interface OpenConflict {
+  id: string;
+  name: string;
+  catalog: { unit: CatalogUnit; unitCost: number };
+  candidates: Array<{
+    unit: CatalogUnit;
+    unitCost: number;
+    lines: number;
+    recipes: number;
+  }>;
+}
+
+async function postJson(url: string, body: unknown) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    throw new Error(
+      typeof json.error === "string" ? json.error : "No pude guardar."
+    );
+  }
+  return json;
+}
+
+export function PriceCatalogPanel() {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [saved, setSaved] = useState<Saved | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [units, setUnits] = useState<Record<string, CatalogUnit>>({});
+  const [asIngredient, setAsIngredient] = useState<Record<string, boolean>>({});
+  const [conflictChoice, setConflictChoice] = useState<
+    Record<string, "catalog" | number>
+  >({});
+  const [reviewedUnits, setReviewedUnits] = useState(false);
+  const [open, setOpen] = useState<OpenConflict[]>([]);
+
+  const loadOpen = useCallback(async () => {
+    try {
+      const res = await fetch(
+        "/api/restaurant/recipes/price-catalog/conflicts"
+      );
+      if (!res.ok) return;
+      const json = (await res.json()) as { conflicts?: OpenConflict[] };
+      setOpen(json.conflicts ?? []);
+    } catch {
+      // The panel works without the list; it just won't show open items.
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadOpen();
+  }, [loadOpen]);
+
+  const { check, ambiguous, preps, problems } = useMemo(() => {
+    const rows = preview?.rows ?? [];
+    return {
+      check: rows.filter(
+        (r) => r.kind === "ingredient" && r.status === "check_unit"
+      ),
+      ambiguous: rows.filter(
+        (r) => r.kind === "ingredient" && r.status === "ambiguous_unit"
+      ),
+      preps: rows.filter((r) => r.kind === "preparation"),
+      problems: rows.filter(
+        (r) =>
+          r.kind === "ingredient" &&
+          (r.status === "error_cell" || r.status === "no_price")
+      ),
+    };
+  }, [preview]);
+
+  async function readFile(next: File) {
+    setFile(next);
+    setBusy(true);
+    setError(null);
+    setSaved(null);
+    try {
+      const form = new FormData();
+      form.append("file", next);
+      form.append("mode", "preview");
+      const res = await fetch("/api/restaurant/recipes/price-catalog", {
+        method: "POST",
+        body: form,
+      });
+      const json = (await res.json()) as Preview & { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "No pude leer el archivo.");
+      setPreview(json);
+      const initial: Record<string, CatalogUnit> = {};
+      for (const row of json.rows) {
+        if (row.status === "check_unit" && row.unit)
+          initial[row.key] = row.unit;
+      }
+      setUnits(initial);
+      setAsIngredient({});
+      setConflictChoice({});
+      setReviewedUnits(false);
+    } catch (err) {
+      setPreview(null);
+      setError(err instanceof Error ? err.message : "No pude leer el archivo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const unitsComplete = ambiguous.every((r) => units[r.key]);
+  const canSave =
+    !!file &&
+    !!preview &&
+    !busy &&
+    unitsComplete &&
+    (check.length === 0 || reviewedUnits);
+
+  async function save() {
+    if (!file || !preview) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const rows: Record<string, unknown> = {};
+      for (const row of [...check, ...ambiguous]) {
+        const unit = units[row.key];
+        if (unit) rows[row.key] = { unit };
+      }
+      for (const row of preps) {
+        if (asIngredient[row.key]) {
+          rows[row.key] = { ...(rows[row.key] as object), kind: "ingredient" };
+        }
+      }
+      const form = new FormData();
+      form.append("file", file);
+      form.append("mode", "apply");
+      form.append(
+        "decisions",
+        JSON.stringify({ rows, conflicts: conflictChoice })
+      );
+      const res = await fetch("/api/restaurant/recipes/price-catalog", {
+        method: "POST",
+        body: form,
+      });
+      const json = (await res.json()) as Saved & { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "No pude guardar la lista.");
+      setSaved(json);
+      setPreview(null);
+      setFile(null);
+      void loadOpen();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No pude guardar la lista."
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function undo(batchId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await postJson(`/api/restaurant/costs/batches/${batchId}/undo`, {});
+      setSaved(null);
+      void loadOpen();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No pude deshacer.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resolve(id: string, choice: "catalog" | number) {
+    setBusy(true);
+    setError(null);
+    try {
+      await postJson(`/api/restaurant/recipes/price-catalog/conflicts/${id}`, {
+        choice,
+      });
+      await loadOpen();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No pude guardar tu decisión."
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-[15px] font-semibold">
+          Lista de precios de tus ingredientes
+        </h2>
+        <span className="text-[11.5px] text-[#8a92a3]">
+          De aquí salen los precios que usan tus recetas
+        </span>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".xlsx,.xls"
+          className="hidden"
+          onChange={(event) => {
+            const next = event.target.files?.[0];
+            if (next) void readFile(next);
+            event.target.value = "";
+          }}
+        />
+        <GhostBtn
+          className="ml-auto"
+          disabled={busy}
+          onClick={() => fileRef.current?.click()}
+        >
+          {preview || saved
+            ? "Elegir otro archivo"
+            : "Elegir archivo de costos"}
+        </GhostBtn>
+      </div>
+
+      {error ? (
+        <div className="rounded-md border border-[#f1c0c0] bg-[#fdecec] px-3 py-2 text-xs text-[#c03535]">
+          {error}
+        </div>
+      ) : null}
+
+      {!preview && !saved ? (
+        <p className="text-xs text-[#5b6476]">
+          Sube tu archivo de costos. Milton lee la hoja con tus precios (ITEM,
+          LIBRA, ONZA, PRECIO UNITARIO) y solo te pregunta lo que no puede saber
+          por sí solo. No se guarda nada hasta que lo confirmes.
+        </p>
+      ) : null}
+
+      {busy && !preview ? (
+        <p className="text-xs text-[#5b6476]">Leyendo tu archivo…</p>
+      ) : null}
+
+      {preview ? (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2 text-[11.5px]">
+            <Chip tone="ok">{preview.summary.ready} listos</Chip>
+            {check.length + ambiguous.length > 0 ? (
+              <Chip tone="warn">
+                {check.length + ambiguous.length} por confirmar
+              </Chip>
+            ) : null}
+            {preview.summary.preparations > 0 ? (
+              <Chip tone="pur">
+                {preview.summary.preparations} parecen preparaciones
+              </Chip>
+            ) : null}
+            {preview.summary.conflicts > 0 ? (
+              <Chip tone="sug">{preview.summary.conflicts} con dos costos</Chip>
+            ) : null}
+            {problems.length > 0 ? (
+              <Chip tone="bad">{problems.length} sin precio usable</Chip>
+            ) : null}
+          </div>
+
+          {ambiguous.length > 0 ? (
+            <section className="space-y-1.5">
+              <h3 className="text-[12.5px] font-semibold">
+                ¿En qué unidad viene este precio?
+              </h3>
+              <p className="text-[11.5px] text-[#6b7385]">
+                Tu archivo no lo dice con claridad. Elige una opción para cada
+                ingrediente.
+              </p>
+              {ambiguous.map((row) => (
+                <div
+                  key={row.key}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs"
+                >
+                  <span className="min-w-40 font-semibold">{row.name}</span>
+                  {row.options.map((option) => (
+                    <label
+                      key={option.unit}
+                      className="inline-flex items-center gap-1"
+                    >
+                      <input
+                        type="radio"
+                        name={row.key}
+                        checked={units[row.key] === option.unit}
+                        onChange={() =>
+                          setUnits((prev) => ({
+                            ...prev,
+                            [row.key]: option.unit,
+                          }))
+                        }
+                      />
+                      {money(option.unitCost)} por {UNIT_LABEL[option.unit]}
+                    </label>
+                  ))}
+                </div>
+              ))}
+            </section>
+          ) : null}
+
+          {check.length > 0 ? (
+            <section className="space-y-1.5">
+              <h3 className="text-[12.5px] font-semibold">
+                Revisa estas unidades
+              </h3>
+              <p className="text-[11.5px] text-[#6b7385]">
+                El precio por onza sale de dividir entre algo distinto de 16.
+                Puede ser por pieza o por un paquete de otro tamaño.
+              </p>
+              <div className="max-h-56 overflow-auto rounded-lg border border-slate-200">
+                {check.map((row) => (
+                  <div
+                    key={row.key}
+                    className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-2.5 py-1 text-xs last:border-b-0"
+                  >
+                    <span className="min-w-40 font-semibold">{row.name}</span>
+                    <span className="text-[#8a92a3]">
+                      {row.packagePrice !== null && row.divisor !== null
+                        ? `${money(row.packagePrice)} ÷ ${Number(row.divisor.toFixed(1))}`
+                        : ""}
+                    </span>
+                    {row.options.map((option) => (
+                      <label
+                        key={option.unit}
+                        className="inline-flex items-center gap-1"
+                      >
+                        <input
+                          type="radio"
+                          name={row.key}
+                          checked={units[row.key] === option.unit}
+                          onChange={() =>
+                            setUnits((prev) => ({
+                              ...prev,
+                              [row.key]: option.unit,
+                            }))
+                          }
+                        />
+                        {money(option.unitCost)} por {UNIT_LABEL[option.unit]}
+                      </label>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={reviewedUnits}
+                  onChange={(event) => setReviewedUnits(event.target.checked)}
+                />
+                Revisé estas unidades
+              </label>
+            </section>
+          ) : null}
+
+          {preview.conflicts.length > 0 ? (
+            <section className="space-y-1.5">
+              <h3 className="text-[12.5px] font-semibold">
+                Encontramos dos costos para algunos ingredientes
+              </h3>
+              <p className="text-[11.5px] text-[#6b7385]">
+                Elige cuál usar. Si lo dejas sin elegir, usamos el de la lista y
+                te lo recordamos.
+              </p>
+              <div className="max-h-64 overflow-auto rounded-lg border border-slate-200">
+                {preview.conflicts.map((conflict) => (
+                  <div
+                    key={conflict.key}
+                    className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-2.5 py-1.5 text-xs last:border-b-0"
+                  >
+                    <span className="min-w-40 font-semibold">
+                      {conflict.name}
+                    </span>
+                    <label className="inline-flex items-center gap-1">
+                      <input
+                        type="radio"
+                        name={`c-${conflict.key}`}
+                        checked={conflictChoice[conflict.key] === "catalog"}
+                        onChange={() =>
+                          setConflictChoice((prev) => ({
+                            ...prev,
+                            [conflict.key]: "catalog",
+                          }))
+                        }
+                      />
+                      Lista {money(conflict.catalog.unitCost)}/
+                      {UNIT_LABEL[conflict.catalog.unit]}
+                    </label>
+                    {conflict.candidates.map((candidate, index) => (
+                      <label
+                        key={index}
+                        className="inline-flex items-center gap-1"
+                      >
+                        <input
+                          type="radio"
+                          name={`c-${conflict.key}`}
+                          checked={conflictChoice[conflict.key] === index}
+                          onChange={() =>
+                            setConflictChoice((prev) => ({
+                              ...prev,
+                              [conflict.key]: index,
+                            }))
+                          }
+                        />
+                        Recetas {money(candidate.unitCost)}/
+                        {UNIT_LABEL[candidate.unit]} ({candidate.recipes}{" "}
+                        {candidate.recipes === 1 ? "plato" : "platos"})
+                      </label>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {preps.length > 0 ? (
+            <section className="space-y-1.5">
+              <h3 className="text-[12.5px] font-semibold">
+                Parecen preparaciones de tu cocina
+              </h3>
+              <p className="text-[11.5px] text-[#6b7385]">
+                No se guardan como ingredientes: su costo sale de su propia
+                receta. Marca las que sí compras ya hechas.
+              </p>
+              <div className="max-h-40 overflow-auto rounded-lg border border-slate-200">
+                {preps.map((row) => (
+                  <label
+                    key={row.key}
+                    className="flex items-center gap-2 border-b border-slate-100 px-2.5 py-1 text-xs last:border-b-0"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={asIngredient[row.key] === true}
+                      onChange={(event) =>
+                        setAsIngredient((prev) => ({
+                          ...prev,
+                          [row.key]: event.target.checked,
+                        }))
+                      }
+                    />
+                    {row.name}
+                    {row.unitCost !== null && row.unit ? (
+                      <span className="text-[#8a92a3]">
+                        {money(row.unitCost)}/{UNIT_LABEL[row.unit]}
+                      </span>
+                    ) : null}
+                  </label>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {problems.length > 0 ? (
+            <p className="text-[11.5px] text-[#a35a00]">
+              {problems.length} filas no se guardan porque no traen un precio
+              usable (celda con error o vacía). Corrígelas en tu archivo y
+              vuelve a subirlo cuando quieras.
+            </p>
+          ) : null}
+
+          <div className="flex items-center gap-2">
+            <PrimaryBtn disabled={!canSave} onClick={() => void save()}>
+              Guardar lista de precios
+            </PrimaryBtn>
+            {!canSave && !busy ? (
+              <span className="text-[11.5px] text-[#8a92a3]">
+                {!unitsComplete
+                  ? "Elige la unidad de cada ingrediente de arriba."
+                  : check.length > 0 && !reviewedUnits
+                    ? "Marca que revisaste las unidades."
+                    : ""}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {saved ? (
+        <div className="rounded-lg border border-[#cfe9d9] bg-[#f1faf5] px-3 py-2 text-xs text-[#1f7a45]">
+          Guardamos {saved.saved} precios
+          {saved.ingredients_created > 0
+            ? ` (${saved.ingredients_created} ingredientes nuevos)`
+            : ""}
+          .
+          {saved.pending_rows > 0
+            ? ` ${saved.pending_rows} filas quedaron pendientes.`
+            : ""}
+          {saved.conflicts_open > 0
+            ? ` ${saved.conflicts_open} costos esperan tu decisión abajo.`
+            : ""}{" "}
+          <button
+            type="button"
+            className="font-semibold underline"
+            disabled={busy}
+            onClick={() => void undo(saved.batch_id)}
+          >
+            Deshacer esta carga
+          </button>
+        </div>
+      ) : null}
+
+      {open.length > 0 ? (
+        <section className="space-y-1.5">
+          <h3 className="text-[12.5px] font-semibold">
+            Costos por decidir ({open.length})
+          </h3>
+          <div className="rounded-lg border border-slate-200">
+            {open.map((item) => (
+              <div
+                key={item.id}
+                className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-2.5 py-1.5 text-xs last:border-b-0"
+              >
+                <span className="min-w-40 font-semibold">{item.name}</span>
+                <GhostBtn
+                  disabled={busy}
+                  onClick={() => void resolve(item.id, "catalog")}
+                >
+                  Usar lista {money(item.catalog.unitCost)}/
+                  {UNIT_LABEL[item.catalog.unit]}
+                </GhostBtn>
+                {item.candidates.map((candidate, index) => (
+                  <GhostBtn
+                    key={index}
+                    disabled={busy}
+                    onClick={() => void resolve(item.id, index)}
+                  >
+                    Usar recetas {money(candidate.unitCost)}/
+                    {UNIT_LABEL[candidate.unit]} ({candidate.recipes}{" "}
+                    {candidate.recipes === 1 ? "plato" : "platos"})
+                  </GhostBtn>
+                ))}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </Card>
+  );
+}

@@ -37,7 +37,8 @@ import {
 import { reconcileImportedWorkbookCosts } from "./workbook-match";
 import { mapPool, WORKBOOK_AI_CONCURRENCY } from "./pool";
 import { matchesPreparedName, preparedNamesFromGroups } from "./prepared";
-import type { CostWorkbookRepo } from "./repo";
+import { normalizeMatchName } from "./names";
+import { aliasKeyFor, type CostWorkbookRepo } from "./repo";
 import { collectRecipeLines } from "./recipes";
 import { mappingPassesSanity } from "./sanity";
 import { readWorkbookSheets } from "./sheets";
@@ -706,8 +707,19 @@ export async function importCostWorkbook(input: {
   const previousImportedIds = importedIngredientIdsFromBatches(
     await input.repo.listBatches(input.companyId)
   );
+  // Names a person already confirmed ("this typed name is that
+  // ingredient") are applied instead of asking again.
+  const remembered = await loadRememberedAliases(
+    input.repo,
+    input.companyId,
+    existingIngredients
+  );
+  const dedupedRows = deduped.rows.map((row) => {
+    const canonical = remembered.byKey.get(aliasKeyFor(row.ingredient_name));
+    return canonical ? { ...row, ingredient_name: canonical } : row;
+  });
   const merged = mergeTypoDuplicates(
-    deduped.rows,
+    dedupedRows,
     existingIngredients.map((item) => ({
       name: item.name,
       default_unit: item.default_unit,
@@ -794,7 +806,7 @@ export async function importCostWorkbook(input: {
       currency: input.currency,
       groups: recipeGroups,
       repo: input.repo,
-      aliases: merged.aliases,
+      aliases: new Map([...remembered.forLookup, ...merged.aliases]),
       locationId: input.locationId ?? null,
       brandId: input.brandId ?? null,
       lang,
@@ -1153,12 +1165,19 @@ export async function approveReviewItem(
     quantity?: number | unknown;
     total_cost?: number | unknown;
     cost_date?: string;
-  }
+  },
+  userId?: string | null
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const item = await repo.getReviewItem(companyId, reviewId);
   if (!item) return { ok: false, reason: "Review item not found" };
   if (item.status !== "pending") {
     return { ok: false, reason: "Review item already resolved" };
+  }
+  if (item.raw_values.kind === "cost_conflict") {
+    return {
+      ok: false,
+      reason: "Esta decisión se resuelve eligiendo uno de los dos costos.",
+    };
   }
   const batch = await repo.getBatch(companyId, item.batch_id);
   if (!batch) return { ok: false, reason: "Import batch not found" };
@@ -1264,9 +1283,79 @@ export async function approveReviewItem(
     item.batch_id,
     mergeUndoSnapshots(batch.undo_snapshot, persistStats.changes)
   );
+  await rememberConfirmedName({
+    repo,
+    companyId,
+    typedName: item.raw_values.typed_name,
+    chosenName: name,
+    userId: userId ?? null,
+  });
   await repo.updateReviewItem(companyId, reviewId, {
     status: "approved",
     resolved_at: new Date().toISOString(),
   });
   return { ok: true };
+}
+
+interface RememberedAliases {
+  /** aliasKeyFor(alias) -> ingredient name (for price rows). */
+  byKey: Map<string, string>;
+  /** Keys `resolveAliasName` looks up -> ingredient name (recipe lines). */
+  forLookup: Map<string, string>;
+}
+
+/** Best effort: no table yet (migration 039 pending) means no memory. */
+async function loadRememberedAliases(
+  repo: CostWorkbookRepo,
+  companyId: string,
+  ingredients: ReadonlyArray<{ id: string; name: string }>
+): Promise<RememberedAliases> {
+  const out: RememberedAliases = { byKey: new Map(), forLookup: new Map() };
+  try {
+    const rows = await repo.listIngredientAliases(companyId);
+    const nameById = new Map(ingredients.map((row) => [row.id, row.name]));
+    for (const row of rows) {
+      const name = nameById.get(row.ingredient_id);
+      if (!name) continue;
+      out.byKey.set(row.alias_key, name);
+      out.forLookup.set(row.alias_name.trim().toLowerCase(), name);
+      out.forLookup.set(normalizeMatchName(row.alias_name), name);
+    }
+  } catch {
+    // Table not there yet: nothing remembered.
+  }
+  return out;
+}
+
+/**
+ * When a person confirms "this typed name is that ingredient", remember
+ * it for the company so the question is not asked again. Best effort: a
+ * missing alias table (migration 039 not applied yet) never blocks the
+ * approval itself.
+ */
+async function rememberConfirmedName(input: {
+  repo: CostWorkbookRepo;
+  companyId: string;
+  typedName: unknown;
+  chosenName: string;
+  userId: string | null;
+}): Promise<void> {
+  const typed = typeof input.typedName === "string" ? input.typedName : "";
+  if (!typed.trim()) return;
+  if (aliasKeyFor(typed) === aliasKeyFor(input.chosenName)) return;
+  try {
+    const ingredients = await input.repo.listIngredients(input.companyId);
+    const target = ingredients.find(
+      (row) => aliasKeyFor(row.name) === aliasKeyFor(input.chosenName)
+    );
+    if (!target) return;
+    await input.repo.upsertIngredientAlias({
+      companyId: input.companyId,
+      aliasName: typed,
+      ingredientId: target.id,
+      createdBy: input.userId,
+    });
+  } catch (err) {
+    console.error("[cost-workbook alias]", err);
+  }
 }

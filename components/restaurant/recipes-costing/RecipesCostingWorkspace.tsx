@@ -16,6 +16,9 @@ import { ValidarScreen } from "./ValidarScreen";
 import { VincularScreen } from "./VincularScreen";
 import { PrimaryBtn } from "./ui";
 
+/** Dishes per request when generating suggestions. */
+const SUGGESTION_CHUNK = 5;
+
 function viewFromParam(
   value: string | null,
   fallback: RecipeCostingView
@@ -48,6 +51,11 @@ export function RecipesCostingWorkspace({
     product?: VincularProductRow;
   } | null>(null);
   const [workbookBusy, setWorkbookBusy] = useState(false);
+  const [progress, setProgress] = useState<{
+    done: number;
+    total: number | null;
+  } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const view = viewFromParam(searchParams.get("vista"), data.view);
   const selectedId = searchParams.get("producto")
@@ -133,52 +141,79 @@ export function RecipesCostingWorkspace({
     );
   }
 
-  async function runWorkbook(file: File) {
+  /**
+   * Generate suggestions a few dishes at a time (top sellers first), so no
+   * single request runs long and one failure never loses earlier work.
+   */
+  async function runSuggestions(file?: File) {
+    const url = "/api/restaurant/recipes/suggestions";
     setWorkbookBusy(true);
     setError(null);
+    setNotice(null);
+    const totals = { suggested: 0, sinSugerencia: 0, skipped: 0 };
+    let offset = 0;
+    let total: number | null = null;
+    let pendingFile = file;
     try {
-      const form = new FormData();
-      form.set("file", file);
-      const res = await fetch("/api/restaurant/recipes/suggestions", {
-        method: "POST",
-        body: form,
-      });
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok)
-        throw new Error(json.error ?? "No pude generar las sugerencias.");
+      for (let guard = 0; guard < 40; guard++) {
+        setProgress({ done: offset, total });
+        let res: Response;
+        if (pendingFile) {
+          const form = new FormData();
+          form.set("file", pendingFile);
+          form.set("limit", String(SUGGESTION_CHUNK));
+          form.set("offset", String(offset));
+          res = await fetch(url, { method: "POST", body: form });
+          pendingFile = undefined;
+        } else {
+          res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              source: "latest_upload",
+              limit: SUGGESTION_CHUNK,
+              offset,
+            }),
+          });
+        }
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          suggested?: number;
+          sin_sugerencia?: number;
+          skipped?: number;
+          total?: number;
+          next_offset?: number | null;
+        };
+        if (!res.ok) {
+          throw new Error(json.error ?? "No pude generar las sugerencias.");
+        }
+        totals.suggested += json.suggested ?? 0;
+        totals.sinSugerencia += json.sin_sugerencia ?? 0;
+        totals.skipped += json.skipped ?? 0;
+        total = json.total ?? total;
+        if (json.next_offset == null) break;
+        offset = json.next_offset;
+      }
+      setNotice(
+        `Listo: ${totals.suggested} ${totals.suggested === 1 ? "plato sugerido" : "platos sugeridos"}` +
+          `, ${totals.sinSugerencia} sin sugerencia` +
+          (totals.skipped > 0
+            ? `, ${totals.skipped} ya resueltos o con receta propia.`
+            : ".")
+      );
       await reload();
     } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "No pude generar las sugerencias.";
       setError(
-        err instanceof Error ? err.message : "No pude generar las sugerencias."
+        totals.suggested > 0
+          ? `${message} Lo que ya se generó (${totals.suggested} platos) quedó guardado.`
+          : message
       );
+      await reload().catch(() => undefined);
     } finally {
       setWorkbookBusy(false);
-    }
-  }
-
-  async function generateFromStoredUpload() {
-    setWorkbookBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/restaurant/recipes/suggestions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: "latest_upload", limit: 20 }),
-      });
-      const json = (await res.json()) as {
-        error?: string;
-        suggested?: number;
-        sin_sugerencia?: number;
-      };
-      if (!res.ok)
-        throw new Error(json.error ?? "No pude generar las sugerencias.");
-      await reload();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No pude generar las sugerencias."
-      );
-    } finally {
-      setWorkbookBusy(false);
+      setProgress(null);
     }
   }
 
@@ -218,6 +253,18 @@ export function RecipesCostingWorkspace({
           {error}
         </div>
       ) : null}
+      {progress ? (
+        <div className="mb-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+          Generando sugerencias…{" "}
+          {progress.total
+            ? `${Math.min(progress.done, progress.total)} de ${progress.total} platos (los que más venden primero)`
+            : "empezando por los platos que más venden"}
+        </div>
+      ) : notice ? (
+        <div className="mb-3 rounded-lg border border-[#cfe9d9] bg-[#f1faf5] px-3 py-2 text-sm text-[#1f7a45]">
+          {notice}
+        </div>
+      ) : null}
 
       {view === "vincular" ? (
         <VincularScreen
@@ -225,7 +272,7 @@ export function RecipesCostingWorkspace({
           selectedId={selectedId}
           onSelect={(id) => replaceParams({ vista: "vincular", producto: id })}
           onConfirm={(product) => void confirmProduct(product)}
-          onGenerateSuggestions={() => void generateFromStoredUpload()}
+          onGenerateSuggestions={() => void runSuggestions()}
           generateBusy={workbookBusy}
           onChange={(product, menuItemId) =>
             void mutate(() =>
@@ -315,8 +362,8 @@ export function RecipesCostingWorkspace({
         <ResumenScreen
           data={data}
           onOpen={open}
-          onGenerateSuggestions={() => void generateFromStoredUpload()}
-          onUploadWorkbook={(file) => void runWorkbook(file)}
+          onGenerateSuggestions={() => void runSuggestions()}
+          onUploadWorkbook={(file) => void runSuggestions(file)}
           generateBusy={workbookBusy}
           onUndoBatch={(batchId) =>
             void mutate(async () => {

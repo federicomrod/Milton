@@ -8,8 +8,8 @@ import { collectWorkbookCandidateBlocks } from "@/lib/restaurant/cost-workbook/c
 import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
 import { runRecipeSuggestions } from "@/lib/restaurant/cost-workbook/recipe-suggestion";
 import {
-  candidateBlocksFromUnknown,
   expandCandidateBlocks,
+  findRecipeSource,
 } from "@/lib/restaurant/cost-workbook/stored-blocks";
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
 import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
@@ -21,7 +21,7 @@ import type { PreferredLanguage } from "@/lib/restaurant/language";
 import type { GroupedRecipe } from "@/lib/restaurant/cost-workbook/types";
 
 export const NO_STORED_BLOCKS_ERROR =
-  "No hay un archivo de Costos parseado. Vuelve a subirlo en Costos › Subir costos y después pulsa Generar sugerencias.";
+  "Todavía no tengo tu archivo de recetas. Súbelo en «Lista de precios de tus ingredientes» (o con «Cargar recetas») y vuelve a generar sugerencias.";
 
 export interface RunRecipeSuggestionsParams {
   companyId: string;
@@ -38,6 +38,8 @@ export interface RunRecipeSuggestionsParams {
   ai?: WorkbookAi;
   /** Use the latest live Costos upload's stored blocks (no xlsx). */
   fromLatestUpload?: boolean;
+  /** Skip this many products (by sales) — for running in small chunks. */
+  offset?: number;
 }
 
 export async function loadStoredCandidateBlocks(
@@ -48,19 +50,15 @@ export async function loadStoredCandidateBlocks(
   | { ok: false; error: string }
 > {
   const repo = createSupabaseCostWorkbookRepo(supabase);
-  const history = await repo.listBatchHistory(companyId);
-  const live = history.find((batch) => !batch.undone_at);
-  if (!live) return { ok: false, error: NO_STORED_BLOCKS_ERROR };
-  const stored = candidateBlocksFromUnknown(
-    live.undo_snapshot.candidate_blocks
-  );
-  const blocks = expandCandidateBlocks(stored);
+  const source = findRecipeSource(await repo.listBatchHistory(companyId));
+  if (!source) return { ok: false, error: NO_STORED_BLOCKS_ERROR };
+  const blocks = expandCandidateBlocks(source.blocks);
   if (blocks.length === 0) return { ok: false, error: NO_STORED_BLOCKS_ERROR };
   return {
     ok: true,
     blocks,
-    filename: live.filename,
-    batch_id: live.id,
+    filename: source.batch.filename,
+    batch_id: source.batch.id,
   };
 }
 
@@ -103,6 +101,7 @@ export async function runRecipeSuggestionsForCompany(
     filename,
     locationId: params.locationId ?? null,
     limit: params.limit,
+    offset: params.offset,
     odooProductId: params.odooProductId,
     lang: params.lang ?? "es",
     createdBy: params.createdBy ?? null,

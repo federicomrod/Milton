@@ -24,6 +24,10 @@ import { matchExistingIngredient } from "@/lib/restaurant/recipe-costing/ingredi
 import { runRecipeSuggestions } from "@/lib/restaurant/cost-workbook/recipe-suggestion";
 import { proposeRecipeHeuristic } from "@/lib/restaurant/cost-workbook/propose-recipe";
 import { preparationImpact } from "@/lib/restaurant/recipe-costing/preparation-impact";
+import {
+  expandCandidateBlocks,
+  findRecipeSource,
+} from "@/lib/restaurant/cost-workbook/stored-blocks";
 import { readCatalogFromBuffer } from "@/lib/restaurant/price-catalog/server";
 import type { WorkbookAi } from "@/lib/restaurant/cost-workbook";
 import {
@@ -408,5 +412,90 @@ describe.skipIf(!path)("real workbook acceptance (aggregates only)", () => {
         })
     );
     expect(aggregates.excel_price_used_as_cost).toBe(0);
+  });
+
+  it("generates the whole menu in small chunks with the same result", async () => {
+    const buffer = readFileSync(path as string);
+    const {
+      read,
+      observations,
+      blocks: fileBlocks,
+    } = readCatalogFromBuffer(buffer);
+    const confirmed: Record<string, { unit: "oz" | "lb" | "unit" | "g" }> = {};
+    for (const row of read!.rows) {
+      if (row.status === "check_unit" && row.unit) {
+        confirmed[row.key] = { unit: row.unit };
+      }
+    }
+    const store = emptyMemoryStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    await applyPriceCatalog({
+      repo,
+      companyId: "co-real",
+      userId: "u-real",
+      currency: "USD",
+      filename: "real-workbook-Abril-2026.xlsx",
+      read: read!,
+      observations,
+      decisions: { rows: confirmed, conflicts: {} },
+      candidateBlocks: fileBlocks,
+    });
+    // One upload is enough: the price list batch is the recipe source.
+    const source = findRecipeSource(store.batches);
+    expect(source).not.toBeNull();
+    const stored = expandCandidateBlocks(source!.blocks);
+
+    const dishes = stored.filter((b) => b.kind === "recipe");
+    const products = dishes.map((block, index) => ({
+      odoo_product_id: index + 1,
+      odoo_name: block.name,
+      net_sales: 1000 - index,
+    }));
+    const chunkAi = {
+      classifyTab: async () => ({ type: "ignore" as const, confidence: 0.2 }),
+      mapColumns: async () => ({}),
+      proposeRecipe: async (
+        product: (typeof products)[number],
+        candidates: typeof stored
+      ) => proposeRecipeHeuristic({ product, candidateBlocks: candidates }),
+    };
+    let offset = 0;
+    let chunks = 0;
+    let suggested = 0;
+    let preparationsCreated = 0;
+    let slowestMs = 0;
+    while (offset < products.length) {
+      const started = Date.now();
+      const r = await runRecipeSuggestions({
+        companyId: "co-real",
+        products,
+        candidateBlocks: expandCandidateBlocks(
+          findRecipeSource(store.batches)!.blocks
+        ),
+        repo,
+        ai: chunkAi,
+        currency: "USD",
+        filename: "real-workbook.xlsx",
+        limit: 5,
+        offset,
+        lang: "es",
+      });
+      slowestMs = Math.max(slowestMs, Date.now() - started);
+      chunks += 1;
+      suggested += r.suggested;
+      preparationsCreated += r.preparations?.created ?? 0;
+      offset += 5;
+    }
+    console.log(
+      "REAL-FILE CHUNKS " +
+        JSON.stringify({
+          products: products.length,
+          chunks,
+          drafts_created: suggested,
+          preparation_drafts_created_in_total: preparationsCreated,
+          slowest_chunk_ms_offline: slowestMs,
+        })
+    );
+    expect(preparationsCreated).toBe(store.components.length);
   });
 });

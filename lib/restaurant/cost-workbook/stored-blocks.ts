@@ -152,3 +152,30 @@ function asStoredLine(value: unknown): StoredRecipeLine | null {
         : null,
   };
 }
+
+/**
+ * The newest live (not undone) batch that actually holds recipe blocks.
+ * A later batch without blocks (a price-only upload, or a suggestion run
+ * that failed before saving) never hides an earlier usable one.
+ */
+export function findRecipeSource<
+  T extends {
+    id: string;
+    filename: string;
+    created_at?: string | null;
+    undone_at?: string | null;
+    undo_snapshot: { candidate_blocks?: unknown };
+  },
+>(history: readonly T[]): { batch: T; blocks: StoredRecipeBlock[] } | null {
+  const live = history
+    .filter((row) => !row.undone_at)
+    .slice()
+    .sort((a, b) => ((a.created_at ?? "") < (b.created_at ?? "") ? 1 : -1));
+  for (const batch of live) {
+    const blocks = candidateBlocksFromUnknown(
+      batch.undo_snapshot.candidate_blocks
+    );
+    if (blocks.length > 0) return { batch, blocks };
+  }
+  return null;
+}

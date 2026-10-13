@@ -15,8 +15,10 @@ import { inferDateFromName } from "@/lib/restaurant/cost-workbook/date";
 import { persistSavedRows } from "@/lib/restaurant/cost-workbook/persist";
 import type { CostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
 import { mergeUndoSnapshots } from "@/lib/restaurant/cost-workbook/snapshot";
+import { compactCandidateBlocks } from "@/lib/restaurant/cost-workbook/stored-blocks";
 import {
   emptyUndoSnapshot,
+  type GroupedRecipe,
   type ReviewCandidate,
   type UndoSnapshot,
   type WorkbookRowCandidate,
@@ -348,6 +350,8 @@ export async function applyPriceCatalog(input: {
   read: PriceCatalogRead;
   observations: readonly RecipeCostObservation[];
   decisions: PriceCatalogDecisions;
+  /** Recipe blocks of the same file: kept so suggestions can use them. */
+  candidateBlocks?: readonly GroupedRecipe[];
 }): Promise<ApplyCatalogResult> {
   const plan = planCatalog(input.read, input.decisions);
   const date = priceDate(input.filename);
@@ -431,6 +435,9 @@ export async function applyPriceCatalog(input: {
     }
   }
 
+  if (input.candidateBlocks && input.candidateBlocks.length > 0) {
+    snapshot.candidate_blocks = compactCandidateBlocks(input.candidateBlocks);
+  }
   await input.repo.updateBatchSnapshot(input.companyId, batch.id, snapshot);
 
   const review: Array<

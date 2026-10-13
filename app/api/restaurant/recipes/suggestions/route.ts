@@ -10,7 +10,10 @@ import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { resolveRestaurantCockpitLanguage } from "@/lib/restaurant/language";
 import { DATE_RE } from "@/lib/restaurant/odoo/sync-window";
-import { runRecipeSuggestionsForCompany } from "@/lib/restaurant/recipe-suggestion-server";
+import {
+  NO_STORED_BLOCKS_ERROR,
+  runRecipeSuggestionsForCompany,
+} from "@/lib/restaurant/recipe-suggestion-server";
 import { createDefaultWorkbookAi } from "@/lib/restaurant/cost-workbook";
 import { isWorkbookLimitError } from "@/lib/restaurant/cost-workbook";
 
@@ -27,6 +30,18 @@ function readLimit(raw: unknown): number | { error: string } {
     return { error: "limit tiene que ser un entero entre 1 y 200." };
   }
   return limit;
+}
+
+/** How many products a full run covers at most (top sellers first). */
+const MAX_SUGGESTION_PRODUCTS = 40;
+
+function readOffset(raw: unknown): number | { error: string } {
+  if (raw == null || raw === "") return 0;
+  const offset = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isInteger(offset) || offset < 0 || offset > 10000) {
+    return { error: "offset tiene que ser un entero desde 0." };
+  }
+  return offset;
 }
 
 function readProductId(raw: unknown): number | undefined | { error: string } {
@@ -69,6 +84,7 @@ export async function POST(req: NextRequest) {
   let filename = "recetas.xlsx";
   let fromLatestUpload = false;
   let limitRaw: unknown;
+  let offsetRaw: unknown;
   let productRaw: unknown;
   let startParam: string | null = null;
   let endParam: string | null = null;
@@ -86,6 +102,7 @@ export async function POST(req: NextRequest) {
     }
     fromLatestUpload = body.source === "latest_upload" || body.source == null;
     limitRaw = body.limit;
+    offsetRaw = body.offset;
     productRaw = body.odoo_product_id;
     startParam = typeof body.start_date === "string" ? body.start_date : null;
     endParam = typeof body.end_date === "string" ? body.end_date : null;
@@ -109,6 +126,7 @@ export async function POST(req: NextRequest) {
       fromLatestUpload = true;
     }
     limitRaw = form.get("limit");
+    offsetRaw = form.get("offset");
     productRaw = form.get("odoo_product_id");
     startParam =
       typeof form.get("start_date") === "string"
@@ -128,6 +146,10 @@ export async function POST(req: NextRequest) {
   const limit = readLimit(limitRaw);
   if (typeof limit !== "number") {
     return NextResponse.json({ error: limit.error }, { status: 400 });
+  }
+  const offset = readOffset(offsetRaw);
+  if (typeof offset !== "number") {
+    return NextResponse.json({ error: offset.error }, { status: 400 });
   }
   const odooProductId = readProductId(productRaw);
   if (odooProductId && typeof odooProductId !== "number") {
@@ -149,6 +171,7 @@ export async function POST(req: NextRequest) {
       fromLatestUpload: !buffer && fromLatestUpload,
       currency: currency || "USD",
       limit,
+      offset,
       odooProductId:
         typeof odooProductId === "number" ? odooProductId : undefined,
       locationId,
@@ -159,10 +182,19 @@ export async function POST(req: NextRequest) {
       ai: createDefaultWorkbookAi(),
     });
     if (!result.ok) {
-      const status = /No hay un archivo/.test(result.error) ? 400 : 500;
+      const status = result.error === NO_STORED_BLOCKS_ERROR ? 400 : 500;
       return NextResponse.json({ error: result.error }, { status });
     }
-    return NextResponse.json(result);
+    // Paging for small chunks: the client keeps calling with next_offset.
+    const total = Math.min(result.product_count, MAX_SUGGESTION_PRODUCTS);
+    const nextOffset = offset + limit;
+    return NextResponse.json({
+      ...result,
+      offset,
+      limit,
+      total,
+      next_offset: nextOffset < total ? nextOffset : null,
+    });
   } catch (err) {
     if (isWorkbookLimitError(err)) {
       return NextResponse.json({ error: err.message }, { status: 400 });

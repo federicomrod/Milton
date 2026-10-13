@@ -13,12 +13,21 @@ import {
   hasApprovedVersion,
   nextVersionNumber,
 } from "@/lib/restaurant/recipe-versions";
-import { handmadeRecipeExistsReason, suggestionVersionNotes } from "./copy";
 import {
-  pickMenuItemForLocation,
-  resolveCatalogInput,
-  withQty,
-} from "./persist-recipes";
+  assumedYieldReason,
+  handmadeRecipeExistsReason,
+  suggestionVersionNotes,
+} from "./copy";
+import { pickMenuItemForLocation } from "./persist-recipes";
+import { normalizeMatchName } from "./names";
+import {
+  prefillLines,
+  type PrefilledLine,
+} from "@/lib/restaurant/recipe-costing/prefill";
+import {
+  prefillPreparations,
+  type PreparationDraftSummary,
+} from "@/lib/restaurant/recipe-costing/prefill-preparations";
 import type { WorkbookAi } from "./ai";
 import { proposeRecipeHeuristic } from "./propose-recipe";
 import {
@@ -28,13 +37,7 @@ import {
   type ProposeRecipeResult,
   type RecipeSuggestionProduct,
 } from "./propose-recipe";
-import {
-  catalogFromBlocks,
-  checkRecipeProposal,
-  type CatalogIngredient,
-  type CatalogSubRecipe,
-  type CheckedRecipeProposal,
-} from "./recipe-suggestion-checks";
+import type { CatalogIngredient } from "./recipe-suggestion-checks";
 import type { CostWorkbookRepo } from "./repo";
 import { compactCandidateBlocks } from "./stored-blocks";
 import type { GroupedRecipe, RecipeInputSnapshot } from "./types";
@@ -70,6 +73,8 @@ export interface RecipeSuggestionRunResult {
   sin_sugerencia: number;
   items: RecipeSuggestionItem[];
   skips: RecipeSuggestionSkip[];
+  /** Preparation drafts created from the file's sub-recipe blocks. */
+  preparations?: PreparationDraftSummary;
 }
 
 export async function proposeRecipeForProduct(input: {
@@ -99,66 +104,52 @@ export async function proposeRecipeForProduct(input: {
   }
 }
 
-function evidenceFor(checked: CheckedRecipeProposal): Record<string, unknown> {
+function evidenceFromPrefill(
+  proposal: ProposedRecipe,
+  lines: readonly PrefilledLine[],
+  checked: {
+    status: "borrador" | "lista_para_aprobar";
+    pending: boolean;
+    reasons: string[];
+    milton_cost: number | null;
+    excel_match: "match" | "mismatch" | null;
+  }
+): Record<string, unknown> {
   return {
-    tab: checked.proposal.tab,
-    block_name: checked.proposal.block_name,
-    confidence: checked.proposal.confidence,
-    evidence: checked.proposal.evidence,
-    yield: checked.proposal.yield,
-    excel_total: checked.proposal.excel_total,
+    tab: proposal.tab,
+    block_name: proposal.block_name,
+    confidence: proposal.confidence,
+    evidence: proposal.evidence,
+    yield: proposal.yield,
+    excel_total: proposal.excel_total,
     milton_cost: checked.milton_cost,
     excel_match: checked.excel_match,
-    variance_amount: checked.variance_amount,
-    variance_pct: checked.variance_pct,
+    variance_amount: null,
+    variance_pct: null,
     status: checked.status,
     pending: checked.pending,
     reasons: checked.reasons,
-    lines: checked.lines.map((line) => ({
+    lines: lines.map((line) => ({
       source_row: line.source_row,
       raw_name: line.raw_name,
-      ingredient_match: line.ingredient_match,
-      sub_recipe_match: line.sub_recipe_match,
+      ingredient_match:
+        line.resolved?.kind === "ingredient" ? line.resolved.name : null,
+      sub_recipe_match:
+        line.resolved?.kind === "component" ? line.resolved.name : null,
       qty: line.qty,
       unit: line.unit,
-      unit_cost: line.resolved_unit_cost,
+      // Never the Excel number: costed from the catalog afterwards.
+      unit_cost: null,
+      excel_unit_cost: line.excel_unit_cost,
+      unit_question: line.unit_question,
       flags: line.flags,
       pending: line.pending,
+      reasons: line.reasons,
     })),
   };
 }
 
-function inputsFromChecked(
-  checked: CheckedRecipeProposal,
-  ingredients: CatalogIngredient[],
-  components: Array<{ id: string; name: string }>,
-  lang: PreferredLanguage
-): RecipeInputSnapshot[] {
-  const inputs: RecipeInputSnapshot[] = [];
-  for (const line of checked.lines) {
-    if (line.pending) continue;
-    const resolved = resolveCatalogInput(
-      line.sub_recipe_match ?? line.ingredient_match ?? line.raw_name,
-      ingredients,
-      components,
-      new Map(),
-      lang
-    );
-    if (!resolved.ok) continue;
-    inputs.push(
-      withQty(resolved.input, {
-        tabName: checked.proposal.tab,
-        rowIndex: line.source_row,
-        recipeName: checked.proposal.block_name,
-        ingredient_name: line.raw_name,
-        quantity: line.qty,
-        unit: line.resolved_unit ?? line.unit,
-        raw: {},
-      })
-    );
-  }
-  return inputs;
-}
+type ProposedRecipe = Exclude<ProposeRecipeResult, typeof SIN_SUGERENCIA>;
 
 export async function runRecipeSuggestions(input: {
   companyId: string;
@@ -222,20 +213,45 @@ export async function runRecipeSuggestions(input: {
     current_unit_cost: row.current_unit_cost,
     default_unit: row.default_unit,
   }));
-  const catalogSubs: CatalogSubRecipe[] = [
-    ...catalogFromBlocks(input.candidateBlocks),
-    ...components.map((row) => ({
-      id: row.id,
-      name: row.name,
-      output_unit: row.output_unit,
-    })),
-  ];
+  // Names a person already confirmed for this company. Best effort: no
+  // alias table yet (migration 039 pending) means nothing remembered.
+  const aliases = new Map<string, string>();
+  try {
+    for (const row of await input.repo.listIngredientAliases(input.companyId)) {
+      aliases.set(normalizeMatchName(row.alias_name), row.ingredient_id);
+    }
+  } catch {
+    // nothing remembered
+  }
   const liveComponents = components.map((row) => ({
     id: row.id,
     name: row.name,
   }));
 
   const changes = emptyUndoSnapshot();
+
+  // Preparations first, so a dish line that uses one can point at it.
+  const prefillIngredients = catalogIngredients.map((row) => ({
+    id: row.id,
+    name: row.name,
+    default_unit: row.default_unit ?? null,
+    unit_cost: row.current_unit_cost ?? null,
+  }));
+  const preparationDrafts = await prefillPreparations({
+    repo: input.repo,
+    companyId: input.companyId,
+    batchId: batch.id,
+    blocks: input.candidateBlocks,
+    ingredients: prefillIngredients,
+    aliases,
+    changes,
+  });
+  for (const prep of preparationDrafts.preparations) {
+    if (!liveComponents.some((row) => row.id === prep.id)) {
+      liveComponents.push(prep);
+    }
+  }
+
   const items: RecipeSuggestionItem[] = [];
   const skips: RecipeSuggestionSkip[] = [];
   let suggested = 0;
@@ -328,13 +344,23 @@ export async function runRecipeSuggestions(input: {
       continue;
     }
 
-    const checked = checkRecipeProposal({
-      proposal: proposed,
-      ingredients: catalogIngredients,
-      subRecipes: catalogSubs,
-      lang,
+    // Catalog-only prefill: names resolve to existing ingredients (exact
+    // or a name a person already confirmed) or existing preparations; the
+    // price is never taken from the Excel line.
+    const prefilled = prefillLines({
+      lines: proposed.lines.map((line) => ({
+        source_row: line.source_row,
+        raw_name: line.raw_name,
+        qty: line.qty,
+        unit: line.unit,
+        excel_unit_cost:
+          line.unit_cost != null && line.unit_cost > 0 ? line.unit_cost : null,
+      })),
+      ingredients: prefillIngredients,
+      preparations: liveComponents,
+      aliases,
     });
-    if (checked.lines.length === 0 || !checked.proposal.tab) {
+    if (prefilled.length === 0 || !proposed.tab) {
       sinSugerencia += 1;
       items.push({
         odoo_product_id: product.odoo_product_id,
@@ -354,13 +380,34 @@ export async function runRecipeSuggestions(input: {
       });
       continue;
     }
-    const evidence = evidenceFor(checked);
-    const resolvedInputs = inputsFromChecked(
-      checked,
-      catalogIngredients,
-      liveComponents,
-      lang
-    );
+    const assumedYield = proposed.yield.source === "assumed";
+    const anyPending = prefilled.some((line) => line.pending) || assumedYield;
+    const reasons = [...new Set(prefilled.flatMap((line) => line.reasons))];
+    if (assumedYield) reasons.push(assumedYieldReason(lang));
+    const checked = {
+      proposal: proposed,
+      status: (anyPending ? "borrador" : "lista_para_aprobar") as
+        | "borrador"
+        | "lista_para_aprobar",
+      pending: anyPending,
+      reasons,
+      // Costed from the catalog right after this run (refreshEvidence).
+      milton_cost: null as number | null,
+      excel_match: null as "match" | "mismatch" | null,
+    };
+    const evidence = evidenceFromPrefill(proposed, prefilled, checked);
+    const resolvedInputs: RecipeInputSnapshot[] = prefilled
+      .filter((line) => line.resolved && line.unit_ok)
+      .map((line) => ({
+        input_type: line.resolved!.kind,
+        ingredient_id:
+          line.resolved!.kind === "ingredient" ? line.resolved!.id : null,
+        component_id:
+          line.resolved!.kind === "component" ? line.resolved!.id : null,
+        quantity: line.qty,
+        unit: line.unit,
+        notes: null,
+      }));
 
     let menuItem = existingMenu;
     if (!menuItem) {
@@ -467,5 +514,6 @@ export async function runRecipeSuggestions(input: {
     sin_sugerencia: sinSugerencia,
     items,
     skips,
+    preparations: preparationDrafts.summary,
   };
 }

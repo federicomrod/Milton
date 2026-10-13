@@ -111,7 +111,7 @@ describe("proposeRecipe schema", () => {
 });
 
 describe("AI recipe suggestions", () => {
-  it("keeps APIO and QUESILLO pending and never writes $0", async () => {
+  it("keeps APIO and QUESILLO pending and never writes a cost", async () => {
     const store = emptyMemoryStore();
     const repo = createMemoryCostWorkbookRepo(store);
     const blocks = collectWorkbookCandidateBlocks({
@@ -154,9 +154,8 @@ describe("AI recipe suggestions", () => {
     expect(quesillo?.reasons.some((reason) => /QUESILLO/.test(reason))).toBe(
       true
     );
-    expect(quesillo?.reasons.some((reason) => /No puse \$0/.test(reason))).toBe(
-      true
-    );
+    // Prices are never taken from the Excel: an unknown ingredient stays
+    // pending with no cost at all (never $0).
     expect(quesillo?.milton_cost).toBeNull();
     const qLine = (
       quesillo?.evidence.lines as Array<{
@@ -173,36 +172,67 @@ describe("AI recipe suggestions", () => {
     expect(version?.notes).toBe("Borrador");
   });
 
-  it("resolves DEMIGLASS ONZA as the exact sub-recipe with a confirmed per-oz price", async () => {
+  it("points DEMIGLASS at a preparation (a new draft or an existing one), never at the Excel block's own price", async () => {
+    const run = async (store: ReturnType<typeof emptyMemoryStore>) => {
+      const blocks = collectWorkbookCandidateBlocks({
+        buffer: buildRecipeSuggestionWorkbook(),
+        lang: "es",
+      });
+      const result = await runRecipeSuggestions({
+        companyId: COMPANY,
+        products: products().filter(
+          (row) => row.odoo_name === "SALSA DEMIGLASS PLATO"
+        ),
+        candidateBlocks: blocks.all,
+        repo: createMemoryCostWorkbookRepo(store),
+        ai: heuristicAi(),
+        currency: "USD",
+        filename: "sugerencias.xlsx",
+        lang: "es",
+        odooProductId: 2,
+      });
+      return (
+        result.items[0]?.evidence.lines as Array<{
+          raw_name: string;
+          sub_recipe_match: string | null;
+          unit_cost: number | null;
+          pending: boolean;
+        }>
+      )?.find((line) => line.raw_name === "DEMIGLASS");
+    };
+
+    // Only an Excel block exists: the run creates a preparation draft from
+    // it (in review, counts nowhere) and the line points at the draft. The
+    // block's own Excel price is never used as a cost.
+    const fresh = emptyMemoryStore();
+    const fromBlock = await run(fresh);
+    expect(fromBlock?.sub_recipe_match).toBe("DEMIGLASS");
+    expect(fromBlock?.unit_cost).toBeNull();
+    const draft = fresh.components.find((row) => row.name === "DEMIGLASS");
+    expect(draft).toBeTruthy();
+    expect(
+      fresh.componentRecipeVersions
+        .filter((row) => row.component_id === draft?.id)
+        .every((row) => row.status === "in_review")
+    ).toBe(true);
+
+    // A real preparation exists: the line points at it (cost comes from it).
     const store = emptyMemoryStore();
-    const repo = createMemoryCostWorkbookRepo(store);
-    const blocks = collectWorkbookCandidateBlocks({
-      buffer: buildRecipeSuggestionWorkbook(),
-      lang: "es",
-    });
-    const result = await runRecipeSuggestions({
-      companyId: COMPANY,
-      products: products().filter(
-        (row) => row.odoo_name === "SALSA DEMIGLASS PLATO"
-      ),
-      candidateBlocks: blocks.all,
-      repo,
-      ai: heuristicAi(),
-      currency: "USD",
-      filename: "sugerencias.xlsx",
-      lang: "es",
-      odooProductId: 2,
-    });
-    const salsa = result.items[0];
-    const demi = (
-      salsa?.evidence.lines as Array<{
-        raw_name: string;
-        sub_recipe_match: string | null;
-        pending: boolean;
-      }>
-    )?.find((line) => line.raw_name === "DEMIGLASS");
-    expect(demi?.sub_recipe_match).toBe("DEMIGLASS");
-    expect(demi?.pending).toBe(false);
+    store.components.push({
+      id: "comp-demi",
+      name: "DEMIGLASS",
+      output_unit: "oz",
+    } as (typeof store.components)[number]);
+    const withPrep = await run(store);
+    expect(withPrep?.sub_recipe_match).toBe("DEMIGLASS");
+    expect(withPrep?.unit_cost).toBeNull();
+    const version = store.recipeVersions.at(-1);
+    expect(
+      version?.inputs.some(
+        (row) =>
+          row.input_type === "component" && row.component_id === "comp-demi"
+      )
+    ).toBe(true);
   });
 
   it("matches Excel totals on the documented tolerance edges", () => {

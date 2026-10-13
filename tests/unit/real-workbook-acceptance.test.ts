@@ -21,6 +21,8 @@ import {
 import { collectWorkbookCandidateBlocks } from "@/lib/restaurant/cost-workbook/collect-blocks";
 import { bestNameMatch } from "@/lib/restaurant/cost-workbook/names";
 import { matchExistingIngredient } from "@/lib/restaurant/recipe-costing/ingredient-match";
+import { runRecipeSuggestions } from "@/lib/restaurant/cost-workbook/recipe-suggestion";
+import { proposeRecipeHeuristic } from "@/lib/restaurant/cost-workbook/propose-recipe";
 import { readCatalogFromBuffer } from "@/lib/restaurant/price-catalog/server";
 import type { WorkbookAi } from "@/lib/restaurant/cost-workbook";
 import {
@@ -268,5 +270,89 @@ describe.skipIf(!path)("real workbook acceptance (aggregates only)", () => {
         })
     );
     expect(dishes.lines).toBeGreaterThan(0);
+  });
+
+  it("prefills dish drafts from the catalog only (suggestions)", async () => {
+    const buffer = readFileSync(path as string);
+    const { read, observations } = readCatalogFromBuffer(buffer);
+    const confirmed: Record<string, { unit: "oz" | "lb" | "unit" | "g" }> = {};
+    for (const row of read!.rows) {
+      if (row.status === "check_unit" && row.unit) {
+        confirmed[row.key] = { unit: row.unit };
+      }
+    }
+    const store = emptyMemoryStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    await applyPriceCatalog({
+      repo,
+      companyId: "co-real",
+      userId: "u-real",
+      currency: "USD",
+      filename: "real-workbook-Abril-2026.xlsx",
+      read: read!,
+      observations,
+      decisions: { rows: confirmed, conflicts: {} },
+    });
+
+    const blocks = collectWorkbookCandidateBlocks({ buffer, lang: "es" });
+    // Each dish block stands in for a POS product with the same name.
+    const products = blocks.dishes.map((block, index) => ({
+      odoo_product_id: index + 1,
+      odoo_name: block.name,
+      net_sales: 1000 - index,
+    }));
+    const result = await runRecipeSuggestions({
+      companyId: "co-real",
+      products,
+      candidateBlocks: blocks.all,
+      repo,
+      ai: {
+        classifyTab: async () => ({ type: "ignore", confidence: 0.2 }),
+        mapColumns: async () => ({}),
+        proposeRecipe: async (product, candidates) =>
+          proposeRecipeHeuristic({ product, candidateBlocks: candidates }),
+      },
+      currency: "USD",
+      filename: "real-workbook.xlsx",
+      limit: products.length,
+      lang: "es",
+    });
+
+    type Line = {
+      pending: boolean;
+      unit_cost: number | null;
+      excel_unit_cost: number | null;
+      flags: string[];
+      unit_question: unknown;
+      ingredient_match: string | null;
+      sub_recipe_match: string | null;
+    };
+    const suggested = result.items.filter((i) => i.result === "sugerido");
+    const lines = suggested.flatMap((i) => (i.evidence.lines as Line[]) ?? []);
+    const inputs = store.recipeVersions.reduce(
+      (n, v) => n + v.inputs.length,
+      0
+    );
+    const aggregates = {
+      products: products.length,
+      drafts_created: suggested.length,
+      no_suggestion: result.sin_sugerencia,
+      lines: lines.length,
+      lines_added_to_recipe: inputs,
+      to_ingredient: lines.filter((l) => l.ingredient_match).length,
+      to_existing_preparation: lines.filter((l) => l.sub_recipe_match).length,
+      unresolved: lines.filter((l) => l.flags.includes("pendiente_ingrediente"))
+        .length,
+      unit_questions: lines.filter((l) => l.unit_question).length,
+      unreadable_unit: lines.filter(
+        (l) => l.flags.includes("pendiente_unidad") && !l.unit_question
+      ).length,
+      excel_price_used_as_cost: lines.filter((l) => l.unit_cost !== null)
+        .length,
+      drafts_with_nothing_pending: suggested.filter((i) => !i.pending).length,
+      preparations: result.preparations,
+    };
+    console.log("REAL-FILE PREFILL " + JSON.stringify(aggregates));
+    expect(aggregates.excel_price_used_as_cost).toBe(0);
   });
 });

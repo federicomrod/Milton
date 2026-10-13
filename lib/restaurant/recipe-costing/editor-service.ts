@@ -130,6 +130,16 @@ interface Ctx {
   userId: string | null;
 }
 
+function parseUnitQuestion(
+  raw: unknown
+): { written: string; suggested: string } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  return typeof row.written === "string" && typeof row.suggested === "string"
+    ? { written: row.written, suggested: row.suggested }
+    : null;
+}
+
 function evidenceLinesOf(evidence: Record<string, unknown>): EvidenceLineIn[] {
   const raw = Array.isArray(evidence.lines) ? evidence.lines : [];
   const out: EvidenceLineIn[] = [];
@@ -156,6 +166,9 @@ function evidenceLinesOf(evidence: Record<string, unknown>): EvidenceLineIn[] {
         : [],
       flags,
       input_id: typeof row.input_id === "string" ? row.input_id : null,
+      unit_question: parseUnitQuestion(row.unit_question),
+      excel_unit_cost:
+        typeof row.excel_unit_cost === "number" ? row.excel_unit_cost : null,
     });
   }
   return out;
@@ -290,6 +303,7 @@ export type EditorAction =
       unit: string;
     }
   | { action: "update"; input_id: string; quantity?: number; unit?: string }
+  | { action: "answer_unit"; input_id: string; unit: string }
   | {
       action: "change_item";
       input_id: string;
@@ -461,6 +475,23 @@ export async function applyEdit(
         action.input_id,
         patch
       );
+      break;
+    }
+    case "answer_unit": {
+      const unit = cleanUnit(action.unit);
+      if (!unit) {
+        return { ok: false, error: "Esa unidad no es válida.", status: 400 };
+      }
+      const inputs = await ctx.store.listInputs(ctx.companyId, version!.id);
+      if (!inputs.some((row) => row.id === action.input_id)) {
+        return { ok: false, error: "No encontré esa línea.", status: 404 };
+      }
+      await ctx.store.updateInput(ctx.companyId, version!.id, action.input_id, {
+        unit,
+      });
+      for (const line of evidenceLines) {
+        if (line.input_id === action.input_id) line.unit_question = null;
+      }
       break;
     }
     case "change_item": {
@@ -692,4 +723,46 @@ async function rememberQuietly(
     // No alias table yet (migration 039 pending): never block the edit.
     console.error("[recipe-editor alias]", err);
   }
+}
+
+/**
+ * Recompute the cached evidence from the recipe's inputs and the catalog,
+ * without changing anything else. Used right after suggestions are
+ * written, so the first thing a person sees is already costed from the
+ * catalog.
+ */
+export async function refreshEvidence(ctx: Ctx): Promise<EditorResult> {
+  const loaded = await load(ctx);
+  if (!loaded.ok) return loaded;
+  const { link, version } = loaded;
+  const built = await build(ctx, link, version, evidenceLinesOf(link.evidence));
+  if (version && version.status === "in_review") {
+    await ctx.store.saveEvidence(
+      ctx.companyId,
+      link.id,
+      rebuildEvidence(link.evidence, built.lines)
+    );
+  }
+  return { ok: true, state: built.state };
+}
+
+/** Reuse one catalog read across many products (read-only refreshes). */
+export function withCachedCatalog(store: EditorStore): EditorStore {
+  const costing = new Map<string, Promise<CostingLoad>>();
+  const aliases = new Map<string, Promise<Map<string, string>>>();
+  return {
+    ...store,
+    loadCosting(companyId) {
+      if (!costing.has(companyId)) {
+        costing.set(companyId, store.loadCosting(companyId));
+      }
+      return costing.get(companyId)!;
+    },
+    loadAliases(companyId) {
+      if (!aliases.has(companyId)) {
+        aliases.set(companyId, store.loadAliases(companyId));
+      }
+      return aliases.get(companyId)!;
+    },
+  };
 }

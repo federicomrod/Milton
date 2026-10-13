@@ -154,7 +154,7 @@ describe("applyReviewFix typed price", () => {
       odooProductId: 7,
       sourceRow: 4,
       rawName: "EMPANIZAOR",
-      unitCost: 0.09,
+      unitCost: 0.11,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -192,7 +192,7 @@ describe("applyReviewFix typed price", () => {
       sourceRow: 5,
       rawName: "Queso cremado",
       unit: "oz",
-      unitCost: 0.18,
+      unitCost: 0.21,
     });
     expect(result.ok).toBe(true);
     expect(

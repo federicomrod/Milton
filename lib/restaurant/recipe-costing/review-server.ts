@@ -4,6 +4,7 @@ import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { parseSuggestionEvidence, parseSuggestionLine } from "./evidence";
 import { applyInlineLineFix } from "./review";
+import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { loadPosProductLink } from "./link-actions-server";
 import {
@@ -85,7 +86,8 @@ export async function applyReviewFix(input: {
       input.supabase,
       input.companyId
     );
-    const match = matchExistingIngredient(lineName, catalog);
+    const aliases = await loadAliasMap(input.supabase, input.companyId);
+    const match = matchExistingIngredient(lineName, catalog, aliases);
     if (match.kind !== "exact") {
       return {
         ok: false,
@@ -197,6 +199,32 @@ async function patchVersionInput(input: {
     .update(patch)
     .eq("company_id", input.companyId)
     .eq("id", target.id);
+}
+
+/** Remembered names (normalised alias -> ingredient id). Best effort. */
+async function loadAliasMap(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  try {
+    const { data, error } = await supabase
+      .from("ingredient_aliases")
+      .select("alias_name, ingredient_id")
+      .eq("company_id", companyId);
+    if (error) return map;
+    for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+      if (
+        typeof row.alias_name === "string" &&
+        typeof row.ingredient_id === "string"
+      ) {
+        map.set(normalizeMatchName(row.alias_name), row.ingredient_id);
+      }
+    }
+  } catch {
+    // No alias table yet (migration 039 pending): nothing remembered.
+  }
+  return map;
 }
 
 async function loadCompanyIngredientRefs(

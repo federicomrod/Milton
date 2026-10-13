@@ -21,6 +21,7 @@ import type {
   UndoSnapshot,
 } from "@/lib/restaurant/cost-workbook/types";
 import { emptyUndoSnapshot } from "@/lib/restaurant/cost-workbook/types";
+import { aliasKeyFor } from "@/lib/restaurant/cost-workbook/repo";
 import type { CostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
 import {
   runResetSteps,
@@ -76,6 +77,19 @@ export interface MemoryCostWorkbookStore {
     ComponentRecipeVersionRecord & { inputs: RecipeInputSnapshot[] }
   >;
   posProductLinks: PosProductLinkRecord[];
+  priceCatalog039?: boolean;
+  aliases: Array<{
+    company_id: string;
+    alias_key: string;
+    alias_name: string;
+    ingredient_id: string;
+    created_by: string | null;
+  }>;
+  chosenCosts: Array<{
+    ingredient_id: string;
+    cost_entry_id: string;
+    chosen_by: string | null;
+  }>;
 }
 
 export function emptyMemoryStore(): MemoryCostWorkbookStore {
@@ -101,6 +115,8 @@ export function emptyMemoryStore(): MemoryCostWorkbookStore {
     recipeVersions: [],
     componentRecipeVersions: [],
     posProductLinks: [],
+    aliases: [],
+    chosenCosts: [],
   };
 }
 
@@ -802,6 +818,47 @@ export function createMemoryCostWorkbookRepo(
     },
     async hasImportCosting036Columns() {
       return store.importCosting036Columns !== false;
+    },
+    async hasPriceCatalog039() {
+      return store.priceCatalog039 !== false;
+    },
+    async listIngredientAliases(companyId) {
+      return store.aliases
+        .filter((row) => row.company_id === companyId)
+        .map(({ alias_key, alias_name, ingredient_id }) => ({
+          alias_key,
+          alias_name,
+          ingredient_id,
+        }));
+    },
+    async upsertIngredientAlias(input) {
+      const key = aliasKeyFor(input.aliasName);
+      if (!key) return;
+      const existing = store.aliases.find(
+        (row) => row.company_id === input.companyId && row.alias_key === key
+      );
+      if (existing) {
+        existing.ingredient_id = input.ingredientId;
+        existing.alias_name = input.aliasName.trim();
+        return;
+      }
+      store.aliases.push({
+        company_id: input.companyId,
+        alias_key: key,
+        alias_name: input.aliasName.trim(),
+        ingredient_id: input.ingredientId,
+        created_by: input.createdBy ?? null,
+      });
+    },
+    async setIngredientChosenCost(input) {
+      store.chosenCosts = store.chosenCosts.filter(
+        (row) => row.ingredient_id !== input.ingredientId
+      );
+      store.chosenCosts.push({
+        ingredient_id: input.ingredientId,
+        cost_entry_id: input.costEntryId,
+        chosen_by: input.chosenBy,
+      });
     },
     async listPosProductLinks(companyId, locationId) {
       return store.posProductLinks.filter((row) => {

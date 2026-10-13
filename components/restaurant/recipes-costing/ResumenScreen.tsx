@@ -4,6 +4,7 @@ import type {
   RecipeCostingView,
   RecipeCostingWorkspace,
 } from "@/lib/restaurant/recipe-costing/workspace";
+import { PriceCatalogPanel } from "./PriceCatalogPanel";
 import { Stepper } from "./Stepper";
 import { Card, Chip, GhostBtn, PrimaryBtn, toneForKind } from "./ui";
 
@@ -28,6 +29,8 @@ export function ResumenScreen({
       <Card className="p-4">
         <Stepper steps={stepper} onOpen={onOpen} />
       </Card>
+
+      <PriceCatalogPanel />
 
       <Card className="grid items-center gap-4 md:grid-cols-[1.25fr_1fr]">
         <div>

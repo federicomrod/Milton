@@ -571,27 +571,16 @@ async function loadImportMenuAndMappingIds(
       .select("id, source_type")
       .eq("company_id", companyId);
     if (menus.error) throw new Error(menus.error.message);
-    // Menu items the costing flow created: imported ones, and any a POS
-    // product link points at (made from Plato por plato or a suggestion).
-    const linked = await supabase
-      .from("pos_product_links")
-      .select("menu_item_id")
-      .eq("company_id", companyId)
-      .not("menu_item_id", "is", null);
-    if (linked.error) throw new Error(linked.error.message);
-    const linkedIds = new Set(
-      ((linked.data ?? []) as Array<{ menu_item_id: string | null }>)
-        .map((row) => row.menu_item_id)
-        .filter((id): id is string => typeof id === "string")
-    );
+    // Only menu items the costing flow created (source_type = "import":
+    // dish preparation from the cost file). A menu item that existed before
+    // and was merely linked to a POS product is kept: its recipes, versions
+    // and the link are cleared by their own steps.
     const allMenus = (menus.data ?? []) as Array<{
       id: string;
       source_type: string | null;
     }>;
     const importMenuIds = allMenus
-      .filter(
-        (row) => row.source_type === "import" || linkedIds.has(String(row.id))
-      )
+      .filter((row) => row.source_type === "import")
       .map((row) => String(row.id));
     const keptManualMenuItems = allMenus.length - importMenuIds.length;
 

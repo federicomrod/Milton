@@ -942,16 +942,9 @@ async function resetMemoryCompanyCostCatalog(
     (rowCompany != null && rowCompany === companyId) ||
     store.companyByEntityId[id] === companyId;
 
-  // Costing-created menu items: imported, or pointed at by a POS link.
-  const linkedMenuIds = new Set(
-    store.posProductLinks
-      .filter((row) => row.company_id === companyId && row.menu_item_id)
-      .map((row) => row.menu_item_id as string)
-  );
+  // Only menu items the costing flow created (source_type = "import").
   const importMenuItems = store.menuItems.filter(
-    (row) =>
-      ours(row.id) &&
-      (row.source_type === "import" || linkedMenuIds.has(row.id))
+    (row) => ours(row.id) && row.source_type === "import"
   );
   const importMenuIds = new Set(importMenuItems.map((row) => row.id));
   const keptManualMenuItems = store.menuItems.filter(

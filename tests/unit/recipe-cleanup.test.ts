@@ -39,15 +39,14 @@ async function seeded() {
     ingredientId: ing!.id,
     createdBy: "u",
   });
-  // A menu item the costing flow made (linked from a POS product)…
+  // A menu item the costing flow made (dish preparation: source "import"),
+  // linked from a POS product…
   const linkedMenu = await repo.createMenuItem({
     companyId: CO,
     name: "Plato de prueba",
     currency: "USD",
     sourceId: "b1",
   });
-  const linked = store.menuItems.find((m) => m.id === linkedMenu.id)!;
-  linked.source_type = null;
   const recipe = await repo.createRecipe({
     companyId: CO,
     menuItemId: linkedMenu.id,
@@ -77,7 +76,9 @@ async function seeded() {
       { menu_item_id: linkedMenu.id, evidence: { source: "ai" } }
     )
   );
-  // …and one it did not make (kept).
+  // …and one it did not make (by hand, a POS upload or Ask Milton), which
+  // a person later linked to a POS product and gave a recipe draft. It is
+  // kept, with its manual POS mapping; its recipe and link are cleared.
   store.menuItems.push({
     id: "menu-hand",
     name: "Platillo hecho a mano",
@@ -88,6 +89,42 @@ async function seeded() {
     selling_price: 5,
   });
   store.companyByEntityId["menu-hand"] = CO;
+  store.posMappings.push({
+    id: "map-hand",
+    raw_pos_item_name: "PLATILLO HECHO A MANO",
+    menu_item_id: "menu-hand",
+    match_type: "manual",
+  });
+  store.companyByEntityId["map-hand"] = CO;
+  const handRecipe = await repo.createRecipe({
+    companyId: CO,
+    menuItemId: "menu-hand",
+    name: "Platillo hecho a mano",
+    sourceId: "b1",
+    inputs: [],
+  });
+  await repo.insertRecipeVersion({
+    companyId: CO,
+    recipeId: handRecipe.id,
+    menuItemId: "menu-hand",
+    versionNumber: 1,
+    status: "in_review",
+    effectiveDate: null,
+    sourceType: "manual",
+    notes: null,
+    inputs: [],
+  });
+  await repo.upsertPosProductLink(
+    CO,
+    suggestPosProductLink(
+      unlinkedPosProduct({
+        company_id: CO,
+        odoo_product_id: 8,
+        odoo_name: "Platillo hecho a mano",
+      }),
+      { menu_item_id: "menu-hand", evidence: { source: "manual_pick" } }
+    )
+  );
   // Another company's link is never touched.
   await repo.upsertPosProductLink(
     OTHER,
@@ -130,9 +167,9 @@ describe("Empezar de nuevo clears the whole costing setup", () => {
     expect(summary).toMatchObject({
       ingredients: 1,
       ingredient_aliases: 1,
-      pos_product_links: 1,
+      pos_product_links: 2,
       costing_menu_items: 1,
-      recipes: 1,
+      recipes: 2,
       review_items: 1,
       batches_marked_undone: 1,
       kept_manual_menu_items: 1,
@@ -142,7 +179,10 @@ describe("Empezar de nuevo clears the whole costing setup", () => {
     expect(store.recipes).toHaveLength(0);
     expect(store.recipeVersions).toHaveLength(0);
     expect(store.reviewItems).toHaveLength(0);
+    // (b) the costing-made menu item is deleted; (a) the hand-made one is
+    // kept even though it was linked, and so is its manual POS mapping.
     expect(store.menuItems.map((m) => m.id)).toEqual(["menu-hand"]);
+    expect(store.posMappings.map((m) => m.id)).toEqual(["map-hand"]);
     expect(store.posProductLinks.map((l) => l.company_id)).toEqual([OTHER]);
     // Uploads stay as an archive (who uploaded what, when), never live.
     expect(store.batches).toHaveLength(1);

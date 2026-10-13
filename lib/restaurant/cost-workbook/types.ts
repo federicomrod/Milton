@@ -436,8 +436,9 @@ export interface CompanyCostResetSummary {
   components: number;
   /** POS product links: treatments, suggested and confirmed links. */
   pos_product_links: number;
-  /** Menu items the costing flow created (imported or linked to a POS
-   *  product); recipes and versions go with them. */
+  /** Menu items the costing flow created (source_type "import"); recipes
+   *  and versions go with them. Linked menu items it did not create are
+   *  kept (counted in kept_manual_menu_items). */
   costing_menu_items: number;
   import_pos_mappings: number;
   ingredient_aliases: number;

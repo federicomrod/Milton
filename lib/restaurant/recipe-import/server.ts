@@ -338,7 +338,8 @@ export async function writeImportPlan(input: {
     importedCount: plan.dishes.length,
     reviewCount: 0,
     tabSummaries: [],
-    mappingSource: "heuristic",
+    // Read by plain code, no AI and no saved layout.
+    mappingSource: "mixed",
     createdBy: input.createdBy ?? null,
   });
   const changes = emptyUndoSnapshot();

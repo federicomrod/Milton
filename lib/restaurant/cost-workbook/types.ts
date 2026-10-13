@@ -14,7 +14,12 @@ export const COST_TAB_TYPES = [
 export type CostTabType = (typeof COST_TAB_TYPES)[number];
 
 export type MappingSource = "ai" | "saved" | "heuristic";
-export type WorkbookMappingSource = "ai" | "saved" | "mixed" | "heuristic";
+/**
+ * cost_import_batches.mapping_source. Exactly what the database allows
+ * (CHECK in migration 028): anything else fails the batch insert.
+ */
+export const WORKBOOK_MAPPING_SOURCES = ["ai", "saved", "mixed"] as const;
+export type WorkbookMappingSource = (typeof WORKBOOK_MAPPING_SOURCES)[number];
 
 export interface ColumnBinding {
   column: string;

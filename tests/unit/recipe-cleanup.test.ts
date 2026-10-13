@@ -142,7 +142,7 @@ async function seeded() {
     importedCount: 1,
     reviewCount: 0,
     tabSummaries: [],
-    mappingSource: "heuristic",
+    mappingSource: "mixed",
   });
   await repo.insertReviewItems([
     {

@@ -46,9 +46,11 @@ describe("price catalog routes and screen", () => {
   });
 
   it("mounts the panel on Resumen, in Spanish with tú", () => {
-    expect(
-      read("components/restaurant/recipes-costing/ResumenScreen.tsx")
-    ).toContain("<PriceCatalogPanel onUploaded={onUploaded}");
+    const resumen = read(
+      "components/restaurant/recipes-costing/ResumenScreen.tsx"
+    ).replace(/\s+/g, " ");
+    expect(resumen).toContain("<PriceCatalogPanel onUploaded={onUploaded}");
+    expect(resumen).toContain("onRecipesImported={onResetDone}");
     const panel = read(
       "components/restaurant/recipes-costing/PriceCatalogPanel.tsx"
     );

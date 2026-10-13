@@ -25,7 +25,10 @@ const TIE_GAP = 0.08;
 const SIZE_PATTERNS: Array<[RegExp, (n: string) => string]> = [
   [/\bpara\s+(\d+)\s*(?:personas?|pers\.?|pax)?\b/i, (n) => `${n}p`],
   [/\b(\d+)\s*(?:personas?|pers\.?|pax|p)\b/i, (n) => `${n}p`],
-  [/\b(\d+(?:[.,]\d+)?)\s*(?:oz|onzas?)\b/i, (n) => `${n.replace(",", ".")}oz`],
+  [
+    /\b(\d+(?:[.,]\d+)?)\s*(?:oz|onzas?|onz)\b/i,
+    (n) => `${n.replace(",", ".")}oz`,
+  ],
 ];
 
 const NUMBER_WORDS: Record<string, string> = {

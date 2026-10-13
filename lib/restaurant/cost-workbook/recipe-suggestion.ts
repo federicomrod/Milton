@@ -20,6 +20,7 @@ import {
 } from "./copy";
 import { pickMenuItemForLocation } from "./menu-item-pick";
 import { normalizeMatchName } from "./names";
+import { EXCEL_IMPORT_SOURCE } from "@/lib/restaurant/recipe-import/types";
 import {
   prefillLines,
   type PrefilledLine,
@@ -318,6 +319,11 @@ export async function runRecipeSuggestions(input: {
       );
       if (existingLink?.link_state === "confirmado") {
         skipProduct(product, "este vínculo ya está Confirmado");
+        continue;
+      }
+      // The recipe came straight from the Excel import: the AI adds nothing.
+      if (existingLink?.evidence?.source === EXCEL_IMPORT_SOURCE) {
+        skipProduct(product, "ya tiene la receta importada de tu Excel");
         continue;
       }
 

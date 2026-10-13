@@ -4,7 +4,11 @@ import type {
   CostingMenuRecipeVersion,
   CostingRecipeInput,
 } from "@/lib/restaurant/costing";
+import { fetchAllRowsRetryingWithoutColumns } from "@/lib/restaurant/missing-schema-column";
 import { fetchAllRows, succeededRows } from "@/lib/restaurant/paginated-read";
+
+/** Per-line cost columns from migration 043; read when they exist. */
+const LINE_COST_COLUMNS = ["unit_cost"] as const;
 
 export async function fetchCostingRecipeVersions(
   supabase: SupabaseClient,
@@ -42,20 +46,22 @@ export async function fetchCostingRecipeVersions(
         )
         .eq("company_id", companyId)
     ),
-    fetchAllRows<{
+    fetchAllRowsRetryingWithoutColumns<{
       recipe_version_id: string;
       input_type: "ingredient" | "component";
       ingredient_id: string | null;
       component_id: string | null;
       quantity: number;
       unit: string;
-    }>(() =>
-      supabase
-        .from("recipe_version_inputs")
-        .select(
-          "recipe_version_id, input_type, ingredient_id, component_id, quantity, unit"
-        )
-        .eq("company_id", companyId)
+      unit_cost?: number | null;
+    }>(
+      LINE_COST_COLUMNS,
+      (select) =>
+        supabase
+          .from("recipe_version_inputs")
+          .select(select)
+          .eq("company_id", companyId),
+      "recipe_version_id, input_type, ingredient_id, component_id, quantity, unit, unit_cost"
     ),
     fetchAllRows<{
       id: string;
@@ -75,20 +81,22 @@ export async function fetchCostingRecipeVersions(
         )
         .eq("company_id", companyId)
     ),
-    fetchAllRows<{
+    fetchAllRowsRetryingWithoutColumns<{
       component_recipe_version_id: string;
       input_type: "ingredient" | "component";
       ingredient_id: string | null;
       component_id: string | null;
       quantity: number;
       unit: string;
-    }>(() =>
-      supabase
-        .from("component_recipe_version_inputs")
-        .select(
-          "component_recipe_version_id, input_type, ingredient_id, component_id, quantity, unit"
-        )
-        .eq("company_id", companyId)
+      unit_cost?: number | null;
+    }>(
+      LINE_COST_COLUMNS,
+      (select) =>
+        supabase
+          .from("component_recipe_version_inputs")
+          .select(select)
+          .eq("company_id", companyId),
+      "component_recipe_version_id, input_type, ingredient_id, component_id, quantity, unit, unit_cost"
     ),
   ]);
 
@@ -122,6 +130,7 @@ export async function fetchCostingRecipeVersions(
       component_id: row.component_id,
       quantity: row.quantity,
       unit: row.unit,
+      unit_cost: row.unit_cost == null ? null : Number(row.unit_cost),
     });
     menuRecipeVersionInputsByVersionId.set(row.recipe_version_id, list);
   }
@@ -160,6 +169,7 @@ export async function fetchCostingRecipeVersions(
       component_id: row.component_id,
       quantity: row.quantity,
       unit: row.unit,
+      unit_cost: row.unit_cost == null ? null : Number(row.unit_cost),
     });
     componentRecipeVersionInputsByVersionId.set(
       row.component_recipe_version_id,

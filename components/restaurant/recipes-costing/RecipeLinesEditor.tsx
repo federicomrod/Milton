@@ -671,6 +671,13 @@ function Row({
       <td className="py-1.5 text-right align-top">
         {unresolved ? (
           "—"
+        ) : line.own_cost && line.unit_cost !== null ? (
+          <span>
+            {money(line.unit_cost)}/{UNIT_LABEL[line.unit] ?? line.unit}
+            <div className="text-[10px] text-[#8a92a3]">
+              del Excel{line.cost_source ? ` · ${line.cost_source}` : ""}
+            </div>
+          </span>
         ) : line.kind === "ingredient" &&
           !line.price &&
           line.catalog_question ? (

@@ -138,7 +138,12 @@ export function ResumenScreen({
         </div>
       </Card>
 
-      <PriceCatalogPanel onUploaded={onUploaded} busyExternal={generateBusy} />
+      <PriceCatalogPanel
+        onUploaded={onUploaded}
+        onRecipesImported={onResetDone}
+        locationId={locationId}
+        busyExternal={generateBusy}
+      />
 
       <MenuReaderPanel
         canEdit={data.actor.can_submit}

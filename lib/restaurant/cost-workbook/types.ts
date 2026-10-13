@@ -161,6 +161,9 @@ export interface RecipeInputSnapshot {
   quantity: number;
   unit: string;
   notes: string | null;
+  /** Cost per `unit` from the client's file (migration 043); omit = catalog. */
+  unit_cost?: number | null;
+  cost_source?: string | null;
 }
 
 export interface UndoSnapshot {

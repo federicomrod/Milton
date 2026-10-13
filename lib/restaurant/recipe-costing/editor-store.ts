@@ -2,6 +2,7 @@
 // company that came from auth; ids from the client are only ever matched
 // inside that company.
 
+import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 import { updateWithApprovalAudit } from "./approval-audit";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -301,23 +302,37 @@ export function createSupabaseEditorStore(
 
     async listInputs(companyId, version): Promise<VersionInput[]> {
       const t = inputTable(version);
-      const { data, error } = await supabase
-        .from(t.table)
-        .select("id, input_type, ingredient_id, component_id, quantity, unit")
-        .eq("company_id", companyId)
-        .eq(t.fk, version.id)
-        .order("id", { ascending: true });
+      const base =
+        "id, input_type, ingredient_id, component_id, quantity, unit";
+      const read = (select: string) =>
+        supabase
+          .from(t.table)
+          .select(select)
+          .eq("company_id", companyId)
+          .eq(t.fk, version.id)
+          .order("id", { ascending: true });
+      // Per-line cost columns come with migration 043; read them when there.
+      let { data, error } = await read(`${base}, unit_cost, cost_source`);
+      if (error && errorMentionsColumn(error, "unit_cost")) {
+        ({ data, error } = await read(base));
+      }
       if (error) throw new Error(error.message);
-      return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
-        id: String(row.id),
-        input_type: row.input_type === "component" ? "component" : "ingredient",
-        ingredient_id:
-          typeof row.ingredient_id === "string" ? row.ingredient_id : null,
-        component_id:
-          typeof row.component_id === "string" ? row.component_id : null,
-        quantity: Number(row.quantity),
-        unit: String(row.unit),
-      }));
+      return ((data ?? []) as unknown as Array<Record<string, unknown>>).map(
+        (row) => ({
+          id: String(row.id),
+          input_type:
+            row.input_type === "component" ? "component" : "ingredient",
+          ingredient_id:
+            typeof row.ingredient_id === "string" ? row.ingredient_id : null,
+          component_id:
+            typeof row.component_id === "string" ? row.component_id : null,
+          quantity: Number(row.quantity),
+          unit: String(row.unit),
+          unit_cost: row.unit_cost == null ? null : Number(row.unit_cost),
+          cost_source:
+            typeof row.cost_source === "string" ? row.cost_source : null,
+        })
+      );
     },
 
     async insertInput(companyId, version, row): Promise<VersionInput> {
@@ -333,6 +348,10 @@ export function createSupabaseEditorStore(
           quantity: row.quantity,
           unit: row.unit,
           notes: null,
+          // Only an import sets a line's own cost; the editor never does.
+          ...(row.unit_cost != null
+            ? { unit_cost: row.unit_cost, cost_source: row.cost_source ?? null }
+            : {}),
         })
         .select("id")
         .single();

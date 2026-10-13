@@ -42,6 +42,33 @@ import { runResetSteps, summaryFromResetSteps } from "./reset";
 
 const WRITE_CHUNK = 100;
 
+/**
+ * The canonical rows of an undone import go with it (all of the company's
+ * on "Empezar de nuevo"). Before migration 043 there is nothing to delete.
+ */
+async function deleteCanonicalLines(
+  supabase: SupabaseClient,
+  companyId: string,
+  batchId: string | null
+): Promise<void> {
+  let query = supabase
+    .from("recipe_canonical_lines")
+    .delete()
+    .eq("company_id", companyId);
+  if (batchId) query = query.eq("batch_id", batchId);
+  const { error } = await query;
+  if (error && !/recipe_canonical_lines/i.test(error.message)) {
+    throw new Error(error.message);
+  }
+}
+
+/** Per-line cost columns (migration 043), only when the line has one. */
+function lineCostColumns(row: RecipeInputSnapshot): Record<string, unknown> {
+  return row.unit_cost != null
+    ? { unit_cost: row.unit_cost, cost_source: row.cost_source ?? null }
+    : {};
+}
+
 export interface CreateBatchInput {
   companyId: string;
   filename: string;
@@ -743,6 +770,7 @@ async function resetSupabaseCompanyCostCatalog(
           .is("undone_at", null)
           .select("id");
         if (batchError) throw new Error(batchError.message);
+        await deleteCanonicalLines(supabase, companyId, null);
         return (marked ?? []).length;
       }
     }
@@ -1226,6 +1254,7 @@ export function createSupabaseCostWorkbookRepo(
         .eq("company_id", companyId)
         .eq("id", batchId);
       if (error) throw new Error(error.message);
+      await deleteCanonicalLines(supabase, companyId, batchId);
     },
 
     async updateBatchSnapshot(companyId, batchId, snapshot) {
@@ -1857,6 +1886,7 @@ export function createSupabaseCostWorkbookRepo(
               quantity: row.quantity,
               unit: row.unit,
               notes: row.notes,
+              ...lineCostColumns(row),
             }))
           );
         if (inputError) throw new Error(inputError.message);
@@ -1913,6 +1943,7 @@ export function createSupabaseCostWorkbookRepo(
               quantity: row.quantity,
               unit: row.unit,
               notes: row.notes,
+              ...lineCostColumns(row),
             }))
           );
         if (inputError) throw new Error(inputError.message);

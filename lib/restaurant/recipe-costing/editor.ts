@@ -46,6 +46,10 @@ export interface VersionInput {
   component_id: string | null;
   quantity: number;
   unit: string;
+  /** Cost per `unit` from the client's file (migration 043); null = catalog. */
+  unit_cost?: number | null;
+  /** Where that cost came from, e.g. "DE LA PARRILLA!B8". */
+  cost_source?: string | null;
 }
 
 export interface PriceMeta {
@@ -95,6 +99,9 @@ export interface EditorLine {
   /** The price list row for this ingredient was unclear: its readings,
    *  for the person to pick one (no price is used until then). */
   catalog_question?: CatalogQuestion | null;
+  /** True when this line is costed with its own cost from the file. */
+  own_cost?: boolean;
+  cost_source?: string | null;
 }
 
 export interface CatalogQuestion {
@@ -221,6 +228,7 @@ export function hydrateLines(input: {
       component_id: row.component_id,
       quantity: row.quantity,
       unit: row.unit,
+      unit_cost: row.unit_cost ?? null,
     });
     const question = raw.unit_question ?? null;
     const pending = cost.amount === null || question !== null;
@@ -253,6 +261,8 @@ export function hydrateLines(input: {
       evidence_index: raw.evidence_index,
       unit_question: question,
       excel_unit_cost: raw.excel_unit_cost ?? null,
+      own_cost: typeof row.unit_cost === "number" && row.unit_cost > 0,
+      cost_source: row.cost_source ?? null,
     };
   };
 

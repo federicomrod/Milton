@@ -82,6 +82,9 @@ describe("no silent ingredient creation (source guards)", () => {
         "lib/restaurant/price-catalog/apply.ts",
         // "Agregar ingrediente" in the recipe editor (explicit).
         "lib/restaurant/recipe-costing/editor-store.ts",
+        // Recipe import from the cost file: only after the person sees the
+        // preview and clicks "Importar"; one per name, never a duplicate.
+        "lib/restaurant/recipe-import/server.ts",
       ].sort()
     );
   });

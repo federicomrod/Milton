@@ -116,6 +116,21 @@ export interface CostingRecipeInput {
   component_id: string | null;
   quantity: number;
   unit: string;
+  /**
+   * Cost per one `unit` of this line, taken from the client's file (its
+   * own tab). When set, the line costs quantity × unit_cost and the
+   * catalog is not read; null/undefined keeps the catalog price.
+   */
+  unit_cost?: number | null;
+}
+
+/** A line that carries its own cost (from the client's file). */
+export function lineOwnCost(input: CostingRecipeInput): number | null {
+  const cost = input.unit_cost;
+  if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) {
+    return null;
+  }
+  return input.quantity * cost;
 }
 
 /**
@@ -382,11 +397,7 @@ export function calculateComponentCost(
   path: string[] = []
 ): ComponentCostResult {
   const component = data.componentsById.get(componentId);
-  const resolved = componentRecipeForAsOf(
-    componentId,
-    data,
-    options?.asOfDate
-  );
+  const resolved = componentRecipeForAsOf(componentId, data, options?.asOfDate);
   const recipe = resolved.recipe;
   const inputs = resolved.inputs;
   const name = component?.name ?? "(unknown component)";
@@ -456,6 +467,11 @@ export function calculateComponentCost(
   const issues: CostIssue[] = [];
 
   for (const input of inputs) {
+    const own = lineOwnCost(input);
+    if (own !== null) {
+      batchCost += own;
+      continue;
+    }
     if (input.input_type === "ingredient") {
       if (!input.ingredient_id) {
         pushIssue(
@@ -622,6 +638,11 @@ export function calculateMenuItemCost(
   const issues: CostIssue[] = [];
 
   for (const input of inputs) {
+    const own = lineOwnCost(input);
+    if (own !== null) {
+      total += own;
+      continue;
+    }
     if (input.input_type === "ingredient") {
       if (!input.ingredient_id) {
         pushIssue(

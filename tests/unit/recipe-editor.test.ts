@@ -685,3 +685,73 @@ describe("lines read from the menu", () => {
     expect(d.inputs.at(-1)).toMatchObject({ quantity: 0.25, unit: "oz" });
   });
 });
+
+describe("a line imported with its own cost from the file", () => {
+  function imported(): MemoryEditorState {
+    const d = draft();
+    d.inputs = [
+      {
+        id: "in-res",
+        input_type: "ingredient",
+        ingredient_id: "i-harina",
+        component_id: null,
+        quantity: 6,
+        unit: "oz",
+        unit_cost: 0.6,
+        cost_source: "HOJA DE PRUEBA!B8",
+      },
+    ];
+    d.link!.evidence = {
+      yield: { value: 1, unit: "porción", source: "excel" },
+      lines: [line({ raw_name: "HARINA", ingredient_match: "Harina", qty: 6 })],
+    };
+    return d;
+  }
+
+  it("is costed with the file's cost, not the catalog price", async () => {
+    const lines = (await state(imported())).lines;
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      own_cost: true,
+      cost_source: "HOJA DE PRUEBA!B8",
+      pending: false,
+    });
+    expect(lines[0].amount).toBeCloseTo(3.6, 6);
+  });
+
+  it("keeps the cost when only the quantity changes", async () => {
+    const d = imported();
+    await applyEdit(ctx(d), {
+      action: "update",
+      input_id: "in-res",
+      quantity: 8,
+    });
+    expect(d.inputs[0]).toMatchObject({ quantity: 8, unit_cost: 0.6 });
+  });
+
+  it("drops the file's cost when a person changes the unit or the item", async () => {
+    const d = imported();
+    await applyEdit(ctx(d), {
+      action: "update",
+      input_id: "in-res",
+      unit: "lb",
+    });
+    expect(d.inputs[0]).toMatchObject({
+      unit: "lb",
+      unit_cost: null,
+      cost_source: null,
+    });
+
+    const e = imported();
+    await applyEdit(ctx(e), {
+      action: "change_item",
+      input_id: "in-res",
+      kind: "ingredient",
+      id: "i-queso",
+    });
+    expect(e.inputs[0]).toMatchObject({
+      ingredient_id: "i-queso",
+      unit_cost: null,
+    });
+  });
+});

@@ -600,6 +600,20 @@ export type EditorAction =
 
 const MAX_NAME = 120;
 
+/**
+ * A line's own cost (from the client's file) is per its unit and item.
+ * When a person changes either, that cost no longer applies: the line
+ * goes back to the catalog price. Only touches the columns when the line
+ * had one (so a database without migration 043 is never written to).
+ */
+function clearedOwnCost(
+  current: VersionInput
+): Partial<Pick<VersionInput, "unit_cost" | "cost_source">> {
+  return current.unit_cost != null
+    ? { unit_cost: null, cost_source: null }
+    : {};
+}
+
 const TYPE_QUANTITY_FIRST =
   "Escribe cuánto lleva el plato (cantidad y unidad) antes de elegir.";
 
@@ -766,8 +780,12 @@ export async function applyEdit(
         patch.unit = unit;
       }
       const inputs = await ctx.store.listInputs(ctx.companyId, version!);
-      if (!inputs.some((row) => row.id === action.input_id)) {
+      const current = inputs.find((row) => row.id === action.input_id);
+      if (!current) {
         return { ok: false, error: "No encontré esa línea.", status: 404 };
+      }
+      if (patch.unit && patch.unit !== current.unit) {
+        Object.assign(patch, clearedOwnCost(current));
       }
       await ctx.store.updateInput(
         ctx.companyId,
@@ -805,11 +823,13 @@ export async function applyEdit(
         return { ok: false, error: "Esa unidad no es válida.", status: 400 };
       }
       const inputs = await ctx.store.listInputs(ctx.companyId, version!);
-      if (!inputs.some((row) => row.id === action.input_id)) {
+      const current = inputs.find((row) => row.id === action.input_id);
+      if (!current) {
         return { ok: false, error: "No encontré esa línea.", status: 404 };
       }
       await ctx.store.updateInput(ctx.companyId, version!, action.input_id, {
         unit,
+        ...(unit !== current.unit ? clearedOwnCost(current) : {}),
       });
       for (const line of evidenceLines) {
         if (line.input_id === action.input_id) line.unit_question = null;
@@ -825,13 +845,15 @@ export async function applyEdit(
         };
       }
       const inputs = await ctx.store.listInputs(ctx.companyId, version!);
-      if (!inputs.some((row) => row.id === action.input_id)) {
+      const current = inputs.find((row) => row.id === action.input_id);
+      if (!current) {
         return { ok: false, error: "No encontré esa línea.", status: 404 };
       }
       await ctx.store.updateInput(ctx.companyId, version!, action.input_id, {
         input_type: action.kind,
         ingredient_id: action.kind === "ingredient" ? action.id : null,
         component_id: action.kind === "component" ? action.id : null,
+        ...clearedOwnCost(current),
       });
       // The cached line must follow the new item.
       evidenceLines = evidenceLines.map((line) =>

@@ -6,6 +6,7 @@ import type {
   CatalogUnit,
   PriceCatalogRow,
 } from "@/lib/restaurant/price-catalog/reader";
+import { RecipeImportPreview } from "./RecipeImportPreview";
 import { Card, Chip, GhostBtn, PrimaryBtn } from "./ui";
 
 const UNIT_LABEL: Record<CatalogUnit, string> = {
@@ -78,13 +79,21 @@ async function postJson(url: string, body: unknown) {
  */
 export function PriceCatalogPanel({
   onUploaded,
+  onRecipesImported,
+  locationId = null,
   busyExternal = false,
 }: {
   onUploaded?: () => void;
+  /** After "Importar" on the recipes of the same file. */
+  onRecipesImported?: () => void;
+  locationId?: string | null;
   busyExternal?: boolean;
 } = {}) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
+  // The same file, kept for the recipe preview even after the price list
+  // is saved.
+  const [recipeFile, setRecipeFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [saved, setSaved] = useState<Saved | null>(null);
   const [busy, setBusy] = useState(false);
@@ -134,6 +143,7 @@ export function PriceCatalogPanel({
 
   async function readFile(next: File) {
     setFile(next);
+    setRecipeFile(next);
     setBusy(true);
     setError(null);
     setSaved(null);
@@ -575,6 +585,13 @@ export function PriceCatalogPanel({
           </button>
         </div>
       ) : null}
+
+      <RecipeImportPreview
+        file={recipeFile}
+        locationId={locationId}
+        busyExternal={busy || busyExternal}
+        onImported={() => onRecipesImported?.()}
+      />
 
       {open.length > 0 ? (
         <section className="space-y-1.5">

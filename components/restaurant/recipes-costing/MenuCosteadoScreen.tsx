@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
 import { withShellParams } from "@/lib/restaurant/navigation";
+import { TREATMENT_RULES } from "@/lib/restaurant/pos-treatments";
 import { Card, Chip, GhostBtn, PrimaryBtn, toneForKind } from "./ui";
 
 export function MenuCosteadoScreen({
@@ -20,11 +21,7 @@ export function MenuCosteadoScreen({
     to: searchParams.get("to"),
   });
   const excluded = data.products.filter(
-    (row) =>
-      row.is_combo ||
-      row.classification === "no_requiere_costeo" ||
-      row.classification === "componente" ||
-      row.kind_label === "Cargo"
+    (row) => row.is_combo || !TREATMENT_RULES[row.treatment].needs_recipe
   );
   const stats = data.costeado_stats;
   return (
@@ -87,17 +84,15 @@ export function MenuCosteadoScreen({
               ))}
           </div>
           <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] text-[#6b7385]">
-            {data.coverage.slices
-              .filter((slice) => slice.id !== "no_requiere")
-              .map((slice) => (
-                <span key={slice.id} className="inline-flex items-center gap-1">
-                  <i
-                    className="inline-block h-2 w-2 rounded-sm"
-                    style={{ background: slice.color }}
-                  />
-                  {slice.label} {slice.pct}%
-                </span>
-              ))}
+            {data.coverage.slices.map((slice) => (
+              <span key={slice.id} className="inline-flex items-center gap-1">
+                <i
+                  className="inline-block h-2 w-2 rounded-sm"
+                  style={{ background: slice.color }}
+                />
+                {slice.label} {slice.pct}%
+              </span>
+            ))}
           </div>
           <div className="mt-3 space-y-0 text-xs">
             <div className="flex justify-between border-t border-[#f2f3f6] py-1.5">
@@ -271,11 +266,16 @@ function excludedChip(row: {
   kind_label: string;
   display_state_label: string;
   display_state_tone: "ok" | "sug" | "warn" | "bad" | "grey" | "pur";
-  classification: string;
+  treatment: string;
+  treatment_label: string;
   net_sales: number;
   units_sold: number;
 }): { label: string; tone: "ok" | "sug" | "warn" | "bad" | "grey" | "pur" } {
   if (row.is_combo) return { label: "Combo", tone: "pur" };
+  if (row.treatment === "excluido")
+    return { label: "No es comida", tone: "grey" };
+  if (row.treatment === "modificador_sin_costo")
+    return { label: "Sin costo", tone: "grey" };
   if (row.kind_label === "Cargo") return { label: "Cargo", tone: "grey" };
   if (row.kind_label === "Modificador")
     return { label: "Modificador", tone: "grey" };
@@ -283,8 +283,6 @@ function excludedChip(row: {
     return { label: "Reventa", tone: "sug" };
   if (row.net_sales === 0 && row.units_sold === 0)
     return { label: "No vendido", tone: "grey" };
-  if (row.classification === "no_requiere_costeo")
-    return { label: "No requiere", tone: "grey" };
   return { label: row.display_state_label, tone: row.display_state_tone };
 }
 

@@ -1,9 +1,12 @@
 // lib/restaurant/pos-product-list.ts
 //
 // Rank Odoo products by share of net sales and compute coverage.
-// Coverage = % of net sales with a Confirmado link AND an Aprobada
-// recipe version. Combo child lines roll up to the parent combo;
-// they are not top-level sold products. No KPI math belongs in React.
+// Coverage = % of FOOD net sales whose cost is known: a Confirmado link
+// AND an Aprobada recipe version, a no-cost modifier, or a combo whose
+// parts are all covered. Products a person excluded (not food) leave the
+// denominator (see pos-treatments.ts). Combo child lines roll up to the
+// parent combo; they are not top-level sold products. No KPI math belongs
+// in React.
 
 import { classifySaleLine } from "@/lib/restaurant/sales-revenue";
 import { hasApprovedVersion } from "@/lib/restaurant/recipe-versions";
@@ -17,6 +20,14 @@ import {
   type PosProductLinkRecord,
   type PosProductLinkState,
 } from "@/lib/restaurant/pos-product-links";
+import {
+  TREATMENT_RULES,
+  effectiveTreatment,
+  isCovered,
+  suggestTreatment,
+  type CoverageState,
+  type TreatmentSuggestion,
+} from "@/lib/restaurant/pos-treatments";
 
 export interface PosSaleLineForProductList {
   company_id: string;
@@ -53,8 +64,16 @@ export interface RankedPosProduct {
   category: string | null;
   is_combo: boolean;
   components: ComboComponentShare[];
+  /** Saved treatment ("por_clasificar" when nobody chose one). */
   classification: PosProductClassification;
   classification_label: string;
+  /** Treatment used for coverage (an unclassified combo is a combo). */
+  treatment: PosProductClassification;
+  /** Shown until a person saves a treatment; never applied by itself. */
+  suggested_treatment: TreatmentSuggestion | null;
+  in_food_sales: boolean;
+  /** Share of food net sales (0 for excluded products). */
+  share_of_food_sales: number;
   link_state: PosProductLinkState;
   link_state_label: string;
   menu_item_id: string | null;
@@ -64,6 +83,9 @@ export interface RankedPosProduct {
 export interface PosProductListResult {
   company_id: string;
   net_sales: number;
+  /** Coverage denominator: net sales minus excluded products. */
+  food_net_sales: number;
+  excluded_net_sales: number;
   covered_net_sales: number;
   coverage_pct: number;
   products: RankedPosProduct[];
@@ -208,6 +230,29 @@ export function buildPosProductList(input: {
     approvedByMenuItem.set(version.menu_item_id, list);
   }
 
+  const coverageStateFor = (
+    odooProductId: number,
+    isCombo: boolean
+  ): CoverageState => {
+    const link = matchPosProductLink(
+      input.links,
+      companyId,
+      odooProductId,
+      locationId
+    );
+    const menuItemId = link?.menu_item_id ?? null;
+    return {
+      treatment: effectiveTreatment({
+        classification: link?.classification ?? "por_clasificar",
+        is_combo: isCombo,
+      }),
+      confirmed: link?.link_state === "confirmado",
+      approved:
+        menuItemId != null &&
+        hasApprovedVersion(approvedByMenuItem.get(menuItemId) ?? []),
+    };
+  };
+
   const products: RankedPosProduct[] = [];
   for (const acc of byProduct.values()) {
     // Combo children with no stand-alone sales are components, not
@@ -233,10 +278,19 @@ export function buildPosProductList(input: {
       });
 
     const menuItemId = link.menu_item_id;
-    const approved =
-      menuItemId != null &&
-      hasApprovedVersion(approvedByMenuItem.get(menuItemId) ?? []);
-    const countsTowardCoverage = link.link_state === "confirmado" && approved;
+    const treatment = effectiveTreatment({
+      classification: link.classification,
+      is_combo: acc.is_combo,
+    });
+    const parts = acc.is_combo
+      ? [...acc.components.keys()].map((partId) =>
+          coverageStateFor(partId, false)
+        )
+      : [];
+    const countsTowardCoverage = isCovered({
+      ...coverageStateFor(acc.odoo_product_id, acc.is_combo),
+      parts,
+    });
 
     products.push({
       odoo_product_id: acc.odoo_product_id,
@@ -254,6 +308,16 @@ export function buildPosProductList(input: {
       ),
       classification: link.classification,
       classification_label: CLASSIFICATION_LABELS[link.classification],
+      treatment,
+      suggested_treatment:
+        link.classification === "por_clasificar"
+          ? suggestTreatment({
+              name: acc.odoo_name || link.odoo_name,
+              is_combo: acc.is_combo,
+            })
+          : null,
+      in_food_sales: TREATMENT_RULES[treatment].in_food_sales,
+      share_of_food_sales: 0,
       link_state: link.link_state,
       link_state_label: LINK_STATE_LABELS[link.link_state],
       menu_item_id: menuItemId,
@@ -263,6 +327,11 @@ export function buildPosProductList(input: {
 
   const netSales = round2(
     products.reduce((sum, product) => sum + product.net_sales, 0)
+  );
+  const foodNetSales = round2(
+    products
+      .filter((product) => product.in_food_sales)
+      .reduce((sum, product) => sum + product.net_sales, 0)
   );
   const coveredNetSales = round2(
     products
@@ -279,14 +348,20 @@ export function buildPosProductList(input: {
   for (const product of products) {
     product.share_of_net_sales =
       netSales === 0 ? 0 : product.net_sales / netSales;
+    product.share_of_food_sales =
+      foodNetSales === 0 || !product.in_food_sales
+        ? 0
+        : product.net_sales / foodNetSales;
   }
 
   return {
     company_id: companyId,
     net_sales: netSales,
+    food_net_sales: foodNetSales,
+    excluded_net_sales: round2(netSales - foodNetSales),
     covered_net_sales: coveredNetSales,
     coverage_pct:
-      netSales === 0 ? 0 : round1((coveredNetSales / netSales) * 100),
+      foodNetSales === 0 ? 0 : round1((coveredNetSales / foodNetSales) * 100),
     products,
   };
 }

@@ -30,6 +30,10 @@ import {
 } from "@/lib/restaurant/cost-workbook/stored-blocks";
 import { readCatalogFromBuffer } from "@/lib/restaurant/price-catalog/server";
 import type { WorkbookAi } from "@/lib/restaurant/cost-workbook";
+import { buildPosProductList } from "@/lib/restaurant/pos-product-list";
+import { unlinkedPosProduct } from "@/lib/restaurant/pos-product-links";
+import { suggestTreatment } from "@/lib/restaurant/pos-treatments";
+import { wantsSuggestion } from "@/lib/restaurant/recipe-suggestion-server";
 import {
   createMemoryCostWorkbookRepo,
   emptyMemoryStore,
@@ -497,5 +501,171 @@ describe.skipIf(!path)("real workbook acceptance (aggregates only)", () => {
         })
     );
     expect(preparationsCreated).toBe(store.components.length);
+  });
+
+  it("treatments: suggestions on the file's dishes, and Generar sugerencias skips non-recipe products", async () => {
+    const buffer = readFileSync(path as string);
+    const {
+      read,
+      observations,
+      blocks: fileBlocks,
+    } = readCatalogFromBuffer(buffer);
+    const confirmed: Record<string, { unit: "oz" | "lb" | "unit" | "g" }> = {};
+    for (const row of read!.rows) {
+      if (row.status === "check_unit" && row.unit) {
+        confirmed[row.key] = { unit: row.unit };
+      }
+    }
+    const store = emptyMemoryStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    await applyPriceCatalog({
+      repo,
+      companyId: "co-real",
+      userId: "u-real",
+      currency: "USD",
+      filename: "real-workbook.xlsx",
+      read: read!,
+      observations,
+      decisions: { rows: confirmed, conflicts: {} },
+      candidateBlocks: fileBlocks,
+    });
+    const stored = expandCandidateBlocks(
+      findRecipeSource(store.batches)!.blocks
+    );
+    const dishes = stored.filter((b) => b.kind === "recipe");
+
+    // 1. What Milton would suggest for each dish name in the file.
+    const onDishes: Record<string, number> = {};
+    for (const block of dishes) {
+      const t = suggestTreatment({
+        name: block.name,
+        is_combo: false,
+      }).treatment;
+      onDishes[t] = (onDishes[t] ?? 0) + 1;
+    }
+    // 2. Catalog items that look like resale (what a reventa product picks).
+    const resaleInCatalog = read!.rows.filter(
+      (row) =>
+        row.kind === "ingredient" &&
+        suggestTreatment({ name: row.name, is_combo: false }).treatment ===
+          "reventa"
+    ).length;
+
+    // 3. A POS made of the file's dishes plus two invented non-recipe
+    //    products (merchandise and a combo of the two top dishes; tips
+    //    never reach the product list). Amounts
+    //    are invented. A person accepts every suggestion.
+    const sales = dishes.flatMap((block, index) => [
+      {
+        company_id: "co-real",
+        raw_item_name: block.name,
+        quantity: 1,
+        net_revenue: 1000 - index,
+        gross_revenue: 1000 - index,
+        source_metadata: { product_id: index + 1 },
+        external_line_id: `d${index}`,
+      },
+    ]);
+    const merchId = 9001;
+    const comboId = 9002;
+    sales.push(
+      {
+        company_id: "co-real",
+        raw_item_name: "Camiseta del restaurante",
+        quantity: 1,
+        net_revenue: 2000,
+        gross_revenue: 2000,
+        source_metadata: { product_id: merchId },
+        external_line_id: "tip",
+      },
+      {
+        company_id: "co-real",
+        raw_item_name: "Combo",
+        quantity: 1,
+        net_revenue: 0,
+        gross_revenue: 0,
+        source_metadata: { product_id: comboId },
+        external_line_id: "combo",
+      }
+    );
+    for (const part of [1, 2]) {
+      sales.push({
+        company_id: "co-real",
+        raw_item_name: dishes[part - 1]!.name,
+        quantity: 1,
+        net_revenue: 300,
+        gross_revenue: 300,
+        source_metadata: { product_id: part },
+        external_line_id: `combo-part-${part}`,
+        combo_parent_external_line_id: "combo",
+      } as (typeof sales)[number]);
+    }
+    const before = buildPosProductList({
+      companyId: "co-real",
+      sales,
+      links: [],
+      recipeVersions: [],
+    });
+    const accepted = before.products
+      .filter((p) => p.suggested_treatment && !p.is_combo)
+      .map((p) => ({
+        ...unlinkedPosProduct({
+          company_id: "co-real",
+          odoo_product_id: p.odoo_product_id,
+          odoo_name: p.odoo_name,
+        }),
+        classification: p.suggested_treatment!.treatment,
+      }));
+    const list = buildPosProductList({
+      companyId: "co-real",
+      sales,
+      links: accepted,
+      recipeVersions: [],
+    });
+    const toSuggest = list.products.filter(wantsSuggestion);
+    expect(toSuggest.some((p) => p.odoo_product_id === merchId)).toBe(false);
+    expect(toSuggest.some((p) => p.odoo_product_id === comboId)).toBe(false);
+    expect(list.food_net_sales).toBeLessThan(list.net_sales);
+
+    const chunkAi = {
+      classifyTab: async () => ({ type: "ignore" as const, confidence: 0.2 }),
+      mapColumns: async () => ({}),
+      proposeRecipe: async (
+        product: (typeof toSuggest)[number],
+        candidates: typeof stored
+      ) => proposeRecipeHeuristic({ product, candidateBlocks: candidates }),
+    };
+    let offset = 0;
+    let drafts = 0;
+    while (offset < toSuggest.length) {
+      const r = await runRecipeSuggestions({
+        companyId: "co-real",
+        products: toSuggest,
+        candidateBlocks: stored,
+        repo,
+        ai: chunkAi,
+        currency: "USD",
+        filename: "real-workbook.xlsx",
+        limit: 5,
+        offset,
+        lang: "es",
+      });
+      drafts += r.suggested;
+      offset += 5;
+    }
+
+    console.log(
+      "REAL-FILE TREATMENTS " +
+        JSON.stringify({
+          dishes_in_file: dishes.length,
+          suggested_treatment_for_file_dishes: onDishes,
+          catalog_items_that_look_like_resale: resaleInCatalog,
+          pos_products: list.products.length,
+          products_for_generar_sugerencias: toSuggest.length,
+          excluded_share_of_all_sales_pct:
+            Math.round((list.excluded_net_sales / list.net_sales) * 1000) / 10,
+          drafts_created: drafts,
+        })
+    );
   });
 });

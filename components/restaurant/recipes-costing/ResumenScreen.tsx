@@ -6,6 +6,7 @@ import type {
 } from "@/lib/restaurant/recipe-costing/workspace";
 import { PriceCatalogPanel } from "./PriceCatalogPanel";
 import { Stepper } from "./Stepper";
+import { ClassifyQueuePanel, type PostFn } from "./TreatmentPanel";
 import { Card, Chip, GhostBtn, PrimaryBtn, toneForKind } from "./ui";
 
 export function ResumenScreen({
@@ -15,6 +16,8 @@ export function ResumenScreen({
   onGenerateSuggestions,
   onUploadWorkbook,
   generateBusy,
+  busy,
+  onPost,
 }: {
   data: RecipeCostingWorkspace;
   onOpen: (view: RecipeCostingView, odooProductId?: number) => void;
@@ -22,6 +25,8 @@ export function ResumenScreen({
   onGenerateSuggestions: () => void;
   onUploadWorkbook: (file: File) => void;
   generateBusy: boolean;
+  busy: boolean;
+  onPost: PostFn;
 }) {
   const { coverage, stepper, next_dish, classification } = data;
   return (
@@ -35,7 +40,7 @@ export function ResumenScreen({
       <Card className="grid items-center gap-4 md:grid-cols-[1.25fr_1fr]">
         <div>
           <div className="text-[11.5px] font-semibold text-[#6b7385]">
-            Ventas netas con costo aprobado
+            Ventas de comida con costo aprobado
           </div>
           <div className="mt-1 flex flex-wrap items-baseline gap-2.5">
             <span className="text-[28px] font-extrabold leading-none text-[#1b2333]">
@@ -68,6 +73,11 @@ export function ResumenScreen({
               </span>
             ))}
           </div>
+          {coverage.excluded_note ? (
+            <div className="mt-1 text-[10.5px] text-[#8a92a3]">
+              {coverage.excluded_note}
+            </div>
+          ) : null}
         </div>
         <div className="text-right">
           <div className="mb-2 text-xs text-[#5b6476]">
@@ -120,6 +130,14 @@ export function ResumenScreen({
         </div>
       </Card>
 
+      <ClassifyQueuePanel
+        rows={data.classify_queue}
+        options={data.treatment_options}
+        canEdit={data.actor.can_submit}
+        busy={busy}
+        onPost={onPost}
+      />
+
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.85fr_1fr]">
         <Card>
           <div className="mb-2 flex items-center">
@@ -137,7 +155,7 @@ export function ResumenScreen({
                 <th className="pb-1.5 pr-2">Plato del POS</th>
                 <th className="pb-1.5 pr-2">Por qué falta</th>
                 <th className="pb-1.5 pr-2">Estado</th>
-                <th className="pb-1.5 pr-2 text-right">% ventas</th>
+                <th className="pb-1.5 pr-2 text-right">% comida</th>
                 <th className="pb-1.5" />
               </tr>
             </thead>
@@ -200,7 +218,7 @@ export function ResumenScreen({
               className="ml-auto text-xs font-semibold text-[#3557c9]"
               onClick={() => onOpen("vincular")}
             >
-              Revisar clasificación →
+              Ver productos →
             </button>
           </div>
           {data.combo_sync_hint ? (
@@ -213,10 +231,17 @@ export function ResumenScreen({
               key={row.id}
               className="flex items-center justify-between border-t border-[#f2f3f6] py-1.5 text-[11.8px]"
             >
-              <span>{row.label}</span>
               <span>
-                <b>{row.count}</b>{" "}
-                <span className="text-[10.5px] text-[#8a92a3]">{row.hint}</span>
+                {row.label}
+                <span className="block text-[10.5px] text-[#8a92a3]">
+                  {row.hint}
+                </span>
+              </span>
+              <span className="text-right">
+                <b>{row.count}</b>
+                <span className="block text-[10.5px] text-[#8a92a3]">
+                  {row.share_label}
+                </span>
               </span>
             </div>
           ))}

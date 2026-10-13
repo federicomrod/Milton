@@ -4,6 +4,7 @@ import {
   unlinkedPosProduct,
 } from "@/lib/restaurant/pos-product-links";
 import type { RankedPosProduct } from "@/lib/restaurant/pos-product-list";
+import { TREATMENT_RULES } from "@/lib/restaurant/pos-treatments";
 import { lineCostDisplay } from "@/lib/restaurant/recipe-costing/format";
 import {
   applyInlineLineFix,
@@ -21,19 +22,29 @@ function product(
   partial: Partial<RankedPosProduct> &
     Pick<RankedPosProduct, "odoo_product_id" | "odoo_name" | "net_sales">
 ): RankedPosProduct {
+  const classification = partial.classification ?? "plato_preparado";
+  const treatment =
+    partial.treatment ??
+    (classification === "por_clasificar" && partial.is_combo
+      ? "combo"
+      : classification);
   return {
     share_of_net_sales: 0,
     units_sold: 0,
     category: null,
     is_combo: false,
     components: [],
-    classification: "requiere_receta",
-    classification_label: "Requiere receta",
+    classification_label: "Plato preparado",
+    suggested_treatment: null,
+    in_food_sales: TREATMENT_RULES[treatment].in_food_sales,
+    share_of_food_sales: partial.share_of_net_sales ?? 0,
     link_state: "sin_vincular",
     link_state_label: "Sin vincular",
     menu_item_id: null,
     counts_toward_coverage: false,
     ...partial,
+    classification,
+    treatment,
   };
 }
 
@@ -509,8 +520,8 @@ describe("visual product kinds and display states", () => {
           net_sales: 10,
           units_sold: 1320,
           category: "Bebidas",
-          classification: "no_requiere_costeo",
-          classification_label: "No requiere costeo",
+          classification: "reventa",
+          classification_label: "Reventa",
           share_of_net_sales: 0.1,
         }),
         product({
@@ -538,13 +549,13 @@ describe("visual product kinds and display states", () => {
     expect(bebida?.display_state_label).toBe("Reventa");
     expect(combo?.display_state_label).toBe("Combo");
     expect(combo?.action_label).toBe("Ver partes");
-    expect(workspace.classification.some((row) => row.id === "bebidas")).toBe(
-      true
-    );
+    expect(
+      workspace.classification.find((row) => row.id === "reventa")?.count
+    ).toBe(1);
     expect(plato?.action_label).toBe("Crear receta");
   });
 
-  it("keeps combos with parts and modifiers out of Qué falta", () => {
+  it("keeps combos with parts and no-cost products out of Qué falta", () => {
     const workspace = buildRecipeCostingWorkspace({
       companyId: "co-a",
       companyName: "Los Ranchos",
@@ -558,14 +569,21 @@ describe("visual product kinds and display states", () => {
           odoo_name: "Combo familiar",
           net_sales: 10,
           is_combo: true,
-          components: [{ odoo_product_id: 9, odoo_name: "Carne", net_sales: 8 }],
+          components: [
+            { odoo_product_id: 9, odoo_name: "Carne", net_sales: 8 },
+          ],
         }),
         product({
           odoo_product_id: 2,
-          odoo_name: "Extra queso",
+          odoo_name: "Sin cebolla",
           net_sales: 4,
-          classification: "componente",
-          classification_label: "Componente",
+          classification: "modificador_sin_costo",
+        }),
+        product({
+          odoo_product_id: 4,
+          odoo_name: "Propina",
+          net_sales: 5,
+          classification: "excluido",
         }),
         product({
           odoo_product_id: 3,
@@ -581,9 +599,9 @@ describe("visual product kinds and display states", () => {
       netSales: 20,
       coveredNetSales: 0,
     });
-    expect(
-      workspace.todos.map((row) => row.odoo_name)
-    ).toEqual(["Sopa de res"]);
+    expect(workspace.todos.map((row) => row.odoo_name)).toEqual([
+      "Sopa de res",
+    ]);
     expect(workspace.todos[0]?.action_label).toBe("Crear receta");
   });
 });

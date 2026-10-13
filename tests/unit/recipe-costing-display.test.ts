@@ -15,7 +15,7 @@ describe("recipe costing display", () => {
       productKindLabel({
         name: "Pollo empanizado",
         is_combo: false,
-        classification: "requiere_receta",
+        classification: "plato_preparado",
         category: "Platos fuertes",
       })
     ).toBe("Plato");
@@ -23,7 +23,7 @@ describe("recipe costing display", () => {
       productKindLabel({
         name: "Coca-Cola 12 oz",
         is_combo: false,
-        classification: "no_requiere_costeo",
+        classification: "reventa",
         category: "Bebidas",
       })
     ).toBe("Bebida");
@@ -38,7 +38,7 @@ describe("recipe costing display", () => {
       productKindLabel({
         name: "Extra queso",
         is_combo: false,
-        classification: "componente",
+        classification: "modificador_con_costo",
       })
     ).toBe("Modificador");
   });

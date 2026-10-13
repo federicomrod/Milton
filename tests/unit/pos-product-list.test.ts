@@ -181,7 +181,7 @@ describe("buildPosProductList — coverage and isolation", () => {
           odoo_name: "Combo Almuerzo",
         }),
         menu_item_id: "menu-combo",
-        classification: "requiere_receta",
+        classification: "plato_preparado",
       },
       {
         confirmed_by: "user-1",
@@ -205,7 +205,7 @@ describe("buildPosProductList — coverage and isolation", () => {
           odoo_name: "Postre",
         }),
         menu_item_id: "menu-dessert",
-        classification: "requiere_receta",
+        classification: "plato_preparado",
       },
       {
         confirmed_by: "user-1",

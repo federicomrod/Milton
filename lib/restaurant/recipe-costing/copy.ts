@@ -36,6 +36,7 @@ export type TodoKind =
   | "sin_receta"
   | "falta_precio"
   | "combo"
+  | "reventa"
   | "sin_vincular";
 
 export const TODO_KIND_LABELS: Record<TodoKind, string> = {
@@ -45,6 +46,7 @@ export const TODO_KIND_LABELS: Record<TodoKind, string> = {
   sin_receta: "Sin receta",
   falta_precio: "Falta precio",
   combo: "Combo",
+  reventa: "Reventa",
   sin_vincular: "Sin vincular",
 };
 
@@ -55,6 +57,7 @@ export const TODO_KIND_ACTIONS: Record<TodoKind, string> = {
   sin_receta: "Crear receta",
   falta_precio: "Agregar precio",
   combo: "Ver partes",
+  reventa: "Elegir qué compras",
   sin_vincular: "Vincular",
 };
 
@@ -125,6 +128,9 @@ export function productReason(input: {
   if (input.kind === "sugerido") {
     const name = input.evidence.block_name ?? input.odoo_name;
     return `Milton sugiere «${name}». Confírmalo.`;
+  }
+  if (input.kind === "reventa") {
+    return "Se vende como lo compras: elige qué compras y su costo es lo que pagas.";
   }
   if (first) return first;
   if (input.kind === "ambiguo") {

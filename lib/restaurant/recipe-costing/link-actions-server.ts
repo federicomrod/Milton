@@ -1,11 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  isPosProductClassification,
+  TREATMENT_EVIDENCE_KEY,
+  classificationFromStored,
   isPosProductLinkState,
   matchPosProductLink,
   unlinkedPosProduct,
+  type PosProductClassification,
   type PosProductLinkRecord,
 } from "@/lib/restaurant/pos-product-links";
+import { PICKABLE_TREATMENTS } from "@/lib/restaurant/pos-treatments";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import {
   changeLinkResult,
@@ -13,7 +16,7 @@ import {
   undoConfirmedLinkResult,
 } from "./link-actions";
 import type { RecipeActor } from "./approval";
-import { actorCanConfirmLink } from "./approval";
+import { actorCanConfirmLink, actorCanSubmitForApproval } from "./approval";
 import { isConfirmedHow } from "./copy";
 
 function asLink(row: Record<string, unknown>): PosProductLinkRecord | null {
@@ -30,9 +33,7 @@ function asLink(row: Record<string, unknown>): PosProductLinkRecord | null {
     location_id: typeof row.location_id === "string" ? row.location_id : null,
     odoo_product_id: odooProductId,
     odoo_name: row.odoo_name,
-    classification: isPosProductClassification(row.classification)
-      ? row.classification
-      : "por_clasificar",
+    classification: classificationFromStored(row.classification),
     menu_item_id:
       typeof row.menu_item_id === "string" ? row.menu_item_id : null,
     link_state: isPosProductLinkState(row.link_state)
@@ -332,4 +333,102 @@ export async function undoConfirmedPosLink(input: {
   if (!next.ok) return next;
   const saved = await persistLink(input.supabase, input.companyId, next.link);
   return { ok: true, link: saved };
+}
+
+export const TREATMENT_MIGRATION_ERROR =
+  "Falta aplicar la migración 040 en la base de datos para guardar cómo se costea cada producto.";
+export const TREATMENT_ROLE_ERROR =
+  "Solo el dueño, un admin, un gerente o el equipo de Milton puede clasificar productos.";
+export const MAX_TREATMENT_ITEMS = 300;
+
+export interface TreatmentItem {
+  odoo_product_id: number;
+  odoo_name: string;
+  treatment: PosProductClassification;
+  /** Overrides the call's source for this item. */
+  source?: "manual" | "sugerencia";
+}
+
+/**
+ * A person saves how each product is costed (premise 8). Touches only
+ * the classification and its audit note: never the link state, the
+ * recipe or a confirmation.
+ */
+export async function setPosProductTreatments(input: {
+  supabase: SupabaseClient;
+  companyId: string;
+  actor: RecipeActor;
+  items: readonly TreatmentItem[];
+  locationId?: string | null;
+  /** "sugerencia" when the person accepted Milton's suggestion. */
+  source: "manual" | "sugerencia";
+}): Promise<{ ok: true; saved: number } | { ok: false; error: string }> {
+  if (!actorCanSubmitForApproval(input.actor)) {
+    return { ok: false, error: TREATMENT_ROLE_ERROR };
+  }
+  if (input.items.length === 0) return { ok: true, saved: 0 };
+  if (input.items.length > MAX_TREATMENT_ITEMS) {
+    return { ok: false, error: "Son demasiados productos a la vez." };
+  }
+  for (const item of input.items) {
+    if (!PICKABLE_TREATMENTS.includes(item.treatment)) {
+      return { ok: false, error: "Ese tratamiento no existe." };
+    }
+  }
+
+  const ids = [...new Set(input.items.map((item) => item.odoo_product_id))];
+  const { data, error } = await input.supabase
+    .from("pos_product_links")
+    .select(
+      "id, company_id, location_id, odoo_product_id, odoo_name, classification, menu_item_id, link_state, confirmed_by, confirmed_at, confirmed_how, evidence"
+    )
+    .eq("company_id", input.companyId)
+    .in("odoo_product_id", ids);
+  if (error) throw new Error(error.message);
+  const links = ((data ?? []) as Record<string, unknown>[])
+    .map(asLink)
+    .filter((row): row is PosProductLinkRecord => row !== null);
+
+  const at = new Date().toISOString();
+  let saved = 0;
+  for (const item of input.items) {
+    const existing =
+      matchPosProductLink(
+        links,
+        input.companyId,
+        item.odoo_product_id,
+        input.locationId ?? null
+      ) ??
+      unlinkedPosProduct({
+        company_id: input.companyId,
+        odoo_product_id: item.odoo_product_id,
+        odoo_name: item.odoo_name.trim() || `Odoo #${item.odoo_product_id}`,
+        location_id: input.locationId ?? null,
+      });
+    if (existing.classification === item.treatment) continue;
+    try {
+      await persistLink(input.supabase, input.companyId, {
+        ...existing,
+        classification: item.treatment,
+        evidence: {
+          ...existing.evidence,
+          [TREATMENT_EVIDENCE_KEY]: {
+            value: item.treatment,
+            previous: existing.classification,
+            by: input.actor.user_id,
+            at,
+            source: item.source ?? input.source,
+          },
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("pos_product_links_classification_chk")) {
+        return { ok: false, error: TREATMENT_MIGRATION_ERROR };
+      }
+      throw err;
+    }
+    saved += 1;
+  }
+  return { ok: true, saved };
 }

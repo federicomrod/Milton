@@ -4,6 +4,11 @@ import {
   LINK_STATE_LABELS,
 } from "@/lib/restaurant/pos-product-links";
 import type { RankedPosProduct } from "@/lib/restaurant/pos-product-list";
+import {
+  PICKABLE_TREATMENTS,
+  TREATMENT_RULES,
+} from "@/lib/restaurant/pos-treatments";
+import type { PosProductClassification } from "@/lib/restaurant/pos-product-links";
 import { hasApprovedVersion } from "@/lib/restaurant/recipe-versions";
 import type { RecipeVersionRecord } from "@/lib/restaurant/recipe-versions";
 import {
@@ -63,7 +68,7 @@ export type VincularFilter =
   | "combos_otros";
 
 export interface CoverageSlice {
-  id: "aprobado" | "por_revisar" | "sin_vincular" | "no_requiere";
+  id: "aprobado" | "por_revisar" | "sin_vincular";
   label: string;
   pct: number;
   color: string;
@@ -90,10 +95,23 @@ export interface TodoRow {
 }
 
 export interface ClassificationRow {
-  id: string;
+  id: PosProductClassification;
   label: string;
   count: number;
   hint: string;
+  /** Share of food net sales; for excluded, share of all net sales. */
+  share_label: string;
+}
+
+/** A product still waiting for a person to choose its treatment. */
+export interface ClassifyQueueRow {
+  odoo_product_id: number;
+  odoo_name: string;
+  share_label: string;
+  net_sales_label: string;
+  suggested: PosProductClassification;
+  suggested_label: string;
+  reason: string;
 }
 
 export interface VincularProductRow {
@@ -117,6 +135,11 @@ export interface VincularProductRow {
   }>;
   classification: string;
   classification_label: string;
+  treatment: PosProductClassification;
+  treatment_label: string;
+  in_food_sales: boolean;
+  suggested_treatment: PosProductClassification | null;
+  suggested_treatment_reason: string | null;
   link_state: string;
   link_state_label: string;
   display_state_label: string;
@@ -164,10 +187,13 @@ export interface RecipeCostingWorkspace {
   coverage: {
     coverage_pct: number;
     coverage_label: string;
+    /** Food net sales: the coverage denominator. */
     net_sales: number;
     covered_net_sales: number;
     net_sales_label: string;
     covered_label: string;
+    /** Sales a person marked as not food, left out of coverage. */
+    excluded_note: string | null;
     dishes_approved: number;
     dishes_need_recipe: number;
     slices: CoverageSlice[];
@@ -184,6 +210,12 @@ export interface RecipeCostingWorkspace {
   todos: TodoRow[];
   todos_total: number;
   classification: ClassificationRow[];
+  classify_queue: ClassifyQueueRow[];
+  treatment_options: Array<{
+    id: PosProductClassification;
+    label: string;
+    hint: string;
+  }>;
   who_approves: string;
   products: VincularProductRow[];
   filter_counts: Record<VincularFilter, number>;
@@ -269,6 +301,10 @@ export function rankedProductsFromLinks(
     components: [],
     classification: link.classification,
     classification_label: CLASSIFICATION_LABELS[link.classification],
+    treatment: link.classification,
+    suggested_treatment: null,
+    in_food_sales: TREATMENT_RULES[link.classification].in_food_sales,
+    share_of_food_sales: 0,
     link_state: link.link_state,
     link_state_label: LINK_STATE_LABELS[link.link_state],
     menu_item_id: link.menu_item_id,
@@ -289,6 +325,10 @@ export function rankedProductsFromLinks(
       components: [],
       classification: "por_clasificar",
       classification_label: CLASSIFICATION_LABELS.por_clasificar,
+      treatment: "por_clasificar",
+      suggested_treatment: null,
+      in_food_sales: true,
+      share_of_food_sales: 0,
       link_state: "sin_vincular",
       link_state_label: LINK_STATE_LABELS.sin_vincular,
       menu_item_id: null,
@@ -304,10 +344,16 @@ export function classifyTodoKind(input: {
   approved: boolean;
 }): TodoKind | null {
   if (input.approved && input.product.link_state === "confirmado") return null;
-  if (input.product.classification === "no_requiere_costeo") return null;
-  if (input.product.classification === "componente") return null;
-  if (input.product.is_combo) {
+  const treatment = input.product.treatment;
+  if (!TREATMENT_RULES[treatment].needs_recipe && treatment !== "combo") {
+    return null;
+  }
+  if (treatment === "combo" || input.product.is_combo) {
+    if (input.product.counts_toward_coverage) return null;
     return input.product.components.length === 0 ? "combo" : null;
+  }
+  if (treatment === "reventa" && !input.product.menu_item_id) {
+    return "reventa";
   }
   if (
     input.evidence.lines.some((line) => line.pending && line.unit_cost == null)
@@ -340,29 +386,28 @@ export function matchesVincularFilter(
   if (filter === "todos") return true;
   if (filter === "confirmados") return row.confirmed;
   if (filter === "combos_otros") {
-    return (
-      row.is_combo ||
-      row.classification === "no_requiere_costeo" ||
-      row.classification === "componente"
-    );
+    return row.is_combo || !TREATMENT_RULES[row.treatment].needs_recipe;
   }
-  return !row.confirmed && row.classification !== "no_requiere_costeo";
+  return (
+    !row.confirmed &&
+    !row.is_combo &&
+    TREATMENT_RULES[row.treatment].needs_recipe
+  );
 }
 
 function coverageSlices(
   products: readonly RankedPosProduct[]
 ): CoverageSlice[] {
-  const total = products.reduce((sum, row) => sum + row.net_sales, 0);
+  // Shares of food net sales: excluded products are not in the bar.
+  const food = products.filter((row) => row.in_food_sales);
+  const total = food.reduce((sum, row) => sum + row.net_sales, 0);
   const bucket = {
     aprobado: 0,
     por_revisar: 0,
     sin_vincular: 0,
-    no_requiere: 0,
   };
-  for (const product of products) {
-    if (product.classification === "no_requiere_costeo") {
-      bucket.no_requiere += product.net_sales;
-    } else if (product.counts_toward_coverage) {
+  for (const product of food) {
+    if (product.counts_toward_coverage) {
       bucket.aprobado += product.net_sales;
     } else if (
       product.link_state === "sugerido" ||
@@ -393,17 +438,12 @@ function coverageSlices(
       pct: pct(bucket.sin_vincular),
       color: "#93a6e8",
     },
-    {
-      id: "no_requiere",
-      label: "No requiere costeo",
-      pct: pct(bucket.no_requiere),
-      color: "#eef0f4",
-    },
   ];
 }
 
 function stepperFromCounts(input: {
   productCount: number;
+  toClassify: number;
   needRecipe: number;
   linked: number;
   unresolved: number;
@@ -414,7 +454,10 @@ function stepperFromCounts(input: {
     {
       id: 1,
       title: "1 · Menú del POS",
-      detail: `${input.productCount} productos de Odoo · ${input.needRecipe} requieren receta`,
+      detail:
+        input.toClassify > 0
+          ? `${input.productCount} productos de Odoo · ${input.toClassify} por clasificar`
+          : `${input.productCount} productos de Odoo · ${input.needRecipe} requieren receta`,
     },
     {
       id: 2,
@@ -468,7 +511,9 @@ export function buildRecipeCostingWorkspace(input: {
   menuItems: readonly WorkspaceMenuItem[];
   batches: readonly SuggestionBatchRow[];
   coveragePct: number;
+  /** Food net sales (coverage denominator). */
   netSales: number;
+  excludedNetSales?: number;
   coveredNetSales: number;
   selectedOdooProductId?: number | null;
   lastProgress?: string | null;
@@ -502,7 +547,7 @@ export function buildRecipeCostingWorkspace(input: {
     const kind = productKindLabel({
       name: product.odoo_name,
       is_combo: product.is_combo,
-      classification: product.classification,
+      classification: product.treatment,
       category: product.category ?? menu?.category ?? null,
     });
     const unitsSold = product.units_sold ?? 0;
@@ -514,7 +559,7 @@ export function buildRecipeCostingWorkspace(input: {
     const display = displayStateForProduct({
       confirmed: product.link_state === "confirmado",
       is_combo: product.is_combo,
-      classification: product.classification,
+      classification: product.treatment,
       kind_label: kind,
       ambiguous,
       suggested: product.link_state === "sugerido",
@@ -548,8 +593,10 @@ export function buildRecipeCostingWorkspace(input: {
       net_sales_label: formatMoneyEs(product.net_sales, currency, {
         decimals: 0,
       }),
-      share_pct: shareToPct(product.share_of_net_sales),
-      share_label: formatPctLabel(shareToPct(product.share_of_net_sales)),
+      share_pct: shareToPct(product.share_of_food_sales),
+      share_label: product.in_food_sales
+        ? formatPctLabel(shareToPct(product.share_of_food_sales))
+        : "—",
       is_combo: product.is_combo,
       components: product.components.map((part) => ({
         odoo_product_id: part.odoo_product_id,
@@ -560,6 +607,11 @@ export function buildRecipeCostingWorkspace(input: {
       })),
       classification: product.classification,
       classification_label: product.classification_label,
+      treatment: product.treatment,
+      treatment_label: TREATMENT_RULES[product.treatment].label,
+      in_food_sales: product.in_food_sales,
+      suggested_treatment: product.suggested_treatment?.treatment ?? null,
+      suggested_treatment_reason: product.suggested_treatment?.reason ?? null,
       link_state: product.link_state,
       link_state_label: product.link_state_label,
       display_state_label: display.label,
@@ -588,7 +640,7 @@ export function buildRecipeCostingWorkspace(input: {
       action_label: vincularActionLabel({
         confirmed: product.link_state === "confirmado",
         is_combo: product.is_combo,
-        classification: product.classification,
+        classification: product.treatment,
         link_state: product.link_state,
         recipe_name: recipeName ?? null,
         ambiguous,
@@ -643,18 +695,6 @@ export function buildRecipeCostingWorkspace(input: {
     const approved = hasApprovedVersion(versions);
     const link = linkByProduct.get(product.odoo_product_id);
     const evidence = parseSuggestionEvidence(link?.evidence);
-    if (
-      product.classification === "requiere_receta" ||
-      product.classification === "por_clasificar"
-    ) {
-      if (!product.is_combo) needRecipe += 1;
-    }
-    if (product.classification === "requiere_receta") needRecipe += 0;
-    if (product.classification !== "no_requiere_costeo" && !product.is_combo) {
-      if (product.classification === "por_clasificar") {
-        // already counted loosely
-      }
-    }
     if (product.link_state === "confirmado") linked += 1;
     if (approved && product.link_state === "confirmado") approvedDishes += 1;
 
@@ -675,8 +715,8 @@ export function buildRecipeCostingWorkspace(input: {
           has_components: product.components.length > 0,
           currency,
         }),
-        share_pct: shareToPct(product.share_of_net_sales),
-        share_label: formatPctLabel(shareToPct(product.share_of_net_sales)),
+        share_pct: shareToPct(product.share_of_food_sales),
+        share_label: formatPctLabel(shareToPct(product.share_of_food_sales)),
         view:
           kind === "por_revisar" || kind === "falta_precio"
             ? "validar"
@@ -721,23 +761,20 @@ export function buildRecipeCostingWorkspace(input: {
     }
   }
 
-  // Recount needRecipe cleanly: Odoo products that are not excluded.
-  needRecipe = input.products.filter(
-    (product) =>
-      product.classification !== "no_requiere_costeo" &&
-      product.classification !== "componente"
-  ).length;
+  // Products whose treatment needs a recipe (combos go by their parts).
+  const needsRecipe = (product: RankedPosProduct) =>
+    !product.is_combo && TREATMENT_RULES[product.treatment].needs_recipe;
+  needRecipe = input.products.filter(needsRecipe).length;
   linked = input.products.filter(
-    (product) =>
-      product.link_state === "confirmado" &&
-      product.classification !== "no_requiere_costeo"
+    (product) => needsRecipe(product) && product.link_state === "confirmado"
   ).length;
   const unresolved = input.products.filter(
-    (product) =>
-      product.classification !== "no_requiere_costeo" &&
-      product.classification !== "componente" &&
-      product.link_state !== "confirmado"
+    (product) => needsRecipe(product) && product.link_state !== "confirmado"
   ).length;
+  const toClassify = input.products.filter(
+    (product) =>
+      product.classification === "por_clasificar" && !product.is_combo
+  );
 
   todos.sort(
     (a, b) =>
@@ -801,20 +838,47 @@ export function buildRecipeCostingWorkspace(input: {
     ).length,
   };
 
-  const platos = products.filter((p) => p.kind_label === "Plato").length;
-  const bebidas = products.filter((p) => p.kind_label === "Bebida");
-  const bebidasReventa = bebidas.filter(
-    (p) => p.classification === "no_requiere_costeo"
-  ).length;
-  const bebidasPrep = bebidas.length - bebidasReventa;
-  const combos = products.filter((p) => p.is_combo).length;
-  const componentes = products.filter(
-    (p) => p.kind_label === "Modificador"
-  ).length;
-  const modificadoresConCosto = products.filter(
-    (p) => p.kind_label === "Modificador" && p.classification === "componente"
-  ).length;
-  const excluidos = products.filter((p) => p.kind_label === "Cargo").length;
+  const allNet = input.products.reduce((sum, p) => sum + p.net_sales, 0);
+  const classificationRows: ClassificationRow[] = (
+    ["por_clasificar", ...PICKABLE_TREATMENTS] as PosProductClassification[]
+  ).map((id) => {
+    const rows = input.products.filter((p) => p.treatment === id);
+    const net = rows.reduce((sum, p) => sum + p.net_sales, 0);
+    const share =
+      id === "excluido"
+        ? allNet > 0
+          ? (net / allNet) * 100
+          : 0
+        : rows.reduce((sum, p) => sum + shareToPct(p.share_of_food_sales), 0);
+    return {
+      id,
+      label: TREATMENT_RULES[id].label,
+      count: rows.length,
+      hint: TREATMENT_RULES[id].hint,
+      share_label:
+        id === "excluido"
+          ? `${formatPctLabel(round1(share))} de todas las ventas`
+          : `${formatPctLabel(round1(share))} de ventas de comida`,
+    };
+  });
+  const classifyQueue: ClassifyQueueRow[] = toClassify.map((product) => {
+    const suggestion = product.suggested_treatment ?? {
+      treatment: "plato_preparado" as const,
+      reason: "Se vende como plato",
+    };
+    return {
+      odoo_product_id: product.odoo_product_id,
+      odoo_name: product.odoo_name,
+      share_label: formatPctLabel(shareToPct(product.share_of_food_sales)),
+      net_sales_label: formatMoneyEs(product.net_sales, currency, {
+        decimals: 0,
+      }),
+      suggested: suggestion.treatment,
+      suggested_label: TREATMENT_RULES[suggestion.treatment].label,
+      reason: suggestion.reason,
+    };
+  });
+  const excludedNet = input.excludedNetSales ?? 0;
 
   return {
     company_id: input.companyId,
@@ -849,6 +913,10 @@ export function buildRecipeCostingWorkspace(input: {
       covered_label: formatMoneyEs(input.coveredNetSales, currency, {
         decimals: 0,
       }),
+      excluded_note:
+        excludedNet > 0
+          ? `${formatMoneyEs(excludedNet, currency, { decimals: 0 })} marcados como «no es comida» no cuentan en la cobertura.`
+          : null,
       dishes_approved: approvedDishes,
       dishes_need_recipe: needRecipe,
       slices,
@@ -856,6 +924,7 @@ export function buildRecipeCostingWorkspace(input: {
     },
     stepper: stepperFromCounts({
       productCount: input.products.length,
+      toClassify: toClassify.length,
       needRecipe,
       linked,
       unresolved,
@@ -873,47 +942,13 @@ export function buildRecipeCostingWorkspace(input: {
     last_progress: input.lastProgress ?? null,
     todos: todos.slice(0, 8),
     todos_total: todos.length,
-    classification: [
-      {
-        id: "platos",
-        label: "Platos",
-        count: platos,
-        hint: "requieren receta",
-      },
-      {
-        id: "bebidas",
-        label: "Bebidas",
-        count: bebidas.length,
-        hint:
-          bebidas.length === 0
-            ? "de reventa o preparadas"
-            : `${bebidasReventa} de reventa · ${bebidasPrep} preparadas`,
-      },
-      {
-        id: "componentes",
-        label: "Modificadores",
-        count: componentes,
-        hint:
-          modificadoresConCosto > 0
-            ? `${modificadoresConCosto} con costo (ej. extra queso)`
-            : "con costo se suman al plato",
-      },
-      {
-        id: "combos",
-        label: "Combos",
-        count: combos,
-        hint:
-          combos === 1
-            ? "se costea por sus partes"
-            : "se costean por sus partes",
-      },
-      {
-        id: "otros",
-        label: "Otros (propina, cargos)",
-        count: excluidos,
-        hint: "no requieren costeo",
-      },
-    ],
+    classification: classificationRows,
+    classify_queue: classifyQueue,
+    treatment_options: PICKABLE_TREATMENTS.map((id) => ({
+      id,
+      label: TREATMENT_RULES[id].label,
+      hint: TREATMENT_RULES[id].hint,
+    })),
     who_approves: whoApprovesNote(input.companyName),
     products,
     filter_counts,
@@ -930,7 +965,9 @@ export function buildRecipeCostingWorkspace(input: {
     latest_upload: input.latestUpload ?? null,
     costeado_stats: {
       approved_prepared: approvedDishes,
-      excluded: combos + componentes + excluidos + bebidasReventa,
+      excluded: input.products.filter(
+        (p) => !TREATMENT_RULES[p.treatment].needs_recipe
+      ).length,
       pending: todos.length,
       excel_matched: products.filter(
         (row) =>
@@ -953,7 +990,13 @@ function vincularActionLabel(input: {
 }): string {
   if (input.confirmed) return "Cambiar";
   if (input.is_combo) return "Ver partes";
-  if (input.classification === "no_requiere_costeo") return "Cambiar";
+  if (
+    !TREATMENT_RULES[input.classification as PosProductClassification]
+      ?.needs_recipe
+  )
+    return "Cambiar";
+  if (input.classification === "reventa" && !input.recipe_name)
+    return "Elegir qué compras";
   if (input.ambiguous) return "Elegir";
   if (input.link_state === "sugerido" && input.can_confirm) return "Confirmar";
   if (!input.recipe_name) return "Crear receta";

@@ -55,7 +55,7 @@ describe("preparationImpact", () => {
 
   it("speaks Spanish", () => {
     expect(impactLabel({ dishes: 7, net_sales: 240, share_pct: 24 })).toBe(
-      "Desbloquea 7 platos · 24% de ventas"
+      "Desbloquea 7 platos · 24% de ventas de comida"
     );
     expect(impactLabel({ dishes: 1, net_sales: 5, share_pct: 0.5 })).toContain(
       "1 plato ·"

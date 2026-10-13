@@ -126,6 +126,9 @@ export function RecipesCostingWorkspace({
     if (!res.ok) throw new Error(json.error ?? "No pude guardar.");
   }
 
+  const postAndReload = (url: string, body: Record<string, unknown>) =>
+    void mutate(() => post(url, body));
+
   async function confirmProduct(product: VincularProductRow, how?: string) {
     if (data.actor.needs_client_confirmation && !how) {
       setHowOpen({ kind: "confirm", product });
@@ -308,6 +311,7 @@ export function RecipesCostingWorkspace({
             )
           }
           busy={busy}
+          onPost={postAndReload}
         />
       ) : view === "validar" ? (
         <ValidarScreen
@@ -365,6 +369,8 @@ export function RecipesCostingWorkspace({
           onGenerateSuggestions={() => void runSuggestions()}
           onUploadWorkbook={(file) => void runSuggestions(file)}
           generateBusy={workbookBusy}
+          busy={busy}
+          onPost={postAndReload}
           onUndoBatch={(batchId) =>
             void mutate(async () => {
               const res = await fetch(

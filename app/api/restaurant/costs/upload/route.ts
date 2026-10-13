@@ -12,7 +12,10 @@
 //
 // Form fields:
 //   file                        (required) the CSV/XLSX
-//   create_missing_ingredients  "true" to auto-create unknown ingredients
+//   create_missing_ingredients  "true" to create ingredients from the rows
+//                               of a flat price/purchase file. Recipe
+//                               lines in a workbook never create
+//                               ingredients (they stay pending).
 //   default_currency            3-letter code; ignored when it differs
 //                               from the company currency. Missing rows
 //                               use the company currency.
@@ -215,7 +218,6 @@ export async function POST(req: NextRequest) {
             restaurantName: restaurantScope.name,
             skipDuplicates,
             lang,
-            createMissingIngredients,
           });
           return NextResponse.json(result);
         } catch (err) {

@@ -4,7 +4,13 @@ import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { parseSuggestionEvidence, parseSuggestionLine } from "./evidence";
 import { applyInlineLineFix } from "./review";
+import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { loadPosProductLink } from "./link-actions-server";
+import {
+  matchExistingIngredient,
+  unmatchedIngredientMessage,
+  type CatalogIngredientRef,
+} from "./ingredient-match";
 
 export async function applyReviewFix(input: {
   supabase: SupabaseClient;
@@ -69,6 +75,25 @@ export async function applyReviewFix(input: {
   const current = parseSuggestionLine(lines[index]);
   if (!current)
     return { ok: false, error: "No encontré esa línea para corregir." };
+  // A typed price only ever lands on an ingredient that already exists
+  // in the catalog. Nothing is written until that is settled, and a new
+  // ingredient is never created from a typed name.
+  let priceTarget: CatalogIngredientRef | null = null;
+  if (typeof input.unitCost === "number" && input.unitCost > 0) {
+    const lineName = current.ingredient_match || current.raw_name;
+    const catalog = await loadCompanyIngredientRefs(
+      input.supabase,
+      input.companyId
+    );
+    const match = matchExistingIngredient(lineName, catalog);
+    if (match.kind !== "exact") {
+      return {
+        ok: false,
+        error: unmatchedIngredientMessage(lineName, match),
+      };
+    }
+    priceTarget = match.ingredient;
+  }
   const next = applyInlineLineFix(current, {
     unit: input.unit,
     quantity: input.quantity,
@@ -111,11 +136,11 @@ export async function applyReviewFix(input: {
     await patchVersionInput(input);
   }
 
-  if (typeof input.unitCost === "number" && input.unitCost > 0) {
+  if (priceTarget && typeof input.unitCost === "number") {
     await writeManualPrice({
       supabase: input.supabase,
       companyId: input.companyId,
-      name: next.ingredient_match || next.raw_name,
+      ingredient: priceTarget,
       unit: next.unit || "unit",
       unitCost: input.unitCost,
     });
@@ -174,50 +199,38 @@ async function patchVersionInput(input: {
     .eq("id", target.id);
 }
 
+async function loadCompanyIngredientRefs(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<CatalogIngredientRef[]> {
+  const result = await fetchAllRows<CatalogIngredientRef>(() =>
+    supabase
+      .from("ingredients")
+      .select("id, name, default_unit")
+      .eq("company_id", companyId)
+  );
+  if (result.error) {
+    throw new Error(result.error.message ?? "No pude leer los ingredientes.");
+  }
+  return result.rows;
+}
+
 async function writeManualPrice(input: {
   supabase: SupabaseClient;
   companyId: string;
-  name: string;
+  ingredient: CatalogIngredientRef;
   unit: string;
   unitCost: number;
 }) {
   const currency =
     (await resolveCompanyCurrency(input.supabase, input.companyId)) || "USD";
-  const { data: existing } = await input.supabase
+  const ingredientId = input.ingredient.id;
+  const defaultUnit = input.ingredient.default_unit || input.unit;
+  await input.supabase
     .from("ingredients")
-    .select("id, default_unit, current_unit_cost")
+    .update({ current_unit_cost: input.unitCost, currency })
     .eq("company_id", input.companyId)
-    .ilike("name", input.name)
-    .limit(1);
-  let ingredientId = existing?.[0]?.id as string | undefined;
-  let defaultUnit =
-    (existing?.[0]?.default_unit as string | null) ?? input.unit;
-  if (!ingredientId) {
-    const created = await input.supabase
-      .from("ingredients")
-      .insert({
-        company_id: input.companyId,
-        name: input.name,
-        default_unit: input.unit,
-        current_unit_cost: input.unitCost,
-        currency,
-      })
-      .select("id, default_unit")
-      .single();
-    if (created.error || !created.data) {
-      throw new Error(
-        created.error?.message ?? "No pude crear el ingrediente."
-      );
-    }
-    ingredientId = String(created.data.id);
-    defaultUnit = created.data.default_unit ?? input.unit;
-  } else {
-    await input.supabase
-      .from("ingredients")
-      .update({ current_unit_cost: input.unitCost, currency })
-      .eq("company_id", input.companyId)
-      .eq("id", ingredientId);
-  }
+    .eq("id", ingredientId);
 
   const today = new Date().toISOString().slice(0, 10);
   const dated = resolveIngredientPriceDate({

@@ -6,6 +6,8 @@ import {
   convertUnitPriceStr,
   normalizeUnit,
 } from "@/lib/restaurant/units";
+import { possibleIngredientMatchReason } from "./copy";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { normalizeMatchName } from "./names";
 import type { ReviewCandidate, WorkbookRowCandidate } from "./types";
 import { implausiblePriceReason, typicalMassPriceScore } from "./plausibility";
@@ -215,7 +217,10 @@ export interface ExistingIngredientRef {
 export interface DuplicateMergeResult {
   rows: WorkbookRowCandidate[];
   skipped: ReviewCandidate[];
+  /** Informational notes on rows that were still saved. */
   hints: ReviewCandidate[];
+  /** Rows held back (not saved) until a person confirms a possible match. */
+  held: ReviewCandidate[];
   aliases: Map<string, string>;
 }
 
@@ -240,128 +245,103 @@ function aliasKeys(name: string): string[] {
 }
 
 /**
- * Auto-merge obvious same-restaurant typos (normalized name + small
- * edit distance + compatible unit). Unclear near-matches become an
- * optional needs-a-look hint and are still saved.
+ * Rows whose names are the same after normalising case, accents and
+ * spacing are the same ingredient and collapse to one. A merely
+ * look-alike name (a typo, a near-duplicate) is NEVER merged or saved
+ * silently: the row is held back as a "possible match" for a person to
+ * confirm, and nothing is aliased.
  */
 export function mergeTypoDuplicates(
   rows: WorkbookRowCandidate[],
-  existing: ExistingIngredientRef[] = []
+  existing: ExistingIngredientRef[] = [],
+  lang: PreferredLanguage = "en"
 ): DuplicateMergeResult {
   const aliases = new Map<string, string>();
   const skipped: ReviewCandidate[] = [];
   const hints: ReviewCandidate[] = [];
+  const heldRows: ReviewCandidate[] = [];
   if (rows.length === 0) {
-    return { rows, skipped, hints, aliases };
+    return { rows, skipped, hints, held: heldRows, aliases };
   }
 
   const uf = new UnionFind(rows.length);
-  const hinted = new Set<string>();
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = i + 1; j < rows.length; j++) {
+      if (
+        normalizeMatchName(rows[i].ingredient_name) ===
+        normalizeMatchName(rows[j].ingredient_name)
+      ) {
+        uf.union(i, j);
+      }
+    }
+  }
+
+  // Cluster root -> the name a person should be asked about.
+  const held = new Map<number, string>();
+  const rootOf = (i: number) => uf.find(i);
 
   for (let i = 0; i < rows.length; i++) {
     for (let j = i + 1; j < rows.length; j++) {
+      if (rootOf(i) === rootOf(j)) continue;
       const a = rows[i];
       const b = rows[j];
-      if (
-        normalizeMatchName(a.ingredient_name) ===
-        normalizeMatchName(b.ingredient_name)
-      ) {
-        uf.union(i, j);
-        continue;
-      }
       if (!isObviousTypo(a.ingredient_name, b.ingredient_name)) continue;
-      if (unitsCompatible(a.unit, b.unit)) {
-        uf.union(i, j);
-        continue;
-      }
-      const key = [i, j].join(":");
-      if (hinted.has(key)) continue;
-      hinted.add(key);
       const better = pickCanonicalName([a.ingredient_name, b.ingredient_name]);
-      const worse = better === a.ingredient_name ? b : a;
-      hints.push({
-        tabName: worse.tabName,
-        rowIndex: worse.rowIndex,
-        reason: `looks like a typo of ${better}?`,
-        raw: worse.raw,
-        suggested: {
-          ingredient_name: better,
-          unit: worse.unit,
-          quantity: worse.quantity,
-          total_cost: worse.total_cost,
-          cost_date: worse.cost_date,
-        },
-      });
+      const worseIndex = better === a.ingredient_name ? j : i;
+      if (!held.has(rootOf(worseIndex))) held.set(rootOf(worseIndex), better);
     }
   }
 
   const existingByCluster = new Map<number, string>();
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const hit = existing.find(
+    const same = existing.find(
       (item) =>
         normalizeMatchName(item.name) ===
-          normalizeMatchName(row.ingredient_name) ||
-        isObviousTypo(item.name, row.ingredient_name)
+        normalizeMatchName(row.ingredient_name)
     );
-    if (!hit) continue;
-    if (
-      hit.handmade &&
-      normalizeMatchName(hit.name) !== normalizeMatchName(row.ingredient_name)
-    ) {
-      hints.push({
-        tabName: row.tabName,
-        rowIndex: row.rowIndex,
-        reason: `looks like a typo of ${hit.name}?`,
-        raw: row.raw,
-        suggested: {
-          ingredient_name: hit.name,
-          unit: row.unit,
-          quantity: row.quantity,
-          total_cost: row.total_cost,
-          cost_date: row.cost_date,
-        },
-      });
+    if (same) {
+      existingByCluster.set(rootOf(i), same.name);
       continue;
     }
-    if (
-      isObviousTypo(hit.name, row.ingredient_name) &&
-      !unitsCompatible(hit.default_unit, row.unit) &&
-      normalizeMatchName(hit.name) !== normalizeMatchName(row.ingredient_name)
-    ) {
-      hints.push({
-        tabName: row.tabName,
-        rowIndex: row.rowIndex,
-        reason: `looks like a typo of ${hit.name}?`,
-        raw: row.raw,
-        suggested: {
-          ingredient_name: hit.name,
-          unit: row.unit,
-          quantity: row.quantity,
-          total_cost: row.total_cost,
-          cost_date: row.cost_date,
-        },
-      });
-      continue;
-    }
-    const root = uf.find(i);
-    existingByCluster.set(root, hit.name);
+    const near = existing.find((item) =>
+      isObviousTypo(item.name, row.ingredient_name)
+    );
+    if (near) held.set(rootOf(i), near.name);
   }
+
+  // A suggestion that is itself held points at the name it points at.
+  const settle = (name: string): string => {
+    let current = name;
+    for (let guard = 0; guard < rows.length; guard++) {
+      const index = rows.findIndex(
+        (row) =>
+          normalizeMatchName(row.ingredient_name) ===
+          normalizeMatchName(current)
+      );
+      const next = index >= 0 ? held.get(rootOf(index)) : undefined;
+      if (!next || normalizeMatchName(next) === normalizeMatchName(current)) {
+        break;
+      }
+      current = next;
+    }
+    return current;
+  };
 
   const clusters = new Map<number, number[]>();
   for (let i = 0; i < rows.length; i++) {
-    const root = uf.find(i);
+    const root = rootOf(i);
     const list = clusters.get(root) ?? [];
     list.push(i);
     clusters.set(root, list);
   }
 
   const kept: WorkbookRowCandidate[] = [];
-  for (const indexes of clusters.values()) {
+  for (const [root, indexes] of clusters) {
     const clusterRows = indexes.map((i) => rows[i]);
     const names = clusterRows.map((row) => row.ingredient_name);
-    const root = uf.find(indexes[0]);
     const existingName = existingByCluster.get(root);
+    const heldName = held.get(root);
     const canonical = pickCanonicalName(
       names,
       existingName ? [existingName] : []
@@ -370,11 +350,32 @@ export function mergeTypoDuplicates(
     const disagree = clusterRows.some(
       (row) => row !== winner && !pricesAgree(row, winner)
     );
-    kept.push(winner);
-    for (const row of clusterRows) {
-      for (const key of aliasKeys(row.ingredient_name)) {
-        aliases.set(key, canonical);
+
+    if (heldName) {
+      const suggestedName = settle(heldName);
+      heldRows.push({
+        tabName: winner.tabName,
+        rowIndex: winner.rowIndex,
+        reason: possibleIngredientMatchReason(lang, suggestedName),
+        raw: winner.raw,
+        suggested: {
+          ingredient_name: suggestedName,
+          unit: winner.unit,
+          quantity: winner.quantity,
+          total_cost: winner.total_cost,
+          cost_date: winner.cost_date,
+        },
+      });
+    } else {
+      kept.push(winner);
+      for (const row of clusterRows) {
+        for (const key of aliasKeys(row.ingredient_name)) {
+          aliases.set(key, canonical);
+        }
       }
+    }
+
+    for (const row of clusterRows) {
       if (
         row === winner ||
         (row.rowIndex === winner.rowIndex && row.tabName === winner.tabName)
@@ -395,7 +396,7 @@ export function mergeTypoDuplicates(
         },
       });
     }
-    if (disagree && clusterRows.length > 1) {
+    if (!heldName && disagree && clusterRows.length > 1) {
       hints.push({
         tabName: winner.tabName,
         rowIndex: winner.rowIndex,
@@ -412,7 +413,7 @@ export function mergeTypoDuplicates(
     }
   }
 
-  return { rows: kept, skipped, hints, aliases };
+  return { rows: kept, skipped, hints, held: heldRows, aliases };
 }
 
 export function resolveAliasName(

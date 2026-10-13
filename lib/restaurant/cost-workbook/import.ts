@@ -322,7 +322,6 @@ export async function importCostWorkbook(input: {
   restaurantName?: string | null;
   skipDuplicates?: boolean;
   lang?: PreferredLanguage;
-  createMissingIngredients?: boolean;
 }): Promise<WorkbookImportResult> {
   if (!(await input.repo.hasWorkbookCostColumns(input.companyId))) {
     throw new MissingWorkbookCostColumnsError();
@@ -713,10 +712,20 @@ export async function importCostWorkbook(input: {
       name: item.name,
       default_unit: item.default_unit,
       handmade: !previousImportedIds.includes(item.id),
-    }))
+    })),
+    lang
   );
   for (const skip of merged.skipped) accountSkip(skip);
   for (const hint of merged.hints) accountReview(hint);
+  for (const held of merged.held) {
+    // Not saved: counts as a needs-a-look row, never as imported.
+    toReview.push(held);
+    const tab = tabSummaries.find((t) => t.name === held.tabName);
+    if (tab) {
+      if (tab.imported_count > 0) tab.imported_count -= 1;
+      tab.review_count += 1;
+    }
+  }
 
   const usedSources = sources.filter(
     (s): s is MappingSource => s === "ai" || s === "saved" || s === "heuristic"
@@ -790,7 +799,6 @@ export async function importCostWorkbook(input: {
       brandId: input.brandId ?? null,
       lang,
       effectiveDate: fileMonth,
-      createMissingIngredients: input.createMissingIngredients,
     });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);

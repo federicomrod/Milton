@@ -159,6 +159,18 @@ export function unsureIngredientNameReason(
   );
 }
 
+/** A near-match is only ever a question for the user, never a merge. */
+export function possibleIngredientMatchReason(
+  lang: PreferredLanguage,
+  suggestedName: string
+): string {
+  return t(
+    lang,
+    `looks like a typo of ${suggestedName}? Confirm to save this row.`,
+    `Posible coincidencia: ${suggestedName}. Confírmala para guardar esta fila.`
+  );
+}
+
 export function inferredCostTotalReason(
   lang: PreferredLanguage,
   name: string

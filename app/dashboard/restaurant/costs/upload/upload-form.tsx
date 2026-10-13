@@ -146,7 +146,7 @@ export function CostUploadForm({
   onCatalogChange?: () => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [createMissing, setCreateMissing] = useState(true);
+  const [createMissing, setCreateMissing] = useState(false);
   const [skipDuplicates, setSkipDuplicates] = useState(false);
   const companyCurrency = useCompanyCurrency();
   const [defaultCurrency, setDefaultCurrency] = useState(companyCurrency);
@@ -349,14 +349,14 @@ export function CostUploadForm({
                   <span className="text-sm leading-tight">
                     {t(
                       lang,
-                      "Create missing ingredients",
-                      "Crear ingredientes que falten"
+                      "Create new ingredients from price rows",
+                      "Crear ingredientes nuevos desde filas de precios"
                     )}
                     <span className="block text-xs text-muted-foreground mt-0.5">
                       {t(
                         lang,
-                        "New ingredient rows use the file's unit as default. Off = unknown ingredients are skipped and reported.",
-                        "Los ingredientes nuevos usan la unidad del archivo. Si lo dejas apagado, los desconocidos se omiten y se reportan."
+                        "Only for price or purchase rows. Recipe lines never create ingredients: unknown names stay pending until you pick one. Off = unknown ingredients are skipped and reported.",
+                        "Solo para filas de precios o compras. Las líneas de una receta nunca crean ingredientes: los nombres desconocidos quedan pendientes hasta que elijas uno. Si lo dejas apagado, los desconocidos se omiten y se reportan."
                       )}
                     </span>
                   </span>

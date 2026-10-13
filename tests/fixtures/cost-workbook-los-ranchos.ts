@@ -9,6 +9,8 @@ import * as XLSX from "xlsx";
  */
 export function buildLosRanchosCostWorkbook(opts?: {
   carneLb?: number;
+  /** Write the recipe's carrot line as a typo (ZANAHORA). Default: correct. */
+  typoedRecipeLine?: boolean;
 }): Buffer {
   const carneLb = opts?.carneLb ?? 4.8;
   const carneOz = Number((carneLb / 16).toFixed(4));
@@ -61,7 +63,12 @@ export function buildLosRanchosCostWorkbook(opts?: {
     ["Carne para asar", 8, "oz", "por porción"],
     ["Tomate", 2, "oz", ""],
     ["Salsa ranchera", 2, "oz", "prep"],
-    ["ZANAHORA", 1, "oz", "typo of zanahoria"],
+    [
+      opts?.typoedRecipeLine ? "ZANAHORA" : "ZANAHORIA",
+      1,
+      "oz",
+      opts?.typoedRecipeLine ? "typo of zanahoria" : "",
+    ],
   ];
   XLSX.utils.book_append_sheet(
     wb,

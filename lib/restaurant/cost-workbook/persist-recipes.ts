@@ -1,7 +1,7 @@
-import { nameKey, parseCostImportNumber } from "@/lib/restaurant/cost-import";
+import { nameKey } from "@/lib/restaurant/cost-import";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { isImportProtectedSource } from "@/lib/restaurant/protect-imported-recipe";
-import { isSubRecipePortionUnit, normalizeUnit } from "@/lib/restaurant/units";
+import { isSubRecipePortionUnit } from "@/lib/restaurant/units";
 import {
   dishCreatedRecipeFailedReason,
   handmadeRecipeExistsReason,
@@ -193,77 +193,6 @@ function writeErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function lineUnitCost(line: RecipeLineCandidate): number | null {
-  const n =
-    parseCostImportNumber(line.raw["Costo Unitario"]) ??
-    parseCostImportNumber(line.raw.Costo) ??
-    parseCostImportNumber(line.raw.unit_cost);
-  return n != null && n > 0 ? n : null;
-}
-
-async function ensureIngredientsFromRecipeLines(input: {
-  companyId: string;
-  currency: string;
-  groups: GroupedRecipe[];
-  repo: CostWorkbookRepo;
-  liveIngredients: Array<{ id: string; name: string }>;
-  liveComponents: Array<{ id: string; name: string }>;
-  aliases: Map<string, string>;
-  changes: UndoSnapshot;
-}): Promise<void> {
-  const prepNames = new Set(
-    input.liveComponents.map((item) => nameKey(item.name))
-  );
-  for (const group of input.groups) {
-    if (group.kind === "sub_recipe") prepNames.add(nameKey(group.name));
-  }
-  const seen = new Set(input.liveIngredients.map((item) => nameKey(item.name)));
-  const toCreate: Array<{
-    companyId: string;
-    name: string;
-    defaultUnit: string;
-    currentUnitCost: number | null;
-    currency: string;
-  }> = [];
-  for (const group of input.groups) {
-    for (const line of group.lines) {
-      const key = nameKey(line.ingredient_name);
-      if (!key || seen.has(key) || prepNames.has(key)) continue;
-      if (nameKey(group.name) === key) continue;
-      const resolved = resolveCatalogInput(
-        line.ingredient_name,
-        input.liveIngredients,
-        input.liveComponents,
-        input.aliases,
-        "en",
-        group.name
-      );
-      if (resolved.ok) continue;
-      if (
-        resolved.reason !==
-          unknownIngredientReason("en", line.ingredient_name) &&
-        resolved.reason !== unknownIngredientReason("es", line.ingredient_name)
-      ) {
-        continue;
-      }
-      seen.add(key);
-      toCreate.push({
-        companyId: input.companyId,
-        name: line.ingredient_name,
-        defaultUnit: normalizeUnit(line.unit) ?? line.unit,
-        currentUnitCost: lineUnitCost(line),
-        currency: input.currency,
-      });
-    }
-  }
-  if (toCreate.length === 0) return;
-  const created = await input.repo.createIngredients(toCreate);
-  for (const ingredient of created) {
-    input.liveIngredients.push({ id: ingredient.id, name: ingredient.name });
-    input.changes.created_ingredient_ids.push(ingredient.id);
-  }
-}
-
 export class PersistWorkbookRecipesError extends Error {
   readonly changes: UndoSnapshot;
   readonly review: ReviewCandidate[];
@@ -321,7 +250,6 @@ export async function persistWorkbookRecipes(input: {
   brandId?: string | null;
   lang?: PreferredLanguage;
   effectiveDate?: string | null;
-  createMissingIngredients?: boolean;
 }): Promise<{
   menuItemsCreated: number;
   recipesCreated: number;
@@ -380,28 +308,6 @@ export async function persistWorkbookRecipes(input: {
   };
 
   try {
-    if (input.createMissingIngredients !== false) {
-      try {
-        await ensureIngredientsFromRecipeLines({
-          companyId: input.companyId,
-          currency: input.currency,
-          groups: input.groups,
-          repo: input.repo,
-          liveIngredients,
-          liveComponents,
-          aliases: input.aliases ?? new Map(),
-          changes,
-        });
-      } catch (err) {
-        review.push({
-          tabName: input.groups[0]?.tabName ?? "",
-          rowIndex: 0,
-          reason: persistWriteFailedReason(lang, writeErrorMessage(err)),
-          raw: { error: writeErrorMessage(err) },
-          suggested: null,
-        });
-      }
-    }
     const resolveGroup = (
       group: GroupedRecipe
     ): RecipeInputSnapshot[] | null => {

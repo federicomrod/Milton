@@ -112,6 +112,8 @@ import type {
   GroupedRecipe,
 } from "@/lib/restaurant/cost-workbook/types";
 import { persistWorkbookRecipes } from "@/lib/restaurant/cost-workbook/persist-recipes";
+import { nameKey } from "@/lib/restaurant/cost-import";
+import { collectWorkbookCandidateBlocks } from "@/lib/restaurant/cost-workbook/collect-blocks";
 import { emptyUndoSnapshot } from "@/lib/restaurant/cost-workbook/types";
 import {
   createMemoryCostWorkbookRepo,
@@ -357,6 +359,38 @@ function mockedAi(): WorkbookAi & {
   };
 }
 
+/**
+ * Recipe lines never create ingredients any more: the catalog has to
+ * exist first. Fixtures that exercise recipe persistence seed it from
+ * the workbook's own line names, as a prior price-list import would.
+ */
+function seedCatalogFromWorkbook(
+  store: MemoryCostWorkbookStore,
+  buffer: Buffer,
+  skip: readonly string[] = []
+): void {
+  const blocks = collectWorkbookCandidateBlocks({ buffer, lang: "es" }).all;
+  const blockNames = new Set(blocks.map((block) => nameKey(block.name)));
+  const skipKeys = new Set(skip.map((name) => nameKey(name)));
+  const have = new Set(store.ingredients.map((row) => nameKey(row.name)));
+  for (const block of blocks) {
+    for (const line of block.lines) {
+      const key = nameKey(line.ingredient_name);
+      if (!key || have.has(key) || blockNames.has(key) || skipKeys.has(key)) {
+        continue;
+      }
+      have.add(key);
+      store.ingredients.push({
+        id: `seed-${store.ingredients.length + 1}`,
+        name: line.ingredient_name,
+        default_unit: "oz",
+        current_unit_cost: 0.1,
+        currency: "USD",
+      });
+    }
+  }
+}
+
 describe("units — Spanish + lb/oz", () => {
   it("normalises libra/onza/unidad/pieza", () => {
     expect(normalizeUnit("libra")).toBe("lb");
@@ -559,12 +593,12 @@ describe("smart workbook import", () => {
     expect(ai.classifyTab).toHaveBeenCalled();
     expect(ai.mapColumns).toHaveBeenCalled();
     expect(result.headline).toBe(
-      "Saved 13, updated 0 from 5 tabs. 5 need a look. 7 skipped."
+      "Saved 12, updated 0 from 5 tabs. 7 need a look. 4 skipped."
     );
-    expect(result.imported_count).toBe(13);
-    expect(result.saved_count).toBe(13);
-    expect(result.review_count).toBe(5);
-    expect(result.skipped_count).toBe(7);
+    expect(result.imported_count).toBe(12);
+    expect(result.saved_count).toBe(12);
+    expect(result.review_count).toBe(7);
+    expect(result.skipped_count).toBe(4);
     expect(result.recipe_tab_count).toBe(2);
     expect(result.menu_items_created).toBe(1);
     expect(result.recipes_created).toBe(1);
@@ -576,13 +610,19 @@ describe("smart workbook import", () => {
       result.review_items.some((item) => item.reason.includes("column unsure"))
     ).toBe(false);
     expect(result.skipped_reasons.map((row) => row.reason).sort()).toEqual(
+      ["header/total row", "no price", "prepared item / sub-recipe"].sort()
+    );
+    // Look-alike names are held for a person, never merged or saved.
+    const held = result.review_items
+      .filter((item) => /looks like a typo of/.test(item.reason))
+      .map((item) => item.reason.replace(/\? Confirm.*$/, ""))
+      .sort();
+    expect(held).toEqual(
       [
-        "header/total row",
-        "merged typo of ACEITE DE OLIVA",
-        "merged typo of ADEREZO",
-        "merged typo of ZANAHORIA",
-        "no price",
-        "prepared item / sub-recipe",
+        "looks like a typo of ACEITE DE OLIVA",
+        "looks like a typo of ADEREZO",
+        "looks like a typo of AGUACATE",
+        "looks like a typo of ZANAHORIA",
       ].sort()
     );
 
@@ -597,7 +637,6 @@ describe("smart workbook import", () => {
         "ACEITE DE OLIVA",
         "ADEREZO",
         "AGUACATE",
-        "AGUCATE",
         "Carne para asar",
         "Cebolla",
         "Lechuga",
@@ -615,7 +654,7 @@ describe("smart workbook import", () => {
     );
     expect(store.recipes).toHaveLength(1);
     expect(store.recipeInputs).toHaveLength(4);
-    expect(store.costEntries).toHaveLength(13);
+    expect(store.costEntries).toHaveLength(12);
     expect(store.costEntries.every((e) => e.currency === "USD")).toBe(true);
     expect(store.costEntries.every((e) => e.cost_date === "2026-04-01")).toBe(
       true
@@ -707,9 +746,9 @@ describe("smart workbook import", () => {
     );
     expect(classified).toEqual(["Carnes"]);
     expect(second.mapping_source).toBe("mixed");
-    expect(store.costEntries).toHaveLength(26);
+    expect(store.costEntries).toHaveLength(24);
     expect(second.costs_updated).toBe(0);
-    expect(second.saved_count).toBe(13);
+    expect(second.saved_count).toBe(12);
   });
 
   it("undo removes one batch's cost rows and auto-created ingredients", async () => {
@@ -723,14 +762,14 @@ describe("smart workbook import", () => {
       repo,
       ai: mockedAi(),
     });
-    expect(store.costEntries.length).toBe(13);
-    expect(store.ingredients.length).toBe(13);
+    expect(store.costEntries.length).toBe(12);
+    expect(store.ingredients.length).toBe(12);
     expect(store.menuItems.length).toBe(1);
     expect(store.components.length).toBe(3);
 
     const undone = await undoCostImportBatch(repo, COMPANY, result.batch_id);
     expect(undone.ok).toBe(true);
-    if (undone.ok) expect(undone.deleted).toBe(13);
+    if (undone.ok) expect(undone.deleted).toBe(12);
     expect(store.costEntries).toHaveLength(0);
     expect(store.ingredients).toHaveLength(0);
     expect(store.menuItems).toHaveLength(0);
@@ -760,6 +799,28 @@ describe("smart workbook import", () => {
     expect(cost.cost).toBeGreaterThan(0);
     // 8 oz carne = 0.5 lb × $4.80 + 2 oz tomate = 0.125 lb × $1.20 + salsa
     expect(cost.cost).toBeGreaterThan(0.5 * 4.8 + 0.125 * 1.2);
+  });
+
+  it("keeps a recipe line with a typo pending instead of resolving it silently", async () => {
+    const store = emptyStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const result = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLosRanchosCostWorkbook({ typoedRecipeLine: true }),
+      currency: "USD",
+      repo,
+      ai: mockedAi(),
+    });
+    // The dish is not saved with a guessed ingredient, and the typo is
+    // neither created as an ingredient nor aliased.
+    expect(store.menuItems).toHaveLength(0);
+    expect(store.ingredients.map((row) => row.name)).not.toContain("ZANAHORA");
+    expect(
+      result.review_items.some((item) =>
+        item.reason.includes("ZANAHORA ↔ ZANAHORIA")
+      )
+    ).toBe(true);
   });
 
   it("builds the one-line summary the UI shows", () => {
@@ -873,15 +934,15 @@ describe("workbook import blockers", () => {
 
     expect(april.file_month).toBe("2026-04-01");
     expect(may.file_month).toBe("2026-05-01");
-    expect(store.costEntries).toHaveLength(26);
+    expect(store.costEntries).toHaveLength(24);
     expect(
       store.costEntries.filter((e) => e.cost_date.startsWith("2026-04"))
-    ).toHaveLength(13);
+    ).toHaveLength(12);
     expect(
       store.costEntries.filter((e) => e.cost_date.startsWith("2026-05"))
-    ).toHaveLength(13);
+    ).toHaveLength(12);
     expect(may.costs_updated).toBe(0);
-    expect(may.saved_count).toBe(13);
+    expect(may.saved_count).toBe(12);
   });
 
   it("leaves an old CSV import row untouched", async () => {
@@ -1060,15 +1121,15 @@ describe("workbook import blockers", () => {
     );
     expect(
       result.saved_count + result.review_count + result.skipped_count
-    ).toBe(25);
+    ).toBe(23);
     expect(result.saved_count).toBe(store.costEntries.length);
     expect(result.review_count).toBe(store.reviewItems.length);
     expect(result.headline).toBe(
       `Saved ${result.saved_count}, updated ${result.costs_updated} from ${result.tab_count} tabs. ${result.review_count} need a look. ${result.skipped_count} skipped.`
     );
-    expect(result.review_count).toBe(6);
-    expect(result.saved_count).toBe(12);
-    expect(result.skipped_count).toBe(7);
+    expect(result.review_count).toBe(8);
+    expect(result.saved_count).toBe(11);
+    expect(result.skipped_count).toBe(4);
   });
 
   it("rejects non-numeric approve body fields", async () => {
@@ -1163,8 +1224,8 @@ describe("workbook recipes, POS links, and cockpit COGS", () => {
     });
     const priceTab = result.tabs.find((tab) => tab.type === "price_list");
     expect(priceTab?.column_mapping.price_per_unit?.confidence).toBe(0.7);
-    expect(priceTab?.imported_count).toBe(10);
-    expect(priceTab?.review_count).toBe(2);
+    expect(priceTab?.imported_count).toBe(9);
+    expect(priceTab?.review_count).toBe(3);
     expect(
       result.review_items.filter((item) =>
         item.reason.includes("column unsure")
@@ -1496,7 +1557,7 @@ describe("workbook typo merge, units, categories, prepared items", () => {
     expect(implausiblePriceReason("Yuca", "oz", 0.0502)).toBeNull();
   });
 
-  it("merges typo rows and hints when units are incompatible", () => {
+  it("holds look-alike rows for confirmation instead of merging them", () => {
     const merged = mergeTypoDuplicates(
       [
         {
@@ -1558,12 +1619,18 @@ describe("workbook typo merge, units, categories, prepared items", () => {
       ],
       []
     );
+    // Look-alike names are held for confirmation: not saved, not aliased.
     expect(merged.rows.map((row) => row.ingredient_name).sort()).toEqual(
-      ["AGUACATE", "AGUCATE", "ZANAHORIA"].sort()
+      ["AGUACATE", "ZANAHORIA"].sort()
     );
-    expect(merged.aliases.get("zanahora")).toBe("ZANAHORIA");
+    expect(merged.aliases.get("zanahora")).toBeUndefined();
     expect(
-      merged.hints.some((row) =>
+      merged.held.some((row) =>
+        row.reason.includes("looks like a typo of ZANAHORIA")
+      )
+    ).toBe(true);
+    expect(
+      merged.held.some((row) =>
         row.reason.includes("looks like a typo of AGUACATE")
       )
     ).toBe(true);
@@ -1610,8 +1677,9 @@ describe("workbook typo merge, units, categories, prepared items", () => {
       repo,
       ai: mockedAi(),
     });
+    // Held for a person: neither saved under the typo nor merged.
     expect(store.ingredients.map((item) => item.name).sort()).toEqual(
-      ["ACIETE", "ARROI", "Aceite", "Arroz"].sort()
+      ["Aceite", "Arroz"].sort()
     );
     expect(
       store.ingredients.find((item) => item.id === "ing-aceite")?.category
@@ -1619,7 +1687,7 @@ describe("workbook typo merge, units, categories, prepared items", () => {
     expect(
       store.ingredients.find((item) => item.id === "ing-aceite")?.name
     ).toBe("Aceite");
-    expect(store.costEntries).toHaveLength(2);
+    expect(store.costEntries).toHaveLength(0);
     expect(
       result.review_items.some((item) =>
         item.reason.includes("looks like a typo of Aceite")
@@ -2711,6 +2779,7 @@ describe("shared Articulo dish tabs and cost summary", () => {
   it("recovers dish recipes when AI maps Articulo to both roles", async () => {
     const store = emptyStore();
     store.posItemNames = ["CARNE ASADA", "CEVICHE", "NACHOS"];
+    seedCatalogFromWorkbook(store, buildSharedArticuloDishWorkbook());
     const repo = createMemoryCostWorkbookRepo(store);
     const result = await importCostWorkbook({
       companyId: COMPANY,
@@ -4297,6 +4366,7 @@ describe("real Los Ranchos filled-down block layout", () => {
   it("imports through content-based mapping and persist with non-zero counts", async () => {
     const store = emptyStore();
     store.posItemNames = ["DEDOS DE QUESO"];
+    seedCatalogFromWorkbook(store, buildRealLayoutCostoRestauranteWorkbook());
     const result = await importCostWorkbook({
       companyId: COMPANY,
       filename: FILENAME,
@@ -4372,6 +4442,7 @@ describe("real Los Ranchos filled-down block layout", () => {
 
   it("surfaces a Spanish error when a recipe write fails instead of a silent 0", async () => {
     const store = emptyStore();
+    seedCatalogFromWorkbook(store, buildRealLayoutCostoRestauranteWorkbook());
     store.failNextComponentCreate =
       "duplicate key value violates unique constraint";
     const result = await importCostWorkbook({
@@ -4513,28 +4584,7 @@ describe("cost workbook review-blocker follow-ups", () => {
     );
   }
 
-  it("creates a missing recipe-line ingredient only when the toggle is on, with a null price", async () => {
-    const off = emptyStore();
-    seedCatalog(off);
-    const offResult = await importCostWorkbook({
-      companyId: COMPANY,
-      filename: FILENAME,
-      buffer: buildLeadingEmptyOrdenCommaWorkbook(),
-      currency: "USD",
-      repo: createMemoryCostWorkbookRepo(off),
-      ai: contentOnlyWorkbookAi(),
-      lang: "es",
-      createMissingIngredients: false,
-    });
-    expect(off.ingredients.map((row) => row.name)).not.toContain(
-      "QUESO CREMADO"
-    );
-    expect(
-      offResult.review_items.some((item) =>
-        item.reason.includes(unknownIngredientReason("es", "QUESO CREMADO"))
-      )
-    ).toBe(true);
-
+  it("never creates an ingredient from a recipe-line name, whatever the old toggle was", async () => {
     const on = emptyStore();
     seedCatalog(on);
     const onResult = await importCostWorkbook({
@@ -4545,11 +4595,19 @@ describe("cost workbook review-blocker follow-ups", () => {
       repo: createMemoryCostWorkbookRepo(on),
       ai: contentOnlyWorkbookAi(),
       lang: "es",
-      createMissingIngredients: true,
     });
-    const created = on.ingredients.find((row) => row.name === "QUESO CREMADO");
-    expect(created).toBeTruthy();
-    expect(created?.current_unit_cost).toBeCloseTo(0.18, 5);
+    expect(on.ingredients.map((row) => row.name).sort()).toEqual([
+      "EMPANIZADOR",
+      "PUYASO",
+    ]);
+    expect(on.ingredients.map((row) => row.name)).not.toContain(
+      "QUESO CREMADO"
+    );
+    expect(
+      onResult.review_items.some((item) =>
+        item.reason.includes(unknownIngredientReason("es", "QUESO CREMADO"))
+      )
+    ).toBe(true);
     expect(on.ingredients.map((row) => row.name)).not.toContain("EMPANIZAOR");
     expect(
       onResult.review_items.some(
@@ -4558,6 +4616,23 @@ describe("cost workbook review-blocker follow-ups", () => {
           unsureIngredientNameReason("es", "EMPANIZAOR", "EMPANIZADOR")
       )
     ).toBe(true);
+  });
+
+  it("keeps an assumed yield in review when the catalog is already loaded", async () => {
+    const on = emptyStore();
+    seedCatalog(on);
+    seedCatalogFromWorkbook(on, buildLeadingEmptyOrdenCommaWorkbook(), [
+      "EMPANIZAOR",
+    ]);
+    const onResult = await importCostWorkbook({
+      companyId: COMPANY,
+      filename: FILENAME,
+      buffer: buildLeadingEmptyOrdenCommaWorkbook(),
+      currency: "USD",
+      repo: createMemoryCostWorkbookRepo(on),
+      ai: contentOnlyWorkbookAi(),
+      lang: "es",
+    });
     expect(on.menuItems.map((row) => row.name)).toContain("PUYASO");
     expect(
       onResult.review_items.some((item) =>
@@ -4585,6 +4660,7 @@ describe("cost workbook review-blocker follow-ups", () => {
   it("keeps a created dish in undo when its recipe write fails", async () => {
     const store = emptyStore();
     seedCatalog(store);
+    seedCatalogFromWorkbook(store, buildLeadingEmptyOrdenCommaWorkbook());
     store.failNextRecipeCreate = "recipes_pkey";
     const result = await importCostWorkbook({
       companyId: COMPANY,
@@ -4594,7 +4670,6 @@ describe("cost workbook review-blocker follow-ups", () => {
       repo: createMemoryCostWorkbookRepo(store),
       ai: contentOnlyWorkbookAi(),
       lang: "es",
-      createMissingIngredients: true,
     });
     expect(store.menuItems.map((row) => row.name)).toContain("PUYASO");
     expect(store.recipes.some((row) => row.name === "PUYASO")).toBe(false);
@@ -4618,14 +4693,13 @@ describe("cost workbook review-blocker follow-ups", () => {
     expect(store.menuItems.map((row) => row.name)).not.toContain("PUYASO");
   });
 
-  it("stores a null pending price when a new ingredient has no unit cost", async () => {
+  it("leaves an unknown line pending and creates no ingredient", async () => {
     const store = emptyStore();
     await persistWorkbookRecipes({
       companyId: COMPANY,
       batchId: "batch-null-price",
       currency: "USD",
       repo: createMemoryCostWorkbookRepo(store),
-      createMissingIngredients: true,
       lang: "es",
       groups: [
         {
@@ -4653,9 +4727,10 @@ describe("cost workbook review-blocker follow-ups", () => {
         },
       ],
     });
-    const created = store.ingredients.find((row) => row.name === "HIERBA SECA");
-    expect(created).toBeTruthy();
-    expect(created?.current_unit_cost).toBeNull();
+    expect(store.ingredients).toHaveLength(0);
+    expect(store.ingredients.some((row) => row.name === "HIERBA SECA")).toBe(
+      false
+    );
   });
 
   it("keeps the partial undo record when persistWorkbookRecipes throws", () => {

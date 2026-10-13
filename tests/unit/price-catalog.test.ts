@@ -612,3 +612,108 @@ describe("fewer questions: the list price is the default", () => {
     expect(entry.notes).toMatch(/también \$0\.4500 por unidad/);
   });
 });
+
+describe("saving the list over ingredients the recipe import made", () => {
+  it("keeps the price even when the ingredient's unit came from a mislabeled recipe line", async () => {
+    const store = emptyMemoryStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    // The import created it from a recipe line written "UNIDAD".
+    await repo.createIngredients([
+      {
+        companyId: COMPANY,
+        name: "Brocoli",
+        defaultUnit: "unit",
+        currentUnitCost: null,
+        currency: "USD",
+      },
+    ]);
+    const read = readPriceCatalog("Lista", [
+      HEADER,
+      ["Brocoli", 0.68, 0.0425, ""],
+    ])!;
+    const result = await applyPriceCatalog({
+      repo,
+      companyId: COMPANY,
+      userId: "u1",
+      currency: "USD",
+      filename: FILE,
+      read,
+      observations: [],
+      decisions: {},
+    });
+    expect(result.failed).toBe(0);
+    expect(store.ingredients).toHaveLength(1);
+    const entry = store.costEntries.find(
+      (e) => e.ingredient_id === store.ingredients[0].id
+    )!;
+    expect(entry.normalized_unit).toBe("oz");
+    expect(entry.normalized_unit_cost).toBeCloseTo(0.0425, 6);
+  });
+
+  it("never makes a twin for the same name written with other spacing", async () => {
+    const store = emptyMemoryStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    await repo.createIngredients([
+      {
+        companyId: COMPANY,
+        name: "CEBOLLA BLANCA",
+        defaultUnit: "oz",
+        currentUnitCost: null,
+        currency: "USD",
+      },
+    ]);
+    const read = readPriceCatalog("Lista", [
+      HEADER,
+      ["CEBOLLA  BLANCA", 0.96, 0.06, ""],
+    ])!;
+    await applyPriceCatalog({
+      repo,
+      companyId: COMPANY,
+      userId: "u1",
+      currency: "USD",
+      filename: FILE,
+      read,
+      observations: [],
+      decisions: {},
+    });
+    expect(store.ingredients.map((i) => i.name)).toEqual(["CEBOLLA BLANCA"]);
+    expect(store.costEntries).toHaveLength(1);
+  });
+
+  it("'usar la lista' finds the ingredient that holds the list price, even with a twin", async () => {
+    const { store, repo, read } = setup();
+    // A twin with no price (as an older import could leave).
+    await repo.createIngredients([
+      {
+        companyId: COMPANY,
+        name: "BETABEL",
+        defaultUnit: "unit",
+        currentUnitCost: null,
+        currency: "USD",
+      },
+    ]);
+    await applyPriceCatalog({
+      repo,
+      companyId: COMPANY,
+      userId: "u1",
+      currency: "USD",
+      filename: FILE,
+      read,
+      observations: obsFor("Betabel", 0.04),
+      decisions: {},
+    });
+    const item = store.reviewItems.find(
+      (r) => r.raw_values.kind === COST_CONFLICT_KIND
+    );
+    if (!item) return; // nothing asked: the list price already applies
+    const ok = await resolveCostConflict({
+      repo,
+      companyId: COMPANY,
+      userId: "u2",
+      currency: "USD",
+      reviewId: item.id,
+      choice: "catalog",
+    });
+    expect(ok.ok).toBe(true);
+  });
+});

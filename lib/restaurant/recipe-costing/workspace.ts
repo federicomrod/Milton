@@ -723,6 +723,9 @@ export function buildRecipeCostingWorkspace(input: {
   linked = input.products.filter(
     (product) => needsRecipe(product) && product.link_state === "confirmado"
   ).length;
+  const suggestedLinks = input.products.filter(
+    (product) => needsRecipe(product) && product.link_state === "sugerido"
+  ).length;
   const unresolved = input.products.filter(
     (product) => needsRecipe(product) && product.link_state !== "confirmado"
   ).length;
@@ -911,7 +914,7 @@ export function buildRecipeCostingWorkspace(input: {
       {
         id: "platos",
         label: "Platos vinculados",
-        detail: `${linked} de ${needRecipe} vinculados · ${approvedDishes} aprobados`,
+        detail: `${linked} de ${needRecipe} confirmados · ${suggestedLinks} sugeridos · ${approvedDishes} aprobados`,
         done: needRecipe > 0 && unresolved === 0,
       },
     ],

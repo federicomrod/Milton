@@ -755,3 +755,115 @@ describe("a line imported with its own cost from the file", () => {
     });
   });
 });
+
+describe("line price, removal and speed (Stage Test 1 bugs)", () => {
+  function withPrep(): MemoryEditorState {
+    const d = draft();
+    d.components = [{ id: "c-guac", name: "GUACAMOL", output_unit: "oz" }];
+    d.inputs = [
+      {
+        id: "in-seed",
+        input_type: "ingredient",
+        ingredient_id: "i-harina",
+        component_id: null,
+        quantity: 4,
+        unit: "oz",
+      },
+      {
+        id: "in-guac",
+        input_type: "component",
+        ingredient_id: null,
+        component_id: "c-guac",
+        quantity: 2.5,
+        unit: "oz",
+      },
+    ];
+    d.link!.evidence = {
+      yield: { value: 1, unit: "unit", source: "assumed" },
+      lines: [
+        line({ raw_name: "HARINA", ingredient_match: "Harina", qty: 4 }),
+        // An AI draft's pending line with no match name, next to the
+        // GUACAMOL preparation input.
+        line({
+          raw_name: "GUACAMOL ",
+          qty: 2.5,
+          pending: true,
+          flags: ["pendiente_ingrediente"],
+        }),
+      ],
+    };
+    return d;
+  }
+
+  it("shows a preparation once, not as two lines", async () => {
+    const lines = (await state(withPrep())).lines;
+    expect(lines.map((l) => [l.kind, l.name ?? l.raw_name])).toEqual([
+      ["ingredient", "Harina"],
+      ["component", "GUACAMOL"],
+    ]);
+  });
+
+  it("Quitar removes the preparation line for good, and its assumed yield stops blocking", async () => {
+    const d = withPrep();
+    const guac = (await state(d)).lines.find((l) => l.kind === "component")!;
+    const r = await applyEdit(ctx(d), { action: "remove", line_key: guac.key });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.state.lines.map((l) => l.name ?? l.raw_name)).toEqual(["Harina"]);
+    expect(d.inputs.map((i) => i.id)).toEqual(["in-seed"]);
+    expect(d.link!.evidence.yield).toMatchObject({ confirmed: true });
+  });
+
+  it("sets a line's own price (a preparation line too) without touching the list", async () => {
+    const d = withPrep();
+    const entriesBefore = d.entries.length;
+    const r = await applyEdit(ctx(d), {
+      action: "set_line_cost",
+      input_id: "in-guac",
+      unit_cost: 0.15,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(d.inputs.find((i) => i.id === "in-guac")).toMatchObject({
+      unit_cost: 0.15,
+      cost_source: "manual",
+    });
+    expect(d.entries).toHaveLength(entriesBefore);
+    const guac = r.state.lines.find((l) => l.kind === "component")!;
+    expect(guac.amount).toBeCloseTo(0.375, 6);
+    // And back to the list's price.
+    await applyEdit(ctx(d), {
+      action: "set_line_cost",
+      input_id: "in-guac",
+      unit_cost: null,
+    });
+    expect(d.inputs.find((i) => i.id === "in-guac")?.unit_cost).toBeNull();
+    expect(
+      parseEditorAction({
+        action: "set_line_cost",
+        input_id: "x",
+        unit_cost: 0,
+      })
+    ).toMatchObject({ unit_cost: 0 });
+  });
+
+  it("reads the catalog once per edit", async () => {
+    const d = draft();
+    const store = createMemoryEditorStore(d);
+    let loads = 0;
+    const counting = {
+      ...store,
+      loadCosting: (companyId: string) => {
+        loads += 1;
+        return store.loadCosting(companyId);
+      },
+    };
+    const run = { ...ctx(d), store: counting };
+    await applyEdit(run, {
+      action: "update",
+      input_id: "in-seed",
+      quantity: 5,
+    });
+    expect(loads).toBe(1);
+  });
+});

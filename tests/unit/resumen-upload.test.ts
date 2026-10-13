@@ -343,7 +343,7 @@ describe("Resumen: checklist, coverage goal, Continuar", () => {
       false,
     ]);
     expect(started.setup_checklist[2]!.detail).toBe(
-      "0 de 2 vinculados · 0 aprobados"
+      "0 de 2 confirmados · 0 sugeridos · 0 aprobados"
     );
   });
 

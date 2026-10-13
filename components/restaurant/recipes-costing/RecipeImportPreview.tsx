@@ -25,6 +25,7 @@ interface RecipePreview {
   ingredients_reused: number;
   linked: number;
   skipped: number;
+  unmatched?: Array<{ dish: string; reason: string }>;
 }
 
 interface Imported {
@@ -177,6 +178,21 @@ export function RecipeImportPreview({
             · {preview.linked} vinculados a tu POS. Todo entra como borrador:
             nada cuenta en los márgenes hasta que lo apruebes.
           </p>
+          {preview.unmatched && preview.unmatched.length > 0 ? (
+            <details className="text-[11px] text-[#5b6476]">
+              <summary className="cursor-pointer font-semibold">
+                {preview.unmatched.length} platos sin vínculo al POS (sin contar
+                eventos): por qué
+              </summary>
+              <ul className="mt-1 list-disc pl-4">
+                {preview.unmatched.map((row) => (
+                  <li key={row.dish}>
+                    <b>{row.dish}</b>: {row.reason}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
           <div className="max-h-[50vh] overflow-auto rounded-lg border border-slate-200">
             <table className="w-full text-[11.5px]">
               <thead className="sticky top-0 bg-white">

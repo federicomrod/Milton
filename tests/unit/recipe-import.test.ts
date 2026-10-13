@@ -212,17 +212,21 @@ describe("planning the import", () => {
 
   it("links by name + size, confirmed by price × 1.13", () => {
     expect(excelPriceWithIva(byName("ASADO DE PRUEBA 6"))).toBe(14.5);
-    expect(dish("ASADO DE PRUEBA 6").pos?.odoo_product_id).toBe(1);
-    expect(dish("PARRILLADA DE PRUEBA PARA 3").pos?.odoo_product_id).toBe(3);
+    expect(dish("ASADO DE PRUEBA 6").pos.map((p) => p.odoo_product_id)).toEqual(
+      [1]
+    );
+    expect(
+      dish("PARRILLADA DE PRUEBA PARA 3").pos.map((p) => p.odoo_product_id)
+    ).toEqual([3]);
   });
 
   it("does not link when the price disagrees", () => {
-    expect(dish("ASADO DE PRUEBA 8").pos).toBeNull();
+    expect(dish("ASADO DE PRUEBA 8").pos).toEqual([]);
     expect(dish("ASADO DE PRUEBA 8").link_note).toMatch(/precio no coincide/);
   });
 
   it("the events copy never takes the main dish's POS product", () => {
-    expect(dish("ASADO DE PRUEBA 6 (EVENTOS)").pos).toBeNull();
+    expect(dish("ASADO DE PRUEBA 6 (EVENTOS)").pos).toEqual([]);
   });
 
   it("creates one ingredient per name and reuses the catalog's", () => {
@@ -270,7 +274,37 @@ describe("planning the import", () => {
         link_state: null,
       },
     ]);
-    expect(hit.product).toBeNull();
+    expect(hit.products).toEqual([]);
+  });
+
+  it("links every POS variant of a dish, modifiers in parentheses ignored", () => {
+    const pos = (id: number, name: string, price: number | null) => ({
+      odoo_product_id: id,
+      odoo_name: name,
+      pos_price: price,
+      link_state: null,
+    });
+    const hit = matchDishToPos(byName("ASADO DE PRUEBA 6"), [
+      pos(21, "Asado de Prueba (6 onz.) (Pan con Ajo, Bien Cocido)", 14.5),
+      pos(22, "Asado de Prueba (6 onz.) (Tortilla, Término Medio)", 14.5),
+      pos(23, "Asado de Prueba (8 onz.) (Pan con Ajo)", 17.25),
+      // A POS that reports prices without IVA.
+      pos(24, "ASADO DE PRUEBA 6 ONZ (Sin cebolla)", 12.83),
+    ]);
+    expect(hit.products.map((p) => p.odoo_product_id)).toEqual([21, 22, 24]);
+  });
+
+  it("says the POS price when the price is what blocks the link", () => {
+    const hit = matchDishToPos(byName("ASADO DE PRUEBA 6"), [
+      {
+        odoo_product_id: 31,
+        odoo_name: "Asado de Prueba (6 onz.) (Pan con Ajo)",
+        pos_price: 9.99,
+        link_state: null,
+      },
+    ]);
+    expect(hit.products).toEqual([]);
+    expect(hit.note).toMatch(/POS 9\.99/);
   });
 });
 
@@ -544,5 +578,125 @@ describe("writing the import (in-memory repository)", () => {
       store.recipeVersions.filter((v) => v.recipe_id === recipe.id)
     ).toHaveLength(0);
     expect(out.result.dishes_skipped).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("Stage Test 1 fixes in the import", () => {
+  it("a new ingredient takes the price list's unit, not a recipe line's label", () => {
+    const plan = planImport({
+      workbook,
+      catalog: {
+        ingredients: [],
+        preparations: [],
+        listUnits: new Map([["asado de res", "lb"]]),
+      },
+      products: [],
+      existing: [],
+    });
+    expect(
+      plan.ingredients.find((i) => i.name === "ASADO DE RES")?.default_unit
+    ).toBe("lb");
+  });
+
+  it("links every POS variant to the same draft and marks the batch as a recipe import", async () => {
+    const store = emptyMemoryStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const plan = planImport({
+      workbook,
+      catalog: { ingredients: [], preparations: [] },
+      products: [
+        {
+          odoo_product_id: 1,
+          odoo_name: "Asado de Prueba (6 onz.) (Pan con Ajo)",
+          pos_price: 14.5,
+          link_state: "sin_vincular",
+        },
+        {
+          odoo_product_id: 2,
+          odoo_name: "Asado de Prueba (6 onz.) (Tortilla)",
+          pos_price: 14.5,
+          link_state: "sin_vincular",
+        },
+      ],
+      existing: [],
+    });
+    const out = await writeImportPlan({
+      repo,
+      plan,
+      workbook,
+      companyId: "co-1",
+      currency: "USD",
+      filename: "f.xlsx",
+      createdBy: null,
+      locationId: null,
+      insertCanonicalRows: async () => {},
+    });
+    expect(out.linked.sort()).toEqual([1, 2]);
+    expect(out.result.pos_products_linked).toBe(2);
+    const menuIds = new Set(store.posProductLinks.map((l) => l.menu_item_id));
+    expect(menuIds.size).toBe(1);
+    const batch = store.batches.find((b) => b.id === out.result.batch_id)!;
+    expect(batch.undo_snapshot.recipe_import).toBe(true);
+  });
+
+  it("gives an existing draft preparation the file's sub-recipe; a hand-made one is left alone", async () => {
+    const store = emptyMemoryStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const draftPrep = await repo.createComponent({
+      companyId: "co-1",
+      name: "ACOMPAÑAMIENTO DE PRUEBA",
+      outputUnit: "unit",
+      sourceId: "old",
+    });
+    await repo.createComponentRecipe({
+      companyId: "co-1",
+      componentId: draftPrep.id,
+      name: "ACOMPAÑAMIENTO DE PRUEBA",
+      outputQuantity: 1,
+      outputUnit: "unit",
+      sourceId: "old",
+      inputs: [],
+    });
+    const handmade = await repo.createComponent({
+      companyId: "co-1",
+      name: "CARNE DE PRUEBA 2 LIBRA",
+      outputUnit: "oz",
+      sourceId: "old",
+    });
+    store.components.find((c) => c.id === handmade.id)!.source_type = "manual";
+    const plan = planImport({
+      workbook,
+      catalog: {
+        ingredients: [],
+        preparations: [
+          { id: draftPrep.id, name: draftPrep.name },
+          { id: handmade.id, name: handmade.name },
+        ],
+      },
+      products: [],
+      existing: [],
+    });
+    const out = await writeImportPlan({
+      repo,
+      plan,
+      workbook,
+      companyId: "co-1",
+      currency: "USD",
+      filename: "f.xlsx",
+      createdBy: null,
+      locationId: null,
+      insertCanonicalRows: async () => {},
+    });
+    expect(out.result.preparations_updated).toBe(1);
+    expect(
+      store.componentRecipeVersions.filter(
+        (v) => v.component_id === draftPrep.id
+      )
+    ).toHaveLength(1);
+    expect(
+      store.componentRecipeVersions.filter(
+        (v) => v.component_id === handmade.id
+      )
+    ).toHaveLength(0);
   });
 });

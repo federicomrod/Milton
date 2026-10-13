@@ -232,6 +232,8 @@ export interface UndoSnapshot {
   undo_errors?: string[];
   /** Compact parsed recipe blocks from this upload. Not used by undo. */
   candidate_blocks?: import("./stored-blocks").StoredRecipeBlock[];
+  /** Set on a batch made by the recipe import ("Importar"). */
+  recipe_import?: boolean;
 }
 
 export interface DeletedIngredientSnapshot {
@@ -400,6 +402,8 @@ export interface CostWorkbookBatchSummary {
   undone_at: string | null;
   /** The upload kept the file's recipes (its stored blocks are not empty). */
   has_recipe_blocks: boolean;
+  /** The recipes of the file were imported ("Importar", canonical table). */
+  is_recipe_import?: boolean;
 }
 
 export interface CostWorkbookBatch {

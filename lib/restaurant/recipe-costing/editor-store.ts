@@ -657,27 +657,34 @@ export function createSupabaseEditorStore(
         .maybeSingle();
       if (ingError) throw new Error(ingError.message);
       if (!ing) throw new Error("No encontré el ingrediente.");
-      const built = buildIngredientCostEntryInsert({
-        companyId,
-        ingredientId: entry.ingredientId,
-        ingredientDefaultUnit:
-          typeof ing.default_unit === "string" ? ing.default_unit : null,
-        supplierId: null,
-        sourceId: null,
-        row: {
-          rowIndex: 0,
-          cost_date: entry.date,
-          supplier_name: "",
-          ingredient_name: "",
-          quantity: 1,
-          unit: entry.unit,
-          total_cost: entry.unitCost,
-          currency: entry.currency,
-          notes: entry.note,
-          supplier_item_name: null,
-          supplier_sku: null,
-        },
-      });
+      const buildFor = (defaultUnit: string | null) =>
+        buildIngredientCostEntryInsert({
+          companyId,
+          ingredientId: entry.ingredientId,
+          ingredientDefaultUnit: defaultUnit,
+          supplierId: null,
+          sourceId: null,
+          row: {
+            rowIndex: 0,
+            cost_date: entry.date,
+            supplier_name: "",
+            ingredient_name: "",
+            quantity: 1,
+            unit: entry.unit,
+            total_cost: entry.unitCost,
+            currency: entry.currency,
+            notes: entry.note,
+            supplier_item_name: null,
+            supplier_sku: null,
+          },
+        });
+      let built = buildFor(
+        typeof ing.default_unit === "string" ? ing.default_unit : null
+      );
+      // The person's price is in a unit the ingredient's own unit cannot
+      // convert to ("unidad" vs "orden"): keep it in the person's unit
+      // instead of refusing the save.
+      if (!built.ok) built = buildFor(entry.unit);
       if (!built.ok) throw new Error(built.reason);
       const { error } = await supabase.from("ingredient_cost_entries").insert({
         ...built.insert,

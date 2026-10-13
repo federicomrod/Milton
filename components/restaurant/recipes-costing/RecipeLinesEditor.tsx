@@ -366,6 +366,13 @@ export function RecipeLinesEditor({
                   unit_cost: cost,
                 })
               }
+              onLineCost={(cost) =>
+                void send({
+                  action: "set_line_cost",
+                  input_id: line.input_id,
+                  unit_cost: cost,
+                })
+              }
             />
           ))}
           {portionCostLabel ? (
@@ -379,7 +386,7 @@ export function RecipeLinesEditor({
               <td />
             </tr>
           ) : null}
-          {firstPreparation && yieldValue != null && onYield ? (
+          {firstPreparation && yieldAssumed && yieldValue != null && onYield ? (
             <YieldRow
               name={firstPreparation.name ?? firstPreparation.raw_name}
               value={yieldValue}
@@ -447,6 +454,7 @@ function Row({
   onOpenPreparation,
   onPrice,
   onCatalogUnit,
+  onLineCost,
 }: {
   line: EditorLine;
   editable: boolean;
@@ -463,9 +471,15 @@ function Row({
   onOpenPreparation?: () => void;
   onPrice: (unit: string, cost: number) => void;
   onCatalogUnit: (itemId: string, unit: string, lineKey?: string) => void;
+  /** This line's own price per its unit; null = back to the list's. */
+  onLineCost: (cost: number | null) => void;
 }) {
   const [qty, setQty] = useState(String(line.qty || ""));
   const [price, setPrice] = useState("");
+  const [editingPrice, setEditingPrice] = useState(false);
+  const [linePrice, setLinePrice] = useState(
+    line.unit_cost !== null ? String(Number(line.unit_cost.toFixed(5))) : ""
+  );
   const unresolved = line.kind === "unresolved";
   // A line from the menu says what, not how much: the person types both
   // before it is matched or created. Never an assumed quantity.
@@ -683,7 +697,46 @@ function Row({
         )}
       </td>
       <td className="py-1.5 text-right align-top">
-        {unresolved ? (
+        {!unresolved && editingPrice ? (
+          <div className="flex items-center justify-end gap-1">
+            <input
+              value={linePrice}
+              autoFocus
+              placeholder="Precio"
+              onChange={(event) => setLinePrice(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setEditingPrice(false);
+              }}
+              className="w-16 rounded-md border border-[#d5dae3] px-1.5 py-0.5 text-right"
+            />
+            <span className="text-[10.5px] text-[#8a92a3]">
+              /{UNIT_LABEL[line.unit] ?? line.unit}
+            </span>
+            <GhostBtn
+              onClick={() => {
+                const n = Number(linePrice);
+                if (Number.isFinite(n) && n > 0) {
+                  setEditingPrice(false);
+                  onLineCost(n);
+                }
+              }}
+            >
+              Guardar
+            </GhostBtn>
+            {line.own_cost ? (
+              <button
+                type="button"
+                className="text-[10.5px] font-semibold text-[#3557c9]"
+                onClick={() => {
+                  setEditingPrice(false);
+                  onLineCost(null);
+                }}
+              >
+                usar la lista
+              </button>
+            ) : null}
+          </div>
+        ) : unresolved ? (
           "—"
         ) : line.own_cost && line.unit_cost !== null ? (
           <span>
@@ -775,6 +828,15 @@ function Row({
       </td>
       <td className="py-1.5 text-right align-top font-semibold">
         {line.amount !== null ? money(line.amount) : "Pendiente"}
+        {editable && !unresolved && !editingPrice ? (
+          <button
+            type="button"
+            className="block w-full text-right text-[10px] font-normal text-[#3557c9]"
+            onClick={() => setEditingPrice(true)}
+          >
+            editar precio
+          </button>
+        ) : null}
       </td>
       <td className="py-1.5 pl-2 text-right align-top">
         {editable ? (

@@ -2,6 +2,7 @@
 // company that came from auth; ids from the client are only ever matched
 // inside that company.
 
+import { updateWithApprovalAudit } from "./approval-audit";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   CostingComponentRecipe,
@@ -375,7 +376,7 @@ export function createSupabaseEditorStore(
       }
     },
 
-    async approvePreparationVersion(companyId, version) {
+    async approvePreparationVersion(companyId, version, approval) {
       if (version.kind !== "preparation" || !version.component_recipe_id) {
         throw new Error("No es una preparación.");
       }
@@ -385,18 +386,22 @@ export function createSupabaseEditorStore(
         .eq("company_id", companyId)
         .eq("component_recipe_id", version.component_recipe_id);
       if (siblings.error) throw new Error(siblings.error.message);
-      const { error } = await supabase
-        .from("component_recipe_versions")
-        .update({
+      await updateWithApprovalAudit(
+        (payload) =>
+          supabase
+            .from("component_recipe_versions")
+            .update(payload)
+            .eq("company_id", companyId)
+            .eq("id", version.id)
+            .eq("status", "in_review"),
+        {
           status: "approved",
           effective_date: effectiveDateForNewApprovedVersion(
             (siblings.data ?? []) as Array<{ status: string }>
           ),
-        })
-        .eq("company_id", companyId)
-        .eq("id", version.id)
-        .eq("status", "in_review");
-      if (error) throw new Error(error.message);
+        },
+        approval
+      );
     },
 
     async resolveHolder(companyId, holder) {

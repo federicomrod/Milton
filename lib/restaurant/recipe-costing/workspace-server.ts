@@ -6,7 +6,7 @@ import {
 } from "@/lib/restaurant/cost-workbook/reset-auth";
 import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
 import { sortBatchesNewestFirst } from "@/lib/restaurant/cost-workbook/history";
-import { candidateBlocksFromUnknown } from "@/lib/restaurant/cost-workbook/stored-blocks";
+import { findRecipeSource } from "@/lib/restaurant/cost-workbook/stored-blocks";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 import { formatPageDateRangeLabel } from "@/lib/restaurant/page-date-range";
@@ -186,15 +186,16 @@ export async function loadRecipeCostingWorkspace(
     created_at: row.created_at ?? null,
     can_undo: !row.undone_at,
   }));
-  const latestLive = liveHistory[0] ?? null;
+  // The upload suggestions will read: the newest live one with recipe
+  // blocks, not merely the newest one.
+  const source = findRecipeSource(liveHistory);
+  const latestLive = source?.batch ?? liveHistory[0] ?? null;
   const latestUpload = latestLive
     ? {
         id: latestLive.id,
         filename: latestLive.filename,
         created_at: latestLive.created_at ?? null,
-        has_candidate_blocks:
-          candidateBlocksFromUnknown(latestLive.undo_snapshot.candidate_blocks)
-            .length > 0,
+        has_candidate_blocks: Boolean(source),
       }
     : null;
 

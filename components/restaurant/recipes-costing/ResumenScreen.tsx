@@ -114,8 +114,8 @@ export function ResumenScreen({
             {data.latest_upload?.has_candidate_blocks
               ? `Usa ${data.latest_upload.filename}. Milton propone; tú confirmas.`
               : data.latest_upload
-                ? `Ya subiste ${data.latest_upload.filename}, pero hay que volver a subirlo una vez en Costos para guardar los bloques de receta.`
-                : "Primero sube el Excel en Costos › Subir costos."}
+                ? `Ya subiste ${data.latest_upload.filename}, pero no tiene recetas guardadas. Súbelo otra vez en «Lista de precios de tus ingredientes» o con «Cargar recetas».`
+                : "Primero sube tu archivo en «Lista de precios de tus ingredientes»."}
           </div>
         </div>
       </Card>

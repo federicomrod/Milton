@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
   const mode = form.get("mode") === "apply" ? "apply" : "preview";
 
   try {
-    const { read, observations } = readCatalogFromBuffer(
+    const { read, observations, blocks } = readCatalogFromBuffer(
       Buffer.from(await file.arrayBuffer())
     );
     if (!read) {
@@ -119,6 +119,7 @@ export async function POST(req: NextRequest) {
       read,
       observations,
       decisions,
+      candidateBlocks: blocks,
     });
     return NextResponse.json(result);
   } catch (err) {

@@ -7,6 +7,7 @@ import {
   readWorkbookSheetsFromWorkbook,
   readXlsxWorkbook,
 } from "@/lib/restaurant/cost-workbook/sheets";
+import type { GroupedRecipe } from "@/lib/restaurant/cost-workbook/types";
 import type { RecipeCostObservation } from "./conflicts";
 import { findPriceCatalog, type PriceCatalogRead } from "./reader";
 
@@ -15,17 +16,19 @@ export const MAX_CATALOG_FILE_BYTES = 15 * 1024 * 1024;
 export interface ReadCatalogResult {
   read: PriceCatalogRead | null;
   observations: RecipeCostObservation[];
+  /** Recipe blocks of the same file, kept for "Generar sugerencias". */
+  blocks: GroupedRecipe[];
 }
 
 /** Read the price list and the recipe-line costs out of one workbook. */
 export function readCatalogFromBuffer(buffer: Buffer): ReadCatalogResult {
   const sheets = readWorkbookSheetsFromWorkbook(readXlsxWorkbook(buffer));
   const read = findPriceCatalog(sheets);
-  if (!read) return { read: null, observations: [] };
+  if (!read) return { read: null, observations: [], blocks: [] };
 
   const observations: RecipeCostObservation[] = [];
-  for (const block of collectWorkbookCandidateBlocks({ buffer, lang: "es" })
-    .all) {
+  const blocks = collectWorkbookCandidateBlocks({ buffer, lang: "es" }).all;
+  for (const block of blocks) {
     for (const line of block.lines) {
       const raw = (line.raw ?? {}) as Record<string, unknown>;
       const cost = parseCostImportNumber(
@@ -42,5 +45,5 @@ export function readCatalogFromBuffer(buffer: Buffer): ReadCatalogResult {
       });
     }
   }
-  return { read, observations };
+  return { read, observations, blocks };
 }

@@ -12,6 +12,21 @@ import type { CatalogUnit, PriceCatalogRow } from "./reader";
 /** Tolerance for "the same price": the larger of 2% or half a cent per
  *  unit would be too lax for per-ounce prices, so it is purely relative. */
 export const COST_CONFLICT_TOLERANCE = 0.02;
+/** A recipe price closer than this to the list price is not a question. */
+export const COST_ASK_SHARE = 0.2;
+/**
+ * A recipe price this many times higher or lower than the list's is in
+ * another unit (oz vs lb is ×16, g vs oz ×28, g vs lb ×453) or a typo,
+ * not a second price: it is not offered.
+ */
+export const OTHER_UNIT_FACTOR = 8;
+
+function worthAsking(recipe: number, list: number): boolean {
+  if (!(recipe > 0) || !(list > 0)) return false;
+  const ratio = recipe / list;
+  if (Math.abs(ratio - 1) <= COST_ASK_SHARE) return false;
+  return ratio < OTHER_UNIT_FACTOR && ratio > 1 / OTHER_UNIT_FACTOR;
+}
 
 export interface RecipeCostObservation {
   name: string;
@@ -81,6 +96,10 @@ export function findCostConflicts(
 
   const conflicts = new Map<string, CostConflict>();
   const recipesSeen = new Map<string, Set<string>>();
+  // Ingredients whose list price is used by at least one recipe line: the
+  // file confirms its own list price, so nothing is asked. Recipe lines
+  // that differ keep their own cost on their dish.
+  const confirmed = new Set<string>();
 
   for (const obs of observations) {
     const key = plain(obs.name);
@@ -90,11 +109,15 @@ export function findCostConflicts(
 
     const asLabeled = inCatalogUnit(obs, row.unit);
     if (asLabeled === null) continue; // not comparable
-    if (close(asLabeled, row.unitCost)) continue;
     // The unit label on recipe lines is sometimes wrong (a per-ounce
     // price under LIBRA). If the raw number already matches the catalog
     // in the catalog's own unit, the prices agree and only the label lies.
-    if (close(obs.unitCost, row.unitCost)) continue;
+    if (close(asLabeled, row.unitCost) || close(obs.unitCost, row.unitCost)) {
+      confirmed.add(key);
+      continue;
+    }
+    // Within 20%, or obviously another unit: not a real second price.
+    if (!worthAsking(asLabeled, row.unitCost)) continue;
 
     let conflict = conflicts.get(key);
     if (!conflict) {
@@ -128,5 +151,7 @@ export function findCostConflicts(
     recipesSeen.set(seenKey, seen);
   }
 
-  return [...conflicts.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return [...conflicts.values()]
+    .filter((conflict) => !confirmed.has(conflict.key))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }

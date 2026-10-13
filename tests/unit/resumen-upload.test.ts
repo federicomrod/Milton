@@ -38,10 +38,12 @@ function sheet(): unknown[][] {
     ["ITEM", "LIBRA", "ONZA", "PRECIO\n UNITARIO"],
     ["VERDURAS"],
     ["Betabel", 0.48, 0.03, ""],
-    // 1.44 / 0.12 = 12: per ounce, or per piece of a 12-piece pack?
+    // LIBRA and ONZA both filled: per onza (divided by 12), no question.
     ["Pan de molde 12 rebanadas", 1.44, 0.12, ""],
-    // LIBRA/UNIDAD: per pound or per piece?
+    // LIBRA/ UNIDAD: per libra in ONZA's column, per unidad in D.
     ["Mango", "LIBRA/ UNIDAD", 1.8, 0.45],
+    // A lone price with no unit: per libra, onza or piece? A person picks.
+    ["Palillos de prueba", 0.0021, "", ""],
     ["Salsa rota", "PRECIO POR ONZA", "", "#ERROR!"],
   ];
 }
@@ -74,27 +76,27 @@ describe("Subir Excel de costos: nothing uncertain blocks it", () => {
   it("saves what is clear and keeps unclear rows as questions, adding no ingredient for them", async () => {
     const { store, result } = await upload();
     const names = store.ingredients.map((i) => i.name);
-    expect(names).toEqual(["Betabel"]);
-    expect(result.saved).toBe(1);
-    expect(result.pending_rows).toBe(3);
-    const pan = question(store, "Pan de molde 12 rebanadas");
-    expect(pan.raw_values).toMatchObject({
+    expect(names).toEqual(["Betabel", "Pan de molde 12 rebanadas", "Mango"]);
+    expect(result.saved).toBe(3);
+    expect(result.pending_rows).toBe(2);
+    const palillos = question(store, "Palillos de prueba");
+    expect(palillos.raw_values).toMatchObject({
       kind: CATALOG_ROW_KIND,
       ingredient_id: null,
-      status: "check_unit",
+      status: "ambiguous_unit",
       sheet: "Lista",
     });
     const units = (
-      pan.raw_values.options as Array<{ unit: string; unit_cost: number }>
+      palillos.raw_values.options as Array<{ unit: string; unit_cost: number }>
     ).map((o) => o.unit);
-    expect(units.sort()).toEqual(["oz", "unit"]);
+    expect(units.sort()).toEqual(["lb", "oz", "unit"]);
     // A broken price cell is kept too, with no reading to offer.
     expect(question(store, "Salsa rota").raw_values.options).toEqual([]);
   });
 
   it("the person's pick adds the ingredient in that unit, with the file's price and provenance", async () => {
     const { store, repo, result } = await upload();
-    const pan = question(store, "Pan de molde 12 rebanadas");
+    const pan = question(store, "Palillos de prueba");
     const r = await answerCatalogRow({
       repo,
       companyId: COMPANY,
@@ -103,9 +105,7 @@ describe("Subir Excel de costos: nothing uncertain blocks it", () => {
       unit: "unit",
     });
     expect(r.ok).toBe(true);
-    const ing = store.ingredients.find(
-      (i) => i.name === "Pan de molde 12 rebanadas"
-    )!;
+    const ing = store.ingredients.find((i) => i.name === "Palillos de prueba")!;
     expect(ing.default_unit).toBe("unit");
     const cost = store.costEntries.find((e) => e.ingredient_id === ing.id)!;
     expect(cost).toMatchObject({
@@ -115,9 +115,7 @@ describe("Subir Excel de costos: nothing uncertain blocks it", () => {
       date_source: "dated_price_list",
     });
     expect(cost.notes).toMatch(/Lista · fila \d+ \(unidad confirmada\)/);
-    expect(question(store, "Pan de molde 12 rebanadas").status).toBe(
-      "approved"
-    );
+    expect(question(store, "Palillos de prueba").status).toBe("approved");
 
     // Answering twice, or with a reading that is not in the file, is refused.
     const again = await answerCatalogRow({
@@ -128,12 +126,12 @@ describe("Subir Excel de costos: nothing uncertain blocks it", () => {
       unit: "unit",
     });
     expect(again.ok).toBe(false);
-    const mango = question(store, "Mango");
+    const rota = question(store, "Salsa rota");
     const wrong = await answerCatalogRow({
       repo,
       companyId: COMPANY,
       currency: "USD",
-      reviewId: mango.id,
+      reviewId: rota.id,
       unit: "g",
     });
     expect(wrong.ok).toBe(false);

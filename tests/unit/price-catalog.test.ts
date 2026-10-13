@@ -79,19 +79,37 @@ describe("readPriceCatalog", () => {
     expect(row.reasons).toContain("per_gram_inferred");
   });
 
-  it("asks about a package that is not a multiple of 16", () => {
-    const tortilla = read.rows.find((r) => /^Pan de molde/.test(r.name))!;
-    expect(tortilla.status).toBe("check_unit");
-    expect(tortilla.unit).toBe("unit"); // 1.44 / 0.12 = 12 pieces
-    expect(tortilla.options.map((o) => o.unit).sort()).toEqual(["oz", "unit"]);
-    expect(by("Pimiento").status).toBe("check_unit");
+  it("trusts the columns: LIBRA and ONZA both filled means per onza, no question", () => {
+    const pan = read.rows.find((r) => /^Pan de molde/.test(r.name))!;
+    expect(pan.status).toBe("ok");
+    expect(pan.unit).toBe("oz");
+    expect(pan.unitCost).toBe(0.12);
+    // Divided by 12, not 16: kept as information, never asked.
+    expect(pan.reasons).toContain("package_not_multiple_of_16");
+    expect(by("Pimiento")).toMatchObject({ status: "ok", unit: "oz" });
   });
 
-  it("never guesses between pound and piece for LIBRA/UNIDAD or a lone price", () => {
-    const aguacate = by("Mango");
-    expect(aguacate.status).toBe("ambiguous_unit");
-    expect(aguacate.unit).toBeNull();
-    expect(aguacate.options.map((o) => o.unit).sort()).toEqual(["lb", "unit"]);
+  it("asks when LIBRA and ONZA hold the same number (it cannot be both)", () => {
+    const sheet = [HEADER, ["Chorizo unidad", 0.18, 0.18, ""]];
+    const row = readPriceCatalog("Lista", sheet)!.rows[0];
+    expect(row.status).toBe("ambiguous_unit");
+    expect(row.reasons).toContain("same_price_lb_and_oz");
+    expect(row.unit).toBeNull();
+  });
+
+  it("reads LIBRA/ UNIDAD as both prices: per libra (ONZA column) and per unidad", () => {
+    const mango = by("Mango");
+    expect(mango.status).toBe("ok");
+    expect(mango.unit).toBe("lb");
+    expect(mango.unitCost).toBe(1.8);
+    expect(mango.options).toEqual([
+      { unit: "lb", unitCost: 1.8 },
+      { unit: "unit", unitCost: 0.45 },
+    ]);
+    expect(mango.reasons).toContain("lb_and_unit_prices");
+  });
+
+  it("never guesses a lone price with no unit", () => {
     const palillos = by("Servilletas");
     expect(palillos.status).toBe("ambiguous_unit");
     expect(palillos.unit).toBeNull();
@@ -141,12 +159,12 @@ describe("planCatalog", () => {
     const saved = plan.save.map((p) => p.row.name);
     expect(saved).toContain("Betabel");
     expect(saved).toContain("Lima");
-    expect(saved).not.toContain("Mango");
+    expect(saved).toContain("Mango"); // LIBRA/ UNIDAD: read, no question
     expect(saved).not.toContain("Servilletas");
     expect(saved).not.toContain("Salsa casera"); // preparation
     expect(plan.preparations).toBe(2);
     expect(plan.pending.map((p) => p.row.name)).toEqual(
-      expect.arrayContaining(["Mango", "Servilletas", "Salsa rota"])
+      expect.arrayContaining(["Servilletas", "Salsa rota"])
     );
   });
 
@@ -281,7 +299,8 @@ describe("applyPriceCatalog", () => {
     const names = store.ingredients.map((i) => i.name);
     expect(names).toContain("Betabel");
     expect(names).not.toContain("Salsa casera");
-    expect(names).not.toContain("Mango"); // waits for a person
+    expect(names).toContain("Mango"); // LIBRA/ UNIDAD is read, not asked
+    expect(names).not.toContain("Servilletas"); // a lone price waits
     expect(result.preparations_left_out).toBe(2);
     expect(result.pending_rows).toBeGreaterThan(0);
     expect(store.ingredients.every((i) => i.currency === "USD")).toBe(true);
@@ -532,5 +551,64 @@ describe("Ninguna (dejar Pendiente)", () => {
     expect(store.reviewItems.find((r) => r.id === item.id)?.status).toBe(
       "skipped"
     );
+  });
+});
+
+describe("fewer questions: the list price is the default", () => {
+  const list = readPriceCatalog("Lista", [HEADER, ["Ajo", 1.6, 0.1, ""]])!.rows;
+  const obs = (cost: number, recipe: string, unit = "ONZA") => ({
+    name: "Ajo",
+    unitLabel: unit,
+    unitCost: cost,
+    tab: "PLATOS",
+    row: 1,
+    recipe,
+  });
+
+  it("asks only when a recipe differs by more than 20%", () => {
+    expect(findCostConflicts(list, [obs(0.115, "P1")])).toHaveLength(0);
+    expect(findCostConflicts(list, [obs(0.085, "P1")])).toHaveLength(0);
+    const asked = findCostConflicts(list, [obs(0.13, "P1")]);
+    expect(asked).toHaveLength(1);
+    expect(asked[0].candidates.map((c) => c.unitCost)).toEqual([0.13]);
+  });
+
+  it("drops recipe prices that are obviously another unit (8× or more)", () => {
+    // $10.04 per onza vs $0.10: a per-libra or typo number, not a price.
+    expect(findCostConflicts(list, [obs(10.04, "P1")])).toHaveLength(0);
+    expect(findCostConflicts(list, [obs(0.005, "P1")])).toHaveLength(0);
+    const mixed = findCostConflicts(list, [obs(10.04, "P1"), obs(0.15, "P2")]);
+    expect(mixed[0].candidates.map((c) => c.unitCost)).toEqual([0.15]);
+  });
+
+  it("does not ask when a recipe already uses the list price", () => {
+    expect(
+      findCostConflicts(list, [obs(0.1, "P1"), obs(0.32, "P2")])
+    ).toHaveLength(0);
+  });
+
+  it("does not ask about rows under a production section", () => {
+    const rows = readPriceCatalog("Lista", sampleSheet())!.rows;
+    const salsa = rows.find((r) => r.name === "Salsa casera")!;
+    expect(salsa.kind).toBe("preparation");
+    expect(salsa.reasons).toContain("preparation_section");
+  });
+
+  it("keeps the per-unidad price of a LIBRA/ UNIDAD row in the cost note", async () => {
+    const { store, repo, read } = setup();
+    await applyPriceCatalog({
+      repo,
+      companyId: COMPANY,
+      userId: "u1",
+      currency: "USD",
+      filename: FILE,
+      read,
+      observations: [],
+      decisions: {},
+    });
+    const mango = store.ingredients.find((i) => i.name === "Mango")!;
+    const entry = store.costEntries.find((e) => e.ingredient_id === mango.id)!;
+    expect(entry.unit).toBe("lb");
+    expect(entry.notes).toMatch(/también \$0\.4500 por unidad/);
   });
 });

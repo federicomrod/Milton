@@ -32,7 +32,13 @@ export type CatalogReason =
   | "price_and_unit_columns_both_set"
   | "portion_price"
   | "error_cell"
-  | "duplicate_name";
+  | "duplicate_name"
+  /** LIBRA/UNIDAD label: per libra in ONZA's column, per unidad in D. */
+  | "lb_and_unit_prices"
+  /** The same number under LIBRA and ONZA: it cannot be both. */
+  | "same_price_lb_and_oz"
+  /** Under a production section (PLANTA … PRODUCCION): a preparation. */
+  | "preparation_section";
 
 export interface CatalogUnitOption {
   unit: CatalogUnit;
@@ -230,12 +236,25 @@ export function readPriceCatalog(
     const hasLb = lb !== null && lb > 0;
 
     if (marker === "lb_or_unit") {
-      status = "ambiguous_unit";
+      // "LIBRA/ UNIDAD" in LIBRA's column: the ONZA column holds the price
+      // per libra and PRECIO UNITARIO the price per unidad. Both are read;
+      // the libra price is the ingredient's price (recipes weigh it).
       reasons.push("lb_or_unit_marker");
       const asLb = hasOz ? oz : hasLb ? lb : null;
       if (asLb !== null && asLb !== undefined)
         options.push({ unit: "lb", unitCost: asLb });
       if (hasUp) options.push({ unit: "unit", unitCost: up });
+      const first = options[0];
+      if (first) {
+        unit = first.unit;
+        unitCost = first.unitCost;
+        if (options.length > 1) reasons.push("lb_and_unit_prices");
+      } else if (isErrorCell(ozCell) || isErrorCell(upCell)) {
+        status = "error_cell";
+        reasons.push("error_cell");
+      } else {
+        status = "no_price";
+      }
       packagePrice = null;
     } else if (marker && hasUp) {
       if (marker === "portion") {
@@ -260,21 +279,25 @@ export function readPriceCatalog(
         unitCost = null;
       } else if (hasLb) {
         divisor = lb / oz;
-        if (isMultipleOfGramsPerLb(divisor)) {
+        if (Math.abs(divisor - 1) <= 0.02) {
+          // The same number under LIBRA and ONZA cannot be both: ask.
+          status = "ambiguous_unit";
+          reasons.push("same_price_lb_and_oz");
+          options.push({ unit: "unit", unitCost: oz });
+          options.push({ unit: "oz", unitCost: oz });
+          options.push({ unit: "lb", unitCost: lb });
+          unit = null;
+          unitCost = null;
+        } else if (isMultipleOfGramsPerLb(divisor)) {
           // The sheet header says ONZA, but the price was divided by the
           // grams in the package (453.6 per lb): it is a per-gram price.
           unit = "g";
           reasons.push("per_gram_inferred");
         } else if (!isMultipleOf16(divisor)) {
-          // Divided by something else: a count of pieces or an odd
-          // package size. A person confirms which.
-          status = "check_unit";
+          // The columns say it: LIBRA is the package price, ONZA the price
+          // per onza. Divided by something other than 16 (a package size);
+          // kept as information, never asked.
           reasons.push("package_not_multiple_of_16");
-          const looksLikeCount =
-            divisor <= 60 && Math.abs(divisor - Math.round(divisor)) < 0.01;
-          options.push({ unit: "oz", unitCost: oz });
-          options.push({ unit: "unit", unitCost: oz });
-          unit = looksLikeCount ? "unit" : "oz";
         }
       }
     } else if (hasUp) {
@@ -311,6 +334,8 @@ export function readPriceCatalog(
     const sectionIsPrep = section
       ? PREPARATION_SECTION.test(plain(section).toLowerCase())
       : false;
+    // Rows under a production section are the kitchen's own: no question.
+    if (sectionIsPrep) reasons.push("preparation_section");
     rows.push({
       key: `${sheet}|${r + 1}`,
       sheet,

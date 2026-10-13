@@ -79,7 +79,10 @@ export function ResetPanel({
       </div>
       {done ? (
         <p className="mt-2 text-[#1f7a45]">
-          Listo: el costeo quedó vacío. Sube tu Excel de costos para empezar.
+          Listo: borramos ingredientes, precios, preparaciones, recetas y
+          vínculos del costeo. Tus productos del POS y sus ventas siguen igual:
+          por eso «Qué falta» y «Tu menú en Odoo» siguen mostrando tus platos,
+          ahora sin receta. Sube tu Excel de costos para empezar.
         </p>
       ) : null}
       {open ? (

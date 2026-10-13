@@ -196,13 +196,17 @@ export async function loadRecipeCostingWorkspace(
   // The upload suggestions will read: the newest live one with recipe
   // blocks, not merely the newest one.
   const source = liveHistory.find((row) => row.has_recipe_blocks) ?? null;
-  const latestLive = source ?? liveHistory[0] ?? null;
+  // "Excel de costos subido": the price list with its recipes, or the
+  // recipes imported from the file ("Importar").
+  const fileUpload =
+    source ?? liveHistory.find((row) => row.is_recipe_import) ?? null;
+  const latestLive = fileUpload ?? liveHistory[0] ?? null;
   const latestUpload = latestLive
     ? {
         id: latestLive.id,
-        filename: latestLive.filename,
+        filename: latestLive.filename.replace(/ · recetas$/, ""),
         created_at: latestLive.created_at ?? null,
-        has_candidate_blocks: Boolean(source),
+        has_candidate_blocks: Boolean(fileUpload),
       }
     : null;
 

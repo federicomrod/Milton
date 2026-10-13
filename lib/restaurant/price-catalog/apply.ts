@@ -273,19 +273,30 @@ async function chooseCost(input: {
 }): Promise<
   { ok: true; insertedEntryId: string | null } | { ok: false; reason: string }
 > {
-  const ingredients = await input.repo.listIngredients(input.companyId);
-  const ingredient = ingredients.find(
+  // Same name with other spacing or accents is the same ingredient; when
+  // there are twins, the one that holds this upload's price wins.
+  const ingredients = (
+    await input.repo.listIngredients(input.companyId)
+  ).filter(
     (row) =>
-      row.name.trim().toUpperCase() === input.conflict.name.trim().toUpperCase()
+      normalizeMatchName(row.name) === normalizeMatchName(input.conflict.name)
   );
-  if (!ingredient) {
+  if (ingredients.length === 0) {
     return { ok: false, reason: "No encontré el ingrediente en tu lista." };
   }
+  const allEntries = await input.repo.listIngredientCostEntries(
+    input.companyId,
+    ingredients.map((row) => row.id)
+  );
+  const holder =
+    allEntries.find((entry) => entry.source_id === input.batchId)
+      ?.ingredient_id ?? allEntries[0]?.ingredient_id;
+  const ingredient =
+    ingredients.find((row) => row.id === holder) ?? ingredients[0];
 
   if (input.choice === "catalog") {
-    const entries = await input.repo.listIngredientCostEntries(
-      input.companyId,
-      [ingredient.id]
+    const entries = allEntries.filter(
+      (entry) => entry.ingredient_id === ingredient.id
     );
     const mine = entries
       .filter((entry) => entry.source_id === input.batchId)
@@ -298,7 +309,11 @@ async function chooseCost(input: {
           : -1
       )[0];
     if (!target) {
-      return { ok: false, reason: "No encontré el precio de la lista." };
+      return {
+        ok: false,
+        reason:
+          "La lista no dejó un precio guardado para este ingrediente. Elige el de las recetas o «Ninguna (dejar Pendiente)».",
+      };
     }
     await input.repo.setIngredientChosenCost({
       companyId: input.companyId,

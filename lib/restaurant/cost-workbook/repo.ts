@@ -905,7 +905,7 @@ export function createSupabaseCostWorkbookRepo(
       const { data, error } = await supabase
         .from("cost_import_batches")
         .select(
-          "id, filename, created_at, undone_at, first_block:undo_snapshot->candidate_blocks->0->>name"
+          "id, filename, created_at, undone_at, first_block:undo_snapshot->candidate_blocks->0->>name, recipe_import:undo_snapshot->>recipe_import"
         )
         .eq("company_id", companyId)
         .is("undone_at", null)
@@ -918,6 +918,7 @@ export function createSupabaseCostWorkbookRepo(
         undone_at: (row.undone_at as string | null) ?? null,
         has_recipe_blocks:
           typeof row.first_block === "string" && row.first_block.trim() !== "",
+        is_recipe_import: row.recipe_import === "true",
       }));
     },
 

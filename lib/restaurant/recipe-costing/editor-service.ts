@@ -569,6 +569,12 @@ export type EditorAction =
     }
   | { action: "remove"; line_key: string }
   | {
+      /** This line's own price per its unit (null = back to the list). */
+      action: "set_line_cost";
+      input_id: string;
+      unit_cost: number | null;
+    }
+  | {
       action: "create_ingredient";
       name: string;
       unit: string;
@@ -619,6 +625,12 @@ function clearedOwnCost(
     : {};
 }
 
+function asYieldRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
 /** "Ninguna (dejar Pendiente)" as an answer to a price-list question. */
 export const NO_PRICE_ANSWER = "none";
 
@@ -660,6 +672,15 @@ function cleanUnit(value: unknown): string | null {
   return normalizeUnit(text) ? text : null;
 }
 
+/** Edits that change the catalog (prices, items, yields): re-read it. */
+const CATALOG_ACTIONS = new Set<EditorAction["action"]>([
+  "set_price",
+  "create_ingredient",
+  "create_preparation",
+  "answer_catalog_unit",
+  "set_yield",
+]);
+
 export async function applyEdit(
   ctx: Ctx,
   action: EditorAction
@@ -699,15 +720,19 @@ export async function applyEdit(
 
   let evidenceLines = evidenceLinesOf(holder.evidence);
   let evidenceYield: Record<string, unknown> | null = null;
+  // The company's catalog is read once per edit (it was read 3–4 times:
+  // pinning, lookups, the final rebuild). Only an edit that changes the
+  // catalog itself reads it again at the end.
+  const readCtx: Ctx = { ...ctx, store: withCachedCatalog(ctx.store) };
   // Pin every resolved evidence line to its input first, so an edit can
   // never lose which Excel line a recipe line came from.
-  const pinned = await build(ctx, loaded, evidenceLines);
+  const pinned = await build(readCtx, loaded, evidenceLines);
   for (const pinnedLine of pinned.lines) {
     if (pinnedLine.input_id && pinnedLine.evidence_index !== null) {
       evidenceLines[pinnedLine.evidence_index].input_id = pinnedLine.input_id;
     }
   }
-  const costing = await ctx.store.loadCosting(ctx.companyId);
+  const costing = await readCtx.store.loadCosting(ctx.companyId);
   const { data } = costing;
   const itemExists = (kind: "ingredient" | "component", id: string) =>
     kind === "ingredient"
@@ -719,7 +744,7 @@ export async function applyEdit(
       : data.componentsById.get(id)?.name) ?? "";
 
   const lineByKey = async (key: string) => {
-    const built = await build(ctx, loaded, evidenceLines);
+    const built = await build(readCtx, loaded, evidenceLines);
     return built.lines.find((line) => line.key === key) ?? null;
   };
 
@@ -924,9 +949,35 @@ export async function applyEdit(
         return { ok: false, error: "No encontré esa línea.", status: 404 };
       if (line.input_id) {
         await ctx.store.deleteInput(ctx.companyId, version!, line.input_id);
-        evidenceLines = evidenceLines.filter(
-          (l) => l.input_id !== line.input_id
+        // Also drop any unbound file line of the same name, so the item
+        // does not come back as a pending twin.
+        const sameName = new Set(
+          [line.raw_name, line.name ?? ""]
+            .map((name) => normalizeMatchName(name))
+            .filter(Boolean)
         );
+        evidenceLines = evidenceLines.filter(
+          (l) =>
+            l.input_id !== line.input_id &&
+            !(!l.input_id && sameName.has(normalizeMatchName(l.raw_name)))
+        );
+        // The assumed yield shown on the screen belonged to a preparation
+        // line. With the last one removed it no longer applies, so it
+        // cannot block approving the dish.
+        const yieldNow = asYieldRecord(holder.evidence.yield);
+        const preparationLeft = evidenceLines.some((l) => l.sub_recipe_match);
+        if (
+          line.kind === "component" &&
+          !preparationLeft &&
+          yieldNow &&
+          (yieldNow.source === "assumed" || yieldNow.confirmed === false)
+        ) {
+          evidenceYield = {
+            ...yieldNow,
+            source: "preparation_removed",
+            confirmed: true,
+          };
+        }
       } else {
         const target =
           line.evidence_index !== null
@@ -1176,6 +1227,27 @@ export async function applyEdit(
       }
       break;
     }
+    case "set_line_cost": {
+      const inputs = await ctx.store.listInputs(ctx.companyId, version!);
+      if (!inputs.some((row) => row.id === action.input_id)) {
+        return { ok: false, error: "No encontré esa línea.", status: 404 };
+      }
+      const cost =
+        action.unit_cost === null ? null : cleanQuantity(action.unit_cost);
+      if (action.unit_cost !== null && !cost) {
+        return {
+          ok: false,
+          error: "El precio tiene que ser mayor que cero.",
+          status: 400,
+        };
+      }
+      // Only this line: no unit conversion, no change to the price list.
+      await ctx.store.updateInput(ctx.companyId, version!, action.input_id, {
+        unit_cost: cost,
+        cost_source: cost === null ? null : "manual",
+      });
+      break;
+    }
     case "set_price": {
       const price = cleanQuantity(action.unit_cost);
       const unit = cleanUnit(action.unit);
@@ -1217,7 +1289,11 @@ export async function applyEdit(
         },
       }
     : loaded;
-  const built = await build(ctx, nextHolder, evidenceLines);
+  const built = await build(
+    CATALOG_ACTIONS.has(action.action) ? ctx : readCtx,
+    nextHolder,
+    evidenceLines
+  );
   if (version) {
     await ctx.store.saveEvidence(
       ctx.companyId,

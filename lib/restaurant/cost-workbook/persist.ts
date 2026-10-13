@@ -4,6 +4,7 @@ import {
   type IngredientCostEntryInsert,
 } from "@/lib/restaurant/cost-import";
 import { normalizeUnit } from "@/lib/restaurant/units";
+import { normalizeMatchName } from "./names";
 import type { CostWorkbookRepo } from "./repo";
 import { cloneCostEntry, costMonthKey } from "./snapshot";
 import { PREVIOUS_DUPLICATE_REASON } from "./skip";
@@ -53,31 +54,52 @@ export async function persistSavedRows(input: {
     defaultUnit: string;
   }> = [];
 
+  // Same ingredient written with other spacing or accents ("CEBOLLA
+  // BLANCA" vs "CEBOLLA  BLANCA") is the same record, never a twin.
+  const byLooseName = new Map(
+    ingredients
+      .filter((i) => i.name)
+      .map((i) => [normalizeMatchName(i.name), i])
+  );
   for (const row of input.rows) {
-    const key = nameKey(row.ingredient_name);
-    const existing = byName.get(key);
-    const defaultUnit =
-      existing?.default_unit ?? normalizeUnit(row.unit) ?? row.unit;
-    const built = buildIngredientCostEntryInsert({
-      companyId: input.companyId,
-      ingredientId: existing?.id ?? "pending",
-      ingredientDefaultUnit: defaultUnit,
-      supplierId: null,
-      sourceId: input.batchId,
-      row: {
-        rowIndex: row.rowIndex,
-        cost_date: row.cost_date,
-        supplier_name: row.supplier_name ?? "",
-        ingredient_name: row.ingredient_name,
-        quantity: row.quantity,
-        unit: row.unit,
-        total_cost: row.total_cost,
-        currency: input.currency,
-        notes: row.notes,
-        supplier_item_name: null,
-        supplier_sku: null,
-      },
-    });
+    const existingRow =
+      byName.get(nameKey(row.ingredient_name)) ??
+      byLooseName.get(normalizeMatchName(row.ingredient_name));
+    const key = existingRow
+      ? nameKey(existingRow.name)
+      : nameKey(row.ingredient_name);
+    const existing = existingRow;
+    const ownUnit = normalizeUnit(row.unit) ?? row.unit;
+    const build = (defaultUnit: string) =>
+      buildIngredientCostEntryInsert({
+        companyId: input.companyId,
+        ingredientId: existing?.id ?? "pending",
+        ingredientDefaultUnit: defaultUnit,
+        supplierId: null,
+        sourceId: input.batchId,
+        row: {
+          rowIndex: row.rowIndex,
+          cost_date: row.cost_date,
+          supplier_name: row.supplier_name ?? "",
+          ingredient_name: row.ingredient_name,
+          quantity: row.quantity,
+          unit: row.unit,
+          total_cost: row.total_cost,
+          currency: input.currency,
+          notes: row.notes,
+          supplier_item_name: null,
+          supplier_sku: null,
+        },
+      });
+    let defaultUnit = existing?.default_unit ?? ownUnit;
+    let built = build(defaultUnit);
+    if (!built.ok && existing && defaultUnit !== ownUnit) {
+      // The ingredient's unit cannot hold this price (an import took it
+      // from a mislabeled recipe line): keep the price in its own unit
+      // rather than dropping it.
+      defaultUnit = ownUnit;
+      built = build(defaultUnit);
+    }
     if (built.ok) {
       built.insert.effective_date = row.effective_date ?? row.cost_date;
       built.insert.date_source = row.date_source ?? "upload";

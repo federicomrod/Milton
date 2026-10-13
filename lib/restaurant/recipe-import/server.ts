@@ -38,6 +38,7 @@ import {
   type PlanPosProduct,
 } from "./plan";
 import { translateCostWorkbookBuffer } from "./translate";
+import { readCatalogFromBuffer } from "@/lib/restaurant/price-catalog/server";
 import {
   EXCEL_IMPORT_SOURCE,
   type CanonicalLine,
@@ -46,6 +47,12 @@ import {
 } from "./types";
 
 export const EXCEL_IMPORT_NOTES = "Importada del Excel";
+
+/** "Churrasco Típico (6 onz.) (Pan con Ajo)" → "Churrasco Típico (6 onz.)". */
+function posBaseLabel(name: string): string {
+  const first = name.match(/^[^(]*(\([^)]*\d[^)]*\))?/);
+  return (first?.[0] ?? name).replace(/\s+/g, " ").trim() || name;
+}
 
 export class RecipeImportError extends Error {
   constructor(message: string) {
@@ -135,12 +142,26 @@ async function loadAndPlan(
     }
   }
 
+  // The price list of the same file: its unit becomes a new ingredient's
+  // unit, so saving the list later never fails to convert.
+  const listUnits = new Map<string, string>();
+  try {
+    const { read } = readCatalogFromBuffer(input.buffer);
+    for (const row of read?.rows ?? []) {
+      if (row.kind === "ingredient" && row.unit && row.status === "ok") {
+        listUnits.set(normalizeMatchName(row.name), row.unit);
+      }
+    }
+  } catch {
+    // No readable price list: units come from the recipe lines.
+  }
   const plan = planImport({
     workbook,
     catalog: {
       ingredients: ingredients.map((row) => ({ id: row.id, name: row.name })),
       preparations: components.map((row) => ({ id: row.id, name: row.name })),
       aliases,
+      listUnits,
     },
     products,
     existing,
@@ -253,8 +274,12 @@ export interface RecipeImportResult {
   batch_id: string;
   dishes_imported: number;
   dishes_linked: number;
+  /** POS products linked (a dish sold with different sides is several). */
+  pos_products_linked: number;
   dishes_skipped: number;
   preparations_created: number;
+  /** Existing draft preparations that got the file's sub-recipe. */
+  preparations_updated: number;
   ingredients_created: number;
   canonical_rows: number;
 }
@@ -343,13 +368,16 @@ export async function writeImportPlan(input: {
     createdBy: input.createdBy ?? null,
   });
   const changes = emptyUndoSnapshot();
+  changes.recipe_import = true;
   const result: RecipeImportResult = {
     ok: true,
     batch_id: batch.id,
     dishes_imported: 0,
     dishes_linked: 0,
+    pos_products_linked: 0,
     dishes_skipped: 0,
     preparations_created: 0,
+    preparations_updated: 0,
     ingredients_created: 0,
     canonical_rows: 0,
   };
@@ -409,14 +437,60 @@ export async function writeImportPlan(input: {
       prepIds.set(prep.recipe.key, component.id);
     }
     const preparationId = (key: string) => prepIds.get(key) ?? null;
+    const [existingComponents, existingComponentRecipes] = await Promise.all([
+      repo.listComponents(input.companyId),
+      repo.listComponentRecipes(input.companyId),
+    ]);
     for (const prep of plan.preparations) {
-      if (prep.existing_id) continue; // never touch an existing one
       const componentId = prepIds.get(prep.recipe.key)!;
       const output = prep.recipe.output ?? { quantity: 1, unit: "orden" };
       const inputs = inputsFor(prep.recipe, {
         ingredient: ingredientId,
         preparation: preparationId,
       });
+      if (prep.existing_id) {
+        // An existing preparation gets the file's sub-recipe as a new draft
+        // only when nobody made it by hand or approved it (for example a
+        // draft an earlier suggestion run left with an assumed yield).
+        const component = existingComponents.find(
+          (row) => row.id === componentId
+        );
+        const componentRecipe = existingComponentRecipes.find(
+          (row) => row.component_id === componentId
+        );
+        if (!component || isImportProtectedSource(component.source_type))
+          continue;
+        if (
+          !componentRecipe ||
+          isImportProtectedSource(componentRecipe.source_type)
+        ) {
+          continue;
+        }
+        const versions = await repo.listComponentRecipeVersions(
+          input.companyId,
+          componentRecipe.id
+        );
+        if (versions.some((row) => row.status === "approved")) continue;
+        const version = await repo.insertComponentRecipeVersion({
+          companyId: input.companyId,
+          componentRecipeId: componentRecipe.id,
+          componentId,
+          versionNumber:
+            Math.max(0, ...versions.map((row) => row.version_number)) + 1,
+          status: "in_review",
+          effectiveDate: null,
+          outputQuantity: output.quantity,
+          outputUnit: output.unit,
+          sourceType: "import",
+          inputs,
+        });
+        changes.created_component_recipe_version_ids = [
+          ...(changes.created_component_recipe_version_ids ?? []),
+          version.id,
+        ];
+        result.preparations_updated += 1;
+        continue;
+      }
       const componentRecipe = await repo.createComponentRecipe({
         companyId: input.companyId,
         componentId,
@@ -459,30 +533,35 @@ export async function writeImportPlan(input: {
         continue;
       }
       const recipe = dish.recipe;
-      const link = dish.pos
-        ? links.find(
-            (row) =>
-              row.odoo_product_id === dish.pos!.odoo_product_id &&
-              (row.location_id === locationId || row.location_id == null)
-          )
-        : undefined;
+      const linkOf = (odooProductId: number) =>
+        links.find(
+          (row) =>
+            row.odoo_product_id === odooProductId &&
+            (row.location_id === locationId || row.location_id == null)
+        );
+      // One menu item (and one recipe) for every POS variant of the dish:
+      // the one a variant already points at, else the dish's own name.
+      const linkedMenuId = dish.pos
+        .map((product) => linkOf(product.odoo_product_id)?.menu_item_id)
+        .find((id): id is string => Boolean(id));
       let menuItem =
-        (link?.menu_item_id
-          ? menuItems.find((row) => row.id === link.menu_item_id)
+        (linkedMenuId
+          ? menuItems.find((row) => row.id === linkedMenuId)
           : undefined) ??
         pickMenuItemForLocation(
           menuItems,
-          dish.pos?.odoo_name ?? recipe.name,
+          dish.pos[0]?.odoo_name ?? recipe.name,
           locationId
-        );
+        ) ??
+        pickMenuItemForLocation(menuItems, recipe.name, locationId);
       if (!menuItem) {
         menuItem = await repo.createMenuItem({
           companyId: input.companyId,
-          name: dish.pos?.odoo_name ?? recipe.name,
+          name: dish.pos[0] ? posBaseLabel(dish.pos[0].odoo_name) : recipe.name,
           currency: input.currency,
           sourceId: batch.id,
           locationId,
-          sellingPrice: dish.pos?.pos_price ?? excelPriceWithIva(recipe),
+          sellingPrice: dish.pos[0]?.pos_price ?? excelPriceWithIva(recipe),
         });
         changes.created_menu_item_ids.push(menuItem.id);
         menuItems.push(menuItem);
@@ -531,13 +610,17 @@ export async function writeImportPlan(input: {
       ];
       result.dishes_imported += 1;
 
-      if (dish.pos && link?.link_state !== "confirmado") {
+      let linkedHere = 0;
+      for (const product of dish.pos) {
+        const link = linkOf(product.odoo_product_id);
+        // A person's Confirmado link is never changed.
+        if (link?.link_state === "confirmado") continue;
         const base =
           link ??
           unlinkedPosProduct({
             company_id: input.companyId,
-            odoo_product_id: dish.pos.odoo_product_id,
-            odoo_name: dish.pos.odoo_name,
+            odoo_product_id: product.odoo_product_id,
+            odoo_name: product.odoo_name,
             location_id: locationId,
           });
         const saved = await repo.upsertPosProductLink(
@@ -564,9 +647,11 @@ export async function writeImportPlan(input: {
             { id: saved.id, before: saved.before },
           ];
         }
-        linked.push(dish.pos.odoo_product_id);
-        result.dishes_linked += 1;
+        linked.push(product.odoo_product_id);
+        linkedHere += 1;
       }
+      if (linkedHere > 0) result.dishes_linked += 1;
+      result.pos_products_linked += linkedHere;
     }
 
     // 4. The canonical rows of this import (the one table Milton reads).

@@ -282,8 +282,11 @@ export function hydrateLines(input: {
       if (byId) return byId;
     }
     const wanted = line.sub_recipe_match ?? line.ingredient_match;
-    if (!wanted && line.pending) return undefined;
+    // A pending line with no match name still is the input of the same
+    // name (an AI draft's "GUACAMOL" next to the GUACAMOL preparation):
+    // one line on screen, never two.
     const candidates = inputByKey.get(key(wanted ?? line.raw_name)) ?? [];
+    if (!wanted && line.pending && candidates.length === 0) return undefined;
     return (
       candidates.find(
         (r) => !used.has(r.id) && Math.abs(r.quantity - line.qty) < 1e-9

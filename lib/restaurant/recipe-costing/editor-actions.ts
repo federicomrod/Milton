@@ -71,6 +71,16 @@ export function parseEditorAction(
         line_unit: str(body.line_unit) ?? undefined,
       };
     }
+    case "set_line_cost": {
+      const inputId = str(body.input_id);
+      if (!inputId) return null;
+      if (body.unit_cost === null) {
+        return { action: "set_line_cost", input_id: inputId, unit_cost: null };
+      }
+      const cost = num(body.unit_cost);
+      if (cost === undefined) return null;
+      return { action: "set_line_cost", input_id: inputId, unit_cost: cost };
+    }
     case "remove": {
       const lineKey = str(body.line_key);
       return lineKey ? { action: "remove", line_key: lineKey } : null;

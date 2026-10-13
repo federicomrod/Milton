@@ -164,6 +164,11 @@ export interface EditorStore {
   ): Promise<
     { ok: true; ingredientId: string } | { ok: false; reason: string }
   >;
+  /** "Ninguna (dejar Pendiente)": close the question with no price. */
+  skipCatalogQuestion(
+    companyId: string,
+    itemId: string
+  ): Promise<{ ok: true } | { ok: false; reason: string }>;
   loadAliases(companyId: string): Promise<Map<string, string>>;
   rememberAlias(input: {
     companyId: string;
@@ -614,6 +619,9 @@ function clearedOwnCost(
     : {};
 }
 
+/** "Ninguna (dejar Pendiente)" as an answer to a price-list question. */
+export const NO_PRICE_ANSWER = "none";
+
 const TYPE_QUANTITY_FIRST =
   "Escribe cuánto lleva el plato (cantidad y unidad) antes de elegir.";
 
@@ -1034,6 +1042,16 @@ export async function applyEdit(
       break;
     }
     case "answer_catalog_unit": {
+      if (action.unit === NO_PRICE_ANSWER) {
+        const skipped = await ctx.store.skipCatalogQuestion(
+          ctx.companyId,
+          action.item_id
+        );
+        if (!skipped.ok) {
+          return { ok: false, error: skipped.reason, status: 400 };
+        }
+        break; // the line stays Pendiente
+      }
       const answered = await ctx.store.answerCatalogQuestion(
         ctx.companyId,
         action.item_id,

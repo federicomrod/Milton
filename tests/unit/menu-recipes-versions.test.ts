@@ -8,14 +8,14 @@ import {
 } from "@/lib/restaurant/cost-workbook/copy";
 import { createCappedSupabase, type MockRow } from "./helpers/capped-supabase";
 
-const COMPANY_ID = "co-ranchos";
+const COMPANY_ID = "co-casa";
 
 function makeClient(tables: Record<string, MockRow[]> = {}) {
   return createCappedSupabase({
     userId: "user-1",
     tables: {
       companies: [
-        { id: COMPANY_ID, name: "Los Ranchos", preferred_language: "es" },
+        { id: COMPANY_ID, name: "Casa Prueba", preferred_language: "es" },
       ],
       restaurant_pos_connections: [],
       restaurant_locations: [

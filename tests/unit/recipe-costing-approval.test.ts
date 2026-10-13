@@ -113,10 +113,10 @@ describe("approval checklist gate", () => {
   it("blocks an empty recipe even when Excel is unknown", () => {
     const empty = buildApprovalChecklist({
       link_state: "confirmado",
-      odoo_name: "Parrillada Pinolera (3 personas)",
+      odoo_name: "Parrillada de la Casa (3 personas)",
       odoo_product_id: 7576,
       evidence: parseSuggestionEvidence({
-        block_name: "Parrillada Pinolera (3 personas)",
+        block_name: "Parrillada de la Casa (3 personas)",
         pending: false,
         yield: { value: null, unit: null, source: null },
         excel_match: null,
@@ -203,8 +203,6 @@ describe("approval checklist gate", () => {
     expect(excel?.ok).toBe(false);
     expect(excel?.warn).toBe(false);
     expect(excel?.label).toMatch(/Diferencia con Excel/);
-    expect(yieldItem?.label).toBe(
-      "Rendimiento de Empanizado por confirmar"
-    );
+    expect(yieldItem?.label).toBe("Rendimiento de Empanizado por confirmar");
   });
 });

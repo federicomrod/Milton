@@ -87,7 +87,7 @@ export function salesContext(
   lang: "es" | "en" = "es"
 ): AskMiltonContext {
   const briefing = {
-    restaurant_name: "Los Ranchos",
+    restaurant_name: "Casa Prueba",
     preferred_language: lang,
     period_label: "July 2026",
     currency: "USD",
@@ -133,7 +133,7 @@ export function salesContext(
   return {
     context_scope: {
       mode: "single_restaurant",
-      restaurant_name: "Los Ranchos",
+      restaurant_name: "Casa Prueba",
     },
     briefing,
     menu: { most_profitable_items: [], least_profitable_items: [] },

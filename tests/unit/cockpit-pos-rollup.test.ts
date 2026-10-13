@@ -30,7 +30,7 @@ function row(
 }
 
 describe("cockpit POS rollup converters", () => {
-  const ranchos: CockpitFactRow[] = [
+  const casa: CockpitFactRow[] = [
     row({
       sale_date: "2026-07-02",
       check_id: "a",
@@ -65,16 +65,16 @@ describe("cockpit POS rollup converters", () => {
   ];
 
   it("July net + tips stay $85,943.59 / $50,720.80 via the rollup DTO", () => {
-    const ranchosRollup = rollupFromRows(ranchos);
-    const ranchosAgg = rollupToCockpitSalesAggregate(ranchosRollup, {
+    const casaRollup = rollupFromRows(casa);
+    const casaAgg = rollupToCockpitSalesAggregate(casaRollup, {
       currency: "USD",
     });
-    expect(ranchosAgg.revenue.net_sales + ranchosAgg.revenue.tips).toBeCloseTo(
+    expect(casaAgg.revenue.net_sales + casaAgg.revenue.tips).toBeCloseTo(
       85_943.59,
       2
     );
-    expect(ranchosAgg.revenue.net_sales).toBeCloseTo(84_743, 2);
-    expect(ranchosAgg.revenue.tips).toBeCloseTo(1_200.59, 2);
+    expect(casaAgg.revenue.net_sales).toBeCloseTo(84_743, 2);
+    expect(casaAgg.revenue.tips).toBeCloseTo(1_200.59, 2);
 
     const lavaraRollup = rollupFromRows(lavara);
     const lavaraAgg = rollupToCockpitSalesAggregate(lavaraRollup, {
@@ -88,12 +88,12 @@ describe("cockpit POS rollup converters", () => {
 
   it("period snapshot from rollup matches the row walk for July month", () => {
     const period = resolveCockpitPeriod("month", "2026-07-31")!;
-    const fromRows = buildCockpitPeriodSnapshot(ranchos, period, {
+    const fromRows = buildCockpitPeriodSnapshot(casa, period, {
       currency: "USD",
       lang: "es",
     });
     const fromRollup = buildCockpitPeriodSnapshotFromRollup(
-      rollupFromRows(ranchos),
+      rollupFromRows(casa),
       period,
       { currency: "USD", lang: "es" }
     );
@@ -109,7 +109,7 @@ describe("cockpit POS rollup converters", () => {
   });
 
   it("in-memory aggregate still matches the rollup converter on the same rows", () => {
-    const rows = [...ranchos, ...lavara];
+    const rows = [...casa, ...lavara];
     const direct = buildCockpitSalesAggregate(rows, { currency: "USD" });
     const via = rollupToCockpitSalesAggregate(rollupFromRows(rows), {
       currency: "USD",

@@ -11,6 +11,9 @@ import {
 import { GhostBtn } from "./ui";
 
 const MASS = ["oz", "lb", "g", "kg"];
+/** "Ninguna (dejar Pendiente)": none of the readings is right. */
+const NO_PRICE = "none";
+const NO_PRICE_LABEL = "Ninguna (dejar Pendiente)";
 const VOLUME = ["ml", "l", "gal"];
 
 const UNIT_LABEL: Record<string, string> = {
@@ -508,6 +511,17 @@ function Row({
                         {UNIT_LABEL[option.unit] ?? option.unit}
                       </GhostBtn>
                     ))}
+                    <GhostBtn
+                      onClick={() =>
+                        onCatalogUnit(
+                          line.catalog_question!.item_id,
+                          NO_PRICE,
+                          line.key
+                        )
+                      }
+                    >
+                      {NO_PRICE_LABEL}
+                    </GhostBtn>
                   </div>
                 ) : null}
               </div>
@@ -698,6 +712,14 @@ function Row({
                   {UNIT_LABEL[option.unit] ?? option.unit}
                 </GhostBtn>
               ))}
+              <GhostBtn
+                disabled={!editable}
+                onClick={() =>
+                  onCatalogUnit(line.catalog_question!.item_id, NO_PRICE)
+                }
+              >
+                {NO_PRICE_LABEL}
+              </GhostBtn>
             </div>
           </div>
         ) : line.kind === "ingredient" && !line.price ? (

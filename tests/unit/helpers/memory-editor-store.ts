@@ -56,7 +56,7 @@ export interface MemoryEditorState {
     ingredient_id: string | null;
     reason: string;
     options: Array<{ unit: string; unit_cost: number }>;
-    status: "pending" | "approved";
+    status: "pending" | "approved" | "skipped";
   }>;
   /** Preparations with their own (draft or approved) version. */
   preparations: Array<{
@@ -358,6 +358,14 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
             options: row.options.map((o) => ({ ...o })),
           })
         );
+    },
+    async skipCatalogQuestion(companyId, itemId) {
+      const row = (state.catalogRows ?? []).find((r) => r.id === itemId);
+      if (!mine(companyId) || !row || row.status !== "pending") {
+        return { ok: false, reason: "No encontré esa fila de tu lista." };
+      }
+      row.status = "skipped";
+      return { ok: true };
     },
     async answerCatalogQuestion(companyId, itemId, unit) {
       const row = (state.catalogRows ?? []).find((r) => r.id === itemId);

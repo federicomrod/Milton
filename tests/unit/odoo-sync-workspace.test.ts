@@ -42,12 +42,12 @@ describe("syncWorkspaceCopy", () => {
     expect(
       syncWorkspaceCopy({
         canSync: true,
-        ownCompanyName: "Los Ranchos",
-        selectedCompanyName: "Los Ranchos",
+        ownCompanyName: "Casa Prueba",
+        selectedCompanyName: "Casa Prueba",
       })
     ).toEqual({
       targetLine:
-        "This will sync Los Ranchos — the workspace you are signed into.",
+        "This will sync Casa Prueba — the workspace you are signed into.",
       blockedReason: null,
     });
   });
@@ -55,14 +55,14 @@ describe("syncWorkspaceCopy", () => {
   it("explains why Sync now is disabled for another company", () => {
     const copy = syncWorkspaceCopy({
       canSync: false,
-      ownCompanyName: "Los Ranchos",
+      ownCompanyName: "Casa Prueba",
       selectedCompanyName: "Demo Co",
     });
     expect(copy.targetLine).toBe(
-      "Sync now always updates Los Ranchos, not Demo Co."
+      "Sync now always updates Casa Prueba, not Demo Co."
     );
     expect(copy.blockedReason).toBe(
-      "Select Los Ranchos above to enable Sync now."
+      "Select Casa Prueba above to enable Sync now."
     );
   });
 });
@@ -87,8 +87,8 @@ describe("formatWorkspaceLastSyncLine", () => {
     expect(formatWorkspaceLastSyncLine(null, "Demo Co", false)).toBe(
       "No last-sync record for Demo Co. Sync now only updates your signed-in workspace."
     );
-    expect(formatWorkspaceLastSyncLine(null, "Los Ranchos", true)).toBe(
-      "Not synced yet for Los Ranchos. Pick a date range and click Sync now."
+    expect(formatWorkspaceLastSyncLine(null, "Casa Prueba", true)).toBe(
+      "Not synced yet for Casa Prueba. Pick a date range and click Sync now."
     );
   });
 });

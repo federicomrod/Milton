@@ -463,3 +463,74 @@ describe("applyPriceCatalog", () => {
     expect(res.ok).toBe(false);
   });
 });
+
+describe("Ninguna (dejar Pendiente)", () => {
+  it("parses as a conflict answer", () => {
+    expect(parseDecisions({ conflicts: { a: "none" } }).conflicts).toEqual({
+      a: "none",
+    });
+  });
+
+  it("at upload: saves no price for that ingredient and asks nothing more", async () => {
+    const { store, repo, read } = setup();
+    const result = await applyPriceCatalog({
+      repo,
+      companyId: COMPANY,
+      userId: "u1",
+      currency: "USD",
+      filename: FILE,
+      read,
+      observations: obsFor("Betabel", 0.04),
+      decisions: { conflicts: { BETABEL: "none" } },
+    });
+    expect(result.conflicts_left_pending).toBe(1);
+    expect(result.conflicts_open).toBe(0);
+    const betabel = store.ingredients.find((i) => i.name === "Betabel");
+    // Never $0 and never one of the wrong prices: no cost entry at all.
+    expect(
+      store.costEntries.filter((e) => e.ingredient_id === betabel?.id)
+    ).toHaveLength(0);
+    expect(
+      store.reviewItems.filter((r) => r.raw_values.kind === COST_CONFLICT_KIND)
+    ).toHaveLength(0);
+  });
+
+  it("later: removes only this upload's price and closes the question", async () => {
+    const { store, repo, read } = setup();
+    await applyPriceCatalog({
+      repo,
+      companyId: COMPANY,
+      userId: "u1",
+      currency: "USD",
+      filename: FILE,
+      read,
+      observations: obsFor("Betabel", 0.04),
+      decisions: {},
+    });
+    const item = store.reviewItems.find(
+      (r) => r.raw_values.kind === COST_CONFLICT_KIND
+    )!;
+    const betabel = store.ingredients.find((i) => i.name === "Betabel")!;
+    expect(
+      store.costEntries.filter((e) => e.ingredient_id === betabel.id)
+    ).toHaveLength(1);
+    const ok = await resolveCostConflict({
+      repo,
+      companyId: COMPANY,
+      userId: "u2",
+      currency: "USD",
+      reviewId: item.id,
+      choice: "none",
+    });
+    expect(ok.ok).toBe(true);
+    expect(
+      store.costEntries.filter((e) => e.ingredient_id === betabel.id)
+    ).toHaveLength(0);
+    expect(
+      store.ingredients.find((i) => i.id === betabel.id)?.current_unit_cost
+    ).toBeNull();
+    expect(store.reviewItems.find((r) => r.id === item.id)?.status).toBe(
+      "skipped"
+    );
+  });
+});

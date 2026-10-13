@@ -114,7 +114,7 @@ describe("recipe costing workspace resume", () => {
     });
     const first = buildRecipeCostingWorkspace({
       companyId: "co-a",
-      companyName: "Los Ranchos",
+      companyName: "Casa Prueba",
       currency: "USD",
       periodLabel: "1 jul - 31 jul 2026",
       view: "plato",
@@ -153,12 +153,12 @@ describe("recipe costing workspace resume", () => {
     expect(first.selected?.link_state).toBe("confirmado");
     expect(first.selected?.can_undo).toBe(true);
     expect(first.products[0]?.confirmed).toBe(true);
-    expect(first.who_approves).toMatch(/Los Ranchos/);
+    expect(first.who_approves).toMatch(/Casa Prueba/);
     expect(first.footer).toMatch(/POS/);
 
     const resumed = buildRecipeCostingWorkspace({
       companyId: "co-a",
-      companyName: "Los Ranchos",
+      companyName: "Casa Prueba",
       currency: "USD",
       periodLabel: null,
       view: "plato",
@@ -375,7 +375,7 @@ describe("unbound name-only suggestion", () => {
       products: [
         product({
           odoo_product_id: 7576,
-          odoo_name: "Parrillada Pinolera (3 personas)",
+          odoo_name: "Parrillada de la Casa (3 personas)",
           net_sales: 6161,
           share_of_net_sales: 0.045,
           link_state: "sugerido",
@@ -388,11 +388,11 @@ describe("unbound name-only suggestion", () => {
           ...unlinkedPosProduct({
             company_id: "co-a",
             odoo_product_id: 7576,
-            odoo_name: "Parrillada Pinolera (3 personas)",
+            odoo_name: "Parrillada de la Casa (3 personas)",
           }),
           menu_item_id: "menu-empty",
           link_state: "sugerido",
-          evidence: { block_name: "Parrillada Pinolera (3 personas)" },
+          evidence: { block_name: "Parrillada de la Casa (3 personas)" },
         },
       ],
       versions: [
@@ -407,7 +407,7 @@ describe("unbound name-only suggestion", () => {
         },
       ],
       menuItems: [
-        { id: "menu-empty", name: "Parrillada Pinolera (3 personas)" },
+        { id: "menu-empty", name: "Parrillada de la Casa (3 personas)" },
       ],
       batches: [],
       coveragePct: 0,
@@ -433,7 +433,7 @@ describe("visual product kinds and display states", () => {
   it("labels drinks, combos and missing recipes like the mockup", () => {
     const workspace = buildRecipeCostingWorkspace({
       companyId: "co-a",
-      companyName: "Los Ranchos",
+      companyName: "Casa Prueba",
       currency: "USD",
       periodLabel: null,
       view: "resumen",
@@ -491,7 +491,7 @@ describe("visual product kinds and display states", () => {
   it("keeps combos with parts and no-cost products out of Qué falta", () => {
     const workspace = buildRecipeCostingWorkspace({
       companyId: "co-a",
-      companyName: "Los Ranchos",
+      companyName: "Casa Prueba",
       currency: "USD",
       periodLabel: null,
       view: "resumen",

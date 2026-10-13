@@ -21,7 +21,7 @@ const julyBody: OdooSyncSuccessBody = {
     { reason: "Order not in a completed state (paid/done/invoiced)" },
   ],
   unmatched_menu_items: ["Taco pastor", "Agua de jamaica", "Flan"],
-  unmatched_locations: ["Los Ranchos"],
+  unmatched_locations: ["Casa Prueba"],
   dimension_notes: ["pos.payment fields_get skipped optional field"],
 };
 
@@ -49,7 +49,7 @@ describe("summarizeOdooSync + syncSummaryCopy", () => {
       "Agua de jamaica",
       "Flan",
     ]);
-    expect(view.unmatchedLocations).toEqual(["Los Ranchos"]);
+    expect(view.unmatchedLocations).toEqual(["Casa Prueba"]);
   });
 
   it("groups skip reasons into plain-language buckets", () => {
@@ -114,7 +114,7 @@ describe("compactLastSync", () => {
       rows_upserted: 20089,
       skipped_count: 3,
       unmatched_menu_item_count: 3,
-      unmatched_locations: ["Los Ranchos"],
+      unmatched_locations: ["Casa Prueba"],
       warning_count: 1,
     });
     expect(JSON.stringify(last)).not.toContain("Taco pastor");

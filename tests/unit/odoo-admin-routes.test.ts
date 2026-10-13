@@ -202,7 +202,7 @@ describe("Admin Odoo routes - access control", () => {
               order: vi.fn().mockResolvedValue({
                 data: [
                   { id: "other", name: "Alpha" },
-                  { id: "own", name: "Los Ranchos" },
+                  { id: "own", name: "Casa Prueba" },
                 ],
                 error: null,
               }),
@@ -219,7 +219,7 @@ describe("Admin Odoo routes - access control", () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual([
         { id: "other", name: "Alpha", is_own: false },
-        { id: "own", name: "Los Ranchos", is_own: true },
+        { id: "own", name: "Casa Prueba", is_own: true },
       ]);
     });
   });

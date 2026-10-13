@@ -192,7 +192,7 @@ describe("existing aggregate totals stay on the same net definition", () => {
         quantity: 1,
         gross_revenue: 85923.59,
         discount_amount: 0,
-        check_id: "ranchos",
+        check_id: "casa",
         currency: "USD",
         sales_channel: "in_store",
         payment_type: "card",
@@ -204,7 +204,7 @@ describe("existing aggregate totals stay on the same net definition", () => {
         quantity: 1,
         gross_revenue: 20,
         discount_amount: 0,
-        check_id: "ranchos",
+        check_id: "casa",
         currency: "USD",
       },
     ];

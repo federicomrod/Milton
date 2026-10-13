@@ -51,7 +51,7 @@ describe("stored candidate blocks", () => {
     const store = emptyMemoryStore();
     const repo = createMemoryCostWorkbookRepo(store);
     const emptyBlock = {
-      name: "Parrillada Pinolera (3 personas)",
+      name: "Parrillada de la Casa (3 personas)",
       tabName: "PLATOS",
       kind: "recipe" as const,
       lines: [],
@@ -63,7 +63,7 @@ describe("stored candidate blocks", () => {
       proposeRecipeHeuristic({
         product: {
           odoo_product_id: 7576,
-          odoo_name: "Parrillada Pinolera (3 personas)",
+          odoo_name: "Parrillada de la Casa (3 personas)",
         },
         candidateBlocks: [emptyBlock],
       })
@@ -74,7 +74,7 @@ describe("stored candidate blocks", () => {
       products: [
         {
           odoo_product_id: 7576,
-          odoo_name: "Parrillada Pinolera (3 personas)",
+          odoo_name: "Parrillada de la Casa (3 personas)",
         },
       ],
       candidateBlocks: [emptyBlock],
@@ -86,7 +86,7 @@ describe("stored candidate blocks", () => {
           proposeRecipeHeuristic({
             product: {
               odoo_product_id: 7576,
-              odoo_name: "Parrillada Pinolera (3 personas)",
+              odoo_name: "Parrillada de la Casa (3 personas)",
             },
             candidateBlocks: [emptyBlock],
           }),

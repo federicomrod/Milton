@@ -63,7 +63,7 @@ describe("filterMenuItemsForSelection (Multi-Restaurant UX v1 — Phase 4 menu s
     const withLocations = [
       ...MENU,
       {
-        id: "item-ranchos",
+        id: "item-casa",
         name: "Carne Asada",
         brand_id: null,
         location_id: "loc-a",
@@ -75,11 +75,11 @@ describe("filterMenuItemsForSelection (Multi-Restaurant UX v1 — Phase 4 menu s
         location_id: "loc-b",
       },
     ];
-    const ranchos = filterMenuItemsForSelection(withLocations, {
+    const casa = filterMenuItemsForSelection(withLocations, {
       locationId: "loc-a",
       brandId: BRAND_A,
     });
-    expect(ranchos.map((m) => m.id)).toContain("item-ranchos");
-    expect(ranchos.map((m) => m.id)).not.toContain("item-lavara");
+    expect(casa.map((m) => m.id)).toContain("item-casa");
+    expect(casa.map((m) => m.id)).not.toContain("item-lavara");
   });
 });

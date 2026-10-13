@@ -202,7 +202,7 @@ export function ResumenScreen({
               <button
                 type="button"
                 className="font-semibold text-[#3557c9]"
-                onClick={() => onOpen("vincular")}
+                onClick={() => onOpen("plato")}
               >
                 Ver todos →
               </button>
@@ -216,7 +216,7 @@ export function ResumenScreen({
             <button
               type="button"
               className="ml-auto text-xs font-semibold text-[#3557c9]"
-              onClick={() => onOpen("vincular")}
+              onClick={() => onOpen("plato")}
             >
               Ver productos →
             </button>

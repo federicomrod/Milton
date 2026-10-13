@@ -20,16 +20,16 @@ describe("recipe costing routes", () => {
     expect(ui).not.toMatch(/coverage_pct\s*[+\-*/]/);
     expect(ui).not.toMatch(/net_sales\s*[+\-*/]/);
 
-    const vincular = read(
-      "components/restaurant/recipes-costing/VincularScreen.tsx"
-    );
-    expect(vincular).toContain("preview_lines");
-    expect(vincular).toContain("Costo Milton");
-    expect(vincular).toContain("Generar sugerencias desde tu archivo");
-    expect(vincular).not.toMatch(/qty\s*\*\s*unit_cost/);
-    expect(vincular).toContain("display_state_label");
-    expect(vincular).toContain("Confirmar vínculo");
-    expect(vincular).toContain("Compartir receta");
+    // Plato por plato replaces Vincular + Validar: one screen per dish.
+    const plato = read("components/restaurant/recipes-costing/PlatoScreen.tsx");
+    expect(plato).toContain("RecipeLinesEditor");
+    expect(plato).toContain("Costo por porción");
+    expect(plato).toContain("editor.margin_label");
+    expect(plato).not.toMatch(/qty\s*\*\s*unit_cost/);
+    expect(plato).not.toMatch(/pos_price\s*[-*/]/);
+    expect(plato).toContain("Cuadra con Excel");
+    expect(plato).toContain("Saltar por ahora");
+    expect(plato).toContain("Usar la receta de otro plato");
   });
 
   it("matches the approved Recetas y costeo chrome", () => {
@@ -47,7 +47,7 @@ describe("recipe costing routes", () => {
     expect(header).toContain("Preguntar a Milton");
     expect(header).toContain("odooSyncLabel");
     expect(header).toContain("Recetas y costeo");
-    expect(header).toContain("Paso 2 de 4");
+    expect(header).toContain("Plato por plato");
 
     const resumen = read(
       "components/restaurant/recipes-costing/ResumenScreen.tsx"
@@ -55,16 +55,9 @@ describe("recipe costing routes", () => {
     expect(resumen).toContain("Tu menú en Odoo");
     expect(resumen).toContain("Stepper");
 
-    const validar = read(
-      "components/restaurant/recipes-costing/ValidarScreen.tsx"
-    );
-    // The ingredient table lives in its own editor component.
-    expect(validar).toContain("RecipeLinesEditor");
     expect(
       read("components/restaurant/recipes-costing/RecipeLinesEditor.tsx")
     ).toContain("+ Agregar ingrediente");
-    expect(validar).toContain("Margen con el costo actual");
-    expect(validar).not.toContain("Solo lo incierto, por pestaña");
 
     const menuPage = read("app/dashboard/restaurant/menu/page.tsx");
     expect(menuPage).toContain("/dashboard/restaurant/menu/recetas");

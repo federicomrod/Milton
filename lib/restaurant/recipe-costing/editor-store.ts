@@ -492,6 +492,71 @@ export function createSupabaseEditorStore(
       };
     },
 
+    async createPreparation(companyId, input) {
+      const comp = await supabase
+        .from("prepared_components")
+        .insert({
+          company_id: companyId,
+          name: input.name,
+          output_unit: input.outputUnit,
+          status: "active",
+          source_type: "manual",
+        })
+        .select("id, name")
+        .single();
+      if (comp.error || !comp.data) {
+        throw new Error(comp.error?.message ?? "No pude crear la preparación.");
+      }
+      const componentId = String(comp.data.id);
+      const undo = async () => {
+        await supabase
+          .from("prepared_components")
+          .delete()
+          .eq("company_id", companyId)
+          .eq("id", componentId);
+      };
+      const recipe = await supabase
+        .from("component_recipes")
+        .insert({
+          company_id: companyId,
+          component_id: componentId,
+          name: input.name,
+          output_quantity: input.outputQuantity,
+          output_unit: input.outputUnit,
+          status: "active",
+          source_type: "manual",
+        })
+        .select("id")
+        .single();
+      if (recipe.error || !recipe.data) {
+        await undo();
+        throw new Error(
+          recipe.error?.message ?? "No pude crear la receta de la preparación."
+        );
+      }
+      const version = await supabase.from("component_recipe_versions").insert({
+        company_id: companyId,
+        component_recipe_id: recipe.data.id,
+        component_id: componentId,
+        version_number: 1,
+        status: "in_review",
+        effective_date: null,
+        output_quantity: input.outputQuantity,
+        output_unit: input.outputUnit,
+        source_type: "manual",
+      });
+      if (version.error) {
+        await supabase
+          .from("component_recipes")
+          .delete()
+          .eq("company_id", companyId)
+          .eq("id", recipe.data.id);
+        await undo();
+        throw new Error(version.error.message);
+      }
+      return { id: componentId, name: String(comp.data.name) };
+    },
+
     async addCostEntry(companyId, entry: NewCostEntry) {
       const { data: ing, error: ingError } = await supabase
         .from("ingredients")

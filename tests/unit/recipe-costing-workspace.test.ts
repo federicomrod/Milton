@@ -185,7 +185,7 @@ describe("recipe costing workspace resume", () => {
       companyName: "Los Ranchos",
       currency: "USD",
       periodLabel: "1 jul - 31 jul 2026",
-      view: "vincular",
+      view: "plato",
       actor: { user_id: "user-1", role: "owner", is_milton_staff: false },
       products: [
         product({
@@ -229,7 +229,7 @@ describe("recipe costing workspace resume", () => {
       companyName: "Los Ranchos",
       currency: "USD",
       periodLabel: null,
-      view: "vincular",
+      view: "plato",
       actor: { user_id: "user-1", role: "owner", is_milton_staff: false },
       products: first.products.map((row) =>
         product({
@@ -365,7 +365,7 @@ describe("recipe costing workspace resume", () => {
       companyName: null,
       currency: "USD",
       periodLabel: null,
-      view: "vincular",
+      view: "plato",
       actor: { user_id: "u", role: "owner", is_milton_staff: false },
       products: [
         product({
@@ -410,7 +410,7 @@ describe("Validar slim product list", () => {
       companyName: null,
       currency: "USD",
       periodLabel: null,
-      view: "validar",
+      view: "plato",
       actor: { user_id: "u", role: "owner", is_milton_staff: false },
       products,
       links,
@@ -421,12 +421,12 @@ describe("Validar slim product list", () => {
       netSales: 0,
       coveredNetSales: 0,
       selectedOdooProductId: 7,
-      timings: { load_ms: Date.now() - started, path: "validar" },
+      timings: { load_ms: Date.now() - started, path: "plato_editor" },
     });
     const elapsed = Date.now() - started;
     expect(workspace.products).toHaveLength(410);
     expect(workspace.editor?.odoo_product_id).toBe(7);
-    expect(workspace.timings?.path).toBe("validar");
+    expect(workspace.timings?.path).toBe("plato_editor");
     expect(elapsed).toBeLessThan(200);
   });
 });
@@ -438,7 +438,7 @@ describe("unbound name-only suggestion", () => {
       companyName: null,
       currency: "USD",
       periodLabel: null,
-      view: "vincular",
+      view: "plato",
       actor: { user_id: "u", role: "owner", is_milton_staff: false },
       products: [
         product({

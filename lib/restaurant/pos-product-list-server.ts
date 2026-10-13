@@ -46,6 +46,8 @@ export interface LoadPosProductListParams {
   startDate?: string | null;
   endDate?: string | null;
   locationId?: string | null;
+  /** Only this product's own sales (one dish, not the whole menu). */
+  odooProductId?: number | null;
 }
 
 export type LoadPosProductListResult =
@@ -91,7 +93,7 @@ export async function loadPosProductList(
   supabase: SupabaseClient,
   params: LoadPosProductListParams
 ): Promise<LoadPosProductListResult> {
-  const { companyId, startDate, endDate, locationId } = params;
+  const { companyId, startDate, endDate, locationId, odooProductId } = params;
 
   const [salesRes, linksRes, versionsRes] = await Promise.all([
     fetchAllRowsRetryingWithoutColumns<PosSaleLineForProductList>(
@@ -103,6 +105,9 @@ export async function loadPosProductList(
           .eq("company_id", companyId)
           .eq("pos_source", "odoo");
         if (locationId) q = q.eq("location_id", locationId);
+        if (odooProductId != null) {
+          q = q.eq("source_metadata->>product_id", String(odooProductId));
+        }
         if (startDate) q = q.gte("sale_date", startDate);
         if (endDate) q = q.lte("sale_date", endDate);
         return q;

@@ -257,7 +257,20 @@ export function RecipeLinesEditor({
               ...(picking.mode === "resolve"
                 ? { line_key: picking.line.key }
                 : picking.mode === "add"
-                  ? { quantity: draft.quantity, line_unit: draft.unit }
+                  ? { quantity: draft.quantity, line_unit: draft.line_unit }
+                  : {}),
+            })
+          }
+          onCreatePreparation={(draft) =>
+            void send({
+              action: "create_preparation",
+              name: draft.name,
+              yield_quantity: draft.yield_quantity,
+              yield_unit: draft.yield_unit,
+              ...(picking.mode === "resolve"
+                ? { line_key: picking.line.key }
+                : picking.mode === "add"
+                  ? { quantity: draft.quantity, line_unit: draft.line_unit }
                   : {}),
             })
           }
@@ -279,8 +292,8 @@ export function RecipeLinesEditor({
           {state.lines.length === 0 ? (
             <tr>
               <td colSpan={6} className="py-4 text-sm text-[#5b6476]">
-                Esta receta no tiene ingredientes. Agrega los de tu lista, o
-                vuelve a Vincular para generar sugerencias desde tu archivo.
+                Esta receta no tiene ingredientes. Agrégalos de tu lista, o crea
+                un ingrediente o una preparación nueva.
               </td>
             </tr>
           ) : null}
@@ -641,7 +654,18 @@ interface CreateDraft {
   unit: string;
   unit_cost?: number;
   quantity?: number;
+  line_unit?: string;
 }
+
+interface PreparationDraft {
+  name: string;
+  yield_quantity: number;
+  yield_unit: string;
+  quantity?: number;
+  line_unit?: string;
+}
+
+const ALL_UNITS = [...MASS, ...VOLUME, "unit", "portion"];
 
 function Picker({
   target,
@@ -650,6 +674,7 @@ function Picker({
   onCancel,
   onPick,
   onCreate,
+  onCreatePreparation,
 }: {
   target: PickTarget;
   options: PickerOption[];
@@ -657,6 +682,7 @@ function Picker({
   onCancel: () => void;
   onPick: (option: PickerOption, quantity: number, unit: string) => void;
   onCreate: (draft: CreateDraft) => void;
+  onCreatePreparation: (draft: PreparationDraft) => void;
 }) {
   const startQuery =
     target.mode === "resolve"
@@ -666,12 +692,19 @@ function Picker({
   const [chosen, setChosen] = useState<PickerOption | null>(null);
   const [qty, setQty] = useState("1");
   const [unit, setUnit] = useState("oz");
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<null | "ingredient" | "preparation">(
+    null
+  );
   const [newName, setNewName] = useState(
     target.mode === "resolve" ? target.line.raw_name : ""
   );
   const [newUnit, setNewUnit] = useState("oz");
   const [newPrice, setNewPrice] = useState("");
+  // How much of it this recipe uses (only when adding a new line).
+  const [lineQty, setLineQty] = useState("1");
+  const [lineUnit, setLineUnit] = useState("oz");
+  const [yieldQty, setYieldQty] = useState("");
+  const [yieldUnit, setYieldUnit] = useState("oz");
 
   const needle = query.trim().toLowerCase();
   const shown = options.filter(
@@ -701,7 +734,7 @@ function Picker({
         <GhostBtn onClick={onCancel}>Cancelar</GhostBtn>
       </div>
 
-      {!creating ? (
+      {creating === null ? (
         <>
           <select
             size={Math.min(8, Math.max(3, shown.length + 2))}
@@ -769,20 +802,29 @@ function Picker({
             >
               {target.mode === "add" ? "Agregar" : "Usar este"}
             </GhostBtn>
-            <button
-              type="button"
-              className="ml-auto font-semibold text-[#3557c9]"
-              onClick={() => setCreating(true)}
-            >
-              ¿No está? Crear ingrediente nuevo
-            </button>
+            <span className="ml-auto flex flex-wrap gap-3">
+              <button
+                type="button"
+                className="font-semibold text-[#3557c9]"
+                onClick={() => setCreating("ingredient")}
+              >
+                ¿No está? Agregar ingrediente
+              </button>
+              <button
+                type="button"
+                className="font-semibold text-[#3557c9]"
+                onClick={() => setCreating("preparation")}
+              >
+                Crear preparación
+              </button>
+            </span>
           </div>
         </>
-      ) : (
+      ) : creating === "ingredient" ? (
         <div className="space-y-2">
           <p className="text-[#6b7385]">
-            Esto crea un ingrediente nuevo en tu lista. Revisa que no esté ya
-            con otro nombre.
+            Esto agrega un ingrediente nuevo a tu lista. Revisa que no esté ya
+            con otro nombre. Sin precio queda pendiente, nunca en $0.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -795,7 +837,10 @@ function Picker({
               Lo compras por
               <select
                 value={newUnit}
-                onChange={(event) => setNewUnit(event.target.value)}
+                onChange={(event) => {
+                  setNewUnit(event.target.value);
+                  setLineUnit(unitsLike(event.target.value)[0] ?? "unit");
+                }}
                 className="rounded-md border border-[#d5dae3] bg-white px-1 py-1"
               >
                 {[...MASS, ...VOLUME, "unit"].map((u) => (
@@ -814,12 +859,22 @@ function Picker({
               />
             </label>
           </div>
+          {target.mode === "add" ? (
+            <LineAmount
+              qty={lineQty}
+              unit={lineUnit}
+              units={unitsLike(newUnit)}
+              onQty={setLineQty}
+              onUnit={setLineUnit}
+            />
+          ) : null}
           <div className="flex gap-2">
             <GhostBtn
               disabled={
                 busy ||
                 !newName.trim() ||
-                (newPrice.trim() !== "" && !(Number(newPrice) > 0))
+                (newPrice.trim() !== "" && !(Number(newPrice) > 0)) ||
+                (target.mode === "add" && !(Number(lineQty) > 0))
               }
               onClick={() => {
                 const price = Number(newPrice);
@@ -827,18 +882,127 @@ function Picker({
                   name: newName.trim(),
                   unit: newUnit,
                   unit_cost: newPrice.trim() && price > 0 ? price : undefined,
-                  quantity: 1,
+                  quantity: Number(lineQty) || 1,
+                  line_unit: lineUnit,
                 });
               }}
             >
+              Agregar y usar
+            </GhostBtn>
+            <GhostBtn onClick={() => setCreating(null)}>
+              Volver a la lista
+            </GhostBtn>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-[#6b7385]">
+            Crea una preparación de tu cocina (una salsa, una masa…). Queda como
+            borrador: luego agregas sus ingredientes en Preparaciones y la
+            puedes usar en otros platos.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={newName}
+              onChange={(event) => setNewName(event.target.value)}
+              placeholder="Nombre de la preparación"
+              className="min-w-48 flex-1 rounded-md border border-[#d5dae3] bg-white px-2 py-1"
+            />
+            <label className="inline-flex items-center gap-1">
+              Una tanda rinde
+              <input
+                value={yieldQty}
+                onChange={(event) => setYieldQty(event.target.value)}
+                className="w-16 rounded-md border border-[#d5dae3] bg-white px-2 py-1 text-right"
+              />
+              <select
+                value={yieldUnit}
+                onChange={(event) => {
+                  setYieldUnit(event.target.value);
+                  setLineUnit(unitsLike(event.target.value)[0] ?? "unit");
+                }}
+                className="rounded-md border border-[#d5dae3] bg-white px-1 py-1"
+              >
+                {ALL_UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {UNIT_LABEL[u] ?? u}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {target.mode === "add" ? (
+            <LineAmount
+              qty={lineQty}
+              unit={lineUnit}
+              units={unitsLike(yieldUnit)}
+              onQty={setLineQty}
+              onUnit={setLineUnit}
+            />
+          ) : null}
+          <div className="flex gap-2">
+            <GhostBtn
+              disabled={
+                busy ||
+                !newName.trim() ||
+                !(Number(yieldQty) > 0) ||
+                (target.mode === "add" && !(Number(lineQty) > 0))
+              }
+              onClick={() =>
+                onCreatePreparation({
+                  name: newName.trim(),
+                  yield_quantity: Number(yieldQty),
+                  yield_unit: yieldUnit,
+                  quantity: Number(lineQty) || 1,
+                  line_unit: lineUnit,
+                })
+              }
+            >
               Crear y usar
             </GhostBtn>
-            <GhostBtn onClick={() => setCreating(false)}>
+            <GhostBtn onClick={() => setCreating(null)}>
               Volver a la lista
             </GhostBtn>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+function LineAmount({
+  qty,
+  unit,
+  units,
+  onQty,
+  onUnit,
+}: {
+  qty: string;
+  unit: string;
+  units: string[];
+  onQty: (value: string) => void;
+  onUnit: (value: string) => void;
+}) {
+  const shown = units.includes(unit) ? units : [unit, ...units];
+  return (
+    <label className="flex flex-wrap items-center gap-1">
+      Esta receta lleva
+      <input
+        value={qty}
+        onChange={(event) => onQty(event.target.value)}
+        className="w-16 rounded-md border border-[#d5dae3] bg-white px-2 py-1 text-right"
+      />
+      <select
+        value={unit}
+        onChange={(event) => onUnit(event.target.value)}
+        className="rounded-md border border-[#d5dae3] bg-white px-1 py-1"
+      >
+        {shown.map((u) => (
+          <option key={u} value={u}>
+            {UNIT_LABEL[u] ?? u}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

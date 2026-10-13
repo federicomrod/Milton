@@ -26,13 +26,11 @@ export function CostingHeader({
     withShellParams(path, { locationId, from, to });
   const sync = odooSyncLabel(chrome.lastSyncedAt);
   const title =
-    view === "vincular"
-      ? "Vincular productos del POS con recetas"
-      : view === "validar"
-        ? "Validar receta"
-        : view === "preparaciones"
-          ? "Preparaciones"
-          : "Menú";
+    view === "plato"
+      ? "Plato por plato"
+      : view === "preparaciones"
+        ? "Preparaciones"
+        : "Menú";
   const showTabs = view === "resumen" || view === "menu-costeado";
 
   return (
@@ -70,11 +68,7 @@ export function CostingHeader({
         <div className="mt-0.5 text-[10.5px] text-[#8a92a3]">
           Menú › Recetas y costeo ›{" "}
           <b className="text-[#1b2333]">
-            {view === "vincular"
-              ? "Paso 2 de 4 · Vincular recetas"
-              : view === "preparaciones"
-                ? "Paso 3 de 4 · Preparaciones"
-                : "Paso 3 de 4 · Validar"}
+            {view === "preparaciones" ? "Preparaciones" : "Plato por plato"}
           </b>
           {breadcrumbExtra}
         </div>

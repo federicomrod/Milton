@@ -170,10 +170,8 @@ export function whoApprovesNote(companyName: string | null): string {
 export const COSTING_FOOTERS = {
   resumen:
     "Base: el POS dice qué se vende; el Excel solo aporta recetas y costos.",
-  vincular:
-    "El POS manda: cada fila es un producto real de Odoo con su ID. Lo confirmado por una persona nunca lo pisa una nueva importación.",
-  validar:
-    "Estados de una receta: Importada → Borrador → Lista para aprobar → Aprobada (versionada) → Necesita revisión si cambia un precio o sub-receta.",
+  plato:
+    "El POS manda: cada plato es un producto real de Odoo. Confirmar el vínculo y aprobar la receta son dos pasos distintos; una receta aprobada se puede revisar sin perder el vínculo.",
   preparaciones:
     "Una preparación aprobada cuenta en todos los platos que la usan. Un borrador no cuenta en ninguno.",
   "menu-costeado":

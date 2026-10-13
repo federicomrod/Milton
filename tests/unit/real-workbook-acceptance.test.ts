@@ -29,6 +29,11 @@ import {
   findRecipeSource,
 } from "@/lib/restaurant/cost-workbook/stored-blocks";
 import { readCatalogFromBuffer } from "@/lib/restaurant/price-catalog/server";
+import {
+  readWorkbookSheetsFromWorkbook,
+  readXlsxWorkbook,
+} from "@/lib/restaurant/cost-workbook/sheets";
+import { convertUnitPriceStr } from "@/lib/restaurant/units";
 import type { WorkbookAi } from "@/lib/restaurant/cost-workbook";
 import { buildPosProductList } from "@/lib/restaurant/pos-product-list";
 import { unlinkedPosProduct } from "@/lib/restaurant/pos-product-links";
@@ -667,5 +672,140 @@ describe.skipIf(!path)("real workbook acceptance (aggregates only)", () => {
           drafts_created: drafts,
         })
     );
+  });
+
+  it("Plato por plato totals (PR A): what Milton prefills and what a person still decides", async () => {
+    const buffer = readFileSync(path as string);
+    const tabs = readWorkbookSheetsFromWorkbook(readXlsxWorkbook(buffer));
+    const {
+      read,
+      observations,
+      blocks: fileBlocks,
+    } = readCatalogFromBuffer(buffer);
+    const confirmed: Record<string, { unit: "oz" | "lb" | "unit" | "g" }> = {};
+    for (const row of read!.rows) {
+      if (row.status === "check_unit" && row.unit) {
+        confirmed[row.key] = { unit: row.unit };
+      }
+    }
+    const store = emptyMemoryStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    await applyPriceCatalog({
+      repo,
+      companyId: "co-real",
+      userId: "u-real",
+      currency: "USD",
+      filename: "real-workbook.xlsx",
+      read: read!,
+      observations,
+      decisions: { rows: confirmed, conflicts: {} },
+      candidateBlocks: fileBlocks,
+    });
+    const stored = expandCandidateBlocks(
+      findRecipeSource(store.batches)!.blocks
+    );
+    const dishes = stored.filter((b) => b.kind === "recipe");
+    const products = dishes.map((block, index) => ({
+      odoo_product_id: index + 1,
+      odoo_name: block.name,
+      net_sales: 1000 - index,
+    }));
+    const ai = {
+      classifyTab: async () => ({ type: "ignore" as const, confidence: 0.2 }),
+      mapColumns: async () => ({}),
+      proposeRecipe: async (
+        product: (typeof products)[number],
+        candidates: typeof stored
+      ) => proposeRecipeHeuristic({ product, candidateBlocks: candidates }),
+    };
+    const items: Array<{
+      result: string;
+      pending: boolean;
+      evidence: Record<string, unknown>;
+    }> = [];
+    for (let offset = 0; offset < products.length; offset += 5) {
+      const r = await runRecipeSuggestions({
+        companyId: "co-real",
+        products,
+        candidateBlocks: stored,
+        repo,
+        ai,
+        currency: "USD",
+        filename: "real-workbook.xlsx",
+        limit: 5,
+        offset,
+        lang: "es",
+      });
+      items.push(...r.items);
+    }
+
+    type Line = {
+      pending: boolean;
+      qty: number;
+      unit: string;
+      excel_unit_cost: number | null;
+      ingredient_match: string | null;
+    };
+    const drafts = items.filter((i) => i.result === "sugerido");
+    const lines = drafts.flatMap((i) => (i.evidence.lines as Line[]) ?? []);
+    const byName = new Map(store.ingredients.map((r) => [r.name, r]));
+    // Recipe lines whose catalog price agrees with the Excel line (2%).
+    let comparable = 0;
+    let matching = 0;
+    let onConflict = 0;
+    for (const line of lines) {
+      if (!line.ingredient_match || line.excel_unit_cost == null) continue;
+      const ing = byName.get(line.ingredient_match);
+      if (!ing?.current_unit_cost || !ing.default_unit) continue;
+      const price = convertUnitPriceStr(
+        ing.current_unit_cost,
+        ing.default_unit,
+        line.unit
+      );
+      if (!price.ok) continue;
+      comparable += 1;
+      const conflicted = store.reviewItems.some(
+        (r) =>
+          (r.raw_values as Record<string, unknown>)?.kind === "cost_conflict" &&
+          (r.raw_values as Record<string, unknown>)?.name === ing.name
+      );
+      if (conflicted) onConflict += 1;
+      const base = Math.max(price.value, line.excel_unit_cost);
+      if (
+        base > 0 &&
+        Math.abs(price.value - line.excel_unit_cost) / base <= 0.02
+      )
+        matching += 1;
+    }
+    const totals = {
+      tabs_read: tabs.length,
+      tabs_with_recipes: new Set(stored.map((b) => b.tabName)).size,
+      ingredients_in_list: store.ingredients.length,
+      preparations_in_list: store.components.length,
+      dish_recipes_prefilled: drafts.length,
+      dishes_without_a_recipe_in_file: items.filter(
+        (i) => i.result !== "sugerido" && i.result !== "omitido"
+      ).length,
+      recipe_lines: lines.length,
+      lines_prefilled_no_question: lines.filter((l) => !l.pending).length,
+      lines_pending_a_decision: lines.filter((l) => l.pending).length,
+      dishes_with_nothing_pending: drafts.filter((d) => !d.pending).length,
+      // Needs every line resolved and priced; the cost check then runs on
+      // the server (refreshEvidence). Offline it can only be counted here.
+      dishes_matching_excel_within_tolerance: drafts.filter(
+        (d) => !d.pending && d.evidence.excel_match === "match"
+      ).length,
+      lines_with_excel_price_comparable: comparable,
+      lines_matching_excel_price_within_2pct: matching,
+      // Differences on an ingredient with two costs in the file (price list
+      // vs recipe tab): they settle when a person picks which cost to keep.
+      comparable_lines_on_an_open_cost_conflict: onConflict,
+      cost_conflicts_left_for_a_person: store.reviewItems.filter(
+        (r) =>
+          (r.raw_values as Record<string, unknown>)?.kind === "cost_conflict"
+      ).length,
+    };
+    expect(totals.dish_recipes_prefilled).toBeGreaterThan(0);
+    console.log("REAL-FILE PLATO " + JSON.stringify(totals));
   });
 });

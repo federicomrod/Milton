@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   RecipeCostingView,
@@ -52,6 +52,9 @@ export function RecipesCostingWorkspace({
     total: number | null;
   } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Tab and dish switches re-render on the server; mark them as a
+  // transition so the screen shows it is loading right away.
+  const [navigating, startNavigation] = useTransition();
 
   const view = viewFromParam(searchParams.get("vista"), data.view);
   const selectedId = searchParams.get("producto")
@@ -64,7 +67,9 @@ export function RecipesCostingWorkspace({
       if (next.vista) params.set("vista", next.vista);
       if (next.producto != null) params.set("producto", String(next.producto));
       else if (next.producto === null) params.delete("producto");
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      startNavigation(() => {
+        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      });
     },
     [pathname, router, searchParams]
   );
@@ -165,7 +170,9 @@ export function RecipesCostingWorkspace({
     params.set("vista", "preparaciones");
     if (componentId) params.set("prep", componentId);
     else params.delete("prep");
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    startNavigation(() => {
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    });
   }
 
   function open(next: RecipeCostingView, odooProductId?: number) {
@@ -319,62 +326,75 @@ export function RecipesCostingWorkspace({
         </div>
       ) : null}
 
-      {view === "plato" ? (
-        <PlatoScreen
-          data={data}
-          locationId={searchParams.get("location")}
-          busy={busy}
-          onSelect={(id) => replaceParams({ vista: "plato", producto: id })}
-          onEdited={() => void reloadDish().catch(() => undefined)}
-          onPost={postAndReload}
-          onConfirm={() => void confirmDish()}
-          onSkip={() => goTo(data.editor?.next_odoo_product_id)}
-          onFixYield={(_rawName, value) =>
-            data.editor &&
-            void mutate(() =>
-              post("/api/restaurant/recipes/dish-yield", {
-                odoo_product_id: data.editor!.odoo_product_id,
-                yield_value: value,
+      {navigating ? (
+        <div
+          role="status"
+          className="mb-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600"
+        >
+          Cargando…
+        </div>
+      ) : null}
+      <div
+        aria-busy={navigating}
+        className={navigating ? "pointer-events-none opacity-60" : undefined}
+      >
+        {view === "plato" ? (
+          <PlatoScreen
+            data={data}
+            locationId={searchParams.get("location")}
+            busy={busy}
+            onSelect={(id) => replaceParams({ vista: "plato", producto: id })}
+            onEdited={() => void reloadDish().catch(() => undefined)}
+            onPost={postAndReload}
+            onConfirm={() => void confirmDish()}
+            onSkip={() => goTo(data.editor?.next_odoo_product_id)}
+            onFixYield={(_rawName, value) =>
+              data.editor &&
+              void mutate(() =>
+                post("/api/restaurant/recipes/dish-yield", {
+                  odoo_product_id: data.editor!.odoo_product_id,
+                  yield_value: value,
+                })
+              )
+            }
+            onOpenPreparation={openPreparation}
+          />
+        ) : view === "preparaciones" ? (
+          <PreparacionesScreen
+            data={data}
+            selectedId={searchParams.get("prep")}
+            onSelect={openPreparation}
+            onChanged={() => void mutate(async () => undefined)}
+            locationId={searchParams.get("location")}
+          />
+        ) : view === "menu-costeado" ? (
+          <MenuCosteadoScreen data={data} onOpen={open} />
+        ) : (
+          <ResumenScreen
+            data={data}
+            onOpen={open}
+            onUploaded={() => void runSuggestions()}
+            generateBusy={workbookBusy}
+            busy={busy}
+            onPost={postAndReload}
+            locationId={searchParams.get("location")}
+            onResetDone={() => void reload().catch(() => undefined)}
+            onUndoBatch={(batchId) =>
+              void mutate(async () => {
+                const res = await fetch(
+                  `/api/restaurant/costs/batches/${batchId}/undo`,
+                  {
+                    method: "POST",
+                  }
+                );
+                const json = (await res.json()) as { error?: string };
+                if (!res.ok)
+                  throw new Error(json.error ?? "No pude deshacer el lote.");
               })
-            )
-          }
-          onOpenPreparation={openPreparation}
-        />
-      ) : view === "preparaciones" ? (
-        <PreparacionesScreen
-          data={data}
-          selectedId={searchParams.get("prep")}
-          onSelect={openPreparation}
-          onChanged={() => void mutate(async () => undefined)}
-          locationId={searchParams.get("location")}
-        />
-      ) : view === "menu-costeado" ? (
-        <MenuCosteadoScreen data={data} onOpen={open} />
-      ) : (
-        <ResumenScreen
-          data={data}
-          onOpen={open}
-          onUploaded={() => void runSuggestions()}
-          generateBusy={workbookBusy}
-          busy={busy}
-          onPost={postAndReload}
-          locationId={searchParams.get("location")}
-          onResetDone={() => void reload().catch(() => undefined)}
-          onUndoBatch={(batchId) =>
-            void mutate(async () => {
-              const res = await fetch(
-                `/api/restaurant/costs/batches/${batchId}/undo`,
-                {
-                  method: "POST",
-                }
-              );
-              const json = (await res.json()) as { error?: string };
-              if (!res.ok)
-                throw new Error(json.error ?? "No pude deshacer el lote.");
-            })
-          }
-        />
-      )}
+            }
+          />
+        )}
+      </div>
 
       <div className="mt-6 flex items-center justify-between text-[10.5px] text-[#6b7385]">
         <span>

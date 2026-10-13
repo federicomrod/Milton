@@ -287,6 +287,7 @@ export function RecipesCostingWorkspace({
               })
             );
           }}
+          onEdited={() => void mutate(async () => undefined)}
           busy={busy}
         />
       ) : view === "menu-costeado" ? (

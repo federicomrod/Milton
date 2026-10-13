@@ -18,6 +18,20 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  // Line edits (quantity, unit, price, adding a line) now go through the
+  // ingredient editor, which changes the recipe's real inputs. This route
+  // keeps only the preparation yield.
+  for (const field of ["quantity", "unit", "unit_cost", "add_line"]) {
+    if (body[field] !== undefined) {
+      return NextResponse.json(
+        {
+          error:
+            "Edita los ingredientes desde la tabla de la receta: ahí se guardan en la receta.",
+        },
+        { status: 400 }
+      );
+    }
+  }
   const odooProductId = Number(body.odoo_product_id);
   const rawName = typeof body.raw_name === "string" ? body.raw_name.trim() : "";
   if (!Number.isInteger(odooProductId) || odooProductId <= 0 || !rawName) {

@@ -58,7 +58,11 @@ describe("recipe costing routes", () => {
     const validar = read(
       "components/restaurant/recipes-costing/ValidarScreen.tsx"
     );
-    expect(validar).toContain("+ Agregar ingrediente");
+    // The ingredient table lives in its own editor component.
+    expect(validar).toContain("RecipeLinesEditor");
+    expect(
+      read("components/restaurant/recipes-costing/RecipeLinesEditor.tsx")
+    ).toContain("+ Agregar ingrediente");
     expect(validar).toContain("Margen con el costo actual");
     expect(validar).not.toContain("Solo lo incierto, por pestaña");
 

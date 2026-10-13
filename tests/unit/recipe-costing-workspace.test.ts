@@ -322,7 +322,13 @@ describe("recipe costing workspace resume", () => {
     expect(workspace.coverage.coverage_label).toBe("41%");
     expect(workspace.actor.can_approve).toBe(false);
     expect(workspace.actor.can_submit).toBe(true);
-    expect(workspace.stepper).toHaveLength(4);
+    expect(workspace.setup_checklist.map((c) => c.id)).toEqual([
+      "pos",
+      "excel",
+      "platos",
+    ]);
+    expect(workspace.coverage.goal_pct).toBe(90);
+    expect(workspace.coverage.goal_reached).toBe(false);
     expect(workspace.filter_counts.todos).toBe(2);
     const vincular = workspace.products.find(
       (row) => row.odoo_product_id === 1

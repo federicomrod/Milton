@@ -86,12 +86,17 @@ export interface CoverageSlice {
   color: string;
 }
 
-export interface StepperStep {
-  id: 1 | 2 | 3 | 4;
-  title: string;
+/** Resumen: what has to be in place before costing dishes. */
+export interface SetupCheck {
+  id: "pos" | "excel" | "platos";
+  label: string;
   detail: string;
-  state: "done" | "cur" | "todo";
+  done: boolean;
 }
+
+/** The coverage goal (premise 10): 90% of food net sales. It is a goal,
+ *  not a stop: the flow keeps going past it. */
+export const COVERAGE_GOAL_PCT = 90;
 
 export interface TodoRow {
   rank: number;
@@ -210,8 +215,11 @@ export interface RecipeCostingWorkspace {
     dishes_need_recipe: number;
     slices: CoverageSlice[];
     margins_note: string;
+    goal_pct: number;
+    goal_reached: boolean;
+    goal_note: string;
   };
-  stepper: StepperStep[];
+  setup_checklist: SetupCheck[];
   next_dish: {
     odoo_product_id: number;
     odoo_name: string;
@@ -462,59 +470,6 @@ function coverageSlices(
       color: "#93a6e8",
     },
   ];
-}
-
-function stepperFromCounts(input: {
-  productCount: number;
-  toClassify: number;
-  needRecipe: number;
-  linked: number;
-  unresolved: number;
-  toReview: number;
-  approved: number;
-}): StepperStep[] {
-  const steps: Array<Omit<StepperStep, "state">> = [
-    {
-      id: 1,
-      title: "1 · Menú del POS",
-      detail:
-        input.toClassify > 0
-          ? `${input.productCount} productos de Odoo · ${input.toClassify} por clasificar`
-          : `${input.productCount} productos de Odoo · ${input.needRecipe} requieren receta`,
-    },
-    {
-      id: 2,
-      title: "2 · Vincular recetas",
-      detail: `${input.linked} de ${input.needRecipe} vinculados · ${input.unresolved} por resolver`,
-    },
-    {
-      id: 3,
-      title: "3 · Validar costos",
-      detail: `${input.toReview} recetas por revisar`,
-    },
-    {
-      id: 4,
-      title: "4 · Aprobar",
-      detail: `${input.approved} aprobadas · cuentan en márgenes`,
-    },
-  ];
-  let current: 1 | 2 | 3 | 4 = 1;
-  if (input.productCount === 0) current = 1;
-  else if (input.unresolved > 0) current = 2;
-  else if (input.toReview > 0) current = 3;
-  else current = 4;
-  const allDone =
-    input.productCount > 0 && input.unresolved === 0 && input.toReview === 0;
-  return steps.map((step) => ({
-    ...step,
-    state: allDone
-      ? "done"
-      : step.id < current
-        ? "done"
-        : step.id === current
-          ? "cur"
-          : "todo",
-  }));
 }
 
 export function buildRecipeCostingWorkspace(input: {
@@ -808,7 +763,11 @@ export function buildRecipeCostingWorkspace(input: {
 
   const reviewTabs = groupUncertainByTab(reviewItems);
   const slices = coverageSlices(input.products);
-  const next = todos[0] ?? null;
+  // "Continuar": the next dish to do in Plato por plato (sales order).
+  const nextPlato =
+    buildPlatoQueue(products, versionsByMenu).find(
+      (row) => row.status !== "listo"
+    ) ?? null;
   const platoQueue = buildPlatoQueue(products, versionsByMenu);
   const platoSelectedId =
     input.view === "plato" && input.selectedOdooProductId == null
@@ -967,22 +926,44 @@ export function buildRecipeCostingWorkspace(input: {
       dishes_need_recipe: needRecipe,
       slices,
       margins_note: `Los márgenes del Menú y Costos solo usan el ${formatPctLabel(input.coveragePct)} aprobado.`,
+      goal_pct: COVERAGE_GOAL_PCT,
+      goal_reached: input.coveragePct >= COVERAGE_GOAL_PCT,
+      goal_note:
+        input.coveragePct >= COVERAGE_GOAL_PCT
+          ? "Llegaste a la meta del 90%. Puedes seguir con los demás platos cuando quieras."
+          : `Meta: ${COVERAGE_GOAL_PCT}% de las ventas de comida con costo aprobado.`,
     },
-    stepper: stepperFromCounts({
-      productCount: input.products.length,
-      toClassify: toClassify.length,
-      needRecipe,
-      linked,
-      unresolved,
-      toReview: reviewItems.length,
-      approved: approvedDishes,
-    }),
-    next_dish: next
+    setup_checklist: [
+      {
+        id: "pos",
+        label: "POS conectado",
+        detail:
+          input.products.length > 0
+            ? `${input.products.length} productos de Odoo con ventas`
+            : "Todavía no llegan ventas de Odoo. Conecta tu POS en Datos.",
+        done: input.products.length > 0,
+      },
+      {
+        id: "excel",
+        label: "Excel de costos subido",
+        detail: input.latestUpload?.has_candidate_blocks
+          ? input.latestUpload.filename
+          : "Sube tu archivo de costos aquí abajo.",
+        done: Boolean(input.latestUpload?.has_candidate_blocks),
+      },
+      {
+        id: "platos",
+        label: "Platos vinculados",
+        detail: `${linked} de ${needRecipe} vinculados · ${approvedDishes} aprobados`,
+        done: needRecipe > 0 && unresolved === 0,
+      },
+    ],
+    next_dish: nextPlato
       ? {
-          odoo_product_id: next.odoo_product_id,
-          odoo_name: next.odoo_name,
-          view: next.view,
-          label: `Revisar siguiente plato: ${next.odoo_name} →`,
+          odoo_product_id: nextPlato.odoo_product_id,
+          odoo_name: nextPlato.odoo_name,
+          view: "plato",
+          label: `Continuar: ${nextPlato.odoo_name} →`,
         }
       : null,
     last_progress: input.lastProgress ?? null,

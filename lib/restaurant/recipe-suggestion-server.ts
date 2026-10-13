@@ -22,7 +22,7 @@ import type { PreferredLanguage } from "@/lib/restaurant/language";
 import type { GroupedRecipe } from "@/lib/restaurant/cost-workbook/types";
 
 export const NO_STORED_BLOCKS_ERROR =
-  "Todavía no tengo tu archivo de recetas. Súbelo en «Lista de precios de tus ingredientes» (o con «Cargar recetas») y vuelve a generar sugerencias.";
+  "Todavía no tengo tu archivo de costos. Súbelo en «Subir Excel de costos» y Milton prepara tus platos.";
 
 export interface RunRecipeSuggestionsParams {
   companyId: string;

@@ -808,4 +808,100 @@ describe.skipIf(!path)("real workbook acceptance (aggregates only)", () => {
     expect(totals.dish_recipes_prefilled).toBeGreaterThan(0);
     console.log("REAL-FILE PLATO " + JSON.stringify(totals));
   });
+
+  it("Subir Excel de costos totals (PR B): one upload, no question answered up front", async () => {
+    const buffer = readFileSync(path as string);
+    const tabs = readWorkbookSheetsFromWorkbook(readXlsxWorkbook(buffer));
+    const {
+      read,
+      observations,
+      blocks: fileBlocks,
+    } = readCatalogFromBuffer(buffer);
+    const store = emptyMemoryStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const saved = await applyPriceCatalog({
+      repo,
+      companyId: "co-real",
+      userId: "u-real",
+      currency: "USD",
+      filename: "real-workbook.xlsx",
+      read: read!,
+      observations,
+      decisions: {},
+      candidateBlocks: fileBlocks,
+    });
+    const stored = expandCandidateBlocks(
+      findRecipeSource(store.batches)!.blocks
+    );
+    const dishes = stored.filter((b) => b.kind === "recipe");
+    const products = dishes.map((block, index) => ({
+      odoo_product_id: index + 1,
+      odoo_name: block.name,
+      net_sales: 1000 - index,
+    }));
+    const items: Array<{ result: string; evidence: Record<string, unknown> }> =
+      [];
+    for (let offset = 0; offset < products.length; offset += 5) {
+      const r = await runRecipeSuggestions({
+        companyId: "co-real",
+        products,
+        candidateBlocks: stored,
+        repo,
+        ai: {
+          classifyTab: async () => ({
+            type: "ignore" as const,
+            confidence: 0.2,
+          }),
+          mapColumns: async () => ({}),
+          proposeRecipe: async (product, candidates) =>
+            proposeRecipeHeuristic({ product, candidateBlocks: candidates }),
+        },
+        currency: "USD",
+        filename: "real-workbook.xlsx",
+        limit: 5,
+        offset,
+        lang: "es",
+      });
+      items.push(...r.items);
+    }
+    const questions = store.reviewItems.filter(
+      (r) => (r.raw_values as Record<string, unknown>).kind === "catalog_row"
+    );
+    const withReadings = questions.filter(
+      (r) =>
+        ((r.raw_values as Record<string, unknown>).options as unknown[])
+          ?.length > 0
+    );
+    const askable = new Set(
+      withReadings.map((r) =>
+        plainName(String((r.raw_values as Record<string, unknown>).name))
+      )
+    );
+    type Line = { raw_name: string; pending: boolean };
+    const lines = items
+      .filter((i) => i.result === "sugerido")
+      .flatMap((i) => (i.evidence.lines as Line[]) ?? []);
+    const totals = {
+      tabs_read: tabs.length,
+      upload_blocked: false,
+      ingredients_in_list: store.ingredients.length,
+      preparations_in_list: store.components.length,
+      dish_recipes_prefilled: items.filter((i) => i.result === "sugerido")
+        .length,
+      prices_saved: saved.saved,
+      unclear_rows_kept_as_questions: questions.length,
+      of_which_with_readings_to_pick: withReadings.length,
+      dish_lines_that_show_a_reading_choice: lines.filter(
+        (l) => l.pending && askable.has(plainName(l.raw_name))
+      ).length,
+      cost_conflicts_left_for_a_person: saved.conflicts_open,
+      // Every listed ingredient came from a clear price row (has a price).
+      ingredients_listed_without_a_price: store.ingredients.filter(
+        (i) => !store.costEntries.some((e) => e.ingredient_id === i.id)
+      ).length,
+      dish_lines_pending_a_decision: lines.filter((l) => l.pending).length,
+    };
+    expect(saved.saved).toBeGreaterThan(0);
+    console.log("REAL-FILE UPLOAD " + JSON.stringify(totals));
+  });
 });

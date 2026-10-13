@@ -42,7 +42,7 @@ export default async function MenuRecipesRoute({
               "Hacen falta los costos de las recetas"
             )}
             href="/dashboard/restaurant/menu/recetas"
-            linkLabel={t(lang, "Load recipes →", "Cargar recetas →")}
+            linkLabel={t(lang, "Upload cost file →", "Subir Excel de costos →")}
           />
         )}
       </div>

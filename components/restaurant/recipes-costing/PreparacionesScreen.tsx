@@ -121,8 +121,8 @@ export function PreparacionesScreen({
             </div>
             {overview.rows.length === 0 ? (
               <p className="text-xs text-[#5b6476]">
-                Todavía no hay preparaciones. Se crean al generar sugerencias
-                desde tu archivo.
+                Todavía no hay preparaciones. Se crean al subir tu Excel de
+                costos, o desde un plato con «Crear preparación».
               </p>
             ) : (
               <div className="max-h-[60vh] overflow-auto">

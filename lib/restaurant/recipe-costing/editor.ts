@@ -81,6 +81,18 @@ export interface EditorLine {
   unit_question: { written: string; suggested: string } | null;
   /** Unit cost the Excel line showed (evidence only, never used as price). */
   excel_unit_cost: number | null;
+  /** The price list row for this ingredient was unclear: its readings,
+   *  for the person to pick one (no price is used until then). */
+  catalog_question?: CatalogQuestion | null;
+}
+
+export interface CatalogQuestion {
+  item_id: string;
+  /** The price-list row's name (its ingredient may not exist yet). */
+  name: string;
+  ingredient_id: string | null;
+  reason: string;
+  options: Array<{ unit: string; unit_cost: number }>;
 }
 
 export interface EvidenceLineIn {

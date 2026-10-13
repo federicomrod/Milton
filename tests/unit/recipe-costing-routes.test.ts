@@ -53,7 +53,10 @@ describe("recipe costing routes", () => {
       "components/restaurant/recipes-costing/ResumenScreen.tsx"
     );
     expect(resumen).toContain("Tu menú en Odoo");
-    expect(resumen).toContain("Stepper");
+    expect(resumen).toContain("setup_checklist");
+    expect(resumen).toContain("coverage.goal_pct");
+    expect(resumen).not.toContain("Generar sugerencias");
+    expect(resumen).not.toContain("Cargar recetas");
 
     expect(
       read("components/restaurant/recipes-costing/RecipeLinesEditor.tsx")

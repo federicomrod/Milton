@@ -9,9 +9,15 @@
 //   review item). Only a chosen value ever becomes a cost entry, so the
 //   latest-cost lookup cannot silently prefer a recipe-sheet number.
 // - Every row is written in the company currency, never a DB default.
+// - Uncertain rows never block the upload. A row whose unit needs a person
+//   keeps its readings on a "catalog_row" review item and is asked about on
+//   the dish that uses it; the ingredient is only added when the person
+//   picks a reading (never with a guessed unit). Missing prices stay
+//   pending, never $0.
 
 import { buildIngredientCostEntryInsert } from "@/lib/restaurant/cost-import";
 import { inferDateFromName } from "@/lib/restaurant/cost-workbook/date";
+import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
 import { persistSavedRows } from "@/lib/restaurant/cost-workbook/persist";
 import type { CostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
 import { mergeUndoSnapshots } from "@/lib/restaurant/cost-workbook/snapshot";
@@ -32,6 +38,7 @@ import {
 import type { CatalogUnit, PriceCatalogRead, PriceCatalogRow } from "./reader";
 
 export const COST_CONFLICT_KIND = "cost_conflict";
+export const CATALOG_ROW_KIND = "catalog_row";
 
 export interface RowDecision {
   /** Treat this row as an ingredient, a preparation, or leave it out. */
@@ -402,6 +409,15 @@ export async function applyPriceCatalog(input: {
     persisted.changes
   );
 
+  // Uncertain rows: link to the ingredient when it already exists, so the
+  // question can show on a dish line that uses it.
+  const known = new Map(
+    (await input.repo.listIngredients(input.companyId)).map((row) => [
+      normalizeMatchName(row.name),
+      row.id,
+    ])
+  );
+
   const conflicts = findCostConflicts(plan.effective, input.observations);
   let decided = 0;
   const open: CostConflict[] = [];
@@ -468,7 +484,18 @@ export async function applyPriceCatalog(input: {
       tab_name: item.row.sheet,
       row_index: item.row.row,
       reason: item.reason,
-      raw_values: { kind: "catalog_row", name: item.row.name },
+      raw_values: {
+        kind: CATALOG_ROW_KIND,
+        name: item.row.name,
+        ingredient_id: known.get(normalizeMatchName(item.row.name)) ?? null,
+        status: item.row.status,
+        options: item.row.options.map((o) => ({
+          unit: o.unit,
+          unit_cost: o.unitCost,
+        })),
+        sheet: item.row.sheet,
+        row: item.row.row,
+      },
       suggested: null,
       status: "pending",
     });
@@ -556,4 +583,127 @@ export async function resolveCostConflict(input: {
     resolved_at: new Date().toISOString(),
   });
   return { ok: true };
+}
+
+/**
+ * A person picks how an uncertain price-list row reads ("$X por libra"),
+ * from the dish that uses the ingredient. Writes one cost entry with the
+ * file's date and row as provenance, then closes the review item.
+ */
+export async function answerCatalogRow(input: {
+  repo: CostWorkbookRepo;
+  companyId: string;
+  currency: string;
+  reviewId: string;
+  unit: string;
+}): Promise<
+  { ok: true; ingredientId: string } | { ok: false; reason: string }
+> {
+  const item = await input.repo.getReviewItem(input.companyId, input.reviewId);
+  if (!item || item.raw_values.kind !== CATALOG_ROW_KIND) {
+    return { ok: false, reason: "No encontré esa fila de tu lista." };
+  }
+  if (item.status !== "pending") {
+    return { ok: false, reason: "Esa fila ya está resuelta." };
+  }
+  const batch = await input.repo.getBatch(input.companyId, item.batch_id);
+  if (!batch || batch.undone_at) {
+    return { ok: false, reason: "Esa carga ya se deshizo." };
+  }
+  const raw = item.raw_values as Record<string, unknown>;
+  let ingredientId =
+    typeof raw.ingredient_id === "string" ? raw.ingredient_id : null;
+  const options = Array.isArray(raw.options)
+    ? (raw.options as Array<{ unit?: unknown; unit_cost?: unknown }>)
+    : [];
+  const option = options.find(
+    (o) => o.unit === input.unit && validCost(o.unit_cost)
+  );
+  if (!option || !isUnit(option.unit)) {
+    return { ok: false, reason: "Esa opción no existe." };
+  }
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  const ingredients = await input.repo.listIngredients(input.companyId);
+  let ingredient =
+    ingredients.find((row) => row.id === ingredientId) ??
+    ingredients.find(
+      (row) => normalizeMatchName(row.name) === normalizeMatchName(name)
+    );
+  const createdIngredientIds: string[] = [];
+  if (!ingredient) {
+    // The person's pick is what adds it: the row's own name, in the unit
+    // they chose. Never before, never with a guessed unit.
+    if (!name) return { ok: false, reason: "Esa fila no trae nombre." };
+    const [created] = await input.repo.createIngredients([
+      {
+        companyId: input.companyId,
+        name,
+        defaultUnit: option.unit,
+        currentUnitCost: null,
+        currency: input.currency,
+      },
+    ]);
+    if (!created)
+      return { ok: false, reason: "No pude agregar el ingrediente." };
+    ingredient = created;
+    createdIngredientIds.push(created.id);
+  }
+  ingredientId = ingredient.id;
+  const date = priceDate(batch.filename);
+  const built = buildIngredientCostEntryInsert({
+    companyId: input.companyId,
+    ingredientId,
+    ingredientDefaultUnit: ingredient.default_unit,
+    supplierId: null,
+    sourceId: item.batch_id,
+    row: {
+      rowIndex: typeof raw.row === "number" ? raw.row : item.row_index,
+      cost_date: date.effective_date,
+      supplier_name: "",
+      ingredient_name: ingredient.name,
+      quantity: 1,
+      unit: option.unit,
+      total_cost: option.unit_cost as number,
+      currency: input.currency,
+      notes: `${String(raw.sheet ?? item.tab_name)} · fila ${String(raw.row ?? item.row_index)} (unidad confirmada)`,
+      supplier_item_name: null,
+      supplier_sku: null,
+    },
+  });
+  if (!built.ok) {
+    return {
+      ok: false,
+      reason: "No pude convertir ese precio a la unidad del ingrediente.",
+    };
+  }
+  const [created] = await input.repo.insertCostEntries([
+    {
+      ...built.insert,
+      company_id: input.companyId,
+      effective_date: date.effective_date,
+      date_source: date.date_source,
+    },
+  ]);
+  if (!created) return { ok: false, reason: "No pude guardar el precio." };
+  await input.repo.updateIngredientCosts([
+    {
+      ingredientId: ingredient.id,
+      currentUnitCost: created.normalized_unit_cost,
+      currency: input.currency,
+    },
+  ]);
+  await input.repo.updateBatchSnapshot(
+    input.companyId,
+    item.batch_id,
+    mergeUndoSnapshots(batch.undo_snapshot, {
+      ...emptyUndoSnapshot(),
+      inserted_entry_ids: [created.id],
+      created_ingredient_ids: createdIngredientIds,
+    })
+  );
+  await input.repo.updateReviewItem(input.companyId, item.id, {
+    status: "approved",
+    resolved_at: new Date().toISOString(),
+  });
+  return { ok: true, ingredientId: ingredient.id };
 }

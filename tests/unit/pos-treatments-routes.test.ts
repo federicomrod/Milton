@@ -205,7 +205,7 @@ describe("workspace — treatments on Resumen and Vincular", () => {
     const excluded = ws.classification.find((r) => r.id === "excluido")!;
     expect(excluded.count).toBe(1);
     expect(excluded.share_label).toMatch(/de todas las ventas/);
-    expect(ws.stepper[0]!.detail).toMatch(/1 por clasificar/);
+    expect(ws.classify_queue).toHaveLength(1);
   });
 
   it("the excluded product shows no food share", () => {

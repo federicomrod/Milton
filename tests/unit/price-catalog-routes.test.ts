@@ -37,18 +37,25 @@ describe("price catalog routes and screen", () => {
     const apply = read("lib/restaurant/price-catalog/apply.ts");
     expect(apply).toContain("validCost");
     expect(apply).toContain("isUnit");
-    expect(apply).not.toMatch(/createIngredients\(/); // goes through persistSavedRows
+    // Priced rows go through persistSavedRows. The one direct create is a
+    // person's pick on an unclear row: it never carries a price itself (the
+    // price is a separate cost entry with the file's provenance).
+    expect(apply.match(/createIngredients\(/g) ?? []).toHaveLength(1);
+    const direct = apply.slice(apply.indexOf("createIngredients("));
+    expect(direct.slice(0, 400)).toContain("currentUnitCost: null");
   });
 
   it("mounts the panel on Resumen, in Spanish with tú", () => {
     expect(
       read("components/restaurant/recipes-costing/ResumenScreen.tsx")
-    ).toContain("<PriceCatalogPanel />");
+    ).toContain("<PriceCatalogPanel onUploaded={onUploaded}");
     const panel = read(
       "components/restaurant/recipes-costing/PriceCatalogPanel.tsx"
     );
-    expect(panel).toContain("Lista de precios de tus ingredientes");
-    expect(panel).toContain("No se guarda nada hasta que lo confirmes");
+    expect(panel).toContain("Subir Excel de costos");
+    expect(panel).toContain("Lo que no esté claro no te frena");
+    expect(panel).toContain("Subir y preparar mis platos");
+    expect(panel).toContain("Puedes decidir algunas cosas ahora (opcional)");
     expect(panel).toContain("Revisé estas unidades");
     expect(panel).toContain("Encontramos dos costos");
     expect(panel).not.toMatch(/\busted\b/i);

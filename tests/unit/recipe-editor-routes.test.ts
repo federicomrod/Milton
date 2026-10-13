@@ -45,12 +45,13 @@ describe("recipe editor route and screen", () => {
     );
   });
 
-  it("the old fix route no longer edits lines, only the preparation yield", () => {
-    const fix = read("app/api/restaurant/recipes/review/fix/route.ts");
-    for (const field of ["quantity", "unit_cost", "add_line"]) {
-      expect(fix).toContain(`"${field}"`);
-    }
-    expect(fix).toContain("status: 400");
+  it("the dish yield route only changes the yield, behind the edit role", () => {
+    const route = read("app/api/restaurant/recipes/dish-yield/route.ts");
+    expect(route).toContain("authAndCompany");
+    expect(route).toContain("confirmDishYield");
+    const server = read("lib/restaurant/recipe-costing/dish-yield-server.ts");
+    expect(server).toContain("actorCanSubmitForApproval");
+    expect(server).not.toMatch(/\.insert\(|recipe_version_inputs|unit_cost/);
     const screen = read(
       "components/restaurant/recipes-costing/PlatoScreen.tsx"
     );

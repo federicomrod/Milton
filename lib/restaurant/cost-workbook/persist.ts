@@ -15,42 +15,6 @@ import type {
 } from "./types";
 import { emptyUndoSnapshot } from "./types";
 
-export function dedupeWorkbookRows(rows: WorkbookRowCandidate[]): {
-  rows: WorkbookRowCandidate[];
-  skipped: ReviewCandidate[];
-} {
-  const indexByKey = new Map<string, number>();
-  const kept: WorkbookRowCandidate[] = [];
-  const skipped: ReviewCandidate[] = [];
-
-  for (const row of rows) {
-    const key = `${nameKey(row.ingredient_name)}|${costMonthKey(row.cost_date)}`;
-    const existingIndex = indexByKey.get(key);
-    if (existingIndex === undefined) {
-      indexByKey.set(key, kept.length);
-      kept.push(row);
-      continue;
-    }
-    const previous = kept[existingIndex];
-    skipped.push({
-      tabName: previous.tabName,
-      rowIndex: previous.rowIndex,
-      reason: "same ingredient already on another tab this month",
-      raw: previous.raw,
-      suggested: {
-        ingredient_name: previous.ingredient_name,
-        unit: previous.unit,
-        quantity: previous.quantity,
-        total_cost: previous.total_cost,
-        cost_date: previous.cost_date,
-      },
-    });
-    kept[existingIndex] = row;
-  }
-
-  return { rows: kept, skipped };
-}
-
 function sameCostNumbers(
   left: { quantity: number; total_cost: number },
   right: { quantity: number; total_cost: number }
@@ -115,8 +79,7 @@ export async function persistSavedRows(input: {
       },
     });
     if (built.ok) {
-      built.insert.effective_date =
-        row.effective_date ?? row.cost_date;
+      built.insert.effective_date = row.effective_date ?? row.cost_date;
       built.insert.date_source = row.date_source ?? "upload";
     }
     if (!built.ok) {

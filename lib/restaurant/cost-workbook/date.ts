@@ -81,16 +81,3 @@ export function inferDateFromName(
 
   return null;
 }
-
-export function inferWorkbookDate(
-  filename: string,
-  sheetNames: string[] = []
-): string | null {
-  const fromFile = inferDateFromName(filename);
-  if (fromFile) return fromFile;
-  for (const sheet of sheetNames) {
-    const fromSheet = inferDateFromName(sheet);
-    if (fromSheet) return fromSheet;
-  }
-  return null;
-}

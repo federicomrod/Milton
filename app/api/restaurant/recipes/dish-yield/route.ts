@@ -1,7 +1,13 @@
+// POST /api/restaurant/recipes/dish-yield
+// Body: { odoo_product_id, yield_value, location_id? }
+//
+// Confirms how many portions a dish's recipe yields. Owner, admin, manager
+// or Milton staff. Company and user come from auth.
+
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
-import { approveRecipeVersion } from "@/lib/restaurant/recipe-costing/approval-server";
+import { confirmDishYield } from "@/lib/restaurant/recipe-costing/dish-yield-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,13 +25,11 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  const recipeVersionId =
-    typeof body.recipe_version_id === "string"
-      ? body.recipe_version_id.trim()
-      : "";
-  if (!recipeVersionId) {
+  const odooProductId = Number(body.odoo_product_id);
+  const yieldValue = Number(body.yield_value);
+  if (!Number.isInteger(odooProductId) || odooProductId <= 0) {
     return NextResponse.json(
-      { error: "Falta recipe_version_id." },
+      { error: "Indica el producto de Odoo." },
       { status: 400 }
     );
   }
@@ -35,29 +39,26 @@ export async function POST(req: NextRequest) {
     auth.userId
   );
   try {
-    const result = await approveRecipeVersion({
+    const result = await confirmDishYield({
       supabase: auth.supabase,
       companyId: auth.companyId,
       actor,
-      recipeVersionId,
-      odooProductId:
-        typeof body.odoo_product_id === "number"
-          ? body.odoo_product_id
-          : Number(body.odoo_product_id) || undefined,
+      odooProductId,
       locationId:
         typeof body.location_id === "string" ? body.location_id : null,
-      confirmedHow:
-        typeof body.confirmed_how === "string" ? body.confirmed_how : null,
-      yieldConfirmed: body.yield_confirmed === true,
+      yieldValue,
     });
     if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json(
+        { error: result.error },
+        { status: result.status }
+      );
     }
-    return NextResponse.json({ approved: true });
+    return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error("[recipes/approve]", err);
+    console.error("[recipes/dish-yield]", err);
     return NextResponse.json(
-      { error: "No pude aprobar la receta." },
+      { error: "No pude guardar el rendimiento." },
       { status: 500 }
     );
   }

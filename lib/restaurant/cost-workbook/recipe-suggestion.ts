@@ -18,7 +18,7 @@ import {
   handmadeRecipeExistsReason,
   suggestionVersionNotes,
 } from "./copy";
-import { pickMenuItemForLocation } from "./persist-recipes";
+import { pickMenuItemForLocation } from "./menu-item-pick";
 import { normalizeMatchName } from "./names";
 import {
   prefillLines,
@@ -37,7 +37,6 @@ import {
   type ProposeRecipeResult,
   type RecipeSuggestionProduct,
 } from "./propose-recipe";
-import type { CatalogIngredient } from "./recipe-suggestion-checks";
 import type { CostWorkbookRepo } from "./repo";
 import { compactCandidateBlocks } from "./stored-blocks";
 import type { GroupedRecipe, RecipeInputSnapshot } from "./types";
@@ -150,6 +149,13 @@ function evidenceFromPrefill(
 }
 
 type ProposedRecipe = Exclude<ProposeRecipeResult, typeof SIN_SUGERENCIA>;
+
+interface CatalogIngredient {
+  id: string;
+  name: string;
+  current_unit_cost?: number | null;
+  default_unit?: string | null;
+}
 
 export async function runRecipeSuggestions(input: {
   companyId: string;

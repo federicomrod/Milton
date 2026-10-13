@@ -53,7 +53,7 @@ const ALLOWED_HREFS = new Set([
   "/dashboard/restaurant/suppliers",
   "/dashboard/restaurant/invoices",
   "/dashboard/restaurant/agents",
-  "/dashboard/restaurant/costs/upload",
+  "/dashboard/restaurant/menu/recetas",
   "/dashboard/restaurant/upload",
 ]);
 
@@ -513,7 +513,7 @@ export const ASK_MILTON_SYSTEM_PROMPT = [
   "    /dashboard/restaurant/suppliers    (Suppliers)",
   "    /dashboard/restaurant/invoices     (Supplier Invoices)",
   "    /dashboard/restaurant/agents       (Agents)",
-  "    /dashboard/restaurant/costs/upload (Import Costs)",
+  "    /dashboard/restaurant/menu/recetas (Recipes & costing: cost-file upload)",
   "    /dashboard/restaurant/upload       (POS Sales)",
   "  Never invent a different route.",
   "",
@@ -623,7 +623,7 @@ type RelatedLinkRoute =
   | "/dashboard/restaurant/suppliers"
   | "/dashboard/restaurant/invoices"
   | "/dashboard/restaurant/agents"
-  | "/dashboard/restaurant/costs/upload"
+  | "/dashboard/restaurant/menu/recetas"
   | "/dashboard/restaurant/upload";
 
 const RELATED_LINK_LABELS: Record<
@@ -645,9 +645,9 @@ const RELATED_LINK_LABELS: Record<
     es: "Facturas de Proveedores",
   },
   "/dashboard/restaurant/agents": { en: "Agents", es: "Agentes" },
-  "/dashboard/restaurant/costs/upload": {
-    en: "Import Costs",
-    es: "Importar Costos",
+  "/dashboard/restaurant/menu/recetas": {
+    en: "Recipes & costing",
+    es: "Recetas y costeo",
   },
   "/dashboard/restaurant/upload": { en: "POS Sales", es: "Ventas del POS" },
 };
@@ -1235,7 +1235,7 @@ function expensiveIngredientsAnswer(
       supporting_facts: facts.slice(0, 4),
       related_links: [
         relatedLink(lang, "/dashboard/restaurant/ingredients"),
-        relatedLink(lang, "/dashboard/restaurant/costs/upload"),
+        relatedLink(lang, "/dashboard/restaurant/menu/recetas"),
         relatedLink(lang, "/dashboard/restaurant/menu"),
       ],
       suggested_followups: [
@@ -1278,7 +1278,7 @@ function expensiveIngredientsAnswer(
     supporting_facts: [],
     related_links: [
       relatedLink(lang, "/dashboard/restaurant/ingredients"),
-      relatedLink(lang, "/dashboard/restaurant/costs/upload"),
+      relatedLink(lang, "/dashboard/restaurant/menu/recetas"),
       relatedLink(lang, "/dashboard/restaurant/invoices"),
     ],
     suggested_followups: [

@@ -24,9 +24,6 @@ export type UploadRestaurantScope =
 export const PICK_RESTAURANT_ERROR_ES =
   "Elige un restaurante en el menú de arriba a la izquierda. Con «Todos los restaurantes» no subo el archivo: este libro es de un restaurante y no quiero guardarlo en el lugar equivocado.";
 
-export const PICK_RESTAURANT_ERROR_EN =
-  "Pick a restaurant in the switcher at the top left. Uploading with All Restaurants selected is blocked so this file is not saved to the wrong place.";
-
 export function resolveUploadRestaurantScope(input: {
   locations: UploadRestaurantOption[];
   requestedLocationId: string | null | undefined;

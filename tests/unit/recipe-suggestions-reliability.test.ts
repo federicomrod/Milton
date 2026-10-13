@@ -11,7 +11,7 @@ import {
   runRecipeSuggestions,
 } from "@/lib/restaurant/cost-workbook";
 import type { WorkbookAi } from "@/lib/restaurant/cost-workbook";
-import { undoCostImportBatch } from "@/lib/restaurant/cost-workbook/import";
+import { undoCostImportBatch } from "@/lib/restaurant/cost-workbook/undo";
 import { findRecipeSource } from "@/lib/restaurant/cost-workbook/stored-blocks";
 import {
   createMemoryCostWorkbookRepo,

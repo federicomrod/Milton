@@ -7,10 +7,9 @@ import {
   parseRecipeProposal,
   proposeRecipeHeuristic,
   runRecipeSuggestions,
-  workbookCostsMatch,
-  workbookMismatchReason,
 } from "@/lib/restaurant/cost-workbook";
-import { undoCostImportBatch } from "@/lib/restaurant/cost-workbook/import";
+import { workbookCostsMatch } from "@/lib/restaurant/cost-workbook/variance";
+import { undoCostImportBatch } from "@/lib/restaurant/cost-workbook/undo";
 import {
   confirmPosProductLink,
   unlinkedPosProduct,
@@ -431,18 +430,5 @@ describe("AI recipe suggestions", () => {
     const suggested = result.items.filter((row) => row.result === "sugerido");
     expect(pending.length).toBeGreaterThan(0);
     expect(suggested.length).toBeGreaterThan(1);
-  });
-});
-
-describe("mismatch reason copy", () => {
-  it("does not print a double dash when Milton has no cost", () => {
-    const reason = workbookMismatchReason("es", 12, null);
-    expect(reason).not.toMatch(/—\s*—/);
-    expect(reason).toMatch(/sin costo/);
-    expect(`${reason} No pude costear la receta.`).not.toMatch(/—/);
-  });
-
-  it("uses tú-style Spanish for the pending-cost reason", () => {
-    expect(workbookMismatchReason("es", 2, 3)).toMatch(/no coincide/);
   });
 });

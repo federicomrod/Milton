@@ -12,20 +12,6 @@ export function costMonthKey(isoDate: string): string {
   return isoDate.slice(0, 7);
 }
 
-export function costMonthStart(isoDate: string): string {
-  const key = costMonthKey(isoDate);
-  return key.length === 7 ? `${key}-01` : isoDate;
-}
-
-export function costMonthEndExclusive(isoDate: string): string {
-  const year = Number(isoDate.slice(0, 4));
-  const month = Number(isoDate.slice(5, 7));
-  if (!year || !month) return isoDate;
-  if (month === 12) return `${year + 1}-01-01`;
-  const next = month + 1;
-  return `${year}-${next < 10 ? `0${next}` : String(next)}-01`;
-}
-
 export function cloneCostEntry(
   entry: CostWorkbookCostEntry
 ): CostWorkbookCostEntry {

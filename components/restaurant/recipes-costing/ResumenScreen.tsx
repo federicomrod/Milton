@@ -5,6 +5,7 @@ import type {
   RecipeCostingWorkspace,
 } from "@/lib/restaurant/recipe-costing/workspace";
 import { PriceCatalogPanel } from "./PriceCatalogPanel";
+import { ResetPanel } from "./ResetPanel";
 import { ClassifyQueuePanel, type PostFn } from "./TreatmentPanel";
 import { Card, Chip, GhostBtn, PrimaryBtn, toneForKind } from "./ui";
 
@@ -16,6 +17,8 @@ export function ResumenScreen({
   generateBusy,
   busy,
   onPost,
+  locationId,
+  onResetDone,
 }: {
   data: RecipeCostingWorkspace;
   onOpen: (view: RecipeCostingView, odooProductId?: number) => void;
@@ -25,6 +28,9 @@ export function ResumenScreen({
   generateBusy: boolean;
   busy: boolean;
   onPost: PostFn;
+  locationId: string | null;
+  /** After "Empezar de nuevo": reload everything from the server. */
+  onResetDone: () => void;
 }) {
   const { coverage, next_dish, classification } = data;
   return (
@@ -272,6 +278,13 @@ export function ResumenScreen({
           ) : null}
         </Card>
       </div>
+      {data.reset ? (
+        <ResetPanel
+          reset={data.reset}
+          locationId={locationId}
+          onDone={onResetDone}
+        />
+      ) : null}
     </div>
   );
 }

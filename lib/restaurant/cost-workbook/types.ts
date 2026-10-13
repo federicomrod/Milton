@@ -13,9 +13,6 @@ export const COST_TAB_TYPES = [
 
 export type CostTabType = (typeof COST_TAB_TYPES)[number];
 
-export const HIGH_TAB_CONFIDENCE = 0.8;
-export const HIGH_COLUMN_CONFIDENCE = 0.75;
-
 export type MappingSource = "ai" | "saved" | "heuristic";
 export type WorkbookMappingSource = "ai" | "saved" | "mixed" | "heuristic";
 
@@ -110,70 +107,7 @@ export interface TabImportSummary {
   note?: string;
 }
 
-export interface WorkbookImportResult {
-  kind: "workbook";
-  batch_id: string;
-  headline: string;
-  imported_count: number;
-  review_count: number;
-  tab_count: number;
-  recipe_tab_count: number;
-  mapping_source: WorkbookMappingSource;
-  default_currency: string;
-  file_month: string | null;
-  filename: string;
-  tabs: TabImportSummary[];
-  review_items: Array<{
-    id: string;
-    tab_name: string;
-    row_index: number;
-    reason: string;
-    raw_values: Record<string, unknown>;
-    suggested: Partial<WorkbookRowCandidate> | null;
-    status: "pending";
-  }>;
-  ingredients_created: number;
-  costs_updated: number;
-  saved_count: number;
-  skipped_count: number;
-  skipped_reasons: SkipReasonCount[];
-  skipped_breakdown: {
-    previous_duplicates: number;
-    blank_or_title: number;
-    other: number;
-  };
-  skipped_plain: string;
-  menu_items_created: number;
-  recipes_created: number;
-  sub_recipes_created: number;
-  pos_links_created: number;
-  restaurant_name?: string | null;
-  location_id?: string | null;
-  recipe_match?: WorkbookRecipeMatchSummary;
-  pos_unlinked_dishes?: string[];
-  pos_unmatched_names?: string[];
-}
-
 export type WorkbookCostMatch = "match" | "mismatch";
-
-export interface WorkbookRecipeMismatch {
-  kind: "recipe" | "sub_recipe";
-  name: string;
-  excel_cost: number | null;
-  milton_cost: number | null;
-  variance_amount: number | null;
-  variance_pct: number | null;
-  reason: string;
-}
-
-export interface WorkbookRecipeMatchSummary {
-  dishes_matched: number;
-  dishes_total: number;
-  subs_matched: number;
-  subs_total: number;
-  mismatches: WorkbookRecipeMismatch[];
-  headline: string;
-}
 
 export interface CostWorkbookIngredient {
   id: string;
@@ -465,34 +399,9 @@ export interface CostWorkbookBatch {
   undo_snapshot: UndoSnapshot;
 }
 
-export type CostImportBatchStatus = "live" | "undone" | "partially_undone";
-
-export interface CostImportHistoryItem {
-  id: string;
-  filename: string;
-  created_at: string | null;
-  imported_count: number;
-  review_count: number;
-  ingredients_created: number;
-  menu_items_created: number;
-  recipes_created: number;
-  sub_recipes_created: number;
-  pos_links_created: number;
-  status: CostImportBatchStatus;
-  undone_at: string | null;
-}
-
-export interface UndoAllCostImportsResult {
-  ok: boolean;
-  undone: number;
-  skipped: number;
-  reason?: string;
-  failed_batch_id?: string;
-  failed_filename?: string;
-  warnings?: string[];
-}
-
 export type CostResetStepId =
+  | "cost_import_review_items"
+  | "pos_product_links"
   | "menu_recipe_inputs"
   | "recipe_ingredients"
   | "component_recipe_inputs"
@@ -500,11 +409,11 @@ export type CostResetStepId =
   | "component_recipes"
   | "prepared_components"
   | "import_pos_mappings"
-  | "import_menu_items"
+  | "costing_menu_items"
+  | "ingredient_aliases"
   | "ingredient_cost_entries"
   | "supplier_ingredients"
   | "ingredients"
-  | "cost_import_review_items"
   | "cost_import_layout_maps"
   | "batches_marked_undone";
 
@@ -525,8 +434,13 @@ export interface CompanyCostResetSummary {
   supplier_ingredient_links: number;
   recipes: number;
   components: number;
-  import_menu_items: number;
+  /** POS product links: treatments, suggested and confirmed links. */
+  pos_product_links: number;
+  /** Menu items the costing flow created (imported or linked to a POS
+   *  product); recipes and versions go with them. */
+  costing_menu_items: number;
   import_pos_mappings: number;
+  ingredient_aliases: number;
   review_items: number;
   layout_maps: number;
   batches_marked_undone: number;

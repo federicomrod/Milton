@@ -53,10 +53,10 @@ export default async function CostsAreaPage({
         ))}
         <li>
           <Link
-            href="/dashboard/restaurant/menu#prepared"
+            href="/dashboard/restaurant/menu/recetas?vista=preparaciones"
             className="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
           >
-            {t(lang, "Prepared items", "Sub-recetas")}
+            {t(lang, "Prepared items", "Preparaciones")}
           </Link>
         </li>
       </ul>
@@ -71,7 +71,7 @@ export default async function CostsAreaPage({
             "Recipe costs required",
             "Hacen falta los costos de las recetas"
           )}
-          href="/dashboard/restaurant/costs/upload"
+          href="/dashboard/restaurant/menu/recetas"
           linkLabel={t(lang, "Add costs →", "Agregar costos →")}
         />
       )}

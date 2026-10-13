@@ -6,15 +6,10 @@ import {
 import type { RankedPosProduct } from "@/lib/restaurant/pos-product-list";
 import { TREATMENT_RULES } from "@/lib/restaurant/pos-treatments";
 import { lineCostDisplay } from "@/lib/restaurant/recipe-costing/format";
-import {
-  applyInlineLineFix,
-  groupUncertainByTab,
-  toReviewLine,
-} from "@/lib/restaurant/recipe-costing/review";
+import { toReviewLine } from "@/lib/restaurant/recipe-costing/review";
 import { parseSuggestionEvidence } from "@/lib/restaurant/recipe-costing/evidence";
 import {
   buildRecipeCostingWorkspace,
-  matchesVincularFilter,
   rankedProductsFromLinks,
 } from "@/lib/restaurant/recipe-costing/workspace";
 
@@ -92,69 +87,6 @@ describe("pending lines never show $0", () => {
       reasons: [],
     });
     expect(line.unit_cost_label).toMatch(/\$6\.20 \/ kg/);
-  });
-});
-
-describe("review grouped by tab", () => {
-  it("shows only uncertain items and a summary line per tab", () => {
-    const tabs = groupUncertainByTab([
-      {
-        odoo_product_id: 1,
-        odoo_name: "Pollo",
-        menu_item_id: "m1",
-        recipe_version_id: "v1",
-        tab: "PLATOS",
-        block_name: "Pollo",
-        filename: "recetas.xlsx",
-        pending: true,
-        excel_match: "mismatch",
-        reason: "Revisa el rendimiento",
-        milton_cost_label: null,
-        excel_total_label: "$3.80",
-        lines: [],
-      },
-      {
-        odoo_product_id: 2,
-        odoo_name: "Salsa",
-        menu_item_id: "m2",
-        recipe_version_id: "v2",
-        tab: "SALSAS",
-        block_name: "Salsa",
-        filename: "recetas.xlsx",
-        pending: false,
-        excel_match: "match",
-        reason: "",
-        milton_cost_label: "$1.00",
-        excel_total_label: "$1.00",
-        lines: [],
-      },
-    ]);
-    expect(tabs).toHaveLength(2);
-    const platos = tabs.find((tab) => tab.tab === "PLATOS");
-    expect(platos?.summary).toMatch(/rendimiento|revisar/i);
-    const salsas = tabs.find((tab) => tab.tab === "SALSAS");
-    expect(salsas?.cuadra_con_excel).toBe(true);
-    expect(salsas?.summary).toBe("Cuadra con Excel");
-  });
-
-  it("keeps a price fixed inline marked as a real amount", () => {
-    const next = applyInlineLineFix(
-      {
-        source_row: 1,
-        raw_name: "QUESILLO",
-        ingredient_match: "QUESILLO",
-        sub_recipe_match: null,
-        qty: 1,
-        unit: "g",
-        unit_cost: null,
-        flags: ["pendiente_costo"],
-        pending: true,
-        reasons: ["falta el costo"],
-      },
-      { unit_cost: 0.4 }
-    );
-    expect(next.pending).toBe(false);
-    expect(next.unit_cost).toBe(0.4);
   });
 });
 
@@ -329,15 +261,9 @@ describe("recipe costing workspace resume", () => {
     ]);
     expect(workspace.coverage.goal_pct).toBe(90);
     expect(workspace.coverage.goal_reached).toBe(false);
-    expect(workspace.filter_counts.todos).toBe(2);
-    const vincular = workspace.products.find(
-      (row) => row.odoo_product_id === 1
-    );
-    expect(vincular && matchesVincularFilter(vincular, "por_resolver")).toBe(
-      true
-    );
-    expect(workspace.review_tabs[0]?.tab).toBe("PLATOS");
-    const pendingLine = workspace.review_tabs[0]?.items[0]?.lines[0];
+    expect(workspace.products).toHaveLength(2);
+    const pollo = workspace.products.find((row) => row.odoo_product_id === 1);
+    const pendingLine = pollo?.preview_lines.find((line) => line.pending);
     expect(pendingLine?.cost_label).toBe("Pendiente");
     expect(pendingLine?.aporte_label).toBe("Pendiente");
     expect(JSON.stringify(workspace)).not.toMatch(/"\$0"/);

@@ -26,7 +26,7 @@ export interface SetupStepProgress {
 
 export const SETUP_STEP_HREFS: Record<SetupStepId, string> = {
   pos: "/dashboard/restaurant/upload",
-  costs: "/dashboard/restaurant/costs/upload",
+  costs: "/dashboard/restaurant/menu/recetas",
   menu: "/dashboard/restaurant/menu",
   recipes: "/dashboard/restaurant/menu",
   invoices: "/dashboard/restaurant/invoices",

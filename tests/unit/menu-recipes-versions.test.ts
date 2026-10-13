@@ -267,32 +267,6 @@ describe("fetchMenuRecipesData — recipe versions", () => {
     );
     expect(profitability).toContain("fetchCostingRecipeVersions");
 
-    const list = readFileSync(
-      "components/restaurant/MenuRecipesPage.tsx",
-      "utf8"
-    );
-    expect(list).toContain("pendingRecipesLabel");
-    expect(list).toContain("isPendingRecipeCostStatus");
-
-    const panel = readFileSync(
-      "components/restaurant/WorkbookCostPanel.tsx",
-      "utf8"
-    );
-    expect(panel).toContain("pendingRecipesLabel");
-    expect(panel).toContain("isPendingRecipeCostStatus");
-
-    const dish = readFileSync(
-      "app/dashboard/restaurant/menu/[id]/page.tsx",
-      "utf8"
-    );
-    expect(dish).toContain("fetchMenuRecipesData");
-
-    const component = readFileSync(
-      "app/dashboard/restaurant/components/[id]/page.tsx",
-      "utf8"
-    );
-    expect(component).toContain("fetchMenuRecipesData");
-
     const ingredientsPage = readFileSync(
       "app/dashboard/restaurant/ingredients/page.tsx",
       "utf8"

@@ -117,7 +117,6 @@ describe("new ingredients insert a null pending price, never $0", () => {
   const files = [
     "app/api/restaurant/ingredients/route.ts",
     "app/api/restaurant/invoices/[id]/lines/route.ts",
-    "app/api/restaurant/costs/upload/route.ts",
     "lib/restaurant/ask-milton-context.ts",
     "lib/restaurant/calculations.ts",
     "types/restaurant.ts",
@@ -153,8 +152,9 @@ describe("new ingredients insert a null pending price, never $0", () => {
       "utf8"
     );
     expect(invoices.match(/current_unit_cost:\s*null/g)?.length).toBe(2);
+    // A person's pick on an unclear price-list row lists it unpriced.
     expect(
-      readFileSync("app/api/restaurant/costs/upload/route.ts", "utf8")
-    ).toContain("current_unit_cost: null");
+      readFileSync("lib/restaurant/price-catalog/apply.ts", "utf8")
+    ).toContain("currentUnitCost: null");
   });
 });

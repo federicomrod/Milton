@@ -329,12 +329,11 @@ export function RecipesCostingWorkspace({
           onPost={postAndReload}
           onConfirm={() => void confirmDish()}
           onSkip={() => goTo(data.editor?.next_odoo_product_id)}
-          onFixYield={(rawName, value) =>
+          onFixYield={(_rawName, value) =>
             data.editor &&
             void mutate(() =>
-              post("/api/restaurant/recipes/review/fix", {
+              post("/api/restaurant/recipes/dish-yield", {
                 odoo_product_id: data.editor!.odoo_product_id,
-                raw_name: rawName,
                 yield_value: value,
               })
             )
@@ -359,6 +358,8 @@ export function RecipesCostingWorkspace({
           generateBusy={workbookBusy}
           busy={busy}
           onPost={postAndReload}
+          locationId={searchParams.get("location")}
+          onResetDone={() => void reload().catch(() => undefined)}
           onUndoBatch={(batchId) =>
             void mutate(async () => {
               const res = await fetch(

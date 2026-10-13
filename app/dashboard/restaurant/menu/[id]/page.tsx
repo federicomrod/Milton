@@ -1,259 +1,33 @@
-// app/dashboard/restaurant/menu/[id]/page.tsx
-//
-// Menu item detail + recipe builder.
+// The old recipe builder is gone: dish recipes are edited and approved in
+// Recetas y costeo › Plato por plato, the one controlled path (no recipe is
+// saved outside the approval model). Old links land on that dish when it
+// is linked to a POS product, otherwise on Plato por plato.
 
-import { notFound } from "next/navigation";
-import { BookOpen } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
-import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
-import { RecipeBuilder } from "@/components/restaurant/RecipeBuilder";
-import { ComingSoonPage } from "@/components/restaurant/ComingSoonPage";
-import { fetchMenuRecipesData } from "@/lib/restaurant/menu-recipes-server";
-import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
-import { t } from "@/lib/restaurant/language";
-import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
+import { redirect } from "next/navigation";
+import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { recetasHref } from "@/lib/restaurant/recetas-redirect";
 
 export const dynamic = "force-dynamic";
 
-interface MenuItemRow {
-  id: string;
-  name: string;
-  category: string | null;
-  selling_price: number | null;
-  currency: string | null;
-  status: string | null;
-}
-
-interface RecipeRow {
-  id: string;
-  status: string | null;
-  serving_quantity: number | null;
-  serving_unit: string | null;
-  notes: string | null;
-  source_type?: string | null;
-  workbook_cost_total?: number | null;
-  workbook_computed_cost?: number | null;
-  workbook_cost_match?: "match" | "mismatch" | null;
-  workbook_variance_amount?: number | null;
-  workbook_variance_pct?: number | null;
-}
-
-interface InputRow {
-  id: string;
-  input_type: "ingredient" | "component";
-  ingredient_id: string | null;
-  component_id: string | null;
-  quantity: number;
-  unit: string;
-  notes: string | null;
-}
-
-interface IngredientOption {
-  id: string;
-  name: string;
-  default_unit: string | null;
-}
-
-interface ComponentOption {
-  id: string;
-  name: string;
-  output_unit: string;
-  status: string;
-}
-
-type LoadResult =
-  | {
-      kind: "data";
-      menuItem: MenuItemRow;
-      recipe: RecipeRow | null;
-      inputs: InputRow[];
-      ingredients: IngredientOption[];
-      components: ComponentOption[];
-      cost: import("@/types/restaurant-costing").MenuItemCostResult | null;
-    }
-  | { kind: "no-company" }
-  | { kind: "not-found" }
-  | { kind: "error" };
-
-async function loadMenuItem(menuItemId: string): Promise<LoadResult> {
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return { kind: "no-company" };
-    const companyId = await resolveCompanyIdForUser(supabase, user.id);
-    if (!companyId) return { kind: "no-company" };
-
-    const [menuItemRes, recipeRes, ingredientsRes, componentsRes] =
-      await Promise.all([
-        supabase
-          .from("menu_items")
-          .select("id, name, category, selling_price, currency, status")
-          .eq("company_id", companyId)
-          .eq("id", menuItemId)
-          .maybeSingle(),
-        (async () => {
-          const full = await supabase
-            .from("recipes")
-            .select(
-              "id, status, serving_quantity, serving_unit, notes, source_type, workbook_cost_total, workbook_computed_cost, workbook_cost_match, workbook_variance_amount, workbook_variance_pct"
-            )
-            .eq("company_id", companyId)
-            .eq("menu_item_id", menuItemId)
-            .maybeSingle();
-          if (
-            full.error &&
-            errorMentionsColumn(full.error, "workbook_cost_total")
-          ) {
-            return supabase
-              .from("recipes")
-              .select(
-                "id, status, serving_quantity, serving_unit, notes, source_type"
-              )
-              .eq("company_id", companyId)
-              .eq("menu_item_id", menuItemId)
-              .maybeSingle();
-          }
-          return full;
-        })(),
-        supabase
-          .from("ingredients")
-          .select("id, name, default_unit")
-          .eq("company_id", companyId)
-          .order("name", { ascending: true }),
-        supabase
-          .from("prepared_components")
-          .select("id, name, output_unit, status")
-          .eq("company_id", companyId)
-          .neq("status", "archived")
-          .order("name", { ascending: true }),
-      ]);
-
-    const menuItem = menuItemRes.data as MenuItemRow | null;
-    if (!menuItem) return { kind: "not-found" };
-
-    const recipe = (recipeRes.data ?? null) as RecipeRow | null;
-
-    let inputs: InputRow[] = [];
-    if (recipe) {
-      const { data } = await supabase
-        .from("menu_recipe_inputs")
-        .select(
-          "id, input_type, ingredient_id, component_id, quantity, unit, notes"
-        )
-        .eq("company_id", companyId)
-        .eq("recipe_id", recipe.id);
-      inputs = (data ?? []) as InputRow[];
-    }
-
-    const catalog = await fetchMenuRecipesData(supabase, companyId, {
-      posRows: [],
-    });
-    const cost =
-      catalog.menuItems.find((row) => row.id === menuItem.id)?.cost ?? null;
-
-    return {
-      kind: "data",
-      menuItem,
-      recipe,
-      inputs,
-      ingredients: (ingredientsRes.data ?? []) as IngredientOption[],
-      components: (componentsRes.data ?? []) as ComponentOption[],
-      cost,
-    };
-  } catch (err) {
-    console.error("[menu/[id]] failed:", err);
-    return { kind: "error" };
-  }
-}
-
-export default async function MenuItemDetailRoute({
+export default async function MenuItemRedirect({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ location?: string }>;
 }) {
-  const { id: menuItemId } = await params;
-  const [{ lang }, result] = await Promise.all([
-    loadRestaurantShellChrome(),
-    loadMenuItem(menuItemId),
-  ]);
-
-  if (result.kind === "not-found") return notFound();
-
-  if (result.kind === "data") {
-    return (
-      <RecipeBuilder
-        menuItem={result.menuItem}
-        recipe={result.recipe}
-        inputs={result.inputs}
-        ingredients={result.ingredients}
-        components={result.components}
-        lang={lang}
-        cost={result.cost}
-        workbook={
-          result.recipe
-            ? {
-                excel_cost: result.recipe.workbook_cost_total ?? null,
-                milton_cost: result.recipe.workbook_computed_cost ?? null,
-                match: result.recipe.workbook_cost_match ?? null,
-                source_type: result.recipe.source_type ?? null,
-                variance_amount: result.recipe.workbook_variance_amount ?? null,
-                variance_pct: result.recipe.workbook_variance_pct ?? null,
-              }
-            : null
-        }
-      />
-    );
+  const [{ id }, { location }] = await Promise.all([params, searchParams]);
+  let producto: number | null = null;
+  const auth = await authAndCompany();
+  if (auth.ok) {
+    const { data } = await auth.supabase
+      .from("pos_product_links")
+      .select("odoo_product_id")
+      .eq("company_id", auth.companyId)
+      .eq("menu_item_id", id)
+      .limit(1);
+    const value = data?.[0]?.odoo_product_id;
+    producto = typeof value === "number" ? value : null;
   }
-  if (result.kind === "no-company") {
-    return (
-      <ComingSoonPage
-        lang={lang}
-        title={t(lang, "Menu item", "Platillo")}
-        icon={BookOpen}
-        tagline={t(
-          lang,
-          "Connect your account to a company to edit recipes.",
-          "Conecta tu cuenta a una empresa para editar recetas."
-        )}
-        description={t(
-          lang,
-          "The recipe builder loads once your account is linked to a company.",
-          "El editor de recetas carga cuando tu cuenta está ligada a una empresa."
-        )}
-        planned={[]}
-        related={[
-          {
-            href: "/dashboard/restaurant/menu",
-            label: t(lang, "Back to Menu", "Volver al menú"),
-          },
-        ]}
-      />
-    );
-  }
-  return (
-    <ComingSoonPage
-      lang={lang}
-      title={t(lang, "Menu item", "Platillo")}
-      icon={BookOpen}
-      tagline={t(
-        lang,
-        "Could not load this menu item.",
-        "No se pudo cargar este platillo."
-      )}
-      description={t(
-        lang,
-        "The detail page hit an error. Refresh and try again.",
-        "La página falló. Recarga e inténtalo de nuevo."
-      )}
-      planned={[]}
-      related={[
-        {
-          href: "/dashboard/restaurant/menu",
-          label: t(lang, "Back to Menu", "Volver al menú"),
-        },
-      ]}
-    />
-  );
+  redirect(recetasHref({ location, vista: "plato", producto }));
 }

@@ -1,7 +1,3 @@
-import {
-  workbookMatchLabel,
-  workbookMismatchReason,
-} from "@/lib/restaurant/cost-workbook/copy";
 import type { SuggestionEvidenceView } from "./evidence";
 import { formatMoneyEs, formatPctLabel } from "./format";
 
@@ -19,13 +15,6 @@ export function isConfirmedHow(value: unknown): value is ConfirmedHow {
   return (
     typeof value === "string" &&
     CONFIRMED_HOW_OPTIONS.some((option) => option.value === value)
-  );
-}
-
-export function confirmedHowLabel(value: string): string {
-  return (
-    CONFIRMED_HOW_OPTIONS.find((option) => option.value === value)?.label ??
-    value
   );
 }
 
@@ -60,29 +49,6 @@ export const TODO_KIND_ACTIONS: Record<TodoKind, string> = {
   reventa: "Elegir qué compras",
   sin_vincular: "Vincular",
 };
-
-export function excelTabSummary(input: {
-  excel_match: "match" | "mismatch" | null;
-  pending: boolean;
-  reasons: readonly string[];
-  currency?: string;
-  milton_cost?: number | null;
-  excel_total?: number | null;
-}): string {
-  if (!input.pending && input.excel_match === "match") {
-    return workbookMatchLabel("es");
-  }
-  const first = input.reasons.find((reason) => reason.trim()) ?? null;
-  if (first) return first;
-  if (input.excel_match === "mismatch") {
-    return workbookMismatchReason(
-      "es",
-      input.excel_total ?? null,
-      input.milton_cost ?? null
-    );
-  }
-  return "Esta pestaña tiene líneas por revisar.";
-}
 
 export function productReason(input: {
   kind: TodoKind;

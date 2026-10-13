@@ -52,17 +52,3 @@ export function matchExistingIngredient(
   if (near) return { kind: "possible", ingredient: near };
   return { kind: "none" };
 }
-
-/** Spanish sentence (tú) shown when a typed price has no catalog item. */
-export function unmatchedIngredientMessage(
-  rawName: string,
-  match: IngredientNameMatch
-): string {
-  if (match.kind === "possible") {
-    return `No encontré «${rawName}» en tus ingredientes. ¿Quisiste decir «${match.ingredient.name}»? Elige ese ingrediente, o crea uno nuevo en Ingredientes, antes de poner un precio.`;
-  }
-  if (match.kind === "ambiguous") {
-    return `Hay más de un ingrediente llamado «${rawName}». Revisa Ingredientes y deja uno antes de poner un precio.`;
-  }
-  return `No encontré «${rawName}» en tus ingredientes. Elige uno de tu lista, o crea uno nuevo en Ingredientes, antes de poner un precio.`;
-}

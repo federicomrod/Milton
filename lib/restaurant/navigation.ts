@@ -192,7 +192,8 @@ export const LEGACY_ROUTE_MAP: readonly MappedLegacyRoute[] = [
   },
   {
     id: "import-costs",
-    href: "/dashboard/restaurant/costs/upload",
+    // The one cost-file upload lives in Recetas y costeo (old URL redirects).
+    href: "/dashboard/restaurant/menu/recetas",
     legacyLabel: "Import Costs",
     area: "data_settings",
     section: "data_sources",
@@ -261,7 +262,8 @@ export const REQUIRED_LEGACY_HREFS: readonly string[] = [
   "/dashboard/restaurant#targets",
   "/dashboard/restaurant/menu",
   "/dashboard/restaurant/ingredients",
-  "/dashboard/restaurant/costs/upload",
+  // Was /costs/upload (that URL now redirects here).
+  "/dashboard/restaurant/menu/recetas",
   "/dashboard/restaurant/suppliers",
   "/dashboard/restaurant/invoices",
   "/dashboard/restaurant/kitchen",
@@ -305,7 +307,7 @@ export function dataSettingsLinkLabel(
     case "ingredients":
       return t(lang, "Ingredients", "Ingredientes");
     case "import-costs":
-      return t(lang, "Import Costs", "Importar costos");
+      return t(lang, "Upload cost file", "Subir Excel de costos");
     case "suppliers":
       return t(lang, "Suppliers", "Proveedores");
     case "supplier-invoices":

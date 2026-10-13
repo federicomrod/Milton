@@ -7,9 +7,8 @@ import {
 } from "@/lib/restaurant/protect-imported-recipe";
 import {
   decideWorkbookCostMatch,
-  handmadeNoLongerComparedNote,
   workbookCostsMatch,
-} from "@/lib/restaurant/cost-workbook";
+} from "@/lib/restaurant/cost-workbook/variance";
 
 describe("protect imported recipes after a hand edit", () => {
   it("treats anything other than import as protected", () => {
@@ -44,9 +43,6 @@ describe("protect imported recipes after a hand edit", () => {
         workbook_cost_match: "match",
       })
     ).toBe(false);
-    expect(handmadeNoLongerComparedNote("es")).toBe(
-      "Editada a mano, ya no se compara con el Excel"
-    );
   });
 });
 

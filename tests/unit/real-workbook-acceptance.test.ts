@@ -9,11 +9,7 @@
 
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
-import {
-  classifyCostTabHeuristic,
-  mapColumnsHeuristic,
-} from "@/lib/restaurant/cost-workbook/ai";
-import { importCostWorkbook } from "@/lib/restaurant/cost-workbook";
+import { resetCompanyCostData } from "@/lib/restaurant/cost-workbook";
 import {
   applyPriceCatalog,
   planCatalog,
@@ -34,7 +30,6 @@ import {
   readXlsxWorkbook,
 } from "@/lib/restaurant/cost-workbook/sheets";
 import { convertUnitPriceStr } from "@/lib/restaurant/units";
-import type { WorkbookAi } from "@/lib/restaurant/cost-workbook";
 import { buildPosProductList } from "@/lib/restaurant/pos-product-list";
 import { unlinkedPosProduct } from "@/lib/restaurant/pos-product-links";
 import { suggestTreatment } from "@/lib/restaurant/pos-treatments";
@@ -55,63 +50,7 @@ function plainName(value: string): string {
     .trim();
 }
 
-// Offline stand-in for the AI step: heuristics only, no network.
-const heuristicAi: WorkbookAi = {
-  proposeRecipe: async () => "sin sugerencia",
-  classifyTab: async (input) => classifyCostTabHeuristic(input),
-  mapColumns: async (input) => mapColumnsHeuristic(input),
-};
-
 describe.skipIf(!path)("real workbook acceptance (aggregates only)", () => {
-  it("never creates an ingredient from a recipe line", async () => {
-    const store = emptyMemoryStore();
-    const result = await importCostWorkbook({
-      companyId: "co-real",
-      filename: "real-workbook.xlsx",
-      buffer: readFileSync(path as string),
-      currency: "USD",
-      repo: createMemoryCostWorkbookRepo(store),
-      ai: heuristicAi,
-      lang: "es",
-    });
-
-    const reasons = result.review_items.map((item) => item.reason);
-    const held = reasons.filter((r) => r.startsWith("Posible coincidencia"));
-    const unknownLine = reasons.filter((r) =>
-      /no conozco|desconocid|unknown ingredient/i.test(r)
-    );
-    const unsureLine = reasons.filter((r) => /no estoy seguro de si/.test(r));
-    const tabTypes: Record<string, number> = {};
-    for (const tab of result.tabs) {
-      tabTypes[tab.type] = (tabTypes[tab.type] ?? 0) + 1;
-    }
-
-    const aggregates = {
-      tabs: result.tab_count,
-      tab_types: tabTypes,
-      ingredients_in_catalog: store.ingredients.length,
-      ingredients_with_price_entry: new Set(
-        store.costEntries.map((entry) => entry.ingredient_id)
-      ).size,
-      saved_price_rows: result.saved_count,
-      review_rows: result.review_count,
-      skipped_rows: result.skipped_count,
-      price_rows_held_as_possible_match: held.length,
-      recipe_lines_unknown_name: unknownLine.length,
-      recipe_lines_unsure_name: unsureLine.length,
-      dishes_imported: result.menu_items_created,
-      recipes_imported: result.recipes_created,
-      sub_recipes_imported: result.sub_recipes_created,
-    };
-    console.log("REAL-FILE AGGREGATES " + JSON.stringify(aggregates));
-
-    // Every ingredient in the catalog must be backed by a price row from
-    // a price list, never by a recipe line.
-    expect(aggregates.ingredients_in_catalog).toBe(
-      aggregates.ingredients_with_price_entry
-    );
-  });
-
   it("reads the price list, finds conflicts, and saves only a reviewed catalog", async () => {
     const buffer = readFileSync(path as string);
     const { read, observations } = readCatalogFromBuffer(buffer);
@@ -903,5 +842,115 @@ describe.skipIf(!path)("real workbook acceptance (aggregates only)", () => {
     };
     expect(saved.saved).toBeGreaterThan(0);
     console.log("REAL-FILE UPLOAD " + JSON.stringify(totals));
+  });
+
+  it("Empezar de nuevo (PR C): after a reset, a fresh upload behaves like the first one", async () => {
+    const buffer = readFileSync(path as string);
+    const store = emptyMemoryStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const ai = {
+      classifyTab: async () => ({ type: "ignore" as const, confidence: 0.2 }),
+      mapColumns: async () => ({}),
+      proposeRecipe: async (
+        product: { odoo_product_id: number; odoo_name: string },
+        candidates: Parameters<
+          typeof proposeRecipeHeuristic
+        >[0]["candidateBlocks"]
+      ) => proposeRecipeHeuristic({ product, candidateBlocks: candidates }),
+    };
+
+    // One full pass: upload (nothing answered), then prepare every dish.
+    async function uploadAndPrepare() {
+      const { read, observations, blocks } = readCatalogFromBuffer(buffer);
+      const saved = await applyPriceCatalog({
+        repo,
+        companyId: "co-real",
+        userId: "u-real",
+        currency: "USD",
+        filename: "real-workbook.xlsx",
+        read: read!,
+        observations,
+        decisions: {},
+        candidateBlocks: blocks,
+      });
+      const stored = expandCandidateBlocks(
+        findRecipeSource(store.batches)!.blocks
+      );
+      const products = stored
+        .filter((b) => b.kind === "recipe")
+        .map((block, index) => ({
+          odoo_product_id: index + 1,
+          odoo_name: block.name,
+          net_sales: 1000 - index,
+        }));
+      let drafts = 0;
+      let preparations = 0;
+      for (let offset = 0; offset < products.length; offset += 5) {
+        const r = await runRecipeSuggestions({
+          companyId: "co-real",
+          products,
+          candidateBlocks: stored,
+          repo,
+          ai,
+          currency: "USD",
+          filename: "real-workbook.xlsx",
+          limit: 5,
+          offset,
+          lang: "es",
+        });
+        drafts += r.suggested;
+        preparations += r.preparations?.created ?? 0;
+      }
+      return {
+        ingredients: store.ingredients.length,
+        prices_saved: saved.saved,
+        preparations_created: preparations,
+        dish_drafts_created: drafts,
+        review_rows: store.reviewItems.length,
+        pos_links: store.posProductLinks.length,
+        recipe_versions: store.recipeVersions.length,
+      };
+    }
+
+    const first = await uploadAndPrepare();
+    const summary = await resetCompanyCostData(repo, "co-real");
+    expect(summary.ok).toBe(true);
+    const left = {
+      ingredients: store.ingredients.length,
+      cost_entries: store.costEntries.length,
+      preparations: store.components.length,
+      recipes: store.recipes.length,
+      recipe_versions: store.recipeVersions.length,
+      menu_items: store.menuItems.length,
+      pos_links: store.posProductLinks.length,
+      aliases: store.aliases.length,
+      review_rows: store.reviewItems.length,
+      live_uploads: store.batches.filter((b) => !b.undone_at).length,
+    };
+    expect(Object.values(left).every((n) => n === 0)).toBe(true);
+    // Uploads stay as an archive, never read again as a recipe source.
+    expect(store.batches.length).toBeGreaterThan(0);
+    expect(findRecipeSource(store.batches)).toBeNull();
+
+    const second = await uploadAndPrepare();
+    expect(second).toEqual(first);
+    console.log(
+      "REAL-FILE RESET " +
+        JSON.stringify({
+          first_run: first,
+          reset_summary: {
+            ingredients: summary.ingredients,
+            cost_entries: summary.cost_entries,
+            recipes: summary.recipes,
+            preparations: summary.components,
+            pos_links: summary.pos_product_links,
+            costing_menu_items: summary.costing_menu_items,
+            review_rows: summary.review_items,
+            uploads_archived: summary.batches_marked_undone,
+          },
+          left_after_reset: left,
+          second_run_identical: true,
+        })
+    );
   });
 });

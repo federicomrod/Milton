@@ -1,7 +1,5 @@
-import { workbookMatchLabel } from "@/lib/restaurant/cost-workbook/copy";
 import type { SuggestionEvidenceView, SuggestionLineView } from "./evidence";
 import { formatMoneyEs, formatPctLabel, lineCostDisplay } from "./format";
-import { excelTabSummary } from "./copy";
 
 export interface ReviewLineView {
   source_row: number | null;
@@ -36,14 +34,6 @@ export interface ReviewItemView {
   milton_cost_label: string | null;
   excel_total_label: string | null;
   lines: ReviewLineView[];
-}
-
-export interface ReviewTabView {
-  tab: string;
-  summary: string;
-  cuadra_con_excel: boolean;
-  item_count: number;
-  items: ReviewItemView[];
 }
 
 export function isUncertainEvidence(evidence: SuggestionEvidenceView): boolean {
@@ -113,95 +103,10 @@ export function toReviewLine(
     flags: line.flags,
     reasons: line.reasons,
     is_sub_recipe: Boolean(line.sub_recipe_match),
-    source_note: Boolean(line.sub_recipe_match)
+    source_note: line.sub_recipe_match
       ? "Preparación"
       : (line.reasons.find((reason) =>
           /compra|proveedor|oct|sep|nov|dic/i.test(reason)
         ) ?? null),
   };
-}
-
-export function groupUncertainByTab(
-  items: readonly ReviewItemView[]
-): ReviewTabView[] {
-  const byTab = new Map<string, ReviewItemView[]>();
-  for (const item of items) {
-    const tab = item.tab.trim() || "Sin pestaña";
-    const list = byTab.get(tab) ?? [];
-    list.push(item);
-    byTab.set(tab, list);
-  }
-  return [...byTab.entries()]
-    .map(([tab, tabItems]) => {
-      const pending = tabItems.some((item) => item.pending);
-      const reasons = tabItems.flatMap((item) =>
-        item.reason ? [item.reason] : []
-      );
-      const excelMatch = tabItems.every((item) => item.excel_match === "match")
-        ? "match"
-        : tabItems.some((item) => item.excel_match === "mismatch")
-          ? "mismatch"
-          : null;
-      const cuadra = !pending && excelMatch === "match";
-      return {
-        tab,
-        summary: cuadra
-          ? workbookMatchLabel("es")
-          : excelTabSummary({
-              excel_match: excelMatch,
-              pending,
-              reasons,
-            }),
-        cuadra_con_excel: cuadra,
-        item_count: tabItems.length,
-        items: tabItems,
-      };
-    })
-    .sort((a, b) => a.tab.localeCompare(b.tab, "es"));
-}
-
-export function applyInlineLineFix(
-  line: SuggestionLineView,
-  fix: {
-    unit?: string;
-    quantity?: number;
-    unit_cost?: number;
-  }
-): SuggestionLineView {
-  const next: SuggestionLineView = { ...line, flags: [...line.flags] };
-  if (typeof fix.unit === "string" && fix.unit.trim()) {
-    next.unit = fix.unit.trim();
-    next.flags = next.flags.filter((flag) => flag !== "pendiente_unidad");
-    next.reasons = next.reasons.filter(
-      (reason) => !/unidad|unit/i.test(reason)
-    );
-  }
-  if (
-    typeof fix.quantity === "number" &&
-    Number.isFinite(fix.quantity) &&
-    fix.quantity > 0
-  ) {
-    next.qty = fix.quantity;
-  }
-  if (
-    typeof fix.unit_cost === "number" &&
-    Number.isFinite(fix.unit_cost) &&
-    fix.unit_cost > 0
-  ) {
-    next.unit_cost = fix.unit_cost;
-    next.flags = next.flags.filter((flag) => flag !== "pendiente_costo");
-    next.reasons = next.reasons.filter(
-      (reason) => !/costo|precio|No puse \$0/i.test(reason)
-    );
-  }
-  next.pending =
-    next.flags.includes("pendiente_unidad") ||
-    next.flags.includes("pendiente_costo") ||
-    next.flags.includes("pendiente_sub_receta") ||
-    next.unit_cost == null;
-  if (!next.pending) {
-    next.flags = next.flags.filter((flag) => flag.startsWith("pendiente_"));
-    if (!next.flags.includes("ok")) next.flags.push("ok");
-  }
-  return next;
 }

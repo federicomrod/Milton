@@ -17,9 +17,6 @@ import {
 export const CONFIRM_LINK_ERROR =
   "Solo una persona puede marcar el vínculo como Confirmado. Indica quién, cuándo y cómo.";
 
-export const UNDO_CONFIRM_ERROR =
-  "Solo puedes deshacer un vínculo Confirmado. Las recetas Aprobadas y los precios manuales no se tocan.";
-
 export const UNDO_NOT_CONFIRMED_ERROR =
   "Este vínculo no está Confirmado, no hay nada que deshacer.";
 
@@ -181,16 +178,4 @@ export function undoConfirmedLinkResult(
       evidence: evidenceWithoutUndo(base.evidence),
     },
   };
-}
-
-export function undoTouchesApprovedOrManual(input: {
-  recipe_status?: string | null;
-  recipe_source_type?: string | null;
-  cost_source_type?: string | null;
-}): boolean {
-  return (
-    input.recipe_status === "approved" ||
-    input.recipe_source_type === "manual" ||
-    input.cost_source_type === "manual"
-  );
 }

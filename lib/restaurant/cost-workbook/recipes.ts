@@ -1,9 +1,4 @@
 import type { PreferredLanguage } from "@/lib/restaurant/language";
-import {
-  convertUnitStr,
-  normalizeUnit,
-  resolveUnitCell,
-} from "@/lib/restaurant/units";
 import { inspectCostImportNumber } from "@/lib/restaurant/cost-import";
 import { numberAt, textAt } from "./cells";
 import {
@@ -11,7 +6,6 @@ import {
   missingIngredientNameReason,
   missingUnitReason,
   positiveQuantityReason,
-  yieldUnknownForReason,
 } from "./copy";
 import { recipeNameFromSheet } from "./names";
 import { resolveRecipeLineUnit } from "./portion-unit";
@@ -23,59 +17,6 @@ import type {
   ReviewCandidate,
   SkipCandidate,
 } from "./types";
-
-export function resolveSubRecipeYield(
-  group: GroupedRecipe,
-  lang: PreferredLanguage = "en"
-):
-  | { ok: true; quantity: number; unit: string }
-  | { ok: false; reason: string } {
-  const mappedQty = group.output_quantity;
-  const mappedUnit = group.output_unit?.trim() ?? "";
-  if (group.block_layout && (mappedQty == null || !mappedUnit)) {
-    return {
-      ok: false,
-      reason: yieldUnknownForReason(lang, group.name),
-    };
-  }
-  if (mappedQty != null && mappedQty > 0 && mappedUnit) {
-    const resolved = resolveUnitCell(mappedUnit, lang);
-    if (!resolved.ok) {
-      return {
-        ok: false,
-        reason: `${yieldUnknownForReason(lang, group.name)} (${resolved.reason})`,
-      };
-    }
-    return {
-      ok: true,
-      quantity: mappedQty * resolved.quantityMultiplier,
-      unit: resolved.quantityMultiplier !== 1 ? resolved.unit : mappedUnit,
-    };
-  }
-
-  const summed = sumCompatibleLineYield(group.lines);
-  if (summed) return { ok: true, ...summed };
-  return {
-    ok: false,
-    reason: yieldUnknownForReason(lang, group.name),
-  };
-}
-
-function sumCompatibleLineYield(
-  lines: RecipeLineCandidate[]
-): { quantity: number; unit: string } | null {
-  if (lines.length === 0) return null;
-  const target = normalizeUnit(lines[0].unit);
-  if (!target) return null;
-  let quantity = 0;
-  for (const line of lines) {
-    const converted = convertUnitStr(line.quantity, line.unit, target);
-    if (!converted.ok) return null;
-    quantity += converted.value;
-  }
-  if (quantity <= 0) return null;
-  return { quantity, unit: target };
-}
 
 export function evaluateRecipeLine(input: {
   tabName: string;

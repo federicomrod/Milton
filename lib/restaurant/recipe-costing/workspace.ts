@@ -28,13 +28,7 @@ import {
   type EvidenceCheckItem,
   type ProductKindLabel,
 } from "./display";
-import {
-  formatMoneyEs,
-  formatPctLabel,
-  lineCostDisplay,
-  round1,
-  shareToPct,
-} from "./format";
+import { formatMoneyEs, formatPctLabel, round1, shareToPct } from "./format";
 import {
   COSTING_FOOTERS,
   TODO_KIND_ACTIONS,
@@ -47,11 +41,9 @@ import {
 } from "./copy";
 import { buildApprovalChecklist, type ApprovalChecklist } from "./approval";
 import {
-  groupUncertainByTab,
   isUncertainEvidence,
   toReviewLine,
   type ReviewItemView,
-  type ReviewTabView,
 } from "./review";
 
 export type RecipeCostingView =
@@ -72,12 +64,6 @@ export interface PlatoQueueRow {
   status_label: string;
   status_tone: ChipTone;
 }
-
-export type VincularFilter =
-  | "todos"
-  | "por_resolver"
-  | "confirmados"
-  | "combos_otros";
 
 export interface CoverageSlice {
   id: "aprobado" | "por_revisar" | "sin_vincular";
@@ -167,7 +153,6 @@ export interface VincularProductRow {
   evidence_checks: EvidenceCheckItem[];
   confirmed: boolean;
   can_undo: boolean;
-  filter_bucket: VincularFilter | "todos";
   action_label: string;
   can_confirm_suggestion: boolean;
   suggestion_bound: boolean;
@@ -241,13 +226,10 @@ export interface RecipeCostingWorkspace {
   }>;
   who_approves: string;
   products: VincularProductRow[];
-  filter_counts: Record<VincularFilter, number>;
-  review_tabs: ReviewTabView[];
   menu_items: Array<{ id: string; name: string }>;
   batches: SuggestionBatchRow[];
   selected: VincularProductRow | null;
   editor: RecipeEditorView | null;
-  menu_costeado: boolean;
   footer: string;
   combo_sync_hint: string | null;
   latest_upload: {
@@ -256,6 +238,8 @@ export interface RecipeCostingWorkspace {
     created_at: string | null;
     has_candidate_blocks: boolean;
   } | null;
+  /** "Empezar de nuevo": owner/admin only; what to type to confirm. */
+  reset: { prompt: string; warning: string | null } | null;
   costeado_stats: {
     approved_prepared: number;
     excluded: number;
@@ -410,22 +394,6 @@ export function classifyTodoKind(input: {
   return "por_revisar";
 }
 
-export function matchesVincularFilter(
-  row: VincularProductRow,
-  filter: VincularFilter
-): boolean {
-  if (filter === "todos") return true;
-  if (filter === "confirmados") return row.confirmed;
-  if (filter === "combos_otros") {
-    return row.is_combo || !TREATMENT_RULES[row.treatment].needs_recipe;
-  }
-  return (
-    !row.confirmed &&
-    !row.is_combo &&
-    TREATMENT_RULES[row.treatment].needs_recipe
-  );
-}
-
 function coverageSlices(
   products: readonly RankedPosProduct[]
 ): CoverageSlice[] {
@@ -497,6 +465,7 @@ export function buildRecipeCostingWorkspace(input: {
   lastProgress?: string | null;
   comboSyncHint?: string | null;
   latestUpload?: RecipeCostingWorkspace["latest_upload"];
+  reset?: RecipeCostingWorkspace["reset"];
   timings?: RecipeCostingWorkspace["timings"];
 }): RecipeCostingWorkspace {
   const currency = input.currency || "USD";
@@ -610,11 +579,6 @@ export function buildRecipeCostingWorkspace(input: {
       }),
       confirmed: product.link_state === "confirmado",
       can_undo: product.link_state === "confirmado",
-      filter_bucket: product.is_combo
-        ? "combos_otros"
-        : product.link_state === "confirmado"
-          ? "confirmados"
-          : "por_resolver",
       action_label: vincularActionLabel({
         confirmed: product.link_state === "confirmado",
         is_combo: product.is_combo,
@@ -761,7 +725,6 @@ export function buildRecipeCostingWorkspace(input: {
     row.rank = index + 1;
   });
 
-  const reviewTabs = groupUncertainByTab(reviewItems);
   const slices = coverageSlices(input.products);
   // "Continuar": the next dish to do in Plato por plato (sales order).
   const nextPlato =
@@ -787,14 +750,7 @@ export function buildRecipeCostingWorkspace(input: {
           : [],
         currency,
       })
-    : reviewItems[0]
-      ? buildEditorFromReview(
-          reviewItems[0],
-          products,
-          versionsByMenu,
-          currency
-        )
-      : null;
+    : null;
   if (editor && input.view === "plato") {
     // Next dish still to do, in sales order after this one (wrapping).
     const order = platoQueue.map((row) => row.odoo_product_id);
@@ -829,19 +785,6 @@ export function buildRecipeCostingWorkspace(input: {
     unresolved === 0 && reviewItems.length === 0 && input.products.length > 0;
   const view: RecipeCostingView =
     menuCosteado && input.view === "resumen" ? "menu-costeado" : input.view;
-
-  const filter_counts: Record<VincularFilter, number> = {
-    todos: products.length,
-    por_resolver: products.filter((row) =>
-      matchesVincularFilter(row, "por_resolver")
-    ).length,
-    confirmados: products.filter((row) =>
-      matchesVincularFilter(row, "confirmados")
-    ).length,
-    combos_otros: products.filter((row) =>
-      matchesVincularFilter(row, "combos_otros")
-    ).length,
-  };
 
   const allNet = input.products.reduce((sum, p) => sum + p.net_sales, 0);
   const classificationRows: ClassificationRow[] = (
@@ -980,18 +923,16 @@ export function buildRecipeCostingWorkspace(input: {
     })),
     who_approves: whoApprovesNote(input.companyName),
     products,
-    filter_counts,
-    review_tabs: reviewTabs,
     menu_items: [...input.menuItems].sort((a, b) =>
       a.name.localeCompare(b.name, "es")
     ),
     batches: input.batches.filter((batch) => batch.can_undo),
     selected,
     editor,
-    menu_costeado: menuCosteado,
     footer: COSTING_FOOTERS[view],
     combo_sync_hint: input.comboSyncHint ?? null,
     latest_upload: input.latestUpload ?? null,
+    reset: input.reset ?? null,
     costeado_stats: {
       approved_prepared: approvedDishes,
       excluded: input.products.filter(
@@ -1051,92 +992,6 @@ function buildEditorView(input: {
     recipe_status: recipeStatusOf(latest),
     currency: input.currency,
   });
-}
-
-function buildEditorFromReview(
-  item: ReviewItemView,
-  products: readonly VincularProductRow[],
-  versionsByMenu: Map<string, WorkspaceVersion[]>,
-  currency: string
-): RecipeEditorView {
-  const product =
-    products.find((row) => row.odoo_product_id === item.odoo_product_id) ??
-    null;
-  if (product) {
-    return buildEditorView({
-      product,
-      versions: product.menu_item_id
-        ? (versionsByMenu.get(product.menu_item_id) ?? [])
-        : [],
-      currency,
-    });
-  }
-  return {
-    odoo_product_id: item.odoo_product_id,
-    odoo_name: item.odoo_name,
-    menu_item_id: item.menu_item_id,
-    recipe_version_id: item.recipe_version_id,
-    version_label: "Borrador",
-    link_state: null,
-    recipe_status: "borrador",
-    excel_match: item.excel_match,
-    category: null,
-    pos_price_label: null,
-    units_label: null,
-    share_label: "",
-    margin_label: null,
-    margin_hint: null,
-    excel_row_label: item.filename
-      ? `${item.filename} › hoja ${item.tab}`
-      : item.tab,
-    milton_cost_label: item.milton_cost_label,
-    excel_total_label: item.excel_total_label,
-    variance_note: item.reason,
-    checklist: buildApprovalChecklist({
-      link_state: null,
-      odoo_name: item.odoo_name,
-      odoo_product_id: item.odoo_product_id,
-      evidence: {
-        tab: item.tab,
-        block_name: item.block_name,
-        confidence: null,
-        evidence_text: null,
-        source: null,
-        yield: { value: null, unit: null, source: null },
-        excel_total: null,
-        milton_cost: null,
-        excel_match: item.excel_match,
-        variance_amount: null,
-        variance_pct: null,
-        status: "borrador",
-        pending: item.pending,
-        reasons: item.reason ? [item.reason] : [],
-        lines: item.lines.map((line) => ({
-          source_row: line.source_row,
-          raw_name: line.raw_name,
-          ingredient_match: null,
-          sub_recipe_match: line.is_sub_recipe ? line.raw_name : null,
-          qty: line.qty,
-          unit: line.unit,
-          unit_cost: line.unit_cost,
-          flags: line.flags,
-          pending: line.pending,
-          reasons: line.reasons,
-        })),
-        recipe_version_id: item.recipe_version_id,
-        filename: item.filename,
-      },
-    }),
-    lines: item.lines,
-    yield_value: null,
-    yield_unit: null,
-    yield_assumed: false,
-    yield_note: null,
-    portion_cost_label: item.milton_cost_label,
-    review_index: null,
-    review_total: 0,
-    next_odoo_product_id: null,
-  };
 }
 
 function editorFromEvidence(input: {
@@ -1302,12 +1157,3 @@ function platoProgress(queue: readonly PlatoQueueRow[]) {
     label: `${done} de ${queue.length} platos aprobados`,
   };
 }
-
-export function lineCostIsPending(
-  label: string,
-  amount: number | null
-): boolean {
-  return label === "Pendiente" || amount == null;
-}
-
-void lineCostDisplay;

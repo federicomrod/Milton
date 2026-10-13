@@ -46,10 +46,6 @@ export const PRECIO_UNIT_RE =
 export const PRECIO_VENTA_RE = /^precio\s+de\s+venta(\s+sin\s+iva)?$/i;
 export const MARGEN_RE = /^margen\s+de\s+contribuci[oó]n$/i;
 export const HASH_FILL_RE = /^#+$/;
-export const TOTAL_MISMATCH_REASON = totalMismatchReason("es");
-export const YIELD_INCONSISTENT_REASON = yieldInconsistentReason("es");
-export const YIELD_UNKNOWN_REASON = yieldUnknownReason("es");
-export const YIELD_ASSUMED_REASON = assumedYieldReason("es");
 
 const YIELD_TOLERANCE = 0.05;
 const TOTAL_ABS_TOLERANCE = 0.03;

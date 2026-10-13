@@ -571,14 +571,29 @@ async function loadImportMenuAndMappingIds(
       .select("id, source_type")
       .eq("company_id", companyId);
     if (menus.error) throw new Error(menus.error.message);
-    const importMenuIds = (
-      (menus.data ?? []) as Array<{ id: string; source_type: string | null }>
-    )
-      .filter((row) => row.source_type === "import")
+    // Menu items the costing flow created: imported ones, and any a POS
+    // product link points at (made from Plato por plato or a suggestion).
+    const linked = await supabase
+      .from("pos_product_links")
+      .select("menu_item_id")
+      .eq("company_id", companyId)
+      .not("menu_item_id", "is", null);
+    if (linked.error) throw new Error(linked.error.message);
+    const linkedIds = new Set(
+      ((linked.data ?? []) as Array<{ menu_item_id: string | null }>)
+        .map((row) => row.menu_item_id)
+        .filter((id): id is string => typeof id === "string")
+    );
+    const allMenus = (menus.data ?? []) as Array<{
+      id: string;
+      source_type: string | null;
+    }>;
+    const importMenuIds = allMenus
+      .filter(
+        (row) => row.source_type === "import" || linkedIds.has(String(row.id))
+      )
       .map((row) => String(row.id));
-    const keptManualMenuItems = (
-      (menus.data ?? []) as Array<{ source_type: string | null }>
-    ).filter((row) => row.source_type !== "import").length;
+    const keptManualMenuItems = allMenus.length - importMenuIds.length;
 
     const mappings = await supabase
       .from("pos_item_mappings")
@@ -629,6 +644,10 @@ async function loadImportMenuAndMappingIds(
   }
 }
 
+function asSchemaError(err: unknown): { message: string } {
+  return { message: err instanceof Error ? err.message : String(err) };
+}
+
 async function resetSupabaseCompanyCostCatalog(
   supabase: SupabaseClient,
   companyId: string
@@ -668,7 +687,23 @@ async function resetSupabaseCompanyCostCatalog(
         });
         return importPosMappings;
       }
-      case "import_menu_items": {
+      case "pos_product_links":
+        return deleteCompanyRows(supabase, "pos_product_links", companyId);
+      case "ingredient_aliases":
+        try {
+          return await deleteCompanyRows(
+            supabase,
+            "ingredient_aliases",
+            companyId
+          );
+        } catch (err) {
+          // Before migration 039 there is no alias table: nothing to clear.
+          if (errorMentionsColumn(asSchemaError(err), "ingredient_aliases")) {
+            return 0;
+          }
+          throw err;
+        }
+      case "costing_menu_items": {
         if (loaded.loadError) throw new Error(loaded.loadError);
         let importMenuItems = 0;
         await mapChunks(loaded.importMenuIds, async (chunk) => {
@@ -676,7 +711,6 @@ async function resetSupabaseCompanyCostCatalog(
             .from("menu_items")
             .delete()
             .eq("company_id", companyId)
-            .eq("source_type", "import")
             .in("id", chunk)
             .select("id");
           if (error) throw new Error(error.message);

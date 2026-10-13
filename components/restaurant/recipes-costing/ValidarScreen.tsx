@@ -1,11 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   RecipeCostingWorkspace,
   RecipeEditorView,
 } from "@/lib/restaurant/recipe-costing/workspace";
 import { Card, Chip, DarkBtn, GhostBtn } from "./ui";
+
+interface IngredientOption {
+  id: string;
+  name: string;
+  default_unit: string | null;
+  current_unit_cost: number | null;
+  currency: string | null;
+}
 
 export function ValidarScreen({
   data,
@@ -96,10 +104,40 @@ function Editor({
   onSubmit: () => void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [ingredients, setIngredients] = useState<IngredientOption[]>([]);
+  const [loadingIngredients, setLoadingIngredients] = useState(false);
+  const [selectedIngredientId, setSelectedIngredientId] = useState<string>("");
   const [newName, setNewName] = useState("");
   const [newQty, setNewQty] = useState("1");
   const [newUnit, setNewUnit] = useState("g");
   const [saved, setSaved] = useState(false);
+
+  // Fetch ingredients when adding mode is activated
+  useEffect(() => {
+    if (!adding || ingredients.length > 0) return;
+    setLoadingIngredients(true);
+    fetch("/api/restaurant/ingredients", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setIngredients(data as IngredientOption[]);
+        }
+      })
+      .catch(() => setIngredients([]))
+      .finally(() => setLoadingIngredients(false));
+  }, [adding, ingredients.length]);
+
+  // Update unit and name when an ingredient is selected
+  const handleIngredientSelect = (ingredientId: string) => {
+    setSelectedIngredientId(ingredientId);
+    const ingredient = ingredients.find((i) => i.id === ingredientId);
+    if (ingredient) {
+      setNewName(ingredient.name);
+      if (ingredient.default_unit) {
+        setNewUnit(ingredient.default_unit);
+      }
+    }
+  };
 
   return (
     <div>
@@ -157,12 +195,35 @@ function Editor({
           </div>
           {adding ? (
             <div className="mb-2 flex flex-wrap items-center gap-2 rounded-[10px] border border-[#f5c98b] bg-[#fff8ec] p-2">
-              <input
-                value={newName}
-                onChange={(event) => setNewName(event.target.value)}
-                placeholder="Ingrediente"
-                className="rounded-md border border-[#d5dae3] bg-white px-2 py-1 text-xs"
-              />
+              {loadingIngredients ? (
+                <span className="text-xs text-[#8a92a3]">
+                  Cargando ingredientes...
+                </span>
+              ) : ingredients.length > 0 ? (
+                <select
+                  value={selectedIngredientId}
+                  onChange={(event) => handleIngredientSelect(event.target.value)}
+                  className="min-w-[200px] rounded-md border border-[#d5dae3] bg-white px-2 py-1 text-xs"
+                >
+                  <option value="">Selecciona un ingrediente</option>
+                  {ingredients.map((ingredient) => (
+                    <option key={ingredient.id} value={ingredient.id}>
+                      {ingredient.name}
+                      {ingredient.default_unit ? ` (${ingredient.default_unit})` : ""}
+                      {ingredient.current_unit_cost != null
+                        ? ` · $${ingredient.current_unit_cost.toFixed(2)}`
+                        : " · sin precio"}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={newName}
+                  onChange={(event) => setNewName(event.target.value)}
+                  placeholder="Ingrediente (no hay ingredientes en el catálogo)"
+                  className="min-w-[200px] rounded-md border border-[#d5dae3] bg-white px-2 py-1 text-xs"
+                />
+              )}
               <input
                 value={newQty}
                 onChange={(event) => setNewQty(event.target.value)}
@@ -184,10 +245,21 @@ function Editor({
                     add_line: true,
                   });
                   setNewName("");
+                  setSelectedIngredientId("");
                   setAdding(false);
                 }}
               >
                 Agregar
+              </GhostBtn>
+              <GhostBtn
+                disabled={busy}
+                onClick={() => {
+                  setAdding(false);
+                  setNewName("");
+                  setSelectedIngredientId("");
+                }}
+              >
+                Cancelar
               </GhostBtn>
             </div>
           ) : null}

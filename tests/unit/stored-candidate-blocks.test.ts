@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRecipeSuggestionWorkbook } from "@/tests/fixtures/cost-workbook-los-ranchos";
+import { buildRecipeSuggestionWorkbook } from "@/tests/fixtures/cost-workbook-synthetic";
 import {
   collectWorkbookCandidateBlocks,
   compactCandidateBlocks,

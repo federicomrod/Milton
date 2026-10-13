@@ -2,14 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
   createSupabaseCostWorkbookRepo,
-  PICK_RESTAURANT_ERROR_ES,
   RESET_FAILED_ERROR_ES,
   RESET_FORBIDDEN_ERROR_ES,
   RESET_PARTIAL_ERROR_ES,
   resetCompanyCostData,
   resetConfirmErrorEs,
   resetConfirmationAccepted,
-  resolveUploadRestaurantScope,
 } from "@/lib/restaurant/cost-workbook";
 import {
   loadCompanyMembershipRole,
@@ -57,6 +55,8 @@ export async function POST(req: NextRequest) {
     body = {};
   }
 
+  // The reset is company-wide: no restaurant has to be picked. The typed
+  // confirmation (company name, or every restaurant's name) is the guard.
   const requestedLocationId =
     typeof body.location_id === "string" ? body.location_id : null;
   const restaurantContext = await resolveRestaurantContext(
@@ -64,19 +64,6 @@ export async function POST(req: NextRequest) {
     auth.companyId,
     requestedLocationId
   );
-  const scope = resolveUploadRestaurantScope({
-    locations: restaurantContext.locations,
-    requestedLocationId,
-  });
-  if (!scope.ok) {
-    return NextResponse.json(
-      {
-        error: PICK_RESTAURANT_ERROR_ES,
-        code: scope.code,
-      },
-      { status: 400 }
-    );
-  }
 
   let companyName: string | null = null;
   try {
@@ -112,7 +99,6 @@ export async function POST(req: NextRequest) {
           reset: false,
           ok: false,
           error: RESET_PARTIAL_ERROR_ES,
-          restaurant_name: scope.name,
           summary,
           steps: summary.steps,
         },
@@ -122,7 +108,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       reset: true,
       ok: true,
-      restaurant_name: scope.name,
       summary,
       steps: summary.steps,
     });

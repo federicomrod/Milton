@@ -132,15 +132,15 @@ export function buildSyntheticCostWorkbook(): XLSX.WorkBook {
       11: ["PIMIENTA", "GRAMO", 0, 0.01, { v: 0, f: "+E11*D11" }],
       12: ["QUESO DE PRUEBA", "ONZA", 1, ERROR, ERROR],
       13: ["COSTO TOTAL", null, null, null, { v: 3.203, f: "SUM(F8:G12)" }],
-      14: ["PRECIO DE VENTA SIN IVA", null, null, null, price(19.99)],
-      15: ["MARGEN DE CONTRIBUCION", null, null, null, 14.487],
+      14: ["PRECIO DE VENTA SIN IVA", null, null, null, price(14.5)],
+      15: ["MARGEN DE CONTRIBUCION", null, null, null, 9.629],
       18: ["COSTO RESTAURANTE"],
       19: ["ASADO DE PRUEBA 8"],
       20: HEADER,
-      21: ["ASADO DE RES", "ONZA", 8, 0.55, { v: 4.4, f: "+E21*D21" }],
+      21: ["ASADO DE RES", "ONZA", 8, 0.56, { v: 4.48, f: "+E21*D21" }],
       22: ["ACEITE", "ONZA", 1, 0.08, { v: 0.08, f: "+E22*D22" }],
-      23: ["COSTO TOTAL", null, null, null, { v: 4.4, f: "SUM(F21:G21)" }],
-      24: ["PRECIO DE VENTA SIN IVA", null, null, null, price(23.99)],
+      23: ["COSTO TOTAL", null, null, null, { v: 4.48, f: "SUM(F21:G21)" }],
+      24: ["PRECIO DE VENTA SIN IVA", null, null, null, price(17.25)],
     }),
     "DE LA PARRILLA"
   );
@@ -154,7 +154,7 @@ export function buildSyntheticCostWorkbook(): XLSX.WorkBook {
       8: ["ASADO DE RES", "LIBRA", 1, 8, { v: 8, f: "+E8*D8" }],
       9: ["CONVOY", "UNIIDAD", 1, 0.9, { v: 0.9, f: "+E9*D9" }],
       10: ["COSTO TOTAL", null, null, null, { v: 8.9, f: "SUM(F8:G9)" }],
-      11: ["PRECIO DE VENTA SIN IVA", null, null, null, price(48.99)],
+      11: ["PRECIO DE VENTA SIN IVA", null, null, null, price(31.5)],
     }),
     "PARRILLADAS"
   );
@@ -167,7 +167,7 @@ export function buildSyntheticCostWorkbook(): XLSX.WorkBook {
       7: HEADER,
       8: ["ASADO DE RES", "ONZA", 6, 0.5, { v: 3, f: "+E8*D8" }],
       9: ["COSTO TOTAL", null, null, null, { v: 3, f: "SUM(F8:G8)" }],
-      10: ["PRECIO DE VENTA SIN IVA", null, null, null, price(19.99)],
+      10: ["PRECIO DE VENTA SIN IVA", null, null, null, price(14.5)],
     }),
     "MENU EVENTOS 2026"
   );

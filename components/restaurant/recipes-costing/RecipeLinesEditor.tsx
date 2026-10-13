@@ -83,34 +83,61 @@ type PickTarget =
 
 export function RecipeLinesEditor({
   odooProductId,
+  componentId,
   locationId,
   portionCostLabel,
   yieldValue,
   yieldAssumed,
   yieldNote,
+  reloadKey,
   onEdited,
   onYield,
+  onState,
+  onOpenPreparation,
 }: {
-  odooProductId: number;
+  /** A dish, by POS product… */
+  odooProductId?: number;
+  /** …or a preparation. */
+  componentId?: string;
   locationId?: string | null;
   portionCostLabel: string | null;
   yieldValue: number | null;
   yieldAssumed: boolean;
   yieldNote: string | null;
+  /** Bump to reload (for example after the parent approved something). */
+  reloadKey?: number;
   /** Called after every saved change so the checklist and margin refresh. */
   onEdited: () => void;
-  onYield: (rawName: string, value: number) => void;
+  onYield?: (rawName: string, value: number) => void;
+  onState?: (state: EditorState) => void;
+  onOpenPreparation?: (componentId: string) => void;
 }) {
   const [state, setState] = useState<EditorState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picking, setPicking] = useState<PickTarget | null>(null);
 
+  const target = useMemo(
+    () =>
+      componentId
+        ? { component_id: componentId }
+        : {
+            odoo_product_id: odooProductId,
+            location_id: locationId ?? undefined,
+          },
+    [componentId, odooProductId, locationId]
+  );
   const query = useMemo(() => {
-    const p = new URLSearchParams({ odoo_product_id: String(odooProductId) });
-    if (locationId) p.set("location_id", locationId);
+    const p = new URLSearchParams();
+    for (const [key, value] of Object.entries(target)) {
+      if (value !== undefined && value !== null) p.set(key, String(value));
+    }
     return p.toString();
-  }, [odooProductId, locationId]);
+  }, [target]);
+
+  useEffect(() => {
+    if (state && onState) onState(state);
+  }, [state, onState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,7 +154,7 @@ export function RecipeLinesEditor({
     return () => {
       cancelled = true;
     };
-  }, [query]);
+  }, [query, reloadKey]);
 
   async function send(body: Record<string, unknown>): Promise<boolean> {
     setBusy(true);
@@ -135,11 +162,7 @@ export function RecipeLinesEditor({
     const res = await call("/api/restaurant/recipes/editor", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        odoo_product_id: odooProductId,
-        location_id: locationId ?? undefined,
-        ...body,
-      }),
+      body: JSON.stringify({ ...target, ...body }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -296,6 +319,11 @@ export function RecipeLinesEditor({
                   unit,
                 })
               }
+              onOpenPreparation={
+                onOpenPreparation && line.component_id
+                  ? () => onOpenPreparation(line.component_id!)
+                  : undefined
+              }
               onPrice={(unit, cost) =>
                 void send({
                   action: "set_price",
@@ -317,7 +345,7 @@ export function RecipeLinesEditor({
               <td />
             </tr>
           ) : null}
-          {firstPreparation && yieldValue != null ? (
+          {firstPreparation && yieldValue != null && onYield ? (
             <YieldRow
               name={firstPreparation.name ?? firstPreparation.raw_name}
               value={yieldValue}
@@ -382,6 +410,7 @@ function Row({
   onQty,
   onUnit,
   onAnswerUnit,
+  onOpenPreparation,
   onPrice,
 }: {
   line: EditorLine;
@@ -393,6 +422,7 @@ function Row({
   onQty: (qty: number) => void;
   onUnit: (unit: string) => void;
   onAnswerUnit: (unit: string) => void;
+  onOpenPreparation?: () => void;
   onPrice: (unit: string, cost: number) => void;
 }) {
   const [qty, setQty] = useState(String(line.qty || ""));
@@ -436,7 +466,24 @@ function Row({
           <>
             <b>{line.name}</b>
             <div className="text-[10.5px] text-[#8a92a3]">
-              {line.kind === "component" ? "Preparación" : null}
+              {line.kind === "component" ? (
+                <>
+                  Preparación
+                  {line.amount === null ? " · por aprobar" : ""}
+                  {onOpenPreparation ? (
+                    <>
+                      {" · "}
+                      <button
+                        type="button"
+                        className="font-semibold text-[#3557c9]"
+                        onClick={onOpenPreparation}
+                      >
+                        revisar
+                      </button>
+                    </>
+                  ) : null}
+                </>
+              ) : null}
               {line.raw_name &&
               line.name &&
               line.raw_name.trim().toLowerCase() !==

@@ -53,6 +53,7 @@ export type RecipeCostingView =
   | "resumen"
   | "vincular"
   | "validar"
+  | "preparaciones"
   | "menu-costeado";
 
 export type VincularFilter =

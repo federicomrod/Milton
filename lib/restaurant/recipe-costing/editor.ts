@@ -353,7 +353,8 @@ export function rebuildEvidence(
     previous.yield && typeof previous.yield === "object"
       ? (previous.yield as Record<string, unknown>)
       : {};
-  const assumedYield = yieldRaw.source === "assumed";
+  const assumedYield =
+    yieldRaw.source === "assumed" || yieldRaw.confirmed === false;
 
   let miltonCost: number | null = null;
   if (lines.length > 0 && !anyPending) {

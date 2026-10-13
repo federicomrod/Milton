@@ -30,7 +30,9 @@ export function CostingHeader({
       ? "Vincular productos del POS con recetas"
       : view === "validar"
         ? "Validar receta"
-        : "Menú";
+        : view === "preparaciones"
+          ? "Preparaciones"
+          : "Menú";
   const showTabs = view === "resumen" || view === "menu-costeado";
 
   return (
@@ -70,7 +72,9 @@ export function CostingHeader({
           <b className="text-[#1b2333]">
             {view === "vincular"
               ? "Paso 2 de 4 · Vincular recetas"
-              : "Paso 3 de 4 · Validar"}
+              : view === "preparaciones"
+                ? "Paso 3 de 4 · Preparaciones"
+                : "Paso 3 de 4 · Validar"}
           </b>
           {breadcrumbExtra}
         </div>

@@ -163,6 +163,8 @@ export const COSTING_FOOTERS = {
     "El POS manda: cada fila es un producto real de Odoo con su ID. Lo confirmado por una persona nunca lo pisa una nueva importación.",
   validar:
     "Estados de una receta: Importada → Borrador → Lista para aprobar → Aprobada (versionada) → Necesita revisión si cambia un precio o sub-receta.",
+  preparaciones:
+    "Una preparación aprobada cuenta en todos los platos que la usan. Un borrador no cuenta en ninguno.",
   "menu-costeado":
     "Base: el POS dice qué se vende; el Excel solo aporta recetas y costos.",
 } as const;

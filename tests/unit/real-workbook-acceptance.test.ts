@@ -23,6 +23,7 @@ import { bestNameMatch } from "@/lib/restaurant/cost-workbook/names";
 import { matchExistingIngredient } from "@/lib/restaurant/recipe-costing/ingredient-match";
 import { runRecipeSuggestions } from "@/lib/restaurant/cost-workbook/recipe-suggestion";
 import { proposeRecipeHeuristic } from "@/lib/restaurant/cost-workbook/propose-recipe";
+import { preparationImpact } from "@/lib/restaurant/recipe-costing/preparation-impact";
 import { readCatalogFromBuffer } from "@/lib/restaurant/price-catalog/server";
 import type { WorkbookAi } from "@/lib/restaurant/cost-workbook";
 import {
@@ -353,6 +354,59 @@ describe.skipIf(!path)("real workbook acceptance (aggregates only)", () => {
       preparations: result.preparations,
     };
     console.log("REAL-FILE PREFILL " + JSON.stringify(aggregates));
+
+    // Preparaciones: what approving each preparation draft unlocks, with
+    // every dish weighted the same (no POS sales offline).
+    const children = new Map<string, string[]>();
+    for (const v of store.componentRecipeVersions) {
+      children.set(
+        v.component_id,
+        v.inputs.flatMap((i) => (i.component_id ? [i.component_id] : []))
+      );
+    }
+    const dishes = store.recipeVersions.map((v, index) => ({
+      odoo_product_id: index + 1,
+      net_sales: 1,
+      component_ids: v.inputs.flatMap((i) =>
+        i.component_id ? [i.component_id] : []
+      ),
+    }));
+    const impact = preparationImpact({
+      dishes,
+      children,
+      totalNetSales: dishes.length,
+    });
+    const ranked = [...impact.entries()].sort(
+      (a, b) => b[1].dishes - a[1].dishes
+    );
+    const reach = (n: number) => {
+      const top = new Set(ranked.slice(0, n).map(([id]) => id));
+      return dishes.filter((d) => {
+        const stack = [...d.component_ids];
+        const seen = new Set<string>();
+        while (stack.length) {
+          const id = stack.pop()!;
+          if (seen.has(id)) continue;
+          seen.add(id);
+          if (top.has(id)) return true;
+          stack.push(...(children.get(id) ?? []));
+        }
+        return false;
+      }).length;
+    };
+    console.log(
+      "REAL-FILE PREPARACIONES " +
+        JSON.stringify({
+          dish_drafts: dishes.length,
+          dishes_using_a_preparation: dishes.filter(
+            (d) => d.component_ids.length > 0
+          ).length,
+          preparations_used_by_dishes: impact.size,
+          most_dishes_for_one_preparation: ranked[0]?.[1].dishes ?? 0,
+          dishes_touched_by_top_5: reach(5),
+          dishes_touched_by_top_10: reach(10),
+        })
+    );
     expect(aggregates.excel_price_used_as_cost).toBe(0);
   });
 });

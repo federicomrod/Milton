@@ -178,7 +178,12 @@ describe("answering a unit question in Validar", () => {
     return memoryEditorState({
       ingredients: [{ id: "i-betabel", name: "Betabel", default_unit: "oz" }],
       entries: [entry("i-betabel", "oz", 0.03)],
-      version: { id: "v1", status: "in_review", menu_item_id: "m1" },
+      version: {
+        id: "v1",
+        status: "in_review",
+        kind: "dish",
+        menu_item_id: "m1",
+      },
       inputs: [
         {
           id: "in-seed",

@@ -1,4 +1,5 @@
-// GET  /api/restaurant/recipes/editor?odoo_product_id=&location_id=
+// GET  /api/restaurant/recipes/editor?odoo_product_id=&location_id=  (a dish)
+// GET  /api/restaurant/recipes/editor?component_id=                  (a preparation)
 // POST /api/restaurant/recipes/editor   { odoo_product_id, location_id?, action, ... }
 //
 // The Validar line editor. Reads and edits go through the recipe version's
@@ -32,8 +33,11 @@ function str(raw: unknown): string | null {
 export async function GET(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
-  const id = productId(req.nextUrl.searchParams.get("odoo_product_id"));
-  if (!id) {
+  const componentId = str(req.nextUrl.searchParams.get("component_id"));
+  const id = componentId
+    ? 0
+    : productId(req.nextUrl.searchParams.get("odoo_product_id"));
+  if (id === null) {
     return NextResponse.json(
       { error: "Indica el producto que quieres editar." },
       { status: 400 }
@@ -44,6 +48,7 @@ export async function GET(req: NextRequest) {
       store: createSupabaseEditorStore(auth.supabase),
       companyId: auth.companyId,
       odooProductId: id,
+      componentId: componentId ?? undefined,
       locationId: str(req.nextUrl.searchParams.get("location_id")),
       userId: auth.userId,
     });
@@ -76,9 +81,10 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  const id = productId(body.odoo_product_id);
+  const componentId = str(body.component_id);
+  const id = componentId ? 0 : productId(body.odoo_product_id);
   const action = parseEditorAction(body);
-  if (!id || !action) {
+  if (id === null || !action) {
     return NextResponse.json(
       { error: "Faltan datos para guardar este cambio." },
       { status: 400 }
@@ -103,6 +109,7 @@ export async function POST(req: NextRequest) {
         store: createSupabaseEditorStore(auth.supabase),
         companyId: auth.companyId,
         odooProductId: id,
+        componentId: componentId ?? undefined,
         locationId: str(body.location_id),
         userId: auth.userId,
       },

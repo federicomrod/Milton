@@ -38,6 +38,12 @@ export function parseEditorAction(
         unit: str(body.unit) ?? undefined,
       };
     }
+    case "set_yield": {
+      const unit = str(body.unit);
+      const quantity = num(body.quantity);
+      if (!unit || quantity === undefined) return null;
+      return { action: "set_yield", quantity, unit };
+    }
     case "answer_unit": {
       const inputId = str(body.input_id);
       const unit = str(body.unit);

@@ -200,7 +200,7 @@ describe("sanitize helpers", () => {
         qty: 1,
         price_unit: 12.5,
         price_subtotal_incl: 14,
-        company_id: [7, "Los Ranchos"],
+        company_id: [7, "Casa Prueba"],
         combo_parent_id: [3, "Parent"],
         api_key: "secret",
       },
@@ -212,7 +212,7 @@ describe("sanitize helpers", () => {
       qty: 1,
       price_unit: 12.5,
       price_subtotal_incl: 14,
-      company_id: { id: 7, name: "Los Ranchos" },
+      company_id: { id: 7, name: "Casa Prueba" },
       combo_parent_id: 3,
     });
     expect(JSON.stringify(line)).not.toContain("secret");

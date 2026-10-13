@@ -90,7 +90,7 @@ describe("cockpit POS product rollup", () => {
     }),
   ];
 
-  const julyRanchos = [
+  const julyCasa = [
     posRow({
       id: "r1",
       raw_item_name: "Pupusa",
@@ -112,14 +112,14 @@ describe("cockpit POS product rollup", () => {
   ];
 
   it("July net + tips stay $85,943.59 / $50,720.80 on the product grouping", () => {
-    const ranchos = buildCockpitPosProductRollupFromRows(julyRanchos, "USD");
-    const ranchosNet = ranchos.products
+    const casa = buildCockpitPosProductRollupFromRows(julyCasa, "USD");
+    const casaNet = casa.products
       .filter((p) => !p.is_tip)
       .reduce((s, p) => s + p.net, 0);
-    const ranchosTips = ranchos.products
+    const casaTips = casa.products
       .filter((p) => p.is_tip)
       .reduce((s, p) => s + p.posted, 0);
-    expect(ranchosNet + ranchosTips).toBeCloseTo(85_943.59, 2);
+    expect(casaNet + casaTips).toBeCloseTo(85_943.59, 2);
 
     const lavara = buildCockpitPosProductRollupFromRows(julyLavara, "USD");
     const lavaraNet = lavara.products

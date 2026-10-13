@@ -46,30 +46,40 @@ function money(value: number | null): string {
  * Nothing is written until "Importar".
  */
 export function RecipeImportPreview({
-  file,
+  draftToken,
+  initialImported,
   locationId,
   busyExternal,
   onImported,
 }: {
-  file: File | null;
+  /** The saved upload (draft); changes when a new file is picked. */
+  draftToken: string | null;
+  /** What "Importar" already saved from this file, after a reload. */
+  initialImported: Record<string, unknown> | null;
   locationId: string | null;
   busyExternal: boolean;
   onImported: () => void;
 }) {
   const [preview, setPreview] = useState<RecipePreview | null>(null);
-  const [imported, setImported] = useState<Imported | null>(null);
+  const [imported, setImported] = useState<Imported | null>(
+    (initialImported as unknown as Imported | null) ?? null
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!file) return;
+    setImported((initialImported as unknown as Imported | null) ?? null);
+  }, [initialImported]);
+
+  const hasImported = imported !== null;
+  useEffect(() => {
+    if (!draftToken || hasImported) return;
     let cancelled = false;
     setBusy(true);
     setError(null);
     setPreview(null);
-    setImported(null);
     const form = new FormData();
-    form.append("file", file);
+    form.append("draft", "1");
     form.append("mode", "preview");
     if (locationId) form.append("location_id", locationId);
     fetch("/api/restaurant/recipes/import", { method: "POST", body: form })
@@ -91,15 +101,15 @@ export function RecipeImportPreview({
     return () => {
       cancelled = true;
     };
-  }, [file, locationId]);
+  }, [draftToken, hasImported, locationId]);
 
   async function importRecipes() {
-    if (!file) return;
+    if (!draftToken) return;
     setBusy(true);
     setError(null);
     try {
       const form = new FormData();
-      form.append("file", file);
+      form.append("draft", "1");
       form.append("mode", "apply");
       if (locationId) form.append("location_id", locationId);
       const res = await fetch("/api/restaurant/recipes/import", {
@@ -127,6 +137,12 @@ export function RecipeImportPreview({
       });
       if (!res.ok) throw new Error("No pude deshacer.");
       setImported(null);
+      // The file is still saved: forget the import and preview it again.
+      await fetch("/api/restaurant/recipes/upload-draft", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ recipes_result: null }),
+      });
       onImported();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No pude deshacer.");
@@ -135,7 +151,7 @@ export function RecipeImportPreview({
     }
   }
 
-  if (!file && !imported) return null;
+  if (!draftToken && !imported) return null;
 
   return (
     <section className="space-y-2 border-t border-slate-100 pt-3">

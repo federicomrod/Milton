@@ -4,10 +4,10 @@ import {
   resolveUploadRestaurantScope,
 } from "@/lib/restaurant/cost-workbook/scope";
 
-const RANCHOS = {
-  id: "loc-ranchos",
+const CASA = {
+  id: "loc-casa",
   name: "Stage Test 1",
-  brand_id: "brand-ranchos",
+  brand_id: "brand-casa",
 };
 const LAVARA = {
   id: "loc-lavara",
@@ -28,20 +28,20 @@ describe("resolveUploadRestaurantScope", () => {
   it("uses the only restaurant even when All Restaurants is selected", () => {
     expect(
       resolveUploadRestaurantScope({
-        locations: [RANCHOS],
+        locations: [CASA],
         requestedLocationId: null,
       })
     ).toEqual({
       ok: true,
-      locationId: RANCHOS.id,
-      brandId: RANCHOS.brand_id,
-      name: RANCHOS.name,
+      locationId: CASA.id,
+      brandId: CASA.brand_id,
+      name: CASA.name,
     });
   });
 
   it("refuses All Restaurants when there are two restaurants", () => {
     const result = resolveUploadRestaurantScope({
-      locations: [RANCHOS, LAVARA],
+      locations: [CASA, LAVARA],
       requestedLocationId: null,
     });
     expect(result).toEqual({ ok: false, code: "pick_restaurant" });
@@ -52,21 +52,21 @@ describe("resolveUploadRestaurantScope", () => {
   it("accepts an explicit restaurant", () => {
     expect(
       resolveUploadRestaurantScope({
-        locations: [RANCHOS, LAVARA],
-        requestedLocationId: RANCHOS.id,
+        locations: [CASA, LAVARA],
+        requestedLocationId: CASA.id,
       })
     ).toEqual({
       ok: true,
-      locationId: RANCHOS.id,
-      brandId: RANCHOS.brand_id,
-      name: RANCHOS.name,
+      locationId: CASA.id,
+      brandId: CASA.brand_id,
+      name: CASA.name,
     });
   });
 
   it("refuses an unknown location id instead of guessing", () => {
     expect(
       resolveUploadRestaurantScope({
-        locations: [RANCHOS, LAVARA],
+        locations: [CASA, LAVARA],
         requestedLocationId: "loc-other",
       })
     ).toEqual({ ok: false, code: "pick_restaurant" });

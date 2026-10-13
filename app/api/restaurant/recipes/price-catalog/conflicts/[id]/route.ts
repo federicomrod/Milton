@@ -1,5 +1,6 @@
 // POST /api/restaurant/recipes/price-catalog/conflicts/:id
-// Body: { choice: "catalog" | <candidate index> }
+// Body: { choice: "catalog" | <candidate index> | "none" }
+// "none" = Ninguna (dejar Pendiente): no price for that ingredient.
 //
 // Records which of two costs a person chose for an ingredient. Company
 // and user come from auth, never from the request.
@@ -8,7 +9,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook";
-import { resolveCostConflict } from "@/lib/restaurant/price-catalog/apply";
+import {
+  NO_COST_CHOICE,
+  resolveCostConflict,
+  type ConflictChoice,
+} from "@/lib/restaurant/price-catalog/apply";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -31,9 +36,16 @@ export async function POST(
     );
   }
   const choice = body.choice;
-  if (choice !== "catalog" && !Number.isInteger(choice)) {
+  if (
+    choice !== "catalog" &&
+    choice !== NO_COST_CHOICE &&
+    !Number.isInteger(choice)
+  ) {
     return NextResponse.json(
-      { error: "Elige el costo de la lista o uno de las recetas." },
+      {
+        error:
+          "Elige el costo de la lista, uno de las recetas o «Ninguna (dejar Pendiente)».",
+      },
       { status: 400 }
     );
   }
@@ -47,7 +59,7 @@ export async function POST(
       userId: auth.userId,
       currency,
       reviewId: id,
-      choice: choice as "catalog" | number,
+      choice: choice as ConflictChoice,
     });
     if (!result.ok) {
       return NextResponse.json({ error: result.reason }, { status: 400 });

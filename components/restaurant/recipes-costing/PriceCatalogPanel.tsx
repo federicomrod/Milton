@@ -44,6 +44,23 @@ interface Saved {
   conflicts_open: number;
 }
 
+interface UploadDraftView {
+  filename: string;
+  decisions: {
+    units: Record<string, string>;
+    asIngredient: Record<string, boolean>;
+    conflicts: Record<string, "catalog" | number | "none">;
+    reviewedUnits: boolean;
+  };
+  catalog_result: Record<string, unknown> | null;
+  recipes_result: Record<string, unknown> | null;
+  updated_at: string | null;
+}
+
+/** "Ninguna (dejar Pendiente)": every option is wrong, no price for now. */
+const NONE = "none";
+const NONE_LABEL = "Ninguna (dejar Pendiente)";
+
 interface OpenConflict {
   id: string;
   name: string;
@@ -90,21 +107,29 @@ export function PriceCatalogPanel({
   busyExternal?: boolean;
 } = {}) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File | null>(null);
-  // The same file, kept for the recipe preview even after the price list
-  // is saved.
-  const [recipeFile, setRecipeFile] = useState<File | null>(null);
+  // The picked file lives server-side as a draft (with every choice), so
+  // leaving the page or reloading never loses it.
+  const [draftName, setDraftName] = useState<string | null>(null);
+  /** Changes when a new file is picked: the recipe preview reloads. */
+  const [draftToken, setDraftToken] = useState<string | null>(null);
+  const [recipesImported, setRecipesImported] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [saved, setSaved] = useState<Saved | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [units, setUnits] = useState<Record<string, CatalogUnit>>({});
+  /** Row key → unit, or "none" (Ninguna: leave it Pendiente). */
+  const [units, setUnits] = useState<Record<string, string>>({});
   const [asIngredient, setAsIngredient] = useState<Record<string, boolean>>({});
   const [conflictChoice, setConflictChoice] = useState<
-    Record<string, "catalog" | number>
+    Record<string, "catalog" | number | "none">
   >({});
   const [reviewedUnits, setReviewedUnits] = useState(false);
   const [open, setOpen] = useState<OpenConflict[]>([]);
+  /** True once the saved choices are back; only then do edits get saved. */
+  const [hydrated, setHydrated] = useState(false);
 
   const loadOpen = useCallback(async () => {
     try {
@@ -141,15 +166,11 @@ export function PriceCatalogPanel({
     };
   }, [preview]);
 
-  async function readFile(next: File) {
-    setFile(next);
-    setRecipeFile(next);
-    setBusy(true);
-    setError(null);
-    setSaved(null);
-    try {
+  /** Read the price list of the saved file; keep the person's choices. */
+  const previewFromDraft = useCallback(
+    async (restored: Record<string, string>) => {
       const form = new FormData();
-      form.append("file", next);
+      form.append("draft", "1");
       form.append("mode", "preview");
       const res = await fetch("/api/restaurant/recipes/price-catalog", {
         method: "POST",
@@ -158,58 +179,134 @@ export function PriceCatalogPanel({
       const json = (await res.json()) as Preview & { error?: string };
       if (!res.ok) throw new Error(json.error ?? "No pude leer el archivo.");
       setPreview(json);
-      const initial: Record<string, CatalogUnit> = {};
+      // Suggested units are pre-filled, unless the person already chose.
+      const initial: Record<string, string> = {};
       for (const row of json.rows) {
         if (row.status === "check_unit" && row.unit)
           initial[row.key] = row.unit;
       }
-      setUnits(initial);
+      setUnits({ ...initial, ...restored });
+    },
+    []
+  );
+
+  // Opening the page: bring back the file, the choices and what was saved.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/restaurant/recipes/upload-draft");
+        const json = (await res.json().catch(() => ({}))) as {
+          draft?: UploadDraftView | null;
+        };
+        const draft = res.ok ? json.draft : null;
+        if (cancelled || !draft) return;
+        setDraftName(draft.filename);
+        setDraftToken(draft.updated_at ?? draft.filename);
+        setAsIngredient(draft.decisions.asIngredient);
+        setConflictChoice(draft.decisions.conflicts);
+        setReviewedUnits(draft.decisions.reviewedUnits);
+        setRecipesImported(draft.recipes_result);
+        if (draft.catalog_result) {
+          setSaved(draft.catalog_result as unknown as Saved);
+          setUnits(draft.decisions.units);
+        } else {
+          setBusy(true);
+          await previewFromDraft(draft.decisions.units);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : "No pude recuperar tu avance."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setBusy(false);
+          setHydrated(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [previewFromDraft]);
+
+  /** Save the choices server-side (the draft), now. */
+  const persistChoices = useCallback(async () => {
+    await fetch("/api/restaurant/recipes/upload-draft", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        decisions: {
+          units,
+          asIngredient,
+          conflicts: conflictChoice,
+          reviewedUnits,
+        },
+      }),
+    });
+  }, [units, asIngredient, conflictChoice, reviewedUnits]);
+
+  // Every choice is saved as the person makes it.
+  useEffect(() => {
+    if (!hydrated || !draftName) return;
+    const timer = setTimeout(() => {
+      void persistChoices().catch(() => undefined);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [hydrated, draftName, persistChoices]);
+
+  async function readFile(next: File) {
+    setBusy(true);
+    setError(null);
+    setSaved(null);
+    setPreview(null);
+    setHydrated(false);
+    try {
+      const form = new FormData();
+      form.append("file", next);
+      const res = await fetch("/api/restaurant/recipes/upload-draft", {
+        method: "POST",
+        body: form,
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        draft?: UploadDraftView | null;
+        error?: string;
+      };
+      if (!res.ok || !json.draft) {
+        throw new Error(json.error ?? "No pude guardar tu archivo.");
+      }
+      setDraftName(json.draft.filename);
+      setDraftToken(json.draft.updated_at ?? `${Date.now()}`);
+      setRecipesImported(null);
       setAsIngredient({});
       setConflictChoice({});
       setReviewedUnits(false);
+      await previewFromDraft({});
     } catch (err) {
-      setPreview(null);
       setError(err instanceof Error ? err.message : "No pude leer el archivo.");
     } finally {
       setBusy(false);
+      setHydrated(true);
     }
   }
 
   // Nothing blocks the upload: unanswered rows are asked on the dish.
-  const canSave = !!file && !!preview && !busy && !busyExternal;
+  const canSave = !!draftName && !!preview && !busy && !busyExternal;
   const openDecisions =
     check.length + ambiguous.length + (preview?.conflicts.length ?? 0);
 
   async function save() {
-    if (!file || !preview) return;
+    if (!draftName || !preview) return;
     setBusy(true);
     setError(null);
     try {
-      const rows: Record<string, unknown> = {};
-      // Only what the person actually answered: a chosen unit for an
-      // unclear row, or the reviewed suggestions when they ticked the box.
-      for (const row of ambiguous) {
-        const unit = units[row.key];
-        if (unit) rows[row.key] = { unit };
-      }
-      if (reviewedUnits) {
-        for (const row of check) {
-          const unit = units[row.key];
-          if (unit) rows[row.key] = { unit };
-        }
-      }
-      for (const row of preps) {
-        if (asIngredient[row.key]) {
-          rows[row.key] = { ...(rows[row.key] as object), kind: "ingredient" };
-        }
-      }
+      // The server saves with the choices stored in the draft: flush first.
+      await persistChoices();
       const form = new FormData();
-      form.append("file", file);
+      form.append("draft", "1");
       form.append("mode", "apply");
-      form.append(
-        "decisions",
-        JSON.stringify({ rows, conflicts: conflictChoice })
-      );
       const res = await fetch("/api/restaurant/recipes/price-catalog", {
         method: "POST",
         body: form,
@@ -218,7 +315,6 @@ export function PriceCatalogPanel({
       if (!res.ok) throw new Error(json.error ?? "No pude guardar la lista.");
       setSaved(json);
       setPreview(null);
-      setFile(null);
       void loadOpen();
       onUploaded?.();
     } catch (err) {
@@ -237,6 +333,13 @@ export function PriceCatalogPanel({
       await postJson(`/api/restaurant/costs/batches/${batchId}/undo`, {});
       setSaved(null);
       void loadOpen();
+      // The file and its choices are still there: show the preview again.
+      await fetch("/api/restaurant/recipes/upload-draft", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ catalog_result: null }),
+      });
+      if (draftName) await previewFromDraft(units);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No pude deshacer.");
     } finally {
@@ -244,7 +347,7 @@ export function PriceCatalogPanel({
     }
   }
 
-  async function resolve(id: string, choice: "catalog" | number) {
+  async function resolve(id: string, choice: "catalog" | number | "none") {
     setBusy(true);
     setError(null);
     try {
@@ -289,6 +392,12 @@ export function PriceCatalogPanel({
             : "Elegir archivo de costos"}
         </GhostBtn>
       </div>
+
+      {draftName ? (
+        <p className="text-[11.5px] text-[#6b7385]">
+          Archivo: <b>{draftName}</b> · tus decisiones se guardan solas.
+        </p>
+      ) : null}
 
       {error ? (
         <div className="rounded-md border border-[#f1c0c0] bg-[#fdecec] px-3 py-2 text-xs text-[#c03535]">
@@ -374,6 +483,17 @@ export function PriceCatalogPanel({
                             {UNIT_LABEL[option.unit]}
                           </label>
                         ))}
+                        <label className="inline-flex items-center gap-1 text-[#8a92a3]">
+                          <input
+                            type="radio"
+                            name={row.key}
+                            checked={units[row.key] === NONE}
+                            onChange={() =>
+                              setUnits((prev) => ({ ...prev, [row.key]: NONE }))
+                            }
+                          />
+                          {NONE_LABEL}
+                        </label>
                       </div>
                     ))}
                   </section>
@@ -422,6 +542,20 @@ export function PriceCatalogPanel({
                               {UNIT_LABEL[option.unit]}
                             </label>
                           ))}
+                          <label className="inline-flex items-center gap-1 text-[#8a92a3]">
+                            <input
+                              type="radio"
+                              name={row.key}
+                              checked={units[row.key] === NONE}
+                              onChange={() =>
+                                setUnits((prev) => ({
+                                  ...prev,
+                                  [row.key]: NONE,
+                                }))
+                              }
+                            />
+                            {NONE_LABEL}
+                          </label>
                         </div>
                       ))}
                     </div>
@@ -494,6 +628,20 @@ export function PriceCatalogPanel({
                               {candidate.recipes === 1 ? "plato" : "platos"})
                             </label>
                           ))}
+                          <label className="inline-flex items-center gap-1 text-[#8a92a3]">
+                            <input
+                              type="radio"
+                              name={`c-${conflict.key}`}
+                              checked={conflictChoice[conflict.key] === NONE}
+                              onChange={() =>
+                                setConflictChoice((prev) => ({
+                                  ...prev,
+                                  [conflict.key]: NONE,
+                                }))
+                              }
+                            />
+                            {NONE_LABEL}
+                          </label>
                         </div>
                       ))}
                     </div>
@@ -503,11 +651,10 @@ export function PriceCatalogPanel({
                 {preps.length > 0 ? (
                   <section className="space-y-1.5">
                     <h3 className="text-[12.5px] font-semibold">
-                      Parecen preparaciones de tu cocina
+                      ¿Cuáles compras ya hechas?
                     </h3>
                     <p className="text-[11.5px] text-[#6b7385]">
-                      No se guardan como ingredientes: su costo sale de su
-                      propia receta. Marca las que sí compras ya hechas.
+                      Las que no marques se costean con su propia receta.
                     </p>
                     <div className="max-h-40 overflow-auto rounded-lg border border-slate-200">
                       {preps.map((row) => (
@@ -587,7 +734,8 @@ export function PriceCatalogPanel({
       ) : null}
 
       <RecipeImportPreview
-        file={recipeFile}
+        draftToken={draftToken}
+        initialImported={recipesImported}
         locationId={locationId}
         busyExternal={busy || busyExternal}
         onImported={() => onRecipesImported?.()}
@@ -623,6 +771,12 @@ export function PriceCatalogPanel({
                     {candidate.recipes === 1 ? "plato" : "platos"})
                   </GhostBtn>
                 ))}
+                <GhostBtn
+                  disabled={busy}
+                  onClick={() => void resolve(item.id, NONE)}
+                >
+                  {NONE_LABEL}
+                </GhostBtn>
               </div>
             ))}
           </div>

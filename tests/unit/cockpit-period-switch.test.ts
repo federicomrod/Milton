@@ -28,7 +28,7 @@ function row(
   };
 }
 
-const ranchos: CockpitFactRow[] = [
+const casa: CockpitFactRow[] = [
   row({
     sale_date: "2026-07-02",
     check_id: "a",
@@ -117,16 +117,16 @@ describe("rollup-based period costs match the row walk", () => {
   });
 
   it("keeps July month net + tips and the same cost KPIs for both periods", () => {
-    const ranchosMonth = resolveCockpitPeriod("month", "2026-07-31")!;
-    const ranchosLast7 = resolveCockpitPeriod("last_7", "2026-07-31")!;
-    const ranchosAgg = buildCockpitSalesAggregate(ranchos, { currency: "USD" });
-    expect(ranchosAgg.revenue.net_sales + ranchosAgg.revenue.tips).toBeCloseTo(
+    const casaMonth = resolveCockpitPeriod("month", "2026-07-31")!;
+    const casaLast7 = resolveCockpitPeriod("last_7", "2026-07-31")!;
+    const casaAgg = buildCockpitSalesAggregate(casa, { currency: "USD" });
+    expect(casaAgg.revenue.net_sales + casaAgg.revenue.tips).toBeCloseTo(
       85_943.59,
       2
     );
 
-    for (const period of [ranchosMonth, ranchosLast7]) {
-      const snap = buildCockpitPeriodSnapshot(ranchos, period, {
+    for (const period of [casaMonth, casaLast7]) {
+      const snap = buildCockpitPeriodSnapshot(casa, period, {
         currency: "USD",
         lang: "es",
         marginRows: [
@@ -137,7 +137,7 @@ describe("rollup-based period costs match the row walk", () => {
           },
         ],
       });
-      const currentRows = ranchos.filter((r) => {
+      const currentRows = casa.filter((r) => {
         const date = r.sale_date;
         return date >= period.current.from && date <= period.current.to;
       });

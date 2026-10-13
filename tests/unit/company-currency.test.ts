@@ -38,7 +38,7 @@ function makeClient(tables: Record<string, MockRow[]>) {
       supplier_invoices: [],
       agent_runs: [],
       companies: [
-        { id: COMPANY_ID, name: "Los Ranchos", preferred_language: "en" },
+        { id: COMPANY_ID, name: "Casa Prueba", preferred_language: "en" },
       ],
       ...tables,
     },

@@ -42,9 +42,9 @@ const paidOrder: OdooPosOrderRaw = {
   pos_reference: "POS/0001",
   uuid: "order-uuid-1",
   session_id: [5, "Session 1"],
-  config_id: [3, "Los Ranchos"],
+  config_id: [3, "Casa Prueba"],
   currency_id: [2, "USD"],
-  company_id: [1, "Los Ranchos"],
+  company_id: [1, "Casa Prueba"],
 };
 
 function makeLine(
@@ -61,7 +61,7 @@ function makeLine(
     price_subtotal_incl: 7,
     discount: 0,
     uuid: "line-uuid-1",
-    company_id: [1, "Los Ranchos"],
+    company_id: [1, "Casa Prueba"],
     ...overrides,
   };
 }
@@ -75,7 +75,7 @@ function baseCtx(overrides: Partial<OdooSyncContext> = {}): OdooSyncContext {
       [{ id: "menu-1", name: "Pupusa", scopeId: null }],
       normalizeMatchKey
     ),
-    locationIndex: new Map([["losranchos", "location-1"]]),
+    locationIndex: new Map([["casaprueba", "location-1"]]),
     locationBrandIndex: new Map([["location-1", "brand-1"]]),
     ...overrides,
   };
@@ -112,7 +112,7 @@ describe("mapChannelLabel / mapSalesChannel", () => {
       mapSalesChannel({
         presetName: "Delivery",
         hasTable: true,
-        configName: "Los Ranchos",
+        configName: "Casa Prueba",
       })
     ).toEqual({ channel: "delivery", source: "preset_id" });
   });
@@ -145,13 +145,13 @@ describe("mapChannelLabel / mapSalesChannel", () => {
     expect(
       mapSalesChannel({
         shOrderTypeName: "Takeaway",
-        tableFloorName: "LOS RANCHOS",
+        tableFloorName: "CASA PRUEBA",
       })
     ).toEqual({ channel: "takeaway", source: "sh_order_type_id" });
     expect(
       mapSalesChannel({
         shOrderTypeName: "Terraza",
-        tableFloorName: "LOS RANCHOS",
+        tableFloorName: "CASA PRUEBA",
       })
     ).toEqual({ channel: "in_store", source: "table_floor" });
   });
@@ -161,7 +161,7 @@ describe("mapChannelLabel / mapSalesChannel", () => {
       channel: "in_store",
       source: "table_id",
     });
-    expect(mapSalesChannel({ configName: "Los Ranchos Barra" })).toEqual({
+    expect(mapSalesChannel({ configName: "Casa Prueba Barra" })).toEqual({
       channel: null,
       source: null,
     });
@@ -209,7 +209,7 @@ describe("table floor channel mapping", () => {
   });
 
   it("takes the floor name from the table display prefix", () => {
-    expect(tableFloorNameFromDisplay("LOS RANCHOS, 12")).toBe("LOS RANCHOS");
+    expect(tableFloorNameFromDisplay("CASA PRUEBA, 12")).toBe("CASA PRUEBA");
     expect(tableFloorNameFromDisplay("LLEVAR, 3")).toBe("LLEVAR");
     expect(tableFloorNameFromDisplay("LAVARA, S.A. DE C.V., 7")).toBe("LAVARA");
     expect(tableFloorNameFromDisplay("Mesa 4")).toBe("Mesa 4");
@@ -220,7 +220,7 @@ describe("table floor channel mapping", () => {
     expect(mapFloorNameToChannel("LLEVAR")).toBe("takeaway");
     expect(mapFloorNameToChannel("PARA LLEVAR")).toBe("takeaway");
     expect(mapFloorNameToChannel("DOMICILIO")).toBe("delivery");
-    expect(mapFloorNameToChannel("LOS RANCHOS")).toBe("in_store");
+    expect(mapFloorNameToChannel("CASA PRUEBA")).toBe("in_store");
     expect(mapFloorNameToChannel("LAVARA")).toBe("in_store");
     expect(mapFloorNameToChannel("llevár")).toBe("takeaway");
     expect(mapFloorNameToChannel("Domicílio")).toBe("delivery");
@@ -246,7 +246,7 @@ describe("table floor channel mapping", () => {
       mapSalesChannel({
         takeaway: false,
         hasTable: true,
-        tableFloorName: "LOS RANCHOS",
+        tableFloorName: "CASA PRUEBA",
       })
     ).toEqual({ channel: "in_store", source: "table_floor" });
     expect(mapSalesChannel({ takeaway: false, hasTable: false })).toEqual({
@@ -416,8 +416,8 @@ describe("buildDimensionLookups + loadOdooDimensions", () => {
       orders: [
         {
           id: 101,
-          company_id: [1, "Los Ranchos"],
-          config_id: [3, "Los Ranchos"],
+          company_id: [1, "Casa Prueba"],
+          config_id: [3, "Casa Prueba"],
           table_id: [8, "Mesa 4"],
         },
       ],
@@ -467,7 +467,7 @@ describe("buildDimensionLookups + loadOdooDimensions", () => {
       orders: [
         { id: 1, table_id: [8, "LLEVAR, 4"] },
         { id: 2, table_id: [9, "DOMICILIO, 1"] },
-        { id: 3, table_id: [10, "LOS RANCHOS, 12"] },
+        { id: 3, table_id: [10, "CASA PRUEBA, 12"] },
         { id: 4, table_id: false },
       ],
       payments: [],
@@ -580,7 +580,7 @@ describe("live dimension audit", () => {
       orders: [
         {
           id: 101,
-          company_id: [1, "Los Ranchos"],
+          company_id: [1, "Casa Prueba"],
           table_id: [8, "Mesa 4"],
           amount_total: 12,
         },
@@ -596,7 +596,7 @@ describe("live dimension audit", () => {
           pos_order_id: [101, "o"],
           payment_method_id: [1, "Cash"],
           amount: 12,
-          company_id: [1, "Los Ranchos"],
+          company_id: [1, "Casa Prueba"],
         },
       ],
       products: [{ id: 55, pos_categ_id: [11, "Tacos"], categ_id: [9, "All"] }],
@@ -623,22 +623,21 @@ describe("live dimension audit", () => {
     });
     expect(report.multi_payment_rule).toMatch(/largest/i);
     expect(report.by_odoo_company).toHaveLength(2);
-    const ranchos = report.by_odoo_company[0];
-    expect(ranchos.name).toBe("Los Ranchos");
-    expect(ranchos.mapped_channels[0].value).toBe("in_store");
-    expect(ranchos.payment_methods[0].value).toBe("Cash");
-    expect(ranchos.pos_categories[0].value).toBe("Tacos");
+    const casa = report.by_odoo_company[0];
+    expect(casa.name).toBe("Casa Prueba");
+    expect(casa.mapped_channels[0].value).toBe("in_store");
+    expect(casa.payment_methods[0].value).toBe("Cash");
+    expect(casa.pos_categories[0].value).toBe("Tacos");
     expect(
-      ranchos.channel_signals.find((s) => s.field === "table_id")?.present
+      casa.channel_signals.find((s) => s.field === "table_id")?.present
     ).toBe(true);
     expect(
-      ranchos.channel_signals.find((s) => s.field === "preset_id")?.present
+      casa.channel_signals.find((s) => s.field === "preset_id")?.present
     ).toBe(false);
     expect(
-      ranchos.channel_signals.find((s) => s.field === "sh_order_type_id")
-        ?.present
+      casa.channel_signals.find((s) => s.field === "sh_order_type_id")?.present
     ).toBe(false);
-    const floors = ranchos.channel_signals.find(
+    const floors = casa.channel_signals.find(
       (s) => s.field === TABLE_FLOOR_SIGNAL_FIELD
     );
     expect(floors?.present).toBe(true);
@@ -650,7 +649,7 @@ describe("live dimension audit", () => {
       orders: [
         {
           id: 101,
-          company_id: [1, "Los Ranchos"],
+          company_id: [1, "Casa Prueba"],
           amount_total: 12,
         },
       ],
@@ -681,17 +680,17 @@ describe("live dimension audit", () => {
       notes: [],
       callCount: 1,
     });
-    const ranchos = report.by_odoo_company[0];
-    expect(ranchos.pos_categories).toEqual([
+    const casa = report.by_odoo_company[0];
+    expect(casa.pos_categories).toEqual([
       { value: "Tacos", order_count: 1, amount: 8, row_count: 1 },
       { value: "Soda", order_count: 1, amount: 4, row_count: 1 },
     ]);
-    expect(ranchos.product_categories).toEqual([
+    expect(casa.product_categories).toEqual([
       { value: "Food", order_count: 1, amount: 8, row_count: 1 },
       { value: "Drinks", order_count: 1, amount: 4, row_count: 1 },
     ]);
-    expect(ranchos.pos_categories.reduce((sum, b) => sum + b.amount, 0)).toBe(
-      ranchos.amount
+    expect(casa.pos_categories.reduce((sum, b) => sum + b.amount, 0)).toBe(
+      casa.amount
     );
   });
 });

@@ -123,7 +123,7 @@ describe("confirm and undo POS links", () => {
         ...base,
         menu_item_id: "menu-1",
         link_state: "sugerido",
-        evidence: { block_name: "Parrillada Pinolera (3 personas)" },
+        evidence: { block_name: "Parrillada de la Casa (3 personas)" },
       },
       {
         confirmed_by: "user-1",

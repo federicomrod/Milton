@@ -19,6 +19,7 @@ import {
 import {
   CATALOG_ROW_KIND,
   answerCatalogRow,
+  skipCatalogRow,
 } from "@/lib/restaurant/price-catalog/apply";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { fetchAllRowsRetryingWithoutColumns } from "@/lib/restaurant/missing-schema-column";
@@ -622,6 +623,14 @@ export function createSupabaseEditorStore(
         });
       }
       return out;
+    },
+
+    async skipCatalogQuestion(companyId, itemId) {
+      return skipCatalogRow({
+        repo: createSupabaseCostWorkbookRepo(supabase),
+        companyId,
+        reviewId: itemId,
+      });
     },
 
     async answerCatalogQuestion(companyId, itemId, unit) {

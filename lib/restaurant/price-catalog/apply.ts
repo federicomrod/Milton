@@ -52,9 +52,16 @@ export interface RowDecision {
 
 export interface PriceCatalogDecisions {
   rows?: Record<string, RowDecision>;
-  /** Conflict key -> "catalog" or the index of the chosen candidate. */
-  conflicts?: Record<string, "catalog" | number>;
+  /**
+   * Conflict key -> "catalog", the index of the chosen candidate, or
+   * "none": every option is wrong, the ingredient stays Pendiente.
+   */
+  conflicts?: Record<string, ConflictChoice>;
 }
+
+/** A person's answer to "two costs": one of them, or none (Pendiente). */
+export type ConflictChoice = "catalog" | number | "none";
+export const NO_COST_CHOICE = "none";
 
 const UNITS: readonly CatalogUnit[] = ["oz", "lb", "unit", "g"];
 
@@ -99,6 +106,7 @@ export function parseDecisions(raw: unknown): PriceCatalogDecisions {
   if (conflicts && typeof conflicts === "object") {
     for (const [key, value] of Object.entries(conflicts)) {
       if (value === "catalog") out.conflicts![key] = "catalog";
+      else if (value === NO_COST_CHOICE) out.conflicts![key] = NO_COST_CHOICE;
       else if (Number.isInteger(value) && (value as number) >= 0) {
         out.conflicts![key] = value as number;
       }
@@ -345,6 +353,8 @@ export interface ApplyCatalogResult {
   conflicts_total: number;
   conflicts_decided: number;
   conflicts_open: number;
+  /** Conflicts answered "Ninguna": no price saved, the item stays Pendiente. */
+  conflicts_left_pending: number;
   failed: number;
 }
 
@@ -362,6 +372,19 @@ export async function applyPriceCatalog(input: {
 }): Promise<ApplyCatalogResult> {
   const plan = planCatalog(input.read, input.decisions);
   const date = priceDate(input.filename);
+
+  // "Ninguna (dejar Pendiente)": the price-list row of that conflict is not
+  // saved either, so no price applies until a person adds one.
+  const conflicts = findCostConflicts(plan.effective, input.observations);
+  const leftPending = new Set(
+    conflicts
+      .filter((c) => input.decisions.conflicts?.[c.key] === NO_COST_CHOICE)
+      .map((c) => c.catalog.rowKey)
+  );
+  if (leftPending.size > 0) {
+    plan.save = plan.save.filter((row) => !leftPending.has(row.row.key));
+    plan.effective = plan.effective.filter((row) => !leftPending.has(row.key));
+  }
 
   const batch = await input.repo.createBatch({
     companyId: input.companyId,
@@ -419,13 +442,18 @@ export async function applyPriceCatalog(input: {
     ])
   );
 
-  const conflicts = findCostConflicts(plan.effective, input.observations);
   let decided = 0;
+  let pendingByChoice = 0;
   const open: CostConflict[] = [];
   for (const conflict of conflicts) {
     const choice = input.decisions.conflicts?.[conflict.key];
     if (choice === undefined) {
       open.push(conflict);
+      continue;
+    }
+    if (choice === NO_COST_CHOICE) {
+      decided += 1;
+      pendingByChoice += 1;
       continue;
     }
     const result = await chooseCost({
@@ -525,8 +553,46 @@ export async function applyPriceCatalog(input: {
     conflicts_total: conflicts.length,
     conflicts_decided: decided,
     conflicts_open: open.length,
+    conflicts_left_pending: pendingByChoice,
     failed: persisted.failed.length,
   };
+}
+
+/**
+ * "Ninguna (dejar Pendiente)" after the upload: remove the price this
+ * upload saved for the ingredient (nothing else), so no price applies
+ * until a person adds one. Older prices from other uploads are kept.
+ */
+async function leaveConflictPending(input: {
+  repo: CostWorkbookRepo;
+  companyId: string;
+  batchId: string;
+  conflict: CostConflict;
+}): Promise<void> {
+  const ingredients = await input.repo.listIngredients(input.companyId);
+  const ingredient = ingredients.find(
+    (row) =>
+      normalizeMatchName(row.name) === normalizeMatchName(input.conflict.name)
+  );
+  if (!ingredient) return;
+  const entries = await input.repo.listIngredientCostEntries(input.companyId, [
+    ingredient.id,
+  ]);
+  const fromThisUpload = entries
+    .filter((entry) => entry.source_id === input.batchId)
+    .map((entry) => entry.id);
+  if (fromThisUpload.length > 0) {
+    await input.repo.deleteCostEntriesByIds(input.companyId, fromThisUpload);
+  }
+  if (entries.length === fromThisUpload.length) {
+    await input.repo.updateIngredientCosts([
+      {
+        ingredientId: ingredient.id,
+        currentUnitCost: null,
+        currency: ingredient.currency,
+      },
+    ]);
+  }
 }
 
 /** Resolve a conflict that was left open at upload time. */
@@ -536,7 +602,7 @@ export async function resolveCostConflict(input: {
   userId: string | null;
   currency: string;
   reviewId: string;
-  choice: "catalog" | number;
+  choice: ConflictChoice;
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
   const item = await input.repo.getReviewItem(input.companyId, input.reviewId);
   if (!item || item.raw_values.kind !== COST_CONFLICT_KIND) {
@@ -550,6 +616,19 @@ export async function resolveCostConflict(input: {
     return { ok: false, reason: "Esa carga ya se deshizo." };
   }
   const conflict = item.raw_values as unknown as CostConflict;
+  if (input.choice === NO_COST_CHOICE) {
+    await leaveConflictPending({
+      repo: input.repo,
+      companyId: input.companyId,
+      batchId: item.batch_id,
+      conflict,
+    });
+    await input.repo.updateReviewItem(input.companyId, item.id, {
+      status: "skipped",
+      resolved_at: new Date().toISOString(),
+    });
+    return { ok: true };
+  }
   if (
     input.choice !== "catalog" &&
     (!Number.isInteger(input.choice) || !conflict.candidates?.[input.choice])
@@ -581,6 +660,30 @@ export async function resolveCostConflict(input: {
   }
   await input.repo.updateReviewItem(input.companyId, item.id, {
     status: "approved",
+    resolved_at: new Date().toISOString(),
+  });
+  return { ok: true };
+}
+
+/**
+ * "Ninguna (dejar Pendiente)" on an unclear price-list row: none of its
+ * readings is right. The question closes with no price and no ingredient;
+ * the line that uses it stays Pendiente until a person adds a price.
+ */
+export async function skipCatalogRow(input: {
+  repo: CostWorkbookRepo;
+  companyId: string;
+  reviewId: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const item = await input.repo.getReviewItem(input.companyId, input.reviewId);
+  if (!item || item.raw_values.kind !== CATALOG_ROW_KIND) {
+    return { ok: false, reason: "No encontré esa fila de tu lista." };
+  }
+  if (item.status !== "pending") {
+    return { ok: false, reason: "Esa fila ya está resuelta." };
+  }
+  await input.repo.updateReviewItem(input.companyId, item.id, {
+    status: "skipped",
     resolved_at: new Date().toISOString(),
   });
   return { ok: true };

@@ -21,7 +21,7 @@ import {
 } from "./helpers/memory-cost-workbook-repo";
 import type { CostWorkbookCostEntry } from "@/lib/restaurant/cost-workbook/types";
 
-const COMPANY_A = "co-ranchos";
+const COMPANY_A = "co-casa";
 const COMPANY_B = "co-lavara";
 
 function costEntry(
@@ -55,14 +55,14 @@ describe("resetCompanyCostData", () => {
     const [ingA, ingAManual] = await repo.createIngredients([
       {
         companyId: COMPANY_A,
-        name: "Carne ranchos",
+        name: "Carne casa",
         defaultUnit: "lb",
         currentUnitCost: 4.8,
         currency: "USD",
       },
       {
         companyId: COMPANY_A,
-        name: "Tomate ranchos",
+        name: "Tomate casa",
         defaultUnit: "lb",
         currentUnitCost: 1.2,
         currency: "USD",
@@ -98,7 +98,7 @@ describe("resetCompanyCostData", () => {
     });
     store.menuItems.push({
       id: "menu-hand-a",
-      name: "Handmade ranchos plate",
+      name: "Handmade casa plate",
       source_type: null,
       source_id: null,
     });
@@ -139,7 +139,7 @@ describe("resetCompanyCostData", () => {
 
     const componentA = await repo.createComponent({
       companyId: COMPANY_A,
-      name: "Salsa ranchos",
+      name: "Salsa casa",
       outputUnit: "oz",
       sourceId: "batch-a",
     });
@@ -193,7 +193,7 @@ describe("resetCompanyCostData", () => {
 
     await repo.createBatch({
       companyId: COMPANY_A,
-      filename: "ranchos.xlsx",
+      filename: "casa.xlsx",
       fileMonth: "2026-04-01",
       currency: "USD",
       importedCount: 1,
@@ -302,7 +302,7 @@ describe("resetCompanyCostData", () => {
 
   it("accepts the restaurant name case-insensitively", () => {
     expect(resetConfirmationMatches("stage test 1", "Stage Test 1")).toBe(true);
-    expect(resetConfirmationMatches("  Los Ranchos ", "Los Ranchos")).toBe(
+    expect(resetConfirmationMatches("  Casa Prueba ", "Casa Prueba")).toBe(
       true
     );
     expect(resetConfirmationMatches("Lavara", "Stage Test 1")).toBe(false);
@@ -310,67 +310,67 @@ describe("resetCompanyCostData", () => {
 
   it("rejects a single restaurant name when the company has two restaurants", () => {
     const target = {
-      companyName: "Grupo Ranchos",
-      restaurantNames: ["Los Ranchos", "Lavara"],
+      companyName: "Grupo Casa",
+      restaurantNames: ["Casa Prueba", "Lavara"],
     };
-    expect(resetConfirmationAccepted("Los Ranchos", target)).toBe(false);
+    expect(resetConfirmationAccepted("Casa Prueba", target)).toBe(false);
     expect(resetConfirmationAccepted("Lavara", target)).toBe(false);
-    expect(resetConfirmationAccepted("los ranchos", target)).toBe(false);
-    expect(resetConfirmationAccepted("Grupo Ranchos", target)).toBe(true);
-    expect(resetConfirmationAccepted("Los Ranchos y Lavara", target)).toBe(
+    expect(resetConfirmationAccepted("casa prueba", target)).toBe(false);
+    expect(resetConfirmationAccepted("Grupo Casa", target)).toBe(true);
+    expect(resetConfirmationAccepted("Casa Prueba y Lavara", target)).toBe(
       true
     );
-    expect(resetConfirmationAccepted("Lavara y Los Ranchos", target)).toBe(
+    expect(resetConfirmationAccepted("Lavara y Casa Prueba", target)).toBe(
       true
     );
-    expect(resetConfirmationAccepted("Los Ranchos, Lavara", target)).toBe(true);
+    expect(resetConfirmationAccepted("Casa Prueba, Lavara", target)).toBe(true);
   });
 
   it("does not treat a restaurant name as the account name on a shared company", () => {
     const target = {
-      companyName: "Los Ranchos",
-      restaurantNames: ["Los Ranchos", "Lavara"],
+      companyName: "Casa Prueba",
+      restaurantNames: ["Casa Prueba", "Lavara"],
     };
-    expect(resetConfirmationAccepted("Los Ranchos", target)).toBe(false);
+    expect(resetConfirmationAccepted("Casa Prueba", target)).toBe(false);
     expect(resetConfirmationAccepted("Lavara", target)).toBe(false);
-    expect(resetConfirmationAccepted("Los Ranchos y Lavara", target)).toBe(
+    expect(resetConfirmationAccepted("Casa Prueba y Lavara", target)).toBe(
       true
     );
   });
 
   it("still accepts one restaurant name when the company has only that restaurant", () => {
     expect(
-      resetConfirmationAccepted("Los Ranchos", {
-        companyName: "Los Ranchos",
-        restaurantNames: ["Los Ranchos"],
+      resetConfirmationAccepted("Casa Prueba", {
+        companyName: "Casa Prueba",
+        restaurantNames: ["Casa Prueba"],
       })
     ).toBe(true);
   });
 
   it("shows the explicit multi-restaurant Spanish warning", () => {
     const warning = multiRestaurantResetWarningEs(
-      ["Los Ranchos", "Lavara"],
-      "Los Ranchos"
+      ["Casa Prueba", "Lavara"],
+      "Casa Prueba"
     );
     expect(warning).toBe(
-      "Esto borra los costos y recetas de TODOS los restaurantes de la cuenta (Los Ranchos y Lavara), no solo de Los Ranchos. No se puede deshacer."
+      "Esto borra los costos y recetas de TODOS los restaurantes de la cuenta (Casa Prueba y Lavara), no solo de Casa Prueba. No se puede deshacer."
     );
     expect(
       resetConfirmPromptEs({
-        companyName: "Los Ranchos",
-        restaurantNames: ["Los Ranchos", "Lavara"],
+        companyName: "Casa Prueba",
+        restaurantNames: ["Casa Prueba", "Lavara"],
       })
-    ).toContain("Los Ranchos y Lavara");
+    ).toContain("Casa Prueba y Lavara");
     expect(
       resetConfirmPromptEs({
-        companyName: "Los Ranchos",
-        restaurantNames: ["Los Ranchos", "Lavara"],
+        companyName: "Casa Prueba",
+        restaurantNames: ["Casa Prueba", "Lavara"],
       })
     ).toContain("No se puede deshacer");
     expect(
       resetConfirmErrorEs({
-        companyName: "Grupo Ranchos",
-        restaurantNames: ["Los Ranchos", "Lavara"],
+        companyName: "Grupo Casa",
+        restaurantNames: ["Casa Prueba", "Lavara"],
       })
     ).toBe(
       "Escribe el nombre de la cuenta o el de todos los restaurantes para confirmar."
@@ -379,30 +379,30 @@ describe("resetCompanyCostData", () => {
 
   it("matches both restaurant names even when one name contains y", () => {
     const target = {
-      companyName: "Grupo Ranchos",
-      restaurantNames: ["Los Ranchos", "Pollo y Más"],
+      companyName: "Grupo Casa",
+      restaurantNames: ["Casa Prueba", "Pollo y Más"],
     };
-    expect(resetConfirmationAccepted("Los Ranchos y Pollo y Más", target)).toBe(
+    expect(resetConfirmationAccepted("Casa Prueba y Pollo y Más", target)).toBe(
       true
     );
-    expect(resetConfirmationAccepted("Pollo y Más y Los Ranchos", target)).toBe(
+    expect(resetConfirmationAccepted("Pollo y Más y Casa Prueba", target)).toBe(
       true
     );
     expect(resetConfirmationAccepted("Pollo y Más", target)).toBe(false);
-    expect(resetConfirmationAccepted("Los Ranchos", target)).toBe(false);
+    expect(resetConfirmationAccepted("Casa Prueba", target)).toBe(false);
   });
 
   it("does not accept START OVER when a restaurant or account name exists", () => {
     expect(
       resetConfirmationAccepted("START OVER", {
-        companyName: "Los Ranchos",
-        restaurantNames: ["Los Ranchos"],
+        companyName: "Casa Prueba",
+        restaurantNames: ["Casa Prueba"],
       })
     ).toBe(false);
     expect(
       resetConfirmationAccepted("EMPEZAR DE NUEVO", {
-        companyName: "Los Ranchos",
-        restaurantNames: ["Los Ranchos"],
+        companyName: "Casa Prueba",
+        restaurantNames: ["Casa Prueba"],
       })
     ).toBe(false);
     expect(RESET_CONFIRM_FALLBACK).toBe("EMPEZAR DE NUEVO");
@@ -467,7 +467,7 @@ describe("resetCompanyCostData", () => {
     await repo.insertCostEntries([costEntry(COMPANY_A, ingA.id, "import")]);
     await repo.createBatch({
       companyId: COMPANY_A,
-      filename: "ranchos.xlsx",
+      filename: "casa.xlsx",
       fileMonth: "2026-04-01",
       currency: "USD",
       importedCount: 1,
@@ -534,7 +534,7 @@ describe("resetCompanyCostData", () => {
       }),
     };
     await expect(
-      loadCompanyMembershipRole(supabase as never, "co-ranchos", "user-1")
+      loadCompanyMembershipRole(supabase as never, "co-casa", "user-1")
     ).rejects.toThrow(/role "authenticator"/);
     expect(canManageCompanyCostReset({ role: null })).toBe(false);
   });

@@ -438,7 +438,7 @@ describe("detectIntent — sales questions from issue #95", () => {
 describe("buildAskMiltonContext — sales block shape", () => {
   const COMPANY_ID = "co-1";
   const USER_ID = "user-1";
-  const LOC = "loc-ranchos";
+  const LOC = "loc-casa";
 
   function makeClient(posRows: MockRow[]) {
     const supabase = createCappedSupabase({
@@ -448,7 +448,7 @@ describe("buildAskMiltonContext — sales block shape", () => {
           {
             id: COMPANY_ID,
             created_by: USER_ID,
-            name: "Los Ranchos",
+            name: "Casa Prueba",
             preferred_language: "es",
           },
         ],
@@ -478,7 +478,7 @@ describe("buildAskMiltonContext — sales block shape", () => {
         agent_recommendations: [],
         restaurant_brands: [],
         restaurant_locations: [
-          { id: LOC, name: "Los Ranchos", brand_id: null },
+          { id: LOC, name: "Casa Prueba", brand_id: null },
         ],
       },
     });

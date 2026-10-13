@@ -242,6 +242,27 @@ describe("the question shows on the dish line that uses the row", () => {
     expect(now.pending).toBe(false);
     expect(now.amount).toBeCloseTo(0.24, 6);
   });
+  it("Ninguna (dejar Pendiente) closes the question and adds nothing", async () => {
+    const s = dish();
+    const loaded = await loadEditor(ctx(s));
+    if (!loaded.ok) throw new Error(loaded.error);
+    const line = loaded.state.lines.find((l) => l.kind === "unresolved")!;
+    const r = await applyEdit(ctx(s), {
+      action: "answer_catalog_unit",
+      item_id: "q-pan",
+      unit: "none",
+      line_key: line.key,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(s.catalogRows?.[0].status).toBe("skipped");
+    expect(s.ingredients).toHaveLength(1);
+    expect(s.inputs).toHaveLength(0);
+    const after = r.state.lines.find((l) => l.raw_name === line.raw_name)!;
+    expect(after.pending).toBe(true);
+    expect(after.amount).toBeNull();
+    expect(after.catalog_question ?? null).toBeNull();
+  });
 });
 
 function product(
@@ -363,7 +384,7 @@ describe("one upload on screen", () => {
       "components/restaurant/recipes-costing/PriceCatalogPanel.tsx"
     );
     expect(panel).toContain(
-      "const canSave = !!file && !!preview && !busy && !busyExternal;"
+      "const canSave = !!draftName && !!preview && !busy && !busyExternal;"
     );
     expect(panel).toContain("onUploaded?.()");
   });

@@ -30,7 +30,7 @@ function posRow(i: number): MockRow {
     sale_date: "2026-07-15",
     order_id: `ord-${i}`,
     check_id: `chk-${i}`,
-    raw_item_name: location_id === LOC_A ? "Ranchos Dish" : "Lavara Dish",
+    raw_item_name: location_id === LOC_A ? "Casa Dish" : "Lavara Dish",
     quantity: 1,
     gross_revenue: ROW_REVENUE,
     net_revenue: ROW_REVENUE,
@@ -95,9 +95,9 @@ describe("fetchRealRestaurantDashboardData — PostgREST 1,000-row cap", () => {
     expect(data.overview.total_revenue).toBe(TOTAL_ROWS * ROW_REVENUE);
     expect(data.overview.total_orders).toBe(TOTAL_ROWS);
     expect(data.explorerRows).toHaveLength(TOTAL_ROWS);
-    const ranchos = data.dishSales.find((d) => d.item_name === "Ranchos Dish");
+    const casa = data.dishSales.find((d) => d.item_name === "Casa Dish");
     const lavara = data.dishSales.find((d) => d.item_name === "Lavara Dish");
-    expect(ranchos?.revenue).toBe(ROWS_A * ROW_REVENUE);
+    expect(casa?.revenue).toBe(ROWS_A * ROW_REVENUE);
     expect(lavara?.revenue).toBe(ROWS_B * ROW_REVENUE);
   });
 
@@ -110,7 +110,7 @@ describe("fetchRealRestaurantDashboardData — PostgREST 1,000-row cap", () => {
     expect(data.dishSales.some((d) => d.item_name === "Lavara Dish")).toBe(
       false
     );
-    expect(data.explorerRows.every((r) => r.item_name === "Ranchos Dish")).toBe(
+    expect(data.explorerRows.every((r) => r.item_name === "Casa Dish")).toBe(
       true
     );
   });

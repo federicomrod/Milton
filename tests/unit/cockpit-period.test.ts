@@ -62,7 +62,7 @@ describe("cockpit period contract (#129)", () => {
 });
 
 describe("period aggregation matches full-period totals", () => {
-  const ranchos: CockpitFactRow[] = [
+  const casa: CockpitFactRow[] = [
     row({
       sale_date: "2026-07-02",
       check_id: "a",
@@ -96,20 +96,21 @@ describe("period aggregation matches full-period totals", () => {
     }),
   ];
 
-  it("July month net + tips matches the unfiltered aggregate (Los Ranchos / Lavara lock)", () => {
-    const ranchosAll = buildCockpitSalesAggregate(ranchos, { currency: "USD" });
-    const ranchosMonth = buildCockpitPeriodSnapshot(
-      ranchos,
+  it("July month net + tips matches the unfiltered aggregate (Casa Prueba / Lavara lock)", () => {
+    const casaAll = buildCockpitSalesAggregate(casa, { currency: "USD" });
+    const casaMonth = buildCockpitPeriodSnapshot(
+      casa,
       resolveCockpitPeriod("month", "2026-07-31")!,
       { currency: "USD", lang: "es" }
     );
-    expect(ranchosAll.revenue.net_sales + ranchosAll.revenue.tips).toBeCloseTo(
+    expect(casaAll.revenue.net_sales + casaAll.revenue.tips).toBeCloseTo(
       85_943.59,
       2
     );
-    expect(
-      ranchosMonth.current.net_sales + ranchosMonth.current.tips
-    ).toBeCloseTo(85_943.59, 2);
+    expect(casaMonth.current.net_sales + casaMonth.current.tips).toBeCloseTo(
+      85_943.59,
+      2
+    );
 
     const lavaraAll = buildCockpitSalesAggregate(lavara, { currency: "USD" });
     const lavaraMonth = buildCockpitPeriodSnapshot(

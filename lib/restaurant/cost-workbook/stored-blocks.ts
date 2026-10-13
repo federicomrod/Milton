@@ -179,3 +179,35 @@ export function findRecipeSource<
   }
   return null;
 }
+
+/**
+ * The newest live upload that kept the file's recipes, loading the full
+ * snapshot of that ONE upload only (the list itself carries no snapshot).
+ */
+export async function loadRecipeSource<
+  T extends {
+    id: string;
+    filename: string;
+    created_at?: string | null;
+    undone_at?: string | null;
+    undo_snapshot: { candidate_blocks?: unknown };
+  },
+>(
+  repo: {
+    listLiveBatchSummaries(
+      companyId: string
+    ): Promise<Array<{ id: string; has_recipe_blocks: boolean }>>;
+    getBatch(companyId: string, batchId: string): Promise<T | null>;
+  },
+  companyId: string
+): Promise<{ batch: T; blocks: StoredRecipeBlock[] } | null> {
+  const summaries = await repo.listLiveBatchSummaries(companyId);
+  for (const summary of summaries) {
+    if (!summary.has_recipe_blocks) continue;
+    const batch = await repo.getBatch(companyId, summary.id);
+    if (!batch) continue;
+    const found = findRecipeSource([batch]);
+    if (found) return found;
+  }
+  return null;
+}

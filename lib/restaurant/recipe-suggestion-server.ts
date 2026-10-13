@@ -8,7 +8,7 @@ import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/r
 import { runRecipeSuggestions } from "@/lib/restaurant/cost-workbook/recipe-suggestion";
 import {
   expandCandidateBlocks,
-  findRecipeSource,
+  loadRecipeSource,
 } from "@/lib/restaurant/cost-workbook/stored-blocks";
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
 import type { RankedPosProduct } from "@/lib/restaurant/pos-product-list";
@@ -46,7 +46,7 @@ export async function loadStoredCandidateBlocks(
   | { ok: false; error: string }
 > {
   const repo = createSupabaseCostWorkbookRepo(supabase);
-  const source = findRecipeSource(await repo.listBatchHistory(companyId));
+  const source = await loadRecipeSource(repo, companyId);
   if (!source) return { ok: false, error: NO_STORED_BLOCKS_ERROR };
   const blocks = expandCandidateBlocks(source.blocks);
   if (blocks.length === 0) return { ok: false, error: NO_STORED_BLOCKS_ERROR };

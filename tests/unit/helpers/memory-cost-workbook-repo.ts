@@ -208,10 +208,24 @@ export function createMemoryCostWorkbookRepo(
           undo_snapshot: row.undo_snapshot,
         }));
     },
-    async listBatchHistory(companyId) {
+    async listLiveBatchSummaries(companyId) {
       return store.batches
-        .filter((row) => row.company_id === companyId)
-        .map((row) => ({ ...row }));
+        .filter((row) => row.company_id === companyId && !row.undone_at)
+        .sort((a, b) => ((a.created_at ?? "") < (b.created_at ?? "") ? 1 : -1))
+        .map((row) => {
+          const blocks = row.undo_snapshot.candidate_blocks;
+          const first = Array.isArray(blocks)
+            ? (blocks[0] as { name?: unknown } | undefined)
+            : undefined;
+          return {
+            id: row.id,
+            filename: row.filename,
+            created_at: row.created_at,
+            undone_at: row.undone_at ?? null,
+            has_recipe_blocks:
+              typeof first?.name === "string" && first.name.trim() !== "",
+          };
+        });
     },
     async resetCompanyCostCatalog(companyId) {
       return resetMemoryCompanyCostCatalog(store, companyId);

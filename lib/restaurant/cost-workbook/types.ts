@@ -384,6 +384,16 @@ export interface GroupedRecipe {
   start_row_index?: number;
 }
 
+/** A live upload without its (large) undo snapshot: what lists need. */
+export interface CostWorkbookBatchSummary {
+  id: string;
+  filename: string;
+  created_at?: string;
+  undone_at: string | null;
+  /** The upload kept the file's recipes (its stored blocks are not empty). */
+  has_recipe_blocks: boolean;
+}
+
 export interface CostWorkbookBatch {
   id: string;
   company_id: string;

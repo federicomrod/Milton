@@ -4,6 +4,7 @@ import type {
   RecipeCostingView,
   RecipeCostingWorkspace,
 } from "@/lib/restaurant/recipe-costing/workspace";
+import { MenuReaderPanel } from "./MenuReaderPanel";
 import { PriceCatalogPanel } from "./PriceCatalogPanel";
 import { ResetPanel } from "./ResetPanel";
 import { ClassifyQueuePanel, type PostFn } from "./TreatmentPanel";
@@ -138,6 +139,13 @@ export function ResumenScreen({
       </Card>
 
       <PriceCatalogPanel onUploaded={onUploaded} busyExternal={generateBusy} />
+
+      <MenuReaderPanel
+        canEdit={data.actor.can_submit}
+        busyExternal={generateBusy}
+        locationId={locationId}
+        onDone={onResetDone}
+      />
 
       <ClassifyQueuePanel
         rows={data.classify_queue}

@@ -37,6 +37,21 @@ export interface SuggestionEvidenceView {
   lines: SuggestionLineView[];
   recipe_version_id: string | null;
   filename: string | null;
+  /** Set when the draft came from "Leer menú": what the menu says. */
+  menu: SuggestionMenuView | null;
+}
+
+export interface SuggestionMenuView {
+  dish: string;
+  variant: string | null;
+  description: string | null;
+  price: number | null;
+  url: string | null;
+}
+
+/** A draft read from the restaurant's menu, with at least one component. */
+export function isMenuSuggestion(evidence: SuggestionEvidenceView): boolean {
+  return evidence.menu !== null && evidence.lines.length > 0;
 }
 
 /** True only when the suggestion is tied to a parsed workbook block with lines. */
@@ -55,6 +70,7 @@ export function canConfirmSuggestedLink(
   evidence: SuggestionEvidenceView
 ): boolean {
   if (isBoundSuggestion(evidence)) return true;
+  if (isMenuSuggestion(evidence)) return true;
   return (
     evidence.source === "manual_pick" || evidence.source === "create_recipe"
   );
@@ -158,6 +174,16 @@ export function parseSuggestionEvidence(
     lines,
     recipe_version_id: asString(ev.recipe_version_id),
     filename: asString(ev.filename),
+    menu:
+      ev.source === "menu" && asString(ev.menu_dish)
+        ? {
+            dish: asString(ev.menu_dish)!,
+            variant: asString(ev.menu_variant),
+            description: asString(ev.menu_description),
+            price: asNumber(ev.menu_price),
+            url: asString(ev.menu_url),
+          }
+        : null,
   };
 }
 

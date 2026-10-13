@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
-import type {
-  EditorLine,
-  PickerOption,
+import {
+  FLAG_NEW_SUGGESTED,
+  needsTypedQuantity,
+  type EditorLine,
+  type PickerOption,
 } from "@/lib/restaurant/recipe-costing/editor";
 import { GhostBtn } from "./ui";
 
@@ -76,9 +78,15 @@ async function call(
   }
 }
 
+/** Quantity a person typed on a menu line, sent with how it is resolved. */
+interface TypedAmount {
+  quantity: number;
+  line_unit: string;
+}
+
 type PickTarget =
   | { mode: "add" }
-  | { mode: "resolve"; line: EditorLine }
+  | { mode: "resolve"; line: EditorLine; amount?: TypedAmount }
   | { mode: "change"; line: EditorLine };
 
 export function RecipeLinesEditor({
@@ -238,6 +246,7 @@ export function RecipeLinesEditor({
                 line_key: picking.line.key,
                 kind: option.kind,
                 id: option.id,
+                ...(picking.amount ?? {}),
               });
             } else {
               void send({
@@ -255,7 +264,7 @@ export function RecipeLinesEditor({
               unit: draft.unit,
               unit_cost: draft.unit_cost,
               ...(picking.mode === "resolve"
-                ? { line_key: picking.line.key }
+                ? { line_key: picking.line.key, ...(picking.amount ?? {}) }
                 : picking.mode === "add"
                   ? { quantity: draft.quantity, line_unit: draft.line_unit }
                   : {}),
@@ -268,7 +277,7 @@ export function RecipeLinesEditor({
               yield_quantity: draft.yield_quantity,
               yield_unit: draft.yield_unit,
               ...(picking.mode === "resolve"
-                ? { line_key: picking.line.key }
+                ? { line_key: picking.line.key, ...(picking.amount ?? {}) }
                 : picking.mode === "add"
                   ? { quantity: draft.quantity, line_unit: draft.line_unit }
                   : {}),
@@ -302,15 +311,16 @@ export function RecipeLinesEditor({
               key={line.key}
               line={line}
               editable={editable}
-              onResolve={(option) =>
+              onResolve={(option, amount) =>
                 void send({
                   action: "resolve",
                   line_key: line.key,
                   kind: option.kind,
                   id: option.id,
+                  ...(amount ?? {}),
                 })
               }
-              onPick={() => setPicking({ mode: "resolve", line })}
+              onPick={(amount) => setPicking({ mode: "resolve", line, amount })}
               onChange={() => setPicking({ mode: "change", line })}
               onRemove={() =>
                 void send({ action: "remove", line_key: line.key })
@@ -437,8 +447,11 @@ function Row({
 }: {
   line: EditorLine;
   editable: boolean;
-  onResolve: (option: { kind: "ingredient" | "component"; id: string }) => void;
-  onPick: () => void;
+  onResolve: (
+    option: { kind: "ingredient" | "component"; id: string },
+    amount?: TypedAmount
+  ) => void;
+  onPick: (amount?: TypedAmount) => void;
   onChange: () => void;
   onRemove: () => void;
   onQty: (qty: number) => void;
@@ -451,6 +464,16 @@ function Row({
   const [qty, setQty] = useState(String(line.qty || ""));
   const [price, setPrice] = useState("");
   const unresolved = line.kind === "unresolved";
+  // A line from the menu says what, not how much: the person types both
+  // before it is matched or created. Never an assumed quantity.
+  const fromMenu = unresolved && needsTypedQuantity(line);
+  const [menuUnit, setMenuUnit] = useState("");
+  const typedQty = Number(qty);
+  const typed: TypedAmount | undefined =
+    fromMenu && Number.isFinite(typedQty) && typedQty > 0 && menuUnit
+      ? { quantity: typedQty, line_unit: menuUnit }
+      : undefined;
+  const waitingForAmount = fromMenu && !typed;
   const units = unitsLike(line.price?.unit ?? line.unit);
   const shownUnits = units.includes(line.unit) ? units : [line.unit, ...units];
 
@@ -488,6 +511,16 @@ function Row({
                   </div>
                 ) : null}
               </div>
+            ) : fromMenu ? (
+              <div className="text-[10.5px] text-[#a35a00]">
+                Del menú
+                {line.flags.includes(FLAG_NEW_SUGGESTED)
+                  ? " · Nuevo, sugerido: no está en tu lista."
+                  : line.possible_match
+                    ? ` · ¿es «${line.possible_match.name}»?`
+                    : ""}{" "}
+                Escribe cuánto lleva.
+              </div>
             ) : (
               <div className="text-[10.5px] text-[#a35a00]">
                 No está en tu lista. Elige cuál es.
@@ -497,17 +530,28 @@ function Row({
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {line.possible_match ? (
                   <GhostBtn
+                    disabled={waitingForAmount}
                     onClick={() =>
-                      onResolve({
-                        kind: line.possible_match!.kind,
-                        id: line.possible_match!.id,
-                      })
+                      onResolve(
+                        {
+                          kind: line.possible_match!.kind,
+                          id: line.possible_match!.id,
+                        },
+                        typed
+                      )
                     }
                   >
                     Usar «{line.possible_match.name}»
                   </GhostBtn>
                 ) : null}
-                <GhostBtn onClick={onPick}>Elegir otro</GhostBtn>
+                <GhostBtn
+                  disabled={waitingForAmount}
+                  onClick={() => onPick(typed)}
+                >
+                  {fromMenu && !line.possible_match
+                    ? "Crear o elegir"
+                    : "Elegir otro"}
+                </GhostBtn>
               </div>
             ) : null}
           </>
@@ -567,7 +611,15 @@ function Row({
         )}
       </td>
       <td className="py-1.5 pr-2 text-right align-top">
-        {unresolved ? (
+        {fromMenu ? (
+          <input
+            value={qty}
+            disabled={!editable}
+            placeholder="Pendiente"
+            onChange={(event) => setQty(event.target.value)}
+            className="inline-block w-20 rounded-md border border-[#f5a524] bg-[#fff8ec] px-1.5 py-0.5 text-right"
+          />
+        ) : unresolved ? (
           <span className="text-[#6b7385]">{line.qty}</span>
         ) : (
           <input
@@ -583,7 +635,21 @@ function Row({
         )}
       </td>
       <td className="py-1.5 pr-2 align-top">
-        {unresolved ? (
+        {fromMenu ? (
+          <select
+            value={menuUnit}
+            disabled={!editable}
+            onChange={(event) => setMenuUnit(event.target.value)}
+            className="rounded-md border border-[#f5a524] bg-[#fff8ec] px-1 py-0.5"
+          >
+            <option value="">—</option>
+            {ALL_UNITS.map((unit) => (
+              <option key={unit} value={unit}>
+                {UNIT_LABEL[unit] ?? unit}
+              </option>
+            ))}
+          </select>
+        ) : unresolved ? (
           <span className="text-[#6b7385]">
             {UNIT_LABEL[line.unit] ?? line.unit}
           </span>

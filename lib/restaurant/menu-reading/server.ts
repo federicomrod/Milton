@@ -1,0 +1,378 @@
+// "Leer menú (opcional)": read the restaurant's menu once, then leave a
+// Sugerido draft for every POS dish that has no recipe yet. Company comes
+// from auth, never from the request. Every write goes into one batch, so
+// "Deshacer lote" and "Empezar de nuevo" remove it like an Excel run.
+
+import { createHash } from "node:crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
+import { pickMenuItemForLocation } from "@/lib/restaurant/cost-workbook/menu-item-pick";
+import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
+import { emptyUndoSnapshot } from "@/lib/restaurant/cost-workbook/types";
+import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
+import {
+  suggestPosProductLink,
+  unlinkedPosProduct,
+} from "@/lib/restaurant/pos-product-links";
+import { nextVersionNumber } from "@/lib/restaurant/recipe-versions";
+import { wantsSuggestion } from "@/lib/restaurant/recipe-suggestion-server";
+import { posPriceFromSales } from "@/lib/restaurant/recipe-costing/display";
+import {
+  asRecord,
+  isBoundSuggestion,
+  parseSuggestionEvidence,
+} from "@/lib/restaurant/recipe-costing/evidence";
+import {
+  MENU_AI_MODEL,
+  createOpenAiMenuReader,
+  extractMenuDishes,
+  parseMenuDishes,
+  type MenuAi,
+  type MenuDish,
+} from "./extract";
+import {
+  MENU_EVIDENCE_SOURCE,
+  planMenuDrafts,
+  type MenuDraftProduct,
+} from "./drafts";
+import {
+  MenuFetchError,
+  readMenuSource,
+  type MenuSource,
+  type MenuText,
+} from "./sources";
+
+export class MenuReadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MenuReadError";
+  }
+}
+
+export interface MenuReadResult {
+  ok: true;
+  batch_id: string | null;
+  menu_source_id: string | null;
+  /** True when this menu was read before and the AI was not called again. */
+  cached: boolean;
+  truncated: boolean;
+  dishes_read: number;
+  drafted: number;
+  new_components: number;
+  not_found: string[];
+  skipped: Array<{ odoo_name: string; reason: string }>;
+}
+
+function hashText(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+/** Read the menu, or reuse the last reading of the same text. */
+async function loadOrReadDishes(
+  supabase: SupabaseClient,
+  input: {
+    companyId: string;
+    menu: MenuText;
+    ai: MenuAi;
+    createdBy: string | null;
+  }
+): Promise<{ id: string | null; dishes: MenuDish[]; cached: boolean }> {
+  const contentHash = hashText(input.menu.text);
+  const { data: existing } = await supabase
+    .from("restaurant_menu_sources")
+    .select("id, dishes")
+    .eq("company_id", input.companyId)
+    .eq("content_hash", contentHash)
+    .maybeSingle();
+  if (existing) {
+    const dishes = parseMenuDishes({ dishes: existing.dishes });
+    if (dishes.length > 0) {
+      return { id: String(existing.id), dishes, cached: true };
+    }
+  }
+
+  const dishes = await extractMenuDishes(input.menu.text, input.ai);
+  if (dishes.length === 0) return { id: null, dishes, cached: false };
+  const { data: saved, error } = await supabase
+    .from("restaurant_menu_sources")
+    .upsert(
+      {
+        company_id: input.companyId,
+        kind: input.menu.kind,
+        source_ref: input.menu.source_ref,
+        content_hash: contentHash,
+        menu_text: input.menu.text,
+        dishes,
+        model: MENU_AI_MODEL,
+        created_by: input.createdBy,
+      },
+      { onConflict: "company_id,content_hash" }
+    )
+    .select("id")
+    .single();
+  if (error) {
+    // The drafts still work without the cache; the next run reads again.
+    console.error("[menu-reading cache]", error.message);
+    return { id: null, dishes, cached: false };
+  }
+  return { id: String(saved.id), dishes, cached: false };
+}
+
+function batchName(menu: MenuText): string {
+  if (menu.source_ref) {
+    try {
+      return `Menú · ${new URL(menu.source_ref).hostname}`;
+    } catch {
+      // fall through
+    }
+  }
+  return "Menú · texto pegado";
+}
+
+export async function readMenuIntoDrafts(
+  supabase: SupabaseClient,
+  params: {
+    companyId: string;
+    currency: string;
+    source: MenuSource;
+    createdBy?: string | null;
+    locationId?: string | null;
+    ai?: MenuAi;
+    readSource?: typeof readMenuSource;
+  }
+): Promise<MenuReadResult> {
+  const locationId = params.locationId ?? null;
+  let menu: MenuText;
+  try {
+    menu = await (params.readSource ?? readMenuSource)(params.source);
+  } catch (err) {
+    if (err instanceof MenuFetchError) throw new MenuReadError(err.message);
+    throw err;
+  }
+
+  const read = await loadOrReadDishes(supabase, {
+    companyId: params.companyId,
+    menu,
+    ai: params.ai ?? createOpenAiMenuReader(),
+    createdBy: params.createdBy ?? null,
+  });
+  if (read.dishes.length === 0) {
+    throw new MenuReadError(
+      "No encontré platos en ese menú. Revisa la dirección o pega el texto del menú."
+    );
+  }
+
+  const list = await loadPosProductList(supabase, {
+    companyId: params.companyId,
+    locationId,
+  });
+  if (!list.ok) throw new Error(list.error);
+  const products = list.list.products.filter(wantsSuggestion);
+
+  const repo = createSupabaseCostWorkbookRepo(supabase);
+  const [ingredients, components, menuItems, recipes, links] =
+    await Promise.all([
+      repo.listIngredients(params.companyId),
+      repo.listComponents(params.companyId),
+      repo.listMenuItems(params.companyId),
+      repo.listRecipes(params.companyId),
+      repo.listPosProductLinks(params.companyId, locationId),
+    ]);
+  const aliases = new Map<string, string>();
+  try {
+    for (const row of await repo.listIngredientAliases(params.companyId)) {
+      aliases.set(normalizeMatchName(row.alias_name), row.ingredient_id);
+    }
+  } catch {
+    // nothing remembered
+  }
+  const recipeByMenuId = new Map(recipes.map((row) => [row.menu_item_id, row]));
+  const versionsByRecipe = new Map(
+    await Promise.all(
+      recipes.map(
+        async (recipe) =>
+          [
+            recipe.id,
+            await repo.listRecipeVersions(params.companyId, recipe.id),
+          ] as const
+      )
+    )
+  );
+
+  const linkOf = (odooProductId: number) =>
+    links.find(
+      (link) =>
+        link.odoo_product_id === odooProductId &&
+        (link.location_id === locationId || link.location_id == null)
+    );
+  const menuItemOf = (odooProductId: number, odooName: string) => {
+    const link = linkOf(odooProductId);
+    return (
+      (link?.menu_item_id
+        ? menuItems.find((row) => row.id === link.menu_item_id)
+        : undefined) ?? pickMenuItemForLocation(menuItems, odooName, locationId)
+    );
+  };
+
+  const draftProducts: MenuDraftProduct[] = products.map((product) => {
+    const link = linkOf(product.odoo_product_id);
+    const evidence = parseSuggestionEvidence(asRecord(link?.evidence));
+    const menuItem = menuItemOf(product.odoo_product_id, product.odoo_name);
+    const recipe = menuItem ? recipeByMenuId.get(menuItem.id) : undefined;
+    const versions = recipe ? (versionsByRecipe.get(recipe.id) ?? []) : [];
+    return {
+      odoo_product_id: product.odoo_product_id,
+      odoo_name: product.odoo_name,
+      pos_price: posPriceFromSales(product.net_sales, product.units_sold),
+      link_state: link?.link_state ?? product.link_state,
+      has_recipe: versions.length > 0 || isBoundSuggestion(evidence),
+      menu_draft: evidence.source === MENU_EVIDENCE_SOURCE,
+    };
+  });
+
+  const decisions = planMenuDrafts({
+    products: draftProducts,
+    dishes: read.dishes,
+    catalog: {
+      ingredients: ingredients.map((row) => ({
+        id: row.id,
+        name: row.name,
+        default_unit: row.default_unit ?? null,
+      })),
+      preparations: components.map((row) => ({ id: row.id, name: row.name })),
+      aliases,
+    },
+    menuSourceId: read.id,
+    menuUrl: menu.source_ref,
+  });
+
+  const result: MenuReadResult = {
+    ok: true,
+    batch_id: null,
+    menu_source_id: read.id,
+    cached: read.cached,
+    truncated: menu.truncated,
+    dishes_read: read.dishes.length,
+    drafted: 0,
+    new_components: 0,
+    not_found: [],
+    skipped: [],
+  };
+  for (const decision of decisions) {
+    if (decision.kind === "no_encontrado") {
+      result.not_found.push(decision.product.odoo_name);
+    } else if (decision.kind === "omitido") {
+      result.skipped.push({
+        odoo_name: decision.product.odoo_name,
+        reason: decision.reason,
+      });
+    }
+  }
+  const drafts = decisions.filter((d) => d.kind === "draft");
+  if (drafts.length === 0) return result;
+
+  const batch = await repo.createBatch({
+    companyId: params.companyId,
+    filename: batchName(menu),
+    fileMonth: null,
+    currency: params.currency,
+    importedCount: 0,
+    reviewCount: 0,
+    tabSummaries: [],
+    mappingSource: "ai",
+    createdBy: params.createdBy ?? null,
+  });
+  result.batch_id = batch.id;
+  const changes = emptyUndoSnapshot();
+
+  try {
+    for (const draft of drafts) {
+      const { product } = draft;
+      try {
+        let menuItem = menuItemOf(product.odoo_product_id, product.odoo_name);
+        if (!menuItem) {
+          menuItem = await repo.createMenuItem({
+            companyId: params.companyId,
+            name: product.odoo_name,
+            currency: params.currency,
+            sourceId: batch.id,
+            locationId,
+            sellingPrice: 0,
+          });
+          changes.created_menu_item_ids.push(menuItem.id);
+          menuItems.push(menuItem);
+        }
+        let recipe = recipeByMenuId.get(menuItem.id);
+        if (!recipe) {
+          recipe = await repo.createRecipe({
+            companyId: params.companyId,
+            menuItemId: menuItem.id,
+            name: product.odoo_name,
+            sourceId: batch.id,
+            inputs: [],
+          });
+          changes.created_recipe_ids.push(recipe.id);
+          recipeByMenuId.set(menuItem.id, recipe);
+        }
+        // No lines yet: a line needs a quantity, and only a person writes it.
+        const version = await repo.insertRecipeVersion({
+          companyId: params.companyId,
+          recipeId: recipe.id,
+          menuItemId: menuItem.id,
+          versionNumber: nextVersionNumber(
+            await repo.listRecipeVersions(params.companyId, recipe.id)
+          ),
+          status: "in_review",
+          effectiveDate: null,
+          sourceType: "import",
+          notes: "Borrador desde el menú",
+          inputs: [],
+        });
+        changes.created_recipe_version_ids = [
+          ...(changes.created_recipe_version_ids ?? []),
+          version.id,
+        ];
+
+        const base =
+          linkOf(product.odoo_product_id) ??
+          unlinkedPosProduct({
+            company_id: params.companyId,
+            odoo_product_id: product.odoo_product_id,
+            odoo_name: product.odoo_name,
+            location_id: locationId,
+          });
+        const suggested = suggestPosProductLink(base, {
+          menu_item_id: menuItem.id,
+          evidence: { ...draft.evidence, recipe_version_id: version.id },
+        });
+        const saved = await repo.upsertPosProductLink(
+          params.companyId,
+          suggested
+        );
+        if (saved.created) {
+          changes.created_pos_product_link_ids = [
+            ...(changes.created_pos_product_link_ids ?? []),
+            saved.id,
+          ];
+        } else if (saved.before) {
+          changes.updated_pos_product_links = [
+            ...(changes.updated_pos_product_links ?? []),
+            { id: saved.id, before: saved.before },
+          ];
+        }
+        result.drafted += 1;
+        result.new_components += draft.new_components;
+      } catch (err) {
+        // One dish failing never stops the others; the reason is shown.
+        console.error("[menu-reading draft]", err);
+        result.skipped.push({
+          odoo_name: product.odoo_name,
+          reason: "no pude preparar este plato",
+        });
+      }
+    }
+  } finally {
+    await repo.updateBatchSnapshot(params.companyId, batch.id, changes);
+  }
+  return result;
+}

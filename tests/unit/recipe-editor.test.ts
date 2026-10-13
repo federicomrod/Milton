@@ -585,3 +585,103 @@ describe("parseEditorAction", () => {
     ).toMatchObject({ action: "create_ingredient" });
   });
 });
+
+/** A draft read from the menu: it says what is on the plate, never how much. */
+function menuDraft(): MemoryEditorState {
+  const d = draft();
+  d.inputs = [];
+  d.link!.evidence = {
+    source: "menu",
+    menu_dish: "Pupusa de queso",
+    menu_description: "Masa de maíz rellena de queso",
+    yield: { value: 1, unit: "portion", source: "menu" },
+    lines: [
+      line({
+        raw_name: "queso",
+        ingredient_match: "Queso fresco",
+        qty: null,
+        unit: null,
+        pending: true,
+        flags: ["pendiente_ingrediente", "pendiente_cantidad", "del_menu"],
+      }),
+      line({
+        raw_name: "loroco",
+        qty: null,
+        unit: null,
+        pending: true,
+        flags: [
+          "pendiente_ingrediente",
+          "pendiente_cantidad",
+          "del_menu",
+          "nuevo_sugerido",
+        ],
+      }),
+    ],
+  };
+  return d;
+}
+
+describe("lines read from the menu", () => {
+  it("shows them as pending, with the suggested match and no cost", async () => {
+    const lines = (await state(menuDraft())).lines;
+    expect(lines).toHaveLength(2);
+    for (const l of lines) {
+      expect(l.kind).toBe("unresolved");
+      expect(l.amount).toBeNull();
+      expect(l.flags).toContain("del_menu");
+    }
+    expect(lines[0].possible_match).toMatchObject({ id: "i-queso" });
+    expect(lines[1].flags).toContain("nuevo_sugerido");
+  });
+
+  it("never assumes a quantity: resolving needs one typed", async () => {
+    const d = menuDraft();
+    const queso = (await state(d)).lines[0];
+    const refused = await applyEdit(ctx(d), {
+      action: "resolve",
+      line_key: queso.key,
+      kind: "ingredient",
+      id: "i-queso",
+    });
+    expect(refused.ok).toBe(false);
+    expect(d.inputs).toHaveLength(0);
+
+    const r = await applyEdit(ctx(d), {
+      action: "resolve",
+      line_key: queso.key,
+      kind: "ingredient",
+      id: "i-queso",
+      quantity: 1.5,
+      line_unit: "oz",
+    });
+    expect(r.ok).toBe(true);
+    expect(d.inputs.map((i) => [i.ingredient_id, i.quantity, i.unit])).toEqual([
+      ["i-queso", 1.5, "oz"],
+    ]);
+  });
+
+  it("creates nothing for a new component until the quantity is typed", async () => {
+    const d = menuDraft();
+    const loroco = (await state(d)).lines[1];
+    const refused = await applyEdit(ctx(d), {
+      action: "create_ingredient",
+      name: "Loroco",
+      unit: "oz",
+      line_key: loroco.key,
+    });
+    expect(refused.ok).toBe(false);
+    expect(d.ingredients).toHaveLength(3);
+
+    const r = await applyEdit(ctx(d), {
+      action: "create_ingredient",
+      name: "Loroco",
+      unit: "oz",
+      line_key: loroco.key,
+      quantity: 0.25,
+      line_unit: "oz",
+    });
+    expect(r.ok).toBe(true);
+    expect(d.ingredients).toHaveLength(4);
+    expect(d.inputs.at(-1)).toMatchObject({ quantity: 0.25, unit: "oz" });
+  });
+});

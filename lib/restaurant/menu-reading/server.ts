@@ -297,7 +297,10 @@ export async function readMenuIntoDrafts(
             currency: params.currency,
             sourceId: batch.id,
             locationId,
-            sellingPrice: 0,
+            // The POS price when known. Unknown stays unknown: the column
+            // is NOT NULL, so the repo stores 0, which the cockpit reads
+            // as "Sin precio en el POS" (never as a real $0 price).
+            sellingPrice: product.pos_price,
           });
           changes.created_menu_item_ids.push(menuItem.id);
           menuItems.push(menuItem);

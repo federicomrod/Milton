@@ -128,13 +128,21 @@ describe("menu URL safety", () => {
     ["https://localhost./menu", "pública"],
     ["https://intranet/menu", "pública"],
     ["https://printer.local/menu", "pública"],
-    ["https://127.0.0.1/menu", "pública"],
-    ["https://10.1.2.3/", "pública"],
-    ["https://169.254.169.254/latest/meta-data", "pública"],
-    ["https://192.168.1.1/", "pública"],
-    ["https://[::1]/", "pública"],
-    ["https://[::ffff:10.0.0.1]/", "pública"],
-    ["https://[fd00::1]/", "pública"],
+    ["https://127.0.0.1/menu", "no con una IP"],
+    ["https://10.1.2.3/", "no con una IP"],
+    ["https://169.254.169.254/latest/meta-data", "no con una IP"],
+    ["https://192.168.1.1/", "no con una IP"],
+    ["https://[::1]/", "no con una IP"],
+    ["https://[::ffff:10.0.0.1]/", "no con una IP"],
+    ["https://[::ffff:7f00:1]/", "no con una IP"],
+    ["https://[::ffff:a9fe:a9fe]/", "no con una IP"],
+    ["https://[fd00::1]/", "no con una IP"],
+    // Public addresses too: a menu lives at a name.
+    ["https://8.8.8.8/", "no con una IP"],
+    ["https://[2606:4700::1111]/", "no con una IP"],
+    // Other spellings of 127.0.0.1 the URL parser normalises.
+    ["https://2130706433/", "no con una IP"],
+    ["https://0x7f.1/", "no con una IP"],
   ])("rejects %s", (url, message) => {
     expect(() => checkMenuUrl(url)).toThrow(MenuFetchError);
     expect(() => checkMenuUrl(url)).toThrow(new RegExp(message));

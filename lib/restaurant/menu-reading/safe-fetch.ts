@@ -1,6 +1,7 @@
 // Fetch a menu page from a URL a person typed. Server-side, so every rule
 // here is about never reaching anything but a public web page:
-// - https only, default port, no user:password in the URL;
+// - https only, default port, no user:password in the URL, a host name
+//   (never a raw IPv4 or IPv6 address);
 // - the host must resolve to public addresses only. The check runs inside
 //   the connection's own DNS lookup, so a name cannot pass the check and
 //   then connect somewhere else (DNS rebinding);
@@ -106,17 +107,22 @@ export function checkMenuUrl(raw: string): URL {
     .replace(/^\[|\]$/g, "")
     .replace(/\.$/, "")
     .toLowerCase();
+  // A menu lives at a name, never at a raw IP. The URL parser has already
+  // turned 2130706433, 0x7f.1 and [::ffff:127.0.0.1] into plain IP form,
+  // so isIP sees every spelling of an address.
+  if (isIP(host) !== 0) {
+    throw new MenuFetchError(
+      "Escribe la dirección con el nombre de la página, no con una IP."
+    );
+  }
   if (
     !host ||
     host === "localhost" ||
     host.endsWith(".localhost") ||
     host.endsWith(".local") ||
     host.endsWith(".internal") ||
-    (isIP(host) === 0 && !host.includes("."))
+    !host.includes(".")
   ) {
-    throw new MenuFetchError("Esa dirección no es una página pública.");
-  }
-  if (isIP(host) !== 0 && isBlockedAddress(host)) {
     throw new MenuFetchError("Esa dirección no es una página pública.");
   }
   url.hash = "";

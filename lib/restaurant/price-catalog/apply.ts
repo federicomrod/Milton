@@ -207,6 +207,13 @@ export function planCatalog(
   return { save, pending, preparations, skipped, effective };
 }
 
+/** "LIBRA/ UNIDAD" rows: the per-unidad price is kept in the note. */
+function alsoPerUnit(row: PriceCatalogRow): string {
+  if (!row.reasons.includes("lb_and_unit_prices")) return "";
+  const perUnit = row.options.find((o) => o.unit === "unit");
+  return perUnit ? ` · también $${perUnit.unitCost.toFixed(4)} por unidad` : "";
+}
+
 function priceDate(filename: string) {
   const today = new Date().toISOString().slice(0, 10);
   const named = inferDateFromName(filename);
@@ -413,7 +420,7 @@ export async function applyPriceCatalog(input: {
       date_source: date.date_source,
       supplier_name: null,
       currency: input.currency,
-      notes: `${row.sheet} · fila ${row.row}`,
+      notes: `${row.sheet} · fila ${row.row}${alsoPerUnit(row)}`,
       raw: {},
       category: row.section,
     })

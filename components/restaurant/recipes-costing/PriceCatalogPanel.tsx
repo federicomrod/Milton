@@ -157,7 +157,12 @@ export function PriceCatalogPanel({
       ambiguous: rows.filter(
         (r) => r.kind === "ingredient" && r.status === "ambiguous_unit"
       ),
-      preps: rows.filter((r) => r.kind === "preparation"),
+      // Rows under a production section (PLANTA … PRODUCCION) are the
+      // kitchen's own preparations: never asked.
+      preps: rows.filter(
+        (r) =>
+          r.kind === "preparation" && !r.reasons.includes("preparation_section")
+      ),
       problems: rows.filter(
         (r) =>
           r.kind === "ingredient" &&

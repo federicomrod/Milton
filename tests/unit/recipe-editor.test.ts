@@ -52,7 +52,12 @@ function draft(): MemoryEditorState {
       entry("i-queso", "oz", 0.2),
       // Sal fina has no price yet.
     ],
-    version: { id: "v1", status: "in_review", menu_item_id: "m1" },
+    version: {
+      id: "v1",
+      status: "in_review",
+      kind: "dish",
+      menu_item_id: "m1",
+    },
     inputs: [
       {
         id: "in-seed",
@@ -500,7 +505,12 @@ describe("prices", () => {
 describe("an approved recipe is read-only", () => {
   it("locks every line edit and says why, but still allows a price", async () => {
     const d = draft();
-    d.version = { id: "v1", status: "approved", menu_item_id: "m1" };
+    d.version = {
+      id: "v1",
+      status: "approved",
+      kind: "dish",
+      menu_item_id: "m1",
+    };
     const s = await state(d);
     expect(s.editable).toBe(false);
     expect(s.locked_reason).toMatch(/aprobada/);

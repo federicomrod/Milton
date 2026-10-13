@@ -10,6 +10,7 @@ import type {
 import { ConfirmHowDialog } from "./ConfirmHowDialog";
 import { CostingHeader } from "./CostingHeader";
 import { MenuCosteadoScreen } from "./MenuCosteadoScreen";
+import { PreparacionesScreen } from "./PreparacionesScreen";
 import { ResumenScreen } from "./ResumenScreen";
 import { ValidarScreen } from "./ValidarScreen";
 import { VincularScreen } from "./VincularScreen";
@@ -22,6 +23,7 @@ function viewFromParam(
   if (
     value === "vincular" ||
     value === "validar" ||
+    value === "preparaciones" ||
     value === "menu-costeado" ||
     value === "resumen"
   ) {
@@ -92,6 +94,14 @@ export function RecipesCostingWorkspace({
     } finally {
       setBusy(false);
     }
+  }
+
+  function openPreparation(componentId: string | null) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("vista", "preparaciones");
+    if (componentId) params.set("prep", componentId);
+    else params.delete("prep");
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
   function open(next: RecipeCostingView, odooProductId?: number) {
@@ -288,7 +298,16 @@ export function RecipesCostingWorkspace({
             );
           }}
           onEdited={() => void mutate(async () => undefined)}
+          onOpenPreparation={openPreparation}
           busy={busy}
+        />
+      ) : view === "preparaciones" ? (
+        <PreparacionesScreen
+          data={data}
+          selectedId={searchParams.get("prep")}
+          onSelect={openPreparation}
+          onChanged={() => void mutate(async () => undefined)}
+          locationId={searchParams.get("location")}
         />
       ) : view === "menu-costeado" ? (
         <MenuCosteadoScreen data={data} onOpen={open} />

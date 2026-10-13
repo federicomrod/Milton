@@ -15,6 +15,8 @@ import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { fetchAllRowsRetryingWithoutColumns } from "@/lib/restaurant/missing-schema-column";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { loadPosProductLink } from "./link-actions-server";
+import { PREPARATION_DRAFT_KIND } from "./prefill-preparations";
+import { effectiveDateForNewApprovedVersion } from "@/lib/restaurant/recipe-versions";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
 import type {
   CostingLoad,
@@ -24,6 +26,15 @@ import type {
   VersionRef,
 } from "./editor-service";
 import type { VersionInput } from "./editor";
+
+function inputTable(version: VersionRef): { table: string; fk: string } {
+  return version.kind === "preparation"
+    ? {
+        table: "component_recipe_version_inputs",
+        fk: "component_recipe_version_id",
+      }
+    : { table: "recipe_version_inputs", fk: "recipe_version_id" };
+}
 
 const ENTRY_SELECT =
   "id, ingredient_id, supplier_id, source_type, source_id, cost_date, effective_date, date_source, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at";
@@ -185,12 +196,23 @@ export function createSupabaseEditorStore(
       };
     },
 
-    async saveEvidence(companyId, linkId, evidence) {
+    async saveEvidence(companyId, holder, evidence) {
+      if (!holder.id) return;
+      if (holder.kind === "dish") {
+        const { error } = await supabase
+          .from("pos_product_links")
+          .update({ evidence, updated_at: new Date().toISOString() })
+          .eq("company_id", companyId)
+          .eq("id", holder.id);
+        if (error) throw new Error(error.message);
+        return;
+      }
       const { error } = await supabase
-        .from("pos_product_links")
-        .update({ evidence, updated_at: new Date().toISOString() })
+        .from("cost_import_review_items")
+        .update({ raw_values: evidence })
         .eq("company_id", companyId)
-        .eq("id", linkId);
+        .eq("id", holder.id)
+        .eq("status", "pending");
       if (error) throw new Error(error.message);
     },
 
@@ -208,17 +230,74 @@ export function createSupabaseEditorStore(
         ? {
             id: String(row.id),
             status: String(row.status),
+            kind: "dish",
             menu_item_id: String(row.menu_item_id),
           }
         : null;
     },
 
-    async listInputs(companyId, versionId): Promise<VersionInput[]> {
+    async loadPreparation(companyId, componentId) {
+      const { data: comp, error } = await supabase
+        .from("prepared_components")
+        .select("id, name")
+        .eq("company_id", companyId)
+        .eq("id", componentId)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!comp) return null;
+      const versions = await supabase
+        .from("component_recipe_versions")
+        .select(
+          "id, status, component_id, component_recipe_id, version_number, output_quantity, output_unit"
+        )
+        .eq("company_id", companyId)
+        .eq("component_id", componentId)
+        .order("version_number", { ascending: false })
+        .limit(1);
+      if (versions.error) throw new Error(versions.error.message);
+      const v = versions.data?.[0];
+      const items = await supabase
+        .from("cost_import_review_items")
+        .select("id, raw_values")
+        .eq("company_id", companyId)
+        .eq("status", "pending")
+        .eq("raw_values->>kind", PREPARATION_DRAFT_KIND)
+        .eq("raw_values->>component_id", componentId)
+        .limit(1);
+      if (items.error) throw new Error(items.error.message);
+      const item = items.data?.[0];
+      return {
+        component_id: String(comp.id),
+        name: String(comp.name),
+        holder: {
+          kind: "preparation",
+          id: item ? String(item.id) : null,
+          evidence:
+            item && item.raw_values && typeof item.raw_values === "object"
+              ? (item.raw_values as Record<string, unknown>)
+              : {},
+        },
+        version: v
+          ? {
+              id: String(v.id),
+              status: String(v.status),
+              kind: "preparation",
+              component_id: String(v.component_id),
+              component_recipe_id: String(v.component_recipe_id),
+              output_quantity: Number(v.output_quantity),
+              output_unit: String(v.output_unit),
+            }
+          : null,
+      };
+    },
+
+    async listInputs(companyId, version): Promise<VersionInput[]> {
+      const t = inputTable(version);
       const { data, error } = await supabase
-        .from("recipe_version_inputs")
+        .from(t.table)
         .select("id, input_type, ingredient_id, component_id, quantity, unit")
         .eq("company_id", companyId)
-        .eq("recipe_version_id", versionId)
+        .eq(t.fk, version.id)
         .order("id", { ascending: true });
       if (error) throw new Error(error.message);
       return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
@@ -233,12 +312,13 @@ export function createSupabaseEditorStore(
       }));
     },
 
-    async insertInput(companyId, versionId, row): Promise<VersionInput> {
+    async insertInput(companyId, version, row): Promise<VersionInput> {
+      const t = inputTable(version);
       const { data, error } = await supabase
-        .from("recipe_version_inputs")
+        .from(t.table)
         .insert({
           company_id: companyId,
-          recipe_version_id: versionId,
+          [t.fk]: version.id,
           input_type: row.input_type,
           ingredient_id: row.ingredient_id,
           component_id: row.component_id,
@@ -254,24 +334,139 @@ export function createSupabaseEditorStore(
       return { id: String(data.id), ...row };
     },
 
-    async updateInput(companyId, versionId, inputId, patch) {
+    async updateInput(companyId, version, inputId, patch) {
+      const t = inputTable(version);
       const { error } = await supabase
-        .from("recipe_version_inputs")
+        .from(t.table)
         .update(patch)
         .eq("company_id", companyId)
-        .eq("recipe_version_id", versionId)
+        .eq(t.fk, version.id)
         .eq("id", inputId);
       if (error) throw new Error(error.message);
     },
 
-    async deleteInput(companyId, versionId, inputId) {
+    async deleteInput(companyId, version, inputId) {
+      const t = inputTable(version);
       const { error } = await supabase
-        .from("recipe_version_inputs")
+        .from(t.table)
         .delete()
         .eq("company_id", companyId)
-        .eq("recipe_version_id", versionId)
+        .eq(t.fk, version.id)
         .eq("id", inputId);
       if (error) throw new Error(error.message);
+    },
+
+    async setPreparationYield(companyId, version, input) {
+      if (version.kind !== "preparation") return;
+      const { error } = await supabase
+        .from("component_recipe_versions")
+        .update({ output_quantity: input.quantity, output_unit: input.unit })
+        .eq("company_id", companyId)
+        .eq("id", version.id)
+        .eq("status", "in_review");
+      if (error) throw new Error(error.message);
+      if (version.component_recipe_id) {
+        const working = await supabase
+          .from("component_recipes")
+          .update({ output_quantity: input.quantity, output_unit: input.unit })
+          .eq("company_id", companyId)
+          .eq("id", version.component_recipe_id);
+        if (working.error) throw new Error(working.error.message);
+      }
+    },
+
+    async approvePreparationVersion(companyId, version) {
+      if (version.kind !== "preparation" || !version.component_recipe_id) {
+        throw new Error("No es una preparación.");
+      }
+      const siblings = await supabase
+        .from("component_recipe_versions")
+        .select("id, status")
+        .eq("company_id", companyId)
+        .eq("component_recipe_id", version.component_recipe_id);
+      if (siblings.error) throw new Error(siblings.error.message);
+      const { error } = await supabase
+        .from("component_recipe_versions")
+        .update({
+          status: "approved",
+          effective_date: effectiveDateForNewApprovedVersion(
+            (siblings.data ?? []) as Array<{ status: string }>
+          ),
+        })
+        .eq("company_id", companyId)
+        .eq("id", version.id)
+        .eq("status", "in_review");
+      if (error) throw new Error(error.message);
+    },
+
+    async resolveHolder(companyId, holder) {
+      if (holder.kind !== "preparation" || !holder.id) return;
+      const { error } = await supabase
+        .from("cost_import_review_items")
+        .update({ status: "approved", resolved_at: new Date().toISOString() })
+        .eq("company_id", companyId)
+        .eq("id", holder.id);
+      if (error) throw new Error(error.message);
+    },
+
+    async dishesUsingPreparation(companyId, componentId) {
+      // The preparation, plus every preparation that uses it (any depth).
+      const wanted = new Set([componentId]);
+      for (let depth = 0; depth < 6; depth++) {
+        const { data, error } = await supabase
+          .from("component_recipe_version_inputs")
+          .select("component_recipe_version_id")
+          .eq("company_id", companyId)
+          .in("component_id", [...wanted]);
+        if (error) throw new Error(error.message);
+        const versionIds = [
+          ...new Set(
+            (data ?? []).map((r) => String(r.component_recipe_version_id))
+          ),
+        ];
+        if (versionIds.length === 0) break;
+        const parents = await supabase
+          .from("component_recipe_versions")
+          .select("component_id")
+          .eq("company_id", companyId)
+          .in("id", versionIds);
+        if (parents.error) throw new Error(parents.error.message);
+        const before = wanted.size;
+        for (const row of parents.data ?? [])
+          wanted.add(String(row.component_id));
+        if (wanted.size === before) break;
+      }
+      const inputs = await supabase
+        .from("recipe_version_inputs")
+        .select("recipe_version_id")
+        .eq("company_id", companyId)
+        .in("component_id", [...wanted]);
+      if (inputs.error) throw new Error(inputs.error.message);
+      const versionIds = [
+        ...new Set((inputs.data ?? []).map((r) => String(r.recipe_version_id))),
+      ];
+      if (versionIds.length === 0) return [];
+      const versions = await supabase
+        .from("recipe_versions")
+        .select("menu_item_id")
+        .eq("company_id", companyId)
+        .in("id", versionIds);
+      if (versions.error) throw new Error(versions.error.message);
+      const menuIds = [
+        ...new Set((versions.data ?? []).map((r) => String(r.menu_item_id))),
+      ];
+      if (menuIds.length === 0) return [];
+      const links = await supabase
+        .from("pos_product_links")
+        .select("odoo_product_id, location_id")
+        .eq("company_id", companyId)
+        .in("menu_item_id", menuIds);
+      if (links.error) throw new Error(links.error.message);
+      return (links.data ?? []).map((row) => ({
+        odooProductId: Number(row.odoo_product_id),
+        locationId:
+          typeof row.location_id === "string" ? row.location_id : null,
+      }));
     },
 
     async createIngredient(companyId, input) {

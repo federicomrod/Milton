@@ -69,6 +69,7 @@ export function parseCostingView(value: string | null): RecipeCostingView {
   if (
     value === "vincular" ||
     value === "validar" ||
+    value === "preparaciones" ||
     value === "menu-costeado"
   ) {
     return value;

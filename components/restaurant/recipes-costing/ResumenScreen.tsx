@@ -86,6 +86,9 @@ export function ResumenScreen({
             {data.last_progress}
           </div>
           <div className="mt-3 flex flex-wrap justify-end gap-2">
+            <GhostBtn onClick={() => onOpen("preparaciones")}>
+              Preparaciones
+            </GhostBtn>
             <GhostBtn disabled={generateBusy} onClick={onGenerateSuggestions}>
               {generateBusy
                 ? "Generando sugerencias…"

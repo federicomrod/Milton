@@ -16,6 +16,7 @@ export function ValidarScreen({
   onApprove,
   onSubmit,
   onEdited,
+  onOpenPreparation,
   busy,
 }: {
   data: RecipeCostingWorkspace;
@@ -30,6 +31,7 @@ export function ValidarScreen({
   onApprove: () => void;
   onSubmit: () => void;
   onEdited: () => void;
+  onOpenPreparation?: (componentId: string) => void;
   busy: boolean;
 }) {
   const editor = data.editor;
@@ -65,6 +67,7 @@ export function ValidarScreen({
       onApprove={onApprove}
       onSubmit={onSubmit}
       onEdited={onEdited}
+      onOpenPreparation={onOpenPreparation}
     />
   );
 }
@@ -78,6 +81,7 @@ function Editor({
   onApprove,
   onSubmit,
   onEdited,
+  onOpenPreparation,
 }: {
   editor: RecipeEditorView;
   actor: RecipeCostingWorkspace["actor"];
@@ -92,6 +96,7 @@ function Editor({
   onApprove: () => void;
   onSubmit: () => void;
   onEdited: () => void;
+  onOpenPreparation?: (componentId: string) => void;
 }) {
   const [saved, setSaved] = useState(false);
 
@@ -145,6 +150,7 @@ function Editor({
             yieldAssumed={editor.yield_assumed}
             yieldNote={editor.yield_note}
             onEdited={onEdited}
+            onOpenPreparation={onOpenPreparation}
             onYield={(rawName, value) =>
               onFix({
                 odoo_product_id: editor.odoo_product_id,

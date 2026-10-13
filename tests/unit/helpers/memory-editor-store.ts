@@ -45,6 +45,16 @@ export interface MemoryEditorState {
   }>;
   failAlias?: boolean;
   seq: number;
+  /** Preparations with their own (draft or approved) version. */
+  preparations: Array<{
+    component_id: string;
+    name: string;
+    version: VersionRef | null;
+    inputs: VersionInput[];
+    /** The open review item that holds its evidence, if any. */
+    holder: { id: string; evidence: Record<string, unknown> } | null;
+    resolved?: boolean;
+  }>;
 }
 
 export function memoryEditorState(
@@ -58,6 +68,7 @@ export function memoryEditorState(
     components: [],
     componentRecipes: [],
     componentInputs: [],
+    preparations: [],
     link: null,
     version: null,
     inputs: [],
@@ -98,6 +109,16 @@ export function entry(
 
 export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
   const mine = (companyId: string) => companyId === state.companyId;
+  const prepOf = (companyId: string, version: VersionRef) =>
+    mine(companyId) && version.kind === "preparation"
+      ? state.preparations.find((p) => p.version?.id === version.id)
+      : undefined;
+  const rowsFor = (companyId: string, version: VersionRef) => {
+    if (!mine(companyId)) return undefined;
+    if (version.kind === "preparation")
+      return prepOf(companyId, version)?.inputs;
+    return state.version?.id === version.id ? state.inputs : undefined;
+  };
   return {
     async loadCosting() {
       const byIngredient = new Map<string, IngredientCostEntry[]>();
@@ -143,6 +164,30 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
         menuRecipesByMenuItemId: new Map(),
         menuRecipeInputsByRecipeId: new Map(),
         costEntriesByIngredientId: byIngredient,
+        componentRecipeVersionsByComponentId: new Map(
+          state.preparations
+            .filter((p) => p.version)
+            .map((p) => [
+              p.component_id,
+              [
+                {
+                  id: p.version!.id,
+                  component_recipe_id: p.version!.component_recipe_id ?? "",
+                  component_id: p.component_id,
+                  version_number: 1,
+                  status: p.version!.status,
+                  effective_date: null,
+                  output_quantity: p.version!.output_quantity ?? 1,
+                  output_unit: p.version!.output_unit ?? "unit",
+                },
+              ],
+            ])
+        ),
+        componentRecipeVersionInputsByVersionId: new Map(
+          state.preparations
+            .filter((p) => p.version)
+            .map((p) => [p.version!.id, p.inputs.map((i) => ({ ...i }))])
+        ),
       };
       return {
         data,
@@ -158,33 +203,90 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
       if (!mine(companyId) || !state.link) return null;
       return { ...state.link };
     },
-    async saveEvidence(companyId, linkId, evidence) {
-      if (!mine(companyId) || state.link?.id !== linkId) return;
-      state.link.evidence = evidence;
+    async saveEvidence(companyId, holder, evidence) {
+      if (!mine(companyId) || !holder.id) return;
+      if (holder.kind === "dish") {
+        if (state.link?.id === holder.id) state.link.evidence = evidence;
+        return;
+      }
+      const prep = state.preparations.find((p) => p.holder?.id === holder.id);
+      if (prep?.holder && !prep.resolved) prep.holder.evidence = evidence;
     },
     async latestVersion(companyId) {
       return mine(companyId) ? state.version : null;
     },
-    async listInputs(companyId, versionId) {
-      if (!mine(companyId) || state.version?.id !== versionId) return [];
-      return state.inputs.map((r) => ({ ...r }));
+    async loadPreparation(companyId, componentId) {
+      if (!mine(companyId)) return null;
+      const prep = state.preparations.find(
+        (p) => p.component_id === componentId
+      );
+      if (!prep) return null;
+      const open = prep.holder && !prep.resolved ? prep.holder : null;
+      return {
+        component_id: prep.component_id,
+        name: prep.name,
+        holder: {
+          kind: "preparation",
+          id: open?.id ?? null,
+          evidence: open?.evidence ?? {},
+        },
+        version: prep.version ? { ...prep.version } : null,
+      };
     },
-    async insertInput(companyId, versionId, row) {
-      if (!mine(companyId) || state.version?.id !== versionId) {
-        throw new Error("wrong scope");
-      }
+    async listInputs(companyId, version) {
+      return rowsFor(companyId, version)?.map((r) => ({ ...r })) ?? [];
+    },
+    async insertInput(companyId, version, row) {
+      const rows = rowsFor(companyId, version);
+      if (!rows) throw new Error("wrong scope");
       const created = { id: `in-${++state.seq}`, ...row };
-      state.inputs.push(created);
+      rows.push(created);
       return { ...created };
     },
-    async updateInput(companyId, versionId, inputId, patch) {
-      if (!mine(companyId) || state.version?.id !== versionId) return;
-      const row = state.inputs.find((r) => r.id === inputId);
+    async updateInput(companyId, version, inputId, patch) {
+      const row = rowsFor(companyId, version)?.find((r) => r.id === inputId);
       if (row) Object.assign(row, patch);
     },
-    async deleteInput(companyId, versionId, inputId) {
-      if (!mine(companyId) || state.version?.id !== versionId) return;
-      state.inputs = state.inputs.filter((r) => r.id !== inputId);
+    async deleteInput(companyId, version, inputId) {
+      const rows = rowsFor(companyId, version);
+      if (!rows) return;
+      const index = rows.findIndex((r) => r.id === inputId);
+      if (index >= 0) rows.splice(index, 1);
+    },
+    async setPreparationYield(companyId, version, input) {
+      const prep = prepOf(companyId, version);
+      if (!prep?.version || prep.version.status !== "in_review") return;
+      prep.version.output_quantity = input.quantity;
+      prep.version.output_unit = input.unit;
+    },
+    async approvePreparationVersion(companyId, version) {
+      const prep = prepOf(companyId, version);
+      if (!prep?.version || prep.version.status !== "in_review") {
+        throw new Error("not in review");
+      }
+      prep.version.status = "approved";
+    },
+    async resolveHolder(companyId, holder) {
+      if (!mine(companyId) || holder.kind !== "preparation" || !holder.id)
+        return;
+      const prep = state.preparations.find((p) => p.holder?.id === holder.id);
+      if (prep) prep.resolved = true;
+    },
+    async dishesUsingPreparation(companyId, componentId) {
+      if (!mine(companyId)) return [];
+      const wanted = new Set([componentId]);
+      for (const prep of state.preparations) {
+        if (
+          prep.inputs.some((i) => i.component_id && wanted.has(i.component_id))
+        ) {
+          wanted.add(prep.component_id);
+        }
+      }
+      return state.inputs.some(
+        (i) => i.component_id && wanted.has(i.component_id)
+      )
+        ? [{ odooProductId: 7, locationId: null }]
+        : [];
     },
     async createIngredient(_companyId, input) {
       const created = {

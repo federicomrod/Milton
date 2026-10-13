@@ -6,7 +6,6 @@ import {
 } from "@/lib/restaurant/cost-workbook/reset-auth";
 import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
 import { sortBatchesNewestFirst } from "@/lib/restaurant/cost-workbook/history";
-import { findRecipeSource } from "@/lib/restaurant/cost-workbook/stored-blocks";
 import {
   canManageCompanyCostReset,
   multiRestaurantResetWarningEs,
@@ -170,8 +169,9 @@ export async function loadRecipeCostingWorkspace(
         .select("id, name, category, selling_price")
         .eq("company_id", input.companyId)
     ),
+    // Live uploads without their snapshots (each holds ~150 KB of recipes).
     createSupabaseCostWorkbookRepo(supabase)
-      .listBatchHistory(input.companyId)
+      .listLiveBatchSummaries(input.companyId)
       .catch(() => []),
   ]);
   if (linksRes.error) {
@@ -195,8 +195,8 @@ export async function loadRecipeCostingWorkspace(
   }));
   // The upload suggestions will read: the newest live one with recipe
   // blocks, not merely the newest one.
-  const source = findRecipeSource(liveHistory);
-  const latestLive = source?.batch ?? liveHistory[0] ?? null;
+  const source = liveHistory.find((row) => row.has_recipe_blocks) ?? null;
+  const latestLive = source ?? liveHistory[0] ?? null;
   const latestUpload = latestLive
     ? {
         id: latestLive.id,

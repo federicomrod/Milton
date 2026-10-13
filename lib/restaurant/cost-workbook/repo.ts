@@ -16,6 +16,7 @@ import type {
 import { snapshotFromUnknown } from "./snapshot";
 import type {
   CostWorkbookBatch,
+  CostWorkbookBatchSummary,
   CostWorkbookCostEntry,
   CostWorkbookIngredient,
   CostWorkbookReviewItem,
@@ -96,7 +97,11 @@ export interface CostWorkbookRepo {
   ): Promise<
     Array<Pick<CostWorkbookBatch, "id" | "undone_at" | "undo_snapshot">>
   >;
-  listBatchHistory(companyId: string): Promise<CostWorkbookBatch[]>;
+  /** Live uploads, newest first, WITHOUT the undo snapshot (which holds a
+   *  copy of the file's recipes, ~150 KB each). */
+  listLiveBatchSummaries(
+    companyId: string
+  ): Promise<CostWorkbookBatchSummary[]>;
   resetCompanyCostCatalog(companyId: string): Promise<CompanyCostResetSummary>;
   listIngredientInputUsages(
     companyId: string,
@@ -866,14 +871,26 @@ export function createSupabaseCostWorkbookRepo(
       }));
     },
 
-    async listBatchHistory(companyId) {
+    async listLiveBatchSummaries(companyId) {
+      // Only the first stored recipe's name comes back (extracted by
+      // Postgres), never the snapshot itself.
       const { data, error } = await supabase
         .from("cost_import_batches")
-        .select("*")
+        .select(
+          "id, filename, created_at, undone_at, first_block:undo_snapshot->candidate_blocks->0->>name"
+        )
         .eq("company_id", companyId)
+        .is("undone_at", null)
         .order("created_at", { ascending: false });
       if (error) throw new Error(error.message);
-      return ((data ?? []) as Record<string, unknown>[]).map(asBatch);
+      return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        id: String(row.id),
+        filename: String(row.filename ?? ""),
+        created_at: (row.created_at as string | null) ?? undefined,
+        undone_at: (row.undone_at as string | null) ?? null,
+        has_recipe_blocks:
+          typeof row.first_block === "string" && row.first_block.trim() !== "",
+      }));
     },
 
     async resetCompanyCostCatalog(companyId) {

@@ -7,8 +7,8 @@ import type {
 
 const STEP_VIEW: Record<StepperStep["id"], RecipeCostingView> = {
   1: "resumen",
-  2: "vincular",
-  3: "validar",
+  2: "plato",
+  3: "plato",
   4: "menu-costeado",
 };
 

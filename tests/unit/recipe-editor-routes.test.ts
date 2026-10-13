@@ -52,7 +52,7 @@ describe("recipe editor route and screen", () => {
     }
     expect(fix).toContain("status: 400");
     const screen = read(
-      "components/restaurant/recipes-costing/ValidarScreen.tsx"
+      "components/restaurant/recipes-costing/PlatoScreen.tsx"
     );
     expect(screen).not.toContain("add_line");
     expect(screen).not.toContain("unit_cost:");
@@ -64,9 +64,12 @@ describe("recipe editor route and screen", () => {
     );
     expect(ui).toContain('optgroup label="Ingredientes"');
     expect(ui).toContain('optgroup label="Preparaciones"');
-    expect(ui).toContain("¿No está? Crear ingrediente nuevo");
+    expect(ui).toContain("¿No está? Agregar ingrediente");
+    expect(ui).toContain("Agregar y usar");
+    expect(ui).toContain("Esto agrega un ingrediente nuevo a tu lista");
+    expect(ui).toContain("Sin precio queda pendiente, nunca en $0.");
+    expect(ui).toContain("Crear preparación");
     expect(ui).toContain("Crear y usar");
-    expect(ui).toContain("Esto crea un ingrediente nuevo en tu lista");
     expect(ui).toContain("Agregar precio");
     // No path posts a free-typed name as a line.
     expect(ui).not.toContain("raw_name:");

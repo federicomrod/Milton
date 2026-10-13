@@ -64,14 +64,11 @@ function asLink(row: Record<string, unknown>): PosProductLinkRecord | null {
 }
 
 export function parseCostingView(value: string | null): RecipeCostingView {
-  if (
-    value === "vincular" ||
-    value === "validar" ||
-    value === "preparaciones" ||
-    value === "menu-costeado"
-  ) {
-    return value;
+  // Vincular and Validar are one screen now; old links land on it.
+  if (value === "plato" || value === "vincular" || value === "validar") {
+    return "plato";
   }
+  if (value === "preparaciones" || value === "menu-costeado") return value;
   return "resumen";
 }
 
@@ -108,24 +105,30 @@ export async function loadRecipeCostingWorkspace(
     startDate?: string | null;
     endDate?: string | null;
     selectedOdooProductId?: number | null;
+    /** Plato por plato after an edit: reload only the open dish, with its
+     *  own sales (price, margin) instead of scanning every sale. */
+    editorOnly?: boolean;
   }
 ): Promise<
   { ok: true; workspace: RecipeCostingWorkspace } | { ok: false; error: string }
 > {
   const started = Date.now();
   const view = input.view ?? "resumen";
-  const slimValidar = view === "validar";
+  const editorOnly =
+    view === "plato" &&
+    input.editorOnly === true &&
+    input.selectedOdooProductId != null;
 
   const [list, roleLoad, companyName, currency, isMiltonStaff] =
     await Promise.all([
-      slimValidar
-        ? Promise.resolve(null)
-        : loadPosProductList(supabase, {
-            companyId: input.companyId,
-            startDate: input.startDate,
-            endDate: input.endDate,
-            locationId: input.locationId,
-          }),
+      loadPosProductList(supabase, {
+        companyId: input.companyId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        locationId: input.locationId,
+        // Only the open dish's own sales: its price and margin, no scan.
+        odooProductId: editorOnly ? input.selectedOdooProductId : null,
+      }),
       loadCompanyMembershipRole(supabase, input.companyId, input.userId),
       loadCompanyName(supabase, input.companyId),
       resolveCompanyCurrency(supabase, input.companyId),
@@ -201,13 +204,14 @@ export async function loadRecipeCostingWorkspace(
     .map(asLink)
     .filter((row): row is PosProductLinkRecord => row !== null);
 
-  const products = slimValidar
-    ? rankedProductsFromLinks(links, input.selectedOdooProductId)
-    : list && list.ok
+  const products =
+    list && list.ok && list.list.products.length > 0
       ? list.list.products
-      : [];
+      : editorOnly
+        ? rankedProductsFromLinks(links, input.selectedOdooProductId)
+        : [];
 
-  const comboSyncHint = slimValidar
+  const comboSyncHint = editorOnly
     ? null
     : await probeComboSyncHint(
         supabase,
@@ -262,7 +266,7 @@ export async function loadRecipeCostingWorkspace(
       latestUpload,
       timings: {
         load_ms: Date.now() - started,
-        path: slimValidar ? "validar" : "full",
+        path: editorOnly ? "plato_editor" : "full",
       },
     }),
   };

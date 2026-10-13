@@ -5,16 +5,13 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   RecipeCostingView,
   RecipeCostingWorkspace,
-  VincularProductRow,
 } from "@/lib/restaurant/recipe-costing/workspace";
 import { ConfirmHowDialog } from "./ConfirmHowDialog";
 import { CostingHeader } from "./CostingHeader";
 import { MenuCosteadoScreen } from "./MenuCosteadoScreen";
+import { PlatoScreen } from "./PlatoScreen";
 import { PreparacionesScreen } from "./PreparacionesScreen";
 import { ResumenScreen } from "./ResumenScreen";
-import { ValidarScreen } from "./ValidarScreen";
-import { VincularScreen } from "./VincularScreen";
-import { PrimaryBtn } from "./ui";
 
 /** Dishes per request when generating suggestions. */
 const SUGGESTION_CHUNK = 5;
@@ -23,9 +20,11 @@ function viewFromParam(
   value: string | null,
   fallback: RecipeCostingView
 ): RecipeCostingView {
+  // Vincular and Validar are one screen now; old links land on it.
+  if (value === "plato" || value === "vincular" || value === "validar") {
+    return "plato";
+  }
   if (
-    value === "vincular" ||
-    value === "validar" ||
     value === "preparaciones" ||
     value === "menu-costeado" ||
     value === "resumen"
@@ -46,10 +45,7 @@ export function RecipesCostingWorkspace({
   const [data, setData] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [howOpen, setHowOpen] = useState<{
-    kind: "confirm" | "approve";
-    product?: VincularProductRow;
-  } | null>(null);
+  const [howOpen, setHowOpen] = useState(false);
   const [workbookBusy, setWorkbookBusy] = useState(false);
   const [progress, setProgress] = useState<{
     done: number;
@@ -73,19 +69,79 @@ export function RecipesCostingWorkspace({
     [pathname, router, searchParams]
   );
 
+  const fetchWorkspace = useCallback(
+    async (opts: { productId?: number | null; editorOnly?: boolean } = {}) => {
+      const params = new URLSearchParams();
+      params.set("vista", view);
+      const productId =
+        opts.productId !== undefined ? opts.productId : selectedId;
+      if (productId) params.set("odoo_product_id", String(productId));
+      const location = searchParams.get("location");
+      if (location) params.set("location_id", location);
+      const from = searchParams.get("from");
+      const to = searchParams.get("to");
+      if (from && to) {
+        params.set("start_date", from);
+        params.set("end_date", to);
+      }
+      if (opts.editorOnly) params.set("editor_only", "1");
+      const res = await fetch(
+        `/api/restaurant/recipes/costing?${params.toString()}`
+      );
+      if (!res.ok) throw new Error("No pude recargar el avance.");
+      return (await res.json()) as RecipeCostingWorkspace;
+    },
+    [searchParams, selectedId, view]
+  );
+
   const reload = useCallback(async () => {
-    const params = new URLSearchParams();
-    params.set("vista", view);
-    if (selectedId) params.set("odoo_product_id", String(selectedId));
-    const location = searchParams.get("location");
-    if (location) params.set("location_id", location);
-    const res = await fetch(
-      `/api/restaurant/recipes/costing?${params.toString()}`
-    );
-    if (!res.ok) throw new Error("No pude recargar el avance.");
-    const json = (await res.json()) as RecipeCostingWorkspace;
-    setData(json);
-  }, [searchParams, selectedId, view]);
+    setData(await fetchWorkspace());
+  }, [fetchWorkspace]);
+
+  /** After an ingredient edit: refresh only the open dish (no sales scan);
+   *  the list, shares and coverage stay as last loaded. */
+  const reloadDish = useCallback(async () => {
+    if (!selectedId) return reload();
+    const json = await fetchWorkspace({ editorOnly: true });
+    setData((prev) => {
+      const sameDish =
+        prev.editor?.odoo_product_id === json.editor?.odoo_product_id;
+      const editor =
+        json.editor && sameDish && prev.editor
+          ? {
+              ...json.editor,
+              share_label: prev.editor.share_label,
+              review_index: prev.editor.review_index,
+              review_total: prev.editor.review_total,
+              next_odoo_product_id: prev.editor.next_odoo_product_id,
+            }
+          : json.editor;
+      const fresh = json.selected;
+      const selected =
+        fresh && prev.selected?.odoo_product_id === fresh.odoo_product_id
+          ? {
+              ...fresh,
+              share_pct: prev.selected.share_pct,
+              share_label: prev.selected.share_label,
+              net_sales: prev.selected.net_sales,
+              net_sales_label: prev.selected.net_sales_label,
+            }
+          : fresh;
+      const queueRow = json.plato_queue[0];
+      return {
+        ...prev,
+        editor,
+        selected,
+        plato_queue: queueRow
+          ? prev.plato_queue.map((row) =>
+              row.odoo_product_id === queueRow.odoo_product_id
+                ? { ...queueRow, share_label: row.share_label }
+                : row
+            )
+          : prev.plato_queue,
+      };
+    });
+  }, [fetchWorkspace, reload, selectedId]);
 
   useEffect(() => {
     setData(initial);
@@ -129,19 +185,41 @@ export function RecipesCostingWorkspace({
   const postAndReload = (url: string, body: Record<string, unknown>) =>
     void mutate(() => post(url, body));
 
-  async function confirmProduct(product: VincularProductRow, how?: string) {
+  function goTo(odooProductId: number | null | undefined) {
+    if (odooProductId)
+      replaceParams({ vista: "plato", producto: odooProductId });
+  }
+
+  /** "Aprobar y siguiente" / "Enviar a aprobación y siguiente": the POS link
+   *  and the recipe version are saved as two separate steps on the server. */
+  async function confirmDish(how?: string) {
+    const editor = data.editor;
+    if (!editor) return;
     if (data.actor.needs_client_confirmation && !how) {
-      setHowOpen({ kind: "confirm", product });
+      setHowOpen(true);
       return;
     }
-    await mutate(() =>
-      post("/api/restaurant/pos/links/confirm", {
-        odoo_product_id: product.odoo_product_id,
-        odoo_name: product.odoo_name,
-        menu_item_id: product.menu_item_id,
+    setBusy(true);
+    setError(null);
+    try {
+      await post("/api/restaurant/recipes/plato/confirm", {
+        odoo_product_id: editor.odoo_product_id,
+        odoo_name: editor.odoo_name,
+        recipe_version_id: editor.recipe_version_id,
+        location_id: searchParams.get("location") ?? undefined,
         confirmed_how: how ?? "en_pantalla",
-      })
-    );
+        yield_confirmed: editor.checklist.yield_confirmed,
+      });
+      // Recompute the queue and coverage, then open the next dish to do.
+      const json = await fetchWorkspace();
+      setData(json);
+      goTo(json.editor?.next_odoo_product_id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Algo falló.");
+      await reload().catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
   }
 
   /**
@@ -225,29 +303,7 @@ export function RecipesCostingWorkspace({
       <CostingHeader
         view={view}
         breadcrumbExtra={
-          view === "validar" &&
-          data.editor?.review_index &&
-          data.editor.review_total ? (
-            <span>
-              {" "}
-              · plato {data.editor.review_index} de {data.editor.review_total}{" "}
-              por revisar
-              {data.editor.next_odoo_product_id ? (
-                <button
-                  type="button"
-                  className="ml-2 font-semibold text-[#3557c9]"
-                  onClick={() =>
-                    replaceParams({
-                      vista: "validar",
-                      producto: data.editor!.next_odoo_product_id,
-                    })
-                  }
-                >
-                  Siguiente →
-                </button>
-              ) : null}
-            </span>
-          ) : null
+          view === "plato" ? <span> · {data.plato_progress.label}</span> : null
         }
       />
 
@@ -269,88 +325,27 @@ export function RecipesCostingWorkspace({
         </div>
       ) : null}
 
-      {view === "vincular" ? (
-        <VincularScreen
+      {view === "plato" ? (
+        <PlatoScreen
           data={data}
-          selectedId={selectedId}
-          onSelect={(id) => replaceParams({ vista: "vincular", producto: id })}
-          onConfirm={(product) => void confirmProduct(product)}
-          onGenerateSuggestions={() => void runSuggestions()}
-          generateBusy={workbookBusy}
-          onChange={(product, menuItemId) =>
-            void mutate(() =>
-              post("/api/restaurant/pos/links/change", {
-                odoo_product_id: product.odoo_product_id,
-                odoo_name: product.odoo_name,
-                menu_item_id: menuItemId,
-              })
-            )
-          }
-          onCreate={(product) =>
-            void mutate(() =>
-              post("/api/restaurant/pos/links/create", {
-                odoo_product_id: product.odoo_product_id,
-                odoo_name: product.odoo_name,
-              })
-            )
-          }
-          onUndo={(product) =>
-            void mutate(() =>
-              post("/api/restaurant/pos/links/undo", {
-                odoo_product_id: product.odoo_product_id,
-              })
-            )
-          }
-          onShare={(target, menuItemId) =>
-            void mutate(() =>
-              post("/api/restaurant/pos/links/change", {
-                odoo_product_id: target.odoo_product_id,
-                odoo_name: target.odoo_name,
-                menu_item_id: menuItemId,
-              })
-            )
-          }
+          locationId={searchParams.get("location")}
           busy={busy}
+          onSelect={(id) => replaceParams({ vista: "plato", producto: id })}
+          onEdited={() => void reloadDish().catch(() => undefined)}
           onPost={postAndReload}
-        />
-      ) : view === "validar" ? (
-        <ValidarScreen
-          data={data}
-          onOpenProduct={(id) =>
-            replaceParams({ vista: "validar", producto: id })
-          }
-          onChangeLink={(id) =>
-            replaceParams({ vista: "vincular", producto: id })
-          }
-          onFix={(body) =>
-            void mutate(() => post("/api/restaurant/recipes/review/fix", body))
-          }
-          onApprove={() => {
-            if (!data.editor?.recipe_version_id) return;
-            if (data.actor.needs_client_confirmation) {
-              setHowOpen({ kind: "approve" });
-              return;
-            }
+          onConfirm={() => void confirmDish()}
+          onSkip={() => goTo(data.editor?.next_odoo_product_id)}
+          onFixYield={(rawName, value) =>
+            data.editor &&
             void mutate(() =>
-              post("/api/restaurant/recipes/approve", {
-                recipe_version_id: data.editor?.recipe_version_id,
-                odoo_product_id: data.editor?.odoo_product_id,
-                confirmed_how: "en_pantalla",
-                yield_confirmed: data.editor?.checklist.yield_confirmed,
+              post("/api/restaurant/recipes/review/fix", {
+                odoo_product_id: data.editor!.odoo_product_id,
+                raw_name: rawName,
+                yield_value: value,
               })
-            );
-          }}
-          onSubmit={() => {
-            if (!data.editor?.recipe_version_id) return;
-            void mutate(() =>
-              post("/api/restaurant/recipes/submit", {
-                recipe_version_id: data.editor?.recipe_version_id,
-              })
-            );
-          }}
-          onEdited={() => void mutate(async () => undefined)}
+            )
+          }
           onOpenPreparation={openPreparation}
-          busy={busy}
         />
       ) : view === "preparaciones" ? (
         <PreparacionesScreen
@@ -401,42 +396,14 @@ export function RecipesCostingWorkspace({
       </div>
 
       <ConfirmHowDialog
-        open={howOpen != null}
-        title={
-          howOpen?.kind === "approve"
-            ? "Aprobar en nombre del cliente"
-            : "Confirmar el vínculo en nombre del cliente"
-        }
-        onCancel={() => setHowOpen(null)}
+        open={howOpen}
+        title="Aprobar en nombre del cliente"
+        onCancel={() => setHowOpen(false)}
         onConfirm={(how) => {
-          const pending = howOpen;
-          setHowOpen(null);
-          if (pending?.kind === "confirm" && pending.product) {
-            void confirmProduct(pending.product, how);
-          } else if (
-            pending?.kind === "approve" &&
-            data.editor?.recipe_version_id
-          ) {
-            void mutate(() =>
-              post("/api/restaurant/recipes/approve", {
-                recipe_version_id: data.editor?.recipe_version_id,
-                odoo_product_id: data.editor?.odoo_product_id,
-                confirmed_how: how,
-                yield_confirmed: data.editor?.checklist.yield_confirmed,
-              })
-            );
-          }
+          setHowOpen(false);
+          void confirmDish(how);
         }}
       />
-      {view !== "vincular" && view !== "validar" && nextCta(data) ? (
-        <div className="sr-only">
-          <PrimaryBtn onClick={() => open("vincular")}>Siguiente</PrimaryBtn>
-        </div>
-      ) : null}
     </div>
   );
-}
-
-function nextCta(data: RecipeCostingWorkspace): boolean {
-  return Boolean(data.next_dish);
 }

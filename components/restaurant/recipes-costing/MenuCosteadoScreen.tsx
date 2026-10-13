@@ -12,7 +12,7 @@ export function MenuCosteadoScreen({
   onOpen,
 }: {
   data: RecipeCostingWorkspace;
-  onOpen: (view: "vincular" | "validar", odooProductId?: number) => void;
+  onOpen: (view: "plato", odooProductId?: number) => void;
 }) {
   const searchParams = useSearchParams();
   const href = withShellParams("/dashboard/restaurant/menu", {
@@ -154,13 +154,13 @@ export function MenuCosteadoScreen({
                   <td className="py-2.5 text-right">
                     {row.is_combo ? (
                       <GhostBtn
-                        onClick={() => onOpen("vincular", row.odoo_product_id)}
+                        onClick={() => onOpen("plato", row.odoo_product_id)}
                       >
                         Ver partes
                       </GhostBtn>
                     ) : row.kind_label === "Cargo" ? null : (
                       <GhostBtn
-                        onClick={() => onOpen("vincular", row.odoo_product_id)}
+                        onClick={() => onOpen("plato", row.odoo_product_id)}
                       >
                         {row.net_sales === 0 ? "Incluir" : "Ver"}
                       </GhostBtn>
@@ -219,23 +219,13 @@ export function MenuCosteadoScreen({
                   <td className="py-2.5 text-right">
                     {row.action_label === "Agregar precio" ? (
                       <PrimaryBtn
-                        onClick={() =>
-                          onOpen(
-                            row.view as "vincular" | "validar",
-                            row.odoo_product_id
-                          )
-                        }
+                        onClick={() => onOpen("plato", row.odoo_product_id)}
                       >
                         {row.action_label}
                       </PrimaryBtn>
                     ) : (
                       <GhostBtn
-                        onClick={() =>
-                          onOpen(
-                            row.view as "vincular" | "validar",
-                            row.odoo_product_id
-                          )
-                        }
+                        onClick={() => onOpen("plato", row.odoo_product_id)}
                       >
                         {row.action_label}
                       </GhostBtn>

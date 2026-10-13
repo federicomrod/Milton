@@ -312,7 +312,7 @@ function ResalePicker({
       )}
       <div className="mt-1 text-[10.8px] text-[#8a92a3]">
         {picked && picked.current_unit_cost == null
-          ? "Este producto aún no tiene precio: agrégalo en Validar."
+          ? "Este producto aún no tiene precio: agrégalo en la receta del plato."
           : "Queda como borrador: confirma el vínculo y apruébalo como cualquier receta."}
       </div>
     </div>

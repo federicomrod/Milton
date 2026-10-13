@@ -15,7 +15,7 @@ import {
 } from "./link-actions-server";
 
 export const RESALE_HAS_RECIPE_ERROR =
-  "Este producto ya tiene receta. Cámbiala en Validar.";
+  "Este producto ya tiene receta. Cámbiala en Plato por plato.";
 
 export async function startResaleRecipe(input: {
   supabase: SupabaseClient;

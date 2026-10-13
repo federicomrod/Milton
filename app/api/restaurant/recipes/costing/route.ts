@@ -50,6 +50,7 @@ export async function GET(req: NextRequest) {
     startDate: startParam,
     endDate: endParam,
     selectedOdooProductId: selected,
+    editorOnly: url.searchParams.get("editor_only") === "1",
   });
   if (!loaded.ok) {
     return NextResponse.json({ error: loaded.error }, { status: 500 });

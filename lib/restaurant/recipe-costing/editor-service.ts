@@ -141,6 +141,12 @@ export interface EditorStore {
     companyId: string,
     input: { name: string; defaultUnit: string; currency: string }
   ): Promise<{ id: string; name: string; default_unit: string | null }>;
+  /** A preparation a person creates by hand: its own draft (in-review)
+   *  version with no lines yet, yield as the person typed it. */
+  createPreparation(
+    companyId: string,
+    input: { name: string; outputQuantity: number; outputUnit: string }
+  ): Promise<{ id: string; name: string }>;
   addCostEntry(companyId: string, entry: NewCostEntry): Promise<void>;
   loadAliases(companyId: string): Promise<Map<string, string>>;
   rememberAlias(input: {
@@ -522,6 +528,17 @@ export type EditorAction =
       ingredient_id: string;
       unit: string;
       unit_cost: number;
+    }
+  | {
+      action: "create_preparation";
+      name: string;
+      /** How much one batch yields, as the person states it. */
+      yield_quantity: number;
+      yield_unit: string;
+      /** Use it on this line (and resolve it), or add it as a new line. */
+      line_key?: string;
+      quantity?: number;
+      line_unit?: string;
     };
 
 const MAX_NAME = 120;
@@ -881,6 +898,75 @@ export async function applyEdit(
             unit: lineUnit,
           });
         }
+      }
+      break;
+    }
+    case "create_preparation": {
+      const name =
+        typeof action.name === "string"
+          ? action.name.trim().replace(/\s+/g, " ")
+          : "";
+      const yieldQty = cleanQuantity(action.yield_quantity);
+      const yieldUnit = cleanUnit(action.yield_unit);
+      if (!name || name.length > MAX_NAME) {
+        return {
+          ok: false,
+          error: "Escribe el nombre de la preparación.",
+          status: 400,
+        };
+      }
+      if (!yieldQty || !yieldUnit) {
+        return {
+          ok: false,
+          error: "Indica cuánto rinde la preparación, con una unidad válida.",
+          status: 400,
+        };
+      }
+      const key = normalizeMatchName(name);
+      const samePrep = [...data.componentsById.values()].find(
+        (row) => normalizeMatchName(row.name) === key
+      );
+      if (samePrep) {
+        return {
+          ok: false,
+          error: `Ya existe una preparación llamada «${samePrep.name}». Elígela de la lista.`,
+          status: 409,
+        };
+      }
+      const created = await ctx.store.createPreparation(ctx.companyId, {
+        name,
+        outputQuantity: yieldQty,
+        outputUnit: yieldUnit,
+      });
+      if (action.line_key) {
+        const line = await lineByKey(action.line_key);
+        if (line && line.kind === "unresolved") {
+          const row = await ctx.store.insertInput(ctx.companyId, version!, {
+            input_type: "component",
+            ingredient_id: null,
+            component_id: created.id,
+            quantity: cleanQuantity(line.qty) ?? 1,
+            unit: cleanUnit(line.unit) ?? yieldUnit,
+          });
+          bind(line, row, created.name, "component");
+        }
+      } else if (action.quantity !== undefined) {
+        const qty = cleanQuantity(action.quantity);
+        const lineUnit = cleanUnit(action.line_unit ?? yieldUnit);
+        if (!qty || !lineUnit) {
+          return {
+            ok: false,
+            error: "Indica cuánto lleva el plato, con una unidad válida.",
+            status: 400,
+          };
+        }
+        await ctx.store.insertInput(ctx.companyId, version!, {
+          input_type: "component",
+          ingredient_id: null,
+          component_id: created.id,
+          quantity: qty,
+          unit: lineUnit,
+        });
       }
       break;
     }

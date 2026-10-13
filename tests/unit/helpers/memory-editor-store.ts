@@ -297,6 +297,38 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
       state.ingredients.push(created);
       return created;
     },
+    async createPreparation(companyId, input) {
+      if (!mine(companyId)) throw new Error("wrong scope");
+      const id = `prep-new-${++state.seq}`;
+      const recipeId = `crec-new-${state.seq}`;
+      state.components.push({
+        id,
+        name: input.name,
+        output_unit: input.outputUnit,
+      });
+      state.componentRecipes.push({
+        id: recipeId,
+        component_id: id,
+        output_quantity: input.outputQuantity,
+        output_unit: input.outputUnit,
+      });
+      state.preparations.push({
+        component_id: id,
+        name: input.name,
+        version: {
+          id: `cver-new-${state.seq}`,
+          status: "in_review",
+          kind: "preparation",
+          component_id: id,
+          component_recipe_id: recipeId,
+          output_quantity: input.outputQuantity,
+          output_unit: input.outputUnit,
+        },
+        inputs: [],
+        holder: null,
+      });
+      return { id, name: input.name };
+    },
     async addCostEntry(_companyId, e: NewCostEntry) {
       const ing = state.ingredients.find((r) => r.id === e.ingredientId)!;
       const target = ing.default_unit ?? e.unit;

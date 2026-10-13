@@ -56,10 +56,22 @@ import {
 
 export type RecipeCostingView =
   | "resumen"
-  | "vincular"
-  | "validar"
+  /** One dish at a time: link + recipe + approval (was Vincular + Validar). */
+  | "plato"
   | "preparaciones"
   | "menu-costeado";
+
+/** Where a dish stands in Plato por plato. */
+export type PlatoStatus = "listo" | "por_aprobar" | "borrador" | "sin_receta";
+
+export interface PlatoQueueRow {
+  odoo_product_id: number;
+  odoo_name: string;
+  share_label: string;
+  status: PlatoStatus;
+  status_label: string;
+  status_tone: ChipTone;
+}
 
 export type VincularFilter =
   | "todos"
@@ -211,6 +223,9 @@ export interface RecipeCostingWorkspace {
   todos_total: number;
   classification: ClassificationRow[];
   classify_queue: ClassifyQueueRow[];
+  /** Dishes that take a recipe, top sellers first (Plato por plato). */
+  plato_queue: PlatoQueueRow[];
+  plato_progress: { done: number; total: number; label: string };
   treatment_options: Array<{
     id: PosProductClassification;
     label: string;
@@ -242,7 +257,8 @@ export interface RecipeCostingWorkspace {
   };
   timings?: {
     load_ms: number;
-    path: "full" | "validar";
+    /** "plato_editor": a reload of the open dish only (no sales scan). */
+    path: "full" | "plato_editor";
   };
 }
 
@@ -252,6 +268,10 @@ export interface RecipeEditorView {
   menu_item_id: string | null;
   recipe_version_id: string | null;
   version_label: string;
+  /** The POS link and the recipe version are separate states. */
+  link_state: string | null;
+  recipe_status: PlatoStatus | "aprobada";
+  excel_match: "match" | "mismatch" | null;
   category: string | null;
   pos_price_label: string | null;
   units_label: string | null;
@@ -721,10 +741,7 @@ export function buildRecipeCostingWorkspace(input: {
         }),
         share_pct: shareToPct(product.share_of_food_sales),
         share_label: formatPctLabel(shareToPct(product.share_of_food_sales)),
-        view:
-          kind === "por_revisar" || kind === "falta_precio"
-            ? "validar"
-            : "vincular",
+        view: "plato",
       });
     }
 
@@ -792,10 +809,15 @@ export function buildRecipeCostingWorkspace(input: {
   const reviewTabs = groupUncertainByTab(reviewItems);
   const slices = coverageSlices(input.products);
   const next = todos[0] ?? null;
+  const platoQueue = buildPlatoQueue(products, versionsByMenu);
+  const platoSelectedId =
+    input.view === "plato" && input.selectedOdooProductId == null
+      ? (platoQueue.find((row) => row.status !== "listo")?.odoo_product_id ??
+        platoQueue[0]?.odoo_product_id ??
+        null)
+      : (input.selectedOdooProductId ?? null);
   const selected =
-    products.find(
-      (row) => row.odoo_product_id === input.selectedOdooProductId
-    ) ?? null;
+    products.find((row) => row.odoo_product_id === platoSelectedId) ?? null;
 
   const reviewOrder = reviewItems.map((item) => item.odoo_product_id);
   let editor = selected
@@ -814,7 +836,26 @@ export function buildRecipeCostingWorkspace(input: {
           currency
         )
       : null;
-  if (editor) {
+  if (editor && input.view === "plato") {
+    // Next dish still to do, in sales order after this one (wrapping).
+    const order = platoQueue.map((row) => row.odoo_product_id);
+    const idx = order.indexOf(editor.odoo_product_id);
+    const after = [
+      ...platoQueue.slice(idx + 1),
+      ...platoQueue.slice(0, idx + 1),
+    ];
+    const next = after.find(
+      (row) =>
+        row.status !== "listo" &&
+        row.odoo_product_id !== editor!.odoo_product_id
+    );
+    editor = {
+      ...editor,
+      review_index: idx >= 0 ? idx + 1 : null,
+      review_total: platoQueue.length,
+      next_odoo_product_id: next?.odoo_product_id ?? null,
+    };
+  } else if (editor) {
     const idx = reviewOrder.indexOf(editor.odoo_product_id);
     editor = {
       ...editor,
@@ -949,6 +990,8 @@ export function buildRecipeCostingWorkspace(input: {
     todos_total: todos.length,
     classification: classificationRows,
     classify_queue: classifyQueue,
+    plato_queue: platoQueue,
+    plato_progress: platoProgress(platoQueue),
     treatment_options: PICKABLE_TREATMENTS.map((id) => ({
       id,
       label: TREATMENT_RULES[id].label,
@@ -1024,6 +1067,7 @@ function buildEditorView(input: {
     product: input.product,
     recipe_version_id: latest?.id ?? input.product.evidence.recipe_version_id,
     version_label: versionLabel,
+    recipe_status: recipeStatusOf(latest),
     currency: input.currency,
   });
 }
@@ -1052,6 +1096,9 @@ function buildEditorFromReview(
     menu_item_id: item.menu_item_id,
     recipe_version_id: item.recipe_version_id,
     version_label: "Borrador",
+    link_state: null,
+    recipe_status: "borrador",
+    excel_match: item.excel_match,
     category: null,
     pos_price_label: null,
     units_label: null,
@@ -1115,6 +1162,7 @@ function editorFromEvidence(input: {
   product: VincularProductRow;
   recipe_version_id: string | null;
   version_label: string;
+  recipe_status: RecipeEditorView["recipe_status"];
   currency: string;
 }): RecipeEditorView {
   const ev = input.product.evidence;
@@ -1156,6 +1204,9 @@ function editorFromEvidence(input: {
     menu_item_id: input.product.menu_item_id,
     recipe_version_id: input.recipe_version_id,
     version_label: input.version_label,
+    link_state: input.product.link_state,
+    recipe_status: input.recipe_status,
+    excel_match: ev.excel_match,
     category: input.product.category,
     pos_price_label: input.product.pos_price_label,
     units_label: input.product.units_label,
@@ -1203,6 +1254,71 @@ function editorFromEvidence(input: {
     review_index: null,
     review_total: 0,
     next_odoo_product_id: null,
+  };
+}
+
+/** approved → aprobada; "Lista para aprobar" → por_aprobar; else borrador. */
+function recipeStatusOf(
+  latest: WorkspaceVersion | undefined
+): RecipeEditorView["recipe_status"] {
+  if (!latest) return "sin_receta";
+  if (latest.status === "approved") return "aprobada";
+  return latest.notes?.trim() === "Lista para aprobar"
+    ? "por_aprobar"
+    : "borrador";
+}
+
+const PLATO_STATUS: Record<PlatoStatus, { label: string; tone: ChipTone }> = {
+  listo: { label: "Aprobado", tone: "ok" },
+  por_aprobar: { label: "Por aprobar", tone: "sug" },
+  borrador: { label: "Sugerido", tone: "warn" },
+  sin_receta: { label: "Sin receta", tone: "grey" },
+};
+
+/** Dishes that take a recipe (not combos, not no-cost or excluded),
+ *  in the product list's order: top sellers first. */
+export function buildPlatoQueue(
+  products: readonly VincularProductRow[],
+  versionsByMenu: ReadonlyMap<string, readonly WorkspaceVersion[]>
+): PlatoQueueRow[] {
+  return products
+    .filter(
+      (row) => !row.is_combo && TREATMENT_RULES[row.treatment].needs_recipe
+    )
+    .map((row) => {
+      const versions = row.menu_item_id
+        ? (versionsByMenu.get(row.menu_item_id) ?? [])
+        : [];
+      const latest = versions
+        .slice()
+        .sort((a, b) => b.version_number - a.version_number)[0];
+      const recipe = recipeStatusOf(latest);
+      const approvedAny = hasApprovedVersion([...versions]);
+      const status: PlatoStatus =
+        approvedAny && row.confirmed
+          ? "listo"
+          : recipe === "sin_receta" || !row.menu_item_id
+            ? "sin_receta"
+            : recipe === "por_aprobar"
+              ? "por_aprobar"
+              : "borrador";
+      return {
+        odoo_product_id: row.odoo_product_id,
+        odoo_name: row.odoo_name,
+        share_label: row.share_label,
+        status,
+        status_label: PLATO_STATUS[status].label,
+        status_tone: PLATO_STATUS[status].tone,
+      };
+    });
+}
+
+function platoProgress(queue: readonly PlatoQueueRow[]) {
+  const done = queue.filter((row) => row.status === "listo").length;
+  return {
+    done,
+    total: queue.length,
+    label: `${done} de ${queue.length} platos aprobados`,
   };
 }
 

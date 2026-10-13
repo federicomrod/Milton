@@ -371,7 +371,8 @@ export async function applyPriceCatalog(input: {
     importedCount: plan.save.length,
     reviewCount: plan.pending.length,
     tabSummaries: [],
-    mappingSource: "heuristic",
+    // Read by plain code, no AI and no saved layout.
+    mappingSource: "mixed",
     createdBy: input.userId,
   });
 

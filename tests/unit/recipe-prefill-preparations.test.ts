@@ -57,7 +57,7 @@ async function run(blocks: GroupedRecipe[], store = emptyMemoryStore()) {
     importedCount: 0,
     reviewCount: 0,
     tabSummaries: [],
-    mappingSource: "heuristic",
+    mappingSource: "mixed",
   });
   const result = await prefillPreparations({
     repo,

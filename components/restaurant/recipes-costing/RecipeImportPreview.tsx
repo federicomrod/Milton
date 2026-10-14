@@ -31,6 +31,7 @@ interface RecipePreview {
 interface Imported {
   batch_id: string;
   dishes_imported: number;
+  typed_prices_not_carried?: number;
   dishes_linked: number;
   dishes_skipped: number;
   preparations_created: number;
@@ -274,6 +275,9 @@ export function RecipeImportPreview({
           {imported.ingredients_created} ingredientes nuevos.
           {imported.dishes_skipped > 0
             ? ` ${imported.dishes_skipped} platos ya tenían receta aprobada o hecha a mano y no se tocaron.`
+            : ""}
+          {imported.typed_prices_not_carried
+            ? ` ${imported.typed_prices_not_carried} precios escritos a mano cambiaron de unidad y quedaron Pendiente: escríbelos de nuevo en el plato.`
             : ""}{" "}
           <GhostBtn
             disabled={busy}

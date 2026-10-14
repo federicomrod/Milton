@@ -13,6 +13,9 @@
 import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { GroupedItemList } from "@/components/restaurant/groups/GroupedItemList";
+import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
+import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
 import { dishHref } from "@/lib/restaurant/menu-links";
 import { normalizeUnit } from "@/lib/restaurant/units";
 import {
@@ -120,13 +123,16 @@ export function IngredientesScreen({
   currency,
   initialSelectedId,
   initialFilter,
+  itemGroups = null,
 }: {
   items: IngredienteItem[];
   suppliers: SupplierOption[];
   currency: string;
   initialSelectedId: string | null;
   initialFilter: IngredientesFilter;
+  itemGroups?: ItemGroupsLoad | null;
 }) {
+  const grouping = useItemGroups(itemGroups);
   const [items, setItems] = useState(initialItems);
   const [filter, setFilter] = useState<IngredientesFilter>(initialFilter);
   const [query, setQuery] = useState("");
@@ -201,24 +207,27 @@ export function IngredientesScreen({
             </FilterChip>
           </div>
         </div>
-        <ul className="max-h-[calc(100vh-260px)] overflow-y-auto">
-          {visible.length === 0 && (
-            <li className="px-4 py-6 text-[13px]" style={{ color: MUTED }}>
-              {items.length === 0
+        <div className="max-h-[calc(100vh-260px)] overflow-y-auto p-2">
+          <GroupedItemList
+            items={visible}
+            scope="ingredient"
+            grouping={grouping}
+            canEdit
+            storageKey="milton:ingredientes:abiertos"
+            emptyText={
+              items.length === 0
                 ? "Aún no tienes ingredientes."
-                : "Ningún ingrediente coincide."}
-            </li>
-          )}
-          {visible.map((item) => {
-            const isSelected = selected?.id === item.id;
-            return (
-              <li key={item.id}>
+                : "Ningún ingrediente coincide."
+            }
+            renderRow={(item) => {
+              const isSelected = selected?.id === item.id;
+              return (
                 <button
                   type="button"
                   onClick={() => setSelectedId(item.id)}
                   aria-current={isSelected ? "true" : undefined}
                   className={
-                    "flex w-full items-center justify-between gap-3 border-b border-[#f3f4f7] px-4 py-2.5 text-left " +
+                    "flex w-full items-center justify-between gap-3 border-b border-[#f3f4f7] px-2 py-2.5 text-left " +
                     (isSelected
                       ? "bg-[#fff6ec] shadow-[inset_3px_0_0_#f28c28]"
                       : "hover:bg-[#fafbfc]")
@@ -251,10 +260,10 @@ export function IngredientesScreen({
                     )}
                   </span>
                 </button>
-              </li>
-            );
-          })}
-        </ul>
+              );
+            }}
+          />
+        </div>
         <AddIngrediente onAdded={onAdded} />
       </section>
 

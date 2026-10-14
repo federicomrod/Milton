@@ -19,6 +19,8 @@ import { withPreparationApproved } from "@/lib/restaurant/recipe-costing/prepara
 import { ConfirmHowDialog } from "./ConfirmHowDialog";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
 import { Card, Chip, GhostBtn } from "./ui";
+import { GroupedItemList } from "@/components/restaurant/groups/GroupedItemList";
+import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
 
 const UNITS = ["oz", "lb", "g", "kg", "ml", "l", "gal", "unit", "portion"];
 const UNIT_LABEL: Record<string, string> = {
@@ -78,6 +80,7 @@ export function PreparacionesScreen({
   const [overview, setOverview] = useState<PreparationsOverview | null>(
     data.preparations_overview ?? null
   );
+  const grouping = useItemGroups(data.item_groups);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [approveError, setApproveError] = useState<string | null>(null);
@@ -235,32 +238,42 @@ export function PreparacionesScreen({
               </p>
             ) : (
               <div className="max-h-[60vh] overflow-auto">
-                {overview.rows.map((row) => (
-                  <button
-                    key={row.component_id}
-                    type="button"
-                    onClick={() => onSelect(row.component_id)}
-                    onMouseEnter={() => prefetchOnIntent(row.component_id)}
-                    onFocus={() => prefetchOnIntent(row.component_id)}
-                    className={
-                      "block w-full border-b border-slate-100 px-2 py-1.5 text-left text-xs last:border-b-0 hover:bg-slate-50 " +
-                      (selectedId === row.component_id ? "bg-[#f4f6fb]" : "")
-                    }
-                  >
-                    <div className="flex items-center gap-2">
-                      <b className="flex-1">{row.name}</b>
-                      <Chip tone={STATUS[row.status].tone}>
-                        {STATUS[row.status].label}
-                      </Chip>
-                    </div>
-                    <div className="text-[12px] text-[#5b6476]">
-                      {row.impact_label}
-                      {row.yield_to_confirm
-                        ? " · rendimiento por confirmar"
-                        : ""}
-                    </div>
-                  </button>
-                ))}
+                <GroupedItemList
+                  items={overview.rows.map((r) => ({
+                    ...r,
+                    id: r.component_id,
+                  }))}
+                  scope="preparation"
+                  grouping={grouping}
+                  canEdit={data.actor.can_submit}
+                  storageKey="milton:preparaciones:abiertos"
+                  emptyText="No hay preparaciones con ese filtro."
+                  renderRow={(row) => (
+                    <button
+                      type="button"
+                      onClick={() => onSelect(row.component_id)}
+                      onMouseEnter={() => prefetchOnIntent(row.component_id)}
+                      onFocus={() => prefetchOnIntent(row.component_id)}
+                      className={
+                        "block w-full border-b border-slate-100 px-2 py-1.5 text-left text-xs last:border-b-0 hover:bg-slate-50 " +
+                        (selectedId === row.component_id ? "bg-[#f4f6fb]" : "")
+                      }
+                    >
+                      <div className="flex items-center gap-2">
+                        <b className="flex-1">{row.name}</b>
+                        <Chip tone={STATUS[row.status].tone}>
+                          {STATUS[row.status].label}
+                        </Chip>
+                      </div>
+                      <div className="text-[12px] text-[#5b6476]">
+                        {row.impact_label}
+                        {row.yield_to_confirm
+                          ? " · rendimiento por confirmar"
+                          : ""}
+                      </div>
+                    </button>
+                  )}
+                />
               </div>
             )}
           </>

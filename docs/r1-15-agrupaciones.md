@@ -66,3 +66,41 @@ where m.company_id = '<company uuid>' and m.member_type = 'pos_product'
 - A restaurant-only group never takes another restaurant's sales: a row that holds both restaurants' sales
   stays outside it. A restaurant's own group comes before a shared one for that restaurant's sales.
 - Suggestions (`status = suggested`) never count as grouped until confirmed.
+
+## F2 — grouping on screen (migration 049)
+
+**Migration `049_item_groups_apply.sql` (needs 048).** Additive: one function,
+`item_groups_apply(p_company_id, p_ops jsonb)`, SECURITY INVOKER (RLS of 048 still decides), execute granted
+to `authenticated` and `service_role` only. Applies a whole grouping action (delete members, upsert groups,
+upsert members, delete groups) in one transaction; raises `42501` for a non-member and `22023` over 2,000
+changes. Until it is applied the screens still show the groups; saving answers "falta aplicar las
+migraciones 048 y 049" and nothing changes.
+
+Read-only checks (after applying):
+
+```sql
+-- the function exists and anon cannot run it (second must be false)
+select count(*) from pg_proc where proname = 'item_groups_apply';
+select has_function_privilege('anon', 'public.item_groups_apply(uuid, jsonb)', 'execute');
+
+-- no member points at a missing group (must be 0)
+select count(*) from group_members m
+left join item_groups g on g.id = m.group_id where g.id is null;
+```
+
+What the screens do:
+
+- **Platos › Productos**: every POS product under its groups and Plato del menú; filter
+  Todos / Agrupados / Sin agrupar (counts by product; drinks and other excluded products count as Sin agrupar);
+  select rows → dark bar: Añadir a «sugerido» (when all share one), Añadir a grupo existente, Agrupar como…,
+  Desagrupar. Adding to a *dish* is the same "mover variante" as before (so Platos and Resumen do not move).
+- A product that already has a dish is grouped by nesting its dish's group, never by an explicit member
+  (a leaf always lands in its own dish).
+- Groups: double-click to rename, ⋯ → Mover dentro de…, Combinar con…, Desagrupar. Dish groups can be renamed
+  and nested, never combined or dissolved. Open/closed state is remembered in the browser.
+- Preparaciones and Ingredientes use the same filter, bar and group list (`GroupedItemList`); on
+  Ingredientes the counts follow the list as filtered by search and "Falta precio".
+- Every action shows at once, is saved in the background, rolls back with a message if the save fails, and
+  offers «Deshacer» for 8 seconds.
+- Suggestions use heuristics only (same dish → group words in the name → same base name as a member);
+  "Sin sugerencia" otherwise. No AI yet (F4).

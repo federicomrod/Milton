@@ -14,6 +14,7 @@ import { fetchIngredientLatestCosts } from "@/lib/restaurant/menu-recipes-server
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
 import { dishesUsingIngredient } from "@/lib/restaurant/costing/dish-economics";
+import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
 import { parseIngredientesFilter } from "@/lib/restaurant/ingredientes-screen";
 import {
   IngredientesScreen,
@@ -29,6 +30,7 @@ type LoadResult =
       items: IngredienteItem[];
       suppliers: SupplierOption[];
       currency: string;
+      itemGroups: ItemGroupsLoad | null;
     }
   | { kind: "no-company" };
 
@@ -93,7 +95,13 @@ async function loadIngredientes(
     (suppliersRes.data ?? []) as { id: string; name: string }[]
   ).map((s) => ({ id: s.id, name: s.name }));
 
-  return { kind: "data", items, suppliers, currency: currency || "USD" };
+  return {
+    kind: "data",
+    items,
+    suppliers,
+    currency: currency || "USD",
+    itemGroups: economics.ok ? (economics.result.item_groups ?? null) : null,
+  };
 }
 
 export default async function IngredientesRoute({
@@ -119,6 +127,7 @@ export default async function IngredientesRoute({
       items={result.items}
       suppliers={result.suppliers}
       currency={result.currency}
+      itemGroups={result.itemGroups}
       initialSelectedId={params.ingrediente ?? null}
       initialFilter={parseIngredientesFilter(params.filtro)}
     />

@@ -44,6 +44,11 @@ export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
   const stateRef = useRef(state);
   const pending = useRef(0);
   const [toast, setToast] = useState<GroupToast | null>(null);
+  /** The group a person just created: to scroll to and flash for a moment. */
+  const [created, setCreated] = useState<{ id: string; n: number } | null>(
+    null
+  );
+  const createdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const commit = useCallback((next: GroupsState) => {
@@ -67,6 +72,7 @@ export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
+      if (createdTimer.current) clearTimeout(createdTimer.current);
     },
     []
   );
@@ -74,7 +80,16 @@ export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
   const apply = useCallback(
     async (ops: GroupOps, undoOps: GroupOps | null, label: string) => {
       const before = stateRef.current;
+      const known = new Set(before.groups.map((g) => g.id));
+      const fresh = ops.upsert_groups.find(
+        (g) => !known.has(g.id) && g.source === "user"
+      );
       commit(applyOps(before, ops));
+      if (fresh) {
+        if (createdTimer.current) clearTimeout(createdTimer.current);
+        setCreated((c) => ({ id: fresh.id, n: (c?.n ?? 0) + 1 }));
+        createdTimer.current = setTimeout(() => setCreated(null), 2600);
+      }
       pending.current++;
       try {
         await save(ops);
@@ -139,12 +154,13 @@ export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
       available,
       state,
       run,
+      created,
       toast,
       dismissToast: () => showToast(null),
       notify: (message: string, error = false) =>
         showToast({ message, undo: null, error }),
     }),
-    [available, state, run, toast, showToast]
+    [available, state, run, created, toast, showToast]
   );
 }
 
@@ -177,5 +193,61 @@ export function useRememberedSet(storageKey: string) {
       }),
     [storageKey]
   );
-  return { set, toggle };
+  /** Open these groups (and keep them open next time). */
+  const add = useCallback(
+    (ids: readonly string[]) =>
+      setSet((prev) => {
+        if (ids.every((id) => prev.has(id))) return prev;
+        const next = new Set([...prev, ...ids]);
+        try {
+          window.localStorage.setItem(storageKey, JSON.stringify([...next]));
+        } catch {
+          // ignore
+        }
+        return next;
+      }),
+    [storageKey]
+  );
+  return { set, toggle, add };
+}
+
+/**
+ * After "Crear grupo": open the new group's parents, let the screen show it
+ * (clear the search / switch the filter) and scroll it into view. Returns the
+ * id to highlight for a moment.
+ */
+export function useGroupFocus(
+  grouping: { created: { id: string; n: number } | null; state: GroupsState },
+  open: { add: (ids: readonly string[]) => void },
+  reveal?: () => void
+): string | null {
+  const created = grouping.created;
+  const groups = grouping.state.groups;
+  const revealRef = useRef(reveal);
+  useEffect(() => {
+    revealRef.current = reveal;
+  });
+  useEffect(() => {
+    if (!created) return;
+    const byId = new Map(groups.map((g) => [g.id, g]));
+    const parents: string[] = [];
+    let cursor = byId.get(created.id);
+    for (let guard = 0; cursor?.parent_id && guard < 20; guard++) {
+      parents.push(cursor.parent_id);
+      cursor = byId.get(cursor.parent_id);
+    }
+    queueMicrotask(() => {
+      open.add(parents);
+      revealRef.current?.();
+    });
+    const t = setTimeout(() => {
+      document
+        .querySelector(`[data-group-id="${created.id}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 80);
+    return () => clearTimeout(t);
+    // Only a new creation (n) should run this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [created?.n]);
+  return created?.id ?? null;
 }

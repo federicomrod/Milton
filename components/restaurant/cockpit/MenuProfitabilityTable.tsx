@@ -16,6 +16,8 @@
 
 "use client";
 
+import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
+import { sortRows } from "@/lib/restaurant/table-sort";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { dishHref } from "@/lib/restaurant/menu-links";
@@ -137,20 +139,6 @@ function sortValue(row: MenuMarginRow, key: SortKey): number | string | null {
   }
 }
 
-function compareNullsLast(
-  a: number | string | null,
-  b: number | string | null,
-  dir: 1 | -1
-): number {
-  if (a === null && b === null) return 0;
-  if (a === null) return 1; // nulls always last
-  if (b === null) return -1;
-  if (typeof a === "string" && typeof b === "string") {
-    return a.localeCompare(b) * dir;
-  }
-  return ((a as number) - (b as number)) * dir;
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -171,8 +159,12 @@ export function MenuProfitabilityTable({
     "all" | "complete" | "issues"
   >("all");
   const [onlyIssues, setOnlyIssues] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>("revenue");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const { sort, toggle: toggleSort } = useTableSort("menu-rentabilidad", {
+    key: "revenue",
+    dir: "desc",
+  });
+  const sortKey = sort?.key;
+  const sortDir = sort?.dir;
 
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -189,20 +181,8 @@ export function MenuProfitabilityTable({
       if (effectiveStatus === "issues" && !hasIssue) return false;
       return true;
     });
-    const dir: 1 | -1 = sortDir === "desc" ? -1 : 1;
-    return [...f].sort((a, b) =>
-      compareNullsLast(sortValue(a, sortKey), sortValue(b, sortKey), dir)
-    );
-  }, [rows, category, statusFilter, onlyIssues, sortKey, sortDir]);
-
-  const toggleSort = (k: SortKey) => {
-    if (sortKey === k) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-      setSortKey(k);
-      setSortDir(k === "name" ? "asc" : "desc");
-    }
-  };
+    return sortRows(f, sort, (r, k) => sortValue(r, k as SortKey));
+  }, [rows, category, statusFilter, onlyIssues, sort]);
 
   const sortIcon = (k: SortKey) => {
     if (sortKey !== k) return <ArrowUpDown className="h-3 w-3 opacity-40" />;

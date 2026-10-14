@@ -16,6 +16,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { SortTh } from "@/components/restaurant/sort/SortTh";
+import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
+import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
 import Link from "next/link";
 import {
   Upload,
@@ -594,6 +597,25 @@ function ManualCreateCard({
 // Invoice list card
 // ---------------------------------------------------------------------------
 
+function invoiceValue(inv: InvoiceListItem, key: string): SortValue {
+  switch (key) {
+    case "supplier":
+      return inv.supplier_name;
+    case "number":
+      return inv.invoice_number;
+    case "date":
+      return inv.invoice_date;
+    case "total":
+      return inv.total_amount;
+    case "status":
+      return inv.status;
+    case "lines":
+      return inv.line_counts.unmatched;
+    default:
+      return null;
+  }
+}
+
 function InvoiceListCard({
   invoices,
   reviewingId,
@@ -603,6 +625,8 @@ function InvoiceListCard({
   reviewingId: string | null;
   onReview: (id: string) => void;
 }) {
+  const { sort, toggle } = useTableSort("compras-facturas");
+  const sorted = sortRows(invoices, sort, invoiceValue);
   if (invoices.length === 0) {
     return (
       <Card>
@@ -627,19 +651,60 @@ function InvoiceListCard({
           <table className="w-full text-sm">
             <thead className="border-b border-border bg-muted/40">
               <tr className="text-left text-xs text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Supplier</th>
-                <th className="px-4 py-3 font-medium">Invoice #</th>
-                <th className="px-4 py-3 font-medium">Date</th>
-                <th className="px-4 py-3 font-medium text-right">Total</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">
+                <SortTh
+                  sortKey="supplier"
+                  sort={sort}
+                  onSort={toggle}
+                  className="px-4 py-3 font-medium"
+                >
+                  Supplier
+                </SortTh>
+                <SortTh
+                  sortKey="number"
+                  sort={sort}
+                  onSort={toggle}
+                  className="px-4 py-3 font-medium"
+                >
+                  Invoice #
+                </SortTh>
+                <SortTh
+                  sortKey="date"
+                  sort={sort}
+                  onSort={toggle}
+                  className="px-4 py-3 font-medium"
+                >
+                  Date
+                </SortTh>
+                <SortTh
+                  sortKey="total"
+                  sort={sort}
+                  onSort={toggle}
+                  align="right"
+                  className="px-4 py-3 font-medium"
+                >
+                  Total
+                </SortTh>
+                <SortTh
+                  sortKey="status"
+                  sort={sort}
+                  onSort={toggle}
+                  className="px-4 py-3 font-medium"
+                >
+                  Status
+                </SortTh>
+                <SortTh
+                  sortKey="lines"
+                  sort={sort}
+                  onSort={toggle}
+                  className="px-4 py-3 font-medium"
+                >
                   Lines (matched / total)
-                </th>
+                </SortTh>
                 <th className="px-4 py-3 font-medium" />
               </tr>
             </thead>
             <tbody>
-              {invoices.map((inv, i) => (
+              {sorted.map((inv, i) => (
                 <tr
                   key={inv.id}
                   className={

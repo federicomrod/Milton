@@ -31,6 +31,9 @@ import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { platosHref } from "@/lib/restaurant/menu-links";
 import { Chip } from "@/components/restaurant/recipes-costing/ui";
 import Link from "next/link";
+import { SortTh } from "@/components/restaurant/sort/SortTh";
+import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
+import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
 import { ProductosView } from "@/components/restaurant/groups/ProductosView";
 import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
 
@@ -85,6 +88,34 @@ function uniqueProducts(variants: readonly MenuDishVariant[]) {
   );
 }
 
+const STATUS_RANK: Record<DishStatus, number> = {
+  sin_receta: 0,
+  falta_precio: 1,
+  estimado: 2,
+  aprobado: 3,
+};
+
+/** What each Platos column sorts by; a missing price is null (last both ways). */
+function dishValue(d: MenuDish, key: string): SortValue {
+  const excluded = d.status === "excluded";
+  switch (key) {
+    case "name":
+      return d.name;
+    case "sales":
+      return d.net_sales;
+    case "margin":
+      return d.margin_pct;
+    case "cost":
+      return d.food_cost_pct;
+    case "coverage":
+      return excluded ? null : d.coverage;
+    case "status":
+      return excluded ? null : STATUS_RANK[d.cost_status];
+    default:
+      return null;
+  }
+}
+
 const pct = (n: number | null) => (n === null ? "—" : `${Math.round(n)}%`);
 
 export function MenuDishesScreen({
@@ -101,6 +132,7 @@ export function MenuDishesScreen({
   const [dishes, setDishes] = useState<MenuDish[]>(menu?.dishes ?? []);
   const [excluded, setExcluded] = useState<MenuDish[]>(menu?.excluded ?? []);
   const [showExcluded, setShowExcluded] = useState(false);
+  const { sort, toggle: toggleSort } = useTableSort("platos");
   const [view, setView] = useState<"platos" | "productos">("platos");
   const grouping = useItemGroups(data.item_groups);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -136,9 +168,13 @@ export function MenuDishesScreen({
 
   const shown = useMemo(() => {
     const list = showExcluded ? [...dishes, ...excluded] : dishes;
-    if (statusFilter.length === 0) return list;
-    return list.filter((d) => statusFilter.includes(d.cost_status));
-  }, [dishes, excluded, showExcluded, statusFilter]);
+    const filtered =
+      statusFilter.length === 0
+        ? list
+        : list.filter((d) => statusFilter.includes(d.cost_status));
+    // Variants stay under their dish: only the dishes are ordered.
+    return sortRows(filtered, sort, dishValue);
+  }, [dishes, excluded, showExcluded, statusFilter, sort]);
 
   if (!menu) return null;
   const k = menu.kpis;
@@ -401,12 +437,44 @@ export function MenuDishesScreen({
           <table className="w-full text-[13px]">
             <thead>
               <tr className="border-b border-[#eef0f4] text-left text-[12px] font-semibold text-[#8a92a3]">
-                <th className="px-2 py-1.5">Plato del menú</th>
-                <th className="px-2 py-1.5 text-right">Ventas</th>
-                <th className="px-2 py-1.5 text-right">Margen</th>
-                <th className="px-2 py-1.5 text-right">Costo %</th>
-                <th className="px-2 py-1.5 text-right">Cobertura</th>
-                <th className="px-2 py-1.5">Estado</th>
+                <SortTh sortKey="name" sort={sort} onSort={toggleSort}>
+                  Plato del menú
+                </SortTh>
+                <SortTh
+                  sortKey="sales"
+                  sort={sort}
+                  onSort={toggleSort}
+                  align="right"
+                >
+                  Ventas
+                </SortTh>
+                <SortTh
+                  sortKey="margin"
+                  sort={sort}
+                  onSort={toggleSort}
+                  align="right"
+                >
+                  Margen
+                </SortTh>
+                <SortTh
+                  sortKey="cost"
+                  sort={sort}
+                  onSort={toggleSort}
+                  align="right"
+                >
+                  Costo %
+                </SortTh>
+                <SortTh
+                  sortKey="coverage"
+                  sort={sort}
+                  onSort={toggleSort}
+                  align="right"
+                >
+                  Cobertura
+                </SortTh>
+                <SortTh sortKey="status" sort={sort} onSort={toggleSort}>
+                  Estado
+                </SortTh>
                 <th className="w-8" />
               </tr>
             </thead>

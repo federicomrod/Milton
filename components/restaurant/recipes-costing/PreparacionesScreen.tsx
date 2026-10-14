@@ -19,7 +19,10 @@ import { withPreparationApproved } from "@/lib/restaurant/recipe-costing/prepara
 import { ConfirmHowDialog } from "./ConfirmHowDialog";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
 import { Card, Chip, GhostBtn } from "./ui";
-import { GroupedItemList } from "@/components/restaurant/groups/GroupedItemList";
+import {
+  GroupedItemList,
+  type SortColumn,
+} from "@/components/restaurant/groups/GroupedItemList";
 import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
 
 const UNITS = ["oz", "lb", "g", "kg", "ml", "l", "gal", "unit", "portion"];
@@ -60,6 +63,24 @@ const STATUS: Record<
   aprobada: { label: "Aprobada", tone: "ok" },
   sin_receta: { label: "Sin receta", tone: "grey" },
 };
+
+type PrepItem = PreparationRow & { id: string };
+const STATUS_RANK: Record<PreparationRow["status"], number> = {
+  sin_receta: 0,
+  borrador: 1,
+  aprobada: 2,
+};
+const PREPARATION_SORT: SortColumn<PrepItem>[] = [
+  { key: "name", label: "Nombre", value: (r) => r.name },
+  {
+    key: "impact",
+    label: "Ventas que desbloquea",
+    value: (r) => r.impact.net_sales,
+    agg: "sum",
+  },
+  { key: "dishes", label: "Platos", value: (r) => r.impact.dishes, agg: "sum" },
+  { key: "status", label: "Estado", value: (r) => STATUS_RANK[r.status] },
+];
 
 export function PreparacionesScreen({
   data,
@@ -247,6 +268,9 @@ export function PreparacionesScreen({
                   grouping={grouping}
                   canEdit={data.actor.can_submit}
                   storageKey="milton:preparaciones:abiertos"
+                  sortId="preparaciones"
+                  sortColumns={PREPARATION_SORT}
+                  searchPlaceholder="Buscar preparación o grupo…"
                   emptyText="No hay preparaciones con ese filtro."
                   renderRow={(row) => (
                     <button

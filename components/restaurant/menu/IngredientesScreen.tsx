@@ -13,7 +13,10 @@
 import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { GroupedItemList } from "@/components/restaurant/groups/GroupedItemList";
+import {
+  GroupedItemList,
+  type SortColumn,
+} from "@/components/restaurant/groups/GroupedItemList";
 import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
 import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
 import { dishHref } from "@/lib/restaurant/menu-links";
@@ -117,6 +120,19 @@ function errorOf(body: unknown, status: number): string {
   return typeof b?.error === "string" ? b.error : `Error ${status}`;
 }
 
+const INGREDIENT_SORT: SortColumn<IngredienteItem>[] = [
+  { key: "name", label: "Nombre", value: (i) => i.name },
+  // A missing price is "Sin precio": last both ways, never 0.
+  { key: "price", label: "Precio", value: (i) => i.price },
+  { key: "supplier", label: "Proveedor", value: (i) => i.supplier_name },
+  {
+    key: "sales",
+    label: "Ventas",
+    value: (i) => i.sold_net_sales,
+    agg: "sum",
+  },
+];
+
 export function IngredientesScreen({
   items: initialItems,
   suppliers,
@@ -135,7 +151,6 @@ export function IngredientesScreen({
   const grouping = useItemGroups(itemGroups);
   const [items, setItems] = useState(initialItems);
   const [filter, setFilter] = useState<IngredientesFilter>(initialFilter);
-  const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(
     initialSelectedId && initialItems.some((i) => i.id === initialSelectedId)
       ? initialSelectedId
@@ -146,16 +161,10 @@ export function IngredientesScreen({
     () => items.filter((i) => i.price === null).length,
     [items]
   );
-  const visible = useMemo(() => {
-    const q = fold(query.trim());
-    const sorted = sortIngredientes(items, filter);
-    if (!q) return sorted;
-    return sorted.filter(
-      (i) =>
-        fold(i.name).includes(q) ||
-        (i.supplier_name ? fold(i.supplier_name).includes(q) : false)
-    );
-  }, [items, filter, query]);
+  const visible = useMemo(
+    () => sortIngredientes(items, filter),
+    [items, filter]
+  );
 
   const selected = items.find((i) => i.id === selectedId) ?? visible[0] ?? null;
 
@@ -176,7 +185,6 @@ export function IngredientesScreen({
 
   const onAdded = (item: IngredienteItem) => {
     setItems((prev) => [...prev, item]);
-    setQuery("");
     setSelectedId(item.id);
   };
 
@@ -184,14 +192,6 @@ export function IngredientesScreen({
     <div className="mt-3 grid grid-cols-[330px_1fr] items-start gap-[14px]">
       <section className="flex flex-col rounded-[14px] border border-[#eef0f4] bg-white">
         <div className="space-y-2 border-b border-[#eef0f4] p-3">
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar ingrediente…"
-            aria-label="Buscar ingrediente"
-            className="h-9 w-full rounded-lg border border-[#e3e7ee] bg-white px-3 text-[13px] text-[#151c2c] outline-none focus:border-[#f28c28]"
-          />
           <div className="flex gap-2" role="group" aria-label="Filtro">
             <FilterChip
               active={filter === "todos"}
@@ -214,6 +214,10 @@ export function IngredientesScreen({
             grouping={grouping}
             canEdit
             storageKey="milton:ingredientes:abiertos"
+            sortId="ingredientes"
+            sortColumns={INGREDIENT_SORT}
+            searchPlaceholder="Buscar ingrediente o grupo…"
+            searchText={(item) => item.supplier_name}
             emptyText={
               items.length === 0
                 ? "Aún no tienes ingredientes."

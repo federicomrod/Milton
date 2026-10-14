@@ -1,10 +1,15 @@
 // components/restaurant/costs/CostsArea.tsx
 //
 // Costos (R1-09b, A9/D6): KPI row, the three real tabs and the
-// "Cambios de precio" table. Server-renderable (no hooks): the active tab
-// comes from ?tab= on the page.
+// "Cambios de precio" table (click a header to sort). The active tab comes
+// from ?tab= on the page.
+
+"use client";
 
 import Link from "next/link";
+import { SortTh } from "@/components/restaurant/sort/SortTh";
+import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
+import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { dishHref, ingredientHref } from "@/lib/restaurant/menu-links";
 import { costsTabHref, type CostsTab } from "@/lib/restaurant/costs-tabs";
@@ -171,6 +176,25 @@ function AffectsCell({
   );
 }
 
+function trendValue(trend: IngredientPriceTrendRow, key: string): SortValue {
+  switch (key) {
+    case "ingredient":
+      return trend.ingredient_name;
+    case "supplier":
+      return trend.latest_supplier_name;
+    case "before":
+      return trend.previous_cost;
+    case "now":
+      return trend.latest_cost;
+    case "change":
+      return trend.pct_change;
+    case "affects":
+      return trend.affected_dishes?.length ?? null;
+    default:
+      return null;
+  }
+}
+
 export function PriceChangesTable({
   trends,
   lang,
@@ -178,6 +202,8 @@ export function PriceChangesTable({
   trends: readonly IngredientPriceTrendRow[];
   lang: PreferredLanguage;
 }) {
+  const { sort, toggle } = useTableSort("costos-cambios-de-precio");
+  const rows = sortRows(trends, sort, trendValue);
   if (trends.length === 0) {
     return (
       <p
@@ -198,28 +224,61 @@ export function PriceChangesTable({
       <table className="w-full text-sm">
         <thead className="border-b border-[#dfe3ea]">
           <tr className="text-left text-[12px] font-medium text-[#6b7385]">
-            <th className="px-4 py-2.5 font-medium">
+            <SortTh
+              sortKey="ingredient"
+              sort={sort}
+              onSort={toggle}
+              className="px-4 py-2.5 font-medium"
+            >
               {t(lang, "Ingredient", "Ingrediente")}
-            </th>
-            <th className="px-4 py-2.5 font-medium">
+            </SortTh>
+            <SortTh
+              sortKey="supplier"
+              sort={sort}
+              onSort={toggle}
+              className="px-4 py-2.5 font-medium"
+            >
               {t(lang, "Supplier", "Proveedor")}
-            </th>
-            <th className="px-4 py-2.5 font-medium text-right">
+            </SortTh>
+            <SortTh
+              sortKey="before"
+              sort={sort}
+              onSort={toggle}
+              className="px-4 py-2.5 font-medium"
+              align="right"
+            >
               {t(lang, "Before", "Antes")}
-            </th>
-            <th className="px-4 py-2.5 font-medium text-right">
+            </SortTh>
+            <SortTh
+              sortKey="now"
+              sort={sort}
+              onSort={toggle}
+              className="px-4 py-2.5 font-medium"
+              align="right"
+            >
               {t(lang, "Now", "Ahora")}
-            </th>
-            <th className="px-4 py-2.5 font-medium text-right">
+            </SortTh>
+            <SortTh
+              sortKey="change"
+              sort={sort}
+              onSort={toggle}
+              className="px-4 py-2.5 font-medium"
+              align="right"
+            >
               {t(lang, "Change", "Cambio")}
-            </th>
-            <th className="px-4 py-2.5 font-medium">
+            </SortTh>
+            <SortTh
+              sortKey="affects"
+              sort={sort}
+              onSort={toggle}
+              className="px-4 py-2.5 font-medium"
+            >
               {t(lang, "Affects", "Afecta")}
-            </th>
+            </SortTh>
           </tr>
         </thead>
         <tbody>
-          {trends.map((trend) => (
+          {rows.map((trend) => (
             <tr
               key={trend.ingredient_id}
               className="border-b border-[#eef0f4] last:border-0"

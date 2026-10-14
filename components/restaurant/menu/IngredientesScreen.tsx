@@ -19,6 +19,11 @@ import {
 } from "@/components/restaurant/groups/GroupedItemList";
 import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
 import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
+import {
+  matchesUsage,
+  usageCounts,
+  type UsageFilter,
+} from "@/lib/restaurant/ingredient-usage";
 import { dishHref } from "@/lib/restaurant/menu-links";
 import { normalizeUnit } from "@/lib/restaurant/units";
 import {
@@ -62,6 +67,10 @@ export interface IngredienteItem {
   supplier_name: string | null;
   sold_net_sales: number;
   uses: IngredienteUse[];
+  /** An active recipe (dish, or preparation an active dish uses) has a line with it. */
+  inUse: boolean;
+  /** Soft-hidden (050). Never true for an ingredient in use. */
+  archived: boolean;
 }
 
 const UNITS = ["kg", "g", "l", "ml", "unit", "portion", "oz", "lb"];
@@ -140,6 +149,7 @@ export function IngredientesScreen({
   initialSelectedId,
   initialFilter,
   itemGroups = null,
+  archiveAvailable = true,
 }: {
   items: IngredienteItem[];
   suppliers: SupplierOption[];
@@ -147,6 +157,8 @@ export function IngredientesScreen({
   initialSelectedId: string | null;
   initialFilter: IngredientesFilter;
   itemGroups?: ItemGroupsLoad | null;
+  /** False until migration 050: En uso / Sin uso work, Archivar says what is missing. */
+  archiveAvailable?: boolean;
 }) {
   const grouping = useItemGroups(itemGroups);
   const [items, setItems] = useState(initialItems);
@@ -157,14 +169,58 @@ export function IngredientesScreen({
       : null
   );
 
-  const missingCount = useMemo(
-    () => items.filter((i) => i.price === null).length,
-    [items]
-  );
-  const visible = useMemo(
-    () => sortIngredientes(items, filter),
-    [items, filter]
-  );
+  const [usageFilter, setUsageFilter] = useState<UsageFilter>("en_uso");
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  // Unused ingredients never count toward "Falta precio" and never ask for a price.
+  const counts = useMemo(() => usageCounts(items), [items]);
+  const visible = useMemo(() => {
+    const inUsage = items.filter((i) => matchesUsage(i, usageFilter));
+    return sortIngredientes(
+      filter === "falta_precio" ? inUsage.filter((i) => i.inUse) : inUsage,
+      filter
+    );
+  }, [items, filter, usageFilter]);
+
+  async function setArchived(ids: string[], archived: boolean) {
+    if (ids.length === 0) return;
+    setArchiving(true);
+    setArchiveError(null);
+    try {
+      const res = await fetch("/api/restaurant/ingredients/archive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, archived }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        skipped?: string[];
+      };
+      if (!res.ok) throw new Error(json.error ?? "No pude archivar.");
+      const done = new Set(ids.filter((id) => !json.skipped?.includes(id)));
+      setItems((prev) =>
+        prev.map((i) => (done.has(i.id) ? { ...i, archived } : i))
+      );
+    } catch (err) {
+      setArchiveError(
+        err instanceof Error
+          ? err.message
+          : "No pude archivar los ingredientes."
+      );
+    } finally {
+      setArchiving(false);
+    }
+  }
+  const archiveAll = () => {
+    const ids = items.filter((i) => !i.inUse && !i.archived).map((i) => i.id);
+    if (
+      window.confirm(
+        `¿Archivar ${ids.length} ingredientes sin uso? No se borran: vuelven solos si una receta los usa, y puedes restaurarlos.`
+      )
+    ) {
+      void setArchived(ids, true);
+    }
+  };
 
   const selected = items.find((i) => i.id === selectedId) ?? visible[0] ?? null;
 
@@ -185,6 +241,8 @@ export function IngredientesScreen({
 
   const onAdded = (item: IngredienteItem) => {
     setItems((prev) => [...prev, item]);
+    // A new ingredient has no recipe yet: show it, do not hide it as "sin uso".
+    setUsageFilter("todos");
     setSelectedId(item.id);
   };
 
@@ -192,6 +250,61 @@ export function IngredientesScreen({
     <div className="mt-3 grid grid-cols-[330px_1fr] items-start gap-[14px]">
       <section className="flex flex-col rounded-[14px] border border-[#eef0f4] bg-white">
         <div className="space-y-2 border-b border-[#eef0f4] p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[12px] font-semibold"
+              role="group"
+              aria-label="Uso"
+            >
+              {(
+                [
+                  ["en_uso", "En uso", counts.en_uso],
+                  ["sin_uso", "Sin uso", counts.sin_uso],
+                  ["todos", "Todos", counts.todos],
+                ] as const
+              ).map(([id, label, n]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={usageFilter === id}
+                  onClick={() => setUsageFilter(id)}
+                  className={
+                    "rounded-[9px] px-2.5 py-1 " +
+                    (usageFilter === id
+                      ? "bg-[#1b40c8] text-white shadow-sm"
+                      : "text-[#4a5a85] hover:text-[#1b40c8]")
+                  }
+                >
+                  {label} · {n}
+                </button>
+              ))}
+            </div>
+            {counts.archivable > 0 ? (
+              <button
+                type="button"
+                onClick={archiveAll}
+                disabled={archiving || !archiveAvailable}
+                title={
+                  archiveAvailable
+                    ? "Los oculta de las listas de trabajo; no se borra nada."
+                    : "Falta aplicar la migración 050 en este ambiente."
+                }
+                className="rounded-lg border border-[#c6d3f5] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#1b40c8] hover:bg-[#e6ecfb] disabled:opacity-50"
+              >
+                Archivar sin uso ({counts.archivable})
+              </button>
+            ) : null}
+          </div>
+          {!archiveAvailable && counts.sin_uso > 0 ? (
+            <p className="text-[12px]" style={{ color: MUTED }}>
+              Para archivar falta aplicar la migración 050 en este ambiente.
+            </p>
+          ) : null}
+          {archiveError ? (
+            <p className="text-[12px]" style={{ color: RED }}>
+              {archiveError}
+            </p>
+          ) : null}
           <div className="flex gap-2" role="group" aria-label="Filtro">
             <FilterChip
               active={filter === "todos"}
@@ -203,7 +316,7 @@ export function IngredientesScreen({
               active={filter === "falta_precio"}
               onClick={() => setFilter("falta_precio")}
             >
-              Falta precio ({missingCount})
+              Falta precio ({counts.falta_precio})
             </FilterChip>
           </div>
         </div>
@@ -250,7 +363,15 @@ export function IngredientesScreen({
                     </span>
                   </span>
                   <span className="shrink-0 text-right text-[13px] tabular-nums">
-                    {item.price === null ? (
+                    {!item.inUse && item.price === null ? (
+                      <span
+                        className="font-semibold"
+                        style={{ color: MUTED }}
+                        title="Ninguna receta activa lo usa: no hace falta precio."
+                      >
+                        {item.archived ? "Archivado" : "Sin uso"}
+                      </span>
+                    ) : item.price === null ? (
                       <span className="font-semibold" style={{ color: RED }}>
                         Falta precio
                       </span>
@@ -279,6 +400,9 @@ export function IngredientesScreen({
           suppliers={suppliers}
           currency={currency}
           onSaved={onSaved}
+          archiveAvailable={archiveAvailable}
+          archiving={archiving}
+          onArchive={(archived) => void setArchived([selected.id], archived)}
         />
       ) : (
         <section
@@ -367,6 +491,8 @@ function AddIngrediente({
         supplier_name: null,
         sold_net_sales: 0,
         uses: [],
+        inUse: false,
+        archived: false,
       });
       setName("");
       setOpen(false);
@@ -426,11 +552,17 @@ function IngredienteDetail({
   suppliers,
   currency,
   onSaved,
+  archiveAvailable,
+  archiving,
+  onArchive,
 }: {
   item: IngredienteItem;
   suppliers: SupplierOption[];
   currency: string;
   onSaved: (next: IngredienteItem) => void;
+  archiveAvailable: boolean;
+  archiving: boolean;
+  onArchive: (archived: boolean) => void;
 }) {
   const [priceDraft, setPriceDraft] = useState(
     item.price === null ? "" : formatMoney(item.price, currency)
@@ -590,6 +722,20 @@ function IngredienteDetail({
             {categoryLabel(item.category)} · en {item.uses.length}{" "}
             {item.uses.length === 1 ? "plato" : "platos"}
           </p>
+          {!item.inUse ? (
+            <p className="mt-1 text-[12px]" style={{ color: MUTED }}>
+              {item.archived ? "Archivado · " : "Sin uso · "}
+              Ninguna receta activa lo usa, así que no hace falta precio.{" "}
+              <button
+                type="button"
+                disabled={archiving || !archiveAvailable}
+                onClick={() => onArchive(!item.archived)}
+                className="font-semibold text-[#1b40c8] disabled:opacity-50"
+              >
+                {item.archived ? "Restaurar" : "Archivar"}
+              </button>
+            </p>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-3">
           {error && (

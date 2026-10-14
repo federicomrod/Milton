@@ -273,6 +273,9 @@ export interface RecipeCostingWorkspace {
   setup_checklist: SetupCheck[];
   /** Menú › Resumen from the shared loader (null on other tabs). */
   menu_summary: MenuSummary | null;
+  /** A cost file was picked but not fully saved (044 draft): Resumen
+   *  opens the upload step so the choices are right there again. */
+  upload_draft_pending: boolean;
   /** The open dish's cost, margin and status from the shared loader. */
   selected_dish: Omit<DishEconomics, "lines"> | null;
   next_dish: {
@@ -549,6 +552,7 @@ export function buildRecipeCostingWorkspace(input: {
   timings?: RecipeCostingWorkspace["timings"];
   /** Shared dish-economics load: the chip and status of every dish. */
   dishEconomics?: DishEconomicsResult | null;
+  uploadDraftPending?: boolean;
 }): RecipeCostingWorkspace {
   const currency = input.currency || "USD";
   const versionsByMenu = new Map<string, WorkspaceVersion[]>();
@@ -971,6 +975,7 @@ export function buildRecipeCostingWorkspace(input: {
           ? "Llegaste a la meta del 90%. Puedes seguir con los demás platos cuando quieras."
           : `Meta: ${COVERAGE_GOAL_PCT}% de las ventas de comida con costo aprobado.`,
     },
+    upload_draft_pending: input.uploadDraftPending ?? false,
     selected_dish: selectedDishOf(
       input.dishEconomics ?? null,
       input.selectedOdooProductId ?? null

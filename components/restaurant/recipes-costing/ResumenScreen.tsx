@@ -56,7 +56,8 @@ export function ResumenScreen({
 
   if (!summary) return null;
   const { setup } = summary;
-  const showUpload = uploadOpen || setup.next?.id === "excel";
+  const showUpload =
+    uploadOpen || data.upload_draft_pending || setup.next?.id === "excel";
   const more = (
     <MoreMenu
       data={data}

@@ -303,6 +303,23 @@ export async function loadRecipeCostingWorkspace(
   // Coverage is the shared loader's number (same as Menú and Cockpit).
   const coverageTotals = list && list.ok ? list.economics.totals : null;
 
+  // Leaving Resumen and coming back keeps the upload's choices (044):
+  // a draft that is not fully saved reopens the upload step.
+  let uploadDraftPending = false;
+  if (view === "resumen") {
+    const { data: draft, error: draftError } = await supabase
+      .from("cost_upload_drafts")
+      .select("catalog_result")
+      .eq("company_id", input.companyId)
+      .maybeSingle();
+    if (draftError) {
+      console.error("[recetas] upload draft:", draftError.message);
+    } else if (draft) {
+      // The choices matter until the price list is saved.
+      uploadDraftPending = !draft.catalog_result;
+    }
+  }
+
   const periodLabel =
     input.startDate && input.endDate
       ? formatPageDateRangeLabel(
@@ -339,6 +356,7 @@ export async function loadRecipeCostingWorkspace(
       latestUpload,
       reset,
       dishEconomics: list && list.ok ? list.economics : null,
+      uploadDraftPending,
       timings: {
         load_ms: Date.now() - started,
         path: editorOnly ? "plato_editor" : "full",

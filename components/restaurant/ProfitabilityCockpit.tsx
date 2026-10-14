@@ -576,7 +576,7 @@ export function SupplierTrendsSection({
                       >
                         <td className="px-3 py-2 font-medium">
                           <Link
-                            href="/dashboard/restaurant/suppliers"
+                            href="/dashboard/restaurant/costs?tab=proveedores"
                             className="hover:underline"
                           >
                             {s.supplier_name}
@@ -745,7 +745,7 @@ export function DataQualityChecklistSection({
                   {data.dataQuality.supplier_linked_ingredients}
                 </span>
                 <Link
-                  href="/dashboard/restaurant/suppliers"
+                  href="/dashboard/restaurant/costs?tab=proveedores"
                   className="text-xs text-primary hover:underline"
                 >
                   {t(lang, "Open Suppliers", "Abrir Proveedores")} ↗

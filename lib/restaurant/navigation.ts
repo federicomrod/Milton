@@ -126,25 +126,55 @@ export function primaryNavLabels(lang: PreferredLanguage): string[] {
 
 // ---------------------------------------------------------------------------
 // Legacy routes — every previous sidebar destination stays reachable.
-// Primary nav never lists these; they live under the five areas or
-// Data & Settings sections.
+// Primary nav never lists these. Some are still screens; the rest are
+// redirects to where the feature lives now (`resolvesTo`). Configuración
+// only lists the ones with a `section` (R1-09b, A10/A11).
 // ---------------------------------------------------------------------------
 
-export type DataSettingsSectionId =
-  | "data_sources"
-  | "data_health"
-  | "setup"
-  | "team"
-  | "account";
+/** Configuración has exactly three sections (R1-09b, A10). */
+export type DataSettingsSectionId = "connections" | "team" | "account";
+
+export const DATA_SETTINGS_SECTIONS: readonly DataSettingsSectionId[] = [
+  "connections",
+  "team",
+  "account",
+] as const;
+
+/** Anchor / `?seccion=` value per Configuración section. */
+export const DATA_SETTINGS_SECTION_ANCHORS: Record<
+  DataSettingsSectionId,
+  string
+> = {
+  connections: "conexiones",
+  team: "equipo",
+  account: "cuenta",
+};
+
+/** Configuración › Conexiones with "Subir ventas (archivo)" open. */
+export function posUploadHref(
+  params: Record<string, string | string[] | undefined> = {}
+): string {
+  return hrefKeepingParams(
+    DATA_SETTINGS_HREF,
+    { ...params, seccion: DATA_SETTINGS_SECTION_ANCHORS.connections },
+    DATA_SETTINGS_SECTION_ANCHORS.connections
+  );
+}
 
 export interface MappedLegacyRoute {
-  /** Stable id for tests and Data & Settings lists. */
+  /** Stable id for tests and Configuración lists. */
   id: string;
+  /** The old URL. It still answers: as a screen, or as a redirect. */
   href: string;
+  /** Where a redirecting `href` lands now (path, no params). */
+  resolvesTo?: string;
   /** Previous primary-nav label (English), for the route-map test. */
   legacyLabel: string;
   area: PrimaryNavId;
+  /** Listed in Configuración under this section; none = lives elsewhere. */
   section?: DataSettingsSectionId;
+  /** Only admins see it in Configuración. */
+  adminOnly?: boolean;
 }
 
 /**
@@ -159,61 +189,75 @@ export const LEGACY_ROUTE_MAP: readonly MappedLegacyRoute[] = [
     area: "cockpit",
   },
   {
+    // The one "Preguntar a Milton" is in every page header now.
     id: "ask-milton",
     href: ASK_MILTON_HREF,
     legacyLabel: "Ask Milton",
-    area: "data_settings",
-    section: "setup",
+    area: "cockpit",
   },
   {
+    id: "connect-data",
+    href: "/dashboard/restaurant/connect-data",
+    legacyLabel: "Connect data",
+    area: "data_settings",
+    section: "connections",
+  },
+  {
+    // The uploader is a panel in Conexiones; the old page redirects there.
     id: "pos-sales",
     href: "/dashboard/restaurant/upload",
+    resolvesTo: DATA_SETTINGS_HREF,
     legacyLabel: "POS Sales",
     area: "data_settings",
-    section: "data_sources",
+    section: "connections",
+  },
+  {
+    id: "odoo-admin",
+    href: "/management/odoo",
+    legacyLabel: "Odoo",
+    area: "data_settings",
+    section: "connections",
+    adminOnly: true,
   },
   {
     id: "targets",
     href: `${COCKPIT_HREF}#targets`,
     legacyLabel: "Targets",
-    area: "data_settings",
-    section: "setup",
+    area: "cockpit",
   },
   {
     id: "menu-recipes",
-    href: "/dashboard/restaurant/menu",
+    href: MENU_HREF,
     legacyLabel: "Menu & Recipes",
-    area: "data_settings",
-    section: "setup",
+    area: "menu",
   },
   {
     id: "ingredients",
     href: "/dashboard/restaurant/ingredients",
     legacyLabel: "Ingredients",
-    area: "data_settings",
-    section: "data_sources",
+    area: "menu",
   },
   {
+    // The cost-file upload is in Menú; the old page redirects to Resumen.
     id: "import-costs",
-    // The one cost-file upload lives in Recetas y costeo (old URL redirects).
-    href: "/dashboard/restaurant/menu/recetas",
+    href: "/dashboard/restaurant/costs/upload",
+    resolvesTo: MENU_HREF,
     legacyLabel: "Import Costs",
-    area: "data_settings",
-    section: "data_sources",
+    area: "menu",
   },
   {
     id: "suppliers",
     href: "/dashboard/restaurant/suppliers",
+    resolvesTo: COSTS_HREF,
     legacyLabel: "Suppliers",
-    area: "data_settings",
-    section: "data_sources",
+    area: "costs",
   },
   {
     id: "supplier-invoices",
     href: "/dashboard/restaurant/invoices",
+    resolvesTo: COSTS_HREF,
     legacyLabel: "Supplier Invoices",
-    area: "data_settings",
-    section: "data_sources",
+    area: "costs",
   },
   {
     id: "kitchen",
@@ -226,14 +270,14 @@ export const LEGACY_ROUTE_MAP: readonly MappedLegacyRoute[] = [
     href: "/dashboard/restaurant/agents",
     legacyLabel: "Agents",
     area: "data_settings",
-    section: "setup",
   },
   {
-    id: "settings",
-    href: "/dashboard/settings",
-    legacyLabel: "Settings",
+    id: "invitations",
+    href: "/management/invites",
+    legacyLabel: "Invitations",
     area: "data_settings",
-    section: "account",
+    section: "team",
+    adminOnly: true,
   },
   {
     id: "account",
@@ -243,18 +287,11 @@ export const LEGACY_ROUTE_MAP: readonly MappedLegacyRoute[] = [
     section: "account",
   },
   {
-    id: "invitations",
-    href: "/management/invites",
-    legacyLabel: "Invitations",
+    id: "settings",
+    href: "/dashboard/settings",
+    legacyLabel: "Settings",
     area: "data_settings",
-    section: "team",
-  },
-  {
-    id: "connect-data",
-    href: "/dashboard/restaurant/connect-data",
-    legacyLabel: "Connect data",
-    area: "data_settings",
-    section: "data_sources",
+    section: "account",
   },
 ] as const;
 
@@ -265,8 +302,7 @@ export const REQUIRED_LEGACY_HREFS: readonly string[] = [
   "/dashboard/restaurant#targets",
   "/dashboard/restaurant/menu",
   "/dashboard/restaurant/ingredients",
-  // Was /costs/upload (that URL now redirects here).
-  "/dashboard/restaurant/menu/recetas",
+  "/dashboard/restaurant/costs/upload",
   "/dashboard/restaurant/suppliers",
   "/dashboard/restaurant/invoices",
   "/dashboard/restaurant/kitchen",
@@ -281,12 +317,8 @@ export function dataSettingsSectionLabel(
   lang: PreferredLanguage
 ): string {
   switch (section) {
-    case "data_sources":
-      return t(lang, "Data sources", "Fuentes de datos");
-    case "data_health":
-      return t(lang, "Data health", "Salud de los datos");
-    case "setup":
-      return t(lang, "Setup", "Configuración");
+    case "connections":
+      return t(lang, "Connections", "Conexiones");
     case "team":
       return t(lang, "Team", "Equipo");
     case "account":
@@ -299,10 +331,20 @@ export function dataSettingsLinkLabel(
   lang: PreferredLanguage
 ): string {
   switch (id) {
+    case "connect-data":
+      return t(lang, "Connect your POS", "Conectar tu punto de venta");
+    case "pos-sales":
+      return t(lang, "Upload sales (file)", "Subir ventas (archivo)");
+    case "odoo-admin":
+      return t(lang, "Odoo connection (admin)", "Conexión con Odoo (admin)");
+    case "invitations":
+      return t(lang, "Invitations", "Invitaciones");
+    case "account":
+      return t(lang, "Account", "Cuenta");
+    case "settings":
+      return t(lang, "Settings", "Ajustes");
     case "ask-milton":
       return t(lang, "Ask Milton", "Preguntar a Milton");
-    case "pos-sales":
-      return t(lang, "POS Sales", "Ventas del POS");
     case "targets":
       return t(lang, "Targets", "Metas");
     case "menu-recipes":
@@ -317,14 +359,6 @@ export function dataSettingsLinkLabel(
       return t(lang, "Supplier Invoices", "Facturas de proveedores");
     case "agents":
       return t(lang, "Agents", "Agentes");
-    case "settings":
-      return t(lang, "Settings", "Ajustes");
-    case "account":
-      return t(lang, "Account", "Cuenta");
-    case "invitations":
-      return t(lang, "Invitations", "Invitaciones");
-    case "connect-data":
-      return t(lang, "Connect data", "Conectar datos");
     default:
       return id;
   }
@@ -334,9 +368,9 @@ export function isDataSettingsLinkListed(
   id: MappedLegacyRoute["id"],
   opts: { isAdmin: boolean }
 ): boolean {
-  if (id === "invitations") return opts.isAdmin;
-  if (id === "menu-recipes") return false;
-  if (id === "targets") return false;
+  const route = LEGACY_ROUTE_MAP.find((r) => r.id === id);
+  if (!route?.section) return false;
+  if (route.adminOnly) return opts.isAdmin;
   return true;
 }
 
@@ -379,6 +413,25 @@ export function withShellParams(
   const search = url.searchParams.toString();
   const next = search ? `${url.pathname}?${search}` : url.pathname;
   return hash ? `${next}#${hash}` : next;
+}
+
+/**
+ * `path` with every query param of an old URL carried over (redirects keep
+ * restaurant, period and anything else the old link had).
+ */
+export function hrefKeepingParams(
+  path: string,
+  params: Record<string, string | string[] | undefined>,
+  hash?: string
+): string {
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue;
+    for (const v of Array.isArray(value) ? value : [value]) next.append(key, v);
+  }
+  const query = next.toString();
+  const base = query ? `${path}?${query}` : path;
+  return hash ? `${base}#${hash}` : base;
 }
 
 /** @deprecated Use withShellParams — kept so existing imports keep working. */

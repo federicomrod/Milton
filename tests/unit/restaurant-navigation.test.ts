@@ -1,11 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import {
+  DATA_SETTINGS_SECTIONS,
   LEGACY_ROUTE_MAP,
   PRIMARY_NAV_ITEMS,
   REQUIRED_LEGACY_HREFS,
   everyRequiredLegacyRouteIsMapped,
+  hrefKeepingParams,
+  posUploadHref,
+  routesForSection,
   isPrimaryNavActive,
   primaryNavHasTelegramLabel,
   primaryNavLabel,
@@ -15,7 +19,7 @@ import {
 } from "@/lib/restaurant/navigation";
 
 describe("primary restaurant navigation (#128)", () => {
-  it("lists Cockpit, Sales, Menu, Costs, Kitchen, then Data & Settings", () => {
+  it("lists Cockpit, Sales, Menu, Costs, Kitchen, then Settings", () => {
     expect(PRIMARY_NAV_ITEMS.map((item) => item.id)).toEqual([
       "cockpit",
       "sales",
@@ -76,6 +80,79 @@ describe("primary restaurant navigation (#128)", () => {
     ]) {
       expect(legacyLabels).toContain(label);
     }
+  });
+
+  it("every old href still answers: a screen, or a redirect to resolvesTo", () => {
+    const appDirs = ["app", "app/(restaurant-cockpit)"];
+    for (const route of LEGACY_ROUTE_MAP) {
+      const path = route.href.split("#")[0].split("?")[0];
+      const page = appDirs
+        .map((dir) => join(process.cwd(), dir, path, "page.tsx"))
+        .find((file) => existsSync(file));
+      expect(page, route.href).toBeTruthy();
+      const src = readFileSync(page!, "utf8");
+      if (route.resolvesTo) {
+        expect(src, route.href).toMatch(/redirect\(/);
+        // No JSX: a redirect, not a screen.
+        expect(src, route.href).not.toMatch(/<[A-Z]\w*[\s/>]/);
+        const target = appDirs
+          .map((dir) => join(process.cwd(), dir, route.resolvesTo!, "page.tsx"))
+          .find((file) => existsSync(file));
+        expect(target, route.resolvesTo).toBeTruthy();
+      }
+    }
+  });
+
+  it("Configuración has only Conexiones, Equipo and Cuenta (A10/A11)", () => {
+    expect(DATA_SETTINGS_SECTIONS).toEqual(["connections", "team", "account"]);
+    const listed = DATA_SETTINGS_SECTIONS.flatMap((s) =>
+      routesForSection(s, { isAdmin: true }).map((r) => r.id)
+    );
+    for (const gone of [
+      "ingredients",
+      "suppliers",
+      "supplier-invoices",
+      "import-costs",
+      "menu-recipes",
+      "targets",
+      "ask-milton",
+    ]) {
+      expect(listed).not.toContain(gone);
+    }
+    expect(routesForSection("connections").map((r) => r.id)).toEqual(
+      expect.arrayContaining(["connect-data", "pos-sales"])
+    );
+    expect(routesForSection("team", { isAdmin: false })).toEqual([]);
+    expect(
+      routesForSection("team", { isAdmin: true }).map((r) => r.id)
+    ).toEqual(["invitations"]);
+    expect(routesForSection("account").map((r) => r.id)).toEqual(
+      expect.arrayContaining(["account", "settings"])
+    );
+  });
+
+  it("the old POS upload lands in Conexiones with its params", () => {
+    expect(posUploadHref({ location: "l1" })).toBe(
+      "/dashboard/restaurant/data?location=l1&seccion=conexiones#conexiones"
+    );
+    const page = readFileSync(
+      join(process.cwd(), "app/dashboard/restaurant/upload/page.tsx"),
+      "utf8"
+    );
+    expect(page).toContain("redirect(posUploadHref(");
+    expect(
+      readFileSync(
+        join(process.cwd(), "app/dashboard/restaurant/data/page.tsx"),
+        "utf8"
+      )
+    ).toContain("<PosSalesUploadPanel");
+  });
+
+  it("hrefKeepingParams carries every param and the hash", () => {
+    expect(
+      hrefKeepingParams("/x", { a: "1", b: ["2", "3"], c: undefined }, "h")
+    ).toBe("/x?a=1&b=2&b=3#h");
+    expect(hrefKeepingParams("/x", {})).toBe("/x");
   });
 
   it("highlights Cockpit only on the exact cockpit path", () => {

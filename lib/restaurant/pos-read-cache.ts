@@ -7,6 +7,7 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { fetchCompanyPosSalesRows } from "@/lib/restaurant/supabase-sales";
+import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
 import {
   fetchProfitabilityData,
   type ProfitabilityData,
@@ -26,10 +27,18 @@ export const loadCachedProfitability = cache(
     locationId: string | null,
     brandId: string | null
   ): Promise<ProfitabilityData> => {
-    const supabase = await createClient();
+    const [supabase, dishes] = await Promise.all([
+      createClient(),
+      loadDishEconomics(companyId, null, null, locationId),
+    ]);
     const selected: ProfitabilitySelection | null = locationId
       ? { locationId, brandId }
       : null;
-    return fetchProfitabilityData(supabase, companyId, selected);
+    return fetchProfitabilityData(supabase, companyId, selected, {
+      // Same per-request load Menú/Recetas use; a company with no Odoo
+      // product (CSV uploads) keeps the legacy name-mapped path.
+      dishEconomics:
+        dishes.ok && dishes.result.uses_pos_products ? dishes.result : null,
+    });
   }
 );

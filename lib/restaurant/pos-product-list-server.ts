@@ -51,7 +51,12 @@ export interface LoadPosProductListParams {
 }
 
 export type LoadPosProductListResult =
-  | { ok: true; list: PosProductListResult }
+  | {
+      ok: true;
+      list: PosProductListResult;
+      /** The links the list was built from (dish-economics reuses them). */
+      links: PosProductLinkRecord[];
+    }
   | { ok: false; error: string };
 
 function asLink(row: Record<string, unknown>): PosProductLinkRecord | null {
@@ -158,6 +163,7 @@ export async function loadPosProductList(
 
   return {
     ok: true,
+    links,
     list: buildPosProductList({
       companyId,
       sales: salesRes.rows ?? [],

@@ -741,7 +741,29 @@ export async function buildAskMiltonContext(
   // component → menu item names (via recipe_inputs that use this component)
   const componentToMenuItems = new Map<string, Set<string>>();
 
-  for (const ri of recipeInputs) {
+  // R1-09a: a company on the new model reads usage from the shared
+  // dish-economics load (approved or draft recipe versions), not from the
+  // legacy recipes / menu_recipe_inputs tables.
+  const dishSide = profData.dishEconomics ?? null;
+  const addTo = (map: Map<string, Set<string>>, key: string, name: string) => {
+    let set = map.get(key);
+    if (!set) {
+      set = new Set();
+      map.set(key, set);
+    }
+    set.add(name);
+  };
+  for (const dish of dishSide?.dishes ?? []) {
+    for (const line of dish.lines) {
+      if (line.ingredient_id) {
+        addTo(ingredientDirectMenuItems, line.ingredient_id, dish.name);
+      }
+      if (line.component_id) {
+        addTo(componentToMenuItems, line.component_id, dish.name);
+      }
+    }
+  }
+  for (const ri of dishSide ? [] : recipeInputs) {
     const menuItemId = ri.recipe_id ? recipeToMenuItem.get(ri.recipe_id) : null;
     if (!menuItemId) continue;
     // menuItemNameById is already scoped to the current selection — a

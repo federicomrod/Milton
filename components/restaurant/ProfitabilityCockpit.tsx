@@ -11,6 +11,11 @@
 
 import Link from "next/link";
 import {
+  dishHref,
+  ingredientHref,
+  platosHref,
+} from "@/lib/restaurant/menu-links";
+import {
   TrendingDown,
   TrendingUp,
   AlertTriangle,
@@ -106,10 +111,12 @@ export function ProfitabilityKpisSection({
         <h2 className="text-base font-semibold">
           {t(lang, "Profitability", "Rentabilidad")}
         </h2>
-        <Badge variant="outline" className="text-xs">
-          {t(lang, "Cost coverage:", "Cobertura de costo:")}{" "}
-          {pct(kpis.cost_coverage_pct)} {t(lang, "of revenue", "de las ventas")}
-        </Badge>
+        <Link href={platosHref()} className="hover:underline">
+          <Badge variant="outline" className="text-xs">
+            {t(lang, "Sales with cost:", "Ventas con costo:")}{" "}
+            {pct(kpis.cost_coverage_pct)}
+          </Badge>
+        </Link>
       </div>
       {data.dataQuality.currency_mismatch_rows > 0 && (
         <div className="mb-3 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
@@ -131,7 +138,13 @@ export function ProfitabilityKpisSection({
         />
         <Kpi
           label={t(lang, "Estimated COGS", "Costo estimado")}
-          value={fmt.money.format(kpis.estimated_cogs)}
+          href={platosHref(["aprobado"])}
+          value={
+            // Never $0 for "nothing costed yet" (#211).
+            kpis.revenue_with_known_cost > 0
+              ? fmt.money.format(kpis.estimated_cogs)
+              : t(lang, "No price", "Sin precio")
+          }
           sub={t(
             lang,
             `from ${pct(kpis.cost_coverage_pct, 0)} of revenue`,
@@ -158,11 +171,13 @@ export function ProfitabilityKpisSection({
         />
         <Kpi
           label={t(lang, "% costo de comida", "% costo de comida")}
+          href={platosHref(["aprobado"])}
           value={pct(kpis.food_cost_pct)}
           sub={t(lang, "cogs / covered revenue", "costo / ventas con costo")}
         />
         <Kpi
           label={t(lang, "Items w/ Issues", "Platillos con problemas")}
+          href={platosHref(["falta_precio", "sin_receta"])}
           value={`${
             kpis.menu_items_with_issues + kpis.menu_items_without_recipe
           }`}
@@ -218,7 +233,7 @@ export function MarginRiskSection({
       >
         {data.lowMargin.map((r) => (
           <RiskLine
-            key={r.menu_item_id}
+            key={`${r.menu_item_id}:${r.odoo_product_id ?? ""}`}
             title={r.name}
             detail={t(
               lang,
@@ -247,7 +262,7 @@ export function MarginRiskSection({
       >
         {data.highFoodCost.map((r) => (
           <RiskLine
-            key={r.menu_item_id}
+            key={`${r.menu_item_id}:${r.odoo_product_id ?? ""}`}
             title={r.name}
             detail={t(
               lang,
@@ -281,7 +296,7 @@ export function MarginRiskSection({
         >
           {data.highRevenueIncomplete.map((r) => (
             <RiskLine
-              key={r.menu_item_id}
+              key={`${r.menu_item_id}:${r.odoo_product_id ?? ""}`}
               title={r.name}
               detail={`${fmt.money.format(r.revenue)} · ${STATUS_LABEL[r.cost.status] ?? r.cost.status}`}
               trailing={fmt.money.format(r.revenue)}
@@ -312,7 +327,7 @@ export function MarginRiskSection({
         >
           {data.missingRecipeHighVolume.map((r) => (
             <RiskLine
-              key={r.menu_item_id}
+              key={`${r.menu_item_id}:${r.odoo_product_id ?? ""}`}
               title={r.name}
               detail={t(
                 lang,
@@ -418,6 +433,9 @@ export function SupplierTrendsSection({
                       <th className="px-3 py-2 font-medium">
                         {t(lang, "Latest date", "Última fecha")}
                       </th>
+                      <th className="px-3 py-2 font-medium text-right">
+                        {t(lang, "Affects", "Afecta")}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -430,7 +448,12 @@ export function SupplierTrendsSection({
                         }
                       >
                         <td className="px-3 py-2 font-medium">
-                          {trend.ingredient_name}
+                          <Link
+                            href={ingredientHref(trend.ingredient_id)}
+                            className="hover:underline"
+                          >
+                            {trend.ingredient_name}
+                          </Link>
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">
                           {trend.latest_supplier_name ?? "—"}
@@ -462,6 +485,36 @@ export function SupplierTrendsSection({
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">
                           {trend.latest_date}
+                        </td>
+                        <td
+                          className="px-3 py-2 text-right tabular-nums"
+                          title={trend.affected_dishes
+                            ?.map((d) => d.name)
+                            .join(", ")}
+                        >
+                          {trend.affected_dishes === undefined ? (
+                            "—"
+                          ) : trend.affected_dishes.length === 1 ? (
+                            <Link
+                              href={dishHref(
+                                trend.affected_dishes[0].odoo_product_id
+                              )}
+                              className="hover:underline"
+                            >
+                              {t(lang, "1 dish", "1 plato")}
+                            </Link>
+                          ) : (
+                            <Link
+                              href={ingredientHref(trend.ingredient_id)}
+                              className="hover:underline"
+                            >
+                              {t(
+                                lang,
+                                `${trend.affected_dishes.length} dishes`,
+                                `${trend.affected_dishes.length} platos`
+                              )}
+                            </Link>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -910,13 +963,20 @@ function Kpi({
   label,
   value,
   sub,
+  href,
 }: {
   label: string;
   value: string;
   sub?: string;
+  /** Where the number comes from (R1-09a): a click opens it. */
+  href?: string;
 }) {
-  return (
-    <Card>
+  const card = (
+    <Card
+      className={
+        href ? "h-full transition-colors hover:border-[#f28c28]" : undefined
+      }
+    >
       <CardHeader className="pb-2">
         <CardTitle className="text-xs font-medium text-muted-foreground">
           {label}
@@ -927,6 +987,13 @@ function Kpi({
         {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
       </CardContent>
     </Card>
+  );
+  return href ? (
+    <Link href={href} className="block h-full">
+      {card}
+    </Link>
+  ) : (
+    card
   );
 }
 

@@ -8,6 +8,10 @@ import type {
   VincularProductRow,
 } from "@/lib/restaurant/recipe-costing/workspace";
 import { TREATMENT_RULES } from "@/lib/restaurant/pos-treatments";
+import {
+  DISH_STATUS_LABELS,
+  type DishStatus,
+} from "@/lib/restaurant/costing/dish-status";
 import { primaryAction } from "@/lib/restaurant/recipe-costing/plato";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
 import { TreatmentControl, type PostFn } from "./TreatmentPanel";
@@ -28,10 +32,15 @@ export function PlatoScreen({
   onConfirm,
   onSkip,
   onOpenPreparation,
+  statusFilter = [],
+  onClearFilter,
 }: {
   data: RecipeCostingWorkspace;
   locationId: string | null;
   busy: boolean;
+  /** `?estado=…`: show only dishes with these statuses (KPI links). */
+  statusFilter?: readonly DishStatus[];
+  onClearFilter?: () => void;
   onSelect: (odooProductId: number) => void;
   /** After an ingredient edit: refresh the open dish only. */
   onEdited: () => void;
@@ -43,6 +52,15 @@ export function PlatoScreen({
   const editor = data.editor;
   const product = data.selected;
   const [showOthers, setShowOthers] = useState(false);
+  const queue = useMemo(
+    () =>
+      statusFilter.length === 0
+        ? data.plato_queue
+        : data.plato_queue.filter(
+            (row) => row.dish_status && statusFilter.includes(row.dish_status)
+          ),
+    [data.plato_queue, statusFilter]
+  );
   const others = useMemo(
     () =>
       data.products.filter(
@@ -60,8 +78,25 @@ export function PlatoScreen({
         <div className="mb-1.5 text-[11.5px] text-[#6b7385]">
           {data.plato_progress.label} · los que más venden primero
         </div>
+        {statusFilter.length > 0 ? (
+          <div className="mb-1.5 flex items-center gap-2 text-xs text-[#4b5466]">
+            <span>
+              {statusFilter.map((s) => DISH_STATUS_LABELS[s]).join(" · ")} (
+              {queue.length})
+            </span>
+            {onClearFilter ? (
+              <button
+                type="button"
+                className="font-semibold text-[#3557c9]"
+                onClick={onClearFilter}
+              >
+                Ver todos
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <div className="max-h-[70vh] overflow-auto">
-          {data.plato_queue.map((row) => (
+          {queue.map((row) => (
             <QueueItem
               key={row.odoo_product_id}
               row={row}
@@ -69,6 +104,11 @@ export function PlatoScreen({
               onSelect={onSelect}
             />
           ))}
+          {queue.length === 0 && statusFilter.length > 0 ? (
+            <p className="px-1 py-2 text-xs text-[#5b6476]">
+              No hay platos con ese estado.
+            </p>
+          ) : null}
           {data.plato_queue.length === 0 ? (
             <p className="px-1 py-2 text-xs text-[#5b6476]">
               No hay platos que lleven receta todavía. Revisa en Resumen cómo se

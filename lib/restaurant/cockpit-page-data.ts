@@ -50,6 +50,8 @@ import {
   type ProfitabilityData,
 } from "@/lib/restaurant/profitability-server";
 import { calculateAllMenuItemCosts } from "@/lib/restaurant/costing";
+import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
+import { periodCostKpisFromDishEconomics } from "@/lib/restaurant/costing/dish-economics-adapter";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import {
@@ -1053,6 +1055,21 @@ async function loadBothPeriodCostKpisUncached(
       resolved.scope.locationId,
       resolved.scope.brandId
     );
+    // R1-09a: same loader as Menú and Recetas, run for each period.
+    if (profitability.dishEconomics && latestSaleDate) {
+      const value = await periodCostKpisFromSharedLoader(
+        resolved.scope.companyId,
+        resolved.scope.locationId,
+        latestSaleDate
+      );
+      writePeriodCostBundleCache(cacheKey, value);
+      logCockpitTiming("costs", {
+        ms: Date.now() - started,
+        source: "dish-economics",
+        location: resolved.scope.locationId,
+      });
+      return value;
+    }
     const hasCompleteCost = profitability.marginRows.some(
       (row) =>
         row.cost.status === "complete" &&
@@ -1123,6 +1140,41 @@ async function loadBothPeriodCostKpisUncached(
     });
     return value;
   });
+}
+
+async function periodCostKpisFromSharedLoader(
+  companyId: string,
+  locationId: string | null,
+  anchor: string
+): Promise<BothPeriodCostKpis> {
+  const value: BothPeriodCostKpis = {
+    last_7: null,
+    month: null,
+    source: "rows",
+  };
+  const kpisFor = async (range: InclusiveDateRange) => {
+    const load = await loadDishEconomics(
+      companyId,
+      range.from,
+      range.to,
+      locationId
+    );
+    return load.ok
+      ? periodCostKpisFromDishEconomics(load.result)
+      : EMPTY_PERIOD_COST;
+  };
+  await Promise.all(
+    (["last_7", "month"] as const).map(async (preset) => {
+      const period = resolveCockpitPeriod(preset, anchor);
+      if (!period) return;
+      const [cost, previous] = await Promise.all([
+        kpisFor(period.current),
+        kpisFor(period.previous),
+      ]);
+      value[preset] = { cost, previous_cost: previous };
+    })
+  );
+  return value;
 }
 
 export async function loadPeriodCostSnapshot(

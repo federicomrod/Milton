@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { parseDishStatusFilter } from "@/lib/restaurant/menu-links";
 import type {
   RecipeCostingView,
   RecipeCostingWorkspace,
@@ -373,6 +374,16 @@ export function RecipesCostingWorkspace({
             onConfirm={() => void confirmDish()}
             onSkip={() => goTo(data.editor?.next_odoo_product_id)}
             onOpenPreparation={(id) => openPreparation(id, { fromDish: true })}
+            statusFilter={parseDishStatusFilter(searchParams.get("estado"))}
+            onClearFilter={() => {
+              const params = new URLSearchParams(searchParams.toString());
+              params.delete("estado");
+              startNavigation(() => {
+                router.replace(`${pathname}?${params.toString()}`, {
+                  scroll: false,
+                });
+              });
+            }}
           />
         ) : view === "preparaciones" ? (
           <PreparacionesScreen

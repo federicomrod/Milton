@@ -58,6 +58,8 @@ export interface ComboComponentShare {
 export interface RankedPosProduct {
   odoo_product_id: number;
   odoo_name: string;
+  /** Every POS name this product was sold under (renames included). */
+  raw_names?: string[];
   net_sales: number;
   share_of_net_sales: number;
   units_sold: number;
@@ -125,6 +127,7 @@ interface Accumulator {
   category: string | null;
   is_combo: boolean;
   components: Map<number, ComboComponentShare>;
+  raw_names: Set<string>;
 }
 
 function rememberName(current: string, next: string): string {
@@ -172,6 +175,7 @@ export function buildPosProductList(input: {
       category: null,
       is_combo: false,
       components: new Map(),
+      raw_names: new Set(),
     };
     byProduct.set(odooProductId, created);
     return created;
@@ -213,6 +217,8 @@ export function buildPosProductList(input: {
     }
 
     const product = ensure(ownProductId, line.raw_item_name);
+    const rawName = line.raw_item_name.trim();
+    if (rawName) product.raw_names.add(rawName);
     product.net_sales = round2(product.net_sales + classified.net);
     product.standalone_net = round2(product.standalone_net + classified.net);
     const qty =
@@ -297,6 +303,7 @@ export function buildPosProductList(input: {
     products.push({
       odoo_product_id: acc.odoo_product_id,
       odoo_name: acc.odoo_name || link.odoo_name,
+      raw_names: [...acc.raw_names].sort(),
       net_sales: acc.net_sales,
       share_of_net_sales: 0,
       units_sold: acc.units_sold,

@@ -14,7 +14,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { Carrot, Plus, Receipt, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -40,11 +40,14 @@ export function IngredientsPage({
   suppliers,
   companyCurrency = "USD",
   lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  focusId = null,
 }: {
   ingredients: IngredientLatestCostRow[];
   suppliers: SupplierOption[];
   companyCurrency?: string;
   lang?: PreferredLanguage;
+  /** `?ingrediente=<id>`: the row a link opened (price source and date). */
+  focusId?: string | null;
 }) {
   return (
     <div className="w-full py-8 px-6 lg:px-10">
@@ -161,6 +164,7 @@ export function IngredientsPage({
                           ing={ing}
                           striped={i % 2 === 1}
                           suppliers={suppliers}
+                          focused={ing.id === focusId}
                         />
                       ))}
                     </tbody>
@@ -521,12 +525,18 @@ function IngredientRow({
   ing,
   striped,
   suppliers,
+  focused = false,
 }: {
   ing: IngredientLatestCostRow;
   striped: boolean;
   suppliers: SupplierOption[];
+  focused?: boolean;
 }) {
   const router = useRouter();
+  const rowRef = useRef<HTMLTableRowElement | null>(null);
+  useEffect(() => {
+    if (focused) rowRef.current?.scrollIntoView({ block: "center" });
+  }, [focused]);
   const [savingUnit, startUnitTx] = useTransition();
   const [savingCategory, startCategoryTx] = useTransition();
   const [deletingEntry, startDeleteTx] = useTransition();
@@ -626,9 +636,14 @@ function IngredientRow({
 
   return (
     <tr
+      ref={rowRef}
+      id={`ingrediente-${ing.id}`}
       className={
-        (striped ? "bg-muted/20" : "bg-background") +
-        " border-b border-border hover:bg-muted/30"
+        (focused
+          ? "bg-[#fff6ec] shadow-[inset_3px_0_0_#f28c28]"
+          : striped
+            ? "bg-muted/20"
+            : "bg-background") + " border-b border-border hover:bg-muted/30"
       }
     >
       <td className="px-4 py-3 font-medium">{ing.name}</td>

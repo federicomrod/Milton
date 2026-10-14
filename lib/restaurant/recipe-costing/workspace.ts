@@ -4,6 +4,10 @@ import {
   LINK_STATE_LABELS,
 } from "@/lib/restaurant/pos-product-links";
 import type { RankedPosProduct } from "@/lib/restaurant/pos-product-list";
+import type {
+  DishEconomicsResult,
+  DishStatus,
+} from "@/lib/restaurant/costing/dish-economics";
 import {
   PICKABLE_TREATMENTS,
   TREATMENT_RULES,
@@ -64,6 +68,8 @@ export interface PlatoQueueRow {
   status: PlatoStatus;
   status_label: string;
   status_tone: ChipTone;
+  /** The shared loader's status (R1-09a); drives the chip and filters. */
+  dish_status?: DishStatus | null;
 }
 
 export interface CoverageSlice {
@@ -517,6 +523,8 @@ export function buildRecipeCostingWorkspace(input: {
   latestUpload?: RecipeCostingWorkspace["latest_upload"];
   reset?: RecipeCostingWorkspace["reset"];
   timings?: RecipeCostingWorkspace["timings"];
+  /** Shared dish-economics load: the chip and status of every dish. */
+  dishEconomics?: DishEconomicsResult | null;
 }): RecipeCostingWorkspace {
   const currency = input.currency || "USD";
   const versionsByMenu = new Map<string, WorkspaceVersion[]>();
@@ -787,7 +795,10 @@ export function buildRecipeCostingWorkspace(input: {
     buildPlatoQueue(products, versionsByMenu).find(
       (row) => row.status !== "listo"
     ) ?? null;
-  const platoQueue = buildPlatoQueue(products, versionsByMenu);
+  const platoQueue = withDishStatus(
+    buildPlatoQueue(products, versionsByMenu),
+    input.dishEconomics ?? null
+  );
   const platoSelectedId =
     input.view === "plato" && input.selectedOdooProductId == null
       ? (platoQueue.find((row) => row.status !== "listo")?.odoo_product_id ??
@@ -1181,6 +1192,40 @@ const PLATO_STATUS: Record<PlatoStatus, { label: string; tone: ChipTone }> = {
 
 /** Dishes that take a recipe (not combos, not no-cost or excluded),
  *  in the product list's order: top sellers first. */
+const DISH_TONE: Record<DishStatus, ChipTone> = {
+  aprobado: "ok",
+  estimado: "pur",
+  falta_precio: "warn",
+  sin_receta: "grey",
+};
+
+/**
+ * The chip on each queue row is the shared loader's status. An approved
+ * dish shows its food cost % (wireframe: "35%"); a missing price is
+ * "Falta precio", never $0.
+ */
+export function withDishStatus(
+  queue: PlatoQueueRow[],
+  economics: Pick<DishEconomicsResult, "dishes"> | null
+): PlatoQueueRow[] {
+  if (!economics) return queue;
+  const byId = new Map(economics.dishes.map((d) => [d.odoo_product_id, d]));
+  return queue.map((row) => {
+    const dish = byId.get(row.odoo_product_id);
+    if (!dish) return row;
+    const pct =
+      dish.status === "aprobado" && dish.food_cost_pct !== null
+        ? `${Math.round(dish.food_cost_pct)}%`
+        : null;
+    return {
+      ...row,
+      dish_status: dish.status,
+      status_label: pct ?? dish.status_label,
+      status_tone: DISH_TONE[dish.status],
+    };
+  });
+}
+
 export function buildPlatoQueue(
   products: readonly VincularProductRow[],
   versionsByMenu: ReadonlyMap<string, readonly WorkspaceVersion[]>

@@ -693,7 +693,7 @@ export function DataQualityChecklistSection({
                 "Ingredients without any cost entry",
                 "Ingredientes sin costo"
               )}
-              href="/dashboard/restaurant/ingredients"
+              href="/dashboard/restaurant/menu/ingredientes"
               hrefLabel={t(lang, "Open Ingredients", "Abrir Ingredientes")}
               icon={<Carrot className="h-4 w-4" />}
             />
@@ -725,7 +725,7 @@ export function DataQualityChecklistSection({
                 "Rows in a different currency (excluded from totals)",
                 "Filas en otra moneda (fuera de los totales)"
               )}
-              href="/dashboard/restaurant/menu/recetas"
+              href="/dashboard/restaurant/menu/platos"
               hrefLabel={t(lang, "Review costs", "Revisar costos")}
               icon={<AlertTriangle className="h-4 w-4" />}
             />
@@ -760,7 +760,7 @@ export function DataQualityChecklistSection({
                 </span>
               </div>
               <Link
-                href="/dashboard/restaurant/menu/recetas"
+                href="/dashboard/restaurant/menu/platos"
                 className="text-xs text-primary hover:underline shrink-0"
               >
                 {t(lang, "Open Import Costs", "Abrir Importar costos")} ↗

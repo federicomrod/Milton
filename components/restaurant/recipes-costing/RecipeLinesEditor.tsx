@@ -14,7 +14,7 @@ import {
   type EditorLine,
   type PickerOption,
 } from "@/lib/restaurant/recipe-costing/editor";
-import { GhostBtn, PrimaryBtn } from "./ui";
+import { Chip, GhostBtn, PrimaryBtn } from "./ui";
 
 const MASS = ["oz", "lb", "g", "kg"];
 /** "Ninguna (dejar Pendiente)": none of the readings is right. */
@@ -55,6 +55,14 @@ function monthLabel(date: string | null): string | null {
   return d.toLocaleDateString("es", { month: "short", year: "numeric" });
 }
 
+/** Where a price came from, in the owner's words. */
+function sourceLabel(source: string | null): string | null {
+  if (!source) return null;
+  if (source === "lista") return "lista de precios";
+  if (source === "recetas" || source === "importada") return "Excel";
+  return source;
+}
+
 function priceLabel(option: {
   unit: string | null;
   unit_cost: number | null;
@@ -67,7 +75,7 @@ function priceLabel(option: {
   ];
   const month = monthLabel(option.price_date);
   if (month) parts.push(month);
-  if (option.price_source) parts.push(option.price_source);
+  if (option.price_source) parts.push(sourceLabel(option.price_source)!);
   return parts.join(" · ");
 }
 
@@ -226,7 +234,7 @@ export function RecipeLinesEditor({
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <h2 className="text-[15px] font-semibold">Ingredientes por porción</h2>
-        <span className="text-[11.5px] text-[#8a92a3]">
+        <span className="text-[12px] text-[#8a92a3]">
           {state.editable
             ? "Elige de tu lista de ingredientes y preparaciones"
             : (state.locked_reason ?? "")}
@@ -319,9 +327,9 @@ export function RecipeLinesEditor({
         />
       ) : null}
 
-      <table className="w-full text-[11.8px]">
+      <table className="w-full text-[12px]">
         <thead>
-          <tr className="text-left text-[10.5px] font-semibold text-[#8a92a3]">
+          <tr className="text-left text-[12px] font-semibold text-[#8a92a3]">
             <th className="pb-1.5">Ingrediente</th>
             <th className="pb-1.5 text-right">Cantidad</th>
             <th className="pb-1.5">Unidad</th>
@@ -483,8 +491,8 @@ function Row({
     editable ? (
       <button
         type="button"
-        title="Clic para cambiar el precio"
-        onClick={() => setEditingPrice(true)}
+        title="Doble clic para cambiar el precio"
+        onDoubleClick={() => setEditingPrice(true)}
         className="rounded px-0.5 text-right hover:bg-[#eef3ff] hover:underline"
       >
         {content}
@@ -523,7 +531,7 @@ function Row({
           <>
             <b>{line.raw_name}</b>
             {line.catalog_question ? (
-              <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[11px]">
+              <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[12px]">
                 Está en tu lista de precios, pero no dice en qué unidad viene el
                 precio. ¿Cuál es?
                 {editable ? (
@@ -557,59 +565,66 @@ function Row({
                   </div>
                 ) : null}
               </div>
-            ) : fromMenu ? (
-              <div className="text-[10.5px] text-[#a35a00]">
-                Del menú
-                {line.flags.includes(FLAG_NEW_SUGGESTED)
-                  ? " · Nuevo, sugerido: no está en tu lista."
-                  : line.possible_match
-                    ? ` · ¿es «${line.possible_match.name}»?`
-                    : ""}{" "}
-                Escribe cuánto lleva.
-              </div>
-            ) : (
-              <div className="text-[10.5px] text-[#a35a00]">
-                No está en tu lista. Elige cuál es.
-              </div>
-            )}
-            {editable ? (
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {line.possible_match ? (
-                  <GhostBtn
-                    disabled={waitingForAmount}
-                    onClick={() =>
-                      onResolve(
-                        {
-                          kind: line.possible_match!.kind,
-                          id: line.possible_match!.id,
-                        },
-                        typed
-                      )
-                    }
-                  >
-                    Usar «{line.possible_match.name}»
-                  </GhostBtn>
-                ) : null}
-                <GhostBtn
-                  disabled={waitingForAmount}
-                  onClick={() => onPick(typed)}
-                >
-                  {fromMenu && !line.possible_match
-                    ? "Crear o elegir"
-                    : "Elegir otro"}
-                </GhostBtn>
-              </div>
             ) : null}
+            {/* C5: one combobox per line (search, create or choose) and a
+                chip, instead of a sentence and three buttons. */}
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              {fromMenu ? <Chip tone="sug">Del menú</Chip> : null}
+              {line.possible_match ||
+              line.flags.includes(FLAG_NEW_SUGGESTED) ? (
+                <Chip tone="pur">Sugerido</Chip>
+              ) : null}
+              {editable ? (
+                <button
+                  type="button"
+                  disabled={waitingForAmount}
+                  title={
+                    waitingForAmount
+                      ? "Escribe primero cuánto lleva."
+                      : undefined
+                  }
+                  onClick={() => onPick(typed)}
+                  className="inline-flex min-w-44 items-center justify-between gap-2 rounded-md border border-[#f5a524] bg-white px-2 py-0.5 text-left text-[12px] disabled:opacity-45"
+                >
+                  <span className="truncate">
+                    {line.possible_match
+                      ? line.possible_match.name
+                      : "Buscar, crear o elegir…"}
+                  </span>
+                  <span aria-hidden>▾</span>
+                </button>
+              ) : null}
+              {editable && line.possible_match ? (
+                <button
+                  type="button"
+                  disabled={waitingForAmount}
+                  title={`Usar «${line.possible_match.name}»`}
+                  aria-label={`Usar «${line.possible_match.name}»`}
+                  onClick={() =>
+                    onResolve(
+                      {
+                        kind: line.possible_match!.kind,
+                        id: line.possible_match!.id,
+                      },
+                      typed
+                    )
+                  }
+                  className="rounded-md border border-[#1f9d55] px-1.5 text-[12px] font-semibold text-[#1f7a45] disabled:opacity-45"
+                >
+                  ✓
+                </button>
+              ) : null}
+            </div>
           </>
         ) : (
           <>
             <b>{line.name}</b>
             {saveNote ? (
-              <span className="ml-1.5 text-[10.5px] font-normal text-[#1f9d55]">
+              <span className="ml-1.5 text-[12px] font-normal text-[#1f9d55]">
                 {saveNote}
               </span>
             ) : null}
-            <div className="text-[10.5px] text-[#8a92a3]">
+            <div className="text-[12px] text-[#8a92a3]">
               {line.kind === "component" ? (
                 <>
                   Preparación
@@ -635,7 +650,7 @@ function Row({
                 : null}
             </div>
             {waitingPrep ? (
-              <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[11px] text-[#5b4515]">
+              <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[12px] text-[#5b4515]">
                 Aprueba primero la preparación <b>{line.name}</b>, o escribe
                 aquí el precio de esta línea.
                 {onOpenPreparation ? (
@@ -648,7 +663,7 @@ function Row({
               </div>
             ) : null}
             {line.unit_question ? (
-              <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[11px]">
+              <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[12px]">
                 Tu archivo dice{" "}
                 {UNIT_LABEL[line.unit_question.written] ??
                   line.unit_question.written}
@@ -744,7 +759,7 @@ function Row({
               }}
               className="w-16 rounded-md border border-[#d5dae3] px-1.5 py-0.5 text-right"
             />
-            <span className="text-[10.5px] text-[#8a92a3]">
+            <span className="text-[12px] text-[#8a92a3]">
               /{UNIT_LABEL[line.unit] ?? line.unit}
             </span>
             <GhostBtn
@@ -761,7 +776,7 @@ function Row({
             {line.own_cost ? (
               <button
                 type="button"
-                className="text-[10.5px] font-semibold text-[#3557c9]"
+                className="text-[12px] font-semibold text-[#3557c9]"
                 onClick={() => {
                   setEditingPrice(false);
                   onLineCost(null);
@@ -777,7 +792,7 @@ function Row({
           editPrice(
             <span>
               {money(line.unit_cost)}/{UNIT_LABEL[line.unit] ?? line.unit}
-              <div className="text-[10px] text-[#8a92a3]">
+              <div className="text-[12px] text-[#8a92a3]">
                 {line.cost_source === "manual"
                   ? "precio de esta línea"
                   : "del Excel"}
@@ -787,7 +802,7 @@ function Row({
         ) : line.kind === "ingredient" &&
           !line.price &&
           line.catalog_question ? (
-          <div className="text-left text-[11px]">
+          <div className="text-left text-[12px]">
             <div className="text-[#a35a00]">
               Tu lista no deja clara la unidad. ¿Cuál es?
             </div>
@@ -823,7 +838,7 @@ function Row({
               onChange={(event) => setPrice(event.target.value)}
               className="w-16 rounded-md border border-[#f5a524] bg-[#fff8ec] px-1.5 py-0.5 text-right font-bold"
             />
-            <span className="text-[10.5px] text-[#8a92a3]">
+            <span className="text-[12px] text-[#8a92a3]">
               /{UNIT_LABEL[line.unit] ?? line.unit}
             </span>
             <GhostBtn
@@ -853,21 +868,21 @@ function Row({
                 // Source and date link to the ingredient's one price record.
                 <Link
                   href={ingredientHref(line.ingredient_id)}
-                  className="block text-[10px] text-[#8a92a3] hover:text-[#3557c9] hover:underline"
+                  className="block text-[12px] text-[#8a92a3] hover:text-[#3557c9] hover:underline"
                 >
-                  {[monthLabel(line.price.date), line.price.source]
+                  {[sourceLabel(line.price.source), monthLabel(line.price.date)]
                     .filter(Boolean)
                     .join(" · ")}
                 </Link>
               ) : (
-                <div className="text-[10px] text-[#8a92a3]">
-                  {[monthLabel(line.price.date), line.price.source]
+                <div className="text-[12px] text-[#8a92a3]">
+                  {[sourceLabel(line.price.source), monthLabel(line.price.date)]
                     .filter(Boolean)
                     .join(" · ")}
                 </div>
               )}
               {line.excel_unit_cost !== null ? (
-                <div className="text-[10px] text-[#8a92a3]">
+                <div className="text-[12px] text-[#8a92a3]">
                   en tu Excel: {money(line.excel_unit_cost)}
                 </div>
               ) : null}
@@ -883,10 +898,17 @@ function Row({
       </td>
       <td className="py-1.5 text-right align-top font-semibold">
         {line.amount !== null ? money(line.amount) : "Pendiente"}
+        {line.amount !== null && line.unit_cost !== null && line.qty > 0 ? (
+          // The cost chain (do not remove): price × quantity = cost.
+          <div className="text-[12px] font-normal text-[#8a92a3]">
+            {money(line.unit_cost)}/{UNIT_LABEL[line.unit] ?? line.unit} ×{" "}
+            {line.qty} {UNIT_LABEL[line.unit] ?? line.unit}
+          </div>
+        ) : null}
         {editable && !unresolved && !editingPrice ? (
           <button
             type="button"
-            className="block w-full text-right text-[10px] font-normal text-[#3557c9]"
+            className="block w-full text-right text-[12px] font-normal text-[#3557c9]"
             onClick={() => setEditingPrice(true)}
           >
             editar precio
@@ -895,7 +917,7 @@ function Row({
       </td>
       <td className="py-1.5 pl-2 text-right align-top">
         {editable ? (
-          <div className="flex justify-end gap-2 text-[11px]">
+          <div className="flex justify-end gap-2 text-[12px]">
             {!unresolved ? (
               <button
                 type="button"
@@ -1065,7 +1087,7 @@ function Picker({
                   </span>
                   <span
                     className={
-                      "text-[10.5px] " +
+                      "text-[12px] " +
                       (selected ? "text-white/80" : "text-[#8a92a3]")
                     }
                   >
@@ -1112,7 +1134,7 @@ function Picker({
             >
               {target.mode === "add" ? "Agregar" : "Usar este"}
             </PrimaryBtn>
-            <span className="text-[10.5px] text-[#8a92a3]">o Enter</span>
+            <span className="text-[12px] text-[#8a92a3]">o Enter</span>
             <span className="ml-auto flex flex-wrap gap-3">
               <button
                 type="button"

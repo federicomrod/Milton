@@ -323,7 +323,7 @@ describe("parsing", () => {
 });
 
 describe("price edited inline on a preparation line", () => {
-  it("saves that line's own price, costed right away", async () => {
+  it("saves the ingredient's price (one record), costed right away", async () => {
     const k = kitchen();
     const prepCtx = {
       store: createMemoryEditorStore(k),
@@ -342,13 +342,14 @@ describe("price edited inline on a preparation line", () => {
     if (!r.ok) return;
     const tomate = r.state.lines.find((l) => l.input_id === "pin-1")!;
     expect(tomate.amount).toBeCloseTo(0.8, 6);
-    expect(tomate.own_cost).toBe(true);
-    expect(
-      k.preparations[0].inputs.find((i) => i.id === "pin-1")
-    ).toMatchObject({ unit_cost: 0.05, cost_source: "manual" });
-    // The list's price was not touched.
-    expect(
-      k.entries.find((e) => e.ingredient_id === "i-tomate")?.unit_cost
-    ).toBe(0.04);
+    // R1-09b (D7): one price per ingredient. The typed price is a manual,
+    // dated entry in the ingredient's price record, not a copy on the line.
+    expect(tomate.own_cost).toBe(false);
+    const manual = k.entries.filter(
+      (e) => e.ingredient_id === "i-tomate" && e.source_type === "manual"
+    );
+    expect(manual).toHaveLength(1);
+    expect(manual[0].unit_cost).toBe(0.05);
+    expect(manual[0].cost_date).toBe(new Date().toISOString().slice(0, 10));
   });
 });

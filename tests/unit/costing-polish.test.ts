@@ -139,7 +139,8 @@ describe("source guards", () => {
     );
     expect(editor).toContain("Aprueba primero la preparación");
     expect(editor).toContain("Abrir en Preparaciones");
-    expect(editor).toContain('title="Clic para cambiar el precio"');
+    // Do-not-remove #6: inline price edit on the line (double-click).
+    expect(editor).toContain('title="Doble clic para cambiar el precio"');
     const prep = read(
       "components/restaurant/recipes-costing/PreparacionesScreen.tsx"
     );

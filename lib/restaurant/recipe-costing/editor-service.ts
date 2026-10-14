@@ -1249,7 +1249,8 @@ export async function applyEdit(
     }
     case "set_line_cost": {
       const inputs = await ctx.store.listInputs(ctx.companyId, version!);
-      if (!inputs.some((row) => row.id === action.input_id)) {
+      const row = inputs.find((r) => r.id === action.input_id);
+      if (!row) {
         return { ok: false, error: "No encontré esa línea.", status: 404 };
       }
       const cost =
@@ -1261,7 +1262,59 @@ export async function applyEdit(
           status: 400,
         };
       }
-      // Only this line: no unit conversion, no change to the price list.
+      // An ingredient has ONE price record (R1-09b, D7): a price typed on
+      // the line is a manual, dated cost entry for that ingredient, in the
+      // line's unit, and the line drops its own copy so it reads it.
+      if (
+        cost !== null &&
+        row.input_type === "ingredient" &&
+        row.ingredient_id
+      ) {
+        const currency = await ctx.store.currency(ctx.companyId);
+        await ctx.store.addCostEntry(ctx.companyId, {
+          ingredientId: row.ingredient_id,
+          unit: row.unit,
+          unitCost: cost,
+          currency,
+          date: new Date().toISOString().slice(0, 10),
+          dateSource: "manual",
+          note: "Precio corregido en Platos",
+        });
+        // The rebuild below reads the catalog loaded at the start of this
+        // edit: add the new entry to it instead of loading it again.
+        const today = new Date().toISOString().slice(0, 10);
+        const entries =
+          data.costEntriesByIngredientId.get(row.ingredient_id) ?? [];
+        entries.push({
+          id: `nuevo:${row.id}`,
+          company_id: ctx.companyId,
+          ingredient_id: row.ingredient_id,
+          supplier_id: null,
+          source_type: "manual",
+          source_id: null,
+          cost_date: today,
+          effective_date: today,
+          date_source: "manual",
+          quantity: 1,
+          unit: row.unit,
+          total_cost: cost,
+          unit_cost: cost,
+          normalized_unit: normalizeUnit(row.unit) ?? row.unit,
+          normalized_unit_cost: cost,
+          currency,
+          created_at: new Date().toISOString(),
+        });
+        data.costEntriesByIngredientId.set(row.ingredient_id, entries);
+        if (row.unit_cost != null) {
+          await ctx.store.updateInput(ctx.companyId, version!, row.id, {
+            unit_cost: null,
+            cost_source: null,
+          });
+        }
+        break;
+      }
+      // A preparation line (no price record of its own) or "usar la
+      // lista" (null): only this line.
       await ctx.store.updateInput(ctx.companyId, version!, action.input_id, {
         unit_cost: cost,
         cost_source: cost === null ? null : "manual",

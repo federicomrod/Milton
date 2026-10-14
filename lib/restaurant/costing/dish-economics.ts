@@ -203,20 +203,31 @@ function asFiniteNumber(value: unknown): number | null {
   return null;
 }
 
-/** The link that applies to a product: location-specific first. */
+/** The link that applies to a product: the same rule as everywhere else
+ *  (matchPosProductLink), including a restaurant-only link when no
+ *  restaurant is selected. */
 function linkFor(
   links: readonly DishLinkInput[],
   odooProductId: number,
   locationId: string | null
 ): DishLinkInput | null {
-  let fallback: DishLinkInput | null = null;
-  for (const link of links) {
-    if (link.odoo_product_id !== odooProductId) continue;
-    if (locationId && link.location_id === locationId) return link;
-    if (link.location_id === null) fallback = link;
-    else if (!locationId && !fallback) fallback = link;
+  const same = links.filter((l) => l.odoo_product_id === odooProductId);
+  if (locationId) {
+    const scoped = same.find((l) => l.location_id === locationId);
+    if (scoped) return scoped;
   }
-  return fallback;
+  const companyWide = same.find((l) => l.location_id == null);
+  if (companyWide || locationId) return companyWide ?? null;
+  return (
+    same
+      .filter((l) => l.location_id != null)
+      .sort(
+        (a, b) =>
+          Number(b.link_state === "confirmado") -
+            Number(a.link_state === "confirmado") ||
+          String(a.location_id).localeCompare(String(b.location_id))
+      )[0] ?? null
+  );
 }
 
 function latest<T extends { version_number: number }>(rows: readonly T[]) {

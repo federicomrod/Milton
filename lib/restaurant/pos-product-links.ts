@@ -206,7 +206,20 @@ export function matchPosProductLink(
     const scoped = same.find((link) => link.location_id === locationId);
     if (scoped) return scoped;
   }
-  return same.find((link) => link.location_id == null) ?? null;
+  const companyWide = same.find((link) => link.location_id == null);
+  if (companyWide || locationId) return companyWide ?? null;
+  // "Todos los restaurantes": a product linked only for one restaurant is
+  // still that link (the editor opened nothing and coverage missed it).
+  // Several restaurants: the confirmed one first, then a stable order.
+  const scopedOnly = same
+    .filter((link) => link.location_id != null)
+    .sort(
+      (a, b) =>
+        Number(b.link_state === "confirmado") -
+          Number(a.link_state === "confirmado") ||
+        String(a.location_id).localeCompare(String(b.location_id))
+    );
+  return scopedOnly[0] ?? null;
 }
 
 export function odooProductIdFromMetadata(

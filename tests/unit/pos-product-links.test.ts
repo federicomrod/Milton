@@ -106,6 +106,36 @@ describe("matchPosProductLink", () => {
     ).toBe("menu-wide");
     expect(matchPosProductLink([otherCompany], "co-a", 55, "loc-1")).toBeNull();
   });
+  it("with no restaurant selected, finds a restaurant-only link (confirmed first)", () => {
+    const loc2 = {
+      ...base,
+      location_id: "loc-2",
+      menu_item_id: "menu-2",
+      link_state: "sugerido" as const,
+    };
+    const loc1 = {
+      ...base,
+      location_id: "loc-1",
+      menu_item_id: "menu-1",
+      link_state: "confirmado" as const,
+      confirmed_by: "u",
+      confirmed_at: "2026-10-12T00:00:00Z",
+      confirmed_how: "manual",
+    };
+    expect(matchPosProductLink([loc2], "co-a", 55, null)?.menu_item_id).toBe(
+      "menu-2"
+    );
+    expect(
+      matchPosProductLink([loc2, loc1], "co-a", 55, null)?.menu_item_id
+    ).toBe("menu-1");
+    // A company-wide link still wins, and a selected restaurant never
+    // borrows another restaurant's link.
+    const wide = { ...base, location_id: null, menu_item_id: "menu-wide" };
+    expect(
+      matchPosProductLink([loc1, wide], "co-a", 55, null)?.menu_item_id
+    ).toBe("menu-wide");
+    expect(matchPosProductLink([loc2], "co-a", 55, "loc-1")).toBeNull();
+  });
 });
 
 describe("odooProductIdFromMetadata", () => {

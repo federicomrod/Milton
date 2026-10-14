@@ -78,7 +78,9 @@ describe("approval checklist gate", () => {
       evidence: pendingEvidence,
     });
     expect(checklist.no_pending_lines).toBe(false);
-    expect(checklist.yield_confirmed).toBe(false);
+    // A dish is one plate: an assumed yield no longer blocks it (a
+    // preparation's yield is confirmed in Preparaciones).
+    expect(checklist.yield_confirmed).toBe(true);
     expect(checklist.units_valid).toBe(false);
     expect(checklist.ready).toBe(false);
     expect(checklist.blockers.length).toBeGreaterThan(0);
@@ -203,6 +205,8 @@ describe("approval checklist gate", () => {
     expect(excel?.ok).toBe(false);
     expect(excel?.warn).toBe(false);
     expect(excel?.label).toMatch(/Diferencia con Excel/);
-    expect(yieldItem?.label).toBe("Rendimiento de Empanizado por confirmar");
+    // The preparation's yield is confirmed in Preparaciones, not here.
+    expect(yieldItem?.label).toBe("Rendimiento confirmado");
+    expect(yieldItem?.ok).toBe(true);
   });
 });

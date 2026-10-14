@@ -867,3 +867,31 @@ describe("line price, removal and speed (Stage Test 1 bugs)", () => {
     expect(loads).toBe(1);
   });
 });
+
+describe("a price save does the least work", () => {
+  it("set_line_cost reads the catalog once and skips the pin pass", async () => {
+    const d = draft();
+    const store = createMemoryEditorStore(d);
+    let loads = 0;
+    let listings = 0;
+    const counting = {
+      ...store,
+      loadCosting: (companyId: string) => {
+        loads += 1;
+        return store.loadCosting(companyId);
+      },
+      listInputs: (...args: Parameters<typeof store.listInputs>) => {
+        listings += 1;
+        return store.listInputs(...args);
+      },
+    };
+    const r = await applyEdit(
+      { ...ctx(d), store: counting },
+      { action: "set_line_cost", input_id: "in-seed", unit_cost: 0.12 }
+    );
+    expect(r.ok).toBe(true);
+    expect(loads).toBe(1);
+    // One to check the line exists, one for the final state.
+    expect(listings).toBe(2);
+  });
+});

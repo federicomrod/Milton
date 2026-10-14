@@ -310,12 +310,15 @@ async function build(
   evidenceLines: EvidenceLineIn[]
 ): Promise<{ state: EditorState; lines: EditorLine[] }> {
   const { version } = loaded;
-  const costing = await ctx.store.loadCosting(ctx.companyId);
-  const aliases = await ctx.store.loadAliases(ctx.companyId);
+  // Independent reads: one round trip instead of three.
+  const [costing, aliases, inputs] = await Promise.all([
+    ctx.store.loadCosting(ctx.companyId),
+    ctx.store.loadAliases(ctx.companyId),
+    version
+      ? ctx.store.listInputs(ctx.companyId, version)
+      : Promise.resolve([]),
+  ]);
   const { data } = costing;
-  const inputs = version
-    ? await ctx.store.listInputs(ctx.companyId, version)
-    : [];
 
   const ingredientRefs = [...data.ingredientsById.values()].map((row) => ({
     id: row.id,
@@ -672,6 +675,18 @@ function cleanUnit(value: unknown): string | null {
   return normalizeUnit(text) ? text : null;
 }
 
+/** Edits that touch file (evidence) lines by position: pin them first. */
+const PIN_ACTIONS = new Set<EditorAction["action"]>([
+  "resolve",
+  "remove",
+  // These update file lines by input id: the ids must be pinned.
+  "change_item",
+  "answer_unit",
+  "create_ingredient",
+  "create_preparation",
+  "answer_catalog_unit",
+]);
+
 /** Edits that change the catalog (prices, items, yields): re-read it. */
 const CATALOG_ACTIONS = new Set<EditorAction["action"]>([
   "set_price",
@@ -726,10 +741,13 @@ export async function applyEdit(
   const readCtx: Ctx = { ...ctx, store: withCachedCatalog(ctx.store) };
   // Pin every resolved evidence line to its input first, so an edit can
   // never lose which Excel line a recipe line came from.
-  const pinned = await build(readCtx, loaded, evidenceLines);
-  for (const pinnedLine of pinned.lines) {
-    if (pinnedLine.input_id && pinnedLine.evidence_index !== null) {
-      evidenceLines[pinnedLine.evidence_index].input_id = pinnedLine.input_id;
+  // Only edits that change file lines by position need it.
+  if (PIN_ACTIONS.has(action.action)) {
+    const pinned = await build(readCtx, loaded, evidenceLines);
+    for (const pinnedLine of pinned.lines) {
+      if (pinnedLine.input_id && pinnedLine.evidence_index !== null) {
+        evidenceLines[pinnedLine.evidence_index].input_id = pinnedLine.input_id;
+      }
     }
   }
   const costing = await readCtx.store.loadCosting(ctx.companyId);

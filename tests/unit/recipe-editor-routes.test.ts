@@ -63,8 +63,11 @@ describe("recipe editor route and screen", () => {
     const ui = read(
       "components/restaurant/recipes-costing/RecipeLinesEditor.tsx"
     );
-    expect(ui).toContain('optgroup label="Ingredientes"');
-    expect(ui).toContain('optgroup label="Preparaciones"');
+    // One list, filtered on the client; click highlights, Enter adds.
+    expect(ui).toContain('role="listbox"');
+    expect(ui).toContain("searchPickerOptions(options, query)");
+    expect(ui).toContain('event.key === "Enter"');
+    expect(ui).toContain("Preparación · ");
     expect(ui).toContain("¿No está? Agregar ingrediente");
     expect(ui).toContain("Agregar y usar");
     expect(ui).toContain("Esto agrega un ingrediente nuevo a tu lista");

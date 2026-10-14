@@ -5,14 +5,37 @@ import type {
   CostingRecipeInput,
 } from "@/lib/restaurant/costing";
 import { fetchAllRowsRetryingWithoutColumns } from "@/lib/restaurant/missing-schema-column";
-import { fetchAllRows, succeededRows } from "@/lib/restaurant/paginated-read";
+import {
+  fetchAllRows,
+  succeededRows,
+  type FetchAllRowsResult,
+} from "@/lib/restaurant/paginated-read";
+
+/** No query at all when skipped: an empty, successful result. */
+function skipWhen<T>(
+  skip: boolean | undefined,
+  run: () => Promise<FetchAllRowsResult<T>>
+): Promise<FetchAllRowsResult<T>> {
+  return skip
+    ? Promise.resolve<FetchAllRowsResult<T>>({
+        rows: [],
+        truncated: false,
+        error: null,
+      })
+    : run();
+}
 
 /** Per-line cost columns from migration 043; read when they exist. */
 const LINE_COST_COLUMNS = ["unit_cost"] as const;
 
 export async function fetchCostingRecipeVersions(
   supabase: SupabaseClient,
-  companyId: string
+  companyId: string,
+  /**
+   * componentsOnly: skip every dish version and its lines (the recipe
+   * editor costs one dish's lines and only needs the preparations).
+   */
+  opts: { componentsOnly?: boolean } = {}
 ): Promise<{
   menuRecipeVersionsByMenuItemId: Map<string, CostingMenuRecipeVersion[]>;
   menuRecipeVersionInputsByVersionId: Map<string, CostingRecipeInput[]>;
@@ -30,38 +53,42 @@ export async function fetchCostingRecipeVersions(
     componentVersionsRes,
     componentVersionInputsRes,
   ] = await Promise.all([
-    fetchAllRows<{
-      id: string;
-      recipe_id: string;
-      menu_item_id: string;
-      version_number: number;
-      status: string;
-      effective_date: string | null;
-      source_type: string | null;
-    }>(() =>
-      supabase
-        .from("recipe_versions")
-        .select(
-          "id, recipe_id, menu_item_id, version_number, status, effective_date, source_type"
-        )
-        .eq("company_id", companyId)
-    ),
-    fetchAllRowsRetryingWithoutColumns<{
-      recipe_version_id: string;
-      input_type: "ingredient" | "component";
-      ingredient_id: string | null;
-      component_id: string | null;
-      quantity: number;
-      unit: string;
-      unit_cost?: number | null;
-    }>(
-      LINE_COST_COLUMNS,
-      (select) =>
+    skipWhen(opts.componentsOnly, () =>
+      fetchAllRows<{
+        id: string;
+        recipe_id: string;
+        menu_item_id: string;
+        version_number: number;
+        status: string;
+        effective_date: string | null;
+        source_type: string | null;
+      }>(() =>
         supabase
-          .from("recipe_version_inputs")
-          .select(select)
-          .eq("company_id", companyId),
-      "recipe_version_id, input_type, ingredient_id, component_id, quantity, unit, unit_cost"
+          .from("recipe_versions")
+          .select(
+            "id, recipe_id, menu_item_id, version_number, status, effective_date, source_type"
+          )
+          .eq("company_id", companyId)
+      )
+    ),
+    skipWhen(opts.componentsOnly, () =>
+      fetchAllRowsRetryingWithoutColumns<{
+        recipe_version_id: string;
+        input_type: "ingredient" | "component";
+        ingredient_id: string | null;
+        component_id: string | null;
+        quantity: number;
+        unit: string;
+        unit_cost?: number | null;
+      }>(
+        LINE_COST_COLUMNS,
+        (select) =>
+          supabase
+            .from("recipe_version_inputs")
+            .select(select)
+            .eq("company_id", companyId),
+        "recipe_version_id, input_type, ingredient_id, component_id, quantity, unit, unit_cost"
+      )
     ),
     fetchAllRows<{
       id: string;

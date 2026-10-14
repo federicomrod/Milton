@@ -47,6 +47,10 @@ import {
 } from "./types";
 
 export const EXCEL_IMPORT_NOTES = "Importada del Excel";
+/** recipe_version_inputs.cost_source for a cost read from the dish sheet. */
+export const EXCEL_LINE_COST_SOURCE = "excel_line";
+/** …and for a price a person typed on the line (never overwritten). */
+export const MANUAL_LINE_COST_SOURCE = "manual";
 
 /** "Churrasco Típico (6 onz.) (Pan con Ajo)" → "Churrasco Típico (6 onz.)". */
 function posBaseLabel(name: string): string {
@@ -218,10 +222,16 @@ function inputsFor(
       unit: lineUnit(line),
       notes: null,
       unit_cost: line.unit_cost,
-      cost_source: `${line.source_tab.trim()}!${line.source_cell}`,
+      // The dish sheet's own Costo Unitario wins over the price list.
+      cost_source: line.unit_cost !== null ? EXCEL_LINE_COST_SOURCE : null,
     });
   }
   return inputs;
+}
+
+/** Same item on a recipe line (ingredient or preparation). */
+function itemKey(row: RecipeInputSnapshot): string {
+  return `${row.input_type}:${row.ingredient_id ?? row.component_id ?? ""}`;
 }
 
 function evidenceFor(
@@ -590,6 +600,35 @@ export async function writeImportPlan(input: {
         result.dishes_skipped += 1;
         continue;
       }
+      // A price a person typed on a line of the previous draft is kept
+      // when the same item comes in again: re-importing never undoes it.
+      const previous = versions
+        .filter((row) => row.status === "in_review")
+        .sort((a, b) => b.version_number - a.version_number)[0];
+      const typedByHand = new Map<string, RecipeInputSnapshot>();
+      if (previous) {
+        for (const row of await repo.listRecipeVersionInputs(
+          input.companyId,
+          previous.id
+        )) {
+          if (row.cost_source === MANUAL_LINE_COST_SOURCE && row.unit_cost) {
+            typedByHand.set(itemKey(row), row);
+          }
+        }
+      }
+      const inputs = inputsFor(recipe, {
+        ingredient: ingredientId,
+        preparation: preparationId,
+      }).map((row) => {
+        const kept = typedByHand.get(itemKey(row));
+        return kept && kept.unit === row.unit
+          ? {
+              ...row,
+              unit_cost: kept.unit_cost,
+              cost_source: MANUAL_LINE_COST_SOURCE,
+            }
+          : row;
+      });
       const version = await repo.insertRecipeVersion({
         companyId: input.companyId,
         recipeId: recipeRow.id,
@@ -599,10 +638,7 @@ export async function writeImportPlan(input: {
         effectiveDate: null,
         sourceType: "import",
         notes: EXCEL_IMPORT_NOTES,
-        inputs: inputsFor(recipe, {
-          ingredient: ingredientId,
-          preparation: preparationId,
-        }),
+        inputs,
       });
       changes.created_recipe_version_ids = [
         ...(changes.created_recipe_version_ids ?? []),

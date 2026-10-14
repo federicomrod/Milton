@@ -339,6 +339,11 @@ export interface CostWorkbookRepo {
     companyId: string,
     recipeId: string
   ): Promise<RecipeVersionRecord[]>;
+  /** The lines of one dish version, with their own cost when set (043). */
+  listRecipeVersionInputs(
+    companyId: string,
+    versionId: string
+  ): Promise<RecipeInputSnapshot[]>;
   insertRecipeVersion(input: {
     companyId: string;
     recipeId: string;
@@ -1854,6 +1859,36 @@ export function createSupabaseCostWorkbookRepo(
         .order("version_number", { ascending: true });
       if (error) throw new Error(error.message);
       return ((data ?? []) as Record<string, unknown>[]).map(asRecipeVersion);
+    },
+
+    async listRecipeVersionInputs(companyId, versionId) {
+      const base =
+        "input_type, ingredient_id, component_id, quantity, unit, notes";
+      const read = (select: string) =>
+        supabase
+          .from("recipe_version_inputs")
+          .select(select)
+          .eq("company_id", companyId)
+          .eq("recipe_version_id", versionId);
+      let { data, error } = await read(`${base}, unit_cost, cost_source`);
+      if (error && /unit_cost|cost_source/i.test(error.message)) {
+        ({ data, error } = await read(base));
+      }
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as unknown as Record<string, unknown>[]).map(
+        (row) => ({
+          input_type:
+            row.input_type === "component" ? "component" : "ingredient",
+          ingredient_id: (row.ingredient_id as string | null) ?? null,
+          component_id: (row.component_id as string | null) ?? null,
+          quantity: Number(row.quantity),
+          unit: String(row.unit),
+          notes: (row.notes as string | null) ?? null,
+          unit_cost: row.unit_cost == null ? null : Number(row.unit_cost),
+          cost_source:
+            typeof row.cost_source === "string" ? row.cost_source : null,
+        })
+      );
     },
 
     async insertRecipeVersion(input) {

@@ -539,3 +539,84 @@ export function optimisticLine<
       : state.total_cost,
   };
 }
+
+/**
+ * "+ Agregar ingrediente" search, on the client as the person types.
+ * Accents, case and spacing do not matter; words match in any order, and
+ * a longer name typed from the file finds the shorter item ("CONVOY
+ * ENSALADA Y CALDO" finds the preparation CONVOY). Closest first.
+ */
+export function searchPickerOptions(
+  options: readonly PickerOption[],
+  query: string
+): PickerOption[] {
+  const q = normalizeMatchName(query);
+  if (!q)
+    return [...options].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const qWords = q.split(" ").filter(Boolean);
+  const scored: Array<{ option: PickerOption; score: number }> = [];
+  for (const option of options) {
+    const name = normalizeMatchName(option.name);
+    const words = name.split(" ").filter(Boolean);
+    let score = 0;
+    if (name === q) score = 4;
+    else if (name.startsWith(q)) score = 3;
+    else if (name.includes(q)) score = 2;
+    else if (qWords.every((w) => words.some((n) => n.startsWith(w))))
+      score = 1.5;
+    else if (words.length > 0 && words.every((n) => qWords.includes(n))) {
+      score = 1;
+    }
+    if (score > 0) scored.push({ option, score });
+  }
+  return scored
+    .sort(
+      (a, b) =>
+        b.score - a.score || a.option.name.localeCompare(b.option.name, "es")
+    )
+    .map((row) => row.option);
+}
+
+/** Key of a line added on the screen that is still being saved. */
+export const SAVING_LINE_PREFIX = "saving:";
+
+/**
+ * The line a person just added, shown right away while it saves. Costed
+ * only when its price is in the same unit (never a guessed conversion).
+ */
+export function optimisticAddLine<
+  S extends { lines: EditorLine[]; total_cost: number | null },
+>(state: S, option: PickerOption, qty: number, unit: string): S {
+  const sameUnit = option.unit !== null && option.unit === unit;
+  const amount =
+    sameUnit && option.unit_cost !== null && option.unit_cost > 0
+      ? qty * option.unit_cost
+      : null;
+  const line: EditorLine = {
+    key: `${SAVING_LINE_PREFIX}${option.kind}:${option.id}:${Date.now()}`,
+    input_id: null,
+    kind: option.kind,
+    ingredient_id: option.kind === "ingredient" ? option.id : null,
+    component_id: option.kind === "component" ? option.id : null,
+    name: option.name,
+    raw_name: option.name,
+    source_row: null,
+    qty,
+    unit,
+    unit_cost: sameUnit ? option.unit_cost : null,
+    amount,
+    price: null,
+    pending: amount === null,
+    flags: [],
+    reasons: [],
+    possible_match: null,
+    evidence_index: null,
+    unit_question: null,
+    excel_unit_cost: null,
+  };
+  return {
+    ...state,
+    lines: [...state.lines, line],
+    total_cost: state.total_cost,
+  };
+}

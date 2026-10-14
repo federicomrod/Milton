@@ -27,7 +27,6 @@ export function PlatoScreen({
   onPost,
   onConfirm,
   onSkip,
-  onFixYield,
   onOpenPreparation,
 }: {
   data: RecipeCostingWorkspace;
@@ -39,7 +38,6 @@ export function PlatoScreen({
   onPost: PostFn;
   onConfirm: () => void;
   onSkip: () => void;
-  onFixYield: (rawName: string, value: number) => void;
   onOpenPreparation: (componentId: string) => void;
 }) {
   const editor = data.editor;
@@ -127,7 +125,6 @@ export function PlatoScreen({
           onPost={onPost}
           onConfirm={onConfirm}
           onSkip={onSkip}
-          onFixYield={onFixYield}
           onOpenPreparation={onOpenPreparation}
         />
       )}
@@ -174,7 +171,6 @@ function Dish({
   onPost,
   onConfirm,
   onSkip,
-  onFixYield,
   onOpenPreparation,
 }: {
   data: RecipeCostingWorkspace;
@@ -186,7 +182,6 @@ function Dish({
   onPost: PostFn;
   onConfirm: () => void;
   onSkip: () => void;
-  onFixYield: (rawName: string, value: number) => void;
   onOpenPreparation: (componentId: string) => void;
 }) {
   const [picking, setPicking] = useState(false);
@@ -291,12 +286,8 @@ function Dish({
                 odooProductId={product.odoo_product_id}
                 locationId={locationId}
                 portionCostLabel={editor.portion_cost_label}
-                yieldValue={editor.yield_value}
-                yieldAssumed={editor.yield_assumed}
-                yieldNote={editor.yield_note}
                 onEdited={onEdited}
                 onOpenPreparation={onOpenPreparation}
-                onYield={onFixYield}
               />
             ) : (
               <div className="space-y-2 text-sm text-[#5b6476]">

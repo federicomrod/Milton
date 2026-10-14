@@ -119,7 +119,10 @@ export function createSupabaseEditorStore(
             )
             .eq("company_id", companyId)
         ),
-        fetchCostingRecipeVersions(supabase, companyId),
+        // One dish's lines are costed here: only preparations' versions.
+        fetchCostingRecipeVersions(supabase, companyId, {
+          componentsOnly: true,
+        }),
       ]);
       for (const res of [ingredients, entries, components]) {
         if (res.error) throw new Error(res.error.message);

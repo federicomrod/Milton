@@ -154,13 +154,10 @@ export function buildApprovalChecklist(input: {
   const yieldSource = input.evidence.yield.source;
   const hasKnownYield =
     yieldValue != null && yieldValue > 0 && Boolean(yieldSource);
-  const yieldAssumed =
-    yieldSource === "assumed" ||
-    input.evidence.reasons.some((reason) =>
-      /rendimiento asumido|assumed yield/i.test(reason)
-    );
-  const yieldConfirmed =
-    hasKnownYield && (input.yield_confirmed ?? !yieldAssumed);
+  // A dish is one plate. A preparation's yield is confirmed in
+  // Preparaciones, never on the dish: an assumed yield here no longer
+  // blocks (a preparation line without a cost already does).
+  const yieldConfirmed = hasKnownYield;
   const miltonCost = computedMiltonCost(input.evidence);
   const hasComputedCost = miltonCost != null && miltonCost > 0;
   const excelMatch = input.evidence.excel_match;

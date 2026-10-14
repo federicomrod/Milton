@@ -14,6 +14,7 @@ import {
   CLASSIFICATION_LABELS,
   LINK_STATE_LABELS,
   matchPosProductLink,
+  matchPosProductLinkForSales,
   odooProductIdFromMetadata,
   unlinkedPosProduct,
   type PosProductClassification,
@@ -82,6 +83,25 @@ export interface RankedPosProduct {
   link_state_label: string;
   menu_item_id: string | null;
   counts_toward_coverage: boolean;
+  /**
+   * "Todos los restaurantes" only: the product's sales split by the link
+   * that costs them, when restaurants resolve to different links (one
+   * restaurant has its own link, another has none or a different one).
+   * Each part carries only its restaurants' sales; totals add the parts.
+   */
+  parts?: RankedPosProduct[];
+  /** On a part: whose link costs it. */
+  sales_scope?: SalesScope;
+}
+
+export interface SalesScope {
+  /** restaurante = that restaurant's own link; compartido = the
+   *  company-wide link; sin_vinculo = no link applies to these sales. */
+  kind: "restaurante" | "compartido" | "sin_vinculo";
+  /** The restaurant of a "restaurante" link; null otherwise. */
+  location_id: string | null;
+  /** Restaurants whose sales are in this part ("" = no restaurant). */
+  sale_location_ids: string[];
 }
 
 export interface PosProductListResult {
@@ -130,6 +150,41 @@ interface Accumulator {
   raw_names: Set<string>;
 }
 
+function newAccumulator(odooProductId: number, name: string): Accumulator {
+  return {
+    odoo_product_id: odooProductId,
+    odoo_name: name.trim(),
+    net_sales: 0,
+    standalone_net: 0,
+    units_sold: 0,
+    category: null,
+    is_combo: false,
+    components: new Map(),
+    raw_names: new Set(),
+  };
+}
+
+function mergeAccumulators(accs: readonly Accumulator[]): Accumulator {
+  const out = newAccumulator(accs[0].odoo_product_id, accs[0].odoo_name);
+  for (const acc of accs) {
+    out.odoo_name = rememberName(out.odoo_name, acc.odoo_name);
+    out.net_sales = round2(out.net_sales + acc.net_sales);
+    out.standalone_net = round2(out.standalone_net + acc.standalone_net);
+    out.units_sold = round2(out.units_sold + acc.units_sold);
+    out.category = out.category ?? acc.category;
+    out.is_combo = out.is_combo || acc.is_combo;
+    for (const name of acc.raw_names) out.raw_names.add(name);
+    for (const part of acc.components.values()) {
+      const current = out.components.get(part.odoo_product_id);
+      out.components.set(part.odoo_product_id, {
+        ...part,
+        net_sales: round2((current?.net_sales ?? 0) + part.net_sales),
+      });
+    }
+  }
+  return out;
+}
+
 function rememberName(current: string, next: string): string {
   const trimmed = next.trim();
   return trimmed.length > 0 ? trimmed : current;
@@ -160,25 +215,40 @@ export function buildPosProductList(input: {
   }
 
   const byProduct = new Map<number, Accumulator>();
-  const ensure = (odooProductId: number, name: string): Accumulator => {
-    const existing = byProduct.get(odooProductId);
+  // "Todos los restaurantes": the same sums per restaurant, so each
+  // restaurant's sales are costed with its own (or the shared) link.
+  const byProductLocation = new Map<number, Map<string, Accumulator>>();
+  const ensureIn = (
+    map: Map<number, Accumulator>,
+    odooProductId: number,
+    name: string
+  ): Accumulator => {
+    const existing = map.get(odooProductId);
     if (existing) {
       existing.odoo_name = rememberName(existing.odoo_name, name);
       return existing;
     }
-    const created: Accumulator = {
-      odoo_product_id: odooProductId,
-      odoo_name: name.trim(),
-      net_sales: 0,
-      standalone_net: 0,
-      units_sold: 0,
-      category: null,
-      is_combo: false,
-      components: new Map(),
-      raw_names: new Set(),
-    };
-    byProduct.set(odooProductId, created);
+    const created = newAccumulator(odooProductId, name);
+    map.set(odooProductId, created);
     return created;
+  };
+  const targets = (
+    odooProductId: number,
+    name: string,
+    saleLocation: string
+  ): Accumulator[] => {
+    const total = ensureIn(byProduct, odooProductId, name);
+    if (locationId) return [total];
+    let perLocation = byProductLocation.get(odooProductId);
+    if (!perLocation) {
+      perLocation = new Map();
+      byProductLocation.set(odooProductId, perLocation);
+    }
+    const local =
+      perLocation.get(saleLocation) ?? newAccumulator(odooProductId, name);
+    local.odoo_name = rememberName(local.odoo_name, name);
+    perLocation.set(saleLocation, local);
+    return [total, local];
   };
 
   for (const line of input.sales) {
@@ -192,42 +262,49 @@ export function buildPosProductList(input: {
     const classified = classifySaleLine(line);
     if (classified.isTip) continue;
 
+    const saleLocation = line.location_id ?? "";
     const parentProductId = parentProductIdFromLine(
       line,
       productByExternalLineId
     );
     if (parentProductId !== null && parentProductId !== ownProductId) {
-      const parent = ensure(parentProductId, "");
-      parent.is_combo = true;
-      parent.net_sales = round2(parent.net_sales + classified.net);
-      const component =
-        parent.components.get(ownProductId) ??
-        ({
-          odoo_product_id: ownProductId,
-          odoo_name: line.raw_item_name,
-          net_sales: 0,
-        } satisfies ComboComponentShare);
-      component.odoo_name = rememberName(
-        component.odoo_name,
-        line.raw_item_name
-      );
-      component.net_sales = round2(component.net_sales + classified.net);
-      parent.components.set(ownProductId, component);
+      for (const parent of targets(parentProductId, "", saleLocation)) {
+        parent.is_combo = true;
+        parent.net_sales = round2(parent.net_sales + classified.net);
+        const component =
+          parent.components.get(ownProductId) ??
+          ({
+            odoo_product_id: ownProductId,
+            odoo_name: line.raw_item_name,
+            net_sales: 0,
+          } satisfies ComboComponentShare);
+        component.odoo_name = rememberName(
+          component.odoo_name,
+          line.raw_item_name
+        );
+        component.net_sales = round2(component.net_sales + classified.net);
+        parent.components.set(ownProductId, component);
+      }
       continue;
     }
 
-    const product = ensure(ownProductId, line.raw_item_name);
-    const rawName = line.raw_item_name.trim();
-    if (rawName) product.raw_names.add(rawName);
-    product.net_sales = round2(product.net_sales + classified.net);
-    product.standalone_net = round2(product.standalone_net + classified.net);
     const qty =
       typeof line.quantity === "number" && Number.isFinite(line.quantity)
         ? line.quantity
         : 0;
-    product.units_sold = round2(product.units_sold + qty);
-    if (!product.category && line.category?.trim()) {
-      product.category = line.category.trim();
+    const rawName = line.raw_item_name.trim();
+    for (const product of targets(
+      ownProductId,
+      line.raw_item_name,
+      saleLocation
+    )) {
+      if (rawName) product.raw_names.add(rawName);
+      product.net_sales = round2(product.net_sales + classified.net);
+      product.standalone_net = round2(product.standalone_net + classified.net);
+      product.units_sold = round2(product.units_sold + qty);
+      if (!product.category && line.category?.trim()) {
+        product.category = line.category.trim();
+      }
     }
   }
 
@@ -238,16 +315,32 @@ export function buildPosProductList(input: {
     approvedByMenuItem.set(version.menu_item_id, list);
   }
 
+  /** The link for a product: the selected restaurant's rule, or (for a
+   *  part) strictly the link of the restaurants whose sales it holds. */
+  const linkOf = (
+    odooProductId: number,
+    scope: { strict: boolean; location: string | null }
+  ): PosProductLinkRecord | null =>
+    scope.strict
+      ? matchPosProductLinkForSales(
+          input.links,
+          companyId,
+          odooProductId,
+          scope.location
+        )
+      : matchPosProductLink(
+          input.links,
+          companyId,
+          odooProductId,
+          scope.location
+        );
+
   const coverageStateFor = (
     odooProductId: number,
-    isCombo: boolean
+    isCombo: boolean,
+    scope: { strict: boolean; location: string | null }
   ): CoverageState => {
-    const link = matchPosProductLink(
-      input.links,
-      companyId,
-      odooProductId,
-      locationId
-    );
+    const link = linkOf(odooProductId, scope);
     const menuItemId = link?.menu_item_id ?? null;
     return {
       treatment: effectiveTreatment({
@@ -261,28 +354,17 @@ export function buildPosProductList(input: {
     };
   };
 
-  const products: RankedPosProduct[] = [];
-  for (const acc of byProduct.values()) {
-    // Combo children with no stand-alone sales are components, not
-    // top-level sold products. Combo parents stay even when their own
-    // line is $0.
-    if (!acc.is_combo && acc.standalone_net <= 0 && acc.net_sales <= 0) {
-      continue;
-    }
-    if (!acc.is_combo && acc.standalone_net <= 0) continue;
-
+  const rowOf = (
+    acc: Accumulator,
+    scope: { strict: boolean; location: string | null }
+  ): RankedPosProduct => {
     const link =
-      matchPosProductLink(
-        input.links,
-        companyId,
-        acc.odoo_product_id,
-        locationId
-      ) ??
+      linkOf(acc.odoo_product_id, scope) ??
       unlinkedPosProduct({
         company_id: companyId,
         odoo_product_id: acc.odoo_product_id,
         odoo_name: acc.odoo_name,
-        location_id: locationId,
+        location_id: scope.location,
       });
 
     const menuItemId = link.menu_item_id;
@@ -292,15 +374,15 @@ export function buildPosProductList(input: {
     });
     const parts = acc.is_combo
       ? [...acc.components.keys()].map((partId) =>
-          coverageStateFor(partId, false)
+          coverageStateFor(partId, false, scope)
         )
       : [];
     const countsTowardCoverage = isCovered({
-      ...coverageStateFor(acc.odoo_product_id, acc.is_combo),
+      ...coverageStateFor(acc.odoo_product_id, acc.is_combo, scope),
       parts,
     });
 
-    products.push({
+    return {
       odoo_product_id: acc.odoo_product_id,
       odoo_name: acc.odoo_name || link.odoo_name,
       raw_names: [...acc.raw_names].sort(),
@@ -313,8 +395,8 @@ export function buildPosProductList(input: {
         ? [...acc.components.values()]
             .filter(
               (part) =>
-                coverageStateFor(part.odoo_product_id, false).treatment ===
-                "excluido"
+                coverageStateFor(part.odoo_product_id, false, scope)
+                  .treatment === "excluido"
             )
             .map((part) => part.odoo_name)
         : [],
@@ -340,22 +422,104 @@ export function buildPosProductList(input: {
       link_state_label: LINK_STATE_LABELS[link.link_state],
       menu_item_id: menuItemId,
       counts_toward_coverage: countsTowardCoverage,
+    };
+  };
+
+  /**
+   * "Todos los restaurantes": split a product's sales by the link that
+   * costs each restaurant's sales. Null when one link costs them all
+   * (the usual case: a shared link, or one restaurant).
+   */
+  const partsOf = (acc: Accumulator): RankedPosProduct[] | undefined => {
+    if (locationId) return undefined;
+    const perLocation = byProductLocation.get(acc.odoo_product_id);
+    if (!perLocation || perLocation.size === 0) return undefined;
+    const shown = matchPosProductLink(
+      input.links,
+      companyId,
+      acc.odoo_product_id,
+      null
+    );
+    const groups = new Map<
+      string,
+      { link: PosProductLinkRecord | null; locations: string[] }
+    >();
+    for (const saleLocation of [...perLocation.keys()].sort()) {
+      const link = matchPosProductLinkForSales(
+        input.links,
+        companyId,
+        acc.odoo_product_id,
+        saleLocation || null
+      );
+      const key = link
+        ? `${link.location_id ?? "*"}:${link.odoo_product_id}`
+        : "none";
+      const group = groups.get(key) ?? { link, locations: [] };
+      group.locations.push(saleLocation);
+      groups.set(key, group);
+    }
+    const only = groups.size === 1 ? [...groups.values()][0] : null;
+    if (only && only.link === shown) return undefined;
+    return [...groups.values()].map(({ link, locations }) => {
+      const merged = mergeAccumulators(
+        locations.map((l) => perLocation.get(l) as Accumulator)
+      );
+      const linkLocation = link?.location_id ?? null;
+      const row = rowOf(merged, { strict: true, location: linkLocation });
+      row.sales_scope = {
+        kind: !link
+          ? "sin_vinculo"
+          : link.location_id
+            ? "restaurante"
+            : "compartido",
+        location_id: linkLocation,
+        sale_location_ids: locations,
+      };
+      return row;
     });
+  };
+
+  const products: RankedPosProduct[] = [];
+  for (const acc of byProduct.values()) {
+    // Combo children with no stand-alone sales are components, not
+    // top-level sold products. Combo parents stay even when their own
+    // line is $0.
+    if (!acc.is_combo && acc.standalone_net <= 0 && acc.net_sales <= 0) {
+      continue;
+    }
+    if (!acc.is_combo && acc.standalone_net <= 0) continue;
+
+    const row = rowOf(acc, { strict: false, location: locationId });
+    const parts = partsOf(acc);
+    if (parts) {
+      row.parts = parts;
+      // The product is food when any of its parts is; covered only when
+      // every part is (the totals below add the parts themselves).
+      row.in_food_sales = parts.some((p) => p.in_food_sales);
+      row.counts_toward_coverage = parts.every((p) => p.counts_toward_coverage);
+    }
+    products.push(row);
   }
 
+  // Totals add each restaurant's part on its own terms.
+  const rows = products.flatMap((product) => product.parts ?? [product]);
   const netSales = round2(
-    products.reduce((sum, product) => sum + product.net_sales, 0)
+    rows.reduce((sum, product) => sum + product.net_sales, 0)
   );
   const foodNetSales = round2(
-    products
+    rows
       .filter((product) => product.in_food_sales)
       .reduce((sum, product) => sum + product.net_sales, 0)
   );
   const coveredNetSales = round2(
-    products
+    rows
       .filter((product) => product.counts_toward_coverage)
       .reduce((sum, product) => sum + product.net_sales, 0)
   );
+  const foodSalesOf = (product: RankedPosProduct) =>
+    (product.parts ?? [product])
+      .filter((p) => p.in_food_sales)
+      .reduce((sum, p) => sum + p.net_sales, 0);
 
   products.sort(
     (a, b) =>
@@ -363,13 +527,11 @@ export function buildPosProductList(input: {
       a.odoo_name.localeCompare(b.odoo_name) ||
       a.odoo_product_id - b.odoo_product_id
   );
-  for (const product of products) {
+  for (const product of [...products, ...rows]) {
     product.share_of_net_sales =
       netSales === 0 ? 0 : product.net_sales / netSales;
     product.share_of_food_sales =
-      foodNetSales === 0 || !product.in_food_sales
-        ? 0
-        : product.net_sales / foodNetSales;
+      foodNetSales === 0 ? 0 : foodSalesOf(product) / foodNetSales;
   }
 
   return {

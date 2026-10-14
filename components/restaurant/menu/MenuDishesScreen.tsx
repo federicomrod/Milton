@@ -7,7 +7,7 @@
 // Every number comes from the shared loader; the screen only re-adds the
 // sums after a move (dishSums, the loader's own function).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
@@ -62,6 +62,27 @@ async function post(body: Record<string, unknown>) {
   return json;
 }
 
+const SCOPE_LABELS = {
+  restaurante: "ventas del restaurante con su propio vínculo",
+  compartido: "ventas con el vínculo compartido",
+  sin_vinculo: "ventas de un restaurante sin vínculo: sin costo",
+} as const;
+
+/** A variant's name; a restaurant part says whose link costs it. */
+function variantTitle(v: MenuDishVariant): string {
+  return v.sales_scope
+    ? `${v.name} (${SCOPE_LABELS[v.sales_scope.kind]})`
+    : v.name;
+}
+
+/** One row per POS product (its restaurant parts move together). */
+function uniqueProducts(variants: readonly MenuDishVariant[]) {
+  const seen = new Set<number>();
+  return variants.filter((v) =>
+    seen.has(v.odoo_product_id) ? false : (seen.add(v.odoo_product_id), true)
+  );
+}
+
 const pct = (n: number | null) => (n === null ? "—" : `${Math.round(n)}%`);
 
 export function MenuDishesScreen({
@@ -89,15 +110,25 @@ export function MenuDishesScreen({
   // The lists are this screen's own after the first load: moves and
   // exclusions apply here at once (the page remounts on navigation).
 
-  // Save Milton's grouping once (it only fills what is empty), in the
-  // background; nothing on screen changes.
-  const synced = useRef(false);
-  useEffect(() => {
-    if (synced.current || !menu?.stored) return;
-    if (!menu.dishes.some((d) => !d.stored)) return;
-    synced.current = true;
-    void post({ action: "sync" }).catch(() => undefined);
-  }, [menu]);
+  // Opening Platos never writes. Milton's grouping is saved after a
+  // recipe import, or here with "Guardar agrupación" when new products
+  // arrived (only those are written).
+  const [unsaved, setUnsaved] = useState(menu?.unsaved_variant_count ?? 0);
+  const [saving, setSaving] = useState(false);
+  async function saveGrouping() {
+    setSaving(true);
+    setError(null);
+    try {
+      await post({ action: "sync" });
+      setUnsaved(0);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No pude guardar la agrupación."
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const shown = useMemo(() => {
     const list = showExcluded ? [...dishes, ...excluded] : dishes;
@@ -241,6 +272,19 @@ export function MenuDishesScreen({
           {menu.variant_count + menu.excluded_variant_count} productos →{" "}
           {dishes.length} platos
         </span>
+        {menu.stored && unsaved > 0 ? (
+          <button
+            type="button"
+            onClick={() => void saveGrouping()}
+            disabled={saving}
+            className="font-semibold text-[#3557c9] disabled:opacity-60"
+            title="Productos nuevos del POS que Milton agrupó y todavía no están guardados."
+          >
+            {saving
+              ? "Guardando…"
+              : `Guardar agrupación (${unsaved} ${unsaved === 1 ? "producto nuevo" : "productos nuevos"})`}
+          </button>
+        ) : null}
         {statusFilter.length > 0 ? (
           <Link href={platosHref()} className="font-semibold text-[#3557c9]">
             Ver todos
@@ -493,7 +537,7 @@ function DishRows({
             >
               <td
                 className="py-2 pl-[34px] pr-2"
-                title={group.list.map((v) => v.name).join("\n")}
+                title={group.list.map(variantTitle).join("\n")}
               >
                 {group.label} · {group.list.length}{" "}
                 {group.list.length === 1 ? "variante" : "variantes"}
@@ -549,7 +593,7 @@ function MovePanel({
           className="max-w-md rounded-md border border-[#d5dae3] bg-white px-2 py-1"
         >
           <option value="">Elige la variante…</option>
-          {moving.dish.variants.map((v) => (
+          {uniqueProducts(moving.dish.variants).map((v) => (
             <option key={v.odoo_product_id} value={v.odoo_product_id}>
               {v.name}
             </option>

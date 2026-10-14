@@ -1,5 +1,5 @@
 // POST /api/restaurant/menu-dishes
-//   { action: "sync" }                                  save Milton's grouping
+//   { action: "sync" }                                  "Guardar agrupación"
 //   { action: "move", odoo_product_id, odoo_name, menu_dish_id?, dish_name? }
 //   { action: "exclude", dish_name, menu_dish_id?, variants, excluded }
 //
@@ -10,13 +10,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
 import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
-import { loadDishEconomicsWith } from "@/lib/restaurant/costing/dish-economics-server";
 import {
   MenuDishError,
   excludeDish,
   moveVariant,
-  syncMenuDishes,
 } from "@/lib/restaurant/menu-dishes/menu-dishes-server";
+import { saveMenuGrouping } from "@/lib/restaurant/menu-dishes/save-grouping";
 import { actionableError } from "@/lib/restaurant/actionable-error";
 
 export const dynamic = "force-dynamic";
@@ -60,22 +59,10 @@ export async function POST(req: NextRequest) {
   const started = Date.now();
   try {
     if (body.action === "sync") {
-      const load = await loadDishEconomicsWith(auth.supabase, {
-        companyId: auth.companyId,
-      });
-      if (!load.ok)
-        return NextResponse.json({ error: load.error }, { status: 500 });
-      if (!load.result.menu_dishes_stored) {
-        return NextResponse.json({ ok: true, skipped: "045" });
-      }
-      const r = await syncMenuDishes(
-        auth.supabase,
-        auth.companyId,
-        load.result.menu_dishes,
-        load.result.excluded_menu_dishes
-      );
+      const r = await saveMenuGrouping(auth.supabase, auth.companyId);
       console.info(`[menu-dishes] sync ${Date.now() - started}ms`, r);
-      return NextResponse.json({ ok: true, ...r });
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: 500 });
+      return NextResponse.json(r);
     }
     if (body.action === "move") {
       const id = productId(body.odoo_product_id);

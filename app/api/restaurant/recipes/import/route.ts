@@ -10,12 +10,13 @@
 // (in_review) as one batch. Nothing is approved. Owner, admin, manager or
 // Milton staff. Company comes from auth.
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { actionableError } from "@/lib/restaurant/actionable-error";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
 import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
+import { saveMenuGroupingQuietly } from "@/lib/restaurant/menu-dishes/save-grouping";
 import { MAX_CATALOG_FILE_BYTES } from "@/lib/restaurant/price-catalog/server";
 import {
   loadUploadDraftFile,
@@ -118,6 +119,11 @@ export async function POST(req: NextRequest) {
       createdBy: auth.userId,
       locationId,
     });
+    // New recipes can group new variants: save Milton's grouping once,
+    // after the response.
+    after(() =>
+      saveMenuGroupingQuietly(auth.supabase, auth.companyId, "after-import")
+    );
     if (fromDraft) {
       await updateUploadDraft(auth.supabase, {
         companyId: auth.companyId,

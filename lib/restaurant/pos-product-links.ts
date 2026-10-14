@@ -222,6 +222,30 @@ export function matchPosProductLink(
   return scopedOnly[0] ?? null;
 }
 
+/**
+ * The link that costs the sales of one restaurant: its own link, else the
+ * company-wide one. Never another restaurant's link: under "Todos los
+ * restaurantes", restaurant B's sales are not costed with a link that
+ * only exists for restaurant A (they stay uncovered). Sales with no
+ * restaurant take only the company-wide link.
+ */
+export function matchPosProductLinkForSales(
+  links: readonly PosProductLinkRecord[],
+  companyId: string,
+  odooProductId: number,
+  saleLocationId: string | null
+): PosProductLinkRecord | null {
+  const same = links.filter(
+    (link) =>
+      link.company_id === companyId && link.odoo_product_id === odooProductId
+  );
+  if (saleLocationId) {
+    const scoped = same.find((link) => link.location_id === saleLocationId);
+    if (scoped) return scoped;
+  }
+  return same.find((link) => link.location_id == null) ?? null;
+}
+
 export function odooProductIdFromMetadata(
   meta: Record<string, unknown> | null | undefined
 ): number | null {

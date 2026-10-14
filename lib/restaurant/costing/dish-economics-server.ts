@@ -65,8 +65,52 @@ export interface DishCostContext {
   currency: string;
   /** R1-10 (045). Empty, and `menuDishesStored` false, before 045. */
   storedMenuDishes: StoredMenuDish[];
-  storedVariants: Map<number, StoredVariant>;
+  /** Every link's stored grouping (a product may have several links). */
+  storedVariantRows: StoredVariantRow[];
   menuDishesStored: boolean;
+}
+
+type StoredVariantRow = StoredVariant & { location_id: string | null };
+
+/**
+ * One stored grouping per product for the selected restaurant: its own
+ * link first, then the company-wide one, then (Todos) any link that has a
+ * grouping. A restaurant-only dish only applies to its restaurant.
+ */
+export function storedVariantsFor(
+  rows: readonly StoredVariantRow[],
+  dishes: readonly StoredMenuDish[],
+  locationId: string | null
+): Map<number, StoredVariant> {
+  const restaurantOf = new Map(dishes.map((d) => [d.id, d.restaurant_id]));
+  const rank = (row: StoredVariantRow) => {
+    if (locationId && row.location_id === locationId) return 0;
+    if (row.location_id == null) return 1;
+    if (!locationId && (row.menu_dish_id || row.excluded_reason)) return 2;
+    return 3;
+  };
+  const out = new Map<number, StoredVariant>();
+  const best = new Map<number, number>();
+  for (const row of rows) {
+    const r = rank(row);
+    if (r === 3 && locationId) continue;
+    const dishRestaurant = row.menu_dish_id
+      ? restaurantOf.get(row.menu_dish_id)
+      : null;
+    if (dishRestaurant && locationId && dishRestaurant !== locationId) continue;
+    if ((best.get(row.odoo_product_id) ?? 99) <= r) continue;
+    best.set(row.odoo_product_id, r);
+    out.set(row.odoo_product_id, {
+      odoo_product_id: row.odoo_product_id,
+      menu_dish_id: row.menu_dish_id,
+      portion_qty: row.portion_qty,
+      side_label: row.side_label,
+      cooking_point: row.cooking_point,
+      is_event: row.is_event,
+      excluded_reason: row.excluded_reason,
+    });
+  }
+  return out;
 }
 
 /** Stored menu dishes and each variant's grouping (045), if applied. */
@@ -75,10 +119,10 @@ async function loadStoredGrouping(
   companyId: string
 ): Promise<{
   dishes: StoredMenuDish[];
-  variants: Map<number, StoredVariant>;
+  variants: StoredVariantRow[];
   stored: boolean;
 }> {
-  const empty = { dishes: [], variants: new Map(), stored: false };
+  const empty = { dishes: [], variants: [], stored: false };
   const [dishesRes, linksRes] = await Promise.all([
     fetchAllRows<StoredMenuDish>(() =>
       supabase
@@ -92,7 +136,7 @@ async function loadStoredGrouping(
       supabase
         .from("pos_product_links")
         .select(
-          "id, odoo_product_id, menu_dish_id, portion_qty, side_label, cooking_point, is_event, excluded_reason"
+          "id, location_id, odoo_product_id, menu_dish_id, portion_qty, side_label, cooking_point, is_event, excluded_reason"
         )
         .eq("company_id", companyId)
     ),
@@ -100,12 +144,13 @@ async function loadStoredGrouping(
   // Before 045 is applied the table and columns do not exist: group in
   // memory only (Milton's suggestion), with nothing stored.
   if (dishesRes.error || linksRes.error) return empty;
-  const variants = new Map<number, StoredVariant>();
+  const variants: StoredVariantRow[] = [];
   for (const row of linksRes.rows) {
     const id = Number(row.odoo_product_id);
     if (!Number.isInteger(id)) continue;
-    variants.set(id, {
+    variants.push({
       odoo_product_id: id,
+      location_id: typeof row.location_id === "string" ? row.location_id : null,
       menu_dish_id:
         typeof row.menu_dish_id === "string" ? row.menu_dish_id : null,
       portion_qty: row.portion_qty == null ? null : Number(row.portion_qty),
@@ -196,7 +241,7 @@ export async function loadDishCostContextWith(
       costing,
       currency: currency || "USD",
       storedMenuDishes: grouping.dishes,
-      storedVariants: grouping.variants,
+      storedVariantRows: grouping.variants,
       menuDishesStored: grouping.stored,
     },
   };
@@ -253,7 +298,11 @@ export async function loadDishEconomicsWith(
           !params.locationId ||
           d.restaurant_id === params.locationId
       ),
-      storedVariants: ctx.storedVariants,
+      storedVariants: storedVariantsFor(
+        ctx.storedVariantRows,
+        ctx.storedMenuDishes,
+        params.locationId ?? null
+      ),
     });
     result.menu_dishes_stored = ctx.menuDishesStored;
     const ms = Date.now() - started;

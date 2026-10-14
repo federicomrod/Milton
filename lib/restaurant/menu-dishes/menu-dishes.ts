@@ -20,6 +20,7 @@ import type {
   DishLineEconomics,
   DishStatus,
 } from "@/lib/restaurant/costing/dish-economics";
+import type { SalesScope } from "@/lib/restaurant/pos-product-list";
 import {
   dishKey,
   exclusionFor,
@@ -56,6 +57,13 @@ export interface StoredVariant {
 
 export interface MenuDishVariant {
   odoo_product_id: number;
+  /** Unique per row: the product, or the product in one restaurant group
+   *  ("Todos los restaurantes", when restaurants are costed differently). */
+  key: string;
+  /** On a restaurant part: whose link costs these sales. */
+  sales_scope: SalesScope | null;
+  /** The grouping is stored (a dish or an exclusion on its link, 045). */
+  saved: boolean;
   name: string;
   size: number | null;
   size_unit: "oz" | "personas" | null;
@@ -118,9 +126,11 @@ export interface MenuDishTotals extends DishEconomicsTotals {
 export interface MenuDishesResult {
   dishes: MenuDish[];
   excluded: MenuDish[];
-  /** Per POS product: its menu dish and effective numbers. */
-  byProduct: Map<number, { dish_id: string; variant: MenuDishVariant }>;
+  /** Per row (rowKeyOf): its menu dish and effective numbers. */
+  byProduct: Map<string, { dish_id: string; variant: MenuDishVariant }>;
   totals: MenuDishTotals;
+  /** Variants whose grouping is Milton's, not stored yet. */
+  unsaved_variant_count: number;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -214,16 +224,17 @@ export function moveVariantLocally(
   targetId: string,
   newDishName?: string
 ): MenuDish[] {
-  let moving: MenuDishVariant | null = null;
+  // Every row of the product moves (its restaurant parts too).
+  const movingRows: MenuDishVariant[] = [];
   const without = dishes.map((d) => {
-    const v = d.variants.find((x) => x.odoo_product_id === odooProductId);
-    if (!v) return d;
-    moving = v;
-    const variants = d.variants.filter((x) => x !== v);
+    const rows = d.variants.filter((x) => x.odoo_product_id === odooProductId);
+    if (rows.length === 0) return d;
+    movingRows.push(...rows);
+    const variants = d.variants.filter((x) => !rows.includes(x));
     return { ...d, variants, ...dishSums(variants) };
   });
-  if (!moving) return [...dishes];
-  const moved: MenuDishVariant = moving;
+  if (movingRows.length === 0) return [...dishes];
+  const moved = movingRows[0];
   let target = without.find((d) => d.id === targetId);
   const rest = without.filter(
     (d) => d.variants.length > 0 && d.id !== targetId
@@ -240,7 +251,7 @@ export function moveVariantLocally(
       base_odoo_product_id: moved.odoo_product_id,
     };
   }
-  const variants = [...target.variants, moved];
+  const variants = [...target.variants, ...movingRows];
   const next = [...rest, { ...target, variants, ...dishSums(variants) }];
   const food = next.reduce((s, d) => s + d.net_sales, 0);
   for (const d of next)
@@ -264,6 +275,9 @@ interface Group {
     parsed: ReturnType<typeof parseVariantName>;
     stored: StoredVariant | null;
   }>;
+  /** Linked recipes of products not sold here: they can be the dish's
+   *  recipe, never a variant (no sales). */
+  recipeOnly?: Group["members"];
   excluded_reason: string | null;
 }
 
@@ -273,7 +287,24 @@ export function buildMenuDishes(input: {
   storedVariants?: ReadonlyMap<number, StoredVariant>;
   /** Food net sales before grouping (tips and person-excluded out). */
   excludedNetSalesBefore: number;
+  /**
+   * "Todos los restaurantes": a recipe linked only in one restaurant costs
+   * only that restaurant's rows; other restaurants' variants never borrow
+   * it (they keep their own cost, or none).
+   */
+  allRestaurants?: boolean;
+  /**
+   * Linked products with a recipe but no sales in this view (e.g. sold
+   * only in the other restaurant): the dish's shared recipe still costs
+   * this restaurant's variants, so one restaurant's numbers add up to
+   * "Todos los restaurantes".
+   */
+  recipeOnly?: readonly DishEconomics[];
 }): MenuDishesResult {
+  const canBorrow = (base: DishEconomics, row: DishEconomics): boolean =>
+    !input.allRestaurants ||
+    !base.link_location_id ||
+    base.link_location_id === (row.link_location_id ?? null);
   const storedDishes = input.storedDishes ?? [];
   const storedById = new Map(storedDishes.map((d) => [d.id, d]));
   const groups = new Map<string, Group>();
@@ -355,8 +386,27 @@ export function buildMenuDishes(input: {
     groupFor(parsed.key, parsed.base).members.push(member);
   }
 
+  // Recipe-only products join a dish that sells here (stored grouping
+  // first, then the name), as recipe candidates only.
+  for (const dish of input.recipeOnly ?? []) {
+    const parsed = parseVariantName(dish.name);
+    const stored = input.storedVariants?.get(dish.odoo_product_id) ?? null;
+    if (stored?.excluded_reason) continue;
+    let g = stored?.menu_dish_id ? groups.get(stored.menu_dish_id) : undefined;
+    if (!g) {
+      for (const candidate of groups.values()) {
+        if (sameDishKey(candidate.key, parsed.key)) {
+          g = candidate;
+          break;
+        }
+      }
+    }
+    if (!g || g.members.length === 0) continue;
+    (g.recipeOnly ??= []).push({ dish, parsed, stored });
+  }
+
   const byProduct = new Map<
-    number,
+    string,
     { dish_id: string; variant: MenuDishVariant }
   >();
   const build = (g: Group, excluded: boolean): MenuDish => {
@@ -364,18 +414,24 @@ export function buildMenuDishes(input: {
       .slice()
       .sort((a, b) => b.dish.net_sales - a.dish.net_sales);
     // The dish's recipe: an approved variant first (top seller), else an
-    // estimated one.
+    // estimated one. With every restaurant shown, a shared link's recipe
+    // comes before one linked only in one restaurant.
+    const approvedBase = (m: Group["members"][number]) =>
+      m.dish.status === "aprobado" &&
+      m.dish.unit_cost !== null &&
+      m.dish.treatment !== "modificador_sin_costo";
+    const estimatedBase = (m: Group["members"][number]) =>
+      m.dish.status === "estimado" && m.dish.unit_cost !== null;
+    const shared = (m: Group["members"][number]) =>
+      !input.allRestaurants || !m.dish.link_location_id;
+    const pool = [...members, ...(g.recipeOnly ?? [])];
     const base =
-      members.find(
-        (m) =>
-          m.dish.status === "aprobado" &&
-          m.dish.unit_cost !== null &&
-          m.dish.treatment !== "modificador_sin_costo"
-      ) ??
-      members.find(
-        (m) => m.dish.status === "estimado" && m.dish.unit_cost !== null
-      ) ??
+      pool.find((m) => approvedBase(m) && shared(m)) ??
+      pool.find(approvedBase) ??
+      pool.find((m) => estimatedBase(m) && shared(m)) ??
+      pool.find(estimatedBase) ??
       null;
+    const baseSells = base ? members.includes(base) : false;
     const basePortion =
       g.stored?.base_portion_qty ??
       base?.parsed.portion_qty ??
@@ -388,7 +444,10 @@ export function buildMenuDishes(input: {
         const portion = stored?.portion_qty ?? parsed.portion_qty;
         const ownCounts =
           dish.unit_cost !== null &&
-          (dish.status === "aprobado" || !base || base.dish === dish);
+          (dish.status === "aprobado" ||
+            !base ||
+            base.dish === dish ||
+            !canBorrow(base.dish, dish));
         let unitCost: number | null;
         let basis: MenuDishVariant["cost_basis"];
         let status: DishStatus;
@@ -403,7 +462,11 @@ export function buildMenuDishes(input: {
           basis = "own";
           status = dish.status;
           covered = dish.covered;
-        } else if (base && base.dish.unit_cost !== null) {
+        } else if (
+          base &&
+          base.dish.unit_cost !== null &&
+          canBorrow(base.dish, dish)
+        ) {
           unitCost = scaledCost({
             baseCost: base.dish.unit_cost,
             baseProtein,
@@ -422,6 +485,9 @@ export function buildMenuDishes(input: {
         const costTotal = unitCost !== null ? unitCost * dish.units_sold : null;
         const variant: MenuDishVariant = {
           odoo_product_id: dish.odoo_product_id,
+          key: dish.row_key ?? String(dish.odoo_product_id),
+          sales_scope: dish.sales_scope ?? null,
+          saved: Boolean(stored?.menu_dish_id || stored?.excluded_reason),
           name: dish.name,
           size: portion,
           size_unit: parsed.portion_unit,
@@ -450,7 +516,7 @@ export function buildMenuDishes(input: {
           status,
           covered,
         };
-        byProduct.set(dish.odoo_product_id, { dish_id: g.id, variant });
+        byProduct.set(variant.key, { dish_id: g.id, variant });
         return variant;
       }
     );
@@ -474,8 +540,11 @@ export function buildMenuDishes(input: {
       excluded_reason: excluded ? g.excluded_reason : null,
       variants,
       ...dishSums(variants),
+      // "Abrir receta" opens a variant sold here.
       base_odoo_product_id:
-        base?.dish.odoo_product_id ?? top?.dish.odoo_product_id ?? null,
+        (baseSells ? base?.dish.odoo_product_id : null) ??
+        top?.dish.odoo_product_id ??
+        null,
       base_portion_qty: basePortion,
       excel_total: base?.dish.excel_total ?? null,
       excel_diff_flag: base?.dish.excel_diff_flag ?? false,
@@ -542,5 +611,14 @@ export function buildMenuDishes(input: {
     excluded_by_reason: excludedByReason,
     menu_dish_count: dishes.length,
   };
-  return { dishes, excluded, byProduct, totals };
+  const unsaved = [...dishes, ...excluded]
+    .flatMap((d) => d.variants)
+    .filter((v) => !v.saved);
+  return {
+    dishes,
+    excluded,
+    byProduct,
+    totals,
+    unsaved_variant_count: new Set(unsaved.map((v) => v.odoo_product_id)).size,
+  };
 }

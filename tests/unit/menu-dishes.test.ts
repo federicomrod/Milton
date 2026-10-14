@@ -231,7 +231,9 @@ describe("menu dishes", () => {
       ]),
       excludedNetSalesBefore: 0,
     });
-    expect(r.byProduct.get(moved.odoo_product_id)?.dish_id).toBe("d-otro");
+    expect(r.byProduct.get(String(moved.odoo_product_id))?.dish_id).toBe(
+      "d-otro"
+    );
     expect(
       r.excluded.flatMap((d) => d.variants.map((v) => v.odoo_product_id))
     ).toContain(drink.odoo_product_id);

@@ -292,6 +292,8 @@ export interface RecipeCostingWorkspace {
     excluded_variant_count: number;
     /** False until migration 045: moves cannot be saved yet. */
     stored: boolean;
+    /** Products whose grouping is Milton's and not saved yet. */
+    unsaved_variant_count: number;
   } | null;
   next_dish: {
     odoo_product_id: number;
@@ -1001,6 +1003,8 @@ export function buildRecipeCostingWorkspace(input: {
             excluded_variant_count:
               input.dishEconomics.menu_totals.excluded_variant_count,
             stored: input.dishEconomics.menu_dishes_stored === true,
+            unsaved_variant_count:
+              input.dishEconomics.menu_unsaved_variant_count ?? 0,
           }
         : null,
     dish_summaries:

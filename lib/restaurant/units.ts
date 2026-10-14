@@ -437,6 +437,35 @@ export function isSubRecipePortionUnit(raw: string): boolean {
   return SUB_RECIPE_PORTION_UNITS.has(foldUnitKey(raw));
 }
 
+/**
+ * A sub-recipe (a preparation) is used in the label it yields in: a prep that
+ * yields "1 orden" is used as "1 orden" with no conversion, whatever the
+ * label is (the same text, or CONVOY / ORDEN / ORDENES, which are one thing).
+ * Anything else is converted by the unit table, or refused: a portion is
+ * never guessed to be an ounce or a "unit".
+ */
+export function convertToSubRecipeUnit(
+  value: number,
+  from: string | null | undefined,
+  to: string | null | undefined
+): ConversionResult {
+  const regular = convertUnitStr(value, from, to);
+  if (regular.ok) return regular;
+  if (typeof from !== "string" || typeof to !== "string") return regular;
+  const f = foldUnitKey(from);
+  const t = foldUnitKey(to);
+  if (f && f === t) return { ok: true, value };
+  if (isSubRecipePortionUnit(from) && isSubRecipePortionUnit(to)) {
+    return { ok: true, value };
+  }
+  return regular;
+}
+
+/** A unit a person may pick on a line: in the table, or a sub-recipe label. */
+export function isUsableLineUnit(raw: string): boolean {
+  return normalizeUnit(raw) !== null || isSubRecipePortionUnit(raw);
+}
+
 export function resolveUnitCell(
   raw: string | null | undefined,
   lang: PreferredLanguage = "en"

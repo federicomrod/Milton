@@ -13,6 +13,7 @@ import {
   calculateMenuItemCost,
   getLatestIngredientCost,
   calculateComponentCost,
+  lineHasOwnPrice,
   type CostingData,
   type CostingRecipeInput,
 } from "@/lib/restaurant/costing";
@@ -101,6 +102,8 @@ export interface EditorLine {
   catalog_question?: CatalogQuestion | null;
   /** True when this line is costed with its own cost from the file. */
   own_cost?: boolean;
+  /** A preparation line: the unit that preparation yields in (its label). */
+  component_unit?: string | null;
   cost_source?: string | null;
 }
 
@@ -229,6 +232,7 @@ export function hydrateLines(input: {
       quantity: row.quantity,
       unit: row.unit,
       unit_cost: row.unit_cost ?? null,
+      cost_source: row.cost_source ?? null,
     });
     const question = raw.unit_question ?? null;
     const pending = cost.amount === null || question !== null;
@@ -261,7 +265,19 @@ export function hydrateLines(input: {
       evidence_index: raw.evidence_index,
       unit_question: question,
       excel_unit_cost: raw.excel_unit_cost ?? null,
-      own_cost: typeof row.unit_cost === "number" && row.unit_cost > 0,
+      component_unit:
+        row.input_type === "component" && row.component_id
+          ? (data.componentsById.get(row.component_id)?.output_unit ?? null)
+          : null,
+      own_cost: lineHasOwnPrice({
+        input_type: row.input_type,
+        ingredient_id: row.ingredient_id,
+        component_id: row.component_id,
+        quantity: row.quantity,
+        unit: row.unit,
+        unit_cost: row.unit_cost ?? null,
+        cost_source: row.cost_source ?? null,
+      }),
       cost_source: row.cost_source ?? null,
     };
   };
@@ -618,5 +634,24 @@ export function optimisticAddLine<
     ...state,
     lines: [...state.lines, line],
     total_cost: state.total_cost,
+  };
+}
+
+/**
+ * The total of a recipe's lines (sum of each line's contribution). Complete
+ * only when every line has a cost: a missing price is never counted as $0,
+ * the total is then null and the number of lines without a price is given.
+ */
+export function recipeLinesTotal(
+  lines: ReadonlyArray<{ amount: number | null }>
+): { total: number | null; missing: number; complete: boolean } {
+  const missing = lines.filter((line) => line.amount === null).length;
+  const complete = lines.length > 0 && missing === 0;
+  return {
+    total: complete
+      ? lines.reduce((sum, line) => sum + (line.amount ?? 0), 0)
+      : null,
+    missing,
+    complete,
   };
 }

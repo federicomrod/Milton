@@ -53,12 +53,29 @@ export function editorQuery(target: {
   return p.toString();
 }
 
+/**
+ * A preparation line with no cost is "waiting for the preparation to be
+ * approved". That is exactly the state that goes stale when the preparation
+ * is approved somewhere else, so a copy that has one is never served: the
+ * editor reads the server instead of telling the person to approve a
+ * preparation that already is.
+ */
+export function hasWaitingPreparation(state: EditorState): boolean {
+  return (state.lines ?? []).some(
+    (line) => line.kind === "component" && line.amount === null
+  );
+}
+
 export function getCachedEditor(
   key: string,
   now: number = Date.now()
 ): { state: EditorState; fresh: boolean } | null {
   const entry = entries.get(key);
   if (!entry) return null;
+  if (hasWaitingPreparation(entry.state)) {
+    entries.delete(key);
+    return null;
+  }
   const age = now - entry.at;
   if (age > EDITOR_KEEP_MS) {
     entries.delete(key);

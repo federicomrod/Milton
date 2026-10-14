@@ -9,6 +9,31 @@
 // Framework-free so it is unit tested without a browser.
 
 import { markTabsStale } from "@/lib/restaurant/recipe-costing/menu-tab-cache";
+import { clearEditors } from "@/lib/restaurant/recipe-costing/editor-cache";
+import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
+
+/**
+ * Writes that change what OTHER dishes cost or show: a preparation approved,
+ * a price, an ingredient, an import, a link. After one of these every dish's
+ * recipe lines (and the ingredient/preparation picker) are re-read, so no
+ * dish keeps telling a stale story. A plain edit of one dish's lines is not
+ * in this list (that dish stores the server's answer itself).
+ */
+const CATALOG_WRITE_PATHS = [
+  "/api/restaurant/recipes/preparations",
+  "/api/restaurant/recipes/price-catalog",
+  "/api/restaurant/recipes/import",
+  "/api/restaurant/recipes/dish-yield",
+  "/api/restaurant/ingredient-costs",
+  "/api/restaurant/ingredients",
+  "/api/restaurant/costs",
+] as const;
+
+export function isCatalogWrite(path: string): boolean {
+  return CATALOG_WRITE_PATHS.some(
+    (prefix) => path === prefix || path.startsWith(prefix + "/")
+  );
+}
 
 let epoch = 0;
 const listeners = new Set<() => void>();
@@ -24,9 +49,13 @@ export function subscribeSaveEpoch(listener: () => void): () => void {
   };
 }
 
-export function bumpSaveEpoch(): void {
+export function bumpSaveEpoch(path: string = ""): void {
   epoch++;
   markTabsStale();
+  if (isCatalogWrite(path)) {
+    clearEditors();
+    invalidatePickerOptions();
+  }
   for (const listener of listeners) listener();
 }
 
@@ -83,7 +112,7 @@ export function installSaveEpochWatcher(target: {
       pathOf(input).startsWith("/api/") &&
       response.ok
     ) {
-      bumpSaveEpoch();
+      bumpSaveEpoch(pathOf(input));
     }
     return response;
   }) as typeof fetch & { [marker]?: boolean };

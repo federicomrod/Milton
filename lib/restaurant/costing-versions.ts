@@ -26,7 +26,7 @@ function skipWhen<T>(
 }
 
 /** Per-line cost columns from migration 043; read when they exist. */
-const LINE_COST_COLUMNS = ["unit_cost"] as const;
+const LINE_COST_COLUMNS = ["unit_cost", "cost_source"] as const;
 
 export async function fetchCostingRecipeVersions(
   supabase: SupabaseClient,
@@ -80,6 +80,7 @@ export async function fetchCostingRecipeVersions(
         quantity: number;
         unit: string;
         unit_cost?: number | null;
+        cost_source?: string | null;
       }>(
         LINE_COST_COLUMNS,
         (select) =>
@@ -87,7 +88,7 @@ export async function fetchCostingRecipeVersions(
             .from("recipe_version_inputs")
             .select(select)
             .eq("company_id", companyId),
-        "recipe_version_id, input_type, ingredient_id, component_id, quantity, unit, unit_cost",
+        "recipe_version_id, input_type, ingredient_id, component_id, quantity, unit, unit_cost, cost_source",
         { hintKey: `rvi_costing:${companyId}` }
       )
     ),
@@ -117,6 +118,7 @@ export async function fetchCostingRecipeVersions(
       quantity: number;
       unit: string;
       unit_cost?: number | null;
+      cost_source?: string | null;
     }>(
       LINE_COST_COLUMNS,
       (select) =>
@@ -124,7 +126,7 @@ export async function fetchCostingRecipeVersions(
           .from("component_recipe_version_inputs")
           .select(select)
           .eq("company_id", companyId),
-      "component_recipe_version_id, input_type, ingredient_id, component_id, quantity, unit, unit_cost"
+      "component_recipe_version_id, input_type, ingredient_id, component_id, quantity, unit, unit_cost, cost_source"
     ),
   ]);
 
@@ -159,6 +161,7 @@ export async function fetchCostingRecipeVersions(
       quantity: row.quantity,
       unit: row.unit,
       unit_cost: row.unit_cost == null ? null : Number(row.unit_cost),
+      cost_source: typeof row.cost_source === "string" ? row.cost_source : null,
     });
     menuRecipeVersionInputsByVersionId.set(row.recipe_version_id, list);
   }
@@ -198,6 +201,7 @@ export async function fetchCostingRecipeVersions(
       quantity: row.quantity,
       unit: row.unit,
       unit_cost: row.unit_cost == null ? null : Number(row.unit_cost),
+      cost_source: typeof row.cost_source === "string" ? row.cost_source : null,
     });
     componentRecipeVersionInputsByVersionId.set(
       row.component_recipe_version_id,

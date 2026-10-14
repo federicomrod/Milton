@@ -6,8 +6,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
 import {
   FLAG_NEW_SUGGESTED,
+  FLAG_PENDING_UNIT,
   SAVING_LINE_PREFIX,
   needsTypedQuantity,
+  recipeLinesTotal,
   optimisticAddLine,
   optimisticLine,
   searchPickerOptions,
@@ -498,6 +500,9 @@ export function RecipeLinesEditor({
               }
             />
           ))}
+          {componentId && state.lines.length > 0 ? (
+            <PreparationTotalRow lines={state.lines} />
+          ) : null}
           {portionCostLabel ? (
             <tr className="border-t border-[#f2f3f6]">
               <td colSpan={4} className="py-2 text-right font-semibold">
@@ -512,6 +517,33 @@ export function RecipeLinesEditor({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** R1-15a: the preparation's total cost under "Aporte" (sum of its lines). */
+function PreparationTotalRow({ lines }: { lines: EditorLine[] }) {
+  const { total, missing } = recipeLinesTotal(lines);
+  return (
+    <tr
+      className="border-t border-[#dfe3ea]"
+      data-testid="preparation-total-row"
+    >
+      <td colSpan={4} className="py-2 text-right font-semibold">
+        Total de la preparación
+        {total === null ? (
+          <span className="ml-2 rounded-md bg-[#fff4e5] px-1.5 py-0.5 text-[12px] font-semibold text-[#a35a00]">
+            incompleto ·{" "}
+            {missing === 1
+              ? "1 línea sin precio"
+              : `${missing} líneas sin precio`}
+          </span>
+        ) : null}
+      </td>
+      <td className="py-2 text-right text-sm font-bold">
+        {total === null ? "Sin precio" : money(total)}
+      </td>
+      <td />
+    </tr>
   );
 }
 
@@ -573,7 +605,16 @@ function Row({
   );
   const unresolved = line.kind === "unresolved";
   /** A preparation not approved yet and no price of its own: it waits. */
-  const waitingPrep = line.kind === "component" && line.amount === null;
+  // R1-15a: a preparation line with no cost is either waiting for the
+  // preparation to be approved, or the line's unit does not match the unit
+  // the preparation yields in. Say which: an approved preparation must never
+  // be reported as "not approved".
+  const prepUnitProblem =
+    line.kind === "component" &&
+    line.amount === null &&
+    line.flags.includes(FLAG_PENDING_UNIT);
+  const waitingPrep =
+    line.kind === "component" && line.amount === null && !prepUnitProblem;
   // A line from the menu says what, not how much: the person types both
   // before it is matched or created. Never an assumed quantity.
   const fromMenu = unresolved && needsTypedQuantity(line);
@@ -585,7 +626,12 @@ function Row({
       : undefined;
   const waitingForAmount = fromMenu && !typed;
   const units = unitsLike(line.price?.unit ?? line.unit);
-  const shownUnits = units.includes(line.unit) ? units : [line.unit, ...units];
+  const baseUnits = units.includes(line.unit) ? units : [line.unit, ...units];
+  // A preparation can always be used in the label it yields in.
+  const shownUnits =
+    line.component_unit && !baseUnits.includes(line.component_unit)
+      ? [...baseUnits, line.component_unit]
+      : baseUnits;
 
   return (
     <tr
@@ -728,6 +774,22 @@ function Row({
                     </GhostBtn>
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+            {prepUnitProblem ? (
+              <div
+                className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[12px] text-[#5b4515]"
+                data-testid="prep-unit-problem"
+              >
+                La preparación <b>{line.name}</b> ya está aprobada, pero esta
+                línea está en {UNIT_LABEL[line.unit] ?? line.unit} y la
+                preparación rinde en{" "}
+                <b>
+                  {UNIT_LABEL[line.component_unit ?? ""] ??
+                    line.component_unit ??
+                    "otra unidad"}
+                </b>
+                . Elige esa unidad en la lista de unidades de la línea.
               </div>
             ) : null}
             {line.unit_question ? (

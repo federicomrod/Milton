@@ -26,6 +26,8 @@ import {
 } from "lucide-react";
 import { LogoutButton } from "@/components/dashboard/logout-button";
 import { AddRestaurantDialog } from "@/components/restaurant/AddRestaurantDialog";
+import { useSectionWarmth } from "@/components/restaurant/shell/use-section-warmth";
+import { withSaveEpoch } from "@/lib/restaurant/save-epoch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -406,6 +408,13 @@ function SidebarBrand({
   );
 }
 
+const PREFETCHED_SECTIONS: ReadonlySet<string> = new Set([
+  "cockpit",
+  "sales",
+  "menu",
+  "costs",
+]);
+
 function SidebarLink({
   item,
   pathname,
@@ -422,10 +431,18 @@ function SidebarLink({
   const Icon = NAV_ICONS[item.id];
   const active = isPrimaryNavActive(item, pathname);
   const label = primaryNavLabel(item.id, lang);
+  // R1-14: the four daily sections are prefetched in full once the page is
+  // up, and their link carries the save epoch so a copy never outlives a save.
+  const { epoch, warm } = useSectionWarmth();
+  const fullPrefetch = PREFETCHED_SECTIONS.has(item.id);
   return (
     <li>
       <Link
-        href={withShellParams(item.href, shellParams)}
+        href={withSaveEpoch(
+          withShellParams(item.href, shellParams),
+          fullPrefetch ? epoch : 0
+        )}
+        prefetch={fullPrefetch && warm ? true : undefined}
         className={
           "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 " +
           (active

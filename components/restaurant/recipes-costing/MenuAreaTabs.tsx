@@ -12,6 +12,8 @@ import {
   MENU_TAB_PATHS,
   type MenuTab,
 } from "@/lib/restaurant/recetas-redirect";
+import { useSectionWarmth } from "@/components/restaurant/shell/use-section-warmth";
+import { withSaveEpoch } from "@/lib/restaurant/save-epoch";
 import {
   prefetchMenuTab,
   trySwitchMenuTab,
@@ -36,6 +38,9 @@ export function MenuAreaTabs({ lang }: { lang: PreferredLanguage }) {
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const active = activeMenuTab(pathname);
+  // Resumen, Platos and Preparaciones switch from the workspace's own copy;
+  // Ingredientes is a page of its own, so it is prefetched in full.
+  const { epoch, warm } = useSectionWarmth();
   const shell = {
     locationId: searchParams.get("location"),
     from: searchParams.get("from"),
@@ -47,11 +52,16 @@ export function MenuAreaTabs({ lang }: { lang: PreferredLanguage }) {
       className="mt-2 mb-4 flex gap-7 border-b border-[#dfe3ea]"
     >
       {TABS.map((tab) => {
-        const href = withShellParams(MENU_TAB_PATHS[tab.id], shell);
+        const isPage = tab.id === "ingredientes";
+        const href = withSaveEpoch(
+          withShellParams(MENU_TAB_PATHS[tab.id], shell),
+          isPage ? epoch : 0
+        );
         return (
           <Link
             key={tab.id}
             href={href}
+            prefetch={isPage && warm ? true : undefined}
             aria-current={active === tab.id ? "page" : undefined}
             // R1-12: an open workspace switches tabs from its own cache;
             // otherwise (or with a modifier key) this is a normal link.

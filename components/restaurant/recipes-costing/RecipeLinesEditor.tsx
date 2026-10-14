@@ -4,12 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
 import {
   FLAG_NEW_SUGGESTED,
+  SAVING_LINE_PREFIX,
   needsTypedQuantity,
+  optimisticAddLine,
   optimisticLine,
+  searchPickerOptions,
   type EditorLine,
   type PickerOption,
 } from "@/lib/restaurant/recipe-costing/editor";
-import { GhostBtn } from "./ui";
+import { GhostBtn, PrimaryBtn } from "./ui";
 
 const MASS = ["oz", "lb", "g", "kg"];
 /** "Ninguna (dejar Pendiente)": none of the readings is right. */
@@ -98,12 +101,8 @@ export function RecipeLinesEditor({
   componentId,
   locationId,
   portionCostLabel,
-  yieldValue,
-  yieldAssumed,
-  yieldNote,
   reloadKey,
   onEdited,
-  onYield,
   onState,
   onOpenPreparation,
 }: {
@@ -113,14 +112,10 @@ export function RecipeLinesEditor({
   componentId?: string;
   locationId?: string | null;
   portionCostLabel: string | null;
-  yieldValue: number | null;
-  yieldAssumed: boolean;
-  yieldNote: string | null;
   /** Bump to reload (for example after the parent approved something). */
   reloadKey?: number;
   /** Called after every saved change so the checklist and margin refresh. */
   onEdited: () => void;
-  onYield?: (rawName: string, value: number) => void;
   onState?: (state: EditorState) => void;
   onOpenPreparation?: (componentId: string) => void;
 }) {
@@ -128,6 +123,8 @@ export function RecipeLinesEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picking, setPicking] = useState<PickTarget | null>(null);
+  /** The item just added, to show "✓ guardado" for a moment. */
+  const [justAdded, setJustAdded] = useState<string | null>(null);
 
   const target = useMemo(
     () =>
@@ -171,11 +168,22 @@ export function RecipeLinesEditor({
   async function send(
     body: Record<string, unknown>,
     /** Show the change right away (quantity, line price); no lock. */
-    optimistic?: { inputId: string; qty?: number; unit_cost?: number | null }
+    optimistic?:
+      | { inputId: string; qty?: number; unit_cost?: number | null }
+      | { add: PickerOption; qty: number; unit: string }
   ): Promise<boolean> {
     const before = state;
     if (optimistic && state) {
-      setState(optimisticLine(state, optimistic.inputId, optimistic));
+      setState(
+        "add" in optimistic
+          ? optimisticAddLine(
+              state,
+              optimistic.add,
+              optimistic.qty,
+              optimistic.unit
+            )
+          : optimisticLine(state, optimistic.inputId, optimistic)
+      );
     } else {
       setBusy(true);
     }
@@ -193,6 +201,11 @@ export function RecipeLinesEditor({
     }
     setState(res.state);
     setPicking(null);
+    if (optimistic && "add" in optimistic) {
+      const id = optimistic.add.id;
+      setJustAdded(id);
+      setTimeout(() => setJustAdded((now) => (now === id ? null : now)), 2000);
+    }
     onEdited();
     return true;
   }
@@ -206,7 +219,6 @@ export function RecipeLinesEditor({
   }
 
   const editable = state.editable && !busy;
-  const firstPreparation = state.lines.find((l) => l.kind === "component");
 
   return (
     <div>
@@ -247,13 +259,18 @@ export function RecipeLinesEditor({
           onCancel={() => setPicking(null)}
           onPick={(option, quantity, unit) => {
             if (picking.mode === "add") {
-              void send({
-                action: "add",
-                kind: option.kind,
-                id: option.id,
-                quantity,
-                unit,
-              });
+              // The line shows at once ("guardando…"); the picker closes.
+              setPicking(null);
+              void send(
+                {
+                  action: "add",
+                  kind: option.kind,
+                  id: option.id,
+                  quantity,
+                  unit,
+                },
+                { add: option, qty: quantity, unit }
+              );
             } else if (picking.mode === "resolve") {
               void send({
                 action: "resolve",
@@ -324,7 +341,16 @@ export function RecipeLinesEditor({
             <Row
               key={line.key}
               line={line}
-              editable={editable}
+              editable={editable && !line.key.startsWith(SAVING_LINE_PREFIX)}
+              saveNote={
+                line.key.startsWith(SAVING_LINE_PREFIX)
+                  ? "guardando…"
+                  : justAdded &&
+                      (line.ingredient_id === justAdded ||
+                        line.component_id === justAdded)
+                    ? "✓ guardado"
+                    : null
+              }
               onResolve={(option, amount) =>
                 void send({
                   action: "resolve",
@@ -405,64 +431,16 @@ export function RecipeLinesEditor({
               <td />
             </tr>
           ) : null}
-          {firstPreparation && yieldAssumed && yieldValue != null && onYield ? (
-            <YieldRow
-              name={firstPreparation.name ?? firstPreparation.raw_name}
-              value={yieldValue}
-              assumed={yieldAssumed}
-              note={yieldNote}
-              disabled={!editable}
-              onSave={(n) => onYield(firstPreparation.raw_name, n)}
-            />
-          ) : null}
         </tbody>
       </table>
     </div>
   );
 }
 
-function YieldRow({
-  name,
-  value,
-  assumed,
-  note,
-  disabled,
-  onSave,
-}: {
-  name: string;
-  value: number;
-  assumed: boolean;
-  note: string | null;
-  disabled: boolean;
-  onSave: (value: number) => void;
-}) {
-  const [text, setText] = useState(String(value));
-  return (
-    <tr>
-      <td colSpan={6} className="bg-[#fff8ec] px-2.5 py-1.5 text-[11.5px]">
-        ↳ <b>Preparación {name}:</b>
-        {note ? ` ${note}` : ""}
-        {assumed ? " · rendimiento por confirmar" : ""}
-        {" · rinde "}
-        <input
-          value={text}
-          disabled={disabled}
-          onChange={(event) => setText(event.target.value)}
-          onBlur={() => {
-            const n = Number(text);
-            if (Number.isFinite(n) && n > 0 && n !== value) onSave(n);
-          }}
-          className="inline-block min-w-11 rounded-md border border-[#f5a524] bg-[#fff8ec] px-1.5 py-0.5 text-right font-bold"
-        />{" "}
-        porciones
-      </td>
-    </tr>
-  );
-}
-
 function Row({
   line,
   editable,
+  saveNote,
   onResolve,
   onPick,
   onChange,
@@ -477,6 +455,8 @@ function Row({
 }: {
   line: EditorLine;
   editable: boolean;
+  /** "guardando…" while a just-added line saves, then "✓ guardado". */
+  saveNote?: string | null;
   onResolve: (
     option: { kind: "ingredient" | "component"; id: string },
     amount?: TypedAmount
@@ -622,6 +602,11 @@ function Row({
         ) : (
           <>
             <b>{line.name}</b>
+            {saveNote ? (
+              <span className="ml-1.5 text-[10.5px] font-normal text-[#1f9d55]">
+                {saveNote}
+              </span>
+            ) : null}
             <div className="text-[10.5px] text-[#8a92a3]">
               {line.kind === "component" ? (
                 <>
@@ -793,7 +778,7 @@ function Row({
               <div className="text-[10px] text-[#8a92a3]">
                 {line.cost_source === "manual"
                   ? "precio de esta línea"
-                  : `del Excel${line.cost_source ? ` · ${line.cost_source}` : ""}`}
+                  : "del Excel"}
               </div>
             </span>
           )
@@ -977,16 +962,31 @@ function Picker({
   const [yieldQty, setYieldQty] = useState("");
   const [yieldUnit, setYieldUnit] = useState("oz");
 
-  const needle = query.trim().toLowerCase();
-  const shown = options.filter(
-    (o) => !needle || o.name.toLowerCase().includes(needle)
+  // Filtered on the client as the person types: no server round trip.
+  const shown = useMemo(
+    () => searchPickerOptions(options, query).slice(0, 60),
+    [options, query]
   );
-  const ingredients = shown.filter((o) => o.kind === "ingredient");
-  const preparations = shown.filter((o) => o.kind === "component");
+  // The highlighted row: the one clicked, else the closest match.
+  const active = chosen ?? shown[0] ?? null;
 
   function choose(option: PickerOption) {
     setChosen(option);
     setUnit(unitsLike(option.unit)[0] ?? "unit");
+  }
+
+  function add() {
+    if (!active || busy) return;
+    if (target.mode === "add" && !(Number(qty) > 0)) return;
+    const pickUnit = chosen ? unit : (unitsLike(active.unit)[0] ?? "unit");
+    onPick(active, Number(qty) || 1, pickUnit);
+  }
+
+  function move(step: number) {
+    if (shown.length === 0) return;
+    const at = active ? shown.indexOf(active) : -1;
+    const next = shown[Math.min(shown.length - 1, Math.max(0, at + step))];
+    if (next) choose(next);
   }
 
   return (
@@ -999,7 +999,21 @@ function Picker({
             setQuery(event.target.value);
             setChosen(null);
           }}
-          placeholder="Busca en tus ingredientes y preparaciones"
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              move(1);
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              move(-1);
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              add();
+            } else if (event.key === "Escape") {
+              onCancel();
+            }
+          }}
+          placeholder="Escribe para buscar en tus ingredientes y preparaciones"
           className="min-w-56 flex-1 rounded-md border border-[#d5dae3] bg-white px-2 py-1"
         />
         <GhostBtn onClick={onCancel}>Cancelar</GhostBtn>
@@ -1007,36 +1021,47 @@ function Picker({
 
       {creating === null ? (
         <>
-          <select
-            size={Math.min(8, Math.max(3, shown.length + 2))}
-            className="w-full rounded-md border border-[#d5dae3] bg-white p-1"
-            value={chosen ? `${chosen.kind}:${chosen.id}` : ""}
-            onChange={(event) => {
-              const next = shown.find(
-                (o) => `${o.kind}:${o.id}` === event.target.value
-              );
-              if (next) choose(next);
-            }}
+          <div
+            role="listbox"
+            className="max-h-56 overflow-auto rounded-md border border-[#d5dae3] bg-white"
           >
-            {ingredients.length > 0 ? (
-              <optgroup label="Ingredientes">
-                {ingredients.map((o) => (
-                  <option key={o.id} value={`${o.kind}:${o.id}`}>
-                    {o.name} — {priceLabel(o)}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
-            {preparations.length > 0 ? (
-              <optgroup label="Preparaciones">
-                {preparations.map((o) => (
-                  <option key={o.id} value={`${o.kind}:${o.id}`}>
-                    {o.name} — {priceLabel(o)}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
-          </select>
+            {shown.map((o) => {
+              const selected =
+                active !== null && active.kind === o.kind && active.id === o.id;
+              return (
+                <button
+                  key={`${o.kind}:${o.id}`}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => choose(o)}
+                  onDoubleClick={() => {
+                    choose(o);
+                    onPick(o, Number(qty) || 1, unitsLike(o.unit)[0] ?? "unit");
+                  }}
+                  className={
+                    "flex w-full items-center gap-2 border-b border-slate-100 px-2 py-1 text-left last:border-b-0 " +
+                    (selected
+                      ? "bg-[#3557c9] text-white"
+                      : "hover:bg-[#eef3ff]")
+                  }
+                >
+                  <span className="flex-1 truncate font-semibold">
+                    {o.name}
+                  </span>
+                  <span
+                    className={
+                      "text-[10.5px] " +
+                      (selected ? "text-white/80" : "text-[#8a92a3]")
+                    }
+                  >
+                    {o.kind === "component" ? "Preparación · " : ""}
+                    {priceLabel(o)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
           {shown.length === 0 ? (
             <p className="text-[#6b7385]">
               No hay nada con ese nombre en tu lista.
@@ -1044,9 +1069,9 @@ function Picker({
           ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
-            {chosen && target.mode === "add" ? (
+            {active && target.mode === "add" ? (
               <>
-                <span className="font-semibold">{chosen.name}</span>
+                <span className="font-semibold">{active.name}</span>
                 <input
                   value={qty}
                   onChange={(event) => setQty(event.target.value)}
@@ -1057,7 +1082,7 @@ function Picker({
                   onChange={(event) => setUnit(event.target.value)}
                   className="rounded-md border border-[#d5dae3] bg-white px-1 py-1"
                 >
-                  {unitsLike(chosen.unit).map((u) => (
+                  {unitsLike(active.unit).map((u) => (
                     <option key={u} value={u}>
                       {UNIT_LABEL[u] ?? u}
                     </option>
@@ -1065,14 +1090,15 @@ function Picker({
                 </select>
               </>
             ) : null}
-            <GhostBtn
+            <PrimaryBtn
               disabled={
-                busy || !chosen || (target.mode === "add" && !(Number(qty) > 0))
+                busy || !active || (target.mode === "add" && !(Number(qty) > 0))
               }
-              onClick={() => chosen && onPick(chosen, Number(qty) || 1, unit)}
+              onClick={add}
             >
               {target.mode === "add" ? "Agregar" : "Usar este"}
-            </GhostBtn>
+            </PrimaryBtn>
+            <span className="text-[10.5px] text-[#8a92a3]">o Enter</span>
             <span className="ml-auto flex flex-wrap gap-3">
               <button
                 type="button"

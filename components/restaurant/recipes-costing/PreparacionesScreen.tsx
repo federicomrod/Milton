@@ -249,9 +249,6 @@ function PreparationDetail({
         <RecipeLinesEditor
           componentId={componentId}
           portionCostLabel={null}
-          yieldValue={null}
-          yieldAssumed={false}
-          yieldNote={null}
           reloadKey={reloadKey + localReload}
           onEdited={onChanged}
           onState={handleState}

@@ -5,7 +5,10 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
 import {
+  SAVING_LINE_PREFIX,
+  optimisticAddLine,
   optimisticLine,
+  searchPickerOptions,
   type EditorLine,
 } from "@/lib/restaurant/recipe-costing/editor";
 import { groupBatchesByFile } from "@/lib/restaurant/recipe-costing/workspace";
@@ -146,5 +149,82 @@ describe("source guards", () => {
   it("each save is timed in the logs", () => {
     const route = read("app/api/restaurant/recipes/editor/route.ts");
     expect(route).toContain("[recipes/editor] ${action.action} ${ms}ms");
+  });
+});
+
+describe("+ Agregar ingrediente", () => {
+  const options = [
+    {
+      kind: "component" as const,
+      id: "c-convoy",
+      name: "CONVOY",
+      unit: "orden",
+      unit_cost: 0.89,
+      price_date: null,
+      price_source: null,
+    },
+    {
+      kind: "ingredient" as const,
+      id: "i-queso",
+      name: "Queso cremado",
+      unit: "oz",
+      unit_cost: 0.18,
+      price_date: null,
+      price_source: null,
+    },
+    {
+      kind: "ingredient" as const,
+      id: "i-frijol",
+      name: "FRIJOL FRITO",
+      unit: "oz",
+      unit_cost: 0.045,
+      price_date: null,
+      price_source: null,
+    },
+    {
+      kind: "component" as const,
+      id: "c-frijoles",
+      name: "FRIJOLES FRITOS",
+      unit: "oz",
+      unit_cost: null,
+      price_date: null,
+      price_source: null,
+    },
+  ];
+
+  it("filters as the person types: words, accents and the file's longer names", () => {
+    expect(
+      searchPickerOptions(options, "convoy ensalada y caldo").map((o) => o.id)
+    ).toEqual(["c-convoy"]);
+    expect(searchPickerOptions(options, "QUESO").map((o) => o.id)).toEqual([
+      "i-queso",
+    ]);
+    expect(searchPickerOptions(options, "crémado").map((o) => o.id)).toEqual([
+      "i-queso",
+    ]);
+    expect(searchPickerOptions(options, "frij").map((o) => o.id)).toEqual([
+      "i-frijol",
+      "c-frijoles",
+    ]);
+    expect(searchPickerOptions(options, "")).toHaveLength(4);
+  });
+
+  it("shows the added line at once, costed only in the same unit", () => {
+    const state = { lines: [] as EditorLine[], total_cost: null };
+    const added = optimisticAddLine(state, options[0], 1, "orden");
+    expect(added.lines[0]).toMatchObject({
+      name: "CONVOY",
+      qty: 1,
+      amount: 0.89,
+    });
+    expect(added.lines[0].key.startsWith(SAVING_LINE_PREFIX)).toBe(true);
+    const otherUnit = optimisticAddLine(state, options[1], 2, "lb");
+    expect(otherUnit.lines[0].amount).toBeNull();
+    expect(otherUnit.lines[0].pending).toBe(true);
+  });
+
+  it("the editor only loads preparation versions, never every dish's", () => {
+    const store = read("lib/restaurant/recipe-costing/editor-store.ts");
+    expect(store).toContain("componentsOnly: true");
   });
 });

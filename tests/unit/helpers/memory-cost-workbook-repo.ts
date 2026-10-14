@@ -750,6 +750,11 @@ export function createMemoryCostWorkbookRepo(
       if (!recipe) return;
       Object.assign(recipe, patch);
     },
+    async listRecipeVersionInputs(_companyId, versionId) {
+      return (
+        store.recipeVersions.find((row) => row.id === versionId)?.inputs ?? []
+      ).map((row) => ({ ...row }));
+    },
     async listRecipeVersions(_companyId, recipeId) {
       return store.recipeVersions
         .filter((row) => row.recipe_id === recipeId)

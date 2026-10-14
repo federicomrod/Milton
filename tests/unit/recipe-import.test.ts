@@ -480,28 +480,29 @@ describe("writing the import (in-memory repository)", () => {
       true
     );
     const asado = store.recipeVersions.find((v) =>
-      v.inputs.some((i) => i.cost_source === "DE LA PARRILLA!B8")
+      v.inputs.some((i) => i.quantity === 6 && i.unit_cost === 0.5)
     )!;
     expect(asado.inputs).toHaveLength(4); // PIMIENTA (qty 0) is not a line
-    expect(
-      asado.inputs.find((i) => i.cost_source === "DE LA PARRILLA!B8")
-    ).toMatchObject({
+    // The dish sheet's own Costo Unitario, marked as such.
+    expect(asado.inputs.find((i) => i.quantity === 6)).toMatchObject({
       input_type: "ingredient",
-      quantity: 6,
       unit: "oz",
       unit_cost: 0.5,
+      cost_source: "excel_line",
     });
-    // #ERROR! stays Pendiente: no cost on the line, never 0.
-    expect(
-      asado.inputs.find((i) => i.cost_source === "DE LA PARRILLA!B12")
-        ?.unit_cost
-    ).toBeNull();
+    // #ERROR! stays Pendiente: no cost on the line, never 0, and no
+    // "excel_line" mark (the price list may fill it).
+    const queso = asado.inputs.find(
+      (i) => i.input_type === "ingredient" && i.unit_cost == null
+    )!;
+    expect(queso.unit_cost ?? null).toBeNull();
+    expect(queso.cost_source ?? null).toBeNull();
     // The line whose cost points at a preparation uses it.
     expect(
-      asado.inputs.find((i) => i.cost_source === "DE LA PARRILLA!B9")
+      asado.inputs.find((i) => i.input_type === "component")
     ).toMatchObject({
-      input_type: "component",
       unit_cost: 0.2,
+      cost_source: "excel_line",
     });
   });
 
@@ -698,5 +699,77 @@ describe("Stage Test 1 fixes in the import", () => {
         (v) => v.component_id === handmade.id
       )
     ).toHaveLength(0);
+  });
+});
+
+describe("re-importing never undoes a price typed by hand", () => {
+  it("keeps the line's manual price, takes the rest from the Excel again", async () => {
+    const store = emptyMemoryStore();
+    const repo = createMemoryCostWorkbookRepo(store);
+    const products = [
+      {
+        odoo_product_id: 1,
+        odoo_name: "Asado de Prueba (6 onz.)",
+        pos_price: 14.5,
+        link_state: "sin_vincular",
+      },
+    ];
+    const once = () =>
+      writeImportPlan({
+        repo,
+        plan: planImport({
+          workbook,
+          catalog: {
+            ingredients: store.ingredients.map((i) => ({
+              id: i.id,
+              name: i.name,
+            })),
+            preparations: store.components.map((c) => ({
+              id: c.id,
+              name: c.name,
+            })),
+          },
+          products: products.map((p) => ({
+            ...p,
+            link_state:
+              store.posProductLinks.find(
+                (l) => l.odoo_product_id === p.odoo_product_id
+              )?.link_state ?? p.link_state,
+          })),
+          existing: [],
+        }),
+        workbook,
+        companyId: "co-1",
+        currency: "USD",
+        filename: "f.xlsx",
+        createdBy: null,
+        locationId: null,
+        insertCanonicalRows: async () => {},
+      });
+    await once();
+    const link = store.posProductLinks[0];
+    const first = store.recipeVersions.find(
+      (v) => v.menu_item_id === link.menu_item_id
+    )!;
+    // A person types 0.62 on the beef line.
+    const beef = first.inputs.find((i) => i.quantity === 6)!;
+    beef.unit_cost = 0.62;
+    beef.cost_source = "manual";
+    await once();
+    const versions = store.recipeVersions
+      .filter((v) => v.menu_item_id === link.menu_item_id)
+      .sort((a, b) => b.version_number - a.version_number);
+    expect(versions).toHaveLength(2);
+    const latest = versions[0];
+    expect(latest.inputs.find((i) => i.quantity === 6)).toMatchObject({
+      unit_cost: 0.62,
+      cost_source: "manual",
+    });
+    expect(
+      latest.inputs.find((i) => i.input_type === "component")
+    ).toMatchObject({
+      unit_cost: 0.2,
+      cost_source: "excel_line",
+    });
   });
 });

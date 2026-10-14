@@ -372,15 +372,6 @@ export function RecipesCostingWorkspace({
             onPost={postAndReload}
             onConfirm={() => void confirmDish()}
             onSkip={() => goTo(data.editor?.next_odoo_product_id)}
-            onFixYield={(_rawName, value) =>
-              data.editor &&
-              void mutate(() =>
-                post("/api/restaurant/recipes/dish-yield", {
-                  odoo_product_id: data.editor!.odoo_product_id,
-                  yield_value: value,
-                })
-              )
-            }
             onOpenPreparation={(id) => openPreparation(id, { fromDish: true })}
           />
         ) : view === "preparaciones" ? (

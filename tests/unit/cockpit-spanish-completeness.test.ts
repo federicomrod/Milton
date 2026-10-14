@@ -24,7 +24,6 @@ const SHELL_FILES = [
   "components/restaurant/cockpit/CockpitOnboardingChip.tsx",
   "components/restaurant/AskMiltonWorkspace.tsx",
   "components/restaurant/ProfitabilityCockpit.tsx",
-  "components/restaurant/RestaurantSetupChecklist.tsx",
   "components/restaurant/BriefingCard.tsx",
   "components/restaurant/ComingSoonPage.tsx",
   "app/(restaurant-cockpit)/dashboard/restaurant/page.tsx",
@@ -45,7 +44,6 @@ const COCKPIT_TAB_FILES = [
   "components/restaurant/ProfitabilityCockpit.tsx",
   "components/restaurant/cockpit/MenuProfitabilityTab.tsx",
   "components/restaurant/cockpit/MenuProfitabilityTable.tsx",
-  "components/restaurant/RestaurantSetupChecklist.tsx",
   "components/restaurant/cockpit/CockpitTabs.tsx",
   "components/restaurant/RestaurantShell.tsx",
   "components/dashboard/logout-button.tsx",
@@ -106,7 +104,6 @@ describe("Spanish completeness for cockpit chrome", () => {
     expect(src).not.toMatch(/^\s+Dish Profitability$/m);
     expect(src).toContain("Sin receta");
     expect(src).toContain("Margen bajo");
-    expect(src).toContain("Atención de hoy");
     expect(src).toContain("Recomendaciones");
   });
 

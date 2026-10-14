@@ -52,6 +52,7 @@ import {
 import { calculateAllMenuItemCosts } from "@/lib/restaurant/costing";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
 import { periodCostKpisFromDishEconomics } from "@/lib/restaurant/costing/dish-economics-adapter";
+import { menuSetupProgress } from "@/lib/restaurant/costing/menu-summary";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import {
@@ -637,12 +638,15 @@ function executiveFromSnapshot(
     readError: extras.readError,
     truncated: extras.truncated,
   });
-  const setup = extras.profitability
-    ? setupProgress(
-        extras.profitability.setupCounts,
-        extras.profitability.dataQuality
-      )
-    : null;
+  // R1-09b (D3): the same checklist as Menú › Resumen.
+  const setup = extras.profitability?.dishEconomics
+    ? menuSetupProgress(extras.profitability.dishEconomics)
+    : extras.profitability
+      ? setupProgress(
+          extras.profitability.setupCounts,
+          extras.profitability.dataQuality
+        )
+      : null;
   const lowMargin = extras.profitability?.lowMargin[0];
   const facts = selectCockpitInsights(snapshot, lang, {
     lowMarginDish: lowMargin

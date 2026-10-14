@@ -14,8 +14,10 @@ describe("cockpit load split (#134)", () => {
     expect(page).toContain("loadCockpitExecutiveFast");
     expect(page).toContain("CockpitPeriodShell");
     expect(page).toContain("CockpitBothCostKpis");
-    expect(page).toContain("CockpitTabsFromModel");
-    expect(page).toContain("<DeferredSalesTab");
+    // R1-09b (D5): no tab bodies under the Cockpit; they live in Menú,
+    // Costos and Ventas.
+    expect(page).not.toContain("CockpitTabsFromModel");
+    expect(page).not.toContain("<DeferredSalesTab");
     expect(page).not.toContain("loadCockpitExecutivePage");
     expect(page).not.toContain("explorerRows");
   });

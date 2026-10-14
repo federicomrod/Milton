@@ -47,7 +47,7 @@ describe("Spanish completeness for the executive cockpit (#129)", () => {
     );
     expect(
       read("components/restaurant/cockpit/CockpitOnboardingChip.tsx")
-    ).toContain("Configuración");
+    ).toContain("Configura tu menú");
     expect(
       read("components/restaurant/cockpit/CockpitInsightsCard.tsx")
     ).toContain("Briefing de Milton");

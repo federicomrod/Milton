@@ -33,7 +33,7 @@ export function CockpitCostKpiCells({
           <p className="text-[12px] font-medium text-muted-foreground truncate">
             {t(lang, "Gross margin %", "Margen bruto %")}
           </p>
-          <p className="text-lg font-semibold tabular-nums leading-tight">
+          <p className="text-[28px] font-extrabold tracking-[-0.5px] tabular-nums leading-tight">
             {model.gross_margin_pct.value.toFixed(1)}%
           </p>
           <p
@@ -73,7 +73,7 @@ export function CockpitCostKpiCells({
           <p className="text-[12px] font-medium text-muted-foreground truncate">
             {t(lang, "Food cost %", "% costo de comida")}
           </p>
-          <p className="text-lg font-semibold tabular-nums leading-tight">
+          <p className="text-[28px] font-extrabold tracking-[-0.5px] tabular-nums leading-tight">
             {model.food_cost_pct.value.toFixed(1)}%
           </p>
           <p

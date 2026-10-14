@@ -608,9 +608,10 @@ describe("week vs last week null state", () => {
     expect(strip.week_vs_last_week.available).toBe(false);
     expect(strip.week_vs_last_week.this_week).toBeNull();
     expect(strip.week_vs_last_week.reason).toBe("Aún no disponible");
+    // R1-09b: the Cockpit strip shows 4 KPIs (wireframe 0); the week
+    // comparison stays in the model, not as a fifth card.
     const kpi = read("components/restaurant/cockpit/CockpitKpiStrip.tsx");
-    expect(kpi).toContain("Aún no disponible");
-    expect(kpi).toContain("week.available");
+    expect(kpi).not.toContain("week.available");
   });
 });
 

@@ -18,12 +18,12 @@ export function CockpitOnboardingChip({
     <Link
       href={progress.nextHref}
       data-testid="cockpit-onboarding-chip"
-      className="inline-flex items-center gap-1.5 h-7 px-2 rounded-md border border-orange-200 dark:border-orange-900 bg-orange-50/70 dark:bg-orange-950/30 text-xs font-medium text-orange-900 dark:text-orange-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+      className="inline-flex items-center gap-1.5 h-7 px-2 rounded-md border border-orange-200 dark:border-orange-900 bg-orange-50/70 dark:bg-orange-950/30 text-[12px] font-medium text-orange-900 dark:text-orange-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
     >
       {t(
         lang,
-        `Setup ${progress.done}/${progress.total} · Continue`,
-        `Configuración ${progress.done}/${progress.total} · Continuar`
+        `Set up your menu · ${progress.done}/${progress.total}`,
+        `Configura tu menú · ${progress.done}/${progress.total}`
       )}
     </Link>
   );

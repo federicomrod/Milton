@@ -141,13 +141,11 @@ describe("Revenue tab page chrome is trimmed without dropping copy", () => {
     expect(copy).toContain("Pendiente de recetas");
   });
 
-  it("still mounts RestaurantSalesExplorer on the Revenue tab", () => {
+  it("mounts RestaurantSalesExplorer in Ventas, not under the Cockpit", () => {
     const salesTab = read(
-      "components/restaurant/cockpit/RevenueAndChannelsTab.tsx"
+      "components/restaurant/sales/DeferredSalesExplorer.tsx"
     );
-    expect(cockpitPage).toContain("<DeferredSalesTab");
+    expect(cockpitPage).not.toContain("<DeferredSalesTab");
     expect(salesTab).toContain("<RestaurantSalesExplorer");
-    expect(salesTab).toContain("rows={rows}");
-    expect(salesTab).toContain("initialTargets={targets}");
   });
 });

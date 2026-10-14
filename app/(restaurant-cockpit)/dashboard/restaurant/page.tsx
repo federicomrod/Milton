@@ -32,29 +32,17 @@ import {
   getOpenRecommendations,
 } from "@/lib/restaurant/calculations";
 import { type SampleReason } from "@/lib/restaurant/supabase-sales";
-import { type ProfitabilityData } from "@/lib/restaurant/profitability-server";
 import { PAGINATED_READ_SAFETY_CAP } from "@/lib/restaurant/paginated-read";
 import {
   loadCockpitExecutiveFast,
-  loadCockpitTabsModel,
   type CockpitExecutiveFastModel,
 } from "@/lib/restaurant/cockpit-page-data";
-import { DeferredSalesTab } from "@/components/restaurant/cockpit/DeferredSalesTab";
 import {
   CockpitBothCostKpis,
   CockpitCostKpisSkeleton,
 } from "@/components/restaurant/cockpit/CockpitCostKpis";
 import { CockpitPeriodShell } from "@/components/restaurant/cockpit/CockpitPeriodShell";
-import {
-  ProfitabilityKpisSection,
-  MarginRiskSection,
-  SupplierTrendsSection,
-  DataQualityChecklistSection,
-  ItemsNeedingAttention,
-  SupplierPriceAlerts,
-} from "@/components/restaurant/ProfitabilityCockpit";
-import { CockpitTabs } from "@/components/restaurant/cockpit/CockpitTabs";
-import { MenuProfitabilityTab } from "@/components/restaurant/cockpit/MenuProfitabilityTab";
+import {} from "@/components/restaurant/ProfitabilityCockpit";
 import { CockpitHeadlineSkeleton } from "@/components/restaurant/cockpit/CockpitHeadline";
 import { CockpitHeroChartSkeleton } from "@/components/restaurant/cockpit/CockpitHeroChart";
 import {
@@ -73,7 +61,6 @@ import {
   DataHealthIndicator,
 } from "@/components/restaurant/shell/DataHealthIndicator";
 import { buildCockpitDataHealth } from "@/lib/restaurant/cockpit-data-health";
-import { RestaurantSetupChecklist } from "@/components/restaurant/RestaurantSetupChecklist";
 import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
 import {
   MOCK_MENU_ITEMS,
@@ -219,174 +206,6 @@ function SampleDataHealth({
 // ---------------------------------------------------------------------------
 // Tab content components
 // ---------------------------------------------------------------------------
-
-function OverviewTab({
-  profitability,
-  rowCount,
-  lang,
-}: {
-  profitability: ProfitabilityData;
-  rowCount: number;
-  lang: PreferredLanguage;
-}) {
-  return (
-    <div className="space-y-8">
-      <ProfitabilityKpisSection data={profitability} lang={lang} />
-
-      {/* Two-column overview panel: top items + supplier price alerts */}
-      <section>
-        <h2 className="text-base font-semibold mb-3">
-          {t(lang, "Today's attention", "Atención de hoy")}
-        </h2>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ItemsNeedingAttention data={profitability} lang={lang} />
-          <SupplierPriceAlerts data={profitability} lang={lang} />
-        </div>
-      </section>
-
-      {/* Margin risk (compact: 2 most actionable cards on Overview) */}
-      <MarginRiskSection data={profitability} compact lang={lang} />
-
-      {/* Placeholders for future signals — clearly labelled. */}
-      <section>
-        <h2 className="text-base font-semibold mb-3">
-          {t(lang, "Coming soon", "Próximamente")}
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Placeholder
-            title={t(
-              lang,
-              "Waste & expiry risk",
-              "Riesgo de merma y caducidad"
-            )}
-            body={t(
-              lang,
-              "Will appear once inventory and expiry data are wired in.",
-              "Aparecerá cuando conectemos inventario y caducidad."
-            )}
-          />
-          <Placeholder
-            title={t(lang, "Invoice OCR", "OCR de facturas")}
-            body={t(
-              lang,
-              `Invoice reading will connect supplier invoices to your ${rowCount.toLocaleString("es-MX")} sales rows and cost data. Still in design.`,
-              `La lectura de facturas conectará las facturas de proveedores con tus ${rowCount.toLocaleString("es-MX")} filas de ventas y costos. Todavía está en diseño.`
-            )}
-          />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function SetupTab({
-  profitability,
-  lang,
-}: {
-  profitability: ProfitabilityData;
-  lang: PreferredLanguage;
-}) {
-  return (
-    <div className="space-y-6">
-      <RestaurantSetupChecklist
-        setupCounts={profitability.setupCounts}
-        dataQuality={profitability.dataQuality}
-        lang={lang}
-      />
-      <DataQualityChecklistSection data={profitability} lang={lang} />
-      {/* Pull two of the most actionable lists into this tab so the user
-          can see what's actually blocking margin computation. */}
-      <section>
-        <h2 className="text-base font-semibold mb-3">
-          {t(lang, "What's blocking margin", "Qué está bloqueando el margen")}
-        </h2>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <SetupIssueList
-            title={t(
-              lang,
-              "Missing recipes (high volume)",
-              "Recetas faltantes (alto volumen)"
-            )}
-            empty={t(
-              lang,
-              "Every selling item has a recipe.",
-              "Todos los platillos que se venden ya tienen receta."
-            )}
-            items={profitability.missingRecipeHighVolume.map((r) => ({
-              key: r.menu_item_id,
-              title: r.name,
-              detail: t(
-                lang,
-                `${r.units_sold.toLocaleString("es-MX")} units sold`,
-                `${r.units_sold.toLocaleString("es-MX")} unidades vendidas`
-              ),
-            }))}
-          />
-          <SetupIssueList
-            title={t(
-              lang,
-              "Unit mismatches blocking costing",
-              "Unidades que no coinciden y bloquean el costo"
-            )}
-            empty={t(
-              lang,
-              "No recipes blocked by unit mismatch.",
-              "Ninguna receta está bloqueada por unidades."
-            )}
-            items={profitability.marginRows
-              .filter((r) => r.cost.status === "missing_unit_conversion")
-              .map((r) => ({
-                key: r.menu_item_id,
-                title: r.name,
-                detail:
-                  r.cost.issues[0]?.message ??
-                  t(lang, "Unit mismatch", "Unidades que no coinciden"),
-              }))}
-          />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function SetupIssueList({
-  title,
-  empty,
-  items,
-}: {
-  title: string;
-  empty: string;
-  items: { key: string; title: string; detail: string }[];
-}) {
-  return (
-    <div className="rounded-md border border-border bg-background">
-      <div className="px-4 py-3 border-b border-border">
-        <p className="text-sm font-medium">{title}</p>
-      </div>
-      {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground px-4 py-3">{empty}</p>
-      ) : (
-        <ul className="divide-y divide-border">
-          {items.slice(0, 10).map((it) => (
-            <li key={it.key} className="px-4 py-2.5">
-              <div className="text-sm font-medium">{it.title}</div>
-              <div className="text-xs text-muted-foreground">{it.detail}</div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function Placeholder({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-5">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="text-xs text-muted-foreground mt-1">{body}</p>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Sample (mock) view — preserved from the previous mock-only implementation
@@ -985,115 +804,10 @@ async function CockpitLiveBody({
         </div>
       )}
 
-      <Suspense
-        fallback={
-          <div className="space-y-3">
-            <PageSkeleton height="2.5rem" width="100%" label="tabs" />
-            <PageSkeleton height="16rem" width="100%" label="overview" />
-          </div>
-        }
-      >
-        <CockpitTabsFromModel location={location} lang={lang} />
-      </Suspense>
+      {/* R1-09b (D1–D5): menu profitability, suppliers, sales and setup
+          live in Menú, Costos and Ventas; the Cockpit keeps its 4 KPIs,
+          the chart and "Lo importante hoy". */}
     </CockpitPeriodShell>
-  );
-}
-
-async function CockpitTabsFromModel({
-  location,
-  lang,
-}: {
-  location?: string;
-  lang: PreferredLanguage;
-}) {
-  const { profitability, rowCount, readError, truncated, resolvedLocationId } =
-    await loadCockpitTabsModel(location);
-  const issueCount = profitability
-    ? profitability.kpis.menu_items_with_issues +
-      profitability.kpis.menu_items_without_recipe
-    : 0;
-  const setupOutstanding = profitability
-    ? profitability.dataQuality.unmapped_pos_items +
-      profitability.dataQuality.menu_items_without_recipe +
-      profitability.dataQuality.recipes_with_unit_mismatch +
-      profitability.dataQuality.ingredients_without_cost_entries +
-      profitability.dataQuality.components_without_recipe +
-      profitability.dataQuality.currency_mismatch_rows
-    : 0;
-  const tabs = profitability
-    ? [
-        {
-          id: "overview",
-          label: t(lang, "Overview", "Resumen"),
-          content: (
-            <OverviewTab
-              profitability={profitability}
-              rowCount={rowCount}
-              lang={lang}
-            />
-          ),
-        },
-        {
-          id: "menu",
-          label: t(lang, "Menu Profitability", "Rentabilidad del menú"),
-          badge: issueCount > 0 ? String(issueCount) : undefined,
-          content: (
-            <MenuProfitabilityTab profitability={profitability} lang={lang} />
-          ),
-        },
-        {
-          id: "suppliers",
-          label: t(lang, "Suppliers & Costs", "Proveedores y costos"),
-          content: <SupplierTrendsSection data={profitability} lang={lang} />,
-        },
-        {
-          id: "revenue",
-          label: t(lang, "Sales", "Ventas"),
-          content: (
-            <DeferredSalesTab locationId={resolvedLocationId} lang={lang} />
-          ),
-        },
-        {
-          id: "setup",
-          label: t(lang, "Setup / Data Quality", "Configuración y datos"),
-          badge: setupOutstanding > 0 ? String(setupOutstanding) : undefined,
-          content: <SetupTab profitability={profitability} lang={lang} />,
-        },
-      ]
-    : [
-        {
-          id: "revenue",
-          label: t(lang, "Sales", "Ventas"),
-          content: (
-            <DeferredSalesTab locationId={resolvedLocationId} lang={lang} />
-          ),
-        },
-      ];
-  return (
-    <>
-      {readError ? (
-        <DataHealthBanner tone="error">
-          {t(
-            lang,
-            "Could not load all sales rows. Totals are unavailable — they are not a smaller number from a partial read. Try refreshing the page.",
-            "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial. Recarga la página."
-          )}
-        </DataHealthBanner>
-      ) : null}
-      {truncated ? (
-        <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
-          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>
-            {t(
-              lang,
-              `Totals may be incomplete. This view stopped after ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} rows. The numbers shown are partial.`,
-              `Los totales pueden estar incompletos. Esta vista se detuvo después de ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} filas. Los números que ves son parciales.`
-            )}
-          </span>
-        </div>
-      ) : null}
-      <CockpitTabs tabs={tabs} defaultTab="overview" lang={lang} />
-    </>
   );
 }
 

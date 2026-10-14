@@ -229,3 +229,22 @@ export function buildMenuSummary(
     problem_count: totals.problem_count,
   };
 }
+
+/**
+ * The Cockpit's "Configura tu menú · n/4" chip (D3): the same checklist as
+ * Menú › Resumen. Without the upload history here, a file counts as
+ * uploaded once any dish has a recipe version from it.
+ */
+export function menuSetupProgress(
+  economics: Pick<DishEconomicsResult, "dishes" | "totals">
+): { done: number; total: number; complete: boolean; nextHref: string } {
+  const summary = buildMenuSummary(economics, {
+    excelUploaded: economics.dishes.some((d) => d.recipe_version_id !== null),
+  });
+  return {
+    done: summary.setup.done,
+    total: summary.setup.total,
+    complete: summary.setup.complete,
+    nextHref: "/dashboard/restaurant/menu",
+  };
+}

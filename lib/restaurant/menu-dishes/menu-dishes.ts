@@ -252,6 +252,61 @@ export function moveVariantLocally(
   return next.sort((a, b) => b.net_sales - a.net_sales);
 }
 
+/**
+ * R1-15c: a product may sit in the excluded list (drinks…) and be added to a
+ * dish from the grouping view. Moves its rows out of whichever list holds
+ * them into the target dish; shares are recomputed over the dishes only.
+ */
+export function moveVariantAcross(
+  dishes: readonly MenuDish[],
+  excluded: readonly MenuDish[],
+  odooProductId: number,
+  targetId: string,
+  newDishName?: string
+): { dishes: MenuDish[]; excluded: MenuDish[] } {
+  const inExcluded = excluded.some((d) =>
+    d.variants.some((v) => v.odoo_product_id === odooProductId)
+  );
+  if (!inExcluded) {
+    return {
+      dishes: moveVariantLocally(dishes, odooProductId, targetId, newDishName),
+      excluded: [...excluded],
+    };
+  }
+  const rows: MenuDishVariant[] = [];
+  const keptExcluded: MenuDish[] = [];
+  for (const d of excluded) {
+    const mine = d.variants.filter((v) => v.odoo_product_id === odooProductId);
+    if (mine.length === 0) {
+      keptExcluded.push(d);
+      continue;
+    }
+    rows.push(...mine);
+    const variants = d.variants.filter((v) => !mine.includes(v));
+    if (variants.length > 0)
+      keptExcluded.push({ ...d, variants, ...dishSums(variants) });
+  }
+  // Park the rows in a carrier dish so the one move function does the rest.
+  const carrierId = "__moving__";
+  const carrier: MenuDish = {
+    ...(excluded[0] as MenuDish),
+    id: carrierId,
+    stored: false,
+    name: newDishName ?? "Plato nuevo",
+    status: "confirmed",
+    excluded_reason: null,
+    variants: rows,
+    ...dishSums(rows),
+  };
+  const next = moveVariantLocally(
+    [...dishes, carrier],
+    odooProductId,
+    targetId,
+    newDishName
+  );
+  return { dishes: next, excluded: keptExcluded };
+}
+
 interface Group {
   id: string;
   stored: StoredMenuDish | null;

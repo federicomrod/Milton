@@ -19,7 +19,7 @@ import {
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
 import {
   dishSums,
-  moveVariantLocally,
+  moveVariantAcross,
   type MenuDish,
   type MenuDishVariant,
 } from "@/lib/restaurant/menu-dishes/menu-dishes";
@@ -31,6 +31,8 @@ import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { platosHref } from "@/lib/restaurant/menu-links";
 import { Chip } from "@/components/restaurant/recipes-costing/ui";
 import Link from "next/link";
+import { ProductosView } from "@/components/restaurant/groups/ProductosView";
+import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
 
 const TONE: Record<DishStatus, "ok" | "pur" | "warn" | "grey"> = {
   aprobado: "ok",
@@ -99,6 +101,8 @@ export function MenuDishesScreen({
   const [dishes, setDishes] = useState<MenuDish[]>(menu?.dishes ?? []);
   const [excluded, setExcluded] = useState<MenuDish[]>(menu?.excluded ?? []);
   const [showExcluded, setShowExcluded] = useState(false);
+  const [view, setView] = useState<"platos" | "productos">("platos");
+  const grouping = useItemGroups(data.item_groups);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [moving, setMoving] = useState<{
     dish: MenuDish;
@@ -153,14 +157,15 @@ export function MenuDishesScreen({
     const targetId = typeof target === "string" ? `nuevo:${target}` : target.id;
     setError(null);
     setMoving(null);
-    setDishes((prev) =>
-      moveVariantLocally(
-        prev,
-        variant.odoo_product_id,
-        targetId,
-        typeof target === "string" ? target : undefined
-      )
+    const moved = moveVariantAcross(
+      dishes,
+      excluded,
+      variant.odoo_product_id,
+      targetId,
+      typeof target === "string" ? target : undefined
     );
+    setDishes(moved.dishes);
+    setExcluded(moved.excluded);
     try {
       const saved = await post({
         action: "move",
@@ -183,6 +188,47 @@ export function MenuDishesScreen({
       setExcluded(before.excluded);
       setError(
         err instanceof Error ? err.message : "No pude mover la variante."
+      );
+    }
+  }
+
+  /** Productos view: add products to a dish with the same move, all in one render. */
+  async function addProductsToDish(productIds: number[], dish: MenuDish) {
+    const before = { dishes, excluded };
+    const all = [...dishes, ...excluded].flatMap((d) => d.variants);
+    const variants = productIds
+      .map((id) => all.find((v) => v.odoo_product_id === id))
+      .filter((v): v is MenuDishVariant => !!v);
+    let nextDishes = dishes;
+    let nextExcluded = excluded;
+    for (const v of variants) {
+      const moved = moveVariantAcross(
+        nextDishes,
+        nextExcluded,
+        v.odoo_product_id,
+        dish.id
+      );
+      nextDishes = moved.dishes;
+      nextExcluded = moved.excluded;
+    }
+    setError(null);
+    setDishes(nextDishes);
+    setExcluded(nextExcluded);
+    try {
+      for (const v of variants) {
+        await post({
+          action: "move",
+          odoo_product_id: v.odoo_product_id,
+          odoo_name: v.name,
+          menu_dish_id: dish.id,
+          dish_name: dish.name,
+        });
+      }
+    } catch (err) {
+      setDishes(before.dishes);
+      setExcluded(before.excluded);
+      setError(
+        err instanceof Error ? err.message : "No pude mover los productos."
       );
     }
   }
@@ -306,7 +352,41 @@ export function MenuDishesScreen({
         </div>
       ) : null}
 
-      {moving ? (
+      <div
+        role="group"
+        aria-label="Vista"
+        className="inline-flex rounded-[11px] bg-[#e9ecf2] p-[3px] text-[13px] font-semibold"
+      >
+        {(["platos", "productos"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={view === v}
+            onClick={() => setView(v)}
+            className={
+              "rounded-[9px] px-3.5 py-1.5 " +
+              (view === v
+                ? "bg-white text-[#151c2c] shadow-sm"
+                : "text-[#5b6476]")
+            }
+          >
+            {v === "platos" ? "Platos" : "Productos"}
+          </button>
+        ))}
+      </div>
+
+      {view === "productos" ? (
+        <ProductosView
+          dishes={dishes}
+          excluded={excluded}
+          grouping={grouping}
+          canEdit={data.actor.can_submit}
+          money={money}
+          onAddToDish={addProductsToDish}
+        />
+      ) : null}
+
+      {view === "platos" && moving ? (
         <MovePanel
           moving={moving}
           dishes={dishes}
@@ -316,49 +396,51 @@ export function MenuDishesScreen({
         />
       ) : null}
 
-      <section className="rounded-[14px] border border-[#eef0f4] bg-white px-3 py-1.5">
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr className="border-b border-[#eef0f4] text-left text-[12px] font-semibold text-[#8a92a3]">
-              <th className="px-2 py-1.5">Plato del menú</th>
-              <th className="px-2 py-1.5 text-right">Ventas</th>
-              <th className="px-2 py-1.5 text-right">Margen</th>
-              <th className="px-2 py-1.5 text-right">Costo %</th>
-              <th className="px-2 py-1.5 text-right">Cobertura</th>
-              <th className="px-2 py-1.5">Estado</th>
-              <th className="w-8" />
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((dish) => (
-              <DishRows
-                key={dish.id}
-                dish={dish}
-                open={expanded.has(dish.id)}
-                money={money}
-                canEdit={data.actor.can_submit}
-                onToggle={() => toggle(dish.id)}
-                onOpen={() =>
-                  dish.base_odoo_product_id != null &&
-                  onOpenDish(dish.base_odoo_product_id)
-                }
-                onMove={(variant) => setMoving({ dish, variant })}
-                onExclude={(exclude) => void setDishExcluded(dish, exclude)}
-              />
-            ))}
-            {shown.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-2 py-4 text-[#5b6476]">
-                  No hay platos con ese filtro.
-                </td>
+      {view === "platos" ? (
+        <section className="rounded-[14px] border border-[#eef0f4] bg-white px-3 py-1.5">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-[#eef0f4] text-left text-[12px] font-semibold text-[#8a92a3]">
+                <th className="px-2 py-1.5">Plato del menú</th>
+                <th className="px-2 py-1.5 text-right">Ventas</th>
+                <th className="px-2 py-1.5 text-right">Margen</th>
+                <th className="px-2 py-1.5 text-right">Costo %</th>
+                <th className="px-2 py-1.5 text-right">Cobertura</th>
+                <th className="px-2 py-1.5">Estado</th>
+                <th className="w-8" />
               </tr>
-            ) : null}
-          </tbody>
-        </table>
-        <p className="px-2 py-2 text-[12px] text-[#8a92a3]">
-          Doble clic en un plato para ver sus variantes
-        </p>
-      </section>
+            </thead>
+            <tbody>
+              {shown.map((dish) => (
+                <DishRows
+                  key={dish.id}
+                  dish={dish}
+                  open={expanded.has(dish.id)}
+                  money={money}
+                  canEdit={data.actor.can_submit}
+                  onToggle={() => toggle(dish.id)}
+                  onOpen={() =>
+                    dish.base_odoo_product_id != null &&
+                    onOpenDish(dish.base_odoo_product_id)
+                  }
+                  onMove={(variant) => setMoving({ dish, variant })}
+                  onExclude={(exclude) => void setDishExcluded(dish, exclude)}
+                />
+              ))}
+              {shown.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-2 py-4 text-[#5b6476]">
+                    No hay platos con ese filtro.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+          <p className="px-2 py-2 text-[12px] text-[#8a92a3]">
+            Doble clic en un plato para ver sus variantes
+          </p>
+        </section>
+      ) : null}
     </div>
   );
 }

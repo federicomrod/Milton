@@ -54,6 +54,7 @@ import {
 } from "./copy";
 import { buildApprovalChecklist, type ApprovalChecklist } from "./approval";
 import type { PreparationsOverview } from "./preparations-server";
+import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
 import {
   isUncertainEvidence,
   toReviewLine,
@@ -286,6 +287,8 @@ export interface RecipeCostingWorkspace {
   selected_dish: DishSummary | null;
   /** Platos: every dish's numbers, so choosing one needs no server trip. */
   dish_summaries: DishSummary[] | null;
+  /** R1-15c: the groups on top of the rows (048); null before it is applied. */
+  item_groups: ItemGroupsLoad | null;
   /** R1-10 Platos: menu dishes with their variants, from the loader. */
   menu_dishes: {
     dishes: MenuDish[];
@@ -996,6 +999,7 @@ export function buildRecipeCostingWorkspace(input: {
           : `Meta: ${COVERAGE_GOAL_PCT}% de las ventas de comida con costo aprobado.`,
     },
     upload_draft_pending: input.uploadDraftPending ?? false,
+    item_groups: input.dishEconomics?.item_groups ?? null,
     menu_dishes:
       input.view === "plato" && input.dishEconomics
         ? {

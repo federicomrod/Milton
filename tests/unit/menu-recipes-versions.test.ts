@@ -268,7 +268,7 @@ describe("fetchMenuRecipesData — recipe versions", () => {
     expect(profitability).toContain("fetchCostingRecipeVersions");
 
     const ingredientsPage = readFileSync(
-      "app/dashboard/restaurant/ingredients/page.tsx",
+      "app/dashboard/restaurant/menu/ingredientes/page.tsx",
       "utf8"
     );
     expect(ingredientsPage).toContain("menu-recipes-server");

@@ -56,3 +56,16 @@ export function redirectFromRecetas(
   const query = next.toString();
   return query ? `${path}?${query}` : path;
 }
+
+/** Old /dashboard/restaurant/ingredients URL → Menú › Ingredientes, every param kept. */
+export function redirectToIngredientes(
+  params: Record<string, string | string[] | undefined>
+): string {
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue;
+    for (const v of Array.isArray(value) ? value : [value]) next.append(key, v);
+  }
+  const query = next.toString();
+  return query ? `${INGREDIENTES_PATH}?${query}` : INGREDIENTES_PATH;
+}

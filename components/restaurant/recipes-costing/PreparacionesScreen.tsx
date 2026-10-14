@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
 import type {
@@ -54,7 +54,6 @@ export function PreparacionesScreen({
   data,
   selectedId,
   onSelect,
-  onChanged,
   locationId,
   onBackToDish,
 }: {
@@ -63,8 +62,6 @@ export function PreparacionesScreen({
   onSelect: (componentId: string | null) => void;
   /** Set when the person came from a dish: back to it. */
   onBackToDish?: () => void;
-  /** Refresh the workspace (coverage, dishes) after an approval. */
-  onChanged: () => void;
   locationId?: string | null;
 }) {
   const [overview, setOverview] = useState<PreparationsOverview | null>(null);
@@ -95,10 +92,22 @@ export function PreparacionesScreen({
     };
   }, [locationId, reloadKey]);
 
+  // R1-09c: an edit refreshes only this list (once, after a burst of
+  // edits); the Menú workspace is not reloaded.
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refresh = useCallback(() => {
-    setReloadKey((k) => k + 1);
-    onChanged();
-  }, [onChanged]);
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      refreshTimer.current = null;
+      setReloadKey((k) => k + 1);
+    }, 600);
+  }, []);
+  useEffect(
+    () => () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    },
+    []
+  );
 
   return (
     <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-[330px_1fr]">
@@ -225,6 +234,7 @@ function PreparationDetail({
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(json.error ?? "No pude guardar.");
+      // Yield or approval changed the version: reload this editor once.
       setLocalReload((k) => k + 1);
       onChanged();
     } catch (err) {

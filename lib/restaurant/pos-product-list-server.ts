@@ -119,14 +119,16 @@ export async function loadPosProductList(
       },
       SALES_SELECT
     ),
-    fetchAllRows<Record<string, unknown>>(() =>
-      supabase
+    fetchAllRows<Record<string, unknown>>(() => {
+      const q = supabase
         .from("pos_product_links")
         .select(
           "id, company_id, location_id, odoo_product_id, odoo_name, classification, menu_item_id, link_state, confirmed_by, confirmed_at, confirmed_how, evidence"
         )
-        .eq("company_id", companyId)
-    ),
+        .eq("company_id", companyId);
+      // One dish only: its own link (evidence is heavy).
+      return odooProductId != null ? q.eq("odoo_product_id", odooProductId) : q;
+    }),
     fetchAllRows<RecipeVersionForCoverage>(() =>
       supabase
         .from("recipe_versions")

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ingredientHref } from "@/lib/restaurant/menu-links";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
 import {
   FLAG_NEW_SUGGESTED,
@@ -14,6 +14,13 @@ import {
   type EditorLine,
   type PickerOption,
 } from "@/lib/restaurant/recipe-costing/editor";
+import {
+  CATALOG_CHANGING_ACTIONS,
+  cachedPickerOptions,
+  invalidatePickerOptions,
+  pickerOptionsFor,
+  rememberPickerOptions,
+} from "@/lib/restaurant/recipe-costing/picker-cache";
 import { Chip, GhostBtn, PrimaryBtn } from "./ui";
 
 const MASS = ["oz", "lb", "g", "kg"];
@@ -158,13 +165,30 @@ export function RecipeLinesEditor({
     if (state && onState) onState(state);
   }, [state, onState]);
 
+  /** Use the session's picker list when the server left it out. */
+  const withOptions = useCallback(
+    (next: EditorState): EditorState => {
+      if (next.options_omitted) {
+        const cached = cachedPickerOptions();
+        return cached
+          ? { ...next, options: pickerOptionsFor(cached, componentId) }
+          : next;
+      }
+      // A preparation's list leaves itself out: only a dish's is shared.
+      if (!componentId) rememberPickerOptions(next.options);
+      return next;
+    },
+    [componentId]
+  );
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const res = await call(`/api/restaurant/recipes/editor?${query}`);
+      const omit = cachedPickerOptions() ? "&omit_options=1" : "";
+      const res = await call(`/api/restaurant/recipes/editor?${query}${omit}`);
       if (cancelled) return;
       if (res.ok) {
-        setState(res.state);
+        setState(withOptions(res.state));
         setError(null);
       } else {
         setError(res.error);
@@ -173,7 +197,7 @@ export function RecipeLinesEditor({
     return () => {
       cancelled = true;
     };
-  }, [query, reloadKey]);
+  }, [query, reloadKey, withOptions]);
 
   async function send(
     body: Record<string, unknown>,
@@ -198,10 +222,17 @@ export function RecipeLinesEditor({
       setBusy(true);
     }
     setError(null);
+    const changesCatalog = CATALOG_CHANGING_ACTIONS.has(String(body.action));
+    if (changesCatalog) invalidatePickerOptions();
     const res = await call("/api/restaurant/recipes/editor", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...target, ...body }),
+      body: JSON.stringify({
+        ...target,
+        ...body,
+        // Only the changed line comes back, not the whole picker list.
+        omit_options: !changesCatalog && cachedPickerOptions() !== null,
+      }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -209,7 +240,7 @@ export function RecipeLinesEditor({
       setError(res.error);
       return false;
     }
-    setState(res.state);
+    setState(withOptions(res.state));
     setPicking(null);
     if (optimistic && "add" in optimistic) {
       const id = optimistic.add.id;

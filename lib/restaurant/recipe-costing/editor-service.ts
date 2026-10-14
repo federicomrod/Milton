@@ -202,6 +202,8 @@ export interface EditorState {
   version_id: string | null;
   lines: EditorLine[];
   options: PickerOption[];
+  /** True when `options` was left out because the client caches it. */
+  options_omitted?: boolean;
   pending: number;
   /** Sum of line costs, when every line is costed. */
   total_cost: number | null;
@@ -229,6 +231,8 @@ export interface Ctx {
   /** Edit a preparation instead of a dish. */
   componentId?: string;
   userId: string | null;
+  /** The client already has the picker list (R1-09c): do not send it. */
+  omitOptions?: boolean;
 }
 
 function parseUnitQuestion(
@@ -409,10 +413,12 @@ async function build(
     lines.length > 0 && !anyPending
       ? lines.reduce((sum, line) => sum + (line.amount ?? 0), 0)
       : null;
-  const options = buildPickerOptions({ data, priceOf }).filter(
-    (o) =>
-      !(o.kind === "component" && o.id === loaded.preparation?.component_id)
-  );
+  const options = ctx.omitOptions
+    ? []
+    : buildPickerOptions({ data, priceOf }).filter(
+        (o) =>
+          !(o.kind === "component" && o.id === loaded.preparation?.component_id)
+      );
 
   const state: EditorState = {
     editable,
@@ -428,6 +434,7 @@ async function build(
     version_id: version?.id ?? null,
     lines,
     options,
+    options_omitted: ctx.omitOptions === true,
     pending: lines.filter((line) => line.pending).length,
     total_cost: totalCost,
   };

@@ -10,6 +10,7 @@
 // manual cost entry dated today). Local state is updated from the
 // responses; the page is never refreshed.
 
+import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { dishHref } from "@/lib/restaurant/menu-links";
@@ -319,6 +320,8 @@ function AddIngrediente({
     setSaving(true);
     setError(null);
     try {
+      // Names or prices change: the recipe picker reloads its list.
+      invalidatePickerOptions();
       const res = await fetch("/api/restaurant/ingredients", {
         method: "POST",
         credentials: "include",
@@ -474,6 +477,8 @@ function IngredienteDetail({
         const patch: Record<string, string> = {};
         if (unitChanged) patch.default_unit = unitDraft;
         if (categoryChanged) patch.category = categoryDraft.trim();
+        // Names or prices change: the recipe picker reloads its list.
+        invalidatePickerOptions();
         const res = await fetch(`/api/restaurant/ingredients/${item.id}`, {
           method: "PATCH",
           credentials: "include",
@@ -494,6 +499,8 @@ function IngredienteDetail({
       }
 
       if (entryPrice !== null) {
+        // Names or prices change: the recipe picker reloads its list.
+        invalidatePickerOptions();
         const res = await fetch("/api/restaurant/ingredient-costs", {
           method: "POST",
           credentials: "include",

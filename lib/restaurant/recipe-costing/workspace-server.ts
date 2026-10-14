@@ -18,6 +18,8 @@ import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 import { formatPageDateRangeLabel } from "@/lib/restaurant/page-date-range";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
+import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
+import { ttlCached } from "@/lib/restaurant/ttl-cache";
 import {
   classificationFromStored,
   isPosProductLinkState,
@@ -31,6 +33,30 @@ import {
   type RecipeCostingWorkspace,
   type WorkspaceVersion,
 } from "./workspace";
+
+// R1-09c: these change rarely; one read per minute per company/user
+// instead of one per page load and per save.
+const cachedRole = ttlCached(
+  60_000,
+  (_s: SupabaseClient, companyId: string, userId: string) =>
+    `${companyId}:${userId}`,
+  loadCompanyMembershipRole
+);
+const cachedCompanyName = ttlCached(
+  60_000,
+  (_s: SupabaseClient, companyId: string) => companyId,
+  loadCompanyName
+);
+const cachedCurrency = ttlCached(
+  60_000,
+  (_s: SupabaseClient, companyId: string) => companyId,
+  resolveCompanyCurrency
+);
+const cachedIsAdmin = ttlCached(
+  60_000,
+  (userId: string) => userId,
+  isUserAdminServer
+);
 
 export const COMBO_SYNC_HINT =
   "Los campos de combo ya existen, pero ninguna venta los trae. Sincroniza el POS de nuevo para que Odoo marque los combos.";
@@ -79,7 +105,16 @@ export function parseCostingView(value: string | null): RecipeCostingView {
   return "resumen";
 }
 
-async function probeComboSyncHint(
+// R1-09c: the probe scanned pos_sales_items on every load; its answer
+// only changes after a POS sync, so it is kept for 10 minutes.
+const probeComboSyncHint = ttlCached(
+  10 * 60_000,
+  (_s: SupabaseClient, companyId: string, hasCombos: boolean) =>
+    `${companyId}:${hasCombos}`,
+  probeComboSyncHintUncached
+);
+
+async function probeComboSyncHintUncached(
   supabase: SupabaseClient,
   companyId: string,
   hasCombos: boolean
@@ -129,16 +164,17 @@ export async function loadRecipeCostingWorkspace(
   const [list, roleLoad, companyName, currency, isMiltonStaff] =
     await Promise.all([
       editorOnly
-        ? // Only the open dish's own sales: its price, margin and status.
-          loadDishEconomics(
-            input.companyId,
-            input.startDate ?? null,
-            input.endDate ?? null,
-            input.locationId ?? null,
-            input.selectedOdooProductId ?? null
-          ).then((res) =>
+        ? // R1-09c: after an edit, only the open dish's own sales (no
+          // cost context): the list's numbers stay as last loaded.
+          loadPosProductList(supabase, {
+            companyId: input.companyId,
+            startDate: input.startDate,
+            endDate: input.endDate,
+            locationId: input.locationId,
+            odooProductId: input.selectedOdooProductId,
+          }).then((res) =>
             res.ok
-              ? { ok: true as const, list: res.list, economics: res.result }
+              ? { ok: true as const, list: res.list, economics: null }
               : res
           )
         : // R1-09a: the same loader as Menú, Cockpit and the email, so
@@ -153,22 +189,26 @@ export async function loadRecipeCostingWorkspace(
               ? { ok: true as const, list: res.list, economics: res.result }
               : res
           ),
-      loadCompanyMembershipRole(supabase, input.companyId, input.userId),
-      loadCompanyName(supabase, input.companyId),
-      resolveCompanyCurrency(supabase, input.companyId),
-      isUserAdminServer(input.userId),
+      cachedRole(supabase, input.companyId, input.userId),
+      cachedCompanyName(supabase, input.companyId),
+      cachedCurrency(supabase, input.companyId),
+      cachedIsAdmin(input.userId),
     ]);
   if (list && !list.ok) return list;
 
   const [linksRes, versionsRes, menuRes, history] = await Promise.all([
-    fetchAllRows<Record<string, unknown>>(() =>
-      supabase
+    fetchAllRows<Record<string, unknown>>(() => {
+      const q = supabase
         .from("pos_product_links")
         .select(
           "id, company_id, location_id, odoo_product_id, odoo_name, classification, menu_item_id, link_state, confirmed_by, confirmed_at, confirmed_how, evidence"
         )
-        .eq("company_id", input.companyId)
-    ),
+        .eq("company_id", input.companyId);
+      // After an edit only the open dish's link (evidence is heavy).
+      return editorOnly
+        ? q.eq("odoo_product_id", input.selectedOdooProductId!)
+        : q;
+    }),
     fetchAllRows<WorkspaceVersion>(() =>
       supabase
         .from("recipe_versions")
@@ -177,44 +217,52 @@ export async function loadRecipeCostingWorkspace(
         )
         .eq("company_id", input.companyId)
     ),
-    fetchAllRows<{
-      id: string;
-      name: string;
-      category: string | null;
-      selling_price: number | null;
-    }>(() =>
-      supabase
-        .from("menu_items")
-        .select("id, name, category, selling_price")
-        .eq("company_id", input.companyId)
-    ),
+    editorOnly
+      ? Promise.resolve({ rows: [], truncated: false, error: null })
+      : fetchAllRows<{
+          id: string;
+          name: string;
+          category: string | null;
+          selling_price: number | null;
+        }>(() =>
+          supabase
+            .from("menu_items")
+            .select("id, name, category, selling_price")
+            .eq("company_id", input.companyId)
+        ),
     // Live uploads without their snapshots (each holds ~150 KB of recipes).
-    createSupabaseCostWorkbookRepo(supabase)
-      .listLiveBatchSummaries(input.companyId)
-      .catch(async (err): Promise<CostWorkbookBatchSummary[]> => {
-        // Never hide a finished upload behind a failed summary read: log
-        // it and fall back to the batch rows alone (no snapshot fields).
-        console.error("[recetas] live batch summaries:", err);
-        const { data, error } = await supabase
-          .from("cost_import_batches")
-          .select("id, filename, created_at, undone_at")
-          .eq("company_id", input.companyId)
-          .is("undone_at", null)
-          .order("created_at", { ascending: false });
-        if (error) {
-          console.error("[recetas] live batches:", error.message);
-          return [];
-        }
-        return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
-          id: String(row.id),
-          filename: String(row.filename ?? ""),
-          created_at:
-            typeof row.created_at === "string" ? row.created_at : undefined,
-          undone_at: null,
-          has_recipe_blocks: false,
-          is_recipe_import: /· recetas$/.test(String(row.filename ?? "")),
-        }));
-      }),
+    editorOnly
+      ? Promise.resolve([] as CostWorkbookBatchSummary[])
+      : createSupabaseCostWorkbookRepo(supabase)
+          .listLiveBatchSummaries(input.companyId)
+          .catch(async (err): Promise<CostWorkbookBatchSummary[]> => {
+            // Never hide a finished upload behind a failed summary read: log
+            // it and fall back to the batch rows alone (no snapshot fields).
+            console.error("[recetas] live batch summaries:", err);
+            const { data, error } = await supabase
+              .from("cost_import_batches")
+              .select("id, filename, created_at, undone_at")
+              .eq("company_id", input.companyId)
+              .is("undone_at", null)
+              .order("created_at", { ascending: false });
+            if (error) {
+              console.error("[recetas] live batches:", error.message);
+              return [];
+            }
+            return ((data ?? []) as Array<Record<string, unknown>>).map(
+              (row) => ({
+                id: String(row.id),
+                filename: String(row.filename ?? ""),
+                created_at:
+                  typeof row.created_at === "string"
+                    ? row.created_at
+                    : undefined,
+                undone_at: null,
+                has_recipe_blocks: false,
+                is_recipe_import: /· recetas$/.test(String(row.filename ?? "")),
+              })
+            );
+          }),
   ]);
   if (linksRes.error) {
     return { ok: false, error: "No se pudieron leer los vínculos POS." };
@@ -301,7 +349,15 @@ export async function loadRecipeCostingWorkspace(
   }
 
   // Coverage is the shared loader's number (same as Menú and Cockpit).
-  const coverageTotals = list && list.ok ? list.economics.totals : null;
+  const coverageTotals =
+    list && list.ok
+      ? (list.economics?.totals ?? {
+          coverage_pct: list.list.coverage_pct,
+          food_net_sales: list.list.food_net_sales,
+          excluded_net_sales: list.list.excluded_net_sales,
+          covered_net_sales: list.list.covered_net_sales,
+        })
+      : null;
 
   // Leaving Resumen and coming back keeps the upload's choices (044):
   // a draft that is not fully saved reopens the upload step.

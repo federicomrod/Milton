@@ -895,3 +895,20 @@ describe("a price save does the least work", () => {
     expect(listings).toBe(2);
   });
 });
+
+describe("picker list once per session (R1-09c)", () => {
+  it("leaves the options out when the client has them, and says so", async () => {
+    const d = draft();
+    const full = await loadEditor(ctx(d));
+    const slim = await loadEditor({ ...ctx(d), omitOptions: true });
+    expect(full.ok && slim.ok).toBe(true);
+    if (!full.ok || !slim.ok) return;
+    expect(full.state.options.length).toBeGreaterThan(0);
+    expect(full.state.options_omitted).toBe(false);
+    expect(slim.state.options).toEqual([]);
+    expect(slim.state.options_omitted).toBe(true);
+    // Same lines and total either way.
+    expect(slim.state.lines).toEqual(full.state.lines);
+    expect(slim.state.total_cost).toBe(full.state.total_cost);
+  });
+});

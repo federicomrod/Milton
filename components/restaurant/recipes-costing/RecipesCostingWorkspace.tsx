@@ -6,10 +6,14 @@ import {
   MENU_TAB_PATHS,
   type MenuTab,
 } from "@/lib/restaurant/recetas-redirect";
-import type {
-  RecipeCostingView,
-  RecipeCostingWorkspace,
-} from "@/lib/restaurant/recipe-costing/workspace";
+import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
+import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
+import {
+  markApproved,
+  nextToReview,
+  summaryFromEditorState,
+  withDishSummary,
+} from "@/lib/restaurant/recipe-costing/optimistic";
 import { ConfirmHowDialog } from "./ConfirmHowDialog";
 import { PlatoScreen } from "./PlatoScreen";
 import { PreparacionesScreen } from "./PreparacionesScreen";
@@ -83,31 +87,6 @@ export function RecipesCostingWorkspace({
     [router, searchParams]
   );
 
-  const replaceParams = useCallback(
-    (next: { vista?: RecipeCostingView; producto?: number | null }) => {
-      const target =
-        next.vista === "plato" || next.vista === "preparaciones"
-          ? next.vista
-          : next.vista
-            ? "resumen"
-            : view;
-      if (target !== view) {
-        goToTab(target, {
-          producto: next.producto != null ? String(next.producto) : null,
-        });
-        return;
-      }
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete("vista");
-      if (next.producto != null) params.set("producto", String(next.producto));
-      else if (next.producto === null) params.delete("producto");
-      startNavigation(() => {
-        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-      });
-    },
-    [goToTab, pathname, router, searchParams, view]
-  );
-
   const fetchWorkspace = useCallback(
     async (opts: { productId?: number | null; editorOnly?: boolean } = {}) => {
       const params = new URLSearchParams();
@@ -166,30 +145,12 @@ export function RecipesCostingWorkspace({
               net_sales_label: prev.selected.net_sales_label,
             }
           : fresh;
-      const queueRow = json.plato_queue[0];
-      // The one-dish reload has that dish's sales only: keep its share
-      // of food sales from the full load.
-      const selectedDish =
-        json.selected_dish &&
-        prev.selected_dish?.odoo_product_id ===
-          json.selected_dish.odoo_product_id
-          ? {
-              ...json.selected_dish,
-              share_of_food_sales: prev.selected_dish.share_of_food_sales,
-            }
-          : (json.selected_dish ?? prev.selected_dish);
       return {
         ...prev,
         editor,
         selected,
-        selected_dish: selectedDish,
-        plato_queue: queueRow
-          ? prev.plato_queue.map((row) =>
-              row.odoo_product_id === queueRow.odoo_product_id
-                ? { ...queueRow, share_label: row.share_label }
-                : row
-            )
-          : prev.plato_queue,
+        // The chip follows the editor live (onEditorState); the one-dish
+        // reload only refreshes the editor view (checklist, version).
       };
     });
   }, [fetchWorkspace, reload, selectedId]);
@@ -253,10 +214,6 @@ export function RecipesCostingWorkspace({
     goToTab("preparaciones", extra);
   }
 
-  function open(next: RecipeCostingView, odooProductId?: number) {
-    replaceParams({ vista: next, producto: odooProductId ?? selectedId });
-  }
-
   async function post(url: string, body: Record<string, unknown>) {
     const res = await fetch(url, {
       method: "POST",
@@ -270,10 +227,69 @@ export function RecipesCostingWorkspace({
   const postAndReload = (url: string, body: Record<string, unknown>) =>
     void mutate(() => post(url, body));
 
-  function goTo(odooProductId: number | null | undefined) {
-    if (odooProductId)
-      replaceParams({ vista: "plato", producto: odooProductId });
-  }
+  /**
+   * R1-09c: choosing a dish happens in the browser. The list already has
+   * its numbers (dish_summaries); the URL follows with replaceState and
+   * only the dish's editor view is fetched, in the background.
+   */
+  const selectDish = useCallback(
+    (id: number) => {
+      setData((prev) => ({
+        ...prev,
+        selected:
+          prev.products.find((p) => p.odoo_product_id === id) ?? prev.selected,
+        editor: prev.editor?.odoo_product_id === id ? prev.editor : null,
+        selected_dish:
+          prev.dish_summaries?.find((d) => d.odoo_product_id === id) ??
+          (prev.selected_dish?.odoo_product_id === id
+            ? prev.selected_dish
+            : null),
+      }));
+      const params = new URLSearchParams(window.location.search);
+      params.set("producto", String(id));
+      window.history.replaceState(null, "", `${pathname}?${params.toString()}`);
+      void fetchWorkspace({ productId: id, editorOnly: true })
+        .then((json) =>
+          setData((prev) =>
+            prev.selected?.odoo_product_id !== id
+              ? prev
+              : {
+                  ...prev,
+                  // The one-dish load knows only this dish's sales: keep
+                  // the shares and position from the full list.
+                  editor: json.editor
+                    ? {
+                        ...json.editor,
+                        share_label:
+                          prev.selected?.share_label ?? json.editor.share_label,
+                      }
+                    : null,
+                  selected: json.selected
+                    ? {
+                        ...json.selected,
+                        share_pct: prev.selected.share_pct,
+                        share_label: prev.selected.share_label,
+                        net_sales: prev.selected.net_sales,
+                        net_sales_label: prev.selected.net_sales_label,
+                      }
+                    : prev.selected,
+                }
+          )
+        )
+        .catch(() => setError("No pude abrir ese plato. Intenta otra vez."));
+    },
+    [fetchWorkspace, pathname]
+  );
+
+  /** After each line edit: the dish's cost, chip and margin follow the
+   *  editor's own total at once (no server reload of the list). */
+  const onEditorState = useCallback((state: EditorState) => {
+    setData((prev) => {
+      const current = prev.selected_dish;
+      if (!current) return prev;
+      return withDishSummary(prev, summaryFromEditorState(current, state));
+    });
+  }, []);
 
   /** "Aprobar y siguiente" / "Enviar a aprobación y siguiente": the POS link
    *  and the recipe version are saved as two separate steps on the server. */
@@ -284,8 +300,14 @@ export function RecipesCostingWorkspace({
       setHowOpen(true);
       return;
     }
-    setBusy(true);
+    // R1-09c: approve locally and open the next dish at once; the save
+    // runs in the background and rolls back on an error.
+    const id = editor.odoo_product_id;
+    const before = data;
+    const next = nextToReview(data.plato_queue, id);
     setError(null);
+    if (data.actor.can_approve) setData((prev) => markApproved(prev, id));
+    if (next) selectDish(next);
     try {
       await post("/api/restaurant/recipes/plato/confirm", {
         odoo_product_id: editor.odoo_product_id,
@@ -295,15 +317,12 @@ export function RecipesCostingWorkspace({
         confirmed_how: how ?? "en_pantalla",
         yield_confirmed: editor.checklist.yield_confirmed,
       });
-      // Recompute the queue and coverage, then open the next dish to do.
-      const json = await fetchWorkspace();
-      setData(json);
-      goTo(json.editor?.next_odoo_product_id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Algo falló.");
-      await reload().catch(() => undefined);
-    } finally {
-      setBusy(false);
+      setData(before);
+      selectDish(id);
+      setError(
+        `${editor.odoo_name}: ${err instanceof Error ? err.message : "no se pudo aprobar."}`
+      );
     }
   }
 
@@ -414,7 +433,8 @@ export function RecipesCostingWorkspace({
             data={data}
             locationId={searchParams.get("location")}
             busy={busy}
-            onSelect={(id) => replaceParams({ vista: "plato", producto: id })}
+            onSelect={selectDish}
+            onEditorState={onEditorState}
             onEdited={scheduleReloadDish}
             onPost={postAndReload}
             onConfirm={() => void confirmDish()}
@@ -449,7 +469,6 @@ export function RecipesCostingWorkspace({
                 ? () => goToTab("plato", { producto: String(selectedId) })
                 : undefined
             }
-            onChanged={() => void mutate(async () => undefined)}
             locationId={searchParams.get("location")}
           />
         ) : (

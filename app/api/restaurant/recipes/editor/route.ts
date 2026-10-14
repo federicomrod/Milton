@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
       { status: 400 }
     );
   }
+  const started = Date.now();
   try {
     const result = await loadEditor({
       store: createSupabaseEditorStore(auth.supabase),
@@ -51,6 +52,7 @@ export async function GET(req: NextRequest) {
       componentId: componentId ?? undefined,
       locationId: str(req.nextUrl.searchParams.get("location_id")),
       userId: auth.userId,
+      omitOptions: req.nextUrl.searchParams.get("omit_options") === "1",
     });
     if (!result.ok) {
       return NextResponse.json(
@@ -58,7 +60,12 @@ export async function GET(req: NextRequest) {
         { status: result.status ?? 400 }
       );
     }
-    return NextResponse.json(result.state);
+    const ms = Date.now() - started;
+    // One line per read, to measure it in the logs (no client data).
+    console.info(`[recipes/editor] load ${ms}ms`);
+    return NextResponse.json(result.state, {
+      headers: { "Server-Timing": `load;dur=${ms}` },
+    });
   } catch (err) {
     console.error("[recipes/editor GET]", err);
     return NextResponse.json(
@@ -113,6 +120,7 @@ export async function POST(req: NextRequest) {
         componentId: componentId ?? undefined,
         locationId: str(body.location_id),
         userId: auth.userId,
+        omitOptions: body.omit_options === true,
       },
       action
     );

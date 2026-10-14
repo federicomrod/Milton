@@ -18,7 +18,7 @@ import {
   normalizeMatchName,
   bestNameMatch,
 } from "@/lib/restaurant/cost-workbook/names";
-import { normalizeUnit } from "@/lib/restaurant/units";
+import { isUsableLineUnit, normalizeUnit } from "@/lib/restaurant/units";
 import { matchExistingIngredient } from "./ingredient-match";
 import {
   buildPickerOptions,
@@ -707,7 +707,7 @@ function cleanUnit(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const text = value.trim();
   if (!text || text.length > 24) return null;
-  return normalizeUnit(text) ? text : null;
+  return isUsableLineUnit(text) ? text : null;
 }
 
 /** Edits that touch file (evidence) lines by position: pin them first. */

@@ -652,6 +652,17 @@ function IngredienteDetail({
               El precio guardado es por {item.price_unit}.
             </p>
           )}
+          {/* R1-15a: a save that fails says why, right under the price. */}
+          {error && (
+            <p role="alert" className="mt-1 text-[12px]" style={{ color: RED }}>
+              {error}
+            </p>
+          )}
+          {priceDraft.trim() === "" && item.price === null && (
+            <p className="mt-1 text-[12px]" style={{ color: MUTED }}>
+              ¿Es gratis (agua, hielo)? Escribe 0 para confirmarlo.
+            </p>
+          )}
         </div>
         <div>
           <p className="text-[12px] font-semibold" style={{ color: MUTED }}>

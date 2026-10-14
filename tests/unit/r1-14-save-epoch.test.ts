@@ -80,3 +80,68 @@ describe("save epoch: a copy never outlives a save", () => {
     off();
   });
 });
+
+// ---------------------------------------------------------------------------
+// R1-15a: a preparation approved elsewhere never leaves a dish's editor
+// telling the person to approve it again.
+// ---------------------------------------------------------------------------
+
+import {
+  clearEditors,
+  getCachedEditor,
+  putEditor,
+} from "@/lib/restaurant/recipe-costing/editor-cache";
+import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
+import {
+  cachedPickerOptions,
+  invalidatePickerOptions,
+  rememberPickerOptions,
+} from "@/lib/restaurant/recipe-costing/picker-cache";
+
+const stateWith = (waiting: boolean) =>
+  ({
+    lines: [
+      {
+        kind: "component",
+        amount: waiting ? null : 2.5,
+        pending: waiting,
+      },
+    ],
+  }) as unknown as EditorState;
+
+describe("R1-15a: approving a preparation refreshes every dish", () => {
+  afterEach(() => clearEditors());
+
+  it("a copy with a preparation waiting for approval is never served", () => {
+    putEditor("dish-8oz", stateWith(true));
+    expect(getCachedEditor("dish-8oz")).toBeNull();
+    putEditor("dish-8oz", stateWith(false));
+    expect(getCachedEditor("dish-8oz")?.fresh).toBe(true);
+  });
+
+  it("approving a preparation (a successful write) drops every dish's cached editor and the picker", async () => {
+    putEditor("dish-6oz", stateWith(false));
+    putEditor("dish-8oz", stateWith(false));
+    rememberPickerOptions([]);
+    expect(cachedPickerOptions()).not.toBeNull();
+    const { target } = fakeWindow();
+    const off = installSaveEpochWatcher(target);
+    await target.fetch("/api/restaurant/recipes/preparations/approve", {
+      method: "POST",
+    });
+    expect(getCachedEditor("dish-6oz")).toBeNull();
+    expect(getCachedEditor("dish-8oz")).toBeNull();
+    expect(cachedPickerOptions()).toBeNull();
+    off();
+  });
+
+  it("a plain edit of one dish does not throw away the other dishes' copies", async () => {
+    putEditor("dish-next", stateWith(false));
+    const { target } = fakeWindow();
+    const off = installSaveEpochWatcher(target);
+    await target.fetch("/api/restaurant/recipes/editor", { method: "POST" });
+    expect(getCachedEditor("dish-next")).not.toBeNull();
+    off();
+    invalidatePickerOptions();
+  });
+});

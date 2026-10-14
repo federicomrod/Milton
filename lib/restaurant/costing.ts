@@ -28,7 +28,11 @@
 //     callers see status `circular_component_reference` and the engine
 //     never recurses infinitely.
 
-import { convertUnitStr, normalizeUnit } from "@/lib/restaurant/units";
+import {
+  convertToSubRecipeUnit,
+  convertUnitStr,
+  normalizeUnit,
+} from "@/lib/restaurant/units";
 import { shouldApplyWorkbookMismatch } from "@/lib/restaurant/protect-imported-recipe";
 import { workbookMismatchEngineMessage } from "@/lib/restaurant/cost-workbook/copy";
 import { pickApprovedVersion } from "@/lib/restaurant/recipe-versions";
@@ -122,15 +126,30 @@ export interface CostingRecipeInput {
    * catalog is not read; null/undefined keeps the catalog price.
    */
   unit_cost?: number | null;
+  /**
+   * Where the line's own cost came from ("manual" = a person typed it on the
+   * line). A typed $0 is a price; a 0 from a file or invoice is not.
+   */
+  cost_source?: string | null;
 }
 
-/** A line that carries its own cost (from the client's file). */
-export function lineOwnCost(input: CostingRecipeInput): number | null {
+/**
+ * A line's own price: positive from any source, or exactly 0 only when a
+ * person typed it ("manual"). A 0 from a file or invoice, and a missing
+ * value, are NOT a price: the line then reads the catalog or stays Sin precio.
+ */
+export function lineHasOwnPrice(input: CostingRecipeInput): boolean {
   const cost = input.unit_cost;
-  if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) {
-    return null;
+  if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) {
+    return false;
   }
-  return input.quantity * cost;
+  return cost > 0 || input.cost_source === "manual";
+}
+
+/** A line that carries its own cost (from the client's file or typed). */
+export function lineOwnCost(input: CostingRecipeInput): number | null {
+  if (!lineHasOwnPrice(input)) return null;
+  return input.quantity * (input.unit_cost as number);
 }
 
 /**
@@ -543,7 +562,7 @@ export function calculateComponentCost(
         continue;
       }
       // Convert recipe-input units to the sub-component's output unit.
-      const converted = convertUnitStr(
+      const converted = convertToSubRecipeUnit(
         input.quantity,
         input.unit,
         sub.output_unit ?? ""
@@ -714,7 +733,7 @@ export function calculateMenuItemCost(
         }
         continue;
       }
-      const converted = convertUnitStr(
+      const converted = convertToSubRecipeUnit(
         input.quantity,
         input.unit,
         sub.output_unit ?? ""

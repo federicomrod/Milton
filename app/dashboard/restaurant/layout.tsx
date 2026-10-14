@@ -25,6 +25,7 @@ export default async function RestaurantSubRoutesLayout({
       lang={chrome.lang}
       isAdmin={chrome.isAdmin}
       lastSyncedAt={chrome.lastSyncedAt}
+      userName={chrome.userName ?? null}
     >
       {children}
     </RestaurantShell>

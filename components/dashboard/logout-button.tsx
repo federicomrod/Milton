@@ -8,8 +8,11 @@ import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 
 export function LogoutButton({
   lang = "en",
+  variant = "button",
 }: {
   lang?: PreferredLanguage;
+  /** "link": plain text, for the sidebar footer ("Fede · Cerrar sesión"). */
+  variant?: "button" | "link";
 } = {}) {
   const router = useRouter();
   const supabase = createClient();
@@ -19,6 +22,18 @@ export function LogoutButton({
     router.push("/");
     router.refresh();
   };
+
+  if (variant === "link") {
+    return (
+      <button
+        type="button"
+        onClick={handleLogout}
+        className="py-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
+        {t(lang, "Log out", "Cerrar sesión")}
+      </button>
+    );
+  }
 
   return (
     <Button

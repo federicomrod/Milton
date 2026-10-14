@@ -17,6 +17,8 @@ export const KITCHEN_HREF = "/dashboard/restaurant/kitchen";
 export const DATA_SETTINGS_HREF = "/dashboard/restaurant/data";
 export const ASK_MILTON_HREF = "/dashboard/restaurant/briefing";
 
+/** "main": the five daily areas. "data_settings": ⚙ Configuración,
+ *  pinned at the bottom of the sidebar next to the user (no headers). */
 export type NavGroupId = "main" | "data_settings";
 
 export type PrimaryNavId =
@@ -90,10 +92,11 @@ export function primaryNavLabel(
     case "kitchen":
       return t(lang, "Kitchen", "Cocina");
     case "data_settings":
-      return t(lang, "Data & Settings", "Datos y configuración");
+      return t(lang, "Settings", "Configuración");
   }
 }
 
+/** @deprecated The sidebar has no group headers (R1-09b, A1). */
 export function navGroupLabel(
   group: NavGroupId,
   lang: PreferredLanguage

@@ -395,7 +395,7 @@ export async function applyPriceCatalog(input: {
   const plan = planCatalog(input.read, input.decisions);
   const date = priceDate(input.filename);
 
-  // "Ninguna (dejar Pendiente)": the price-list row of that conflict is not
+  // "Ninguna / Pendiente": the price-list row of that conflict is not
   // saved either, so no price applies until a person adds one.
   const conflicts = findCostConflicts(plan.effective, input.observations);
   const leftPending = new Set(
@@ -581,7 +581,7 @@ export async function applyPriceCatalog(input: {
 }
 
 /**
- * "Ninguna (dejar Pendiente)" after the upload: remove the price this
+ * "Ninguna / Pendiente" after the upload: remove the price this
  * upload saved for the ingredient (nothing else), so no price applies
  * until a person adds one. Older prices from other uploads are kept.
  */
@@ -688,7 +688,7 @@ export async function resolveCostConflict(input: {
 }
 
 /**
- * "Ninguna (dejar Pendiente)" on an unclear price-list row: none of its
+ * "Ninguna / Pendiente" on an unclear price-list row: none of its
  * readings is right. The question closes with no price and no ingredient;
  * the line that uses it stays Pendiente until a person adds a price.
  */

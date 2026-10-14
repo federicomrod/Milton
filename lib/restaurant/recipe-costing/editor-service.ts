@@ -164,7 +164,7 @@ export interface EditorStore {
   ): Promise<
     { ok: true; ingredientId: string } | { ok: false; reason: string }
   >;
-  /** "Ninguna (dejar Pendiente)": close the question with no price. */
+  /** "Ninguna / Pendiente": close the question with no price. */
   skipCatalogQuestion(
     companyId: string,
     itemId: string
@@ -636,7 +636,7 @@ function asYieldRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-/** "Ninguna (dejar Pendiente)" as an answer to a price-list question. */
+/** "Ninguna / Pendiente" as an answer to a price-list question. */
 export const NO_PRICE_ANSWER = "none";
 
 const TYPE_QUANTITY_FIRST =

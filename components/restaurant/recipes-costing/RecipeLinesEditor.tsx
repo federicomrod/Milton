@@ -17,9 +17,9 @@ import {
 import { Chip, GhostBtn, PrimaryBtn } from "./ui";
 
 const MASS = ["oz", "lb", "g", "kg"];
-/** "Ninguna (dejar Pendiente)": none of the readings is right. */
+/** "Ninguna / Pendiente": none of the readings is right. */
 const NO_PRICE = "none";
-const NO_PRICE_LABEL = "Ninguna (dejar Pendiente)";
+const NO_PRICE_LABEL = "Ninguna / Pendiente";
 const VOLUME = ["ml", "l", "gal"];
 
 const UNIT_LABEL: Record<string, string> = {

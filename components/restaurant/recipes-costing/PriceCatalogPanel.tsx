@@ -57,7 +57,7 @@ interface UploadDraftView {
   updated_at: string | null;
 }
 
-/** "Ninguna (dejar Pendiente)": every option is wrong, no price for now. */
+/** "Ninguna / Pendiente": every option is wrong, no price for now. */
 const NONE = "none";
 const NONE_LABEL = "Ninguna / Pendiente";
 

@@ -518,7 +518,7 @@ export function optimisticLine<
     }
     const unitCost = patch.unit_cost ?? line.unit_cost;
     const amount =
-      unitCost !== null && unitCost > 0 && qty > 0
+      unitCost !== null && unitCost >= 0 && qty > 0
         ? qty * unitCost
         : line.amount;
     return {
@@ -589,7 +589,7 @@ export function optimisticAddLine<
 >(state: S, option: PickerOption, qty: number, unit: string): S {
   const sameUnit = option.unit !== null && option.unit === unit;
   const amount =
-    sameUnit && option.unit_cost !== null && option.unit_cost > 0
+    sameUnit && option.unit_cost !== null && option.unit_cost >= 0
       ? qty * option.unit_cost
       : null;
   const line: EditorLine = {

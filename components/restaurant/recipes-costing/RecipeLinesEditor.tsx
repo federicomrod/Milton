@@ -830,7 +830,8 @@ function Row({
             <GhostBtn
               onClick={() => {
                 const n = Number(linePrice);
-                if (Number.isFinite(n) && n > 0) {
+                // Empty is not zero: only a typed 0 is a $0 price.
+                if (linePrice.trim() !== "" && Number.isFinite(n) && n >= 0) {
                   setEditingPrice(false);
                   onLineCost(n);
                 }
@@ -1281,7 +1282,7 @@ function Picker({
               disabled={
                 busy ||
                 !newName.trim() ||
-                (newPrice.trim() !== "" && !(Number(newPrice) > 0)) ||
+                (newPrice.trim() !== "" && !(Number(newPrice) >= 0)) ||
                 (target.mode === "add" && !(Number(lineQty) > 0))
               }
               onClick={() => {
@@ -1289,7 +1290,7 @@ function Picker({
                 onCreate({
                   name: newName.trim(),
                   unit: newUnit,
-                  unit_cost: newPrice.trim() && price > 0 ? price : undefined,
+                  unit_cost: newPrice.trim() && price >= 0 ? price : undefined,
                   quantity: Number(lineQty) || 1,
                   line_unit: lineUnit,
                 });

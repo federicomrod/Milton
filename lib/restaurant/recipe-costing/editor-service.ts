@@ -690,6 +690,19 @@ function cleanQuantity(value: unknown): number | null {
     : null;
 }
 
+/**
+ * A price a person typed: zero is allowed (water, ice) because they typed
+ * it; a missing value is never turned into zero (null = not given).
+ */
+export function cleanPrice(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
+}
+
+/** Note on the price entry, so a $0 is visibly on purpose. */
+const ZERO_PRICE_NOTE = "Precio $0 confirmado a propósito";
+
 function cleanUnit(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const text = value.trim();
@@ -1067,11 +1080,11 @@ export async function applyEdit(
         };
       }
       const price =
-        action.unit_cost === undefined ? null : cleanQuantity(action.unit_cost);
-      if (action.unit_cost !== undefined && !price) {
+        action.unit_cost === undefined ? null : cleanPrice(action.unit_cost);
+      if (action.unit_cost !== undefined && price === null) {
         return {
           ok: false,
-          error: "El precio tiene que ser mayor que cero.",
+          error: "El precio no puede ser negativo.",
           status: 400,
         };
       }
@@ -1091,7 +1104,7 @@ export async function applyEdit(
         defaultUnit: unit,
         currency,
       });
-      if (price) {
+      if (price !== null) {
         await ctx.store.addCostEntry(ctx.companyId, {
           ingredientId: created.id,
           unit,
@@ -1099,7 +1112,10 @@ export async function applyEdit(
           currency,
           date: new Date().toISOString().slice(0, 10),
           dateSource: "manual",
-          note: "Precio al crear el ingrediente en Recetas y costeo",
+          note:
+            price === 0
+              ? ZERO_PRICE_NOTE
+              : "Precio al crear el ingrediente en Recetas y costeo",
         });
       }
       if (action.line_key) {
@@ -1279,11 +1295,11 @@ export async function applyEdit(
         return { ok: false, error: "No encontré esa línea.", status: 404 };
       }
       const cost =
-        action.unit_cost === null ? null : cleanQuantity(action.unit_cost);
-      if (action.unit_cost !== null && !cost) {
+        action.unit_cost === null ? null : cleanPrice(action.unit_cost);
+      if (action.unit_cost !== null && cost === null) {
         return {
           ok: false,
-          error: "El precio tiene que ser mayor que cero.",
+          error: "El precio no puede ser negativo.",
           status: 400,
         };
       }
@@ -1303,7 +1319,7 @@ export async function applyEdit(
           currency,
           date: new Date().toISOString().slice(0, 10),
           dateSource: "manual",
-          note: "Precio corregido en Platos",
+          note: cost === 0 ? ZERO_PRICE_NOTE : "Precio corregido en Platos",
         });
         // The rebuild below reads the catalog loaded at the start of this
         // edit: add the new entry to it instead of loading it again.
@@ -1347,9 +1363,9 @@ export async function applyEdit(
       break;
     }
     case "set_price": {
-      const price = cleanQuantity(action.unit_cost);
+      const price = cleanPrice(action.unit_cost);
       const unit = cleanUnit(action.unit);
-      if (!price || !unit) {
+      if (price === null || !unit) {
         return {
           ok: false,
           error: "Indica un precio y una unidad válidos.",
@@ -1371,7 +1387,10 @@ export async function applyEdit(
         currency,
         date: new Date().toISOString().slice(0, 10),
         dateSource: "manual",
-        note: "Precio corregido en Recetas y costeo",
+        note:
+          price === 0
+            ? ZERO_PRICE_NOTE
+            : "Precio corregido en Recetas y costeo",
       });
       break;
     }

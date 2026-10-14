@@ -175,6 +175,18 @@ export interface CostingOptions {
  * `unit_cost` / `unit` in the result are the NORMALIZED projection — the
  * engine never reasons against the raw supplier units.
  */
+/**
+ * A price of $0 is real only when a person typed it on purpose (water, ice):
+ * a manual entry. A 0 that came from a file, an invoice or a blank cell is a
+ * missing price, never a free ingredient: it is ignored here, so the
+ * ingredient stays "Sin precio" instead of being costed at $0.
+ */
+export function isUnconfirmedZeroEntry(e: IngredientCostEntry): boolean {
+  const zero =
+    Number(e.normalized_unit_cost) === 0 || Number(e.unit_cost) === 0;
+  return zero && e.source_type !== "manual";
+}
+
 export function getLatestIngredientCost(
   ingredientId: string,
   data: CostingData,
@@ -187,7 +199,9 @@ export function getLatestIngredientCost(
   // Filter by as-of on the price's effective date (fall back to cost_date
   // for rows that predate 036), then sort newest first.
   const entryDate = (e: IngredientCostEntry) => e.effective_date || e.cost_date;
-  const eligible = entries.filter((e) => !asOf || entryDate(e) <= asOf);
+  const eligible = entries.filter(
+    (e) => (!asOf || entryDate(e) <= asOf) && !isUnconfirmedZeroEntry(e)
+  );
   eligible.sort((a, b) => {
     const aDate = entryDate(a);
     const bDate = entryDate(b);

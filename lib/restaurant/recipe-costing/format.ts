@@ -44,7 +44,8 @@ export function lineCostDisplay(input: {
   unit_cost?: number | null;
   currency?: string;
 }): { label: string; amount: number | null } {
-  if (input.pending || input.unit_cost == null || input.unit_cost <= 0) {
+  // A confirmed $0 (water) is a price; only a missing one is Pendiente.
+  if (input.pending || input.unit_cost == null || input.unit_cost < 0) {
     return { label: pendingCostLabel(), amount: null };
   }
   return {

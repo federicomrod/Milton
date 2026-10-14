@@ -435,3 +435,38 @@ describe("fetchAllRows with a remembered size", () => {
     expect(b.pages).toBe(a.pages);
   });
 });
+
+describe("the editor read (used by the read-ahead) never writes", () => {
+  it("loadEditor touches no write method of the store", async () => {
+    const state = draftState();
+    const base = createMemoryEditorStore(state);
+    const writes: string[] = [];
+    const store = new Proxy(base, {
+      get(target, prop: string) {
+        const value = (target as unknown as Record<string, unknown>)[prop];
+        if (
+          typeof value === "function" &&
+          /^(insert|update|delete|save|set|add|approve|resolve|create|remember|answer|skip)/.test(
+            prop
+          )
+        ) {
+          return (...args: unknown[]) => {
+            writes.push(prop);
+            return (value as (...a: unknown[]) => unknown)(...args);
+          };
+        }
+        return value;
+      },
+    });
+    const result = await loadEditor({
+      store,
+      companyId: "co-1",
+      odooProductId: 7,
+      locationId: null,
+      userId: "u1",
+    });
+    expect(result.ok).toBe(true);
+    expect(writes).toEqual([]);
+    expect(state.inputs[0].quantity).toBe(2);
+  });
+});

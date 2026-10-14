@@ -34,6 +34,7 @@ import {
   markTabsStale,
   menuTabKey,
   putTab,
+  tabEpoch,
 } from "@/lib/restaurant/recipe-costing/menu-tab-cache";
 import { registerMenuTabSwitcher } from "@/lib/restaurant/recipe-costing/menu-tab-bridge";
 import { cachedPickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
@@ -105,6 +106,8 @@ export function RecipesCostingWorkspace({
   const dishPayloads = useRef(
     new Map<string, { json: RecipeCostingWorkspace; at: number }>()
   );
+  /** Bumped when a payload is dropped: a read in flight then is not stored. */
+  const dishEpoch = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [howOpen, setHowOpen] = useState(false);
@@ -242,9 +245,13 @@ export function RecipesCostingWorkspace({
   );
 
   const reload = useCallback(async () => {
+    const epochAtStart = tabEpoch();
     const json = await fetchWorkspace();
     setData(json);
-    putTab(menuTabKey(view, shellFromLocation()), json);
+    // A save that landed while this was in flight keeps the cache stale.
+    if (tabEpoch() === epochAtStart) {
+      putTab(menuTabKey(view, shellFromLocation()), json);
+    }
   }, [fetchWorkspace, view]);
 
   /** After an ingredient edit: refresh only the open dish (no sales scan);
@@ -303,7 +310,14 @@ export function RecipesCostingWorkspace({
   // a price changed elsewhere must not be shown from here.
   useEffect(() => () => clearEditors(), []);
   // A catalog edit moves every dish's numbers: the dishes read ahead go too.
-  useEffect(() => onEditorsCleared(() => dishPayloads.current.clear()), []);
+  useEffect(
+    () =>
+      onEditorsCleared(() => {
+        dishEpoch.current++;
+        dishPayloads.current.clear();
+      }),
+    []
+  );
 
   const dishPayloadKey = useCallback((id: number) => {
     const shell = shellFromLocation();
@@ -322,6 +336,7 @@ export function RecipesCostingWorkspace({
       new URLSearchParams(window.location.search).get("producto")
     );
     if (Number.isInteger(open) && open > 0) {
+      dishEpoch.current++;
       dishPayloads.current.delete(dishPayloadKey(open));
     }
     if (reloadTimer.current) clearTimeout(reloadTimer.current);
@@ -343,6 +358,7 @@ export function RecipesCostingWorkspace({
     try {
       await fn();
       markTabsStale();
+      dishEpoch.current++;
       dishPayloads.current.clear();
       await reload();
     } catch (err) {
@@ -447,8 +463,13 @@ export function RecipesCostingWorkspace({
       const key = dishPayloadKey(id);
       const held = dishPayloads.current.get(key);
       if (held && Date.now() - held.at < DISH_PAYLOAD_FRESH_MS) return;
+      const epochAtStart = dishEpoch.current;
       void fetchWorkspace({ productId: id, editorOnly: true, view: "plato" })
-        .then((json) => dishPayloads.current.set(key, { json, at: Date.now() }))
+        .then((json) => {
+          if (dishEpoch.current === epochAtStart) {
+            dishPayloads.current.set(key, { json, at: Date.now() });
+          }
+        })
         .catch(() => undefined);
     },
     [dishPayloadKey, fetchWorkspace, searchParams]
@@ -498,9 +519,12 @@ export function RecipesCostingWorkspace({
         applyDishPayload(id, held.json);
         return;
       }
+      const epochAtStart = dishEpoch.current;
       void fetchWorkspace({ productId: id, editorOnly: true })
         .then((json) => {
-          dishPayloads.current.set(key, { json, at: Date.now() });
+          if (dishEpoch.current === epochAtStart) {
+            dishPayloads.current.set(key, { json, at: Date.now() });
+          }
           applyDishPayload(id, json);
         })
         .catch(() => setError("No pude abrir ese plato. Intenta otra vez."));
@@ -561,6 +585,7 @@ export function RecipesCostingWorkspace({
     // The dish changes state: what was remembered about it, and what the
     // other tabs show, is out of date.
     dropEditorsForProduct(id);
+    dishEpoch.current++;
     dishPayloads.current.delete(dishPayloadKey(id));
     markTabsStale();
     if (data.actor.can_approve) setData((prev) => markApproved(prev, id));

@@ -171,4 +171,27 @@ describe("Menú tab cache", () => {
     ).toBeNull();
     expect(getCachedTab("t")).toBeNull();
   });
+
+  it("a save while a read is in flight: its answer is not cached; the read is repeated", async () => {
+    let calls = 0;
+    const load = vi.fn(async () => {
+      calls++;
+      const answer = workspace(calls === 1 ? "pre-save" : "post-save");
+      if (calls === 1) markTabsStale(); // the save lands mid-flight
+      return answer;
+    });
+    const got = await loadTab("t", load);
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(got).toEqual(workspace("post-save"));
+    expect(getCachedTab("t")?.data).toEqual(workspace("post-save"));
+  });
+
+  it("saves that keep arriving: nothing cached, nothing returned", async () => {
+    const got = await loadTab("t", async () => {
+      markTabsStale();
+      return workspace("pre-save");
+    });
+    expect(got).toBeNull();
+    expect(getCachedTab("t")).toBeNull();
+  });
 });

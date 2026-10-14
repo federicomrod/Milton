@@ -23,6 +23,12 @@ interface Entry {
 const entries = new Map<string, Entry>();
 const inflight = new Map<string, Promise<RecipeCostingWorkspace | null>>();
 let generation = 0;
+/** Bumped by every invalidation; a read that started before it is stale. */
+let epoch = 0;
+
+export function tabEpoch(): number {
+  return epoch;
+}
 
 export function menuTabKey(
   view: MenuTabView,
@@ -61,6 +67,7 @@ export function putTab(
 
 /** Any save that other tabs show (approval, price, link): re-read them. */
 export function markTabsStale(now: number = Date.now()): void {
+  epoch++;
   // Still shown at once, but no longer "fresh": the next visit re-reads.
   for (const entry of entries.values()) {
     entry.at = Math.min(entry.at, now - TAB_FRESH_MS - 1);
@@ -73,7 +80,12 @@ export function clearTabs(): void {
   generation++;
 }
 
-/** One read per tab at a time; the result is cached unless cleared meanwhile. */
+/**
+ * One read per tab at a time. A save while the read is on its way makes its
+ * answer possibly pre-save: it is never cached or returned; the read is
+ * repeated (twice at most) and, if saves keep arriving, the answer is null
+ * so the caller keeps what it has or loads the page normally.
+ */
 export function loadTab(
   key: string,
   load: () => Promise<RecipeCostingWorkspace | null>
@@ -81,11 +93,18 @@ export function loadTab(
   const running = inflight.get(key);
   if (running) return running;
   const started = generation;
-  const run = load()
-    .then((data) => {
-      if (data && started === generation) putTab(key, data);
-      return data;
-    })
+  const attempt = async (
+    triesLeft: number
+  ): Promise<RecipeCostingWorkspace | null> => {
+    const epochAtStart = epoch;
+    const data = await load();
+    if (started !== generation) return data;
+    if (epoch !== epochAtStart)
+      return triesLeft > 0 ? attempt(triesLeft - 1) : null;
+    if (data) putTab(key, data);
+    return data;
+  };
+  const run = attempt(2)
     .catch(() => null)
     .finally(() => {
       if (inflight.get(key) === run) inflight.delete(key);

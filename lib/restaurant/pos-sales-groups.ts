@@ -120,7 +120,9 @@ export async function loadPosSalesGroups(
         "[pos-sales-groups] rpc unavailable, reading rows:",
         error.message
       );
-      unavailableUntil = Date.now() + UNAVAILABLE_MS;
+      // Not a member (42501) is about this caller, not the function.
+      if (error.code !== "42501")
+        unavailableUntil = Date.now() + UNAVAILABLE_MS;
     }
     return { ok: false };
   }

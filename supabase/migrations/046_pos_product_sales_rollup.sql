@@ -31,9 +31,10 @@
 --
 -- SAFETY (additive, idempotent, no data touched)
 --   * CREATE OR REPLACE FUNCTION only. No table, column or row changes.
---   * SECURITY DEFINER after a single is_company_member() check (empty
---     array for a non-member), the same pattern as cockpit_pos_rollup
---     (032). search_path pinned.
+--   * SECURITY DEFINER after a single is_company_member() check (error
+--     42501 for a non-member, so callers fall back instead of showing zero
+--     sales), the same pattern as cockpit_pos_rollup (032). search_path
+--     pinned. EXECUTE is revoked from PUBLIC and anon on both functions.
 --   * Needs 038 (combo columns) — the app falls back to the raw-row walk
 --     if this function is missing or errors, so applying it is optional
 --     for correctness and only buys speed.
@@ -86,9 +87,13 @@ AS $$
 DECLARE
   result jsonb;
 BEGIN
-  -- Fail closed: never aggregate another company's lines, even as DEFINER.
+  -- Fail closed and loud: never aggregate another company's lines, even
+  -- as DEFINER, and never answer "no sales" to someone who may not read
+  -- them. The app treats the error as "function unavailable" and falls
+  -- back to reading rows through RLS.
   IF p_company_id IS NULL OR NOT public.is_company_member(p_company_id) THEN
-    RETURN '[]'::jsonb;
+    RAISE EXCEPTION 'not a member of this company'
+      USING ERRCODE = '42501';
   END IF;
 
   WITH lines AS (
@@ -175,4 +180,10 @@ $$;
 
 REVOKE ALL ON FUNCTION public.pos_product_sales_groups(uuid, uuid, date, date, integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.pos_product_sales_groups(uuid, uuid, date, date, integer)
+  TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.pos_product_sales_groups(uuid, uuid, date, date, integer) FROM anon;
+REVOKE ALL ON FUNCTION public.pos_odoo_product_id(jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.pos_odoo_product_id(jsonb) FROM anon;
+GRANT EXECUTE ON FUNCTION public.pos_odoo_product_id(jsonb)
   TO authenticated, service_role;

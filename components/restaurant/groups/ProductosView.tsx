@@ -6,7 +6,7 @@
 // bar. Every figure is the roll-up of costing/rollup.ts; this file only
 // arranges rows and calls the pure actions of group-ops.
 
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import {
   buildGroupTree,
   costPctLabel,
@@ -50,6 +50,9 @@ import {
   useRememberedSet,
   type useItemGroups,
 } from "./use-item-groups";
+import { RowActions } from "./RowActions";
+import { SearchBox } from "@/components/restaurant/ui/SearchBox";
+import { useProgressiveCount } from "./use-progressive";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
 import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
 import { foldText, searchTree } from "@/lib/restaurant/groups/search";
@@ -74,7 +77,7 @@ function nodeValue(
     case "cost":
       return node.rollup.food_cost_pct;
     case "share":
-      return node.share_pct;
+      return node.rollup.net_sales;
     default:
       return null;
   }
@@ -109,6 +112,9 @@ export function ProductosView({
   canEdit,
   money,
   onAddToDish,
+  onDrillDish,
+  onDrillGroup,
+  onOpenRecipe,
 }: {
   dishes: readonly MenuDish[];
   excluded: readonly MenuDish[];
@@ -117,6 +123,10 @@ export function ProductosView({
   money: (n: number) => string;
   /** Add products to a menu dish: the same "mover variante" as the Platos view. */
   onAddToDish: (productIds: number[], dish: MenuDish) => void;
+  /** Open the drill view of a dish, or of a group (all its members). */
+  onDrillDish: (dishId: string) => void;
+  onDrillGroup: (name: string, variantKeys: string[]) => void;
+  onOpenRecipe: (odooProductId: number) => void;
 }) {
   const [filter, setFilter] = useState<GroupingFilterValue>("todos");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -202,13 +212,42 @@ export function ProductosView({
     [dishes, groupOptions]
   );
 
-  // Suggestions: heuristics only, for the products with no group.
-  const suggestions = useMemo(() => {
-    const targets: SuggestTarget[] = [
-      ...dishes.map(
-        (d): SuggestTarget => ({ id: d.id, name: d.name, kind: "dish" })
-      ),
-    ];
+  // Search finds groups and products; sort orders groups among themselves
+  // and the children inside each group (children stay under their parent).
+  const { visibleTop, searchOpen } = useMemo(() => {
+    const base =
+      filter === "todos"
+        ? tree.top
+        : filter === "agrupados"
+          ? tree.top.filter((n) => n.kind === "group")
+          : [];
+    const found = searchTree(base, query);
+    return {
+      visibleTop: sortTree(found.nodes, sort, nodeValue),
+      searchOpen: found.open,
+    };
+  }, [filter, tree.top, query, sort]);
+  const openIds = useMemo(
+    () => new Set([...open.set, ...searchOpen]),
+    [open.set, searchOpen]
+  );
+  const ungroupedLeaves = useMemo(() => {
+    const seen = new Set<string>();
+    const q = foldText(query);
+    const list = tree.ungrouped.filter((l) =>
+      seen.has(l.ref) || (q && !foldText(l.name).includes(q))
+        ? false
+        : (seen.add(l.ref), true)
+    );
+    return sortRows(list, sort, leafValue);
+  }, [tree.ungrouped, query, sort]);
+
+  // Suggestions: heuristics only, worked out when a row (or the selection)
+  // needs one, and remembered until the groups change.
+  const suggestionOf = useMemo(() => {
+    const targets: SuggestTarget[] = dishes.map(
+      (d): SuggestTarget => ({ id: d.id, name: d.name, kind: "dish" })
+    );
     const nodes: TreeNode[] = [];
     collect(tree.top, nodes);
     for (const n of nodes) {
@@ -220,16 +259,38 @@ export function ProductosView({
         memberNames: leavesUnder(n).map((l) => l.name),
       });
     }
-    const out = new Map<string, Suggestion | null>();
-    for (const ref of ungroupedRefs) {
+    const cache = new Map<string, Suggestion | null>();
+    return (ref: string): Suggestion | null => {
+      if (cache.has(ref)) return cache.get(ref) ?? null;
       const leaf = leafByRef.get(ref);
-      if (leaf) out.set(ref, suggestGroup(leaf.name, targets));
-    }
-    return out;
-  }, [dishes, tree, ungroupedRefs, leafByRef]);
+      const found = leaf ? suggestGroup(leaf.name, targets) : null;
+      cache.set(ref, found);
+      return found;
+    };
+  }, [dishes, tree, leafByRef]);
 
-  const selectedRefs = [...selected].filter((r) => leafByRef.has(r));
-  const shared = sharedSuggestion(suggestions, selectedRefs);
+  // Only what is on screen can be selected, acted on or counted.
+  const renderedRefs = useMemo(() => {
+    const out = new Set<string>();
+    if (filter === "sin_agrupar") {
+      for (const l of ungroupedLeaves) out.add(l.ref);
+      return out;
+    }
+    const walk = (nodes: readonly TreeNode[]) => {
+      for (const n of nodes) {
+        if (n.kind === "leaf" && n.leaf) out.add(n.leaf.ref);
+        else if (openIds.has(n.id)) walk(n.children);
+      }
+    };
+    walk(visibleTop);
+    return out;
+  }, [filter, ungroupedLeaves, visibleTop, openIds]);
+
+  const selectedRefs = [...selected].filter((r) => renderedRefs.has(r));
+  const shared = sharedSuggestion(
+    new Map(selectedRefs.map((r) => [r, suggestionOf(r)])),
+    selectedRefs
+  );
   const selectedSales = selectedRefs.reduce(
     (s, r) => s + (leafByRef.get(r)?.net_sales ?? 0),
     0
@@ -245,13 +306,16 @@ export function ProductosView({
   );
 
   const clear = () => setSelected(new Set());
-  const toggleSelect = (ref: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(ref)) next.delete(ref);
-      else next.add(ref);
-      return next;
-    });
+  const toggleSelect = useCallback(
+    (ref: string) =>
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(ref)) next.delete(ref);
+        else next.add(ref);
+        return next;
+      }),
+    []
+  );
 
   /** Products with a dish nest by the dish; the rest are plain members. */
   function split(refs: readonly string[]): {
@@ -322,35 +386,60 @@ export function ProductosView({
     await grouping.run((s) => removeFromGroups(s, { items, dishes: dishRefs }));
   }
 
-  // Search finds groups and products; sort orders groups among themselves
-  // and the children inside each group (children stay under their parent).
-  const { visibleTop, searchOpen } = useMemo(() => {
-    const base =
-      filter === "todos"
-        ? tree.top
-        : filter === "agrupados"
-          ? tree.top.filter((n) => n.kind === "group")
-          : [];
-    const found = searchTree(base, query);
-    return {
-      visibleTop: sortTree(found.nodes, sort, nodeValue),
-      searchOpen: found.open,
-    };
-  }, [filter, tree.top, query, sort]);
-  const openIds = useMemo(
-    () => new Set([...open.set, ...searchOpen]),
-    [open.set, searchOpen]
+  const onRename = useCallback(
+    (id: string, name: string) => {
+      setRenaming(null);
+      void grouping.run((s) => renameGroup(s, id, name));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [grouping.run]
   );
-  const ungroupedLeaves = useMemo(() => {
-    const seen = new Set<string>();
-    const q = foldText(query);
-    const list = tree.ungrouped.filter((l) =>
-      seen.has(l.ref) || (q && !foldText(l.name).includes(q))
-        ? false
-        : (seen.add(l.ref), true)
-    );
-    return sortRows(list, sort, leafValue);
-  }, [tree.ungrouped, query, sort]);
+  const onUngroupGroup = useCallback(
+    (id: string) => void grouping.run((s) => ungroupGroup(s, id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [grouping.run]
+  );
+  const onPicker = useCallback(
+    (kind: "combine" | "move", groupId: string) => setPicker({ kind, groupId }),
+    []
+  );
+  const dishById = useMemo(
+    () => new Map(dishes.map((d) => [d.id, d])),
+    [dishes]
+  );
+  /** The menu dish a node stands for (its auto level), if it is one. */
+  const dishOfNode = useCallback(
+    (node: TreeNode): MenuDish | null => {
+      if (!(node.group?.source === "auto" || node.virtual)) return null;
+      const id = leavesUnder(node)[0]?.menu_dish_id;
+      return id ? (dishById.get(id) ?? null) : null;
+    },
+    [dishById]
+  );
+  const onDrillNode = useCallback(
+    (node: TreeNode) => {
+      const dish = dishOfNode(node);
+      if (dish) onDrillDish(dish.id);
+      else
+        onDrillGroup(
+          node.name,
+          leavesUnder(node).map((l) => l.key)
+        );
+    },
+    [dishOfNode, onDrillDish, onDrillGroup]
+  );
+  const onRecipeNode = useCallback(
+    (node: TreeNode) => {
+      const base = dishOfNode(node)?.base_odoo_product_id;
+      if (base != null) onOpenRecipe(base);
+    },
+    [dishOfNode, onOpenRecipe]
+  );
+  const shownRows = useProgressiveCount(
+    filter === "sin_agrupar" ? ungroupedLeaves.length : visibleTop.length,
+    `${filter}|${query}|${sort?.key}|${sort?.dir}`
+  );
+  const totalSales = tree.total.net_sales;
 
   const note =
     counts.ungrouped > 0 && counts.share !== null
@@ -367,13 +456,11 @@ export function ProductosView({
           Mientras tanto puedes ver los productos, no guardar grupos.
         </p>
       ) : null}
-      <input
-        type="search"
+      <SearchBox
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={setQuery}
         placeholder="Buscar producto o grupo…"
-        aria-label="Buscar producto o grupo"
-        className="h-9 w-full max-w-md rounded-lg border border-[#e3e7ee] bg-white px-3 text-[13px] text-[#151c2c] outline-none focus:border-[#f28c28]"
+        className="max-w-xl"
       />
       <GroupingToolbar
         grouping={grouping}
@@ -418,10 +505,10 @@ export function ProductosView({
         />
       ) : null}
 
-      <section className="rounded-[14px] border border-[#eef0f4] bg-white px-3 py-1.5">
+      <section className="rounded-[14px] border border-[#dbe3f7] bg-white px-3 py-1.5">
         <table className="w-full text-[13px]">
           <thead>
-            <tr className="border-b border-[#eef0f4] text-left text-[12px] font-semibold text-[#8a92a3]">
+            <tr className="border-b border-[#dbe3f7] bg-[#f3f6fd] text-left text-[12px] font-semibold text-[#4a5a85]">
               <th className="w-8" />
               <SortTh sortKey="name" sort={sort} onSort={toggleSort}>
                 {filter === "sin_agrupar" ? "Producto" : "Grupo / producto"}
@@ -456,7 +543,7 @@ export function ProductosView({
                 onSort={toggleSort}
                 align="right"
               >
-                % del total
+                % de ventas totales
               </SortTh>
               <th className="px-2 py-1.5">
                 {filter === "sin_agrupar" ? "Sugerencia" : ""}
@@ -466,52 +553,54 @@ export function ProductosView({
           </thead>
           <tbody>
             {filter === "sin_agrupar"
-              ? ungroupedLeaves.map((leaf) => (
-                  <LeafRow
-                    key={leaf.ref}
-                    leaf={leaf}
-                    depth={0}
-                    share={null}
-                    money={money}
-                    canEdit={canEdit}
-                    checked={selected.has(leaf.ref)}
-                    onCheck={() => toggleSelect(leaf.ref)}
-                    suggestion={
-                      <SuggestionChip
-                        targetName={
-                          suggestions.get(leaf.ref)?.target.name ?? null
-                        }
-                        onAccept={() => {
-                          const t = suggestions.get(leaf.ref)?.target;
-                          if (t) void addRefsTo([leaf.ref], t);
-                        }}
-                      />
-                    }
-                  />
-                ))
-              : visibleTop.map((node) => (
-                  <NodeRows
-                    key={node.id}
-                    node={node}
-                    money={money}
-                    canEdit={canEdit}
-                    open={openIds}
-                    highlightId={highlightId}
-                    onToggle={open.toggle}
-                    selected={selected}
-                    onCheck={toggleSelect}
-                    renaming={renaming}
-                    onRenaming={setRenaming}
-                    onRename={(id, name) => {
-                      setRenaming(null);
-                      void grouping.run((s) => renameGroup(s, id, name));
-                    }}
-                    onUngroup={(id) =>
-                      void grouping.run((s) => ungroupGroup(s, id))
-                    }
-                    onPicker={(kind, groupId) => setPicker({ kind, groupId })}
-                  />
-                ))}
+              ? ungroupedLeaves.slice(0, shownRows).map((leaf) => {
+                  const suggestion = suggestionOf(leaf.ref);
+                  return (
+                    <LeafRow
+                      key={leaf.ref}
+                      leaf={leaf}
+                      depth={0}
+                      totalSales={totalSales}
+                      money={money}
+                      canEdit={canEdit}
+                      checked={selected.has(leaf.ref)}
+                      onCheck={toggleSelect}
+                      suggestion={
+                        <SuggestionChip
+                          targetName={suggestion?.target.name ?? null}
+                          onAccept={() => {
+                            if (suggestion)
+                              void addRefsTo([leaf.ref], suggestion.target);
+                          }}
+                        />
+                      }
+                    />
+                  );
+                })
+              : visibleTop
+                  .slice(0, shownRows)
+                  .map((node) => (
+                    <NodeRows
+                      key={node.id}
+                      node={node}
+                      money={money}
+                      canEdit={canEdit}
+                      totalSales={totalSales}
+                      open={openIds}
+                      highlightId={highlightId}
+                      onToggle={open.toggle}
+                      selected={selected}
+                      onCheck={toggleSelect}
+                      renaming={renaming}
+                      onRenaming={setRenaming}
+                      onRename={onRename}
+                      onUngroup={onUngroupGroup}
+                      onPicker={onPicker}
+                      isDish={dishOfNode}
+                      onDrill={onDrillNode}
+                      onRecipe={onRecipeNode}
+                    />
+                  ))}
             {(filter === "sin_agrupar"
               ? ungroupedLeaves.length
               : visibleTop.length) === 0 ? (
@@ -551,10 +640,21 @@ function leavesUnderAll(top: readonly TreeNode[]): TreeLeaf[] {
 const pctText = (n: number) =>
   `${n.toLocaleString("es", { maximumFractionDigits: 0 })}%`;
 
+/** Share of ALL sales: the same base on every row, parent or child. */
+function shareText(sales: number, total: number): string {
+  if (!(total > 0)) return "—";
+  const v = (sales / total) * 100;
+  if (v >= 10) return `${Math.round(v)}%`;
+  if (v >= 0.1)
+    return `${v.toLocaleString("es", { maximumFractionDigits: 1 })}%`;
+  return v > 0 ? "<0,1%" : "0%";
+}
+
 function NodeRows(props: {
   node: TreeNode;
   money: (n: number) => string;
   canEdit: boolean;
+  totalSales: number;
   open: Set<string>;
   highlightId: string | null;
   onToggle: (id: string) => void;
@@ -565,67 +665,92 @@ function NodeRows(props: {
   onRename: (id: string, name: string) => void;
   onUngroup: (id: string) => void;
   onPicker: (kind: "combine" | "move", groupId: string) => void;
+  isDish: (node: TreeNode) => MenuDish | null;
+  onDrill: (node: TreeNode) => void;
+  onRecipe: (node: TreeNode) => void;
 }) {
-  const { node, money, canEdit } = props;
+  const { node, money, canEdit, totalSales } = props;
   if (node.kind === "leaf" && node.leaf) {
     return (
       <LeafRow
         leaf={node.leaf}
         depth={node.depth}
-        share={node.share_pct}
+        totalSales={totalSales}
         money={money}
         canEdit={canEdit}
         checked={props.selected.has(node.leaf.ref)}
-        onCheck={() => props.onCheck(node.leaf!.ref)}
+        onCheck={props.onCheck}
       />
     );
   }
   const isOpen = props.open.has(node.id);
   const isAuto = node.group?.source === "auto" || node.virtual;
   const stored = !!node.group && !node.virtual;
+  const dish = props.isDish(node);
   const r = node.rollup;
   return (
     <>
       <tr
         data-group-id={node.group ? node.id : undefined}
         className={
-          "border-b border-[#f2f3f6] font-semibold transition-colors duration-700 " +
+          "group/row border-b border-[#dbe3f7] font-semibold transition-colors duration-700 " +
           (props.highlightId === node.id
-            ? "bg-[#ffe9c2] outline outline-2 -outline-offset-2 outline-[#f28c28]"
-            : "bg-[#fafbfc]")
+            ? "bg-[#cfdcfa] outline outline-2 -outline-offset-2 outline-[#1b40c8]"
+            : "bg-[#eef2fc] hover:bg-[#e6ecfb]")
         }
         onDoubleClick={() => stored && canEdit && props.onRenaming(node.id)}
       >
         <td />
         <td className="px-2 py-2" style={{ paddingLeft: 8 + node.depth * 18 }}>
-          <button
-            type="button"
-            aria-label={isOpen ? "Cerrar grupo" : "Abrir grupo"}
-            onClick={() => props.onToggle(node.id)}
-            className="mr-1 text-[#5b6476]"
-          >
-            {isOpen ? "▾" : "▸"}
-          </button>
-          {props.renaming === node.id && node.group ? (
-            <input
-              autoFocus
-              defaultValue={node.name}
-              aria-label="Nombre del grupo"
-              className="rounded border border-[#f28c28] px-1.5 py-0.5"
-              onBlur={() => props.onRenaming(null)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") props.onRenaming(null);
-                if (e.key === "Enter" && node.group)
-                  props.onRename(node.group.id, e.currentTarget.value);
-              }}
-            />
-          ) : (
-            <span>{node.name}</span>
-          )}{" "}
-          <span className="text-[12px] font-normal text-[#8a92a3]">
-            {r.row_count} {r.row_count === 1 ? "producto" : "productos"}
-            {isAuto ? " · plato del menú" : ""}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              aria-label={isOpen ? "Cerrar grupo" : "Abrir grupo"}
+              onClick={() => props.onToggle(node.id)}
+              className="text-[#1b40c8]"
+            >
+              {isOpen ? "▾" : "▸"}
+            </button>
+            {props.renaming === node.id && node.group ? (
+              <input
+                autoFocus
+                defaultValue={node.name}
+                aria-label="Nombre del grupo"
+                className="rounded border border-[#1b40c8] px-1.5 py-0.5"
+                onBlur={() => props.onRenaming(null)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") props.onRenaming(null);
+                  if (e.key === "Enter" && node.group)
+                    props.onRename(node.group.id, e.currentTarget.value);
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => props.onDrill(node)}
+                className="text-[#151c2c] hover:text-[#1b40c8] hover:underline"
+                title="Ver el desglose"
+              >
+                {node.name}
+              </button>
+            )}
+            <span className="text-[12px] font-normal text-[#6b7a9e]">
+              {r.row_count} {r.row_count === 1 ? "producto" : "productos"}
+              {isAuto ? " · plato del menú" : ""}
+            </span>
+            <span className="ml-auto pl-3 font-normal">
+              <RowActions
+                onDrill={() => props.onDrill(node)}
+                onRecipe={
+                  dish?.base_odoo_product_id != null
+                    ? () => props.onRecipe(node)
+                    : undefined
+                }
+                onVariants={dish ? () => props.onToggle(node.id) : undefined}
+                variantsOpen={isOpen}
+              />
+            </span>
+          </div>
         </td>
         <td className="px-2 py-2 text-right tabular-nums">
           {money(r.net_sales)}
@@ -633,7 +758,7 @@ function NodeRows(props: {
         <td className="px-2 py-2 text-right tabular-nums">{marginLabel(r)}</td>
         <td className="px-2 py-2 text-right tabular-nums">{costPctLabel(r)}</td>
         <td className="px-2 py-2 text-right tabular-nums">
-          {pctText(node.share_pct)}
+          {shareText(r.net_sales, totalSales)}
         </td>
         <td />
         <td className="px-1 py-2 text-right">
@@ -655,10 +780,10 @@ function NodeRows(props: {
   );
 }
 
-function LeafRow({
+const LeafRow = memo(function LeafRow({
   leaf,
   depth,
-  share,
+  totalSales,
   money,
   canEdit,
   checked,
@@ -667,24 +792,26 @@ function LeafRow({
 }: {
   leaf: TreeLeaf;
   depth: number;
-  share: number | null;
+  totalSales: number;
   money: (n: number) => string;
   canEdit: boolean;
   checked: boolean;
-  onCheck: () => void;
+  onCheck: (ref: string) => void;
   suggestion?: React.ReactNode;
 }) {
-  const margin =
-    leaf.cost_total === null || leaf.net_sales <= 0
-      ? "Sin precio"
-      : pctText(((leaf.net_sales - leaf.cost_total) / leaf.net_sales) * 100);
-  const cost =
-    leaf.cost_total === null || leaf.net_sales <= 0
-      ? "Sin precio"
-      : pctText((leaf.cost_total / leaf.net_sales) * 100);
+  const known = leaf.cost_total !== null && leaf.net_sales > 0;
+  const margin = known
+    ? pctText(((leaf.net_sales - leaf.cost_total!) / leaf.net_sales) * 100)
+    : "Sin precio";
+  const cost = known
+    ? pctText((leaf.cost_total! / leaf.net_sales) * 100)
+    : "Sin precio";
   return (
     <tr
-      className={"border-b border-[#f2f3f6] " + (checked ? "bg-[#fff8ec]" : "")}
+      className={
+        "border-b border-[#eef0f4] " +
+        (checked ? "bg-[#e6ecfb]" : "hover:bg-[#f7f9fe]")
+      }
       data-testid="producto-row"
     >
       <td className="px-2 py-2 text-center">
@@ -692,8 +819,9 @@ function LeafRow({
           <input
             type="checkbox"
             checked={checked}
-            onChange={onCheck}
+            onChange={() => onCheck(leaf.ref)}
             aria-label={`Seleccionar ${leaf.name}`}
+            className="accent-[#1b40c8]"
           />
         ) : null}
       </td>
@@ -706,10 +834,10 @@ function LeafRow({
       <td className="px-2 py-2 text-right tabular-nums">{margin}</td>
       <td className="px-2 py-2 text-right tabular-nums">{cost}</td>
       <td className="px-2 py-2 text-right tabular-nums">
-        {share === null ? "" : pctText(share)}
+        {shareText(leaf.net_sales, totalSales)}
       </td>
       <td className="px-2 py-2">{suggestion}</td>
       <td />
     </tr>
   );
-}
+});

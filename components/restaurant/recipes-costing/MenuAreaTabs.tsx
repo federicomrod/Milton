@@ -84,7 +84,7 @@ export function MenuAreaTabs({ lang }: { lang: PreferredLanguage }) {
             className={
               "-mb-px border-b-[3px] py-2 text-[15px] font-semibold " +
               (active === tab.id
-                ? "border-[#f28c28] text-[#151c2c]"
+                ? "border-[#1b40c8] text-[#1b40c8]"
                 : "border-transparent text-[#6b7385] hover:text-[#151c2c]")
             }
           >

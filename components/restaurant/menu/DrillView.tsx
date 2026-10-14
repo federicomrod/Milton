@@ -20,7 +20,7 @@ import {
   type DrillRow,
   type ValueGroup,
 } from "@/lib/restaurant/menu-dishes/drill";
-import type { MenuDish } from "@/lib/restaurant/menu-dishes/menu-dishes";
+import type { MenuDishVariant } from "@/lib/restaurant/menu-dishes/menu-dishes";
 import {
   addToGroup,
   createGroup,
@@ -34,7 +34,7 @@ import { GroupToastView } from "@/components/restaurant/groups/GroupingControls"
 import type { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
 
 const COLORS = [
-  "#f28c28",
+  "#1b40c8",
   "#151c2c",
   "#8a92a3",
   "#e8b98a",
@@ -54,7 +54,9 @@ interface FilterChoice {
 }
 
 export function DrillView({
-  dish,
+  title,
+  variants: allVariants,
+  scopeId,
   menuSales,
   grouping,
   canEdit,
@@ -62,7 +64,12 @@ export function DrillView({
   onBack,
   onOpenRecipe,
 }: {
-  dish: MenuDish;
+  /** A dish's name, or a group's. */
+  title: string;
+  /** The variant rows to break down (a dish's, or every member of a group). */
+  variants: MenuDishVariant[];
+  /** The stored menu dish whose value groups apply; null = a product group (global value groups only). */
+  scopeId: string | null;
   /** Sales of every dish in view, for "x% del menú". */
   menuSales: number;
   grouping: ReturnType<typeof useItemGroups>;
@@ -83,23 +90,28 @@ export function DrillView({
     Object.entries(choices).map(([d, c]) => [d, c.values])
   );
   const groupsOf = (d: DrillDimension): ValueGroup[] =>
-    valueGroupsFor(grouping.state.groups, grouping.state.members, d, dish.id);
+    valueGroupsFor(
+      grouping.state.groups,
+      grouping.state.members,
+      d,
+      scopeId ?? "__global__"
+    );
   const dimGroups = useMemo(
     () => groupsOf(dim),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [grouping.state, dim, dish.id]
+    [grouping.state, dim, scopeId]
   );
   const crossGroups = useMemo(
     () => (cross ? groupsOf(cross) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [grouping.state, cross, dish.id]
+    [grouping.state, cross, scopeId]
   );
 
   // A filter on the dimension being shown would leave one row: it narrows the others.
   const variants = useMemo(
-    () => applyFilters(dish.variants, filters),
+    () => applyFilters(allVariants, filters),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dish.variants, choices]
+    [allVariants, choices]
   );
   const { rows, total } = useMemo(
     () => drillRows(variants, dim, dimGroups),
@@ -141,7 +153,7 @@ export function DrillView({
         <button
           type="button"
           onClick={onBack}
-          className="font-semibold text-[#f28c28] hover:underline"
+          className="font-semibold text-[#1b40c8] hover:underline"
         >
           Platos
         </button>{" "}
@@ -151,7 +163,7 @@ export function DrillView({
           onClick={onOpenRecipe}
           className="font-bold text-[#151c2c] hover:underline"
         >
-          {dish.name}
+          {title}
         </button>{" "}
         › {pathText}
         {Object.keys(choices).length > 0 ? (
@@ -169,7 +181,7 @@ export function DrillView({
         <div
           role="group"
           aria-label="Dimensión"
-          className="inline-flex rounded-[11px] bg-[#e9ecf2] p-[3px] text-[13px] font-semibold"
+          className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold"
         >
           {DRILL_DIMENSIONS.map((d) => (
             <button
@@ -185,8 +197,8 @@ export function DrillView({
               className={
                 "rounded-[9px] px-3.5 py-1.5 " +
                 (dim === d.id
-                  ? "bg-white text-[#151c2c] shadow-sm"
-                  : "text-[#5b6476]")
+                  ? "bg-[#1b40c8] text-white shadow-sm"
+                  : "text-[#4a5a85] hover:text-[#1b40c8]")
               }
             >
               {d.label}
@@ -216,7 +228,7 @@ export function DrillView({
             <FilterChips
               key={d.id}
               label={d.label}
-              values={dimensionValues(dish.variants, d.id)}
+              values={dimensionValues(allVariants, d.id)}
               groups={groupsOf(d.id)}
               choice={choices[d.id] ?? null}
               onChoose={(c) => setChoice(d.id, c)}
@@ -244,7 +256,7 @@ export function DrillView({
         <Kpi label="Costo %" value={costPctLabel(total)} sub="" />
       </div>
 
-      <section className="rounded-[14px] border border-[#eef0f4] bg-white p-4">
+      <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h2 className="text-[15px] font-bold">
             Ventas por {dimLabel(dim).toLowerCase()}
@@ -261,7 +273,7 @@ export function DrillView({
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="ml-auto rounded-lg border border-[#dfe3ea] px-3 py-1.5 text-[13px] font-semibold hover:border-[#f28c28]"
+              className="ml-auto rounded-lg border border-[#dfe3ea] px-3 py-1.5 text-[13px] font-semibold hover:border-[#1b40c8]"
             >
               ✎ Editar agrupación
             </button>
@@ -348,7 +360,9 @@ export function DrillView({
 
       {editing ? (
         <EditGroupsPanel
-          dish={dish}
+          title={title}
+          variants={allVariants}
+          scopeId={scopeId}
           dim={dim}
           grouping={grouping}
           groups={dimGroups}
@@ -373,7 +387,7 @@ function Kpi({
   sub: string;
 }) {
   return (
-    <div className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px]">
+    <div className="rounded-[14px] border border-[#dbe3f7] bg-white px-4 py-[14px]">
       <div className="text-[12px] text-[#6b7385]">{label}</div>
       <div className="mt-0.5 text-[28px] font-extrabold leading-tight tracking-[-0.5px] text-[#1b2333]">
         {value}
@@ -409,7 +423,7 @@ function FilterChips({
   const chip = (active: boolean) =>
     "rounded-full border px-3 py-1 text-[12px] font-semibold " +
     (active
-      ? "border-[#151c2c] bg-[#151c2c] text-white"
+      ? "border-[#1b40c8] bg-[#1b40c8] text-white"
       : "border-[#dfe3ea] bg-white text-[#151c2c]");
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5 text-[12px] text-[#8a92a3]">
@@ -504,7 +518,7 @@ function Rows({
               type="button"
               aria-label={open ? "Ocultar miembros" : "Ver miembros"}
               onClick={onToggle}
-              className="mr-1 text-[#f28c28]"
+              className="mr-1 text-[#1b40c8]"
             >
               {open ? "▾" : "▸"}
             </button>
@@ -553,7 +567,7 @@ function Heatmap({
 }) {
   const max = Math.max(1, ...table.cells.flat());
   return (
-    <section className="rounded-[14px] border border-[#eef0f4] bg-white p-4">
+    <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
       <div className="mb-3 flex items-center">
         <h2 className="text-[15px] font-bold">% de ventas del plato</h2>
         <span className="ml-auto text-[12px] text-[#8a92a3]">
@@ -626,7 +640,7 @@ function HeatRow({
             type="button"
             onClick={() => onCell(cols[i])}
             title={`${label} · ${cols[i]}`}
-            style={{ background: `rgba(242,140,40,${0.08 + 0.92 * k})` }}
+            style={{ background: `rgba(27,64,200,${0.08 + 0.92 * k})` }}
             className={
               "rounded-lg py-2 text-center font-bold " +
               (k > 0.45 ? "text-white" : "text-[#151c2c]")
@@ -645,39 +659,40 @@ function HeatRow({
 
 /** ✎ Editar agrupación: move values between groups for this dimension. */
 function EditGroupsPanel({
-  dish,
+  title,
+  variants,
+  scopeId,
   dim,
   grouping,
   groups,
   onClose,
 }: {
-  dish: MenuDish;
+  title: string;
+  variants: MenuDishVariant[];
+  scopeId: string | null;
   dim: DrillDimension;
   grouping: ReturnType<typeof useItemGroups>;
   groups: ValueGroup[];
   onClose: () => void;
 }) {
   const stored = DRILL_DIMENSIONS.find((d) => d.id === dim)!.stored;
-  const values = useMemo(
-    () => dimensionValues(dish.variants, dim),
-    [dish, dim]
-  );
+  const values = useMemo(() => dimensionValues(variants, dim), [variants, dim]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
-  const isSaved = !dish.id.startsWith("auto:");
+  const isSaved = scopeId === null || !scopeId.startsWith("auto:");
   const hierarchy = {
     scope: "dimension_value" as const,
     dimension: stored,
-    menu_dish_id: dish.id,
+    menu_dish_id: scopeId,
   };
   const items = (list: Iterable<string>): ItemRef[] =>
     [...list].map((ref) => ({ type: "dimension_value", ref }));
   const groupOfValue = (v: string) => groups.find((g) => g.values.has(v));
   const ownGroups = groups.filter((g) =>
     grouping.state.groups.some(
-      (s) => s.id === g.id && s.menu_dish_id === dish.id
+      (s) => s.id === g.id && s.menu_dish_id === scopeId
     )
   );
   const chosen = [...picked];
@@ -703,8 +718,10 @@ function EditGroupsPanel({
         </button>
       </div>
       <p className="mt-1 text-[12px] text-[#8a92a3]">
-        Solo vale para {dish.name}. Nada se borra: los valores siguen en sus
-        ventas.
+        {scopeId === null
+          ? "Vale para todos los platos."
+          : `Solo vale para ${title}.`}{" "}
+        Nada se borra: los valores siguen en sus ventas.
       </p>
       {!isSaved || !grouping.available ? (
         <p className="mt-3 rounded-lg border border-[#f5c98b] bg-[#fff8ec] px-3 py-2 text-[13px]">
@@ -773,7 +790,7 @@ function EditGroupsPanel({
                   })
                 );
               }}
-              className="rounded-md bg-[#f28c28] px-2.5 py-1 text-[13px] font-semibold disabled:opacity-50"
+              className="rounded-md bg-[#2f5be0] px-2.5 py-1 text-[13px] font-semibold disabled:opacity-50"
             >
               Crear grupo
             </button>
@@ -831,7 +848,7 @@ function EditGroupsPanel({
       {ownGroups.length > 0 ? (
         <div className="mt-4">
           <h4 className="text-[12px] font-semibold text-[#8a92a3]">
-            Grupos de este plato
+            Grupos de esta vista
           </h4>
           <ul className="mt-1 space-y-1 text-[13px]">
             {ownGroups.map((g) => (
@@ -841,7 +858,7 @@ function EditGroupsPanel({
                     autoFocus
                     defaultValue={g.name}
                     aria-label="Nombre del grupo"
-                    className="min-w-0 flex-1 rounded border border-[#f28c28] px-1.5 py-0.5"
+                    className="min-w-0 flex-1 rounded border border-[#1b40c8] px-1.5 py-0.5"
                     onBlur={() => setRenaming(null)}
                     onKeyDown={(e) => {
                       if (e.key === "Escape") setRenaming(null);

@@ -30,10 +30,13 @@ export function SortTh({
       <button
         type="button"
         onClick={() => onSort(sortKey)}
-        className="inline-flex items-center gap-1 font-semibold hover:text-[#151c2c]"
+        className={
+          "inline-flex items-center gap-1 font-semibold hover:text-[#1b40c8] " +
+          (active ? "text-[#1b40c8]" : "")
+        }
       >
         {children}
-        <span aria-hidden className="w-2.5 text-[9px]">
+        <span aria-hidden className="w-2.5 text-[9px] text-[#1b40c8]">
           {active ? (active.dir === "desc" ? "▼" : "▲") : ""}
         </span>
       </button>
@@ -67,8 +70,8 @@ export function SortChips({
             onClick={() => onSort(c.key)}
             aria-pressed={!!active}
             className={
-              "rounded-md px-1.5 py-0.5 font-semibold hover:text-[#151c2c] " +
-              (active ? "bg-[#e9ecf2] text-[#151c2c]" : "")
+              "rounded-md px-1.5 py-0.5 font-semibold hover:text-[#1b40c8] " +
+              (active ? "bg-[#dfe7fb] text-[#1b40c8]" : "")
             }
           >
             {c.label}

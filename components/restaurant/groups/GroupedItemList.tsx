@@ -42,6 +42,8 @@ import {
 } from "./use-item-groups";
 import { SortChips } from "@/components/restaurant/sort/SortTh";
 import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
+import { SearchBox } from "@/components/restaurant/ui/SearchBox";
+import { useProgressiveCount } from "./use-progressive";
 import { foldText } from "@/lib/restaurant/groups/search";
 import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
 
@@ -172,8 +174,6 @@ export function GroupedItemList<T extends GroupableItem>({
     return out;
   }, [groups, groupOf, byId, ungrouped]);
 
-  const selectedIds = [...selected].filter((id) => byId.has(id));
-  const shared = sharedSuggestion(suggestions, selectedIds);
   const clear = () => setSelected(new Set());
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -247,6 +247,24 @@ export function GroupedItemList<T extends GroupableItem>({
     (itemsIn.get(g.id) ?? []).some(matches) ||
     (children.get(g.id) ?? []).some(groupVisible);
 
+  // Only what is on screen can be selected, acted on or counted.
+  const visibleIds = new Set<string>();
+  const walkVisible = (g: StoredItemGroup, all: boolean) => {
+    if (!groupVisible(g)) return;
+    const every = all || (!!q && foldText(g.name).includes(q));
+    if (!q && !open.set.has(g.id)) return;
+    (children.get(g.id) ?? []).forEach((c) => walkVisible(c, every));
+    (itemsIn.get(g.id) ?? [])
+      .filter((item) => every || matches(item))
+      .forEach((item) => visibleIds.add(item.id));
+  };
+  if (filter !== "sin_agrupar")
+    (children.get(null) ?? []).forEach((g) => walkVisible(g, false));
+  if (filter !== "agrupados")
+    ungrouped.filter(matches).forEach((item) => visibleIds.add(item.id));
+  const selectedIds = [...selected].filter((id) => visibleIds.has(id));
+  const shared = sharedSuggestion(suggestions, selectedIds);
+
   const row = (item: T, suggestion?: ReactNode) => (
     <div key={item.id} className="flex items-center gap-1.5">
       {canEdit ? (
@@ -255,6 +273,7 @@ export function GroupedItemList<T extends GroupableItem>({
           checked={selected.has(item.id)}
           onChange={() => toggle(item.id)}
           aria-label={`Seleccionar ${item.name}`}
+          className="accent-[#1b40c8]"
         />
       ) : null}
       <div className="min-w-0 flex-1">{renderRow(item)}</div>
@@ -278,8 +297,8 @@ export function GroupedItemList<T extends GroupableItem>({
           className={
             "flex items-center gap-1 border-b border-slate-100 px-1 py-1.5 text-xs font-semibold transition-colors duration-700 " +
             (highlightId === g.id
-              ? "bg-[#ffe9c2] ring-2 ring-[#f28c28]"
-              : "bg-[#fafbfc]")
+              ? "bg-[#cfdcfa] ring-2 ring-[#1b40c8]"
+              : "bg-[#eef2fc]")
           }
           onDoubleClick={() => canEdit && setRenaming(g.id)}
         >
@@ -287,7 +306,7 @@ export function GroupedItemList<T extends GroupableItem>({
             type="button"
             aria-label={isOpen ? "Cerrar grupo" : "Abrir grupo"}
             onClick={() => open.toggle(g.id)}
-            className="text-[#5b6476]"
+            className="text-[#1b40c8]"
           >
             {isOpen ? "▾" : "▸"}
           </button>
@@ -296,7 +315,7 @@ export function GroupedItemList<T extends GroupableItem>({
               autoFocus
               defaultValue={g.name}
               aria-label="Nombre del grupo"
-              className="min-w-0 flex-1 rounded border border-[#f28c28] px-1.5 py-0.5"
+              className="min-w-0 flex-1 rounded border border-[#1b40c8] px-1.5 py-0.5"
               onBlur={() => setRenaming(null)}
               onKeyDown={(e) => {
                 if (e.key === "Escape") setRenaming(null);
@@ -340,6 +359,10 @@ export function GroupedItemList<T extends GroupableItem>({
       ? (children.get(null) ?? []).filter(groupVisible)
       : [];
   const topItems = filter !== "agrupados" ? ungrouped.filter(matches) : [];
+  const shownItems = useProgressiveCount(
+    topItems.length,
+    `${filter}|${query}|${sort?.key}|${sort?.dir}`
+  );
   const nothingShown = topGroups.length + topItems.length === 0;
 
   return (
@@ -349,13 +372,10 @@ export function GroupedItemList<T extends GroupableItem>({
           Para agrupar falta aplicar las migraciones 048 y 049 en este ambiente.
         </p>
       ) : null}
-      <input
-        type="search"
+      <SearchBox
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={setQuery}
         placeholder={searchPlaceholder}
-        aria-label={searchPlaceholder}
-        className="h-9 w-full rounded-lg border border-[#e3e7ee] bg-white px-3 text-[13px] text-[#151c2c] outline-none focus:border-[#f28c28]"
       />
       <SortChips columns={sortColumns} sort={sort} onSort={toggleSort} />
       <GroupingToolbar
@@ -416,20 +436,22 @@ export function GroupedItemList<T extends GroupableItem>({
           ? sortedGroups(children.get(null) ?? []).map((g) => renderGroup(g, 0))
           : null}
         {filter !== "agrupados"
-          ? sortedItems(ungrouped.filter(matches)).map((item) =>
-              row(
-                item,
-                filter === "sin_agrupar" ? (
-                  <SuggestionChip
-                    targetName={suggestions.get(item.id)?.target.name ?? null}
-                    onAccept={() => {
-                      const t = suggestions.get(item.id)?.target;
-                      if (t) void addTo([item.id], t.id);
-                    }}
-                  />
-                ) : undefined
+          ? sortedItems(topItems)
+              .slice(0, shownItems)
+              .map((item) =>
+                row(
+                  item,
+                  filter === "sin_agrupar" ? (
+                    <SuggestionChip
+                      targetName={suggestions.get(item.id)?.target.name ?? null}
+                      onAccept={() => {
+                        const t = suggestions.get(item.id)?.target;
+                        if (t) void addTo([item.id], t.id);
+                      }}
+                    />
+                  ) : undefined
+                )
               )
-            )
           : null}
         {nothingShown ? (
           <p className="px-2 py-3 text-xs text-[#5b6476]">

@@ -7,8 +7,13 @@
 // Every number comes from the shared loader; the screen only re-adds the
 // sums after a move (dishSums, the loader's own function).
 
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
+import { RowActions } from "@/components/restaurant/groups/RowActions";
+import {
+  useEventCallback,
+  useProgressiveCount,
+} from "@/components/restaurant/groups/use-progressive";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -134,7 +139,11 @@ export function MenuDishesScreen({
   const [excluded, setExcluded] = useState<MenuDish[]>(menu?.excluded ?? []);
   const [showExcluded, setShowExcluded] = useState(false);
   const { sort, toggle: toggleSort } = useTableSort("platos");
-  const [drillId, setDrillId] = useState<string | null>(null);
+  const [drill, setDrill] = useState<
+    | { kind: "dish"; id: string }
+    | { kind: "group"; name: string; keys: string[] }
+    | null
+  >(null);
   const [view, setView] = useState<"platos" | "productos">("platos");
   const grouping = useItemGroups(data.item_groups);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -143,7 +152,10 @@ export function MenuDishesScreen({
     variant: MenuDishVariant | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const money = (n: number) => formatMoneyEs(n, data.currency, { decimals: 0 });
+  const money = useCallback(
+    (n: number) => formatMoneyEs(n, data.currency, { decimals: 0 }),
+    [data.currency]
+  );
 
   // The lists are this screen's own after the first load: moves and
   // exclusions apply here at once (the page remounts on navigation).
@@ -177,6 +189,35 @@ export function MenuDishesScreen({
     // Variants stay under their dish: only the dishes are ordered.
     return sortRows(filtered, sort, dishValue);
   }, [dishes, excluded, showExcluded, statusFilter, sort]);
+
+  // Stable handlers, so the 100+ dish rows do not re-render on every change.
+  const onToggleRow = useEventCallback((id: string) => toggle(id));
+  const onDrillRow = useEventCallback((id: string) =>
+    setDrill({ kind: "dish", id })
+  );
+  const onOpenRow = useEventCallback((dish: MenuDish) => {
+    if (dish.base_odoo_product_id != null)
+      onOpenDish(dish.base_odoo_product_id);
+  });
+  const onMoveRow = useEventCallback(
+    (dish: MenuDish, variant: MenuDishVariant | null) =>
+      setMoving({ dish, variant })
+  );
+  const onExcludeRow = useEventCallback(
+    (dish: MenuDish, exclude: boolean) => void setDishExcluded(dish, exclude)
+  );
+  const visibleRows = useProgressiveCount(
+    shown.length,
+    `${showExcluded}|${statusFilter.join(",")}|${sort?.key}|${sort?.dir}`
+  );
+  /** The variants of the group being drilled (follows moves made meanwhile). */
+  const drillVariants = useMemo(() => {
+    if (drill?.kind !== "group") return [];
+    const wanted = new Set(drill.keys);
+    return [...dishes, ...excluded]
+      .flatMap((d) => d.variants)
+      .filter((v) => wanted.has(v.key));
+  }, [drill, dishes, excluded]);
 
   if (!menu) return null;
   const k = menu.kpis;
@@ -313,228 +354,251 @@ export function MenuDishesScreen({
     }
   }
 
-  const drillDish = drillId
-    ? ([...dishes, ...excluded].find((d) => d.id === drillId) ?? null)
-    : null;
-  if (drillDish) {
-    return (
-      <DrillView
-        dish={drillDish}
-        menuSales={dishes.reduce((sum, d) => sum + d.net_sales, 0)}
-        grouping={grouping}
-        canEdit={data.actor.can_submit}
-        money={money}
-        onBack={() => setDrillId(null)}
-        onOpenRecipe={
-          drillDish.base_odoo_product_id != null
-            ? () => onOpenDish(drillDish.base_odoo_product_id!)
-            : undefined
+  const drillDish =
+    drill?.kind === "dish"
+      ? ([...dishes, ...excluded].find((d) => d.id === drill.id) ?? null)
+      : null;
+  const drilling = drillDish
+    ? {
+        title: drillDish.name,
+        variants: drillDish.variants,
+        scopeId: drillDish.id as string | null,
+        recipe: drillDish.base_odoo_product_id,
+      }
+    : drill?.kind === "group"
+      ? {
+          title: drill.name,
+          variants: drillVariants,
+          scopeId: null as string | null,
+          recipe: null,
         }
-      />
-    );
-  }
+      : null;
 
   return (
-    <div className="space-y-[14px]">
-      <div className="grid grid-cols-4 gap-3">
-        <Kpi
-          label="Costo de comida"
-          value={k.food_cost_pct !== null ? pct(k.food_cost_pct) : "Sin precio"}
-          sub="sobre ventas con costo"
-          href={platosHref(["aprobado"])}
-        />
-        <Kpi
-          label="Margen bruto"
-          value={k.gross_margin !== null ? money(k.gross_margin) : "—"}
-          sub={data.period_label ?? "ventas con costo"}
-          href={platosHref(["aprobado"])}
-        />
-        <Kpi
-          label="Ventas con costo"
-          value={`${Math.round(k.coverage_pct)}%`}
-          sub={`${k.covered_dishes} de ${k.dish_count} platos`}
-          href={platosHref()}
-        />
-        <Kpi
-          label="Platos con problema"
-          value={String(k.problem_count)}
-          sub={`${k.missing_price_dishes} sin precio · ${k.no_recipe_dishes} sin receta`}
-          href={platosHref(["falta_precio", "sin_receta"])}
-          alert={k.problem_count > 0}
-        />
-      </div>
-
-      <div className="flex items-center gap-3 text-[13px]">
-        <span
-          className="rounded-md bg-[#f1f3f7] px-2 py-0.5 text-[12px] font-semibold text-[#5b6476]"
-          title={
-            menu.stored
-              ? "Milton agrupó los productos del POS en platos del menú. Corrige con ⋯ › Mover variante."
-              : "Agrupación de Milton en pantalla. Para guardar cambios falta aplicar la migración 045 en este ambiente."
-          }
-        >
-          ✦ Agrupado por Milton ·{" "}
-          {menu.variant_count + menu.excluded_variant_count} productos →{" "}
-          {dishes.length} platos
-        </span>
-        {menu.stored && unsaved > 0 ? (
-          <button
-            type="button"
-            onClick={() => void saveGrouping()}
-            disabled={saving}
-            className="font-semibold text-[#3557c9] disabled:opacity-60"
-            title="Productos nuevos del POS que Milton agrupó y todavía no están guardados."
-          >
-            {saving
-              ? "Guardando…"
-              : `Guardar agrupación (${unsaved} ${unsaved === 1 ? "producto nuevo" : "productos nuevos"})`}
-          </button>
-        ) : null}
-        {statusFilter.length > 0 ? (
-          <Link href={platosHref()} className="font-semibold text-[#3557c9]">
-            Ver todos
-          </Link>
-        ) : null}
-        <label className="ml-auto inline-flex items-center gap-1.5 text-[#5b6476]">
-          <input
-            type="checkbox"
-            checked={showExcluded}
-            onChange={(e) => setShowExcluded(e.target.checked)}
-          />
-          Mostrar excluidos ({menu.excluded_variant_count})
-        </label>
-      </div>
-
-      {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
-          {error}
-        </div>
-      ) : null}
-
-      <div
-        role="group"
-        aria-label="Vista"
-        className="inline-flex rounded-[11px] bg-[#e9ecf2] p-[3px] text-[13px] font-semibold"
-      >
-        {(["platos", "productos"] as const).map((v) => (
-          <button
-            key={v}
-            type="button"
-            aria-pressed={view === v}
-            onClick={() => setView(v)}
-            className={
-              "rounded-[9px] px-3.5 py-1.5 " +
-              (view === v
-                ? "bg-white text-[#151c2c] shadow-sm"
-                : "text-[#5b6476]")
-            }
-          >
-            {v === "platos" ? "Platos" : "Productos"}
-          </button>
-        ))}
-      </div>
-
-      {view === "productos" ? (
-        <ProductosView
-          dishes={dishes}
-          excluded={excluded}
+    <>
+      {drilling ? (
+        <DrillView
+          title={drilling.title}
+          variants={drilling.variants}
+          scopeId={drilling.scopeId}
+          menuSales={dishes.reduce((sum, d) => sum + d.net_sales, 0)}
           grouping={grouping}
           canEdit={data.actor.can_submit}
           money={money}
-          onAddToDish={addProductsToDish}
+          onBack={() => setDrill(null)}
+          onOpenRecipe={
+            drilling.recipe != null
+              ? () => onOpenDish(drilling.recipe!)
+              : undefined
+          }
         />
       ) : null}
+      {/* Kept mounted while drilling, so coming back is instant and keeps the filter and search. */}
+      <div className="space-y-[14px]" hidden={!!drilling}>
+        <div className="grid grid-cols-4 gap-3">
+          <Kpi
+            label="Costo de comida"
+            value={
+              k.food_cost_pct !== null ? pct(k.food_cost_pct) : "Sin precio"
+            }
+            sub="sobre ventas con costo"
+            href={platosHref(["aprobado"])}
+          />
+          <Kpi
+            label="Margen bruto"
+            value={k.gross_margin !== null ? money(k.gross_margin) : "—"}
+            sub={data.period_label ?? "ventas con costo"}
+            href={platosHref(["aprobado"])}
+          />
+          <Kpi
+            label="Ventas con costo"
+            value={`${Math.round(k.coverage_pct)}%`}
+            sub={`${k.covered_dishes} de ${k.dish_count} platos`}
+            href={platosHref()}
+          />
+          <Kpi
+            label="Platos con problema"
+            value={String(k.problem_count)}
+            sub={`${k.missing_price_dishes} sin precio · ${k.no_recipe_dishes} sin receta`}
+            href={platosHref(["falta_precio", "sin_receta"])}
+            alert={k.problem_count > 0}
+          />
+        </div>
 
-      {view === "platos" && moving ? (
-        <MovePanel
-          moving={moving}
-          dishes={dishes}
-          onCancel={() => setMoving(null)}
-          onMove={(variant, target) => void move(variant, target)}
-          onPickVariant={(variant) => setMoving({ ...moving, variant })}
-        />
-      ) : null}
+        <div className="flex items-center gap-3 text-[13px]">
+          <span
+            className="rounded-md bg-[#f1f3f7] px-2 py-0.5 text-[12px] font-semibold text-[#5b6476]"
+            title={
+              menu.stored
+                ? "Milton agrupó los productos del POS en platos del menú. Corrige con ⋯ › Mover variante."
+                : "Agrupación de Milton en pantalla. Para guardar cambios falta aplicar la migración 045 en este ambiente."
+            }
+          >
+            ✦ Agrupado por Milton ·{" "}
+            {menu.variant_count + menu.excluded_variant_count} productos →{" "}
+            {dishes.length} platos
+          </span>
+          {menu.stored && unsaved > 0 ? (
+            <button
+              type="button"
+              onClick={() => void saveGrouping()}
+              disabled={saving}
+              className="font-semibold text-[#3557c9] disabled:opacity-60"
+              title="Productos nuevos del POS que Milton agrupó y todavía no están guardados."
+            >
+              {saving
+                ? "Guardando…"
+                : `Guardar agrupación (${unsaved} ${unsaved === 1 ? "producto nuevo" : "productos nuevos"})`}
+            </button>
+          ) : null}
+          {statusFilter.length > 0 ? (
+            <Link href={platosHref()} className="font-semibold text-[#3557c9]">
+              Ver todos
+            </Link>
+          ) : null}
+          <label className="ml-auto inline-flex items-center gap-1.5 text-[#5b6476]">
+            <input
+              type="checkbox"
+              checked={showExcluded}
+              onChange={(e) => setShowExcluded(e.target.checked)}
+            />
+            Mostrar excluidos ({menu.excluded_variant_count})
+          </label>
+        </div>
 
-      {view === "platos" ? (
-        <section className="rounded-[14px] border border-[#eef0f4] bg-white px-3 py-1.5">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-[#eef0f4] text-left text-[12px] font-semibold text-[#8a92a3]">
-                <SortTh sortKey="name" sort={sort} onSort={toggleSort}>
-                  Plato del menú
-                </SortTh>
-                <SortTh
-                  sortKey="sales"
-                  sort={sort}
-                  onSort={toggleSort}
-                  align="right"
-                >
-                  Ventas
-                </SortTh>
-                <SortTh
-                  sortKey="margin"
-                  sort={sort}
-                  onSort={toggleSort}
-                  align="right"
-                >
-                  Margen
-                </SortTh>
-                <SortTh
-                  sortKey="cost"
-                  sort={sort}
-                  onSort={toggleSort}
-                  align="right"
-                >
-                  Costo %
-                </SortTh>
-                <SortTh
-                  sortKey="coverage"
-                  sort={sort}
-                  onSort={toggleSort}
-                  align="right"
-                >
-                  Cobertura
-                </SortTh>
-                <SortTh sortKey="status" sort={sort} onSort={toggleSort}>
-                  Estado
-                </SortTh>
-                <th className="w-8" />
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((dish) => (
-                <DishRows
-                  key={dish.id}
-                  dish={dish}
-                  open={expanded.has(dish.id)}
-                  money={money}
-                  canEdit={data.actor.can_submit}
-                  onToggle={() => toggle(dish.id)}
-                  onDrill={() => setDrillId(dish.id)}
-                  onOpen={() =>
-                    dish.base_odoo_product_id != null &&
-                    onOpenDish(dish.base_odoo_product_id)
-                  }
-                  onMove={(variant) => setMoving({ dish, variant })}
-                  onExclude={(exclude) => void setDishExcluded(dish, exclude)}
-                />
-              ))}
-              {shown.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-2 py-4 text-[#5b6476]">
-                    No hay platos con ese filtro.
-                  </td>
+        {error ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
+            {error}
+          </div>
+        ) : null}
+
+        <div
+          role="group"
+          aria-label="Vista"
+          className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold"
+        >
+          {(["platos", "productos"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={view === v}
+              onClick={() => setView(v)}
+              className={
+                "rounded-[9px] px-3.5 py-1.5 " +
+                (view === v
+                  ? "bg-[#1b40c8] text-white shadow-sm"
+                  : "text-[#4a5a85] hover:text-[#1b40c8]")
+              }
+            >
+              {v === "platos" ? "Platos" : "Productos"}
+            </button>
+          ))}
+        </div>
+
+        {view === "productos" ? (
+          <ProductosView
+            dishes={dishes}
+            excluded={excluded}
+            grouping={grouping}
+            canEdit={data.actor.can_submit}
+            money={money}
+            onAddToDish={addProductsToDish}
+            onDrillDish={(id) => setDrill({ kind: "dish", id })}
+            onDrillGroup={(name, keys) =>
+              setDrill({ kind: "group", name, keys })
+            }
+            onOpenRecipe={onOpenDish}
+          />
+        ) : null}
+
+        {view === "platos" && moving ? (
+          <MovePanel
+            moving={moving}
+            dishes={dishes}
+            onCancel={() => setMoving(null)}
+            onMove={(variant, target) => void move(variant, target)}
+            onPickVariant={(variant) => setMoving({ ...moving, variant })}
+          />
+        ) : null}
+
+        {view === "platos" ? (
+          <section className="rounded-[14px] border border-[#dbe3f7] bg-white px-3 py-1.5">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-[#dbe3f7] bg-[#f3f6fd] text-left text-[12px] font-semibold text-[#4a5a85]">
+                  <SortTh sortKey="name" sort={sort} onSort={toggleSort}>
+                    Plato del menú
+                  </SortTh>
+                  <SortTh
+                    sortKey="sales"
+                    sort={sort}
+                    onSort={toggleSort}
+                    align="right"
+                  >
+                    Ventas
+                  </SortTh>
+                  <SortTh
+                    sortKey="margin"
+                    sort={sort}
+                    onSort={toggleSort}
+                    align="right"
+                  >
+                    Margen
+                  </SortTh>
+                  <SortTh
+                    sortKey="cost"
+                    sort={sort}
+                    onSort={toggleSort}
+                    align="right"
+                  >
+                    Costo %
+                  </SortTh>
+                  <SortTh
+                    sortKey="coverage"
+                    sort={sort}
+                    onSort={toggleSort}
+                    align="right"
+                  >
+                    Cobertura
+                  </SortTh>
+                  <SortTh sortKey="status" sort={sort} onSort={toggleSort}>
+                    Estado
+                  </SortTh>
+                  <th className="w-8" />
                 </tr>
-              ) : null}
-            </tbody>
-          </table>
-          <p className="px-2 py-2 text-[12px] text-[#8a92a3]">
-            Doble clic en un plato para ver su desglose por tamaño, acompañante,
-            punto y canal
-          </p>
-        </section>
-      ) : null}
-    </div>
+              </thead>
+              <tbody>
+                {shown.slice(0, visibleRows).map((dish) => (
+                  <DishRows
+                    key={dish.id}
+                    dish={dish}
+                    open={expanded.has(dish.id)}
+                    money={money}
+                    canEdit={data.actor.can_submit}
+                    onToggle={onToggleRow}
+                    onDrill={onDrillRow}
+                    onOpen={onOpenRow}
+                    onMove={onMoveRow}
+                    onExclude={onExcludeRow}
+                  />
+                ))}
+                {shown.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-2 py-4 text-[#5b6476]">
+                      No hay platos con ese filtro.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+            <p className="px-2 py-2 text-[12px] text-[#8a92a3]">
+              Doble clic en un plato para ver su desglose por tamaño,
+              acompañante, punto y canal
+            </p>
+          </section>
+        ) : null}
+      </div>
+    </>
   );
 }
 
@@ -586,7 +650,45 @@ function bySize(variants: readonly MenuDishVariant[]) {
     .sort((a, b) => b.sums.net_sales - a.sums.net_sales);
 }
 
-function DishRows({
+/** ⋯ built only when first used: 100+ rows do not each carry a menu. */
+function RowMenu({
+  isExcluded,
+  onMove,
+  onExclude,
+}: {
+  isExcluded: boolean;
+  onMove: () => void;
+  onExclude: () => void;
+}) {
+  const [armed, setArmed] = useState(false);
+  const trigger = (
+    <button
+      type="button"
+      aria-label="Más acciones"
+      onClick={armed ? undefined : () => setArmed(true)}
+      className="rounded-md p-1 text-[#6b7385] hover:bg-[#e6ecfb]"
+    >
+      <MoreHorizontal className="h-4 w-4" />
+    </button>
+  );
+  if (!armed) return trigger;
+  return (
+    <DropdownMenu defaultOpen onOpenChange={(o) => !o && setArmed(false)}>
+      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuItem onClick={onMove}>
+          Mover variante a otro plato
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={onExclude}>
+          {isExcluded ? "Volver a incluir" : "Excluir plato"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+const DishRows = memo(function DishRows({
   dish,
   open,
   money,
@@ -601,11 +703,11 @@ function DishRows({
   open: boolean;
   money: (n: number) => string;
   canEdit: boolean;
-  onToggle: () => void;
-  onDrill: () => void;
-  onOpen: () => void;
-  onMove: (variant: MenuDishVariant | null) => void;
-  onExclude: (exclude: boolean) => void;
+  onToggle: (id: string) => void;
+  onDrill: (id: string) => void;
+  onOpen: (dish: MenuDish) => void;
+  onMove: (dish: MenuDish, variant: MenuDishVariant | null) => void;
+  onExclude: (dish: MenuDish, exclude: boolean) => void;
 }) {
   const isExcluded = dish.status === "excluded";
   const coverage = Math.round(dish.coverage * 100);
@@ -613,30 +715,46 @@ function DishRows({
     <>
       <tr
         className={
-          "border-b border-[#f2f3f6] " + (isExcluded ? "text-[#8a92a3]" : "")
+          "group/row border-b border-[#f2f3f6] hover:bg-[#f5f8ff] " +
+          (isExcluded ? "text-[#8a92a3]" : "")
         }
-        onDoubleClick={onDrill}
+        onDoubleClick={() => onDrill(dish.id)}
       >
         <td className="px-2 py-2">
-          <button
-            type="button"
-            onClick={onToggle}
-            className="mr-1 text-[#5b6476]"
-            aria-label={open ? "Ocultar variantes" : "Ver variantes"}
-          >
-            {open ? "▾" : "▸"}
-          </button>
-          <button
-            type="button"
-            onClick={onOpen}
-            className="font-bold hover:underline"
-          >
-            {dish.name}
-          </button>{" "}
-          <span className="text-[12px] text-[#8a92a3]">
-            {dish.variants.length}{" "}
-            {dish.variants.length === 1 ? "variante" : "variantes"}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onToggle(dish.id)}
+              className="text-[#1b40c8]"
+              aria-label={open ? "Ocultar variantes" : "Ver variantes"}
+            >
+              {open ? "▾" : "▸"}
+            </button>
+            <button
+              type="button"
+              onClick={() => onDrill(dish.id)}
+              className="font-bold text-[#151c2c] hover:text-[#1b40c8] hover:underline"
+              title="Ver el desglose del plato"
+            >
+              {dish.name}
+            </button>
+            <span className="text-[12px] text-[#8a92a3]">
+              {dish.variants.length}{" "}
+              {dish.variants.length === 1 ? "variante" : "variantes"}
+            </span>
+            <span className="ml-auto pl-3">
+              <RowActions
+                onDrill={() => onDrill(dish.id)}
+                onRecipe={
+                  !isExcluded && dish.base_odoo_product_id != null
+                    ? () => onOpen(dish)
+                    : undefined
+                }
+                onVariants={() => onToggle(dish.id)}
+                variantsOpen={open}
+              />
+            </span>
+          </div>
         </td>
         <td className="px-2 py-2 text-right tabular-nums">
           {money(dish.net_sales)}
@@ -675,37 +793,11 @@ function DishRows({
         </td>
         <td className="px-1 py-2 text-right">
           {canEdit ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Más acciones"
-                  className="rounded-md p-1 text-[#6b7385] hover:bg-[#f1f3f7]"
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-60">
-                <DropdownMenuItem onClick={onDrill}>
-                  Ver desglose
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onToggle}>
-                  Ver variantes
-                </DropdownMenuItem>
-                {!isExcluded ? (
-                  <DropdownMenuItem onClick={onOpen}>
-                    Abrir receta
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuItem onClick={() => onMove(null)}>
-                  Mover variante a otro plato
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => onExclude(!isExcluded)}>
-                  {isExcluded ? "Volver a incluir" : "Excluir plato"}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <RowMenu
+              isExcluded={isExcluded}
+              onMove={() => onMove(dish, null)}
+              onExclude={() => onExclude(dish, !isExcluded)}
+            />
           ) : null}
         </td>
       </tr>
@@ -737,7 +829,7 @@ function DishRows({
         : null}
     </>
   );
-}
+});
 
 function MovePanel({
   moving,

@@ -16,6 +16,7 @@ import {
 } from "@/lib/restaurant/recipe-costing/optimistic";
 import { ConfirmHowDialog } from "./ConfirmHowDialog";
 import { PlatoScreen } from "./PlatoScreen";
+import { MenuDishesScreen } from "@/components/restaurant/menu/MenuDishesScreen";
 import { PreparacionesScreen } from "./PreparacionesScreen";
 import { ResumenScreen } from "./ResumenScreen";
 
@@ -428,33 +429,76 @@ export function RecipesCostingWorkspace({
         aria-busy={navigating}
         className={navigating ? "pointer-events-none opacity-60" : undefined}
       >
-        {view === "plato" ? (
-          <PlatoScreen
+        {view === "plato" &&
+        !searchParams.get("producto") &&
+        data.menu_dishes ? (
+          // R1-10: Platos is the menu dishes; a dish opens its recipe.
+          <MenuDishesScreen
             data={data}
-            locationId={searchParams.get("location")}
-            busy={busy}
-            onSelect={selectDish}
-            onEditorState={onEditorState}
-            onEdited={scheduleReloadDish}
-            onPost={postAndReload}
-            onConfirm={() => void confirmDish()}
-            onOpenPreparation={(id) => openPreparation(id, { fromDish: true })}
+            onOpenDish={selectDish}
             statusFilter={(searchParams.get("estado") ?? "")
               .split(",")
               .filter(Boolean)}
-            onFilter={(filter) => {
-              // A list filter is client state: no server round trip.
-              const params = new URLSearchParams(searchParams.toString());
-              if (filter) params.set("estado", filter);
-              else params.delete("estado");
-              const query = params.toString();
-              window.history.replaceState(
-                null,
-                "",
-                query ? `${pathname}?${query}` : pathname
-              );
-            }}
           />
+        ) : view === "plato" ? (
+          <>
+            {data.menu_dishes ? (
+              <nav className="mb-3 text-[14px] text-[#6b7385]">
+                <button
+                  type="button"
+                  className="font-semibold text-[#f28c28]"
+                  onClick={() => {
+                    const params = new URLSearchParams(window.location.search);
+                    params.delete("producto");
+                    const query = params.toString();
+                    window.history.replaceState(
+                      null,
+                      "",
+                      query ? `${pathname}?${query}` : pathname
+                    );
+                  }}
+                >
+                  Platos
+                </button>
+                {data.selected_dish?.menu_dish_name ? (
+                  <>
+                    {" › "}
+                    <b className="text-[#151c2c]">
+                      {data.selected_dish.menu_dish_name}
+                    </b>
+                  </>
+                ) : null}
+              </nav>
+            ) : null}
+            <PlatoScreen
+              data={data}
+              locationId={searchParams.get("location")}
+              busy={busy}
+              onSelect={selectDish}
+              onEditorState={onEditorState}
+              onEdited={scheduleReloadDish}
+              onPost={postAndReload}
+              onConfirm={() => void confirmDish()}
+              onOpenPreparation={(id) =>
+                openPreparation(id, { fromDish: true })
+              }
+              statusFilter={(searchParams.get("estado") ?? "")
+                .split(",")
+                .filter(Boolean)}
+              onFilter={(filter) => {
+                // A list filter is client state: no server round trip.
+                const params = new URLSearchParams(searchParams.toString());
+                if (filter) params.set("estado", filter);
+                else params.delete("estado");
+                const query = params.toString();
+                window.history.replaceState(
+                  null,
+                  "",
+                  query ? `${pathname}?${query}` : pathname
+                );
+              }}
+            />
+          </>
         ) : view === "preparaciones" ? (
           <PreparacionesScreen
             data={data}

@@ -9,6 +9,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { fetchAllRowsRetryingWithoutColumns } from "@/lib/restaurant/missing-schema-column";
+import { fetchAllRows } from "@/lib/restaurant/paginated-read";
+import type {
+  StoredMenuDish,
+  StoredVariant,
+} from "@/lib/restaurant/menu-dishes/menu-dishes";
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
 import type { PosProductListResult } from "@/lib/restaurant/pos-product-list";
 import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
@@ -58,6 +63,69 @@ export interface DishCostContext {
   inputsByVersionId: Map<string, VersionInput[]>;
   costing: CostingLoad;
   currency: string;
+  /** R1-10 (045). Empty, and `menuDishesStored` false, before 045. */
+  storedMenuDishes: StoredMenuDish[];
+  storedVariants: Map<number, StoredVariant>;
+  menuDishesStored: boolean;
+}
+
+/** Stored menu dishes and each variant's grouping (045), if applied. */
+async function loadStoredGrouping(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<{
+  dishes: StoredMenuDish[];
+  variants: Map<number, StoredVariant>;
+  stored: boolean;
+}> {
+  const empty = { dishes: [], variants: new Map(), stored: false };
+  const [dishesRes, linksRes] = await Promise.all([
+    fetchAllRows<StoredMenuDish>(() =>
+      supabase
+        .from("menu_dishes")
+        .select(
+          "id, name, restaurant_id, category, recipe_id, base_portion_qty, base_portion_unit, source, status"
+        )
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<Record<string, unknown>>(() =>
+      supabase
+        .from("pos_product_links")
+        .select(
+          "id, odoo_product_id, menu_dish_id, portion_qty, side_label, cooking_point, is_event, excluded_reason"
+        )
+        .eq("company_id", companyId)
+    ),
+  ]);
+  // Before 045 is applied the table and columns do not exist: group in
+  // memory only (Milton's suggestion), with nothing stored.
+  if (dishesRes.error || linksRes.error) return empty;
+  const variants = new Map<number, StoredVariant>();
+  for (const row of linksRes.rows) {
+    const id = Number(row.odoo_product_id);
+    if (!Number.isInteger(id)) continue;
+    variants.set(id, {
+      odoo_product_id: id,
+      menu_dish_id:
+        typeof row.menu_dish_id === "string" ? row.menu_dish_id : null,
+      portion_qty: row.portion_qty == null ? null : Number(row.portion_qty),
+      side_label: typeof row.side_label === "string" ? row.side_label : null,
+      cooking_point:
+        typeof row.cooking_point === "string" ? row.cooking_point : null,
+      is_event: row.is_event === true,
+      excluded_reason:
+        typeof row.excluded_reason === "string" ? row.excluded_reason : null,
+    });
+  }
+  return {
+    dishes: dishesRes.rows.map((d) => ({
+      ...d,
+      base_portion_qty:
+        d.base_portion_qty == null ? null : Number(d.base_portion_qty),
+    })),
+    variants,
+    stored: true,
+  };
 }
 
 export async function loadDishCostContextWith(
@@ -66,28 +134,30 @@ export async function loadDishCostContextWith(
 ): Promise<
   { ok: true; context: DishCostContext } | { ok: false; error: string }
 > {
-  const [versionsRes, inputsRes, costing, currency] = await Promise.all([
-    fetchAllRowsRetryingWithoutColumns<DishVersion>(
-      ["approved_at"],
-      (select) =>
-        supabase
-          .from("recipe_versions")
-          .select(select)
-          .eq("company_id", companyId),
-      VERSION_SELECT
-    ),
-    fetchAllRowsRetryingWithoutColumns<Record<string, unknown>>(
-      ["unit_cost", "cost_source"],
-      (select) =>
-        supabase
-          .from("recipe_version_inputs")
-          .select(select)
-          .eq("company_id", companyId),
-      INPUT_SELECT
-    ),
-    createSupabaseEditorStore(supabase).loadCosting(companyId),
-    resolveCompanyCurrency(supabase, companyId),
-  ]);
+  const [versionsRes, inputsRes, costing, currency, grouping] =
+    await Promise.all([
+      fetchAllRowsRetryingWithoutColumns<DishVersion>(
+        ["approved_at"],
+        (select) =>
+          supabase
+            .from("recipe_versions")
+            .select(select)
+            .eq("company_id", companyId),
+        VERSION_SELECT
+      ),
+      fetchAllRowsRetryingWithoutColumns<Record<string, unknown>>(
+        ["unit_cost", "cost_source"],
+        (select) =>
+          supabase
+            .from("recipe_version_inputs")
+            .select(select)
+            .eq("company_id", companyId),
+        INPUT_SELECT
+      ),
+      createSupabaseEditorStore(supabase).loadCosting(companyId),
+      resolveCompanyCurrency(supabase, companyId),
+      loadStoredGrouping(supabase, companyId),
+    ]);
   if (versionsRes.error) {
     console.error("[dish-economics] recipe_versions:", versionsRes.error);
     return { ok: false, error: "No se pudieron leer las recetas." };
@@ -125,6 +195,9 @@ export async function loadDishCostContextWith(
       inputsByVersionId,
       costing,
       currency: currency || "USD",
+      storedMenuDishes: grouping.dishes,
+      storedVariants: grouping.variants,
+      menuDishesStored: grouping.stored,
     },
   };
 }
@@ -174,7 +247,15 @@ export async function loadDishEconomicsWith(
       evidenceLinesOf,
       priceOf,
       locationId: params.locationId ?? null,
+      storedMenuDishes: ctx.storedMenuDishes.filter(
+        (d) =>
+          !d.restaurant_id ||
+          !params.locationId ||
+          d.restaurant_id === params.locationId
+      ),
+      storedVariants: ctx.storedVariants,
     });
+    result.menu_dishes_stored = ctx.menuDishesStored;
     const ms = Date.now() - started;
     console.log(
       `[timing] dish-economics ${ms}ms dishes=${result.dishes.length} period=${params.from ?? "all"}..${params.to ?? "all"}`

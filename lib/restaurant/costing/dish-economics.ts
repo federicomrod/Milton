@@ -171,6 +171,8 @@ export interface DishEconomicsResult {
   menu_dishes: MenuDish[];
   excluded_menu_dishes: MenuDish[];
   menu_totals: MenuDishTotals;
+  /** False until migration 045: grouping is Milton's, in memory only. */
+  menu_dishes_stored?: boolean;
 }
 
 export interface DishVersion {

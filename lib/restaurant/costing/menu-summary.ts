@@ -6,6 +6,7 @@
 // and the Cockpit can never disagree.
 
 import type { DishEconomicsResult, DishStatus } from "./dish-economics";
+import type { MenuDish } from "@/lib/restaurant/menu-dishes/menu-dishes";
 import { ingredientesHref, platosHref } from "@/lib/restaurant/menu-links";
 
 /** Food cost above this share of the price = "margen bajo" (< 60 %). */
@@ -66,6 +67,12 @@ export interface MenuSummary {
   };
   /** The loader's problem count (Falta precio + Sin receta). */
   problem_count: number;
+  /** Ingredients used by sold dishes with no price ("Resolver N precios"). */
+  missing_price_ingredients: number;
+  /** R1-10: per menu dish (same helpers as Platos). */
+  dish_kpis: MenuDishKpis | null;
+  mix: SalesMixRow[];
+  to_resolve: ToResolveRow[];
 }
 
 /**
@@ -94,7 +101,8 @@ const STATUS_TONE: Record<DishStatus, MenuSummaryRow["tone"]> = {
 };
 
 export function buildMenuSummary(
-  economics: Pick<DishEconomicsResult, "dishes" | "totals">,
+  economics: Pick<DishEconomicsResult, "dishes" | "totals"> &
+    Partial<Pick<DishEconomicsResult, "menu_dishes">>,
   opts: { excelUploaded: boolean }
 ): MenuSummary {
   const { dishes, totals } = economics;
@@ -163,8 +171,13 @@ export function buildMenuSummary(
     }
   }
 
-  const toReview = dishes.filter((d) => d.status !== "aprobado");
-  const estimated = toReview.filter((d) => d.status === "estimado").length;
+  // Counted per menu dish when the variants are grouped (R1-10).
+  const reviewStatuses: DishStatus[] = economics.menu_dishes
+    ? economics.menu_dishes.map((d) => d.cost_status)
+    : dishes.map((d) => d.status);
+  const dishTotal = reviewStatuses.length;
+  const toReview = reviewStatuses.filter((st) => st !== "aprobado");
+  const estimated = toReview.filter((st) => st === "estimado").length;
   const batch = Math.min(PLATOS_BATCH, toReview.length);
 
   const steps: SetupStep[] = [
@@ -199,9 +212,9 @@ export function buildMenuSummary(
       id: "platos",
       label:
         toReview.length > 0
-          ? `Confirmar platos (${dishes.length - toReview.length} de ${dishes.length})`
+          ? `Confirmar platos (${dishTotal - toReview.length} de ${dishTotal})`
           : "Confirmar platos",
-      done: dishes.length > 0 && toReview.length === 0,
+      done: dishTotal > 0 && toReview.length === 0,
       href: platosHref(
         estimated > 0 ? ["estimado"] : ["falta_precio", "sin_receta"]
       ),
@@ -227,6 +240,12 @@ export function buildMenuSummary(
       complete: done === steps.length,
     },
     problem_count: totals.problem_count,
+    missing_price_ingredients: missingIngredients.size,
+    dish_kpis: economics.menu_dishes
+      ? menuDishKpis({ totals, menu_dishes: economics.menu_dishes })
+      : null,
+    mix: economics.menu_dishes ? salesMix(economics.menu_dishes) : [],
+    to_resolve: economics.menu_dishes ? toResolve(economics.menu_dishes) : [],
   };
 }
 
@@ -247,4 +266,115 @@ export function menuSetupProgress(
     complete: summary.setup.complete,
     nextHref: "/dashboard/restaurant/menu",
   };
+}
+
+// ---------------------------------------------------------------------------
+// R1-10: per menu dish. Resumen and Platos read these same three helpers,
+// so their numbers are identical by construction.
+// ---------------------------------------------------------------------------
+
+export interface MenuDishKpis {
+  food_cost_pct: number | null;
+  gross_margin: number | null;
+  coverage_pct: number;
+  /** Dishes whose every variant has an approved cost. */
+  covered_dishes: number;
+  dish_count: number;
+  problem_count: number;
+  missing_price_dishes: number;
+  no_recipe_dishes: number;
+}
+
+export function menuDishKpis(
+  result: Pick<DishEconomicsResult, "totals" | "menu_dishes">
+): MenuDishKpis {
+  const dishes = result.menu_dishes;
+  return {
+    food_cost_pct: result.totals.food_cost_pct,
+    gross_margin: result.totals.gross_margin,
+    coverage_pct: result.totals.coverage_pct,
+    covered_dishes: dishes.filter((d) => d.cost_status === "aprobado").length,
+    dish_count: dishes.length,
+    problem_count: result.totals.problem_count,
+    missing_price_dishes: dishes.filter((d) => d.cost_status === "falta_precio")
+      .length,
+    no_recipe_dishes: dishes.filter((d) => d.cost_status === "sin_receta")
+      .length,
+  };
+}
+
+export interface SalesMixRow {
+  name: string;
+  share: number;
+  /** "Otros N platos". */
+  rest?: number;
+  menu_dish_id: string | null;
+}
+
+/** Top dishes by share of food sales, then "Otros N platos" (adds to 100%). */
+export function salesMix(dishes: readonly MenuDish[], top = 6): SalesMixRow[] {
+  const head = dishes.slice(0, top).map((d) => ({
+    name: d.name,
+    share: d.share_of_food_sales,
+    menu_dish_id: d.id,
+  }));
+  const tail = dishes.slice(top);
+  if (tail.length === 0) return head;
+  return [
+    ...head,
+    {
+      name: `Otros ${tail.length} platos`,
+      share: tail.reduce((s, d) => s + d.share_of_food_sales, 0),
+      rest: tail.length,
+      menu_dish_id: null,
+    },
+  ];
+}
+
+export interface ToResolveRow {
+  kind: "falta_precio" | "sin_receta" | "estimado" | "margen_bajo";
+  count: number;
+  /** Share of food sales of those dishes (0–1); null for margen bajo. */
+  share: number | null;
+  href: string;
+}
+
+/** "Por resolver": problems counted per dish, weighted by % of sales. */
+export function toResolve(dishes: readonly MenuDish[]): ToResolveRow[] {
+  const of = (status: DishStatus) =>
+    dishes.filter((d) => d.cost_status === status);
+  const share = (list: readonly MenuDish[]) =>
+    list.reduce((s, d) => s + d.share_of_food_sales, 0);
+  const missing = of("falta_precio");
+  const noRecipe = of("sin_receta");
+  const estimated = of("estimado");
+  const lowMargin = dishes.filter(
+    (d) => d.margin_pct !== null && d.margin_pct < LOW_MARGIN_PCT
+  );
+  return [
+    {
+      kind: "falta_precio" as const,
+      count: missing.length,
+      share: share(missing),
+      href: platosHref(["falta_precio"]),
+    },
+    {
+      kind: "sin_receta" as const,
+      count: noRecipe.length,
+      share: share(noRecipe),
+      href: platosHref(["sin_receta"]),
+    },
+    {
+      kind: "estimado" as const,
+      count: estimated.length,
+      share: share(estimated),
+      href: platosHref(["estimado"]),
+    },
+    {
+      kind: "margen_bajo" as const,
+      count: lowMargin.length,
+      share: null,
+      href: platosHref(["aprobado"]),
+    },
+  ].filter((row) => row.count > 0);
 }

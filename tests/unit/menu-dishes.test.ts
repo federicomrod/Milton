@@ -252,3 +252,28 @@ describe("menu dishes", () => {
     ).toBe(6);
   });
 });
+
+describe("moveVariantLocally", () => {
+  it("moves a variant and recomputes both dishes from sums", async () => {
+    const { moveVariantLocally } =
+      await import("@/lib/restaurant/menu-dishes/menu-dishes");
+    const products = [
+      approved6(),
+      variant("Bistec (8 onz.)", { units_sold: 10, net_sales: 250 }),
+      variant("Sopa de Casa", { net_sales: 50 }),
+    ];
+    const r = buildMenuDishes({ products, excludedNetSalesBefore: 0 });
+    const eight = r.dishes[0].variants.find((v) => v.size === 8)!;
+    const sopa = r.dishes.find((d) => d.name === "Sopa de Casa")!;
+    const next = moveVariantLocally(r.dishes, eight.odoo_product_id, sopa.id);
+    const bistec = next.find((d) => d.name === "Bistec")!;
+    const sopa2 = next.find((d) => d.id === sopa.id)!;
+    expect(bistec.net_sales).toBe(400);
+    expect(sopa2.net_sales).toBe(300);
+    expect(next.reduce((s, d) => s + d.share_of_food_sales, 0)).toBeCloseTo(
+      1,
+      10
+    );
+    expect(next.flatMap((d) => d.variants)).toHaveLength(3);
+  });
+});

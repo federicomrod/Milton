@@ -1,0 +1,606 @@
+"use client";
+
+// Menú › Platos (R1-10, mock 2): one row per menu dish (its POS variants
+// grouped), with sales, margin, cost %, coverage and Estado. Variants
+// collapse under the dish by size. "Mover variante a otro plato" and
+// "Excluir plato" save at once and are undone on screen if the save fails.
+// Every number comes from the shared loader; the screen only re-adds the
+// sums after a move (dishSums, the loader's own function).
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { MoreHorizontal } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
+import {
+  dishSums,
+  moveVariantLocally,
+  type MenuDish,
+  type MenuDishVariant,
+} from "@/lib/restaurant/menu-dishes/menu-dishes";
+import {
+  DISH_STATUS_LABELS,
+  type DishStatus,
+} from "@/lib/restaurant/costing/dish-status";
+import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
+import { platosHref } from "@/lib/restaurant/menu-links";
+import { Chip } from "@/components/restaurant/recipes-costing/ui";
+import Link from "next/link";
+
+const TONE: Record<DishStatus, "ok" | "pur" | "warn" | "grey"> = {
+  aprobado: "ok",
+  estimado: "pur",
+  falta_precio: "warn",
+  sin_receta: "grey",
+};
+
+const EXCLUDED_LABELS: Record<string, string> = {
+  bebida: "Bebida",
+  extra: "Extra",
+  empleados: "Empleados",
+  descuento: "Descuento",
+  excluido: "Excluido",
+  excluido_a_mano: "Excluido",
+};
+
+async function post(body: Record<string, unknown>) {
+  const res = await fetch("/api/restaurant/menu-dishes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    menu_dish_id?: string;
+  };
+  if (!res.ok) throw new Error(json.error ?? "No pude guardar el cambio.");
+  return json;
+}
+
+const pct = (n: number | null) => (n === null ? "—" : `${Math.round(n)}%`);
+
+export function MenuDishesScreen({
+  data,
+  onOpenDish,
+  statusFilter = [],
+}: {
+  data: RecipeCostingWorkspace;
+  /** Open the dish's recipe (its base variant) in the editor. */
+  onOpenDish: (odooProductId: number) => void;
+  statusFilter?: readonly string[];
+}) {
+  const menu = data.menu_dishes;
+  const [dishes, setDishes] = useState<MenuDish[]>(menu?.dishes ?? []);
+  const [excluded, setExcluded] = useState<MenuDish[]>(menu?.excluded ?? []);
+  const [showExcluded, setShowExcluded] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [moving, setMoving] = useState<{
+    dish: MenuDish;
+    variant: MenuDishVariant | null;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const money = (n: number) => formatMoneyEs(n, data.currency, { decimals: 0 });
+
+  // The lists are this screen's own after the first load: moves and
+  // exclusions apply here at once (the page remounts on navigation).
+
+  // Save Milton's grouping once (it only fills what is empty), in the
+  // background; nothing on screen changes.
+  const synced = useRef(false);
+  useEffect(() => {
+    if (synced.current || !menu?.stored) return;
+    if (!menu.dishes.some((d) => !d.stored)) return;
+    synced.current = true;
+    void post({ action: "sync" }).catch(() => undefined);
+  }, [menu]);
+
+  const shown = useMemo(() => {
+    const list = showExcluded ? [...dishes, ...excluded] : dishes;
+    if (statusFilter.length === 0) return list;
+    return list.filter((d) => statusFilter.includes(d.cost_status));
+  }, [dishes, excluded, showExcluded, statusFilter]);
+
+  if (!menu) return null;
+  const k = menu.kpis;
+
+  function toggle(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function move(variant: MenuDishVariant, target: MenuDish | string) {
+    const before = { dishes, excluded };
+    const targetId = typeof target === "string" ? `nuevo:${target}` : target.id;
+    setError(null);
+    setMoving(null);
+    setDishes((prev) =>
+      moveVariantLocally(
+        prev,
+        variant.odoo_product_id,
+        targetId,
+        typeof target === "string" ? target : undefined
+      )
+    );
+    try {
+      const saved = await post({
+        action: "move",
+        odoo_product_id: variant.odoo_product_id,
+        odoo_name: variant.name,
+        menu_dish_id: typeof target === "string" ? null : target.id,
+        dish_name: typeof target === "string" ? target : target.name,
+      });
+      if (saved.menu_dish_id && saved.menu_dish_id !== targetId) {
+        setDishes((prev) =>
+          prev.map((d) =>
+            d.id === targetId
+              ? { ...d, id: saved.menu_dish_id!, stored: true }
+              : d
+          )
+        );
+      }
+    } catch (err) {
+      setDishes(before.dishes);
+      setExcluded(before.excluded);
+      setError(
+        err instanceof Error ? err.message : "No pude mover la variante."
+      );
+    }
+  }
+
+  async function setDishExcluded(dish: MenuDish, exclude: boolean) {
+    const before = { dishes, excluded };
+    setError(null);
+    if (exclude) {
+      setDishes((prev) => prev.filter((d) => d.id !== dish.id));
+      setExcluded((prev) => [
+        ...prev,
+        {
+          ...dish,
+          status: "excluded" as const,
+          excluded_reason: "excluido_a_mano",
+        },
+      ]);
+    } else {
+      setExcluded((prev) => prev.filter((d) => d.id !== dish.id));
+      setDishes((prev) =>
+        [
+          ...prev,
+          { ...dish, status: "confirmed" as const, excluded_reason: null },
+        ].sort((a, b) => b.net_sales - a.net_sales)
+      );
+    }
+    try {
+      await post({
+        action: "exclude",
+        dish_name: dish.name,
+        menu_dish_id: dish.id,
+        excluded: exclude,
+        variants: dish.variants.map((v) => ({
+          odoo_product_id: v.odoo_product_id,
+          odoo_name: v.name,
+        })),
+      });
+    } catch (err) {
+      setDishes(before.dishes);
+      setExcluded(before.excluded);
+      setError(
+        err instanceof Error ? err.message : "No pude guardar el cambio."
+      );
+    }
+  }
+
+  return (
+    <div className="space-y-[14px]">
+      <div className="grid grid-cols-4 gap-3">
+        <Kpi
+          label="Costo de comida"
+          value={k.food_cost_pct !== null ? pct(k.food_cost_pct) : "Sin precio"}
+          sub="sobre ventas con costo"
+          href={platosHref(["aprobado"])}
+        />
+        <Kpi
+          label="Margen bruto"
+          value={k.gross_margin !== null ? money(k.gross_margin) : "—"}
+          sub={data.period_label ?? "ventas con costo"}
+          href={platosHref(["aprobado"])}
+        />
+        <Kpi
+          label="Ventas con costo"
+          value={`${Math.round(k.coverage_pct)}%`}
+          sub={`${k.covered_dishes} de ${k.dish_count} platos`}
+          href={platosHref()}
+        />
+        <Kpi
+          label="Platos con problema"
+          value={String(k.problem_count)}
+          sub={`${k.missing_price_dishes} sin precio · ${k.no_recipe_dishes} sin receta`}
+          href={platosHref(["falta_precio", "sin_receta"])}
+          alert={k.problem_count > 0}
+        />
+      </div>
+
+      <div className="flex items-center gap-3 text-[13px]">
+        <span
+          className="rounded-md bg-[#f1f3f7] px-2 py-0.5 text-[12px] font-semibold text-[#5b6476]"
+          title={
+            menu.stored
+              ? "Milton agrupó los productos del POS en platos del menú. Corrige con ⋯ › Mover variante."
+              : "Agrupación de Milton en pantalla. Para guardar cambios falta aplicar la migración 045 en este ambiente."
+          }
+        >
+          ✦ Agrupado por Milton ·{" "}
+          {menu.variant_count + menu.excluded_variant_count} productos →{" "}
+          {dishes.length} platos
+        </span>
+        {statusFilter.length > 0 ? (
+          <Link href={platosHref()} className="font-semibold text-[#3557c9]">
+            Ver todos
+          </Link>
+        ) : null}
+        <label className="ml-auto inline-flex items-center gap-1.5 text-[#5b6476]">
+          <input
+            type="checkbox"
+            checked={showExcluded}
+            onChange={(e) => setShowExcluded(e.target.checked)}
+          />
+          Mostrar excluidos ({menu.excluded_variant_count})
+        </label>
+      </div>
+
+      {error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      {moving ? (
+        <MovePanel
+          moving={moving}
+          dishes={dishes}
+          onCancel={() => setMoving(null)}
+          onMove={(variant, target) => void move(variant, target)}
+          onPickVariant={(variant) => setMoving({ ...moving, variant })}
+        />
+      ) : null}
+
+      <section className="rounded-[14px] border border-[#eef0f4] bg-white px-3 py-1.5">
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="border-b border-[#eef0f4] text-left text-[12px] font-semibold text-[#8a92a3]">
+              <th className="px-2 py-1.5">Plato del menú</th>
+              <th className="px-2 py-1.5 text-right">Ventas</th>
+              <th className="px-2 py-1.5 text-right">Margen</th>
+              <th className="px-2 py-1.5 text-right">Costo %</th>
+              <th className="px-2 py-1.5 text-right">Cobertura</th>
+              <th className="px-2 py-1.5">Estado</th>
+              <th className="w-8" />
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((dish) => (
+              <DishRows
+                key={dish.id}
+                dish={dish}
+                open={expanded.has(dish.id)}
+                money={money}
+                canEdit={data.actor.can_submit}
+                onToggle={() => toggle(dish.id)}
+                onOpen={() =>
+                  dish.base_odoo_product_id != null &&
+                  onOpenDish(dish.base_odoo_product_id)
+                }
+                onMove={(variant) => setMoving({ dish, variant })}
+                onExclude={(exclude) => void setDishExcluded(dish, exclude)}
+              />
+            ))}
+            {shown.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-2 py-4 text-[#5b6476]">
+                  No hay platos con ese filtro.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+        <p className="px-2 py-2 text-[12px] text-[#8a92a3]">
+          Doble clic en un plato para ver sus variantes
+        </p>
+      </section>
+    </div>
+  );
+}
+
+function Kpi({
+  label,
+  value,
+  sub,
+  href,
+  alert,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  href: string;
+  alert?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px] hover:border-[#f28c28]"
+    >
+      <div className="text-[12px] text-[#6b7385]">{label}</div>
+      <div className="mt-0.5 text-[30px] font-extrabold leading-tight tracking-[-0.5px] text-[#1b2333]">
+        {value}
+      </div>
+      <div
+        className={
+          "mt-0.5 text-[12px] " + (alert ? "text-[#d14343]" : "text-[#8a92a3]")
+        }
+      >
+        {sub}
+      </div>
+    </Link>
+  );
+}
+
+/** Variants by size ("6 oz · 14 variantes"), sums only. */
+function bySize(variants: readonly MenuDishVariant[]) {
+  const groups = new Map<string, MenuDishVariant[]>();
+  for (const v of variants) {
+    const key =
+      v.size !== null
+        ? `${v.size} ${v.size_unit === "personas" ? "personas" : "oz"}`
+        : "Sin tamaño";
+    groups.set(key, [...(groups.get(key) ?? []), v]);
+  }
+  return [...groups.entries()]
+    .map(([label, list]) => ({ label, list, sums: dishSums(list) }))
+    .sort((a, b) => b.sums.net_sales - a.sums.net_sales);
+}
+
+function DishRows({
+  dish,
+  open,
+  money,
+  canEdit,
+  onToggle,
+  onOpen,
+  onMove,
+  onExclude,
+}: {
+  dish: MenuDish;
+  open: boolean;
+  money: (n: number) => string;
+  canEdit: boolean;
+  onToggle: () => void;
+  onOpen: () => void;
+  onMove: (variant: MenuDishVariant | null) => void;
+  onExclude: (exclude: boolean) => void;
+}) {
+  const isExcluded = dish.status === "excluded";
+  const coverage = Math.round(dish.coverage * 100);
+  return (
+    <>
+      <tr
+        className={
+          "border-b border-[#f2f3f6] " + (isExcluded ? "text-[#8a92a3]" : "")
+        }
+        onDoubleClick={onToggle}
+      >
+        <td className="px-2 py-2">
+          <button
+            type="button"
+            onClick={onToggle}
+            className="mr-1 text-[#5b6476]"
+            aria-label={open ? "Ocultar variantes" : "Ver variantes"}
+          >
+            {open ? "▾" : "▸"}
+          </button>
+          <button
+            type="button"
+            onClick={onOpen}
+            className="font-bold hover:underline"
+          >
+            {dish.name}
+          </button>{" "}
+          <span className="text-[12px] text-[#8a92a3]">
+            {dish.variants.length}{" "}
+            {dish.variants.length === 1 ? "variante" : "variantes"}
+          </span>
+        </td>
+        <td className="px-2 py-2 text-right tabular-nums">
+          {money(dish.net_sales)}
+        </td>
+        <td className="px-2 py-2 text-right tabular-nums">
+          {pct(dish.margin_pct)}
+        </td>
+        <td className="px-2 py-2 text-right tabular-nums">
+          {pct(dish.food_cost_pct)}
+        </td>
+        <td className="px-2 py-2 text-right">
+          {isExcluded ? (
+            "—"
+          ) : (
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-block h-2 w-[70px] overflow-hidden rounded bg-[#eef0f4] align-middle">
+                <i
+                  className="block h-full bg-[#1f9d55]"
+                  style={{ width: `${coverage}%` }}
+                />
+              </span>
+              <span className="w-9 text-right tabular-nums">{coverage}%</span>
+            </span>
+          )}
+        </td>
+        <td className="px-2 py-2">
+          {isExcluded ? (
+            <Chip tone="grey">
+              {EXCLUDED_LABELS[dish.excluded_reason ?? ""] ?? "Excluido"}
+            </Chip>
+          ) : (
+            <Chip tone={TONE[dish.cost_status]}>
+              {DISH_STATUS_LABELS[dish.cost_status]}
+            </Chip>
+          )}
+        </td>
+        <td className="px-1 py-2 text-right">
+          {canEdit ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Más acciones"
+                  className="rounded-md p-1 text-[#6b7385] hover:bg-[#f1f3f7]"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-60">
+                <DropdownMenuItem onClick={onToggle}>
+                  Ver variantes
+                </DropdownMenuItem>
+                {!isExcluded ? (
+                  <DropdownMenuItem onClick={onOpen}>
+                    Abrir receta
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem onClick={() => onMove(null)}>
+                  Mover variante a otro plato
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => onExclude(!isExcluded)}>
+                  {isExcluded ? "Volver a incluir" : "Excluir plato"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </td>
+      </tr>
+      {open
+        ? bySize(dish.variants).map((group) => (
+            <tr
+              key={`${dish.id}:${group.label}`}
+              className="border-b border-[#f2f3f6] bg-[#fafbfc] text-[#4a5263]"
+            >
+              <td
+                className="py-2 pl-[34px] pr-2"
+                title={group.list.map((v) => v.name).join("\n")}
+              >
+                {group.label} · {group.list.length}{" "}
+                {group.list.length === 1 ? "variante" : "variantes"}
+              </td>
+              <td className="px-2 py-2 text-right tabular-nums">
+                {money(group.sums.net_sales)}
+              </td>
+              <td className="px-2 py-2 text-right tabular-nums">
+                {pct(group.sums.margin_pct)}
+              </td>
+              <td className="px-2 py-2 text-right tabular-nums">
+                {pct(group.sums.food_cost_pct)}
+              </td>
+              <td colSpan={3} />
+            </tr>
+          ))
+        : null}
+    </>
+  );
+}
+
+function MovePanel({
+  moving,
+  dishes,
+  onCancel,
+  onMove,
+  onPickVariant,
+}: {
+  moving: { dish: MenuDish; variant: MenuDishVariant | null };
+  dishes: readonly MenuDish[];
+  onCancel: () => void;
+  onMove: (variant: MenuDishVariant, target: MenuDish | string) => void;
+  onPickVariant: (variant: MenuDishVariant) => void;
+}) {
+  const [target, setTarget] = useState("");
+  const [newName, setNewName] = useState("");
+  const variant = moving.variant;
+  return (
+    <section className="space-y-2 rounded-[14px] border border-[#f5c98b] bg-[#fff8ec] px-4 py-3 text-[13px]">
+      <div className="font-semibold">
+        Mover una variante de {moving.dish.name}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          aria-label="Variante"
+          value={variant?.odoo_product_id ?? ""}
+          onChange={(e) => {
+            const v = moving.dish.variants.find(
+              (x) => x.odoo_product_id === Number(e.target.value)
+            );
+            if (v) onPickVariant(v);
+          }}
+          className="max-w-md rounded-md border border-[#d5dae3] bg-white px-2 py-1"
+        >
+          <option value="">Elige la variante…</option>
+          {moving.dish.variants.map((v) => (
+            <option key={v.odoo_product_id} value={v.odoo_product_id}>
+              {v.name}
+            </option>
+          ))}
+        </select>
+        <span>a</span>
+        <select
+          aria-label="Plato"
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          className="rounded-md border border-[#d5dae3] bg-white px-2 py-1"
+        >
+          <option value="">Elige el plato…</option>
+          {dishes
+            .filter((d) => d.id !== moving.dish.id)
+            .map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          <option value="__nuevo">Un plato nuevo…</option>
+        </select>
+        {target === "__nuevo" ? (
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Nombre del plato"
+            className="rounded-md border border-[#d5dae3] bg-white px-2 py-1"
+          />
+        ) : null}
+        <button
+          type="button"
+          disabled={
+            !variant || !target || (target === "__nuevo" && !newName.trim())
+          }
+          onClick={() => {
+            if (!variant) return;
+            const dest =
+              target === "__nuevo"
+                ? newName.trim()
+                : dishes.find((d) => d.id === target);
+            if (dest) onMove(variant, dest);
+          }}
+          className="rounded-lg bg-[#f28c28] px-3 py-1.5 font-semibold text-white disabled:opacity-45"
+        >
+          Mover
+        </button>
+        <button type="button" onClick={onCancel} className="text-[#5b6476]">
+          Cancelar
+        </button>
+      </div>
+    </section>
+  );
+}

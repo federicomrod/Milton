@@ -154,6 +154,100 @@ export function scaledCost(input: {
   return baseCost + (portion / basePortion - 1) * baseProtein;
 }
 
+/**
+ * A dish's numbers from its variants: sums only (units, sales, cost);
+ * margin, food cost % and coverage come from those sums, never averaged.
+ * The loader and the screen (after "Mover variante") both use this.
+ */
+export function dishSums(
+  variants: readonly MenuDishVariant[]
+): Pick<
+  MenuDish,
+  | "units"
+  | "net_sales"
+  | "share_of_food_sales"
+  | "cost_known_sales"
+  | "cost_total"
+  | "food_cost_pct"
+  | "margin"
+  | "margin_pct"
+  | "coverage"
+  | "cost_status"
+> {
+  const units = variants.reduce((s, v) => s + v.units, 0);
+  const net = variants.reduce((s, v) => s + v.net_sales, 0);
+  const known = variants.filter((v) => v.cost_total !== null);
+  const knownSales = known.reduce((s, v) => s + v.net_sales, 0);
+  const costTotal = known.length
+    ? known.reduce((s, v) => s + (v.cost_total ?? 0), 0)
+    : null;
+  const coveredSales = variants
+    .filter((v) => v.covered)
+    .reduce((s, v) => s + v.net_sales, 0);
+  return {
+    units: round2(units),
+    net_sales: round2(net),
+    share_of_food_sales: 0,
+    cost_known_sales: round2(knownSales),
+    cost_total: costTotal,
+    food_cost_pct:
+      costTotal !== null && knownSales > 0
+        ? (costTotal / knownSales) * 100
+        : null,
+    margin: costTotal !== null ? knownSales - costTotal : null,
+    margin_pct:
+      costTotal !== null && knownSales > 0
+        ? ((knownSales - costTotal) / knownSales) * 100
+        : null,
+    coverage: net > 0 ? coveredSales / net : 0,
+    cost_status:
+      net > 0 && coveredSales >= net - 0.005
+        ? "aprobado"
+        : worst(variants.map((v) => v.status)),
+  };
+}
+
+/** Move one variant between dishes on screen (sums recomputed). */
+export function moveVariantLocally(
+  dishes: readonly MenuDish[],
+  odooProductId: number,
+  targetId: string,
+  newDishName?: string
+): MenuDish[] {
+  let moving: MenuDishVariant | null = null;
+  const without = dishes.map((d) => {
+    const v = d.variants.find((x) => x.odoo_product_id === odooProductId);
+    if (!v) return d;
+    moving = v;
+    const variants = d.variants.filter((x) => x !== v);
+    return { ...d, variants, ...dishSums(variants) };
+  });
+  if (!moving) return [...dishes];
+  const moved: MenuDishVariant = moving;
+  let target = without.find((d) => d.id === targetId);
+  const rest = without.filter(
+    (d) => d.variants.length > 0 && d.id !== targetId
+  );
+  if (!target) {
+    target = {
+      ...(without[0] as MenuDish),
+      id: targetId,
+      stored: false,
+      name: newDishName ?? "Plato nuevo",
+      status: "confirmed",
+      variants: [],
+      excluded_reason: null,
+      base_odoo_product_id: moved.odoo_product_id,
+    };
+  }
+  const variants = [...target.variants, moved];
+  const next = [...rest, { ...target, variants, ...dishSums(variants) }];
+  const food = next.reduce((s, d) => s + d.net_sales, 0);
+  for (const d of next)
+    d.share_of_food_sales = food > 0 ? d.net_sales / food : 0;
+  return next.sort((a, b) => b.net_sales - a.net_sales);
+}
+
 function worst(statuses: DishStatus[]): DishStatus {
   if (statuses.includes("falta_precio")) return "falta_precio";
   if (statuses.includes("estimado")) return "estimado";
@@ -361,16 +455,6 @@ export function buildMenuDishes(input: {
       }
     );
 
-    const units = variants.reduce((s, v) => s + v.units, 0);
-    const net = variants.reduce((s, v) => s + v.net_sales, 0);
-    const known = variants.filter((v) => v.cost_total !== null);
-    const knownSales = known.reduce((s, v) => s + v.net_sales, 0);
-    const costTotal = known.length
-      ? known.reduce((s, v) => s + (v.cost_total ?? 0), 0)
-      : null;
-    const coveredSales = variants
-      .filter((v) => v.covered)
-      .reduce((s, v) => s + v.net_sales, 0);
     const top = members[0];
     const name =
       g.stored?.name ??
@@ -389,25 +473,7 @@ export function buildMenuDishes(input: {
       status: excluded ? "excluded" : (g.stored?.status ?? "suggested"),
       excluded_reason: excluded ? g.excluded_reason : null,
       variants,
-      units: round2(units),
-      net_sales: round2(net),
-      share_of_food_sales: 0,
-      cost_known_sales: round2(knownSales),
-      cost_total: costTotal,
-      food_cost_pct:
-        costTotal !== null && knownSales > 0
-          ? (costTotal / knownSales) * 100
-          : null,
-      margin: costTotal !== null ? knownSales - costTotal : null,
-      margin_pct:
-        costTotal !== null && knownSales > 0
-          ? ((knownSales - costTotal) / knownSales) * 100
-          : null,
-      coverage: net > 0 ? coveredSales / net : 0,
-      cost_status:
-        net > 0 && coveredSales >= net - 0.005
-          ? "aprobado"
-          : worst(variants.map((v) => v.status)),
+      ...dishSums(variants),
       base_odoo_product_id:
         base?.dish.odoo_product_id ?? top?.dish.odoo_product_id ?? null,
       base_portion_qty: basePortion,

@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
       { status: 400 }
     );
   }
+  const started = Date.now();
   try {
     const result = await loadEditor({
       store: createSupabaseEditorStore(auth.supabase),
@@ -59,7 +60,12 @@ export async function GET(req: NextRequest) {
         { status: result.status ?? 400 }
       );
     }
-    return NextResponse.json(result.state);
+    const ms = Date.now() - started;
+    // One line per read, to measure it in the logs (no client data).
+    console.info(`[recipes/editor] load ${ms}ms`);
+    return NextResponse.json(result.state, {
+      headers: { "Server-Timing": `load;dur=${ms}` },
+    });
   } catch (err) {
     console.error("[recipes/editor GET]", err);
     return NextResponse.json(

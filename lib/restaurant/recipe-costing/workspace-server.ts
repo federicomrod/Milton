@@ -105,7 +105,16 @@ export function parseCostingView(value: string | null): RecipeCostingView {
   return "resumen";
 }
 
-async function probeComboSyncHint(
+// R1-09c: the probe scanned pos_sales_items on every load; its answer
+// only changes after a POS sync, so it is kept for 10 minutes.
+const probeComboSyncHint = ttlCached(
+  10 * 60_000,
+  (_s: SupabaseClient, companyId: string, hasCombos: boolean) =>
+    `${companyId}:${hasCombos}`,
+  probeComboSyncHintUncached
+);
+
+async function probeComboSyncHintUncached(
   supabase: SupabaseClient,
   companyId: string,
   hasCombos: boolean

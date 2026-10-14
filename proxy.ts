@@ -99,11 +99,15 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  // Check if user is authenticated
+  // Check if user is authenticated. R1-09c: getClaims() verifies the JWT
+  // locally when the project signs with an asymmetric key (no Auth round
+  // trip); otherwise it asks Auth, exactly like getUser() did. It also
+  // refreshes an expired session through the cookies, like before.
   const authStarted = Date.now();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId =
+    typeof claimsData?.claims?.sub === "string" ? claimsData.claims.sub : null;
+  const user = userId ? { id: userId } : null;
   const authMs = Date.now() - authStarted;
 
   // If user is not authenticated, redirect to login
@@ -134,18 +138,32 @@ export async function proxy(request: NextRequest) {
   // Check onboarding status for protected routes (dashboard, analytics, etc.)
   // Skip this check if user is already on onboarding-required page
   // Also skip for management routes (admin-only) and for admin users
-  const isAdmin = await (async () => {
-    try {
-      const { data, error } = await supabase.rpc("is_milton_admin");
-      if (error) {
-        console.error("[Proxy] is_milton_admin RPC error:", error.message);
-        return false;
-      }
-      return data === true;
-    } catch {
-      return false;
-    }
-  })();
+  const isRestaurantPivotRoute =
+    pathname.startsWith("/dashboard/restaurant") ||
+    pathname.startsWith("/dashboard/settings") ||
+    pathname.startsWith("/dashboard/account");
+  // Only the onboarding gate below needs this; restaurant routes skip it.
+  const needsOnboardingGate =
+    pathname !== "/onboarding-required" &&
+    !pathname.startsWith("/management") &&
+    !isRestaurantPivotRoute &&
+    (pathname.startsWith("/dashboard") ||
+      pathname.startsWith("/analytics") ||
+      pathname.startsWith("/reporting"));
+  const isAdmin = !needsOnboardingGate
+    ? false
+    : await (async () => {
+        try {
+          const { data, error } = await supabase.rpc("is_milton_admin");
+          if (error) {
+            console.error("[Proxy] is_milton_admin RPC error:", error.message);
+            return false;
+          }
+          return data === true;
+        } catch {
+          return false;
+        }
+      })();
 
   // Restaurant pivot: these routes skip the legacy onboarding-completion gate.
   //
@@ -161,10 +179,6 @@ export async function proxy(request: NextRequest) {
   //
   // Authentication is still enforced for all these routes — the
   // `if (!user) redirect to /auth/login` check above still applies.
-  const isRestaurantPivotRoute =
-    pathname.startsWith("/dashboard/restaurant") ||
-    pathname.startsWith("/dashboard/settings") ||
-    pathname.startsWith("/dashboard/account");
   if (isRestaurantPivotRoute) {
     console.log(
       `[Proxy] PROD bypass: restaurant pilot route pathname=${pathname} skips onboarding gate`
@@ -183,13 +197,8 @@ export async function proxy(request: NextRequest) {
   }
 
   if (
-    pathname !== "/onboarding-required" &&
-    !pathname.startsWith("/management") &&
-    !isRestaurantPivotRoute &&
-    !isAdmin && // Skip onboarding check for admin users
-    (pathname.startsWith("/dashboard") ||
-      pathname.startsWith("/analytics") ||
-      pathname.startsWith("/reporting"))
+    needsOnboardingGate &&
+    !isAdmin // Skip onboarding check for admin users
   ) {
     try {
       // Get company for user and check onboarding_status

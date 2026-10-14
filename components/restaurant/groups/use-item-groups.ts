@@ -81,8 +81,13 @@ export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
     async (ops: GroupOps, undoOps: GroupOps | null, label: string) => {
       const before = stateRef.current;
       const known = new Set(before.groups.map((g) => g.id));
+      // A group that just became real: new, or a suggestion that was accepted.
       const fresh = ops.upsert_groups.find(
-        (g) => !known.has(g.id) && g.source === "user"
+        (g) =>
+          g.source !== "auto" &&
+          g.status === "confirmed" &&
+          (!known.has(g.id) ||
+            before.groups.find((x) => x.id === g.id)?.status === "suggested")
       );
       commit(applyOps(before, ops));
       if (fresh) {

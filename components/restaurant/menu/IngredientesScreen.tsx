@@ -218,6 +218,7 @@ export function IngredientesScreen({
             sortColumns={INGREDIENT_SORT}
             searchPlaceholder="Buscar ingrediente o grupo…"
             searchText={(item) => item.supplier_name}
+            categoryOf={(item) => item.category}
             emptyText={
               items.length === 0
                 ? "Aún no tienes ingredientes."

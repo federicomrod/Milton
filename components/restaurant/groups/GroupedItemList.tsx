@@ -42,6 +42,8 @@ import {
 } from "./use-item-groups";
 import { SortChips } from "@/components/restaurant/sort/SortTh";
 import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
+import { MiltonMark, MiltonSuggestions } from "./MiltonSuggestions";
+import { useMiltonSuggestions } from "./use-milton-suggestions";
 import { SearchBox } from "@/components/restaurant/ui/SearchBox";
 import { useProgressiveCount } from "./use-progressive";
 import { foldText } from "@/lib/restaurant/groups/search";
@@ -74,6 +76,7 @@ export function GroupedItemList<T extends GroupableItem>({
   sortColumns,
   searchPlaceholder = "Buscar…",
   searchText,
+  categoryOf,
 }: {
   items: readonly T[];
   scope: "preparation" | "ingredient";
@@ -88,6 +91,8 @@ export function GroupedItemList<T extends GroupableItem>({
   searchPlaceholder?: string;
   /** Extra text an item is found by (supplier…). */
   searchText?: (item: T) => string | null | undefined;
+  /** Category of an item, for Milton's suggestions (names and categories only). */
+  categoryOf?: (item: T) => string | null | undefined;
 }) {
   const memberType: GroupMemberType = scope;
   const hierarchy = { scope } as const;
@@ -247,6 +252,29 @@ export function GroupedItemList<T extends GroupableItem>({
     (itemsIn.get(g.id) ?? []).some(matches) ||
     (children.get(g.id) ?? []).some(groupVisible);
 
+  // Milton's suggestions for the items in no group.
+  const miltonItems = useMemo(
+    () =>
+      ungrouped.map((i) => ({
+        ref: i.id,
+        name: i.name,
+        category: categoryOf?.(i) ?? null,
+      })),
+    [ungrouped, categoryOf]
+  );
+  const miltonTaken = useMemo(
+    () =>
+      grouping.state.groups.filter((g) => g.scope === scope).map((g) => g.name),
+    [grouping.state.groups, scope]
+  );
+  const milton = useMiltonSuggestions({
+    scope,
+    grouping,
+    ungrouped: miltonItems,
+    takenNames: miltonTaken,
+    enabled: canEdit && grouping.available,
+  });
+
   // Only what is on screen can be selected, acted on or counted.
   const visibleIds = new Set<string>();
   const walkVisible = (g: StoredItemGroup, all: boolean) => {
@@ -261,7 +289,12 @@ export function GroupedItemList<T extends GroupableItem>({
   if (filter !== "sin_agrupar")
     (children.get(null) ?? []).forEach((g) => walkVisible(g, false));
   if (filter !== "agrupados")
-    ungrouped.filter(matches).forEach((item) => visibleIds.add(item.id));
+    ungrouped
+      .filter(
+        (i) =>
+          matches(i) && (!milton.previewRefs || milton.previewRefs.has(i.id))
+      )
+      .forEach((item) => visibleIds.add(item.id));
   const selectedIds = [...selected].filter((id) => visibleIds.has(id));
   const shared = sharedSuggestion(suggestions, selectedIds);
 
@@ -329,6 +362,7 @@ export function GroupedItemList<T extends GroupableItem>({
           ) : (
             <span className="flex-1">{g.name}</span>
           )}
+          {g.source === "ai_suggested" ? <MiltonMark /> : null}
           <span className="font-normal text-[#8a92a3]">{countUnder(g)}</span>
           {canEdit ? (
             <GroupMenu
@@ -358,7 +392,13 @@ export function GroupedItemList<T extends GroupableItem>({
     filter !== "sin_agrupar"
       ? (children.get(null) ?? []).filter(groupVisible)
       : [];
-  const topItems = filter !== "agrupados" ? ungrouped.filter(matches) : [];
+  const topItems =
+    filter !== "agrupados"
+      ? ungrouped.filter(
+          (i) =>
+            matches(i) && (!milton.previewRefs || milton.previewRefs.has(i.id))
+        )
+      : [];
   const shownItems = useProgressiveCount(
     topItems.length,
     `${filter}|${query}|${sort?.key}|${sort?.dir}`
@@ -377,6 +417,24 @@ export function GroupedItemList<T extends GroupableItem>({
         onChange={setQuery}
         placeholder={searchPlaceholder}
       />
+      {canEdit && grouping.available ? (
+        <MiltonSuggestions
+          clusters={milton.clusters}
+          preview={milton.preview}
+          onPreview={(c) => {
+            setFilter("sin_agrupar");
+            setQuery("");
+            milton.startPreview(c);
+          }}
+          onApply={(c) => void milton.apply(c)}
+          onDismiss={(c) => void milton.dismiss(c)}
+          onEndPreview={milton.endPreview}
+          onAskAi={() => void milton.askAi()}
+          aiBusy={milton.aiBusy}
+          canAskAi={milton.canAskAi}
+          itemWord={scope === "ingredient" ? "ingredientes" : "preparaciones"}
+        />
+      ) : null}
       <SortChips columns={sortColumns} sort={sort} onSort={toggleSort} />
       <GroupingToolbar
         grouping={grouping}

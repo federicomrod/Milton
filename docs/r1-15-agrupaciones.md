@@ -113,3 +113,23 @@ and a table with the total. Grouped values (a `dimension_value` group of this di
 caret to its members; "✎ Editar agrupación" moves values between groups and saves like every other group
 (needs 048 + 049 and a saved dish). All client-side over the loaded variant rows (`lib/restaurant/menu-dishes/drill.ts`);
 sums come from `costing/rollup.ts`, shares add up to exactly 100 (a group's share = sum of its members').
+
+## F4 — Milton suggests (no migration)
+
+Above Productos, Preparaciones and Ingredientes: «✦ Milton sugiere: Cervezas · 23, Vinos · 16…» as dashed chips,
+for the items in no group.
+
+1. **Name / category (client only):** 3+ items that start with the same significant word, or share a
+   (non-generic) category. Names are plural only when safe (ends in a vowel); never the same name twice;
+   a name that already exists (group or dish) is never suggested.
+2. **AI for what is left** (button «✦ Pedir más a Milton», `POST /api/restaurant/item-groups/suggest`): the
+   existing OpenAI setup (gpt-4o-mini, `OPENAI_API_KEY`). Only item **names and categories** are sent; the
+   reply is validated against what was sent (unknown ids, repeats, one-item groups and clashing names are
+   dropped). Without the key the button says AI is not configured and the heuristics keep working.
+3. Click a chip = preview (the list narrows to those items; they do not count as grouped yet) → **Aplicar**
+   (becomes a normal group marked «✦ Agrupado por Milton»), **Descartar** (a stored suggestion is deleted; a
+   name/category one is remembered as dismissed in this browser) or close.
+4. AI answers are stored as `source = ai_suggested`, `status = suggested` groups (saved with
+   `item_groups_apply`, one «Deshacer»), so they survive a reload without asking the AI again. A suggested
+   group is ignored by the tree and by every count until accepted; grouping an item by hand takes it out of
+   a suggestion (one group per item).

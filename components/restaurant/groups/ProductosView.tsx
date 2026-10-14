@@ -51,6 +51,8 @@ import {
   type useItemGroups,
 } from "./use-item-groups";
 import { RowActions } from "./RowActions";
+import { MiltonMark, MiltonSuggestions } from "./MiltonSuggestions";
+import { useMiltonSuggestions } from "./use-milton-suggestions";
 import { SearchBox } from "@/components/restaurant/ui/SearchBox";
 import { useProgressiveCount } from "./use-progressive";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
@@ -212,6 +214,40 @@ export function ProductosView({
     [dishes, groupOptions]
   );
 
+  // Milton's suggestions for the products in no group (names and categories).
+  const categoryByKey = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const d of [...dishes, ...excluded])
+      for (const v of d.variants) m.set(v.key, d.category);
+    return m;
+  }, [dishes, excluded]);
+  const ungroupedItems = useMemo(() => {
+    const seen = new Set<string>();
+    return tree.ungrouped
+      .filter((l) => (seen.has(l.ref) ? false : (seen.add(l.ref), true)))
+      .map((l) => ({
+        ref: l.ref,
+        name: l.name,
+        category: categoryByKey.get(l.key) ?? null,
+      }));
+  }, [tree.ungrouped, categoryByKey]);
+  const takenNames = useMemo(
+    () => [
+      ...grouping.state.groups
+        .filter((g) => g.scope === "product")
+        .map((g) => g.name),
+      ...dishes.map((d) => d.name),
+    ],
+    [grouping.state.groups, dishes]
+  );
+  const milton = useMiltonSuggestions({
+    scope: "product",
+    grouping,
+    ungrouped: ungroupedItems,
+    takenNames,
+    enabled: canEdit && grouping.available,
+  });
+
   // Search finds groups and products; sort orders groups among themselves
   // and the children inside each group (children stay under their parent).
   const { visibleTop, searchOpen } = useMemo(() => {
@@ -239,8 +275,11 @@ export function ProductosView({
         ? false
         : (seen.add(l.ref), true)
     );
-    return sortRows(list, sort, leafValue);
-  }, [tree.ungrouped, query, sort]);
+    const previewed = milton.previewRefs
+      ? list.filter((l) => milton.previewRefs!.has(l.ref))
+      : list;
+    return sortRows(previewed, sort, leafValue);
+  }, [tree.ungrouped, query, sort, milton.previewRefs]);
 
   // Suggestions: heuristics only, worked out when a row (or the selection)
   // needs one, and remembered until the groups change.
@@ -462,6 +501,23 @@ export function ProductosView({
         placeholder="Buscar producto o grupo…"
         className="max-w-xl"
       />
+      {canEdit && grouping.available ? (
+        <MiltonSuggestions
+          clusters={milton.clusters}
+          preview={milton.preview}
+          onPreview={(c) => {
+            setFilter("sin_agrupar");
+            setQuery("");
+            milton.startPreview(c);
+          }}
+          onApply={(c) => void milton.apply(c)}
+          onDismiss={(c) => void milton.dismiss(c)}
+          onEndPreview={milton.endPreview}
+          onAskAi={() => void milton.askAi()}
+          aiBusy={milton.aiBusy}
+          canAskAi={milton.canAskAi}
+        />
+      ) : null}
       <GroupingToolbar
         grouping={grouping}
         filter={filter}
@@ -738,6 +794,7 @@ function NodeRows(props: {
               {r.row_count} {r.row_count === 1 ? "producto" : "productos"}
               {isAuto ? " · plato del menú" : ""}
             </span>
+            {node.group?.source === "ai_suggested" ? <MiltonMark /> : null}
             <span className="ml-auto pl-3 font-normal">
               <RowActions
                 onDrill={() => props.onDrill(node)}

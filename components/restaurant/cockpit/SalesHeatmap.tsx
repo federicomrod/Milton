@@ -5,7 +5,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import type { HeatmapCell } from "@/lib/restaurant/cockpit-aggregates";
 import { localeForCurrency } from "@/lib/restaurant/currency";
@@ -32,6 +32,16 @@ function textColor(intensity: number): string {
 }
 
 export type HeatmapMetric = "net" | "tickets";
+
+/** Fixed row height of the heatmap, in pixels (R1-14). */
+export const HEATMAP_ROW_PX = 15;
+const MAX_HEATMAP_WIDTH = 760;
+const HEATMAP_LABEL_PX = 16;
+
+/** Height of the drawing for N hour rows (labels + rows + padding). */
+export function heatmapHeightPx(hourRows: number): number {
+  return HEATMAP_LABEL_PX + hourRows * HEATMAP_ROW_PX + 4;
+}
 
 export function SalesHeatmap({
   cells,
@@ -70,16 +80,38 @@ export function SalesHeatmap({
     cells.map((c) => [`${c.weekday}-${c.hour}`, c] as const)
   );
 
-  const cellW = compact ? 32 : 44;
-  const cellH = compact ? 14 : 18;
-  const labelW = compact ? 34 : 42;
-  const labelH = compact ? 16 : 20;
-  const width = labelW + 7 * cellW + 8;
-  const height = labelH + hours.length * cellH + 8;
+  // R1-14: drawn at its real pixel size (never scaled up from a small
+  // viewBox): the columns share the width the card gives it, the rows have a
+  // FIXED small height, so 12-14 hours take about a quarter of a laptop
+  // screen instead of filling it.
+  const box = useRef<HTMLDivElement>(null);
+  const [boxWidth, setBoxWidth] = useState(560);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => {
+      const w = Math.round(el.getBoundingClientRect().width);
+      if (w > 0) setBoxWidth(w);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const labelW = 30;
+  const labelH = HEATMAP_LABEL_PX;
+  const cellH = HEATMAP_ROW_PX;
+  const width = Math.max(
+    240,
+    compact ? boxWidth : Math.min(boxWidth, MAX_HEATMAP_WIDTH)
+  );
+  const cellW = (width - labelW - 4) / 7;
+  const height = heatmapHeightPx(hours.length);
 
   return (
     <div>
-      <div className="overflow-x-auto">
+      <div ref={box} className="w-full">
         <svg
           role="img"
           aria-label={t(
@@ -87,8 +119,10 @@ export function SalesHeatmap({
             "Net sales by hour and weekday",
             "Ventas netas por hora y día"
           )}
+          width={width}
+          height={height}
           viewBox={`0 0 ${width} ${height}`}
-          className={compact ? "w-full h-auto" : "w-full max-w-3xl h-auto"}
+          className="block max-w-full"
         >
           {days.map((label, weekday) => (
             <text
@@ -130,7 +164,7 @@ export function SalesHeatmap({
                         y={y + 1}
                         width={cellW - 2}
                         height={cellH - 2}
-                        rx={3}
+                        rx={2}
                         fill={cellFill(intensity)}
                         stroke={
                           (selected &&

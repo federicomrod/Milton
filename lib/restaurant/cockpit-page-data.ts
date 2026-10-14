@@ -706,9 +706,13 @@ async function loadCockpitExecutiveFastBody(
   periodRaw?: string | null
 ): Promise<CockpitExecutiveFastModel> {
   const periodPreset = parseCockpitPeriodPreset(periodRaw);
-  const chrome = await loadRestaurantShellChrome();
+  // R1-14: the shell chrome and the scope share the (cached) sign-in and
+  // company reads and are otherwise independent: one wait, not two.
+  const [chrome, resolved] = await Promise.all([
+    loadRestaurantShellChrome(),
+    resolveCockpitScope(requestedLocationId),
+  ]);
   const lang = chrome.lang;
-  const resolved = await resolveCockpitScope(requestedLocationId);
   if (!resolved.ok) {
     return {
       mode: "sample",

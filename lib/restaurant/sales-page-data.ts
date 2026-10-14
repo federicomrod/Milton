@@ -15,6 +15,12 @@ import {
   timeCockpitStep,
 } from "@/lib/restaurant/cockpit-timing";
 import { loadCachedPosSalesRows } from "@/lib/restaurant/pos-read-cache";
+import { createClient } from "@/lib/supabase/server";
+import { rollupToCockpitSalesAggregate } from "@/lib/restaurant/cockpit-pos-rollup";
+import {
+  fetchSalesPeriodRollup,
+  salesDayStatsFromRollup,
+} from "@/lib/restaurant/sales-period-rollup";
 import {
   buildCockpitSalesAggregate,
   type CockpitSalesAggregate,
@@ -41,6 +47,7 @@ import {
   buildSalesInsights,
   filterRowsForSalesPeriod,
   salesDayStatsFromRows,
+  type SalesDayStats,
   type SalesInsights,
 } from "@/lib/restaurant/sales-insights";
 
@@ -105,25 +112,52 @@ export async function loadSalesPageModel(
     return { ...base, sales: null };
   }
 
-  const pos = await timeCockpitStep(
-    "sales-pos-rows",
-    () => loadCachedPosSalesRows(scope.companyId, scope.locationId),
+  // R1-14: the period's figures come from one SQL rollup (047); the raw row
+  // walk below is the fallback when it is not applied.
+  let scoped: CockpitSalesAggregate;
+  let stats: SalesDayStats;
+  let rowsReviewed = 0;
+  const periodRead = await timeCockpitStep(
+    "sales-period-rollup",
+    async () =>
+      fetchSalesPeriodRollup(await createClient(), {
+        companyId: scope.companyId,
+        locationId: scope.locationId,
+        timezone: fast.timezone,
+        currency: fast.currency,
+        from: period.current.from,
+        to: period.current.to,
+      }),
     { location: scope.locationId }
   );
-  if (pos.error) {
-    finish({ source: "pos-error", location: scope.locationId });
-    return { ...base, sales: null };
+  if (periodRead.ok) {
+    scoped = rollupToCockpitSalesAggregate(periodRead.rollup, {
+      timezone: fast.timezone,
+      currency: fast.currency,
+    });
+    stats = salesDayStatsFromRollup(periodRead.rollup);
+    rowsReviewed = periodRead.rollup.row_count;
+  } else {
+    const pos = await timeCockpitStep(
+      "sales-pos-rows",
+      () => loadCachedPosSalesRows(scope.companyId, scope.locationId),
+      { location: scope.locationId }
+    );
+    if (pos.error) {
+      finish({ source: "pos-error", location: scope.locationId });
+      return { ...base, sales: null };
+    }
+    const filtered = filterRowsForSalesPeriod(pos.rows, period, fast.timezone);
+    scoped = buildCockpitSalesAggregate(filtered, {
+      timezone: fast.timezone,
+      currency: fast.currency,
+    });
+    stats = salesDayStatsFromRows(filtered, {
+      timezone: fast.timezone,
+      currency: fast.currency,
+    });
+    rowsReviewed = filtered.length;
   }
-
-  const filtered = filterRowsForSalesPeriod(pos.rows, period, fast.timezone);
-  const scoped = buildCockpitSalesAggregate(filtered, {
-    timezone: fast.timezone,
-    currency: fast.currency,
-  });
-  const stats = salesDayStatsFromRows(filtered, {
-    timezone: fast.timezone,
-    currency: fast.currency,
-  });
   const insights = buildSalesInsights(scoped, fast.lang, stats, {
     period: period.current,
   });
@@ -145,9 +179,8 @@ export async function loadSalesPageModel(
   });
 
   finish({
-    source: "live",
-    rows: pos.rows.length,
-    filtered: filtered.length,
+    source: periodRead.ok ? "rpc" : "rows",
+    filtered: rowsReviewed,
     location: scope.locationId,
   });
   return {

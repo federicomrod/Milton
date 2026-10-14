@@ -163,9 +163,11 @@ describe("main button per role", () => {
     needs_client_confirmation: staff && !["owner", "admin"].includes(role),
   });
 
-  it("owner and admin: Aprobar y siguiente, only when the checklist passes", () => {
+  // R1-09b (C7): one primary button, "Aprobar"; the list on the left
+  // replaces "siguiente" and "saltar".
+  it("owner and admin: Aprobar, only when the checklist passes", () => {
     expect(primaryAction(actor("owner", true), editor(), true)).toMatchObject({
-      label: "Aprobar y siguiente",
+      label: "Aprobar",
       enabled: true,
     });
     const blocked = primaryAction(
@@ -179,18 +181,19 @@ describe("main button per role", () => {
       true
     );
     expect(blocked).toMatchObject({ enabled: false });
+    // What blocks it lives in the button's tooltip (C3).
     expect(blocked?.hint).toMatch(/pendientes/);
   });
 
-  it("Milton staff see Aprobar y siguiente (the dialog asks how the client confirmed)", () => {
+  it("Milton staff see Aprobar (the dialog asks how the client confirmed)", () => {
     expect(
       primaryAction(actor("member", true, true, true), editor(), true)?.label
-    ).toBe("Aprobar y siguiente");
+    ).toBe("Aprobar");
   });
 
-  it("manager: Enviar a aprobación y siguiente; once sent, just Siguiente", () => {
+  it("manager: Enviar a aprobación; once sent, no button", () => {
     expect(primaryAction(actor("manager", false), editor(), true)?.label).toBe(
-      "Enviar a aprobación y siguiente"
+      "Enviar a aprobación"
     );
     expect(
       primaryAction(
@@ -198,7 +201,7 @@ describe("main button per role", () => {
         editor({ recipe_status: "por_aprobar" }),
         true
       )
-    ).toMatchObject({ label: "Siguiente", navigateOnly: true });
+    ).toBeNull();
   });
 
   it("an approved recipe with a suggested link only asks to confirm the link", () => {
@@ -208,14 +211,14 @@ describe("main button per role", () => {
         editor({ recipe_status: "aprobada" }),
         true
       )?.label
-    ).toBe("Confirmar vínculo y siguiente");
+    ).toBe("Aprobar");
     expect(
       primaryAction(
         actor("owner", true),
         editor({ recipe_status: "aprobada", link_state: "confirmado" }),
         true
       )
-    ).toMatchObject({ label: "Siguiente", navigateOnly: true });
+    ).toBeNull();
   });
 
   it("a viewer gets no button", () => {

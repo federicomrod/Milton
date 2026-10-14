@@ -270,8 +270,10 @@ describe("treatment and resale routes", () => {
 
   it("copy is Spanish with tú", () => {
     const ui = read("components/restaurant/recipes-costing/TreatmentPanel.tsx");
-    expect(ui).toContain("¿Cómo se costea cada producto?");
-    expect(ui).toContain("Milton sugiere, tú decides");
+    // B6/C1: a compact selector in the dish header; the suggestion is
+    // in its tooltip.
+    expect(ui).toContain('aria-label="Cómo se costea"');
+    expect(ui).toContain("Milton sugiere");
     expect(ui).toContain("¿Qué compras para venderlo?");
     expect(ui).not.toMatch(/\busted\b/i);
   });

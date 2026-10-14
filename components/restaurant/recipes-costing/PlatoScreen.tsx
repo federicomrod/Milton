@@ -1,6 +1,18 @@
 "use client";
 
+// Menú › Platos (R1-09b, C1–C9): the Preparaciones layout. List on the
+// left (search, status chips, top sellers first), the dish on the right
+// with its numbers from the shared loader, the one recipe editor
+// (RecipeLinesEditor) and one primary button, "Aprobar".
+
 import { useMemo, useState } from "react";
+import { MoreHorizontal } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type {
   PlatoQueueRow,
   RecipeCostingWorkspace,
@@ -13,15 +25,32 @@ import {
   type DishStatus,
 } from "@/lib/restaurant/costing/dish-status";
 import { primaryAction } from "@/lib/restaurant/recipe-costing/plato";
+import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
 import { TreatmentControl, type PostFn } from "./TreatmentPanel";
-import { Card, Chip, DarkBtn, GhostBtn } from "./ui";
+import { Chip, GhostBtn } from "./ui";
 
-/**
- * Plato por plato: one dish at a time, top sellers first. The Excel recipe
- * comes prefilled as Sugerido; the person resolves only what Milton does
- * not know, then approves (or sends for approval) and moves on.
- */
+/** "por_clasificar" filters on the treatment, not the cost status (B6). */
+type ListFilter = DishStatus | "por_clasificar";
+
+const FILTERS: Array<{ id: ListFilter | null; label: string }> = [
+  { id: null, label: "Todos" },
+  { id: "aprobado", label: DISH_STATUS_LABELS.aprobado },
+  { id: "estimado", label: DISH_STATUS_LABELS.estimado },
+  { id: "falta_precio", label: DISH_STATUS_LABELS.falta_precio },
+  { id: "sin_receta", label: DISH_STATUS_LABELS.sin_receta },
+  { id: "por_clasificar", label: "Por clasificar" },
+];
+
+interface ListRow {
+  odoo_product_id: number;
+  name: string;
+  share_label: string;
+  chip: { label: string; tone: PlatoQueueRow["status_tone"] };
+  status: DishStatus | null;
+  unclassified: boolean;
+}
+
 export function PlatoScreen({
   data,
   locationId,
@@ -30,130 +59,134 @@ export function PlatoScreen({
   onEdited,
   onPost,
   onConfirm,
-  onSkip,
   onOpenPreparation,
   statusFilter = [],
-  onClearFilter,
+  onFilter,
 }: {
   data: RecipeCostingWorkspace;
   locationId: string | null;
   busy: boolean;
-  /** `?estado=…`: show only dishes with these statuses (KPI links). */
-  statusFilter?: readonly DishStatus[];
-  onClearFilter?: () => void;
   onSelect: (odooProductId: number) => void;
   /** After an ingredient edit: refresh the open dish only. */
   onEdited: () => void;
   onPost: PostFn;
   onConfirm: () => void;
-  onSkip: () => void;
   onOpenPreparation: (componentId: string) => void;
+  /** `?estado=…`: the statuses shown (KPI links land here). */
+  statusFilter?: readonly string[];
+  onFilter?: (filter: string | null) => void;
 }) {
-  const editor = data.editor;
+  const [query, setQuery] = useState("");
   const product = data.selected;
-  const [showOthers, setShowOthers] = useState(false);
-  const queue = useMemo(
-    () =>
-      statusFilter.length === 0
-        ? data.plato_queue
-        : data.plato_queue.filter(
-            (row) => row.dish_status && statusFilter.includes(row.dish_status)
-          ),
-    [data.plato_queue, statusFilter]
-  );
-  const others = useMemo(
-    () =>
-      data.products.filter(
-        (row) =>
-          !data.plato_queue.some(
-            (q) => q.odoo_product_id === row.odoo_product_id
-          )
-      ),
-    [data.products, data.plato_queue]
-  );
+  const editor = data.editor;
+
+  const rows = useMemo<ListRow[]>(() => {
+    const queue = new Map(data.plato_queue.map((r) => [r.odoo_product_id, r]));
+    return data.products.map((p) => {
+      const q = queue.get(p.odoo_product_id);
+      return {
+        odoo_product_id: p.odoo_product_id,
+        name: p.odoo_name,
+        share_label: p.share_label,
+        chip: q
+          ? { label: q.status_label, tone: q.status_tone }
+          : {
+              label: p.is_combo ? "Combo" : p.treatment_label,
+              tone: "grey" as const,
+            },
+        status: q?.dish_status ?? null,
+        unclassified: p.classification === "por_clasificar",
+      };
+    });
+  }, [data.plato_queue, data.products]);
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter((row) => {
+      if (q && !row.name.toLowerCase().includes(q)) return false;
+      if (statusFilter.length === 0) return true;
+      return statusFilter.some((f) =>
+        f === "por_clasificar"
+          ? row.unclassified
+          : row.status !== null && row.status === f
+      );
+    });
+  }, [rows, query, statusFilter]);
+
+  const activeFilter = statusFilter.length === 1 ? statusFilter[0] : null;
 
   return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-[250px_1fr]">
-      <Card className="p-2.5">
-        <div className="mb-1.5 text-[11.5px] text-[#6b7385]">
-          {data.plato_progress.label} · los que más venden primero
-        </div>
-        {statusFilter.length > 0 ? (
-          <div className="mb-1.5 flex items-center gap-2 text-xs text-[#4b5466]">
-            <span>
-              {statusFilter.map((s) => DISH_STATUS_LABELS[s]).join(" · ")} (
-              {queue.length})
-            </span>
-            {onClearFilter ? (
+    <div className="grid grid-cols-[330px_1fr] gap-[14px]">
+      <section className="flex max-h-[calc(100vh-190px)] flex-col overflow-hidden rounded-[14px] border border-[#eef0f4] bg-white">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Buscar plato…"
+          className="m-2.5 rounded-[9px] border border-[#dfe3ea] px-2.5 py-[7px] text-[13px] outline-none focus:border-[#f28c28]"
+        />
+        <div className="flex flex-wrap gap-1.5 px-2.5 pb-2">
+          {FILTERS.map((f) => {
+            const on =
+              f.id === null ? statusFilter.length === 0 : activeFilter === f.id;
+            return (
               <button
+                key={f.label}
                 type="button"
-                className="font-semibold text-[#3557c9]"
-                onClick={onClearFilter}
+                onClick={() => onFilter?.(f.id)}
+                className={
+                  "rounded-full border px-2.5 py-0.5 text-[12px] " +
+                  (on
+                    ? "border-[#151c2c] bg-[#151c2c] font-semibold text-white"
+                    : "border-[#dfe3ea] bg-white text-[#4b5466]")
+                }
               >
-                Ver todos
+                {f.label}
               </button>
-            ) : null}
-          </div>
-        ) : null}
-        <div className="max-h-[70vh] overflow-auto">
-          {queue.map((row) => (
-            <QueueItem
-              key={row.odoo_product_id}
-              row={row}
-              active={row.odoo_product_id === product?.odoo_product_id}
-              onSelect={onSelect}
-            />
-          ))}
-          {queue.length === 0 && statusFilter.length > 0 ? (
-            <p className="px-1 py-2 text-xs text-[#5b6476]">
-              No hay platos con ese estado.
-            </p>
+            );
+          })}
+          {statusFilter.length > 1 ? (
+            <span className="text-[12px] text-[#4b5466]">
+              {statusFilter
+                .map((s) =>
+                  s === "por_clasificar"
+                    ? "Por clasificar"
+                    : (DISH_STATUS_LABELS[s as DishStatus] ?? s)
+                )
+                .join(" · ")}
+            </span>
           ) : null}
-          {data.plato_queue.length === 0 ? (
-            <p className="px-1 py-2 text-xs text-[#5b6476]">
-              No hay platos que lleven receta todavía. Revisa en Resumen cómo se
-              costea cada producto.
-            </p>
-          ) : null}
-          {others.length > 0 ? (
-            <button
-              type="button"
-              className="mt-2 px-1 text-[11px] font-semibold text-[#3557c9]"
-              onClick={() => setShowOthers((v) => !v)}
-            >
-              {showOthers
-                ? "Ocultar los demás productos"
-                : `Ver los demás productos (${others.length})`}
-            </button>
-          ) : null}
-          {showOthers
-            ? others.map((row) => (
-                <button
-                  key={row.odoo_product_id}
-                  type="button"
-                  onClick={() => onSelect(row.odoo_product_id)}
-                  className={
-                    "block w-full border-b border-slate-100 px-1.5 py-1 text-left text-[11.5px] last:border-b-0 hover:bg-slate-50 " +
-                    (row.odoo_product_id === product?.odoo_product_id
-                      ? "bg-[#f4f6fb]"
-                      : "")
-                  }
-                >
-                  {row.odoo_name}
-                  <span className="block text-[10.5px] text-[#8a92a3]">
-                    {row.is_combo ? "Combo" : row.treatment_label}
-                  </span>
-                </button>
-              ))
-            : null}
         </div>
-      </Card>
+        <div className="flex-1 overflow-auto">
+          {visible.map((row) => (
+            <button
+              key={row.odoo_product_id}
+              type="button"
+              onClick={() => onSelect(row.odoo_product_id)}
+              className={
+                "flex w-full items-center justify-between gap-2 border-t border-[#f2f3f6] px-[14px] py-2.5 text-left text-[13px] " +
+                (row.odoo_product_id === product?.odoo_product_id
+                  ? "bg-[#fff6ec] shadow-[inset_3px_0_0_#f28c28]"
+                  : "hover:bg-[#fafbfc]")
+              }
+            >
+              <span className="min-w-0">
+                <b className="block truncate font-semibold">{row.name}</b>
+                <span className="text-[12px] text-[#8a92a3]">
+                  {row.share_label} de ventas de comida
+                </span>
+              </span>
+              <Chip tone={row.chip.tone}>{row.chip.label}</Chip>
+            </button>
+          ))}
+          {visible.length === 0 ? (
+            <p className="px-[14px] py-3 text-[13px] text-[#5b6476]">
+              No hay platos con ese filtro.
+            </p>
+          ) : null}
+        </div>
+      </section>
 
-      {!product || !editor ? (
-        <Card className="p-4 text-sm text-[#5b6476]">
-          Elige un plato de la lista.
-        </Card>
-      ) : (
+      {product && editor ? (
         <Dish
           key={product.odoo_product_id}
           data={data}
@@ -164,40 +197,14 @@ export function PlatoScreen({
           onEdited={onEdited}
           onPost={onPost}
           onConfirm={onConfirm}
-          onSkip={onSkip}
           onOpenPreparation={onOpenPreparation}
         />
+      ) : (
+        <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px] text-[13px] text-[#5b6476]">
+          Elige un plato de la lista.
+        </section>
       )}
     </div>
-  );
-}
-
-function QueueItem({
-  row,
-  active,
-  onSelect,
-}: {
-  row: PlatoQueueRow;
-  active: boolean;
-  onSelect: (id: number) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect(row.odoo_product_id)}
-      className={
-        "flex w-full items-center gap-2 border-b border-slate-100 px-1.5 py-1.5 text-left text-xs last:border-b-0 hover:bg-slate-50 " +
-        (active ? "bg-[#f4f6fb]" : "")
-      }
-    >
-      <span className="min-w-0 flex-1">
-        <b className="block truncate">{row.odoo_name}</b>
-        <span className="text-[10.5px] text-[#8a92a3]">
-          {row.share_label} de ventas de comida
-        </span>
-      </span>
-      <Chip tone={row.status_tone}>{row.status_label}</Chip>
-    </button>
   );
 }
 
@@ -210,7 +217,6 @@ function Dish({
   onEdited,
   onPost,
   onConfirm,
-  onSkip,
   onOpenPreparation,
 }: {
   data: RecipeCostingWorkspace;
@@ -221,290 +227,230 @@ function Dish({
   onEdited: () => void;
   onPost: PostFn;
   onConfirm: () => void;
-  onSkip: () => void;
   onOpenPreparation: (componentId: string) => void;
 }) {
   const [picking, setPicking] = useState(false);
+  const dish = data.selected_dish;
+  const money = (n: number) => formatMoneyEs(n, data.currency);
   const takesRecipe =
     !product.is_combo && TREATMENT_RULES[product.treatment].needs_recipe;
   const hasRecipe = Boolean(product.menu_item_id && editor.recipe_version_id);
   const action = primaryAction(data.actor, editor, hasRecipe);
+  const missing = dish?.lines_missing_price ?? 0;
+  const costTip = [editor.variance_note, editor.yield_note]
+    .filter(Boolean)
+    .join(" ");
 
   return (
-    <div className="space-y-3">
-      <Card className="flex flex-wrap items-start gap-3 p-3">
+    <section className="space-y-3 overflow-hidden rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px]">
+      <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-[11.5px] text-[#6b7385]">
-            Odoo #{product.odoo_product_id}
-            {product.category ? ` · ${product.category}` : ""}
-            {editor.review_index && editor.review_total
-              ? ` · plato ${editor.review_index} de ${editor.review_total}`
-              : ""}
-          </div>
-          <div className="text-[18px] font-extrabold text-[#1b2333]">
+          <h2 className="truncate text-[18px] font-bold text-[#1b2333]">
             {product.odoo_name}
+          </h2>
+          <div className="text-[12px] text-[#8a92a3]">
+            {[
+              product.pos_price_label
+                ? `Precio ${product.pos_price_label}`
+                : null,
+              product.in_food_sales
+                ? `${product.share_label} de ventas de comida`
+                : "No cuenta en ventas de comida",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </div>
-          <div className="text-xs text-[#5b6476]">
-            {product.pos_price_label
-              ? `Precio en el POS ${product.pos_price_label}`
-              : "Sin precio en el POS"}
-            {` · ${product.units_label}`}
-            {product.in_food_sales
-              ? ` · ${product.share_label} de las ventas de comida`
-              : " · no cuenta en la cobertura"}
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            <Chip tone={product.confirmed ? "ok" : "grey"}>
-              {product.confirmed
-                ? "Vínculo confirmado"
-                : product.menu_item_id
-                  ? "Vínculo sugerido"
-                  : "Sin vínculo"}
-            </Chip>
-            <Chip tone={recipeTone(editor.recipe_status)}>
-              {recipeLabel(editor.recipe_status)}
-            </Chip>
-            {editor.excel_match === "match" ? (
-              <Chip tone="ok">Cuadra con Excel</Chip>
-            ) : editor.excel_match === "mismatch" ? (
-              <Chip tone="warn">No cuadra con Excel</Chip>
-            ) : null}
-            {editor.menu_source ? <Chip tone="sug">Del menú</Chip> : null}
-          </div>
-          {editor.excel_row_label ? (
-            <div className="mt-1 text-[10.5px] text-[#8a92a3]">
-              Sugerido desde tu Excel: {editor.excel_row_label}
-            </div>
-          ) : null}
-          {editor.menu_source ? (
-            <div className="mt-1.5 rounded-md border border-[#eef0f4] bg-[#fafbfc] px-2.5 py-1.5 text-[11.5px] text-[#5b6476]">
-              <b className="text-[#1b2333]">
-                En tu menú: {editor.menu_source.dish}
-              </b>
-              {editor.menu_source.price_label
-                ? ` · ${editor.menu_source.price_label}`
-                : ""}
-              {editor.menu_source.description ? (
-                <div className="mt-0.5 italic">
-                  «{editor.menu_source.description}»
-                </div>
-              ) : null}
-              <div className="mt-0.5 text-[10.5px] text-[#8a92a3]">
-                El menú dice qué lleva, no cuánto. Escribe la cantidad de cada
-                componente.
-              </div>
-            </div>
-          ) : null}
         </div>
-        <details className="w-full sm:w-64">
-          <summary className="cursor-pointer text-[11.5px] font-semibold text-[#6b7385]">
-            Cómo se costea: {product.treatment_label}
-          </summary>
-          <div className="mt-1.5">
-            <TreatmentControl
-              product={product}
-              options={data.treatment_options}
-              canEdit={data.actor.can_submit}
-              busy={busy}
-              onPost={onPost}
-            />
-          </div>
-        </details>
-      </Card>
+        <TreatmentControl
+          product={product}
+          options={data.treatment_options}
+          canEdit={data.actor.can_submit}
+          busy={busy}
+          onPost={onPost}
+        />
+        {data.actor.can_submit ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Más acciones"
+                className="rounded-md p-1.5 text-[#6b7385] hover:bg-[#f1f3f7]"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuItem onClick={() => setPicking(true)}>
+                Usar la receta de otro plato
+              </DropdownMenuItem>
+              {product.can_undo ? (
+                <DropdownMenuItem
+                  className="text-[#c03535]"
+                  onClick={() =>
+                    onPost("/api/restaurant/pos/links/undo", {
+                      odoo_product_id: product.odoo_product_id,
+                    })
+                  }
+                >
+                  Deshacer el vínculo confirmado
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+        {action ? (
+          <span title={action.hint ?? undefined}>
+            <button
+              type="button"
+              disabled={busy || !action.enabled}
+              onClick={onConfirm}
+              className="rounded-lg bg-[#f28c28] px-3.5 py-[7px] text-[13px] font-semibold text-white hover:bg-[#e07b1a] disabled:opacity-45"
+            >
+              {action.label}
+            </button>
+          </span>
+        ) : dish?.status === "aprobado" ? (
+          <Chip tone="ok">Aprobado</Chip>
+        ) : null}
+      </div>
 
-      {!takesRecipe ? (
-        <Card className="p-4 text-sm text-[#5b6476]">
-          {product.is_combo
-            ? "Este combo se costea por sus partes: cuenta cuando cada parte tiene su costo."
-            : `Este producto no lleva receta (${product.treatment_label}).`}
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 gap-3">
-          <Card className="p-3">
-            {hasRecipe ? (
-              <RecipeLinesEditor
-                odooProductId={product.odoo_product_id}
-                locationId={locationId}
-                portionCostLabel={editor.portion_cost_label}
-                onEdited={onEdited}
-                onOpenPreparation={onOpenPreparation}
-              />
-            ) : (
-              <div className="space-y-2 text-sm text-[#5b6476]">
-                <p>
-                  Este plato todavía no tiene receta. Si tu Excel la trae,
-                  súbelo en Resumen y se prepara solo; si no, créala aquí.
-                </p>
-                {data.actor.can_submit ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    <GhostBtn
-                      disabled={busy}
-                      onClick={() =>
-                        onPost("/api/restaurant/pos/links/create", {
-                          odoo_product_id: product.odoo_product_id,
-                          odoo_name: product.odoo_name,
-                        })
-                      }
-                    >
-                      Crear receta
-                    </GhostBtn>
-                    <GhostBtn disabled={busy} onClick={() => setPicking(true)}>
-                      Usar la receta de otro plato
-                    </GhostBtn>
-                  </div>
-                ) : null}
-              </div>
-            )}
-            {data.actor.can_submit ? (
-              <div className="mt-2 flex flex-wrap items-center gap-3 border-t border-[#eef0f4] pt-2 text-[11px]">
-                {hasRecipe ? (
-                  <button
-                    type="button"
-                    className="font-semibold text-[#3557c9]"
-                    disabled={busy}
-                    onClick={() => setPicking((v) => !v)}
-                  >
-                    Usar la receta de otro plato
-                  </button>
-                ) : null}
-                {product.can_undo ? (
-                  <button
-                    type="button"
-                    className="font-semibold text-[#c03535]"
-                    disabled={busy}
-                    onClick={() =>
-                      onPost("/api/restaurant/pos/links/undo", {
-                        odoo_product_id: product.odoo_product_id,
-                      })
+      {action && !action.enabled && missing > 0 ? (
+        <div title={action.hint ?? undefined}>
+          <Chip tone="warn">Falta precio · {missing}</Chip>
+        </div>
+      ) : null}
+
+      {picking ? (
+        <label className="block text-[13px] font-semibold text-[#6b7385]">
+          Usar la receta de
+          <select
+            className="ml-2 rounded-md border border-[#d5dae3] px-2 py-1 text-[13px]"
+            defaultValue=""
+            disabled={busy}
+            onChange={(event) => {
+              if (!event.target.value) return;
+              setPicking(false);
+              onPost("/api/restaurant/pos/links/change", {
+                odoo_product_id: product.odoo_product_id,
+                odoo_name: product.odoo_name,
+                menu_item_id: event.target.value,
+              });
+            }}
+          >
+            <option value="">Elige un plato…</option>
+            {data.menu_items
+              .filter((item) => item.id !== product.menu_item_id)
+              .map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+          </select>
+          <GhostBtn className="ml-2" onClick={() => setPicking(false)}>
+            Cancelar
+          </GhostBtn>
+        </label>
+      ) : null}
+
+      {takesRecipe ? (
+        <>
+          <div className="flex flex-wrap gap-10">
+            <Big
+              label="Costo"
+              tip={costTip || undefined}
+              value={
+                dish?.unit_cost != null ? money(dish.unit_cost) : "Sin precio"
+              }
+              note={
+                dish?.excel_total != null ? (
+                  <span
+                    className={
+                      dish.excel_diff_flag
+                        ? "font-semibold text-[#c03535]"
+                        : "text-[#8a92a3]"
                     }
                   >
-                    Deshacer el vínculo confirmado
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-            {picking ? (
-              <label className="mt-2 block text-xs font-semibold text-[#6b7385]">
-                Elige la receta (solo si lleva lo mismo, en la misma cantidad)
-                <select
-                  className="mt-1 w-full rounded-md border border-[#d5dae3] px-2 py-1.5 text-sm"
-                  defaultValue=""
+                    Excel: {money(dish.excel_total)}
+                  </span>
+                ) : null
+              }
+            />
+            <Big
+              label="Costo %"
+              value={
+                dish?.food_cost_pct != null
+                  ? `${Math.round(dish.food_cost_pct)}%`
+                  : "—"
+              }
+            />
+            <Big
+              label="Margen"
+              value={dish?.unit_margin != null ? money(dish.unit_margin) : "—"}
+            />
+          </div>
+          {hasRecipe ? (
+            <RecipeLinesEditor
+              odooProductId={product.odoo_product_id}
+              locationId={locationId}
+              portionCostLabel={editor.portion_cost_label}
+              onEdited={onEdited}
+              onOpenPreparation={onOpenPreparation}
+            />
+          ) : (
+            <div className="flex items-center gap-3 text-[13px] text-[#5b6476]">
+              <span>Este plato todavía no tiene receta.</span>
+              {data.actor.can_submit ? (
+                <GhostBtn
                   disabled={busy}
-                  onChange={(event) => {
-                    if (!event.target.value) return;
-                    setPicking(false);
-                    onPost("/api/restaurant/pos/links/change", {
+                  onClick={() =>
+                    onPost("/api/restaurant/pos/links/create", {
                       odoo_product_id: product.odoo_product_id,
                       odoo_name: product.odoo_name,
-                      menu_item_id: event.target.value,
-                    });
-                  }}
+                    })
+                  }
                 >
-                  <option value="">—</option>
-                  {data.menu_items
-                    .filter((item) => item.id !== product.menu_item_id)
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-            ) : null}
-          </Card>
-
-          <Card className="p-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-[9px] border border-[#eef0f4] px-2.5 py-2">
-                <div className="text-xs text-[#6b7385]">Costo por porción</div>
-                <div className="text-xl font-bold">
-                  {editor.milton_cost_label ?? "Pendiente"}
-                </div>
-              </div>
-              <div className="rounded-[9px] border border-[#eef0f4] px-2.5 py-2">
-                <div className="text-xs text-[#6b7385]">Margen</div>
-                <div className="text-xl font-bold">
-                  {editor.margin_label ?? "—"}
-                </div>
-                {editor.margin_hint ? (
-                  <div className="text-[10.5px] text-[#8a92a3]">
-                    {editor.margin_hint}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            <div className="mt-2 text-[11.5px] text-[#5b6476]">
-              Tu Excel (COSTO TOTAL): {editor.excel_total_label ?? "—"}
-              <span className="text-[#8a92a3]"> · referencia</span>
-            </div>
-            {editor.variance_note ? (
-              <div className="mt-2 rounded-[10px] border border-[#f5c98b] bg-[#fff8ec] px-3 py-2 text-xs text-[#5b4515]">
-                {editor.variance_note}
-              </div>
-            ) : null}
-            <div className="mb-1 mt-2.5 text-xs font-semibold text-[#6b7385]">
-              Antes de aprobar
-            </div>
-            {editor.checklist.items
-              .filter((item) => item.id !== "linked")
-              .map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-1.5 py-0.5 text-[11.8px]"
-                >
-                  <Dot ok={item.ok} />
-                  {item.label}
-                </div>
-              ))}
-            <div className="mt-2.5 flex flex-wrap gap-1.5 border-t border-[#eef0f4] pt-2">
-              {action ? (
-                <DarkBtn
-                  disabled={busy || !action.enabled}
-                  onClick={action.navigateOnly ? onSkip : onConfirm}
-                >
-                  {action.label}
-                </DarkBtn>
+                  Crear receta
+                </GhostBtn>
               ) : null}
-              <GhostBtn disabled={busy} onClick={onSkip}>
-                Saltar por ahora
-              </GhostBtn>
             </div>
-            <div className="mt-1.5 text-[10.5px] text-[#8a92a3]">
-              {action?.hint ??
-                "Solo el dueño o un admin aprueba. Al aprobar, la receta empieza a contar en los márgenes."}
-            </div>
-          </Card>
-        </div>
+          )}
+        </>
+      ) : (
+        <p className="text-[13px] text-[#5b6476]">
+          {product.is_combo
+            ? "Este combo se costea por sus partes."
+            : `No lleva receta (${product.treatment_label}).`}
+        </p>
       )}
-    </div>
+    </section>
   );
 }
 
-function recipeLabel(status: RecipeEditorView["recipe_status"]): string {
-  if (status === "aprobada" || status === "listo") return "Receta aprobada";
-  if (status === "por_aprobar") return "Enviada a aprobación";
-  if (status === "borrador") return "Receta sugerida";
-  return "Sin receta";
-}
-
-function recipeTone(
-  status: RecipeEditorView["recipe_status"]
-): "ok" | "sug" | "warn" | "grey" {
-  if (status === "aprobada" || status === "listo") return "ok";
-  if (status === "por_aprobar") return "sug";
-  if (status === "borrador") return "warn";
-  return "grey";
-}
-
-function Dot({ ok }: { ok: boolean }) {
+function Big({
+  label,
+  value,
+  note,
+  tip,
+}: {
+  label: string;
+  value: string;
+  note?: React.ReactNode;
+  tip?: string;
+}) {
   return (
-    <span
-      className={
-        "flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold " +
-        (ok ? "bg-[#e7f6ee] text-[#1f9d55]" : "bg-[#fff4e5] text-[#c2700a]")
-      }
-    >
-      {ok ? "✓" : "!"}
-    </span>
+    <div>
+      <div className="text-[12px] text-[#8a92a3]">
+        {label}
+        {tip ? (
+          <span title={tip} className="ml-1 cursor-help">
+            ⓘ
+          </span>
+        ) : null}
+      </div>
+      <div className="text-[34px] font-extrabold leading-tight tracking-[-0.6px] text-[#1b2333]">
+        {value}
+      </div>
+      {note ? <div className="text-[12px]">{note}</div> : null}
+    </div>
   );
 }

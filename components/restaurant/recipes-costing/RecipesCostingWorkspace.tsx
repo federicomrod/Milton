@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { parseDishStatusFilter } from "@/lib/restaurant/menu-links";
 import {
   MENU_TAB_PATHS,
   type MenuTab,
@@ -168,10 +167,22 @@ export function RecipesCostingWorkspace({
             }
           : fresh;
       const queueRow = json.plato_queue[0];
+      // The one-dish reload has that dish's sales only: keep its share
+      // of food sales from the full load.
+      const selectedDish =
+        json.selected_dish &&
+        prev.selected_dish?.odoo_product_id ===
+          json.selected_dish.odoo_product_id
+          ? {
+              ...json.selected_dish,
+              share_of_food_sales: prev.selected_dish.share_of_food_sales,
+            }
+          : (json.selected_dish ?? prev.selected_dish);
       return {
         ...prev,
         editor,
         selected,
+        selected_dish: selectedDish,
         plato_queue: queueRow
           ? prev.plato_queue.map((row) =>
               row.odoo_product_id === queueRow.odoo_product_id
@@ -407,17 +418,21 @@ export function RecipesCostingWorkspace({
             onEdited={scheduleReloadDish}
             onPost={postAndReload}
             onConfirm={() => void confirmDish()}
-            onSkip={() => goTo(data.editor?.next_odoo_product_id)}
             onOpenPreparation={(id) => openPreparation(id, { fromDish: true })}
-            statusFilter={parseDishStatusFilter(searchParams.get("estado"))}
-            onClearFilter={() => {
+            statusFilter={(searchParams.get("estado") ?? "")
+              .split(",")
+              .filter(Boolean)}
+            onFilter={(filter) => {
+              // A list filter is client state: no server round trip.
               const params = new URLSearchParams(searchParams.toString());
-              params.delete("estado");
-              startNavigation(() => {
-                router.replace(`${pathname}?${params.toString()}`, {
-                  scroll: false,
-                });
-              });
+              if (filter) params.set("estado", filter);
+              else params.delete("estado");
+              const query = params.toString();
+              window.history.replaceState(
+                null,
+                "",
+                query ? `${pathname}?${query}` : pathname
+              );
             }}
           />
         ) : view === "preparaciones" ? (

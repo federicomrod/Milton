@@ -5,6 +5,7 @@ import {
 } from "@/lib/restaurant/pos-product-links";
 import type { RankedPosProduct } from "@/lib/restaurant/pos-product-list";
 import type {
+  DishEconomics,
   DishEconomicsResult,
   DishStatus,
 } from "@/lib/restaurant/costing/dish-economics";
@@ -272,6 +273,8 @@ export interface RecipeCostingWorkspace {
   setup_checklist: SetupCheck[];
   /** Menú › Resumen from the shared loader (null on other tabs). */
   menu_summary: MenuSummary | null;
+  /** The open dish's cost, margin and status from the shared loader. */
+  selected_dish: Omit<DishEconomics, "lines"> | null;
   next_dish: {
     odoo_product_id: number;
     odoo_name: string;
@@ -968,6 +971,10 @@ export function buildRecipeCostingWorkspace(input: {
           ? "Llegaste a la meta del 90%. Puedes seguir con los demás platos cuando quieras."
           : `Meta: ${COVERAGE_GOAL_PCT}% de las ventas de comida con costo aprobado.`,
     },
+    selected_dish: selectedDishOf(
+      input.dishEconomics ?? null,
+      input.selectedOdooProductId ?? null
+    ),
     menu_summary:
       input.view === "resumen" && input.dishEconomics
         ? buildMenuSummary(input.dishEconomics, { excelUploaded })
@@ -1224,6 +1231,19 @@ const PLATO_STATUS: Record<PlatoStatus, { label: string; tone: ChipTone }> = {
 
 /** Dishes that take a recipe (not combos, not no-cost or excluded),
  *  in the product list's order: top sellers first. */
+function selectedDishOf(
+  economics: Pick<DishEconomicsResult, "dishes"> | null,
+  odooProductId: number | null
+): Omit<DishEconomics, "lines"> | null {
+  if (!economics || odooProductId == null) return null;
+  const dish = economics.dishes.find(
+    (d) => d.odoo_product_id === odooProductId
+  );
+  if (!dish) return null;
+  const { lines: _lines, ...rest } = dish;
+  return rest;
+}
+
 const DISH_TONE: Record<DishStatus, ChipTone> = {
   aprobado: "ok",
   estimado: "pur",

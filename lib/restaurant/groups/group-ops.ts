@@ -441,6 +441,85 @@ export function removeFromGroups(
   );
 }
 
+/**
+ * Milton's AI suggestions, stored (source ai_suggested, status suggested) so
+ * they survive a reload without asking the AI again. They never count as
+ * grouped: the tree and every count ignore a group that is not confirmed.
+ * One action, so one «Deshacer». Names that clash are skipped.
+ */
+export function createSuggestedGroups(
+  state: GroupsState,
+  input: {
+    hierarchy: Hierarchy;
+    clusters: ReadonlyArray<{ name: string; refs: readonly string[] }>;
+    itemType: GroupMemberType;
+    uuid: Uuid;
+  }
+): OpResult {
+  let working = state;
+  let ops: GroupOps = { ...EMPTY_OPS };
+  let made = 0;
+  for (const c of input.clusters) {
+    let result: OpResult;
+    try {
+      result = createGroup(working, {
+        name: c.name,
+        hierarchy: input.hierarchy,
+        items: c.refs.map((ref) => ({ type: input.itemType, ref })),
+        source: "ai_suggested",
+        status: "suggested",
+        uuid: input.uuid,
+      });
+    } catch (err) {
+      if (err instanceof GroupOpError) continue;
+      throw err;
+    }
+    working = result.state;
+    ops = mergeOps(ops, result.ops);
+    made++;
+  }
+  return finish(
+    state,
+    ops,
+    `${made} ${made === 1 ? "sugerencia" : "sugerencias"} de Milton`
+  );
+}
+
+/** Accept a suggestion: the group becomes real (still marked as Milton's). */
+export function confirmSuggestion(
+  state: GroupsState,
+  groupId: string
+): OpResult {
+  const group = groupById(state, groupId);
+  if (group.status === "confirmed") {
+    return finish(
+      state,
+      { ...EMPTY_OPS },
+      `«${group.name}» ya estaba agrupado`
+    );
+  }
+  assertNameFree(
+    state,
+    {
+      scope: group.scope,
+      dimension: group.dimension,
+      menu_dish_id: group.menu_dish_id,
+    },
+    group.restaurant_id ?? null,
+    group.parent_id ?? null,
+    group.name,
+    group.id
+  );
+  return finish(
+    state,
+    {
+      ...EMPTY_OPS,
+      upsert_groups: [{ ...group, status: "confirmed" }],
+    },
+    `Grupo «${group.name}» agrupado por Milton`
+  );
+}
+
 export function renameGroup(
   state: GroupsState,
   groupId: string,

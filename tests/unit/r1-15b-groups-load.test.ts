@@ -218,4 +218,17 @@ describe("migration 048", () => {
     expect(code).toContain("group_members_one_group_uniq");
     expect(code).toContain("group_members_from_group");
   });
+
+  it("products are ONE hierarchy: the menu dish is part of the key only for dimension groups", () => {
+    const key = code.slice(code.indexOf("NEW.hierarchy_key :="));
+    expect(key).toContain("CASE WHEN g.scope = 'dimension_value'");
+    expect(key.slice(0, 400)).toContain("COALESCE(g.menu_dish_id::text, '')");
+    // The old key put the dish in for every scope.
+    expect(code).not.toMatch(/COALESCE\(g\.menu_dish_id::text, ''\)\s*;/);
+  });
+
+  it("a group's restaurant must belong to its company (checked in a trigger)", () => {
+    expect(code).toContain("item_groups_check_restaurant");
+    expect(code).toContain("r.company_id = NEW.company_id");
+  });
 });

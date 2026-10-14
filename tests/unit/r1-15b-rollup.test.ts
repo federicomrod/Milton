@@ -395,3 +395,108 @@ describe("the tree", () => {
     expect(names).toEqual(["Solo R1"]);
   });
 });
+
+describe("review fixes (R1-15b)", () => {
+  const rows: TreeLeaf[] = [
+    leaf("a-r1", 100, 30, {
+      ref: "a",
+      restaurant_ids: ["R1"],
+      menu_dish_id: "d1",
+      menu_dish_name: "Plato uno",
+    }),
+    leaf("a-r2", 200, 60, {
+      ref: "a",
+      restaurant_ids: ["R2"],
+      menu_dish_id: "d1",
+      menu_dish_name: "Plato uno",
+    }),
+    leaf("a-both", 50, 15, {
+      ref: "a",
+      restaurant_ids: ["R1", "R2"],
+      menu_dish_id: "d1",
+      menu_dish_name: "Plato uno",
+    }),
+    leaf("b-null", 80, null, {
+      ref: "b",
+      restaurant_ids: null,
+      menu_dish_id: "d2",
+      menu_dish_name: "Plato dos",
+    }),
+    leaf("c", 40, 10),
+  ];
+  const shape = (t: ReturnType<typeof buildGroupTree>) => {
+    const out: string[] = [];
+    walkTree(t.top, (n) => {
+      out.push(`${n.depth}:${n.name}:${n.rollup.net_sales}:${n.share_pct}`);
+    });
+    return out.sort();
+  };
+
+  it("the same leaves give the same tree with and without stored auto groups, even for a restaurant-only dish", () => {
+    const none = buildGroupTree({ leaves: rows, groups: [], members: [] });
+    const stored = buildGroupTree({
+      leaves: rows,
+      groups: [
+        // Auto groups copy the dish's restaurant; the dish level ignores it.
+        group("ga1", "Plato uno", {
+          source: "auto",
+          menu_dish_id: "d1",
+          restaurant_id: "R1",
+        }),
+        group("ga2", "Plato dos", {
+          source: "auto",
+          menu_dish_id: "d2",
+          restaurant_id: "R2",
+        }),
+      ],
+      members: [],
+    });
+    expect(shape(stored)).toEqual(shape(none));
+    expect(stored.ungrouped.map((l) => l.key)).toEqual(["c"]);
+    expect(groupingCounts(stored)).toEqual(groupingCounts(none));
+    expect(stored.total).toEqual(none.total);
+  });
+
+  it("a leaf with no restaurant info, or both restaurants' sales, stays in its dish", () => {
+    const t = buildGroupTree({
+      leaves: rows,
+      groups: [
+        group("ga1", "Plato uno", {
+          source: "auto",
+          menu_dish_id: "d1",
+          restaurant_id: "R1",
+        }),
+      ],
+      members: [],
+    });
+    const dish = t.top.find((n) => n.name === "Plato uno")!;
+    expect(dish.rollup.net_sales).toBe(350);
+    expect(dish.virtual).toBe(false);
+  });
+
+  it("when several explicit groups apply, the restaurant's own wins, then a stable order by id (any input order)", () => {
+    const leaves = [leaf("x", 10, 1, { ref: "x", restaurant_ids: ["R1"] })];
+    const groups = [
+      group("g-b", "B"),
+      group("g-a", "A"),
+      group("g-r", "R1 solo", { restaurant_id: "R1" }),
+    ];
+    const placeIn = (order: number[], members: string[]) => {
+      const t = buildGroupTree({
+        leaves,
+        groups: order.map((i) => groups[i]),
+        members: members.map((g) => ({ group_id: g, member_ref: "x" })),
+      });
+      const names: string[] = [];
+      walkTree(t.top, (n) => {
+        if (n.kind === "group" && n.rollup.net_sales > 0) names.push(n.name);
+      });
+      return names;
+    };
+    expect(placeIn([0, 1, 2], ["g-b", "g-a", "g-r"])).toEqual(["R1 solo"]);
+    expect(placeIn([2, 1, 0], ["g-r", "g-a", "g-b"])).toEqual(["R1 solo"]);
+    // Two shared groups: always the lowest id, not whichever row came first.
+    expect(placeIn([0, 1], ["g-b", "g-a"])).toEqual(["A"]);
+    expect(placeIn([1, 0], ["g-a", "g-b"])).toEqual(["A"]);
+  });
+});

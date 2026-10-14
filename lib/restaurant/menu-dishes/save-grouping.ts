@@ -31,9 +31,6 @@ export async function saveMenuGrouping(
     load.result.menu_dishes,
     load.result.excluded_menu_dishes
   );
-  // R1-15b: the Plato del menú level of the groups follows (insert-only;
-  // nothing happens until 048 is applied).
-  await syncAutoGroups(supabase, companyId).catch(() => null);
   return { ok: true, ...r };
 }
 
@@ -47,6 +44,9 @@ export async function saveMenuGroupingQuietly(
     const started = Date.now();
     const r = await saveMenuGrouping(supabase, companyId);
     console.info(`[menu-dishes] ${tag} ${Date.now() - started}ms`, r);
+    // R1-15b: the Plato del menú level of the groups follows (insert-only;
+    // this already runs in the background, a no-op until 048 is applied).
+    await syncAutoGroups(supabase, companyId).catch(() => null);
   } catch (err) {
     console.error(`[menu-dishes] ${tag} failed:`, err);
   }

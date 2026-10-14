@@ -14,7 +14,9 @@
 --    (Named item_groups, not "groups": GROUPS is a SQL keyword.)
 -- 2. group_members: what a group holds. A member belongs to exactly ONE
 --    group per hierarchy (and restaurant scope): the unique index below, so
---    nothing is counted twice. hierarchy_key and restaurant_id are copied
+--    nothing is counted twice. Products, preparations and ingredients are
+--    one hierarchy each (the auto dish groups included); a dimension value
+--    is one hierarchy per dimension, or per dimension and dish. hierarchy_key and restaurant_id are copied
 --    from the group by a trigger, so a client cannot desync them.
 -- 3. item_groups_sync_menu_dishes(): creates the missing AUTO group of each
 --    menu dish, idempotently. It only INSERTS: it never renames, moves or
@@ -26,7 +28,7 @@
 -- group) and wins over its dish.
 --
 -- DESIGN: additive only. Two new company-scoped tables with RLS
--- (public.is_company_member, same rule as 038-046), three small triggers,
+-- (public.is_company_member, same rule as 038-046), four small triggers,
 -- one SECURITY INVOKER function (RLS still applies). No DROP, no RENAME, no
 -- ALTER of existing columns, no backfill. Until this file is applied the
 -- app shows no group features and every number is what it was.
@@ -161,6 +163,31 @@ CREATE TRIGGER item_groups_no_cycle_trg
   BEFORE INSERT OR UPDATE OF parent_id ON public.item_groups
   FOR EACH ROW EXECUTE FUNCTION public.item_groups_no_cycle();
 
+-- The restaurant must belong to the group's company. (restaurant_locations
+-- has no (id, company_id) key to reference, and this file does not alter
+-- existing tables, so the database checks it here.)
+CREATE OR REPLACE FUNCTION public.item_groups_check_restaurant()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.restaurant_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.restaurant_locations r
+    WHERE r.id = NEW.restaurant_id AND r.company_id = NEW.company_id
+  ) THEN
+    RAISE EXCEPTION 'that restaurant belongs to another company'
+      USING ERRCODE = '23503';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS item_groups_check_restaurant_trg ON public.item_groups;
+CREATE TRIGGER item_groups_check_restaurant_trg
+  BEFORE INSERT OR UPDATE OF restaurant_id, company_id ON public.item_groups
+  FOR EACH ROW EXECUTE FUNCTION public.item_groups_check_restaurant();
+
 ALTER TABLE public.item_groups ENABLE ROW LEVEL SECURITY;
 
 DO $$
@@ -254,9 +281,16 @@ BEGIN
     RAISE EXCEPTION 'a % cannot be a member of a % group', NEW.member_type, g.scope
       USING ERRCODE = '23514';
   END IF;
+  -- ONE hierarchy per scope. Only a dimension group tied to a menu dish is
+  -- its own hierarchy (the same side value may be grouped differently in
+  -- one dish). Every auto group carries its own menu_dish_id, so the dish
+  -- must NOT be part of the key for product groups: otherwise one product
+  -- could be a member of a user group and of several auto groups at once.
   NEW.hierarchy_key :=
     g.scope || ':' || COALESCE(g.dimension, '') || ':' ||
-    COALESCE(g.menu_dish_id::text, '');
+    CASE WHEN g.scope = 'dimension_value'
+         THEN COALESCE(g.menu_dish_id::text, '')
+         ELSE '' END;
   NEW.restaurant_id := g.restaurant_id;
   RETURN NEW;
 END;

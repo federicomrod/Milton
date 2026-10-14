@@ -232,6 +232,10 @@ const AUTO_PREFIX = "auto:";
 
 function groupAppliesTo(group: TreeGroup, leaf: TreeLeaf): boolean {
   if (group.status !== "confirmed") return false;
+  // The Plato del menú level is decided by the product's own link
+  // (pos_product_links.menu_dish_id): a product is always in its dish, for
+  // every restaurant, whatever restaurant the dish was created for.
+  if (group.source === "auto") return true;
   if (!group.restaurant_id) return true;
   // A restaurant-only group never takes another restaurant's sales: the row
   // must be entirely that restaurant's.
@@ -275,11 +279,16 @@ export function buildGroupTree(input: {
   };
   for (const leaf of input.leaves) {
     // 1) A person's choice wins (the restaurant's own group before a shared one).
-    const picks = (explicit.get(leaf.ref) ?? []).filter((g) =>
-      groupAppliesTo(g, leaf)
-    );
-    const pick =
-      picks.find((g) => g.restaurant_id) ?? picks.find((g) => !g.restaurant_id);
+    // Deterministic whatever order the rows came in: the restaurant's own
+    // group first, then a stable order by id.
+    const picks = (explicit.get(leaf.ref) ?? [])
+      .filter((g) => groupAppliesTo(g, leaf))
+      .sort(
+        (a, b) =>
+          Number(!!b.restaurant_id) - Number(!!a.restaurant_id) ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      );
+    const pick = picks[0];
     if (pick) {
       put(pick.id, leaf);
       continue;
@@ -287,11 +296,11 @@ export function buildGroupTree(input: {
     // 2) Its menu dish (the auto level), stored or not.
     if (leaf.menu_dish_id) {
       const stored = autoByDish.get(leaf.menu_dish_id);
-      if (stored && groupAppliesTo(stored, leaf)) {
+      if (stored) {
         put(stored.id, leaf);
         continue;
       }
-      if (!stored) {
+      {
         const id = leaf.menu_dish_id.startsWith(AUTO_PREFIX)
           ? leaf.menu_dish_id
           : `${AUTO_PREFIX}${leaf.menu_dish_id}`;

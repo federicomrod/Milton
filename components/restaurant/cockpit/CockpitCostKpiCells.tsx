@@ -3,6 +3,8 @@
 // Presentational food-cost / margin cells. Shared by the streamed loader
 // and the client period picker.
 
+import Link from "next/link";
+import { menuResumenHref } from "@/lib/restaurant/menu-links";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { buildCockpitKpiStripModel } from "@/lib/restaurant/cockpit-executive";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
@@ -64,7 +66,10 @@ export function CockpitCostKpiCells({
         />
       )}
       {model.food_cost_pct.available ? (
-        <div className="rounded-md border border-border bg-background px-2.5 py-1.5 min-h-[4.5rem]">
+        <Link
+          href={menuResumenHref()}
+          className="block rounded-md border border-border bg-background px-2.5 py-1.5 min-h-[4.5rem] hover:border-[#f28c28]"
+        >
           <p className="text-[11px] font-medium text-muted-foreground truncate">
             {t(lang, "Food cost %", "% costo de comida")}
           </p>
@@ -90,7 +95,7 @@ export function CockpitCostKpiCells({
           <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
             {t(lang, "on covered net sales", "sobre ventas netas cubiertas")}
           </p>
-        </div>
+        </Link>
       ) : (
         <NotAvailableYet
           lang={lang}

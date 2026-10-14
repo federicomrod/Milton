@@ -266,7 +266,9 @@ export function yieldOf(
   };
 }
 
-function evidenceLinesOf(evidence: Record<string, unknown>): EvidenceLineIn[] {
+export function evidenceLinesOf(
+  evidence: Record<string, unknown>
+): EvidenceLineIn[] {
   const raw = Array.isArray(evidence.lines) ? evidence.lines : [];
   const out: EvidenceLineIn[] = [];
   for (const item of raw) {

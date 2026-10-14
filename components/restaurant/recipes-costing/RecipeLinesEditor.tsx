@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { ingredientHref } from "@/lib/restaurant/menu-links";
 import { useEffect, useMemo, useState } from "react";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
 import {
@@ -847,11 +849,23 @@ function Row({
             >
               {money(line.price.unit_cost)}/
               {UNIT_LABEL[line.price.unit] ?? line.price.unit}
-              <div className="text-[10px] text-[#8a92a3]">
-                {[monthLabel(line.price.date), line.price.source]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </div>
+              {line.ingredient_id ? (
+                // Source and date link to the ingredient's one price record.
+                <Link
+                  href={ingredientHref(line.ingredient_id)}
+                  className="block text-[10px] text-[#8a92a3] hover:text-[#3557c9] hover:underline"
+                >
+                  {[monthLabel(line.price.date), line.price.source]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </Link>
+              ) : (
+                <div className="text-[10px] text-[#8a92a3]">
+                  {[monthLabel(line.price.date), line.price.source]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </div>
+              )}
               {line.excel_unit_cost !== null ? (
                 <div className="text-[10px] text-[#8a92a3]">
                   en tu Excel: {money(line.excel_unit_cost)}

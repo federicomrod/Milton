@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { platosHref } from "@/lib/restaurant/menu-links";
 import type {
   RecipeCostingView,
   RecipeCostingWorkspace,
@@ -66,9 +68,12 @@ export function ResumenScreen({
             Ventas de comida con costo aprobado
           </div>
           <div className="mt-1 flex flex-wrap items-baseline gap-2.5">
-            <span className="text-[28px] font-extrabold leading-none text-[#1b2333]">
+            <Link
+              href={platosHref()}
+              className="text-[28px] font-extrabold leading-none text-[#1b2333] hover:underline"
+            >
               {coverage.coverage_label}
-            </span>
+            </Link>
             <span className="text-xs text-[#5b6476]">
               {coverage.covered_label} de {coverage.net_sales_label}
               {` · ${coverage.dishes_approved} de ${coverage.dishes_need_recipe} platos`}

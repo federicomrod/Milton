@@ -49,8 +49,9 @@ describe("cockpit load split (#134)", () => {
   it("tabs profitability no longer preloads every POS row", () => {
     const cache = read("lib/restaurant/pos-read-cache.ts");
     expect(cache).toContain(
-      "fetchProfitabilityData(supabase, companyId, selected)"
+      "fetchProfitabilityData(supabase, companyId, selected, {"
     );
+    expect(cache).not.toContain("posRows:");
     expect(cache).not.toMatch(
       /loadCachedProfitability[\s\S]*loadCachedPosSalesRows/
     );

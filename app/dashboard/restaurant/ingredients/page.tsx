@@ -73,7 +73,12 @@ async function loadIngredients(): Promise<LoadResult> {
   }
 }
 
-export default async function IngredientsRoute() {
+export default async function IngredientsRoute({
+  searchParams,
+}: {
+  searchParams: Promise<{ ingrediente?: string }>;
+}) {
+  const { ingrediente } = await searchParams;
   const [{ lang }, result] = await Promise.all([
     loadRestaurantShellChrome(),
     loadIngredients(),
@@ -85,6 +90,7 @@ export default async function IngredientsRoute() {
         suppliers={result.suppliers}
         companyCurrency={result.companyCurrency}
         lang={lang}
+        focusId={ingrediente ?? null}
       />
     );
   }

@@ -16,7 +16,7 @@ import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 import { formatPageDateRangeLabel } from "@/lib/restaurant/page-date-range";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
-import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
+import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
 import {
   classificationFromStored,
   isPosProductLinkState,
@@ -127,14 +127,31 @@ export async function loadRecipeCostingWorkspace(
 
   const [list, roleLoad, companyName, currency, isMiltonStaff] =
     await Promise.all([
-      loadPosProductList(supabase, {
-        companyId: input.companyId,
-        startDate: input.startDate,
-        endDate: input.endDate,
-        locationId: input.locationId,
-        // Only the open dish's own sales: its price and margin, no scan.
-        odooProductId: editorOnly ? input.selectedOdooProductId : null,
-      }),
+      editorOnly
+        ? // Only the open dish's own sales: its price, margin and status.
+          loadDishEconomics(
+            input.companyId,
+            input.startDate ?? null,
+            input.endDate ?? null,
+            input.locationId ?? null,
+            input.selectedOdooProductId ?? null
+          ).then((res) =>
+            res.ok
+              ? { ok: true as const, list: res.list, economics: res.result }
+              : res
+          )
+        : // R1-09a: the same loader as Menú, Cockpit and the email, so
+          // coverage is one number everywhere.
+          loadDishEconomics(
+            input.companyId,
+            input.startDate ?? null,
+            input.endDate ?? null,
+            input.locationId ?? null
+          ).then((res) =>
+            res.ok
+              ? { ok: true as const, list: res.list, economics: res.result }
+              : res
+          ),
       loadCompanyMembershipRole(supabase, input.companyId, input.userId),
       loadCompanyName(supabase, input.companyId),
       resolveCompanyCurrency(supabase, input.companyId),
@@ -259,6 +276,9 @@ export async function loadRecipeCostingWorkspace(
     };
   }
 
+  // Coverage is the shared loader's number (same as Menú and Cockpit).
+  const coverageTotals = list && list.ok ? list.economics.totals : null;
+
   const periodLabel =
     input.startDate && input.endDate
       ? formatPageDateRangeLabel(
@@ -285,15 +305,16 @@ export async function loadRecipeCostingWorkspace(
       versions: versionsRes.rows ?? [],
       menuItems: menuRes.rows ?? [],
       batches,
-      coveragePct: list && list.ok ? list.list.coverage_pct : 0,
-      netSales: list && list.ok ? list.list.food_net_sales : 0,
-      excludedNetSales: list && list.ok ? list.list.excluded_net_sales : 0,
-      coveredNetSales: list && list.ok ? list.list.covered_net_sales : 0,
+      coveragePct: coverageTotals?.coverage_pct ?? 0,
+      netSales: coverageTotals?.food_net_sales ?? 0,
+      excludedNetSales: coverageTotals?.excluded_net_sales ?? 0,
+      coveredNetSales: coverageTotals?.covered_net_sales ?? 0,
       selectedOdooProductId: input.selectedOdooProductId ?? null,
       lastProgress,
       comboSyncHint,
       latestUpload,
       reset,
+      dishEconomics: list && list.ok ? list.economics : null,
       timings: {
         load_ms: Date.now() - started,
         path: editorOnly ? "plato_editor" : "full",

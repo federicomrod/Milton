@@ -18,6 +18,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { dishHref } from "@/lib/restaurant/menu-links";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowUpDown, ArrowDown, ArrowUp } from "lucide-react";
@@ -383,7 +384,7 @@ export function MenuProfitabilityTable({
                       r.cost.status === "complete" && r.cost.cost !== null;
                     return (
                       <tr
-                        key={r.menu_item_id}
+                        key={`${r.menu_item_id}:${r.odoo_product_id ?? ""}`}
                         className={
                           (i % 2 === 1 ? "bg-muted/20" : "bg-background") +
                           " border-b border-border hover:bg-muted/30 align-middle"
@@ -426,9 +427,24 @@ export function MenuProfitabilityTable({
                             : "—"}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
-                          {showCostNumbers
-                            ? fmt.money2.format(r.cost.cost!)
-                            : "—"}
+                          {showCostNumbers ? (
+                            r.odoo_product_id != null ? (
+                              <Link
+                                href={dishHref(r.odoo_product_id)}
+                                className="hover:underline"
+                              >
+                                {fmt.money2.format(r.cost.cost!)}
+                              </Link>
+                            ) : (
+                              fmt.money2.format(r.cost.cost!)
+                            )
+                          ) : r.cost.status === "no_cost_entries" ? (
+                            <span className="text-amber-700 dark:text-amber-300">
+                              {t(lang, "No price", "Sin precio")}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {showCostNumbers && r.estimated_gross_profit !== null
@@ -443,7 +459,11 @@ export function MenuProfitabilityTable({
                         </td>
                         <td className="px-3 py-2">
                           <Link
-                            href={`/dashboard/restaurant/menu/${r.menu_item_id}`}
+                            href={
+                              r.odoo_product_id != null
+                                ? dishHref(r.odoo_product_id)
+                                : `/dashboard/restaurant/menu/${r.menu_item_id}`
+                            }
                             className="text-xs font-medium text-orange-700 hover:underline dark:text-orange-300"
                           >
                             {r.cost.status === "missing_recipe"

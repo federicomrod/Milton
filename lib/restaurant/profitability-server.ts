@@ -50,13 +50,22 @@ import {
   type CockpitPosProductRollup,
 } from "@/lib/restaurant/cockpit-pos-product-rollup";
 import { logCockpitTiming } from "@/lib/restaurant/cockpit-timing";
+import { loadDishEconomicsWith } from "@/lib/restaurant/costing/dish-economics-server";
+import {
+  dishesUsingIngredient,
+  type DishEconomicsResult,
+} from "@/lib/restaurant/costing/dish-economics";
+import { legacyMarginRows } from "@/lib/restaurant/costing/dish-economics-adapter";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
 // ---------------------------------------------------------------------------
 
 export interface MenuMarginRow {
+  /** Menu item id, or `pos:<odoo_product_id>` for an unlinked POS dish. */
   menu_item_id: string;
+  /** The POS product this row is (dish-economics rows only). */
+  odoo_product_id?: number;
   name: string;
   category: string | null;
   selling_price: number | null;
@@ -108,6 +117,8 @@ export interface IngredientPriceTrendRow {
   previous_date: string;
   unit: string;
   currency: string;
+  /** Sold dishes whose recipe uses this ingredient directly (R1-09a). */
+  affected_dishes?: Array<{ odoo_product_id: number; name: string }>;
 }
 
 export interface SupplierSpendRow {
@@ -169,6 +180,12 @@ export interface ProfitabilityData {
   readError: boolean;
   /** How POS totals were loaded. Tabs log this as `source`. */
   posSource?: "product-rpc" | "rows" | "error" | "preloaded";
+  /**
+   * The shared dish-economics load these numbers came from (R1-09a).
+   * Null for a company with no Odoo products/links (legacy name-mapped
+   * path, CSV uploads).
+   */
+  dishEconomics?: DishEconomicsResult | null;
 }
 
 /** Slim POS shape the profitability aggregator needs. */
@@ -198,6 +215,11 @@ export interface FetchProfitabilityOptions {
   posProductRollup?: CockpitPosProductRollup;
   /** Fail-closed: skip POS reads and return empty sales totals. */
   posReadError?: boolean;
+  /**
+   * Dish side already loaded in this request (dish-economics). Pass null
+   * to force the legacy name-mapped path (tests). Undefined: load it.
+   */
+  dishEconomics?: DishEconomicsResult | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +298,27 @@ export async function fetchProfitabilityData(
   };
 
   const preloadedPos = options?.posRows;
-  const companyCurrency = await resolveCompanyCurrency(supabase, companyId);
+  // One source of truth for every dish's cost, status and coverage
+  // (R1-09a). Companies with no Odoo product or link (CSV uploads) keep
+  // the legacy name-mapped path below until they are migrated.
+  const [companyCurrency, dishSide] = await Promise.all([
+    resolveCompanyCurrency(supabase, companyId),
+    options?.dishEconomics !== undefined
+      ? Promise.resolve(options.dishEconomics)
+      : loadDishEconomicsWith(supabase, {
+          companyId,
+          locationId: selected?.locationId ?? null,
+        }).then((load) => {
+          if (!load.ok) {
+            console.error("[profitability] dish-economics:", load.error);
+            return null;
+          }
+          return load.result.uses_pos_products ? load.result : null;
+        }),
+  ]);
+  const skipLegacyDishTables = dishSide !== null;
+  const emptyRows = <T>() =>
+    Promise.resolve({ rows: [] as T[], truncated: false, error: null });
 
   const loadPos = async (): Promise<{
     rows: PosRow[];
@@ -381,48 +423,70 @@ export async function fetchProfitabilityData(
     // precedence per POS row once pos_sales_items itself is location-
     // filtered. Pre-filtering this query would break that fallback for
     // legacy/unscoped mappings.
-    fetchAllRows<MappingRow>(() =>
-      supabase
-        .from("pos_item_mappings")
-        .select("raw_pos_item_name, menu_item_id, location_id")
-        .eq("company_id", companyId)
-    ),
-    fetchAllRows<MenuItemRow>(() =>
-      supabase
-        .from("menu_items")
-        .select(
-          "id, name, category, selling_price, currency, brand_id, location_id"
-        )
-        .eq("company_id", companyId)
-    ),
-    fetchAllRowsRetryingWithoutColumn<{
-      id: string;
-      menu_item_id: string;
-      status: string | null;
-      source_type?: string | null;
-      workbook_cost_match?: string | null;
-    }>(
-      "workbook_cost_match",
-      (select) =>
-        supabase.from("recipes").select(select).eq("company_id", companyId),
-      "id, menu_item_id, status, source_type, workbook_cost_match"
-    ),
-    fetchAllRows<{
-      id: string;
-      recipe_id: string;
-      input_type: "ingredient" | "component";
-      ingredient_id: string | null;
-      component_id: string | null;
-      quantity: number;
-      unit: string;
-    }>(() =>
-      supabase
-        .from("menu_recipe_inputs")
-        .select(
-          "id, recipe_id, input_type, ingredient_id, component_id, quantity, unit"
-        )
-        .eq("company_id", companyId)
-    ),
+    skipLegacyDishTables
+      ? emptyRows<MappingRow>()
+      : fetchAllRows<MappingRow>(() =>
+          supabase
+            .from("pos_item_mappings")
+            .select("raw_pos_item_name, menu_item_id, location_id")
+            .eq("company_id", companyId)
+        ),
+    skipLegacyDishTables
+      ? emptyRows<MenuItemRow>()
+      : fetchAllRows<MenuItemRow>(() =>
+          supabase
+            .from("menu_items")
+            .select(
+              "id, name, category, selling_price, currency, brand_id, location_id"
+            )
+            .eq("company_id", companyId)
+        ),
+    skipLegacyDishTables
+      ? emptyRows<{
+          id: string;
+          menu_item_id: string;
+          status: string | null;
+          source_type?: string | null;
+          workbook_cost_match?: string | null;
+        }>()
+      : fetchAllRowsRetryingWithoutColumn<{
+          id: string;
+          menu_item_id: string;
+          status: string | null;
+          source_type?: string | null;
+          workbook_cost_match?: string | null;
+        }>(
+          "workbook_cost_match",
+          (select) =>
+            supabase.from("recipes").select(select).eq("company_id", companyId),
+          "id, menu_item_id, status, source_type, workbook_cost_match"
+        ),
+    skipLegacyDishTables
+      ? emptyRows<{
+          id: string;
+          recipe_id: string;
+          input_type: "ingredient" | "component";
+          ingredient_id: string | null;
+          component_id: string | null;
+          quantity: number;
+          unit: string;
+        }>()
+      : fetchAllRows<{
+          id: string;
+          recipe_id: string;
+          input_type: "ingredient" | "component";
+          ingredient_id: string | null;
+          component_id: string | null;
+          quantity: number;
+          unit: string;
+        }>(() =>
+          supabase
+            .from("menu_recipe_inputs")
+            .select(
+              "id, recipe_id, input_type, ingredient_id, component_id, quantity, unit"
+            )
+            .eq("company_id", companyId)
+        ),
     fetchAllRows<{
       id: string;
       name: string;
@@ -544,7 +608,16 @@ export async function fetchProfitabilityData(
   const suppliers = succeededRows(suppliersRes);
   const supplierLinks = succeededRows(supplierIngredientsRes);
 
-  const versions = await fetchCostingRecipeVersions(supabase, companyId);
+  const versions = skipLegacyDishTables
+    ? {
+        menuRecipeVersionsByMenuItemId: new Map(),
+        menuRecipeVersionInputsByVersionId: new Map(),
+        componentRecipeVersionsByComponentId: new Map(),
+        componentRecipeVersionInputsByVersionId: new Map(),
+        recipeVersionsError: undefined as string | undefined,
+        componentVersionsError: undefined as string | undefined,
+      }
+    : await fetchCostingRecipeVersions(supabase, companyId);
   errLog(
     "recipe_versions",
     versions.recipeVersionsError
@@ -731,7 +804,7 @@ export async function fetchProfitabilityData(
   }
 
   // ----- Build per-menu-item margin rows -----
-  const marginRows: MenuMarginRow[] = menuItems.map((mi) => {
+  let marginRows: MenuMarginRow[] = menuItems.map((mi) => {
     const cost = menuItemCosts.get(mi.id) ?? {
       menu_item_id: mi.id,
       cost: null,
@@ -788,16 +861,16 @@ export async function fetchProfitabilityData(
   const costCoveragePct =
     revenueTotal > 0 ? (revenueWithKnownCost / revenueTotal) * 100 : 0;
 
-  const menuItemsWithoutRecipe = marginRows.filter(
+  let menuItemsWithoutRecipe = marginRows.filter(
     (m) => m.cost.status === "missing_recipe"
   ).length;
-  const menuItemsWithIssues = marginRows.filter(
+  let menuItemsWithIssues = marginRows.filter(
     (m) => m.cost.status !== "complete" && m.cost.status !== "missing_recipe"
   ).length;
 
   const currency = companyCurrency;
 
-  const kpis: ProfitabilityKpis = {
+  let kpis: ProfitabilityKpis = {
     revenue_total: revenueTotal,
     revenue_with_known_cost: revenueWithKnownCost,
     estimated_cogs: estimatedCogs,
@@ -811,7 +884,7 @@ export async function fetchProfitabilityData(
   };
 
   // ----- Margin risk slices -----
-  const lowMargin = marginRows
+  let lowMargin = marginRows
     .filter(
       (r) =>
         r.cost.status === "complete" &&
@@ -823,7 +896,7 @@ export async function fetchProfitabilityData(
     )
     .slice(0, 10);
 
-  const highFoodCost = marginRows
+  let highFoodCost = marginRows
     .filter(
       (r) =>
         r.cost.status === "complete" &&
@@ -833,15 +906,66 @@ export async function fetchProfitabilityData(
     .sort((a, b) => (b.cost.food_cost_pct ?? 0) - (a.cost.food_cost_pct ?? 0))
     .slice(0, 10);
 
-  const highRevenueIncomplete = marginRows
+  let highRevenueIncomplete = marginRows
     .filter((r) => r.revenue > 0 && r.cost.status !== "complete")
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 10);
 
-  const missingRecipeHighVolume = marginRows
+  let missingRecipeHighVolume = marginRows
     .filter((r) => r.cost.status === "missing_recipe" && r.units_sold > 0)
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 10);
+
+  // ----- Dish side from the shared loader (R1-09a) -----
+  let unmappedCount = unmappedRawNames.size;
+  if (dishSide) {
+    const t = dishSide.totals;
+    marginRows = legacyMarginRows(dishSide);
+    menuItemsWithoutRecipe = t.no_recipe_count;
+    menuItemsWithIssues = t.missing_price_count;
+    unmappedCount = dishSide.dishes.filter((d) => !d.menu_item_id).length;
+    kpis = {
+      revenue_total: t.food_net_sales,
+      revenue_with_known_cost: t.cost_known_net_sales,
+      estimated_cogs: t.estimated_cogs,
+      estimated_gross_profit: t.gross_margin ?? 0,
+      estimated_gross_margin_pct: t.gross_margin_pct,
+      food_cost_pct: t.food_cost_pct,
+      cost_coverage_pct: t.coverage_pct,
+      menu_items_with_issues: t.missing_price_count,
+      menu_items_without_recipe: t.no_recipe_count,
+      currency: dishSide.currency || companyCurrency,
+    };
+    const complete = (r: MenuMarginRow) =>
+      r.cost.status === "complete" && r.cost.cost !== null;
+    lowMargin = marginRows
+      .filter(
+        (r) =>
+          complete(r) &&
+          r.cost.gross_margin_pct !== null &&
+          r.cost.gross_margin_pct < LOW_MARGIN_THRESHOLD_PCT
+      )
+      .sort(
+        (a, b) =>
+          (a.cost.gross_margin_pct ?? 0) - (b.cost.gross_margin_pct ?? 0)
+      )
+      .slice(0, 10);
+    highFoodCost = marginRows
+      .filter(
+        (r) =>
+          complete(r) &&
+          r.cost.food_cost_pct !== null &&
+          r.cost.food_cost_pct > HIGH_FOOD_COST_THRESHOLD_PCT
+      )
+      .sort((a, b) => (b.cost.food_cost_pct ?? 0) - (a.cost.food_cost_pct ?? 0))
+      .slice(0, 10);
+    highRevenueIncomplete = marginRows
+      .filter((r) => r.revenue > 0 && r.cost.status !== "complete")
+      .slice(0, 10);
+    missingRecipeHighVolume = marginRows
+      .filter((r) => r.cost.status === "missing_recipe" && r.units_sold > 0)
+      .slice(0, 10);
+  }
 
   // ----- Supplier price trends -----
   const supplierNameById = new Map(suppliers.map((s) => [s.id, s.name]));
@@ -893,6 +1017,17 @@ export async function fetchProfitabilityData(
   }
   ingredientPriceTrends.sort((a, b) => b.pct_change - a.pct_change);
   const topPriceTrends = ingredientPriceTrends.slice(0, 12);
+  if (dishSide) {
+    for (const trend of topPriceTrends) {
+      trend.affected_dishes = dishesUsingIngredient(
+        dishSide,
+        trend.ingredient_id
+      ).map(({ dish }) => ({
+        odoo_product_id: dish.odoo_product_id,
+        name: dish.name,
+      }));
+    }
+  }
 
   // ----- Top supplier spend -----
   // Group all cost entries by supplier_id; sum total_cost; count distinct
@@ -947,7 +1082,7 @@ export async function fetchProfitabilityData(
   ).size;
 
   const dataQuality: DataQualityCounts = {
-    unmapped_pos_items: unmappedRawNames.size,
+    unmapped_pos_items: unmappedCount,
     menu_items_without_recipe: menuItemsWithoutRecipe,
     recipes_with_unit_mismatch: recipesWithUnitMismatch,
     ingredients_without_cost_entries: ingredients.filter(
@@ -968,9 +1103,15 @@ export async function fetchProfitabilityData(
   const setupCounts: SetupCounts = {
     pos_sales_count: posSalesCount,
     cost_entries_count: costEntries.length,
-    menu_items_count: menuItems.length,
-    mappings_count: mappings.length,
-    recipe_inputs_count: recipeInputs.length,
+    menu_items_count: dishSide
+      ? new Set(dishSide.dishes.map((d) => d.menu_item_id).filter(Boolean)).size
+      : menuItems.length,
+    mappings_count: dishSide
+      ? dishSide.dishes.filter((d) => d.menu_item_id).length
+      : mappings.length,
+    recipe_inputs_count: dishSide
+      ? dishSide.dishes.reduce((sum, d) => sum + d.lines.length, 0)
+      : recipeInputs.length,
     supplier_invoices_count: supplierInvoicesCountRes.count ?? 0,
     agent_runs_count: agentRunsCountRes.count ?? 0,
     ingredients_count: ingredients.length,
@@ -1010,6 +1151,7 @@ export async function fetchProfitabilityData(
       suppliersRes.truncated ||
       supplierIngredientsRes.truncated,
     readError: Boolean(posRes.error),
+    dishEconomics: dishSide,
   };
   rememberCostingData(result, costingData);
   return result;

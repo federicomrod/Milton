@@ -57,6 +57,7 @@ export function PlatoScreen({
   locationId,
   busy,
   onSelect,
+  onPrefetch,
   onEdited,
   onPost,
   onConfirm,
@@ -69,6 +70,8 @@ export function PlatoScreen({
   locationId: string | null;
   busy: boolean;
   onSelect: (odooProductId: number) => void;
+  /** Pointer or focus on a row: read that dish ahead of time (R1-12). */
+  onPrefetch?: (odooProductId: number) => void;
   /** After an ingredient edit: refresh the open dish only. */
   onEdited: () => void;
   onPost: PostFn;
@@ -166,6 +169,8 @@ export function PlatoScreen({
               key={row.odoo_product_id}
               type="button"
               onClick={() => onSelect(row.odoo_product_id)}
+              onMouseEnter={() => onPrefetch?.(row.odoo_product_id)}
+              onFocus={() => onPrefetch?.(row.odoo_product_id)}
               className={
                 "flex w-full items-center justify-between gap-2 border-t border-[#f2f3f6] px-[14px] py-2.5 text-left text-[13px] " +
                 (row.odoo_product_id === product?.odoo_product_id

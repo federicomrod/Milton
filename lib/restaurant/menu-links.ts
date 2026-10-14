@@ -17,23 +17,30 @@ export function menuResumenHref(): string {
 
 /** Platos, optionally filtered by the loader's statuses. */
 export function platosHref(statuses?: readonly DishStatus[]): string {
-  const params = new URLSearchParams({ vista: "plato" });
-  if (statuses && statuses.length > 0) params.set("estado", statuses.join(","));
-  return `${MENU}/recetas?${params.toString()}`;
+  if (!statuses || statuses.length === 0) return `${MENU}/platos`;
+  return `${MENU}/platos?estado=${statuses.join(",")}`;
 }
 
 /** One dish open in Platos. */
 export function dishHref(odooProductId: number): string {
-  const params = new URLSearchParams({
-    vista: "plato",
-    producto: String(odooProductId),
-  });
-  return `${MENU}/recetas?${params.toString()}`;
+  return `${MENU}/platos?producto=${odooProductId}`;
+}
+
+/** One preparation open in Preparaciones. */
+export function preparationHref(componentId: string): string {
+  return `${MENU}/preparaciones?prep=${encodeURIComponent(componentId)}`;
+}
+
+/** Ingredientes, optionally filtered ("falta_precio" first in setup). */
+export function ingredientesHref(filter?: "falta_precio"): string {
+  return filter
+    ? `${MENU}/ingredientes?filtro=${filter}`
+    : `${MENU}/ingredientes`;
 }
 
 /** One ingredient (its single price record, source and date). */
 export function ingredientHref(ingredientId: string): string {
-  return `/dashboard/restaurant/ingredients?ingrediente=${encodeURIComponent(ingredientId)}`;
+  return `${MENU}/ingredientes?ingrediente=${encodeURIComponent(ingredientId)}`;
 }
 
 /** `?estado=falta_precio,sin_receta` → the statuses it names. */

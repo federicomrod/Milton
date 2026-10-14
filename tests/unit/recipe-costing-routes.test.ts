@@ -15,55 +15,46 @@ describe("recipe costing routes", () => {
     expect(confirm).toContain("confirmPlato");
     expect(confirm).toContain("authAndCompany");
 
+    // Resumen reads the shared loader's summary; no KPI math in React.
     const ui = read("components/restaurant/recipes-costing/ResumenScreen.tsx");
-    expect(ui).toContain("coverage.coverage_label");
+    expect(ui).toContain("data.menu_summary");
     expect(ui).not.toMatch(/coverage_pct\s*[+\-*/]/);
     expect(ui).not.toMatch(/net_sales\s*[+\-*/]/);
 
-    // Plato por plato replaces Vincular + Validar: one screen per dish.
+    // Platos: list + detail, numbers from the loader, one recipe editor.
     const plato = read("components/restaurant/recipes-costing/PlatoScreen.tsx");
     expect(plato).toContain("RecipeLinesEditor");
-    expect(plato).toContain("Costo por porción");
-    expect(plato).toContain("editor.margin_label");
+    expect(plato).toContain("data.selected_dish");
     expect(plato).not.toMatch(/qty\s*\*\s*unit_cost/);
     expect(plato).not.toMatch(/pos_price\s*[-*/]/);
-    expect(plato).toContain("Cuadra con Excel");
-    expect(plato).toContain("Saltar por ahora");
-    expect(plato).toContain("Usar la receta de otro plato");
+    expect(plato).toContain("Excel:");
+    expect(plato).not.toContain("Saltar por ahora");
+    // C6: once, inside the dish's "⋯" menu.
+    expect(plato.match(/Usar la receta de otro plato/g)?.length).toBe(1);
   });
 
-  it("matches the approved Recetas y costeo chrome", () => {
+  it("matches the approved Menú chrome (R1-09b)", () => {
     const workspace = read(
       "components/restaurant/recipes-costing/RecipesCostingWorkspace.tsx"
     );
-    expect(workspace).toContain("CostingHeader");
-    expect(workspace).not.toMatch(/\["resumen", "Resumen"\]/);
-    expect(workspace).toContain('view === "menu-costeado"');
-    expect(workspace).not.toContain("|| data.menu_costeado");
-
-    const header = read(
-      "components/restaurant/recipes-costing/CostingHeader.tsx"
-    );
-    expect(header).toContain("Preguntar a Milton");
-    expect(header).toContain("odooSyncLabel");
-    expect(header).toContain("Recetas y costeo");
-    expect(header).toContain("Plato por plato");
+    // B2 / B13: no breadcrumb header and no separate "menú costeado".
+    expect(workspace).not.toContain("CostingHeader");
+    expect(workspace).not.toContain('view === "menu-costeado"');
 
     const resumen = read(
       "components/restaurant/recipes-costing/ResumenScreen.tsx"
     );
-    expect(resumen).toContain("Tu menú en Odoo");
-    expect(resumen).toContain("setup_checklist");
-    expect(resumen).toContain("coverage.goal_pct");
+    expect(resumen).toContain("Configura tu menú");
+    expect(resumen).not.toContain("Tu menú en Odoo");
+    expect(resumen).not.toContain("Quién aprueba");
     expect(resumen).not.toContain("Generar sugerencias");
-    expect(resumen).not.toContain("Cargar recetas");
 
     expect(
       read("components/restaurant/recipes-costing/RecipeLinesEditor.tsx")
     ).toContain("+ Agregar ingrediente");
 
     const menuPage = read("app/dashboard/restaurant/menu/page.tsx");
-    expect(menuPage).toContain("/dashboard/restaurant/menu/recetas");
+    expect(menuPage).toContain("MenuWorkspacePage");
     expect(menuPage).not.toContain("UNMATCHED POS ITEMS");
     expect(menuPage).not.toContain("Create menu item");
   });

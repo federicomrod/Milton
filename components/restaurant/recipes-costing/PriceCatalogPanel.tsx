@@ -57,9 +57,9 @@ interface UploadDraftView {
   updated_at: string | null;
 }
 
-/** "Ninguna (dejar Pendiente)": every option is wrong, no price for now. */
+/** "Ninguna / Pendiente": every option is wrong, no price for now. */
 const NONE = "none";
-const NONE_LABEL = "Ninguna (dejar Pendiente)";
+const NONE_LABEL = "Ninguna / Pendiente";
 
 interface OpenConflict {
   id: string;
@@ -99,7 +99,10 @@ export function PriceCatalogPanel({
   onRecipesImported,
   locationId = null,
   busyExternal = false,
+  embedded = false,
 }: {
+  /** Inside Resumen's checklist (step 1): no card or heading. */
+  embedded?: boolean;
   onUploaded?: () => void;
   /** After "Importar" on the recipes of the same file. */
   onRecipesImported?: () => void;
@@ -374,13 +377,13 @@ export function PriceCatalogPanel({
     }
   }
 
+  const Wrapper = embedded ? "div" : Card;
   return (
-    <Card className="space-y-3">
+    <Wrapper className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-[15px] font-semibold">Subir Excel de costos</h2>
-        <span className="text-[11.5px] text-[#8a92a3]">
-          Ingredientes, preparaciones y recetas en una sola carga
-        </span>
+        {embedded ? null : (
+          <h2 className="text-[15px] font-semibold">Subir Excel de costos</h2>
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -404,7 +407,7 @@ export function PriceCatalogPanel({
       </div>
 
       {draftName ? (
-        <p className="text-[11.5px] text-[#6b7385]">
+        <p className="text-[12px] text-[#6b7385]">
           Archivo: <b>{draftName}</b> · tus decisiones se guardan solas.
         </p>
       ) : null}
@@ -415,22 +418,13 @@ export function PriceCatalogPanel({
         </div>
       ) : null}
 
-      {!preview && !saved ? (
-        <p className="text-xs text-[#5b6476]">
-          Sube tu archivo de costos. Milton lee tus precios (ITEM, LIBRA, ONZA,
-          PRECIO UNITARIO), tus preparaciones y tus recetas, y prepara cada
-          plato. Lo que no esté claro no te frena: te lo preguntamos en el plato
-          que lo usa.
-        </p>
-      ) : null}
-
       {busy && !preview ? (
         <p className="text-xs text-[#5b6476]">Leyendo tu archivo…</p>
       ) : null}
 
       {preview ? (
         <div className="space-y-3">
-          <div className="flex flex-wrap gap-2 text-[11.5px]">
+          <div className="flex flex-wrap gap-2 text-[12px]">
             <Chip tone="ok">{preview.summary.ready} listos</Chip>
             {check.length + ambiguous.length > 0 ? (
               <Chip tone="warn">
@@ -461,10 +455,6 @@ export function PriceCatalogPanel({
                     <h3 className="text-[12.5px] font-semibold">
                       ¿En qué unidad viene este precio?
                     </h3>
-                    <p className="text-[11.5px] text-[#6b7385]">
-                      Tu archivo no lo dice con claridad. Elige una opción para
-                      cada ingrediente.
-                    </p>
                     {ambiguous.map((row) => (
                       <div
                         key={row.key}
@@ -514,10 +504,6 @@ export function PriceCatalogPanel({
                     <h3 className="text-[12.5px] font-semibold">
                       Revisa estas unidades
                     </h3>
-                    <p className="text-[11.5px] text-[#6b7385]">
-                      El precio por onza sale de dividir entre algo distinto de
-                      16. Puede ser por pieza o por un paquete de otro tamaño.
-                    </p>
                     <div className="max-h-56 overflow-auto rounded-lg border border-slate-200">
                       {check.map((row) => (
                         <div
@@ -587,10 +573,6 @@ export function PriceCatalogPanel({
                     <h3 className="text-[12.5px] font-semibold">
                       Encontramos dos costos para algunos ingredientes
                     </h3>
-                    <p className="text-[11.5px] text-[#6b7385]">
-                      Elige cuál usar. Si lo dejas sin elegir, usamos el de la
-                      lista y te lo recordamos.
-                    </p>
                     <div className="max-h-64 overflow-auto rounded-lg border border-slate-200">
                       {preview.conflicts.map((conflict) => (
                         <div
@@ -661,19 +643,23 @@ export function PriceCatalogPanel({
                 {preps.length > 0 ? (
                   <section className="space-y-1.5">
                     <h3 className="text-[12.5px] font-semibold">
-                      ¿Cuáles compras ya hechas?
+                      Parecen preparaciones
                     </h3>
-                    <p className="text-[11.5px] text-[#6b7385]">
-                      Las que no marques se costean con su propia receta.
-                    </p>
                     <div className="max-h-40 overflow-auto rounded-lg border border-slate-200">
                       {preps.map((row) => (
                         <label
                           key={row.key}
                           className="flex items-center gap-2 border-b border-slate-100 px-2.5 py-1 text-xs last:border-b-0"
                         >
+                          <span className="min-w-40 font-semibold">
+                            {row.name}
+                          </span>
+                          <span className="text-[#4b5466]">
+                            ¿Lo compras ya hecho?
+                          </span>
                           <input
                             type="checkbox"
+                            aria-label={`${row.name}: ¿Lo compras ya hecho?`}
                             checked={asIngredient[row.key] === true}
                             onChange={(event) =>
                               setAsIngredient((prev) => ({
@@ -682,7 +668,9 @@ export function PriceCatalogPanel({
                               }))
                             }
                           />
-                          {row.name}
+                          {asIngredient[row.key]
+                            ? "Sí, lo compro hecho"
+                            : "No, lo preparamos"}
                           {row.unitCost !== null && row.unit ? (
                             <span className="text-[#8a92a3]">
                               {money(row.unitCost)}/{UNIT_LABEL[row.unit]}
@@ -698,10 +686,8 @@ export function PriceCatalogPanel({
           ) : null}
 
           {problems.length > 0 ? (
-            <p className="text-[11.5px] text-[#a35a00]">
-              {problems.length} filas no traen un precio usable (celda con error
-              o vacía). Quedan sin precio y te lo pedimos en el plato que las
-              usa; también puedes corregirlas en tu archivo.
+            <p className="text-[12px] text-[#a35a00]">
+              {problems.length} filas sin precio usable: quedan Pendiente.
             </p>
           ) : null}
 
@@ -710,9 +696,8 @@ export function PriceCatalogPanel({
               Subir y preparar mis platos
             </PrimaryBtn>
             {openDecisions > 0 ? (
-              <span className="text-[11.5px] text-[#8a92a3]">
-                {openDecisions} cosas por decidir: puedes hacerlo ahora o en
-                cada plato.
+              <span className="text-[12px] text-[#8a92a3]">
+                {openDecisions} por decidir (ahora o en cada plato)
               </span>
             ) : null}
           </div>
@@ -793,6 +778,6 @@ export function PriceCatalogPanel({
           </div>
         </section>
       ) : null}
-    </Card>
+    </Wrapper>
   );
 }

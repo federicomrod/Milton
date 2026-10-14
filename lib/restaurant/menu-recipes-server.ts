@@ -34,6 +34,11 @@ import {
 import { fetchAllRowsRetryingWithoutColumn } from "@/lib/restaurant/missing-schema-column";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
+import {
+  previousSameUnitCost,
+  priceSourceOf,
+  type PriceSource,
+} from "@/lib/restaurant/ingredientes-screen";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -96,6 +101,10 @@ export interface IngredientLatestCostRow {
     source_type: string;
     supplier_id: string | null;
     supplier_name: string | null;
+    /** Excel / lista de precios / factura / manual. */
+    source: PriceSource;
+    /** Previous entry with the same normalized unit (null if none). */
+    previous_unit_cost: number | null;
   } | null;
 }
 
@@ -765,6 +774,8 @@ export async function fetchIngredientLatestCosts(
             supplier_name: latestRow.supplier_id
               ? (supplierNameById.get(latestRow.supplier_id) ?? null)
               : null,
+            source: priceSourceOf(latestRow),
+            previous_unit_cost: previousSameUnitCost(list, latestRow),
           }
         : null,
     };

@@ -21,7 +21,7 @@ export function SalesInterpretation({
       data-source={source}
       className="rounded-md border border-border bg-muted/30 px-3 py-2.5"
     >
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+      <p className="text-[12px] uppercase tracking-wide text-muted-foreground">
         {title || t(lang, "Milton's read", "La lectura de Milton")}
       </p>
       <p className="text-sm leading-snug mt-0.5">{body}</p>

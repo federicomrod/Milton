@@ -576,7 +576,7 @@ export function SupplierTrendsSection({
                       >
                         <td className="px-3 py-2 font-medium">
                           <Link
-                            href="/dashboard/restaurant/suppliers"
+                            href="/dashboard/restaurant/costs?tab=proveedores"
                             className="hover:underline"
                           >
                             {s.supplier_name}
@@ -693,7 +693,7 @@ export function DataQualityChecklistSection({
                 "Ingredients without any cost entry",
                 "Ingredientes sin costo"
               )}
-              href="/dashboard/restaurant/ingredients"
+              href="/dashboard/restaurant/menu/ingredientes"
               hrefLabel={t(lang, "Open Ingredients", "Abrir Ingredientes")}
               icon={<Carrot className="h-4 w-4" />}
             />
@@ -725,7 +725,7 @@ export function DataQualityChecklistSection({
                 "Rows in a different currency (excluded from totals)",
                 "Filas en otra moneda (fuera de los totales)"
               )}
-              href="/dashboard/restaurant/menu/recetas"
+              href="/dashboard/restaurant/menu/platos"
               hrefLabel={t(lang, "Review costs", "Revisar costos")}
               icon={<AlertTriangle className="h-4 w-4" />}
             />
@@ -745,7 +745,7 @@ export function DataQualityChecklistSection({
                   {data.dataQuality.supplier_linked_ingredients}
                 </span>
                 <Link
-                  href="/dashboard/restaurant/suppliers"
+                  href="/dashboard/restaurant/costs?tab=proveedores"
                   className="text-xs text-primary hover:underline"
                 >
                   {t(lang, "Open Suppliers", "Abrir Proveedores")} ↗
@@ -760,7 +760,7 @@ export function DataQualityChecklistSection({
                 </span>
               </div>
               <Link
-                href="/dashboard/restaurant/menu/recetas"
+                href="/dashboard/restaurant/menu/platos"
                 className="text-xs text-primary hover:underline shrink-0"
               >
                 {t(lang, "Open Import Costs", "Abrir Importar costos")} ↗

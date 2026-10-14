@@ -1,7 +1,12 @@
-// Plato por plato: what the main button says and does for this person and
-// this dish. Pure, so the rule lives outside React.
+// Platos: what the one primary button says and does for this person and
+// this dish (R1-09b, C7: "Aprobar"; the list on the left replaces
+// "siguiente" and "saltar"). Pure, so the rule lives outside React.
 
 import type { RecipeCostingWorkspace, RecipeEditorView } from "./workspace";
+
+/** Who approves (B9): shown in the button's tooltip, not on the page. */
+export const WHO_APPROVES_TIP =
+  "Aprueba el dueño o un admin. Al aprobar, el plato cuenta en los márgenes.";
 
 /** What the main button does for this person and this dish. */
 export function primaryAction(
@@ -11,48 +16,33 @@ export function primaryAction(
 ): {
   label: string;
   enabled: boolean;
-  navigateOnly: boolean;
+  /** Tooltip: what blocks it, or who approves. */
   hint: string | null;
 } | null {
   if (!actor.can_submit) return null;
   const linked = editor.link_state === "confirmado";
   if (editor.recipe_status === "aprobada") {
     return linked
-      ? {
-          label: "Siguiente",
-          enabled: true,
-          navigateOnly: true,
-          hint: "Este plato ya está aprobado.",
-        }
+      ? null
       : {
-          label: "Confirmar vínculo y siguiente",
+          label: "Aprobar",
           enabled: hasRecipe,
-          navigateOnly: false,
-          hint: "La receta ya está aprobada; falta confirmar que es este producto del POS.",
+          hint: "La receta ya está aprobada; confirma que es este producto del POS.",
         };
   }
   if (actor.can_approve) {
     return {
-      label: "Aprobar y siguiente",
+      label: "Aprobar",
       enabled: hasRecipe && editor.checklist.ready,
-      navigateOnly: false,
       hint: editor.checklist.ready
-        ? null
-        : (editor.checklist.blockers[0] ?? null),
+        ? WHO_APPROVES_TIP
+        : editor.checklist.blockers.join(" · ") || WHO_APPROVES_TIP,
     };
   }
-  if (editor.recipe_status === "por_aprobar") {
-    return {
-      label: "Siguiente",
-      enabled: true,
-      navigateOnly: true,
-      hint: "Ya la enviaste a aprobación. El dueño o un admin la aprueba.",
-    };
-  }
+  if (editor.recipe_status === "por_aprobar") return null;
   return {
-    label: "Enviar a aprobación y siguiente",
+    label: "Enviar a aprobación",
     enabled: hasRecipe,
-    navigateOnly: false,
-    hint: "Tú la preparas; el dueño o un admin la aprueba.",
+    hint: WHO_APPROVES_TIP,
   };
 }

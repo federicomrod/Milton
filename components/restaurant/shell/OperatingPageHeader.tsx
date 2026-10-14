@@ -14,6 +14,7 @@ import { DateRangeControl } from "@/components/restaurant/shell/DateRangeControl
 import { SyncNowButton } from "@/components/restaurant/shell/SyncNowButton";
 import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
 import { useRestaurantShellChrome } from "@/components/restaurant/shell/shell-chrome-context";
+import { useAskMiltonController } from "@/components/restaurant/shell/ask-milton-controller";
 
 export function OperatingPageHeader({
   title,
@@ -24,6 +25,7 @@ export function OperatingPageHeader({
   lastSyncedAt,
   isAdmin,
   trailing,
+  titleAction,
 }: {
   title: string;
   lang?: PreferredLanguage;
@@ -34,6 +36,8 @@ export function OperatingPageHeader({
   lastSyncedAt?: string | null;
   isAdmin?: boolean;
   trailing?: ReactNode;
+  /** The screen's one primary action, right next to the title. */
+  titleAction?: ReactNode;
 }) {
   const chrome = useRestaurantShellChrome();
   const resolvedLang = lang ?? chrome.lang;
@@ -49,6 +53,7 @@ export function OperatingPageHeader({
         <h1 className="text-lg font-semibold tracking-tight truncate">
           {title}
         </h1>
+        {titleAction}
         {showDateRange
           ? (dateRange ?? (
               <DateRangeControl lang={resolvedLang} range={shownRange} />
@@ -61,8 +66,23 @@ export function OperatingPageHeader({
           <SyncNowButton lang={resolvedLang} isAdmin={resolvedAdmin} />
         </Suspense>
         {trailing}
+        <AskMiltonHeaderButton lang={resolvedLang} />
       </div>
     </header>
+  );
+}
+
+/** The one "✦ Preguntar a Milton" (R1-09b, A2): top right, every page. */
+function AskMiltonHeaderButton({ lang }: { lang: PreferredLanguage }) {
+  const { openAskMilton } = useAskMiltonController();
+  return (
+    <button
+      type="button"
+      onClick={() => openAskMilton()}
+      className="hidden lg:inline-flex h-8 items-center rounded-lg bg-[#151c2c] px-3 text-xs font-semibold text-white hover:bg-[#26314a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+    >
+      ✦ {t(lang, "Ask Milton", "Preguntar a Milton")}
+    </button>
   );
 }
 

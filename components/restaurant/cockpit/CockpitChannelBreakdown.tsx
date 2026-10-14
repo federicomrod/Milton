@@ -32,7 +32,7 @@ export function CockpitChannelBreakdown({
       <h2 className="text-sm font-semibold">
         {t(lang, "Sales by channel", "Ventas por canal")}
       </h2>
-      <p className="text-[11px] text-muted-foreground mb-2">
+      <p className="text-[12px] text-muted-foreground mb-2">
         {t(lang, "Net sales, tips excluded.", "Ventas netas, sin propinas.")}
       </p>
       {channels.length === 0 ? (

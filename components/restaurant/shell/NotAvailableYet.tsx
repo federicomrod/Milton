@@ -35,14 +35,14 @@ export function NotAvailableYet({
       }
     >
       <p
-        className={compact ? "text-[11px] font-medium" : "text-sm font-medium"}
+        className={compact ? "text-[12px] font-medium" : "text-sm font-medium"}
       >
         {heading}
       </p>
       <p
         className={
           compact
-            ? "text-[10px] text-muted-foreground mt-0.5 leading-snug"
+            ? "text-[12px] text-muted-foreground mt-0.5 leading-snug"
             : "text-sm text-muted-foreground mt-1"
         }
       >
@@ -53,7 +53,7 @@ export function NotAvailableYet({
           href={href}
           className={
             compact
-              ? "inline-block mt-0.5 text-[11px] font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
+              ? "inline-block mt-0.5 text-[12px] font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
               : "inline-block mt-2 text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
           }
         >

@@ -18,7 +18,7 @@ export function Chip({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold whitespace-nowrap",
+        "inline-flex items-center rounded-md px-1.5 py-0.5 text-[12px] font-semibold whitespace-nowrap",
         tones[tone]
       )}
     >
@@ -47,7 +47,7 @@ export function GhostBtn({
     <button
       type="button"
       className={cn(
-        "inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-slate-900 hover:bg-slate-50 disabled:opacity-45",
+        "inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-semibold text-slate-900 hover:bg-slate-50 disabled:opacity-45",
         className
       )}
       {...props}
@@ -66,7 +66,7 @@ export function PrimaryBtn({
     <button
       type="button"
       className={cn(
-        "inline-flex items-center justify-center rounded-md border border-[#f28c28] bg-[#f28c28] px-2.5 py-1 text-[11.5px] font-semibold text-white hover:bg-[#e07b1a] disabled:opacity-45",
+        "inline-flex items-center justify-center rounded-md border border-[#f28c28] bg-[#f28c28] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[#e07b1a] disabled:opacity-45",
         className
       )}
       {...props}
@@ -85,7 +85,7 @@ export function DarkBtn({
     <button
       type="button"
       className={cn(
-        "inline-flex items-center justify-center rounded-md border border-[#151c2c] bg-[#151c2c] px-2.5 py-1 text-[11.5px] font-semibold text-white hover:bg-[#0f1522] disabled:opacity-45",
+        "inline-flex items-center justify-center rounded-md border border-[#151c2c] bg-[#151c2c] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[#0f1522] disabled:opacity-45",
         className
       )}
       {...props}

@@ -1,317 +1,418 @@
 "use client";
 
+// Menú › Resumen (R1-09b, B3–B13): the "Configura tu menú · n de 4"
+// checklist (gone once complete), 4 big KPIs and the dish table with its
+// Estado, all from the shared dish-economics loader. Undo and "Empezar
+// de nuevo" live in the "⋯" menu; help lives in tooltips.
+
 import Link from "next/link";
-import { platosHref } from "@/lib/restaurant/menu-links";
+import { useState } from "react";
+import { MoreHorizontal } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
 import type {
-  RecipeCostingView,
-  RecipeCostingWorkspace,
-} from "@/lib/restaurant/recipe-costing/workspace";
+  MenuSummary,
+  SetupStep,
+} from "@/lib/restaurant/costing/menu-summary";
+import { dishHref, platosHref } from "@/lib/restaurant/menu-links";
+import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { MenuReaderPanel } from "./MenuReaderPanel";
 import { PriceCatalogPanel } from "./PriceCatalogPanel";
 import { ResetPanel } from "./ResetPanel";
-import { ClassifyQueuePanel, type PostFn } from "./TreatmentPanel";
-import { Card, Chip, GhostBtn, PrimaryBtn, toneForKind } from "./ui";
+import { Chip } from "./ui";
 
 export function ResumenScreen({
   data,
-  onOpen,
   onUndoBatch,
   onUploaded,
   generateBusy,
-  busy,
-  onPost,
   locationId,
   onResetDone,
+  epoch,
 }: {
   data: RecipeCostingWorkspace;
-  onOpen: (view: RecipeCostingView, odooProductId?: number) => void;
   /** Undo every batch of one file (newest first). */
   onUndoBatch: (batchIds: string[]) => void;
   /** After "Subir Excel de costos": prepare the dishes from that file. */
   onUploaded: () => void;
   generateBusy: boolean;
-  busy: boolean;
-  onPost: PostFn;
   locationId: string | null;
-  /** After "Empezar de nuevo": reload everything from the server. */
+  /** After an import or "Empezar de nuevo": reload every panel. */
   onResetDone: () => void;
+  /** Changes on "Empezar de nuevo" so the upload panels start empty. */
+  epoch: number;
 }) {
-  const { coverage, next_dish, classification } = data;
+  const summary = data.menu_summary;
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const money = (n: number) => formatMoneyEs(n, data.currency);
+
+  if (!summary) return null;
+  const { setup } = summary;
+  const showUpload =
+    uploadOpen || data.upload_draft_pending || setup.next?.id === "excel";
+  const more = (
+    <MoreMenu
+      data={data}
+      onUndoBatch={onUndoBatch}
+      onReset={() => setResetOpen(true)}
+    />
+  );
+
   return (
-    <div className="space-y-3">
-      <Card className="grid gap-2 p-4 md:grid-cols-3">
-        {data.setup_checklist.map((item) => (
-          <div key={item.id} className="flex items-start gap-2">
-            <span
-              className={
-                "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold " +
-                (item.done
-                  ? "bg-[#e7f6ee] text-[#1f9d55]"
-                  : "bg-[#fff4e5] text-[#c2700a]")
-              }
-            >
-              {item.done ? "✓" : "!"}
-            </span>
-            <div className="min-w-0">
-              <div className="text-[13px] font-semibold">{item.label}</div>
-              <div className="truncate text-[11.5px] text-[#6b7385]">
-                {item.detail}
-              </div>
-            </div>
-          </div>
-        ))}
-      </Card>
-
-      <Card className="grid items-center gap-4 md:grid-cols-[1.4fr_1fr]">
-        <div>
-          <div className="text-[11.5px] font-semibold text-[#6b7385]">
-            Ventas de comida con costo aprobado
-          </div>
-          <div className="mt-1 flex flex-wrap items-baseline gap-2.5">
-            <Link
-              href={platosHref()}
-              className="text-[28px] font-extrabold leading-none text-[#1b2333] hover:underline"
-            >
-              {coverage.coverage_label}
-            </Link>
-            <span className="text-xs text-[#5b6476]">
-              {coverage.covered_label} de {coverage.net_sales_label}
-              {` · ${coverage.dishes_approved} de ${coverage.dishes_need_recipe} platos`}
-              {data.period_label ? ` · ${data.period_label}` : ""}
-            </span>
-          </div>
-          <div className="relative mt-2">
-            <div className="flex h-2.5 overflow-hidden rounded-full bg-[#eef0f4]">
-              {coverage.slices
-                .filter((slice) => slice.pct > 0)
-                .map((slice) => (
-                  <div
-                    key={slice.id}
-                    style={{ width: `${slice.pct}%`, background: slice.color }}
-                  />
-                ))}
-            </div>
-            <div
-              className="absolute -top-1 h-[18px] w-0.5 bg-[#1b2333]"
-              style={{ left: `${coverage.goal_pct}%` }}
-              title={`Meta ${coverage.goal_pct}%`}
-            />
-            <div
-              className="absolute top-3.5 -translate-x-1/2 text-[10px] font-semibold text-[#1b2333]"
-              style={{ left: `${coverage.goal_pct}%` }}
-            >
-              Meta {coverage.goal_pct}%
-            </div>
-          </div>
-          <div className="mt-5 flex flex-wrap gap-3 text-[11px] text-[#6b7385]">
-            {coverage.slices.map((slice) => (
-              <span key={slice.id} className="inline-flex items-center gap-1">
-                <i
-                  className="inline-block h-2 w-2 rounded-sm"
-                  style={{ background: slice.color }}
-                />
-                {slice.label} {slice.pct}%
-              </span>
-            ))}
-          </div>
-          <div className="mt-1 text-[10.5px] text-[#8a92a3]">
-            {coverage.goal_note}
-            {coverage.excluded_note ? ` ${coverage.excluded_note}` : ""}
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="mb-2 text-xs text-[#5b6476]">
-            {coverage.margins_note}
-          </div>
-          <PrimaryBtn
-            className="px-4 py-2 text-[13px]"
-            disabled={!next_dish}
-            onClick={() =>
-              next_dish && onOpen("plato", next_dish.odoo_product_id)
-            }
-          >
-            {next_dish?.label ?? "Nada pendiente"}
-          </PrimaryBtn>
-          <div className="mt-1.5 text-[10.5px] text-[#8a92a3]">
-            {data.last_progress}
-          </div>
-          <div className="mt-3 flex flex-wrap justify-end gap-2">
-            <GhostBtn onClick={() => onOpen("plato")}>Plato por plato</GhostBtn>
-            <GhostBtn onClick={() => onOpen("preparaciones")}>
-              Preparaciones
-            </GhostBtn>
-          </div>
-        </div>
-      </Card>
-
-      <PriceCatalogPanel
-        onUploaded={onUploaded}
-        onRecipesImported={onResetDone}
-        locationId={locationId}
-        busyExternal={generateBusy}
-      />
-
-      <MenuReaderPanel
-        canEdit={data.actor.can_submit}
-        busyExternal={generateBusy}
-        locationId={locationId}
-        onDone={onResetDone}
-      />
-
-      <ClassifyQueuePanel
-        rows={data.classify_queue}
-        options={data.treatment_options}
-        canEdit={data.actor.can_submit}
-        busy={busy}
-        onPost={onPost}
-      />
-
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.85fr_1fr]">
-        <Card>
-          <div className="mb-2 flex items-center">
-            <h2 className="text-[15px] font-semibold">
-              Qué falta, por impacto en ventas
+    <div className="space-y-[14px]">
+      {!setup.complete ? (
+        <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px]">
+          <div className="flex items-center gap-2">
+            <h2 className="text-[15px] font-bold">
+              Configura tu menú · {setup.done} de {setup.total}
             </h2>
-            <span className="ml-2.5 text-[11.5px] text-[#8a92a3]">
-              Primero lo que más vende
-            </span>
+            {more}
+            {setup.next ? (
+              <NextStepButton
+                step={setup.next}
+                onUpload={() => setUploadOpen(true)}
+              />
+            ) : null}
           </div>
-          <table className="w-full text-[11.8px]">
-            <thead>
-              <tr className="text-left text-[10.5px] font-semibold text-[#8a92a3]">
-                <th className="pb-1.5 pr-2" />
-                <th className="pb-1.5 pr-2">Plato del POS</th>
-                <th className="pb-1.5 pr-2">Por qué falta</th>
-                <th className="pb-1.5 pr-2">Estado</th>
-                <th className="pb-1.5 pr-2 text-right">% comida</th>
-                <th className="pb-1.5" />
-              </tr>
-            </thead>
-            <tbody>
-              {data.todos.map((row) => (
-                <tr
-                  key={row.odoo_product_id}
-                  className="border-t border-[#f2f3f6]"
-                >
-                  <td className="py-1.5 pr-2 text-[#8a92a3]">{row.rank}</td>
-                  <td className="py-1.5 pr-2 font-semibold">{row.odoo_name}</td>
-                  <td className="py-1.5 pr-2 text-[10.8px] text-[#5b6476]">
-                    {row.reason}
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    <Chip tone={toneForKind(row.kind_label)}>
-                      {row.kind_label}
-                    </Chip>
-                  </td>
-                  <td className="py-1.5 pr-2 text-right">{row.share_label}</td>
-                  <td className="py-1.5 text-right">
-                    <GhostBtn
-                      onClick={() => onOpen(row.view, row.odoo_product_id)}
-                    >
-                      {row.action_label}
-                    </GhostBtn>
-                  </td>
-                </tr>
-              ))}
-              {data.todos.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-4 text-[#8a92a3]">
-                    No hay pendientes. Ya puedes leer los márgenes aprobados.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-          {data.todos_total > data.todos.length ? (
-            <div className="mt-2 flex justify-between text-[10.5px] text-[#8a92a3]">
-              <span>
-                {data.todos.length} de {data.todos_total} pendientes
-              </span>
-              <button
-                type="button"
-                className="font-semibold text-[#3557c9]"
-                onClick={() => onOpen("plato")}
-              >
-                Ver todos →
-              </button>
-            </div>
-          ) : null}
-        </Card>
-
-        <Card>
-          <div className="mb-2 flex items-center">
-            <h2 className="text-[15px] font-semibold">Tu menú en Odoo</h2>
-            <button
-              type="button"
-              className="ml-auto text-xs font-semibold text-[#3557c9]"
-              onClick={() => onOpen("plato")}
-            >
-              Ver productos →
-            </button>
-          </div>
-          {data.combo_sync_hint ? (
-            <div className="mb-2 rounded-[10px] border border-[#f5c98b] bg-[#fff8ec] px-3 py-2.5 text-xs text-[#5b4515]">
-              {data.combo_sync_hint}
-            </div>
-          ) : null}
-          {classification.map((row) => (
-            <div
-              key={row.id}
-              className="flex items-center justify-between border-t border-[#f2f3f6] py-1.5 text-[11.8px]"
-            >
-              <span>
-                {row.label}
-                <span className="block text-[10.5px] text-[#8a92a3]">
-                  {row.hint}
-                </span>
-              </span>
-              <span className="text-right">
-                <b>{row.count}</b>
-                <span className="block text-[10.5px] text-[#8a92a3]">
-                  {row.share_label}
-                </span>
-              </span>
-            </div>
+          {setup.steps.map((step, index) => (
+            <SetupRow
+              key={step.id}
+              step={step}
+              index={index}
+              onUpload={() => setUploadOpen((v) => !v)}
+            />
           ))}
-          <div className="mt-2 rounded-[10px] border border-[#f5c98b] bg-[#fff8ec] px-3 py-2.5 text-xs text-[#5b4515]">
-            <b>Quién aprueba:</b>{" "}
-            {data.who_approves.replace("Quién aprueba: ", "")}
-          </div>
-          {data.batches.length > 0 ? (
-            <div className="mt-3 space-y-1.5">
-              <div className="text-xs font-semibold text-[#6b7385]">
-                Sugerencias para deshacer
-              </div>
-              {data.batches.map((batch) => (
-                <div
-                  key={batch.id}
-                  className="flex items-center justify-between gap-2 text-[11px]"
-                >
-                  <span className="truncate">
-                    {batch.filename}
-                    {batch.uploads > 1 ? (
-                      <span className="text-[#8a92a3]">
-                        {" "}
-                        · {batch.uploads} cargas
-                      </span>
-                    ) : null}
-                  </span>
-                  <GhostBtn onClick={() => onUndoBatch(batch.batch_ids)}>
-                    Deshacer lote
-                  </GhostBtn>
-                </div>
-              ))}
+          {showUpload ? (
+            <div className="mt-2">
+              <PriceCatalogPanel
+                key={`upload-${epoch}`}
+                embedded
+                onUploaded={onUploaded}
+                onRecipesImported={onResetDone}
+                locationId={locationId}
+                busyExternal={generateBusy}
+              />
             </div>
           ) : null}
-        </Card>
-      </div>
-      {data.reset ? (
+          <details className="mt-1 border-t border-[#f2f3f6] pt-2 text-[13px]">
+            <summary className="cursor-pointer text-[#4b5466]">
+              Leer tu menú web (opcional)
+            </summary>
+            <div className="mt-2">
+              <MenuReaderPanel
+                key={`menu-${epoch}`}
+                embedded
+                canEdit={data.actor.can_submit}
+                busyExternal={generateBusy}
+                locationId={locationId}
+                onDone={onResetDone}
+              />
+            </div>
+          </details>
+        </section>
+      ) : (
+        <div className="flex justify-end">{more}</div>
+      )}
+
+      {resetOpen && data.reset ? (
         <ResetPanel
+          key={`reset-${epoch}`}
           reset={data.reset}
           locationId={locationId}
-          onDone={onResetDone}
+          initiallyOpen
+          onCancel={() => setResetOpen(false)}
+          onDone={() => {
+            setResetOpen(false);
+            onResetDone();
+          }}
         />
       ) : null}
+
+      <Kpis summary={summary} money={money} />
+
+      <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px]">
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="border-b border-[#eef0f4] text-left text-[12px] font-semibold text-[#8a92a3]">
+              <th className="px-2 py-1.5">Plato</th>
+              <th className="px-2 py-1.5 text-right">% ventas</th>
+              <th className="px-2 py-1.5 text-right">Costo</th>
+              <th className="px-2 py-1.5 text-right">Costo %</th>
+              <th className="px-2 py-1.5">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {summary.rows.slice(0, 50).map((row) => (
+              <tr
+                key={row.odoo_product_id}
+                className="border-b border-[#f2f3f6]"
+              >
+                <td className="px-2 py-2 font-semibold">
+                  <Link
+                    href={dishHref(row.odoo_product_id)}
+                    className="hover:underline"
+                  >
+                    {row.name}
+                  </Link>
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums">
+                  {(row.share_of_food_sales * 100).toFixed(1)}%
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums">
+                  {row.unit_cost !== null ? (
+                    <span>
+                      {money(row.unit_cost)}
+                      {row.excel_total !== null ? (
+                        <span
+                          className={
+                            "ml-1.5 text-[12px] " +
+                            (row.excel_diff_flag
+                              ? "font-semibold text-[#c03535]"
+                              : "text-[#8a92a3]")
+                          }
+                        >
+                          Excel: {money(row.excel_total)}
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : (
+                    <span className="text-[#a35a00]">Sin precio</span>
+                  )}
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums">
+                  {row.food_cost_pct !== null
+                    ? `${Math.round(row.food_cost_pct)}%`
+                    : "—"}
+                </td>
+                <td className="px-2 py-2">
+                  <Chip tone={row.tone}>{row.label}</Chip>
+                </td>
+              </tr>
+            ))}
+            {summary.rows.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-2 py-4 text-[#5b6476]">
+                  Todavía no hay ventas de Odoo en este periodo.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+        {summary.rows.length > 50 ? (
+          <Link
+            href={platosHref()}
+            className="mt-2 inline-block text-[13px] font-semibold text-[#3557c9]"
+          >
+            Ver los {summary.rows.length} platos
+          </Link>
+        ) : null}
+      </section>
     </div>
+  );
+}
+
+function Kpis({
+  summary,
+  money,
+}: {
+  summary: MenuSummary;
+  money: (n: number) => string;
+}) {
+  const { kpis } = summary;
+  const cards: Array<{
+    label: string;
+    value: string;
+    sub: string;
+    href: string;
+    tip: string;
+    alert?: boolean;
+  }> = [
+    {
+      label: "Costo de comida",
+      value:
+        kpis.food_cost_pct !== null
+          ? `${Math.round(kpis.food_cost_pct)}%`
+          : "Sin precio",
+      sub: "sobre ventas con costo",
+      href: platosHref(["aprobado"]),
+      tip: "Costo de los platos aprobados entre sus ventas netas (sin propinas).",
+    },
+    {
+      label: "Margen por plato",
+      value: kpis.avg_unit_margin !== null ? money(kpis.avg_unit_margin) : "—",
+      sub: "promedio",
+      href: platosHref(["aprobado"]),
+      tip: "Precio neto menos costo, promedio ponderado por unidades vendidas.",
+    },
+    {
+      label: "Ventas con costo",
+      value: `${Math.round(kpis.coverage_pct)}%`,
+      sub: `${kpis.covered_dishes} de ${kpis.dish_count} platos`,
+      href: platosHref(),
+      tip: "Parte de las ventas de comida que viene de platos con costo aprobado.",
+    },
+    {
+      label: "Platos con margen bajo",
+      value: String(kpis.low_margin_count),
+      sub: "< 60%",
+      href: platosHref(["aprobado"]),
+      tip: "Platos aprobados cuyo margen bruto es menor al 60 % del precio.",
+      alert: kpis.low_margin_count > 0,
+    },
+  ];
+  return (
+    <div className="grid grid-cols-4 gap-3">
+      {cards.map((card) => (
+        <Link
+          key={card.label}
+          href={card.href}
+          title={card.tip}
+          className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px] hover:border-[#f28c28]"
+        >
+          <div className="text-[12px] text-[#6b7385]">{card.label}</div>
+          <div className="mt-0.5 text-[30px] font-extrabold leading-tight tracking-[-0.5px] text-[#1b2333]">
+            {card.value}
+          </div>
+          <div
+            className={
+              "mt-0.5 text-[12px] " +
+              (card.alert ? "text-[#d14343]" : "text-[#8a92a3]")
+            }
+          >
+            {card.sub}
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function NextStepButton({
+  step,
+  onUpload,
+}: {
+  step: SetupStep;
+  onUpload: () => void;
+}) {
+  const cls =
+    "ml-auto inline-flex items-center rounded-lg bg-[#f28c28] px-3 py-[7px] text-[13px] font-semibold text-white hover:bg-[#e07b1a]";
+  if (step.href) {
+    return (
+      <Link href={step.href} className={cls}>
+        {step.action}
+      </Link>
+    );
+  }
+  return (
+    <button type="button" className={cls} onClick={onUpload}>
+      {step.action}
+    </button>
+  );
+}
+
+function SetupRow({
+  step,
+  index,
+  onUpload,
+}: {
+  step: SetupStep;
+  index: number;
+  onUpload: () => void;
+}) {
+  const body = (
+    <>
+      <span
+        className={
+          "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[12px] font-bold " +
+          (step.done
+            ? "bg-[#e7f6ee] text-[#1f9d55]"
+            : "bg-[#eef0f4] text-[#6b7385]")
+        }
+      >
+        {step.done ? "✓" : index + 1}
+      </span>
+      <span>{step.label}</span>
+    </>
+  );
+  const cls =
+    "flex w-full items-center gap-2.5 border-t border-[#f2f3f6] py-2 text-left text-[13px] hover:text-[#151c2c]";
+  if (step.href) {
+    return (
+      <Link href={step.href} className={cls}>
+        {body}
+      </Link>
+    );
+  }
+  return (
+    <button type="button" className={cls} onClick={onUpload}>
+      {body}
+      <span className="ml-auto text-[12px] font-semibold text-[#3557c9]">
+        {step.done ? "Subir otro archivo" : "Elegir archivo"}
+      </span>
+    </button>
+  );
+}
+
+/** "⋯": undo an upload (one row per file) and "Empezar de nuevo". */
+function MoreMenu({
+  data,
+  onUndoBatch,
+  onReset,
+}: {
+  data: RecipeCostingWorkspace;
+  onUndoBatch: (batchIds: string[]) => void;
+  onReset: () => void;
+}) {
+  if (data.batches.length === 0 && !data.reset) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Más acciones"
+          className="ml-1 rounded-md p-1 text-[#6b7385] hover:bg-[#f1f3f7]"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-72">
+        {data.batches.length > 0 ? (
+          <>
+            <DropdownMenuLabel className="text-[12px] text-[#6b7385]">
+              Deshacer una carga
+            </DropdownMenuLabel>
+            {data.batches.map((batch) => (
+              <DropdownMenuItem
+                key={batch.id}
+                onClick={() => onUndoBatch(batch.batch_ids)}
+              >
+                <span className="flex-1 truncate">{batch.filename}</span>
+                {batch.uploads > 1 ? (
+                  <span className="text-[12px] text-[#8a92a3]">
+                    {batch.uploads} cargas
+                  </span>
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+          </>
+        ) : null}
+        {data.reset ? (
+          <>
+            {data.batches.length > 0 ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuItem className="text-[#c03535]" onClick={onReset}>
+              Empezar de nuevo…
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

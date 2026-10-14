@@ -69,7 +69,7 @@ export function CockpitHeroChart({
       <h2 className="text-sm font-semibold">
         {t(lang, "Net sales by day", "Ventas netas por día")}
       </h2>
-      <p className="text-[11px] text-muted-foreground mb-1.5">
+      <p className="text-[12px] text-muted-foreground mb-1.5">
         {t(
           lang,
           "Solid = this period. Dashed = previous period. Tips excluded.",

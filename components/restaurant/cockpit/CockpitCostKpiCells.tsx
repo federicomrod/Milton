@@ -30,15 +30,15 @@ export function CockpitCostKpiCells({
     <>
       {model.gross_margin_pct.available ? (
         <div className="rounded-md border border-border bg-background px-2.5 py-1.5 min-h-[4.5rem]">
-          <p className="text-[11px] font-medium text-muted-foreground truncate">
+          <p className="text-[12px] font-medium text-muted-foreground truncate">
             {t(lang, "Gross margin %", "Margen bruto %")}
           </p>
-          <p className="text-lg font-semibold tabular-nums leading-tight">
+          <p className="text-[28px] font-extrabold tracking-[-0.5px] tabular-nums leading-tight">
             {model.gross_margin_pct.value.toFixed(1)}%
           </p>
           <p
             className={
-              "text-[10px] tabular-nums " +
+              "text-[12px] tabular-nums " +
               (model.gross_margin_pct.delta_pct == null
                 ? "text-muted-foreground"
                 : model.gross_margin_pct.delta_pct > 0
@@ -52,7 +52,7 @@ export function CockpitCostKpiCells({
               ? t(lang, "no previous period", "sin periodo anterior")
               : `${model.gross_margin_pct.delta_pct > 0 ? "+" : ""}${model.gross_margin_pct.delta_pct.toFixed(1)}%`}
           </p>
-          <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+          <p className="text-[12px] text-muted-foreground mt-0.5 leading-snug">
             {t(lang, "on covered net sales", "sobre ventas netas cubiertas")}
           </p>
         </div>
@@ -70,15 +70,15 @@ export function CockpitCostKpiCells({
           href={menuResumenHref()}
           className="block rounded-md border border-border bg-background px-2.5 py-1.5 min-h-[4.5rem] hover:border-[#f28c28]"
         >
-          <p className="text-[11px] font-medium text-muted-foreground truncate">
+          <p className="text-[12px] font-medium text-muted-foreground truncate">
             {t(lang, "Food cost %", "% costo de comida")}
           </p>
-          <p className="text-lg font-semibold tabular-nums leading-tight">
+          <p className="text-[28px] font-extrabold tracking-[-0.5px] tabular-nums leading-tight">
             {model.food_cost_pct.value.toFixed(1)}%
           </p>
           <p
             className={
-              "text-[10px] tabular-nums " +
+              "text-[12px] tabular-nums " +
               (model.food_cost_pct.delta_pct == null
                 ? "text-muted-foreground"
                 : model.food_cost_pct.delta_pct > 0
@@ -92,7 +92,7 @@ export function CockpitCostKpiCells({
               ? t(lang, "no previous period", "sin periodo anterior")
               : `${model.food_cost_pct.delta_pct > 0 ? "+" : ""}${model.food_cost_pct.delta_pct.toFixed(1)}%`}
           </p>
-          <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+          <p className="text-[12px] text-muted-foreground mt-0.5 leading-snug">
             {t(lang, "on covered net sales", "sobre ventas netas cubiertas")}
           </p>
         </Link>

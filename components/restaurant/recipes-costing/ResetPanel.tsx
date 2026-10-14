@@ -15,12 +15,17 @@ export function ResetPanel({
   reset,
   locationId,
   onDone,
+  initiallyOpen = false,
+  onCancel,
 }: {
   reset: NonNullable<RecipeCostingWorkspace["reset"]>;
   locationId: string | null;
   onDone: () => void;
+  /** Opened from the "⋯" menu: show the confirmation right away. */
+  initiallyOpen?: boolean;
+  onCancel?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen);
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,14 +68,11 @@ export function ResetPanel({
   }
 
   return (
-    <Card className="border-[#f1c0c0] p-3 text-xs">
+    <Card className="border-[#f1c0c0] p-3 text-[13px]">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-[13px] font-semibold text-[#c03535]">
           Empezar de nuevo
         </h2>
-        <span className="text-[11.5px] text-[#8a92a3]">
-          Borra todo el costeo para volver a cargar tu archivo desde cero
-        </span>
         {!open ? (
           <GhostBtn className="ml-auto" onClick={() => setOpen(true)}>
             Empezar de nuevo
@@ -79,10 +81,8 @@ export function ResetPanel({
       </div>
       {done ? (
         <p className="mt-2 text-[#1f7a45]">
-          Listo: borramos ingredientes, precios, preparaciones, recetas y
-          vínculos del costeo. Tus productos del POS y sus ventas siguen igual:
-          por eso «Qué falta» y «Tu menú en Odoo» siguen mostrando tus platos,
-          ahora sin receta. Sube tu Excel de costos para empezar.
+          Listo. Tus ventas del POS siguen igual; sube tu Excel de costos para
+          empezar.
         </p>
       ) : null}
       {open ? (
@@ -120,11 +120,17 @@ export function ResetPanel({
               type="button"
               disabled={busy || !typed.trim()}
               onClick={() => void run()}
-              className="rounded-md border border-[#c03535] bg-[#c03535] px-2.5 py-1 text-[11.5px] font-semibold text-white disabled:opacity-45"
+              className="rounded-md border border-[#c03535] bg-[#c03535] px-2.5 py-1 text-[12.5px] font-semibold text-white disabled:opacity-45"
             >
               {busy ? "Borrando…" : "Borrar todo y empezar de nuevo"}
             </button>
-            <GhostBtn disabled={busy} onClick={() => setOpen(false)}>
+            <GhostBtn
+              disabled={busy}
+              onClick={() => {
+                setOpen(false);
+                onCancel?.();
+              }}
+            >
               Cancelar
             </GhostBtn>
           </div>

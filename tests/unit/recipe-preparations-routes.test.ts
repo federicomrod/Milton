@@ -52,8 +52,9 @@ describe("Preparaciones routes and screen", () => {
     expect(ui).toContain("Preparaciones de tu cocina");
     expect(ui).toContain("Empieza por las que desbloquean más ventas");
     expect(ui).toContain("Confirmar rendimiento");
-    expect(ui).toContain("Aprobar preparación");
-    expect(ui).toContain("Solo el dueño o un admin aprueba");
+    // C7/B9: one primary "Aprobar"; who approves lives in its tooltip.
+    expect(ui).toMatch(/>\s*Aprobar\s*</);
+    expect(ui).toContain("Aprueba el dueño o un admin");
     expect(ui).not.toMatch(/\busted\b/i);
     const server = read("lib/restaurant/recipe-costing/preparations-server.ts");
     expect(server).toContain("b.impact.net_sales - a.impact.net_sales");

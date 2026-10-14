@@ -24,7 +24,6 @@ const SHELL_FILES = [
   "components/restaurant/cockpit/CockpitOnboardingChip.tsx",
   "components/restaurant/AskMiltonWorkspace.tsx",
   "components/restaurant/ProfitabilityCockpit.tsx",
-  "components/restaurant/RestaurantSetupChecklist.tsx",
   "components/restaurant/BriefingCard.tsx",
   "components/restaurant/ComingSoonPage.tsx",
   "app/(restaurant-cockpit)/dashboard/restaurant/page.tsx",
@@ -45,7 +44,6 @@ const COCKPIT_TAB_FILES = [
   "components/restaurant/ProfitabilityCockpit.tsx",
   "components/restaurant/cockpit/MenuProfitabilityTab.tsx",
   "components/restaurant/cockpit/MenuProfitabilityTable.tsx",
-  "components/restaurant/RestaurantSetupChecklist.tsx",
   "components/restaurant/cockpit/CockpitTabs.tsx",
   "components/restaurant/RestaurantShell.tsx",
   "components/dashboard/logout-button.tsx",
@@ -84,7 +82,7 @@ describe("Spanish completeness for cockpit chrome", () => {
       "Menú",
       "Costos",
       "Cocina",
-      "Datos y configuración",
+      "Configuración",
     ]);
   });
 
@@ -106,7 +104,6 @@ describe("Spanish completeness for cockpit chrome", () => {
     expect(src).not.toMatch(/^\s+Dish Profitability$/m);
     expect(src).toContain("Sin receta");
     expect(src).toContain("Margen bajo");
-    expect(src).toContain("Atención de hoy");
     expect(src).toContain("Recomendaciones");
   });
 
@@ -135,9 +132,12 @@ describe("Spanish completeness for cockpit chrome", () => {
     expect(logout).toContain("Cerrar sesión");
     expect(logout).toContain("t(lang,");
     const shell = read("components/restaurant/RestaurantShell.tsx");
-    expect(shell).toContain("<LogoutButton lang={lang} />");
-    expect(shell).toContain("Preguntar a Milton");
+    expect(shell).toContain('<LogoutButton lang={lang} variant="link" />');
     expect(shell).toContain("Todos los restaurantes");
+    // One "✦ Preguntar a Milton", top right in every page header (A2).
+    const header = read("components/restaurant/shell/OperatingPageHeader.tsx");
+    expect(header).toContain("Preguntar a Milton");
+    expect(shell).not.toContain("AskMiltonButton");
   });
 
   it("builds briefing / Ask Milton context with the cockpit language resolver", () => {

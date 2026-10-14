@@ -26,7 +26,7 @@ export function SalesInvestigateFacts({
       <ul className="space-y-3">
         {facts.map((item) => (
           <li key={item.id} className="space-y-1">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            <p className="text-[12px] uppercase tracking-wide text-muted-foreground">
               {item.title}
             </p>
             <p className="text-sm font-medium leading-snug">{item.body}</p>

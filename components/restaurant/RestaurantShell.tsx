@@ -1,8 +1,9 @@
 // components/restaurant/RestaurantShell.tsx
 //
-// App shell for all restaurant routes. Cockpit UX PR 1 (#128): compact
-// sidebar (MAIN + DATA & SETTINGS), restaurant selector, persistent
-// Ask Milton button, keyboard-accessible nav with aria-current.
+// App shell for all restaurant routes. R1-09b: the five daily areas
+// (Cockpit · Ventas · Menú · Costos · Cocina) with no group headers,
+// ⚙ Configuración and the user at the bottom. "✦ Preguntar a Milton"
+// lives once, top right, in OperatingPageHeader.
 
 "use client";
 
@@ -35,11 +36,9 @@ import {
 import {
   PRIMARY_NAV_ITEMS,
   isPrimaryNavActive,
-  navGroupLabel,
   primaryNavLabel,
   withShellParams,
   withLocationParam,
-  type NavGroupId,
   type NavItemConfig,
 } from "@/lib/restaurant/navigation";
 import {
@@ -49,12 +48,10 @@ import {
 } from "@/lib/restaurant/language";
 import {
   RestaurantShellChromeProvider,
+  useRestaurantShellChrome,
   type RestaurantShellChromeValue,
 } from "@/components/restaurant/shell/shell-chrome-context";
-import {
-  AskMiltonButton,
-  AskMiltonDrawer,
-} from "@/components/restaurant/shell/AskMiltonDrawer";
+import { AskMiltonDrawer } from "@/components/restaurant/shell/AskMiltonDrawer";
 import {
   AskMiltonControllerProvider,
   useAskMiltonController,
@@ -87,15 +84,22 @@ export function RestaurantShell({
   lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   isAdmin = false,
   lastSyncedAt = null,
+  userName = null,
 }: {
   children: React.ReactNode;
   locations?: RestaurantShellLocation[];
   lang?: PreferredLanguage;
   isAdmin?: boolean;
   lastSyncedAt?: string | null;
+  userName?: string | null;
 }) {
   const pathname = usePathname() ?? "";
-  const chrome: RestaurantShellChromeValue = { lang, isAdmin, lastSyncedAt };
+  const chrome: RestaurantShellChromeValue = {
+    lang,
+    isAdmin,
+    lastSyncedAt,
+    userName,
+  };
   return (
     <RestaurantShellChromeProvider value={chrome}>
       <Suspense
@@ -222,10 +226,11 @@ function RestaurantShellChrome({
           lang={lang}
         />
         <SidebarNav pathname={pathname} shellParams={shellParams} lang={lang} />
-        <div className="px-3 pb-3 space-y-3">
-          <AskMiltonButton lang={lang} onClick={() => openAskMilton()} />
-          <SidebarFooter lang={lang} />
-        </div>
+        <SidebarFooter
+          pathname={pathname}
+          shellParams={shellParams}
+          lang={lang}
+        />
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col">
@@ -291,7 +296,6 @@ function SidebarNav({
   };
   lang: PreferredLanguage;
 }) {
-  const groups: NavGroupId[] = ["main", "data_settings"];
   return (
     <nav
       aria-label={t(
@@ -299,28 +303,21 @@ function SidebarNav({
         "Restaurant navigation",
         "Navegación del restaurante"
       )}
-      className="flex-1 overflow-y-auto px-3 py-3 space-y-5"
+      className="flex-1 overflow-y-auto px-3 py-3"
     >
-      {groups.map((group) => (
-        <div key={group} className="space-y-1">
-          <p className="px-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {navGroupLabel(group, lang)}
-          </p>
-          <ul className="space-y-0.5">
-            {PRIMARY_NAV_ITEMS.filter((item) => item.group === group).map(
-              (item) => (
-                <SidebarLink
-                  key={item.id}
-                  item={item}
-                  pathname={pathname}
-                  shellParams={shellParams}
-                  lang={lang}
-                />
-              )
-            )}
-          </ul>
-        </div>
-      ))}
+      <ul className="space-y-0.5">
+        {PRIMARY_NAV_ITEMS.filter((item) => item.group === "main").map(
+          (item) => (
+            <SidebarLink
+              key={item.id}
+              item={item}
+              pathname={pathname}
+              shellParams={shellParams}
+              lang={lang}
+            />
+          )
+        )}
+      </ul>
     </nav>
   );
 }
@@ -444,10 +441,36 @@ function SidebarLink({
   );
 }
 
-function SidebarFooter({ lang }: { lang: PreferredLanguage }) {
+/** ⚙ Configuración and "Fede · Cerrar sesión", pinned at the bottom. */
+function SidebarFooter({
+  pathname,
+  shellParams,
+  lang,
+}: {
+  pathname: string;
+  shellParams: { locationId: string | null };
+  lang: PreferredLanguage;
+}) {
+  const { userName } = useRestaurantShellChrome();
+  const settings = PRIMARY_NAV_ITEMS.find(
+    (item) => item.group === "data_settings"
+  );
   return (
-    <div className="border-t border-border pt-3">
-      <LogoutButton lang={lang} />
+    <div className="px-3 pb-3 pt-2 space-y-1 border-t border-border">
+      {settings ? (
+        <ul>
+          <SidebarLink
+            item={settings}
+            pathname={pathname}
+            shellParams={shellParams}
+            lang={lang}
+          />
+        </ul>
+      ) : null}
+      <div className="flex items-center gap-1 px-2.5 text-sm text-muted-foreground">
+        {userName ? <span className="truncate">{userName} ·</span> : null}
+        <LogoutButton lang={lang} variant="link" />
+      </div>
     </div>
   );
 }

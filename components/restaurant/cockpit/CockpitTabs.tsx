@@ -81,7 +81,7 @@ export function CockpitTabs({
                 {t.badge && (
                   <span
                     className={
-                      "text-[10px] tabular-nums rounded-full px-1.5 py-0.5 font-semibold " +
+                      "text-[12px] tabular-nums rounded-full px-1.5 py-0.5 font-semibold " +
                       (isActive
                         ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
                         : "bg-muted text-muted-foreground")

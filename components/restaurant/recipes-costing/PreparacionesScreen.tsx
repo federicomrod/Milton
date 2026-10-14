@@ -9,7 +9,7 @@ import type {
 } from "@/lib/restaurant/recipe-costing/preparations-server";
 import { ConfirmHowDialog } from "./ConfirmHowDialog";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
-import { Card, Chip, DarkBtn, GhostBtn } from "./ui";
+import { Card, Chip, GhostBtn } from "./ui";
 
 const UNITS = ["oz", "lb", "g", "kg", "ml", "l", "gal", "unit", "portion"];
 const UNIT_LABEL: Record<string, string> = {
@@ -101,33 +101,30 @@ export function PreparacionesScreen({
   }, [onChanged]);
 
   return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1.6fr]">
+    <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-[330px_1fr]">
       <Card className="p-3">
         {onBackToDish ? (
           <button
             type="button"
             onClick={onBackToDish}
-            className="mb-2 text-[11.5px] font-semibold text-[#3557c9]"
+            className="mb-2 text-[12px] font-semibold text-[#3557c9]"
           >
             ← Volver al plato
           </button>
         ) : null}
-        <div className="mb-2">
-          <h2 className="text-[15px] font-semibold">
-            Preparaciones de tu cocina
-          </h2>
-          <p className="text-[11.5px] text-[#6b7385]">
-            Un plato que usa una preparación queda pendiente hasta que la
-            apruebes. Empieza por las que desbloquean más ventas.
-          </p>
-        </div>
+        <h2
+          className="mb-2 text-[15px] font-semibold"
+          title="Un plato que usa una preparación queda pendiente hasta que la apruebes. Empieza por las que desbloquean más ventas."
+        >
+          Preparaciones de tu cocina
+        </h2>
         {error ? (
           <p className="text-xs text-[#c03535]">{error}</p>
         ) : !overview ? (
           <p className="text-xs text-[#5b6476]">Cargando…</p>
         ) : (
           <>
-            <div className="mb-2 flex gap-2 text-[11.5px]">
+            <div className="mb-2 flex gap-2 text-[12px]">
               <Chip tone="warn">{overview.drafts} por aprobar</Chip>
               <Chip tone="ok">{overview.approved} aprobadas</Chip>
             </div>
@@ -154,7 +151,7 @@ export function PreparacionesScreen({
                         {STATUS[row.status].label}
                       </Chip>
                     </div>
-                    <div className="text-[11px] text-[#5b6476]">
+                    <div className="text-[12px] text-[#5b6476]">
                       {row.impact_label}
                       {row.yield_to_confirm
                         ? " · rendimiento por confirmar"
@@ -313,37 +310,6 @@ function PreparationDetail({
               : "El costo aparece cuando todas las líneas tienen precio."}
           </div>
 
-          <div className="border-t border-[#eef0f4] pt-2">
-            <div className="mb-1 font-semibold text-[#6b7385]">
-              Antes de aprobar
-            </div>
-            {[
-              [
-                prep.checklist.has_lines && prep.checklist.lines_resolved,
-                "Todas las líneas están en tu lista",
-              ],
-              [prep.checklist.costs_known, "Todas las líneas tienen precio"],
-              [prep.checklist.yield_confirmed, "Rendimiento confirmado"],
-            ].map(([ok, label]) => (
-              <div
-                key={String(label)}
-                className="flex items-center gap-1.5 py-0.5"
-              >
-                <span
-                  className={
-                    "flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold " +
-                    (ok
-                      ? "bg-[#e7f6ee] text-[#1f9d55]"
-                      : "bg-[#fff4e5] text-[#c2700a]")
-                  }
-                >
-                  {ok ? "✓" : "!"}
-                </span>
-                {label}
-              </div>
-            ))}
-          </div>
-
           {error ? (
             <div className="rounded-md border border-[#f1c0c0] bg-[#fdecec] px-3 py-2 text-[#c03535]">
               {error}
@@ -351,20 +317,38 @@ function PreparationDetail({
           ) : null}
 
           {state?.editable ? (
-            actor.can_approve ? (
-              <DarkBtn
-                disabled={busy || !prep.checklist.ready}
-                onClick={() =>
-                  actor.needs_client_confirmation ? setHowOpen(true) : approve()
+            <div className="flex items-center gap-2">
+              {/* C3: only what blocks, as a chip; the detail is in the
+                  button's tooltip (with who approves, B9). */}
+              <span
+                title={
+                  actor.can_approve
+                    ? prep.checklist.blockers.join(" · ") ||
+                      "Aprueba el dueño o un admin."
+                    : "Aprueba el dueño o un admin. Déjala lista y avísales."
                 }
               >
-                Aprobar preparación
-              </DarkBtn>
-            ) : (
-              <p className="text-[#8a92a3]">
-                Solo el dueño o un admin aprueba. Déjala lista y avísales.
-              </p>
-            )
+                <button
+                  type="button"
+                  disabled={busy || !actor.can_approve || !prep.checklist.ready}
+                  onClick={() =>
+                    actor.needs_client_confirmation
+                      ? setHowOpen(true)
+                      : approve()
+                  }
+                  className="rounded-lg bg-[#f28c28] px-3.5 py-[7px] text-[13px] font-semibold text-white hover:bg-[#e07b1a] disabled:opacity-45"
+                >
+                  Aprobar
+                </button>
+              </span>
+              {!prep.checklist.ready && prep.checklist.blockers[0] ? (
+                <span className="rounded-md bg-[#fff4e5] px-1.5 py-0.5 text-[12px] font-semibold text-[#a35a00]">
+                  {prep.checklist.blockers.length === 1
+                    ? prep.checklist.blockers[0]
+                    : `${prep.checklist.blockers.length} pendientes`}
+                </span>
+              ) : null}
+            </div>
           ) : (
             <p className="text-[#1f7a45]">
               Aprobada: ya cuenta en los platos que la usan.

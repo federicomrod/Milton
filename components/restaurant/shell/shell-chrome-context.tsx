@@ -8,6 +8,7 @@ export interface RestaurantShellChromeValue {
   lang: PreferredLanguage;
   isAdmin: boolean;
   lastSyncedAt: string | null;
+  userName?: string | null;
 }
 
 const RestaurantShellChromeContext = createContext<RestaurantShellChromeValue>({

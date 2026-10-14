@@ -21,6 +21,7 @@ export default async function RestaurantCockpitGroupLayout({
       lang={chrome.lang}
       isAdmin={chrome.isAdmin}
       lastSyncedAt={chrome.lastSyncedAt}
+      userName={chrome.userName ?? null}
     >
       {children}
     </RestaurantShell>

@@ -1,12 +1,10 @@
 // components/restaurant/cockpit/MenuProfitabilityTab.tsx
 //
-// Existing Menu tab body. Shared by the cockpit and the Menu area.
+// Menú › Resumen for a company on the CSV bridge (no Odoo products).
+// R1-09b: no margin-risk cards (D5) and no setup checklist (D1); the
+// table's Estado says what is missing.
 
-import {
-  DataQualityChecklistSection,
-  MarginRiskSection,
-  ProfitabilityKpisSection,
-} from "@/components/restaurant/ProfitabilityCockpit";
+import { ProfitabilityKpisSection } from "@/components/restaurant/ProfitabilityCockpit";
 import { MenuProfitabilityTable } from "@/components/restaurant/cockpit/MenuProfitabilityTable";
 import type { ProfitabilityData } from "@/lib/restaurant/profitability-server";
 import {
@@ -43,15 +41,6 @@ export function MenuProfitabilityTab({
           lang={lang}
         />
       </section>
-      <MarginRiskSection data={profitability} lang={lang} />
-      <details className="rounded-md border border-border bg-background">
-        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium hover:bg-muted/30">
-          {t(lang, "Costing setup checklist", "Lista de costeo")}
-        </summary>
-        <div className="px-4 pb-4 pt-2">
-          <DataQualityChecklistSection data={profitability} lang={lang} />
-        </div>
-      </details>
     </div>
   );
 }

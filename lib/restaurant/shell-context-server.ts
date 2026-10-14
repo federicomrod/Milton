@@ -28,6 +28,23 @@ export interface RestaurantShellChrome {
   lang: PreferredLanguage;
   isAdmin: boolean;
   lastSyncedAt: string | null;
+  /** First name (or email name) for "Fede · Cerrar sesión". */
+  userName?: string | null;
+}
+
+function displayNameOf(user: {
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+}): string | null {
+  const meta = user.user_metadata ?? {};
+  const full =
+    (typeof meta.full_name === "string" && meta.full_name) ||
+    (typeof meta.name === "string" && meta.name) ||
+    "";
+  const first = full.trim().split(/\s+/)[0];
+  if (first) return first;
+  const local = user.email?.split("@")[0]?.trim();
+  return local || null;
 }
 
 export const loadRestaurantShellChrome = cache(
@@ -68,7 +85,13 @@ async function loadRestaurantShellChromeUncached(): Promise<RestaurantShellChrom
         return { ...empty, locations, isAdmin };
       }
 
-      return { locations, lang, isAdmin, lastSyncedAt };
+      return {
+        locations,
+        lang,
+        isAdmin,
+        lastSyncedAt,
+        userName: displayNameOf(user),
+      };
     });
   } catch (err) {
     console.error("[loadRestaurantShellChrome] failed:", err);

@@ -2,14 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { parseDishStatusFilter } from "@/lib/restaurant/menu-links";
+import {
+  MENU_TAB_PATHS,
+  type MenuTab,
+} from "@/lib/restaurant/recetas-redirect";
 import type {
   RecipeCostingView,
   RecipeCostingWorkspace,
 } from "@/lib/restaurant/recipe-costing/workspace";
 import { ConfirmHowDialog } from "./ConfirmHowDialog";
-import { CostingHeader } from "./CostingHeader";
-import { MenuCosteadoScreen } from "./MenuCosteadoScreen";
 import { PlatoScreen } from "./PlatoScreen";
 import { PreparacionesScreen } from "./PreparacionesScreen";
 import { ResumenScreen } from "./ResumenScreen";
@@ -17,28 +18,28 @@ import { ResumenScreen } from "./ResumenScreen";
 /** Dishes per request when generating suggestions. */
 const SUGGESTION_CHUNK = 5;
 
-function viewFromParam(
-  value: string | null,
-  fallback: RecipeCostingView
-): RecipeCostingView {
-  // Vincular and Validar are one screen now; old links land on it.
-  if (value === "plato" || value === "vincular" || value === "validar") {
-    return "plato";
-  }
-  if (
-    value === "preparaciones" ||
-    value === "menu-costeado" ||
-    value === "resumen"
-  ) {
-    return value;
-  }
-  return fallback;
-}
+type WorkspaceTab = "resumen" | "plato" | "preparaciones";
 
+const TAB_OF_VIEW: Record<WorkspaceTab, MenuTab> = {
+  resumen: "resumen",
+  plato: "platos",
+  preparaciones: "preparaciones",
+};
+
+/** Params that ride along between Menú tabs (restaurant and period). */
+const SHELL_PARAMS = ["location", "from", "to"] as const;
+
+/**
+ * Menú › Resumen, Platos and Preparaciones (R1-09b): each tab is a route
+ * and passes its `view`; moving between tabs is a navigation to that
+ * route, choosing a dish or preparation only changes its own param.
+ */
 export function RecipesCostingWorkspace({
   initial,
+  view,
 }: {
   initial: RecipeCostingWorkspace;
+  view: WorkspaceTab;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -53,26 +54,58 @@ export function RecipesCostingWorkspace({
     total: number | null;
   } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [epoch, setEpoch] = useState(0);
   // Tab and dish switches re-render on the server; mark them as a
   // transition so the screen shows it is loading right away.
   const [navigating, startNavigation] = useTransition();
 
-  const view = viewFromParam(searchParams.get("vista"), data.view);
   const selectedId = searchParams.get("producto")
     ? Number(searchParams.get("producto"))
     : (data.selected?.odoo_product_id ?? null);
 
+  /** Open another Menú tab, keeping restaurant and period. */
+  const goToTab = useCallback(
+    (tab: WorkspaceTab, extra: Record<string, string | null> = {}) => {
+      const params = new URLSearchParams();
+      for (const key of SHELL_PARAMS) {
+        const value = searchParams.get(key);
+        if (value) params.set(key, value);
+      }
+      for (const [key, value] of Object.entries(extra)) {
+        if (value) params.set(key, value);
+      }
+      const query = params.toString();
+      const path = MENU_TAB_PATHS[TAB_OF_VIEW[tab]];
+      startNavigation(() => {
+        router.push(query ? `${path}?${query}` : path, { scroll: false });
+      });
+    },
+    [router, searchParams]
+  );
+
   const replaceParams = useCallback(
     (next: { vista?: RecipeCostingView; producto?: number | null }) => {
+      const target =
+        next.vista === "plato" || next.vista === "preparaciones"
+          ? next.vista
+          : next.vista
+            ? "resumen"
+            : view;
+      if (target !== view) {
+        goToTab(target, {
+          producto: next.producto != null ? String(next.producto) : null,
+        });
+        return;
+      }
       const params = new URLSearchParams(searchParams.toString());
-      if (next.vista) params.set("vista", next.vista);
+      params.delete("vista");
       if (next.producto != null) params.set("producto", String(next.producto));
       else if (next.producto === null) params.delete("producto");
       startNavigation(() => {
         router.replace(`${pathname}?${params.toString()}`, { scroll: false });
       });
     },
-    [pathname, router, searchParams]
+    [goToTab, pathname, router, searchParams, view]
   );
 
   const fetchWorkspace = useCallback(
@@ -134,10 +167,22 @@ export function RecipesCostingWorkspace({
             }
           : fresh;
       const queueRow = json.plato_queue[0];
+      // The one-dish reload has that dish's sales only: keep its share
+      // of food sales from the full load.
+      const selectedDish =
+        json.selected_dish &&
+        prev.selected_dish?.odoo_product_id ===
+          json.selected_dish.odoo_product_id
+          ? {
+              ...json.selected_dish,
+              share_of_food_sales: prev.selected_dish.share_of_food_sales,
+            }
+          : (json.selected_dish ?? prev.selected_dish);
       return {
         ...prev,
         editor,
         selected,
+        selected_dish: selectedDish,
         plato_queue: queueRow
           ? prev.plato_queue.map((row) =>
               row.odoo_product_id === queueRow.odoo_product_id
@@ -188,16 +233,24 @@ export function RecipesCostingWorkspace({
     componentId: string | null,
     opts: { fromDish?: boolean } = {}
   ) {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("vista", "preparaciones");
-    if (componentId) params.set("prep", componentId);
-    else params.delete("prep");
     // Opened from a dish: Preparaciones offers the way back to it.
-    if (opts.fromDish) params.set("desde", "plato");
-    else if (!componentId) params.delete("desde");
-    startNavigation(() => {
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-    });
+    const extra = {
+      prep: componentId,
+      desde: opts.fromDish ? "plato" : null,
+      producto: opts.fromDish && selectedId ? String(selectedId) : null,
+    };
+    if (view === "preparaciones") {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(extra)) {
+        if (value) params.set(key, value);
+        else params.delete(key);
+      }
+      startNavigation(() => {
+        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      });
+      return;
+    }
+    goToTab("preparaciones", extra);
   }
 
   function open(next: RecipeCostingView, odooProductId?: number) {
@@ -325,14 +378,7 @@ export function RecipesCostingWorkspace({
   }
 
   return (
-    <div className="w-full px-[22px] pb-10 pt-2">
-      <CostingHeader
-        view={view}
-        breadcrumbExtra={
-          view === "plato" ? <span> · {data.plato_progress.label}</span> : null
-        }
-      />
-
+    <div className="w-full">
       {error ? (
         <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
@@ -372,17 +418,21 @@ export function RecipesCostingWorkspace({
             onEdited={scheduleReloadDish}
             onPost={postAndReload}
             onConfirm={() => void confirmDish()}
-            onSkip={() => goTo(data.editor?.next_odoo_product_id)}
             onOpenPreparation={(id) => openPreparation(id, { fromDish: true })}
-            statusFilter={parseDishStatusFilter(searchParams.get("estado"))}
-            onClearFilter={() => {
+            statusFilter={(searchParams.get("estado") ?? "")
+              .split(",")
+              .filter(Boolean)}
+            onFilter={(filter) => {
+              // A list filter is client state: no server round trip.
               const params = new URLSearchParams(searchParams.toString());
-              params.delete("estado");
-              startNavigation(() => {
-                router.replace(`${pathname}?${params.toString()}`, {
-                  scroll: false,
-                });
-              });
+              if (filter) params.set("estado", filter);
+              else params.delete("estado");
+              const query = params.toString();
+              window.history.replaceState(
+                null,
+                "",
+                query ? `${pathname}?${query}` : pathname
+              );
             }}
           />
         ) : view === "preparaciones" ? (
@@ -396,34 +446,26 @@ export function RecipesCostingWorkspace({
             }
             onBackToDish={
               searchParams.get("desde") === "plato" && selectedId
-                ? () => {
-                    const params = new URLSearchParams(searchParams.toString());
-                    params.set("vista", "plato");
-                    params.delete("prep");
-                    params.delete("desde");
-                    startNavigation(() => {
-                      router.replace(`${pathname}?${params.toString()}`, {
-                        scroll: false,
-                      });
-                    });
-                  }
+                ? () => goToTab("plato", { producto: String(selectedId) })
                 : undefined
             }
             onChanged={() => void mutate(async () => undefined)}
             locationId={searchParams.get("location")}
           />
-        ) : view === "menu-costeado" ? (
-          <MenuCosteadoScreen data={data} onOpen={open} />
         ) : (
           <ResumenScreen
             data={data}
-            onOpen={open}
+            epoch={epoch}
             onUploaded={() => void runSuggestions()}
             generateBusy={workbookBusy}
-            busy={busy}
-            onPost={postAndReload}
             locationId={searchParams.get("location")}
-            onResetDone={() => void reload().catch(() => undefined)}
+            onResetDone={() => {
+              // "Empezar de nuevo" / an import: every panel starts over
+              // (upload drafts remount) and the server parts refresh.
+              setEpoch((n) => n + 1);
+              void reload().catch(() => undefined);
+              router.refresh();
+            }}
             onUndoBatch={(batchIds) =>
               void mutate(async () => {
                 // Newest first, so a newer batch never blocks an older one.
@@ -440,19 +482,6 @@ export function RecipesCostingWorkspace({
             }
           />
         )}
-      </div>
-
-      <div className="mt-6 flex items-center justify-between text-[10.5px] text-[#6b7385]">
-        <span>
-          {data.footer.startsWith("Base:") ? (
-            <>
-              <b className="text-[#1b2333]">Base:</b>{" "}
-              {data.footer.replace("Base: ", "")}
-            </>
-          ) : (
-            data.footer
-          )}
-        </span>
       </div>
 
       <ConfirmHowDialog

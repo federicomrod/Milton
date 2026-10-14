@@ -27,11 +27,12 @@ describe("cockpit step-1 review nits", () => {
     expect(explorer).toContain("t(lang,");
   });
 
-  it("labels week vs last week with the actual date ranges", () => {
+  it("keeps the Cockpit strip to 4 KPIs (R1-09b, wireframe 0)", () => {
     const strip = read("components/restaurant/cockpit/CockpitKpiStrip.tsx");
-    expect(strip).toContain("formatCompactDateRange");
-    expect(strip).toContain("this_week.from");
-    expect(strip).toContain("last_week.to");
+    expect(strip).toContain("Ventas netas");
+    expect(strip).toContain("Ticket promedio");
+    expect(strip).not.toContain('"Tickets", "Tickets"');
+    expect(strip).toContain("xl:grid-cols-4");
   });
 
   it("labels mix charts as calendar weeks, not the rolling KPI window", () => {

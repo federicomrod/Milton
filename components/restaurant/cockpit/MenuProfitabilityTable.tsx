@@ -66,18 +66,12 @@ const STATUS_LABEL: Record<string, string> = {
   workbook_mismatch: "No cuadra con el Excel",
 };
 
-function buildStatusTitle(row: MenuMarginRow, lang: PreferredLanguage): string {
+function buildStatusTitle(row: MenuMarginRow): string {
   const label = STATUS_LABEL[row.cost.status] ?? row.cost.status;
   // Prefer the engine's first issue message (which already includes the
   // recipe path), and fall back to the bare label.
   const detail = row.cost.issues[0]?.message;
-  const mappingHint =
-    row.raw_pos_names.length === 0
-      ? t(lang, " · No POS mapping", " · Sin ligue del POS")
-      : "";
-  return detail
-    ? `${label}: ${detail}${mappingHint}`
-    : `${label}${mappingHint}`;
+  return detail ? `${label}: ${detail}` : label;
 }
 
 // ---------------------------------------------------------------------------
@@ -400,8 +394,9 @@ export function MenuProfitabilityTable({
                         </td>
                         <td className="px-3 py-2 text-xs text-muted-foreground max-w-[200px] truncate">
                           {r.raw_pos_names.length === 0 ? (
-                            <span className="text-amber-700 dark:text-amber-300">
-                              {t(lang, "No POS mapping", "Sin ligue del POS")}
+                            // D2: the status chip, not a sentence.
+                            <span className="rounded-md bg-[#f1f3f7] px-1.5 py-0.5 text-[12px] font-semibold text-[#5b6476]">
+                              {t(lang, "No recipe", "Sin receta")}
                             </span>
                           ) : r.raw_pos_names.length === 1 ? (
                             r.raw_pos_names[0]
@@ -475,7 +470,7 @@ export function MenuProfitabilityTable({
                           <StatusDot
                             lang={lang}
                             tone={tone}
-                            title={buildStatusTitle(r, lang)}
+                            title={buildStatusTitle(r)}
                             status={r.cost.status}
                           />
                         </td>

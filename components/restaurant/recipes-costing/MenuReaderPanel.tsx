@@ -24,7 +24,10 @@ export function MenuReaderPanel({
   busyExternal,
   locationId,
   onDone,
+  embedded = false,
 }: {
+  /** Inside Resumen's checklist: no card or heading of its own. */
+  embedded?: boolean;
   canEdit: boolean;
   busyExternal: boolean;
   locationId: string | null;
@@ -37,7 +40,6 @@ export function MenuReaderPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<MenuReadResponse | null>(null);
-  const [showNotFound, setShowNotFound] = useState(false);
 
   const value = mode === "url" ? url.trim() : text.trim();
 
@@ -67,23 +69,16 @@ export function MenuReaderPanel({
     }
   }
 
+  const Wrapper = embedded ? "div" : Card;
   return (
-    <Card className="space-y-2.5">
-      <div className="flex flex-wrap items-center gap-2">
+    <Wrapper className="space-y-2.5">
+      {embedded ? null : (
         <h2 className="text-[15px] font-semibold">Leer menú (opcional)</h2>
-        <span className="text-[11.5px] text-[#8a92a3]">
-          Para los platos que tu Excel no trae
-        </span>
-      </div>
-      <p className="text-xs text-[#5b6476]">
-        Milton lee qué lleva cada plato de tu menú y deja un borrador en Plato
-        por plato. Tú escribes las cantidades y confirmas cada componente. Si tu
-        Excel ya tiene la receta, se queda la del Excel.
-      </p>
+      )}
 
       {canEdit ? (
         <>
-          <div className="flex gap-3 text-[11.5px] font-semibold">
+          <div className="flex gap-3 text-[12px] font-semibold">
             <button
               type="button"
               className={mode === "url" ? "text-[#1b2333]" : "text-[#3557c9]"}
@@ -137,28 +132,8 @@ export function MenuReaderPanel({
       {result ? (
         <div className="rounded-md border border-[#cfe0ff] bg-[#f3f7ff] px-3 py-2 text-xs text-[#1b2333]">
           {menuReadSummary(result)}
-          {result.not_found.length > 0 ? (
-            <div className="mt-1">
-              <button
-                type="button"
-                className="font-semibold text-[#3557c9]"
-                onClick={() => setShowNotFound((v) => !v)}
-              >
-                {showNotFound
-                  ? "Ocultar"
-                  : "Ver los platos no encontrados en el menú"}
-              </button>
-              {showNotFound ? (
-                <ul className="mt-1 list-disc pl-4 text-[11px] text-[#5b6476]">
-                  {result.not_found.map((name) => (
-                    <li key={name}>{name}: No encontrado en el menú</li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          ) : null}
         </div>
       ) : null}
-    </Card>
+    </Wrapper>
   );
 }

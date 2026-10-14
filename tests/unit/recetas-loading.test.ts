@@ -10,10 +10,11 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
 describe("Recetas y costeo loading feedback", () => {
   it("has its own skeleton while the page renders", () => {
-    const file = "app/dashboard/restaurant/menu/recetas/loading.tsx";
+    // Recetas is now the Menú tabs (R1-09b); each tab route has its own.
+    const file = "app/dashboard/restaurant/menu/platos/loading.tsx";
     expect(existsSync(join(process.cwd(), file))).toBe(true);
     const src = read(file);
-    expect(src).toContain("PageSkeleton");
+    expect(src).toMatch(/Skeleton/);
     expect(src).toMatch(/export default function/);
     // A loading file never fetches data.
     expect(src).not.toMatch(/fetch\(|supabase|await /);

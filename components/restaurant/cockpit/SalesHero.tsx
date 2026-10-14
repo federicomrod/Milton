@@ -88,7 +88,7 @@ export function SalesHero({
               <p className="text-lg font-semibold tabular-nums mt-0.5">
                 {money.format(part.net_sales)}
               </p>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[12px] text-muted-foreground">
                 {t(lang, "Avg ticket", "Ticket promedio")}{" "}
                 {money.format(part.avg_ticket)} · {part.tickets}{" "}
                 {t(lang, "tickets", "tickets")}
@@ -177,7 +177,7 @@ function MixChart({
       <div className="rounded-md border border-dashed border-border px-3 py-4">
         <p className="text-sm font-medium">{title}</p>
         {subtitle ? (
-          <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>
+          <p className="text-[12px] text-muted-foreground mt-0.5">{subtitle}</p>
         ) : null}
         <p className="text-xs text-muted-foreground mt-1">
           {t(lang, "No mix to show yet.", "Aún no hay mix para mostrar.")}
@@ -190,7 +190,7 @@ function MixChart({
     <div className="rounded-md border border-border px-3 py-3">
       <p className="text-sm font-medium mb-0.5">{title}</p>
       {subtitle ? (
-        <p className="text-[11px] text-muted-foreground mb-2">{subtitle}</p>
+        <p className="text-[12px] text-muted-foreground mb-2">{subtitle}</p>
       ) : (
         <div className="mb-2" />
       )}

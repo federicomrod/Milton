@@ -366,7 +366,7 @@ function ExecutiveBriefingPanelInner() {
             </div>
 
             {data.briefing.confidence_notes.length > 0 && (
-              <div className="text-[11px] text-muted-foreground italic flex items-start gap-1.5">
+              <div className="text-[12px] text-muted-foreground italic flex items-start gap-1.5">
                 <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                 <span>{data.briefing.confidence_notes[0]}</span>
               </div>
@@ -396,7 +396,7 @@ function BriefingList({
         : "text-orange-500";
   return (
     <div>
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium mb-1.5">
+      <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium mb-1.5">
         {title}
       </p>
       <ul className="space-y-1 text-sm">
@@ -417,7 +417,7 @@ function SourceBadge({ source }: { source: "openai" | "deterministic" }) {
     <Badge
       variant="outline"
       className={
-        "text-[10px] uppercase tracking-wide " +
+        "text-[12px] uppercase tracking-wide " +
         (source === "openai"
           ? "border-orange-300 bg-orange-100 text-orange-900 dark:border-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
           : "border-border text-muted-foreground")
@@ -610,7 +610,7 @@ function ChatWorkspace() {
               {t(lang, "Send", "Enviar")}
             </Button>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-2">
+          <p className="text-[12px] text-muted-foreground mt-2">
             {t(
               lang,
               "Milton can propose actions from chat. You still approve them in Agents.",
@@ -637,7 +637,7 @@ function SuggestedQuestions({
   const lang = useMiltonLang();
   return (
     <div className="border-b border-border px-4 sm:px-6 py-4 bg-muted/20">
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium mb-2">
+      <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium mb-2">
         {t(lang, "Suggested questions", "Preguntas sugeridas")}
       </p>
       <div className="flex flex-wrap gap-2">
@@ -732,12 +732,12 @@ function MessageBubble({
             {a.supporting_facts.map((f, i) => (
               <span
                 key={i}
-                className="inline-flex items-center gap-1 text-[11px] rounded-md border border-border bg-background px-2 py-1"
+                className="inline-flex items-center gap-1 text-[12px] rounded-md border border-border bg-background px-2 py-1"
                 title={sourceAreaLabel(f.source_area, lang)}
               >
                 <span className="text-muted-foreground">{f.label}:</span>
                 <span className="font-medium">{f.value}</span>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wide ml-1">
+                <span className="text-[12px] text-muted-foreground uppercase tracking-wide ml-1">
                   {sourceAreaLabel(f.source_area, lang)}
                 </span>
               </span>
@@ -761,7 +761,7 @@ function MessageBubble({
         )}
 
         {a && a.confidence_notes.length > 0 && (
-          <div className="text-[11px] text-muted-foreground italic flex items-start gap-1.5">
+          <div className="text-[12px] text-muted-foreground italic flex items-start gap-1.5">
             <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>{a.confidence_notes[0]}</span>
           </div>
@@ -803,7 +803,7 @@ function FollowupChips({
           type="button"
           disabled={disabled}
           onClick={() => onPick(q)}
-          className="text-[11px] rounded-full border border-dashed border-border px-2.5 py-1 hover:bg-muted transition-colors disabled:opacity-50"
+          className="text-[12px] rounded-full border border-dashed border-border px-2.5 py-1 hover:bg-muted transition-colors disabled:opacity-50"
         >
           {q}
         </button>
@@ -834,7 +834,7 @@ function SuggestedActionChips({
   const lang = useMiltonLang();
   return (
     <div className="space-y-1.5 pt-0.5">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium flex items-center gap-1">
+      <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium flex items-center gap-1">
         <Zap className="h-3 w-3" />
         {t(lang, "Suggested actions", "Acciones sugeridas")}
       </p>

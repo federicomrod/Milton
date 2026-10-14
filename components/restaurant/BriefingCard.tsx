@@ -155,7 +155,7 @@ function BriefingCardInner() {
                 <Badge
                   variant="outline"
                   className={
-                    "text-[10px] uppercase tracking-wide " +
+                    "text-[12px] uppercase tracking-wide " +
                     (data.source === "openai"
                       ? "border-orange-300 bg-orange-100 text-orange-900 dark:border-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
                       : "border-border text-muted-foreground")
@@ -175,7 +175,7 @@ function BriefingCardInner() {
                 </Badge>
               )}
               {data && (
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-[12px] text-muted-foreground">
                   · {fmtRelative(data.generated_at)}
                 </span>
               )}
@@ -231,7 +231,7 @@ function BriefingCardInner() {
 
                 {data.briefing.recommended_actions.length > 0 && (
                   <div className="pt-1">
-                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium mb-1">
+                    <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium mb-1">
                       {t(
                         DEFAULT_LANG,
                         "Recommended actions",
@@ -257,7 +257,7 @@ function BriefingCardInner() {
                 )}
 
                 {data.briefing.confidence_notes.length > 0 && (
-                  <p className="text-[11px] text-muted-foreground italic">
+                  <p className="text-[12px] text-muted-foreground italic">
                     {data.briefing.confidence_notes[0]}
                   </p>
                 )}

@@ -123,7 +123,10 @@ export async function loadPosProductList(
         if (endDate) q = q.lte("sale_date", endDate);
         return q;
       },
-      SALES_SELECT
+      SALES_SELECT,
+      {
+        hintKey: `pos_sales_items:${companyId}:${locationId ?? ""}:${startDate ?? ""}:${endDate ?? ""}:${odooProductId ?? ""}`,
+      }
     );
 
   const [salesRes, linksRes, versionsRes] = await Promise.all([

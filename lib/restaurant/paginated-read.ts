@@ -23,6 +23,15 @@ export const POSTGREST_MAX_ROWS = 1000;
 export const PAGINATED_READ_SAFETY_CAP = 500_000;
 
 export interface FetchAllRowsOptions {
+  /**
+   * R1-12: a stable label for a table read (for example `rvi:<company>`).
+   * The row count of the last complete walk is remembered under it, and the
+   * next walk asks for every expected page at once instead of the first page
+   * and then a wave of eight (which, for a 1.4k-row table, was one useful
+   * page and seven empty ones). The answer is the same either way: a page
+   * that comes back full still triggers the usual follow-up waves.
+   */
+  hintKey?: string;
   /** Unique, stable sort column. Defaults to `id`. */
   orderBy?: string;
   /**
@@ -51,6 +60,20 @@ export interface FetchAllRowsResult<T> {
  * ~20 sequential round trips into 2–3 waves.
  */
 export const PARALLEL_PAGE_CONCURRENCY = 8;
+
+/** Rows seen by the last complete walk, per `hintKey` (this process only). */
+const sizeHints = new Map<string, number>();
+const MAX_HINTS = 500;
+
+function rememberSize(key: string | undefined, rows: number): void {
+  if (!key) return;
+  sizeHints.delete(key);
+  sizeHints.set(key, rows);
+  if (sizeHints.size > MAX_HINTS) {
+    const oldest = sizeHints.keys().next().value;
+    if (oldest !== undefined) sizeHints.delete(oldest);
+  }
+}
 
 /**
  * Rows from a succeeded read. On error this is always `[]` — never a
@@ -113,28 +136,49 @@ export async function fetchAllRows<T>(
     elapsedMs: Date.now() - started,
   });
 
-  const firstTo = Math.min(pageSize - 1, safetyCap - 1);
-  const firstExpected = firstTo + 1;
-  const first = await makeQuery()
-    .order(orderBy, { ascending: true })
-    .range(0, firstTo);
-  if (first.error) {
-    return empty(first.error, 1);
-  }
-  const firstPage = (first.data ?? []) as T[];
-  if (firstPage.length < firstExpected) {
-    return {
-      rows: firstPage,
-      truncated: false,
-      error: null,
-      pages: 1,
-      elapsedMs: Date.now() - started,
-    };
-  }
+  const fetchPage = async (start: number) => {
+    const to = Math.min(start + pageSize - 1, safetyCap - 1);
+    const { data, error } = await makeQuery()
+      .order(orderBy, { ascending: true })
+      .range(start, to);
+    return { start, expected: to - start + 1, data, error };
+  };
 
-  const rows: T[] = [...firstPage];
-  let from = pageSize;
-  let pages = 1;
+  // With a remembered size, the first wave already holds every page the
+  // table had last time; without one it is the first page alone.
+  const hinted = options.hintKey ? sizeHints.get(options.hintKey) : undefined;
+  const firstPages = Math.max(
+    1,
+    Math.min(
+      hinted ? Math.ceil(hinted / pageSize) : 1,
+      PARALLEL_PAGE_CONCURRENCY,
+      Math.ceil(safetyCap / pageSize)
+    )
+  );
+  const firstWave = await Promise.all(
+    Array.from({ length: firstPages }, (_, i) => fetchPage(i * pageSize))
+  );
+  const rows: T[] = [];
+  let from = 0;
+  let pages = firstWave.length;
+  for (const result of firstWave) {
+    if (result.error) return empty(result.error, pages);
+  }
+  for (const result of firstWave) {
+    const page = (result.data ?? []) as T[];
+    rows.push(...page);
+    from = result.start + pageSize;
+    if (page.length < result.expected) {
+      rememberSize(options.hintKey, rows.length);
+      return {
+        rows,
+        truncated: false,
+        error: null,
+        pages,
+        elapsedMs: Date.now() - started,
+      };
+    }
+  }
 
   while (from < safetyCap) {
     const batchStarts: number[] = [];
@@ -145,16 +189,7 @@ export async function fetchAllRows<T>(
     ) {
       batchStarts.push(from + i * pageSize);
     }
-    const results = await Promise.all(
-      batchStarts.map(async (start) => {
-        const to = Math.min(start + pageSize - 1, safetyCap - 1);
-        const expected = to - start + 1;
-        const { data, error } = await makeQuery()
-          .order(orderBy, { ascending: true })
-          .range(start, to);
-        return { start, expected, data, error };
-      })
-    );
+    const results = await Promise.all(batchStarts.map(fetchPage));
     pages += results.length;
     results.sort((a, b) => a.start - b.start);
     for (const result of results) {
@@ -172,6 +207,7 @@ export async function fetchAllRows<T>(
       }
     }
     if (short) {
+      rememberSize(options.hintKey, rows.length);
       return {
         rows,
         truncated: false,

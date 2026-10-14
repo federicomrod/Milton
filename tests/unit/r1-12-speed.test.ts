@@ -11,6 +11,7 @@ import {
   groupsToSyntheticLines,
   type PosSalesGroup,
 } from "@/lib/restaurant/pos-sales-groups";
+import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import {
   applyEdit,
   loadEditor,
@@ -363,5 +364,74 @@ describe("applyEdit waits for the role check before writing", () => {
     );
     expect(result.ok).toBe(true);
     expect(state.inputs[0].quantity).toBe(5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Paged reads: a remembered size asks for every page at once
+// ---------------------------------------------------------------------------
+
+function pagedTable(total: number) {
+  const started: number[] = [];
+  const makeQuery = () => ({
+    order: () => ({
+      range: async (from: number, to: number) => {
+        started.push(from);
+        // PostgREST answers an out-of-range page with an empty array.
+        const data = Array.from(
+          { length: Math.max(0, Math.min(to + 1, total) - from) },
+          (_, i) => ({ id: from + i })
+        );
+        return { data, error: null };
+      },
+    }),
+  });
+  return { makeQuery, started, setTotal: (n: number) => (total = n) };
+}
+
+describe("fetchAllRows with a remembered size", () => {
+  it("first walk: page one, then the usual wave; the next walk: all pages at once, same rows", async () => {
+    const table = pagedTable(1359);
+    const first = await fetchAllRows<{ id: number }>(table.makeQuery, {
+      hintKey: "t1",
+    });
+    expect(first.rows).toHaveLength(1359);
+    expect(first.pages).toBe(9); // 1 + a wave of 8 (7 of them empty)
+    table.started.length = 0;
+    const second = await fetchAllRows<{ id: number }>(table.makeQuery, {
+      hintKey: "t1",
+    });
+    expect(second.rows).toEqual(first.rows);
+    expect(second.pages).toBe(2);
+    expect(table.started.sort((a, b) => a - b)).toEqual([0, 1000]);
+  });
+
+  it("a table that grew past the remembered pages is still read completely", async () => {
+    const table = pagedTable(1200);
+    await fetchAllRows(table.makeQuery, { hintKey: "t2" });
+    table.setTotal(3500);
+    const grown = await fetchAllRows<{ id: number }>(table.makeQuery, {
+      hintKey: "t2",
+    });
+    expect(grown.rows).toHaveLength(3500);
+    expect(new Set(grown.rows.map((r) => r.id)).size).toBe(3500);
+  });
+
+  it("a table that shrank drops the empty pages", async () => {
+    const table = pagedTable(4200);
+    await fetchAllRows(table.makeQuery, { hintKey: "t3" });
+    table.setTotal(900);
+    const shrunk = await fetchAllRows<{ id: number }>(table.makeQuery, {
+      hintKey: "t3",
+    });
+    expect(shrunk.rows).toHaveLength(900);
+  });
+
+  it("without a hint key nothing changes", async () => {
+    const table = pagedTable(2500);
+    const a = await fetchAllRows<{ id: number }>(table.makeQuery);
+    const b = await fetchAllRows<{ id: number }>(table.makeQuery);
+    expect(a.rows).toHaveLength(2500);
+    expect(b.pages).toBe(a.pages);
   });
 });

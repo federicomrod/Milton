@@ -85,7 +85,8 @@ export function createSupabaseEditorStore(
               .from("ingredient_cost_entries")
               .select(select)
               .eq("company_id", companyId),
-          ENTRY_SELECT
+          ENTRY_SELECT,
+          { hintKey: `ingredient_cost_entries:${companyId}` }
         ),
         fetchAllRows<{
           id: string;

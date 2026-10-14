@@ -13,6 +13,8 @@ export interface ClusterItem {
   ref: string;
   name: string;
   category?: string | null;
+  /** The ONE restaurant the item sold in (Todos los restaurantes); null = both or unknown. */
+  restaurant?: string | null;
 }
 
 export interface Cluster {
@@ -21,6 +23,8 @@ export interface Cluster {
   name: string;
   refs: string[];
   reason: "nombre" | "categoria" | "ia";
+  /** Set when the suggestion belongs to one restaurant: it never mixes restaurants. */
+  restaurantId?: string | null;
 }
 
 const MIN_ITEMS = 3;
@@ -56,8 +60,38 @@ export function clusterSuggestions(
     exclude?: ReadonlySet<string>;
     /** Names a group already has here: never suggest the same name twice. */
     takenNames?: ReadonlySet<string>;
+    /**
+     * Todos los restaurantes: suggest inside each restaurant on its own
+     * (items sold in both, or unknown, form their own bucket), and tag each
+     * suggestion with its restaurant. `takenFor` gives the names already
+     * used in that restaurant's scope.
+     */
+    perRestaurant?: boolean;
+    takenFor?: (restaurantId: string | null) => ReadonlySet<string>;
   } = {}
 ): Cluster[] {
+  if (opts.perRestaurant) {
+    const buckets = new Map<string | null, ClusterItem[]>();
+    for (const item of items) {
+      const key = item.restaurant ?? null;
+      buckets.set(key, [...(buckets.get(key) ?? []), item]);
+    }
+    return [...buckets.entries()]
+      .flatMap(([restaurantId, list]) =>
+        clusterSuggestions(list, {
+          exclude: opts.exclude,
+          takenNames: opts.takenFor?.(restaurantId) ?? opts.takenNames,
+        }).map((c) => ({
+          ...c,
+          key: `${restaurantId ?? "compartido"}|${c.key}`,
+          restaurantId,
+        }))
+      )
+      .sort(
+        (a, b) =>
+          b.refs.length - a.refs.length || a.name.localeCompare(b.name, "es")
+      );
+  }
   const taken = new Set([...(opts.takenNames ?? [])].map(norm));
   const pool = items.filter((i) => !opts.exclude?.has(i.ref));
   const out: Cluster[] = [];

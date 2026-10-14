@@ -289,6 +289,9 @@ export interface RecipeCostingWorkspace {
   dish_summaries: DishSummary[] | null;
   /** R1-15c: the groups on top of the rows (048); null before it is applied. */
   item_groups: ItemGroupsLoad | null;
+  /** R1-15h: the company's restaurants (tags rows, scopes groups) and the one in view (null = Todos). */
+  restaurants: Array<{ id: string; name: string }>;
+  view_location_id: string | null;
   /** R1-10 Platos: menu dishes with their variants, from the loader. */
   menu_dishes: {
     dishes: MenuDish[];
@@ -575,6 +578,8 @@ export function buildRecipeCostingWorkspace(input: {
   timings?: RecipeCostingWorkspace["timings"];
   /** Shared dish-economics load: the chip and status of every dish. */
   dishEconomics?: DishEconomicsResult | null;
+  restaurants?: Array<{ id: string; name: string }>;
+  viewLocationId?: string | null;
   uploadDraftPending?: boolean;
 }): RecipeCostingWorkspace {
   const currency = input.currency || "USD";
@@ -1000,6 +1005,8 @@ export function buildRecipeCostingWorkspace(input: {
     },
     upload_draft_pending: input.uploadDraftPending ?? false,
     item_groups: input.dishEconomics?.item_groups ?? null,
+    restaurants: input.restaurants ?? [],
+    view_location_id: input.viewLocationId ?? null,
     menu_dishes:
       input.view === "plato" && input.dishEconomics
         ? {

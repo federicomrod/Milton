@@ -236,7 +236,9 @@ export function leavesFromMenuDishes(
         cost_total: v.cost_total,
         covered: v.covered,
         status: v.status,
-        restaurant_ids: v.sales_scope?.sale_location_ids ?? null,
+        restaurant_ids:
+          v.sales_scope?.sale_location_ids ??
+          (v.sale_location_ids?.length ? v.sale_location_ids : null),
         menu_dish_id: inDish ? dish.id : null,
         menu_dish_name: inDish ? dish.name : null,
       });

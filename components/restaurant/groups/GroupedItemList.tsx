@@ -7,6 +7,7 @@
 // computed here.
 
 import { useMemo, useState, type ReactNode } from "react";
+import { Pencil } from "lucide-react";
 import {
   addToGroup,
   createGroup,
@@ -328,7 +329,7 @@ export function GroupedItemList<T extends GroupableItem>({
         <div
           data-group-id={g.id}
           className={
-            "flex items-center gap-1 border-b border-slate-100 px-1 py-1.5 text-xs font-semibold transition-colors duration-700 " +
+            "group/row flex items-center gap-1 border-b border-slate-100 px-1 py-1.5 text-xs font-semibold transition-colors duration-700 " +
             (highlightId === g.id
               ? "bg-[#cfdcfa] ring-2 ring-[#1b40c8]"
               : "bg-[#eef2fc]")
@@ -360,7 +361,20 @@ export function GroupedItemList<T extends GroupableItem>({
               }}
             />
           ) : (
-            <span className="flex-1">{g.name}</span>
+            <span className="flex-1">
+              {g.name}
+              {canEdit ? (
+                <button
+                  type="button"
+                  aria-label={`Renombrar ${g.name}`}
+                  title="Renombrar"
+                  onClick={() => setRenaming(g.id)}
+                  className="ml-1.5 rounded p-0.5 align-middle text-[#6b7a9e] opacity-0 hover:text-[#1b40c8] focus:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100"
+                >
+                  <Pencil className="inline h-3.5 w-3.5" aria-hidden />
+                </button>
+              ) : null}
+            </span>
           )}
           {g.source === "ai_suggested" ? <MiltonMark /> : null}
           <span className="font-normal text-[#8a92a3]">{countUnder(g)}</span>
@@ -412,63 +426,65 @@ export function GroupedItemList<T extends GroupableItem>({
           Para agrupar falta aplicar las migraciones 048 y 049 en este ambiente.
         </p>
       ) : null}
-      <SearchBox
-        value={query}
-        onChange={setQuery}
-        placeholder={searchPlaceholder}
-      />
-      {canEdit && grouping.available ? (
-        <MiltonSuggestions
-          clusters={milton.clusters}
-          preview={milton.preview}
-          onPreview={(c) => {
-            setFilter("sin_agrupar");
-            setQuery("");
-            milton.startPreview(c);
-          }}
-          onApply={(c) => void milton.apply(c)}
-          onDismiss={(c) => void milton.dismiss(c)}
-          onEndPreview={milton.endPreview}
-          onAskAi={() => void milton.askAi()}
-          aiBusy={milton.aiBusy}
-          canAskAi={milton.canAskAi}
-          itemWord={scope === "ingredient" ? "ingredientes" : "preparaciones"}
+      <div className="sticky top-0 z-10 -mx-2 -mt-2 space-y-2 bg-white px-2 pb-2 pt-2">
+        <SearchBox
+          value={query}
+          onChange={setQuery}
+          placeholder={searchPlaceholder}
         />
-      ) : null}
-      <SortChips columns={sortColumns} sort={sort} onSort={toggleSort} />
-      <GroupingToolbar
-        grouping={grouping}
-        filter={filter}
-        onFilter={setFilter}
-        counts={counts}
-        selectedCount={canEdit ? selectedIds.length : 0}
-        sharedSuggestion={shared}
-        anySelectedGrouped={selectedIds.some((id) => groupOf.has(id))}
-        pickerOptions={options}
-        parentOptions={options}
-        onAddToExisting={(t) => void addTo(selectedIds, t.id)}
-        onGroupAs={(name, parentId) => {
-          const ids = selectedIds;
-          clear();
-          void grouping.run((s) =>
-            createGroup(s, {
-              name,
-              hierarchy,
-              parentId,
-              items: refs(ids),
-              uuid,
-            })
-          );
-        }}
-        onUngroup={() => {
-          const ids = selectedIds;
-          clear();
-          void grouping.run((s) => removeFromGroups(s, { items: refs(ids) }));
-        }}
-        onAcceptShared={() => shared && void addTo(selectedIds, shared.id)}
-        onClearSelection={clear}
-        defaultNewName={byId.get(selectedIds[0] ?? "")?.name}
-      />
+        {canEdit && grouping.available ? (
+          <MiltonSuggestions
+            clusters={milton.clusters}
+            preview={milton.preview}
+            onPreview={(c) => {
+              setFilter("sin_agrupar");
+              setQuery("");
+              milton.startPreview(c);
+            }}
+            onApply={(c) => void milton.apply(c)}
+            onDismiss={(c) => void milton.dismiss(c)}
+            onEndPreview={milton.endPreview}
+            onAskAi={() => void milton.askAi()}
+            aiBusy={milton.aiBusy}
+            canAskAi={milton.canAskAi}
+            itemWord={scope === "ingredient" ? "ingredientes" : "preparaciones"}
+          />
+        ) : null}
+        <SortChips columns={sortColumns} sort={sort} onSort={toggleSort} />
+        <GroupingToolbar
+          grouping={grouping}
+          filter={filter}
+          onFilter={setFilter}
+          counts={counts}
+          selectedCount={canEdit ? selectedIds.length : 0}
+          sharedSuggestion={shared}
+          anySelectedGrouped={selectedIds.some((id) => groupOf.has(id))}
+          pickerOptions={options}
+          parentOptions={options}
+          onAddToExisting={(t) => void addTo(selectedIds, t.id)}
+          onGroupAs={(name, parentId) => {
+            const ids = selectedIds;
+            clear();
+            void grouping.run((s) =>
+              createGroup(s, {
+                name,
+                hierarchy,
+                parentId,
+                items: refs(ids),
+                uuid,
+              })
+            );
+          }}
+          onUngroup={() => {
+            const ids = selectedIds;
+            clear();
+            void grouping.run((s) => removeFromGroups(s, { items: refs(ids) }));
+          }}
+          onAcceptShared={() => shared && void addTo(selectedIds, shared.id)}
+          onClearSelection={clear}
+          defaultNewName={byId.get(selectedIds[0] ?? "")?.name}
+        />
+      </div>
       {picker ? (
         <GroupPicker
           title={

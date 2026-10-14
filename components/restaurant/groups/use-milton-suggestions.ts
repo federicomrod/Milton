@@ -36,14 +36,19 @@ export function useMiltonSuggestions({
   ungrouped,
   takenNames,
   enabled,
+  perRestaurant = false,
 }: {
   scope: "product" | "preparation" | "ingredient";
   grouping: ReturnType<typeof useItemGroups>;
   /** The items in no group right now. */
   ungrouped: readonly ClusterItem[];
   /** Names of the groups that exist here (confirmed or suggested). */
-  takenNames: readonly string[];
+  takenNames:
+    | readonly string[]
+    | ((restaurantId: string | null) => readonly string[]);
   enabled: boolean;
+  /** Todos los restaurantes: suggest inside each restaurant, never mixing them. */
+  perRestaurant?: boolean;
 }) {
   const memberType: GroupMemberType =
     scope === "product" ? "pos_product" : scope;
@@ -53,6 +58,11 @@ export function useMiltonSuggestions({
   const [aiBusy, setAiBusy] = useState(false);
   const [aiAsked, setAiAsked] = useState(false);
 
+  const namesFor = useCallback(
+    (restaurantId: string | null) =>
+      typeof takenNames === "function" ? takenNames(restaurantId) : takenNames,
+    [takenNames]
+  );
   const clusters = useMemo<SuggestedCluster[]>(() => {
     if (!enabled) return [];
     const open = new Set(ungrouped.map((i) => i.ref));
@@ -74,18 +84,25 @@ export function useMiltonSuggestions({
         refs,
         reason: "ia",
         groupId: g.id,
+        restaurantId: g.restaurant_id ?? null,
       });
     }
     const covered = new Set(stored.flatMap((c) => c.refs));
     const heuristic = clusterSuggestions(
       ungrouped.filter((i) => !covered.has(i.ref)),
-      { takenNames: new Set(takenNames) }
+      perRestaurant
+        ? {
+            perRestaurant: true,
+            takenFor: (r) => new Set(namesFor(r)),
+          }
+        : { takenNames: new Set(namesFor(null)) }
     ).filter((c) => !dismissed.set.has(c.key));
     return [...stored, ...heuristic];
   }, [
     enabled,
     ungrouped,
-    takenNames,
+    namesFor,
+    perRestaurant,
     grouping.state,
     scope,
     memberType,
@@ -95,14 +112,15 @@ export function useMiltonSuggestions({
   const preview = clusters.find((c) => c.key === previewKey) ?? null;
 
   const apply = useCallback(
-    async (c: SuggestedCluster) => {
+    async (c: SuggestedCluster, name?: string) => {
       setPreviewKey(null);
       if (c.groupId) {
-        await grouping.run((s) => confirmSuggestion(s, c.groupId!));
+        await grouping.run((s) => confirmSuggestion(s, c.groupId!, name));
       } else {
         await grouping.run((s) =>
           createGroup(s, {
-            name: c.name,
+            name: name?.trim() || c.name,
+            restaurantId: c.restaurantId ?? null,
             hierarchy,
             items: c.refs.map((ref) => ({ type: memberType, ref })),
             source: "ai_suggested",
@@ -136,38 +154,51 @@ export function useMiltonSuggestions({
     setAiBusy(true);
     setAiAsked(true);
     try {
-      const res = await fetch("/api/restaurant/item-groups/suggest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scope,
-          items: remaining.map((i) => ({
-            ref: i.ref,
-            name: i.name,
-            category: i.category ?? null,
-          })),
-          taken_names: takenNames,
-        }),
-      });
-      const json = (await res.json().catch(() => ({}))) as {
-        clusters?: Cluster[];
-        unavailable?: boolean;
-        error?: string;
-      };
-      if (!res.ok) {
-        grouping.notify(
-          json.error ?? "Milton no pudo sugerir grupos ahora.",
-          true
-        );
-        return;
+      // Todos los restaurantes: one request per restaurant, so a suggestion
+      // never mixes restaurants; otherwise a single one.
+      const buckets = new Map<string | null, ClusterItem[]>();
+      for (const item of remaining) {
+        const key = perRestaurant ? (item.restaurant ?? null) : null;
+        buckets.set(key, [...(buckets.get(key) ?? []), item]);
       }
-      if (json.unavailable) {
-        grouping.notify(
-          "La IA no está configurada en este ambiente: solo hay sugerencias por nombre y categoría."
-        );
-        return;
+      const found: Cluster[] = [];
+      for (const [restaurantId, items] of buckets) {
+        if (items.length < 4) continue;
+        const res = await fetch("/api/restaurant/item-groups/suggest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scope,
+            items: items.map((i) => ({
+              ref: i.ref,
+              name: i.name,
+              category: i.category ?? null,
+            })),
+            taken_names: namesFor(restaurantId),
+          }),
+        });
+        const json = (await res.json().catch(() => ({}))) as {
+          clusters?: Cluster[];
+          unavailable?: boolean;
+          error?: string;
+        };
+        if (!res.ok) {
+          grouping.notify(
+            json.error ?? "Milton no pudo sugerir grupos ahora.",
+            true
+          );
+          return;
+        }
+        if (json.unavailable) {
+          grouping.notify(
+            "La IA no está configurada en este ambiente: solo hay sugerencias por nombre y categoría."
+          );
+          return;
+        }
+        for (const c of json.clusters ?? []) {
+          found.push(perRestaurant ? { ...c, restaurantId } : c);
+        }
       }
-      const found = json.clusters ?? [];
       if (found.length === 0) {
         grouping.notify("Milton no encontró más grupos claros.");
         return;
@@ -189,7 +220,8 @@ export function useMiltonSuggestions({
   }, [
     remaining,
     scope,
-    takenNames,
+    namesFor,
+    perRestaurant,
     hierarchy,
     memberType,
     grouping.run,

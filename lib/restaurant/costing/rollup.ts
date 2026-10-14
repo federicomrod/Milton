@@ -332,7 +332,27 @@ export function buildGroupTree(input: {
     hasLeavesBelow.set(id, result);
     return result;
   };
-  const shown = confirmed.filter((g) => g.source !== "auto" || below(g.id));
+  // A restaurant-only group of a restaurant that is not in this view is not
+  // shown (it would only be an empty row). Only when every row says which
+  // restaurant it belongs to; otherwise nothing is hidden.
+  const viewRestaurants = new Set<string>();
+  let restaurantsKnown = input.leaves.length > 0;
+  for (const l of input.leaves) {
+    if (!l.restaurant_ids || l.restaurant_ids.length === 0) {
+      restaurantsKnown = false;
+      break;
+    }
+    for (const r of l.restaurant_ids) viewRestaurants.add(r);
+  }
+  const inView = (g: TreeGroup) =>
+    // The Plato del menú level follows the product's link, whatever restaurant the dish was created for.
+    g.source === "auto" ||
+    !restaurantsKnown ||
+    !g.restaurant_id ||
+    viewRestaurants.has(g.restaurant_id);
+  const shown = confirmed.filter(
+    (g) => inView(g) && (g.source !== "auto" || below(g.id))
+  );
   const shownIds = new Set(shown.map((g) => g.id));
   for (const g of shown) {
     const parent =

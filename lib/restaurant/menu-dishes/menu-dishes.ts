@@ -63,6 +63,8 @@ export interface MenuDishVariant {
   key: string;
   /** On a restaurant part: whose link costs these sales. */
   sales_scope: SalesScope | null;
+  /** Restaurants this product sold in (R1-15h). */
+  sale_location_ids?: string[];
   /** The grouping is stored (a dish or an exclusion on its link, 045). */
   saved: boolean;
   name: string;
@@ -528,6 +530,7 @@ export function buildMenuDishes(input: {
           odoo_product_id: dish.odoo_product_id,
           key: dish.row_key ?? String(dish.odoo_product_id),
           sales_scope: dish.sales_scope ?? null,
+          sale_location_ids: dish.sale_location_ids ?? [],
           saved: Boolean(stored?.menu_dish_id || stored?.excluded_reason),
           name: dish.name,
           size: portion,

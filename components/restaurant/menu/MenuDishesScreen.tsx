@@ -7,7 +7,7 @@
 // Every number comes from the shared loader; the screen only re-adds the
 // sums after a move (dishSums, the loader's own function).
 
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { RowActions } from "@/components/restaurant/groups/RowActions";
 import {
@@ -36,6 +36,7 @@ import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { platosHref } from "@/lib/restaurant/menu-links";
 import { Chip } from "@/components/restaurant/recipes-costing/ui";
 import Link from "next/link";
+import { StickyPanel, STICKY_TH } from "@/components/restaurant/ui/StickyPanel";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
 import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
 import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
@@ -139,6 +140,37 @@ export function MenuDishesScreen({
   const [excluded, setExcluded] = useState<MenuDish[]>(menu?.excluded ?? []);
   const [showExcluded, setShowExcluded] = useState(false);
   const { sort, toggle: toggleSort } = useTableSort("platos");
+  // Indicators: the person can hide them (remembered for the session) and
+  // they fold away by themselves once the page has scrolled past them.
+  const [kpiUserHidden, setKpiUserHidden] = useState(false);
+  const [kpiScrolled, setKpiScrolled] = useState(false);
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem("milton:menu:kpis-hidden") === "1")
+        queueMicrotask(() => setKpiUserHidden(true));
+    } catch {
+      // No storage: indicators stay visible.
+    }
+    const onScroll = () =>
+      setKpiScrolled((was) =>
+        was ? window.scrollY > 8 : window.scrollY > 200
+      );
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  const kpiHidden = kpiUserHidden || kpiScrolled;
+  const toggleKpis = () =>
+    setKpiUserHidden((was) => {
+      try {
+        window.sessionStorage.setItem(
+          "milton:menu:kpis-hidden",
+          was ? "0" : "1"
+        );
+      } catch {
+        // ignore
+      }
+      return !was;
+    });
   const [drill, setDrill] = useState<
     | { kind: "dish"; id: string }
     | { kind: "group"; name: string; keys: string[] }
@@ -354,6 +386,42 @@ export function MenuDishesScreen({
     }
   }
 
+  const controlsRow = (
+    <div className="flex flex-wrap items-center gap-3">
+      <div
+        role="group"
+        aria-label="Vista"
+        className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold"
+      >
+        {(["platos", "productos"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={view === v}
+            onClick={() => setView(v)}
+            className={
+              "rounded-[9px] px-3.5 py-1.5 " +
+              (view === v
+                ? "bg-[#1b40c8] text-white shadow-sm"
+                : "text-[#4a5a85] hover:text-[#1b40c8]")
+            }
+          >
+            {v === "platos" ? "Platos" : "Productos"}
+          </button>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={toggleKpis}
+        className="rounded-md px-2 py-1 text-[12px] font-semibold text-[#1b40c8] hover:bg-[#e6ecfb]"
+        aria-pressed={kpiUserHidden}
+      >
+        {kpiUserHidden ? "Mostrar indicadores" : "Ocultar indicadores"}
+      </button>
+    </div>
+  );
+
   const drillDish =
     drill?.kind === "dish"
       ? ([...dishes, ...excluded].find((d) => d.id === drill.id) ?? null)
@@ -395,34 +463,42 @@ export function MenuDishesScreen({
       ) : null}
       {/* Kept mounted while drilling, so coming back is instant and keeps the filter and search. */}
       <div className="space-y-[14px]" hidden={!!drilling}>
-        <div className="grid grid-cols-4 gap-3">
-          <Kpi
-            label="Costo de comida"
-            value={
-              k.food_cost_pct !== null ? pct(k.food_cost_pct) : "Sin precio"
-            }
-            sub="sobre ventas con costo"
-            href={platosHref(["aprobado"])}
-          />
-          <Kpi
-            label="Margen bruto"
-            value={k.gross_margin !== null ? money(k.gross_margin) : "—"}
-            sub={data.period_label ?? "ventas con costo"}
-            href={platosHref(["aprobado"])}
-          />
-          <Kpi
-            label="Ventas con costo"
-            value={`${Math.round(k.coverage_pct)}%`}
-            sub={`${k.covered_dishes} de ${k.dish_count} platos`}
-            href={platosHref()}
-          />
-          <Kpi
-            label="Platos con problema"
-            value={String(k.problem_count)}
-            sub={`${k.missing_price_dishes} sin precio · ${k.no_recipe_dishes} sin receta`}
-            href={platosHref(["falta_precio", "sin_receta"])}
-            alert={k.problem_count > 0}
-          />
+        <div
+          className={
+            "overflow-hidden transition-[max-height,opacity] duration-200 " +
+            (kpiHidden ? "max-h-0 opacity-0" : "max-h-48 opacity-100")
+          }
+          aria-hidden={kpiHidden}
+        >
+          <div className="grid grid-cols-4 gap-3">
+            <Kpi
+              label="Costo de comida"
+              value={
+                k.food_cost_pct !== null ? pct(k.food_cost_pct) : "Sin precio"
+              }
+              sub="sobre ventas con costo"
+              href={platosHref(["aprobado"])}
+            />
+            <Kpi
+              label="Margen bruto"
+              value={k.gross_margin !== null ? money(k.gross_margin) : "—"}
+              sub={data.period_label ?? "ventas con costo"}
+              href={platosHref(["aprobado"])}
+            />
+            <Kpi
+              label="Ventas con costo"
+              value={`${Math.round(k.coverage_pct)}%`}
+              sub={`${k.covered_dishes} de ${k.dish_count} platos`}
+              href={platosHref()}
+            />
+            <Kpi
+              label="Platos con problema"
+              value={String(k.problem_count)}
+              sub={`${k.missing_price_dishes} sin precio · ${k.no_recipe_dishes} sin receta`}
+              href={platosHref(["falta_precio", "sin_receta"])}
+              alert={k.problem_count > 0}
+            />
+          </div>
         </div>
 
         <div className="flex items-center gap-3 text-[13px]">
@@ -472,28 +548,7 @@ export function MenuDishesScreen({
           </div>
         ) : null}
 
-        <div
-          role="group"
-          aria-label="Vista"
-          className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold"
-        >
-          {(["platos", "productos"] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              aria-pressed={view === v}
-              onClick={() => setView(v)}
-              className={
-                "rounded-[9px] px-3.5 py-1.5 " +
-                (view === v
-                  ? "bg-[#1b40c8] text-white shadow-sm"
-                  : "text-[#4a5a85] hover:text-[#1b40c8]")
-              }
-            >
-              {v === "platos" ? "Platos" : "Productos"}
-            </button>
-          ))}
-        </div>
+        {view === "platos" ? <StickyPanel>{controlsRow}</StickyPanel> : null}
 
         {view === "productos" ? (
           <ProductosView
@@ -508,6 +563,9 @@ export function MenuDishesScreen({
               setDrill({ kind: "group", name, keys })
             }
             onOpenRecipe={onOpenDish}
+            restaurants={data.restaurants}
+            viewLocationId={data.view_location_id}
+            leading={controlsRow}
           />
         ) : null}
 
@@ -526,10 +584,16 @@ export function MenuDishesScreen({
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="border-b border-[#dbe3f7] bg-[#f3f6fd] text-left text-[12px] font-semibold text-[#4a5a85]">
-                  <SortTh sortKey="name" sort={sort} onSort={toggleSort}>
+                  <SortTh
+                    className={"px-2 py-1.5 " + STICKY_TH}
+                    sortKey="name"
+                    sort={sort}
+                    onSort={toggleSort}
+                  >
                     Plato del menú
                   </SortTh>
                   <SortTh
+                    className={"px-2 py-1.5 " + STICKY_TH}
                     sortKey="sales"
                     sort={sort}
                     onSort={toggleSort}
@@ -538,6 +602,7 @@ export function MenuDishesScreen({
                     Ventas
                   </SortTh>
                   <SortTh
+                    className={"px-2 py-1.5 " + STICKY_TH}
                     sortKey="margin"
                     sort={sort}
                     onSort={toggleSort}
@@ -546,6 +611,7 @@ export function MenuDishesScreen({
                     Margen
                   </SortTh>
                   <SortTh
+                    className={"px-2 py-1.5 " + STICKY_TH}
                     sortKey="cost"
                     sort={sort}
                     onSort={toggleSort}
@@ -554,6 +620,7 @@ export function MenuDishesScreen({
                     Costo %
                   </SortTh>
                   <SortTh
+                    className={"px-2 py-1.5 " + STICKY_TH}
                     sortKey="coverage"
                     sort={sort}
                     onSort={toggleSort}
@@ -561,10 +628,15 @@ export function MenuDishesScreen({
                   >
                     Cobertura
                   </SortTh>
-                  <SortTh sortKey="status" sort={sort} onSort={toggleSort}>
+                  <SortTh
+                    className={"px-2 py-1.5 " + STICKY_TH}
+                    sortKey="status"
+                    sort={sort}
+                    onSort={toggleSort}
+                  >
                     Estado
                   </SortTh>
-                  <th className="w-8" />
+                  <th className={"w-8 " + STICKY_TH} />
                 </tr>
               </thead>
               <tbody>
@@ -742,7 +814,7 @@ const DishRows = memo(function DishRows({
               {dish.variants.length}{" "}
               {dish.variants.length === 1 ? "variante" : "variantes"}
             </span>
-            <span className="ml-auto pl-3">
+            <span className="pl-1">
               <RowActions
                 onDrill={() => onDrill(dish.id)}
                 onRecipe={
@@ -750,8 +822,6 @@ const DishRows = memo(function DishRows({
                     ? () => onOpen(dish)
                     : undefined
                 }
-                onVariants={() => onToggle(dish.id)}
-                variantsOpen={open}
               />
             </span>
           </div>

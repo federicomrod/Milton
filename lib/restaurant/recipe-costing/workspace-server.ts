@@ -179,6 +179,19 @@ export async function loadRecipeCostingWorkspace(
         input.locationId ?? null
       ));
 
+  // R1-15h: the restaurants, for the row tags and group scope (one small read,
+  // started now so it runs with the wave below).
+  const restaurantsRead =
+    view === "plato" || view === "preparaciones"
+      ? Promise.resolve(
+          supabase
+            .from("restaurant_locations")
+            .select("id, name")
+            .eq("company_id", input.companyId)
+            .order("name", { ascending: true })
+        ).catch(() => ({ data: null }))
+      : null;
+
   // R1-12: one wave. Nothing below depends on the product list, so links,
   // versions, menu items, upload history, the combo hint and the upload
   // draft are read together with it (they used to follow it, wave after
@@ -465,6 +478,11 @@ export async function loadRecipeCostingWorkspace(
     latestUpload,
     reset,
     dishEconomics: list && list.ok ? list.economics : null,
+    restaurants: ((await restaurantsRead)?.data ?? []) as Array<{
+      id: string;
+      name: string;
+    }>,
+    viewLocationId: input.locationId ?? null,
     uploadDraftPending,
     timings: {
       load_ms: Date.now() - started,

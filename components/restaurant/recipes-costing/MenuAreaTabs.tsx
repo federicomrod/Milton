@@ -38,8 +38,9 @@ export function MenuAreaTabs({ lang }: { lang: PreferredLanguage }) {
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const active = activeMenuTab(pathname);
-  // Resumen, Platos and Preparaciones switch from the workspace's own copy;
-  // Ingredientes is a page of its own, so it is prefetched in full.
+  // While the workspace is open, Resumen/Platos/Preparaciones switch from its
+  // own copy and only Ingredientes (a page of its own) is prefetched in full.
+  // From Ingredientes there is no workspace, so all four are pages to prefetch.
   const { epoch, warm } = useSectionWarmth();
   const shell = {
     locationId: searchParams.get("location"),
@@ -52,7 +53,7 @@ export function MenuAreaTabs({ lang }: { lang: PreferredLanguage }) {
       className="mt-2 mb-4 flex gap-7 border-b border-[#dfe3ea]"
     >
       {TABS.map((tab) => {
-        const isPage = tab.id === "ingredientes";
+        const isPage = tab.id === "ingredientes" || active === "ingredientes";
         const href = withSaveEpoch(
           withShellParams(MENU_TAB_PATHS[tab.id], shell),
           isPage ? epoch : 0

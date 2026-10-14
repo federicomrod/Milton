@@ -55,7 +55,7 @@ export function SalesUnderstand({
               <h2 className="text-sm font-semibold">
                 {t(lang, "When you make money", "Cuándo se vende")}
               </h2>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
+              <p className="text-[12px] text-muted-foreground mt-0.5">
                 {t(
                   lang,
                   `Restaurant timezone ${timezone}. Lunch before ${DINNER_START_HOUR}:00; dinner from ${DINNER_START_HOUR}:00.`,
@@ -124,13 +124,13 @@ export function SalesUnderstand({
               onClick={() => onOpenExplore?.(row.explore_tab)}
               className="rounded-md border border-border px-3 py-2 text-left hover:border-orange-300 dark:hover:border-orange-800 transition-colors"
             >
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              <p className="text-[12px] uppercase tracking-wide text-muted-foreground">
                 {row.label}
               </p>
               <p className="text-lg font-semibold tabular-nums mt-0.5">
                 {row.value}
               </p>
-              <p className="text-[11px] text-muted-foreground">{row.hint}</p>
+              <p className="text-[12px] text-muted-foreground">{row.hint}</p>
             </button>
           ) : (
             <NotAvailableYet

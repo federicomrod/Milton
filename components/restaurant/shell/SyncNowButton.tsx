@@ -181,7 +181,7 @@ export function SyncNowButton({
           </p>
           <div className="grid grid-cols-2 gap-2">
             <label className="space-y-1">
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-[12px] text-muted-foreground">
                 {t(lang, "From", "Desde")}
               </span>
               <Input
@@ -193,7 +193,7 @@ export function SyncNowButton({
               />
             </label>
             <label className="space-y-1">
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-[12px] text-muted-foreground">
                 {t(lang, "To", "Hasta")}
               </span>
               <Input

@@ -487,7 +487,7 @@ function AgentCard({
             <CardTitle className="text-sm font-semibold">
               {agent.name}
             </CardTitle>
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            <span className="text-[12px] uppercase tracking-wide text-muted-foreground">
               {CATEGORY_LABEL[agent.category] ?? agent.category}
             </span>
           </div>
@@ -639,7 +639,7 @@ function ComingSoonCard({ agent }: { agent: AgentWithConfig }) {
           <CardTitle className="text-sm font-semibold text-muted-foreground">
             {agent.name}
           </CardTitle>
-          <span className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-muted text-muted-foreground shrink-0">
+          <span className="text-[12px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-muted text-muted-foreground shrink-0">
             Soon
           </span>
         </div>
@@ -787,7 +787,7 @@ function ConfigForm({
         <label key={f.key} className="flex flex-col gap-1">
           <span className="text-xs font-medium">{f.label}</span>
           {f.hint && (
-            <span className="text-[10px] text-muted-foreground">{f.hint}</span>
+            <span className="text-[12px] text-muted-foreground">{f.hint}</span>
           )}
           <Input
             type="number"
@@ -985,15 +985,15 @@ function RecommendationCard({
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-semibold">{rec.title}</span>
               <span
-                className={`text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 font-medium ${sev.chipClass}`}
+                className={`text-[12px] uppercase tracking-wide rounded px-1.5 py-0.5 font-medium ${sev.chipClass}`}
               >
                 {rec.severity}
               </span>
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[12px] text-muted-foreground">
                 {agentName}
               </span>
               {rec.recommendation_type && (
-                <span className="text-[10px] text-muted-foreground font-mono">
+                <span className="text-[12px] text-muted-foreground font-mono">
                   {rec.recommendation_type}
                 </span>
               )}
@@ -1013,7 +1013,7 @@ function RecommendationCard({
                 {rec.related_entity_id ? ` (${rec.related_entity_id})` : ""}
               </p>
             )}
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-[12px] text-muted-foreground">
               {fmtDate(rec.created_at)}
             </p>
 
@@ -1072,7 +1072,7 @@ function RecommendationCard({
               <Button
                 size="sm"
                 variant="outline"
-                className="h-6 text-[11px] gap-1"
+                className="h-6 text-[12px] gap-1"
                 onClick={() => setExpanded((v) => !v)}
               >
                 {expanded ? (
@@ -1082,7 +1082,7 @@ function RecommendationCard({
                 )}
                 {expanded ? "Close" : "Open"}
                 {existingActions.length > 0 && (
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-[12px] text-muted-foreground">
                     · {existingActions.length} action
                     {existingActions.length === 1 ? "" : "s"}
                   </span>
@@ -1128,7 +1128,7 @@ function ActionBtn({
       size="sm"
       variant={variant === "green" ? "default" : "outline"}
       className={
-        "h-6 text-[11px] gap-1 " +
+        "h-6 text-[12px] gap-1 " +
         (variant === "green"
           ? "bg-green-600 hover:bg-green-700 text-white border-0"
           : "")
@@ -1220,7 +1220,7 @@ function RunHistoryTab({
                     </span>
                     {run.error_message && (
                       <p
-                        className="text-[10px] text-red-600 dark:text-red-400 mt-0.5 max-w-[200px] truncate"
+                        className="text-[12px] text-red-600 dark:text-red-400 mt-0.5 max-w-[200px] truncate"
                         title={run.error_message}
                       >
                         {run.error_message}
@@ -1294,10 +1294,10 @@ function ImpactGrid({ json }: { json: Record<string, unknown> }) {
   );
   if (entries.length === 0) return null;
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[12px]">
       {entries.map(([k, v]) => (
         <div key={k} className="rounded bg-muted/40 px-2 py-1">
-          <div className="text-muted-foreground uppercase tracking-wide text-[9px]">
+          <div className="text-muted-foreground uppercase tracking-wide text-[12px]">
             {k.replace(/_/g, " ")}
           </div>
           <div className="font-mono break-words">{formatImpactValue(v)}</div>
@@ -1393,7 +1393,7 @@ function RecommendationDetailPanel({
       {/* Evidence */}
       {rec.impact_json && Object.keys(rec.impact_json).length > 0 && (
         <div className="space-y-1">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+          <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium">
             Evidence
           </p>
           <ImpactGrid json={rec.impact_json} />
@@ -1404,13 +1404,13 @@ function RecommendationDetailPanel({
       {existingActions.length > 0 && (
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+            <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium">
               Actions already created
             </p>
             <Button
               size="sm"
               variant="ghost"
-              className="h-6 text-[11px]"
+              className="h-6 text-[12px]"
               onClick={onSwitchToActions}
             >
               Open in Actions
@@ -1424,14 +1424,14 @@ function RecommendationDetailPanel({
               >
                 <span className="truncate">{a.title}</span>
                 <span
-                  className={`inline-flex items-center text-[10px] px-1.5 py-0.5 rounded ${ACTION_STATUS_STYLE[a.status] ?? ""}`}
+                  className={`inline-flex items-center text-[12px] px-1.5 py-0.5 rounded ${ACTION_STATUS_STYLE[a.status] ?? ""}`}
                 >
                   {a.status}
                 </span>
               </li>
             ))}
           </ul>
-          <p className="text-[11px] text-muted-foreground italic">
+          <p className="text-[12px] text-muted-foreground italic">
             Duplicates are prevented while these actions stay open.
           </p>
         </div>
@@ -1440,7 +1440,7 @@ function RecommendationDetailPanel({
       {/* Proposed actions */}
       <div className="space-y-1">
         <div className="flex items-center justify-between">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+          <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium">
             Proposed action{proposals.length === 1 ? "" : "s"}
           </p>
           {existingActions.length === 0 && (
@@ -1477,10 +1477,10 @@ function RecommendationDetailPanel({
               >
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold">{p.title}</span>
-                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  <span className="text-[12px] uppercase tracking-wide text-muted-foreground">
                     {ACTION_TYPE_LABEL[p.action_type] ?? p.action_type}
                   </span>
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-[12px] text-muted-foreground">
                     priority: {p.priority}
                   </span>
                 </div>
@@ -1504,7 +1504,7 @@ function RecommendationDetailPanel({
                 {targetRoute && (
                   <Link
                     href={targetRoute}
-                    className="inline-flex items-center gap-1 text-[11px] text-orange-600 dark:text-orange-300 hover:underline"
+                    className="inline-flex items-center gap-1 text-[12px] text-orange-600 dark:text-orange-300 hover:underline"
                   >
                     <ExternalLink className="h-3 w-3" />
                     Open {targetRoute}
@@ -1525,7 +1525,7 @@ function RecommendationDetailPanel({
             <Button
               size="sm"
               variant="outline"
-              className="h-6 text-[11px] gap-1"
+              className="h-6 text-[12px] gap-1"
               onClick={onSwitchToActions}
             >
               Go to Actions
@@ -1632,7 +1632,7 @@ function PriceChangePreview({
 
   return (
     <div className="space-y-1.5">
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-1 text-[11px]">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-1 text-[12px]">
         <div>
           <div className="text-muted-foreground">Current price</div>
           <div className="font-mono">{fmt(payload.current_price)}</div>
@@ -1663,7 +1663,7 @@ function PriceChangePreview({
         </div>
       </div>
       {disclaimer && (
-        <div className="text-[11px] italic text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded px-2 py-1 border border-amber-200 dark:border-amber-900/40">
+        <div className="text-[12px] italic text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded px-2 py-1 border border-amber-200 dark:border-amber-900/40">
           {disclaimer}
         </div>
       )}
@@ -1996,13 +1996,13 @@ function ActionCard({
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-semibold">{action.title}</span>
               <span
-                className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded font-medium ${ACTION_STATUS_STYLE[action.status] ?? ""}`}
+                className={`text-[12px] uppercase tracking-wide px-1.5 py-0.5 rounded font-medium ${ACTION_STATUS_STYLE[action.status] ?? ""}`}
               >
                 {action.status}
               </span>
               <span
                 className={
-                  "text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded " +
+                  "text-[12px] uppercase tracking-wide px-1.5 py-0.5 rounded " +
                   (action.priority === "critical"
                     ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
                     : action.priority === "high"
@@ -2014,10 +2014,10 @@ function ActionCard({
               >
                 {action.priority}
               </span>
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              <span className="text-[12px] uppercase tracking-wide text-muted-foreground">
                 {ACTION_TYPE_LABEL[action.action_type] ?? action.action_type}
               </span>
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[12px] text-muted-foreground">
                 {agentName}
               </span>
             </div>
@@ -2036,7 +2036,7 @@ function ActionCard({
             )}
 
             {/* Metadata row: assignee · related · due · created */}
-            <div className="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground">
+            <div className="flex items-center gap-2 flex-wrap text-[12px] text-muted-foreground">
               <span
                 className={
                   "inline-flex items-center gap-1 px-1.5 py-0.5 rounded " +
@@ -2073,7 +2073,7 @@ function ActionCard({
             {targetRoute && (
               <Link
                 href={targetRoute}
-                className="inline-flex items-center gap-1 text-[11px] text-orange-600 dark:text-orange-300 hover:underline"
+                className="inline-flex items-center gap-1 text-[12px] text-orange-600 dark:text-orange-300 hover:underline"
               >
                 <ExternalLink className="h-3 w-3" />
                 Open {targetRoute}
@@ -2081,7 +2081,7 @@ function ActionCard({
             )}
 
             {action.outcome_notes && (
-              <p className="text-[11px] italic text-muted-foreground">
+              <p className="text-[12px] italic text-muted-foreground">
                 Note: {action.outcome_notes}
               </p>
             )}
@@ -2169,7 +2169,7 @@ function ActionCard({
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 text-[11px] gap-1 ml-auto"
+                className="h-6 text-[12px] gap-1 ml-auto"
                 onClick={() => setExpanded((v) => !v)}
               >
                 {expanded ? (
@@ -2181,7 +2181,7 @@ function ActionCard({
               </Button>
             </div>
 
-            <p className="text-[10px] text-muted-foreground italic">
+            <p className="text-[12px] text-muted-foreground italic">
               Team assignment will be available once team management is enabled.
             </p>
 
@@ -2195,7 +2195,7 @@ function ActionCard({
                 {/* Source recommendation */}
                 {sourceRecommendation && (
                   <div className="space-y-1">
-                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+                    <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium">
                       Source recommendation
                     </p>
                     <p className="text-sm font-medium">
@@ -2206,7 +2206,7 @@ function ActionCard({
                         {sourceRecommendation.description}
                       </p>
                     )}
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-[12px] text-muted-foreground">
                       Severity: {sourceRecommendation.severity} · Status:{" "}
                       {sourceRecommendation.status}
                     </p>
@@ -2217,7 +2217,7 @@ function ActionCard({
                 {action.payload_json &&
                   Object.keys(action.payload_json).length > 0 && (
                     <div className="space-y-1">
-                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+                      <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium">
                         Payload
                       </p>
                       <ImpactGrid json={action.payload_json} />
@@ -2226,7 +2226,7 @@ function ActionCard({
                 {action.impact_json &&
                   Object.keys(action.impact_json).length > 0 && (
                     <div className="space-y-1">
-                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+                      <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium">
                         Impact
                       </p>
                       <ImpactGrid json={action.impact_json} />
@@ -2235,7 +2235,7 @@ function ActionCard({
 
                 {/* Event timeline */}
                 <div className="space-y-1">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+                  <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium">
                     Event history
                   </p>
                   {eventsLoading && (
@@ -2267,21 +2267,21 @@ function ActionCard({
                                 {EVENT_LABEL[ev.event_type] ?? ev.event_type}
                               </span>
                               {ev.previous_status && ev.new_status && (
-                                <span className="text-[10px] text-muted-foreground">
+                                <span className="text-[12px] text-muted-foreground">
                                   {ev.previous_status} → {ev.new_status}
                                 </span>
                               )}
                               {flags.length > 0 && (
-                                <span className="text-[10px] text-muted-foreground">
+                                <span className="text-[12px] text-muted-foreground">
                                   ({flags.join(", ")})
                                 </span>
                               )}
-                              <span className="text-[10px] text-muted-foreground ml-auto">
+                              <span className="text-[12px] text-muted-foreground ml-auto">
                                 {fmtDate(ev.created_at)}
                               </span>
                             </div>
                             {ev.note && (
-                              <p className="text-[11px] text-muted-foreground italic mt-0.5">
+                              <p className="text-[12px] text-muted-foreground italic mt-0.5">
                                 “{ev.note}”
                               </p>
                             )}
@@ -2396,7 +2396,7 @@ function ExecutePriceUpdateDialog({
           {/* Numbers */}
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="rounded bg-muted/40 px-2 py-1.5">
-              <div className="text-muted-foreground uppercase tracking-wide text-[9px]">
+              <div className="text-muted-foreground uppercase tracking-wide text-[12px]">
                 Current internal price
               </div>
               <div className="font-mono text-sm">
@@ -2404,7 +2404,7 @@ function ExecutePriceUpdateDialog({
               </div>
             </div>
             <div className="rounded bg-orange-50 dark:bg-orange-900/20 px-2 py-1.5">
-              <div className="text-muted-foreground uppercase tracking-wide text-[9px]">
+              <div className="text-muted-foreground uppercase tracking-wide text-[12px]">
                 New price
               </div>
               <div className="font-mono text-sm font-semibold text-orange-700 dark:text-orange-300">
@@ -2412,7 +2412,7 @@ function ExecutePriceUpdateDialog({
               </div>
             </div>
             <div className="rounded bg-muted/40 px-2 py-1.5">
-              <div className="text-muted-foreground uppercase tracking-wide text-[9px]">
+              <div className="text-muted-foreground uppercase tracking-wide text-[12px]">
                 Estimated cost
               </div>
               <div className="font-mono text-sm">
@@ -2420,7 +2420,7 @@ function ExecutePriceUpdateDialog({
               </div>
             </div>
             <div className="rounded bg-muted/40 px-2 py-1.5">
-              <div className="text-muted-foreground uppercase tracking-wide text-[9px]">
+              <div className="text-muted-foreground uppercase tracking-wide text-[12px]">
                 Target margin
               </div>
               <div className="font-mono text-sm">
@@ -2430,7 +2430,7 @@ function ExecutePriceUpdateDialog({
               </div>
             </div>
             <div className="col-span-2 rounded bg-muted/40 px-2 py-1.5">
-              <div className="text-muted-foreground uppercase tracking-wide text-[9px]">
+              <div className="text-muted-foreground uppercase tracking-wide text-[12px]">
                 Expected margin after change
               </div>
               <div className="font-mono text-sm">

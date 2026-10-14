@@ -46,7 +46,7 @@ export function KitchenHighlights({
       <h2 className="text-sm font-semibold">
         {t(lang, "What stands out", "Lo que destaca")}
       </h2>
-      <p className="text-[11px] text-muted-foreground mb-2">
+      <p className="text-[12px] text-muted-foreground mb-2">
         {t(
           lang,
           "3 figures calculated from your kitchen reports",
@@ -76,7 +76,7 @@ export function KitchenHighlights({
                   {icon.mark}
                 </span>
                 <div className="min-w-0">
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-[12px] text-muted-foreground">
                     {item.title}
                   </p>
                   <p className="text-sm font-semibold leading-snug">
@@ -89,7 +89,7 @@ export function KitchenHighlights({
           })}
         </ul>
       )}
-      <p className="text-[10px] text-muted-foreground text-center mt-3">
+      <p className="text-[12px] text-muted-foreground text-center mt-3">
         {t(
           lang,
           "Milton explains these figures; he does not invent them.",

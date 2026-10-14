@@ -190,7 +190,7 @@ export function RecipeImportPreview({
             nada cuenta en los márgenes hasta que lo apruebes.
           </p>
           {preview.unmatched && preview.unmatched.length > 0 ? (
-            <details className="text-[11px] text-[#5b6476]">
+            <details className="text-[12px] text-[#5b6476]">
               <summary className="cursor-pointer font-semibold">
                 {preview.unmatched.length} platos sin vínculo al POS (sin contar
                 eventos): por qué
@@ -205,9 +205,9 @@ export function RecipeImportPreview({
             </details>
           ) : null}
           <div className="max-h-[50vh] overflow-auto rounded-lg border border-slate-200">
-            <table className="w-full text-[11.5px]">
+            <table className="w-full text-[12px]">
               <thead className="sticky top-0 bg-white">
-                <tr className="text-left text-[10.5px] font-semibold text-[#8a92a3]">
+                <tr className="text-left text-[12px] font-semibold text-[#8a92a3]">
                   <th className="px-2 py-1.5">Plato</th>
                   <th className="px-2 py-1.5 text-right">Nuestro costo</th>
                   <th className="px-2 py-1.5 text-right">COSTO TOTAL Excel</th>
@@ -223,7 +223,7 @@ export function RecipeImportPreview({
                   >
                     <td className="px-2 py-1">
                       <b>{row.dish}</b>
-                      <div className="text-[10px] text-[#8a92a3]">
+                      <div className="text-[12px] text-[#8a92a3]">
                         {row.source}
                       </div>
                     </td>
@@ -241,7 +241,7 @@ export function RecipeImportPreview({
                     >
                       {row.match ? "✓" : "✗"}
                     </td>
-                    <td className="px-2 py-1 text-[10.5px] text-[#5b6476]">
+                    <td className="px-2 py-1 text-[12px] text-[#5b6476]">
                       {row.skip_reason ? (
                         <div className="text-[#a35a00]">{row.skip_reason}</div>
                       ) : null}

@@ -54,7 +54,7 @@ export function CockpitKpiStrip({
 
   return (
     <section aria-label={t(lang, "Key numbers", "Cifras clave")}>
-      <p className="text-[11px] text-muted-foreground mb-1">
+      <p className="text-[12px] text-muted-foreground mb-1">
         {t(lang, "Key numbers", "Cifras clave")}
         {model.period_label ? ` · ${model.period_label}` : ""}
       </p>
@@ -185,7 +185,7 @@ export function CockpitKpiStrip({
         )}
       </div>
 
-      <p className="text-[11px] text-muted-foreground mt-1">
+      <p className="text-[12px] text-muted-foreground mt-1">
         {t(lang, "Gross", "Bruto")} {money.format(rev.gross_sales)}
         {estimatedHint}
         {" · "}
@@ -236,7 +236,7 @@ function Kpi({
   return (
     <div className="rounded-md border border-border bg-background px-2.5 py-1.5 min-h-[4.5rem]">
       <p
-        className="text-[11px] font-medium text-muted-foreground truncate"
+        className="text-[12px] font-medium text-muted-foreground truncate"
         title={label}
       >
         {label}
@@ -250,7 +250,7 @@ function Kpi({
         {value}
       </p>
       {delta !== undefined ? (
-        <p className={"text-[10px] tabular-nums " + deltaClass}>
+        <p className={"text-[12px] tabular-nums " + deltaClass}>
           {delta == null
             ? t(lang ?? "es", "no previous period", "sin periodo anterior")
             : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}%`}
@@ -258,7 +258,7 @@ function Kpi({
       ) : null}
       {sub ? (
         <p
-          className="text-[10px] text-muted-foreground mt-0.5 leading-snug"
+          className="text-[12px] text-muted-foreground mt-0.5 leading-snug"
           title={sub}
         >
           {sub}

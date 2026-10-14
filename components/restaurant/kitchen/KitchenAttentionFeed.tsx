@@ -92,7 +92,7 @@ export function KitchenAttentionFeed({
         <h2 className="text-sm font-semibold">
           {t(lang, "Needs attention today", "Necesita atención hoy")}
         </h2>
-        <span className="text-[11px] text-muted-foreground">
+        <span className="text-[12px] text-muted-foreground">
           {t(lang, "Reports from your team", "Reportes de tu equipo")}
         </span>
         <div
@@ -155,7 +155,7 @@ export function KitchenAttentionFeed({
                     {item.detail}
                   </p>
                 </div>
-                <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                <span className="text-[12px] text-muted-foreground whitespace-nowrap">
                   {item.time_label}
                 </span>
                 <button

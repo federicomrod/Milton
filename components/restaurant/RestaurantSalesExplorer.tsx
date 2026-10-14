@@ -1529,7 +1529,7 @@ export function RestaurantSalesExplorer({
               )}
               More filters
               {moreFilterCount > 0 && (
-                <span className="ml-0.5 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold tabular-nums">
+                <span className="ml-0.5 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-primary text-primary-foreground text-[12px] font-semibold tabular-nums">
                   {moreFilterCount}
                 </span>
               )}

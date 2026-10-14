@@ -46,7 +46,7 @@ export function SalesHighlights({
         <ul className="space-y-3">
           {highlights.map((item) => (
             <li key={item.id} data-testid={`sales-highlight-${item.id}`}>
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              <p className="text-[12px] uppercase tracking-wide text-muted-foreground">
                 {item.title}
               </p>
               <p className="text-sm font-medium leading-snug">{item.body}</p>

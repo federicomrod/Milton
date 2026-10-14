@@ -129,7 +129,7 @@ export function KitchenPageLive({
       />
       <div
         data-testid="kitchen-legend"
-        className="flex flex-wrap items-center gap-4 text-[11px] text-muted-foreground rounded-md border border-border bg-background px-3 py-2"
+        className="flex flex-wrap items-center gap-4 text-[12px] text-muted-foreground rounded-md border border-border bg-background px-3 py-2"
       >
         <span className="font-semibold text-foreground">
           {t(lang, "Legend", "Leyenda")}

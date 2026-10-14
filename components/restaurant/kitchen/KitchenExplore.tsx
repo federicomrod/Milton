@@ -55,7 +55,7 @@ export function KitchenExplore({
         <h2 className="text-sm font-semibold">
           {t(lang, "Explore", "Explorar")}
         </h2>
-        <span className="text-[11px] text-muted-foreground">
+        <span className="text-[12px] text-muted-foreground">
           {t(lang, "One analysis at a time", "Un análisis a la vez")}
         </span>
       </div>
@@ -148,7 +148,7 @@ export function KitchenExplore({
                 >
                   <div>
                     <p className="font-medium">{row.name}</p>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-[12px] text-muted-foreground">
                       {row.is_active
                         ? t(lang, "Active", "Activo")
                         : t(lang, "Removed", "Inactivo")}
@@ -220,7 +220,7 @@ function RankTable({
   }
   return (
     <div className="space-y-1" data-testid="kitchen-ranked">
-      <div className="grid grid-cols-[22px_minmax(0,150px)_1fr_72px_110px_130px] gap-2 text-[11px] text-muted-foreground px-0.5">
+      <div className="grid grid-cols-[22px_minmax(0,150px)_1fr_72px_110px_130px] gap-2 text-[12px] text-muted-foreground px-0.5">
         <span>#</span>
         <span>{t(lang, "Item", "Producto")}</span>
         <span>{t(lang, "Reports", "Reportes")}</span>
@@ -253,7 +253,7 @@ function RankTable({
           </span>
           <span className="text-right">
             {showValue && row.pending_value ? (
-              <span className="inline-flex items-center rounded border border-dashed border-muted-foreground/40 bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+              <span className="inline-flex items-center rounded border border-dashed border-muted-foreground/40 bg-muted px-1.5 py-0.5 text-[12px] font-semibold text-muted-foreground">
                 {pendingLabel}
               </span>
             ) : (

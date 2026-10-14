@@ -28,11 +28,11 @@ export function CockpitInsightsCard({
           {t(lang, "Milton briefing", "Briefing de Milton")}
         </h2>
         {source === "openai" ? (
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[12px] text-muted-foreground">
             {t(lang, "Wording by Milton", "Redacción de Milton")}
           </span>
         ) : (
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[12px] text-muted-foreground">
             {t(lang, "Automatic summary", "Resumen automático")}
           </span>
         )}

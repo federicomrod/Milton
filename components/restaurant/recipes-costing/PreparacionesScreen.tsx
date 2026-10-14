@@ -7,6 +7,15 @@ import type {
   PreparationRow,
   PreparationsOverview,
 } from "@/lib/restaurant/recipe-costing/preparations-server";
+import {
+  clearEditors,
+  editorQuery,
+  prefetchEditor,
+  putEditor,
+} from "@/lib/restaurant/recipe-costing/editor-cache";
+import { markTabsStale } from "@/lib/restaurant/recipe-costing/menu-tab-cache";
+import { cachedPickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
+import { withPreparationApproved } from "@/lib/restaurant/recipe-costing/preparation-optimistic";
 import { ConfirmHowDialog } from "./ConfirmHowDialog";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
 import { Card, Chip, GhostBtn } from "./ui";
@@ -64,43 +73,70 @@ export function PreparacionesScreen({
   onBackToDish?: () => void;
   locationId?: string | null;
 }) {
-  const [overview, setOverview] = useState<PreparationsOverview | null>(null);
+  // R1-13: the list rides in the tab's payload (no second request on open);
+  // it is only read again after edits, in the background.
+  const [overview, setOverview] = useState<PreparationsOverview | null>(
+    data.preparations_overview ?? null
+  );
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [approveError, setApproveError] = useState<string | null>(null);
+
+  const provided = data.preparations_overview ?? null;
+  useEffect(() => {
+    if (provided) setOverview(provided);
+  }, [provided]);
+
+  const fetchOverview = useCallback(async () => {
+    const q = locationId
+      ? `?location_id=${encodeURIComponent(locationId)}`
+      : "";
+    const res = await fetch(`/api/restaurant/recipes/preparations${q}`);
+    const json = (await res
+      .json()
+      .catch(() => ({}))) as PreparationsOverview & {
+      error?: string;
+    };
+    if (!res.ok)
+      throw new Error(json.error ?? "No pude cargar las preparaciones.");
+    return json;
+  }, [locationId]);
 
   useEffect(() => {
+    // Opened with the list already in hand: nothing to read until an edit.
+    if (provided && reloadKey === 0) return;
     let cancelled = false;
     void (async () => {
-      const q = locationId
-        ? `?location_id=${encodeURIComponent(locationId)}`
-        : "";
-      const res = await fetch(`/api/restaurant/recipes/preparations${q}`);
-      const json = (await res
-        .json()
-        .catch(() => ({}))) as PreparationsOverview & {
-        error?: string;
-      };
-      if (cancelled) return;
-      if (!res.ok) setError(json.error ?? "No pude cargar las preparaciones.");
-      else {
+      try {
+        const json = await fetchOverview();
+        if (cancelled) return;
         setOverview(json);
         setError(null);
+      } catch (err) {
+        if (!cancelled && !overviewRef.current) {
+          setError(err instanceof Error ? err.message : "No pude cargar.");
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [locationId, reloadKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchOverview, reloadKey]);
+  const overviewRef = useRef(overview);
+  useEffect(() => {
+    overviewRef.current = overview;
+  }, [overview]);
 
-  // R1-09c: an edit refreshes only this list (once, after a burst of
-  // edits); the Menú workspace is not reloaded.
+  // An edit refreshes only this list, once, a few seconds after a burst of
+  // edits; the Menú workspace is not reloaded.
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refresh = useCallback(() => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => {
       refreshTimer.current = null;
       setReloadKey((k) => k + 1);
-    }, 600);
+    }, 3000);
   }, []);
   useEffect(
     () => () => {
@@ -108,6 +144,56 @@ export function PreparacionesScreen({
     },
     []
   );
+
+  /** Read a preparation's lines ahead of time (pointer over it, or the top
+   *  drafts once the list is up): opening it then needs no request. */
+  const prefetchPrep = useCallback((componentId: string) => {
+    const query = editorQuery({ componentId });
+    const omit = cachedPickerOptions() ? "&omit_options=1" : "";
+    void prefetchEditor(
+      query,
+      async () => {
+        const res = await fetch(
+          `/api/restaurant/recipes/editor?${query}${omit}`
+        );
+        return res.ok ? ((await res.json()) as EditorState) : null;
+      },
+      { maxAgeMs: 120_000 }
+    );
+  }, []);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prefetchOnIntent = useCallback(
+    (componentId: string) => {
+      if (hoverTimer.current) clearTimeout(hoverTimer.current);
+      hoverTimer.current = setTimeout(() => prefetchPrep(componentId), 120);
+    },
+    [prefetchPrep]
+  );
+  useEffect(
+    () => () => {
+      if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    },
+    []
+  );
+  const topIds = (overview?.rows ?? [])
+    .filter((r) => r.status === "borrador")
+    .slice(0, 3)
+    .map((r) => r.component_id)
+    .join(",");
+  useEffect(() => {
+    if (!topIds) return;
+    const timer = setTimeout(() => {
+      for (const id of topIds.split(",")) prefetchPrep(id);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [topIds, prefetchPrep]);
+
+  /** Optimistic: the list shows it approved at once; rolled back on error. */
+  const markApproved = useCallback((componentId: string, approved: boolean) => {
+    setOverview((prev) =>
+      prev ? withPreparationApproved(prev, componentId, approved) : prev
+    );
+  }, []);
 
   return (
     <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-[330px_1fr]">
@@ -127,6 +213,11 @@ export function PreparacionesScreen({
         >
           Preparaciones de tu cocina
         </h2>
+        {approveError ? (
+          <p className="mb-2 rounded-md border border-[#f1c0c0] bg-[#fdecec] px-2 py-1 text-xs text-[#c03535]">
+            {approveError}
+          </p>
+        ) : null}
         {error ? (
           <p className="text-xs text-[#c03535]">{error}</p>
         ) : !overview ? (
@@ -149,6 +240,8 @@ export function PreparacionesScreen({
                     key={row.component_id}
                     type="button"
                     onClick={() => onSelect(row.component_id)}
+                    onMouseEnter={() => prefetchOnIntent(row.component_id)}
+                    onFocus={() => prefetchOnIntent(row.component_id)}
                     className={
                       "block w-full border-b border-slate-100 px-2 py-1.5 text-left text-xs last:border-b-0 hover:bg-slate-50 " +
                       (selectedId === row.component_id ? "bg-[#f4f6fb]" : "")
@@ -179,9 +272,17 @@ export function PreparacionesScreen({
           key={selectedId}
           componentId={selectedId}
           actor={data.actor}
-          reloadKey={reloadKey}
           onChanged={refresh}
           onOpen={onSelect}
+          name={overview?.rows.find((r) => r.component_id === selectedId)?.name}
+          onApproveStart={(id) => {
+            setApproveError(null);
+            markApproved(id, true);
+          }}
+          onApproveFailed={(id, message) => {
+            markApproved(id, false);
+            setApproveError(message);
+          }}
         />
       ) : (
         <Card className="p-4 text-sm text-[#5b6476]">
@@ -196,21 +297,27 @@ export function PreparacionesScreen({
 function PreparationDetail({
   componentId,
   actor,
-  reloadKey,
   onChanged,
   onOpen,
+  name,
+  onApproveStart,
+  onApproveFailed,
 }: {
   componentId: string;
   actor: RecipeCostingWorkspace["actor"];
-  reloadKey: number;
   onChanged: () => void;
   onOpen: (componentId: string) => void;
+  name?: string;
+  onApproveStart: (componentId: string) => void;
+  onApproveFailed: (componentId: string, message: string) => void;
 }) {
   const [state, setState] = useState<EditorState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [localReload, setLocalReload] = useState(0);
   const [howOpen, setHowOpen] = useState(false);
+  /** Approve pressed and not yet refused: shown as approved right away. */
+  const [approvedNow, setApprovedNow] = useState(false);
   const prep = state?.preparation;
   const [qty, setQty] = useState("");
   const [unit, setUnit] = useState("oz");
@@ -234,7 +341,7 @@ function PreparationDetail({
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(json.error ?? "No pude guardar.");
-      // Yield or approval changed the version: reload this editor once.
+      // Yield changed the version: reload this editor once.
       setLocalReload((k) => k + 1);
       onChanged();
     } catch (err) {
@@ -244,11 +351,42 @@ function PreparationDetail({
     }
   }
 
-  const approve = (how?: string) =>
-    void post("/api/restaurant/recipes/preparations/approve", {
-      component_id: componentId,
-      confirmed_how: how,
-    });
+  /**
+   * R1-13: approving is instant on screen (the list row and this detail show
+   * it approved at once) and saved in the background. If the save is refused
+   * everything goes back and the reason is shown. The dishes that use it are
+   * re-costed by the server after it answers, not before.
+   */
+  async function approve(how?: string) {
+    setError(null);
+    setApprovedNow(true);
+    onApproveStart(componentId);
+    try {
+      const res = await fetch("/api/restaurant/recipes/preparations/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ component_id: componentId, confirmed_how: how }),
+      });
+      const json = (await res.json().catch(() => ({}))) as EditorState & {
+        error?: string;
+      };
+      if (!res.ok) throw new Error(json.error ?? "No pude aprobar.");
+      // The server's locked copy is what this preparation shows from now on;
+      // dishes that use it, and the other Menú tabs, have new numbers.
+      clearEditors();
+      putEditor(editorQuery({ componentId }), json);
+      markTabsStale();
+      setState(json);
+      onChanged();
+    } catch (err) {
+      setApprovedNow(false);
+      const message = `${name ?? "La preparación"}: ${
+        err instanceof Error ? err.message : "no se pudo aprobar."
+      }`;
+      setError(message);
+      onApproveFailed(componentId, message);
+    }
+  }
 
   return (
     <div className="space-y-3">
@@ -256,7 +394,8 @@ function PreparationDetail({
         <RecipeLinesEditor
           componentId={componentId}
           portionCostLabel={null}
-          reloadKey={reloadKey + localReload}
+          reloadKey={localReload}
+          forceLocked={approvedNow}
           onEdited={onChanged}
           onState={handleState}
           onOpenPreparation={onOpen}
@@ -275,7 +414,7 @@ function PreparationDetail({
               <Chip tone="warn">Sugerido, por confirmar</Chip>
             )}
           </div>
-          {state?.editable ? (
+          {state?.editable && !approvedNow ? (
             <div className="flex flex-wrap items-center gap-2">
               Esta receta rinde
               <input
@@ -326,7 +465,7 @@ function PreparationDetail({
             </div>
           ) : null}
 
-          {state?.editable ? (
+          {state?.editable && !approvedNow ? (
             <div className="flex items-center gap-2">
               {/* C3: only what blocks, as a chip; the detail is in the
                   button's tooltip (with who approves, B9). */}
@@ -344,7 +483,7 @@ function PreparationDetail({
                   onClick={() =>
                     actor.needs_client_confirmation
                       ? setHowOpen(true)
-                      : approve()
+                      : void approve()
                   }
                   className="rounded-lg bg-[#f28c28] px-3.5 py-[7px] text-[13px] font-semibold text-white hover:bg-[#e07b1a] disabled:opacity-45"
                 >
@@ -373,7 +512,7 @@ function PreparationDetail({
         onCancel={() => setHowOpen(false)}
         onConfirm={(how) => {
           setHowOpen(false);
-          approve(how);
+          void approve(how);
         }}
       />
     </div>

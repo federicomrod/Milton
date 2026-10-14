@@ -87,7 +87,8 @@ export async function fetchCostingRecipeVersions(
             .from("recipe_version_inputs")
             .select(select)
             .eq("company_id", companyId),
-        "recipe_version_id, input_type, ingredient_id, component_id, quantity, unit, unit_cost"
+        "recipe_version_id, input_type, ingredient_id, component_id, quantity, unit, unit_cost",
+        { hintKey: `rvi_costing:${companyId}` }
       )
     ),
     fetchAllRows<{

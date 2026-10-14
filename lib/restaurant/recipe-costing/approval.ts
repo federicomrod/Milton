@@ -134,7 +134,7 @@ function computedMiltonCost(evidence: SuggestionEvidenceView): number | null {
     (sum, line) => sum + line.qty * (line.unit_cost ?? 0),
     0
   );
-  return Number.isFinite(total) && total > 0 ? total : null;
+  return Number.isFinite(total) && total >= 0 ? total : null;
 }
 
 export function buildApprovalChecklist(input: {
@@ -159,7 +159,9 @@ export function buildApprovalChecklist(input: {
   // blocks (a preparation line without a cost already does).
   const yieldConfirmed = hasKnownYield;
   const miltonCost = computedMiltonCost(input.evidence);
-  const hasComputedCost = miltonCost != null && miltonCost > 0;
+  // 0 is a cost when every line is priced (a preparation of water);
+  // "no cost" is null.
+  const hasComputedCost = miltonCost != null && miltonCost >= 0;
   const excelMatch = input.evidence.excel_match;
   const excelOk = excelMatch === "match";
   const yieldName =

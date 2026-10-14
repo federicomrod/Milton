@@ -690,6 +690,19 @@ function cleanQuantity(value: unknown): number | null {
     : null;
 }
 
+/**
+ * A price a person typed: zero is allowed (water, ice) because they typed
+ * it; a missing value is never turned into zero (null = not given).
+ */
+export function cleanPrice(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
+}
+
+/** Note on the price entry, so a $0 is visibly on purpose. */
+const ZERO_PRICE_NOTE = "Precio $0 confirmado a propósito";
+
 function cleanUnit(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const text = value.trim();
@@ -1067,11 +1080,11 @@ export async function applyEdit(
         };
       }
       const price =
-        action.unit_cost === undefined ? null : cleanQuantity(action.unit_cost);
-      if (action.unit_cost !== undefined && !price) {
+        action.unit_cost === undefined ? null : cleanPrice(action.unit_cost);
+      if (action.unit_cost !== undefined && price === null) {
         return {
           ok: false,
-          error: "El precio tiene que ser mayor que cero.",
+          error: "El precio no puede ser negativo.",
           status: 400,
         };
       }
@@ -1091,7 +1104,7 @@ export async function applyEdit(
         defaultUnit: unit,
         currency,
       });
-      if (price) {
+      if (price !== null) {
         await ctx.store.addCostEntry(ctx.companyId, {
           ingredientId: created.id,
           unit,
@@ -1099,7 +1112,10 @@ export async function applyEdit(
           currency,
           date: new Date().toISOString().slice(0, 10),
           dateSource: "manual",
-          note: "Precio al crear el ingrediente en Recetas y costeo",
+          note:
+            price === 0
+              ? ZERO_PRICE_NOTE
+              : "Precio al crear el ingrediente en Recetas y costeo",
         });
       }
       if (action.line_key) {
@@ -1279,11 +1295,11 @@ export async function applyEdit(
         return { ok: false, error: "No encontré esa línea.", status: 404 };
       }
       const cost =
-        action.unit_cost === null ? null : cleanQuantity(action.unit_cost);
-      if (action.unit_cost !== null && !cost) {
+        action.unit_cost === null ? null : cleanPrice(action.unit_cost);
+      if (action.unit_cost !== null && cost === null) {
         return {
           ok: false,
-          error: "El precio tiene que ser mayor que cero.",
+          error: "El precio no puede ser negativo.",
           status: 400,
         };
       }
@@ -1303,7 +1319,7 @@ export async function applyEdit(
           currency,
           date: new Date().toISOString().slice(0, 10),
           dateSource: "manual",
-          note: "Precio corregido en Platos",
+          note: cost === 0 ? ZERO_PRICE_NOTE : "Precio corregido en Platos",
         });
         // The rebuild below reads the catalog loaded at the start of this
         // edit: add the new entry to it instead of loading it again.
@@ -1347,9 +1363,9 @@ export async function applyEdit(
       break;
     }
     case "set_price": {
-      const price = cleanQuantity(action.unit_cost);
+      const price = cleanPrice(action.unit_cost);
       const unit = cleanUnit(action.unit);
-      if (!price || !unit) {
+      if (price === null || !unit) {
         return {
           ok: false,
           error: "Indica un precio y una unidad válidos.",
@@ -1371,7 +1387,10 @@ export async function applyEdit(
         currency,
         date: new Date().toISOString().slice(0, 10),
         dateSource: "manual",
-        note: "Precio corregido en Recetas y costeo",
+        note:
+          price === 0
+            ? ZERO_PRICE_NOTE
+            : "Precio corregido en Recetas y costeo",
       });
       break;
     }
@@ -1489,12 +1508,28 @@ export async function approvePreparation(
     componentId: string;
     /** Milton staff: how the client confirmed. */
     confirmedHow?: string | null;
+    /**
+     * R1-13: answer as soon as the preparation is approved. The dishes that
+     * use it are re-costed by `recost()` (run it after the response), not
+     * before it.
+     */
+    deferRefresh?: boolean;
   }
 ): Promise<
-  | { ok: true; state: EditorState; refreshed_dishes: number }
+  | {
+      ok: true;
+      state: EditorState;
+      refreshed_dishes: number;
+      /** Set with deferRefresh: re-cost the dishes that use it, in bulk. */
+      recost?: () => Promise<number>;
+    }
   | { ok: false; error: string; status?: number }
 > {
-  const loaded = await load(ctx);
+  // The catalog, aliases and questions are read while the preparation is
+  // found, and once for the whole approval.
+  const readCtx: Ctx = { ...ctx, store: withCachedCatalog(ctx.store) };
+  warmCatalog(readCtx);
+  const loaded = await load(readCtx);
   if (!loaded.ok) return loaded;
   const { holder, version } = loaded;
   if (!version) {
@@ -1511,7 +1546,7 @@ export async function approvePreparation(
       status: 409,
     };
   }
-  const built = await build(ctx, loaded, evidenceLinesOf(holder.evidence));
+  const built = await build(readCtx, loaded, evidenceLinesOf(holder.evidence));
   const checklist = built.state.preparation?.checklist;
   if (!checklist?.ready) {
     return {
@@ -1520,6 +1555,8 @@ export async function approvePreparation(
       status: 400,
     };
   }
+  const denied = await ctx.guard;
+  if (denied) return denied;
   if (!ctx.userId) {
     return { ok: false, error: "Falta quién aprueba.", status: 400 };
   }
@@ -1530,33 +1567,54 @@ export async function approvePreparation(
   );
   await ctx.store.resolveHolder(ctx.companyId, holder);
 
-  // Dishes that use it now have a cost for that line.
-  let refreshed = 0;
-  const dishes = await ctx.store.dishesUsingPreparation(
-    ctx.companyId,
-    ctx.componentId
-  );
-  for (const dish of dishes) {
-    try {
-      const r = await refreshEvidence({
-        store: ctx.store,
-        companyId: ctx.companyId,
-        odooProductId: dish.odooProductId,
-        locationId: dish.locationId,
-        userId: ctx.userId,
-      });
-      if (r.ok) refreshed += 1;
-    } catch (err) {
-      console.error("[preparation approve refresh]", err);
-    }
-  }
+  // The approved preparation as the screen shows it: same lines, locked.
+  const approvedState: EditorState = {
+    ...built.state,
+    editable: false,
+    locked_reason:
+      "Esta preparación ya está aprobada. Para cambiarla hace falta una versión nueva.",
+    preparation: built.state.preparation
+      ? { ...built.state.preparation, status: "approved" }
+      : built.state.preparation,
+  };
 
-  const after = await load(ctx);
-  if (!after.ok) return after;
-  const rebuilt = await build(
-    ctx,
-    after,
-    evidenceLinesOf(after.holder.evidence)
-  );
-  return { ok: true, state: rebuilt.state, refreshed_dishes: refreshed };
+  // Dishes that use it now have a cost for that line. One catalog read
+  // for all of them, a few at a time (they were re-costed one by one, each
+  // reading everything again).
+  const recost = async (): Promise<number> => {
+    const dishes = await ctx.store.dishesUsingPreparation(
+      ctx.companyId,
+      ctx.componentId
+    );
+    const shared = withCachedCatalog(ctx.store);
+    let refreshed = 0;
+    for (let i = 0; i < dishes.length; i += RECOST_CONCURRENCY) {
+      await Promise.all(
+        dishes.slice(i, i + RECOST_CONCURRENCY).map(async (dish) => {
+          try {
+            const r = await refreshEvidence({
+              store: shared,
+              companyId: ctx.companyId,
+              odooProductId: dish.odooProductId,
+              locationId: dish.locationId,
+              userId: ctx.userId,
+            });
+            if (r.ok) refreshed += 1;
+          } catch (err) {
+            console.error("[preparation approve refresh]", err);
+          }
+        })
+      );
+    }
+    return refreshed;
+  };
+
+  if (ctx.deferRefresh) {
+    return { ok: true, state: approvedState, refreshed_dishes: 0, recost };
+  }
+  const refreshed = await recost();
+  return { ok: true, state: approvedState, refreshed_dishes: refreshed };
 }
+
+/** Dishes re-costed at once after a preparation is approved. */
+const RECOST_CONCURRENCY = 4;

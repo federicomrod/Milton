@@ -235,6 +235,41 @@ export function RecipesCostingWorkspace({
     [fetchWorkspace]
   );
 
+  /**
+   * R1-13: once the open tab is up, the other two are read in ONE request
+   * (they share the expensive part), so the first click on them already
+   * finds a copy. A save while it is on its way drops its answer.
+   */
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const shell = shellFromLocation();
+      const missing = (["resumen", "plato", "preparaciones"] as const).filter(
+        (v) =>
+          v !== activeTab.current && !getCachedTab(menuTabKey(v, shell))?.fresh
+      );
+      if (missing.length === 0) return;
+      const epochAtStart = tabEpoch();
+      const params = new URLSearchParams();
+      params.set("vistas", missing.join(","));
+      if (shell.location) params.set("location_id", shell.location);
+      if (shell.from && shell.to) {
+        params.set("start_date", shell.from);
+        params.set("end_date", shell.to);
+      }
+      void fetch(`/api/restaurant/recipes/costing?${params.toString()}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((json: Record<string, RecipeCostingWorkspace | null> | null) => {
+          if (!json || tabEpoch() !== epochAtStart) return;
+          for (const v of missing) {
+            const payload = json[v];
+            if (payload) putTab(menuTabKey(v, shell), payload);
+          }
+        })
+        .catch(() => undefined);
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [routeView, initial]);
+
   useEffect(
     () =>
       registerMenuTabSwitcher({
@@ -384,9 +419,10 @@ export function RecipesCostingWorkspace({
         if (value) params.set(key, value);
         else params.delete(key);
       }
-      startNavigation(() => {
-        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-      });
+      // R1-13: choosing another preparation only changes the address bar;
+      // the list and the cached lines are already here (it used to render
+      // the whole Menú page again on the server).
+      window.history.replaceState(null, "", `${pathname}?${params.toString()}`);
       return;
     }
     goToTab("preparaciones", extra);

@@ -463,13 +463,13 @@ describe("explicit ingredient creation", () => {
     });
   });
 
-  it("rejects a price of zero or less", async () => {
+  it("rejects a negative price (a typed 0 is allowed: see r1-13-zero-cost)", async () => {
     const d = draft();
     const r = await applyEdit(ctx(d), {
       action: "create_ingredient",
       name: "Comino",
       unit: "oz",
-      unit_cost: 0,
+      unit_cost: -1,
     });
     expect(r.ok).toBe(false);
     expect(d.ingredients).toHaveLength(3);

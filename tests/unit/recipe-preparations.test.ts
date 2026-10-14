@@ -279,6 +279,39 @@ describe("approving a preparation", () => {
     expect((await approvePreparation(prep(s))).ok).toBe(false);
   });
 
+  it("deferred: answers approved at once, the dishes are re-costed by recost() afterwards", async () => {
+    const s = kitchen();
+    await ready(s);
+    const evidenceBefore = JSON.stringify(s.link!.evidence);
+    const r = await approvePreparation({ ...prep(s), deferRefresh: true });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // Approved and locked in the answer, nothing re-costed yet.
+    expect(s.preparations[0].version!.status).toBe("approved");
+    expect(r.state.editable).toBe(false);
+    expect(r.state.preparation!.status).toBe("approved");
+    expect(r.refreshed_dishes).toBe(0);
+    expect(JSON.stringify(s.link!.evidence)).toBe(evidenceBefore);
+    // The follow-up does the bulk re-cost.
+    expect(await r.recost!()).toBe(1);
+    expect(JSON.stringify(s.link!.evidence)).not.toBe(evidenceBefore);
+  });
+
+  it("a denied role approves nothing", async () => {
+    const s = kitchen();
+    await ready(s);
+    const r = await approvePreparation({
+      ...prep(s),
+      guard: Promise.resolve({
+        ok: false,
+        error: "No puedes aprobar.",
+        status: 403,
+      }),
+    });
+    expect(r).toMatchObject({ ok: false, status: 403 });
+    expect(s.preparations[0].version!.status).toBe("in_review");
+  });
+
   it("gives the dish that uses it a cost for that line, right away", async () => {
     const s = kitchen();
     const before = await loadEditor(dish(s));

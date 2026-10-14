@@ -28,8 +28,13 @@ describe("Recetas y costeo loading feedback", () => {
     const replaces = src.match(/router\.replace\(/g) ?? [];
     const wrapped =
       src.match(/startNavigation\(\(\) => \{\s*router\.replace\(/g) ?? [];
-    expect(replaces.length).toBeGreaterThan(0);
+    // R1-13: choosing a preparation no longer re-renders the page on the
+    // server (address bar only); any router.replace left is still wrapped.
     expect(wrapped.length).toBe(replaces.length);
+    const pushes = src.match(/router\.push\(/g) ?? [];
+    const wrappedPushes =
+      src.match(/startNavigation\(\(\) => (\{\s*)?router\.push\(/g) ?? [];
+    expect(wrappedPushes.length).toBe(pushes.length);
     expect(src).toContain("Cargando…");
     expect(src).toContain("aria-busy={navigating}");
   });

@@ -35,11 +35,27 @@ import {
   type GroupingFilterValue,
 } from "./GroupingControls";
 import { GroupingToolbar } from "./GroupingToolbar";
-import { useRememberedSet, type useItemGroups } from "./use-item-groups";
+import {
+  useGroupFocus,
+  useRememberedSet,
+  type useItemGroups,
+} from "./use-item-groups";
+import { SortChips } from "@/components/restaurant/sort/SortTh";
+import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
+import { foldText } from "@/lib/restaurant/groups/search";
+import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
 
 export interface GroupableItem {
   id: string;
   name: string;
+}
+
+export interface SortColumn<T> {
+  key: string;
+  label: string;
+  value: (item: T) => SortValue;
+  /** How a group is ranked among groups: the sum or the highest of its items (default: highest). */
+  agg?: "sum" | "max";
 }
 
 const uuid = () => crypto.randomUUID();
@@ -52,6 +68,10 @@ export function GroupedItemList<T extends GroupableItem>({
   storageKey,
   renderRow,
   emptyText,
+  sortId,
+  sortColumns,
+  searchPlaceholder = "Buscar…",
+  searchText,
 }: {
   items: readonly T[];
   scope: "preparation" | "ingredient";
@@ -60,6 +80,12 @@ export function GroupedItemList<T extends GroupableItem>({
   storageKey: string;
   renderRow: (item: T) => ReactNode;
   emptyText: string;
+  /** Remembered for the session, per table. */
+  sortId: string;
+  sortColumns: ReadonlyArray<SortColumn<T>>;
+  searchPlaceholder?: string;
+  /** Extra text an item is found by (supplier…). */
+  searchText?: (item: T) => string | null | undefined;
 }) {
   const memberType: GroupMemberType = scope;
   const hierarchy = { scope } as const;
@@ -71,6 +97,20 @@ export function GroupedItemList<T extends GroupableItem>({
     groupId: string;
   } | null>(null);
   const open = useRememberedSet(storageKey);
+  const [query, setQuery] = useState("");
+  const { sort, toggle: toggleSort } = useTableSort(sortId);
+  const highlightId = useGroupFocus(grouping, open, () => {
+    setQuery("");
+    setFilter((f) => (f === "sin_agrupar" ? "agrupados" : f));
+  });
+  const q = foldText(query);
+  const column = sortColumns.find((c) => c.key === sort?.key) ?? null;
+  const itemValue = (item: T): SortValue =>
+    column ? column.value(item) : null;
+  const matches = (item: T) =>
+    !q ||
+    foldText(item.name).includes(q) ||
+    foldText(searchText?.(item) ?? "").includes(q);
 
   const groups = useMemo(
     () =>
@@ -178,6 +218,35 @@ export function GroupedItemList<T extends GroupableItem>({
     (itemsIn.get(g.id)?.length ?? 0) +
     (children.get(g.id) ?? []).reduce((s, c) => s + countUnder(c), 0);
 
+  const itemsUnder = (g: StoredItemGroup): T[] => [
+    ...(itemsIn.get(g.id) ?? []),
+    ...(children.get(g.id) ?? []).flatMap(itemsUnder),
+  ];
+  const groupRank = (g: StoredItemGroup): SortValue => {
+    if (!sort) return null;
+    if (sort.key === "name") return g.name;
+    if (!column) return null;
+    const values = itemsUnder(g)
+      .map(itemValue)
+      .filter((v): v is number => typeof v === "number");
+    if (values.length === 0) return null;
+    return column.agg === "sum"
+      ? values.reduce((a, b) => a + b, 0)
+      : Math.max(...values);
+  };
+  const sortedItems = (list: readonly T[]) =>
+    sortRows(list, sort, (item, key) =>
+      key === "name" ? item.name : itemValue(item)
+    );
+  const sortedGroups = (list: readonly StoredItemGroup[]) =>
+    sortRows(list, sort, (g) => groupRank(g));
+  /** Group name matches (it or an ancestor) = every member shows. */
+  const groupVisible = (g: StoredItemGroup): boolean =>
+    !q ||
+    foldText(g.name).includes(q) ||
+    (itemsIn.get(g.id) ?? []).some(matches) ||
+    (children.get(g.id) ?? []).some(groupVisible);
+
   const row = (item: T, suggestion?: ReactNode) => (
     <div key={item.id} className="flex items-center gap-1.5">
       {canEdit ? (
@@ -193,12 +262,25 @@ export function GroupedItemList<T extends GroupableItem>({
     </div>
   );
 
-  const renderGroup = (g: StoredItemGroup, depth: number): ReactNode => {
-    const isOpen = open.set.has(g.id);
+  const renderGroup = (
+    g: StoredItemGroup,
+    depth: number,
+    allShown = false
+  ): ReactNode => {
+    if (!groupVisible(g)) return null;
+    const nameHit = !!q && foldText(g.name).includes(q);
+    const everything = allShown || nameHit;
+    const isOpen = !!q || open.set.has(g.id);
     return (
       <div key={g.id} style={{ marginLeft: depth * 12 }}>
         <div
-          className="flex items-center gap-1 border-b border-slate-100 bg-[#fafbfc] px-1 py-1.5 text-xs font-semibold"
+          data-group-id={g.id}
+          className={
+            "flex items-center gap-1 border-b border-slate-100 px-1 py-1.5 text-xs font-semibold transition-colors duration-700 " +
+            (highlightId === g.id
+              ? "bg-[#ffe9c2] ring-2 ring-[#f28c28]"
+              : "bg-[#fafbfc]")
+          }
           onDoubleClick={() => canEdit && setRenaming(g.id)}
         >
           <button
@@ -241,13 +323,24 @@ export function GroupedItemList<T extends GroupableItem>({
         </div>
         {isOpen ? (
           <>
-            {(children.get(g.id) ?? []).map((c) => renderGroup(c, depth + 1))}
-            {(itemsIn.get(g.id) ?? []).map((item) => row(item))}
+            {sortedGroups(children.get(g.id) ?? []).map((c) =>
+              renderGroup(c, depth + 1, everything)
+            )}
+            {sortedItems(itemsIn.get(g.id) ?? [])
+              .filter((item) => everything || matches(item))
+              .map((item) => row(item))}
           </>
         ) : null}
       </div>
     );
   };
+
+  const topGroups =
+    filter !== "sin_agrupar"
+      ? (children.get(null) ?? []).filter(groupVisible)
+      : [];
+  const topItems = filter !== "agrupados" ? ungrouped.filter(matches) : [];
+  const nothingShown = topGroups.length + topItems.length === 0;
 
   return (
     <div className="space-y-2" data-testid="grouped-item-list">
@@ -256,6 +349,15 @@ export function GroupedItemList<T extends GroupableItem>({
           Para agrupar falta aplicar las migraciones 048 y 049 en este ambiente.
         </p>
       ) : null}
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={searchPlaceholder}
+        aria-label={searchPlaceholder}
+        className="h-9 w-full rounded-lg border border-[#e3e7ee] bg-white px-3 text-[13px] text-[#151c2c] outline-none focus:border-[#f28c28]"
+      />
+      <SortChips columns={sortColumns} sort={sort} onSort={toggleSort} />
       <GroupingToolbar
         grouping={grouping}
         filter={filter}
@@ -311,10 +413,10 @@ export function GroupedItemList<T extends GroupableItem>({
       ) : null}
       <div>
         {filter !== "sin_agrupar"
-          ? (children.get(null) ?? []).map((g) => renderGroup(g, 0))
+          ? sortedGroups(children.get(null) ?? []).map((g) => renderGroup(g, 0))
           : null}
         {filter !== "agrupados"
-          ? ungrouped.map((item) =>
+          ? sortedItems(ungrouped.filter(matches)).map((item) =>
               row(
                 item,
                 filter === "sin_agrupar" ? (
@@ -329,9 +431,10 @@ export function GroupedItemList<T extends GroupableItem>({
               )
             )
           : null}
-        {(filter === "sin_agrupar" ? ungrouped.length : items.length) === 0 ||
-        (filter === "agrupados" && counts.grouped === 0) ? (
-          <p className="px-2 py-3 text-xs text-[#5b6476]">{emptyText}</p>
+        {nothingShown ? (
+          <p className="px-2 py-3 text-xs text-[#5b6476]">
+            {q ? `Nada coincide con «${query.trim()}».` : emptyText}
+          </p>
         ) : null}
       </div>
     </div>

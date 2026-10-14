@@ -201,13 +201,17 @@ export function GroupAsPopover({
           onChange={(e) => setParentId(e.target.value)}
           className="mt-1 w-full rounded-lg border border-[#dfe3ea] bg-white px-3 py-2 text-[14px] text-[#151c2c]"
         >
-          <option value="">(nivel superior)</option>
+          <option value="">Ninguno (grupo principal)</option>
           {parents.map((g) => (
             <option key={g.id} value={g.id}>
               {g.path}
             </option>
           ))}
         </select>
+        <span className="mt-1 block text-[12px]">
+          Opcional: ponlo dentro de otro grupo, p. ej. Limonadas dentro de
+          Bebidas.
+        </span>
       </label>
       <div className="mt-4 flex justify-end gap-2">
         <button
@@ -242,7 +246,7 @@ export function GroupPicker({
   options: readonly GroupOption[];
   onPick: (groupId: string | null) => void;
   onCancel: () => void;
-  /** "(nivel superior)" as a choice (moving a group out of its parent). */
+  /** "Ninguno (grupo principal)" as a choice (moving a group out of its parent). */
   allowTop?: boolean;
 }) {
   const [query, setQuery] = useState("");
@@ -271,7 +275,7 @@ export function GroupPicker({
               onClick={() => onPick(null)}
               className="w-full rounded-md px-3 py-2 text-left text-[14px] text-[#5b6476] hover:bg-[#f4f6fb]"
             >
-              (nivel superior)
+              Ninguno (grupo principal)
             </button>
           </li>
         ) : null}

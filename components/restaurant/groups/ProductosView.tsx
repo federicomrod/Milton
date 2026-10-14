@@ -45,7 +45,59 @@ import {
   type GroupingFilterValue,
 } from "./GroupingControls";
 import { GroupingToolbar } from "./GroupingToolbar";
-import { useRememberedSet, type useItemGroups } from "./use-item-groups";
+import {
+  useGroupFocus,
+  useRememberedSet,
+  type useItemGroups,
+} from "./use-item-groups";
+import { SortTh } from "@/components/restaurant/sort/SortTh";
+import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
+import { foldText, searchTree } from "@/lib/restaurant/groups/search";
+import {
+  sortRows,
+  sortTree,
+  type SortValue,
+} from "@/lib/restaurant/table-sort";
+
+/** The figures a column sorts by. A missing price is null: last both ways. */
+function nodeValue(
+  node: { name: string; rollup: TreeNode["rollup"]; share_pct: number },
+  key: string
+): SortValue {
+  switch (key) {
+    case "name":
+      return node.name;
+    case "sales":
+      return node.rollup.net_sales;
+    case "margin":
+      return node.rollup.margin_pct;
+    case "cost":
+      return node.rollup.food_cost_pct;
+    case "share":
+      return node.share_pct;
+    default:
+      return null;
+  }
+}
+
+function leafValue(leaf: TreeLeaf, key: string): SortValue {
+  const known = leaf.cost_total !== null && leaf.net_sales > 0;
+  switch (key) {
+    case "name":
+      return leaf.name;
+    case "sales":
+    case "share":
+      return leaf.net_sales;
+    case "margin":
+      return known
+        ? ((leaf.net_sales - leaf.cost_total!) / leaf.net_sales) * 100
+        : null;
+    case "cost":
+      return known ? (leaf.cost_total! / leaf.net_sales) * 100 : null;
+    default:
+      return null;
+  }
+}
 
 const HIERARCHY = { scope: "product" as const };
 const uuid = () => crypto.randomUUID();
@@ -74,6 +126,12 @@ export function ProductosView({
     groupId: string;
   } | null>(null);
   const open = useRememberedSet("milton:productos:abiertos");
+  const [query, setQuery] = useState("");
+  const { sort, toggle: toggleSort } = useTableSort("productos");
+  const highlightId = useGroupFocus(grouping, open, () => {
+    setQuery("");
+    setFilter((f) => (f === "sin_agrupar" ? "agrupados" : f));
+  });
 
   const tree = useMemo(() => {
     const inputs = productTreeInputs({
@@ -264,18 +322,35 @@ export function ProductosView({
     await grouping.run((s) => removeFromGroups(s, { items, dishes: dishRefs }));
   }
 
-  const visibleTop = useMemo(() => {
-    if (filter === "todos") return tree.top;
-    if (filter === "agrupados")
-      return tree.top.filter((n) => n.kind === "group");
-    return [];
-  }, [filter, tree.top]);
+  // Search finds groups and products; sort orders groups among themselves
+  // and the children inside each group (children stay under their parent).
+  const { visibleTop, searchOpen } = useMemo(() => {
+    const base =
+      filter === "todos"
+        ? tree.top
+        : filter === "agrupados"
+          ? tree.top.filter((n) => n.kind === "group")
+          : [];
+    const found = searchTree(base, query);
+    return {
+      visibleTop: sortTree(found.nodes, sort, nodeValue),
+      searchOpen: found.open,
+    };
+  }, [filter, tree.top, query, sort]);
+  const openIds = useMemo(
+    () => new Set([...open.set, ...searchOpen]),
+    [open.set, searchOpen]
+  );
   const ungroupedLeaves = useMemo(() => {
     const seen = new Set<string>();
-    return tree.ungrouped.filter((l) =>
-      seen.has(l.ref) ? false : (seen.add(l.ref), true)
+    const q = foldText(query);
+    const list = tree.ungrouped.filter((l) =>
+      seen.has(l.ref) || (q && !foldText(l.name).includes(q))
+        ? false
+        : (seen.add(l.ref), true)
     );
-  }, [tree.ungrouped]);
+    return sortRows(list, sort, leafValue);
+  }, [tree.ungrouped, query, sort]);
 
   const note =
     counts.ungrouped > 0 && counts.share !== null
@@ -292,6 +367,14 @@ export function ProductosView({
           Mientras tanto puedes ver los productos, no guardar grupos.
         </p>
       ) : null}
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Buscar producto o grupo…"
+        aria-label="Buscar producto o grupo"
+        className="h-9 w-full max-w-md rounded-lg border border-[#e3e7ee] bg-white px-3 text-[13px] text-[#151c2c] outline-none focus:border-[#f28c28]"
+      />
       <GroupingToolbar
         grouping={grouping}
         filter={filter}
@@ -340,13 +423,41 @@ export function ProductosView({
           <thead>
             <tr className="border-b border-[#eef0f4] text-left text-[12px] font-semibold text-[#8a92a3]">
               <th className="w-8" />
-              <th className="px-2 py-1.5">
+              <SortTh sortKey="name" sort={sort} onSort={toggleSort}>
                 {filter === "sin_agrupar" ? "Producto" : "Grupo / producto"}
-              </th>
-              <th className="px-2 py-1.5 text-right">Ventas</th>
-              <th className="px-2 py-1.5 text-right">Margen</th>
-              <th className="px-2 py-1.5 text-right">Costo %</th>
-              <th className="px-2 py-1.5 text-right">% del total</th>
+              </SortTh>
+              <SortTh
+                sortKey="sales"
+                sort={sort}
+                onSort={toggleSort}
+                align="right"
+              >
+                Ventas
+              </SortTh>
+              <SortTh
+                sortKey="margin"
+                sort={sort}
+                onSort={toggleSort}
+                align="right"
+              >
+                Margen
+              </SortTh>
+              <SortTh
+                sortKey="cost"
+                sort={sort}
+                onSort={toggleSort}
+                align="right"
+              >
+                Costo %
+              </SortTh>
+              <SortTh
+                sortKey="share"
+                sort={sort}
+                onSort={toggleSort}
+                align="right"
+              >
+                % del total
+              </SortTh>
               <th className="px-2 py-1.5">
                 {filter === "sin_agrupar" ? "Sugerencia" : ""}
               </th>
@@ -384,7 +495,8 @@ export function ProductosView({
                     node={node}
                     money={money}
                     canEdit={canEdit}
-                    open={open.set}
+                    open={openIds}
+                    highlightId={highlightId}
                     onToggle={open.toggle}
                     selected={selected}
                     onCheck={toggleSelect}
@@ -407,7 +519,9 @@ export function ProductosView({
                 <td colSpan={8} className="px-2 py-4 text-[#5b6476]">
                   {filter === "sin_agrupar"
                     ? "Todos los productos están agrupados."
-                    : "No hay productos con ese filtro."}
+                    : query.trim()
+                      ? `Nada coincide con «${query.trim()}».`
+                      : "No hay productos con ese filtro."}
                 </td>
               </tr>
             ) : null}
@@ -442,6 +556,7 @@ function NodeRows(props: {
   money: (n: number) => string;
   canEdit: boolean;
   open: Set<string>;
+  highlightId: string | null;
   onToggle: (id: string) => void;
   selected: Set<string>;
   onCheck: (ref: string) => void;
@@ -472,7 +587,13 @@ function NodeRows(props: {
   return (
     <>
       <tr
-        className="border-b border-[#f2f3f6] bg-[#fafbfc] font-semibold"
+        data-group-id={node.group ? node.id : undefined}
+        className={
+          "border-b border-[#f2f3f6] font-semibold transition-colors duration-700 " +
+          (props.highlightId === node.id
+            ? "bg-[#ffe9c2] outline outline-2 -outline-offset-2 outline-[#f28c28]"
+            : "bg-[#fafbfc]")
+        }
         onDoubleClick={() => stored && canEdit && props.onRenaming(node.id)}
       >
         <td />

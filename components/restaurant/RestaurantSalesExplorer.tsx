@@ -25,6 +25,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { SortTh } from "@/components/restaurant/sort/SortTh";
+import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
+import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
 import {
   Search,
   X,
@@ -2254,6 +2257,25 @@ function BreakdownSection({
   );
 }
 
+const SORT_TH = "px-4 py-3 font-medium";
+
+function itemValue(r: ItemRow, key: string): SortValue {
+  switch (key) {
+    case "item":
+      return r.item_name;
+    case "revenue":
+      return r.revenue;
+    case "units":
+      return r.units;
+    case "orders":
+      return r.order_count;
+    case "avg":
+      return r.avg_price;
+    default:
+      return null;
+  }
+}
+
 function TopItemsCard({
   title,
   rows,
@@ -2265,6 +2287,8 @@ function TopItemsCard({
   metricKey: "revenue" | "units";
   fmts: ReturnType<typeof makeFmts>;
 }) {
+  const { sort, toggle } = useTableSort(`ventas-top-${metricKey}`);
+  const sorted = sortRows(rows, sort, itemValue);
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -2280,19 +2304,54 @@ function TopItemsCard({
             <thead>
               <tr className="border-b border-border text-left text-sm text-muted-foreground">
                 <th className="px-4 py-3 font-medium">#</th>
-                <th className="px-4 py-3 font-medium">Item</th>
-                <th className="px-4 py-3 font-medium text-right">
+                <SortTh
+                  sortKey="item"
+                  sort={sort}
+                  onSort={toggle}
+                  className={SORT_TH}
+                >
+                  Item
+                </SortTh>
+                <SortTh
+                  sortKey={metricKey}
+                  sort={sort}
+                  onSort={toggle}
+                  align="right"
+                  className={SORT_TH}
+                >
                   {metricKey === "revenue" ? "Revenue" : "Units"}
-                </th>
-                <th className="px-4 py-3 font-medium text-right">
+                </SortTh>
+                <SortTh
+                  sortKey={metricKey === "revenue" ? "units" : "revenue"}
+                  sort={sort}
+                  onSort={toggle}
+                  align="right"
+                  className={SORT_TH}
+                >
                   {metricKey === "revenue" ? "Units" : "Revenue"}
-                </th>
-                <th className="px-4 py-3 font-medium text-right">Orders</th>
-                <th className="px-4 py-3 font-medium text-right">Avg Price</th>
+                </SortTh>
+                <SortTh
+                  sortKey="orders"
+                  sort={sort}
+                  onSort={toggle}
+                  align="right"
+                  className={SORT_TH}
+                >
+                  Orders
+                </SortTh>
+                <SortTh
+                  sortKey="avg"
+                  sort={sort}
+                  onSort={toggle}
+                  align="right"
+                  className={SORT_TH}
+                >
+                  Avg Price
+                </SortTh>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
+              {sorted.map((r, i) => (
                 <tr
                   key={r.item_name + i}
                   className={
@@ -2339,6 +2398,8 @@ function ItemsTable({
   fmts: ReturnType<typeof makeFmts>;
   variant: "compact" | "full";
 }) {
+  const { sort, toggle } = useTableSort(`ventas-items-${variant}`);
+  const sorted = sortRows(rows, sort, itemValue);
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground p-4 text-center">
@@ -2351,11 +2412,50 @@ function ItemsTable({
       <table className="w-full text-base">
         <thead>
           <tr className="border-b border-border bg-muted/50 text-left text-sm text-muted-foreground">
-            <th className="px-4 py-3 font-medium">Item</th>
-            <th className="px-4 py-3 font-medium text-right">Units</th>
-            <th className="px-4 py-3 font-medium text-right">Revenue</th>
-            <th className="px-4 py-3 font-medium text-right">Orders</th>
-            <th className="px-4 py-3 font-medium text-right">Avg Price</th>
+            <SortTh
+              sortKey="item"
+              sort={sort}
+              onSort={toggle}
+              className={SORT_TH}
+            >
+              Item
+            </SortTh>
+            <SortTh
+              sortKey="units"
+              sort={sort}
+              onSort={toggle}
+              align="right"
+              className={SORT_TH}
+            >
+              Units
+            </SortTh>
+            <SortTh
+              sortKey="revenue"
+              sort={sort}
+              onSort={toggle}
+              align="right"
+              className={SORT_TH}
+            >
+              Revenue
+            </SortTh>
+            <SortTh
+              sortKey="orders"
+              sort={sort}
+              onSort={toggle}
+              align="right"
+              className={SORT_TH}
+            >
+              Orders
+            </SortTh>
+            <SortTh
+              sortKey="avg"
+              sort={sort}
+              onSort={toggle}
+              align="right"
+              className={SORT_TH}
+            >
+              Avg Price
+            </SortTh>
             {variant === "full" && (
               <>
                 <th className="px-4 py-3 font-medium text-right">Est. Cost</th>
@@ -2365,7 +2465,7 @@ function ItemsTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
+          {sorted.map((r, i) => (
             <tr
               key={r.item_name + i}
               className={

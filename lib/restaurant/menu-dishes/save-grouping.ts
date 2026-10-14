@@ -8,6 +8,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadDishEconomicsWith } from "@/lib/restaurant/costing/dish-economics-server";
 import { syncMenuDishes, type SyncResult } from "./menu-dishes-server";
+import { syncAutoGroups } from "@/lib/restaurant/groups/item-groups";
 
 export type SaveGroupingResult =
   | ({ ok: true } & SyncResult)
@@ -30,6 +31,9 @@ export async function saveMenuGrouping(
     load.result.menu_dishes,
     load.result.excluded_menu_dishes
   );
+  // R1-15b: the Plato del menú level of the groups follows (insert-only;
+  // nothing happens until 048 is applied).
+  await syncAutoGroups(supabase, companyId).catch(() => null);
   return { ok: true, ...r };
 }
 

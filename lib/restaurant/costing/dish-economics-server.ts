@@ -15,6 +15,10 @@ import type {
   StoredVariant,
 } from "@/lib/restaurant/menu-dishes/menu-dishes";
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
+import {
+  loadItemGroups,
+  type ItemGroupsLoad,
+} from "@/lib/restaurant/groups/item-groups";
 import type { PosProductListResult } from "@/lib/restaurant/pos-product-list";
 import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
 import {
@@ -68,6 +72,8 @@ export interface DishCostContext {
   /** Every link's stored grouping (a product may have several links). */
   storedVariantRows: StoredVariantRow[];
   menuDishesStored: boolean;
+  /** R1-15b (048). Empty, and `available` false, before 048. */
+  itemGroups: ItemGroupsLoad;
 }
 
 type StoredVariantRow = StoredVariant & { location_id: string | null };
@@ -179,7 +185,7 @@ export async function loadDishCostContextWith(
 ): Promise<
   { ok: true; context: DishCostContext } | { ok: false; error: string }
 > {
-  const [versionsRes, inputsRes, costing, currency, grouping] =
+  const [versionsRes, inputsRes, costing, currency, grouping, itemGroups] =
     await Promise.all([
       fetchAllRowsRetryingWithoutColumns<DishVersion>(
         ["approved_at"],
@@ -205,6 +211,7 @@ export async function loadDishCostContextWith(
       createSupabaseEditorStore(supabase).loadCosting(companyId),
       resolveCompanyCurrency(supabase, companyId),
       loadStoredGrouping(supabase, companyId),
+      loadItemGroups(supabase, companyId),
     ]);
   if (versionsRes.error) {
     console.error("[dish-economics] recipe_versions:", versionsRes.error);
@@ -246,6 +253,7 @@ export async function loadDishCostContextWith(
       storedMenuDishes: grouping.dishes,
       storedVariantRows: grouping.variants,
       menuDishesStored: grouping.stored,
+      itemGroups,
     },
   };
 }
@@ -308,6 +316,7 @@ export async function loadDishEconomicsWith(
       ),
     });
     result.menu_dishes_stored = ctx.menuDishesStored;
+    result.item_groups = ctx.itemGroups;
     const ms = Date.now() - started;
     console.log(
       `[timing] dish-economics ${ms}ms dishes=${result.dishes.length} period=${params.from ?? "all"}..${params.to ?? "all"}`

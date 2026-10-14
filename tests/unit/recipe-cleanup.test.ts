@@ -11,7 +11,12 @@ import {
   suggestPosProductLink,
 } from "@/lib/restaurant/pos-product-links";
 import { LEGACY_ROUTE_MAP } from "@/lib/restaurant/navigation";
-import { RECETAS_PATH, recetasHref } from "@/lib/restaurant/recetas-redirect";
+import {
+  MENU_PATH,
+  PLATOS_PATH,
+  PREPARACIONES_PATH,
+  recetasHref,
+} from "@/lib/restaurant/recetas-redirect";
 import {
   createMemoryCostWorkbookRepo,
   emptyMemoryStore,
@@ -210,18 +215,22 @@ describe("Empezar de nuevo clears the whole costing setup", () => {
 
 describe("one way in: old pages redirect to Recetas y costeo", () => {
   it("builds the target link", () => {
-    expect(recetasHref({})).toBe(RECETAS_PATH);
+    // R1-09b: the old Recetas views are Menú tabs now.
+    expect(recetasHref({})).toBe(MENU_PATH);
     expect(recetasHref({ vista: "preparaciones", prep: "c1" })).toBe(
-      `${RECETAS_PATH}?vista=preparaciones&prep=c1`
+      `${PREPARACIONES_PATH}?prep=c1`
     );
     expect(recetasHref({ vista: "plato", producto: 7, location: "l1" })).toBe(
-      `${RECETAS_PATH}?vista=plato&producto=7&location=l1`
+      `${PLATOS_PATH}?producto=7&location=l1`
     );
   });
 
   it("the old pages are redirects, not screens", () => {
+    // R1-09b (A9): the old cost upload lands on Menú › Resumen.
+    const costsUpload = read("app/dashboard/restaurant/costs/upload/page.tsx");
+    expect(costsUpload).toContain("redirect(hrefKeepingParams(MENU_HREF");
+    expect(costsUpload).not.toMatch(/<[A-Z]\w*[\s/>]/);
     for (const page of [
-      "app/dashboard/restaurant/costs/upload/page.tsx",
       "app/dashboard/restaurant/components/[id]/page.tsx",
       "app/dashboard/restaurant/menu/[id]/page.tsx",
     ]) {
@@ -241,9 +250,11 @@ describe("one way in: old pages redirect to Recetas y costeo", () => {
     }
   });
 
-  it("navigation points the cost upload at Recetas y costeo", () => {
+  it("navigation sends the old cost upload to Menú, outside Configuración", () => {
     const importCosts = LEGACY_ROUTE_MAP.find((r) => r.id === "import-costs");
-    expect(importCosts?.href).toBe(RECETAS_PATH);
+    expect(importCosts?.href).toBe("/dashboard/restaurant/costs/upload");
+    expect(importCosts?.resolvesTo).toBe(MENU_PATH);
+    expect(importCosts?.section).toBeUndefined();
   });
 
   it("Menú › Resumen (profitability) stays", () => {

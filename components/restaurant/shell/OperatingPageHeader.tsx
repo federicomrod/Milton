@@ -25,6 +25,7 @@ export function OperatingPageHeader({
   lastSyncedAt,
   isAdmin,
   trailing,
+  titleAction,
 }: {
   title: string;
   lang?: PreferredLanguage;
@@ -35,6 +36,8 @@ export function OperatingPageHeader({
   lastSyncedAt?: string | null;
   isAdmin?: boolean;
   trailing?: ReactNode;
+  /** The screen's one primary action, right next to the title. */
+  titleAction?: ReactNode;
 }) {
   const chrome = useRestaurantShellChrome();
   const resolvedLang = lang ?? chrome.lang;
@@ -50,6 +53,7 @@ export function OperatingPageHeader({
         <h1 className="text-lg font-semibold tracking-tight truncate">
           {title}
         </h1>
+        {titleAction}
         {showDateRange
           ? (dateRange ?? (
               <DateRangeControl lang={resolvedLang} range={shownRange} />

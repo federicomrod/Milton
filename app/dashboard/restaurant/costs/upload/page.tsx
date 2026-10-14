@@ -1,16 +1,15 @@
-// The old Costos › Subir import is gone: the one cost-file upload lives in
-// Menú › Recetas y costeo. Old links land there (no 404).
+// The old Costos › Subir import is gone: cost files are uploaded from
+// Menú (R1-09b, A9). Old links land on Menú › Resumen with their params.
 
 import { redirect } from "next/navigation";
-import { recetasHref } from "@/lib/restaurant/recetas-redirect";
+import { hrefKeepingParams, MENU_HREF } from "@/lib/restaurant/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default async function CostsUploadRedirect({
   searchParams,
 }: {
-  searchParams: Promise<{ location?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { location } = await searchParams;
-  redirect(recetasHref({ location }));
+  redirect(hrefKeepingParams(MENU_HREF, await searchParams));
 }

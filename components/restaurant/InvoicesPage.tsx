@@ -1,6 +1,6 @@
 // components/restaurant/InvoicesPage.tsx
 //
-// Client component for /dashboard/restaurant/invoices. Three top-level
+// Client component for Costos › Compras (was /dashboard/restaurant/invoices). Three top-level
 // sections:
 //
 //   1) Invoice list (with action: Review)
@@ -32,10 +32,10 @@ import {
   ImageIcon,
   Trash2,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { INVOICE_UPLOAD_ANCHOR } from "@/lib/restaurant/costs-tabs";
 import type {
   SupplierInvoiceLine,
   InvoiceEvent,
@@ -170,36 +170,23 @@ export function InvoicesPage({
     }
   }, []);
 
+  // Rendered inside Costos › Compras (R1-09b): no page header here.
   return (
-    <div className="w-full py-8 px-6 lg:px-10">
-      <div className="space-y-6 max-w-screen-2xl">
-        {/* Header */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <Receipt className="h-6 w-6 text-orange-500" />
-          <h1 className="text-2xl font-bold tracking-tight">
-            Supplier Invoices
-          </h1>
-          <Badge className="text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0">
-            Stage 2
-          </Badge>
+    <div className="w-full">
+      <div className="space-y-6">
+        <div className="flex items-center justify-end">
           <Button
             size="sm"
             variant="ghost"
-            className="ml-auto gap-1"
+            className="gap-1"
             onClick={refreshList}
           >
             <RefreshCw
               className={"h-3.5 w-3.5 " + (refreshing ? "animate-spin" : "")}
             />
-            Refresh
+            Actualizar
           </Button>
         </div>
-        <p className="text-sm text-muted-foreground -mt-4 max-w-3xl">
-          Upload or create supplier invoices, review and match lines to
-          ingredients, then post to update cost history. Cost entries are only
-          written after you approve and post — bulk cost upload still works as a
-          side path.
-        </p>
 
         {/* Entry options OR focused AI extraction review */}
         {aiDraft ? (
@@ -219,7 +206,10 @@ export function InvoicesPage({
             }}
           />
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div
+            id={INVOICE_UPLOAD_ANCHOR}
+            className="grid grid-cols-1 lg:grid-cols-3 gap-4 scroll-mt-4"
+          >
             <UploadCard onUploaded={refreshList} />
             <AIExtractCard
               onExtracted={(draft, meta) => {
@@ -592,7 +582,7 @@ function ManualCreateCard({
             )}
           </div>
         </form>
-        <p className="text-[11px] text-muted-foreground mt-2">
+        <p className="text-xs text-muted-foreground mt-2">
           Creates a draft header. Add lines from the review panel below.
         </p>
       </CardContent>
@@ -675,7 +665,7 @@ function InvoiceListCard({
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded font-medium ${STATUS_STYLE[inv.status] ?? ""}`}
+                      className={`text-xs uppercase tracking-wide px-1.5 py-0.5 rounded font-medium ${STATUS_STYLE[inv.status] ?? ""}`}
                     >
                       {inv.status}
                     </span>
@@ -897,7 +887,7 @@ function ReviewDetail({
             {inv.supplier_name ?? "(no supplier)"} ·{" "}
             <span className="font-mono">{inv.invoice_number ?? "—"}</span>
             <span
-              className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded font-medium ${STATUS_STYLE[inv.status] ?? ""}`}
+              className={`text-xs uppercase tracking-wide px-1.5 py-0.5 rounded font-medium ${STATUS_STYLE[inv.status] ?? ""}`}
             >
               {inv.status}
             </span>
@@ -970,7 +960,7 @@ function ReviewDetail({
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+              <thead className="border-b border-border bg-muted/30 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-2 py-2 font-medium">Description</th>
                   <th className="px-2 py-2 font-medium">Ingredient</th>
@@ -1060,7 +1050,7 @@ function ReviewDetail({
         {/* Event history */}
         {showEvents && (
           <div className="rounded-md border border-border bg-muted/20 p-3 space-y-1.5 text-xs">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
               Event history
             </p>
             {data.events.length === 0 ? (
@@ -1073,7 +1063,7 @@ function ReviewDetail({
                   <li key={e.id}>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-medium">{e.event_type}</span>
-                      <span className="text-[10px] text-muted-foreground ml-auto">
+                      <span className="text-xs text-muted-foreground ml-auto">
                         {new Date(e.created_at).toLocaleString("es-MX", {
                           day: "2-digit",
                           month: "2-digit",
@@ -1084,7 +1074,7 @@ function ReviewDetail({
                       </span>
                     </div>
                     {e.note && (
-                      <p className="text-[11px] italic text-muted-foreground">
+                      <p className="text-xs italic text-muted-foreground">
                         “{e.note}”
                       </p>
                     )}
@@ -1177,7 +1167,7 @@ function LineRow({
           {line.description}
         </div>
         {(line.supplier_sku || line.supplier_item_name) && (
-          <div className="text-[10px] text-muted-foreground">
+          <div className="text-xs text-muted-foreground">
             {[line.supplier_sku, line.supplier_item_name]
               .filter(Boolean)
               .join(" · ")}
@@ -1194,7 +1184,7 @@ function LineRow({
               {ingredientName}
             </div>
             <select
-              className="h-6 text-[11px] rounded border border-border bg-background px-1 w-full"
+              className="h-6 text-xs rounded border border-border bg-background px-1 w-full"
               value={line.ingredient_id ?? ""}
               onChange={(e) => {
                 const v = e.target.value;
@@ -1224,11 +1214,11 @@ function LineRow({
           </div>
         ) : (
           <div className="space-y-1">
-            <span className="inline-flex items-center text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+            <span className="inline-flex items-center text-xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
               Unmatched
             </span>
             <select
-              className="h-6 text-[11px] rounded border border-border bg-background px-1 w-full"
+              className="h-6 text-xs rounded border border-border bg-background px-1 w-full"
               value=""
               onChange={(e) => {
                 const v = e.target.value;
@@ -1259,7 +1249,7 @@ function LineRow({
         )}
         {creatingNew && !disabled && (
           <div className="mt-2 rounded border border-orange-200 dark:border-orange-900/40 bg-orange-50/40 dark:bg-orange-900/10 p-2 space-y-1.5">
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
               Create new ingredient
             </div>
             <Input
@@ -1286,7 +1276,7 @@ function LineRow({
             <div className="flex items-center gap-1.5 pt-0.5">
               <Button
                 size="sm"
-                className="h-6 px-2 text-[10px] bg-orange-500 hover:bg-orange-600 text-white border-0"
+                className="h-6 px-2 text-xs bg-orange-500 hover:bg-orange-600 text-white border-0"
                 onClick={submitInlineCreate}
                 disabled={creating || !newName.trim() || !newUnit.trim()}
                 title="Create the ingredient and match this line to it"
@@ -1296,7 +1286,7 @@ function LineRow({
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 px-2 text-[10px]"
+                className="h-6 px-2 text-xs"
                 onClick={cancelInlineCreate}
                 disabled={creating}
               >
@@ -1316,7 +1306,7 @@ function LineRow({
       </td>
       <td className="px-2 py-2">
         <span
-          className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${REVIEW_STYLE[line.review_status] ?? ""}`}
+          className={`text-xs uppercase tracking-wide px-1.5 py-0.5 rounded ${REVIEW_STYLE[line.review_status] ?? ""}`}
         >
           {line.review_status}
         </span>
@@ -1327,7 +1317,7 @@ function LineRow({
             <Button
               size="sm"
               variant="default"
-              className="h-6 px-2 text-[10px] bg-green-600 hover:bg-green-700 text-white border-0"
+              className="h-6 px-2 text-xs bg-green-600 hover:bg-green-700 text-white border-0"
               onClick={() => onChange({ review_status: "approved" })}
               disabled={disabled}
               title="Approve line"
@@ -1339,7 +1329,7 @@ function LineRow({
             <Button
               size="sm"
               variant="outline"
-              className="h-6 px-2 text-[10px]"
+              className="h-6 px-2 text-xs"
               onClick={() => onChange({ review_status: "rejected" })}
               disabled={disabled}
               title="Reject line"
@@ -1351,7 +1341,7 @@ function LineRow({
             <Button
               size="sm"
               variant="ghost"
-              className="h-6 px-2 text-[10px]"
+              className="h-6 px-2 text-xs"
               onClick={() => onChange({ review_status: "pending" })}
               disabled={disabled}
               title="Reset to pending"
@@ -1533,7 +1523,7 @@ function AddLineForm({
       {/* Row 1: Ingredient selector (+ inline create-new fields) */}
       <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
         <label className="md:col-span-2">
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Ingredient
           </span>
           <select
@@ -1560,7 +1550,7 @@ function AddLineForm({
         {isCreatingNew && (
           <>
             <label className="md:col-span-2">
-              <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+              <span className="text-muted-foreground text-xs uppercase tracking-wide">
                 New ingredient name
               </span>
               <Input
@@ -1572,7 +1562,7 @@ function AddLineForm({
               />
             </label>
             <label>
-              <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+              <span className="text-muted-foreground text-xs uppercase tracking-wide">
                 Default unit
               </span>
               <Input
@@ -1583,7 +1573,7 @@ function AddLineForm({
               />
             </label>
             <label>
-              <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+              <span className="text-muted-foreground text-xs uppercase tracking-wide">
                 Category (optional)
               </span>
               <Input
@@ -1600,7 +1590,7 @@ function AddLineForm({
       {/* Row 2: Description spans wide */}
       <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
         <label className="md:col-span-6">
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Description (invoice line text)
           </span>
           <Input
@@ -1620,7 +1610,7 @@ function AddLineForm({
       {/* Row 3: numerics */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
         <label>
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Qty
           </span>
           <Input
@@ -1633,7 +1623,7 @@ function AddLineForm({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Unit
           </span>
           <Input
@@ -1644,7 +1634,7 @@ function AddLineForm({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Unit cost
           </span>
           <Input
@@ -1656,7 +1646,7 @@ function AddLineForm({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Line total
           </span>
           <Input
@@ -1669,7 +1659,7 @@ function AddLineForm({
           />
         </label>
         <label className="md:col-span-2">
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Supplier item name (optional)
           </span>
           <Input
@@ -1683,7 +1673,7 @@ function AddLineForm({
       {/* Row 4: SKU + notes */}
       <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
         <label className="md:col-span-2">
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Supplier SKU (optional)
           </span>
           <Input
@@ -1693,7 +1683,7 @@ function AddLineForm({
           />
         </label>
         <label className="md:col-span-4">
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Notes (optional)
           </span>
           <Input
@@ -1715,7 +1705,7 @@ function AddLineForm({
           <Plus className="h-3.5 w-3.5" />
           {busy ? "Adding…" : "Add line"}
         </Button>
-        <span className="text-[10px] text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           {isCreatingNew
             ? "A new ingredient will be created and linked to this supplier."
             : isExistingPick
@@ -1875,7 +1865,7 @@ function AIExtractCard({
                 </>
               )}
             </Button>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               PNG / JPG / WEBP up to 10 MB.
               <br />
               PDF support is coming next.
@@ -1952,7 +1942,7 @@ function ExtractedDraftReview({
             <Sparkles className="h-4 w-4 text-orange-500" />
             Review extracted invoice
             {meta?.fileName && (
-              <span className="text-[11px] font-normal text-muted-foreground font-mono">
+              <span className="text-xs font-normal text-muted-foreground font-mono">
                 · {meta.fileName}
               </span>
             )}
@@ -2056,7 +2046,7 @@ function ExtractedDraftBody({
       {/* Header fields */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
         <label className="col-span-2 md:col-span-1">
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Supplier name
           </span>
           <Input
@@ -2068,7 +2058,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Invoice number
           </span>
           <Input
@@ -2080,7 +2070,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Currency
           </span>
           <Input
@@ -2093,7 +2083,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Invoice date
           </span>
           <Input
@@ -2106,7 +2096,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Due date
           </span>
           <Input
@@ -2117,7 +2107,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Subtotal
           </span>
           <Input
@@ -2129,7 +2119,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Tax
           </span>
           <Input
@@ -2141,7 +2131,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+          <span className="text-muted-foreground text-xs uppercase tracking-wide">
             Total
           </span>
           <Input
@@ -2158,12 +2148,12 @@ function ExtractedDraftBody({
 
       {/* Lines */}
       <div className="rounded-md border border-border bg-background">
-        <div className="px-3 py-2 border-b border-border flex items-center justify-between text-[11px] uppercase tracking-wide text-muted-foreground">
+        <div className="px-3 py-2 border-b border-border flex items-center justify-between text-xs uppercase tracking-wide text-muted-foreground">
           <span>Extracted lines ({draft.lines.length})</span>
           <Button
             size="sm"
             variant="ghost"
-            className="h-6 text-[11px] gap-1"
+            className="h-6 text-xs gap-1"
             onClick={() =>
               setDraft({
                 ...draft,
@@ -2203,7 +2193,7 @@ function ExtractedDraftBody({
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead className="bg-muted/30 text-left text-[10px] uppercase tracking-wide text-muted-foreground">
+              <thead className="bg-muted/30 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-2 py-1.5 font-medium w-[110px]">SKU</th>
                   <th className="px-2 py-1.5 font-medium">Description</th>
@@ -2307,7 +2297,7 @@ function ExtractedDraftBody({
                           }
                         />
                         {line.derived_unit_cost && (
-                          <span className="inline-flex items-center text-[9px] uppercase tracking-wide mt-1 px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
+                          <span className="inline-flex items-center text-xs uppercase tracking-wide mt-1 px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
                             Derived
                           </span>
                         )}
@@ -2326,7 +2316,7 @@ function ExtractedDraftBody({
                           }
                         />
                         {line.derived_line_total && (
-                          <span className="inline-flex items-center text-[9px] uppercase tracking-wide mt-1 px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
+                          <span className="inline-flex items-center text-xs uppercase tracking-wide mt-1 px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
                             Derived
                           </span>
                         )}
@@ -2384,7 +2374,7 @@ function ExtractedDraftBody({
         <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
       )}
 
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         Lines land in <span className="font-mono">needs_review</span> after you
         create the invoice. Cost entries are only written when you post the
         invoice in the review panel below.
@@ -2409,7 +2399,7 @@ function LineBadges({
     chips.push(
       <span
         key="needs"
-        className="inline-flex items-center text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+        className="inline-flex items-center text-xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
       >
         Needs review
       </span>
@@ -2419,7 +2409,7 @@ function LineBadges({
     chips.push(
       <span
         key="low"
-        className="inline-flex items-center text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200"
+        className="inline-flex items-center text-xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200"
         title={line.confidence_notes ?? undefined}
       >
         Low confidence
@@ -2429,7 +2419,7 @@ function LineBadges({
     chips.push(
       <span
         key="medium"
-        className="inline-flex items-center text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+        className="inline-flex items-center text-xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
         title={line.confidence_notes ?? undefined}
       >
         Medium confidence
@@ -2439,7 +2429,7 @@ function LineBadges({
     chips.push(
       <span
         key="high"
-        className="inline-flex items-center text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
+        className="inline-flex items-center text-xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
         title={line.confidence_notes ?? undefined}
       >
         High confidence

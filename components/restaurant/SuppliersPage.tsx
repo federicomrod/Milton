@@ -4,16 +4,15 @@
 // (linked ingredient count, latest purchase date, total spend) and a
 // create/edit form.
 //
-// Data flow: the page (Server Component) fetches via
-// /api/restaurant/suppliers which returns the enriched list. All mutations
+// Data flow: Costos › Proveedores (loadSuppliersTabData) passes the
+// enriched list. All mutations
 // are client-side fetch calls followed by router.refresh().
 
 "use client";
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Building2, Plus, Pencil, X, Check } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Plus, Pencil, X, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -45,32 +44,26 @@ export interface SupplierRow {
 export function SuppliersPage({ suppliers }: { suppliers: SupplierRow[] }) {
   const [showCreate, setShowCreate] = useState(false);
 
+  // Rendered inside Costos › Proveedores (R1-09b): no page header here.
   return (
-    <div className="w-full py-8 px-6 lg:px-10">
-      <div className="space-y-8 max-w-screen-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            <Building2 className="h-6 w-6 text-orange-500" />
-            <h1 className="text-2xl font-bold tracking-tight">Suppliers</h1>
-            <Badge className="text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-0">
-              {suppliers.length}
-            </Badge>
-          </div>
+    <div className="w-full">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-[#6b7385]">
+            {suppliers.length === 1
+              ? "1 proveedor"
+              : `${suppliers.length} proveedores`}
+          </p>
           <Button
             size="sm"
+            variant="outline"
             className="gap-2"
             onClick={() => setShowCreate((v) => !v)}
           >
             <Plus className="h-4 w-4" />
-            {showCreate ? "Cancel" : "Add supplier"}
+            {showCreate ? "Cancelar" : "Agregar proveedor"}
           </Button>
         </div>
-        <p className="text-sm text-muted-foreground -mt-4 max-w-3xl">
-          Suppliers are created automatically during bulk cost uploads. Use this
-          page to add contact details, review linked ingredients, and manage
-          supplier status.
-        </p>
 
         {/* Create form */}
         {showCreate && (
@@ -94,8 +87,7 @@ export function SuppliersPage({ suppliers }: { suppliers: SupplierRow[] }) {
           <Card>
             <CardContent className="py-6">
               <p className="text-sm text-muted-foreground">
-                No suppliers yet. They are created automatically when you import
-                a cost file, or you can add one manually above.
+                Aún no hay proveedores.
               </p>
             </CardContent>
           </Card>
@@ -175,7 +167,7 @@ function SupplierCard({ supplier }: { supplier: SupplierRow }) {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-sm">{supplier.name}</span>
                 <span
-                  className={`text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 font-medium ${statusColor}`}
+                  className={`text-xs uppercase tracking-wide rounded px-1.5 py-0.5 font-medium ${statusColor}`}
                 >
                   {supplier.status}
                 </span>

@@ -84,7 +84,7 @@ describe("Spanish completeness for cockpit chrome", () => {
       "Menú",
       "Costos",
       "Cocina",
-      "Datos y configuración",
+      "Configuración",
     ]);
   });
 

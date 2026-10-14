@@ -104,7 +104,7 @@ export default async function SalesAreaPage({
             "Upload POS sales to see the heatmap and explorer.",
             "Importa ventas del POS para ver el mapa de calor y el explorador."
           )}
-          href="/dashboard/restaurant/upload"
+          href="/dashboard/restaurant/data?seccion=conexiones#conexiones"
           linkLabel={t(lang, "Import POS Sales →", "Importar ventas del POS →")}
         />
       )}

@@ -1,86 +1,88 @@
 // app/dashboard/restaurant/data/page.tsx
 //
-// Data & Settings hub — simple link lists for now (PR 1). Full Data
-// Health drawer arrives in PR 2.
+// Configuración (R1-09b, A10/A11): three sections only — Conexiones,
+// Equipo (admins), Cuenta. Ingredients, suppliers, invoices and cost files
+// live in Menú and Costos now. The POS sales uploader is a panel here
+// (the old /upload page redirects to ?seccion=conexiones).
 
 import Link from "next/link";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
+import { PosSalesUploadPanel } from "@/components/restaurant/settings/PosSalesUploadPanel";
 import { t } from "@/lib/restaurant/language";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import {
-  DATA_SETTINGS_HREF,
+  DATA_SETTINGS_SECTIONS,
+  DATA_SETTINGS_SECTION_ANCHORS,
   dataSettingsLinkLabel,
   dataSettingsSectionLabel,
   routesForSection,
-  type DataSettingsSectionId,
 } from "@/lib/restaurant/navigation";
 
 export const dynamic = "force-dynamic";
 
-const SECTIONS: DataSettingsSectionId[] = [
-  "data_sources",
-  "data_health",
-  "setup",
-  "team",
-  "account",
-];
+const linkClass =
+  "block px-4 py-2.5 text-sm font-medium hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500";
 
-export default async function DataSettingsPage() {
-  const { lang, isAdmin } = await loadRestaurantShellChrome();
+export default async function ConfiguracionPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ seccion?: string }>;
+}) {
+  const [{ lang, isAdmin }, { seccion }] = await Promise.all([
+    loadRestaurantShellChrome(),
+    searchParams,
+  ]);
+  const uploadOpen = seccion === DATA_SETTINGS_SECTION_ANCHORS.connections;
 
   return (
-    <div className="w-full py-3 px-6 lg:px-10 space-y-6 max-w-3xl">
+    <div className="w-full px-[26px] pt-4 pb-10 space-y-6 max-w-3xl">
       <OperatingPageHeader
-        title={t(lang, "Data & Settings", "Datos y configuración")}
+        title={t(lang, "Settings", "Configuración")}
         lang={lang}
         showDateRange={false}
       />
-      <p className="text-sm text-muted-foreground">
-        {t(
-          lang,
-          "Sources, setup and account. Every previous page is still here.",
-          "Fuentes, configuración y cuenta. Todas las páginas de antes siguen aquí."
-        )}
-      </p>
 
-      <section id="data-health" className="space-y-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          {dataSettingsSectionLabel("data_health", lang)}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {t(
-            lang,
-            "Row counts, POS source notes and costing gaps live behind the Data health control on each operating page. A full drawer comes next.",
-            "Los conteos de filas, las notas del POS y los huecos de costeo están detrás del control de salud de datos en cada página. El panel completo llega después."
-          )}
-        </p>
-        <Link
-          href={`${DATA_SETTINGS_HREF}#data-health`}
-          className="text-sm font-medium text-primary hover:underline"
-        >
-          {t(lang, "Data health", "Salud de los datos")}
-        </Link>
-      </section>
-
-      {SECTIONS.filter((s) => s !== "data_health").map((section) => {
+      {DATA_SETTINGS_SECTIONS.map((section) => {
         const links = routesForSection(section, { isAdmin });
         if (links.length === 0) return null;
         return (
-          <section key={section} className="space-y-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <section
+            key={section}
+            id={DATA_SETTINGS_SECTION_ANCHORS[section]}
+            className="space-y-2 scroll-mt-4"
+          >
+            <h2 className="text-[15px] font-semibold text-[#151c2c]">
               {dataSettingsSectionLabel(section, lang)}
             </h2>
-            <ul className="divide-y divide-border rounded-md border border-border bg-background">
-              {links.map((route) => (
-                <li key={route.id}>
-                  <Link
-                    href={route.href}
-                    className="block px-4 py-2.5 text-sm font-medium hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
-                  >
-                    {dataSettingsLinkLabel(route.id, lang)}
-                  </Link>
-                </li>
-              ))}
+            <ul className="divide-y divide-border rounded-[14px] border border-[#dfe3ea] bg-white">
+              {links.map((route) =>
+                route.id === "pos-sales" ? (
+                  <li key={route.id}>
+                    <details open={uploadOpen} className="group">
+                      <summary
+                        className={`${linkClass} cursor-pointer list-none flex items-center justify-between`}
+                      >
+                        {dataSettingsLinkLabel(route.id, lang)}
+                        <span
+                          aria-hidden
+                          className="text-[#6b7385] transition-transform group-open:rotate-90"
+                        >
+                          ›
+                        </span>
+                      </summary>
+                      <div className="px-4 pb-4 pt-1">
+                        <PosSalesUploadPanel lang={lang} />
+                      </div>
+                    </details>
+                  </li>
+                ) : (
+                  <li key={route.id}>
+                    <Link href={route.href} className={linkClass}>
+                      {dataSettingsLinkLabel(route.id, lang)}
+                    </Link>
+                  </li>
+                )
+              )}
             </ul>
           </section>
         );

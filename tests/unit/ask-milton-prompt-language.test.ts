@@ -130,7 +130,7 @@ describe("buildDeterministicAnswer — English (Phase 6, scenario 3)", () => {
     );
     expect(out.answer).toMatch(/most profitable dish/i);
     expect(out.answer).toContain("Brisket Taco");
-    expect(out.related_links[0]?.label).toBe("Menu & Recipes");
+    expect(out.related_links[0]?.label).toBe("Menu");
   });
 
   it("the generic fallback answers in English", () => {
@@ -154,7 +154,7 @@ describe("buildDeterministicAnswer — Spanish (Phase 6, scenario 4 — must not
     );
     expect(out.answer).toMatch(/platillo más rentable/i);
     expect(out.answer).not.toMatch(/most profitable dish/i);
-    expect(out.related_links[0]?.label).toBe("Menú y Recetas");
+    expect(out.related_links[0]?.label).toBe("Menú");
   });
 
   it("preserves the dish's proper noun name unchanged (never translated)", () => {

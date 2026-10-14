@@ -49,12 +49,12 @@ export interface AskMiltonAnswer {
 const ALLOWED_HREFS = new Set([
   "/dashboard/restaurant",
   "/dashboard/restaurant/menu",
-  "/dashboard/restaurant/ingredients",
-  "/dashboard/restaurant/suppliers",
-  "/dashboard/restaurant/invoices",
+  "/dashboard/restaurant/menu/ingredientes",
+  "/dashboard/restaurant/costs?tab=proveedores",
+  "/dashboard/restaurant/costs?tab=compras",
   "/dashboard/restaurant/agents",
-  "/dashboard/restaurant/menu/recetas",
-  "/dashboard/restaurant/upload",
+  "/dashboard/restaurant/menu/platos",
+  "/dashboard/restaurant/data?seccion=conexiones",
 ]);
 
 function isString(x: unknown): x is string {
@@ -508,13 +508,13 @@ export const ASK_MILTON_SYSTEM_PROMPT = [
   "related_links:",
   "  Choose 0–4 links from this fixed allow-list only:",
   "    /dashboard/restaurant              (Cockpit)",
-  "    /dashboard/restaurant/menu         (Menu & Recipes)",
-  "    /dashboard/restaurant/ingredients  (Ingredients)",
-  "    /dashboard/restaurant/suppliers    (Suppliers)",
-  "    /dashboard/restaurant/invoices     (Supplier Invoices)",
+  "    /dashboard/restaurant/menu         (Menu: overview and cost-file upload)",
+  "    /dashboard/restaurant/menu/ingredientes  (Ingredients)",
+  "    /dashboard/restaurant/costs?tab=proveedores    (Suppliers)",
+  "    /dashboard/restaurant/costs?tab=compras     (Supplier Invoices)",
   "    /dashboard/restaurant/agents       (Agents)",
-  "    /dashboard/restaurant/menu/recetas (Recipes & costing: cost-file upload)",
-  "    /dashboard/restaurant/upload       (POS Sales)",
+  "    /dashboard/restaurant/menu/platos (Dishes: recipes and approval)",
+  "    /dashboard/restaurant/data?seccion=conexiones (Connections: POS, sales file)",
   "  Never invent a different route.",
   "",
   "suggested_followups:",
@@ -619,12 +619,12 @@ function pct(n: number | null | undefined): string {
 type RelatedLinkRoute =
   | "/dashboard/restaurant"
   | "/dashboard/restaurant/menu"
-  | "/dashboard/restaurant/ingredients"
-  | "/dashboard/restaurant/suppliers"
-  | "/dashboard/restaurant/invoices"
+  | "/dashboard/restaurant/menu/ingredientes"
+  | "/dashboard/restaurant/costs?tab=proveedores"
+  | "/dashboard/restaurant/costs?tab=compras"
   | "/dashboard/restaurant/agents"
-  | "/dashboard/restaurant/menu/recetas"
-  | "/dashboard/restaurant/upload";
+  | "/dashboard/restaurant/menu/platos"
+  | "/dashboard/restaurant/data?seccion=conexiones";
 
 const RELATED_LINK_LABELS: Record<
   RelatedLinkRoute,
@@ -632,24 +632,30 @@ const RELATED_LINK_LABELS: Record<
 > = {
   "/dashboard/restaurant": { en: "Cockpit", es: "Panel principal" },
   "/dashboard/restaurant/menu": {
-    en: "Menu & Recipes",
-    es: "Menú y Recetas",
+    en: "Menu",
+    es: "Menú",
   },
-  "/dashboard/restaurant/ingredients": {
+  "/dashboard/restaurant/menu/ingredientes": {
     en: "Ingredients",
     es: "Ingredientes",
   },
-  "/dashboard/restaurant/suppliers": { en: "Suppliers", es: "Proveedores" },
-  "/dashboard/restaurant/invoices": {
+  "/dashboard/restaurant/costs?tab=proveedores": {
+    en: "Suppliers",
+    es: "Proveedores",
+  },
+  "/dashboard/restaurant/costs?tab=compras": {
     en: "Supplier Invoices",
     es: "Facturas de Proveedores",
   },
   "/dashboard/restaurant/agents": { en: "Agents", es: "Agentes" },
-  "/dashboard/restaurant/menu/recetas": {
-    en: "Recipes & costing",
-    es: "Recetas y costeo",
+  "/dashboard/restaurant/menu/platos": {
+    en: "Dishes",
+    es: "Platos",
   },
-  "/dashboard/restaurant/upload": { en: "POS Sales", es: "Ventas del POS" },
+  "/dashboard/restaurant/data?seccion=conexiones": {
+    en: "Connections",
+    es: "Conexiones",
+  },
 };
 
 function relatedLink(
@@ -678,7 +684,7 @@ function mostProfitableAnswer(
       supporting_facts: [],
       related_links: [
         relatedLink(lang, "/dashboard/restaurant/menu"),
-        relatedLink(lang, "/dashboard/restaurant/ingredients"),
+        relatedLink(lang, "/dashboard/restaurant/menu/ingredientes"),
       ],
       suggested_followups: [
         t(
@@ -1032,8 +1038,8 @@ function expensiveIngredientsAnswer(
     ),
   ];
   const LINKS: AskMiltonRelatedLink[] = [
-    relatedLink(lang, "/dashboard/restaurant/ingredients"),
-    relatedLink(lang, "/dashboard/restaurant/suppliers"),
+    relatedLink(lang, "/dashboard/restaurant/menu/ingredientes"),
+    relatedLink(lang, "/dashboard/restaurant/costs?tab=proveedores"),
   ];
 
   // ── Tier 1: authoritative unit costs from ingredient_cost_entries ──────────
@@ -1234,8 +1240,8 @@ function expensiveIngredientsAnswer(
       answer: lines.join(" "),
       supporting_facts: facts.slice(0, 4),
       related_links: [
-        relatedLink(lang, "/dashboard/restaurant/ingredients"),
-        relatedLink(lang, "/dashboard/restaurant/menu/recetas"),
+        relatedLink(lang, "/dashboard/restaurant/menu/ingredientes"),
+        relatedLink(lang, "/dashboard/restaurant/menu/platos"),
         relatedLink(lang, "/dashboard/restaurant/menu"),
       ],
       suggested_followups: [
@@ -1277,9 +1283,9 @@ function expensiveIngredientsAnswer(
     ),
     supporting_facts: [],
     related_links: [
-      relatedLink(lang, "/dashboard/restaurant/ingredients"),
-      relatedLink(lang, "/dashboard/restaurant/menu/recetas"),
-      relatedLink(lang, "/dashboard/restaurant/invoices"),
+      relatedLink(lang, "/dashboard/restaurant/menu/ingredientes"),
+      relatedLink(lang, "/dashboard/restaurant/menu/platos"),
+      relatedLink(lang, "/dashboard/restaurant/costs?tab=compras"),
     ],
     suggested_followups: [
       t(
@@ -1353,7 +1359,7 @@ function ingredientUsageAnswer(
         supporting_facts: [],
         related_links: [
           relatedLink(lang, "/dashboard/restaurant/menu"),
-          relatedLink(lang, "/dashboard/restaurant/ingredients"),
+          relatedLink(lang, "/dashboard/restaurant/menu/ingredientes"),
         ],
         suggested_followups: [
           t(
@@ -1388,7 +1394,7 @@ function ingredientUsageAnswer(
       supporting_facts: [],
       related_links: [
         relatedLink(lang, "/dashboard/restaurant/menu"),
-        relatedLink(lang, "/dashboard/restaurant/ingredients"),
+        relatedLink(lang, "/dashboard/restaurant/menu/ingredientes"),
       ],
       suggested_followups: [
         t(
@@ -1496,7 +1502,7 @@ function ingredientUsageAnswer(
     supporting_facts: facts.slice(0, 4),
     related_links: [
       relatedLink(lang, "/dashboard/restaurant/menu"),
-      relatedLink(lang, "/dashboard/restaurant/ingredients"),
+      relatedLink(lang, "/dashboard/restaurant/menu/ingredientes"),
     ],
     suggested_followups: [
       t(
@@ -1582,8 +1588,8 @@ function supplierAnswer(
     answer: lines.join(" "),
     supporting_facts: facts.slice(0, 4),
     related_links: [
-      relatedLink(lang, "/dashboard/restaurant/suppliers"),
-      relatedLink(lang, "/dashboard/restaurant/invoices"),
+      relatedLink(lang, "/dashboard/restaurant/costs?tab=proveedores"),
+      relatedLink(lang, "/dashboard/restaurant/costs?tab=compras"),
     ],
     suggested_followups: [
       t(
@@ -1664,8 +1670,8 @@ function invoiceAnswer(
     answer: lines.join(" "),
     supporting_facts: facts.slice(0, 4),
     related_links: [
-      relatedLink(lang, "/dashboard/restaurant/invoices"),
-      relatedLink(lang, "/dashboard/restaurant/suppliers"),
+      relatedLink(lang, "/dashboard/restaurant/costs?tab=compras"),
+      relatedLink(lang, "/dashboard/restaurant/costs?tab=proveedores"),
     ],
     suggested_followups: [
       t(
@@ -1749,7 +1755,7 @@ function missingRecipesAnswer(
     supporting_facts: facts.slice(0, 4),
     related_links: [
       relatedLink(lang, "/dashboard/restaurant/menu"),
-      relatedLink(lang, "/dashboard/restaurant/ingredients"),
+      relatedLink(lang, "/dashboard/restaurant/menu/ingredientes"),
     ],
     suggested_followups: [
       t(
@@ -1855,8 +1861,8 @@ function costCoverageAnswer(
     supporting_facts: facts.slice(0, 4),
     related_links: [
       relatedLink(lang, "/dashboard/restaurant/menu"),
-      relatedLink(lang, "/dashboard/restaurant/ingredients"),
-      relatedLink(lang, "/dashboard/restaurant/upload"),
+      relatedLink(lang, "/dashboard/restaurant/menu/ingredientes"),
+      relatedLink(lang, "/dashboard/restaurant/data?seccion=conexiones"),
     ],
     suggested_followups: [
       t(
@@ -2025,7 +2031,7 @@ function salesUnavailableAnswer(
     supporting_facts: [],
     related_links: [
       relatedLink(lang, "/dashboard/restaurant"),
-      relatedLink(lang, "/dashboard/restaurant/upload"),
+      relatedLink(lang, "/dashboard/restaurant/data?seccion=conexiones"),
     ],
     suggested_followups: [
       t(
@@ -2130,7 +2136,7 @@ function topSellingItemsAnswer(
     supporting_facts: facts,
     related_links: [
       relatedLink(lang, "/dashboard/restaurant"),
-      relatedLink(lang, "/dashboard/restaurant/upload"),
+      relatedLink(lang, "/dashboard/restaurant/data?seccion=conexiones"),
     ],
     suggested_followups: [
       t(

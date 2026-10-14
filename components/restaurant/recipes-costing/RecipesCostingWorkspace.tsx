@@ -38,6 +38,7 @@ import {
 import { registerMenuTabSwitcher } from "@/lib/restaurant/recipe-costing/menu-tab-bridge";
 import { cachedPickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import { MenuTabSkeleton } from "@/components/restaurant/menu/MenuTabSkeleton";
+import { activeMenuTab } from "./MenuAreaTabs";
 import { ConfirmHowDialog } from "./ConfirmHowDialog";
 import { PlatoScreen } from "./PlatoScreen";
 import { MenuDishesScreen } from "@/components/restaurant/menu/MenuDishesScreen";
@@ -286,11 +287,16 @@ export function RecipesCostingWorkspace({
   }, [fetchWorkspace, reload, selectedId]);
 
   useEffect(() => {
+    putTab(menuTabKey(routeView, shellFromLocation()), initial);
+    // The tab bar may have moved to another tab in the browser since this
+    // page was rendered (a server refresh of the old route): that payload
+    // belongs to the old tab, so it only warms the cache.
+    const urlView = VIEW_OF_TAB[activeMenuTab(window.location.pathname)];
+    if (urlView && urlView !== routeView) return;
     setData(initial);
     setView(routeView);
     setLoadingTab(null);
     activeTab.current = routeView;
-    putTab(menuTabKey(routeView, shellFromLocation()), initial);
   }, [initial, routeView]);
 
   // Leaving Menú (or Platos for another tab) forgets the dishes' editors:

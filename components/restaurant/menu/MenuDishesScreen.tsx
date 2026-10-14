@@ -34,6 +34,7 @@ import Link from "next/link";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
 import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
 import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
+import { DrillView } from "@/components/restaurant/menu/DrillView";
 import { ProductosView } from "@/components/restaurant/groups/ProductosView";
 import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
 
@@ -133,6 +134,7 @@ export function MenuDishesScreen({
   const [excluded, setExcluded] = useState<MenuDish[]>(menu?.excluded ?? []);
   const [showExcluded, setShowExcluded] = useState(false);
   const { sort, toggle: toggleSort } = useTableSort("platos");
+  const [drillId, setDrillId] = useState<string | null>(null);
   const [view, setView] = useState<"platos" | "productos">("platos");
   const grouping = useItemGroups(data.item_groups);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -311,6 +313,27 @@ export function MenuDishesScreen({
     }
   }
 
+  const drillDish = drillId
+    ? ([...dishes, ...excluded].find((d) => d.id === drillId) ?? null)
+    : null;
+  if (drillDish) {
+    return (
+      <DrillView
+        dish={drillDish}
+        menuSales={dishes.reduce((sum, d) => sum + d.net_sales, 0)}
+        grouping={grouping}
+        canEdit={data.actor.can_submit}
+        money={money}
+        onBack={() => setDrillId(null)}
+        onOpenRecipe={
+          drillDish.base_odoo_product_id != null
+            ? () => onOpenDish(drillDish.base_odoo_product_id!)
+            : undefined
+        }
+      />
+    );
+  }
+
   return (
     <div className="space-y-[14px]">
       <div className="grid grid-cols-4 gap-3">
@@ -487,6 +510,7 @@ export function MenuDishesScreen({
                   money={money}
                   canEdit={data.actor.can_submit}
                   onToggle={() => toggle(dish.id)}
+                  onDrill={() => setDrillId(dish.id)}
                   onOpen={() =>
                     dish.base_odoo_product_id != null &&
                     onOpenDish(dish.base_odoo_product_id)
@@ -505,7 +529,8 @@ export function MenuDishesScreen({
             </tbody>
           </table>
           <p className="px-2 py-2 text-[12px] text-[#8a92a3]">
-            Doble clic en un plato para ver sus variantes
+            Doble clic en un plato para ver su desglose por tamaño, acompañante,
+            punto y canal
           </p>
         </section>
       ) : null}
@@ -567,6 +592,7 @@ function DishRows({
   money,
   canEdit,
   onToggle,
+  onDrill,
   onOpen,
   onMove,
   onExclude,
@@ -576,6 +602,7 @@ function DishRows({
   money: (n: number) => string;
   canEdit: boolean;
   onToggle: () => void;
+  onDrill: () => void;
   onOpen: () => void;
   onMove: (variant: MenuDishVariant | null) => void;
   onExclude: (exclude: boolean) => void;
@@ -588,7 +615,7 @@ function DishRows({
         className={
           "border-b border-[#f2f3f6] " + (isExcluded ? "text-[#8a92a3]" : "")
         }
-        onDoubleClick={onToggle}
+        onDoubleClick={onDrill}
       >
         <td className="px-2 py-2">
           <button
@@ -659,6 +686,9 @@ function DishRows({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-60">
+                <DropdownMenuItem onClick={onDrill}>
+                  Ver desglose
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={onToggle}>
                   Ver variantes
                 </DropdownMenuItem>

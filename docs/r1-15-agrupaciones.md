@@ -104,3 +104,12 @@ What the screens do:
   offers «Deshacer» for 8 seconds.
 - Suggestions use heuristics only (same dish → group words in the name → same base name as a member);
   "Sin sugerencia" otherwise. No AI yet (F4).
+
+## F3 — drill view (no migration)
+
+Double-click a dish in Platos (or ⋯ › Ver desglose) opens its drill view: dimension Tamaño / Acompañante /
+Punto / Canal, chips that narrow on the others, "Cruzar con" heatmap (click a cell to filter), a stacked bar
+and a table with the total. Grouped values (a `dimension_value` group of this dish) show as one line with a ▾
+caret to its members; "✎ Editar agrupación" moves values between groups and saves like every other group
+(needs 048 + 049 and a saved dish). All client-side over the loaded variant rows (`lib/restaurant/menu-dishes/drill.ts`);
+sums come from `costing/rollup.ts`, shares add up to exactly 100 (a group's share = sum of its members').

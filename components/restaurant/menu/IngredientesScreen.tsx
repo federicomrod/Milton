@@ -233,7 +233,7 @@ export function IngredientesScreen({
                   className={
                     "flex w-full items-center justify-between gap-3 border-b border-[#f3f4f7] px-2 py-2.5 text-left " +
                     (isSelected
-                      ? "bg-[#fff6ec] shadow-[inset_3px_0_0_#f28c28]"
+                      ? "bg-[#eef2fc] shadow-[inset_3px_0_0_#1b40c8]"
                       : "hover:bg-[#fafbfc]")
                   }
                 >
@@ -308,7 +308,7 @@ function FilterChip({
       className={
         "rounded-full border px-3 py-1 text-[12px] font-semibold " +
         (active
-          ? "border-[#f28c28] bg-[#fff6ec] text-[#b25e10]"
+          ? "border-[#1b40c8] bg-[#e6ecfb] text-[#1b40c8]"
           : "border-[#e3e7ee] bg-white text-[#6b7385] hover:text-[#151c2c]")
       }
     >

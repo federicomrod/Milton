@@ -17,8 +17,8 @@ export interface GroupOption {
   path: string;
 }
 
-const SEG_ON = "bg-white text-[#151c2c] shadow-sm";
-const SEG_OFF = "text-[#5b6476] hover:text-[#151c2c]";
+const SEG_ON = "bg-[#1b40c8] text-white shadow-sm";
+const SEG_OFF = "text-[#4a5a85] hover:text-[#1b40c8]";
 
 /** One shared control: "Todos · N / Agrupados · N / Sin agrupar · N" with live counts. */
 export function GroupingFilter({
@@ -46,7 +46,7 @@ export function GroupingFilter({
       <div
         role="group"
         aria-label="Filtro de agrupación"
-        className="inline-flex rounded-[11px] bg-[#e9ecf2] p-[3px]"
+        className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px]"
       >
         {items.map(([id, label, n]) => (
           <button
@@ -96,7 +96,7 @@ export function GroupActionBar({
 }) {
   if (count === 0) return null;
   const primary =
-    "rounded-lg bg-[#f28c28] px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-[#e07b1a] disabled:opacity-60";
+    "rounded-lg bg-[#2f5be0] px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-[#1b40c8] disabled:opacity-60";
   const secondary =
     "rounded-lg border border-[#3a4660] px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-[#26314a] disabled:opacity-60";
   return (
@@ -104,7 +104,7 @@ export function GroupActionBar({
       role="region"
       aria-label="Acciones de agrupación"
       data-testid="group-action-bar"
-      className="flex flex-wrap items-center gap-2 rounded-[10px] bg-[#151c2c] px-4 py-2.5 text-white"
+      className="flex flex-wrap items-center gap-2 rounded-[10px] border-l-4 border-[#2f5be0] bg-[#151c2c] px-4 py-2.5 text-white"
     >
       <b className="text-[13px]">
         {count} {count === 1 ? "seleccionado" : "seleccionados"}
@@ -192,7 +192,7 @@ export function GroupAsPopover({
         }}
         placeholder="Nombre del grupo"
         aria-label="Nombre del grupo"
-        className="mt-2 w-full rounded-lg border border-[#f28c28] px-3 py-2 text-[14px] outline-none"
+        className="mt-2 w-full rounded-lg border border-[#1b40c8] px-3 py-2 text-[14px] outline-none"
       />
       <label className="mt-3 block text-[12px] text-[#8a92a3]">
         Dentro de
@@ -359,7 +359,7 @@ export function SuggestionChip({
         disabled={busy}
         onClick={onAccept}
         aria-label={`Añadir a ${targetName}`}
-        className="rounded-md border border-[#dfe3ea] bg-white px-1.5 py-0.5 text-[12px] font-bold text-[#151c2c] hover:border-[#f28c28] disabled:opacity-50"
+        className="rounded-md border border-[#dfe3ea] bg-white px-1.5 py-0.5 text-[12px] font-bold text-[#151c2c] hover:border-[#1b40c8] disabled:opacity-50"
       >
         ✓
       </button>

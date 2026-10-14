@@ -73,44 +73,72 @@ function only<T>(items: T[]): T | null {
   return items.length === 1 ? items[0] : null;
 }
 
+interface PreparedTarget {
+  target: SuggestTarget;
+  /** dishKey of the target's name (only dishes use it). */
+  key: string;
+  words: string[];
+  /** dishKey of the base name of each member already in it. */
+  memberKeys: string[];
+}
+
+// The targets are prepared once per array (normalising names is the cost, and
+// it used to repeat for every item × every target on each group action).
+const prepared = new WeakMap<readonly SuggestTarget[], PreparedTarget[]>();
+function prepare(targets: readonly SuggestTarget[]): PreparedTarget[] {
+  let out = prepared.get(targets);
+  if (!out) {
+    out = targets.map((target) => ({
+      target,
+      key: dishKey(target.name),
+      words: wordsOf(target.name),
+      memberKeys:
+        target.kind === "group"
+          ? (target.memberNames ?? []).map((m) =>
+              dishKey(parseVariantName(m).base || m)
+            )
+          : [],
+    }));
+    prepared.set(targets, out);
+  }
+  return out;
+}
+
 export function suggestGroup(
   itemName: string,
   targets: readonly SuggestTarget[]
 ): Suggestion | null {
   const key = dishKey(parseVariantName(itemName).base || itemName);
   if (!key) return null;
+  const all = prepare(targets);
 
   // 1) The same dish.
-  const sameDish = targets.filter(
-    (t) => t.kind === "dish" && sameDishKey(dishKey(t.name), key)
+  const sameDish = all.filter(
+    (t) => t.target.kind === "dish" && sameDishKey(t.key, key)
   );
   const dish = only(sameDish);
-  if (dish) return { target: dish, reason: "plato" };
+  if (dish) return { target: dish.target, reason: "plato" };
   if (sameDish.length > 1) return null;
 
   // 2) All of a group's words are in the item's name.
   const itemWords = new Set(wordsOf(itemName));
   if (itemWords.size === 0) return null;
-  const named = targets
-    .map((t) => ({ t, words: wordsOf(t.name) }))
-    .filter(
-      ({ words }) => words.length > 0 && words.every((w) => itemWords.has(w))
-    );
+  const named = all.filter(
+    ({ words }) => words.length > 0 && words.every((w) => itemWords.has(w))
+  );
   if (named.length > 0) {
     const best = Math.max(...named.map((n) => n.words.length));
     const top = named.filter((n) => n.words.length === best);
     const one = only(top);
-    return one ? { target: one.t, reason: "nombre" } : null;
+    return one ? { target: one.target, reason: "nombre" } : null;
   }
 
   // 3) The same base name as something already in a group.
-  const sibling = targets.filter((t) =>
-    (t.memberNames ?? []).some((m) =>
-      sameDishKey(dishKey(parseVariantName(m).base || m), key)
-    )
+  const sibling = all.filter((t) =>
+    t.memberKeys.some((m) => sameDishKey(m, key))
   );
   const one = only(sibling);
-  return one ? { target: one, reason: "parecido" } : null;
+  return one ? { target: one.target, reason: "parecido" } : null;
 }
 
 /** When every selected item has the same suggestion, that group; otherwise null. */

@@ -9,6 +9,10 @@ import type {
   DishStatus,
 } from "@/lib/restaurant/costing/dish-economics";
 import {
+  buildMenuSummary,
+  type MenuSummary,
+} from "@/lib/restaurant/costing/menu-summary";
+import {
   PICKABLE_TREATMENTS,
   TREATMENT_RULES,
 } from "@/lib/restaurant/pos-treatments";
@@ -188,6 +192,21 @@ export interface SuggestionBatchRow {
  * recipe import and each suggestion chunk of the same file are one entry.
  * Input newest first; the row keeps the newest batch's date.
  */
+/**
+ * One key per uploaded file: the same workbook uploaded again (or saved
+ * by the browser as "file (2).xlsx", or with a path) is one row.
+ */
+export function fileGroupKey(filename: string): string {
+  return filename
+    .replace(/ · recetas$/, "")
+    .split(/[\\/]/)
+    .pop()!
+    .toLowerCase()
+    .replace(/\s*\(\d+\)(?=\.[a-z0-9]+$|$)/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function groupBatchesByFile(
   rows: ReadonlyArray<{
     id: string;
@@ -199,7 +218,7 @@ export function groupBatchesByFile(
   const byFile = new Map<string, SuggestionBatchRow>();
   for (const row of rows) {
     const file = row.filename.replace(/ · recetas$/, "").trim();
-    const key = file.toLowerCase();
+    const key = fileGroupKey(file);
     const group = byFile.get(key);
     if (group) {
       group.batch_ids.push(row.id);
@@ -251,6 +270,8 @@ export interface RecipeCostingWorkspace {
     goal_note: string;
   };
   setup_checklist: SetupCheck[];
+  /** Menú › Resumen from the shared loader (null on other tabs). */
+  menu_summary: MenuSummary | null;
   next_dish: {
     odoo_product_id: number;
     odoo_name: string;
@@ -795,6 +816,10 @@ export function buildRecipeCostingWorkspace(input: {
     buildPlatoQueue(products, versionsByMenu).find(
       (row) => row.status !== "listo"
     ) ?? null;
+  const excelUploaded =
+    Boolean(input.latestUpload) ||
+    input.batches.length > 0 ||
+    input.versions.some((v) => v.source_type === "import");
   const platoQueue = withDishStatus(
     buildPlatoQueue(products, versionsByMenu),
     input.dishEconomics ?? null
@@ -943,6 +968,10 @@ export function buildRecipeCostingWorkspace(input: {
           ? "Llegaste a la meta del 90%. Puedes seguir con los demás platos cuando quieras."
           : `Meta: ${COVERAGE_GOAL_PCT}% de las ventas de comida con costo aprobado.`,
     },
+    menu_summary:
+      input.view === "resumen" && input.dishEconomics
+        ? buildMenuSummary(input.dishEconomics, { excelUploaded })
+        : null,
     setup_checklist: [
       {
         id: "pos",
@@ -956,10 +985,13 @@ export function buildRecipeCostingWorkspace(input: {
       {
         id: "excel",
         label: "Excel de costos subido",
-        detail: input.latestUpload?.has_candidate_blocks
-          ? input.latestUpload.filename
-          : "Sube tu archivo de costos aquí abajo.",
-        done: Boolean(input.latestUpload?.has_candidate_blocks),
+        // Any live upload or import counts (a price list without recipe
+        // blocks, or recipes imported from the file), not only the newest
+        // batch with recipe blocks.
+        detail: excelUploaded
+          ? (input.latestUpload?.filename ?? "Recetas importadas del archivo")
+          : "Sube tu archivo de costos.",
+        done: excelUploaded,
       },
       {
         id: "platos",

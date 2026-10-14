@@ -49,13 +49,16 @@ describe("price catalog routes and screen", () => {
     const resumen = read(
       "components/restaurant/recipes-costing/ResumenScreen.tsx"
     ).replace(/\s+/g, " ");
-    expect(resumen).toContain("<PriceCatalogPanel onUploaded={onUploaded}");
+    // Step 1 of "Configura tu menú" (B4): the panel, embedded.
+    expect(resumen).toContain("<PriceCatalogPanel");
+    expect(resumen).toContain("embedded onUploaded={onUploaded}");
     expect(resumen).toContain("onRecipesImported={onResetDone}");
     const panel = read(
       "components/restaurant/recipes-costing/PriceCatalogPanel.tsx"
     );
     expect(panel).toContain("Subir Excel de costos");
-    expect(panel).toContain("Lo que no esté claro no te frena");
+    // B4: no explanatory paragraph on the page.
+    expect(panel).not.toContain("Lo que no esté claro no te frena");
     expect(panel).toContain("Subir y preparar mis platos");
     expect(panel).toContain("Puedes decidir algunas cosas ahora (opcional)");
     expect(panel).toContain("Revisé estas unidades");

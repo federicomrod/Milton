@@ -8,6 +8,7 @@
 // Company comes from auth, never from the request.
 
 import { NextRequest, NextResponse } from "next/server";
+import { actionableError } from "@/lib/restaurant/actionable-error";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import {
@@ -167,10 +168,14 @@ export async function POST(req: NextRequest) {
     if (isWorkbookLimitError(err)) {
       return NextResponse.json({ error: err.message }, { status: 400 });
     }
-    console.error("[recipes/price-catalog]", err);
+    const failure = actionableError(
+      err,
+      "No pude procesar la lista de precios.",
+      "recipes/price-catalog"
+    );
     return NextResponse.json(
-      { error: "No pude procesar la lista de precios." },
-      { status: 500 }
+      { error: failure.message, ref: failure.ref },
+      { status: failure.status }
     );
   }
 }

@@ -11,6 +11,7 @@
 // Milton staff. Company comes from auth.
 
 import { NextRequest, NextResponse } from "next/server";
+import { actionableError } from "@/lib/restaurant/actionable-error";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
@@ -129,10 +130,14 @@ export async function POST(req: NextRequest) {
     if (err instanceof RecipeImportError) {
       return NextResponse.json({ error: err.message }, { status: 400 });
     }
-    console.error("[recipes-import]", err);
+    const failure = actionableError(
+      err,
+      "No pude leer las recetas del archivo.",
+      "recipes-import"
+    );
     return NextResponse.json(
-      { error: "No pude leer las recetas del archivo." },
-      { status: 500 }
+      { error: failure.message, ref: failure.ref },
+      { status: failure.status }
     );
   }
 }

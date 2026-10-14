@@ -73,11 +73,10 @@ describe("saved choices", () => {
     expect(panel).toContain('fetch("/api/restaurant/recipes/upload-draft")');
     expect(panel).toContain('method: "PATCH"');
     expect(panel).toContain("await persistChoices();");
-    expect(panel).toContain("Ninguna (dejar Pendiente)");
-    expect(panel).toContain("¿Cuáles compras ya hechas?");
-    expect(panel).toContain(
-      "Las que no marques se costean con su propia receta."
-    );
+    // A choice can always be cleared back to Pendiente.
+    expect(panel).toContain("Ninguna / Pendiente");
+    // Each "parece preparación" row asks it explicitly.
+    expect(panel).toContain("¿Lo compras ya hecho?");
     expect(panel).not.toContain("Parecen preparaciones de tu cocina");
   });
 });

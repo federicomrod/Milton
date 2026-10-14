@@ -84,7 +84,7 @@ describe("Spanish completeness for cockpit chrome", () => {
       "Menú",
       "Costos",
       "Cocina",
-      "Datos y configuración",
+      "Configuración",
     ]);
   });
 
@@ -135,9 +135,12 @@ describe("Spanish completeness for cockpit chrome", () => {
     expect(logout).toContain("Cerrar sesión");
     expect(logout).toContain("t(lang,");
     const shell = read("components/restaurant/RestaurantShell.tsx");
-    expect(shell).toContain("<LogoutButton lang={lang} />");
-    expect(shell).toContain("Preguntar a Milton");
+    expect(shell).toContain('<LogoutButton lang={lang} variant="link" />');
     expect(shell).toContain("Todos los restaurantes");
+    // One "✦ Preguntar a Milton", top right in every page header (A2).
+    const header = read("components/restaurant/shell/OperatingPageHeader.tsx");
+    expect(header).toContain("Preguntar a Milton");
+    expect(shell).not.toContain("AskMiltonButton");
   });
 
   it("builds briefing / Ask Milton context with the cockpit language resolver", () => {

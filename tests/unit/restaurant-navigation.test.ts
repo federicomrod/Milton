@@ -30,7 +30,7 @@ describe("primary restaurant navigation (#128)", () => {
       "Menu",
       "Costs",
       "Kitchen",
-      "Data & Settings",
+      "Settings",
     ]);
     expect(primaryNavLabels("es")).toEqual([
       "Cockpit",
@@ -38,7 +38,7 @@ describe("primary restaurant navigation (#128)", () => {
       "Menú",
       "Costos",
       "Cocina",
-      "Datos y configuración",
+      "Configuración",
     ]);
   });
 

@@ -5,6 +5,7 @@ import {
   loadCompanyName,
 } from "@/lib/restaurant/cost-workbook/reset-auth";
 import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
+import type { CostWorkbookBatchSummary } from "@/lib/restaurant/cost-workbook/types";
 import { sortBatchesNewestFirst } from "@/lib/restaurant/cost-workbook/history";
 import {
   canManageCompanyCostReset,
@@ -190,7 +191,30 @@ export async function loadRecipeCostingWorkspace(
     // Live uploads without their snapshots (each holds ~150 KB of recipes).
     createSupabaseCostWorkbookRepo(supabase)
       .listLiveBatchSummaries(input.companyId)
-      .catch(() => []),
+      .catch(async (err): Promise<CostWorkbookBatchSummary[]> => {
+        // Never hide a finished upload behind a failed summary read: log
+        // it and fall back to the batch rows alone (no snapshot fields).
+        console.error("[recetas] live batch summaries:", err);
+        const { data, error } = await supabase
+          .from("cost_import_batches")
+          .select("id, filename, created_at, undone_at")
+          .eq("company_id", input.companyId)
+          .is("undone_at", null)
+          .order("created_at", { ascending: false });
+        if (error) {
+          console.error("[recetas] live batches:", error.message);
+          return [];
+        }
+        return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+          id: String(row.id),
+          filename: String(row.filename ?? ""),
+          created_at:
+            typeof row.created_at === "string" ? row.created_at : undefined,
+          undone_at: null,
+          has_recipe_blocks: false,
+          is_recipe_import: /· recetas$/.test(String(row.filename ?? "")),
+        }));
+      }),
   ]);
   if (linksRes.error) {
     return { ok: false, error: "No se pudieron leer los vínculos POS." };

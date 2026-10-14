@@ -1,10 +1,15 @@
 import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
 
-export default function MenuAreaLoading() {
+export default function MenuResumenLoading() {
   return (
-    <div className="w-full py-3 px-6 lg:px-10 space-y-3">
-      <PageSkeleton height="2rem" width="8rem" label="menu header" />
-      <PageSkeleton height="16rem" width="100%" label="menu profitability" />
+    <div className="space-y-3">
+      <PageSkeleton height="9rem" width="100%" label="configura tu menú" />
+      <div className="grid grid-cols-4 gap-3">
+        {[0, 1, 2, 3].map((i) => (
+          <PageSkeleton key={i} height="6rem" width="100%" label="kpi" />
+        ))}
+      </div>
+      <PageSkeleton height="20rem" width="100%" label="platos" />
     </div>
   );
 }

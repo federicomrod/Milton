@@ -210,13 +210,15 @@ describe("Empezar de nuevo clears the whole costing setup", () => {
 
 describe("one way in: old pages redirect to Recetas y costeo", () => {
   it("builds the target link", () => {
-    expect(recetasHref({})).toBe(RECETAS_PATH);
+    // R1-09b: old Recetas links land on the Menú tabs.
+    expect(recetasHref({})).toBe("/dashboard/restaurant/menu");
     expect(recetasHref({ vista: "preparaciones", prep: "c1" })).toBe(
-      `${RECETAS_PATH}?vista=preparaciones&prep=c1`
+      "/dashboard/restaurant/menu/preparaciones?prep=c1"
     );
     expect(recetasHref({ vista: "plato", producto: 7, location: "l1" })).toBe(
-      `${RECETAS_PATH}?vista=plato&producto=7&location=l1`
+      "/dashboard/restaurant/menu/platos?producto=7&location=l1"
     );
+    expect(RECETAS_PATH).toBe("/dashboard/restaurant/menu/recetas");
   });
 
   it("the old pages are redirects, not screens", () => {

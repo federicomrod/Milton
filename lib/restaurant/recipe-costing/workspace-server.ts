@@ -19,6 +19,8 @@ import { formatPageDateRangeLabel } from "@/lib/restaurant/page-date-range";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
+import { loadPreparationsOverview } from "./preparations-server";
+import type { DishEconomicsLoad } from "@/lib/restaurant/costing/dish-economics-server";
 import { ttlCached } from "@/lib/restaurant/ttl-cache";
 import {
   classificationFromStored,
@@ -149,6 +151,11 @@ export async function loadRecipeCostingWorkspace(
     /** Plato por plato after an edit: reload only the open dish, with its
      *  own sales (price, margin) instead of scanning every sale. */
     editorOnly?: boolean;
+    /**
+     * R1-13: the dish economics of the same restaurant and period, already
+     * on its way. Several tabs asked together (one request) share one.
+     */
+    economics?: Promise<DishEconomicsLoad>;
   }
 ): Promise<
   { ok: true; workspace: RecipeCostingWorkspace } | { ok: false; error: string }
@@ -159,6 +166,18 @@ export async function loadRecipeCostingWorkspace(
     view === "plato" &&
     input.editorOnly === true &&
     input.selectedOdooProductId != null;
+
+  // R1-09a: the same loader as Menú, Cockpit and the email, so coverage is
+  // one number everywhere. R1-13: tabs asked together share this read.
+  const economicsRead = editorOnly
+    ? null
+    : (input.economics ??
+      loadDishEconomics(
+        input.companyId,
+        input.startDate ?? null,
+        input.endDate ?? null,
+        input.locationId ?? null
+      ));
 
   // R1-12: one wave. Nothing below depends on the product list, so links,
   // versions, menu items, upload history, the combo hint and the upload
@@ -177,6 +196,7 @@ export async function loadRecipeCostingWorkspace(
     comboHintProbe,
     draftRes,
     resetContext,
+    preparationsOverview,
   ] = await Promise.all([
     editorOnly
       ? // R1-09c: after an edit, only the open dish's own sales (no
@@ -192,12 +212,7 @@ export async function loadRecipeCostingWorkspace(
         )
       : // R1-09a: the same loader as Menú, Cockpit and the email, so
         // coverage is one number everywhere.
-        loadDishEconomics(
-          input.companyId,
-          input.startDate ?? null,
-          input.endDate ?? null,
-          input.locationId ?? null
-        ).then((res) =>
+        economicsRead!.then((res) =>
           res.ok
             ? { ok: true as const, list: res.list, economics: res.result }
             : res
@@ -296,6 +311,24 @@ export async function loadRecipeCostingWorkspace(
               )
             : null
         )
+      : Promise.resolve(null),
+    // Preparaciones: its list rides in the same payload (built from the
+    // product list already being read, so no second sales/versions read).
+    view === "preparaciones" && economicsRead
+      ? economicsRead
+          .then((res) =>
+            res.ok
+              ? loadPreparationsOverview(supabase, {
+                  companyId: input.companyId,
+                  locationId: input.locationId ?? null,
+                  list: res.list,
+                })
+              : null
+          )
+          .catch((err) => {
+            console.error("[recetas] preparations overview:", err);
+            return null;
+          })
       : Promise.resolve(null),
   ]);
   if (list && !list.ok) return list;
@@ -406,39 +439,42 @@ export async function loadRecipeCostingWorkspace(
         )
       : null;
 
+  const built = buildRecipeCostingWorkspace({
+    companyId: input.companyId,
+    companyName,
+    currency: currency || "USD",
+    periodLabel,
+    view,
+    actor: {
+      user_id: input.userId,
+      role: roleLoad.role,
+      is_milton_staff: isMiltonStaff,
+    },
+    products,
+    links,
+    versions: versionsRes.rows ?? [],
+    menuItems: menuRes.rows ?? [],
+    batches,
+    coveragePct: coverageTotals?.coverage_pct ?? 0,
+    netSales: coverageTotals?.food_net_sales ?? 0,
+    excludedNetSales: coverageTotals?.excluded_net_sales ?? 0,
+    coveredNetSales: coverageTotals?.covered_net_sales ?? 0,
+    selectedOdooProductId: input.selectedOdooProductId ?? null,
+    lastProgress,
+    comboSyncHint,
+    latestUpload,
+    reset,
+    dishEconomics: list && list.ok ? list.economics : null,
+    uploadDraftPending,
+    timings: {
+      load_ms: Date.now() - started,
+      path: editorOnly ? "plato_editor" : "full",
+    },
+  });
   return {
     ok: true,
-    workspace: buildRecipeCostingWorkspace({
-      companyId: input.companyId,
-      companyName,
-      currency: currency || "USD",
-      periodLabel,
-      view,
-      actor: {
-        user_id: input.userId,
-        role: roleLoad.role,
-        is_milton_staff: isMiltonStaff,
-      },
-      products,
-      links,
-      versions: versionsRes.rows ?? [],
-      menuItems: menuRes.rows ?? [],
-      batches,
-      coveragePct: coverageTotals?.coverage_pct ?? 0,
-      netSales: coverageTotals?.food_net_sales ?? 0,
-      excludedNetSales: coverageTotals?.excluded_net_sales ?? 0,
-      coveredNetSales: coverageTotals?.covered_net_sales ?? 0,
-      selectedOdooProductId: input.selectedOdooProductId ?? null,
-      lastProgress,
-      comboSyncHint,
-      latestUpload,
-      reset,
-      dishEconomics: list && list.ok ? list.economics : null,
-      uploadDraftPending,
-      timings: {
-        load_ms: Date.now() - started,
-        path: editorOnly ? "plato_editor" : "full",
-      },
-    }),
+    workspace: preparationsOverview
+      ? { ...built, preparations_overview: preparationsOverview }
+      : built,
   };
 }

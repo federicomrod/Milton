@@ -124,6 +124,7 @@ export function RecipeLinesEditor({
   onEdited,
   onState,
   onOpenPreparation,
+  forceLocked = false,
 }: {
   /** A dish, by POS product… */
   odooProductId?: number;
@@ -137,6 +138,8 @@ export function RecipeLinesEditor({
   onEdited: () => void;
   onState?: (state: EditorState) => void;
   onOpenPreparation?: (componentId: string) => void;
+  /** The parent already shows this recipe as approved (R1-13): read-only now. */
+  forceLocked?: boolean;
 }) {
   // R1-12: a dish seen (or read ahead) a moment ago opens with its lines
   // already on screen; the server's answer still replaces them below.
@@ -293,7 +296,7 @@ export function RecipeLinesEditor({
     );
   }
 
-  const editable = state.editable && !busy;
+  const editable = state.editable && !busy && !forceLocked;
 
   return (
     <div>

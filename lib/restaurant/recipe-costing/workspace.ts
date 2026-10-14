@@ -53,6 +53,7 @@ import {
   type TodoKind,
 } from "./copy";
 import { buildApprovalChecklist, type ApprovalChecklist } from "./approval";
+import type { PreparationsOverview } from "./preparations-server";
 import {
   isUncertainEvidence,
   toReviewLine,
@@ -242,6 +243,8 @@ export function groupBatchesByFile(
 }
 
 export interface RecipeCostingWorkspace {
+  /** Preparaciones tab only (R1-13): the list, so the tab needs no second read. */
+  preparations_overview?: PreparationsOverview | null;
   company_id: string;
   company_name: string | null;
   currency: string;

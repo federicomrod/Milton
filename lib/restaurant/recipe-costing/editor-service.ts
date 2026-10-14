@@ -1508,12 +1508,28 @@ export async function approvePreparation(
     componentId: string;
     /** Milton staff: how the client confirmed. */
     confirmedHow?: string | null;
+    /**
+     * R1-13: answer as soon as the preparation is approved. The dishes that
+     * use it are re-costed by `recost()` (run it after the response), not
+     * before it.
+     */
+    deferRefresh?: boolean;
   }
 ): Promise<
-  | { ok: true; state: EditorState; refreshed_dishes: number }
+  | {
+      ok: true;
+      state: EditorState;
+      refreshed_dishes: number;
+      /** Set with deferRefresh: re-cost the dishes that use it, in bulk. */
+      recost?: () => Promise<number>;
+    }
   | { ok: false; error: string; status?: number }
 > {
-  const loaded = await load(ctx);
+  // The catalog, aliases and questions are read while the preparation is
+  // found, and once for the whole approval.
+  const readCtx: Ctx = { ...ctx, store: withCachedCatalog(ctx.store) };
+  warmCatalog(readCtx);
+  const loaded = await load(readCtx);
   if (!loaded.ok) return loaded;
   const { holder, version } = loaded;
   if (!version) {
@@ -1530,7 +1546,7 @@ export async function approvePreparation(
       status: 409,
     };
   }
-  const built = await build(ctx, loaded, evidenceLinesOf(holder.evidence));
+  const built = await build(readCtx, loaded, evidenceLinesOf(holder.evidence));
   const checklist = built.state.preparation?.checklist;
   if (!checklist?.ready) {
     return {
@@ -1539,6 +1555,8 @@ export async function approvePreparation(
       status: 400,
     };
   }
+  const denied = await ctx.guard;
+  if (denied) return denied;
   if (!ctx.userId) {
     return { ok: false, error: "Falta quién aprueba.", status: 400 };
   }
@@ -1549,33 +1567,54 @@ export async function approvePreparation(
   );
   await ctx.store.resolveHolder(ctx.companyId, holder);
 
-  // Dishes that use it now have a cost for that line.
-  let refreshed = 0;
-  const dishes = await ctx.store.dishesUsingPreparation(
-    ctx.companyId,
-    ctx.componentId
-  );
-  for (const dish of dishes) {
-    try {
-      const r = await refreshEvidence({
-        store: ctx.store,
-        companyId: ctx.companyId,
-        odooProductId: dish.odooProductId,
-        locationId: dish.locationId,
-        userId: ctx.userId,
-      });
-      if (r.ok) refreshed += 1;
-    } catch (err) {
-      console.error("[preparation approve refresh]", err);
-    }
-  }
+  // The approved preparation as the screen shows it: same lines, locked.
+  const approvedState: EditorState = {
+    ...built.state,
+    editable: false,
+    locked_reason:
+      "Esta preparación ya está aprobada. Para cambiarla hace falta una versión nueva.",
+    preparation: built.state.preparation
+      ? { ...built.state.preparation, status: "approved" }
+      : built.state.preparation,
+  };
 
-  const after = await load(ctx);
-  if (!after.ok) return after;
-  const rebuilt = await build(
-    ctx,
-    after,
-    evidenceLinesOf(after.holder.evidence)
-  );
-  return { ok: true, state: rebuilt.state, refreshed_dishes: refreshed };
+  // Dishes that use it now have a cost for that line. One catalog read
+  // for all of them, a few at a time (they were re-costed one by one, each
+  // reading everything again).
+  const recost = async (): Promise<number> => {
+    const dishes = await ctx.store.dishesUsingPreparation(
+      ctx.companyId,
+      ctx.componentId
+    );
+    const shared = withCachedCatalog(ctx.store);
+    let refreshed = 0;
+    for (let i = 0; i < dishes.length; i += RECOST_CONCURRENCY) {
+      await Promise.all(
+        dishes.slice(i, i + RECOST_CONCURRENCY).map(async (dish) => {
+          try {
+            const r = await refreshEvidence({
+              store: shared,
+              companyId: ctx.companyId,
+              odooProductId: dish.odooProductId,
+              locationId: dish.locationId,
+              userId: ctx.userId,
+            });
+            if (r.ok) refreshed += 1;
+          } catch (err) {
+            console.error("[preparation approve refresh]", err);
+          }
+        })
+      );
+    }
+    return refreshed;
+  };
+
+  if (ctx.deferRefresh) {
+    return { ok: true, state: approvedState, refreshed_dishes: 0, recost };
+  }
+  const refreshed = await recost();
+  return { ok: true, state: approvedState, refreshed_dishes: refreshed };
 }
+
+/** Dishes re-costed at once after a preparation is approved. */
+const RECOST_CONCURRENCY = 4;

@@ -5,7 +5,7 @@
 // the same roles as a dish: owner or admin; Milton staff only with a
 // recorded client confirmation. Company and user come from auth.
 
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { actorCanApprove } from "@/lib/restaurant/recipe-costing/approval";
 import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
@@ -37,22 +37,27 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const actor = await loadRecipeActor(
+  const confirmedHow =
+    typeof body.confirmed_how === "string" && body.confirmed_how.trim()
+      ? body.confirmed_how.trim()
+      : null;
+  // R1-13: the role check runs while the preparation is read; nothing is
+  // written until it passes.
+  const guard = loadRecipeActor(
     auth.supabase,
     auth.companyId,
     auth.userId
-  );
-  const allowed = actorCanApprove(actor, {
-    confirmed_by: auth.userId,
-    confirmed_at: new Date().toISOString(),
-    confirmed_how:
-      typeof body.confirmed_how === "string" && body.confirmed_how.trim()
-        ? body.confirmed_how.trim()
-        : undefined,
+  ).then((actor) => {
+    const allowed = actorCanApprove(actor, {
+      confirmed_by: auth.userId,
+      confirmed_at: new Date().toISOString(),
+      confirmed_how: confirmedHow ?? undefined,
+    });
+    return allowed.ok
+      ? null
+      : { ok: false as const, error: allowed.error, status: 403 };
   });
-  if (!allowed.ok) {
-    return NextResponse.json({ error: allowed.error }, { status: 403 });
-  }
+  guard.catch(() => undefined);
 
   try {
     const result = await approvePreparation({
@@ -62,10 +67,11 @@ export async function POST(req: NextRequest) {
       locationId: null,
       componentId,
       userId: auth.userId,
-      confirmedHow:
-        typeof body.confirmed_how === "string" && body.confirmed_how.trim()
-          ? body.confirmed_how.trim()
-          : null,
+      confirmedHow,
+      guard,
+      // R1-13: answer now; the dishes that use it are re-costed after the
+      // response, in bulk.
+      deferRefresh: true,
     });
     if (!result.ok) {
       return NextResponse.json(
@@ -73,9 +79,21 @@ export async function POST(req: NextRequest) {
         { status: result.status ?? 400 }
       );
     }
+    const { recost } = result;
+    if (recost) {
+      after(async () => {
+        try {
+          const n = await recost();
+          console.info(`[recipes/preparations/approve] re-costed ${n} dishes`);
+        } catch (err) {
+          console.error("[recipes/preparations/approve recost]", err);
+        }
+      });
+    }
     return NextResponse.json({
       ...result.state,
       refreshed_dishes: result.refreshed_dishes,
+      recosting: Boolean(recost),
     });
   } catch (err) {
     console.error("[recipes/preparations/approve]", err);

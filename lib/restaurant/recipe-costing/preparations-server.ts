@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
+import type { PosProductListResult } from "@/lib/restaurant/pos-product-list";
 import {
   impactLabel,
   preparationImpact,
@@ -35,7 +36,12 @@ function latest<T extends { version_number: number }>(rows: readonly T[]) {
 
 export async function loadPreparationsOverview(
   supabase: SupabaseClient,
-  input: { companyId: string; locationId?: string | null }
+  input: {
+    companyId: string;
+    locationId?: string | null;
+    /** The product list the caller already built (R1-13): not read again. */
+    list?: PosProductListResult;
+  }
 ): Promise<PreparationsOverview> {
   const [components, versions, items, products] = await Promise.all([
     fetchAllRows<{ id: string; name: string }>(() =>
@@ -53,10 +59,12 @@ export async function loadPreparationsOverview(
         .eq("status", "pending")
         .eq("raw_values->>kind", PREPARATION_DRAFT_KIND)
     ),
-    loadPosProductList(supabase, {
-      companyId: input.companyId,
-      locationId: input.locationId ?? null,
-    }),
+    input.list
+      ? Promise.resolve({ ok: true as const, list: input.list })
+      : loadPosProductList(supabase, {
+          companyId: input.companyId,
+          locationId: input.locationId ?? null,
+        }),
   ]);
   if (components.error) throw new Error(components.error.message);
 

@@ -33,6 +33,13 @@ import type {
 import type { PosProductClassification } from "@/lib/restaurant/pos-product-links";
 
 import { DISH_STATUS_LABELS, type DishStatus } from "./dish-status";
+import {
+  buildMenuDishes,
+  type MenuDish,
+  type MenuDishTotals,
+  type StoredMenuDish,
+  type StoredVariant,
+} from "@/lib/restaurant/menu-dishes/menu-dishes";
 
 export { DISH_STATUS_LABELS, type DishStatus };
 
@@ -111,6 +118,15 @@ export interface DishEconomics {
   in_cogs: boolean;
   lines: DishLineEconomics[];
   lines_missing_price: number;
+  /** R1-10: the menu dish this POS variant belongs to. */
+  menu_dish_id?: string | null;
+  menu_dish_name?: string | null;
+  /** Out of food costing (bebida, extra…): not in totals. */
+  excluded_reason?: string | null;
+  /** Where unit_cost comes from: its own recipe, or the dish's scaled. */
+  cost_basis?: "own" | "dish" | null;
+  /** The variant's own recipe cost, before the dish's was applied. */
+  own_unit_cost?: number | null;
 }
 
 export interface DishEconomicsTotals {
@@ -147,8 +163,14 @@ export interface DishEconomicsResult {
   /** False for a company with no Odoo product or link at all (CSV-only
    *  uploads): screens then fall back to the legacy name-mapped path. */
   uses_pos_products: boolean;
+  /** Every sold POS product (variant), with its menu dish's effective cost. */
   dishes: DishEconomics[];
+  /** Totals per menu dish (R1-10): one denominator, sums only. */
   totals: DishEconomicsTotals;
+  /** Menu dishes (variants grouped) and the excluded ones. */
+  menu_dishes: MenuDish[];
+  excluded_menu_dishes: MenuDish[];
+  menu_totals: MenuDishTotals;
 }
 
 export interface DishVersion {
@@ -184,6 +206,9 @@ export interface BuildDishEconomicsInput {
   /** Price meta for an ingredient (the editor's `latestPrice`). */
   priceOf: (ingredientId: string) => PriceMeta | null;
   locationId?: string | null;
+  /** R1-10 (045): stored menu dishes and each variant's grouping. */
+  storedMenuDishes?: readonly StoredMenuDish[];
+  storedVariants?: ReadonlyMap<number, StoredVariant>;
 }
 
 function round2(n: number): number {
@@ -479,13 +504,63 @@ export function buildDishEconomics(
     .map((product) =>
       dishFromProduct(product, input, versionsByMenuItem, names)
     );
+  // R1-10: group the variants into menu dishes; every number every screen
+  // shows is then the dish-level one (sums, never averages).
+  const grouped = buildMenuDishes({
+    products: dishes,
+    storedDishes: input.storedMenuDishes,
+    storedVariants: input.storedVariants,
+    excludedNetSalesBefore: input.list.excluded_net_sales,
+  });
+  const nameOf = new Map(
+    [...grouped.dishes, ...grouped.excluded].map((d) => [d.id, d])
+  );
+  for (const dish of dishes) {
+    const hit = grouped.byProduct.get(dish.odoo_product_id);
+    if (!hit) continue;
+    const menuDish = nameOf.get(hit.dish_id);
+    const v = hit.variant;
+    dish.menu_dish_id = hit.dish_id;
+    dish.menu_dish_name = menuDish?.name ?? null;
+    dish.own_unit_cost = dish.unit_cost;
+    if (menuDish?.status === "excluded") {
+      dish.excluded_reason = menuDish.excluded_reason;
+      dish.covered = false;
+      dish.in_cogs = false;
+      dish.share_of_food_sales = 0;
+      continue;
+    }
+    dish.cost_basis = v.cost_basis;
+    dish.unit_cost = v.unit_cost;
+    dish.status = v.status;
+    dish.status_label = DISH_STATUS_LABELS[v.status];
+    dish.covered = v.covered;
+    dish.in_cogs = v.covered && v.unit_cost !== null;
+    dish.food_cost_pct =
+      v.unit_cost !== null &&
+      dish.avg_net_price !== null &&
+      dish.avg_net_price > 0
+        ? (v.unit_cost / dish.avg_net_price) * 100
+        : null;
+    dish.unit_margin =
+      v.unit_cost !== null && dish.avg_net_price !== null
+        ? dish.avg_net_price - v.unit_cost
+        : null;
+    dish.share_of_food_sales =
+      grouped.totals.food_net_sales > 0
+        ? dish.net_sales / grouped.totals.food_net_sales
+        : 0;
+  }
   return {
     company_id: input.companyId,
     currency: input.currency,
     period: input.period ?? { from: null, to: null },
     uses_pos_products: input.list.products.length > 0 || input.links.length > 0,
     dishes,
-    totals: totalsOf(dishes, input.list),
+    totals: grouped.totals,
+    menu_dishes: grouped.dishes,
+    excluded_menu_dishes: grouped.excluded,
+    menu_totals: grouped.totals,
   };
 }
 

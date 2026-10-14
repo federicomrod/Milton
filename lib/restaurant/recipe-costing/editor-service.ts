@@ -233,6 +233,12 @@ export interface Ctx {
   userId: string | null;
   /** The client already has the picker list (R1-09c): do not send it. */
   omitOptions?: boolean;
+  /**
+   * R1-12: a permission check the caller runs in parallel with the reads.
+   * applyEdit awaits it before its first write; a non-null answer is
+   * returned as is and nothing is written.
+   */
+  guard?: Promise<{ ok: false; error: string; status?: number } | null>;
 }
 
 function parseUnitQuestion(
@@ -316,6 +322,11 @@ async function build(
   evidenceLines: EvidenceLineIn[]
 ): Promise<{ state: EditorState; lines: EditorLine[] }> {
   const { version } = loaded;
+  // R1-12: the catalog questions are only used when a line is unpriced or
+  // unresolved, but asking for them costs no extra wave: start them with
+  // the other reads and wait for them only if needed.
+  const questionsRead = ctx.store.catalogQuestions(ctx.companyId);
+  questionsRead.catch(() => undefined);
   // Independent reads: one round trip instead of three.
   const [costing, aliases, inputs] = await Promise.all([
     ctx.store.loadCosting(ctx.companyId),
@@ -384,9 +395,7 @@ async function build(
         (line.ingredient_id && !line.price) || line.kind === "unresolved"
     )
   ) {
-    const questions = (await ctx.store.catalogQuestions(ctx.companyId)).filter(
-      (q) => q.options.length > 0
-    );
+    const questions = (await questionsRead).filter((q) => q.options.length > 0);
     const byIngredient = new Map(
       questions.filter((q) => q.ingredient_id).map((q) => [q.ingredient_id!, q])
     );
@@ -539,10 +548,14 @@ async function load(
 }
 
 export async function loadEditor(ctx: Ctx): Promise<EditorResult> {
-  const loaded = await load(ctx);
+  // R1-12: the catalog and aliases do not depend on the dish: read them
+  // while the link and version are being found (they used to wait).
+  const readCtx: Ctx = { ...ctx, store: withCachedCatalog(ctx.store) };
+  warmCatalog(readCtx);
+  const loaded = await load(readCtx);
   if (!loaded.ok) return loaded;
   const built = await build(
-    ctx,
+    readCtx,
     loaded,
     evidenceLinesOf(loaded.holder.evidence)
   );
@@ -709,8 +722,14 @@ export async function applyEdit(
   ctx: Ctx,
   action: EditorAction
 ): Promise<EditorResult> {
+  // The catalog is read once per edit (below); start it with the link and
+  // version reads instead of after them.
+  const readCtx: Ctx = { ...ctx, store: withCachedCatalog(ctx.store) };
+  warmCatalog(readCtx);
   const loaded = await load(ctx);
   if (!loaded.ok) return loaded;
+  const denied = await ctx.guard;
+  if (denied) return denied;
   const { holder, version } = loaded;
   if (action.action === "set_yield" && !loaded.preparation) {
     return {
@@ -747,7 +766,6 @@ export async function applyEdit(
   // The company's catalog is read once per edit (it was read 3–4 times:
   // pinning, lookups, the final rebuild). Only an edit that changes the
   // catalog itself reads it again at the end.
-  const readCtx: Ctx = { ...ctx, store: withCachedCatalog(ctx.store) };
   // Pin every resolved evidence line to its input first, so an edit can
   // never lose which Excel line a recipe line came from.
   // Only edits that change file lines by position need it.
@@ -1423,12 +1441,30 @@ export async function refreshEvidence(ctx: Ctx): Promise<EditorResult> {
   return { ok: true, state: built.state };
 }
 
+/** Start the company-wide reads now; a failure surfaces where they are used. */
+function warmCatalog(ctx: Ctx): void {
+  for (const read of [
+    ctx.store.loadCosting(ctx.companyId),
+    ctx.store.loadAliases(ctx.companyId),
+    ctx.store.catalogQuestions(ctx.companyId),
+  ]) {
+    read.catch(() => undefined);
+  }
+}
+
 /** Reuse one catalog read across many products (read-only refreshes). */
 export function withCachedCatalog(store: EditorStore): EditorStore {
   const costing = new Map<string, Promise<CostingLoad>>();
   const aliases = new Map<string, Promise<Map<string, string>>>();
+  const questions = new Map<string, Promise<CatalogQuestion[]>>();
   return {
     ...store,
+    catalogQuestions(companyId) {
+      if (!questions.has(companyId)) {
+        questions.set(companyId, store.catalogQuestions(companyId));
+      }
+      return questions.get(companyId)!;
+    },
     loadCosting(companyId) {
       if (!costing.has(companyId)) {
         costing.set(companyId, store.loadCosting(companyId));

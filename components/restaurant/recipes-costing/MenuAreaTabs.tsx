@@ -12,6 +12,10 @@ import {
   MENU_TAB_PATHS,
   type MenuTab,
 } from "@/lib/restaurant/recetas-redirect";
+import {
+  prefetchMenuTab,
+  trySwitchMenuTab,
+} from "@/lib/restaurant/recipe-costing/menu-tab-bridge";
 
 const TABS: Array<{ id: MenuTab; en: string; es: string }> = [
   { id: "resumen", en: "Overview", es: "Resumen" },
@@ -42,21 +46,41 @@ export function MenuAreaTabs({ lang }: { lang: PreferredLanguage }) {
       aria-label={t(lang, "Menu sections", "Secciones del menú")}
       className="mt-2 mb-4 flex gap-7 border-b border-[#dfe3ea]"
     >
-      {TABS.map((tab) => (
-        <Link
-          key={tab.id}
-          href={withShellParams(MENU_TAB_PATHS[tab.id], shell)}
-          aria-current={active === tab.id ? "page" : undefined}
-          className={
-            "-mb-px border-b-[3px] py-2 text-[15px] font-semibold " +
-            (active === tab.id
-              ? "border-[#f28c28] text-[#151c2c]"
-              : "border-transparent text-[#6b7385] hover:text-[#151c2c]")
-          }
-        >
-          {t(lang, tab.en, tab.es)}
-        </Link>
-      ))}
+      {TABS.map((tab) => {
+        const href = withShellParams(MENU_TAB_PATHS[tab.id], shell);
+        return (
+          <Link
+            key={tab.id}
+            href={href}
+            aria-current={active === tab.id ? "page" : undefined}
+            // R1-12: an open workspace switches tabs from its own cache;
+            // otherwise (or with a modifier key) this is a normal link.
+            onClick={(event) => {
+              if (
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey ||
+                active === tab.id
+              ) {
+                return;
+              }
+              if (trySwitchMenuTab(tab.id, href)) event.preventDefault();
+            }}
+            onMouseEnter={() => prefetchMenuTab(tab.id)}
+            onFocus={() => prefetchMenuTab(tab.id)}
+            className={
+              "-mb-px border-b-[3px] py-2 text-[15px] font-semibold " +
+              (active === tab.id
+                ? "border-[#f28c28] text-[#151c2c]"
+                : "border-transparent text-[#6b7385] hover:text-[#151c2c]")
+            }
+          >
+            {t(lang, tab.en, tab.es)}
+          </Link>
+        );
+      })}
     </nav>
   );
 }

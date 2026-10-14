@@ -188,7 +188,8 @@ export async function loadDishCostContextWith(
             .from("recipe_versions")
             .select(select)
             .eq("company_id", companyId),
-        VERSION_SELECT
+        VERSION_SELECT,
+        { hintKey: `recipe_versions:${companyId}` }
       ),
       fetchAllRowsRetryingWithoutColumns<Record<string, unknown>>(
         ["unit_cost", "cost_source"],
@@ -197,7 +198,9 @@ export async function loadDishCostContextWith(
             .from("recipe_version_inputs")
             .select(select)
             .eq("company_id", companyId),
-        INPUT_SELECT
+        INPUT_SELECT,
+        // R1-12: ~1.4k rows today = two pages; ask for both at once.
+        { hintKey: `recipe_version_inputs:${companyId}` }
       ),
       createSupabaseEditorStore(supabase).loadCosting(companyId),
       resolveCompanyCurrency(supabase, companyId),

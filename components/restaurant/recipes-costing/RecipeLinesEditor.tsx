@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ingredientHref } from "@/lib/restaurant/menu-links";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
 import {
   FLAG_NEW_SUGGESTED,
@@ -25,6 +25,13 @@ import {
   pickerOptionsFor,
   rememberPickerOptions,
 } from "@/lib/restaurant/recipe-costing/picker-cache";
+import {
+  clearEditors,
+  dropEditor,
+  editorQuery,
+  getCachedEditor,
+  putEditor,
+} from "@/lib/restaurant/recipe-costing/editor-cache";
 import { Chip, GhostBtn, PrimaryBtn } from "./ui";
 
 const MASS = ["oz", "lb", "g", "kg"];
@@ -131,7 +138,19 @@ export function RecipeLinesEditor({
   onState?: (state: EditorState) => void;
   onOpenPreparation?: (componentId: string) => void;
 }) {
-  const [state, setState] = useState<EditorState | null>(null);
+  // R1-12: a dish seen (or read ahead) a moment ago opens with its lines
+  // already on screen; the server's answer still replaces them below.
+  const [state, setState] = useState<EditorState | null>(() => {
+    const hit = getCachedEditor(
+      editorQuery({ odooProductId, componentId, locationId })
+    );
+    if (!hit) return null;
+    if (!hit.state.options_omitted) return hit.state;
+    const picker = cachedPickerOptions();
+    return picker
+      ? { ...hit.state, options: pickerOptionsFor(picker, componentId) }
+      : null;
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picking, setPicking] = useState<PickTarget | null>(null);
@@ -148,13 +167,10 @@ export function RecipeLinesEditor({
           },
     [componentId, odooProductId, locationId]
   );
-  const query = useMemo(() => {
-    const p = new URLSearchParams();
-    for (const [key, value] of Object.entries(target)) {
-      if (value !== undefined && value !== null) p.set(key, String(value));
-    }
-    return p.toString();
-  }, [target]);
+  const query = useMemo(
+    () => editorQuery({ odooProductId, componentId, locationId }),
+    [odooProductId, componentId, locationId]
+  );
 
   useEffect(() => {
     if (state && onState) onState(state);
@@ -176,23 +192,41 @@ export function RecipeLinesEditor({
     [componentId]
   );
 
+  const lastReloadKey = useRef(reloadKey);
+  /** Counts saves, so a background re-read that started before a save
+   *  never overwrites that save's newer answer. */
+  const editSeq = useRef(0);
   useEffect(() => {
     let cancelled = false;
+    // A reload asked by the parent (it approved something) skips the cache.
+    if (lastReloadKey.current !== reloadKey) {
+      lastReloadKey.current = reloadKey;
+      dropEditor(query);
+    }
+    const hit = getCachedEditor(query);
+    const seqAtStart = editSeq.current;
     void (async () => {
+      if (hit) {
+        setState(withOptions(hit.state));
+        setError(null);
+        // Fresh: shown with no request. Older: shown now, re-read below.
+        if (hit.fresh) return;
+      }
       const omit = cachedPickerOptions() ? "&omit_options=1" : "";
       const res = await call(`/api/restaurant/recipes/editor?${query}${omit}`);
-      if (cancelled) return;
+      if (cancelled || editSeq.current !== seqAtStart) return;
       if (res.ok) {
+        putEditor(query, res.state, { productId: odooProductId ?? null });
         setState(withOptions(res.state));
         setError(null);
-      } else {
+      } else if (!hit) {
         setError(res.error);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [query, reloadKey, withOptions]);
+  }, [query, reloadKey, withOptions, odooProductId]);
 
   async function send(
     body: Record<string, unknown>,
@@ -202,6 +236,7 @@ export function RecipeLinesEditor({
       | { add: PickerOption; qty: number; unit: string }
   ): Promise<boolean> {
     const before = state;
+    editSeq.current++;
     if (optimistic && state) {
       setState(
         "add" in optimistic
@@ -235,6 +270,10 @@ export function RecipeLinesEditor({
       setError(res.error);
       return false;
     }
+    // The server's answer for this dish is the freshest copy; a catalog
+    // change (a price, a new ingredient) moves other dishes' costs too.
+    if (changesCatalog) clearEditors();
+    putEditor(query, res.state, { productId: odooProductId ?? null });
     setState(withOptions(res.state));
     setPicking(null);
     if (optimistic && "add" in optimistic) {

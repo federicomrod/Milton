@@ -149,6 +149,8 @@ export async function confirmPosLinkForCompany(input: {
   locationId?: string | null;
   confirmedHow?: string | null;
   menuItemId?: string | null;
+  /** The link the caller already read (R1-12); undefined = read it here. */
+  existingLink?: PosProductLinkRecord | null;
 }): Promise<
   { ok: true; link: PosProductLinkRecord } | { ok: false; error: string }
 > {
@@ -161,12 +163,14 @@ export async function confirmPosLinkForCompany(input: {
   if (!allowed.ok) return allowed;
 
   const existing =
-    (await loadPosProductLink(
-      input.supabase,
-      input.companyId,
-      input.odooProductId,
-      input.locationId
-    )) ??
+    (input.existingLink !== undefined
+      ? input.existingLink
+      : await loadPosProductLink(
+          input.supabase,
+          input.companyId,
+          input.odooProductId,
+          input.locationId
+        )) ??
     unlinkedPosProduct({
       company_id: input.companyId,
       odoo_product_id: input.odooProductId,

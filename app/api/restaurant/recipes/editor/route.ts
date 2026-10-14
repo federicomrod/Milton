@@ -98,17 +98,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const actor = await loadRecipeActor(
+  // R1-12: the role check runs while the dish and catalog are read;
+  // applyEdit waits for it before its first write.
+  const guard = loadRecipeActor(
     auth.supabase,
     auth.companyId,
     auth.userId
+  ).then((actor) =>
+    actorCanSubmitForApproval(actor)
+      ? null
+      : {
+          ok: false as const,
+          error: "Tu rol no puede editar recetas.",
+          status: 403,
+        }
   );
-  if (!actorCanSubmitForApproval(actor)) {
-    return NextResponse.json(
-      { error: "Tu rol no puede editar recetas." },
-      { status: 403 }
-    );
-  }
+  // A failed role read must answer like the other errors, not leave an
+  // unhandled rejection behind.
+  guard.catch(() => undefined);
 
   const started = Date.now();
   try {
@@ -121,6 +128,7 @@ export async function POST(req: NextRequest) {
         locationId: str(body.location_id),
         userId: auth.userId,
         omitOptions: body.omit_options === true,
+        guard,
       },
       action
     );

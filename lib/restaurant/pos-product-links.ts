@@ -206,6 +206,43 @@ export function matchPosProductLink(
     const scoped = same.find((link) => link.location_id === locationId);
     if (scoped) return scoped;
   }
+  const companyWide = same.find((link) => link.location_id == null);
+  if (companyWide || locationId) return companyWide ?? null;
+  // "Todos los restaurantes": a product linked only for one restaurant is
+  // still that link (the editor opened nothing and coverage missed it).
+  // Several restaurants: the confirmed one first, then a stable order.
+  const scopedOnly = same
+    .filter((link) => link.location_id != null)
+    .sort(
+      (a, b) =>
+        Number(b.link_state === "confirmado") -
+          Number(a.link_state === "confirmado") ||
+        String(a.location_id).localeCompare(String(b.location_id))
+    );
+  return scopedOnly[0] ?? null;
+}
+
+/**
+ * The link that costs the sales of one restaurant: its own link, else the
+ * company-wide one. Never another restaurant's link: under "Todos los
+ * restaurantes", restaurant B's sales are not costed with a link that
+ * only exists for restaurant A (they stay uncovered). Sales with no
+ * restaurant take only the company-wide link.
+ */
+export function matchPosProductLinkForSales(
+  links: readonly PosProductLinkRecord[],
+  companyId: string,
+  odooProductId: number,
+  saleLocationId: string | null
+): PosProductLinkRecord | null {
+  const same = links.filter(
+    (link) =>
+      link.company_id === companyId && link.odoo_product_id === odooProductId
+  );
+  if (saleLocationId) {
+    const scoped = same.find((link) => link.location_id === saleLocationId);
+    if (scoped) return scoped;
+  }
   return same.find((link) => link.location_id == null) ?? null;
 }
 

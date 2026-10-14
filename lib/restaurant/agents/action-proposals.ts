@@ -40,8 +40,8 @@ export type AgentActionProposal = Pick<
 const DEFAULT_TARGET_MARGIN_PCT = 60;
 
 const ROUTE_MENU = "/dashboard/restaurant/menu";
-const ROUTE_INGREDIENTS = "/dashboard/restaurant/ingredients";
-const ROUTE_SUPPLIERS = "/dashboard/restaurant/suppliers";
+const ROUTE_INGREDIENTS = "/dashboard/restaurant/menu/ingredientes";
+const ROUTE_SUPPLIERS = "/dashboard/restaurant/costs?tab=proveedores";
 
 // ---------------------------------------------------------------------------
 // Helpers

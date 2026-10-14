@@ -4,6 +4,7 @@
 // created, the canonical rows included.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { carryTypedPrice } from "./typed-price";
 import {
   createSupabaseCostWorkbookRepo,
   type CostWorkbookRepo,
@@ -292,6 +293,8 @@ export interface RecipeImportResult {
   preparations_updated: number;
   ingredients_created: number;
   canonical_rows: number;
+  /** Hand-typed line prices the new unit could not take (type them again). */
+  typed_prices_not_carried?: number;
 }
 
 export async function applyRecipeImport(
@@ -390,6 +393,7 @@ export async function writeImportPlan(input: {
     preparations_updated: 0,
     ingredients_created: 0,
     canonical_rows: 0,
+    typed_prices_not_carried: 0,
   };
 
   const linked: number[] = [];
@@ -621,13 +625,23 @@ export async function writeImportPlan(input: {
         preparation: preparationId,
       }).map((row) => {
         const kept = typedByHand.get(itemKey(row));
-        return kept && kept.unit === row.unit
-          ? {
-              ...row,
-              unit_cost: kept.unit_cost,
-              cost_source: MANUAL_LINE_COST_SOURCE,
-            }
-          : row;
+        if (!kept || !kept.unit_cost) return row;
+        // Same unit: kept. Another unit of the same kind: converted. Never
+        // dropped silently (picker bug b).
+        const carried = carryTypedPrice(
+          { unit: kept.unit, unit_cost: kept.unit_cost },
+          row.unit
+        );
+        if (carried.kind === "not_carried") {
+          result.typed_prices_not_carried =
+            (result.typed_prices_not_carried ?? 0) + 1;
+          return row;
+        }
+        return {
+          ...row,
+          unit_cost: carried.unit_cost,
+          cost_source: MANUAL_LINE_COST_SOURCE,
+        };
       });
       const version = await repo.insertRecipeVersion({
         companyId: input.companyId,

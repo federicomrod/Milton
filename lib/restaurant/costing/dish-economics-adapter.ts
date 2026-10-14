@@ -76,23 +76,26 @@ export function legacyCostOf(dish: DishEconomics): MenuItemCostResult {
 export function legacyMarginRows(
   result: DishEconomicsResult
 ): LegacyMarginRow[] {
-  return result.dishes.map((dish) => {
-    const cost = legacyCostOf(dish);
-    const total = cost.cost !== null ? cost.cost * dish.units_sold : null;
-    return {
-      menu_item_id: dishRowId(dish),
-      odoo_product_id: dish.odoo_product_id,
-      name: dish.name,
-      category: dish.category,
-      selling_price: dish.avg_net_price,
-      units_sold: dish.units_sold,
-      revenue: dish.net_sales,
-      raw_pos_names: dish.raw_names,
-      cost,
-      estimated_total_cost: total,
-      estimated_gross_profit: total !== null ? dish.net_sales - total : null,
-    };
-  });
+  // R1-10: drinks, extras and excluded dishes are not food: out of rows.
+  return result.dishes
+    .filter((dish) => !dish.excluded_reason)
+    .map((dish) => {
+      const cost = legacyCostOf(dish);
+      const total = cost.cost !== null ? cost.cost * dish.units_sold : null;
+      return {
+        menu_item_id: dishRowId(dish),
+        odoo_product_id: dish.odoo_product_id,
+        name: dish.name,
+        category: dish.category,
+        selling_price: dish.avg_net_price,
+        units_sold: dish.units_sold,
+        revenue: dish.net_sales,
+        raw_pos_names: dish.raw_names,
+        cost,
+        estimated_total_cost: total,
+        estimated_gross_profit: total !== null ? dish.net_sales - total : null,
+      };
+    });
 }
 
 /** The cockpit's period cost KPIs, from the same totals. */

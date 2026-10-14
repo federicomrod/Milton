@@ -20,8 +20,13 @@ import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/wor
 import type {
   MenuSummary,
   SetupStep,
+  ToResolveRow,
 } from "@/lib/restaurant/costing/menu-summary";
-import { dishHref, platosHref } from "@/lib/restaurant/menu-links";
+import {
+  dishHref,
+  ingredientesHref,
+  platosHref,
+} from "@/lib/restaurant/menu-links";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { MenuReaderPanel } from "./MenuReaderPanel";
 import { PriceCatalogPanel } from "./PriceCatalogPanel";
@@ -138,83 +143,90 @@ export function ResumenScreen({
 
       <Kpis summary={summary} money={money} />
 
-      <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px]">
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr className="border-b border-[#eef0f4] text-left text-[12px] font-semibold text-[#8a92a3]">
-              <th className="px-2 py-1.5">Plato</th>
-              <th className="px-2 py-1.5 text-right">% ventas</th>
-              <th className="px-2 py-1.5 text-right">Costo</th>
-              <th className="px-2 py-1.5 text-right">Costo %</th>
-              <th className="px-2 py-1.5">Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {summary.rows.slice(0, 50).map((row) => (
-              <tr
-                key={row.odoo_product_id}
-                className="border-b border-[#f2f3f6]"
-              >
-                <td className="px-2 py-2 font-semibold">
-                  <Link
-                    href={dishHref(row.odoo_product_id)}
-                    className="hover:underline"
-                  >
-                    {row.name}
-                  </Link>
-                </td>
-                <td className="px-2 py-2 text-right tabular-nums">
-                  {(row.share_of_food_sales * 100).toFixed(1)}%
-                </td>
-                <td className="px-2 py-2 text-right tabular-nums">
-                  {row.unit_cost !== null ? (
-                    <span>
-                      {money(row.unit_cost)}
-                      {row.excel_total !== null ? (
-                        <span
-                          className={
-                            "ml-1.5 text-[12px] " +
-                            (row.excel_diff_flag
-                              ? "font-semibold text-[#c03535]"
-                              : "text-[#8a92a3]")
-                          }
-                        >
-                          Excel: {money(row.excel_total)}
-                        </span>
-                      ) : null}
-                    </span>
-                  ) : (
-                    <span className="text-[#a35a00]">Sin precio</span>
-                  )}
-                </td>
-                <td className="px-2 py-2 text-right tabular-nums">
-                  {row.food_cost_pct !== null
-                    ? `${Math.round(row.food_cost_pct)}%`
-                    : "—"}
-                </td>
-                <td className="px-2 py-2">
-                  <Chip tone={row.tone}>{row.label}</Chip>
-                </td>
+      {summary.mix.length > 0 ? (
+        <MixAndResolve
+          summary={summary}
+          missingPrices={summary.missing_price_ingredients}
+        />
+      ) : (
+        <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px]">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-[#eef0f4] text-left text-[12px] font-semibold text-[#8a92a3]">
+                <th className="px-2 py-1.5">Plato</th>
+                <th className="px-2 py-1.5 text-right">% ventas</th>
+                <th className="px-2 py-1.5 text-right">Costo</th>
+                <th className="px-2 py-1.5 text-right">Costo %</th>
+                <th className="px-2 py-1.5">Estado</th>
               </tr>
-            ))}
-            {summary.rows.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-2 py-4 text-[#5b6476]">
-                  Todavía no hay ventas de Odoo en este periodo.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-        {summary.rows.length > 50 ? (
-          <Link
-            href={platosHref()}
-            className="mt-2 inline-block text-[13px] font-semibold text-[#3557c9]"
-          >
-            Ver los {summary.rows.length} platos
-          </Link>
-        ) : null}
-      </section>
+            </thead>
+            <tbody>
+              {summary.rows.slice(0, 50).map((row) => (
+                <tr
+                  key={row.odoo_product_id}
+                  className="border-b border-[#f2f3f6]"
+                >
+                  <td className="px-2 py-2 font-semibold">
+                    <Link
+                      href={dishHref(row.odoo_product_id)}
+                      className="hover:underline"
+                    >
+                      {row.name}
+                    </Link>
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {(row.share_of_food_sales * 100).toFixed(1)}%
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {row.unit_cost !== null ? (
+                      <span>
+                        {money(row.unit_cost)}
+                        {row.excel_total !== null ? (
+                          <span
+                            className={
+                              "ml-1.5 text-[12px] " +
+                              (row.excel_diff_flag
+                                ? "font-semibold text-[#c03535]"
+                                : "text-[#8a92a3]")
+                            }
+                          >
+                            Excel: {money(row.excel_total)}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <span className="text-[#a35a00]">Sin precio</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {row.food_cost_pct !== null
+                      ? `${Math.round(row.food_cost_pct)}%`
+                      : "—"}
+                  </td>
+                  <td className="px-2 py-2">
+                    <Chip tone={row.tone}>{row.label}</Chip>
+                  </td>
+                </tr>
+              ))}
+              {summary.rows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-2 py-4 text-[#5b6476]">
+                    Todavía no hay ventas de Odoo en este periodo.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+          {summary.rows.length > 50 ? (
+            <Link
+              href={platosHref()}
+              className="mt-2 inline-block text-[13px] font-semibold text-[#3557c9]"
+            >
+              Ver los {summary.rows.length} platos
+            </Link>
+          ) : null}
+        </section>
+      )}
     </div>
   );
 }
@@ -226,7 +238,9 @@ function Kpis({
   summary: MenuSummary;
   money: (n: number) => string;
 }) {
-  const { kpis } = summary;
+  // R1-10: per menu dish, the same helper as Platos (identical numbers).
+  const d = summary.dish_kpis;
+  const k = summary.kpis;
   const cards: Array<{
     label: string;
     value: string;
@@ -238,35 +252,52 @@ function Kpis({
     {
       label: "Costo de comida",
       value:
-        kpis.food_cost_pct !== null
-          ? `${Math.round(kpis.food_cost_pct)}%`
+        (d?.food_cost_pct ?? k.food_cost_pct) !== null
+          ? `${Math.round((d?.food_cost_pct ?? k.food_cost_pct) as number)}%`
           : "Sin precio",
       sub: "sobre ventas con costo",
       href: platosHref(["aprobado"]),
       tip: "Costo de los platos aprobados entre sus ventas netas (sin propinas).",
     },
-    {
-      label: "Margen por plato",
-      value: kpis.avg_unit_margin !== null ? money(kpis.avg_unit_margin) : "—",
-      sub: "promedio",
-      href: platosHref(["aprobado"]),
-      tip: "Precio neto menos costo, promedio ponderado por unidades vendidas.",
-    },
+    d
+      ? {
+          label: "Margen bruto",
+          value: d.gross_margin !== null ? money(d.gross_margin) : "—",
+          sub: "ventas con costo",
+          href: platosHref(["aprobado"]),
+          tip: "Ventas con costo menos su costo estimado.",
+        }
+      : {
+          label: "Margen por plato",
+          value: k.avg_unit_margin !== null ? money(k.avg_unit_margin) : "—",
+          sub: "promedio",
+          href: platosHref(["aprobado"]),
+          tip: "Precio neto menos costo, promedio ponderado por unidades vendidas.",
+        },
     {
       label: "Ventas con costo",
-      value: `${Math.round(kpis.coverage_pct)}%`,
-      sub: `${kpis.covered_dishes} de ${kpis.dish_count} platos`,
+      value: `${Math.round(d?.coverage_pct ?? k.coverage_pct)}%`,
+      sub: `${d?.covered_dishes ?? k.covered_dishes} de ${d?.dish_count ?? k.dish_count} platos`,
       href: platosHref(),
       tip: "Parte de las ventas de comida que viene de platos con costo aprobado.",
     },
-    {
-      label: "Platos con margen bajo",
-      value: String(kpis.low_margin_count),
-      sub: "< 60%",
-      href: platosHref(["aprobado"]),
-      tip: "Platos aprobados cuyo margen bruto es menor al 60 % del precio.",
-      alert: kpis.low_margin_count > 0,
-    },
+    d
+      ? {
+          label: "Platos con problema",
+          value: String(d.problem_count),
+          sub: `de ${d.dish_count}`,
+          href: platosHref(["falta_precio", "sin_receta"]),
+          tip: "Platos del menú con algún precio pendiente o sin receta.",
+          alert: d.problem_count > 0,
+        }
+      : {
+          label: "Platos con margen bajo",
+          value: String(k.low_margin_count),
+          sub: "< 60%",
+          href: platosHref(["aprobado"]),
+          tip: "Platos aprobados cuyo margen bruto es menor al 60 % del precio.",
+          alert: k.low_margin_count > 0,
+        },
   ];
   return (
     <div className="grid grid-cols-4 gap-3">
@@ -291,6 +322,94 @@ function Kpis({
           </div>
         </Link>
       ))}
+    </div>
+  );
+}
+
+const RESOLVE_LABEL: Record<ToResolveRow["kind"], string> = {
+  falta_precio: "platos sin precio de algún ingrediente",
+  sin_receta: "platos sin receta",
+  estimado: "platos con costo estimado por IA",
+  margen_bajo: "platos con margen bajo",
+};
+const RESOLVE_TONE: Record<ToResolveRow["kind"], "warn" | "bad" | "pur"> = {
+  falta_precio: "warn",
+  sin_receta: "bad",
+  estimado: "pur",
+  margen_bajo: "bad",
+};
+
+/** Mock 5: sales mix by dish and "Por resolver", per menu dish. */
+function MixAndResolve({
+  summary,
+  missingPrices,
+}: {
+  summary: MenuSummary;
+  missingPrices: number;
+}) {
+  if (summary.mix.length === 0) return null;
+  const max = Math.max(
+    ...summary.mix.filter((r) => !r.rest).map((r) => r.share),
+    0.0001
+  );
+  return (
+    <div className="grid grid-cols-[1.25fr_1fr] gap-[14px]">
+      <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px]">
+        <h2 className="text-[15px] font-bold">Mezcla de ventas por plato</h2>
+        {summary.mix.map((row) => (
+          <div
+            key={row.name}
+            className="my-[7px] flex items-center gap-2.5 text-[13px]"
+          >
+            <span className="w-[190px] truncate">{row.name}</span>
+            <div className="h-4 flex-1 rounded bg-[#f1f3f7]">
+              <div
+                className="h-full rounded"
+                style={{
+                  width: `${row.rest ? 100 : Math.max(2, (row.share / max) * 60)}%`,
+                  background: row.rest ? "#c9ced8" : "#f28c28",
+                }}
+              />
+            </div>
+            <b className="w-12 text-right tabular-nums">
+              {(row.share * 100).toFixed(1)}%
+            </b>
+          </div>
+        ))}
+      </section>
+      <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px]">
+        <div className="flex items-center">
+          <h2 className="text-[15px] font-bold">Por resolver</h2>
+          {missingPrices > 0 ? (
+            <Link
+              href={ingredientesHref("falta_precio")}
+              className="ml-auto rounded-lg bg-[#f28c28] px-3 py-[7px] text-[13px] font-semibold text-white hover:bg-[#e07b1a]"
+            >
+              Resolver {missingPrices}{" "}
+              {missingPrices === 1 ? "precio" : "precios"}
+            </Link>
+          ) : null}
+        </div>
+        {summary.to_resolve.length === 0 ? (
+          <p className="mt-2 text-[13px] text-[#5b6476]">Nada pendiente.</p>
+        ) : (
+          summary.to_resolve.map((row) => (
+            <Link
+              key={row.kind}
+              href={row.href}
+              className="flex items-center gap-2.5 border-t border-[#f2f3f6] py-2 text-[13px] hover:text-[#151c2c]"
+            >
+              <Chip tone={RESOLVE_TONE[row.kind]}>{row.count}</Chip>
+              {RESOLVE_LABEL[row.kind]}
+              <span className="ml-auto text-[12px] text-[#8a92a3]">
+                {row.share !== null
+                  ? `${Math.round(row.share * 100)}% de ventas`
+                  : "< 60%"}
+              </span>
+            </Link>
+          ))
+        )}
+      </section>
     </div>
   );
 }

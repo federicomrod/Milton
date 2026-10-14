@@ -15,6 +15,10 @@ import {
   type PickerOption,
 } from "@/lib/restaurant/recipe-costing/editor";
 import {
+  pickerUnit,
+  unitsLike,
+} from "@/lib/restaurant/recipe-costing/picker-units";
+import {
   CATALOG_CHANGING_ACTIONS,
   cachedPickerOptions,
   invalidatePickerOptions,
@@ -40,15 +44,6 @@ const UNIT_LABEL: Record<string, string> = {
   unit: "unidad",
   portion: "porción",
 };
-
-/** Units that make sense next to a price quoted in `unit`. */
-function unitsLike(unit: string | null | undefined): string[] {
-  const key = (unit ?? "").toLowerCase();
-  if (MASS.includes(key)) return MASS;
-  if (VOLUME.includes(key)) return VOLUME;
-  if (key === "portion") return ["portion"];
-  return ["unit"];
-}
 
 function money(value: number): string {
   const text = value >= 1 ? value.toFixed(2) : value.toPrecision(3);
@@ -1014,7 +1009,11 @@ function Picker({
   const [query, setQuery] = useState(startQuery);
   const [chosen, setChosen] = useState<PickerOption | null>(null);
   const [qty, setQty] = useState("1");
-  const [unit, setUnit] = useState("oz");
+  /** The unit the person picked, for which highlighted option. */
+  const [unitChoice, setUnitChoice] = useState<{
+    key: string;
+    unit: string;
+  } | null>(null);
   const [creating, setCreating] = useState<null | "ingredient" | "preparation">(
     null
   );
@@ -1036,17 +1035,18 @@ function Picker({
   );
   // The highlighted row: the one clicked, else the closest match.
   const active = chosen ?? shown[0] ?? null;
+  // The unit shown is the unit used (bug a: a unit changed without
+  // clicking a row was ignored).
+  const unit = pickerUnit(active, unitChoice);
 
   function choose(option: PickerOption) {
     setChosen(option);
-    setUnit(unitsLike(option.unit)[0] ?? "unit");
   }
 
   function add() {
     if (!active || busy) return;
     if (target.mode === "add" && !(Number(qty) > 0)) return;
-    const pickUnit = chosen ? unit : (unitsLike(active.unit)[0] ?? "unit");
-    onPick(active, Number(qty) || 1, pickUnit);
+    onPick(active, Number(qty) || 1, unit);
   }
 
   function move(step: number) {
@@ -1146,7 +1146,12 @@ function Picker({
                 />
                 <select
                   value={unit}
-                  onChange={(event) => setUnit(event.target.value)}
+                  onChange={(event) =>
+                    setUnitChoice({
+                      key: `${active.kind}:${active.id}`,
+                      unit: event.target.value,
+                    })
+                  }
                   className="rounded-md border border-[#d5dae3] bg-white px-1 py-1"
                 >
                   {unitsLike(active.unit).map((u) => (

@@ -267,7 +267,7 @@ export function generateSuggestedActions(
           reason: "price_increase",
           ingredient_name: risk.ingredient_name,
           pct_change: risk.pct_change,
-          target_route: "/dashboard/restaurant/suppliers",
+          target_route: "/dashboard/restaurant/costs?tab=proveedores",
         },
         impact_json: {
           pct_change: risk.pct_change,
@@ -275,7 +275,7 @@ export function generateSuggestedActions(
         },
         priority: isHighSeverity ? "high" : "medium",
         creates_agent_action: true,
-        target_route: "/dashboard/restaurant/suppliers",
+        target_route: "/dashboard/restaurant/costs?tab=proveedores",
       });
     }
   }
@@ -298,7 +298,7 @@ export function generateSuggestedActions(
       impact_json: {},
       priority: "medium",
       creates_agent_action: false,
-      target_route: "/dashboard/restaurant/invoices",
+      target_route: "/dashboard/restaurant/costs?tab=compras",
     });
   }
 

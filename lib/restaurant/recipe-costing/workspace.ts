@@ -11,8 +11,11 @@ import type {
 } from "@/lib/restaurant/costing/dish-economics";
 import {
   buildMenuSummary,
+  menuDishKpis,
+  type MenuDishKpis,
   type MenuSummary,
 } from "@/lib/restaurant/costing/menu-summary";
+import type { MenuDish } from "@/lib/restaurant/menu-dishes/menu-dishes";
 import {
   PICKABLE_TREATMENTS,
   TREATMENT_RULES,
@@ -280,6 +283,18 @@ export interface RecipeCostingWorkspace {
   selected_dish: DishSummary | null;
   /** Platos: every dish's numbers, so choosing one needs no server trip. */
   dish_summaries: DishSummary[] | null;
+  /** R1-10 Platos: menu dishes with their variants, from the loader. */
+  menu_dishes: {
+    dishes: MenuDish[];
+    excluded: MenuDish[];
+    kpis: MenuDishKpis;
+    variant_count: number;
+    excluded_variant_count: number;
+    /** False until migration 045: moves cannot be saved yet. */
+    stored: boolean;
+    /** Products whose grouping is Milton's and not saved yet. */
+    unsaved_variant_count: number;
+  } | null;
   next_dish: {
     odoo_product_id: number;
     odoo_name: string;
@@ -978,6 +993,20 @@ export function buildRecipeCostingWorkspace(input: {
           : `Meta: ${COVERAGE_GOAL_PCT}% de las ventas de comida con costo aprobado.`,
     },
     upload_draft_pending: input.uploadDraftPending ?? false,
+    menu_dishes:
+      input.view === "plato" && input.dishEconomics
+        ? {
+            dishes: input.dishEconomics.menu_dishes,
+            excluded: input.dishEconomics.excluded_menu_dishes,
+            kpis: menuDishKpis(input.dishEconomics),
+            variant_count: input.dishEconomics.menu_totals.variant_count,
+            excluded_variant_count:
+              input.dishEconomics.menu_totals.excluded_variant_count,
+            stored: input.dishEconomics.menu_dishes_stored === true,
+            unsaved_variant_count:
+              input.dishEconomics.menu_unsaved_variant_count ?? 0,
+          }
+        : null,
     dish_summaries:
       input.view === "plato" && input.dishEconomics
         ? input.dishEconomics.dishes.map(withoutLines)

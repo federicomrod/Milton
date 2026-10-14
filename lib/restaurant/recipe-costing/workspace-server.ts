@@ -107,19 +107,18 @@ export function parseCostingView(value: string | null): RecipeCostingView {
 
 // R1-09c: the probe scanned pos_sales_items on every load; its answer
 // only changes after a POS sync, so it is kept for 10 minutes.
+// R1-12: it no longer waits for the product list (the caller applies
+// hasCombos), so it runs in the same wave as every other read.
 const probeComboSyncHint = ttlCached(
   10 * 60_000,
-  (_s: SupabaseClient, companyId: string, hasCombos: boolean) =>
-    `${companyId}:${hasCombos}`,
+  (_s: SupabaseClient, companyId: string) => companyId,
   probeComboSyncHintUncached
 );
 
 async function probeComboSyncHintUncached(
   supabase: SupabaseClient,
-  companyId: string,
-  hasCombos: boolean
+  companyId: string
 ): Promise<string | null> {
-  if (hasCombos) return null;
   const { data, error } = await supabase
     .from("pos_sales_items")
     .select("id")
@@ -161,42 +160,52 @@ export async function loadRecipeCostingWorkspace(
     input.editorOnly === true &&
     input.selectedOdooProductId != null;
 
-  const [list, roleLoad, companyName, currency, isMiltonStaff] =
-    await Promise.all([
-      editorOnly
-        ? // R1-09c: after an edit, only the open dish's own sales (no
-          // cost context): the list's numbers stay as last loaded.
-          loadPosProductList(supabase, {
-            companyId: input.companyId,
-            startDate: input.startDate,
-            endDate: input.endDate,
-            locationId: input.locationId,
-            odooProductId: input.selectedOdooProductId,
-          }).then((res) =>
-            res.ok
-              ? { ok: true as const, list: res.list, economics: null }
-              : res
-          )
-        : // R1-09a: the same loader as Menú, Cockpit and the email, so
-          // coverage is one number everywhere.
-          loadDishEconomics(
-            input.companyId,
-            input.startDate ?? null,
-            input.endDate ?? null,
-            input.locationId ?? null
-          ).then((res) =>
-            res.ok
-              ? { ok: true as const, list: res.list, economics: res.result }
-              : res
-          ),
-      cachedRole(supabase, input.companyId, input.userId),
-      cachedCompanyName(supabase, input.companyId),
-      cachedCurrency(supabase, input.companyId),
-      cachedIsAdmin(input.userId),
-    ]);
-  if (list && !list.ok) return list;
-
-  const [linksRes, versionsRes, menuRes, history] = await Promise.all([
+  // R1-12: one wave. Nothing below depends on the product list, so links,
+  // versions, menu items, upload history, the combo hint and the upload
+  // draft are read together with it (they used to follow it, wave after
+  // wave).
+  const [
+    list,
+    roleLoad,
+    companyName,
+    currency,
+    isMiltonStaff,
+    linksRes,
+    versionsRes,
+    menuRes,
+    history,
+    comboHintProbe,
+    draftRes,
+    resetContext,
+  ] = await Promise.all([
+    editorOnly
+      ? // R1-09c: after an edit, only the open dish's own sales (no
+        // cost context): the list's numbers stay as last loaded.
+        loadPosProductList(supabase, {
+          companyId: input.companyId,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          locationId: input.locationId,
+          odooProductId: input.selectedOdooProductId,
+        }).then((res) =>
+          res.ok ? { ok: true as const, list: res.list, economics: null } : res
+        )
+      : // R1-09a: the same loader as Menú, Cockpit and the email, so
+        // coverage is one number everywhere.
+        loadDishEconomics(
+          input.companyId,
+          input.startDate ?? null,
+          input.endDate ?? null,
+          input.locationId ?? null
+        ).then((res) =>
+          res.ok
+            ? { ok: true as const, list: res.list, economics: res.result }
+            : res
+        ),
+    cachedRole(supabase, input.companyId, input.userId),
+    cachedCompanyName(supabase, input.companyId),
+    cachedCurrency(supabase, input.companyId),
+    cachedIsAdmin(input.userId),
     fetchAllRows<Record<string, unknown>>(() => {
       const q = supabase
         .from("pos_product_links")
@@ -263,7 +272,34 @@ export async function loadRecipeCostingWorkspace(
               })
             );
           }),
+    editorOnly
+      ? Promise.resolve(null)
+      : probeComboSyncHint(supabase, input.companyId),
+    // Leaving Resumen and coming back keeps the upload's choices (044):
+    // a draft that is not fully saved reopens the upload step.
+    view === "resumen"
+      ? supabase
+          .from("cost_upload_drafts")
+          .select("catalog_result")
+          .eq("company_id", input.companyId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    // "Empezar de nuevo" (Resumen, owner/admin): only the role is awaited,
+    // so the restaurant list loads with the rest.
+    view === "resumen"
+      ? cachedRole(supabase, input.companyId, input.userId).then((roleLoad) =>
+          canManageCompanyCostReset(roleLoad)
+            ? resolveRestaurantContext(
+                supabase,
+                input.companyId,
+                input.locationId ?? null
+              )
+            : null
+        )
+      : Promise.resolve(null),
   ]);
+  if (list && !list.ok) return list;
+
   if (linksRes.error) {
     return { ok: false, error: "No se pudieron leer los vínculos POS." };
   }
@@ -307,13 +343,10 @@ export async function loadRecipeCostingWorkspace(
         ? rankedProductsFromLinks(links, input.selectedOdooProductId)
         : [];
 
-  const comboSyncHint = editorOnly
-    ? null
-    : await probeComboSyncHint(
-        supabase,
-        input.companyId,
-        products.some((product) => product.is_combo)
-      );
+  const comboSyncHint =
+    editorOnly || products.some((product) => product.is_combo)
+      ? null
+      : comboHintProbe;
 
   const confirmedAt = links
     .map((link) => link.confirmed_at)
@@ -328,12 +361,8 @@ export async function loadRecipeCostingWorkspace(
 
   // "Empezar de nuevo" lives on Resumen, for the owner or an admin only.
   let reset: RecipeCostingWorkspace["reset"] = null;
-  if (view === "resumen" && canManageCompanyCostReset(roleLoad)) {
-    const context = await resolveRestaurantContext(
-      supabase,
-      input.companyId,
-      input.locationId ?? null
-    );
+  if (view === "resumen" && resetContext) {
+    const context = resetContext;
     const names = context.locations.map((row) => row.name);
     reset = {
       prompt: resetConfirmPromptEs({ companyName, restaurantNames: names }),
@@ -359,20 +388,13 @@ export async function loadRecipeCostingWorkspace(
         })
       : null;
 
-  // Leaving Resumen and coming back keeps the upload's choices (044):
-  // a draft that is not fully saved reopens the upload step.
   let uploadDraftPending = false;
   if (view === "resumen") {
-    const { data: draft, error: draftError } = await supabase
-      .from("cost_upload_drafts")
-      .select("catalog_result")
-      .eq("company_id", input.companyId)
-      .maybeSingle();
-    if (draftError) {
-      console.error("[recetas] upload draft:", draftError.message);
-    } else if (draft) {
+    if (draftRes.error) {
+      console.error("[recetas] upload draft:", draftRes.error.message);
+    } else if (draftRes.data) {
       // The choices matter until the price list is saved.
-      uploadDraftPending = !draft.catalog_result;
+      uploadDraftPending = !draftRes.data.catalog_result;
     }
   }
 

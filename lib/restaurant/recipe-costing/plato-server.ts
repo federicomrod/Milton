@@ -19,6 +19,7 @@ import {
   approveRecipeVersion,
   submitRecipeForApproval,
 } from "./approval-server";
+import { loadInReviewVersion } from "./version-read";
 import {
   confirmPosLinkForCompany,
   loadPosProductLink,
@@ -42,7 +43,8 @@ export type PlatoConfirmResult =
 export async function confirmPlato(input: {
   supabase: SupabaseClient;
   companyId: string;
-  actor: RecipeActor;
+  /** A promise is accepted (R1-12): the role is read with the link. */
+  actor: RecipeActor | Promise<RecipeActor>;
   odooProductId: number;
   odooName?: string;
   recipeVersionId: string | null;
@@ -50,114 +52,141 @@ export async function confirmPlato(input: {
   confirmedHow?: string | null;
   yieldConfirmed?: boolean;
 }): Promise<PlatoConfirmResult> {
-  if (!actorCanSubmitForApproval(input.actor)) {
+  // R1-12: the role, the link and the version are independent reads: one
+  // wave (they were three, one after another).
+  const [actor, link, versionRow] = await Promise.all([
+    input.actor,
+    loadPosProductLink(
+      input.supabase,
+      input.companyId,
+      input.odooProductId,
+      input.locationId
+    ),
+    input.recipeVersionId
+      ? loadInReviewVersion(
+          input.supabase,
+          input.companyId,
+          input.recipeVersionId
+        )
+      : Promise.resolve(null),
+  ]);
+  if (!actorCanSubmitForApproval(actor)) {
     return { ok: false, error: PLATO_ROLE_ERROR, status: 403 };
   }
-  const link = await loadPosProductLink(
-    input.supabase,
-    input.companyId,
-    input.odooProductId,
-    input.locationId
-  );
   if (!link?.menu_item_id) {
     return { ok: false, error: PLATO_NO_RECIPE_ERROR, status: 400 };
   }
 
   let versionStatus: string | null = null;
   if (input.recipeVersionId) {
-    const { data, error } = await input.supabase
-      .from("recipe_versions")
-      .select("id, menu_item_id, status")
-      .eq("company_id", input.companyId)
-      .eq("id", input.recipeVersionId)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!data || data.menu_item_id !== link.menu_item_id) {
+    if (!versionRow || versionRow.menu_item_id !== link.menu_item_id) {
       return { ok: false, error: PLATO_VERSION_MISMATCH_ERROR, status: 400 };
     }
-    versionStatus = String(data.status);
+    versionStatus = String(versionRow.status);
   }
 
   const how = input.confirmedHow?.trim() || null;
-  const approving = actorCanApprove(input.actor, {
-    confirmed_by: input.actor.user_id,
+  const approving = actorCanApprove(actor, {
+    confirmed_by: actor.user_id,
     confirmed_at: new Date().toISOString(),
-    confirmed_how:
-      how ?? (input.actor.is_milton_staff ? undefined : "en_pantalla"),
+    confirmed_how: how ?? (actor.is_milton_staff ? undefined : "en_pantalla"),
   });
   // Milton staff without the client's confirmation: stop before writing.
-  if (!approving.ok && input.actor.is_milton_staff) {
+  if (!approving.ok && actor.is_milton_staff) {
     return { ok: false, error: approving.error, status: 403 };
   }
   if (approving.ok && versionStatus !== "approved" && !input.recipeVersionId) {
     return { ok: false, error: PLATO_NO_RECIPE_ERROR, status: 400 };
   }
 
-  // Step 1: the POS link, its own state and audit.
-  let linkResult: "confirmado" | "ya_confirmado" = "ya_confirmado";
-  if (link.link_state !== "confirmado") {
-    const confirmed = await confirmPosLinkForCompany({
-      supabase: input.supabase,
-      companyId: input.companyId,
-      actor: input.actor,
-      odooProductId: input.odooProductId,
-      odooName: input.odooName,
-      locationId: input.locationId,
-      confirmedHow: how ?? "en_pantalla",
-      menuItemId: link.menu_item_id,
-    });
-    if (!confirmed.ok) {
-      return { ok: false, error: confirmed.error, status: 400 };
-    }
-    linkResult = "confirmado";
-  }
+  // Step 1: the POS link, its own state and audit. It starts now; the
+  // approval's reads (R1-12) run while it is saved, and the approval is
+  // written only after it succeeded.
+  const linkStep: Promise<
+    | { ok: true; link: "confirmado" | "ya_confirmado" }
+    | { ok: false; error: string }
+  > =
+    link.link_state !== "confirmado"
+      ? confirmPosLinkForCompany({
+          supabase: input.supabase,
+          companyId: input.companyId,
+          actor,
+          odooProductId: input.odooProductId,
+          odooName: input.odooName,
+          locationId: input.locationId,
+          confirmedHow: how ?? "en_pantalla",
+          menuItemId: link.menu_item_id,
+          existingLink: link,
+        }).then((confirmed) =>
+          confirmed.ok
+            ? { ok: true as const, link: "confirmado" as const }
+            : { ok: false as const, error: confirmed.error }
+        )
+      : Promise.resolve({ ok: true as const, link: "ya_confirmado" as const });
 
   // Step 2: the recipe version, its own state and audit.
   if (versionStatus === "approved") {
-    return { ok: true, link: linkResult, recipe: "ya_aprobada" };
+    const confirmed = await linkStep;
+    if (!confirmed.ok)
+      return { ok: false, error: confirmed.error, status: 400 };
+    return { ok: true, link: confirmed.link, recipe: "ya_aprobada" };
   }
   if (approving.ok) {
-    const approved = await approveRecipeVersion({
+    const approving$ = approveRecipeVersion({
       supabase: input.supabase,
       companyId: input.companyId,
-      actor: input.actor,
+      actor,
       recipeVersionId: input.recipeVersionId!,
       odooProductId: input.odooProductId,
       locationId: input.locationId,
       confirmedHow: how,
       yieldConfirmed: input.yieldConfirmed,
+      version: versionRow,
+      link,
+      gate: linkStep,
     });
+    // If the link step throws, the approval would reject too: handle it
+    // here and let the link error win below.
+    approving$.catch(() => undefined);
+    const confirmed = await linkStep;
+    if (!confirmed.ok)
+      return { ok: false, error: confirmed.error, status: 400 };
+    const approved = await approving$;
     if (!approved.ok) {
       return {
         ok: false,
         error:
-          linkResult === "confirmado"
+          confirmed.link === "confirmado"
             ? `${approved.error} El vínculo con el POS sí quedó confirmado.`
             : approved.error,
         status: 400,
-        link_confirmed: linkResult === "confirmado",
+        link_confirmed: confirmed.link === "confirmado",
       };
     }
-    return { ok: true, link: linkResult, recipe: "aprobada" };
+    return { ok: true, link: confirmed.link, recipe: "aprobada" };
   }
 
   // Manager: prepares, the owner or an admin approves.
   if (!input.recipeVersionId) {
+    await linkStep.catch(() => undefined);
     return { ok: false, error: PLATO_NO_RECIPE_ERROR, status: 400 };
   }
+  const confirmed = await linkStep;
+  if (!confirmed.ok) return { ok: false, error: confirmed.error, status: 400 };
   const submitted = await submitRecipeForApproval({
     supabase: input.supabase,
     companyId: input.companyId,
-    actor: input.actor,
+    actor,
     recipeVersionId: input.recipeVersionId,
+    version: versionRow,
   });
   if (!submitted.ok) {
     return {
       ok: false,
       error: submitted.error,
       status: 400,
-      link_confirmed: linkResult === "confirmado",
+      link_confirmed: confirmed.link === "confirmado",
     };
   }
-  return { ok: true, link: linkResult, recipe: "enviada" };
+  return { ok: true, link: confirmed.link, recipe: "enviada" };
 }

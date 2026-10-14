@@ -9,29 +9,16 @@ import {
 import { approvalRecord, updateWithApprovalAudit } from "./approval-audit";
 import { parseSuggestionEvidence } from "./evidence";
 import { loadPosProductLink } from "./link-actions-server";
-
-async function loadInReviewVersion(
-  supabase: SupabaseClient,
-  companyId: string,
-  recipeVersionId: string
-) {
-  const { data, error } = await supabase
-    .from("recipe_versions")
-    .select(
-      "id, recipe_id, menu_item_id, version_number, status, effective_date, source_type, notes"
-    )
-    .eq("company_id", companyId)
-    .eq("id", recipeVersionId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data;
-}
+import type { PosProductLinkRecord } from "@/lib/restaurant/pos-product-links";
+import { loadInReviewVersion, type InReviewVersionRow } from "./version-read";
 
 export async function submitRecipeForApproval(input: {
   supabase: SupabaseClient;
   companyId: string;
   actor: RecipeActor;
   recipeVersionId: string;
+  /** Already read by the caller (R1-12): skips a second read. */
+  version?: InReviewVersionRow | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!actorCanSubmitForApproval(input.actor)) {
     return {
@@ -39,11 +26,13 @@ export async function submitRecipeForApproval(input: {
       error: "No puedes enviar esta receta a aprobación.",
     };
   }
-  const version = await loadInReviewVersion(
-    input.supabase,
-    input.companyId,
-    input.recipeVersionId
-  );
+  const version =
+    input.version ??
+    (await loadInReviewVersion(
+      input.supabase,
+      input.companyId,
+      input.recipeVersionId
+    ));
   if (!version) return { ok: false, error: "No encontré esa versión." };
   if (version.status === "approved") {
     return { ok: false, error: "Esta receta ya está Aprobada." };
@@ -67,6 +56,17 @@ export async function approveRecipeVersion(input: {
   locationId?: string | null;
   confirmedHow?: string | null;
   yieldConfirmed?: boolean;
+  /**
+   * R1-12: what the caller already read, so approving does not read the
+   * same version and link again. `link: undefined` = not read.
+   */
+  version?: InReviewVersionRow | null;
+  link?: PosProductLinkRecord | null;
+  /**
+   * R1-12: a step that must succeed before anything is written (the POS
+   * link confirmation). The reads below run while it is in flight.
+   */
+  gate?: Promise<{ ok: true } | { ok: false; error: string }>;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const confirmation = {
     confirmed_by: input.actor.user_id,
@@ -76,31 +76,48 @@ export async function approveRecipeVersion(input: {
   const allowed = actorCanApprove(input.actor, confirmation);
   if (!allowed.ok) return allowed;
 
-  const version = await loadInReviewVersion(
-    input.supabase,
-    input.companyId,
-    input.recipeVersionId
-  );
+  const version =
+    input.version === undefined
+      ? await loadInReviewVersion(
+          input.supabase,
+          input.companyId,
+          input.recipeVersionId
+        )
+      : input.version;
   if (!version) return { ok: false, error: "No encontré esa versión." };
   if (version.status === "approved") {
     return { ok: false, error: "Esta receta ya está Aprobada." };
   }
 
-  let evidence = parseSuggestionEvidence({});
-  if (input.odooProductId != null) {
-    const link = await loadPosProductLink(
-      input.supabase,
-      input.companyId,
-      input.odooProductId,
-      input.locationId
-    );
-    evidence = parseSuggestionEvidence(link?.evidence);
-  }
-  const { count: inputCount, error: inputError } = await input.supabase
-    .from("recipe_version_inputs")
-    .select("id", { count: "exact", head: true })
-    .eq("company_id", input.companyId)
-    .eq("recipe_version_id", input.recipeVersionId);
+  // The link, the line count and the sibling versions do not depend on
+  // each other: one wave.
+  const [link, inputCountRead, siblings] = await Promise.all([
+    input.odooProductId == null
+      ? Promise.resolve(null)
+      : input.link !== undefined
+        ? Promise.resolve(input.link)
+        : loadPosProductLink(
+            input.supabase,
+            input.companyId,
+            input.odooProductId,
+            input.locationId
+          ),
+    input.supabase
+      .from("recipe_version_inputs")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", input.companyId)
+      .eq("recipe_version_id", input.recipeVersionId),
+    input.supabase
+      .from("recipe_versions")
+      .select("id, status, version_number, effective_date")
+      .eq("company_id", input.companyId)
+      .eq("recipe_id", version.recipe_id),
+  ]);
+  const evidence =
+    input.odooProductId != null
+      ? parseSuggestionEvidence(link?.evidence)
+      : parseSuggestionEvidence({});
+  const { count: inputCount, error: inputError } = inputCountRead;
   if (inputError) throw new Error(inputError.message);
   if ((inputCount ?? 0) === 0 && evidence.lines.length === 0) {
     return {
@@ -121,12 +138,13 @@ export async function approveRecipeVersion(input: {
     };
   }
 
-  const siblings = await input.supabase
-    .from("recipe_versions")
-    .select("id, status, version_number, effective_date")
-    .eq("company_id", input.companyId)
-    .eq("recipe_id", version.recipe_id);
   if (siblings.error) throw new Error(siblings.error.message);
+
+  // Nothing is written until the link step (if any) has succeeded.
+  if (input.gate) {
+    const gated = await input.gate;
+    if (!gated.ok) return gated;
+  }
 
   const note = input.actor.is_milton_staff
     ? `Aprobada. El cliente confirmó por ${confirmation.confirmed_how} el ${confirmation.confirmed_at.slice(0, 10)}.`

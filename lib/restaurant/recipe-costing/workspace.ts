@@ -277,7 +277,9 @@ export interface RecipeCostingWorkspace {
    *  opens the upload step so the choices are right there again. */
   upload_draft_pending: boolean;
   /** The open dish's cost, margin and status from the shared loader. */
-  selected_dish: Omit<DishEconomics, "lines"> | null;
+  selected_dish: DishSummary | null;
+  /** Platos: every dish's numbers, so choosing one needs no server trip. */
+  dish_summaries: DishSummary[] | null;
   next_dish: {
     odoo_product_id: number;
     odoo_name: string;
@@ -976,6 +978,10 @@ export function buildRecipeCostingWorkspace(input: {
           : `Meta: ${COVERAGE_GOAL_PCT}% de las ventas de comida con costo aprobado.`,
     },
     upload_draft_pending: input.uploadDraftPending ?? false,
+    dish_summaries:
+      input.view === "plato" && input.dishEconomics
+        ? input.dishEconomics.dishes.map(withoutLines)
+        : null,
     selected_dish: selectedDishOf(
       input.dishEconomics ?? null,
       input.selectedOdooProductId ?? null
@@ -1236,17 +1242,23 @@ const PLATO_STATUS: Record<PlatoStatus, { label: string; tone: ChipTone }> = {
 
 /** Dishes that take a recipe (not combos, not no-cost or excluded),
  *  in the product list's order: top sellers first. */
+/** A dish's numbers without its lines (the editor loads those). */
+export type DishSummary = Omit<DishEconomics, "lines">;
+
+function withoutLines(dish: DishEconomics): DishSummary {
+  const { lines: _lines, ...rest } = dish;
+  return rest;
+}
+
 function selectedDishOf(
   economics: Pick<DishEconomicsResult, "dishes"> | null,
   odooProductId: number | null
-): Omit<DishEconomics, "lines"> | null {
+): DishSummary | null {
   if (!economics || odooProductId == null) return null;
   const dish = economics.dishes.find(
     (d) => d.odoo_product_id === odooProductId
   );
-  if (!dish) return null;
-  const { lines: _lines, ...rest } = dish;
-  return rest;
+  return dish ? withoutLines(dish) : null;
 }
 
 const DISH_TONE: Record<DishStatus, ChipTone> = {

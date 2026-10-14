@@ -26,6 +26,7 @@ import {
 } from "@/lib/restaurant/costing/dish-status";
 import { primaryAction } from "@/lib/restaurant/recipe-costing/plato";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
+import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
 import { TreatmentControl, type PostFn } from "./TreatmentPanel";
 import { Chip, GhostBtn } from "./ui";
@@ -62,6 +63,7 @@ export function PlatoScreen({
   onOpenPreparation,
   statusFilter = [],
   onFilter,
+  onEditorState,
 }: {
   data: RecipeCostingWorkspace;
   locationId: string | null;
@@ -75,6 +77,8 @@ export function PlatoScreen({
   /** `?estado=…`: the statuses shown (KPI links land here). */
   statusFilter?: readonly string[];
   onFilter?: (filter: string | null) => void;
+  /** Every editor answer: the dish's live cost and chip. */
+  onEditorState?: (state: EditorState) => void;
 }) {
   const [query, setQuery] = useState("");
   const product = data.selected;
@@ -186,7 +190,7 @@ export function PlatoScreen({
         </div>
       </section>
 
-      {product && editor ? (
+      {product ? (
         <Dish
           key={product.odoo_product_id}
           data={data}
@@ -198,6 +202,7 @@ export function PlatoScreen({
           onPost={onPost}
           onConfirm={onConfirm}
           onOpenPreparation={onOpenPreparation}
+          onEditorState={onEditorState}
         />
       ) : (
         <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px] text-[13px] text-[#5b6476]">
@@ -218,10 +223,13 @@ function Dish({
   onPost,
   onConfirm,
   onOpenPreparation,
+  onEditorState,
 }: {
   data: RecipeCostingWorkspace;
   product: VincularProductRow;
-  editor: RecipeEditorView;
+  /** Null while the dish's editor view loads (the lines load meanwhile). */
+  editor: RecipeEditorView | null;
+  onEditorState?: (state: EditorState) => void;
   locationId: string | null;
   busy: boolean;
   onEdited: () => void;
@@ -234,10 +242,12 @@ function Dish({
   const money = (n: number) => formatMoneyEs(n, data.currency);
   const takesRecipe =
     !product.is_combo && TREATMENT_RULES[product.treatment].needs_recipe;
-  const hasRecipe = Boolean(product.menu_item_id && editor.recipe_version_id);
-  const action = primaryAction(data.actor, editor, hasRecipe);
+  const hasRecipe = Boolean(
+    product.menu_item_id && (editor ? editor.recipe_version_id : true)
+  );
+  const action = editor ? primaryAction(data.actor, editor, hasRecipe) : null;
   const missing = dish?.lines_missing_price ?? 0;
-  const costTip = [editor.variance_note, editor.yield_note]
+  const costTip = [editor?.variance_note, editor?.yield_note]
     .filter(Boolean)
     .join(" ");
 
@@ -392,8 +402,9 @@ function Dish({
             <RecipeLinesEditor
               odooProductId={product.odoo_product_id}
               locationId={locationId}
-              portionCostLabel={editor.portion_cost_label}
+              portionCostLabel={editor?.portion_cost_label ?? null}
               onEdited={onEdited}
+              onState={onEditorState}
               onOpenPreparation={onOpenPreparation}
             />
           ) : (

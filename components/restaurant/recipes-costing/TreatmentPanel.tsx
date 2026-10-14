@@ -88,6 +88,30 @@ export function TreatmentControl({
   );
 }
 
+// R1-09c: the ingredient list once per minute, not on every open.
+let ingredientOptions: {
+  at: number;
+  rows: Promise<IngredientOption[]>;
+} | null = null;
+
+function loadIngredientOptions(): Promise<IngredientOption[]> {
+  if (ingredientOptions && Date.now() - ingredientOptions.at < 60_000) {
+    return ingredientOptions.rows;
+  }
+  const rows = fetch("/api/restaurant/ingredients").then(async (res) => {
+    const json = (await res.json().catch(() => ({}))) as {
+      ingredients?: IngredientOption[];
+    };
+    if (!res.ok) throw new Error("ingredients");
+    return json.ingredients ?? [];
+  });
+  ingredientOptions = { at: Date.now(), rows };
+  rows.catch(() => {
+    ingredientOptions = null;
+  });
+  return rows;
+}
+
 function ResalePicker({
   product,
   busy,
@@ -107,15 +131,13 @@ function ResalePicker({
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      const res = await fetch("/api/restaurant/ingredients");
-      const json = (await res.json().catch(() => ({}))) as {
-        ingredients?: IngredientOption[];
-      };
-      if (cancelled) return;
-      if (!res.ok) setError("No pude cargar tu lista de ingredientes.");
-      else setIngredients(json.ingredients ?? []);
-    })();
+    void loadIngredientOptions()
+      .then((rows) => {
+        if (!cancelled) setIngredients(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setError("No pude cargar tu lista de ingredientes.");
+      });
     return () => {
       cancelled = true;
     };

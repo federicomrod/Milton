@@ -6,11 +6,10 @@
 //
 // Data flow: Costos › Proveedores (loadSuppliersTabData) passes the
 // enriched list. All mutations
-// are client-side fetch calls followed by router.refresh().
+// are client-side fetch calls; the list updates from each API answer.
 
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Plus, Pencil, X, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -41,8 +40,21 @@ export interface SupplierRow {
 // Page shell
 // ---------------------------------------------------------------------------
 
-export function SuppliersPage({ suppliers }: { suppliers: SupplierRow[] }) {
+export function SuppliersPage({
+  suppliers: initial,
+}: {
+  suppliers: SupplierRow[];
+}) {
   const [showCreate, setShowCreate] = useState(false);
+  // R1-09c: saves update this list from the API's answer; no refresh of
+  // the whole server page.
+  const [suppliers, setSuppliers] = useState(initial);
+  const upsert = (row: SupplierRow) =>
+    setSuppliers((prev) =>
+      prev.some((s) => s.id === row.id)
+        ? prev.map((s) => (s.id === row.id ? { ...s, ...row } : s))
+        : [...prev, row].sort((a, b) => a.name.localeCompare(b.name, "es"))
+    );
 
   // Rendered inside Costos › Proveedores (R1-09b): no page header here.
   return (
@@ -75,7 +87,10 @@ export function SuppliersPage({ suppliers }: { suppliers: SupplierRow[] }) {
             </CardHeader>
             <CardContent>
               <SupplierForm
-                onSuccess={() => setShowCreate(false)}
+                onSuccess={(row) => {
+                  setShowCreate(false);
+                  if (row) upsert(row);
+                }}
                 onCancel={() => setShowCreate(false)}
               />
             </CardContent>
@@ -94,7 +109,18 @@ export function SuppliersPage({ suppliers }: { suppliers: SupplierRow[] }) {
         ) : (
           <div className="space-y-3">
             {suppliers.map((s) => (
-              <SupplierCard key={s.id} supplier={s} />
+              <SupplierCard
+                key={s.id}
+                supplier={s}
+                onSaved={upsert}
+                onArchived={(id) =>
+                  setSuppliers((prev) =>
+                    prev.map((row) =>
+                      row.id === id ? { ...row, status: "archived" } : row
+                    )
+                  )
+                }
+              />
             ))}
           </div>
         )}
@@ -107,9 +133,16 @@ export function SuppliersPage({ suppliers }: { suppliers: SupplierRow[] }) {
 // Supplier card (collapsible edit)
 // ---------------------------------------------------------------------------
 
-function SupplierCard({ supplier }: { supplier: SupplierRow }) {
+function SupplierCard({
+  supplier,
+  onSaved,
+  onArchived,
+}: {
+  supplier: SupplierRow;
+  onSaved: (row: SupplierRow) => void;
+  onArchived: (id: string) => void;
+}) {
   const [editing, setEditing] = useState(false);
-  const router = useRouter();
   const [archiving, startArchiveTx] = useTransition();
   const [archiveError, setArchiveError] = useState<string | null>(null);
 
@@ -134,7 +167,7 @@ function SupplierCard({ supplier }: { supplier: SupplierRow }) {
           );
           return;
         }
-        router.refresh();
+        onArchived(supplier.id);
       } catch (err) {
         setArchiveError(err instanceof Error ? err.message : "Network error");
       }
@@ -154,9 +187,9 @@ function SupplierCard({ supplier }: { supplier: SupplierRow }) {
         {editing ? (
           <SupplierForm
             supplier={supplier}
-            onSuccess={() => {
+            onSuccess={(row) => {
               setEditing(false);
-              router.refresh();
+              if (row) onSaved(row);
             }}
             onCancel={() => setEditing(false)}
           />
@@ -254,12 +287,12 @@ function SupplierCard({ supplier }: { supplier: SupplierRow }) {
 
 interface SupplierFormProps {
   supplier?: SupplierRow;
-  onSuccess: () => void;
+  /** The saved supplier as the API returned it. */
+  onSuccess: (row: SupplierRow | null) => void;
   onCancel: () => void;
 }
 
 function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
-  const router = useRouter();
   const isEdit = !!supplier;
 
   const [name, setName] = useState(supplier?.name ?? "");
@@ -308,8 +341,11 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
           );
           return;
         }
-        router.refresh();
-        onSuccess();
+        onSuccess(
+          body && typeof body === "object" && "supplier" in body
+            ? (body.supplier as SupplierRow)
+            : null
+        );
       } catch (err) {
         setError(err instanceof Error ? err.message : "Network error");
       }

@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
       componentId: componentId ?? undefined,
       locationId: str(req.nextUrl.searchParams.get("location_id")),
       userId: auth.userId,
+      omitOptions: req.nextUrl.searchParams.get("omit_options") === "1",
     });
     if (!result.ok) {
       return NextResponse.json(
@@ -113,6 +114,7 @@ export async function POST(req: NextRequest) {
         componentId: componentId ?? undefined,
         locationId: str(body.location_id),
         userId: auth.userId,
+        omitOptions: body.omit_options === true,
       },
       action
     );

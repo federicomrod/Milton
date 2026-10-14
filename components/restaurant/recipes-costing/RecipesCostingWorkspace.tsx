@@ -469,7 +469,6 @@ export function RecipesCostingWorkspace({
                 ? () => goToTab("plato", { producto: String(selectedId) })
                 : undefined
             }
-            onChanged={() => void mutate(async () => undefined)}
             locationId={searchParams.get("location")}
           />
         ) : (

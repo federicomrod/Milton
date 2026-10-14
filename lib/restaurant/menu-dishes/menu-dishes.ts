@@ -21,6 +21,7 @@ import type {
   DishStatus,
 } from "@/lib/restaurant/costing/dish-economics";
 import type { SalesScope } from "@/lib/restaurant/pos-product-list";
+import { rollupLeaves } from "@/lib/restaurant/costing/rollup";
 import {
   dishKey,
   exclusionFor,
@@ -184,36 +185,28 @@ export function dishSums(
   | "coverage"
   | "cost_status"
 > {
-  const units = variants.reduce((s, v) => s + v.units, 0);
-  const net = variants.reduce((s, v) => s + v.net_sales, 0);
-  const known = variants.filter((v) => v.cost_total !== null);
-  const knownSales = known.reduce((s, v) => s + v.net_sales, 0);
-  const costTotal = known.length
-    ? known.reduce((s, v) => s + (v.cost_total ?? 0), 0)
-    : null;
-  const coveredSales = variants
-    .filter((v) => v.covered)
-    .reduce((s, v) => s + v.net_sales, 0);
+  // R1-15b: the one roll-up every screen uses (costing/rollup.ts).
+  const r = rollupLeaves(
+    variants.map((v) => ({
+      key: v.key,
+      units: v.units,
+      net_sales: v.net_sales,
+      cost_total: v.cost_total,
+      covered: v.covered,
+      status: v.status,
+    }))
+  );
   return {
-    units: round2(units),
-    net_sales: round2(net),
+    units: r.units,
+    net_sales: r.net_sales,
     share_of_food_sales: 0,
-    cost_known_sales: round2(knownSales),
-    cost_total: costTotal,
-    food_cost_pct:
-      costTotal !== null && knownSales > 0
-        ? (costTotal / knownSales) * 100
-        : null,
-    margin: costTotal !== null ? knownSales - costTotal : null,
-    margin_pct:
-      costTotal !== null && knownSales > 0
-        ? ((knownSales - costTotal) / knownSales) * 100
-        : null,
-    coverage: net > 0 ? coveredSales / net : 0,
-    cost_status:
-      net > 0 && coveredSales >= net - 0.005
-        ? "aprobado"
-        : worst(variants.map((v) => v.status)),
+    cost_known_sales: r.cost_known_sales,
+    cost_total: r.cost_total,
+    food_cost_pct: r.food_cost_pct,
+    margin: r.margin,
+    margin_pct: r.margin_pct,
+    coverage: r.coverage,
+    cost_status: r.cost_status,
   };
 }
 
@@ -257,13 +250,6 @@ export function moveVariantLocally(
   for (const d of next)
     d.share_of_food_sales = food > 0 ? d.net_sales / food : 0;
   return next.sort((a, b) => b.net_sales - a.net_sales);
-}
-
-function worst(statuses: DishStatus[]): DishStatus {
-  if (statuses.includes("falta_precio")) return "falta_precio";
-  if (statuses.includes("estimado")) return "estimado";
-  if (statuses.includes("sin_receta")) return "sin_receta";
-  return "aprobado";
 }
 
 interface Group {

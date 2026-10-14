@@ -6,7 +6,7 @@
 // R1-10 "Plato del menú". Company and user come from auth, never from the
 // request. Editing needs the role that may prepare a recipe.
 
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
 import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
@@ -16,6 +16,7 @@ import {
   moveVariant,
 } from "@/lib/restaurant/menu-dishes/menu-dishes-server";
 import { saveMenuGrouping } from "@/lib/restaurant/menu-dishes/save-grouping";
+import { syncAutoGroups } from "@/lib/restaurant/groups/item-groups";
 import { actionableError } from "@/lib/restaurant/actionable-error";
 
 export const dynamic = "force-dynamic";
@@ -56,12 +57,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // R1-15b: after a save, the Plato del menú level of the groups follows (048;
+  // insert-only, after the response, a no-op until 048 is applied).
+  const followWithAutoGroups = () =>
+    after(async () => {
+      try {
+        await syncAutoGroups(auth.supabase, auth.companyId);
+      } catch (err) {
+        console.error("[menu-dishes] auto groups:", err);
+      }
+    });
+
   const started = Date.now();
   try {
     if (body.action === "sync") {
       const r = await saveMenuGrouping(auth.supabase, auth.companyId);
       console.info(`[menu-dishes] sync ${Date.now() - started}ms`, r);
       if (!r.ok) return NextResponse.json({ error: r.error }, { status: 500 });
+      followWithAutoGroups();
       return NextResponse.json(r);
     }
     if (body.action === "move") {
@@ -80,6 +93,7 @@ export async function POST(req: NextRequest) {
         dish_name: text(body.dish_name),
       });
       console.info(`[menu-dishes] move ${Date.now() - started}ms`);
+      followWithAutoGroups();
       return NextResponse.json({ ok: true, ...r });
     }
     if (body.action === "exclude") {
@@ -109,6 +123,7 @@ export async function POST(req: NextRequest) {
         excluded: body.excluded !== false,
       });
       console.info(`[menu-dishes] exclude ${Date.now() - started}ms`);
+      followWithAutoGroups();
       return NextResponse.json({ ok: true, ...r });
     }
     return NextResponse.json({ error: "Acción desconocida." }, { status: 400 });

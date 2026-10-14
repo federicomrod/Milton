@@ -18,6 +18,7 @@
 // A missing price is never $0: such a dish has unit_cost = null and the
 // status "falta_precio", and it is left out of COGS and coverage.
 
+import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
 import type { CostingData } from "@/lib/restaurant/costing";
 import {
   hydrateLines,
@@ -199,6 +200,12 @@ export interface DishEconomicsResult {
   menu_dishes_stored?: boolean;
   /** Products whose grouping is Milton's suggestion, not stored yet. */
   menu_unsaved_variant_count?: number;
+  /**
+   * R1-15b: the groups a person (or Milton) made on top of the leaf rows
+   * (migration 048). The client builds the tree from these and the variant
+   * rows; absent / `available: false` before 048.
+   */
+  item_groups?: ItemGroupsLoad;
 }
 
 export interface DishVersion {

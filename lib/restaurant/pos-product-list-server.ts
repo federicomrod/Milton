@@ -12,6 +12,7 @@ import {
   isPosProductLinkState,
   type PosProductLinkRecord,
 } from "@/lib/restaurant/pos-product-links";
+import { loadPosSalesGroups } from "@/lib/restaurant/pos-sales-groups";
 import {
   buildPosProductList,
   type PosProductListResult,
@@ -100,7 +101,12 @@ export async function loadPosProductList(
 ): Promise<LoadPosProductListResult> {
   const { companyId, startDate, endDate, locationId, odooProductId } = params;
 
-  const [salesRes, linksRes, versionsRes] = await Promise.all([
+  type SalesRead = Awaited<
+    ReturnType<
+      typeof fetchAllRowsRetryingWithoutColumns<PosSaleLineForProductList>
+    >
+  >;
+  const fetchSalesRows = () =>
     fetchAllRowsRetryingWithoutColumns<PosSaleLineForProductList>(
       OPTIONAL_SALES_COLUMNS,
       (select) => {
@@ -118,6 +124,22 @@ export async function loadPosProductList(
         return q;
       },
       SALES_SELECT
+    );
+
+  const [salesRes, linksRes, versionsRes] = await Promise.all([
+    // R1-12: summed inside Postgres (046) in one request; the raw-row
+    // walk below is the fallback when the function is not applied.
+    loadPosSalesGroups(supabase, {
+      companyId,
+      locationId,
+      startDate,
+      endDate,
+      odooProductId,
+    }).then(
+      (groups) =>
+        (groups.ok
+          ? { rows: groups.lines, error: null }
+          : fetchSalesRows()) as Promise<SalesRead>
     ),
     fetchAllRows<Record<string, unknown>>(() => {
       const q = supabase

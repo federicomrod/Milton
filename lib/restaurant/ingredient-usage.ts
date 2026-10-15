@@ -44,6 +44,8 @@ export interface IngredientUsage {
   inUse: Set<string>;
   /** How many active dishes use each ingredient (directly or through a preparation). */
   dishCount: Map<string, number>;
+  /** Recipe lines of active versions that name each ingredient directly (dishes and preparations). */
+  lineCount: Map<string, number>;
 }
 
 export function computeIngredientUsage(input: UsageInput): IngredientUsage {
@@ -91,7 +93,27 @@ export function computeIngredientUsage(input: UsageInput): IngredientUsage {
       dishCount.set(id, (dishCount.get(id) ?? 0) + 1);
     }
   }
-  return { inUse, dishCount };
+
+  // Lines of active versions that name an ingredient directly: what a merge
+  // would reassign.
+  const lineCount = new Map<string, number>();
+  const countLines = (lines: readonly CostingRecipeInput[] | undefined) => {
+    for (const line of lines ?? [])
+      if (line.input_type === "ingredient" && line.ingredient_id)
+        lineCount.set(
+          line.ingredient_id,
+          (lineCount.get(line.ingredient_id) ?? 0) + 1
+        );
+  };
+  for (const versions of input.menuVersionsByMenuItemId.values()) {
+    const version = active(versions);
+    if (version) countLines(input.menuInputsByVersionId.get(version.id));
+  }
+  for (const versions of input.componentVersionsByComponentId.values()) {
+    const version = active(versions);
+    if (version) countLines(input.componentInputsByVersionId.get(version.id));
+  }
+  return { inUse, dishCount, lineCount };
 }
 
 export type UsageFilter = "en_uso" | "sin_uso" | "todos";

@@ -12,6 +12,14 @@
 
 import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import Link from "next/link";
+import {
+  DuplicatesBanner,
+  useDuplicateQueue,
+} from "@/components/restaurant/menu/IngredientDuplicates";
+import {
+  NO_DUPLICATE_STATE,
+  type DuplicateState,
+} from "@/lib/restaurant/ingredient-duplicates-server";
 import { useEffect, useMemo, useState } from "react";
 import {
   GroupedItemList,
@@ -61,6 +69,11 @@ export interface IngredienteItem {
   price: number | null;
   price_unit: string | null;
   price_date: string | null;
+  /** The latest price entry (what a merge can choose as THE price). */
+  price_entry_id?: string | null;
+  /** Active dishes that use it, and active recipe lines that name it (a merge reassigns those). */
+  recipeCount?: number;
+  lineCount?: number;
   previous_price: number | null;
   source: PriceSource | null;
   supplier_id: string | null;
@@ -150,6 +163,7 @@ export function IngredientesScreen({
   initialFilter,
   itemGroups = null,
   archiveAvailable = true,
+  duplicates = NO_DUPLICATE_STATE,
 }: {
   items: IngredienteItem[];
   suppliers: SupplierOption[];
@@ -159,9 +173,18 @@ export function IngredientesScreen({
   itemGroups?: ItemGroupsLoad | null;
   /** False until migration 050: En uso / Sin uso work, Archivar says what is missing. */
   archiveAvailable?: boolean;
+  /** Possible duplicates and the merge history (051); empty before it is applied. */
+  duplicates?: DuplicateState;
 }) {
   const grouping = useItemGroups(itemGroups);
   const [items, setItems] = useState(initialItems);
+  // A merge or an undo re-reads the page: the new rows replace ours.
+  const [seenItems, setSeenItems] = useState(initialItems);
+  if (seenItems !== initialItems) {
+    setSeenItems(initialItems);
+    setItems(initialItems);
+  }
+  const dupQueue = useDuplicateQueue({ items, duplicates });
   const [filter, setFilter] = useState<IngredientesFilter>(initialFilter);
   const [selectedId, setSelectedId] = useState<string | null>(
     initialSelectedId && initialItems.some((i) => i.id === initialSelectedId)
@@ -247,171 +270,188 @@ export function IngredientesScreen({
   };
 
   return (
-    <div className="mt-3 grid grid-cols-[330px_1fr] items-start gap-[14px]">
-      <section className="flex flex-col rounded-[14px] border border-[#eef0f4] bg-white">
-        <div className="space-y-2 border-b border-[#eef0f4] p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div
-              className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[12px] font-semibold"
-              role="group"
-              aria-label="Uso"
-            >
-              {(
-                [
-                  ["en_uso", "En uso", counts.en_uso],
-                  ["sin_uso", "Sin uso", counts.sin_uso],
-                  ["todos", "Todos", counts.todos],
-                ] as const
-              ).map(([id, label, n]) => (
-                <button
-                  key={id}
-                  type="button"
-                  aria-pressed={usageFilter === id}
-                  onClick={() => setUsageFilter(id)}
-                  className={
-                    "rounded-[9px] px-2.5 py-1 " +
-                    (usageFilter === id
-                      ? "bg-[#1b40c8] text-white shadow-sm"
-                      : "text-[#4a5a85] hover:text-[#1b40c8]")
-                  }
-                >
-                  {label} · {n}
-                </button>
-              ))}
-            </div>
-            {counts.archivable > 0 ? (
-              <button
-                type="button"
-                onClick={archiveAll}
-                disabled={archiving || !archiveAvailable}
-                title={
-                  archiveAvailable
-                    ? "Los oculta de las listas de trabajo; no se borra nada."
-                    : "Falta aplicar la migración 050 en este ambiente."
-                }
-                className="rounded-lg border border-[#c6d3f5] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#1b40c8] hover:bg-[#e6ecfb] disabled:opacity-50"
+    <div className="mt-3 space-y-3">
+      <DuplicatesBanner
+        q={dupQueue}
+        canEdit
+        money={(n, unit) =>
+          `${formatMoney(n, currency)}${unit ? `/${unit}` : ""}`
+        }
+      />
+      <div className="grid grid-cols-[330px_1fr] items-start gap-[14px]">
+        <section className="flex flex-col rounded-[14px] border border-[#eef0f4] bg-white">
+          <div className="space-y-2 border-b border-[#eef0f4] p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div
+                className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[12px] font-semibold"
+                role="group"
+                aria-label="Uso"
               >
-                Archivar sin uso ({counts.archivable})
-              </button>
-            ) : null}
-          </div>
-          {!archiveAvailable && counts.sin_uso > 0 ? (
-            <p className="text-[12px]" style={{ color: MUTED }}>
-              Para archivar falta aplicar la migración 050 en este ambiente.
-            </p>
-          ) : null}
-          {archiveError ? (
-            <p className="text-[12px]" style={{ color: RED }}>
-              {archiveError}
-            </p>
-          ) : null}
-          <div className="flex gap-2" role="group" aria-label="Filtro">
-            <FilterChip
-              active={filter === "todos"}
-              onClick={() => setFilter("todos")}
-            >
-              Todos
-            </FilterChip>
-            <FilterChip
-              active={filter === "falta_precio"}
-              onClick={() => setFilter("falta_precio")}
-            >
-              Falta precio ({counts.falta_precio})
-            </FilterChip>
-          </div>
-        </div>
-        <div className="max-h-[calc(100vh-260px)] overflow-y-auto p-2">
-          <GroupedItemList
-            items={visible}
-            scope="ingredient"
-            grouping={grouping}
-            canEdit
-            storageKey="milton:ingredientes:abiertos"
-            sortId="ingredientes"
-            sortColumns={INGREDIENT_SORT}
-            searchPlaceholder="Buscar ingrediente o grupo…"
-            searchText={(item) => item.supplier_name}
-            categoryOf={(item) => item.category}
-            emptyText={
-              items.length === 0
-                ? "Aún no tienes ingredientes."
-                : "Ningún ingrediente coincide."
-            }
-            renderRow={(item) => {
-              const isSelected = selected?.id === item.id;
-              return (
+                {(
+                  [
+                    ["en_uso", "En uso", counts.en_uso],
+                    ["sin_uso", "Sin uso", counts.sin_uso],
+                    ["todos", "Todos", counts.todos],
+                  ] as const
+                ).map(([id, label, n]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={usageFilter === id}
+                    onClick={() => setUsageFilter(id)}
+                    className={
+                      "rounded-[9px] px-2.5 py-1 " +
+                      (usageFilter === id
+                        ? "bg-[#1b40c8] text-white shadow-sm"
+                        : "text-[#4a5a85] hover:text-[#1b40c8]")
+                    }
+                  >
+                    {label} · {n}
+                  </button>
+                ))}
+              </div>
+              {counts.archivable > 0 ? (
                 <button
                   type="button"
-                  onClick={() => setSelectedId(item.id)}
-                  aria-current={isSelected ? "true" : undefined}
-                  className={
-                    "flex w-full items-center justify-between gap-3 border-b border-[#f3f4f7] px-2 py-2.5 text-left " +
-                    (isSelected
-                      ? "bg-[#eef2fc] shadow-[inset_3px_0_0_#1b40c8]"
-                      : "hover:bg-[#fafbfc]")
+                  onClick={archiveAll}
+                  disabled={archiving || !archiveAvailable}
+                  title={
+                    archiveAvailable
+                      ? "Los oculta de las listas de trabajo; no se borra nada."
+                      : "Falta aplicar la migración 050 en este ambiente."
                   }
+                  className="rounded-lg border border-[#c6d3f5] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#1b40c8] hover:bg-[#e6ecfb] disabled:opacity-50"
                 >
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-semibold text-[#151c2c]">
-                      {item.name}
-                    </span>
-                    <span
-                      className="block truncate text-[12px]"
-                      style={{ color: MUTED }}
-                    >
-                      {item.supplier_name ?? "—"}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-right text-[13px] tabular-nums">
-                    {!item.inUse && item.price === null ? (
-                      <span
-                        className="font-semibold"
-                        style={{ color: MUTED }}
-                        title="Ninguna receta activa lo usa: no hace falta precio."
-                      >
-                        {item.archived ? "Archivado" : "Sin uso"}
-                      </span>
-                    ) : item.price === null ? (
-                      <span className="font-semibold" style={{ color: RED }}>
-                        Falta precio
-                      </span>
-                    ) : (
-                      <span className="text-[#151c2c]">
-                        {formatMoney(item.price, currency)}
-                        <span style={{ color: MUTED }}>
-                          {" "}
-                          / {item.price_unit ?? item.default_unit ?? "—"}
-                        </span>
-                      </span>
-                    )}
-                  </span>
+                  Archivar sin uso ({counts.archivable})
                 </button>
-              );
-            }}
-          />
-        </div>
-        <AddIngrediente onAdded={onAdded} />
-      </section>
-
-      {selected ? (
-        <IngredienteDetail
-          key={selected.id}
-          item={selected}
-          suppliers={suppliers}
-          currency={currency}
-          onSaved={onSaved}
-          archiveAvailable={archiveAvailable}
-          archiving={archiving}
-          onArchive={(archived) => void setArchived([selected.id], archived)}
-        />
-      ) : (
-        <section
-          className="rounded-[14px] border border-[#eef0f4] bg-white p-6 text-[13px]"
-          style={{ color: MUTED }}
-        >
-          Elige un ingrediente de la lista.
+              ) : null}
+            </div>
+            {!archiveAvailable && counts.sin_uso > 0 ? (
+              <p className="text-[12px]" style={{ color: MUTED }}>
+                Para archivar falta aplicar la migración 050 en este ambiente.
+              </p>
+            ) : null}
+            {archiveError ? (
+              <p className="text-[12px]" style={{ color: RED }}>
+                {archiveError}
+              </p>
+            ) : null}
+            <div className="flex gap-2" role="group" aria-label="Filtro">
+              <FilterChip
+                active={filter === "todos"}
+                onClick={() => setFilter("todos")}
+              >
+                Todos
+              </FilterChip>
+              <FilterChip
+                active={filter === "falta_precio"}
+                onClick={() => setFilter("falta_precio")}
+              >
+                Falta precio ({counts.falta_precio})
+              </FilterChip>
+            </div>
+          </div>
+          <div className="max-h-[calc(100vh-260px)] overflow-y-auto p-2">
+            <GroupedItemList
+              items={visible}
+              scope="ingredient"
+              grouping={grouping}
+              canEdit
+              storageKey="milton:ingredientes:abiertos"
+              sortId="ingredientes"
+              sortColumns={INGREDIENT_SORT}
+              searchPlaceholder="Buscar ingrediente o grupo…"
+              searchText={(item) => item.supplier_name}
+              categoryOf={(item) => item.category}
+              emptyText={
+                items.length === 0
+                  ? "Aún no tienes ingredientes."
+                  : "Ningún ingrediente coincide."
+              }
+              renderRow={(item) => {
+                const isSelected = selected?.id === item.id;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedId(item.id);
+                      dupQueue.jumpTo(item.id);
+                    }}
+                    aria-current={isSelected ? "true" : undefined}
+                    className={
+                      "flex w-full items-center justify-between gap-3 border-b border-[#f3f4f7] px-2 py-2.5 text-left " +
+                      (isSelected
+                        ? "bg-[#eef2fc] shadow-[inset_3px_0_0_#1b40c8]"
+                        : "hover:bg-[#fafbfc]")
+                    }
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] font-semibold text-[#151c2c]">
+                        {item.name}
+                        {dupQueue.flagged.has(item.id) ? (
+                          <span className="ml-1.5 rounded-md bg-[#efe8ff] px-1.5 py-0.5 text-[12px] font-semibold text-[#6d3fc4]">
+                            ✦ duplicado?
+                          </span>
+                        ) : null}
+                      </span>
+                      <span
+                        className="block truncate text-[12px]"
+                        style={{ color: MUTED }}
+                      >
+                        {item.supplier_name ?? "—"}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-right text-[13px] tabular-nums">
+                      {!item.inUse && item.price === null ? (
+                        <span
+                          className="font-semibold"
+                          style={{ color: MUTED }}
+                          title="Ninguna receta activa lo usa: no hace falta precio."
+                        >
+                          {item.archived ? "Archivado" : "Sin uso"}
+                        </span>
+                      ) : item.price === null ? (
+                        <span className="font-semibold" style={{ color: RED }}>
+                          Falta precio
+                        </span>
+                      ) : (
+                        <span className="text-[#151c2c]">
+                          {formatMoney(item.price, currency)}
+                          <span style={{ color: MUTED }}>
+                            {" "}
+                            / {item.price_unit ?? item.default_unit ?? "—"}
+                          </span>
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                );
+              }}
+            />
+          </div>
+          <AddIngrediente onAdded={onAdded} />
         </section>
-      )}
+
+        {selected ? (
+          <IngredienteDetail
+            key={selected.id}
+            item={selected}
+            suppliers={suppliers}
+            currency={currency}
+            onSaved={onSaved}
+            archiveAvailable={archiveAvailable}
+            archiving={archiving}
+            onArchive={(archived) => void setArchived([selected.id], archived)}
+          />
+        ) : (
+          <section
+            className="rounded-[14px] border border-[#eef0f4] bg-white p-6 text-[13px]"
+            style={{ color: MUTED }}
+          >
+            Elige un ingrediente de la lista.
+          </section>
+        )}
+      </div>
     </div>
   );
 }

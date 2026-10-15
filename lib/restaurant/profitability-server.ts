@@ -25,6 +25,7 @@ import {
   parseWorkbookCostMatch,
 } from "@/lib/restaurant/costing";
 import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
+import { computeIngredientUsage } from "@/lib/restaurant/ingredient-usage";
 import type {
   IngredientCostEntry,
   MenuItemCostResult,
@@ -1081,12 +1082,26 @@ export async function fetchProfitabilityData(
     supplierLinks.map((l) => l.ingredient_id)
   ).size;
 
+  const recipesRead = versions.menuRecipeVersionsByMenuItemId.size > 0;
+  const ingredientUsage = computeIngredientUsage({
+    menuVersionsByMenuItemId: versions.menuRecipeVersionsByMenuItemId,
+    menuInputsByVersionId: versions.menuRecipeVersionInputsByVersionId,
+    componentVersionsByComponentId:
+      versions.componentRecipeVersionsByComponentId,
+    componentInputsByVersionId:
+      versions.componentRecipeVersionInputsByVersionId,
+  });
+
   const dataQuality: DataQualityCounts = {
     unmapped_pos_items: unmappedCount,
     menu_items_without_recipe: menuItemsWithoutRecipe,
     recipes_with_unit_mismatch: recipesWithUnitMismatch,
+    // R1-15i: an ingredient no active recipe uses never counts as «sin costo»
+    // (it is not asked for a price). If the recipes were not read, count all.
     ingredients_without_cost_entries: ingredients.filter(
-      (i) => !ingredientsWithEntries.has(i.id)
+      (i) =>
+        !ingredientsWithEntries.has(i.id) &&
+        (!recipesRead || ingredientUsage.inUse.has(i.id))
     ).length,
     components_without_recipe: components.filter(
       (c) => !componentsWithRecipe.has(c.id)

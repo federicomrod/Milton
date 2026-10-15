@@ -17,6 +17,13 @@
 //   tenant. The dashboard formats with the tenant's POS currency.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  LEGACY_FROM,
+  dailySalesTarget,
+  pickTargetRow,
+  toTargetRow,
+  type TargetRow,
+} from "@/lib/restaurant/objetivos";
 
 export type TargetMetricKey =
   | "revenue"
@@ -30,6 +37,8 @@ export const TARGET_METRIC_KEYS: ReadonlyArray<TargetMetricKey> = [
   "units_sold",
   "avg_ticket",
 ];
+
+export { LEGACY_FROM };
 
 export interface KpiTargetRow {
   id: string;
@@ -62,29 +71,80 @@ function isPositiveNumeric(v: unknown): v is number {
  */
 export async function getRestaurantKpiTargets(
   supabase: SupabaseClient,
-  companyId: string
+  companyId: string,
+  /** The day the daily figure is for (default: today, UTC). */
+  today: string = new Date().toISOString().slice(0, 10)
 ): Promise<TargetMap> {
-  const { data, error } = await supabase
-    .from("restaurant_kpi_targets")
-    .select("metric_key, target_value, is_active, target_period")
-    .eq("company_id", companyId)
-    .eq("target_period", "daily")
-    .eq("is_active", true);
-
-  if (error) {
-    console.error("[supabase-targets] read failed:", error.message);
-    return {};
-  }
-
+  const config = await loadTargetsConfig(supabase, companyId);
+  const rows = config.rows;
   const out: TargetMap = {};
-  for (const row of data ?? []) {
-    const key = row.metric_key as TargetMetricKey;
-    if (!TARGET_METRIC_KEYS.includes(key)) continue;
-    const value = Number(row.target_value);
-    if (!Number.isFinite(value) || value < 0) continue;
-    out[key] = value;
+  // Company-wide only: the Ventas lines are for the whole company.
+  const scope = { locationId: null, restaurantIds: [] };
+  const revenue = dailySalesTarget(rows, today, scope);
+  if (revenue !== null) out.revenue = revenue;
+  for (const key of ["orders", "units_sold", "avg_ticket"] as const) {
+    const row = pickTargetRow(rows, key, today, null);
+    if (row) out[key] = row.target_value;
   }
   return out;
+}
+
+const NEW_COLUMNS =
+  "metric_key, target_value, target_period, is_active, location_id, effective_from, weekday_weights";
+const OLD_COLUMNS = "metric_key, target_value, target_period, is_active";
+
+export interface TargetsConfig {
+  /** Migration 052 applied: monthly targets, restaurants and start dates work. */
+  available: boolean;
+  rows: TargetRow[];
+}
+
+/**
+ * Every target of the company, as the app reads them. Before migration 052
+ * the new columns do not exist: the old daily rows are read as they were
+ * (valid for all history) and `available` is false. A read error returns no
+ * targets (nothing is drawn, never a 0).
+ */
+export async function loadTargetsConfig(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<TargetsConfig> {
+  const read = async (columns: string) =>
+    supabase
+      .from("restaurant_kpi_targets")
+      .select(columns)
+      .eq("company_id", companyId)
+      .limit(2000);
+  let res = await read(NEW_COLUMNS);
+  let available = true;
+  if (res.error) {
+    available = false;
+    res = await read(OLD_COLUMNS);
+    if (res.error) {
+      console.error("[supabase-targets] read failed:", res.error.message);
+      return { available: false, rows: [] };
+    }
+  }
+  const rows = ((res.data ?? []) as unknown as Array<Record<string, unknown>>)
+    .map(toTargetRow)
+    .filter((r): r is TargetRow => r !== null);
+  return { available, rows };
+}
+
+/** The company's default "Comparar con" (Objetivos), or null before 052 / when unset. */
+export async function loadDefaultComparison(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("restaurant_company_settings")
+    .select("default_comparison")
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return typeof data.default_comparison === "string"
+    ? data.default_comparison
+    : null;
 }
 
 /**
@@ -112,29 +172,44 @@ export async function upsertRestaurantKpiTarget(
       `Invalid target_value for ${params.metric_key}: must be a non-negative finite number`
     );
   }
-
-  const { data, error } = await supabase
+  // A daily company-wide row. Read-then-write (the unique key changed with
+  // migration 052, so there is no single conflict target that fits before
+  // and after it): update the row there is, else add one.
+  const columns =
+    "id, company_id, metric_key, target_value, target_period, currency, is_active";
+  const existing = await supabase
     .from("restaurant_kpi_targets")
-    .upsert(
-      {
-        company_id: params.company_id,
-        metric_key: params.metric_key,
-        target_period: "daily",
-        target_value: params.target_value,
-        currency: params.currency ?? "USD",
-        is_active: true,
-      },
-      {
-        // The migration's UNIQUE(company_id, metric_key, target_period)
-        // constraint backs this so a re-save doesn't create duplicates.
-        onConflict: "company_id,metric_key,target_period",
-      }
-    )
-    .select(
-      "id, company_id, metric_key, target_value, target_period, currency, is_active"
-    )
-    .single();
-
+    .select("id, target_value")
+    .eq("company_id", params.company_id)
+    .eq("metric_key", params.metric_key)
+    .eq("target_period", "daily")
+    .order("id", { ascending: true })
+    .limit(50);
+  if (existing.error) throw new Error(existing.error.message);
+  const target = existing.data?.[existing.data.length - 1];
+  const patch = {
+    target_value: params.target_value,
+    currency: params.currency ?? "USD",
+    is_active: true,
+  };
+  const { data, error } = target
+    ? await supabase
+        .from("restaurant_kpi_targets")
+        .update(patch)
+        .eq("id", target.id)
+        .eq("company_id", params.company_id)
+        .select(columns)
+        .single()
+    : await supabase
+        .from("restaurant_kpi_targets")
+        .insert({
+          company_id: params.company_id,
+          metric_key: params.metric_key,
+          target_period: "daily",
+          ...patch,
+        })
+        .select(columns)
+        .single();
   if (error || !data) {
     throw new Error(error?.message ?? "Upsert returned no row");
   }

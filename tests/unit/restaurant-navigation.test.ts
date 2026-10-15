@@ -103,8 +103,13 @@ describe("primary restaurant navigation (#128)", () => {
     }
   });
 
-  it("Configuración has only Conexiones, Equipo and Cuenta (A10/A11)", () => {
-    expect(DATA_SETTINGS_SECTIONS).toEqual(["connections", "team", "account"]);
+  it("Configuración has Conexiones, Objetivos, Equipo and Cuenta (A10/A11, R1-16a)", () => {
+    expect(DATA_SETTINGS_SECTIONS).toEqual([
+      "connections",
+      "objectives",
+      "team",
+      "account",
+    ]);
     const listed = DATA_SETTINGS_SECTIONS.flatMap((s) =>
       routesForSection(s, { isAdmin: true }).map((r) => r.id)
     );

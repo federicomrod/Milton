@@ -15,6 +15,7 @@ export const MENU_HREF = "/dashboard/restaurant/menu";
 export const COSTS_HREF = "/dashboard/restaurant/costs";
 export const KITCHEN_HREF = "/dashboard/restaurant/kitchen";
 export const DATA_SETTINGS_HREF = "/dashboard/restaurant/data";
+export const OBJECTIVES_HREF = "/dashboard/restaurant/data/objetivos";
 export const ASK_MILTON_HREF = "/dashboard/restaurant/briefing";
 
 /** "main": the five daily areas. "data_settings": ⚙ Configuración,
@@ -131,11 +132,16 @@ export function primaryNavLabels(lang: PreferredLanguage): string[] {
 // only lists the ones with a `section` (R1-09b, A10/A11).
 // ---------------------------------------------------------------------------
 
-/** Configuración has exactly three sections (R1-09b, A10). */
-export type DataSettingsSectionId = "connections" | "team" | "account";
+/** Configuración has four sections (R1-09b, A10; Objetivos added in R1-16a). */
+export type DataSettingsSectionId =
+  | "connections"
+  | "objectives"
+  | "team"
+  | "account";
 
 export const DATA_SETTINGS_SECTIONS: readonly DataSettingsSectionId[] = [
   "connections",
+  "objectives",
   "team",
   "account",
 ] as const;
@@ -146,6 +152,7 @@ export const DATA_SETTINGS_SECTION_ANCHORS: Record<
   string
 > = {
   connections: "conexiones",
+  objectives: "objetivos",
   team: "equipo",
   account: "cuenta",
 };
@@ -210,6 +217,14 @@ export const LEGACY_ROUTE_MAP: readonly MappedLegacyRoute[] = [
     legacyLabel: "POS Sales",
     area: "data_settings",
     section: "connections",
+  },
+  {
+    // R1-16a: the goals live here; Cockpit and Ventas draw them as lines.
+    id: "objectives",
+    href: OBJECTIVES_HREF,
+    legacyLabel: "Targets",
+    area: "data_settings",
+    section: "objectives",
   },
   {
     id: "odoo-admin",
@@ -319,6 +334,8 @@ export function dataSettingsSectionLabel(
   switch (section) {
     case "connections":
       return t(lang, "Connections", "Conexiones");
+    case "objectives":
+      return t(lang, "Goals", "Objetivos");
     case "team":
       return t(lang, "Team", "Equipo");
     case "account":
@@ -337,6 +354,8 @@ export function dataSettingsLinkLabel(
       return t(lang, "Upload sales (file)", "Subir ventas (archivo)");
     case "odoo-admin":
       return t(lang, "Odoo connection (admin)", "Conexión con Odoo (admin)");
+    case "objectives":
+      return t(lang, "Set your goals", "Definir tus objetivos");
     case "invitations":
       return t(lang, "Invitations", "Invitaciones");
     case "account":

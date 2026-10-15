@@ -18,17 +18,27 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
-  const { data, error } = await auth.supabase
-    .from("ingredients")
-    .select(
-      "id, name, category, default_unit, current_unit_cost, currency, created_at, updated_at"
-    )
-    .eq("company_id", auth.companyId)
-    .order("name", { ascending: true });
+  // ?activos=1: pickers never offer an archived (merged or hidden) ingredient.
+  const onlyActive = new URL(req.url).searchParams.get("activos") === "1";
+  const read = (withArchive: boolean) => {
+    const q = auth.supabase
+      .from("ingredients")
+      .select(
+        "id, name, category, default_unit, current_unit_cost, currency, created_at, updated_at"
+      )
+      .eq("company_id", auth.companyId)
+      .order("name", { ascending: true });
+    return withArchive ? q.is("archived_at", null) : q;
+  };
+  let { data, error } = await read(onlyActive);
+  // Before migration 050 there is no archive: nothing is hidden.
+  if (error && onlyActive && /archived_at/.test(error.message ?? "")) {
+    ({ data, error } = await read(false));
+  }
 
   if (error) {
     console.error("[ingredients GET]", error.message);

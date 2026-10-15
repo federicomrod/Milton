@@ -14,6 +14,7 @@ import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-
 import Link from "next/link";
 import {
   DuplicatesBanner,
+  ManualMergeDialog,
   useDuplicateQueue,
 } from "@/components/restaurant/menu/IngredientDuplicates";
 import {
@@ -185,6 +186,11 @@ export function IngredientesScreen({
     setItems(initialItems);
   }
   const dupQueue = useDuplicateQueue({ items, duplicates });
+  /** «Unir…» from the selection bar: the selected ids, and how to clear them. */
+  const [mergeSel, setMergeSel] = useState<{
+    ids: string[];
+    clear: () => void;
+  } | null>(null);
   const [filter, setFilter] = useState<IngredientesFilter>(initialFilter);
   const [selectedId, setSelectedId] = useState<string | null>(
     initialSelectedId && initialItems.some((i) => i.id === initialSelectedId)
@@ -277,6 +283,7 @@ export function IngredientesScreen({
     scope: "ingredient",
     grouping,
     canEdit: true,
+    onMergeSelected: (ids, clear) => setMergeSel({ ids, clear }),
     storageKey: "milton:ingredientes:abiertos",
     sortId: "ingredientes",
     sortColumns: INGREDIENT_SORT,
@@ -429,6 +436,29 @@ export function IngredientesScreen({
           `${formatMoney(n, currency)}${unit ? `/${unit}` : ""}`
         }
       />
+      {mergeSel ? (
+        <ManualMergeDialog
+          q={dupQueue}
+          items={items}
+          ids={mergeSel.ids}
+          money={(n, unit) =>
+            `${formatMoney(n, currency)}${unit ? `/${unit}` : ""}`
+          }
+          onClose={() => setMergeSel(null)}
+          onMerged={(survivorId, loserIds) => {
+            mergeSel.clear();
+            setMergeSel(null);
+            // The merged names vanish at once; the refresh brings the rest.
+            const gone = new Set(loserIds);
+            setItems((prev) =>
+              prev.map((i) =>
+                gone.has(i.id) ? { ...i, archived: true, inUse: false } : i
+              )
+            );
+            setSelectedId((id) => (id && gone.has(id) ? survivorId : id));
+          }}
+        />
+      ) : null}
       <div
         data-testid="menu-toolbar"
         className="space-y-2 rounded-[14px] border border-[#eef0f4] bg-white p-3"

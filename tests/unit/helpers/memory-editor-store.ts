@@ -2,7 +2,11 @@
 
 import type { CostingData } from "@/lib/restaurant/costing";
 import { aliasKeyFor } from "@/lib/restaurant/cost-workbook/repo";
-import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
+import {
+  convertUnitPriceOrPortion,
+  normalizeUnit,
+} from "@/lib/restaurant/units";
+import { unitMismatchMessage } from "@/lib/restaurant/cost-import";
 import type {
   CatalogQuestion,
   VersionInput,
@@ -19,7 +23,12 @@ import type { ApprovalRecord } from "@/lib/restaurant/recipe-costing/approval-au
 export interface MemoryEditorState {
   companyId: string;
   currency: string;
-  ingredients: Array<{ id: string; name: string; default_unit: string | null }>;
+  ingredients: Array<{
+    id: string;
+    name: string;
+    default_unit: string | null;
+    archived?: boolean;
+  }>;
   entries: IngredientCostEntry[];
   components: Array<{ id: string; name: string; output_unit: string }>;
   componentRecipes: Array<{
@@ -48,6 +57,8 @@ export interface MemoryEditorState {
     by: string | null;
   }>;
   failAlias?: boolean;
+  /** Merges not undone: the ingredient that was merged away and its survivor. */
+  merges?: Array<{ loserId: string; survivorName: string }>;
   seq: number;
   /** Open unclear price-list rows (catalog_row review items). */
   catalogRows?: Array<{
@@ -395,7 +406,12 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
     async addCostEntry(_companyId, e: NewCostEntry) {
       const ing = state.ingredients.find((r) => r.id === e.ingredientId)!;
       const target = ing.default_unit ?? e.unit;
-      const converted = convertUnitPriceStr(e.unitCost, e.unit, target);
+      const converted = convertUnitPriceOrPortion(e.unitCost, e.unit, target);
+      if (!converted.ok)
+        return {
+          ok: false,
+          error: unitMismatchMessage(e.unit, ing.default_unit ?? null),
+        };
       state.entries.push(
         entry(e.ingredientId, e.unit, e.unitCost, {
           id: `e-new-${++state.seq}`,
@@ -404,12 +420,17 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
           effective_date: e.date,
           cost_date: e.date,
           normalized_unit: normalizeUnit(target) ?? target,
-          normalized_unit_cost: converted.ok ? converted.value : e.unitCost,
+          normalized_unit_cost: converted.value,
           currency: e.currency,
           notes: e.note,
           created_at: new Date(Date.now() + state.seq).toISOString(),
         })
       );
+      return { ok: true };
+    },
+    async mergedInto(_companyId, ingredientId) {
+      const m = (state.merges ?? []).find((x) => x.loserId === ingredientId);
+      return m ? { name: m.survivorName } : null;
     },
     async loadAliases(companyId) {
       const map = new Map<string, string>();

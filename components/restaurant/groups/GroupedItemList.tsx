@@ -83,6 +83,8 @@ export interface GroupedItemListProps<T extends GroupableItem> {
   categoryOf?: (item: T) => string | null | undefined;
   /** The screen's own filters (uso, falta precio…): drawn in the toolbar, between the grouping tabs and the sort chips. */
   filters?: ReactNode;
+  /** Ingredientes: «Unir…» in the selection bar when 2+ rows are selected. */
+  onMergeSelected?: (ids: string[], clearSelection: () => void) => void;
 }
 
 /**
@@ -106,6 +108,7 @@ export function useGroupedItemList<T extends GroupableItem>({
   searchText,
   categoryOf,
   filters,
+  onMergeSelected,
 }: GroupedItemListProps<T>) {
   const memberType: GroupMemberType = scope;
   const hierarchy = { scope } as const;
@@ -486,6 +489,11 @@ export function useGroupedItemList<T extends GroupableItem>({
           clear();
           void grouping.run((s) => removeFromGroups(s, { items: refs(ids) }));
         }}
+        onMerge={
+          onMergeSelected && canEdit && selectedIds.length >= 2
+            ? () => onMergeSelected(selectedIds, clear)
+            : undefined
+        }
         onAcceptShared={() => shared && void addTo(selectedIds, shared.id)}
         onClearSelection={clear}
         defaultNewName={byId.get(selectedIds[0] ?? "")?.name}

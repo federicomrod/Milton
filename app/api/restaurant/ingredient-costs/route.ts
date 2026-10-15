@@ -20,7 +20,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
+import {
+  convertUnitPriceOrPortion,
+  normalizeUnit,
+} from "@/lib/restaurant/units";
 import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
 import {
@@ -177,7 +180,7 @@ export async function POST(req: NextRequest) {
   // will surface a `missing_unit_conversion` if/when a recipe tries to
   // consume this ingredient in an incompatible unit.
   const targetUnit = ingredient.default_unit || unit;
-  const normalized = convertUnitPriceStr(unitCost, unit, targetUnit);
+  const normalized = convertUnitPriceOrPortion(unitCost, unit, targetUnit);
   const normalizedUnit = normalizeUnit(targetUnit) ?? targetUnit;
   const normalizedUnitCost = normalized.ok ? normalized.value : unitCost;
   // Note: when conversion fails we still record SOMETHING (the supplier

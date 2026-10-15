@@ -87,6 +87,11 @@ export interface NewCostEntry {
 
 export interface EditorStore {
   loadCosting(companyId: string): Promise<CostingLoad>;
+  /** The ingredient this one was merged into (latest merge not undone), if any. */
+  mergedInto(
+    companyId: string,
+    ingredientId: string
+  ): Promise<{ name: string } | null>;
   loadLink(
     companyId: string,
     odooProductId: number,
@@ -152,7 +157,12 @@ export interface EditorStore {
     companyId: string,
     input: { name: string; outputQuantity: number; outputUnit: string }
   ): Promise<{ id: string; name: string }>;
-  addCostEntry(companyId: string, entry: NewCostEntry): Promise<void>;
+  /** A refused price (its unit cannot be read in the ingredient's unit) is a
+   *  Spanish message to show, not an exception. */
+  addCostEntry(
+    companyId: string,
+    entry: NewCostEntry
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
   /** Unclear price-list rows still open. */
   catalogQuestions(companyId: string): Promise<CatalogQuestion[]>;
   /** The person picked how an unclear price-list row reads. Adds the
@@ -337,11 +347,15 @@ async function build(
   ]);
   const { data } = costing;
 
-  const ingredientRefs = [...data.ingredientsById.values()].map((row) => ({
+  // Names of every ingredient (old lines may still read an archived one);
+  // matching only offers the active ones.
+  const allIngredientRefs = [...data.ingredientsById.values()].map((row) => ({
     id: row.id,
     name: row.name,
     default_unit: row.default_unit,
+    archived: row.archived === true,
   }));
+  const ingredientRefs = allIngredientRefs.filter((r) => !r.archived);
   // A preparation never offers itself as one of its own lines.
   const componentRefs = [...data.componentsById.values()]
     .filter((row) => row.id !== loaded.preparation?.component_id)
@@ -379,7 +393,7 @@ async function build(
     evidenceLines,
     inputs,
     names: {
-      ingredients: new Map(ingredientRefs.map((r) => [r.id, r.name])),
+      ingredients: new Map(allIngredientRefs.map((r) => [r.id, r.name])),
       components: new Map(componentRefs.map((r) => [r.id, r.name])),
       priceOf,
       suggest,
@@ -1105,7 +1119,7 @@ export async function applyEdit(
         currency,
       });
       if (price !== null) {
-        await ctx.store.addCostEntry(ctx.companyId, {
+        const added = await ctx.store.addCostEntry(ctx.companyId, {
           ingredientId: created.id,
           unit,
           unitCost: price,
@@ -1117,6 +1131,7 @@ export async function applyEdit(
               ? ZERO_PRICE_NOTE
               : "Precio al crear el ingrediente en Recetas y costeo",
         });
+        if (!added.ok) return { ok: false, error: added.error, status: 400 };
       }
       if (action.line_key) {
         const line = await lineByKey(action.line_key);
@@ -1312,7 +1327,7 @@ export async function applyEdit(
         row.ingredient_id
       ) {
         const currency = await ctx.store.currency(ctx.companyId);
-        await ctx.store.addCostEntry(ctx.companyId, {
+        const added = await ctx.store.addCostEntry(ctx.companyId, {
           ingredientId: row.ingredient_id,
           unit: row.unit,
           unitCost: cost,
@@ -1321,6 +1336,7 @@ export async function applyEdit(
           dateSource: "manual",
           note: cost === 0 ? ZERO_PRICE_NOTE : "Precio corregido en Platos",
         });
+        if (!added.ok) return { ok: false, error: added.error, status: 400 };
         // The rebuild below reads the catalog loaded at the start of this
         // edit: add the new entry to it instead of loading it again.
         const today = new Date().toISOString().slice(0, 10);
@@ -1379,8 +1395,21 @@ export async function applyEdit(
           status: 400,
         };
       }
+      // The screen may be older than a merge: an ingredient that was merged
+      // away has no price of its own any more.
+      const merged = await ctx.store.mergedInto(
+        ctx.companyId,
+        action.ingredient_id
+      );
+      if (merged) {
+        return {
+          ok: false,
+          error: `Este ingrediente se unió con ${merged.name || "otro"}; recarga la receta.`,
+          status: 409,
+        };
+      }
       const currency = await ctx.store.currency(ctx.companyId);
-      await ctx.store.addCostEntry(ctx.companyId, {
+      const added = await ctx.store.addCostEntry(ctx.companyId, {
         ingredientId: action.ingredient_id,
         unit,
         unitCost: price,
@@ -1392,6 +1421,7 @@ export async function applyEdit(
             ? ZERO_PRICE_NOTE
             : "Precio corregido en Recetas y costeo",
       });
+      if (!added.ok) return { ok: false, error: added.error, status: 400 };
       break;
     }
   }

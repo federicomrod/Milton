@@ -7,7 +7,11 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
+import { cache } from "react";
+import {
+  getCachedAuthUser,
+  getCachedCompanyId,
+} from "@/lib/restaurant/auth-user";
 
 export type AuthAndCompanyResult =
   | { ok: true; supabase: SupabaseClient; companyId: string; userId: string }
@@ -20,18 +24,21 @@ export type AuthAndCompanyResult =
  * tenancy bypass. RLS still backs every subsequent query as a second
  * layer of defense.
  */
-export async function authAndCompany(): Promise<AuthAndCompanyResult> {
+// R1-09c: one auth + company lookup per request. A page, its layout and
+// the loaders it calls share the cached user (getCachedAuthUser) and
+// company (getCachedCompanyId) instead of asking Supabase again each time.
+export const authAndCompany = cache(authAndCompanyUncached);
+
+async function authAndCompanyUncached(): Promise<AuthAndCompanyResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedAuthUser();
   if (!user) {
     return {
       ok: false,
       response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
     };
   }
-  const companyId = await resolveCompanyIdForUser(supabase, user.id);
+  const companyId = await getCachedCompanyId(user.id);
   if (!companyId) {
     return {
       ok: false,

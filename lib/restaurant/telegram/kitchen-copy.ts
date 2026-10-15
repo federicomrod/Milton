@@ -15,7 +15,7 @@
 export const KITCHEN_COPY = {
   /** R1 — valid QR, new or rejoining cook. */
   JOINED:
-    "✅ ¡Listo! Ya estás en Milton de {local}. Cuando algo se acabe o se tire, mándalo aquí: texto, nota de voz o foto.",
+    "✅ ¡Listo! Ya estás en Milton de {local}. Cuando algo se acabe, se tire o quieras mandar una receta, mándalo aquí: texto, nota de voz o foto.",
   /** R2 — revoked, rotated or unknown QR. */
   QR_INVALID:
     "Este QR ya no funciona. Pide al encargado el código actualizado.",
@@ -36,6 +36,12 @@ export const KITCHEN_COPY = {
   /** R6 — more than 20 joins per QR per hour. */
   RATE_LIMITED:
     "Ahora mismo hay muchos ingresos con este código. Prueba de nuevo en unos minutos o pide ayuda al encargado.",
+  /** R7 — recipe received with photo + portions. */
+  RECIPE_RECEIVED:
+    "✅ Recibida la receta de {plato}. El encargado la revisa antes de que cuente en los costos.",
+  /** R8 — recipe received but portions missing. */
+  RECIPE_ASK_PORTIONS:
+    "¿Para cuántas porciones salió? Responde con un número, por ejemplo: 2.",
 } as const;
 
 export type KitchenCopyKey = keyof typeof KITCHEN_COPY;

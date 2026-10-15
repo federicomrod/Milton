@@ -4,11 +4,16 @@
 // POST /api/restaurant/ingredients  → create one ingredient
 //
 // Cost tracking is intentionally OUT of scope for this milestone — we
-// still write `current_unit_cost` as a non-negotiable column (the legacy
-// schema requires it), but the UI never asks the user for a cost.
+// write `current_unit_cost: null` (pending price after migration 037).
+// The UI never asks the user for a cost.
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import {
+  currencyMismatchReason,
+  resolveCompanyCurrency,
+  resolveWriteCurrency,
+} from "@/lib/restaurant/currency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -65,10 +70,15 @@ export async function POST(req: NextRequest) {
     typeof body.default_unit === "string" && body.default_unit.trim() !== ""
       ? body.default_unit.trim()
       : "kg";
-  const currency =
-    typeof body.currency === "string" && /^[A-Z]{3}$/.test(body.currency)
-      ? body.currency
-      : "MXN";
+  const companyCurrency = await resolveCompanyCurrency(
+    auth.supabase,
+    auth.companyId
+  );
+  const currency = resolveWriteCurrency(body.currency, companyCurrency);
+  const mismatch = currencyMismatchReason(currency, companyCurrency);
+  if (mismatch) {
+    return NextResponse.json({ error: mismatch }, { status: 400 });
+  }
 
   const { data, error } = await auth.supabase
     .from("ingredients")
@@ -77,9 +87,8 @@ export async function POST(req: NextRequest) {
       name,
       category,
       default_unit: defaultUnit,
-      // Costing lands later — initialize to 0 so the NOT NULL legacy column
-      // is satisfied without implying a real price.
-      current_unit_cost: 0,
+      // Pending price — never $0. Migration 037 made this column nullable.
+      current_unit_cost: null,
       currency,
     })
     .select("id, name, category, default_unit, current_unit_cost, currency")

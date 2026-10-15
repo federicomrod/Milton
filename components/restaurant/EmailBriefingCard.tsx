@@ -42,19 +42,19 @@ interface Preferences {
 }
 
 const WEEKDAY_LABELS = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
+  "Domingo",
+  "Lunes",
+  "Martes",
+  "Miércoles",
+  "Jueves",
+  "Viernes",
+  "Sábado",
 ];
 
 const CADENCE_LABELS: Record<Cadence, string> = {
-  off: "Off",
-  daily: "Daily",
-  weekly: "Weekly",
+  off: "Apagado",
+  daily: "Diario",
+  weekly: "Semanal",
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -115,7 +115,7 @@ export function EmailBriefingCard() {
         if (!res.ok) {
           setLoadError(
             (json.error as string) ||
-              "Could not load briefing delivery settings."
+              "No se pudieron cargar las preferencias de entrega."
           );
           return;
         }
@@ -126,7 +126,7 @@ export function EmailBriefingCard() {
         setWeekday(loaded.weekday);
         setTimezone(loaded.timezone);
       } catch {
-        setLoadError("Could not load briefing delivery settings.");
+        setLoadError("No se pudieron cargar las preferencias de entrega.");
       } finally {
         setLoading(false);
       }
@@ -169,7 +169,8 @@ export function EmailBriefingCard() {
       if (!res.ok) {
         setSaveFeedback({
           kind: "error",
-          message: (json.error as string) || "Could not save settings.",
+          message:
+            (json.error as string) || "No se pudieron guardar los ajustes.",
         });
         return;
       }
@@ -179,9 +180,12 @@ export function EmailBriefingCard() {
         weekday,
         timezone,
       });
-      setSaveFeedback({ kind: "success", message: "Saved." });
+      setSaveFeedback({ kind: "success", message: "Guardado." });
     } catch {
-      setSaveFeedback({ kind: "error", message: "Could not save settings." });
+      setSaveFeedback({
+        kind: "error",
+        message: "No se pudieron guardar los ajustes.",
+      });
     } finally {
       setSaving(false);
     }
@@ -200,18 +204,18 @@ export function EmailBriefingCard() {
           kind: "error",
           message:
             (json.error as string) ||
-            "Could not send the test email. Please try again.",
+            "No se pudo enviar el correo de prueba. Inténtalo de nuevo.",
         });
         return;
       }
       setTestFeedback({
         kind: "success",
-        message: `Sent! Check ${prefs?.recipient ?? "your inbox"}.`,
+        message: `Enviado. Revisa ${prefs?.recipient ?? "tu bandeja"}.`,
       });
     } catch {
       setTestFeedback({
         kind: "error",
-        message: "Could not send the test email. Please try again.",
+        message: "No se pudo enviar el correo de prueba. Inténtalo de nuevo.",
       });
     } finally {
       setSendingTest(false);
@@ -228,15 +232,15 @@ export function EmailBriefingCard() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Mail className="h-5 w-5" />
-          Briefing Delivery
+          Entrega del briefing
         </CardTitle>
         <CardDescription>
-          Get your Milton executive briefing delivered by email
+          Recibe el briefing de Milton por correo
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-muted-foreground">Cargando…</p>
         ) : loadError ? (
           <Alert variant="destructive">
             <AlertDescription>{loadError}</AlertDescription>
@@ -244,7 +248,7 @@ export function EmailBriefingCard() {
         ) : (
           <>
             <div className="space-y-2">
-              <Label htmlFor="briefing-cadence">Frequency</Label>
+              <Label htmlFor="briefing-cadence">Frecuencia</Label>
               <Select
                 value={cadence}
                 onValueChange={(v) => handleCadenceChange(v as Cadence)}
@@ -265,7 +269,7 @@ export function EmailBriefingCard() {
             {cadence !== "off" && (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="briefing-recipient">Recipient email</Label>
+                  <Label htmlFor="briefing-recipient">Correo destino</Label>
                   <Input
                     id="briefing-recipient"
                     type="email"
@@ -276,14 +280,14 @@ export function EmailBriefingCard() {
                   />
                   {recipient.trim().length > 0 && !recipientValid && (
                     <p className="text-xs text-destructive">
-                      Enter a valid email address.
+                      Escribe un correo válido.
                     </p>
                   )}
                 </div>
 
                 {cadence === "weekly" && (
                   <div className="space-y-2">
-                    <Label htmlFor="briefing-weekday">Day of week</Label>
+                    <Label htmlFor="briefing-weekday">Día de la semana</Label>
                     <Select
                       value={String(weekday)}
                       onValueChange={(v) => setWeekday(Number(v))}
@@ -306,13 +310,15 @@ export function EmailBriefingCard() {
                 )}
 
                 <div className="space-y-2">
-                  <Label htmlFor="briefing-timezone">Delivery timezone</Label>
+                  <Label htmlFor="briefing-timezone">
+                    Zona horaria de entrega
+                  </Label>
                   <Select value={timezone} onValueChange={setTimezone}>
                     <SelectTrigger
                       id="briefing-timezone"
                       className="h-11 w-full"
                     >
-                      <SelectValue placeholder="Select a timezone" />
+                      <SelectValue placeholder="Elige una zona horaria" />
                     </SelectTrigger>
                     <SelectContent className="max-h-60">
                       {getTimezones().map((tz) => (
@@ -324,7 +330,7 @@ export function EmailBriefingCard() {
                   </Select>
                   {!timezoneChosen && (
                     <p className="text-xs text-destructive">
-                      Select the timezone this briefing should be delivered in.
+                      Elige la zona horaria en la que debe llegar el briefing.
                     </p>
                   )}
                 </div>
@@ -336,7 +342,7 @@ export function EmailBriefingCard() {
               disabled={saving || !canSave}
               className="w-full sm:w-auto"
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Guardando…" : "Guardar"}
             </Button>
 
             {saveFeedback && (
@@ -371,7 +377,7 @@ export function EmailBriefingCard() {
                   className="w-full sm:w-auto gap-2"
                 >
                   <Send className="h-4 w-4" />
-                  {sendingTest ? "Sending…" : "Send test email"}
+                  {sendingTest ? "Enviando…" : "Enviar correo de prueba"}
                 </Button>
                 {testFeedback && (
                   <Alert

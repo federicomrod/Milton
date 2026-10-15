@@ -91,7 +91,7 @@ export function TelegramConnectionCard() {
       const json = await parseJsonSafely(res);
       if (!res.ok) {
         setStatusError(
-          (json.error as string) || "Could not load Telegram status."
+          (json.error as string) || "No se pudo cargar el estado de Telegram."
         );
         return;
       }
@@ -101,7 +101,7 @@ export function TelegramConnectionCard() {
         setPairing(null);
       }
     } catch {
-      setStatusError("Could not load Telegram status.");
+      setStatusError("No se pudo cargar el estado de Telegram.");
     } finally {
       setStatusLoading(false);
     }
@@ -121,7 +121,8 @@ export function TelegramConnectionCard() {
       const json = await parseJsonSafely(res);
       if (!res.ok) {
         setPairingError(
-          (json.error as string) || "Could not start Telegram pairing."
+          (json.error as string) ||
+            "No se pudo empezar el emparejamiento de Telegram."
         );
         // The company may already be connected on the server (e.g. a
         // second tab completed pairing first) — re-check rather than
@@ -139,7 +140,9 @@ export function TelegramConnectionCard() {
         window.open(issued.deepLink, "_blank", "noopener,noreferrer");
       }
     } catch {
-      setPairingError("Could not start Telegram pairing. Please try again.");
+      setPairingError(
+        "No se pudo empezar el emparejamiento de Telegram. Inténtalo de nuevo."
+      );
     } finally {
       setPairingLoading(false);
     }
@@ -158,18 +161,18 @@ export function TelegramConnectionCard() {
           kind: "error",
           message:
             (json.error as string) ||
-            "Could not send the test briefing. Please try again.",
+            "No se pudo enviar el briefing de prueba. Inténtalo de nuevo.",
         });
         return;
       }
       setSendFeedback({
         kind: "success",
-        message: "Sent! Check your Telegram chat.",
+        message: "Enviado. Revisa tu chat de Telegram.",
       });
     } catch {
       setSendFeedback({
         kind: "error",
-        message: "Could not send the test briefing. Please try again.",
+        message: "No se pudo enviar el briefing de prueba. Inténtalo de nuevo.",
       });
     } finally {
       setSendLoading(false);
@@ -177,28 +180,28 @@ export function TelegramConnectionCard() {
   }
 
   const languageLabel =
-    status?.preferred_language === "es" ? "Spanish" : "English";
+    status?.preferred_language === "es" ? "español" : "inglés";
 
   const botHandle = pairing ? extractBotUsername(pairing.deepLink) : null;
-  const botMention = botHandle ? `@${botHandle}` : "our Milton bot";
+  const botMention = botHandle ? `@${botHandle}` : "el bot de Milton";
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <MessageCircle className="h-5 w-5" />
-          Telegram Briefing
+          Briefing por Telegram
         </CardTitle>
         <CardDescription>
-          Get your Milton executive briefing delivered to Telegram
+          Recibe el briefing de Milton en Telegram
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {statusLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-muted-foreground">Cargando…</p>
         ) : statusError ? (
           <Alert variant="destructive">
-            <AlertTitle>Couldn&apos;t load Telegram status</AlertTitle>
+            <AlertTitle>No se pudo cargar el estado de Telegram</AlertTitle>
             <AlertDescription>
               {statusError}
               <Button
@@ -208,7 +211,7 @@ export function TelegramConnectionCard() {
                 onClick={loadStatus}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                Retry
+                Reintentar
               </Button>
             </AlertDescription>
           </Alert>
@@ -217,12 +220,12 @@ export function TelegramConnectionCard() {
             <div className="flex items-center gap-2">
               <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0">
                 <CheckCircle2 className="h-3 w-3" />
-                Connected
+                Conectado
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">
-              Briefings will be sent in {languageLabel}, matching your Milton
-              language setting.
+              Los briefings se envían en {languageLabel}, según el idioma de
+              Milton.
             </p>
             <Button
               onClick={handleSendTest}
@@ -230,7 +233,7 @@ export function TelegramConnectionCard() {
               className="w-full sm:w-auto gap-2"
             >
               <Send className="h-4 w-4" />
-              {sendLoading ? "Sending…" : "Send test briefing"}
+              {sendLoading ? "Enviando…" : "Enviar briefing de prueba"}
             </Button>
             {sendFeedback && (
               <Alert
@@ -258,11 +261,11 @@ export function TelegramConnectionCard() {
         ) : (
           <>
             <div className="flex items-center gap-2">
-              <Badge variant="outline">Not connected</Badge>
+              <Badge variant="outline">Sin conectar</Badge>
             </div>
             <p className="text-sm text-muted-foreground">
-              Connect a Telegram chat to receive your daily Milton briefing
-              there too.
+              Conecta un chat de Telegram para recibir también el briefing
+              diario de Milton.
             </p>
             <Button
               onClick={handleConnect}
@@ -270,7 +273,7 @@ export function TelegramConnectionCard() {
               className="w-full sm:w-auto gap-2"
             >
               <MessageCircle className="h-4 w-4" />
-              {pairingLoading ? "Starting…" : "Connect Telegram"}
+              {pairingLoading ? "Empezando…" : "Conectar Telegram"}
             </Button>
 
             {pairingError && (
@@ -281,18 +284,18 @@ export function TelegramConnectionCard() {
 
             {pairing && (
               <Alert className="space-y-2">
-                <AlertTitle>Finish connecting in Telegram</AlertTitle>
+                <AlertTitle>Termina de conectar en Telegram</AlertTitle>
                 <AlertDescription className="space-y-2">
                   <p>
                     {pairing.deepLink
-                      ? `We opened Telegram for you. If it didn't open, send this code to ${botMention} yourself:`
-                      : `Open Telegram, message ${botMention}, and send this code:`}
+                      ? `Abrimos Telegram. Si no se abrió, envía este código a ${botMention}:`
+                      : `Abre Telegram, escribe a ${botMention} y envía este código:`}
                   </p>
                   <code className="block w-fit rounded bg-muted px-2 py-1 text-sm font-mono">
                     /start {pairing.code}
                   </code>
                   <p className="text-xs text-muted-foreground">
-                    This code expires in about 15 minutes.
+                    Este código vence en unos 15 minutos.
                   </p>
                   <Button
                     variant="outline"
@@ -302,7 +305,7 @@ export function TelegramConnectionCard() {
                     disabled={statusLoading}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
-                    I&apos;ve connected — refresh status
+                    Ya me conecté — actualizar estado
                   </Button>
                 </AlertDescription>
               </Alert>

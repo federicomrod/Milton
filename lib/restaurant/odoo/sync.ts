@@ -20,6 +20,7 @@
 // lib/restaurant/scoped-matching.ts.
 
 import { resolveScopedName, type ScopedNameIndex } from "../scoped-matching";
+import { isTipLineName } from "../sales-revenue";
 
 // ---------------------------------------------------------------------------
 // Odoo raw row shapes (search_read output). Odoo many2one fields come back
@@ -43,6 +44,21 @@ export interface OdooPosOrderRaw {
   currency_id: OdooMany2one;
   /** Odoo res.company — always requested and re-checked after every fetch. */
   company_id: OdooMany2one;
+  /** Optional channel signals — only present when fields_get says they exist. */
+  preset_id?: OdooMany2one;
+  table_id?: OdooMany2one;
+  takeaway?: boolean;
+  take_away?: boolean;
+  is_togo?: boolean;
+  is_takeaway?: boolean;
+  service_mode?: string | OdooMany2one;
+  order_type?: string | OdooMany2one;
+  order_type_id?: OdooMany2one;
+  /** Softhealer POS order type, when the module is installed. */
+  sh_order_type_id?: OdooMany2one;
+  delivery_provider_id?: OdooMany2one;
+  amount_total?: number;
+  amount_paid?: number;
 }
 
 export interface OdooPosOrderLineRaw {
@@ -54,10 +70,16 @@ export interface OdooPosOrderLineRaw {
   price_unit: number;
   price_subtotal: number;
   price_subtotal_incl: number;
-  discount: number; // percent, 0-100
+  /** Percent, 0-100. Missing on some payloads — see discountAmountFromOdooLine. */
+  discount?: number | null;
   uuid?: string | false;
   /** Odoo res.company (stored related of order_id.company_id). */
   company_id: OdooMany2one;
+  /**
+   * Native Odoo 18 combo parent line. Present only when fields_get
+   * reports `combo_parent_id` — older Odoo omits the field entirely.
+   */
+  combo_parent_id?: OdooMany2one;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +101,23 @@ export interface OdooSyncContext {
   locationIndex: Map<string, string>;
   /** location_id → brand_id (or null), so a resolved location can be scoped to its brand. */
   locationBrandIndex: Map<string, string | null>;
+  /**
+   * Odoo res.company ID → restaurant_locations.id. When set, orders from
+   * that Odoo company land on the mapped location, never guessed from till
+   * name. If the till-name match disagrees, the record is skipped.
+   */
+  companyLocationMap?: Map<number, string>;
+  /**
+   * Dimension lookups built from pos.payment / product categories /
+   * channel signals. Absent lookups leave the column null (never guessed).
+   */
+  channelByOrderId?: Map<number, string | null>;
+  channelSourceByOrderId?: Map<number, string | null>;
+  paymentByOrderId?: Map<number, string | null>;
+  categoryByProductId?: Map<
+    number,
+    { category: string | null; sub_category: string | null }
+  >;
 }
 
 export interface CanonicalOdooSaleRow {
@@ -95,13 +134,25 @@ export interface CanonicalOdooSaleRow {
   discount_amount: number;
   tax_amount: number;
   currency: string;
-  sales_channel: null;
+  sales_channel: string | null;
+  payment_type: string | null;
+  category: string | null;
+  sub_category: string | null;
   source_type: "api";
   pos_source: "odoo";
   external_line_id: string;
   unit_price: number;
   order_placed_at: string; // ISO 8601 UTC
   source_metadata: Record<string, unknown>;
+  /** True when the product name is a Propina / tip line. */
+  is_tip: boolean;
+  /**
+   * Odoo pos.order.line id of the native combo parent, when
+   * combo_parent_id was present on the payload. NULL otherwise.
+   */
+  combo_parent_external_line_id: string | null;
+  /** Odoo product.product id of that combo parent, when resolvable. */
+  combo_parent_odoo_product_id: number | null;
 }
 
 export interface SkippedLine {
@@ -126,6 +177,67 @@ export function normalizeMatchKey(s: string): string {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Request `combo_parent_id` only when fields_get says the field exists. */
+export const OPTIONAL_LINE_COMBO_FIELDS = ["combo_parent_id"] as const;
+
+export function optionalLineComboFields(
+  available: Set<string> | null | undefined
+): string[] {
+  if (!available) return [];
+  return OPTIONAL_LINE_COMBO_FIELDS.filter((field) => available.has(field));
+}
+
+export function comboParentLineIdFromRaw(
+  line: Pick<OdooPosOrderLineRaw, "combo_parent_id">
+): number | null {
+  const value = line.combo_parent_id;
+  if (Array.isArray(value) && typeof value[0] === "number") return value[0];
+  return null;
+}
+
+export function productIdByLineId(
+  lines: ReadonlyArray<Pick<OdooPosOrderLineRaw, "id" | "product_id">>
+): Map<number, number> {
+  const map = new Map<number, number>();
+  for (const line of lines) {
+    const productId = line.product_id ? line.product_id[0] : null;
+    if (typeof productId === "number") map.set(line.id, productId);
+  }
+  return map;
+}
+
+/**
+ * Discount dollars for an Odoo POS line.
+ *
+ * When Odoo exposes `discount` (percent), compute
+ * `price_unit * qty * discount / 100` — same tax basis as `price_unit`,
+ * which is the basis Odoo uses for the posted line amounts. This avoids
+ * treating tax as a discount when `price_unit` is tax-included
+ * (`price_unit * qty − price_subtotal` would then equal the tax).
+ *
+ * Falls back to the old formula only when the percent is missing, and
+ * flags that amount as estimated. Does not rewrite posted revenue.
+ */
+export function discountAmountFromOdooLine(line: {
+  qty: number;
+  price_unit: number;
+  price_subtotal: number;
+  discount?: number | null;
+}): { discount_amount: number; discount_estimated: boolean } {
+  const qty = line.qty;
+  const priceUnit = line.price_unit;
+  if (typeof line.discount === "number" && Number.isFinite(line.discount)) {
+    return {
+      discount_amount: round2(priceUnit * qty * (line.discount / 100)),
+      discount_estimated: false,
+    };
+  }
+  return {
+    discount_amount: round2(priceUnit * qty - line.price_subtotal),
+    discount_estimated: true,
+  };
 }
 
 /**
@@ -172,9 +284,10 @@ export function deriveLocalSaleDate(utcIso: string, timeZone: string): string {
  * - A line whose product has no pos_item_mappings-equivalent match still
  *   produces a row — menu_item_id is null, raw_item_name is preserved.
  *   Sales are never discarded for being unmatched.
- * - discount_amount and tax_amount are derived (Odoo doesn't provide them
- *   directly): discount is a percentage on the line, and there is no
- *   per-line tax-amount field.
+ * - discount_amount comes from Odoo's `discount` percent when present
+ *   (`price_unit * qty * discount / 100`); otherwise the old
+ *   `price_unit * qty − price_subtotal` fallback, flagged estimated.
+ *   tax_amount is still derived (no per-line tax-amount field).
  */
 export function transformOdooOrders(
   orders: OdooPosOrderRaw[],
@@ -190,6 +303,7 @@ export function transformOdooOrders(
 
   const rows: CanonicalOdooSaleRow[] = [];
   const skipped: SkippedLine[] = [];
+  const productByLineId = productIdByLineId(lines);
 
   for (const line of lines) {
     const orderId = Array.isArray(line.order_id) ? line.order_id[0] : null;
@@ -244,10 +358,38 @@ export function transformOdooOrders(
     }
 
     const rawItemName = (line.full_product_name || "").trim();
-    const locationId =
+
+    // Location resolution: mapping takes precedence over till-name match.
+    const odooCompanyId = Array.isArray(order.company_id)
+      ? order.company_id[0]
+      : null;
+    const mappedLocationId =
+      odooCompanyId && ctx.companyLocationMap
+        ? (ctx.companyLocationMap.get(odooCompanyId) ?? null)
+        : null;
+
+    const tillNameLocationId =
       order.config_id && order.config_id[1]
         ? (ctx.locationIndex.get(normalizeMatchKey(order.config_id[1])) ?? null)
         : null;
+
+    let locationId: string | null = null;
+    if (mappedLocationId) {
+      // Mapping exists: use it, but if till-name disagrees, skip.
+      if (tillNameLocationId && tillNameLocationId !== mappedLocationId) {
+        skipped.push({
+          line_id: line.id,
+          order_id: orderId,
+          reason: `Till-name location (${tillNameLocationId}) conflicts with mapped location (${mappedLocationId}) for Odoo company ${odooCompanyId}`,
+        });
+        continue;
+      }
+      locationId = mappedLocationId;
+    } else {
+      // No mapping: use till-name match.
+      locationId = tillNameLocationId;
+    }
+
     // Brand scoping: only known when the pos.config resolved to a known
     // location. Unresolved location → unknown brand → only the
     // brand-less/legacy fallback bucket is considered, never a guess into
@@ -268,9 +410,23 @@ export function transformOdooOrders(
         ? order.currency_id[1]
         : ctx.defaultCurrency;
 
-    const discountAmount = round2(priceUnit * qty - priceSubtotal);
+    const { discount_amount: discountAmount, discount_estimated } =
+      discountAmountFromOdooLine(line);
     const taxAmount = round2(priceSubtotalIncl - priceSubtotal);
     const saleDate = deriveLocalSaleDate(orderPlacedAt, ctx.timezone);
+
+    const productId = line.product_id ? line.product_id[0] : null;
+    const comboParentLineId = comboParentLineIdFromRaw(line);
+    const comboParentProductId =
+      comboParentLineId !== null
+        ? (productByLineId.get(comboParentLineId) ?? null)
+        : null;
+    const categories =
+      productId !== null
+        ? (ctx.categoryByProductId?.get(productId) ?? null)
+        : null;
+    const salesChannel = ctx.channelByOrderId?.get(order.id) ?? null;
+    const paymentType = ctx.paymentByOrderId?.get(order.id) ?? null;
 
     rows.push({
       company_id: ctx.companyId,
@@ -286,12 +442,19 @@ export function transformOdooOrders(
       discount_amount: discountAmount,
       tax_amount: taxAmount,
       currency,
-      sales_channel: null,
+      sales_channel: salesChannel,
+      payment_type: paymentType,
+      category: categories?.category ?? null,
+      sub_category: categories?.sub_category ?? null,
       source_type: "api",
       pos_source: "odoo",
       external_line_id: String(line.id),
       unit_price: priceUnit,
       order_placed_at: orderPlacedAt,
+      is_tip: isTipLineName(rawItemName),
+      combo_parent_external_line_id:
+        comboParentLineId !== null ? String(comboParentLineId) : null,
+      combo_parent_odoo_product_id: comboParentProductId,
       source_metadata: {
         order_pos_reference: order.pos_reference || null,
         order_uuid: order.uuid || null,
@@ -301,8 +464,12 @@ export function transformOdooOrders(
         config_name: order.config_id ? order.config_id[1] : null,
         odoo_company_id: order.company_id ? order.company_id[0] : null,
         odoo_company_name: order.company_id ? order.company_id[1] : null,
-        product_id: line.product_id ? line.product_id[0] : null,
+        product_id: productId,
         state: order.state,
+        sales_channel_source: ctx.channelSourceByOrderId?.get(order.id) ?? null,
+        discount_estimated,
+        combo_parent_id: comboParentLineId,
+        combo_parent_product_id: comboParentProductId,
       },
     });
   }

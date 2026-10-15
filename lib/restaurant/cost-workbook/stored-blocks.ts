@@ -1,0 +1,213 @@
+// Compact parsed workbook blocks stored on a Costos upload batch so
+// Recetas y costeo can generate AI suggestions without re-uploading
+// the xlsx. Lines keep qty/unit/cost; raw Excel cells are dropped.
+
+import { lineUnitCostFromRaw } from "./propose-recipe";
+import type { GroupedRecipe, RecipeLineCandidate } from "./types";
+
+export interface StoredRecipeLine {
+  tabName: string;
+  rowIndex: number;
+  recipeName: string;
+  ingredient_name: string;
+  quantity: number;
+  unit: string;
+  unit_cost: number | null;
+}
+
+export interface StoredRecipeBlock {
+  name: string;
+  tabName: string;
+  kind: "recipe" | "sub_recipe";
+  output_quantity: number | null;
+  output_unit: string | null;
+  yield_assumed?: boolean;
+  cost_total?: number | null;
+  cost_total_inferred?: boolean;
+  lines: StoredRecipeLine[];
+  pending_lines?: StoredRecipeLine[];
+}
+
+function compactLine(line: RecipeLineCandidate): StoredRecipeLine {
+  return {
+    tabName: line.tabName,
+    rowIndex: line.rowIndex,
+    recipeName: line.recipeName,
+    ingredient_name: line.ingredient_name,
+    quantity: line.quantity,
+    unit: line.unit,
+    unit_cost: lineUnitCostFromRaw(line.raw),
+  };
+}
+
+function expandLine(line: StoredRecipeLine): RecipeLineCandidate {
+  return {
+    tabName: line.tabName,
+    rowIndex: line.rowIndex,
+    recipeName: line.recipeName,
+    ingredient_name: line.ingredient_name,
+    quantity: line.quantity,
+    unit: line.unit,
+    raw: line.unit_cost != null ? { "Costo Unitario": line.unit_cost } : {},
+  };
+}
+
+export function compactCandidateBlocks(
+  blocks: readonly GroupedRecipe[]
+): StoredRecipeBlock[] {
+  return blocks
+    .filter(
+      (block) => block.lines.length + (block.pending_lines?.length ?? 0) > 0
+    )
+    .map((block) => ({
+      name: block.name,
+      tabName: block.tabName,
+      kind: block.kind,
+      output_quantity: block.output_quantity,
+      output_unit: block.output_unit,
+      yield_assumed: block.yield_assumed,
+      cost_total: block.cost_total,
+      cost_total_inferred: block.cost_total_inferred,
+      lines: block.lines.map(compactLine),
+      pending_lines: (block.pending_lines ?? []).map(compactLine),
+    }));
+}
+
+export function expandCandidateBlocks(
+  stored: readonly StoredRecipeBlock[] | null | undefined
+): GroupedRecipe[] {
+  if (!stored?.length) return [];
+  return stored.map((block) => ({
+    name: block.name,
+    tabName: block.tabName,
+    kind: block.kind,
+    output_quantity: block.output_quantity,
+    output_unit: block.output_unit,
+    yield_assumed: block.yield_assumed,
+    cost_total: block.cost_total,
+    cost_total_inferred: block.cost_total_inferred,
+    lines: block.lines.map(expandLine),
+    pending_lines: (block.pending_lines ?? []).map(expandLine),
+  }));
+}
+
+export function candidateBlocksFromUnknown(
+  value: unknown
+): StoredRecipeBlock[] {
+  if (!Array.isArray(value)) return [];
+  const out: StoredRecipeBlock[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const row = raw as Record<string, unknown>;
+    if (typeof row.name !== "string" || !row.name.trim()) continue;
+    if (typeof row.tabName !== "string" || !row.tabName.trim()) continue;
+    if (row.kind !== "recipe" && row.kind !== "sub_recipe") continue;
+    const lines = Array.isArray(row.lines)
+      ? row.lines
+          .map(asStoredLine)
+          .filter((line): line is StoredRecipeLine => line !== null)
+      : [];
+    const pending = Array.isArray(row.pending_lines)
+      ? row.pending_lines
+          .map(asStoredLine)
+          .filter((line): line is StoredRecipeLine => line !== null)
+      : [];
+    if (lines.length + pending.length === 0) continue;
+    out.push({
+      name: row.name,
+      tabName: row.tabName,
+      kind: row.kind,
+      output_quantity:
+        typeof row.output_quantity === "number" ? row.output_quantity : null,
+      output_unit: typeof row.output_unit === "string" ? row.output_unit : null,
+      yield_assumed: row.yield_assumed === true,
+      cost_total: typeof row.cost_total === "number" ? row.cost_total : null,
+      cost_total_inferred: row.cost_total_inferred === true,
+      lines,
+      pending_lines: pending,
+    });
+  }
+  return out;
+}
+
+function asStoredLine(value: unknown): StoredRecipeLine | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.ingredient_name !== "string" || !row.ingredient_name.trim()) {
+    return null;
+  }
+  if (typeof row.quantity !== "number" || !Number.isFinite(row.quantity)) {
+    return null;
+  }
+  return {
+    tabName: typeof row.tabName === "string" ? row.tabName : "",
+    rowIndex: typeof row.rowIndex === "number" ? row.rowIndex : 0,
+    recipeName: typeof row.recipeName === "string" ? row.recipeName : "",
+    ingredient_name: row.ingredient_name,
+    quantity: row.quantity,
+    unit: typeof row.unit === "string" ? row.unit : "",
+    unit_cost:
+      typeof row.unit_cost === "number" && Number.isFinite(row.unit_cost)
+        ? row.unit_cost
+        : null,
+  };
+}
+
+/**
+ * The newest live (not undone) batch that actually holds recipe blocks.
+ * A later batch without blocks (a price-only upload, or a suggestion run
+ * that failed before saving) never hides an earlier usable one.
+ */
+export function findRecipeSource<
+  T extends {
+    id: string;
+    filename: string;
+    created_at?: string | null;
+    undone_at?: string | null;
+    undo_snapshot: { candidate_blocks?: unknown };
+  },
+>(history: readonly T[]): { batch: T; blocks: StoredRecipeBlock[] } | null {
+  const live = history
+    .filter((row) => !row.undone_at)
+    .slice()
+    .sort((a, b) => ((a.created_at ?? "") < (b.created_at ?? "") ? 1 : -1));
+  for (const batch of live) {
+    const blocks = candidateBlocksFromUnknown(
+      batch.undo_snapshot.candidate_blocks
+    );
+    if (blocks.length > 0) return { batch, blocks };
+  }
+  return null;
+}
+
+/**
+ * The newest live upload that kept the file's recipes, loading the full
+ * snapshot of that ONE upload only (the list itself carries no snapshot).
+ */
+export async function loadRecipeSource<
+  T extends {
+    id: string;
+    filename: string;
+    created_at?: string | null;
+    undone_at?: string | null;
+    undo_snapshot: { candidate_blocks?: unknown };
+  },
+>(
+  repo: {
+    listLiveBatchSummaries(
+      companyId: string
+    ): Promise<Array<{ id: string; has_recipe_blocks: boolean }>>;
+    getBatch(companyId: string, batchId: string): Promise<T | null>;
+  },
+  companyId: string
+): Promise<{ batch: T; blocks: StoredRecipeBlock[] } | null> {
+  const summaries = await repo.listLiveBatchSummaries(companyId);
+  for (const summary of summaries) {
+    if (!summary.has_recipe_blocks) continue;
+    const batch = await repo.getBatch(companyId, summary.id);
+    if (!batch) continue;
+    const found = findRecipeSource([batch]);
+    if (found) return found;
+  }
+  return null;
+}

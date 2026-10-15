@@ -1,10 +1,11 @@
 // lib/restaurant/odoo/client.ts
 //
-// Thin Odoo XML-RPC client: authenticate() + unsafeExecuteKw(). No env var
-// access here — credentials are passed in explicitly by the caller (the
-// sync API route), which is the only place that should know where a
-// secret comes from. Keeps this module trivially unit-testable with a
-// mocked fetch.
+// Thin Odoo XML-RPC client: authenticate() + unsafeExecuteKw() +
+// getOdooVersion(). No env var access here — credentials are passed in
+// explicitly by the caller. Keeps this module trivially unit-testable with
+// a mocked fetch. unsafeExecuteKw() is hard-read-only (fields_get,
+// search_count, search_read, read); authenticate() and getOdooVersion()
+// stay on /xmlrpc/2/common.
 //
 // MULTI-COMPANY SAFETY: unsafeExecuteKw() performs NO company scoping.
 // Only lib/restaurant/odoo/scoped.ts may import it; every route/lib must
@@ -14,6 +15,12 @@
 
 import { encodeMethodCall, decodeMethodResponse } from "./xmlrpc";
 import type { XmlRpcValue } from "./xmlrpc";
+import {
+  assertOdooBaseUrlAllowed,
+  assertNoRedirect,
+  parseAllowedHosts,
+} from "./allowed-hosts";
+import { isOdooReadOnlyMethod } from "./read-only-methods";
 
 export interface OdooCredentials {
   /** e.g. "https://pilot-restaurant.odoo.com" — no trailing slash. */
@@ -49,7 +56,9 @@ async function postXmlRpc(url: string, body: string): Promise<XmlRpcValue> {
     headers: { "Content-Type": "text/xml" },
     body,
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    redirect: "manual",
   });
+  assertNoRedirect(res);
   if (!res.ok) {
     throw new OdooRpcError(
       `Odoo XML-RPC HTTP ${res.status} from ${url}`,
@@ -70,6 +79,8 @@ async function postXmlRpc(url: string, body: string): Promise<XmlRpcValue> {
  * bad credentials, so that case is checked explicitly.
  */
 export async function authenticate(creds: OdooCredentials): Promise<number> {
+  const allowedHosts = parseAllowedHosts();
+  assertOdooBaseUrlAllowed(creds.baseUrl, allowedHosts);
   const url = `${creds.baseUrl}/xmlrpc/2/common`;
   const body = encodeMethodCall("authenticate", [
     creds.database,
@@ -87,11 +98,31 @@ export async function authenticate(creds: OdooCredentials): Promise<number> {
 }
 
 /**
+ * Asks /xmlrpc/2/common for the server version. Not an execute_kw call —
+ * no model method, no writes. Host allowlist still applies. Returns null
+ * when the payload is not a struct (caller treats that as "unavailable").
+ */
+export async function getOdooVersion(
+  creds: OdooCredentials
+): Promise<Record<string, unknown> | null> {
+  const allowedHosts = parseAllowedHosts();
+  assertOdooBaseUrlAllowed(creds.baseUrl, allowedHosts);
+  const url = `${creds.baseUrl}/xmlrpc/2/common`;
+  const body = encodeMethodCall("version", []);
+  const result = await postXmlRpc(url, body);
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return null;
+  }
+  return result as Record<string, unknown>;
+}
+
+/**
  * Calls execute_kw on /xmlrpc/2/object with args/kwargs passed through
  * VERBATIM — no domain or context injection.
  *
  * UNSAFE: only lib/restaurant/odoo/scoped.ts may import this. Everything
- * else goes through scopedExecuteKw().
+ * else goes through scopedExecuteKw(). Write methods are refused here
+ * before the host check or fetch, even if a caller bypasses scoped.ts.
  */
 export async function unsafeExecuteKw(
   creds: OdooCredentials,
@@ -101,6 +132,14 @@ export async function unsafeExecuteKw(
   args: XmlRpcValue[],
   kwargs: Record<string, XmlRpcValue> = {}
 ): Promise<XmlRpcValue> {
+  if (!isOdooReadOnlyMethod(method)) {
+    throw new OdooRpcError(
+      `Odoo method not permitted (read-only client): ${method}`,
+      "readonly"
+    );
+  }
+  const allowedHosts = parseAllowedHosts();
+  assertOdooBaseUrlAllowed(creds.baseUrl, allowedHosts);
   const url = `${creds.baseUrl}/xmlrpc/2/object`;
   const body = encodeMethodCall("execute_kw", [
     creds.database,

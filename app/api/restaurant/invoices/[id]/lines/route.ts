@@ -40,6 +40,10 @@ import {
   type InvoiceLineMatchStatus,
   type InvoiceLineReviewStatus,
 } from "@/types/supplier-invoices";
+import {
+  resolveCompanyCurrency,
+  resolveWriteCurrency,
+} from "@/lib/restaurant/currency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -215,8 +219,8 @@ export async function POST(
             name: newName,
             category: newCategory,
             default_unit: newDefaultUnit,
-            current_unit_cost: 0,
-            currency: "MXN",
+            current_unit_cost: null,
+            currency: await resolveCompanyCurrency(supabase, companyId),
           })
           .select("id, name")
           .single();
@@ -461,8 +465,11 @@ export async function POST(
           name: newName,
           category: newCategory,
           default_unit: newDefaultUnit,
-          current_unit_cost: 0,
-          currency: invoice.currency ?? "MXN",
+          current_unit_cost: null,
+          currency: resolveWriteCurrency(
+            invoice.currency,
+            await resolveCompanyCurrency(supabase, companyId)
+          ),
         })
         .select("id, name")
         .single();

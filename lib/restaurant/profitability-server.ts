@@ -18,10 +18,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   type CostingData,
+  type CostingMenuRecipe,
   type CostingRecipeInput,
   calculateAllComponentCosts,
   calculateAllMenuItemCosts,
+  parseWorkbookCostMatch,
 } from "@/lib/restaurant/costing";
+import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
+import { computeIngredientUsage } from "@/lib/restaurant/ingredient-usage";
 import type {
   IngredientCostEntry,
   MenuItemCostResult,
@@ -31,19 +35,44 @@ import {
   buildScopedNameIndex,
   resolveScopedName,
 } from "@/lib/restaurant/scoped-matching";
+import {
+  fetchAllRows,
+  succeededRows,
+  warnIfTruncated,
+} from "@/lib/restaurant/paginated-read";
+import {
+  isSameCurrency,
+  resolveCompanyCurrency,
+} from "@/lib/restaurant/currency";
+import { classifySaleLine } from "@/lib/restaurant/sales-revenue";
+import { fetchAllRowsRetryingWithoutColumn } from "@/lib/restaurant/missing-schema-column";
+import {
+  fetchCockpitPosProductRollup,
+  type CockpitPosProductRollup,
+} from "@/lib/restaurant/cockpit-pos-product-rollup";
+import { logCockpitTiming } from "@/lib/restaurant/cockpit-timing";
+import { loadDishEconomicsWith } from "@/lib/restaurant/costing/dish-economics-server";
+import {
+  dishesUsingIngredient,
+  type DishEconomicsResult,
+} from "@/lib/restaurant/costing/dish-economics";
+import { legacyMarginRows } from "@/lib/restaurant/costing/dish-economics-adapter";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
 // ---------------------------------------------------------------------------
 
 export interface MenuMarginRow {
+  /** Menu item id, or `pos:<odoo_product_id>` for an unlinked POS dish. */
   menu_item_id: string;
+  /** The POS product this row is (dish-economics rows only). */
+  odoo_product_id?: number;
   name: string;
   category: string | null;
   selling_price: number | null;
   /** Total units sold across all POS rows mapped to this menu item. */
   units_sold: number;
-  /** Sum of revenue (gross_revenue, falling back to net_revenue) across POS rows. */
+  /** Sum of net sales (tips excluded) across POS rows mapped to this item. */
   revenue: number;
   /** Raw POS item names mapped to this menu item; useful for surfacing the
    *  joins in the table. */
@@ -89,6 +118,8 @@ export interface IngredientPriceTrendRow {
   previous_date: string;
   unit: string;
   currency: string;
+  /** Sold dishes whose recipe uses this ingredient directly (R1-09a). */
+  affected_dishes?: Array<{ odoo_product_id: number; name: string }>;
 }
 
 export interface SupplierSpendRow {
@@ -107,6 +138,8 @@ export interface DataQualityCounts {
   ingredients_without_cost_entries: number;
   components_without_recipe: number;
   supplier_linked_ingredients: number;
+  /** POS / cost / menu rows whose currency differs from the company currency. */
+  currency_mismatch_rows: number;
 }
 
 /** Row counts used by the first-time setup checklist on the cockpit. */
@@ -118,6 +151,7 @@ export interface SetupCounts {
   recipe_inputs_count: number;
   supplier_invoices_count: number;
   agent_runs_count: number;
+  ingredients_count: number;
 }
 
 export interface ProfitabilityData {
@@ -133,6 +167,60 @@ export interface ProfitabilityData {
   /** Total spend across all cost entries — used by the supplier-spend chart. */
   total_supplier_spend: number;
   setupCounts: SetupCounts;
+  /**
+   * Distinct check_id/order_id values in the POS read. Used by the
+   * briefing so it does not page pos_sales_items a second time.
+   */
+  distinct_check_count: number;
+  /** True when any paged fact-table read hit the safety cap. */
+  truncated: boolean;
+  /**
+   * True when a paged POS read failed. KPIs must not be treated as a
+   * complete (or smaller) total — the cockpit shows a warning instead.
+   */
+  readError: boolean;
+  /** How POS totals were loaded. Tabs log this as `source`. */
+  posSource?: "product-rpc" | "rows" | "error" | "preloaded";
+  /**
+   * The shared dish-economics load these numbers came from (R1-09a).
+   * Null for a company with no Odoo products/links (legacy name-mapped
+   * path, CSV uploads).
+   */
+  dishEconomics?: DishEconomicsResult | null;
+}
+
+/** Slim POS shape the profitability aggregator needs. */
+export interface ProfitabilityPosRow {
+  raw_item_name: string | null;
+  quantity: number | null;
+  gross_revenue: number | null;
+  net_revenue: number | null;
+  currency: string | null;
+  location_id: string | null;
+  is_tip?: boolean | null;
+  discount_amount?: number | null;
+  check_id?: string | null;
+  order_id?: string | null;
+}
+
+export interface FetchProfitabilityOptions {
+  /**
+   * Reuse POS rows already loaded in this request (cockpit sales fetch)
+   * so we do not page `pos_sales_items` a second time.
+   */
+  posRows?: ProfitabilityPosRow[];
+  /**
+   * Per-product rollup from `cockpit_pos_product_rollup`. When set, the
+   * aggregator does not page POS rows. Tests inject this directly.
+   */
+  posProductRollup?: CockpitPosProductRollup;
+  /** Fail-closed: skip POS reads and return empty sales totals. */
+  posReadError?: boolean;
+  /**
+   * Dish side already loaded in this request (dish-economics). Pass null
+   * to force the legacy name-mapped path (tests). Undefined: load it.
+   */
+  dishEconomics?: DishEconomicsResult | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,16 +249,18 @@ export interface ProfitabilitySelection {
  * unchanged — today's behavior.
  */
 export function filterMenuItemsForSelection<
-  T extends { brand_id: string | null },
+  T extends { brand_id: string | null; location_id?: string | null },
 >(menuItems: T[], selected: ProfitabilitySelection | null | undefined): T[] {
   if (!selected) return menuItems;
+  const scoped = menuItems.filter((m) => {
+    if (m.location_id && m.location_id !== selected.locationId) return false;
+    return true;
+  });
   if (selected.brandId) {
     const brandId = selected.brandId;
-    return menuItems.filter(
-      (m) => m.brand_id === brandId || m.brand_id === null
-    );
+    return scoped.filter((m) => m.brand_id === brandId || m.brand_id === null);
   }
-  return menuItems.filter((m) => m.brand_id === null);
+  return scoped.filter((m) => m.brand_id === null);
 }
 
 /**
@@ -189,26 +279,131 @@ export function filterMenuItemsForSelection<
 export async function fetchProfitabilityData(
   supabase: SupabaseClient,
   companyId: string,
-  selected?: ProfitabilitySelection | null
+  selected?: ProfitabilitySelection | null,
+  options?: FetchProfitabilityOptions
 ): Promise<ProfitabilityData> {
-  const posSalesQuery = supabase
-    .from("pos_sales_items")
-    .select(
-      "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id"
-    )
-    .eq("company_id", companyId);
-  if (selected) {
-    posSalesQuery.eq("location_id", selected.locationId);
-  }
+  type PosRow = ProfitabilityPosRow;
+  type MappingRow = {
+    raw_pos_item_name: string;
+    menu_item_id: string;
+    location_id: string | null;
+  };
+  type MenuItemRow = {
+    id: string;
+    name: string;
+    category: string | null;
+    selling_price: number | null;
+    currency: string | null;
+    brand_id: string | null;
+    location_id: string | null;
+  };
+
+  const preloadedPos = options?.posRows;
+  // One source of truth for every dish's cost, status and coverage
+  // (R1-09a). Companies with no Odoo product or link (CSV uploads) keep
+  // the legacy name-mapped path below until they are migrated.
+  const [companyCurrency, dishSide] = await Promise.all([
+    resolveCompanyCurrency(supabase, companyId),
+    options?.dishEconomics !== undefined
+      ? Promise.resolve(options.dishEconomics)
+      : loadDishEconomicsWith(supabase, {
+          companyId,
+          locationId: selected?.locationId ?? null,
+        }).then((load) => {
+          if (!load.ok) {
+            console.error("[profitability] dish-economics:", load.error);
+            return null;
+          }
+          return load.result.uses_pos_products ? load.result : null;
+        }),
+  ]);
+  const skipLegacyDishTables = dishSide !== null;
+  const emptyRows = <T>() =>
+    Promise.resolve({ rows: [] as T[], truncated: false, error: null });
+
+  const loadPos = async (): Promise<{
+    rows: PosRow[];
+    truncated: boolean;
+    error: { message?: string } | null;
+    productRollup: CockpitPosProductRollup | null;
+    posSource: NonNullable<ProfitabilityData["posSource"]>;
+  }> => {
+    if (options?.posReadError) {
+      return {
+        rows: [],
+        truncated: false,
+        error: { message: "pos read failed" },
+        productRollup: null,
+        posSource: "error",
+      };
+    }
+    if (options?.posProductRollup) {
+      return {
+        rows: [],
+        truncated: false,
+        error: null,
+        productRollup: options.posProductRollup,
+        posSource: "product-rpc",
+      };
+    }
+    if (preloadedPos) {
+      return {
+        rows: preloadedPos,
+        truncated: false,
+        error: null,
+        productRollup: null,
+        posSource: "preloaded",
+      };
+    }
+    const rpc = await fetchCockpitPosProductRollup(supabase, companyId, {
+      locationId: selected?.locationId ?? null,
+      currency: companyCurrency,
+    });
+    if (rpc.rollup) {
+      return {
+        rows: [],
+        truncated: false,
+        error: null,
+        productRollup: rpc.rollup,
+        posSource: "product-rpc",
+      };
+    }
+    if (!rpc.missing) {
+      return {
+        rows: [],
+        truncated: false,
+        error: rpc.error ?? { message: "product rollup failed" },
+        productRollup: null,
+        posSource: "error",
+      };
+    }
+    const walked = await fetchAllRowsRetryingWithoutColumn<PosRow>(
+      "is_tip",
+      (select) => {
+        let q = supabase
+          .from("pos_sales_items")
+          .select(select)
+          .eq("company_id", companyId);
+        if (selected) {
+          q = q.eq("location_id", selected.locationId);
+        }
+        return q;
+      },
+      "raw_item_name, quantity, gross_revenue, net_revenue, currency, location_id, is_tip, discount_amount, check_id, order_id"
+    );
+    return {
+      rows: walked.rows,
+      truncated: walked.truncated,
+      error: walked.error,
+      productRollup: null,
+      posSource: walked.error ? "error" : "rows",
+    };
+  };
+
   // menu_items is intentionally fetched unfiltered and scoped in-memory via
   // filterMenuItemsForSelection below — see that function's docstring.
-  const menuItemsQuery = supabase
-    .from("menu_items")
-    .select("id, name, category, selling_price, currency, brand_id")
-    .eq("company_id", companyId);
-
   const [
-    posRes,
+    posFetched,
     mappingsRes,
     menuItemsRes,
     recipesRes,
@@ -223,58 +418,141 @@ export async function fetchProfitabilityData(
     supplierInvoicesCountRes,
     agentRunsCountRes,
   ] = await Promise.all([
-    posSalesQuery.limit(20_000),
+    loadPos(),
     // Intentionally NOT filtered by location: resolveScopedName below
     // already applies the correct exact-scope-then-company-wide-fallback
     // precedence per POS row once pos_sales_items itself is location-
     // filtered. Pre-filtering this query would break that fallback for
     // legacy/unscoped mappings.
-    supabase
-      .from("pos_item_mappings")
-      .select("raw_pos_item_name, menu_item_id, location_id")
-      .eq("company_id", companyId),
-    menuItemsQuery,
-    supabase
-      .from("recipes")
-      .select("id, menu_item_id, status")
-      .eq("company_id", companyId),
-    supabase
-      .from("menu_recipe_inputs")
-      .select(
-        "id, recipe_id, input_type, ingredient_id, component_id, quantity, unit"
-      )
-      .eq("company_id", companyId),
-    supabase
-      .from("prepared_components")
-      .select(
-        "id, company_id, name, category, output_unit, status, notes, created_at, updated_at"
-      )
-      .eq("company_id", companyId),
-    supabase
-      .from("component_recipes")
-      .select("id, component_id, output_quantity, output_unit, status")
-      .eq("company_id", companyId),
-    supabase
-      .from("component_recipe_inputs")
-      .select(
-        "id, component_recipe_id, input_type, ingredient_id, component_id, quantity, unit"
-      )
-      .eq("company_id", companyId),
-    supabase
-      .from("ingredients")
-      .select("id, name, default_unit")
-      .eq("company_id", companyId),
-    supabase
-      .from("ingredient_cost_entries")
-      .select(
-        "id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
-      )
-      .eq("company_id", companyId),
-    supabase.from("suppliers").select("id, name").eq("company_id", companyId),
-    supabase
-      .from("supplier_ingredients")
-      .select("supplier_id, ingredient_id")
-      .eq("company_id", companyId),
+    skipLegacyDishTables
+      ? emptyRows<MappingRow>()
+      : fetchAllRows<MappingRow>(() =>
+          supabase
+            .from("pos_item_mappings")
+            .select("raw_pos_item_name, menu_item_id, location_id")
+            .eq("company_id", companyId)
+        ),
+    skipLegacyDishTables
+      ? emptyRows<MenuItemRow>()
+      : fetchAllRows<MenuItemRow>(() =>
+          supabase
+            .from("menu_items")
+            .select(
+              "id, name, category, selling_price, currency, brand_id, location_id"
+            )
+            .eq("company_id", companyId)
+        ),
+    skipLegacyDishTables
+      ? emptyRows<{
+          id: string;
+          menu_item_id: string;
+          status: string | null;
+          source_type?: string | null;
+          workbook_cost_match?: string | null;
+        }>()
+      : fetchAllRowsRetryingWithoutColumn<{
+          id: string;
+          menu_item_id: string;
+          status: string | null;
+          source_type?: string | null;
+          workbook_cost_match?: string | null;
+        }>(
+          "workbook_cost_match",
+          (select) =>
+            supabase.from("recipes").select(select).eq("company_id", companyId),
+          "id, menu_item_id, status, source_type, workbook_cost_match"
+        ),
+    skipLegacyDishTables
+      ? emptyRows<{
+          id: string;
+          recipe_id: string;
+          input_type: "ingredient" | "component";
+          ingredient_id: string | null;
+          component_id: string | null;
+          quantity: number;
+          unit: string;
+        }>()
+      : fetchAllRows<{
+          id: string;
+          recipe_id: string;
+          input_type: "ingredient" | "component";
+          ingredient_id: string | null;
+          component_id: string | null;
+          quantity: number;
+          unit: string;
+        }>(() =>
+          supabase
+            .from("menu_recipe_inputs")
+            .select(
+              "id, recipe_id, input_type, ingredient_id, component_id, quantity, unit"
+            )
+            .eq("company_id", companyId)
+        ),
+    fetchAllRows<{
+      id: string;
+      name: string;
+      status: string | null;
+      output_unit: string | null;
+    }>(() =>
+      supabase
+        .from("prepared_components")
+        .select(
+          "id, company_id, name, category, output_unit, status, notes, created_at, updated_at"
+        )
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{
+      id: string;
+      component_id: string;
+      output_quantity: number;
+      output_unit: string;
+      status: string | null;
+    }>(() =>
+      supabase
+        .from("component_recipes")
+        .select("id, component_id, output_quantity, output_unit, status")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{
+      id: string;
+      component_recipe_id: string;
+      input_type: "ingredient" | "component";
+      ingredient_id: string | null;
+      component_id: string | null;
+      quantity: number;
+      unit: string;
+    }>(() =>
+      supabase
+        .from("component_recipe_inputs")
+        .select(
+          "id, component_recipe_id, input_type, ingredient_id, component_id, quantity, unit"
+        )
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{ id: string; name: string; default_unit: string | null }>(
+      () =>
+        supabase
+          .from("ingredients")
+          .select("id, name, default_unit")
+          .eq("company_id", companyId)
+    ),
+    fetchAllRows<IngredientCostEntry>(() =>
+      supabase
+        .from("ingredient_cost_entries")
+        .select(
+          "id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
+        )
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{ id: string; name: string }>(() =>
+      supabase.from("suppliers").select("id, name").eq("company_id", companyId)
+    ),
+    fetchAllRows<{ supplier_id: string; ingredient_id: string }>(() =>
+      supabase
+        .from("supplier_ingredients")
+        .select("supplier_id, ingredient_id")
+        .eq("company_id", companyId)
+    ),
     // Lightweight count-only queries for the setup checklist.
     supabase
       .from("supplier_invoices")
@@ -286,7 +564,11 @@ export async function fetchProfitabilityData(
       .eq("company_id", companyId),
   ]);
 
-  // Soft-fail per table.
+  const posRes = posFetched;
+
+  // Soft-fail per table. A failed page yields no rows (fetchAllRows fail-closes),
+  // matching the old single-query `data ?? []`. POS failures also set
+  // `readError` so the cockpit can show a warning instead of $0 as a total.
   const errLog = (name: string, e: { message?: string } | null) =>
     e?.message && console.error(`[profitability] ${name}:`, e.message);
   errLog("pos_sales_items", posRes.error);
@@ -303,66 +585,52 @@ export async function fetchProfitabilityData(
   errLog("supplier_ingredients", supplierIngredientsRes.error);
   errLog("supplier_invoices_count", supplierInvoicesCountRes.error);
   errLog("agent_runs_count", agentRunsCountRes.error);
+  warnIfTruncated("profitability pos_sales_items", posRes);
+  warnIfTruncated("profitability pos_item_mappings", mappingsRes);
+  warnIfTruncated("profitability menu_recipe_inputs", recipeInputsRes);
+  warnIfTruncated("profitability ingredient_cost_entries", costEntriesRes);
+  warnIfTruncated(
+    "profitability component_recipe_inputs",
+    componentRecipeInputsRes
+  );
 
   // ----- Costing engine setup -----
   const menuItems = filterMenuItemsForSelection(
-    (menuItemsRes.data ?? []) as {
-      id: string;
-      name: string;
-      category: string | null;
-      selling_price: number | null;
-      currency: string | null;
-      brand_id: string | null;
-    }[],
+    succeededRows(menuItemsRes),
     selected
   );
-  const recipes = (recipesRes.data ?? []) as {
-    id: string;
-    menu_item_id: string;
-    status: string | null;
-  }[];
-  const recipeInputs = (recipeInputsRes.data ?? []) as {
-    id: string;
-    recipe_id: string;
-    input_type: "ingredient" | "component";
-    ingredient_id: string | null;
-    component_id: string | null;
-    quantity: number;
-    unit: string;
-  }[];
-  const components = (componentsRes.data ?? []) as {
-    id: string;
-    name: string;
-    status: string | null;
-    output_unit: string | null;
-  }[];
-  const componentRecipes = (componentRecipesRes.data ?? []) as {
-    id: string;
-    component_id: string;
-    output_quantity: number;
-    output_unit: string;
-    status: string | null;
-  }[];
-  const componentRecipeInputs = (componentRecipeInputsRes.data ?? []) as {
-    id: string;
-    component_recipe_id: string;
-    input_type: "ingredient" | "component";
-    ingredient_id: string | null;
-    component_id: string | null;
-    quantity: number;
-    unit: string;
-  }[];
-  const ingredients = (ingredientsRes.data ?? []) as {
-    id: string;
-    name: string;
-    default_unit: string | null;
-  }[];
-  const costEntries = (costEntriesRes.data ?? []) as IngredientCostEntry[];
-  const suppliers = (suppliersRes.data ?? []) as { id: string; name: string }[];
-  const supplierLinks = (supplierIngredientsRes.data ?? []) as {
-    supplier_id: string;
-    ingredient_id: string;
-  }[];
+  const recipes = succeededRows(recipesRes);
+  const recipeInputs = succeededRows(recipeInputsRes);
+  const components = succeededRows(componentsRes);
+  const componentRecipes = succeededRows(componentRecipesRes);
+  const componentRecipeInputs = succeededRows(componentRecipeInputsRes);
+  const ingredients = succeededRows(ingredientsRes);
+  const costEntries = succeededRows(costEntriesRes);
+  const suppliers = succeededRows(suppliersRes);
+  const supplierLinks = succeededRows(supplierIngredientsRes);
+
+  const versions = skipLegacyDishTables
+    ? {
+        menuRecipeVersionsByMenuItemId: new Map(),
+        menuRecipeVersionInputsByVersionId: new Map(),
+        componentRecipeVersionsByComponentId: new Map(),
+        componentRecipeVersionInputsByVersionId: new Map(),
+        recipeVersionsError: undefined as string | undefined,
+        componentVersionsError: undefined as string | undefined,
+      }
+    : await fetchCostingRecipeVersions(supabase, companyId);
+  errLog(
+    "recipe_versions",
+    versions.recipeVersionsError
+      ? { message: versions.recipeVersionsError }
+      : null
+  );
+  errLog(
+    "component_recipe_versions",
+    versions.componentVersionsError
+      ? { message: versions.componentVersionsError }
+      : null
+  );
 
   // Index for the engine.
   const menuInputsByRecipeId = new Map<string, CostingRecipeInput[]>();
@@ -413,8 +681,17 @@ export async function fetchProfitabilityData(
       },
     ])
   );
-  const menuRecipesByMenuItemId = new Map(
-    recipes.map((r) => [r.menu_item_id, { ...r, status: r.status ?? "draft" }])
+  const menuRecipesByMenuItemId = new Map<string, CostingMenuRecipe>(
+    recipes.map((r) => [
+      r.menu_item_id,
+      {
+        id: r.id,
+        menu_item_id: r.menu_item_id,
+        status: r.status ?? "draft",
+        source_type: r.source_type ?? null,
+        workbook_cost_match: parseWorkbookCostMatch(r.workbook_cost_match),
+      },
+    ])
   );
   const costEntriesByIngredientId = new Map<string, IngredientCostEntry[]>();
   for (const e of costEntries) {
@@ -431,6 +708,13 @@ export async function fetchProfitabilityData(
     menuRecipesByMenuItemId,
     menuRecipeInputsByRecipeId: menuInputsByRecipeId,
     costEntriesByIngredientId,
+    menuRecipeVersionsByMenuItemId: versions.menuRecipeVersionsByMenuItemId,
+    menuRecipeVersionInputsByVersionId:
+      versions.menuRecipeVersionInputsByVersionId,
+    componentRecipeVersionsByComponentId:
+      versions.componentRecipeVersionsByComponentId,
+    componentRecipeVersionInputsByVersionId:
+      versions.componentRecipeVersionInputsByVersionId,
   };
   calculateAllComponentCosts(costingData);
   const menuItemCosts = calculateAllMenuItemCosts(costingData);
@@ -441,11 +725,7 @@ export async function fetchProfitabilityData(
   // takes precedence; a company-wide (location_id NULL) mapping is the
   // fallback for legacy/unscoped rows. Same precedence rule as ingest-time
   // menu-item matching — see lib/restaurant/scoped-matching.ts.
-  const mappings = (mappingsRes.data ?? []) as {
-    raw_pos_item_name: string;
-    menu_item_id: string;
-    location_id: string | null;
-  }[];
+  const mappings = succeededRows(mappingsRes);
   const mappingIndex = buildScopedNameIndex(
     mappings.map((m) => ({
       id: m.menu_item_id,
@@ -463,49 +743,69 @@ export async function fetchProfitabilityData(
   const posByMenuItem = new Map<string, PosAggregate>();
   const unmappedRawNames = new Set<string>();
   let revenueTotal = 0;
-  let firstCurrency: string | null = null;
+  let mismatchedPosRows = 0;
+  let distinctCheckCount = 0;
+  let posSalesCount = 0;
 
-  const posRows = (posRes.data ?? []) as {
-    raw_item_name: string | null;
-    quantity: number | null;
-    gross_revenue: number | null;
-    net_revenue: number | null;
-    currency: string | null;
-    location_id: string | null;
-  }[];
-  for (const r of posRows) {
-    const raw = (r.raw_item_name ?? "").trim();
-    if (!raw) continue;
-    const qty =
-      typeof r.quantity === "number" && Number.isFinite(r.quantity)
-        ? r.quantity
-        : 0;
-    const rev =
-      typeof r.gross_revenue === "number" && Number.isFinite(r.gross_revenue)
-        ? r.gross_revenue
-        : typeof r.net_revenue === "number" && Number.isFinite(r.net_revenue)
-          ? r.net_revenue
-          : 0;
-    revenueTotal += rev;
-    if (firstCurrency === null && r.currency) firstCurrency = r.currency;
-
-    const menuItemId = resolveScopedName(mappingIndex, r.location_id, raw);
+  const addMappedLine = (
+    raw: string,
+    locationId: string | null,
+    units: number,
+    net: number
+  ) => {
+    revenueTotal += net;
+    const menuItemId = resolveScopedName(mappingIndex, locationId, raw);
     if (!menuItemId) {
       unmappedRawNames.add(raw.toLowerCase());
-      continue;
+      return;
     }
     let agg = posByMenuItem.get(menuItemId);
     if (!agg) {
       agg = { units_sold: 0, revenue: 0, raw_names: new Set<string>() };
       posByMenuItem.set(menuItemId, agg);
     }
-    agg.units_sold += qty;
-    agg.revenue += rev;
+    agg.units_sold += units;
+    agg.revenue += net;
     agg.raw_names.add(raw);
+  };
+
+  const posRows = succeededRows(posRes);
+  const productRollup = posFetched.productRollup;
+  if (productRollup && !posRes.error) {
+    posSalesCount = productRollup.row_count;
+    distinctCheckCount = productRollup.distinct_check_count;
+    mismatchedPosRows = productRollup.currency_mismatch_rows;
+    for (const product of productRollup.products) {
+      if (product.is_tip) continue;
+      const raw = product.raw_item_name.trim();
+      if (!raw) continue;
+      addMappedLine(raw, product.location_id, product.units, product.net);
+    }
+  } else {
+    const distinctChecks = new Set<string>();
+    for (const r of posRows) {
+      const check = r.check_id ?? r.order_id ?? null;
+      if (check) distinctChecks.add(check);
+      const raw = (r.raw_item_name ?? "").trim();
+      if (!raw) continue;
+      if (r.currency && !isSameCurrency(r.currency, companyCurrency)) {
+        mismatchedPosRows++;
+        continue;
+      }
+      const line = classifySaleLine(r);
+      if (line.isTip) continue;
+      const qty =
+        typeof r.quantity === "number" && Number.isFinite(r.quantity)
+          ? r.quantity
+          : 0;
+      addMappedLine(raw, r.location_id, qty, line.net);
+    }
+    posSalesCount = posRows.length;
+    distinctCheckCount = distinctChecks.size;
   }
 
   // ----- Build per-menu-item margin rows -----
-  const marginRows: MenuMarginRow[] = menuItems.map((mi) => {
+  let marginRows: MenuMarginRow[] = menuItems.map((mi) => {
     const cost = menuItemCosts.get(mi.id) ?? {
       menu_item_id: mi.id,
       cost: null,
@@ -562,17 +862,16 @@ export async function fetchProfitabilityData(
   const costCoveragePct =
     revenueTotal > 0 ? (revenueWithKnownCost / revenueTotal) * 100 : 0;
 
-  const menuItemsWithoutRecipe = marginRows.filter(
+  let menuItemsWithoutRecipe = marginRows.filter(
     (m) => m.cost.status === "missing_recipe"
   ).length;
-  const menuItemsWithIssues = marginRows.filter(
+  let menuItemsWithIssues = marginRows.filter(
     (m) => m.cost.status !== "complete" && m.cost.status !== "missing_recipe"
   ).length;
 
-  const currency =
-    menuItems.find((m) => m.currency)?.currency ?? firstCurrency ?? "MXN";
+  const currency = companyCurrency;
 
-  const kpis: ProfitabilityKpis = {
+  let kpis: ProfitabilityKpis = {
     revenue_total: revenueTotal,
     revenue_with_known_cost: revenueWithKnownCost,
     estimated_cogs: estimatedCogs,
@@ -586,7 +885,7 @@ export async function fetchProfitabilityData(
   };
 
   // ----- Margin risk slices -----
-  const lowMargin = marginRows
+  let lowMargin = marginRows
     .filter(
       (r) =>
         r.cost.status === "complete" &&
@@ -598,7 +897,7 @@ export async function fetchProfitabilityData(
     )
     .slice(0, 10);
 
-  const highFoodCost = marginRows
+  let highFoodCost = marginRows
     .filter(
       (r) =>
         r.cost.status === "complete" &&
@@ -608,15 +907,66 @@ export async function fetchProfitabilityData(
     .sort((a, b) => (b.cost.food_cost_pct ?? 0) - (a.cost.food_cost_pct ?? 0))
     .slice(0, 10);
 
-  const highRevenueIncomplete = marginRows
+  let highRevenueIncomplete = marginRows
     .filter((r) => r.revenue > 0 && r.cost.status !== "complete")
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 10);
 
-  const missingRecipeHighVolume = marginRows
+  let missingRecipeHighVolume = marginRows
     .filter((r) => r.cost.status === "missing_recipe" && r.units_sold > 0)
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 10);
+
+  // ----- Dish side from the shared loader (R1-09a) -----
+  let unmappedCount = unmappedRawNames.size;
+  if (dishSide) {
+    const t = dishSide.totals;
+    marginRows = legacyMarginRows(dishSide);
+    menuItemsWithoutRecipe = t.no_recipe_count;
+    menuItemsWithIssues = t.missing_price_count;
+    unmappedCount = dishSide.dishes.filter((d) => !d.menu_item_id).length;
+    kpis = {
+      revenue_total: t.food_net_sales,
+      revenue_with_known_cost: t.cost_known_net_sales,
+      estimated_cogs: t.estimated_cogs,
+      estimated_gross_profit: t.gross_margin ?? 0,
+      estimated_gross_margin_pct: t.gross_margin_pct,
+      food_cost_pct: t.food_cost_pct,
+      cost_coverage_pct: t.coverage_pct,
+      menu_items_with_issues: t.missing_price_count,
+      menu_items_without_recipe: t.no_recipe_count,
+      currency: dishSide.currency || companyCurrency,
+    };
+    const complete = (r: MenuMarginRow) =>
+      r.cost.status === "complete" && r.cost.cost !== null;
+    lowMargin = marginRows
+      .filter(
+        (r) =>
+          complete(r) &&
+          r.cost.gross_margin_pct !== null &&
+          r.cost.gross_margin_pct < LOW_MARGIN_THRESHOLD_PCT
+      )
+      .sort(
+        (a, b) =>
+          (a.cost.gross_margin_pct ?? 0) - (b.cost.gross_margin_pct ?? 0)
+      )
+      .slice(0, 10);
+    highFoodCost = marginRows
+      .filter(
+        (r) =>
+          complete(r) &&
+          r.cost.food_cost_pct !== null &&
+          r.cost.food_cost_pct > HIGH_FOOD_COST_THRESHOLD_PCT
+      )
+      .sort((a, b) => (b.cost.food_cost_pct ?? 0) - (a.cost.food_cost_pct ?? 0))
+      .slice(0, 10);
+    highRevenueIncomplete = marginRows
+      .filter((r) => r.revenue > 0 && r.cost.status !== "complete")
+      .slice(0, 10);
+    missingRecipeHighVolume = marginRows
+      .filter((r) => r.cost.status === "missing_recipe" && r.units_sold > 0)
+      .slice(0, 10);
+  }
 
   // ----- Supplier price trends -----
   const supplierNameById = new Map(suppliers.map((s) => [s.id, s.name]));
@@ -645,6 +995,12 @@ export async function fetchProfitabilityData(
         previous.normalized_unit_cost) *
       100;
     if (Math.abs(pctChange) < PRICE_INCREASE_MIN_PCT) continue;
+    if (
+      (latest.currency && !isSameCurrency(latest.currency, companyCurrency)) ||
+      (previous.currency && !isSameCurrency(previous.currency, companyCurrency))
+    ) {
+      continue;
+    }
     ingredientPriceTrends.push({
       ingredient_id: ingredientId,
       ingredient_name: ingredientNameById.get(ingredientId) ?? "(unknown)",
@@ -662,6 +1018,17 @@ export async function fetchProfitabilityData(
   }
   ingredientPriceTrends.sort((a, b) => b.pct_change - a.pct_change);
   const topPriceTrends = ingredientPriceTrends.slice(0, 12);
+  if (dishSide) {
+    for (const trend of topPriceTrends) {
+      trend.affected_dishes = dishesUsingIngredient(
+        dishSide,
+        trend.ingredient_id
+      ).map(({ dish }) => ({
+        odoo_product_id: dish.odoo_product_id,
+        name: dish.name,
+      }));
+    }
+  }
 
   // ----- Top supplier spend -----
   // Group all cost entries by supplier_id; sum total_cost; count distinct
@@ -671,7 +1038,12 @@ export async function fetchProfitabilityData(
     { spend: number; ingredients: Set<string> }
   >();
   let totalSupplierSpend = 0;
+  let mismatchedCostEntries = 0;
   for (const e of costEntries) {
+    if (e.currency && !isSameCurrency(e.currency, companyCurrency)) {
+      mismatchedCostEntries++;
+      continue;
+    }
     if (!e.supplier_id) continue;
     totalSupplierSpend += e.total_cost ?? 0;
     let agg = spendBySupplier.get(e.supplier_id);
@@ -710,30 +1082,63 @@ export async function fetchProfitabilityData(
     supplierLinks.map((l) => l.ingredient_id)
   ).size;
 
+  const recipesRead = versions.menuRecipeVersionsByMenuItemId.size > 0;
+  const ingredientUsage = computeIngredientUsage({
+    menuVersionsByMenuItemId: versions.menuRecipeVersionsByMenuItemId,
+    menuInputsByVersionId: versions.menuRecipeVersionInputsByVersionId,
+    componentVersionsByComponentId:
+      versions.componentRecipeVersionsByComponentId,
+    componentInputsByVersionId:
+      versions.componentRecipeVersionInputsByVersionId,
+  });
+
   const dataQuality: DataQualityCounts = {
-    unmapped_pos_items: unmappedRawNames.size,
+    unmapped_pos_items: unmappedCount,
     menu_items_without_recipe: menuItemsWithoutRecipe,
     recipes_with_unit_mismatch: recipesWithUnitMismatch,
+    // R1-15i: an ingredient no active recipe uses never counts as «sin costo»
+    // (it is not asked for a price). If the recipes were not read, count all.
     ingredients_without_cost_entries: ingredients.filter(
-      (i) => !ingredientsWithEntries.has(i.id)
+      (i) =>
+        !ingredientsWithEntries.has(i.id) &&
+        (!recipesRead || ingredientUsage.inUse.has(i.id))
     ).length,
     components_without_recipe: components.filter(
       (c) => !componentsWithRecipe.has(c.id)
     ).length,
     supplier_linked_ingredients: supplierLinkedIngredients,
+    currency_mismatch_rows:
+      mismatchedPosRows +
+      mismatchedCostEntries +
+      menuItems.filter(
+        (m) => m.currency && !isSameCurrency(m.currency, companyCurrency)
+      ).length,
   };
 
   const setupCounts: SetupCounts = {
-    pos_sales_count: posRows.length,
+    pos_sales_count: posSalesCount,
     cost_entries_count: costEntries.length,
-    menu_items_count: menuItems.length,
-    mappings_count: mappings.length,
-    recipe_inputs_count: recipeInputs.length,
+    menu_items_count: dishSide
+      ? new Set(dishSide.dishes.map((d) => d.menu_item_id).filter(Boolean)).size
+      : menuItems.length,
+    mappings_count: dishSide
+      ? dishSide.dishes.filter((d) => d.menu_item_id).length
+      : mappings.length,
+    recipe_inputs_count: dishSide
+      ? dishSide.dishes.reduce((sum, d) => sum + d.lines.length, 0)
+      : recipeInputs.length,
     supplier_invoices_count: supplierInvoicesCountRes.count ?? 0,
     agent_runs_count: agentRunsCountRes.count ?? 0,
+    ingredients_count: ingredients.length,
   };
 
-  return {
+  logCockpitTiming("tabs-pos", {
+    source: posFetched.posSource,
+    rows: posSalesCount,
+    products: productRollup?.products.length ?? posRows.length,
+  });
+
+  const result: ProfitabilityData = {
     kpis,
     marginRows,
     lowMargin,
@@ -745,5 +1150,39 @@ export async function fetchProfitabilityData(
     dataQuality,
     total_supplier_spend: totalSupplierSpend,
     setupCounts,
+    distinct_check_count: distinctCheckCount,
+    posSource: posFetched.posSource,
+    truncated:
+      posRes.truncated ||
+      mappingsRes.truncated ||
+      menuItemsRes.truncated ||
+      recipesRes.truncated ||
+      recipeInputsRes.truncated ||
+      componentsRes.truncated ||
+      componentRecipesRes.truncated ||
+      componentRecipeInputsRes.truncated ||
+      ingredientsRes.truncated ||
+      costEntriesRes.truncated ||
+      suppliersRes.truncated ||
+      supplierIngredientsRes.truncated,
+    readError: Boolean(posRes.error),
+    dishEconomics: dishSide,
   };
+  rememberCostingData(result, costingData);
+  return result;
+}
+
+const costingDataByProfitability = new WeakMap<
+  ProfitabilityData,
+  CostingData
+>();
+
+function rememberCostingData(data: ProfitabilityData, costing: CostingData) {
+  costingDataByProfitability.set(data, costing);
+}
+
+export function costingDataFromProfitability(
+  data: ProfitabilityData
+): CostingData | null {
+  return costingDataByProfitability.get(data) ?? null;
 }

@@ -4,16 +4,14 @@
 // (linked ingredient count, latest purchase date, total spend) and a
 // create/edit form.
 //
-// Data flow: the page (Server Component) fetches via
-// /api/restaurant/suppliers which returns the enriched list. All mutations
-// are client-side fetch calls followed by router.refresh().
+// Data flow: Costos › Proveedores (loadSuppliersTabData) passes the
+// enriched list. All mutations
+// are client-side fetch calls; the list updates from each API answer.
 
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Building2, Plus, Pencil, X, Check } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Plus, Pencil, X, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -42,35 +40,42 @@ export interface SupplierRow {
 // Page shell
 // ---------------------------------------------------------------------------
 
-export function SuppliersPage({ suppliers }: { suppliers: SupplierRow[] }) {
+export function SuppliersPage({
+  suppliers: initial,
+}: {
+  suppliers: SupplierRow[];
+}) {
   const [showCreate, setShowCreate] = useState(false);
+  // R1-09c: saves update this list from the API's answer; no refresh of
+  // the whole server page.
+  const [suppliers, setSuppliers] = useState(initial);
+  const upsert = (row: SupplierRow) =>
+    setSuppliers((prev) =>
+      prev.some((s) => s.id === row.id)
+        ? prev.map((s) => (s.id === row.id ? { ...s, ...row } : s))
+        : [...prev, row].sort((a, b) => a.name.localeCompare(b.name, "es"))
+    );
 
+  // Rendered inside Costos › Proveedores (R1-09b): no page header here.
   return (
-    <div className="w-full py-8 px-6 lg:px-10">
-      <div className="space-y-8 max-w-screen-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            <Building2 className="h-6 w-6 text-orange-500" />
-            <h1 className="text-2xl font-bold tracking-tight">Suppliers</h1>
-            <Badge className="text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-0">
-              {suppliers.length}
-            </Badge>
-          </div>
+    <div className="w-full">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-[#6b7385]">
+            {suppliers.length === 1
+              ? "1 proveedor"
+              : `${suppliers.length} proveedores`}
+          </p>
           <Button
             size="sm"
+            variant="outline"
             className="gap-2"
             onClick={() => setShowCreate((v) => !v)}
           >
             <Plus className="h-4 w-4" />
-            {showCreate ? "Cancel" : "Add supplier"}
+            {showCreate ? "Cancelar" : "Agregar proveedor"}
           </Button>
         </div>
-        <p className="text-sm text-muted-foreground -mt-4 max-w-3xl">
-          Suppliers are created automatically during bulk cost uploads. Use this
-          page to add contact details, review linked ingredients, and manage
-          supplier status.
-        </p>
 
         {/* Create form */}
         {showCreate && (
@@ -82,7 +87,10 @@ export function SuppliersPage({ suppliers }: { suppliers: SupplierRow[] }) {
             </CardHeader>
             <CardContent>
               <SupplierForm
-                onSuccess={() => setShowCreate(false)}
+                onSuccess={(row) => {
+                  setShowCreate(false);
+                  if (row) upsert(row);
+                }}
                 onCancel={() => setShowCreate(false)}
               />
             </CardContent>
@@ -94,15 +102,25 @@ export function SuppliersPage({ suppliers }: { suppliers: SupplierRow[] }) {
           <Card>
             <CardContent className="py-6">
               <p className="text-sm text-muted-foreground">
-                No suppliers yet. They are created automatically when you import
-                a cost file, or you can add one manually above.
+                Aún no hay proveedores.
               </p>
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-3">
             {suppliers.map((s) => (
-              <SupplierCard key={s.id} supplier={s} />
+              <SupplierCard
+                key={s.id}
+                supplier={s}
+                onSaved={upsert}
+                onArchived={(id) =>
+                  setSuppliers((prev) =>
+                    prev.map((row) =>
+                      row.id === id ? { ...row, status: "archived" } : row
+                    )
+                  )
+                }
+              />
             ))}
           </div>
         )}
@@ -115,9 +133,16 @@ export function SuppliersPage({ suppliers }: { suppliers: SupplierRow[] }) {
 // Supplier card (collapsible edit)
 // ---------------------------------------------------------------------------
 
-function SupplierCard({ supplier }: { supplier: SupplierRow }) {
+function SupplierCard({
+  supplier,
+  onSaved,
+  onArchived,
+}: {
+  supplier: SupplierRow;
+  onSaved: (row: SupplierRow) => void;
+  onArchived: (id: string) => void;
+}) {
   const [editing, setEditing] = useState(false);
-  const router = useRouter();
   const [archiving, startArchiveTx] = useTransition();
   const [archiveError, setArchiveError] = useState<string | null>(null);
 
@@ -142,7 +167,7 @@ function SupplierCard({ supplier }: { supplier: SupplierRow }) {
           );
           return;
         }
-        router.refresh();
+        onArchived(supplier.id);
       } catch (err) {
         setArchiveError(err instanceof Error ? err.message : "Network error");
       }
@@ -162,9 +187,9 @@ function SupplierCard({ supplier }: { supplier: SupplierRow }) {
         {editing ? (
           <SupplierForm
             supplier={supplier}
-            onSuccess={() => {
+            onSuccess={(row) => {
               setEditing(false);
-              router.refresh();
+              if (row) onSaved(row);
             }}
             onCancel={() => setEditing(false)}
           />
@@ -175,7 +200,7 @@ function SupplierCard({ supplier }: { supplier: SupplierRow }) {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-sm">{supplier.name}</span>
                 <span
-                  className={`text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 font-medium ${statusColor}`}
+                  className={`text-xs uppercase tracking-wide rounded px-1.5 py-0.5 font-medium ${statusColor}`}
                 >
                   {supplier.status}
                 </span>
@@ -262,12 +287,12 @@ function SupplierCard({ supplier }: { supplier: SupplierRow }) {
 
 interface SupplierFormProps {
   supplier?: SupplierRow;
-  onSuccess: () => void;
+  /** The saved supplier as the API returned it. */
+  onSuccess: (row: SupplierRow | null) => void;
   onCancel: () => void;
 }
 
 function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
-  const router = useRouter();
   const isEdit = !!supplier;
 
   const [name, setName] = useState(supplier?.name ?? "");
@@ -316,8 +341,11 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
           );
           return;
         }
-        router.refresh();
-        onSuccess();
+        onSuccess(
+          body && typeof body === "object" && "supplier" in body
+            ? (body.supplier as SupplierRow)
+            : null
+        );
       } catch (err) {
         setError(err instanceof Error ? err.message : "Network error");
       }

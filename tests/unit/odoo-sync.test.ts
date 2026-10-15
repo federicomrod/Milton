@@ -4,6 +4,8 @@ import {
   parseOdooDatetimeToUtcIso,
   deriveLocalSaleDate,
   normalizeMatchKey,
+  discountAmountFromOdooLine,
+  optionalLineComboFields,
   type OdooPosOrderRaw,
   type OdooPosOrderLineRaw,
   type OdooSyncContext,
@@ -123,7 +125,9 @@ describe("transformOdooOrders", () => {
     expect(row.gross_revenue).toBe(313.2);
     expect(row.net_revenue).toBe(270);
     // discount_amount = price_unit*qty - price_subtotal = 300 - 270 = 30
+    expect(row.is_tip).toBe(false);
     expect(row.discount_amount).toBe(30);
+    expect(row.source_metadata.discount_estimated).toBe(false);
     // tax_amount = price_subtotal_incl - price_subtotal = 313.2 - 270 = 43.2
     expect(row.tax_amount).toBeCloseTo(43.2, 5);
     expect(row.currency).toBe("MXN");
@@ -146,6 +150,40 @@ describe("transformOdooOrders", () => {
       odoo_company_id: 1,
       odoo_company_name: "Roma Norte Co",
     });
+    expect(row.combo_parent_external_line_id).toBeNull();
+    expect(row.combo_parent_odoo_product_id).toBeNull();
+    expect(row.source_metadata.combo_parent_id).toBeNull();
+  });
+
+  it("flags discount as estimated when Odoo omits the percent", () => {
+    const { rows } = transformOdooOrders(
+      [paidOrder],
+      [makeLine({ discount: undefined, price_subtotal: 270 })],
+      baseCtx()
+    );
+    expect(rows[0].discount_amount).toBe(30);
+    expect(rows[0].source_metadata.discount_estimated).toBe(true);
+    expect(rows[0].gross_revenue).toBe(313.2);
+    expect(rows[0].net_revenue).toBe(270);
+  });
+
+  it("marks Propina lines as tips", () => {
+    const { rows } = transformOdooOrders(
+      [paidOrder],
+      [
+        makeLine({
+          full_product_name: "Propina",
+          price_subtotal: 5,
+          price_subtotal_incl: 5,
+          qty: 1,
+          price_unit: 5,
+          discount: 0,
+        }),
+      ],
+      baseCtx()
+    );
+    expect(rows[0].is_tip).toBe(true);
+    expect(rows[0].raw_item_name).toBe("Propina");
   });
 
   it("skips lines belonging to a non-completed order, with a reason, rather than silently dropping them", () => {
@@ -208,6 +246,41 @@ describe("transformOdooOrders", () => {
     );
     expect(rows).toHaveLength(0);
     expect(skipped[0].reason).toMatch(/no order_id/i);
+  });
+});
+
+describe("discountAmountFromOdooLine", () => {
+  it("uses price_unit * qty * discount / 100 when the percent is present", () => {
+    expect(
+      discountAmountFromOdooLine({
+        qty: 2,
+        price_unit: 150,
+        price_subtotal: 270,
+        discount: 10,
+      })
+    ).toEqual({ discount_amount: 30, discount_estimated: false });
+  });
+
+  it("does not treat tax as a discount when price_unit is tax-included and discount is 0", () => {
+    // tax-incl unit 116, qty 1, tax-excl subtotal 100, no discount
+    expect(
+      discountAmountFromOdooLine({
+        qty: 1,
+        price_unit: 116,
+        price_subtotal: 100,
+        discount: 0,
+      })
+    ).toEqual({ discount_amount: 0, discount_estimated: false });
+  });
+
+  it("falls back to the old formula and flags estimated when percent is missing", () => {
+    expect(
+      discountAmountFromOdooLine({
+        qty: 1,
+        price_unit: 116,
+        price_subtotal: 100,
+      })
+    ).toEqual({ discount_amount: 16, discount_estimated: true });
   });
 });
 
@@ -302,5 +375,77 @@ describe("transformOdooOrders — multi-brand matching (Multi-Restaurant v1)", (
     // Neither brand's Coke is guessed — there is no unscoped "Coke" in
     // this fixture's index, so it's correctly unmatched.
     expect(rows[0].menu_item_id).toBeNull();
+  });
+});
+
+describe("optionalLineComboFields — older Odoo", () => {
+  it("does not request combo_parent_id unless fields_get reports it", () => {
+    expect(optionalLineComboFields(new Set(["qty", "price_unit"]))).toEqual([]);
+    expect(optionalLineComboFields(null)).toEqual([]);
+    expect(optionalLineComboFields(new Set(["combo_parent_id"]))).toEqual([
+      "combo_parent_id",
+    ]);
+  });
+});
+
+describe("transformOdooOrders — native Odoo combos", () => {
+  it("keeps the parent-child relation when the parent is $0 and children carry the price", () => {
+    const parent = makeLine({
+      id: 700,
+      product_id: [10, "Combo Almuerzo"],
+      full_product_name: "Combo Almuerzo",
+      qty: 1,
+      price_unit: 0,
+      price_subtotal: 0,
+      price_subtotal_incl: 0,
+      discount: 0,
+    });
+    const childA = makeLine({
+      id: 701,
+      product_id: [11, "Hamburguesa"],
+      full_product_name: "Hamburguesa",
+      qty: 1,
+      price_unit: 80,
+      price_subtotal: 80,
+      price_subtotal_incl: 92.8,
+      discount: 0,
+      combo_parent_id: [700, "Combo Almuerzo"],
+    });
+    const childB = makeLine({
+      id: 702,
+      product_id: [12, "Papas"],
+      full_product_name: "Papas",
+      qty: 1,
+      price_unit: 40,
+      price_subtotal: 40,
+      price_subtotal_incl: 46.4,
+      discount: 0,
+      combo_parent_id: [700, "Combo Almuerzo"],
+    });
+    const { rows, skipped } = transformOdooOrders(
+      [paidOrder],
+      [parent, childA, childB],
+      baseCtx()
+    );
+    expect(skipped).toHaveLength(0);
+    expect(rows).toHaveLength(3);
+    const byId = new Map(rows.map((r) => [r.external_line_id, r]));
+    expect(byId.get("700")?.net_revenue).toBe(0);
+    expect(byId.get("700")?.combo_parent_external_line_id).toBeNull();
+    expect(byId.get("701")?.combo_parent_external_line_id).toBe("700");
+    expect(byId.get("701")?.combo_parent_odoo_product_id).toBe(10);
+    expect(byId.get("701")?.net_revenue).toBe(80);
+    expect(byId.get("702")?.combo_parent_external_line_id).toBe("700");
+    expect(byId.get("702")?.combo_parent_odoo_product_id).toBe(10);
+    expect(byId.get("702")?.source_metadata.combo_parent_id).toBe(700);
+    expect(byId.get("702")?.source_metadata.combo_parent_product_id).toBe(10);
+  });
+
+  it("leaves lines without combo_parent_id working as today", () => {
+    const { rows } = transformOdooOrders([paidOrder], [makeLine()], baseCtx());
+    expect(rows).toHaveLength(1);
+    expect(rows[0].menu_item_id).toBe("menu-item-1");
+    expect(rows[0].combo_parent_external_line_id).toBeNull();
+    expect(rows[0].combo_parent_odoo_product_id).toBeNull();
   });
 });

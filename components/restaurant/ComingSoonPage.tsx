@@ -18,6 +18,7 @@ import { ArrowLeft, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 
 export function ComingSoonPage({
   title,
@@ -26,9 +27,11 @@ export function ComingSoonPage({
   description,
   planned,
   related,
+  lang = "es",
 }: {
   title: string;
   icon: ComponentType<{ className?: string }>;
+  lang?: PreferredLanguage;
   /** One-line summary right under the title. */
   tagline: string;
   /** 2-3 sentence longer explanation of what this module will do. */
@@ -46,7 +49,7 @@ export function ComingSoonPage({
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Back to cockpit
+          {t(lang, "Back to cockpit", "Volver al Cockpit")}
         </Link>
 
         <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -58,7 +61,7 @@ export function ComingSoonPage({
                 variant="outline"
                 className="text-sm font-normal text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800"
               >
-                Coming soon
+                {t(lang, "Coming soon", "Próximamente")}
               </Badge>
             </div>
             <p className="text-base text-muted-foreground">{tagline}</p>
@@ -69,7 +72,11 @@ export function ComingSoonPage({
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-orange-500" />
-              What this module will do
+              {t(
+                lang,
+                "What this module will do",
+                "Qué va a hacer este módulo"
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -78,7 +85,11 @@ export function ComingSoonPage({
             </div>
             <div>
               <p className="text-sm font-medium mb-2">
-                Planned in the next milestones
+                {t(
+                  lang,
+                  "Planned in the next milestones",
+                  "Lo que viene en los siguientes pasos"
+                )}
               </p>
               <ul className="text-sm text-muted-foreground space-y-1 list-disc pl-5">
                 {planned.map((p) => (

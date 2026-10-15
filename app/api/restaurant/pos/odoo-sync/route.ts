@@ -26,7 +26,11 @@
 // authenticated request with a date range. No cron, no background job.
 
 import { NextRequest, NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { isUserAdminServer } from "@/lib/profile-service-server";
+import { compactLastSync } from "@/lib/restaurant/odoo/sync-summary";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { buildNameIndex } from "@/lib/restaurant/pos-import";
 import { buildScopedNameIndex } from "@/lib/restaurant/scoped-matching";
 import {
@@ -38,11 +42,22 @@ import {
 import {
   transformOdooOrders,
   normalizeMatchKey,
+  optionalLineComboFields,
   ODOO_COMPLETED_STATES,
   type OdooPosOrderRaw,
   type OdooPosOrderLineRaw,
-  type CanonicalOdooSaleRow,
 } from "@/lib/restaurant/odoo/sync";
+import {
+  loadOdooDimensions,
+  optionalOrderFields,
+  stripFailedDimensionFields,
+  type ScopedOdooCall,
+} from "@/lib/restaurant/odoo/dimension-fetch";
+import {
+  QUERY_PAD_DAYS,
+  addDays,
+  parseInclusiveDateRange,
+} from "@/lib/restaurant/odoo/sync-window";
 import { loadDecryptedOdooSecret } from "@/lib/restaurant/odoo/secrets";
 import {
   assertOdooScope,
@@ -53,37 +68,62 @@ import {
   type OdooScope,
 } from "@/lib/restaurant/odoo/scoped";
 import type { RestaurantPosConnection } from "@/types/restaurant";
+import {
+  omitColumnFromRows,
+  upsertRetryingWithoutColumns,
+} from "@/lib/restaurant/missing-schema-column";
+
+const OPTIONAL_SALES_COLUMNS = [
+  "is_tip",
+  "combo_parent_external_line_id",
+  "combo_parent_odoo_product_id",
+] as const;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+// A month-long sync (~20k rows) can exceed Vercel's default limit and
+// return a 504 with no JSON. 300s matches the briefing-email cron ceiling.
+export const maxDuration = 300;
 
 const UPSERT_BATCH_SIZE = 500;
-const MAX_RANGE_DAYS = 92; // ~3 months — a generous but bounded manual sync window
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Query Odoo with the requested local range padded by a full day on each
 // side, then filter transformed rows back down to the exact requested
 // local range afterward. This sidesteps computing exact UTC offset
 // boundaries for the timezone (DST-safe) at the cost of a harmless amount
 // of over-fetching; the idempotent upsert makes any overlap with a prior
-// sync a no-op.
-const QUERY_PAD_DAYS = 1;
+// sync a no-op. Re-sync of the same range updates dimension columns on
+// existing (company_id, pos_source, external_line_id) rows.
 
-function addDays(dateStr: string, days: number): string {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
+/** Log name + message server-side; never put err.message in the JSON body. */
+function logOdooFault(tag: string, err: unknown): string {
+  const name = err instanceof Error ? err.name : "UnknownError";
+  const logMessage = err instanceof Error ? err.message : "Unknown error";
+  let statusClass = "unknown";
+  if (err instanceof OdooRpcError && typeof err.faultCode === "number") {
+    const code = err.faultCode;
+    if (Number.isInteger(code) && code >= 100 && code <= 599) {
+      statusClass = `${Math.floor(code / 100)}xx`;
+    }
+  }
+  console.error(tag, name, logMessage);
+  return statusClass;
+}
+
+function odooFaultDetails(statusClass: string): string {
+  return `Odoo request failed (${statusClass})`;
 }
 
 // Generic on purpose: nothing about the offending records leaves the server.
 function scopeViolationResponse(err: unknown): NextResponse {
-  console.error(
+  const statusClass = logOdooFault(
     "[Odoo Sync] aborted, scope check failed:",
-    err instanceof Error ? err.name : "Unknown error"
+    err
   );
   return NextResponse.json(
     {
       error: "Odoo returned data outside the selected companies; sync aborted",
+      details: odooFaultDetails(statusClass),
     },
     { status: 502 }
   );
@@ -94,11 +134,43 @@ interface RequestBody {
   end_date?: string;
 }
 
+/** Best-effort persist. Must never fail the sync or log row payloads. */
+async function persistLastSync(
+  supabase: SupabaseClient,
+  connectionId: string,
+  companyId: string,
+  payload: Parameters<typeof compactLastSync>[0]
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from("restaurant_pos_connections")
+      .update({ last_sync: compactLastSync(payload) })
+      .eq("id", connectionId)
+      .eq("company_id", companyId);
+    if (error) {
+      console.error(
+        "[Odoo Sync] last_sync persist failed:",
+        error.name || "PostgrestError"
+      );
+    }
+  } catch (err) {
+    console.error(
+      "[Odoo Sync] last_sync persist failed:",
+      err instanceof Error ? err.name : "Unknown"
+    );
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const auth = await authAndCompany();
     if (!auth.ok) return auth.response;
-    const { supabase, companyId } = auth;
+    const { supabase, companyId, userId } = auth;
+
+    const isAdmin = await isUserAdminServer(userId);
+    if (!isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     // --- Parse + validate the requested range ---------------------------
     let body: RequestBody;
@@ -110,37 +182,11 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const { start_date, end_date } = body;
-    if (
-      !start_date ||
-      !end_date ||
-      !DATE_RE.test(start_date) ||
-      !DATE_RE.test(end_date)
-    ) {
-      return NextResponse.json(
-        { error: "start_date and end_date are required, format YYYY-MM-DD" },
-        { status: 400 }
-      );
+    const range = parseInclusiveDateRange(body.start_date, body.end_date);
+    if (!range.ok) {
+      return NextResponse.json({ error: range.error }, { status: 400 });
     }
-    if (start_date > end_date) {
-      return NextResponse.json(
-        { error: "start_date must be on or before end_date" },
-        { status: 400 }
-      );
-    }
-    const rangeDays =
-      (new Date(`${end_date}T00:00:00Z`).getTime() -
-        new Date(`${start_date}T00:00:00Z`).getTime()) /
-        86_400_000 +
-      1;
-    if (rangeDays > MAX_RANGE_DAYS) {
-      return NextResponse.json(
-        {
-          error: `Requested range spans ${rangeDays} days; the manual sync is capped at ${MAX_RANGE_DAYS} days per call`,
-        },
-        { status: 400 }
-      );
-    }
+    const { start_date, end_date } = range;
 
     // --- Load non-secret connection config -------------------------------
     const { data: connection, error: connError } = await supabase
@@ -151,11 +197,15 @@ export async function POST(req: NextRequest) {
       .eq("is_active", true)
       .maybeSingle();
     if (connError) {
-      console.error("[Odoo Sync] connection lookup failed:", connError.message);
+      console.error(
+        "[Odoo Sync] connection lookup failed:",
+        "PostgrestError",
+        connError.message
+      );
       return NextResponse.json(
         {
           error: "Could not look up Odoo connection config",
-          details: connError.message,
+          details: odooFaultDetails("unknown"),
         },
         { status: 500 }
       );
@@ -189,6 +239,52 @@ export async function POST(req: NextRequest) {
         );
       }
       throw err;
+    }
+
+    // --- Load restaurant locations to validate mapping BEFORE Odoo fetch ---
+    const { data: locationRows, error: locError } = await supabase
+      .from("restaurant_locations")
+      .select("id, odoo_company_id")
+      .eq("company_id", companyId);
+    if (locError) {
+      console.error(
+        "[Odoo Sync] restaurant_locations lookup failed:",
+        "PostgrestError",
+        locError.message
+      );
+      return NextResponse.json(
+        {
+          error: "Could not load restaurant locations",
+          details: odooFaultDetails("unknown"),
+        },
+        { status: 500 }
+      );
+    }
+
+    // Build Odoo company → location mapping
+    const companyLocationMap = new Map<number, string>();
+    for (const loc of (locationRows ?? []) as Array<{
+      id: string;
+      odoo_company_id: number | null;
+    }>) {
+      if (loc.odoo_company_id !== null) {
+        companyLocationMap.set(loc.odoo_company_id, loc.id);
+      }
+    }
+
+    // Fail closed: all selected companies must be mapped
+    const unmappedCompanies = scope.companyIds.filter(
+      (id) => !companyLocationMap.has(id)
+    );
+    if (unmappedCompanies.length > 0) {
+      return NextResponse.json(
+        {
+          error: "odoo_location_mapping_required",
+          unmapped_companies: unmappedCompanies,
+          message: `Odoo companies ${unmappedCompanies.join(", ")} are not mapped to locations. Map them in the admin Odoo page before syncing.`,
+        },
+        { status: 409 }
+      );
     }
 
     // --- Per-company secret: encrypted at rest, decrypted server-side only.
@@ -234,10 +330,15 @@ export async function POST(req: NextRequest) {
       if (err instanceof OdooAuthenticationError) {
         return NextResponse.json({ error: err.message }, { status: 401 });
       }
-      const message = err instanceof Error ? err.message : "Unknown error";
-      console.error("[Odoo Sync] authentication failed:", message);
+      const statusClass = logOdooFault(
+        "[Odoo Sync] authentication failed:",
+        err
+      );
       return NextResponse.json(
-        { error: "Could not reach Odoo instance", details: message },
+        {
+          error: "Could not reach Odoo instance",
+          details: odooFaultDetails(statusClass),
+        },
         { status: 502 }
       );
     }
@@ -259,12 +360,15 @@ export async function POST(req: NextRequest) {
         );
       }
     } catch (err) {
-      console.error(
+      const statusClass = logOdooFault(
         "[Odoo Sync] company re-validation failed:",
-        err instanceof Error ? err.name : "Unknown error"
+        err
       );
       return NextResponse.json(
-        { error: "Could not verify Odoo company access" },
+        {
+          error: "Could not verify Odoo company access",
+          details: odooFaultDetails(statusClass),
+        },
         { status: 502 }
       );
     }
@@ -277,7 +381,23 @@ export async function POST(req: NextRequest) {
       ["date_order", "<=", `${queryEnd} 23:59:59`],
       ["state", "in", [...ODOO_COMPLETED_STATES]],
     ];
-    const orderFields = [
+    const scopedCall: ScopedOdooCall = async (model, method, args, kwargs) => {
+      const result = await scopedExecuteKw(
+        creds,
+        uid,
+        scope,
+        model,
+        method,
+        args,
+        kwargs
+      );
+      if (method === "search_read") {
+        assertRecordsInScope(model, result, scope);
+      }
+      return result;
+    };
+
+    const baseOrderFields = [
       "id",
       "state",
       "date_order",
@@ -287,6 +407,25 @@ export async function POST(req: NextRequest) {
       "config_id",
       "currency_id",
       "company_id",
+    ];
+    let availableOrderFields = new Set<string>();
+    try {
+      const detected = await scopedCall("pos.order", "fields_get", [], {
+        attributes: ["string", "type"],
+      });
+      if (
+        detected &&
+        typeof detected === "object" &&
+        !Array.isArray(detected)
+      ) {
+        availableOrderFields = new Set(Object.keys(detected));
+      }
+    } catch (err) {
+      logOdooFault("[Odoo Sync] pos.order fields_get failed:", err);
+    }
+    const orderFields = [
+      ...baseOrderFields,
+      ...optionalOrderFields(availableOrderFields),
     ];
 
     let orders: OdooPosOrderRaw[];
@@ -304,13 +443,40 @@ export async function POST(req: NextRequest) {
         ? result
         : []) as unknown as OdooPosOrderRaw[];
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      console.error("[Odoo Sync] pos.order search_read failed:", message);
-      const status = err instanceof OdooRpcError ? 502 : 500;
-      return NextResponse.json(
-        { error: "Failed to fetch Odoo POS orders", details: message },
-        { status }
+      // A version-specific optional field can still 500 the call; retry
+      // the known-safe base list so revenue sync is not blocked.
+      logOdooFault(
+        "[Odoo Sync] pos.order search_read with optional fields failed, retrying base fields:",
+        err
       );
+      try {
+        const result = await scopedExecuteKw(
+          creds,
+          uid,
+          scope,
+          "pos.order",
+          "search_read",
+          [domain],
+          { fields: baseOrderFields }
+        );
+        orders = (Array.isArray(result)
+          ? result
+          : []) as unknown as OdooPosOrderRaw[];
+        availableOrderFields = new Set(baseOrderFields);
+      } catch (retryErr) {
+        const statusClass = logOdooFault(
+          "[Odoo Sync] pos.order search_read failed:",
+          retryErr
+        );
+        const status = retryErr instanceof OdooRpcError ? 502 : 500;
+        return NextResponse.json(
+          {
+            error: "Failed to fetch Odoo POS orders",
+            details: odooFaultDetails(statusClass),
+          },
+          { status }
+        );
+      }
     }
 
     try {
@@ -320,7 +486,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (orders.length === 0) {
-      return NextResponse.json({
+      const emptyPayload = {
         synced_range: { start_date, end_date },
         orders_fetched: 0,
         lines_fetched: 0,
@@ -329,12 +495,14 @@ export async function POST(req: NextRequest) {
         lines_skipped: [],
         unmatched_menu_items: [],
         unmatched_locations: [],
-      });
+      };
+      await persistLastSync(supabase, conn.id, companyId, emptyPayload);
+      return NextResponse.json(emptyPayload);
     }
 
     // --- Fetch lines for those orders --------------------------------------
     const orderIds = orders.map((o) => o.id);
-    const lineFields = [
+    const baseLineFields = [
       "id",
       "order_id",
       "product_id",
@@ -346,6 +514,25 @@ export async function POST(req: NextRequest) {
       "discount",
       "uuid",
       "company_id",
+    ];
+    let availableLineFields = new Set<string>();
+    try {
+      const detected = await scopedCall("pos.order.line", "fields_get", [], {
+        attributes: ["string", "type"],
+      });
+      if (
+        detected &&
+        typeof detected === "object" &&
+        !Array.isArray(detected)
+      ) {
+        availableLineFields = new Set(Object.keys(detected));
+      }
+    } catch (err) {
+      logOdooFault("[Odoo Sync] pos.order.line fields_get failed:", err);
+    }
+    const lineFields = [
+      ...baseLineFields,
+      ...optionalLineComboFields(availableLineFields),
     ];
 
     let lines: OdooPosOrderLineRaw[];
@@ -363,13 +550,40 @@ export async function POST(req: NextRequest) {
         ? result
         : []) as unknown as OdooPosOrderLineRaw[];
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      console.error("[Odoo Sync] pos.order.line search_read failed:", message);
-      const status = err instanceof OdooRpcError ? 502 : 500;
-      return NextResponse.json(
-        { error: "Failed to fetch Odoo POS order lines", details: message },
-        { status }
+      // combo_parent_id can 500 on a version where fields_get lied or
+      // the field is unreadable; retry the known-safe base list so
+      // older Odoo still syncs stand-alone lines.
+      logOdooFault(
+        "[Odoo Sync] pos.order.line search_read with optional fields failed, retrying base fields:",
+        err
       );
+      try {
+        const result = await scopedExecuteKw(
+          creds,
+          uid,
+          scope,
+          "pos.order.line",
+          "search_read",
+          [[["order_id", "in", orderIds]]],
+          { fields: baseLineFields }
+        );
+        lines = (Array.isArray(result)
+          ? result
+          : []) as unknown as OdooPosOrderLineRaw[];
+      } catch (retryErr) {
+        const statusClass = logOdooFault(
+          "[Odoo Sync] pos.order.line search_read failed:",
+          retryErr
+        );
+        const status = retryErr instanceof OdooRpcError ? 502 : 500;
+        return NextResponse.json(
+          {
+            error: "Failed to fetch Odoo POS order lines",
+            details: odooFaultDetails(statusClass),
+          },
+          { status }
+        );
+      }
     }
 
     try {
@@ -378,15 +592,33 @@ export async function POST(req: NextRequest) {
       return scopeViolationResponse(err);
     }
 
+    const productIds = lines
+      .map((line) => (line.product_id ? line.product_id[0] : null))
+      .filter((id): id is number => typeof id === "number");
+    let dimensions;
+    try {
+      dimensions = await loadOdooDimensions(
+        scopedCall,
+        orders as unknown as Record<string, unknown>[],
+        productIds
+      );
+    } catch (err) {
+      if (err instanceof OdooCompanyScopeError) {
+        return scopeViolationResponse(err);
+      }
+      logOdooFault("[Odoo Sync] dimension fetch failed:", err);
+      dimensions = null;
+    }
+
     // --- Build lookup indexes (same soft-match mechanism as Revel) --------
-    const [menuItemsRes, locationsRes] = await Promise.all([
+    const [menuItemsRes, locationsFullRes] = await Promise.all([
       supabase
         .from("menu_items")
         .select("id, name, brand_id")
         .eq("company_id", companyId),
       supabase
         .from("restaurant_locations")
-        .select("id, name, brand_id")
+        .select("id, name, brand_id, odoo_company_id")
         .eq("company_id", companyId),
     ]);
     if (menuItemsRes.error) {
@@ -395,10 +627,10 @@ export async function POST(req: NextRequest) {
         menuItemsRes.error.message
       );
     }
-    if (locationsRes.error) {
+    if (locationsFullRes.error) {
       console.error(
         "[Odoo Sync] restaurant_locations lookup failed:",
-        locationsRes.error.message
+        locationsFullRes.error.message
       );
     }
     const menuItemRows = (menuItemsRes.data ?? []) as {
@@ -406,10 +638,11 @@ export async function POST(req: NextRequest) {
       name: string;
       brand_id: string | null;
     }[];
-    const locationRows = (locationsRes.data ?? []) as {
+    const locationRowsFull = (locationsFullRes.data ?? []) as {
       id: string;
       name: string;
       brand_id: string | null;
+      odoo_company_id: number | null;
     }[];
     // Menu items are matched scoped by brand — never guessed across
     // brands. Uses normalizeMatchKey (from odoo/sync.ts), the same
@@ -422,19 +655,32 @@ export async function POST(req: NextRequest) {
       })),
       normalizeMatchKey
     );
-    const locationIndex = buildNameIndex(locationRows);
+    const locationIndex = buildNameIndex(locationRowsFull);
     const locationBrandIndex = new Map<string, string | null>(
-      locationRows.map((l) => [l.id, l.brand_id])
+      locationRowsFull.map((l) => [l.id, l.brand_id])
     );
+
+    // Update the mapping with full location data (was built earlier with minimal fields)
+    companyLocationMap.clear();
+    for (const loc of locationRowsFull) {
+      if (loc.odoo_company_id !== null) {
+        companyLocationMap.set(loc.odoo_company_id, loc.id);
+      }
+    }
 
     // --- Transform ----------------------------------------------------------
     const { rows: allRows, skipped } = transformOdooOrders(orders, lines, {
       companyId,
       timezone: conn.timezone,
-      defaultCurrency: "MXN",
+      defaultCurrency: await resolveCompanyCurrency(supabase, companyId),
       menuItemIndex,
       locationIndex,
       locationBrandIndex,
+      companyLocationMap,
+      channelByOrderId: dimensions?.lookups.channelByOrderId,
+      channelSourceByOrderId: dimensions?.lookups.channelSourceByOrderId,
+      paymentByOrderId: dimensions?.lookups.paymentByOrderId,
+      categoryByProductId: dimensions?.lookups.categoryByProductId,
     });
 
     // Drop rows the padding pulled in that fall outside the exact requested
@@ -460,24 +706,58 @@ export async function POST(req: NextRequest) {
     }
 
     // --- Upsert (idempotent on company_id, pos_source, external_line_id) --
+    // Migrations 030 / 038 are applied by hand. If is_tip or the combo
+    // parent columns are not on the table yet, strip them and retry so
+    // Sync now still writes the sale rows.
     let upserted = 0;
+    const omittedSalesColumns = new Set<string>();
+    const upsertOpts = {
+      onConflict: "company_id,pos_source,external_line_id",
+      count: "exact" as const,
+    };
     for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
-      const batch: CanonicalOdooSaleRow[] = rows.slice(
-        i,
-        i + UPSERT_BATCH_SIZE
+      const mapped = rows.slice(i, i + UPSERT_BATCH_SIZE).map((row) =>
+        stripFailedDimensionFields(row, {
+          paymentReadFailed: dimensions == null || dimensions.paymentReadFailed,
+          categoryReadFailed:
+            dimensions == null || dimensions.categoryReadFailed,
+        })
       );
-      const { error: upsertError, count } = await supabase
-        .from("pos_sales_items")
-        .upsert(batch, {
-          onConflict: "company_id,pos_source,external_line_id",
-          count: "exact",
-        });
+      let batch = mapped;
+      for (const column of omittedSalesColumns) {
+        batch = omitColumnFromRows(batch, column);
+      }
+      const doUpsert = async (next: typeof batch) => {
+        const result = await supabase
+          .from("pos_sales_items")
+          .upsert(next, upsertOpts);
+        return { error: result.error, count: result.count };
+      };
+      const pendingOptional = OPTIONAL_SALES_COLUMNS.filter(
+        (column) => !omittedSalesColumns.has(column)
+      );
+      const {
+        error: upsertError,
+        count,
+        omittedColumns,
+      } = pendingOptional.length === 0
+        ? await doUpsert(batch).then((r) => ({
+            error: r.error,
+            count: r.count ?? batch.length,
+            omittedColumns: [] as string[],
+          }))
+        : await upsertRetryingWithoutColumns(pendingOptional, doUpsert, batch);
+      for (const column of omittedColumns) omittedSalesColumns.add(column);
       if (upsertError) {
-        console.error("[Odoo Sync] upsert failed:", upsertError.message);
+        console.error(
+          "[Odoo Sync] upsert failed:",
+          "PostgrestError",
+          upsertError.message
+        );
         return NextResponse.json(
           {
             error: "Database upsert failed",
-            details: upsertError.message,
+            details: odooFaultDetails("unknown"),
             rows_upserted_before_failure: upserted,
           },
           { status: 500 }
@@ -486,7 +766,7 @@ export async function POST(req: NextRequest) {
       upserted += count ?? batch.length;
     }
 
-    return NextResponse.json({
+    const payload = {
       synced_range: { start_date, end_date },
       odoo_query_range_utc: { start: queryStart, end: queryEnd },
       orders_fetched: orders.length,
@@ -496,12 +776,18 @@ export async function POST(req: NextRequest) {
       lines_skipped: skipped,
       unmatched_menu_items: Array.from(unmatchedMenuItems).sort(),
       unmatched_locations: Array.from(unmatchedLocations).sort(),
-    });
+      dimension_notes: dimensions?.notes ?? [],
+      dimension_calls: dimensions?.callCount ?? 0,
+    };
+    await persistLastSync(supabase, conn.id, companyId, payload);
+    return NextResponse.json(payload);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[Odoo Sync] Unexpected error:", message);
+    const statusClass = logOdooFault("[Odoo Sync] Unexpected error:", err);
     return NextResponse.json(
-      { error: "Odoo sync failed", details: message },
+      {
+        error: "Odoo sync failed",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 500 }
     );
   }

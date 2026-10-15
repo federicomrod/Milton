@@ -22,7 +22,8 @@ export type CostStatus =
   | "missing_unit_conversion"
   | "circular_component_reference"
   | "no_cost_entries"
-  | "inactive_recipe";
+  | "inactive_recipe"
+  | "workbook_mismatch";
 
 /** A single human-readable issue surfaced by the engine. The dashboard
  *  renders these next to the cost cell so the user knows exactly what
@@ -44,6 +45,8 @@ export interface IngredientCostEntry {
   source_type: "manual" | "invoice_line" | "import" | "api";
   source_id: string | null;
   cost_date: string;
+  effective_date?: string | null;
+  date_source?: "invoice" | "dated_price_list" | "upload" | "confirmation" | "manual" | null;
   quantity: number;
   unit: string;
   total_cost: number;

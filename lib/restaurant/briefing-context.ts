@@ -18,7 +18,8 @@ import {
   type ProfitabilitySelection,
 } from "@/lib/restaurant/profitability-server";
 import {
-  resolvePreferredLanguage,
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  resolveRestaurantCockpitLanguage,
   t,
   type PreferredLanguage,
 } from "@/lib/restaurant/language";
@@ -172,17 +173,18 @@ export async function buildBriefingContext(
   companyId: string,
   selected?: ProfitabilitySelection | null
 ): Promise<BriefingContext> {
-  // ---- Preferred language (company-level, Milton Language Foundation v1) ----
-  // Best-effort: any failure (missing column pre-migration, transient
-  // error) safely resolves to English — never blocks the briefing.
-  let preferredLanguage: PreferredLanguage = "en";
+  // Same resolver as the restaurant cockpit so Ask Milton / briefing
+  // prose match the shell (R1 Spanish). Emails/Telegram formatters that
+  // still want resolvePreferredLanguage should not go through this path.
+  let preferredLanguage: PreferredLanguage =
+    RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
   try {
     const { data: languageRow } = await supabase
       .from("companies")
       .select("preferred_language")
       .eq("id", companyId)
       .maybeSingle();
-    preferredLanguage = resolvePreferredLanguage(
+    preferredLanguage = resolveRestaurantCockpitLanguage(
       languageRow?.preferred_language
     );
   } catch (err) {
@@ -238,49 +240,23 @@ export async function buildBriefingContext(
   const data = await fetchProfitabilityData(supabase, companyId, selected);
   const currency = data.kpis.currency;
 
-  // ---- POS-level orders + avg ticket (counts distinct check_id when present) ----
-  // We don't pull all rows again — orders is intentionally null when the POS
-  // export was a daily summary (no check_id). The reason field tells the model
-  // exactly that so it doesn't make a number up.
+  // Distinct checks come from the profitability POS read — do not page
+  // pos_sales_items a second time just for check_id.
   let orders: number | null = null;
   let ordersReason: string | undefined;
-  try {
-    let checksQuery = supabase
-      .from("pos_sales_items")
-      .select("check_id")
-      .eq("company_id", companyId)
-      .not("check_id", "is", null);
-    if (selected) {
-      checksQuery = checksQuery.eq("location_id", selected.locationId);
-    }
-    const { data: checks, error: checksErr } = await checksQuery.limit(20_000);
-    if (checksErr) {
-      ordersReason = t(
-        preferredLanguage,
-        "Could not read check_id from pos_sales_items.",
-        "No se pudo leer check_id de pos_sales_items."
-      );
-    } else {
-      const distinct = new Set<string>();
-      for (const row of (checks ?? []) as { check_id: string | null }[]) {
-        if (row.check_id) distinct.add(row.check_id);
-      }
-      if (distinct.size > 0) {
-        orders = distinct.size;
-      } else {
-        ordersReason = t(
-          preferredLanguage,
-          "POS rows have no check_id (summary export) — orders not counted.",
-          "Las filas del POS no tienen check_id (exportación resumida) — no se contaron órdenes."
-        );
-      }
-    }
-  } catch (err) {
-    console.error("[briefing-context] orders lookup:", err);
+  if (data.readError) {
     ordersReason = t(
       preferredLanguage,
-      "Unexpected error counting orders.",
-      "Error inesperado al contar las órdenes."
+      "Could not read check_id from pos_sales_items.",
+      "No se pudo leer check_id de pos_sales_items."
+    );
+  } else if (data.distinct_check_count > 0) {
+    orders = data.distinct_check_count;
+  } else {
+    ordersReason = t(
+      preferredLanguage,
+      "POS rows have no check_id (summary export) — orders not counted.",
+      "Las filas del POS no tienen check_id (exportación resumida) — no se contaron órdenes."
     );
   }
 

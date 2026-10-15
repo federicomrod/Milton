@@ -33,6 +33,11 @@ import type {
   InvoiceLineMatchStatus,
   InvoiceSourceType,
 } from "@/types/supplier-invoices";
+import {
+  currencyMismatchReason,
+  resolveCompanyCurrency,
+  resolveWriteCurrency,
+} from "@/lib/restaurant/currency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -93,10 +98,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const currency =
-    extraction.currency && /^[A-Z]{3}$/.test(extraction.currency)
-      ? extraction.currency
-      : "MXN";
+  const companyCurrency = await resolveCompanyCurrency(supabase, companyId);
+  const currency = resolveWriteCurrency(extraction.currency, companyCurrency);
+  const mismatch = currencyMismatchReason(currency, companyCurrency);
+  if (mismatch) {
+    return NextResponse.json({ error: mismatch }, { status: 400 });
+  }
 
   // ---- Resolve / autocreate supplier ----
   let supplierId: string | null = null;

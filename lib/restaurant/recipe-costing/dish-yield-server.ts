@@ -1,0 +1,55 @@
+// Confirm how many portions a dish's recipe yields. Only the yield in the
+// dish's cached evidence changes (what the checklist reads); recipe lines
+// are edited through the ingredient editor, never here.
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { actorCanSubmitForApproval, type RecipeActor } from "./approval";
+import { loadPosProductLink } from "./link-actions-server";
+
+export async function confirmDishYield(input: {
+  supabase: SupabaseClient;
+  companyId: string;
+  actor: RecipeActor;
+  odooProductId: number;
+  locationId?: string | null;
+  yieldValue: number;
+}): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
+  if (!actorCanSubmitForApproval(input.actor)) {
+    return { ok: false, error: "Tu rol no puede editar recetas.", status: 403 };
+  }
+  if (!(input.yieldValue > 0) || !Number.isFinite(input.yieldValue)) {
+    return {
+      ok: false,
+      error: "El rendimiento tiene que ser mayor que cero.",
+      status: 400,
+    };
+  }
+  const link = await loadPosProductLink(
+    input.supabase,
+    input.companyId,
+    input.odooProductId,
+    input.locationId
+  );
+  if (!link?.id) {
+    return {
+      ok: false,
+      error: "No hay un vínculo para este producto.",
+      status: 404,
+    };
+  }
+  const prev =
+    link.evidence.yield && typeof link.evidence.yield === "object"
+      ? (link.evidence.yield as Record<string, unknown>)
+      : {};
+  const evidence = {
+    ...link.evidence,
+    yield: { ...prev, value: input.yieldValue, source: "confirmed" },
+  };
+  const { error } = await input.supabase
+    .from("pos_product_links")
+    .update({ evidence, updated_at: new Date().toISOString() })
+    .eq("company_id", input.companyId)
+    .eq("id", link.id);
+  if (error) throw new Error(error.message);
+  return { ok: true };
+}

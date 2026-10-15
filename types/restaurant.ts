@@ -14,6 +14,7 @@ export type UnitOfMeasure =
   | "g"
   | "l"
   | "ml"
+  | "gal"
   | "unit"
   | "portion"
   | "oz"
@@ -107,7 +108,7 @@ export interface Ingredient {
   name: string;
   category: string;
   default_unit: UnitOfMeasure;
-  current_unit_cost: number; // fallback when no invoice line is available
+  current_unit_cost: number | null; // null = pending price, never a real $0
   currency: string;
   supplier_id?: string;
   created_at: string;
@@ -341,6 +342,18 @@ export interface PosSalesItemRow {
    * silently discard information the source provides.
    */
   source_metadata: Record<string, unknown> | null;
+  /**
+   * True when the POS line is a tip / Propina (migration 030). Null on
+   * legacy rows — readers fall back to the product name.
+   */
+  is_tip?: boolean | null;
+  /**
+   * Odoo pos.order.line id of the native combo parent (migration 038).
+   * Null on older Odoo and on stand-alone lines.
+   */
+  combo_parent_external_line_id?: string | null;
+  /** Odoo product.product id of that combo parent (migration 038). */
+  combo_parent_odoo_product_id?: number | null;
 }
 
 /**
@@ -362,6 +375,22 @@ export interface RestaurantPosConnection {
    * null = nothing selected; Odoo calls fail closed.
    */
   odoo_company_ids: number[] | null;
+  /**
+   * Compact last successful Odoo POS sync (migration 027). Absent or
+   * null until the first Sync now (or console) run after the column
+   * exists. Never stores the full unmatched_menu_items list.
+   */
+  last_sync?: {
+    synced_at: string;
+    start_date: string;
+    end_date: string;
+    orders_fetched: number;
+    rows_upserted: number;
+    skipped_count: number;
+    unmatched_menu_item_count: number;
+    unmatched_locations: string[];
+    warning_count: number;
+  } | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

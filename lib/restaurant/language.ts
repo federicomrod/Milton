@@ -19,12 +19,20 @@ export type PreferredLanguage = "en" | "es";
 
 export const DEFAULT_LANGUAGE: PreferredLanguage = "en";
 
+/**
+ * Restaurant cockpit chrome (sidebar, header, Sync, empty states) defaults
+ * to Spanish when `companies.preferred_language` is unset. Emails, Telegram
+ * and briefings still use DEFAULT_LANGUAGE — this is not a migration and
+ * does not overwrite a stored company preference.
+ */
+export const RESTAURANT_COCKPIT_DEFAULT_LANGUAGE: PreferredLanguage = "es";
+
 export interface LanguageOption {
   value: PreferredLanguage;
   label: string;
 }
 
-/** English first — matches DEFAULT_LANGUAGE and today's only supported UI language. */
+/** English first — matches DEFAULT_LANGUAGE. The restaurant cockpit UI defaults to Spanish separately. */
 export const LANGUAGE_OPTIONS: LanguageOption[] = [
   { value: "en", label: "English" },
   { value: "es", label: "Español" },
@@ -97,6 +105,25 @@ export function normalizePreferredLanguage(
  */
 export function resolvePreferredLanguage(value: unknown): PreferredLanguage {
   return normalizePreferredLanguage(value) ?? DEFAULT_LANGUAGE;
+}
+
+/**
+ * Language for R1 restaurant cockpit surfaces (shell, tabs, insights,
+ * Ask Milton, briefing generation used by those surfaces).
+ *
+ * Migration 016 added `companies.preferred_language NOT NULL DEFAULT 'en'`
+ * and backfilled every existing company — including the El Salvador pilot
+ * that never picked English. `resolvePreferredLanguage` therefore returns
+ * English for that account, while some tabs were later hardcoded to
+ * Spanish. The cockpit keeps using this helper (not a second i18n system)
+ * and treats the R1 UI as Spanish via RESTAURANT_COCKPIT_DEFAULT_LANGUAGE.
+ * Emails and Telegram still go through resolvePreferredLanguage.
+ */
+export function resolveRestaurantCockpitLanguage(
+  value?: unknown
+): PreferredLanguage {
+  void value;
+  return RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
 }
 
 /**

@@ -15,6 +15,13 @@ import { Sparkles, RefreshCw, AlertTriangle, Cpu } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
+
+const DEFAULT_LANG: PreferredLanguage = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
 
 // ---------------------------------------------------------------------------
 // Types — kept local to avoid bundling server-only modules into the client.
@@ -47,8 +54,13 @@ interface BriefingPayload {
 
 function fmtRelative(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 60_000) return "just now";
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} min ago`;
+  if (ms < 60_000) return t(DEFAULT_LANG, "just now", "hace un momento");
+  if (ms < 3_600_000)
+    return t(
+      DEFAULT_LANG,
+      `${Math.round(ms / 60_000)} min ago`,
+      `hace ${Math.round(ms / 60_000)} min`
+    );
   return new Date(iso).toLocaleString("es-MX", {
     day: "2-digit",
     month: "2-digit",
@@ -78,7 +90,7 @@ function BriefingCardSkeleton() {
       <CardContent className="pt-4 pb-4">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Sparkles className="h-4 w-4 text-orange-600 dark:text-orange-300" />
-          Loading briefing...
+          Cargando el briefing...
         </div>
       </CardContent>
     </Card>
@@ -113,7 +125,11 @@ function BriefingCardInner() {
       }
       setData(body as BriefingPayload);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(DEFAULT_LANG, "Network error", "Error de red")
+      );
     } finally {
       setLoading(false);
     }
@@ -134,12 +150,12 @@ function BriefingCardInner() {
           <div className="flex-1 min-w-0 space-y-2">
             {/* Header row */}
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-semibold">Milton Briefing</span>
+              <span className="text-sm font-semibold">Briefing de Milton</span>
               {data && (
                 <Badge
                   variant="outline"
                   className={
-                    "text-[10px] uppercase tracking-wide " +
+                    "text-[12px] uppercase tracking-wide " +
                     (data.source === "openai"
                       ? "border-orange-300 bg-orange-100 text-orange-900 dark:border-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
                       : "border-border text-muted-foreground")
@@ -148,18 +164,18 @@ function BriefingCardInner() {
                   {data.source === "openai" ? (
                     <>
                       <Sparkles className="h-3 w-3 inline mr-1" />
-                      AI briefing
+                      Briefing de IA
                     </>
                   ) : (
                     <>
                       <Cpu className="h-3 w-3 inline mr-1" />
-                      Rule-based briefing
+                      Briefing por reglas
                     </>
                   )}
                 </Badge>
               )}
               {data && (
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-[12px] text-muted-foreground">
                   · {fmtRelative(data.generated_at)}
                 </span>
               )}
@@ -169,25 +185,38 @@ function BriefingCardInner() {
                 className="ml-auto h-7 text-xs gap-1"
                 onClick={load}
                 disabled={loading}
-                title="Refresh briefing"
+                title={t(
+                  DEFAULT_LANG,
+                  "Refresh briefing",
+                  "Actualizar briefing"
+                )}
               >
                 <RefreshCw
                   className={"h-3.5 w-3.5 " + (loading ? "animate-spin" : "")}
                 />
-                Refresh
+                {t(DEFAULT_LANG, "Refresh", "Actualizar")}
               </Button>
             </div>
 
             {/* Loading / error / content */}
             {loading && !data && (
               <p className="text-sm text-muted-foreground">
-                Reading your latest restaurant numbers…
+                {t(
+                  DEFAULT_LANG,
+                  "Reading your latest restaurant numbers…",
+                  "Leyendo los números más recientes…"
+                )}
               </p>
             )}
             {error && (
               <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
                 <AlertTriangle className="h-3.5 w-3.5" />
-                Could not load briefing: {error}
+                {t(
+                  DEFAULT_LANG,
+                  "Could not load briefing:",
+                  "No se pudo cargar el briefing:"
+                )}{" "}
+                {error}
               </p>
             )}
 
@@ -202,8 +231,12 @@ function BriefingCardInner() {
 
                 {data.briefing.recommended_actions.length > 0 && (
                   <div className="pt-1">
-                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium mb-1">
-                      Recommended actions
+                    <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium mb-1">
+                      {t(
+                        DEFAULT_LANG,
+                        "Recommended actions",
+                        "Acciones recomendadas"
+                      )}
                     </p>
                     <ul className="space-y-1 text-sm">
                       {data.briefing.recommended_actions
@@ -224,7 +257,7 @@ function BriefingCardInner() {
                 )}
 
                 {data.briefing.confidence_notes.length > 0 && (
-                  <p className="text-[11px] text-muted-foreground italic">
+                  <p className="text-[12px] text-muted-foreground italic">
                     {data.briefing.confidence_notes[0]}
                   </p>
                 )}

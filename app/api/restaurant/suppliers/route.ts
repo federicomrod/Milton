@@ -12,6 +12,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import {
+  fetchAllRows,
+  succeededRows,
+  warnIfTruncated,
+} from "@/lib/restaurant/paginated-read";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,23 +26,33 @@ export async function GET() {
   if (!auth.ok) return auth.response;
   const { supabase, companyId } = auth;
 
+  type SupplierRow = Record<string, unknown> & { id: string; name: string };
   const [suppliersRes, linksRes, costRes] = await Promise.all([
-    supabase
-      .from("suppliers")
-      .select(
-        "id, name, status, contact_name, email, phone, notes, address, payment_terms, tax_id, created_at, updated_at"
-      )
-      .eq("company_id", companyId)
-      .order("name", { ascending: true }),
-    supabase
-      .from("supplier_ingredients")
-      .select("supplier_id, ingredient_id")
-      .eq("company_id", companyId),
-    supabase
-      .from("ingredient_cost_entries")
-      .select("supplier_id, cost_date, total_cost")
-      .eq("company_id", companyId)
-      .not("supplier_id", "is", null),
+    fetchAllRows<SupplierRow>(() =>
+      supabase
+        .from("suppliers")
+        .select(
+          "id, name, status, contact_name, email, phone, notes, address, payment_terms, tax_id, created_at, updated_at"
+        )
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{ supplier_id: string; ingredient_id: string }>(() =>
+      supabase
+        .from("supplier_ingredients")
+        .select("supplier_id, ingredient_id")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<{
+      supplier_id: string;
+      cost_date: string;
+      total_cost: number;
+    }>(() =>
+      supabase
+        .from("ingredient_cost_entries")
+        .select("supplier_id, cost_date, total_cost")
+        .eq("company_id", companyId)
+        .not("supplier_id", "is", null)
+    ),
   ]);
 
   if (suppliersRes.error) {
@@ -47,10 +62,12 @@ export async function GET() {
       { status: 500 }
     );
   }
+  warnIfTruncated("suppliers GET links", linksRes);
+  warnIfTruncated("suppliers GET cost entries", costRes);
 
   // Build per-supplier aggregates in memory so we avoid N+1 queries.
   const ingredientCountBySupplierId = new Map<string, number>();
-  for (const l of (linksRes.data ?? []) as { supplier_id: string }[]) {
+  for (const l of succeededRows(linksRes)) {
     ingredientCountBySupplierId.set(
       l.supplier_id,
       (ingredientCountBySupplierId.get(l.supplier_id) ?? 0) + 1
@@ -59,11 +76,7 @@ export async function GET() {
 
   const latestCostDateBySupplierId = new Map<string, string>();
   const totalSpendBySupplierId = new Map<string, number>();
-  for (const e of (costRes.data ?? []) as {
-    supplier_id: string;
-    cost_date: string;
-    total_cost: number;
-  }[]) {
+  for (const e of succeededRows(costRes)) {
     const sid = e.supplier_id;
     const prev = latestCostDateBySupplierId.get(sid);
     if (!prev || e.cost_date > prev)
@@ -74,14 +87,14 @@ export async function GET() {
     );
   }
 
-  const suppliers = (suppliersRes.data ?? []).map(
-    (s: Record<string, unknown>) => ({
+  const suppliers = [...suppliersRes.rows]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((s) => ({
       ...s,
-      ingredient_count: ingredientCountBySupplierId.get(s.id as string) ?? 0,
-      latest_cost_date: latestCostDateBySupplierId.get(s.id as string) ?? null,
-      total_spend: totalSpendBySupplierId.get(s.id as string) ?? null,
-    })
-  );
+      ingredient_count: ingredientCountBySupplierId.get(s.id) ?? 0,
+      latest_cost_date: latestCostDateBySupplierId.get(s.id) ?? null,
+      total_spend: totalSpendBySupplierId.get(s.id) ?? null,
+    }));
 
   return NextResponse.json({ suppliers });
 }

@@ -40,6 +40,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import type { AgentAction } from "@/types/agent-actions";
+import {
+  resolveCompanyCurrency,
+  resolveWriteCurrency,
+} from "@/lib/restaurant/currency";
+import { fetchMenuRecipesData } from "@/lib/restaurant/menu-recipes-server";
+import {
+  isPendingRecipeCostStatus,
+  pendingRecipesLabel,
+} from "@/lib/restaurant/cost-workbook/copy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -224,16 +233,29 @@ export async function POST(req: NextRequest) {
   }
 
   // ---- 2) Transition the action to executed ----
-  const estimatedCost = readNumber(payload, "estimated_cost");
+  const catalog = await fetchMenuRecipesData(supabase, companyId, {
+    posRows: [],
+  });
+  const liveCost = catalog.menuItems.find((row) => row.id === menuItemId)?.cost;
+  const costPending = liveCost
+    ? isPendingRecipeCostStatus(liveCost.status)
+    : false;
+  const estimatedCost = costPending
+    ? null
+    : liveCost?.status === "complete" && liveCost.cost != null
+      ? liveCost.cost
+      : readNumber(payload, "estimated_cost");
   const targetMarginPct = readNumber(payload, "target_margin_pct");
   const expectedMarginAfter =
     estimatedCost !== null && newPrice > 0
       ? Math.round(((newPrice - estimatedCost) / newPrice) * 1000) / 10
       : null;
-  const currencyForLog =
+  const companyCurrency = await resolveCompanyCurrency(supabase, companyId);
+  const currencyForLog = resolveWriteCurrency(
     (typeof menuItem.currency === "string" && menuItem.currency) ||
-    (typeof payload.currency === "string" && (payload.currency as string)) ||
-    "MXN";
+      (typeof payload.currency === "string" ? payload.currency : null),
+    companyCurrency
+  );
 
   const outcomeNotes = `Updated ${menuItem.name} selling_price from ${
     oldPrice !== null ? oldPrice : "unknown"
@@ -316,5 +338,7 @@ export async function POST(req: NextRequest) {
       currency: currencyForLog,
     },
     expected_margin_after_execution: expectedMarginAfter,
+    cost_pending: costPending,
+    cost_pending_label: costPending ? pendingRecipesLabel("es") : null,
   });
 }

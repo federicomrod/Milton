@@ -29,6 +29,11 @@ import {
   type SupplierIngredientLink,
 } from "@/lib/restaurant/invoice-import";
 import type { InvoiceLineMatchStatus } from "@/types/supplier-invoices";
+import {
+  currencyMismatchReason,
+  normalizeCurrency,
+  resolveCompanyCurrency,
+} from "@/lib/restaurant/currency";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -44,6 +49,9 @@ interface UploadSummary {
   unmatched_lines: number;
   failed_rows: { rowIndex: number; reason: string; description?: string }[];
   resolved_columns: Record<string, string>;
+  default_currency: string;
+  currency_mismatch_rows: number;
+  warning: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -68,12 +76,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const defaultCurrencyRaw = formData.get("default_currency");
-    const defaultCurrency =
-      typeof defaultCurrencyRaw === "string" &&
-      /^[A-Za-z]{3}$/.test(defaultCurrencyRaw)
-        ? defaultCurrencyRaw.toUpperCase()
-        : "MXN";
+    const companyCurrency = await resolveCompanyCurrency(supabase, companyId);
+    const formCurrency = normalizeCurrency(formData.get("default_currency"));
+    const defaultCurrency = companyCurrency;
+    const formCurrencyIgnored =
+      formCurrency !== null && formCurrency !== companyCurrency;
 
     // --- Parse file ------------------------------------------------------
     const isCSV = file.name.toLowerCase().endsWith(".csv");
@@ -148,6 +155,7 @@ export async function POST(req: NextRequest) {
     // --- Normalize rows --------------------------------------------------
     const normalized: NormalizedInvoiceRow[] = [];
     const failed: UploadSummary["failed_rows"] = [];
+    let currencyMismatchRows = 0;
     rawRows.forEach((row, idx) => {
       const result = normalizeInvoiceImportRow(
         row,
@@ -155,13 +163,28 @@ export async function POST(req: NextRequest) {
         resolved,
         defaultCurrency
       );
-      if (result.ok) normalized.push(result.value);
-      else
+      if (!result.ok) {
         failed.push({
           rowIndex: result.error.rowIndex,
           reason: result.error.reason,
           description: result.error.description,
         });
+        return;
+      }
+      const mismatch = currencyMismatchReason(
+        result.value.currency,
+        companyCurrency
+      );
+      if (mismatch) {
+        currencyMismatchRows++;
+        failed.push({
+          rowIndex: result.value.rowIndex,
+          reason: mismatch,
+          description: result.value.description,
+        });
+        return;
+      }
+      normalized.push(result.value);
     });
 
     if (normalized.length === 0) {
@@ -266,6 +289,19 @@ export async function POST(req: NextRequest) {
       unmatched_lines: 0,
       failed_rows: failed,
       resolved_columns: resolved,
+      default_currency: defaultCurrency,
+      currency_mismatch_rows: currencyMismatchRows,
+      warning: [
+        `Applied company currency ${defaultCurrency} to rows without a currency column.`,
+        formCurrencyIgnored
+          ? `Form default ${formCurrency} was ignored because it differs from the company currency.`
+          : null,
+        currencyMismatchRows > 0
+          ? `${currencyMismatchRows} row(s) were rejected because their currency differs from ${defaultCurrency}.`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" "),
     };
 
     const sourceType = isCSV ? "csv" : "xlsx";

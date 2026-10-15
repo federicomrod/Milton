@@ -37,17 +37,45 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { storeOdooSecret } from "@/lib/restaurant/odoo/secrets";
+import {
+  storeOdooSecret,
+  assertOdooEncryptionConfigured,
+  OdooSecretConfigError,
+} from "@/lib/restaurant/odoo/secrets";
 import {
   authenticate,
   OdooAuthenticationError,
+  OdooRpcError,
   type OdooCredentials,
 } from "@/lib/restaurant/odoo/client";
 import { discoverOdooCompanies } from "@/lib/restaurant/odoo/scoped";
 import { resolveOdooCompanySelection } from "@/lib/restaurant/odoo/company-selection";
+import {
+  assertOdooBaseUrlAllowed,
+  parseAllowedHosts,
+  OdooHostNotAllowedError,
+} from "@/lib/restaurant/odoo/allowed-hosts";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function logOdooFault(tag: string, err: unknown): string {
+  const name = err instanceof Error ? err.name : "UnknownError";
+  const logMessage = err instanceof Error ? err.message : "Unknown error";
+  let statusClass = "unknown";
+  if (err instanceof OdooRpcError && typeof err.faultCode === "number") {
+    const code = err.faultCode;
+    if (Number.isInteger(code) && code >= 100 && code <= 599) {
+      statusClass = `${Math.floor(code / 100)}xx`;
+    }
+  }
+  console.error(tag, name, logMessage);
+  return statusClass;
+}
+
+function odooFaultDetails(statusClass: string): string {
+  return `Odoo request failed (${statusClass})`;
+}
 
 interface RequestBody {
   base_url?: unknown;
@@ -75,7 +103,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
     }
 
-    const baseUrl = requiredString(body.base_url)?.replace(/\/+$/, "") ?? null;
+    const rawBaseUrl = requiredString(body.base_url);
+
+    // Extract and validate origin only (reject path/query/fragment)
+    let baseUrl: string | null = null;
+    if (rawBaseUrl) {
+      try {
+        const parsed = new URL(rawBaseUrl);
+        if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
+          return NextResponse.json(
+            {
+              error:
+                "base_url must contain only origin (no path, query, or fragment)",
+            },
+            { status: 400 }
+          );
+        }
+        baseUrl = parsed.origin;
+      } catch {
+        return NextResponse.json(
+          { error: "base_url is not a valid URL" },
+          { status: 400 }
+        );
+      }
+    }
+
     const databaseName = requiredString(body.database_name);
     const username = requiredString(body.username);
     const timezone = requiredString(body.timezone);
@@ -94,6 +146,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // --- Allowed-hosts guard (SSRF-safe, fail closed) before any network I/O ---
+    const allowedHosts = parseAllowedHosts();
+    try {
+      assertOdooBaseUrlAllowed(baseUrl as string, allowedHosts);
+    } catch (err) {
+      if (err instanceof OdooHostNotAllowedError) {
+        return NextResponse.json(
+          { error: "Odoo connection not allowed" },
+          { status: 400 }
+        );
+      }
+      throw err;
+    }
+
+    // --- Verify encryption key before any DB write ------------------------
+    try {
+      assertOdooEncryptionConfigured();
+    } catch (err) {
+      if (err instanceof OdooSecretConfigError) {
+        return NextResponse.json(
+          { error: "Server configuration error" },
+          { status: 500 }
+        );
+      }
+      throw err;
+    }
+
     // --- Authenticate + discover Odoo companies BEFORE writing anything ---
     const creds: OdooCredentials = {
       baseUrl: baseUrl as string,
@@ -108,12 +187,15 @@ export async function POST(req: NextRequest) {
       if (err instanceof OdooAuthenticationError) {
         return NextResponse.json({ error: err.message }, { status: 401 });
       }
-      console.error(
+      const statusClass = logOdooFault(
         "[odoo-connection] Odoo unreachable:",
-        err instanceof Error ? err.name : "Unknown error"
+        err
       );
       return NextResponse.json(
-        { error: "Could not reach Odoo instance" },
+        {
+          error: "Could not reach Odoo instance",
+          details: odooFaultDetails(statusClass),
+        },
         { status: 502 }
       );
     }
@@ -121,12 +203,15 @@ export async function POST(req: NextRequest) {
     try {
       accessible = (await discoverOdooCompanies(creds, uid)).companies;
     } catch (err) {
-      console.error(
+      const statusClass = logOdooFault(
         "[odoo-connection] company discovery failed:",
-        err instanceof Error ? err.name : "Unknown error"
+        err
       );
       return NextResponse.json(
-        { error: "Could not read the Odoo user's companies" },
+        {
+          error: "Could not read the Odoo user's companies",
+          details: odooFaultDetails(statusClass),
+        },
         { status: 502 }
       );
     }
@@ -134,19 +219,22 @@ export async function POST(req: NextRequest) {
     // --- Non-secret connection metadata: normal RLS-backed client ---------
     const { data: existing, error: lookupError } = await supabase
       .from("restaurant_pos_connections")
-      .select("id, base_url, database_name, odoo_company_ids")
+      .select(
+        "id, base_url, database_name, username, timezone, odoo_company_ids"
+      )
       .eq("company_id", companyId)
       .eq("pos_source", "odoo")
       .maybeSingle();
     if (lookupError) {
       console.error(
         "[odoo-connection] connection lookup failed:",
+        "PostgrestError",
         lookupError.message
       );
       return NextResponse.json(
         {
           error: "Could not save Odoo connection",
-          details: lookupError.message,
+          details: odooFaultDetails("unknown"),
         },
         { status: 500 }
       );
@@ -178,6 +266,17 @@ export async function POST(req: NextRequest) {
     }
 
     let connectionId: string;
+    const isNewConnection = !existing?.id;
+    const previousMetadata = existing
+      ? {
+          base_url: existing.base_url,
+          database_name: existing.database_name,
+          username: existing.username,
+          timezone: existing.timezone,
+          odoo_company_ids: existing.odoo_company_ids,
+        }
+      : null;
+
     if (existing?.id) {
       connectionId = existing.id;
       const { error: updateError } = await supabase
@@ -194,12 +293,13 @@ export async function POST(req: NextRequest) {
       if (updateError) {
         console.error(
           "[odoo-connection] connection update failed:",
+          "PostgrestError",
           updateError.message
         );
         return NextResponse.json(
           {
             error: "Could not save Odoo connection",
-            details: updateError.message,
+            details: odooFaultDetails("unknown"),
           },
           { status: 500 }
         );
@@ -222,12 +322,13 @@ export async function POST(req: NextRequest) {
       if (insertError || !inserted?.id) {
         console.error(
           "[odoo-connection] connection insert failed:",
+          "PostgrestError",
           insertError?.message
         );
         return NextResponse.json(
           {
             error: "Could not save Odoo connection",
-            details: insertError?.message,
+            details: odooFaultDetails("unknown"),
           },
           { status: 500 }
         );
@@ -251,11 +352,23 @@ export async function POST(req: NextRequest) {
         "[odoo-connection] secret storage failed:",
         err instanceof Error ? err.name : "Unknown error"
       );
+
+      // Rollback: if secret storage fails after metadata write, delete the
+      // newly inserted connection or revert the update.
+      if (isNewConnection) {
+        await supabase
+          .from("restaurant_pos_connections")
+          .delete()
+          .eq("id", connectionId);
+      } else if (previousMetadata) {
+        await supabase
+          .from("restaurant_pos_connections")
+          .update(previousMetadata)
+          .eq("id", connectionId);
+      }
+
       return NextResponse.json(
-        {
-          error:
-            "Connection details were saved, but the credential could not be stored. Please try again.",
-        },
+        { error: "Could not store Odoo credential" },
         { status: 500 }
       );
     }
@@ -267,12 +380,15 @@ export async function POST(req: NextRequest) {
       selection_required: selection.selectionRequired,
     });
   } catch (err) {
-    console.error(
+    const statusClass = logOdooFault(
       "[odoo-connection] Unexpected error:",
-      err instanceof Error ? err.message : "Unknown error"
+      err
     );
     return NextResponse.json(
-      { error: "Could not save Odoo connection" },
+      {
+        error: "Could not save Odoo connection",
+        details: odooFaultDetails(statusClass),
+      },
       { status: 500 }
     );
   }

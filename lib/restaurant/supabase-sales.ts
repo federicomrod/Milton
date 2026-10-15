@@ -18,9 +18,10 @@
 // SECURITY: Reads use the authenticated user's Supabase client, so Row
 // Level Security applies. We never bypass RLS or use the service role.
 //
-// PERFORMANCE: We cap row reads at MAX_ROWS to avoid pulling unbounded
-// historical data into the page. For the restaurant pilot the per-month
-// row count is small (hundreds, not millions), so this cap is generous.
+// PERFORMANCE: PostgREST silently caps every response at 1,000 rows
+// (`max_rows`). We page with fetchAllRows() so a month of POS lines
+// (this client: ~10k/location) is not truncated to ~$7–8k. A safety cap
+// far above a pilot year still applies; the UI is told when it is hit.
 //
 // FUTURE: When per-tenant currency, date filtering, and pagination land,
 // extend `fetchRealRestaurantDashboardData` to accept a filter object.
@@ -30,8 +31,23 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { POSSalesItem } from "@/types/restaurant";
-
-const MAX_ROWS = 10_000;
+import { warnIfTruncated } from "@/lib/restaurant/paginated-read";
+import { logCockpitTiming } from "@/lib/restaurant/cockpit-timing";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
+import {
+  resolveRestaurantCockpitLanguage,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
+import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
+import {
+  buildCockpitSalesAggregate,
+  emptyCockpitSalesAggregate,
+  type CockpitSalesAggregate,
+} from "@/lib/restaurant/cockpit-aggregates";
+import { classifySaleLine, isTipSaleRow } from "@/lib/restaurant/sales-revenue";
+import { fetchAllRowsRetryingWithoutColumn } from "@/lib/restaurant/missing-schema-column";
+import { cutoffFor } from "@/lib/restaurant/business-day";
+import { loadBusinessDayConfig } from "@/lib/restaurant/business-day-server";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -48,11 +64,17 @@ export interface DishSalesRow {
 }
 
 export interface RealRestaurantOverview {
+  /** Net sales (tips excluded). Same number as `revenue.net_sales`. */
   total_revenue: number;
   total_orders: number;
   total_units_sold: number;
   avg_ticket: number;
   currency: string;
+  gross_sales: number;
+  discounts: number;
+  net_sales: number;
+  tips: number;
+  odoo_like_total: number;
 }
 
 /**
@@ -81,6 +103,11 @@ export interface ExplorerRow {
   sub_category: string | null;
   sale_date: string;
   currency: string;
+  /** Tip / Propina line — excluded from net sales KPIs. */
+  is_tip: boolean;
+  discount_amount: number;
+  /** True when discount_amount used the Odoo % fallback. */
+  discount_estimated: boolean;
 }
 
 export type RestaurantDashboardData =
@@ -94,6 +121,21 @@ export type RestaurantDashboardData =
       explorerRows: ExplorerRow[];
       companyId: string;
       rowCount: number;
+      /** True when the paginated read hit the safety cap. */
+      truncated: boolean;
+      /**
+       * Slim POS facts for `fetchProfitabilityData` so the cockpit request
+       * does not page `pos_sales_items` a second time.
+       */
+      posFactRows: PosSalesItemRow[];
+      cockpit: CockpitSalesAggregate;
+      timezone: string;
+      preferredLanguage: PreferredLanguage;
+      /**
+       * True when the POS read failed after the missing-column retry.
+       * Callers must show the warning banner — never invent sample totals.
+       */
+      readError?: boolean;
     }
   | {
       mode: "sample";
@@ -117,26 +159,28 @@ export type SampleReason =
 type SupabaseLike = SupabaseClient;
 
 // ---------------------------------------------------------------------------
-// Company resolution — mirrors the fallback chain in
-// app/api/restaurant/pos/upload/route.ts so the dashboard sees a company
-// for the same set of users that the upload route does.
+// Company resolution — same sources as
+// app/api/restaurant/pos/upload/route.ts, memberships first. Restaurant
+// companies have no created_by (001 / 026); querying it first was a
+// failed PostgREST hop on every cockpit load.
 // ---------------------------------------------------------------------------
 
 export async function resolveCompanyIdForUser(
   supabase: SupabaseLike,
   userId: string
 ): Promise<string | null> {
-  // Step 1 — companies.created_by
+  // Restaurant schema has no companies.created_by (001 / 026). Hitting that
+  // column first costs a failed PostgREST round trip on every cockpit load.
+  // Memberships is the real owner path; keep created_by last for legacy.
   {
     const { data, error } = await supabase
-      .from("companies")
-      .select("id")
-      .eq("created_by", userId)
+      .from("company_memberships")
+      .select("company_id")
+      .eq("user_id", userId)
       .maybeSingle();
-    if (!error && data?.id) return data.id;
+    if (!error && data?.company_id) return data.company_id;
   }
 
-  // Step 2 — profiles.id (Supabase pattern where profiles.id IS auth.uid())
   {
     const { data, error } = await supabase
       .from("profiles")
@@ -146,7 +190,6 @@ export async function resolveCompanyIdForUser(
     if (!error && data?.company_id) return data.company_id;
   }
 
-  // Step 3 — profiles.user_id (older schema variant)
   {
     const { data, error } = await supabase
       .from("profiles")
@@ -156,14 +199,13 @@ export async function resolveCompanyIdForUser(
     if (!error && data?.company_id) return data.company_id;
   }
 
-  // Step 4 — company_memberships.user_id
   {
     const { data, error } = await supabase
-      .from("company_memberships")
-      .select("company_id")
-      .eq("user_id", userId)
+      .from("companies")
+      .select("id")
+      .eq("created_by", userId)
       .maybeSingle();
-    if (!error && data?.company_id) return data.company_id;
+    if (!error && data?.id) return data.id;
   }
 
   return null;
@@ -175,7 +217,7 @@ export async function resolveCompanyIdForUser(
 // added later.
 // ---------------------------------------------------------------------------
 
-interface PosSalesItemRow {
+export interface PosSalesItemRow {
   id: string;
   company_id: string;
   location_id: string | null;
@@ -194,10 +236,18 @@ interface PosSalesItemRow {
   payment_type: string | null;
   category: string | null;
   sub_category: string | null;
+  /** Precise source timestamp when present (migration 012). */
+  order_placed_at?: string | null;
+  discount_amount?: number | null;
+  /** Migration 030. Null on legacy rows — readers use the product name. */
+  is_tip?: boolean | null;
+  source_metadata?: { discount_estimated?: boolean } | null;
+  /** R1-17a: business-day cutoff of this line's restaurant (set on read). */
+  business_cutoff_min?: number | null;
 }
 
 const POS_SELECT_COLS =
-  "id, company_id, location_id, menu_item_id, sale_date, order_id, check_id, raw_item_name, quantity, gross_revenue, net_revenue, currency, sales_channel, payment_type, category, sub_category";
+  "id, company_id, location_id, menu_item_id, sale_date, order_id, check_id, raw_item_name, quantity, gross_revenue, net_revenue, discount_amount, currency, sales_channel, payment_type, category, sub_category, order_placed_at, is_tip, source_metadata";
 
 // ---------------------------------------------------------------------------
 // Conversion: pos_sales_items row → POSSalesItem (the type the existing
@@ -206,14 +256,9 @@ const POS_SELECT_COLS =
 // ---------------------------------------------------------------------------
 
 function toPOSSalesItem(row: PosSalesItemRow): POSSalesItem {
-  // Prefer gross_revenue for "revenue" since that's what the Revel exports
-  // surface; if missing, fall back to net_revenue, then 0.
-  const total =
-    typeof row.gross_revenue === "number" && Number.isFinite(row.gross_revenue)
-      ? row.gross_revenue
-      : typeof row.net_revenue === "number" && Number.isFinite(row.net_revenue)
-        ? row.net_revenue
-        : 0;
+  // Net sales: posted revenue excluding Propina / tip lines.
+  const line = classifySaleLine(row);
+  const total = line.net;
   const qty =
     typeof row.quantity === "number" && Number.isFinite(row.quantity)
       ? row.quantity
@@ -255,21 +300,27 @@ function toPOSSalesItem(row: PosSalesItemRow): POSSalesItem {
 /**
  * Deterministic overview metrics from raw POS rows.
  *
- * - total_revenue = Σ gross_revenue (with net_revenue fallback per row, see toPOSSalesItem)
+ * - total_revenue / net_sales = Σ posted revenue excluding tips
  * - total_orders  = unique non-empty check_id/order_id values
- * - total_units_sold = Σ quantity
- * - avg_ticket    = total_revenue / total_orders (0 when there are no orders)
+ * - total_units_sold = Σ quantity of non-tip lines
+ * - avg_ticket    = net_sales / total_orders (0 when there are no orders)
  *
- * The function is fed normalized POSSalesItem rows so it stays unit-testable.
+ * Prefer `computeOverviewFromPosRows` when the caller still has the raw
+ * `pos_sales_items` shape (discounts + tip flag). This helper stays
+ * unit-testable from POSSalesItem rows (already netted by toPOSSalesItem).
  */
 export function computeOverviewFromRows(
-  rows: POSSalesItem[]
+  rows: POSSalesItem[],
+  companyCurrency?: string
 ): RealRestaurantOverview {
   let totalRevenue = 0;
   let totalUnitsSold = 0;
   const orderIds = new Set<string>();
 
   for (const r of rows) {
+    if (companyCurrency && r.currency && r.currency !== companyCurrency) {
+      continue;
+    }
     totalRevenue += r.total_revenue;
     totalUnitsSold += r.quantity;
     if (r.check_id) orderIds.add(r.check_id);
@@ -277,7 +328,8 @@ export function computeOverviewFromRows(
 
   const totalOrders = orderIds.size;
   const avgTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-  const currency = rows.length > 0 ? (rows[0].currency ?? "USD") : "USD";
+  const currency =
+    companyCurrency ?? (rows.length > 0 ? (rows[0].currency ?? "USD") : "USD");
 
   return {
     total_revenue: totalRevenue,
@@ -285,6 +337,33 @@ export function computeOverviewFromRows(
     total_units_sold: totalUnitsSold,
     avg_ticket: avgTicket,
     currency,
+    gross_sales: totalRevenue,
+    discounts: 0,
+    net_sales: totalRevenue,
+    tips: 0,
+    odoo_like_total: totalRevenue,
+  };
+}
+
+/** Overview from raw POS rows so discounts and tips are visible. */
+export function computeOverviewFromPosRows(
+  rawRows: PosSalesItemRow[],
+  companyCurrency?: string
+): RealRestaurantOverview {
+  const cockpit = buildCockpitSalesAggregate(rawRows, {
+    currency: companyCurrency,
+  });
+  return {
+    total_revenue: cockpit.revenue.net_sales,
+    total_orders: cockpit.tickets,
+    total_units_sold: cockpit.units,
+    avg_ticket: cockpit.avg_ticket,
+    currency: cockpit.currency,
+    gross_sales: cockpit.revenue.gross_sales,
+    discounts: cockpit.revenue.discounts,
+    net_sales: cockpit.revenue.net_sales,
+    tips: cockpit.revenue.tips,
+    odoo_like_total: cockpit.revenue.odoo_like_total,
   };
 }
 
@@ -306,6 +385,7 @@ export function computeDishSales(rawRows: PosSalesItemRow[]): DishSalesRow[] {
   const buckets = new Map<string, Bucket>();
 
   for (const r of rawRows) {
+    if (isTipSaleRow(r)) continue;
     const name = (r.raw_item_name ?? "").trim();
     if (!name) continue;
     const key = name.toLowerCase();
@@ -349,6 +429,55 @@ export function computeDishSales(rawRows: PosSalesItemRow[]): DishSalesRow[] {
       matched_menu_item: b.seenAny && b.allMatched,
     }))
     .sort((a, b) => b.revenue - a.revenue);
+}
+
+/**
+ * Paged `pos_sales_items` read used by the cockpit and Ask Milton.
+ * PostgREST caps each response at 1,000 rows — this walks `.range()` via
+ * `fetchAllRows` and fail-closes on a mid-loop error (empty rows + error).
+ *
+ * Multi-Restaurant UX v1: `selectedLocationId` scopes to one restaurant
+ * when the caller has already validated it against the company.
+ */
+export async function fetchCompanyPosSalesRows(
+  supabase: SupabaseLike,
+  companyId: string,
+  selectedLocationId?: string | null
+) {
+  // R1-17a: each line carries the business-day cutoff of its restaurant, so
+  // every row walk (daily series, heatmap, shifts) uses the same business day
+  // as the SQL rollups. Before migration 054 nothing is attached.
+  const [result, businessDay] = await Promise.all([
+    fetchPosSalesRowsRaw(supabase, companyId, selectedLocationId),
+    loadBusinessDayConfig(supabase as never, companyId),
+  ]);
+  if (businessDay.available) {
+    for (const row of result.rows) {
+      row.business_cutoff_min = cutoffFor(businessDay, row.location_id);
+    }
+  }
+  return result;
+}
+
+async function fetchPosSalesRowsRaw(
+  supabase: SupabaseLike,
+  companyId: string,
+  selectedLocationId?: string | null
+) {
+  return fetchAllRowsRetryingWithoutColumn<PosSalesItemRow>(
+    "is_tip",
+    (select) => {
+      let query = supabase
+        .from("pos_sales_items")
+        .select(select)
+        .eq("company_id", companyId);
+      if (selectedLocationId) {
+        query = query.eq("location_id", selectedLocationId);
+      }
+      return query;
+    },
+    POS_SELECT_COLS
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -395,34 +524,52 @@ export async function fetchRealRestaurantDashboardData(
     return { mode: "sample", reason: "no_company" };
   }
 
-  // 3. Fetch sales rows.
+  // 3. Fetch sales rows (paged; PostgREST caps each response at 1,000).
   let rawRows: PosSalesItemRow[];
+  let truncated = false;
   try {
-    let query = supabase
-      .from("pos_sales_items")
-      .select(POS_SELECT_COLS)
-      .eq("company_id", companyId);
-    if (selectedLocationId) {
-      query = query.eq("location_id", selectedLocationId);
+    const result = await fetchCompanyPosSalesRows(
+      supabase,
+      companyId,
+      selectedLocationId
+    );
+    if (result.error) {
+      console.error(
+        "[supabase-sales] pos_sales_items read failed:",
+        result.error
+      );
+      return liveReadError(supabase, companyId);
     }
-    const { data, error } = await query.limit(MAX_ROWS);
-    if (error) {
-      console.error("[supabase-sales] pos_sales_items read failed:", error);
-      return { mode: "sample", reason: "supabase_error" };
-    }
-    rawRows = (data ?? []) as PosSalesItemRow[];
+    warnIfTruncated("supabase-sales pos_sales_items", result);
+    rawRows = result.rows;
+    truncated = result.truncated;
+    logCockpitTiming("pos-rows", {
+      pages: result.pages,
+      elapsedMs: result.elapsedMs,
+      rows: result.rows.length,
+      location: selectedLocationId,
+    });
   } catch (err) {
     console.error("[supabase-sales] pos_sales_items read threw:", err);
-    return { mode: "sample", reason: "supabase_error" };
+    return liveReadError(supabase, companyId);
   }
 
   if (rawRows.length === 0) {
     return { mode: "sample", reason: "no_sales" };
   }
 
-  // 4. Normalize and aggregate.
+  // 4. Normalize and aggregate once (no second POS read).
+  const [companyCurrency, timezone, preferredLanguage] = await Promise.all([
+    resolveCompanyCurrency(supabase, companyId),
+    resolvePosTimezone(supabase, companyId),
+    resolveCompanyPreferredLanguage(supabase, companyId),
+  ]);
+  const cockpit = buildCockpitSalesAggregate(rawRows, {
+    timezone,
+    currency: companyCurrency,
+  });
   const sales = rawRows.map(toPOSSalesItem);
-  const overview = computeOverviewFromRows(sales);
+  const overview = computeOverviewFromPosRows(rawRows, companyCurrency);
   const dishSales = computeDishSales(rawRows);
   const explorerRows = rawRows.map(toExplorerRow);
 
@@ -434,7 +581,29 @@ export async function fetchRealRestaurantDashboardData(
     explorerRows,
     companyId,
     rowCount: rawRows.length,
+    truncated,
+    posFactRows: rawRows,
+    cockpit,
+    timezone,
+    preferredLanguage,
   };
+}
+
+async function resolveCompanyPreferredLanguage(
+  supabase: SupabaseLike,
+  companyId: string
+): Promise<PreferredLanguage> {
+  try {
+    const { data } = await supabase
+      .from("companies")
+      .select("preferred_language")
+      .eq("id", companyId)
+      .maybeSingle();
+    return resolveRestaurantCockpitLanguage(data?.preferred_language);
+  } catch (err) {
+    console.error("[supabase-sales] preferred_language lookup:", err);
+    return resolveRestaurantCockpitLanguage(null);
+  }
 }
 
 /**
@@ -442,22 +611,17 @@ export async function fetchRealRestaurantDashboardData(
  * client-side explorer renders against. Numeric coercion mirrors the rules
  * used by `toPOSSalesItem` so totals on the page agree row-for-row.
  */
-function toExplorerRow(row: PosSalesItemRow): ExplorerRow {
+export function toExplorerRow(row: PosSalesItemRow): ExplorerRow {
   const qty =
     typeof row.quantity === "number" && Number.isFinite(row.quantity)
       ? row.quantity
       : 0;
-  const revenue =
-    typeof row.gross_revenue === "number" && Number.isFinite(row.gross_revenue)
-      ? row.gross_revenue
-      : typeof row.net_revenue === "number" && Number.isFinite(row.net_revenue)
-        ? row.net_revenue
-        : 0;
+  const line = classifySaleLine(row);
   return {
     id: row.id,
     item_name: (row.raw_item_name ?? "").trim(),
     quantity: qty,
-    revenue,
+    revenue: line.posted,
     order_key: row.check_id ?? row.order_id ?? null,
     sales_channel: row.sales_channel ?? null,
     // Trim defensively: in the DB these are stored already trimmed (see
@@ -467,6 +631,47 @@ function toExplorerRow(row: PosSalesItemRow): ExplorerRow {
     sub_category: trimOrNull(row.sub_category),
     sale_date: row.sale_date,
     currency: row.currency ?? "USD",
+    is_tip: line.isTip,
+    discount_amount: line.discount,
+    discount_estimated: line.discountEstimated,
+  };
+}
+
+async function liveReadError(
+  supabase: SupabaseLike,
+  companyId: string
+): Promise<Extract<RestaurantDashboardData, { mode: "live" }>> {
+  const [companyCurrency, timezone, preferredLanguage] = await Promise.all([
+    resolveCompanyCurrency(supabase, companyId),
+    resolvePosTimezone(supabase, companyId),
+    resolveCompanyPreferredLanguage(supabase, companyId),
+  ]);
+  const empty = emptyCockpitSalesAggregate(timezone, companyCurrency);
+  return {
+    mode: "live",
+    readError: true,
+    overview: {
+      total_revenue: 0,
+      total_orders: 0,
+      total_units_sold: 0,
+      avg_ticket: 0,
+      currency: companyCurrency,
+      gross_sales: 0,
+      discounts: 0,
+      net_sales: 0,
+      tips: 0,
+      odoo_like_total: 0,
+    },
+    dishSales: [],
+    sales: [],
+    explorerRows: [],
+    companyId,
+    rowCount: 0,
+    truncated: false,
+    posFactRows: [],
+    cockpit: empty,
+    timezone,
+    preferredLanguage,
   };
 }
 

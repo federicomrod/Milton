@@ -9,7 +9,7 @@
 // that needs the ingredient's default_unit live partly here
 // (buildIngredientCostEntryInsert) and partly in the route (DB lookups).
 
-import { parseNumber, parseDate } from "@/lib/restaurant/pos-import";
+import { parseDate } from "@/lib/restaurant/pos-import";
 import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
 
 // ---------------------------------------------------------------------------
@@ -109,8 +109,105 @@ export function mapCostImportHeaders(
 // identical across import paths (Excel serials, MX/EU date orders, etc.)
 // ---------------------------------------------------------------------------
 
+export type CostNumberInspection =
+  | { kind: "ok"; value: number }
+  | { kind: "blank" }
+  | { kind: "ambiguous"; raw: string }
+  | { kind: "invalid"; raw: string };
+
+const CURRENCY_MARK = /[$€£¥]/g;
+
+/**
+ * Latin-American and US workbook numbers. "$ 0,18" is 0.18. A value that
+ * could be either a decimal comma or a thousands separator is ambiguous.
+ */
+export function inspectCostImportNumber(value: unknown): CostNumberInspection {
+  if (value === null || value === undefined || value === "") {
+    return { kind: "blank" };
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value)
+      ? { kind: "ok", value }
+      : { kind: "invalid", raw: String(value) };
+  }
+  const raw = String(value).trim();
+  if (!raw) return { kind: "blank" };
+  if (/^#+$/.test(raw) || raw === "-" || raw === "—" || /^\$\s*-$/.test(raw)) {
+    return { kind: "blank" };
+  }
+
+  let s = raw
+    .replace(CURRENCY_MARK, "")
+    .replace(/%/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+  if (!s) return { kind: "blank" };
+
+  let sign = 1;
+  if (s.startsWith("(") && s.endsWith(")")) {
+    sign = -1;
+    s = s.slice(1, -1);
+  } else if (s.startsWith("-")) {
+    sign = -1;
+    s = s.slice(1);
+  } else if (s.startsWith("+")) {
+    s = s.slice(1);
+  }
+  if (!s) return { kind: "blank" };
+  if (!/^[\d.,]+$/.test(s)) return { kind: "invalid", raw };
+
+  const hasDot = s.includes(".");
+  const hasComma = s.includes(",");
+
+  if (hasDot && hasComma) {
+    const lastDot = s.lastIndexOf(".");
+    const lastComma = s.lastIndexOf(",");
+    const normalized =
+      lastComma > lastDot
+        ? s.replace(/\./g, "").replace(",", ".")
+        : s.replace(/,/g, "");
+    const n = Number(normalized);
+    return Number.isFinite(n)
+      ? { kind: "ok", value: sign * n }
+      : { kind: "invalid", raw };
+  }
+
+  if (hasComma && !hasDot) {
+    const parts = s.split(",");
+    if (parts.length === 2) {
+      const [intPart, frac] = parts;
+      if (!intPart || !/^\d+$/.test(intPart) || !/^\d+$/.test(frac)) {
+        return { kind: "invalid", raw };
+      }
+      if (intPart === "0" || frac.length !== 3) {
+        const n = Number(`${intPart}.${frac}`);
+        return Number.isFinite(n)
+          ? { kind: "ok", value: sign * n }
+          : { kind: "invalid", raw };
+      }
+      return { kind: "ambiguous", raw };
+    }
+    return { kind: "ambiguous", raw };
+  }
+
+  if (hasDot && !hasComma) {
+    const parts = s.split(".");
+    if (parts.length > 2) return { kind: "ambiguous", raw };
+    const n = Number(s);
+    return Number.isFinite(n)
+      ? { kind: "ok", value: sign * n }
+      : { kind: "invalid", raw };
+  }
+
+  const n = Number(s);
+  return Number.isFinite(n)
+    ? { kind: "ok", value: sign * n }
+    : { kind: "invalid", raw };
+}
+
 export function parseCostImportNumber(value: unknown): number | null {
-  return parseNumber(value);
+  const inspected = inspectCostImportNumber(value);
+  return inspected.kind === "ok" ? inspected.value : null;
 }
 
 export function parseCostImportDate(value: unknown): string | null {
@@ -198,7 +295,7 @@ export function normalizeCostImportRow(
       ok: false,
       error: {
         rowIndex,
-        reason: "Quantity must be a positive number",
+        reason: "La cantidad tiene que ser un número positivo",
         ingredient_name: ingredientName,
       },
     };
@@ -261,8 +358,15 @@ export interface IngredientCostEntryInsert {
   ingredient_id: string;
   supplier_id: string | null;
   source_type: "import";
-  source_id: null;
+  source_id: string | null;
   cost_date: string;
+  effective_date?: string;
+  date_source?:
+    | "invoice"
+    | "dated_price_list"
+    | "upload"
+    | "confirmation"
+    | "manual";
   quantity: number;
   unit: string;
   total_cost: number;
@@ -292,6 +396,7 @@ export function buildIngredientCostEntryInsert(params: {
   ingredientDefaultUnit: string | null;
   supplierId: string | null;
   row: NormalizedCostRow;
+  sourceId?: string | null;
 }):
   | { ok: true; insert: IngredientCostEntryInsert }
   | { ok: false; reason: string } {
@@ -317,8 +422,10 @@ export function buildIngredientCostEntryInsert(params: {
       ingredient_id: ingredientId,
       supplier_id: supplierId,
       source_type: "import",
-      source_id: null,
+      source_id: params.sourceId ?? null,
       cost_date: row.cost_date,
+      effective_date: row.cost_date,
+      date_source: "upload",
       quantity: row.quantity,
       unit: row.unit,
       total_cost: row.total_cost,

@@ -68,8 +68,12 @@ function resolveIngredientUnitCost(
 
   if (lines.length === 0) {
     // No invoice data — fall back to ingredient's recorded cost, assuming
-    // its default_unit matches the target unit.
-    if (ingredient.current_unit_cost <= 0) {
+    // its default_unit matches the target unit. null is a pending price,
+    // never a real $0; <= 0 is the legacy "no price yet" sentinel.
+    if (
+      ingredient.current_unit_cost == null ||
+      ingredient.current_unit_cost <= 0
+    ) {
       return { unitCost: null, status: "missing_ingredient_cost" };
     }
     const conversion = convertUnitPrice(

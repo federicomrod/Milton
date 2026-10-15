@@ -16,12 +16,21 @@
 
 "use client";
 
+import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
+import { sortRows } from "@/lib/restaurant/table-sort";
 import { useMemo, useState } from "react";
+import Link from "next/link";
+import { dishHref } from "@/lib/restaurant/menu-links";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowUpDown, ArrowDown, ArrowUp } from "lucide-react";
 import type { MenuMarginRow } from "@/lib/restaurant/profitability-server";
 import type { CostStatus } from "@/types/restaurant-costing";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 
 // ---------------------------------------------------------------------------
 // Status color mapping
@@ -38,6 +47,7 @@ const STATUS_TONE: Record<string, StatusTone> = {
   inactive_recipe: "yellow",
   missing_unit_conversion: "red",
   circular_component_reference: "red",
+  workbook_mismatch: "red",
 };
 
 const TONE_BG: Record<StatusTone, string> = {
@@ -47,14 +57,15 @@ const TONE_BG: Record<StatusTone, string> = {
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  complete: "Complete",
-  missing_recipe: "Missing recipe",
-  missing_component_recipe: "Missing component recipe",
-  missing_input_cost: "Missing ingredient cost",
-  missing_unit_conversion: "Unit mismatch",
-  circular_component_reference: "Circular reference",
-  no_cost_entries: "No cost entries",
-  inactive_recipe: "Inactive recipe",
+  complete: "Completo",
+  missing_recipe: "Sin receta",
+  missing_component_recipe: "Falta receta del componente",
+  missing_input_cost: "Falta el costo del ingrediente",
+  missing_unit_conversion: "Unidades que no coinciden",
+  circular_component_reference: "Referencia circular",
+  no_cost_entries: "Sin costos",
+  inactive_recipe: "Receta inactiva",
+  workbook_mismatch: "No cuadra con el Excel",
 };
 
 function buildStatusTitle(row: MenuMarginRow): string {
@@ -62,10 +73,7 @@ function buildStatusTitle(row: MenuMarginRow): string {
   // Prefer the engine's first issue message (which already includes the
   // recipe path), and fall back to the bare label.
   const detail = row.cost.issues[0]?.message;
-  const mappingHint = row.raw_pos_names.length === 0 ? " · No POS mapping" : "";
-  return detail
-    ? `${label}: ${detail}${mappingHint}`
-    : `${label}${mappingHint}`;
+  return detail ? `${label}: ${detail}` : label;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,20 +139,6 @@ function sortValue(row: MenuMarginRow, key: SortKey): number | string | null {
   }
 }
 
-function compareNullsLast(
-  a: number | string | null,
-  b: number | string | null,
-  dir: 1 | -1
-): number {
-  if (a === null && b === null) return 0;
-  if (a === null) return 1; // nulls always last
-  if (b === null) return -1;
-  if (typeof a === "string" && typeof b === "string") {
-    return a.localeCompare(b) * dir;
-  }
-  return ((a as number) - (b as number)) * dir;
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -152,9 +146,11 @@ function compareNullsLast(
 export function MenuProfitabilityTable({
   rows,
   currency,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
 }: {
   rows: MenuMarginRow[];
   currency: string;
+  lang?: PreferredLanguage;
 }) {
   const fmt = makeFmt(currency);
 
@@ -163,8 +159,12 @@ export function MenuProfitabilityTable({
     "all" | "complete" | "issues"
   >("all");
   const [onlyIssues, setOnlyIssues] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>("revenue");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const { sort, toggle: toggleSort } = useTableSort("menu-rentabilidad", {
+    key: "revenue",
+    dir: "desc",
+  });
+  const sortKey = sort?.key;
+  const sortDir = sort?.dir;
 
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -181,20 +181,8 @@ export function MenuProfitabilityTable({
       if (effectiveStatus === "issues" && !hasIssue) return false;
       return true;
     });
-    const dir: 1 | -1 = sortDir === "desc" ? -1 : 1;
-    return [...f].sort((a, b) =>
-      compareNullsLast(sortValue(a, sortKey), sortValue(b, sortKey), dir)
-    );
-  }, [rows, category, statusFilter, onlyIssues, sortKey, sortDir]);
-
-  const toggleSort = (k: SortKey) => {
-    if (sortKey === k) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-      setSortKey(k);
-      setSortDir(k === "name" ? "asc" : "desc");
-    }
-  };
+    return sortRows(f, sort, (r, k) => sortValue(r, k as SortKey));
+  }, [rows, category, statusFilter, onlyIssues, sort]);
 
   const sortIcon = (k: SortKey) => {
     if (sortKey !== k) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
@@ -214,13 +202,15 @@ export function MenuProfitabilityTable({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between flex-wrap">
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground">Category</span>
+            <span className="text-muted-foreground">
+              {t(lang, "Category", "Categoría")}
+            </span>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               className="h-8 rounded-md border border-border bg-background px-2 text-xs"
             >
-              <option value="__all__">All</option>
+              <option value="__all__">{t(lang, "All", "Todas")}</option>
               {categories.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -229,7 +219,9 @@ export function MenuProfitabilityTable({
             </select>
           </label>
           <label className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground">Status</span>
+            <span className="text-muted-foreground">
+              {t(lang, "Status", "Estado")}
+            </span>
             <select
               value={statusFilter}
               onChange={(e) =>
@@ -238,9 +230,13 @@ export function MenuProfitabilityTable({
               disabled={onlyIssues}
               className="h-8 rounded-md border border-border bg-background px-2 text-xs disabled:opacity-50"
             >
-              <option value="all">All</option>
-              <option value="complete">Complete only</option>
-              <option value="issues">Issues only</option>
+              <option value="all">{t(lang, "All", "Todos")}</option>
+              <option value="complete">
+                {t(lang, "Complete only", "Solo completos")}
+              </option>
+              <option value="issues">
+                {t(lang, "Issues only", "Solo con problemas")}
+              </option>
             </select>
           </label>
           <Button
@@ -250,18 +246,22 @@ export function MenuProfitabilityTable({
             onClick={() => setOnlyIssues((v) => !v)}
           >
             <Dot tone="yellow" />
-            Only show issues
+            {t(lang, "Only show issues", "Solo problemas")}
             <span className="tabular-nums opacity-80">({totalIssues})</span>
           </Button>
         </div>
-        <Legend />
+        <Legend lang={lang} />
       </div>
 
       {/* Table */}
       {filtered.length === 0 ? (
         <Card>
           <CardContent className="py-6 text-sm text-muted-foreground">
-            No menu items match the current filters.
+            {t(
+              lang,
+              "No menu items match the current filters.",
+              "Ningún platillo coincide con estos filtros."
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -276,16 +276,18 @@ export function MenuProfitabilityTable({
                       onClick={() => toggleSort("name")}
                       icon={sortIcon("name")}
                     >
-                      Menu item
+                      {t(lang, "Menu item", "Platillo")}
                     </SortableTh>
-                    <th className="px-3 py-3 font-medium">POS mapping</th>
+                    <th className="px-3 py-3 font-medium">
+                      {t(lang, "POS mapping", "Ligue del POS")}
+                    </th>
                     <SortableTh
                       active={sortKey === "units"}
                       onClick={() => toggleSort("units")}
                       icon={sortIcon("units")}
                       align="right"
                     >
-                      Units
+                      {t(lang, "Units", "Unidades")}
                     </SortableTh>
                     <SortableTh
                       active={sortKey === "revenue"}
@@ -293,7 +295,7 @@ export function MenuProfitabilityTable({
                       icon={sortIcon("revenue")}
                       align="right"
                     >
-                      Revenue
+                      {t(lang, "Revenue", "Ventas")}
                     </SortableTh>
                     <SortableTh
                       active={sortKey === "price"}
@@ -301,7 +303,7 @@ export function MenuProfitabilityTable({
                       icon={sortIcon("price")}
                       align="right"
                     >
-                      Price
+                      {t(lang, "Price", "Precio")}
                     </SortableTh>
                     <SortableTh
                       active={sortKey === "cost"}
@@ -309,7 +311,7 @@ export function MenuProfitabilityTable({
                       icon={sortIcon("cost")}
                       align="right"
                     >
-                      Est. cost
+                      {t(lang, "Est. cost", "Costo est.")}
                     </SortableTh>
                     <SortableTh
                       active={sortKey === "gp"}
@@ -317,7 +319,7 @@ export function MenuProfitabilityTable({
                       icon={sortIcon("gp")}
                       align="right"
                     >
-                      Gross profit
+                      {t(lang, "Gross profit", "Utilidad bruta")}
                     </SortableTh>
                     <SortableTh
                       active={sortKey === "gm"}
@@ -325,7 +327,7 @@ export function MenuProfitabilityTable({
                       icon={sortIcon("gm")}
                       align="right"
                     >
-                      GM %
+                      {t(lang, "GM %", "Margen %")}
                     </SortableTh>
                     <SortableTh
                       active={sortKey === "fc"}
@@ -333,13 +335,18 @@ export function MenuProfitabilityTable({
                       icon={sortIcon("fc")}
                       align="right"
                     >
-                      FC %
+                      {t(lang, "FC %", "Costo %")}
                     </SortableTh>
+                    <th className="px-3 py-3 font-medium">
+                      {t(lang, "Recipe", "Receta")}
+                    </th>
                     <th
                       className="px-3 py-3 font-medium text-center w-10"
-                      title="Status"
+                      title={t(lang, "Status", "Estado")}
                     >
-                      <span className="sr-only">Status</span>
+                      <span className="sr-only">
+                        {t(lang, "Status", "Estado")}
+                      </span>
                       <span aria-hidden>•</span>
                     </th>
                   </tr>
@@ -351,7 +358,7 @@ export function MenuProfitabilityTable({
                       r.cost.status === "complete" && r.cost.cost !== null;
                     return (
                       <tr
-                        key={r.menu_item_id}
+                        key={`${r.menu_item_id}:${r.odoo_product_id ?? ""}`}
                         className={
                           (i % 2 === 1 ? "bg-muted/20" : "bg-background") +
                           " border-b border-border hover:bg-muted/30 align-middle"
@@ -367,8 +374,9 @@ export function MenuProfitabilityTable({
                         </td>
                         <td className="px-3 py-2 text-xs text-muted-foreground max-w-[200px] truncate">
                           {r.raw_pos_names.length === 0 ? (
-                            <span className="text-amber-700 dark:text-amber-300">
-                              No POS mapping
+                            // D2: the status chip, not a sentence.
+                            <span className="rounded-md bg-[#f1f3f7] px-1.5 py-0.5 text-[12px] font-semibold text-[#5b6476]">
+                              {t(lang, "No recipe", "Sin receta")}
                             </span>
                           ) : r.raw_pos_names.length === 1 ? (
                             r.raw_pos_names[0]
@@ -394,9 +402,24 @@ export function MenuProfitabilityTable({
                             : "—"}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
-                          {showCostNumbers
-                            ? fmt.money2.format(r.cost.cost!)
-                            : "—"}
+                          {showCostNumbers ? (
+                            r.odoo_product_id != null ? (
+                              <Link
+                                href={dishHref(r.odoo_product_id)}
+                                className="hover:underline"
+                              >
+                                {fmt.money2.format(r.cost.cost!)}
+                              </Link>
+                            ) : (
+                              fmt.money2.format(r.cost.cost!)
+                            )
+                          ) : r.cost.status === "no_cost_entries" ? (
+                            <span className="text-amber-700 dark:text-amber-300">
+                              {t(lang, "No price", "Sin precio")}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {showCostNumbers && r.estimated_gross_profit !== null
@@ -409,8 +432,23 @@ export function MenuProfitabilityTable({
                         <td className="px-3 py-2 text-right tabular-nums">
                           {showCostNumbers ? pct(r.cost.food_cost_pct) : "—"}
                         </td>
+                        <td className="px-3 py-2">
+                          <Link
+                            href={
+                              r.odoo_product_id != null
+                                ? dishHref(r.odoo_product_id)
+                                : `/dashboard/restaurant/menu/${r.menu_item_id}`
+                            }
+                            className="text-xs font-medium text-orange-700 hover:underline dark:text-orange-300"
+                          >
+                            {r.cost.status === "missing_recipe"
+                              ? t(lang, "Add recipe", "Agregar receta")
+                              : t(lang, "View recipe", "Ver receta")}
+                          </Link>
+                        </td>
                         <td className="px-3 py-2 text-center">
                           <StatusDot
+                            lang={lang}
                             tone={tone}
                             title={buildStatusTitle(r)}
                             status={r.cost.status}
@@ -424,7 +462,11 @@ export function MenuProfitabilityTable({
             </div>
             {filtered.length > 100 && (
               <p className="text-xs text-muted-foreground px-4 py-2 border-t">
-                Showing first 100 of {filtered.length} matching items.
+                {t(
+                  lang,
+                  `Showing first 100 of ${filtered.length} matching items.`,
+                  `Mostrando los primeros 100 de ${filtered.length} platillos.`
+                )}
               </p>
             )}
           </CardContent>
@@ -448,10 +490,12 @@ function Dot({ tone }: { tone: StatusTone }) {
 }
 
 function StatusDot({
+  lang,
   tone,
   title,
   status,
 }: {
+  lang: PreferredLanguage;
   tone: StatusTone;
   title: string;
   status: CostStatus;
@@ -462,7 +506,7 @@ function StatusDot({
       title={title}
       tabIndex={0}
       role="img"
-      aria-label={`Status: ${STATUS_LABEL[status] ?? status}`}
+      aria-label={`${t(lang, "Status", "Estado")}: ${STATUS_LABEL[status] ?? status}`}
     >
       <span
         className={`inline-block h-2.5 w-2.5 rounded-full ${TONE_BG[tone]} ring-2 ring-background group-hover:ring-muted transition-shadow`}
@@ -471,20 +515,20 @@ function StatusDot({
   );
 }
 
-function Legend() {
+function Legend({ lang }: { lang: PreferredLanguage }) {
   return (
     <div className="flex items-center gap-3 text-xs text-muted-foreground">
       <span className="inline-flex items-center gap-1.5">
-        <Dot tone="green" /> Complete
+        <Dot tone="green" /> {t(lang, "Complete", "Completo")}
       </span>
       <span className="inline-flex items-center gap-1.5">
-        <Dot tone="yellow" /> Missing setup
+        <Dot tone="yellow" /> {t(lang, "Missing setup", "Falta configuración")}
       </span>
       <span className="inline-flex items-center gap-1.5">
-        <Dot tone="red" /> Costing blocked
+        <Dot tone="red" /> {t(lang, "Costing blocked", "Costeo bloqueado")}
       </span>
       <span className="text-muted-foreground/70 hidden md:inline">
-        · hover the dot for details
+        · {t(lang, "hover the dot for details", "pasa el mouse por el punto")}
       </span>
     </div>
   );

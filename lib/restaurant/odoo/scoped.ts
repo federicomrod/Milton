@@ -16,12 +16,16 @@
 //
 // Only this module may import unsafeExecuteKw from ./client (a content
 // test enforces it). Models must be registered in ODOO_MODEL_COMPANY_POLICY
-// — adding one is a deliberate, reviewed edit. Only search_read and
-// search_count are permitted; Milton makes no writes to Odoo.
+// — adding one is a deliberate, reviewed edit. Only the read-only
+// allowlist (fields_get, search_count, search_read, read) is permitted;
+// Milton makes no writes to Odoo. fields_get is schema introspection
+// (no domain). read() takes ids, not a domain — company isolation is
+// context.allowed_company_ids plus assertRecordsInScope() on the result.
 //
 // Design brief: "Odoo multi-company isolation" (r1-pilot).
 
 import { unsafeExecuteKw, OdooRpcError, type OdooCredentials } from "./client";
+import { isOdooReadOnlyMethod } from "./read-only-methods";
 import type { XmlRpcValue } from "./xmlrpc";
 
 export interface OdooScope {
@@ -46,8 +50,8 @@ export type OdooCompanyPolicy =
  * Frozen model registry. A model not listed here is rejected. In Odoo
  * 17/18 pos.order.line.company_id is a stored related field of
  * order_id.company_id (confirm with fields_get — design brief §8.6).
- * "shared_or_company" and "no_company_field" are defined and tested but
- * intentionally have no registered models yet.
+ * product.product is shared_or_company (company_id false = shared catalog).
+ * pos.category and product.category have no company_id.
  */
 export const ODOO_MODEL_COMPANY_POLICY: Readonly<
   Record<string, OdooCompanyPolicy>
@@ -56,9 +60,12 @@ export const ODOO_MODEL_COMPANY_POLICY: Readonly<
   "pos.order.line": "strict",
   "pos.config": "strict",
   "res.company": "self",
+  "pos.payment": "strict",
+  "product.product": "shared_or_company",
+  "pos.category": "no_company_field",
+  "product.category": "no_company_field",
 });
 
-const ALLOWED_METHODS = new Set(["search_read", "search_count"]);
 const WRITE_METHODS = new Set([
   "create",
   "write",
@@ -115,14 +122,9 @@ export function buildScopedCall(
   const { companyIds } = assertOdooScope(scope?.companyIds);
 
   // 2. Method allowlist.
-  if (!ALLOWED_METHODS.has(method)) {
-    if (WRITE_METHODS.has(method)) {
+  if (!isOdooReadOnlyMethod(method)) {
+    if (WRITE_METHODS.has(method) || method.startsWith("action_")) {
       throw new OdooCompanyScopeError("write methods are not permitted");
-    }
-    if (method === "read") {
-      throw new OdooCompanyScopeError(
-        'read() has no domain and is not permitted; use search_read with [["id","in",ids]]'
-      );
     }
     throw new OdooCompanyScopeError(`Odoo method not permitted: ${method}`);
   }
@@ -155,6 +157,44 @@ export function buildScopedCall(
         );
       }
     }
+  }
+
+  const scopedContext: Record<string, XmlRpcValue> = {
+    ...((callerContext as Record<string, XmlRpcValue> | undefined) ?? {}),
+    allowed_company_ids: [...companyIds],
+  };
+
+  // fields_get is introspection: args[0] is an optional list of field
+  // names, not a domain. Do not inject company_id into args.
+  if (method === "fields_get") {
+    return {
+      args: [...args],
+      kwargs: {
+        ...callerKwargs,
+        context: scopedContext,
+      },
+    };
+  }
+
+  // read() takes an id list, not a domain. Inject context + company_id
+  // on fields so assertRecordsInScope() can still run after the fetch.
+  if (method === "read") {
+    const ids = args[0];
+    if (!Array.isArray(ids)) {
+      throw new OdooCompanyScopeError("read() args[0] must be an id list");
+    }
+    const scopedKwargs: Record<string, XmlRpcValue> = {
+      ...callerKwargs,
+      context: scopedContext,
+    };
+    if (
+      (policy === "strict" || policy === "shared_or_company") &&
+      Array.isArray(callerKwargs.fields) &&
+      !callerKwargs.fields.includes("company_id")
+    ) {
+      scopedKwargs.fields = [...callerKwargs.fields, "company_id"];
+    }
+    return { args: [...args], kwargs: scopedKwargs };
   }
 
   // 5. Domain injection (prepended: Odoo ANDs top-level terms, so this is
@@ -191,10 +231,7 @@ export function buildScopedCall(
   // 6. Context injection + always fetch company_id for post-fetch checks.
   const scopedKwargs: Record<string, XmlRpcValue> = {
     ...callerKwargs,
-    context: {
-      ...((callerContext as Record<string, XmlRpcValue> | undefined) ?? {}),
-      allowed_company_ids: [...companyIds],
-    },
+    context: scopedContext,
   };
   if (
     method === "search_read" &&

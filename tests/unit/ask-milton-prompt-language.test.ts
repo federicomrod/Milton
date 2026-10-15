@@ -1,3 +1,4 @@
+import { EMPTY_INGREDIENT_PRICES } from "@/lib/restaurant/ask-milton-catalog";
 import { describe, it, expect } from "vitest";
 import {
   buildDeterministicAnswer,
@@ -10,6 +11,7 @@ import type {
 } from "@/lib/restaurant/ask-milton-context";
 import type { BriefingContext } from "@/lib/restaurant/briefing-context";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { emptySalesSnapshot } from "@/lib/restaurant/ask-milton-sales";
 
 // Milton Language Foundation v1 — proves Ask Milton's deterministic
 // fallback (used whenever OpenAI is unavailable) genuinely respects the
@@ -83,6 +85,9 @@ function contextFixture(
       ],
       least_profitable_items: [],
     },
+    ingredient_prices: EMPTY_INGREDIENT_PRICES,
+    menu_dishes: null,
+    item_groups: [],
     ingredient_usage: [],
     expensive_ingredients: [],
     suppliers: { total: 0, top: [], missing_metadata: [] },
@@ -101,6 +106,7 @@ function contextFixture(
     },
     agent_actions: { counts_by_status: {}, open: [], recent: [] },
     agent_runs: { recent: [] },
+    sales: emptySalesSnapshot(),
   };
 }
 
@@ -128,7 +134,7 @@ describe("buildDeterministicAnswer — English (Phase 6, scenario 3)", () => {
     );
     expect(out.answer).toMatch(/most profitable dish/i);
     expect(out.answer).toContain("Brisket Taco");
-    expect(out.related_links[0]?.label).toBe("Menu & Recipes");
+    expect(out.related_links[0]?.label).toBe("Menu");
   });
 
   it("the generic fallback answers in English", () => {
@@ -152,7 +158,7 @@ describe("buildDeterministicAnswer — Spanish (Phase 6, scenario 4 — must not
     );
     expect(out.answer).toMatch(/platillo más rentable/i);
     expect(out.answer).not.toMatch(/most profitable dish/i);
-    expect(out.related_links[0]?.label).toBe("Menú y Recetas");
+    expect(out.related_links[0]?.label).toBe("Menú");
   });
 
   it("preserves the dish's proper noun name unchanged (never translated)", () => {

@@ -48,6 +48,8 @@ describe("buildOdooAuditReport", () => {
     ];
     const report = buildOdooAuditReport(rows, configMap, [1, 2]);
     expect(report.total_rows).toBe(5);
+    expect(report.range).toBeNull();
+    expect(report.odoo_dimensions).toBeNull();
     expect(report.by_odoo_company).toEqual([
       {
         odoo_company_id: 1,
@@ -59,6 +61,20 @@ describe("buildOdooAuditReport", () => {
         first_sale_date: "2026-02-01",
         last_sale_date: "2026-02-03",
         by_location_id: { [LOC_A]: 3 },
+        stored_dimensions: {
+          channels: [
+            { value: null, order_count: 2, amount: 170.5, row_count: 3 },
+          ],
+          payment_types: [
+            { value: null, order_count: 2, amount: 170.5, row_count: 3 },
+          ],
+          categories: [
+            { value: null, order_count: 2, amount: 170.5, row_count: 3 },
+          ],
+          sub_categories: [
+            { value: null, order_count: 2, amount: 170.5, row_count: 3 },
+          ],
+        },
       },
       {
         odoo_company_id: 2,
@@ -70,9 +86,57 @@ describe("buildOdooAuditReport", () => {
         first_sale_date: "2026-01-15",
         last_sale_date: "2026-02-01",
         by_location_id: { null: 1, [LOC_B]: 1 },
+        stored_dimensions: {
+          channels: [
+            { value: null, order_count: 2, amount: 40.25, row_count: 2 },
+          ],
+          payment_types: [
+            { value: null, order_count: 2, amount: 40.25, row_count: 2 },
+          ],
+          categories: [
+            { value: null, order_count: 2, amount: 40.25, row_count: 2 },
+          ],
+          sub_categories: [
+            { value: null, order_count: 2, amount: 40.25, row_count: 2 },
+          ],
+        },
       },
     ]);
     expect(report.unverifiable.row_count).toBe(0);
+  });
+
+  it("breaks stored channel / payment / category down per company", () => {
+    const report = buildOdooAuditReport(
+      [
+        row({
+          order_id: "o1",
+          gross_revenue: 80,
+          sales_channel: "in_store",
+          payment_type: "Cash",
+          category: "Food",
+          sub_category: "Tacos",
+        }),
+        row({
+          order_id: "o2",
+          gross_revenue: 20,
+          sales_channel: "delivery",
+          payment_type: "Card",
+          category: "Drinks",
+          sub_category: null,
+        }),
+      ],
+      configMap,
+      [1]
+    );
+    expect(report.by_odoo_company[0].stored_dimensions.channels).toEqual([
+      { value: "in_store", order_count: 1, amount: 80, row_count: 1 },
+      { value: "delivery", order_count: 1, amount: 20, row_count: 1 },
+    ]);
+    expect(
+      report.by_odoo_company[0].stored_dimensions.payment_types.map(
+        (b) => b.value
+      )
+    ).toEqual(["Cash", "Card"]);
   });
 
   it("flags selected per selectedIds", () => {

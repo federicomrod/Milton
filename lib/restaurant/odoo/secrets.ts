@@ -98,6 +98,15 @@ function getEncryptionKey(): Buffer {
 }
 
 /**
+ * Verifies that the encryption key is configured and valid by attempting
+ * to read it. Throws OdooSecretConfigError if unset or invalid. Call this
+ * BEFORE any database write to fail fast when the key is missing.
+ */
+export function assertOdooEncryptionConfigured(): void {
+  getEncryptionKey();
+}
+
+/**
  * Encrypts a plaintext credential with AES-256-GCM. A fresh random IV is
  * generated on every call, so encrypting the same plaintext twice never
  * produces the same ciphertext.

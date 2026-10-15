@@ -10,6 +10,7 @@
 //     agent actions (counts by status, recent titles)
 //   - last agent runs (recent)
 //   - most_profitable_items / least_profitable_items (complete-costing only)
+//   - sales: compact POS snapshot (weekday/hour/category/item/channel/payment)
 //   - ingredient_usage map: ingredient → direct menu items + via components
 //   - expensive_ingredients: top 10 by unit cost with usage
 //
@@ -30,6 +31,30 @@ import {
   filterMenuItemsForSelection,
   type ProfitabilitySelection,
 } from "@/lib/restaurant/profitability-server";
+import {
+  fetchAllRows,
+  succeededRows,
+  warnIfTruncated,
+} from "@/lib/restaurant/paginated-read";
+import {
+  emptySalesSnapshot,
+  fetchAskMiltonSalesSnapshot,
+  type AskMiltonSalesSnapshot,
+} from "@/lib/restaurant/ask-milton-sales";
+import { pendingRecipesLabel } from "@/lib/restaurant/cost-workbook/copy";
+import { type PreferredLanguage } from "@/lib/restaurant/language";
+import { positiveUnitCost } from "@/lib/restaurant/unit-cost";
+import {
+  buildIngredientPrices,
+  buildItemGroups,
+  buildMenuDishes,
+  dishNamesByIngredient,
+  type AskMiltonIngredientPrices,
+  type AskMiltonItemGroup,
+  type AskMiltonMenuDishes,
+} from "@/lib/restaurant/ask-milton-catalog";
+import { fetchIngredientLatestCosts } from "@/lib/restaurant/menu-recipes-server";
+import { loadIngredientUsage } from "@/lib/restaurant/ingredient-usage-server";
 
 // ---------------------------------------------------------------------------
 // Extra shapes layered on top of BriefingContext
@@ -57,9 +82,27 @@ export interface AskMiltonIngredientCost {
   name: string;
   category: string | null;
   default_unit: string;
-  current_unit_cost: number;
+  current_unit_cost: number | null;
+  pending_label: string | null;
   currency: string;
   supplier_name: string | null;
+}
+
+/**
+ * Resolve a displayable Ask Milton unit cost. Null / 0 cache is pending,
+ * never a fabricated $0.
+ */
+export function resolveAskMiltonIngredientUnitCost(
+  latestEntryCost: number | null | undefined,
+  cachedUnitCost: number | null | undefined,
+  lang: PreferredLanguage = "es"
+): { current_unit_cost: number | null; pending_label: string | null } {
+  const costValue = positiveUnitCost(latestEntryCost ?? cachedUnitCost);
+  return {
+    current_unit_cost:
+      costValue != null ? Math.round(costValue * 100) / 100 : null,
+    pending_label: costValue == null ? pendingRecipesLabel(lang) : null,
+  };
 }
 
 export interface AskMiltonAgentActionSummary {
@@ -136,6 +179,12 @@ export interface AskMiltonContext {
     /** Bottom 5 items with complete costing, sorted by gross_margin_pct asc. */
     least_profitable_items: AskMiltonProfitableItem[];
   };
+  /** R1-16c: latest confirmed prices, ranked; Sin precio never ranked or $0. */
+  ingredient_prices: AskMiltonIngredientPrices;
+  /** R1-16c: menu dishes with sales, cost and margin (same load as Menú). */
+  menu_dishes: AskMiltonMenuDishes | null;
+  /** R1-16c: the groups people made, with their sales. */
+  item_groups: AskMiltonItemGroup[];
   ingredient_usage: AskMiltonIngredientUsage[];
   expensive_ingredients: AskMiltonExpensiveIngredient[];
   suppliers: {
@@ -164,6 +213,17 @@ export interface AskMiltonContext {
   agent_runs: {
     recent: AskMiltonAgentRunSummary[];
   };
+  /**
+   * Compact, rounded POS sales snapshot (no raw rows). Scoped to the
+   * selected restaurant or consolidated company. See
+   * lib/restaurant/ask-milton-sales.ts for caps and timezone rules.
+   */
+  sales: AskMiltonSalesSnapshot;
+  /**
+   * Paged reads that failed. Empty/omitted when every fetch succeeded.
+   * Callers must not treat related arrays as a complete snapshot.
+   */
+  read_errors?: string[];
 }
 
 export interface AskMiltonContextScope {
@@ -200,6 +260,43 @@ function round1(n: number | null | undefined): number | null {
   return Math.round(n * 10) / 10;
 }
 
+type CostEntryRow = {
+  ingredient_id: string;
+  normalized_unit_cost: number | null;
+  normalized_unit: string | null;
+  cost_date: string;
+  created_at: string | null;
+  currency: string | null;
+  supplier_id: string | null;
+  source_type: string | null;
+};
+type RecipeRow = { id: string; menu_item_id: string };
+type RecipeInputRow = {
+  recipe_id: string;
+  input_type: string;
+  ingredient_id: string | null;
+  component_id: string | null;
+};
+type ComponentRow = { id: string; name: string };
+type CompRecipeRow = { id: string; component_id: string };
+type CompRecipeInputRow = {
+  component_recipe_id: string;
+  input_type: string;
+  ingredient_id: string | null;
+  component_id: string | null;
+};
+type MenuItemRow = { id: string; name: string; brand_id: string | null };
+
+function isNewerCostEntry(
+  candidate: CostEntryRow,
+  current: CostEntryRow
+): boolean {
+  if (candidate.cost_date !== current.cost_date) {
+    return candidate.cost_date > current.cost_date;
+  }
+  return (candidate.created_at ?? "") > (current.created_at ?? "");
+}
+
 // ---------------------------------------------------------------------------
 // Builder
 // ---------------------------------------------------------------------------
@@ -214,10 +311,21 @@ function round1(n: number | null | undefined): number | null {
  *   suppliers/invoices/agent data remain company-wide regardless (out of
  *   scope — same as the rest of Multi-Restaurant UX v1).
  */
+/** Run the wide read; if it errors (a missing column), run the narrow one. */
+async function readWithFallback<T extends { error: unknown }>(
+  wide: () => PromiseLike<T>,
+  narrow: () => PromiseLike<T>
+): Promise<T> {
+  const first = await wide();
+  if (!first.error) return first;
+  return narrow();
+}
+
 export async function buildAskMiltonContext(
   supabase: SupabaseClient,
   companyId: string,
-  selected?: ProfitabilitySelection | null
+  selected?: ProfitabilitySelection | null,
+  options?: { question?: string }
 ): Promise<AskMiltonContext> {
   // Run all data fetches in parallel. fetchProfitabilityData fires its own
   // internal Promise.all (12 sub-queries) concurrently with the others here,
@@ -242,15 +350,30 @@ export async function buildAskMiltonContext(
     componentRecipesRes,
     componentRecipeInputsRes,
     menuItemsRes,
+    salesResult,
+    latestPrices,
+    usageLoad,
   ] = await Promise.all([
     buildBriefingContext(supabase, companyId, selected),
     fetchProfitabilityData(supabase, companyId, selected),
-    supabase
-      .from("suppliers")
-      .select("id, name, is_active, categories")
-      .eq("company_id", companyId)
-      .order("name", { ascending: true })
-      .limit(200),
+    // A column some deployments lack (is_active, categories) must not blank
+    // the whole block: retry with the columns every deployment has.
+    readWithFallback(
+      () =>
+        supabase
+          .from("suppliers")
+          .select("id, name, is_active, categories")
+          .eq("company_id", companyId)
+          .order("name", { ascending: true })
+          .limit(200),
+      () =>
+        supabase
+          .from("suppliers")
+          .select("id, name")
+          .eq("company_id", companyId)
+          .order("name", { ascending: true })
+          .limit(200)
+    ),
     supabase
       .from("supplier_invoices")
       .select(
@@ -260,25 +383,35 @@ export async function buildAskMiltonContext(
       .order("invoice_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(50),
-    supabase
-      .from("ingredients")
-      .select(
-        "id, name, category, default_unit, current_unit_cost, currency, supplier_id"
-      )
-      .eq("company_id", companyId)
-      .limit(500),
-    // Authoritative ingredient costs — sorted so the first row per
-    // ingredient_id is the latest cost. We group client-side below.
-    supabase
-      .from("ingredient_cost_entries")
-      .select(
-        "ingredient_id, normalized_unit_cost, normalized_unit, cost_date, currency, supplier_id, source_type"
-      )
-      .eq("company_id", companyId)
-      .order("ingredient_id")
-      .order("cost_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(2000),
+    // `supplier_id` and `current_unit_cost` do not exist everywhere; when the
+    // wide select fails the ingredients still load (this used to blank the
+    // whole price ranking: «No tengo datos sobre ingredientes caros»).
+    readWithFallback(
+      () =>
+        supabase
+          .from("ingredients")
+          .select(
+            "id, name, category, default_unit, current_unit_cost, currency, supplier_id"
+          )
+          .eq("company_id", companyId)
+          .limit(2000),
+      () =>
+        supabase
+          .from("ingredients")
+          .select("id, name, category, default_unit")
+          .eq("company_id", companyId)
+          .limit(2000)
+    ),
+    // Authoritative ingredient costs — latest per ingredient is picked
+    // in memory below (query order is `id` for stable pagination).
+    fetchAllRows<CostEntryRow>(() =>
+      supabase
+        .from("ingredient_cost_entries")
+        .select(
+          "ingredient_id, normalized_unit_cost, normalized_unit, cost_date, created_at, currency, supplier_id, source_type"
+        )
+        .eq("company_id", companyId)
+    ),
     supabase
       .from("agent_actions")
       .select("id, agent_key, title, action_type, status, priority, created_at")
@@ -292,31 +425,53 @@ export async function buildAskMiltonContext(
       .order("started_at", { ascending: false })
       .limit(10),
     // --- ingredient_usage sources ---
-    supabase
-      .from("recipes")
-      .select("id, menu_item_id")
-      .eq("company_id", companyId),
-    supabase
-      .from("menu_recipe_inputs")
-      .select("recipe_id, input_type, ingredient_id, component_id")
-      .eq("company_id", companyId),
-    supabase
-      .from("prepared_components")
-      .select("id, name")
-      .eq("company_id", companyId),
-    supabase
-      .from("component_recipes")
-      .select("id, component_id")
-      .eq("company_id", companyId),
-    supabase
-      .from("component_recipe_inputs")
-      .select("component_recipe_id, input_type, ingredient_id, component_id")
-      .eq("company_id", companyId),
+    fetchAllRows<RecipeRow>(() =>
+      supabase
+        .from("recipes")
+        .select("id, menu_item_id")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<RecipeInputRow>(() =>
+      supabase
+        .from("menu_recipe_inputs")
+        .select("recipe_id, input_type, ingredient_id, component_id")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<ComponentRow>(() =>
+      supabase
+        .from("prepared_components")
+        .select("id, name")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<CompRecipeRow>(() =>
+      supabase
+        .from("component_recipes")
+        .select("id, component_id")
+        .eq("company_id", companyId)
+    ),
+    fetchAllRows<CompRecipeInputRow>(() =>
+      supabase
+        .from("component_recipe_inputs")
+        .select("component_recipe_id, input_type, ingredient_id, component_id")
+        .eq("company_id", companyId)
+    ),
     // all menu items for usage map (profData only includes POS-mapped items)
-    supabase
-      .from("menu_items")
-      .select("id, name, brand_id")
-      .eq("company_id", companyId),
+    fetchAllRows<MenuItemRow>(() =>
+      supabase
+        .from("menu_items")
+        .select("id, name, brand_id")
+        .eq("company_id", companyId)
+    ),
+    fetchAskMiltonSalesSnapshot(
+      supabase,
+      companyId,
+      selected?.locationId ?? null,
+      options?.question
+    ),
+    // R1-16c: the same latest-price and usage reads the Ingredientes screen
+    // uses, so "which ingredients are expensive" has real prices to quote.
+    fetchIngredientLatestCosts(supabase, companyId).catch(() => []),
+    loadIngredientUsage(supabase, companyId).catch(() => null),
   ]);
 
   const fallbackCurrency = briefing.currency;
@@ -400,19 +555,9 @@ export async function buildAskMiltonContext(
   // ingredients.current_unit_cost is a legacy cache that may be 0 when
   // costs were entered via invoices or bulk import — do NOT use it for
   // anything cost-related here.
-  type CostEntryRow = {
-    ingredient_id: string;
-    normalized_unit_cost: number | null;
-    normalized_unit: string | null;
-    cost_date: string;
-    currency: string | null;
-    supplier_id: string | null;
-    source_type: string | null;
-  };
-  const costEntryRows = (costEntriesRes.data ?? []) as CostEntryRow[];
+  warnIfTruncated("ask-milton ingredient_cost_entries", costEntriesRes);
+  const costEntryRows = succeededRows(costEntriesRes);
 
-  // The query is sorted ingredient_id, cost_date desc, created_at desc —
-  // so the first row we see per ingredient_id is the latest cost.
   interface LatestCost {
     normalized_unit_cost: number;
     normalized_unit: string;
@@ -421,12 +566,18 @@ export async function buildAskMiltonContext(
     supplier_id: string | null;
     source_type: string | null;
   }
-  const latestCostByIngredientId = new Map<string, LatestCost>();
+  const latestRawByIngredientId = new Map<string, CostEntryRow>();
   for (const entry of costEntryRows) {
-    if (latestCostByIngredientId.has(entry.ingredient_id)) continue; // already have latest
+    const prev = latestRawByIngredientId.get(entry.ingredient_id);
+    if (!prev || isNewerCostEntry(entry, prev)) {
+      latestRawByIngredientId.set(entry.ingredient_id, entry);
+    }
+  }
+  const latestCostByIngredientId = new Map<string, LatestCost>();
+  for (const [ingredientId, entry] of latestRawByIngredientId) {
     const cost = Number(entry.normalized_unit_cost ?? 0);
     if (!Number.isFinite(cost) || cost <= 0) continue; // skip zero/null costs
-    latestCostByIngredientId.set(entry.ingredient_id, {
+    latestCostByIngredientId.set(ingredientId, {
       normalized_unit_cost: cost,
       normalized_unit: entry.normalized_unit ?? "",
       cost_date: entry.cost_date,
@@ -453,12 +604,18 @@ export async function buildAskMiltonContext(
     );
   }
 
+  const pendingLang: PreferredLanguage = briefing.preferred_language;
   const toIngredientCost = (r: IngredientRow): AskMiltonIngredientCost => {
     // Prefer authoritative cost from ingredient_cost_entries; fall back to
-    // ingredients.current_unit_cost only when no entry exists.
+    // ingredients.current_unit_cost only when no entry exists. Null stays
+    // null — a pending price is never shown as $0.
     const latestEntry = latestCostByIngredientId.get(r.id);
-    const costValue =
-      latestEntry?.normalized_unit_cost ?? r.current_unit_cost ?? 0;
+    const { current_unit_cost, pending_label } =
+      resolveAskMiltonIngredientUnitCost(
+        latestEntry?.normalized_unit_cost,
+        r.current_unit_cost,
+        pendingLang
+      );
     const costCurrency =
       latestEntry?.currency ?? r.currency ?? fallbackCurrency;
     const supplierFromEntry = latestEntry?.supplier_id
@@ -469,7 +626,8 @@ export async function buildAskMiltonContext(
       name: r.name,
       category: r.category,
       default_unit: latestEntry?.normalized_unit ?? r.default_unit,
-      current_unit_cost: Math.round(costValue * 100) / 100,
+      current_unit_cost,
+      pending_label,
       currency: costCurrency,
       supplier_name:
         supplierFromEntry ??
@@ -486,7 +644,10 @@ export async function buildAskMiltonContext(
       const latestEntry = latestCostByIngredientId.get(r.id);
       return {
         row: r,
-        sortCost: latestEntry?.normalized_unit_cost ?? r.current_unit_cost ?? 0,
+        sortCost:
+          positiveUnitCost(
+            latestEntry?.normalized_unit_cost ?? r.current_unit_cost
+          ) ?? 0,
       };
     })
     .filter(({ sortCost }) => sortCost > 0)
@@ -601,35 +762,18 @@ export async function buildAskMiltonContext(
 
   // ---- Ingredient usage map ----
   // Build: ingredient_id → { direct menu items, via-component menu items }
-  type RecipeRow = { id: string; menu_item_id: string };
-  type RecipeInputRow = {
-    recipe_id: string;
-    input_type: string;
-    ingredient_id: string | null;
-    component_id: string | null;
-  };
-  type ComponentRow = { id: string; name: string };
-  type CompRecipeRow = { id: string; component_id: string };
-  type CompRecipeInputRow = {
-    component_recipe_id: string;
-    input_type: string;
-    ingredient_id: string | null;
-    component_id: string | null;
-  };
-  type MenuItemRow = { id: string; name: string; brand_id: string | null };
-
-  const recipes = (recipesRes.data ?? []) as RecipeRow[];
-  const recipeInputs = (recipeInputsRes.data ?? []) as RecipeInputRow[];
-  const components = (componentsRes.data ?? []) as ComponentRow[];
-  const componentRecipes = (componentRecipesRes.data ?? []) as CompRecipeRow[];
-  const componentRecipeInputs = (componentRecipeInputsRes.data ??
-    []) as CompRecipeInputRow[];
+  warnIfTruncated("ask-milton menu_recipe_inputs", recipeInputsRes);
+  const recipes = succeededRows(recipesRes);
+  const recipeInputs = succeededRows(recipeInputsRes);
+  const components = succeededRows(componentsRes);
+  const componentRecipes = succeededRows(componentRecipesRes);
+  const componentRecipeInputs = succeededRows(componentRecipeInputsRes);
   // Scoped the same way the cockpit's profitability view is (Multi-
   // Restaurant UX v1): a selected restaurant's own brand's items plus
   // legacy brand-less items — never another brand's exclusive dishes
   // leaking into the ingredient-usage map below.
   const menuItemRows = filterMenuItemsForSelection(
-    (menuItemsRes.data ?? []) as MenuItemRow[],
+    succeededRows(menuItemsRes),
     selected
   );
 
@@ -654,7 +798,29 @@ export async function buildAskMiltonContext(
   // component → menu item names (via recipe_inputs that use this component)
   const componentToMenuItems = new Map<string, Set<string>>();
 
-  for (const ri of recipeInputs) {
+  // R1-09a: a company on the new model reads usage from the shared
+  // dish-economics load (approved or draft recipe versions), not from the
+  // legacy recipes / menu_recipe_inputs tables.
+  const dishSide = profData.dishEconomics ?? null;
+  const addTo = (map: Map<string, Set<string>>, key: string, name: string) => {
+    let set = map.get(key);
+    if (!set) {
+      set = new Set();
+      map.set(key, set);
+    }
+    set.add(name);
+  };
+  for (const dish of dishSide?.dishes ?? []) {
+    for (const line of dish.lines) {
+      if (line.ingredient_id) {
+        addTo(ingredientDirectMenuItems, line.ingredient_id, dish.name);
+      }
+      if (line.component_id) {
+        addTo(componentToMenuItems, line.component_id, dish.name);
+      }
+    }
+  }
+  for (const ri of dishSide ? [] : recipeInputs) {
     const menuItemId = ri.recipe_id ? recipeToMenuItem.get(ri.recipe_id) : null;
     if (!menuItemId) continue;
     // menuItemNameById is already scoped to the current selection — a
@@ -735,9 +901,11 @@ export async function buildAskMiltonContext(
     }
 
     // Use authoritative cost from entries; fall back to cached field.
+    // Null / 0 cache is pending — never a fabricated $0.
     const latestEntry = latestCostByIngredientId.get(ingredientId);
-    const unitCost =
-      latestEntry?.normalized_unit_cost ?? ing.current_unit_cost ?? null;
+    const unitCost = positiveUnitCost(
+      latestEntry?.normalized_unit_cost ?? ing.current_unit_cost
+    );
     const unitLabel = latestEntry?.normalized_unit ?? ing.default_unit;
     const currency = latestEntry?.currency ?? ing.currency ?? fallbackCurrency;
 
@@ -799,6 +967,7 @@ export async function buildAskMiltonContext(
     });
 
   // Log errors for observability but never throw — keep partial context.
+  const read_errors: string[] = [];
   for (const [label, res] of [
     ["suppliers", suppliersRes],
     ["supplier_invoices", invoicesRes],
@@ -815,8 +984,26 @@ export async function buildAskMiltonContext(
   ] as const) {
     if (res.error) {
       console.error(`[ask-milton-context] ${label}:`, res.error.message);
+      read_errors.push(label);
     }
   }
+  if (profData.readError) {
+    read_errors.push("pos_sales_items");
+  }
+  if (salesResult.readError && !read_errors.includes("pos_sales_items")) {
+    read_errors.push("pos_sales_items");
+  }
+
+  const sales = salesResult.snapshot ?? emptySalesSnapshot();
+
+  const econ = profData.dishEconomics ?? null;
+  const ingredient_prices = buildIngredientPrices({
+    rows: latestPrices,
+    dishCount: usageLoad?.ok ? usageLoad.dishCount : null,
+    dishNames: dishNamesByIngredient(econ),
+    inUse: usageLoad?.ok ? usageLoad.inUse : null,
+    scope: selected ? "restaurant" : "company",
+  });
 
   return {
     context_scope: resolveContextScope(selected, briefing.restaurant_name),
@@ -825,6 +1012,9 @@ export async function buildAskMiltonContext(
       most_profitable_items: mostProfitable,
       least_profitable_items: leastProfitable,
     },
+    ingredient_prices,
+    menu_dishes: econ ? buildMenuDishes(econ) : null,
+    item_groups: econ ? buildItemGroups(econ) : [],
     ingredient_usage: ingredientUsageCapped,
     expensive_ingredients: expensiveIngredients,
     suppliers: {
@@ -853,5 +1043,7 @@ export async function buildAskMiltonContext(
     agent_runs: {
       recent: runsRecent,
     },
+    sales,
+    ...(read_errors.length > 0 ? { read_errors } : {}),
   };
 }

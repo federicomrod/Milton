@@ -82,6 +82,50 @@ describe("odoo-sync route", () => {
   });
 });
 
+function hasCodeFetchCall(src: string): boolean {
+  return src.split("\n").some((line) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("//") || trimmed.startsWith("*")) return false;
+    return trimmed.includes("fetch(");
+  });
+}
+
+describe("single Odoo network path", () => {
+  it("client.ts contains the only execute_kw string and the only fetch( in lib/restaurant/odoo and app/api", () => {
+    const files = [
+      ...walk(join(ROOT, "lib/restaurant/odoo")),
+      ...walk(join(ROOT, "app/api")),
+    ].map((f) => relative(ROOT, f).split("\\").join("/"));
+
+    const executeKwFiles = files.filter((f) => read(f).includes("execute_kw"));
+    expect(executeKwFiles).toEqual(["lib/restaurant/odoo/client.ts"]);
+
+    const fetchFiles = files.filter((f) => {
+      // Non-Odoo API routes may fetch other services; Odoo I/O must stay in client.ts.
+      if (!f.startsWith("lib/restaurant/odoo/") && !f.includes("/odoo")) {
+        return false;
+      }
+      return hasCodeFetchCall(read(f));
+    });
+    expect(fetchFiles).toEqual(["lib/restaurant/odoo/client.ts"]);
+  });
+});
+
+describe("odoo-audit live dimension scope", () => {
+  const src = read("app/api/restaurant/pos/odoo-audit/route.ts");
+
+  it("fails closed when odoo_company_ids is empty (no discover fallback)", () => {
+    const fnStart = src.indexOf("async function fetchLiveDimensions");
+    const fnEnd = src.indexOf("export async function GET");
+    expect(fnStart).toBeGreaterThan(-1);
+    expect(fnEnd).toBeGreaterThan(fnStart);
+    const fn = src.slice(fnStart, fnEnd);
+    expect(fn).toContain("assertOdooScope(selectedIds)");
+    expect(fn).not.toContain("discoverOdooCompanies");
+    expect(src).toContain("no Odoo companies selected (fail closed)");
+  });
+});
+
 describe("read-only paths", () => {
   it("the audit route performs no writes", () => {
     const src = read("app/api/restaurant/pos/odoo-audit/route.ts");
@@ -98,6 +142,24 @@ describe("read-only paths", () => {
     }
   });
 
+  it("the combo diagnostics route performs no writes", () => {
+    const src = read("app/api/restaurant/pos/odoo-combo-diagnostics/route.ts");
+    for (const needle of [
+      ".insert(",
+      ".update(",
+      ".upsert(",
+      ".delete(",
+      '"create"',
+      '"write"',
+      '"unlink"',
+    ]) {
+      expect(src).not.toContain(needle);
+    }
+    expect(src).toContain("canAccessOdooComboDiagnostics");
+    expect(src).toContain("loadOdooSession");
+    expect(src).toContain("assertOdooScope");
+  });
+
   it("the odoo-companies GET handler performs no writes", () => {
     const src = read("app/api/restaurant/pos/odoo-companies/route.ts");
     const get = src.split("export async function POST")[0];
@@ -108,13 +170,84 @@ describe("read-only paths", () => {
   });
 });
 
-describe("Milton company stays server-side", () => {
-  it.each(["odoo-sync", "odoo-connection", "odoo-companies", "odoo-audit"])(
-    "%s never reads body.company_id",
-    (route) => {
-      const src = read(`app/api/restaurant/pos/${route}/route.ts`);
-      expect(src).not.toMatch(/body\.company_id/);
-      expect(src).not.toMatch(/searchParams\.get\(["']company_id["']\)/);
+describe("Odoo routes never leak err.message or raw fault text", () => {
+  const files = [
+    ...walk(join(ROOT, "app/api/admin/odoo")),
+    ...walk(join(ROOT, "app/api/restaurant/pos")),
+  ]
+    .map((f) => relative(ROOT, f).split("\\").join("/"))
+    .filter((f) => f.includes("odoo") && f.endsWith("route.ts"));
+
+  it("scans every Odoo admin and pos route", () => {
+    expect(files.sort()).toEqual(
+      [
+        "app/api/admin/odoo/companies/route.ts",
+        "app/api/admin/odoo/connection/route.ts",
+        "app/api/admin/odoo/location-mapping/route.ts",
+        "app/api/admin/odoo/test-connection/route.ts",
+        "app/api/restaurant/pos/odoo-audit/route.ts",
+        "app/api/restaurant/pos/odoo-combo-diagnostics/route.ts",
+        "app/api/restaurant/pos/odoo-companies/route.ts",
+        "app/api/restaurant/pos/odoo-connection/route.ts",
+        "app/api/restaurant/pos/odoo-sync/route.ts",
+      ].sort()
+    );
+  });
+
+  it("never puts Error.message into JSON details", () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = read(f);
+      if (/details:\s*message\b/.test(src)) {
+        offenders.push(`${f}: details: message`);
+      }
+      if (/details:\s*[A-Za-z0-9_$?]+\.message/.test(src)) {
+        offenders.push(`${f}: details: *.message`);
+      }
+      if (/details:\s*`[^`]*\$\{message\}/.test(src)) {
+        offenders.push(`${f}: details interpolates message`);
+      }
     }
-  );
+    expect(offenders).toEqual([]);
+  });
+
+  it("JSON error: err.message is only the canned auth/host responses", () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = read(f);
+      const re = /error:\s*err\.message/g;
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(src))) {
+        const before = src.slice(Math.max(0, match.index - 350), match.index);
+        const allowed =
+          before.includes("OdooAuthenticationError") ||
+          before.includes("OdooHostNotAllowedError");
+        if (!allowed) offenders.push(`${f} @${match.index}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("client-facing details use the generic status-class helper", () => {
+    for (const f of files) {
+      const src = read(f);
+      if (!src.includes("details:")) continue;
+      expect(src).toContain("Odoo request failed (");
+      expect(src).toContain("function odooFaultDetails");
+    }
+  });
+});
+
+describe("Milton company stays server-side", () => {
+  it.each([
+    "odoo-sync",
+    "odoo-connection",
+    "odoo-companies",
+    "odoo-audit",
+    "odoo-combo-diagnostics",
+  ])("%s never reads body.company_id", (route) => {
+    const src = read(`app/api/restaurant/pos/${route}/route.ts`);
+    expect(src).not.toMatch(/body\.company_id/);
+    expect(src).not.toMatch(/searchParams\.get\(["']company_id["']\)/);
+  });
 });

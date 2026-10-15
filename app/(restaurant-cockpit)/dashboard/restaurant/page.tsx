@@ -18,25 +18,11 @@
 // This file is a Server Component (no "use client"): Supabase access uses the
 // SSR client, so the user's session cookie is honored and RLS applies.
 
-import Link from "next/link";
-import {
-  Flame,
-  TrendingDown,
-  AlertTriangle,
-  ShieldAlert,
-  Info,
-  Upload,
-} from "lucide-react";
+import { TrendingDown, AlertTriangle, ShieldAlert, Info } from "lucide-react";
 import type React from "react";
+import { Suspense } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { createClient } from "@/lib/supabase/server";
-import { RestaurantSalesExplorer } from "@/components/restaurant/RestaurantSalesExplorer";
-import {
-  getRestaurantKpiTargets,
-  type TargetMap,
-} from "@/lib/restaurant/supabase-targets";
 import {
   calculateRestaurantOverview,
   getRestaurantMenuItemMargins,
@@ -45,29 +31,30 @@ import {
   getUnknownCostItems,
   getOpenRecommendations,
 } from "@/lib/restaurant/calculations";
+import { type SampleReason } from "@/lib/restaurant/supabase-sales";
+import { PAGINATED_READ_SAFETY_CAP } from "@/lib/restaurant/paginated-read";
 import {
-  fetchRealRestaurantDashboardData,
-  resolveCompanyIdForUser,
-  type RestaurantDashboardData,
-  type SampleReason,
-} from "@/lib/restaurant/supabase-sales";
+  loadCockpitExecutiveFast,
+  type CockpitExecutiveFastModel,
+} from "@/lib/restaurant/cockpit-page-data";
+import { CockpitV2 } from "@/components/restaurant/cockpit/v2/CockpitV2";
+import { loadCockpitV2Model } from "@/lib/restaurant/cockpit-v2-server";
+import {} from "@/components/restaurant/ProfitabilityCockpit";
+import { CockpitHeadlineSkeleton } from "@/components/restaurant/cockpit/CockpitHeadline";
+import { CockpitHeroChartSkeleton } from "@/components/restaurant/cockpit/CockpitHeroChart";
+import { CockpitInsightsCardSkeleton } from "@/components/restaurant/cockpit/CockpitInsightsCard";
 import {
-  fetchProfitabilityData,
-  type ProfitabilityData,
-} from "@/lib/restaurant/profitability-server";
-import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
+import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import {
-  ProfitabilityKpisSection,
-  MarginRiskSection,
-  SupplierTrendsSection,
-  DataQualityChecklistSection,
-  ItemsNeedingAttention,
-  SupplierPriceAlerts,
-} from "@/components/restaurant/ProfitabilityCockpit";
-import { CockpitTabs } from "@/components/restaurant/cockpit/CockpitTabs";
-import { MenuProfitabilityTable } from "@/components/restaurant/cockpit/MenuProfitabilityTable";
-import { BriefingCard } from "@/components/restaurant/BriefingCard";
-import { RestaurantSetupChecklist } from "@/components/restaurant/RestaurantSetupChecklist";
+  DataHealthBanner,
+  DataHealthIndicator,
+} from "@/components/restaurant/shell/DataHealthIndicator";
+import { buildCockpitDataHealth } from "@/lib/restaurant/cockpit-data-health";
+import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
 import {
   MOCK_MENU_ITEMS,
   MOCK_RECIPES,
@@ -144,175 +131,67 @@ function KpiCard({
   );
 }
 
-function PageHeader({
-  mode,
-  reason,
-}: {
-  mode: "live" | "sample";
-  reason?: SampleReason;
-}) {
-  const liveCopy =
-    "Using uploaded POS data from Supabase. Recipe costing is pending until menu items, recipes, and supplier costs are linked.";
+function cockpitSampleCopy(
+  lang: PreferredLanguage,
+  reason?: SampleReason
+): string {
   const sampleCopyByReason: Record<SampleReason, string> = {
-    unauthenticated:
-      "Using sample pilot data — sign in to see your own data. Upload POS sales to see live revenue and item performance.",
-    no_company:
-      "Using sample pilot data — no company is linked to your account yet. Upload POS sales after a company is provisioned.",
-    no_sales:
-      "Using sample pilot data. Upload POS sales to see live revenue and item performance.",
-    supabase_error:
-      "Using sample pilot data — could not reach Supabase. Try refreshing the page.",
-    env_missing:
-      "Using sample pilot data — Supabase is not configured in this environment.",
+    unauthenticated: t(
+      lang,
+      "Showing sample data — sign in to see your own numbers. Import POS sales to see live revenue.",
+      "Estás viendo datos de ejemplo — entra a tu cuenta para ver tus números. Importa ventas del POS para ver ingresos reales."
+    ),
+    no_company: t(
+      lang,
+      "Showing sample data — no company is linked to your account yet.",
+      "Estás viendo datos de ejemplo — tu cuenta aún no está ligada a una empresa."
+    ),
+    no_sales: t(
+      lang,
+      "Showing sample data. Import POS sales to see live revenue and item performance.",
+      "Estás viendo datos de ejemplo. Importa ventas del POS para ver ingresos y platillos reales."
+    ),
+    supabase_error: t(
+      lang,
+      "Showing sample data — could not reach the sales database. Try refreshing the page.",
+      "Estás viendo datos de ejemplo — no se pudo leer la base de ventas. Recarga la página."
+    ),
+    env_missing: t(
+      lang,
+      "Showing sample data — sales storage is not configured here.",
+      "Estás viendo datos de ejemplo — el almacenamiento de ventas no está configurado aquí."
+    ),
   };
-  const sampleCopy = reason
-    ? sampleCopyByReason[reason]
-    : sampleCopyByReason.no_sales;
-
-  // The sidebar already shows the brand ("Pinche Gringo BBQ") in its
-  // restaurant selector, so the page header is now a single tight row:
-  // page title + mode badge on the left, Import POS Sales on the right.
-  // Per-mode helper copy moves underneath as one muted line.
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3 min-w-0">
-          <Flame className="h-6 w-6 text-orange-500 shrink-0" />
-          <h1 className="text-2xl font-bold tracking-tight">Cockpit</h1>
-          {mode === "live" ? (
-            <Badge className="text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0">
-              Live POS data
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="text-xs font-medium">
-              Sample pilot data
-            </Badge>
-          )}
-        </div>
-        <Button asChild size="sm" className="gap-2">
-          <Link href="/dashboard/restaurant/upload">
-            <Upload className="h-4 w-4" />
-            Import POS Sales
-          </Link>
-        </Button>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        {mode === "live" ? liveCopy : sampleCopy}
-      </p>
-    </div>
-  );
+  return reason ? sampleCopyByReason[reason] : sampleCopyByReason.no_sales;
 }
 
-// ---------------------------------------------------------------------------
-// Live (real-data) view
-// ---------------------------------------------------------------------------
-
-function LiveRestaurantView({
-  data,
-  targets,
-  profitability,
+function SampleDataHealth({
+  lang,
+  reason,
 }: {
-  data: Extract<RestaurantDashboardData, { mode: "live" }>;
-  /** Daily KPI targets for the same company; empty when nothing is set. */
-  targets: TargetMap;
-  /** Profitability aggregate; null when the load failed (we still render
-   *  the POS explorer so the page degrades cleanly). */
-  profitability: ProfitabilityData | null;
+  lang: PreferredLanguage;
+  reason?: SampleReason;
 }) {
-  // Tab content is built once on the server and passed through the
-  // client tab shell. Server-rendered ReactNodes flow through fine
-  // (Next.js App Router supports this); only the active-tab state
-  // lives in the client component.
-  const issueCount = profitability
-    ? profitability.kpis.menu_items_with_issues +
-      profitability.kpis.menu_items_without_recipe
-    : 0;
-  const setupOutstanding = profitability
-    ? profitability.dataQuality.unmapped_pos_items +
-      profitability.dataQuality.menu_items_without_recipe +
-      profitability.dataQuality.recipes_with_unit_mismatch +
-      profitability.dataQuality.ingredients_without_cost_entries +
-      profitability.dataQuality.components_without_recipe
-    : 0;
-
-  const tabs = profitability
-    ? [
-        {
-          id: "overview",
-          label: "Overview",
-          content: (
-            <OverviewTab
-              profitability={profitability}
-              rowCount={data.rowCount}
-            />
-          ),
-        },
-        {
-          id: "menu",
-          label: "Menu Profitability",
-          badge: issueCount > 0 ? String(issueCount) : undefined,
-          content: <MenuProfitabilityTab profitability={profitability} />,
-        },
-        {
-          id: "suppliers",
-          label: "Suppliers & Costs",
-          content: <SupplierTrendsSection data={profitability} />,
-        },
-        {
-          id: "revenue",
-          label: "Revenue & Channels",
-          content: (
-            <RevenueAndChannelsTab rows={data.explorerRows} targets={targets} />
-          ),
-        },
-        {
-          id: "setup",
-          label: "Setup / Data Quality",
-          badge: setupOutstanding > 0 ? String(setupOutstanding) : undefined,
-          content: <SetupTab profitability={profitability} />,
-        },
-      ]
-    : [
-        // Profitability load failed — collapse to a single "Revenue & Channels"
-        // tab so the user still gets the POS explorer.
-        {
-          id: "revenue",
-          label: "Revenue & Channels",
-          content: (
-            <RevenueAndChannelsTab rows={data.explorerRows} targets={targets} />
-          ),
-        },
-      ];
-
+  const health = buildCockpitDataHealth({
+    lang,
+    currency: "USD",
+    saleLineCount: 0,
+    otherCurrencyExcluded: 0,
+    dishesWithoutRecipe: 0,
+    recipeCoveragePct: null,
+    costCoveragePct: 0,
+    lastSyncedAt: null,
+    posConnected: false,
+    salesLoaded: false,
+    readError: false,
+    truncated: false,
+  });
   return (
-    <div className="w-full py-8 px-6 lg:px-10">
-      <div className="space-y-6">
-        <PageHeader mode="live" />
-
-        {/* Live-mode banner — adapts to costing state */}
-        {profitability && profitability.kpis.cost_coverage_pct === 0 ? (
-          <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 p-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
-            <Info className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>
-              Sales data is loaded ({data.rowCount.toLocaleString("es-MX")} row
-              {data.rowCount === 1 ? "" : "s"}). Costing is pending until
-              ingredient costs and recipes are linked.
-            </span>
-          </div>
-        ) : (
-          <div className="rounded-md border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20 p-3 text-sm text-green-900 dark:text-green-200 flex items-start gap-2">
-            <Info className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>
-              {data.rowCount.toLocaleString("es-MX")} POS sale row
-              {data.rowCount === 1 ? "" : "s"} loaded from Supabase. Items with
-              missing recipes or unit mismatches are flagged rather than
-              estimated.
-            </span>
-          </div>
-        )}
-
-        <CockpitTabs tabs={tabs} defaultTab="overview" />
-      </div>
+    <div className="space-y-2">
+      <DataHealthBanner tone="warn">
+        {cockpitSampleCopy(lang, reason)}
+      </DataHealthBanner>
+      <DataHealthIndicator lang={lang} health={health} />
     </div>
   );
 }
@@ -320,179 +199,6 @@ function LiveRestaurantView({
 // ---------------------------------------------------------------------------
 // Tab content components
 // ---------------------------------------------------------------------------
-
-function OverviewTab({
-  profitability,
-  rowCount,
-}: {
-  profitability: ProfitabilityData;
-  rowCount: number;
-}) {
-  return (
-    <div className="space-y-8">
-      <RestaurantSetupChecklist
-        setupCounts={profitability.setupCounts}
-        dataQuality={profitability.dataQuality}
-      />
-      <BriefingCard />
-      <ProfitabilityKpisSection data={profitability} />
-
-      {/* Two-column overview panel: top items + supplier price alerts */}
-      <section>
-        <h2 className="text-base font-semibold mb-3">Today&apos;s attention</h2>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ItemsNeedingAttention data={profitability} />
-          <SupplierPriceAlerts data={profitability} />
-        </div>
-      </section>
-
-      {/* Margin risk (compact: 2 most actionable cards on Overview) */}
-      <MarginRiskSection data={profitability} compact />
-
-      {/* Placeholders for future signals — clearly labelled. */}
-      <section>
-        <h2 className="text-base font-semibold mb-3">Coming soon</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Placeholder
-            title="Waste &amp; expiry risk"
-            body="Will appear once inventory and expiry data are wired in."
-          />
-          <Placeholder
-            title="Invoice OCR"
-            body={`Invoice ingestion will plug supplier invoices directly into your ${rowCount.toLocaleString("es-MX")} POS rows + cost data. Currently in design.`}
-          />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function MenuProfitabilityTab({
-  profitability,
-}: {
-  profitability: ProfitabilityData;
-}) {
-  return (
-    <div className="space-y-6">
-      <ProfitabilityKpisSection data={profitability} />
-      <section>
-        <div className="flex items-baseline justify-between mb-3 gap-3 flex-wrap">
-          <h2 className="text-base font-semibold">
-            Menu profitability{" "}
-            <span className="text-sm font-normal text-muted-foreground">
-              ({profitability.marginRows.length})
-            </span>
-          </h2>
-        </div>
-        <MenuProfitabilityTable
-          rows={profitability.marginRows}
-          currency={profitability.kpis.currency}
-        />
-      </section>
-      <MarginRiskSection data={profitability} />
-      {/* Collapsible checklist — the long version lives in the Setup tab.
-          Here it acts as a quick "what's blocking margin" peek. */}
-      <details className="rounded-md border border-border bg-background">
-        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium hover:bg-muted/30">
-          Costing setup checklist
-        </summary>
-        <div className="px-4 pb-4 pt-2">
-          <DataQualityChecklistSection data={profitability} />
-        </div>
-      </details>
-    </div>
-  );
-}
-
-function RevenueAndChannelsTab({
-  rows,
-  targets,
-}: {
-  rows: Extract<RestaurantDashboardData, { mode: "live" }>["explorerRows"];
-  targets: TargetMap;
-}) {
-  return (
-    <section>
-      <RestaurantSalesExplorer rows={rows} initialTargets={targets} />
-    </section>
-  );
-}
-
-function SetupTab({ profitability }: { profitability: ProfitabilityData }) {
-  return (
-    <div className="space-y-6">
-      <DataQualityChecklistSection data={profitability} />
-      {/* Pull two of the most actionable lists into this tab so the user
-          can see what's actually blocking margin computation. */}
-      <section>
-        <h2 className="text-base font-semibold mb-3">
-          What&apos;s blocking margin
-        </h2>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <SetupIssueList
-            title="Missing recipes (high volume)"
-            empty="Every selling item has a recipe."
-            items={profitability.missingRecipeHighVolume.map((r) => ({
-              key: r.menu_item_id,
-              title: r.name,
-              detail: `${r.units_sold.toLocaleString("es-MX")} units sold`,
-            }))}
-          />
-          <SetupIssueList
-            title="Unit mismatches blocking costing"
-            empty="No recipes blocked by unit mismatch."
-            items={profitability.marginRows
-              .filter((r) => r.cost.status === "missing_unit_conversion")
-              .map((r) => ({
-                key: r.menu_item_id,
-                title: r.name,
-                detail: r.cost.issues[0]?.message ?? "Unit mismatch",
-              }))}
-          />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function SetupIssueList({
-  title,
-  empty,
-  items,
-}: {
-  title: string;
-  empty: string;
-  items: { key: string; title: string; detail: string }[];
-}) {
-  return (
-    <div className="rounded-md border border-border bg-background">
-      <div className="px-4 py-3 border-b border-border">
-        <p className="text-sm font-medium">{title}</p>
-      </div>
-      {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground px-4 py-3">{empty}</p>
-      ) : (
-        <ul className="divide-y divide-border">
-          {items.slice(0, 10).map((it) => (
-            <li key={it.key} className="px-4 py-2.5">
-              <div className="text-sm font-medium">{it.title}</div>
-              <div className="text-xs text-muted-foreground">{it.detail}</div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function Placeholder({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-5">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="text-xs text-muted-foreground mt-1">{body}</p>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Sample (mock) view — preserved from the previous mock-only implementation
@@ -577,39 +283,84 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
   return (
     <div className="w-full py-8 px-6 lg:px-10">
       <div className="space-y-8">
-        <PageHeader mode="sample" reason={reason} />
+        <OperatingPageHeader
+          title={t(RESTAURANT_COCKPIT_DEFAULT_LANGUAGE, "Cockpit", "Cockpit")}
+          lang={RESTAURANT_COCKPIT_DEFAULT_LANGUAGE}
+        />
+        <SampleDataHealth
+          lang={RESTAURANT_COCKPIT_DEFAULT_LANGUAGE}
+          reason={reason}
+        />
 
         {/* KPIs */}
         <section>
-          <h2 className="text-base font-semibold mb-3">Overview</h2>
+          <h2 className="text-base font-semibold mb-3">
+            {t(RESTAURANT_COCKPIT_DEFAULT_LANGUAGE, "Overview", "Resumen")}
+          </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
             <KpiCard
-              label="Total Revenue"
+              label={t(
+                RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                "Total Revenue",
+                "Ventas totales"
+              )}
               value={fmts.int.format(overview.total_revenue)}
               sub={overview.currency}
             />
             <KpiCard
-              label="Total Orders"
+              label={t(
+                RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                "Total Orders",
+                "Pedidos"
+              )}
               value={overview.total_orders.toLocaleString(fmts.numLocale)}
-              sub="unique checks"
+              sub={t(
+                RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                "unique checks",
+                "cuentas únicas"
+              )}
             />
             <KpiCard
-              label="Units Sold"
+              label={t(
+                RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                "Units Sold",
+                "Unidades vendidas"
+              )}
               value={overview.total_units_sold.toLocaleString(fmts.numLocale)}
-              sub="dishes"
+              sub={t(
+                RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                "dishes",
+                "platillos"
+              )}
             />
             <KpiCard
-              label="Avg Ticket"
+              label={t(
+                RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                "Avg Ticket",
+                "Ticket promedio"
+              )}
               value={fmts.int.format(overview.avg_ticket)}
-              sub="per order"
+              sub={t(
+                RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                "per order",
+                "por pedido"
+              )}
             />
             <KpiCard
-              label="Food Cost"
+              label={t(
+                RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                "Food Cost",
+                "Costo de comida"
+              )}
               value={fmtPct(overview.food_cost_pct)}
               sub={fmts.int.format(overview.food_cost_amount)}
             />
             <KpiCard
-              label="Gross Margin"
+              label={t(
+                RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                "Gross Margin",
+                "Margen bruto"
+              )}
               value={fmtPct(overview.gross_margin_pct)}
               sub={fmts.int.format(overview.gross_margin_amount)}
             />
@@ -618,8 +369,11 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
             <div className="mt-3 flex items-center gap-2 text-sm text-red-700 dark:text-red-400">
               <ShieldAlert className="h-4 w-4 shrink-0" />
               <span>
-                {criticalCount} critical alert{criticalCount > 1 ? "s" : ""}{" "}
-                require your attention — see recommendations below.
+                {t(
+                  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                  `${criticalCount} critical alert${criticalCount > 1 ? "s" : ""} require your attention — see recommendations below.`,
+                  `${criticalCount} ${criticalCount > 1 ? "alertas críticas requieren" : "alerta crítica requiere"} tu atención — mira las recomendaciones abajo.`
+                )}
               </span>
             </div>
           )}
@@ -627,24 +381,68 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
 
         {/* Dish profitability — kept ONLY in sample mode. */}
         <section>
-          <h2 className="text-base font-semibold mb-3">Dish Profitability</h2>
+          <h2 className="text-base font-semibold mb-3">
+            {t(
+              RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+              "Dish Profitability",
+              "Rentabilidad por platillo"
+            )}
+          </h2>
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/50 text-left">
-                      <th className="p-3 font-medium">Item</th>
-                      <th className="p-3 font-medium text-right">Price</th>
-                      <th className="p-3 font-medium text-right">Est. Cost</th>
-                      <th className="p-3 font-medium text-right">
-                        Gross Profit
+                      <th className="p-3 font-medium">
+                        {t(
+                          RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                          "Item",
+                          "Platillo"
+                        )}
                       </th>
-                      <th className="p-3 font-medium text-right">Margin %</th>
                       <th className="p-3 font-medium text-right">
-                        Food Cost %
+                        {t(
+                          RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                          "Price",
+                          "Precio"
+                        )}
                       </th>
-                      <th className="p-3 font-medium">Status</th>
+                      <th className="p-3 font-medium text-right">
+                        {t(
+                          RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                          "Est. Cost",
+                          "Costo est."
+                        )}
+                      </th>
+                      <th className="p-3 font-medium text-right">
+                        {t(
+                          RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                          "Gross Profit",
+                          "Utilidad bruta"
+                        )}
+                      </th>
+                      <th className="p-3 font-medium text-right">
+                        {t(
+                          RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                          "Margin %",
+                          "Margen %"
+                        )}
+                      </th>
+                      <th className="p-3 font-medium text-right">
+                        {t(
+                          RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                          "Food Cost %",
+                          "Costo de comida %"
+                        )}
+                      </th>
+                      <th className="p-3 font-medium">
+                        {t(
+                          RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                          "Status",
+                          "Estado"
+                        )}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -681,17 +479,33 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
                             <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
                               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                               {item.cost_result.status === "missing_recipe"
-                                ? "No recipe"
-                                : "Missing cost"}
+                                ? t(
+                                    RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                                    "No recipe",
+                                    "Sin receta"
+                                  )
+                                : t(
+                                    RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                                    "Missing cost",
+                                    "Falta el costo"
+                                  )}
                             </span>
                           ) : item.gross_margin_pct < 60 ? (
                             <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
                               <TrendingDown className="h-3.5 w-3.5 shrink-0" />
-                              Low margin
+                              {t(
+                                RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                                "Low margin",
+                                "Margen bajo"
+                              )}
                             </span>
                           ) : (
                             <span className="text-xs text-green-600 dark:text-green-400">
-                              OK
+                              {t(
+                                RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                                "OK",
+                                "OK"
+                              )}
                             </span>
                           )}
                         </td>
@@ -706,7 +520,13 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
 
         {/* Top margin items */}
         <section>
-          <h2 className="text-base font-semibold mb-3">Top Margin Dishes</h2>
+          <h2 className="text-base font-semibold mb-3">
+            {t(
+              RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+              "Top Margin Dishes",
+              "Platillos de mayor margen"
+            )}
+          </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {topItems.map((item, rank) => (
               <Card key={item.menu_item_id}>
@@ -723,11 +543,15 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
                     {fmtPct(item.gross_margin_pct)}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    FC {fmtPct(item.food_cost_pct)} · Cost{" "}
+                    {t(RESTAURANT_COCKPIT_DEFAULT_LANGUAGE, "FC", "Costo")}{" "}
+                    {fmtPct(item.food_cost_pct)} ·{" "}
+                    {t(RESTAURANT_COCKPIT_DEFAULT_LANGUAGE, "Cost", "Costo")}{" "}
                     {item.calculated_cost !== null
                       ? fmts.dec2.format(item.calculated_cost)
                       : "—"}{" "}
-                    · Price {fmts.dec2.format(item.selling_price)}
+                    ·{" "}
+                    {t(RESTAURANT_COCKPIT_DEFAULT_LANGUAGE, "Price", "Precio")}{" "}
+                    {fmts.dec2.format(item.selling_price)}
                   </p>
                 </CardContent>
               </Card>
@@ -738,14 +562,24 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
         {/* Margin risk */}
         {(lowItems.length > 0 || unknownItems.length > 0) && (
           <section>
-            <h2 className="text-base font-semibold mb-3">Margin Risk</h2>
+            <h2 className="text-base font-semibold mb-3">
+              {t(
+                RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                "Margin Risk",
+                "Riesgo de margen"
+              )}
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {lowItems.length > 0 && (
                 <Card className="border-amber-200 dark:border-amber-900">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm flex items-center gap-2">
                       <TrendingDown className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                      Low Margin Items (&lt;60%)
+                      {t(
+                        RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                        "Low Margin Items (<60%)",
+                        "Platillos de margen bajo (<60%)"
+                      )}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -770,7 +604,11 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-                      Unknown Cost Items
+                      {t(
+                        RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                        "Unknown Cost Items",
+                        "Platillos sin costo"
+                      )}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -797,9 +635,19 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
         {/* Recommendations */}
         <section>
           <h2 className="text-base font-semibold mb-3">
-            Recommendations{" "}
+            {t(
+              RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+              "Recommendations",
+              "Recomendaciones"
+            )}{" "}
             <span className="text-muted-foreground font-normal text-sm">
-              ({openRecs.length} open)
+              (
+              {t(
+                RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+                `${openRecs.length} open`,
+                `${openRecs.length} abiertas`
+              )}
+              )
             </span>
           </h2>
           <div className="space-y-3">
@@ -863,91 +711,100 @@ function SampleRestaurantView({ reason }: { reason: SampleReason }) {
 // Page entry — branches on live vs sample mode.
 // ---------------------------------------------------------------------------
 
+async function CockpitLiveBody({
+  location,
+  period,
+}: {
+  location?: string;
+  period?: string;
+}) {
+  const fast: CockpitExecutiveFastModel = await loadCockpitExecutiveFast(
+    location,
+    period
+  );
+  if (fast.mode !== "live") {
+    return <SampleRestaurantView reason={fast.reason ?? "no_sales"} />;
+  }
+  const lang = fast.lang;
+  const model = await loadCockpitV2Model(fast);
+  return (
+    <div className="w-full px-[26px] pt-4 pb-10 space-y-3">
+      <OperatingPageHeader
+        title={t(lang, "Cockpit", "Cockpit")}
+        lang={lang}
+        showDateRange={false}
+        lastSyncedAt={fast.lastSyncedAt}
+      />
+      {fast.readError ? (
+        <DataHealthBanner tone="error">
+          {t(
+            lang,
+            "Could not load all sales rows. Totals are unavailable — they are not a smaller number from a partial read. Try refreshing the page.",
+            "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial. Recarga la página."
+          )}
+        </DataHealthBanner>
+      ) : null}
+      {fast.truncated && (
+        <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            {t(
+              lang,
+              `Totals may be incomplete. This view stopped after ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} rows. The numbers shown are partial.`,
+              `Los totales pueden estar incompletos. Esta vista se detuvo después de ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} filas. Los números que ves son parciales.`
+            )}
+          </span>
+        </div>
+      )}
+      {/* R1-16b: the Cockpit v2. One dataset, all filtering in the browser. */}
+      {model.refDay ? (
+        <CockpitV2
+          currency={fast.currency}
+          daily={model.daily}
+          refDay={model.refDay}
+          today={model.today}
+          firstDay={model.firstDay}
+          targets={model.targets}
+          restaurants={model.restaurants}
+          locationId={fast.scope?.locationId ?? null}
+          defaultComparison={model.defaultComparison}
+        />
+      ) : (
+        <SampleRestaurantView reason="no_sales" />
+      )}
+    </div>
+  );
+}
+
 export default async function RestaurantCockpitPage({
   searchParams,
 }: {
   // Next.js 15+/16: searchParams is a Promise in a page Server Component.
-  searchParams: Promise<{ location?: string }>;
+  searchParams: Promise<{ location?: string; period?: string }>;
 }) {
-  const { location: requestedLocationId } = await searchParams;
+  const { location: requestedLocationId, period } = await searchParams;
+  return (
+    <Suspense fallback={<RestaurantCockpitLoadingFallback />}>
+      <CockpitLiveBody location={requestedLocationId} period={period} />
+    </Suspense>
+  );
+}
 
-  // Defensive: createClient() throws when Supabase env vars are missing.
-  // Treat that as sample mode rather than crashing the page.
-  let data: RestaurantDashboardData;
-  let targets: TargetMap = {};
-  let profitability: ProfitabilityData | null = null;
-  try {
-    const supabase = await createClient();
-
-    // Multi-Restaurant UX v1: resolve + validate the requested location
-    // against the caller's OWN company before trusting it for anything.
-    // An id for another company (or garbage) simply never matches and we
-    // silently fall back to consolidated — see resolveRestaurantContext's
-    // security note. Only bother with this lookup when a location was
-    // actually requested, to keep the common consolidated path cheap.
-    let selectedLocationId: string | null = null;
-    let selectedBrandId: string | null = null;
-    if (requestedLocationId) {
-      const { data: userData } = await supabase.auth.getUser();
-      if (userData.user?.id) {
-        const companyIdForContext = await resolveCompanyIdForUser(
-          supabase,
-          userData.user.id
-        );
-        if (companyIdForContext) {
-          const context = await resolveRestaurantContext(
-            supabase,
-            companyIdForContext,
-            requestedLocationId
-          );
-          if (context.selected) {
-            selectedLocationId = context.selected.locationId;
-            selectedBrandId = context.selected.brandId;
-          }
-        }
-      }
-    }
-
-    data = await fetchRealRestaurantDashboardData(supabase, selectedLocationId);
-    // Targets + profitability are scoped per-company; only load them when
-    // we resolved a company (live mode). Each loader degrades independently
-    // so a single failure doesn't blank the cockpit.
-    if (data.mode === "live") {
-      try {
-        targets = await getRestaurantKpiTargets(supabase, data.companyId);
-      } catch (err) {
-        console.error("[RestaurantCockpitPage] targets load failed:", err);
-        targets = {};
-      }
-      try {
-        profitability = await fetchProfitabilityData(
-          supabase,
-          data.companyId,
-          selectedLocationId
-            ? { locationId: selectedLocationId, brandId: selectedBrandId }
-            : null
-        );
-      } catch (err) {
-        console.error(
-          "[RestaurantCockpitPage] profitability load failed:",
-          err
-        );
-        profitability = null;
-      }
-    }
-  } catch (err) {
-    console.error("[RestaurantCockpitPage] Supabase init failed:", err);
-    data = { mode: "sample", reason: "env_missing" };
-  }
-
-  if (data.mode === "live") {
-    return (
-      <LiveRestaurantView
-        data={data}
-        targets={targets}
-        profitability={profitability}
-      />
-    );
-  }
-  return <SampleRestaurantView reason={data.reason} />;
+function RestaurantCockpitLoadingFallback() {
+  return (
+    <div className="w-full py-3 px-6 lg:px-10">
+      <div className="space-y-3">
+        <PageSkeleton height="2rem" width="16rem" label="period" />
+        <CockpitHeadlineSkeleton />
+        <PageSkeleton height="4.5rem" width="100%" label="kpi strip" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+          <div className="lg:col-span-2">
+            <CockpitHeroChartSkeleton />
+          </div>
+          <PageSkeleton height="220px" width="100%" label="channels" />
+        </div>
+        <CockpitInsightsCardSkeleton />
+      </div>
+    </div>
+  );
 }

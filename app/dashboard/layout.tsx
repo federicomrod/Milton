@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
-import MiltonChat from "@/components/dashboard/miltonchat";
 import { createClient } from "@/lib/supabase/client";
 import { DataStatusProvider } from "@/lib/context/DataStatusContext";
 import { DashboardKpisProvider } from "@/lib/context/DashboardKpisContext";
@@ -10,6 +10,18 @@ import { ComparisonProvider } from "@/lib/context/ComparisonContext";
 import { BusinessProvider } from "@/lib/business-context";
 import { useUser } from "@/lib/context/UserContext";
 import { miltonEventsAPI } from "@/lib/milton-events";
+
+// The legacy chat (and its markdown renderer) is only shown outside the
+// restaurant pages, so restaurant pages never download it.
+const MiltonChat = dynamic(() => import("@/components/dashboard/miltonchat"), {
+  ssr: false,
+});
+
+/** Restaurant pages run their own data and chat (RestaurantShell); none of
+ *  the legacy CFO dashboard work below applies to them. */
+function isRestaurantPath(pathname: string | null): boolean {
+  return pathname?.startsWith("/dashboard/restaurant") ?? false;
+}
 
 type DataStatus = {
   ok?: boolean;
@@ -26,6 +38,9 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
   const supabase = useMemo(() => createClient(), []);
   const [sessionReady, setSessionReady] = useState(false);
   const { user } = useUser();
+  const pathname = usePathname();
+  const router = useRouter();
+  const onRestaurant = isRestaurantPath(pathname);
 
   const ensureSession = useCallback(async () => {
     const {
@@ -36,8 +51,10 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
     return !!refreshed?.session?.access_token;
   }, [supabase]);
 
-  // Load selected KPIs for company from database
+  // Load selected KPIs for company from database (legacy CFO dashboard
+  // only: skipped on restaurant pages, which never read them).
   useEffect(() => {
+    if (onRestaurant) return;
     (async () => {
       try {
         if (!user) return;
@@ -116,7 +133,7 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
         );
       }
     })();
-  }, [user, supabase]);
+  }, [user, supabase, onRestaurant]);
 
   // Hydrate session and set sessionReady
   useEffect(() => {
@@ -231,12 +248,15 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   useEffect(() => {
+    // Restaurant pages don't use the legacy model-data status (they are
+    // exempt from its redirect below), so don't fetch it there.
+    if (onRestaurant) return;
     // Use setTimeout to avoid synchronous setState in effect
     const timer = setTimeout(() => {
       refreshDataStatus();
     }, 0);
     return () => clearTimeout(timer);
-  }, [refreshDataStatus]);
+  }, [refreshDataStatus, onRestaurant]);
 
   // Listen for custom event to force-refresh data status when uploads complete
   useEffect(() => {
@@ -244,9 +264,6 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
     window.addEventListener("data-status:refresh", handler);
     return () => window.removeEventListener("data-status:refresh", handler);
   }, [refreshDataStatus]);
-
-  const pathname = usePathname();
-  const router = useRouter();
 
   useEffect(() => {
     if (!pathname?.startsWith("/dashboard")) return; // ignore non-dashboard routes
@@ -287,43 +304,48 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
           <ComparisonProvider>
             <div style={{ position: "relative", minHeight: "100vh" }}>
               {children}
-              {/* Chat Toggle Button - Hide when chat is open */}
-              {!isChatOpen && (
-                <button
-                  aria-label="Open Milton Chat"
-                  onClick={() => setIsChatOpen(true)}
+              {/* Legacy Milton chat — hidden on restaurant routes; those
+                  use the Ask Milton drawer in RestaurantShell. */}
+              {!isChatOpen &&
+                !pathname?.startsWith("/dashboard/restaurant") && (
+                  <button
+                    aria-label="Open Milton Chat"
+                    onClick={() => setIsChatOpen(true)}
+                    style={{
+                      position: "fixed",
+                      right: 32,
+                      bottom: 32,
+                      zIndex: 10050,
+                      width: 56,
+                      height: 56,
+                      borderRadius: "50%",
+                      background: "#fff",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                      border: "none",
+                      fontSize: 28,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    💬
+                  </button>
+                )}
+              {!onRestaurant && (
+                <div
+                  className="fixed top-0 right-0 h-screen w-[33.333vw] max-w-[420px] min-w-[320px] bg-background shadow-[0_0_24px_rgba(0,0,0,0.2)] z-[10000] flex flex-col transition-transform duration-300 ease-out"
                   style={{
-                    position: "fixed",
-                    right: 32,
-                    bottom: 32,
-                    zIndex: 10050,
-                    width: 56,
-                    height: 56,
-                    borderRadius: "50%",
-                    background: "#fff",
-                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-                    border: "none",
-                    fontSize: 28,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
+                    transform: isChatOpen
+                      ? "translateX(0)"
+                      : "translateX(100%)",
                   }}
                 >
-                  💬
-                </button>
-              )}
-              {/* Sliding Chat Panel */}
-              <div
-                className="fixed top-0 right-0 h-screen w-[33.333vw] max-w-[420px] min-w-[320px] bg-background shadow-[0_0_24px_rgba(0,0,0,0.2)] z-[10000] flex flex-col transition-transform duration-300 ease-out"
-                style={{
-                  transform: isChatOpen ? "translateX(0)" : "translateX(100%)",
-                }}
-              >
-                <div className="chat-panel p-4 h-full flex flex-col overflow-hidden">
-                  <MiltonChat onClose={() => setIsChatOpen(false)} />
+                  <div className="chat-panel p-4 h-full flex flex-col overflow-hidden">
+                    <MiltonChat onClose={() => setIsChatOpen(false)} />
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </ComparisonProvider>
         </DashboardKpisProvider>

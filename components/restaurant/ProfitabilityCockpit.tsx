@@ -11,6 +11,11 @@
 
 import Link from "next/link";
 import {
+  dishHref,
+  ingredientHref,
+  platosHref,
+} from "@/lib/restaurant/menu-links";
+import {
   TrendingDown,
   TrendingUp,
   AlertTriangle,
@@ -28,6 +33,11 @@ import type {
   ProfitabilityData,
   MenuMarginRow,
 } from "@/lib/restaurant/profitability-server";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -58,14 +68,15 @@ function pct(n: number | null, digits = 1): string {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  complete: "Complete",
-  missing_recipe: "Missing recipe",
-  missing_component_recipe: "Missing component recipe",
-  missing_input_cost: "Missing ingredient cost",
-  missing_unit_conversion: "Unit mismatch",
-  circular_component_reference: "Circular reference",
-  no_cost_entries: "No cost entries",
-  inactive_recipe: "Inactive recipe",
+  complete: "Completo",
+  missing_recipe: "Sin receta",
+  missing_component_recipe: "Falta receta del componente",
+  missing_input_cost: "Falta el costo del ingrediente",
+  missing_unit_conversion: "Unidades que no coinciden",
+  circular_component_reference: "Referencia circular",
+  no_cost_entries: "Sin costos",
+  inactive_recipe: "Receta inactiva",
+  workbook_mismatch: "No cuadra con el Excel",
 };
 
 function formatUnitCost(n: number, unit: string, currency: string): string {
@@ -87,32 +98,61 @@ function formatUnitCost(n: number, unit: string, currency: string): string {
 
 export function ProfitabilityKpisSection({
   data,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
 }: {
   data: ProfitabilityData;
+  lang?: PreferredLanguage;
 }) {
   const fmt = makeFmt(data.kpis.currency);
   const { kpis } = data;
   return (
     <section>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <h2 className="text-base font-semibold">Profitability</h2>
-        <Badge variant="outline" className="text-xs">
-          Cost coverage: {pct(kpis.cost_coverage_pct)} of revenue
-        </Badge>
+        <h2 className="text-base font-semibold">
+          {t(lang, "Profitability", "Rentabilidad")}
+        </h2>
+        <Link href={platosHref()} className="hover:underline">
+          <Badge variant="outline" className="text-xs">
+            {t(lang, "Sales with cost:", "Ventas con costo:")}{" "}
+            {pct(kpis.cost_coverage_pct)}
+          </Badge>
+        </Link>
       </div>
+      {data.dataQuality.currency_mismatch_rows > 0 && (
+        <div className="mb-3 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            {t(
+              lang,
+              `${data.dataQuality.currency_mismatch_rows} row${data.dataQuality.currency_mismatch_rows === 1 ? "" : "s"} used a different currency than ${kpis.currency} and were not summed into these KPIs. There is no FX conversion.`,
+              `${data.dataQuality.currency_mismatch_rows} ${data.dataQuality.currency_mismatch_rows === 1 ? "fila usó" : "filas usaron"} una moneda distinta a ${kpis.currency} y no se sumaron a estas cifras. No hay conversión de tipo de cambio.`
+            )}
+          </span>
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         <Kpi
-          label="Revenue"
+          label={t(lang, "Revenue", "Ventas")}
           value={fmt.money.format(kpis.revenue_total)}
           sub={kpis.currency}
         />
         <Kpi
-          label="Estimated COGS"
-          value={fmt.money.format(kpis.estimated_cogs)}
-          sub={`from ${pct(kpis.cost_coverage_pct, 0)} of revenue`}
+          label={t(lang, "Estimated COGS", "Costo estimado")}
+          href={platosHref(["aprobado"])}
+          value={
+            // Never $0 for "nothing costed yet" (#211).
+            kpis.revenue_with_known_cost > 0
+              ? fmt.money.format(kpis.estimated_cogs)
+              : t(lang, "No price", "Sin precio")
+          }
+          sub={t(
+            lang,
+            `from ${pct(kpis.cost_coverage_pct, 0)} of revenue`,
+            `sobre el ${pct(kpis.cost_coverage_pct, 0)} de las ventas`
+          )}
         />
         <Kpi
-          label="Gross Profit"
+          label={t(lang, "Gross Profit", "Utilidad bruta")}
           value={
             kpis.revenue_with_known_cost > 0
               ? fmt.money.format(kpis.estimated_gross_profit)
@@ -120,33 +160,41 @@ export function ProfitabilityKpisSection({
           }
           sub={
             kpis.revenue_with_known_cost > 0
-              ? "on covered revenue"
-              : "no cost coverage"
+              ? t(lang, "on covered revenue", "sobre ventas con costo")
+              : t(lang, "no cost coverage", "sin cobertura de costo")
           }
         />
         <Kpi
-          label="Gross Margin"
+          label={t(lang, "Gross Margin", "Margen bruto")}
           value={pct(kpis.estimated_gross_margin_pct)}
-          sub="on covered revenue"
+          sub={t(lang, "on covered revenue", "sobre ventas con costo")}
         />
         <Kpi
-          label="Food Cost %"
+          label={t(lang, "% costo de comida", "% costo de comida")}
+          href={platosHref(["aprobado"])}
           value={pct(kpis.food_cost_pct)}
-          sub="cogs / covered revenue"
+          sub={t(lang, "cogs / covered revenue", "costo / ventas con costo")}
         />
         <Kpi
-          label="Items w/ Issues"
+          label={t(lang, "Items w/ Issues", "Platillos con problemas")}
+          href={platosHref(["falta_precio", "sin_receta"])}
           value={`${
             kpis.menu_items_with_issues + kpis.menu_items_without_recipe
           }`}
-          sub={`${kpis.menu_items_without_recipe} no recipe · ${kpis.menu_items_with_issues} other`}
+          sub={t(
+            lang,
+            `${kpis.menu_items_without_recipe} no recipe · ${kpis.menu_items_with_issues} other`,
+            `${kpis.menu_items_without_recipe} sin receta · ${kpis.menu_items_with_issues} otros`
+          )}
         />
       </div>
       <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1.5">
         <Info className="h-3.5 w-3.5 shrink-0" />
-        Margin numbers include only menu items with complete recipes and
-        ingredient costs. Items with missing recipes or unit mismatches are
-        excluded — see Margin Risk and Setup tabs.
+        {t(
+          lang,
+          "Margin numbers include only menu items with complete recipes and ingredient costs. Items with missing recipes or unit mismatches are excluded — see Margin Risk and Setup tabs.",
+          "El margen solo incluye platillos con receta y costos completos. Los que no tienen receta o tienen unidades distintas quedan fuera: míralos en Riesgo de margen y Configuración."
+        )}
       </p>
     </section>
   );
@@ -159,25 +207,39 @@ export function ProfitabilityKpisSection({
 export function MarginRiskSection({
   data,
   compact = false,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
 }: {
   data: ProfitabilityData;
   /** When true, only the two most actionable cards render (used on Overview). */
   compact?: boolean;
+  lang?: PreferredLanguage;
 }) {
   const fmt = makeFmt(data.kpis.currency);
   const cards = (
     <>
       <RiskCard
-        title="Low margin items"
-        subtitle={`Gross margin below 60% · ${data.lowMargin.length} items`}
+        title={t(lang, "Low margin items", "Platillos de margen bajo")}
+        subtitle={t(
+          lang,
+          `Gross margin below 60% · ${data.lowMargin.length} items`,
+          `Margen bruto menor a 60% · ${data.lowMargin.length} platillos`
+        )}
         icon={<TrendingDown className="h-4 w-4 text-amber-600" />}
-        empty="No low-margin items below 60%."
+        empty={t(
+          lang,
+          "No low-margin items below 60%.",
+          "No hay platillos con margen menor a 60%."
+        )}
       >
         {data.lowMargin.map((r) => (
           <RiskLine
-            key={r.menu_item_id}
+            key={`${r.menu_item_id}:${r.odoo_product_id ?? ""}`}
             title={r.name}
-            detail={`${pct(r.cost.gross_margin_pct)} margin · ${fmt.money.format(r.revenue)} revenue`}
+            detail={t(
+              lang,
+              `${pct(r.cost.gross_margin_pct)} margin · ${fmt.money.format(r.revenue)} revenue`,
+              `${pct(r.cost.gross_margin_pct)} de margen · ${fmt.money.format(r.revenue)} en ventas`
+            )}
             trailing={pct(r.cost.gross_margin_pct)}
             trailingClass="text-amber-700 dark:text-amber-300"
           />
@@ -185,16 +247,28 @@ export function MarginRiskSection({
       </RiskCard>
 
       <RiskCard
-        title="High food cost items"
-        subtitle={`Food cost above 35% · ${data.highFoodCost.length} items`}
+        title={t(lang, "High food cost items", "Platillos de costo alto")}
+        subtitle={t(
+          lang,
+          `Food cost above 35% · ${data.highFoodCost.length} items`,
+          `Costo de comida mayor a 35% · ${data.highFoodCost.length} platillos`
+        )}
         icon={<TrendingUp className="h-4 w-4 text-red-600" />}
-        empty="No items with food cost above 35%."
+        empty={t(
+          lang,
+          "No items with food cost above 35%.",
+          "No hay platillos con costo de comida mayor a 35%."
+        )}
       >
         {data.highFoodCost.map((r) => (
           <RiskLine
-            key={r.menu_item_id}
+            key={`${r.menu_item_id}:${r.odoo_product_id ?? ""}`}
             title={r.name}
-            detail={`${pct(r.cost.food_cost_pct)} food cost · ${fmt.money.format(r.revenue)} revenue`}
+            detail={t(
+              lang,
+              `${pct(r.cost.food_cost_pct)} food cost · ${fmt.money.format(r.revenue)} revenue`,
+              `${pct(r.cost.food_cost_pct)} de costo · ${fmt.money.format(r.revenue)} en ventas`
+            )}
             trailing={pct(r.cost.food_cost_pct)}
             trailingClass="text-red-700 dark:text-red-300"
           />
@@ -203,16 +277,28 @@ export function MarginRiskSection({
 
       {!compact && (
         <RiskCard
-          title="High revenue, incomplete costing"
-          subtitle={`Revenue but unknown cost · ${data.highRevenueIncomplete.length} items`}
+          title={t(
+            lang,
+            "High revenue, incomplete costing",
+            "Alto ingreso, costeo incompleto"
+          )}
+          subtitle={t(
+            lang,
+            `Revenue but unknown cost · ${data.highRevenueIncomplete.length} items`,
+            `Ventas sin costo conocido · ${data.highRevenueIncomplete.length} platillos`
+          )}
           icon={<AlertTriangle className="h-4 w-4 text-amber-600" />}
-          empty="Every revenue-generating item has a complete cost."
+          empty={t(
+            lang,
+            "Every revenue-generating item has a complete cost.",
+            "Todos los platillos que venden ya tienen costo completo."
+          )}
         >
           {data.highRevenueIncomplete.map((r) => (
             <RiskLine
-              key={r.menu_item_id}
+              key={`${r.menu_item_id}:${r.odoo_product_id ?? ""}`}
               title={r.name}
-              detail={`${fmt.money.format(r.revenue)} revenue · ${STATUS_LABEL[r.cost.status] ?? r.cost.status}`}
+              detail={`${fmt.money.format(r.revenue)} · ${STATUS_LABEL[r.cost.status] ?? r.cost.status}`}
               trailing={fmt.money.format(r.revenue)}
               trailingClass="text-amber-700 dark:text-amber-300"
             />
@@ -222,16 +308,32 @@ export function MarginRiskSection({
 
       {!compact && (
         <RiskCard
-          title="Missing recipe, high volume"
-          subtitle={`No recipe but selling · ${data.missingRecipeHighVolume.length} items`}
+          title={t(
+            lang,
+            "Missing recipe, high volume",
+            "Sin receta, alto volumen"
+          )}
+          subtitle={t(
+            lang,
+            `No recipe but selling · ${data.missingRecipeHighVolume.length} items`,
+            `Sin receta y se venden · ${data.missingRecipeHighVolume.length} platillos`
+          )}
           icon={<AlertTriangle className="h-4 w-4 text-red-600" />}
-          empty="Every selling menu item has at least a draft recipe."
+          empty={t(
+            lang,
+            "Every selling menu item has at least a draft recipe.",
+            "Todos los platillos que se venden ya tienen al menos un borrador de receta."
+          )}
         >
           {data.missingRecipeHighVolume.map((r) => (
             <RiskLine
-              key={r.menu_item_id}
+              key={`${r.menu_item_id}:${r.odoo_product_id ?? ""}`}
               title={r.name}
-              detail={`${fmt.num.format(r.units_sold)} units · ${fmt.money.format(r.revenue)} revenue`}
+              detail={t(
+                lang,
+                `${fmt.num.format(r.units_sold)} units · ${fmt.money.format(r.revenue)} revenue`,
+                `${fmt.num.format(r.units_sold)} unidades · ${fmt.money.format(r.revenue)} en ventas`
+              )}
               trailing={fmt.money.format(r.revenue)}
               trailingClass="text-red-700 dark:text-red-300"
             />
@@ -243,7 +345,9 @@ export function MarginRiskSection({
 
   return (
     <section>
-      <h2 className="text-base font-semibold mb-3">Margin risk</h2>
+      <h2 className="text-base font-semibold mb-3">
+        {t(lang, "Margin risk", "Riesgo de margen")}
+      </h2>
       <div
         className={
           "grid gap-4 " +
@@ -262,14 +366,26 @@ export function MarginRiskSection({
 // Supplier trends
 // ---------------------------------------------------------------------------
 
-export function SupplierTrendsSection({ data }: { data: ProfitabilityData }) {
+export function SupplierTrendsSection({
+  data,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+}: {
+  data: ProfitabilityData;
+  lang?: PreferredLanguage;
+}) {
   const fmt = makeFmt(data.kpis.currency);
   return (
     <section>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <h2 className="text-base font-semibold">Supplier trends</h2>
+        <h2 className="text-base font-semibold">
+          {t(lang, "Supplier trends", "Tendencias de proveedores")}
+        </h2>
         <span className="text-xs text-muted-foreground">
-          Uses all available cost entries (not filtered by date)
+          {t(
+            lang,
+            "Uses all available cost entries (not filtered by date)",
+            "Usa todos los costos disponibles (no el filtro de fechas)"
+          )}
         </span>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -278,68 +394,127 @@ export function SupplierTrendsSection({ data }: { data: ProfitabilityData }) {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-orange-500" />
-              Ingredient price changes
+              {t(
+                lang,
+                "Ingredient price changes",
+                "Cambios de precio de ingredientes"
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {data.ingredientPriceTrends.length === 0 ? (
               <p className="text-sm text-muted-foreground px-4 py-3">
-                Supplier price trends will appear after at least two cost
-                entries for the same ingredient.
+                {t(
+                  lang,
+                  "Supplier price trends will appear after at least two cost entries for the same ingredient.",
+                  "Las tendencias de precio aparecen cuando hay al menos dos costos del mismo ingrediente."
+                )}
               </p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead className="border-b border-border bg-muted/40">
                     <tr className="text-left text-muted-foreground">
-                      <th className="px-3 py-2 font-medium">Ingredient</th>
-                      <th className="px-3 py-2 font-medium">Supplier</th>
-                      <th className="px-3 py-2 font-medium text-right">
-                        Previous
+                      <th className="px-3 py-2 font-medium">
+                        {t(lang, "Ingredient", "Ingrediente")}
+                      </th>
+                      <th className="px-3 py-2 font-medium">
+                        {t(lang, "Supplier", "Proveedor")}
                       </th>
                       <th className="px-3 py-2 font-medium text-right">
-                        Latest
+                        {t(lang, "Previous", "Anterior")}
                       </th>
                       <th className="px-3 py-2 font-medium text-right">
-                        Change
+                        {t(lang, "Latest", "Último")}
                       </th>
-                      <th className="px-3 py-2 font-medium">Latest date</th>
+                      <th className="px-3 py-2 font-medium text-right">
+                        {t(lang, "Change", "Cambio")}
+                      </th>
+                      <th className="px-3 py-2 font-medium">
+                        {t(lang, "Latest date", "Última fecha")}
+                      </th>
+                      <th className="px-3 py-2 font-medium text-right">
+                        {t(lang, "Affects", "Afecta")}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {data.ingredientPriceTrends.map((t, i) => (
+                    {data.ingredientPriceTrends.map((trend, i) => (
                       <tr
-                        key={t.ingredient_id}
+                        key={trend.ingredient_id}
                         className={
                           (i % 2 === 1 ? "bg-muted/20" : "bg-background") +
                           " border-b border-border last:border-0"
                         }
                       >
                         <td className="px-3 py-2 font-medium">
-                          {t.ingredient_name}
+                          <Link
+                            href={ingredientHref(trend.ingredient_id)}
+                            className="hover:underline"
+                          >
+                            {trend.ingredient_name}
+                          </Link>
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">
-                          {t.latest_supplier_name ?? "—"}
+                          {trend.latest_supplier_name ?? "—"}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
-                          {formatUnitCost(t.previous_cost, t.unit, t.currency)}
+                          {formatUnitCost(
+                            trend.previous_cost,
+                            trend.unit,
+                            trend.currency
+                          )}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
-                          {formatUnitCost(t.latest_cost, t.unit, t.currency)}
+                          {formatUnitCost(
+                            trend.latest_cost,
+                            trend.unit,
+                            trend.currency
+                          )}
                         </td>
                         <td
                           className={
                             "px-3 py-2 text-right tabular-nums font-medium " +
-                            (t.pct_change >= 0
+                            (trend.pct_change >= 0
                               ? "text-red-700 dark:text-red-300"
                               : "text-green-700 dark:text-green-300")
                           }
                         >
-                          {t.pct_change >= 0 ? "+" : ""}
-                          {t.pct_change.toFixed(1)}%
+                          {trend.pct_change >= 0 ? "+" : ""}
+                          {trend.pct_change.toFixed(1)}%
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">
-                          {t.latest_date}
+                          {trend.latest_date}
+                        </td>
+                        <td
+                          className="px-3 py-2 text-right tabular-nums"
+                          title={trend.affected_dishes
+                            ?.map((d) => d.name)
+                            .join(", ")}
+                        >
+                          {trend.affected_dishes === undefined ? (
+                            "—"
+                          ) : trend.affected_dishes.length === 1 ? (
+                            <Link
+                              href={dishHref(
+                                trend.affected_dishes[0].odoo_product_id
+                              )}
+                              className="hover:underline"
+                            >
+                              {t(lang, "1 dish", "1 plato")}
+                            </Link>
+                          ) : (
+                            <Link
+                              href={ingredientHref(trend.ingredient_id)}
+                              className="hover:underline"
+                            >
+                              {t(
+                                lang,
+                                `${trend.affected_dishes.length} dishes`,
+                                `${trend.affected_dishes.length} platos`
+                              )}
+                            </Link>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -355,32 +530,38 @@ export function SupplierTrendsSection({ data }: { data: ProfitabilityData }) {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <Building2 className="h-4 w-4 text-orange-500" />
-              Top supplier spend
+              {t(lang, "Top supplier spend", "Mayor gasto por proveedor")}
               <span className="text-xs text-muted-foreground font-normal">
-                · total {fmt.money.format(data.total_supplier_spend)}
+                · {t(lang, "total", "total")}{" "}
+                {fmt.money.format(data.total_supplier_spend)}
               </span>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {data.topSupplierSpend.length === 0 ? (
               <p className="text-sm text-muted-foreground px-4 py-3">
-                No supplier-tagged cost entries yet. Bulk-upload a cost file or
-                pick a supplier when adding a manual cost entry.
+                {t(
+                  lang,
+                  "No supplier-tagged cost entries yet. Bulk-upload a cost file or pick a supplier when adding a manual cost entry.",
+                  "Aún no hay costos con proveedor. Sube un archivo de costos o elige un proveedor al agregar un costo."
+                )}
               </p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead className="border-b border-border bg-muted/40">
                     <tr className="text-left text-muted-foreground">
-                      <th className="px-3 py-2 font-medium">Supplier</th>
-                      <th className="px-3 py-2 font-medium text-right">
-                        Spend
+                      <th className="px-3 py-2 font-medium">
+                        {t(lang, "Supplier", "Proveedor")}
                       </th>
                       <th className="px-3 py-2 font-medium text-right">
-                        Share
+                        {t(lang, "Spend", "Gasto")}
                       </th>
                       <th className="px-3 py-2 font-medium text-right">
-                        Ingredients
+                        {t(lang, "Share", "Parte")}
+                      </th>
+                      <th className="px-3 py-2 font-medium text-right">
+                        {t(lang, "Ingredients", "Ingredientes")}
                       </th>
                     </tr>
                   </thead>
@@ -395,7 +576,7 @@ export function SupplierTrendsSection({ data }: { data: ProfitabilityData }) {
                       >
                         <td className="px-3 py-2 font-medium">
                           <Link
-                            href="/dashboard/restaurant/suppliers"
+                            href="/dashboard/restaurant/costs?tab=proveedores"
                             className="hover:underline"
                           >
                             {s.supplier_name}
@@ -439,60 +620,124 @@ export function SupplierTrendsSection({ data }: { data: ProfitabilityData }) {
 
 export function DataQualityChecklistSection({
   data,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
 }: {
   data: ProfitabilityData;
+  lang?: PreferredLanguage;
 }) {
   return (
     <section>
-      <h2 className="text-base font-semibold mb-3">Costing setup checklist</h2>
+      <h2 className="text-base font-semibold mb-3">
+        {t(lang, "Costing setup checklist", "Lista de costeo")}
+      </h2>
       <Card>
         <CardContent className="p-0">
           <ul className="divide-y divide-border">
             <ChecklistItem
               count={data.dataQuality.unmapped_pos_items}
-              doneCopy="All POS items mapped to menu items"
-              problemCopy="POS items unmapped"
+              doneCopy={t(
+                lang,
+                "All POS items mapped to menu items",
+                "Todos los platillos del POS están ligados al menú"
+              )}
+              problemCopy={t(
+                lang,
+                "POS items unmapped",
+                "Platillos del POS sin ligar"
+              )}
               href="/dashboard/restaurant/menu"
-              hrefLabel="Open Menu & Recipes"
+              hrefLabel={t(lang, "Open Menu & Recipes", "Abrir Menú y recetas")}
               icon={<BookOpen className="h-4 w-4" />}
             />
             <ChecklistItem
               count={data.dataQuality.menu_items_without_recipe}
-              doneCopy="Every menu item has a recipe"
-              problemCopy="Menu items without a recipe"
+              doneCopy={t(
+                lang,
+                "Every menu item has a recipe",
+                "Todos los platillos tienen receta"
+              )}
+              problemCopy={t(
+                lang,
+                "Menu items without a recipe",
+                "Platillos sin receta"
+              )}
               href="/dashboard/restaurant/menu"
-              hrefLabel="Open Menu & Recipes"
+              hrefLabel={t(lang, "Open Menu & Recipes", "Abrir Menú y recetas")}
               icon={<BookOpen className="h-4 w-4" />}
             />
             <ChecklistItem
               count={data.dataQuality.recipes_with_unit_mismatch}
-              doneCopy="No recipes blocked by unit mismatch"
-              problemCopy="Recipes blocked by unit mismatch"
+              doneCopy={t(
+                lang,
+                "No recipes blocked by unit mismatch",
+                "Ninguna receta está bloqueada por unidades"
+              )}
+              problemCopy={t(
+                lang,
+                "Recipes blocked by unit mismatch",
+                "Recetas bloqueadas por unidades"
+              )}
               href="/dashboard/restaurant/menu"
-              hrefLabel="Fix recipes"
+              hrefLabel={t(lang, "Fix recipes", "Corregir recetas")}
               icon={<AlertTriangle className="h-4 w-4" />}
             />
             <ChecklistItem
               count={data.dataQuality.ingredients_without_cost_entries}
-              doneCopy="Every ingredient has at least one cost entry"
-              problemCopy="Ingredients without any cost entry"
-              href="/dashboard/restaurant/ingredients"
-              hrefLabel="Open Ingredients"
+              doneCopy={t(
+                lang,
+                "Every ingredient has at least one cost entry",
+                "Todos los ingredientes tienen al menos un costo"
+              )}
+              problemCopy={t(
+                lang,
+                "Ingredients without any cost entry",
+                "Ingredientes sin costo"
+              )}
+              href="/dashboard/restaurant/menu/ingredientes"
+              hrefLabel={t(lang, "Open Ingredients", "Abrir Ingredientes")}
               icon={<Carrot className="h-4 w-4" />}
             />
             <ChecklistItem
               count={data.dataQuality.components_without_recipe}
-              doneCopy="Every prepared component has a recipe"
-              problemCopy="Prepared components without a recipe"
+              doneCopy={t(
+                lang,
+                "Every prepared component has a recipe",
+                "Todos los componentes preparados tienen receta"
+              )}
+              problemCopy={t(
+                lang,
+                "Prepared components without a recipe",
+                "Componentes preparados sin receta"
+              )}
               href="/dashboard/restaurant/menu"
-              hrefLabel="Open Components"
+              hrefLabel={t(lang, "Open Components", "Abrir Componentes")}
               icon={<BookOpen className="h-4 w-4" />}
+            />
+            <ChecklistItem
+              count={data.dataQuality.currency_mismatch_rows}
+              doneCopy={t(
+                lang,
+                `All money rows match ${data.kpis.currency}`,
+                `Todas las filas coinciden con ${data.kpis.currency}`
+              )}
+              problemCopy={t(
+                lang,
+                "Rows in a different currency (excluded from totals)",
+                "Filas en otra moneda (fuera de los totales)"
+              )}
+              href="/dashboard/restaurant/menu/platos"
+              hrefLabel={t(lang, "Review costs", "Revisar costos")}
+              icon={<AlertTriangle className="h-4 w-4" />}
             />
             <li className="flex items-center justify-between gap-4 px-4 py-3">
               <div className="flex items-center gap-3 min-w-0">
                 <Building2 className="h-4 w-4 text-orange-500 shrink-0" />
                 <span className="text-sm text-muted-foreground">
-                  Supplier-linked ingredients
+                  {t(
+                    lang,
+                    "Supplier-linked ingredients",
+                    "Ingredientes ligados a un proveedor"
+                  )}
                 </span>
               </div>
               <div className="flex items-center gap-3 shrink-0">
@@ -500,10 +745,10 @@ export function DataQualityChecklistSection({
                   {data.dataQuality.supplier_linked_ingredients}
                 </span>
                 <Link
-                  href="/dashboard/restaurant/suppliers"
+                  href="/dashboard/restaurant/costs?tab=proveedores"
                   className="text-xs text-primary hover:underline"
                 >
-                  Open Suppliers ↗
+                  {t(lang, "Open Suppliers", "Abrir Proveedores")} ↗
                 </Link>
               </div>
             </li>
@@ -511,14 +756,14 @@ export function DataQualityChecklistSection({
               <div className="flex items-center gap-3 min-w-0">
                 <Upload className="h-4 w-4 text-orange-500 shrink-0" />
                 <span className="text-sm text-muted-foreground">
-                  Import more cost data
+                  {t(lang, "Import more cost data", "Importar más costos")}
                 </span>
               </div>
               <Link
-                href="/dashboard/restaurant/costs/upload"
+                href="/dashboard/restaurant/menu/platos"
                 className="text-xs text-primary hover:underline shrink-0"
               >
-                Open Import Costs ↗
+                {t(lang, "Open Import Costs", "Abrir Importar costos")} ↗
               </Link>
             </li>
           </ul>
@@ -533,7 +778,13 @@ export function DataQualityChecklistSection({
 // ---------------------------------------------------------------------------
 
 /** Compact "items needing attention" list for the Overview tab. */
-export function ItemsNeedingAttention({ data }: { data: ProfitabilityData }) {
+export function ItemsNeedingAttention({
+  data,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+}: {
+  data: ProfitabilityData;
+  lang?: PreferredLanguage;
+}) {
   const fmt = makeFmt(data.kpis.currency);
 
   // Pick the 6 most impactful items: blend missing-recipe-high-volume and
@@ -545,12 +796,20 @@ export function ItemsNeedingAttention({ data }: { data: ProfitabilityData }) {
     seen.add(row.menu_item_id);
     items.push({ row, reason });
   };
-  for (const r of data.missingRecipeHighVolume) pushIf(r, "no recipe");
+  for (const r of data.missingRecipeHighVolume)
+    pushIf(r, t(lang, "no recipe", "sin receta"));
   for (const r of data.highRevenueIncomplete) {
     pushIf(r, STATUS_LABEL[r.cost.status] ?? r.cost.status);
   }
   for (const r of data.lowMargin)
-    pushIf(r, `low margin ${pct(r.cost.gross_margin_pct)}`);
+    pushIf(
+      r,
+      t(
+        lang,
+        `low margin ${pct(r.cost.gross_margin_pct)}`,
+        `margen bajo ${pct(r.cost.gross_margin_pct)}`
+      )
+    );
 
   if (items.length === 0) {
     const noCoverage = data.kpis.cost_coverage_pct === 0;
@@ -564,15 +823,27 @@ export function ItemsNeedingAttention({ data }: { data: ProfitabilityData }) {
               <CheckCircle2 className="h-4 w-4 text-green-600" />
             )}
             {noCoverage
-              ? "Margins are not available yet"
-              : "Everything in order"}
+              ? t(
+                  lang,
+                  "Margins are not available yet",
+                  "El margen aún no está disponible"
+                )
+              : t(lang, "Everything in order", "Todo en orden")}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
             {noCoverage
-              ? "Import ingredient costs and create recipes to unlock food cost and gross margin."
-              : "No items need urgent attention. Run a fresh costing cycle if your menu changed."}
+              ? t(
+                  lang,
+                  "Import ingredient costs and create recipes to unlock food cost and gross margin.",
+                  "Importa costos de ingredientes y crea recetas para ver el costo de comida y el margen."
+                )
+              : t(
+                  lang,
+                  "No items need urgent attention. Run a fresh costing cycle if your menu changed.",
+                  "Nada urgente. Vuelve a costear si cambió el menú."
+                )}
           </p>
         </CardContent>
       </Card>
@@ -584,7 +855,11 @@ export function ItemsNeedingAttention({ data }: { data: ProfitabilityData }) {
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-amber-600" />
-          Items needing attention
+          {t(
+            lang,
+            "Items needing attention",
+            "Platillos que necesitan atención"
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -597,7 +872,8 @@ export function ItemsNeedingAttention({ data }: { data: ProfitabilityData }) {
               <div className="min-w-0">
                 <div className="font-medium truncate">{row.name}</div>
                 <div className="text-xs text-muted-foreground capitalize">
-                  {reason} · {fmt.money.format(row.revenue)} revenue
+                  {reason} · {fmt.money.format(row.revenue)}{" "}
+                  {t(lang, "revenue", "en ventas")}
                 </div>
               </div>
               <span className="font-medium tabular-nums shrink-0 text-amber-700 dark:text-amber-300">
@@ -612,7 +888,13 @@ export function ItemsNeedingAttention({ data }: { data: ProfitabilityData }) {
 }
 
 /** Compact "supplier price alerts" list for the Overview tab. */
-export function SupplierPriceAlerts({ data }: { data: ProfitabilityData }) {
+export function SupplierPriceAlerts({
+  data,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+}: {
+  data: ProfitabilityData;
+  lang?: PreferredLanguage;
+}) {
   // Show the top 5 by absolute % change (largest moves first), regardless of
   // direction — increases AND decreases are operationally relevant.
   const top = [...data.ingredientPriceTrends]
@@ -624,41 +906,45 @@ export function SupplierPriceAlerts({ data }: { data: ProfitabilityData }) {
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-orange-500" />
-          Supplier price alerts
+          {t(lang, "Supplier price alerts", "Alertas de precio de proveedores")}
         </CardTitle>
       </CardHeader>
       <CardContent>
         {top.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Supplier price trends will appear after at least two cost entries
-            for the same ingredient.
+            {t(
+              lang,
+              "Supplier price trends will appear after at least two cost entries for the same ingredient.",
+              "Las tendencias de precio aparecen cuando hay al menos dos costos del mismo ingrediente."
+            )}
           </p>
         ) : (
           <ul className="space-y-2">
-            {top.map((t) => (
+            {top.map((trend) => (
               <li
-                key={t.ingredient_id}
+                key={trend.ingredient_id}
                 className="flex items-center justify-between gap-2 text-sm"
               >
                 <div className="min-w-0">
                   <div className="font-medium truncate">
-                    {t.ingredient_name}
+                    {trend.ingredient_name}
                   </div>
                   <div className="text-xs text-muted-foreground truncate">
-                    {t.latest_supplier_name ?? "Unknown supplier"} ·{" "}
-                    {t.latest_date}
+                    {trend.latest_supplier_name ??
+                      t(lang, "Unknown supplier", "Proveedor desconocido")}{" "}
+                    · {trend.latest_date}
                   </div>
                 </div>
                 <span
                   className={
                     "font-medium tabular-nums shrink-0 " +
-                    (t.pct_change >= 0
+                    (trend.pct_change >= 0
                       ? "text-red-700 dark:text-red-300"
                       : "text-green-700 dark:text-green-300")
                   }
                 >
-                  {t.pct_change >= 0 ? "+" : ""}
-                  {t.pct_change.toFixed(1)}%
+                  {trend.pct_change >= 0 ? "+" : ""}
+                  {trend.pct_change.toFixed(1)}%
                 </span>
               </li>
             ))}
@@ -677,13 +963,20 @@ function Kpi({
   label,
   value,
   sub,
+  href,
 }: {
   label: string;
   value: string;
   sub?: string;
+  /** Where the number comes from (R1-09a): a click opens it. */
+  href?: string;
 }) {
-  return (
-    <Card>
+  const card = (
+    <Card
+      className={
+        href ? "h-full transition-colors hover:border-[#f28c28]" : undefined
+      }
+    >
       <CardHeader className="pb-2">
         <CardTitle className="text-xs font-medium text-muted-foreground">
           {label}
@@ -694,6 +987,13 @@ function Kpi({
         {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
       </CardContent>
     </Card>
+  );
+  return href ? (
+    <Link href={href} className="block h-full">
+      {card}
+    </Link>
+  ) : (
+    card
   );
 }
 

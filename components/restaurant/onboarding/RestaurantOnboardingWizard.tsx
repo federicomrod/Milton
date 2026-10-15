@@ -378,7 +378,7 @@ export function RestaurantOnboardingWizard({
                 className="group border-border bg-card hover:border-primary/50 hover:bg-accent/50 relative flex flex-col items-start gap-2 rounded-xl border-2 p-5 text-left transition-all"
               >
                 {i === 0 && (
-                  <span className="bg-primary text-primary-foreground absolute -top-2.5 right-4 rounded-full px-2 py-0.5 text-[10px] font-semibold">
+                  <span className="bg-primary text-primary-foreground absolute -top-2.5 right-4 rounded-full px-2 py-0.5 text-[12px] font-semibold">
                     Recommended
                   </span>
                 )}

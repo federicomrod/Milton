@@ -16,6 +16,8 @@ export const COSTS_HREF = "/dashboard/restaurant/costs";
 export const KITCHEN_HREF = "/dashboard/restaurant/kitchen";
 export const DATA_SETTINGS_HREF = "/dashboard/restaurant/data";
 export const OBJECTIVES_HREF = "/dashboard/restaurant/data/objetivos";
+/** R1-17a: Configuración › Turnos (shifts and the business-day cutoff). */
+export const SHIFTS_HREF = "/dashboard/restaurant/data/turnos";
 export const ASK_MILTON_HREF = "/dashboard/restaurant/briefing";
 
 /** "main": the five daily areas. "data_settings": ⚙ Configuración,
@@ -136,12 +138,14 @@ export function primaryNavLabels(lang: PreferredLanguage): string[] {
 export type DataSettingsSectionId =
   | "connections"
   | "objectives"
+  | "shifts"
   | "team"
   | "account";
 
 export const DATA_SETTINGS_SECTIONS: readonly DataSettingsSectionId[] = [
   "connections",
   "objectives",
+  "shifts",
   "team",
   "account",
 ] as const;
@@ -153,6 +157,7 @@ export const DATA_SETTINGS_SECTION_ANCHORS: Record<
 > = {
   connections: "conexiones",
   objectives: "objetivos",
+  shifts: "turnos",
   team: "equipo",
   account: "cuenta",
 };
@@ -225,6 +230,14 @@ export const LEGACY_ROUTE_MAP: readonly MappedLegacyRoute[] = [
     legacyLabel: "Targets",
     area: "data_settings",
     section: "objectives",
+  },
+  {
+    // R1-17a: the restaurant's shifts and business-day cutoff.
+    id: "shifts",
+    href: SHIFTS_HREF,
+    legacyLabel: "Shifts",
+    area: "data_settings",
+    section: "shifts",
   },
   {
     id: "odoo-admin",
@@ -336,6 +349,8 @@ export function dataSettingsSectionLabel(
       return t(lang, "Connections", "Conexiones");
     case "objectives":
       return t(lang, "Goals", "Objetivos");
+    case "shifts":
+      return t(lang, "Shifts", "Turnos");
     case "team":
       return t(lang, "Team", "Equipo");
     case "account":
@@ -356,6 +371,8 @@ export function dataSettingsLinkLabel(
       return t(lang, "Odoo connection (admin)", "Conexión con Odoo (admin)");
     case "objectives":
       return t(lang, "Set your goals", "Definir tus objetivos");
+    case "shifts":
+      return t(lang, "Set your shifts", "Definir tus turnos");
     case "invitations":
       return t(lang, "Invitations", "Invitaciones");
     case "account":

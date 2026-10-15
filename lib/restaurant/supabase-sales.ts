@@ -46,6 +46,8 @@ import {
 } from "@/lib/restaurant/cockpit-aggregates";
 import { classifySaleLine, isTipSaleRow } from "@/lib/restaurant/sales-revenue";
 import { fetchAllRowsRetryingWithoutColumn } from "@/lib/restaurant/missing-schema-column";
+import { cutoffFor } from "@/lib/restaurant/business-day";
+import { loadBusinessDayConfig } from "@/lib/restaurant/business-day-server";
 
 // ---------------------------------------------------------------------------
 // Public DTOs
@@ -240,6 +242,8 @@ export interface PosSalesItemRow {
   /** Migration 030. Null on legacy rows — readers use the product name. */
   is_tip?: boolean | null;
   source_metadata?: { discount_estimated?: boolean } | null;
+  /** R1-17a: business-day cutoff of this line's restaurant (set on read). */
+  business_cutoff_min?: number | null;
 }
 
 const POS_SELECT_COLS =
@@ -436,6 +440,26 @@ export function computeDishSales(rawRows: PosSalesItemRow[]): DishSalesRow[] {
  * when the caller has already validated it against the company.
  */
 export async function fetchCompanyPosSalesRows(
+  supabase: SupabaseLike,
+  companyId: string,
+  selectedLocationId?: string | null
+) {
+  // R1-17a: each line carries the business-day cutoff of its restaurant, so
+  // every row walk (daily series, heatmap, shifts) uses the same business day
+  // as the SQL rollups. Before migration 054 nothing is attached.
+  const [result, businessDay] = await Promise.all([
+    fetchPosSalesRowsRaw(supabase, companyId, selectedLocationId),
+    loadBusinessDayConfig(supabase as never, companyId),
+  ]);
+  if (businessDay.available) {
+    for (const row of result.rows) {
+      row.business_cutoff_min = cutoffFor(businessDay, row.location_id);
+    }
+  }
+  return result;
+}
+
+async function fetchPosSalesRowsRaw(
   supabase: SupabaseLike,
   companyId: string,
   selectedLocationId?: string | null

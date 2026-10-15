@@ -4,6 +4,7 @@
 // and the cockpit heatmap so both use the same timezone rules.
 
 import { getLocalMoment } from "@/lib/restaurant/email/scheduler";
+import { businessMoment } from "@/lib/restaurant/business-day";
 
 export const WEEKDAY_KEYS = [
   "Sunday",
@@ -35,9 +36,23 @@ export function weekdayFromDateKey(dateKey: string): number {
  * evening in America/El_Salvador. Fall back to the local `sale_date`.
  */
 export function localWeekdayAndHour(
-  row: { sale_date: string; order_placed_at: string | null },
+  row: {
+    sale_date: string;
+    order_placed_at: string | null;
+    /**
+     * R1-17a: minutes after midnight before which a sale still belongs to the
+     * PREVIOUS business day (migration 054). 0 / absent = the calendar day.
+     * The date and weekday returned are the business ones; the hour stays the
+     * real clock hour.
+     */
+    business_cutoff_min?: number | null;
+  },
   timezone: string
 ): { weekday: number; hour: number | null; dateKey: string } {
+  if (row.order_placed_at && row.business_cutoff_min) {
+    const b = businessMoment(row, timezone, row.business_cutoff_min);
+    return { weekday: b.weekday, hour: b.hour, dateKey: b.date };
+  }
   if (row.order_placed_at) {
     const instant = new Date(row.order_placed_at);
     if (!Number.isNaN(instant.getTime())) {

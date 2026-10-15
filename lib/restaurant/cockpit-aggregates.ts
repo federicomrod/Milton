@@ -53,6 +53,9 @@ export interface CockpitFactRow {
   payment_type?: string | null;
   category?: string | null;
   currency?: string | null;
+  location_id?: string | null;
+  /** R1-17a: the business-day cutoff of this line's restaurant (see pos-local-time). */
+  business_cutoff_min?: number | null;
 }
 
 export interface HeatmapCell {
@@ -330,6 +333,7 @@ export function buildCockpitSalesAggregate(
       {
         sale_date: row.sale_date,
         order_placed_at: row.order_placed_at ?? null,
+        business_cutoff_min: row.business_cutoff_min ?? null,
       },
       timezone
     );

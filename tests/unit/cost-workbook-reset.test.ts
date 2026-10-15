@@ -22,7 +22,7 @@ import {
 import type { CostWorkbookCostEntry } from "@/lib/restaurant/cost-workbook/types";
 
 const COMPANY_A = "co-casa";
-const COMPANY_B = "co-lavara";
+const COMPANY_B = "co-casasur";
 
 function costEntry(
   companyId: string,
@@ -71,7 +71,7 @@ describe("resetCompanyCostData", () => {
     const [ingB] = await repo.createIngredients([
       {
         companyId: COMPANY_B,
-        name: "Carne lavara",
+        name: "Carne casasur",
         defaultUnit: "lb",
         currentUnitCost: 5,
         currency: "USD",
@@ -145,7 +145,7 @@ describe("resetCompanyCostData", () => {
     });
     await repo.createComponent({
       companyId: COMPANY_B,
-      name: "Salsa lavara",
+      name: "Salsa casasur",
       outputUnit: "oz",
       sourceId: "batch-b",
     });
@@ -203,7 +203,7 @@ describe("resetCompanyCostData", () => {
     });
     await repo.createBatch({
       companyId: COMPANY_B,
-      filename: "lavara.xlsx",
+      filename: "casasur.xlsx",
       fileMonth: "2026-04-01",
       currency: "USD",
       importedCount: 1,
@@ -301,39 +301,43 @@ describe("resetCompanyCostData", () => {
   });
 
   it("accepts the restaurant name case-insensitively", () => {
-    expect(resetConfirmationMatches("stage test 1", "Stage Test 1")).toBe(true);
+    expect(resetConfirmationMatches("casa piloto 1", "Casa Piloto 1")).toBe(
+      true
+    );
     expect(resetConfirmationMatches("  Casa Prueba ", "Casa Prueba")).toBe(
       true
     );
-    expect(resetConfirmationMatches("Lavara", "Stage Test 1")).toBe(false);
+    expect(resetConfirmationMatches("CasaSur", "Casa Piloto 1")).toBe(false);
   });
 
   it("rejects a single restaurant name when the company has two restaurants", () => {
     const target = {
       companyName: "Grupo Casa",
-      restaurantNames: ["Casa Prueba", "Lavara"],
+      restaurantNames: ["Casa Prueba", "CasaSur"],
     };
     expect(resetConfirmationAccepted("Casa Prueba", target)).toBe(false);
-    expect(resetConfirmationAccepted("Lavara", target)).toBe(false);
+    expect(resetConfirmationAccepted("CasaSur", target)).toBe(false);
     expect(resetConfirmationAccepted("casa prueba", target)).toBe(false);
     expect(resetConfirmationAccepted("Grupo Casa", target)).toBe(true);
-    expect(resetConfirmationAccepted("Casa Prueba y Lavara", target)).toBe(
+    expect(resetConfirmationAccepted("Casa Prueba y CasaSur", target)).toBe(
       true
     );
-    expect(resetConfirmationAccepted("Lavara y Casa Prueba", target)).toBe(
+    expect(resetConfirmationAccepted("CasaSur y Casa Prueba", target)).toBe(
       true
     );
-    expect(resetConfirmationAccepted("Casa Prueba, Lavara", target)).toBe(true);
+    expect(resetConfirmationAccepted("Casa Prueba, CasaSur", target)).toBe(
+      true
+    );
   });
 
   it("does not treat a restaurant name as the account name on a shared company", () => {
     const target = {
       companyName: "Casa Prueba",
-      restaurantNames: ["Casa Prueba", "Lavara"],
+      restaurantNames: ["Casa Prueba", "CasaSur"],
     };
     expect(resetConfirmationAccepted("Casa Prueba", target)).toBe(false);
-    expect(resetConfirmationAccepted("Lavara", target)).toBe(false);
-    expect(resetConfirmationAccepted("Casa Prueba y Lavara", target)).toBe(
+    expect(resetConfirmationAccepted("CasaSur", target)).toBe(false);
+    expect(resetConfirmationAccepted("Casa Prueba y CasaSur", target)).toBe(
       true
     );
   });
@@ -349,28 +353,28 @@ describe("resetCompanyCostData", () => {
 
   it("shows the explicit multi-restaurant Spanish warning", () => {
     const warning = multiRestaurantResetWarningEs(
-      ["Casa Prueba", "Lavara"],
+      ["Casa Prueba", "CasaSur"],
       "Casa Prueba"
     );
     expect(warning).toBe(
-      "Esto borra los costos y recetas de TODOS los restaurantes de la cuenta (Casa Prueba y Lavara), no solo de Casa Prueba. No se puede deshacer."
+      "Esto borra los costos y recetas de TODOS los restaurantes de la cuenta (Casa Prueba y CasaSur), no solo de Casa Prueba. No se puede deshacer."
     );
     expect(
       resetConfirmPromptEs({
         companyName: "Casa Prueba",
-        restaurantNames: ["Casa Prueba", "Lavara"],
+        restaurantNames: ["Casa Prueba", "CasaSur"],
       })
-    ).toContain("Casa Prueba y Lavara");
+    ).toContain("Casa Prueba y CasaSur");
     expect(
       resetConfirmPromptEs({
         companyName: "Casa Prueba",
-        restaurantNames: ["Casa Prueba", "Lavara"],
+        restaurantNames: ["Casa Prueba", "CasaSur"],
       })
     ).toContain("No se puede deshacer");
     expect(
       resetConfirmErrorEs({
         companyName: "Grupo Casa",
-        restaurantNames: ["Casa Prueba", "Lavara"],
+        restaurantNames: ["Casa Prueba", "CasaSur"],
       })
     ).toBe(
       "Escribe el nombre de la cuenta o el de todos los restaurantes para confirmar."

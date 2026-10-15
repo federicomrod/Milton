@@ -582,7 +582,7 @@ describe("writing the import (in-memory repository)", () => {
   });
 });
 
-describe("Stage Test 1 fixes in the import", () => {
+describe("Casa Piloto 1 fixes in the import", () => {
   it("a new ingredient takes the price list's unit, not a recipe line's label", () => {
     const plan = planImport({
       workbook,

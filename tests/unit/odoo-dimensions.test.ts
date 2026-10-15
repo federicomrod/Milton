@@ -211,7 +211,9 @@ describe("table floor channel mapping", () => {
   it("takes the floor name from the table display prefix", () => {
     expect(tableFloorNameFromDisplay("CASA PRUEBA, 12")).toBe("CASA PRUEBA");
     expect(tableFloorNameFromDisplay("LLEVAR, 3")).toBe("LLEVAR");
-    expect(tableFloorNameFromDisplay("LAVARA, S.A. DE C.V., 7")).toBe("LAVARA");
+    expect(tableFloorNameFromDisplay("CASASUR, S.A. DE C.V., 7")).toBe(
+      "CASASUR"
+    );
     expect(tableFloorNameFromDisplay("Mesa 4")).toBe("Mesa 4");
     expect(tableFloorNameFromDisplay(null)).toBeNull();
   });
@@ -221,7 +223,7 @@ describe("table floor channel mapping", () => {
     expect(mapFloorNameToChannel("PARA LLEVAR")).toBe("takeaway");
     expect(mapFloorNameToChannel("DOMICILIO")).toBe("delivery");
     expect(mapFloorNameToChannel("CASA PRUEBA")).toBe("in_store");
-    expect(mapFloorNameToChannel("LAVARA")).toBe("in_store");
+    expect(mapFloorNameToChannel("CASASUR")).toBe("in_store");
     expect(mapFloorNameToChannel("llevár")).toBe("takeaway");
     expect(mapFloorNameToChannel("Domicílio")).toBe("delivery");
     expect(mapFloorNameToChannel(null)).toBeNull();
@@ -586,7 +588,7 @@ describe("live dimension audit", () => {
         },
         {
           id: 202,
-          company_id: [2, "Lavara"],
+          company_id: [2, "CasaSur"],
           table_id: false,
           amount_total: 8,
         },

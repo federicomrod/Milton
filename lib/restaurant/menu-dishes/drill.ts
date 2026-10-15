@@ -12,7 +12,13 @@ import {
 } from "@/lib/restaurant/costing/rollup";
 import type { MenuDishVariant } from "./menu-dishes";
 
-export type DrillDimension = "product" | "size" | "side" | "point" | "channel";
+export type DrillDimension =
+  | "product"
+  | "restaurant"
+  | "size"
+  | "side"
+  | "point"
+  | "channel";
 
 export const DRILL_DIMENSIONS: ReadonlyArray<{
   id: DrillDimension;
@@ -21,6 +27,7 @@ export const DRILL_DIMENSIONS: ReadonlyArray<{
   stored: "size" | "side" | "cooking_point" | "channel" | null;
 }> = [
   { id: "product", label: "Producto", stored: null },
+  { id: "restaurant", label: "Restaurante", stored: null },
   { id: "size", label: "Tamaño", stored: "size" },
   { id: "side", label: "Acompañante", stored: "side" },
   { id: "point", label: "Punto", stored: "cooking_point" },
@@ -29,6 +36,7 @@ export const DRILL_DIMENSIONS: ReadonlyArray<{
 
 const NONE_LABEL: Record<DrillDimension, string> = {
   product: "Producto",
+  restaurant: "Sin restaurante",
   size: "Sin tamaño",
   side: "Sin acompañante",
   point: "Sin punto",
@@ -43,6 +51,8 @@ export function dimensionValue(
   switch (dim) {
     case "product":
       return v.name.trim() || "Sin nombre";
+    case "restaurant":
+      return v.restaurant_label ?? NONE_LABEL.restaurant;
     case "size":
       return v.size !== null
         ? `${v.size} ${v.size_unit === "personas" ? "personas" : "oz"}`
@@ -71,6 +81,10 @@ export function availableDimensions(
   const out: DrillDimension[] = [];
   if (opts.product && new Set(variants.map((v) => v.name)).size >= 2)
     out.push("product");
+  if (
+    new Set(variants.map((v) => v.restaurant_label).filter(Boolean)).size >= 2
+  )
+    out.push("restaurant");
   if (variants.some((v) => v.size !== null)) out.push("size");
   if (variants.some((v) => v.side?.trim())) out.push("side");
   if (variants.some((v) => v.cooking_point?.trim())) out.push("point");

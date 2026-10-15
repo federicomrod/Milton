@@ -17,13 +17,19 @@ const SALES_REACT = [
   "components/restaurant/sales/SalesHighlights.tsx",
   "components/restaurant/sales/SalesRankedBars.tsx",
   "components/restaurant/sales/SalesInterpretation.tsx",
-  "components/restaurant/sales/DeferredSalesExplorer.tsx",
   "components/restaurant/sales/SalesPageLive.tsx",
   "components/restaurant/sales/SalesPeriodAskButton.tsx",
   "components/restaurant/sales/SalesContextualAsk.tsx",
-  "components/restaurant/sales/SalesInvestigateFacts.tsx",
   "app/dashboard/restaurant/sales/page.tsx",
   "app/dashboard/restaurant/sales/detalle/page.tsx",
+  "components/restaurant/sales/detail/SalesDetailV2.tsx",
+  "components/restaurant/sales/detail/FilterBar.tsx",
+  "components/restaurant/sales/detail/KpiRow.tsx",
+  "components/restaurant/sales/detail/DailyChart.tsx",
+  "components/restaurant/sales/detail/DetailHeatmap.tsx",
+  "components/restaurant/sales/detail/DimensionPanel.tsx",
+  "components/restaurant/sales/detail/ShiftCards.tsx",
+  "components/restaurant/sales/detail/PlatosTab.tsx",
 ];
 
 const SALES_COPY = [
@@ -44,7 +50,7 @@ function spanishSlots(src: string): string[] {
 }
 
 describe("Sales page IA (#130)", () => {
-  it("keeps the thin Sales route and adds detalle without deleting the explorer", () => {
+  it("keeps the thin Sales route and the redesigned detalle", () => {
     expect(SALES_HREF).toBe("/dashboard/restaurant/sales");
     expect(SALES_DETAIL_HREF).toBe("/dashboard/restaurant/sales/detalle");
     const sales = read("app/dashboard/restaurant/sales/page.tsx");
@@ -61,14 +67,13 @@ describe("Sales page IA (#130)", () => {
     expect(sales).not.toContain("RestaurantSalesExplorer");
     expect(sales).not.toContain("explorerRows");
     expect(sales).not.toContain("loadCockpitPageModel");
-    expect(detalle).toContain("<SalesHero");
-    expect(detalle).toContain("DeferredSalesExplorer");
+    // R1-17b: the detalle is the redesigned explorer (one request, all client-side).
+    expect(detalle).toContain("SalesDetailV2");
+    expect(detalle).not.toContain("<SalesHero");
     expect(detalle).not.toContain("sales.explorerRows");
-    expect(detalle).toContain("mismo periodo que el encabezado");
-    expect(detalle).toContain('id="categorias"');
     expect(
-      read("components/restaurant/sales/DeferredSalesExplorer.tsx")
-    ).toContain("/api/restaurant/cockpit-sales");
+      read("components/restaurant/sales/detail/SalesDetailV2.tsx")
+    ).toContain("/api/restaurant/sales-detail");
   });
 
   it("honours the cockpit period contract on Sales", () => {
@@ -85,9 +90,6 @@ describe("Sales page IA (#130)", () => {
     expect(loader).toContain("buildCockpitSalesAggregate");
     expect(chrome).toContain("CockpitPeriodControl");
     expect(page).not.toContain("shownPeriodFromSales");
-    expect(
-      read("components/restaurant/sales/DeferredSalesExplorer.tsx")
-    ).toContain("inInclusiveRange");
   });
 
   it("does not put KPI aggregation in React", () => {
@@ -139,12 +141,6 @@ describe("Spanish completeness for Sales (#130)", () => {
     expect(explore).toContain("Ver todas");
     expect(read("components/restaurant/sales/SalesDetailLink.tsx")).toContain(
       "Ver detalles"
-    );
-    expect(read("app/dashboard/restaurant/sales/detalle/page.tsx")).toContain(
-      "SalesInvestigateFacts"
-    );
-    expect(read("app/dashboard/restaurant/sales/detalle/page.tsx")).toContain(
-      "sales-ask-milton-detail"
     );
     expect(read("lib/restaurant/sales-insights.ts")).toContain(
       "La lectura de Milton"

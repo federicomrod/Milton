@@ -2,151 +2,107 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
 
-// Layout regression for GitHub #85 — Revenue tab KPIs must sit above the
-// fold. These are source-level checks because the unit suite runs in node
-// without a React renderer. Filter logic and target math are asserted
-// unchanged so a layout-only PR cannot silently rewrite them.
+// R1-17b: layout of Ventas › Detalle after the redesign (replaces the checks
+// of the old English explorer: Targets tab, "More filters", mix-over-time
+// charts, AI placeholder…). Source-level checks: the unit suite has no browser.
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
-const explorer = read("components/restaurant/RestaurantSalesExplorer.tsx");
-const cockpitPage = read(
-  "app/(restaurant-cockpit)/dashboard/restaurant/page.tsx"
-);
+const D = "components/restaurant/sales/detail";
+const container = read(`${D}/SalesDetailV2.tsx`);
+const filterBar = read(`${D}/FilterBar.tsx`);
+const kpis = read(`${D}/KpiRow.tsx`);
+const chart = read(`${D}/DailyChart.tsx`);
+const dims = read(`${D}/DimensionPanel.tsx`);
+const page = read("app/dashboard/restaurant/sales/detalle/page.tsx");
 
-function sliceBetween(src: string, start: string, end: string): string {
-  const i = src.indexOf(start);
-  const j = src.indexOf(end, i + start.length);
-  expect(i).toBeGreaterThanOrEqual(0);
-  expect(j).toBeGreaterThan(i);
-  return src.slice(i, j);
-}
-
-describe("RestaurantSalesExplorer compact Revenue-tab chrome (#85)", () => {
-  it("defaults the targets editor to collapsed, even when none are set", () => {
-    expect(explorer).not.toContain("useState(!anyTargetSet)");
-    expect(explorer).toMatch(
-      /const \[targetsOpen,\s*setTargetsOpen\]\s*=\s*useState\(false\)/
-    );
+describe("Ventas › Detalle structure", () => {
+  it("has three tabs: Tendencia · Desglose · Platos", () => {
+    for (const t of ["Tendencia", "Desglose", "Platos"])
+      expect(filterBar).toContain(t);
+    for (const gone of ["Overview", "Trends", "Channels", "Items", "Targets"]) {
+      expect(filterBar).not.toContain(`"${gone}"`);
+    }
   });
 
-  it("exposes targets as a compact toolbar control, not a default-open card", () => {
-    expect(explorer).toContain("Add targets");
-    expect(explorer).toContain("Edit targets");
-    expect(explorer).toContain("Hide targets");
-    expect(explorer).toContain('id="targets"');
+  it("has one sticky filter bar: período, comparar, canal, pago, categoría, turno", () => {
+    expect(filterBar).toContain("sticky top-0");
+    for (const l of [
+      '"Período"',
+      '"Comparar con"',
+      'label="Canal"',
+      'label="Pago"',
+      'label="Categoría"',
+      'label="Turno"',
+    ]) {
+      expect(filterBar).toContain(l);
+    }
+    expect(filterBar).not.toContain("More filters");
   });
 
-  it("keeps date range and channel on the compact toolbar", () => {
-    const toolbar = sliceBetween(
-      explorer,
-      "Compact toolbar:",
-      'id="more-filters-panel"'
-    );
-    expect(toolbar).toContain("<DateRangeControls");
-    expect(toolbar).toContain("Channel:");
-    expect(toolbar).toContain("<ChannelChip");
-    expect(toolbar).toContain("countLabel={formatChipQuantity");
-    expect(toolbar).not.toContain("count={");
-    expect(toolbar).toContain("More filters");
-    expect(explorer).toContain("Date range:");
+  it("removed the old pieces: Targets tab, Edit targets, AI placeholder, mix-over-time, Más hallazgos, orange ask link", () => {
+    const all = [container, filterBar, kpis, chart, dims, page].join("\n");
+    for (const gone of [
+      "Edit targets",
+      "Add targets",
+      "AI recommendations",
+      "Mix de canales en el tiempo",
+      "Mix de pagos en el tiempo",
+      "Más hallazgos",
+      "¿Qué más debo revisar",
+      "More filters",
+      "SalesContextualAsk",
+    ]) {
+      expect(all, gone).not.toContain(gone);
+    }
+    // Targets are only a link to Configuración › Objetivos
+    expect(filterBar).toContain("OBJECTIVES_HREF");
+    expect(filterBar).toContain("Configuración › Objetivos");
   });
 
-  it("hides item-level filters behind a More filters panel", () => {
-    const panel = sliceBetween(
-      explorer,
-      'id="more-filters-panel"',
-      "</div>\n        )}"
-    );
-    expect(panel).toContain("Search item name");
-    expect(panel).toContain("Min units");
-    expect(panel).toContain("Min revenue");
-    expect(panel).toContain("Avg price ≥");
-    expect(panel).toContain("Avg price ≤");
-
-    const toolbar = sliceBetween(
-      explorer,
-      "Compact toolbar:",
-      'id="more-filters-panel"'
-    );
-    expect(toolbar).not.toContain("Search item name");
-    expect(toolbar).not.toContain("Min units");
-    expect(toolbar).not.toContain("Min revenue");
+  it("has exactly five KPI cards, with Ventas netas' breakdown in a tooltip", () => {
+    for (const l of [
+      'label="Ventas netas"',
+      'label="Tickets"',
+      'label="Ticket promedio"',
+      'label="Unidades"',
+      'label="Mejor día"',
+    ]) {
+      expect(kpis).toContain(l);
+    }
+    expect((kpis.match(/<Card\b/g) ?? []).length).toBe(5);
+    expect(kpis).toContain('role="tooltip"');
+    expect(kpis).toContain("Propinas");
+    expect(kpis).toContain("vs objetivo");
   });
 
-  it("shows a count on More filters when item-level filters are active", () => {
-    expect(explorer).toContain("moreFilterCount");
-    expect(explorer).toContain("More filters");
+  it("draws bars below 8 days, a straight line beyond (no smoothing) and a dashed daily goal", () => {
+    expect(chart).toContain("n < 8");
+    expect(chart).toContain("<polyline");
+    expect(chart).not.toMatch(/curveMonotone|bezier|\bd=\{?["'`]?[^>]*\bC\d/i);
+    expect(chart).toContain("strokeDasharray");
+    expect(chart).toContain("Tickets");
   });
 
-  it("renders active-filter pills only when a filter is set", () => {
-    expect(explorer).toContain("if (pills.length === 0) return null");
-    expect(explorer).not.toContain("Showing all POS sales");
+  it("Desglose ships Tarjetas (default) and Tabla over the same rows; 5 tiles per row", () => {
+    expect(dims).toContain("▦ Tarjetas");
+    expect(dims).toContain("☰ Tabla");
+    expect(dims).toContain("xl:grid-cols-5");
+    expect(dims).toContain("$/unid.");
+    expect(container).toContain("vista");
   });
 
-  it("renders Overview KPI cards after the compact toolbar, not after an open targets card", () => {
-    const iToolbar = explorer.indexOf("Compact toolbar:");
-    const iTargetsBtn = explorer.indexOf("Add targets");
-    const iOverview = explorer.indexOf('id="overview"');
-    const iRevenueKpi = explorer.indexOf("Net sales (filtered)");
-    expect(iToolbar).toBeGreaterThan(0);
-    expect(iTargetsBtn).toBeGreaterThan(iToolbar);
-    expect(iOverview).toBeGreaterThan(iTargetsBtn);
-    expect(iRevenueKpi).toBeGreaterThan(iOverview);
-  });
-});
-
-describe("RestaurantSalesExplorer filter logic and target math are unchanged", () => {
-  it("points the targets card to Configuración › Objetivos instead of editing here (R1-16a)", () => {
-    expect(explorer).toContain("OBJECTIVES_HREF");
-    expect(explorer).toContain("Editar objetivos en Configuración");
-    // One place to edit: no second form that POSTs targets from Ventas.
-    expect(explorer).not.toContain('fetch("/api/restaurant/targets"');
+  it("the whole page is one request and no per-control fetch", () => {
+    expect(container.match(/fetch\(/g)?.length).toBe(1);
+    for (const f of [filterBar, kpis, chart, dims])
+      expect(f).not.toContain("fetch(");
   });
 
-  it("still scales flow targets by selectedDays and leaves avg ticket unmultiplied", () => {
-    expect(explorer).toContain("out.revenue = targets.revenue * selectedDays");
-    expect(explorer).toContain("out.orders = targets.orders * selectedDays");
-    expect(explorer).toContain(
-      "out.units_sold = targets.units_sold * selectedDays"
-    );
-    expect(explorer).toContain("out.avg_ticket = targets.avg_ticket");
-    expect(explorer).toContain("// ratio — not multiplied");
-  });
-
-  it("still applies row-level filters before item-level filters", () => {
-    expect(explorer).toContain("Stage 1: row-level filtering (non-date).");
-    expect(explorer).toContain("Stage 2: item-level filters.");
-    expect(explorer).toContain("function aggregate(");
-  });
-
-  it("still hides target variance when a non-date filter is active", () => {
-    expect(explorer).toContain(
-      "const showTargetVariance = anyTargetSet && !nonDateFiltersActive"
-    );
-  });
-});
-
-describe("Revenue tab page chrome is trimmed without dropping copy", () => {
-  it("still explains live vs sample mode in the header", () => {
-    expect(cockpitPage).toContain("Showing sample data");
-    expect(cockpitPage).toContain("Import POS sales");
-    expect(cockpitPage).toContain("<DataHealthIndicator");
-    const health = read("lib/restaurant/cockpit-data-health.ts");
-    expect(health).toContain("dishes that have a cost");
-    expect(health).toContain("platillos con costo");
-    const strip = read("lib/restaurant/cockpit-executive.ts");
-    expect(strip).toContain("pendingRecipesLabel");
-    const copy = read("lib/restaurant/cost-workbook/copy.ts");
-    expect(copy).toContain("Pending recipes");
-    expect(copy).toContain("Pendiente de recetas");
-  });
-
-  it("mounts RestaurantSalesExplorer in Ventas, not under the Cockpit", () => {
-    const salesTab = read(
-      "components/restaurant/sales/DeferredSalesExplorer.tsx"
-    );
-    expect(cockpitPage).not.toContain("<DeferredSalesTab");
-    expect(salesTab).toContain("<RestaurantSalesExplorer");
+  it("Spanish only: a single «Preguntar a Milton» (the header's), no English channel names", () => {
+    expect(page).toContain("OperatingPageHeader");
+    expect(page).not.toContain("hideAskButton");
+    for (const f of [container, filterBar, kpis, chart, dims]) {
+      expect(f).not.toMatch(/Eat In|To Go|Unknown/);
+    }
   });
 });

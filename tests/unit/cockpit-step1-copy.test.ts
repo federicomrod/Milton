@@ -18,13 +18,12 @@ describe("cockpit step-1 review nits", () => {
 
   it("names the two revenue figures so the strip and Explorer cannot be confused", () => {
     const strip = read("components/restaurant/cockpit/CockpitKpiStrip.tsx");
-    const explorer = read("components/restaurant/RestaurantSalesExplorer.tsx");
+    const explorer = read("components/restaurant/sales/detail/KpiRow.tsx");
     expect(strip).toContain("Net sales");
     expect(strip).toContain("Ventas netas");
     expect(strip).not.toContain("all loaded data");
     expect(strip).not.toContain("todos los datos cargados");
-    expect(explorer).toContain("Net sales (filtered)");
-    expect(explorer).toContain("t(lang,");
+    expect(explorer).toContain("Ventas netas");
   });
 
   it("keeps the Cockpit strip to 4 KPIs (R1-09b, wireframe 0)", () => {

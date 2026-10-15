@@ -48,7 +48,12 @@ describe("cockpit timing (#134)", () => {
       'logCockpitTiming("insights"'
     );
     expect(sales).toMatch(/timeCockpitStep\(\s*"sales-route"/);
-    expect(salesDetalle).toMatch(/timeCockpitStep\(\s*"sales-detalle-route"/);
+    // R1-17b: the detalle page is a shell; its one read is the sales-detail API,
+    // which logs its own timing.
+    expect(salesDetalle).toContain("SalesDetailV2");
+    expect(read("app/api/restaurant/sales-detail/route.ts")).toContain(
+      "console.info(\n      `[sales-detail] ${Date.now() - started}ms"
+    );
     expect(salesPageData).toMatch(/timeCockpitStep\(\s*"sales-pos-rows"/);
     expect(salesPageData).toContain('logCockpitTiming("sales-page"');
     expect(menu).toContain("loadMenuAreaModel");

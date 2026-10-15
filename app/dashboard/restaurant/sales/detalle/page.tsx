@@ -1,116 +1,45 @@
 // app/dashboard/restaurant/sales/detalle/page.tsx
 //
-// Investigate: existing lunch/dinner, mix-over-time, category grid and
-// explorer. SalesHero follows the header period. The explorer is loaded
-// from /api/restaurant/cockpit-sales and filtered to the same period —
-// it is not serialized on the Sales first paint.
+// Ventas › Detalle (R1-17b, mocks 1/2/4): explore and compare — "why, when,
+// where". The Cockpit is the summary; nothing here repeats it in the same
+// form. One request loads the period's data (the cube); the filter bar, the
+// three tabs and every click are computed in the browser. The state lives in
+// the URL.
 
-import Link from "next/link";
-import { loadSalesPageModel } from "@/lib/restaurant/sales-page-data";
-import { timeCockpitStep } from "@/lib/restaurant/cockpit-timing";
-import { SalesHero } from "@/components/restaurant/cockpit/SalesHero";
-import { DeferredSalesExplorer } from "@/components/restaurant/sales/DeferredSalesExplorer";
-import { SalesInvestigateFacts } from "@/components/restaurant/sales/SalesInvestigateFacts";
-import { SalesContextualAsk } from "@/components/restaurant/sales/SalesContextualAsk";
-import { SalesPageHeader } from "@/components/restaurant/sales/SalesPageChrome";
-import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
-import {
-  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
-  t,
-} from "@/lib/restaurant/language";
-import { SALES_HREF } from "@/lib/restaurant/navigation";
-import { salesHref } from "@/lib/restaurant/sales-explore";
+import { SalesDetailV2 } from "@/components/restaurant/sales/detail/SalesDetailV2";
+import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
+import { parseDetailState } from "@/lib/restaurant/sales-detail";
 
 export const dynamic = "force-dynamic";
+
+type Params = Record<string, string | string[] | undefined>;
+const first = (v: string | string[] | undefined) =>
+  Array.isArray(v) ? v[0] : v;
 
 export default async function SalesDetailPage({
   searchParams,
 }: {
-  searchParams: Promise<{ location?: string; period?: string }>;
+  searchParams: Promise<Params>;
 }) {
-  const { location, period } = await searchParams;
-  const {
-    mode,
-    lang: modelLang,
-    sales,
-    periodPreset,
-    latestSaleDate,
-  } = await timeCockpitStep(
-    "sales-detalle-route",
-    () => loadSalesPageModel(location, period),
-    { location: location ?? null, period: period ?? null }
-  );
-  const lang = modelLang || RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
-  const backHref = salesHref(SALES_HREF, {
-    locationId: location,
-    period: periodPreset,
-  });
+  const [{ lang }, params] = await Promise.all([
+    loadRestaurantShellChrome(),
+    searchParams,
+  ]);
+  const flat: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(params)) flat[k] = first(v);
+  // Old links (?period=last_7 | month) keep working.
+  if (!flat.p && flat.period === "month") flat.p = "30d";
+  const location = flat.location ?? null;
 
   return (
-    <div className="w-full py-3 px-6 lg:px-10 space-y-3">
-      <SalesPageHeader
+    <div className="w-full px-6 py-3 lg:px-10 space-y-2">
+      <OperatingPageHeader
+        title="Ventas › Detalle"
         lang={lang}
-        title={t(lang, "Sales details", "Detalle de ventas")}
-        periodPreset={periodPreset}
-        range={
-          sales
-            ? sales.period.current
-            : mode === "live" && latestSaleDate
-              ? { from: latestSaleDate, to: latestSaleDate }
-              : null
-        }
-        comparisonLabel={sales?.comparisonLabel}
-        periodAskQuestion={sales?.insights.period_ask_question}
+        showDateRange={false}
       />
-      <p className="text-xs">
-        <Link
-          href={backHref}
-          className="font-medium text-muted-foreground hover:text-foreground hover:underline underline-offset-2"
-        >
-          {t(lang, "← Back to Sales", "← Volver a Ventas")}
-        </Link>
-      </p>
-      {mode === "live" && sales ? (
-        <div className="space-y-6">
-          <p
-            className="text-xs text-muted-foreground"
-            data-testid="sales-detail-period-note"
-          >
-            {t(
-              lang,
-              "The charts and the explorer below use the same period as the header.",
-              "Los gráficos y el explorador de abajo usan el mismo periodo que el encabezado."
-            )}
-          </p>
-          <SalesHero cockpit={sales.scoped} lang={lang} />
-          <SalesInvestigateFacts
-            facts={sales.insights.investigate_facts}
-            lang={lang}
-          />
-          <SalesContextualAsk
-            question={sales.insights.detail_ask_question}
-            testId="sales-ask-milton-detail"
-          />
-          <section id="categorias">
-            <DeferredSalesExplorer
-              locationId={location}
-              period={sales.period.current}
-              lang={lang}
-            />
-          </section>
-        </div>
-      ) : (
-        <NotAvailableYet
-          lang={lang}
-          reason={t(
-            lang,
-            "Upload POS sales to see the heatmap and explorer.",
-            "Importa ventas del POS para ver el mapa de calor y el explorador."
-          )}
-          href="/dashboard/restaurant/data?seccion=conexiones#conexiones"
-          linkLabel={t(lang, "Import POS Sales →", "Importar ventas del POS →")}
-        />
-      )}
+      <SalesDetailV2 initial={parseDetailState(flat)} locationId={location} />
     </div>
   );
 }

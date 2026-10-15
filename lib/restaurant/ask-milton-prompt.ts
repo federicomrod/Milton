@@ -201,6 +201,17 @@ export function detectIntent(message: string): AskMiltonIntent {
   // margin impact, negotiation targets) as well as direct unit-cost questions.
   if (
     has(
+      "ingredientes caros",
+      "ingredientes más caros",
+      "ingredientes mas caros",
+      "ingrediente más caro",
+      "ingrediente mas caro",
+      "salen más caros",
+      "salen mas caros",
+      "ingredientes costosos",
+      "ingrediente costoso",
+      "precio de los ingredientes",
+      "precios de ingredientes",
       "most expensive ingredient",
       "expensive ingredient",
       "highest cost ingredient",
@@ -450,6 +461,12 @@ export const ASK_MILTON_SYSTEM_PROMPT = [
   '  "I don\'t have recipe usage for that ingredient in Milton yet."',
   "- 'most expensive / biggest cost drivers / ingredient cost impact':",
   "  Use this fallback order:",
+  "  0. If `context.ingredient_prices.top_by_unit_cost` has items, answer",
+  "     from it FIRST: name, price per unit, source (factura/manual/lista/",
+  "     excel), supplier and `dishes_using`. Prices are the latest",
+  "     confirmed ones; units differ, so compare within one unit. Mention",
+  "     `unpriced_count` ingredients as «Sin precio»: never rank them and",
+  "     never show them as $0. Never invent a price.",
   "  1. If `context.expensive_ingredients` has items, lead with those.",
   "     Show name, unit_cost, unit, supplier_name. Always add the note:",
   "     'Unit cost alone does not show profitability impact. What matters",
@@ -464,6 +481,10 @@ export const ASK_MILTON_SYSTEM_PROMPT = [
   "  4. Only as a last resort, say what specific data is missing.",
   "     Never say 'I don't have that data' if any menu profitability data",
   "     exists.",
+  "- 'dishes / groups / sales by group': use `context.menu_dishes`",
+  "  (top_by_sales, sales_by_category; food_cost_pct null = no cost yet)",
+  "  and `context.item_groups` (name, products, net_sales). A null cost",
+  "  is «Sin precio», never 0.",
   "- Follow-up references ('these ingredients', 'those dishes'): If",
   "  `resolved_entities` is provided in the user prompt, use those names",
   "  as the target. Do not guess if resolved_entities is empty.",
@@ -1041,6 +1062,61 @@ function expensiveIngredientsAnswer(
     relatedLink(lang, "/dashboard/restaurant/menu/ingredientes"),
     relatedLink(lang, "/dashboard/restaurant/costs?tab=proveedores"),
   ];
+
+  // ── Tier 0 (R1-16c): the latest confirmed prices, ranked ────────────────
+  const prices = ctx.ingredient_prices;
+  if (prices.top_by_unit_cost.length > 0) {
+    const top = prices.top_by_unit_cost.slice(0, 5);
+    const money = (i: (typeof top)[number]) =>
+      `${fmtCurrencyDec(i.price, i.currency)}/${i.unit}`;
+    const line = (i: (typeof top)[number]) =>
+      `${i.name}: ${money(i)}` +
+      (i.supplier_name ? ` (${i.supplier_name})` : "") +
+      (i.dishes_using ? ` · ${i.dishes_using} platos` : "");
+    const lines = [
+      t(
+        lang,
+        `The most expensive ingredients by latest price: ${top.map(line).join("; ")}.`,
+        `Los ingredientes más caros por su último precio: ${top.map(line).join("; ")}.`
+      ),
+    ];
+    const first = top[0];
+    if (first.used_in.length > 0) {
+      lines.push(
+        t(
+          lang,
+          `${first.name} is used in: ${first.used_in.join(", ")}.`,
+          `${first.name} se usa en: ${first.used_in.join(", ")}.`
+        )
+      );
+    }
+    if (prices.unpriced_count > 0) {
+      lines.push(
+        t(
+          lang,
+          `${prices.unpriced_count} ingredients have no price yet (Sin precio) and are not in this ranking.`,
+          `${prices.unpriced_count} ingredientes no tienen precio todavía (Sin precio) y no entran en este ranking.`
+        )
+      );
+    }
+    return {
+      answer: lines.join(" "),
+      supporting_facts: top.slice(0, 4).map((i) => ({
+        label: i.name,
+        value: `${money(i)}${i.source ? ` · ${i.source}` : ""}`,
+        source_area: "supplier" as const,
+      })),
+      related_links: LINKS,
+      suggested_followups: FOLLOWUPS,
+      confidence_notes: [
+        t(
+          lang,
+          "Units differ (lb, oz, g, unit): compare prices within the same unit. Unit price alone does not show profitability impact.",
+          "Las unidades difieren (lb, oz, g, unidad): compara precios dentro de la misma unidad. El precio unitario por sí solo no muestra el impacto en rentabilidad."
+        ),
+      ],
+    };
+  }
 
   // ── Tier 1: authoritative unit costs from ingredient_cost_entries ──────────
   const items = ctx.expensive_ingredients;

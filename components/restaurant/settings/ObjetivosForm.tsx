@@ -65,8 +65,8 @@ export interface ObjetivosFormProps {
     gross_margin_pct: number | null;
   } | null;
   today: string;
-  /** First day of this month: when a saved target starts to apply. */
-  effectiveFrom: string;
+  /** When a saved goal starts to apply; the first option is the default. */
+  startOptions: Array<{ value: string; label: string }>;
   defaultComparison: Comparison;
   canEdit: boolean;
 }
@@ -118,9 +118,13 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
   const [status, setStatus] = useState<
     | { kind: "idle" }
     | { kind: "saving" }
-    | { kind: "ok" }
+    | { kind: "ok"; message: string }
+    | { kind: "info"; message: string }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
+  const [start, setStart] = useState(props.startOptions[0].value);
+  const startLabel =
+    props.startOptions.find((o) => o.value === start)?.label ?? dateEs(start);
 
   const monthly = parseNumber(revenue);
   const weights =
@@ -146,20 +150,51 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
       same(avgTicket, ticket.value) &&
       comparison === props.defaultComparison &&
       edited === null &&
+      start === props.startOptions[0].value &&
       useSplit ===
         (monthlyRow
           ? monthlyRow.weekday_weights !== null
           : refs.suggestedWeights !== null)
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revenue, foodPct, marginPct, avgTicket, comparison, edited, useSplit]);
+  }, [
+    revenue,
+    foodPct,
+    marginPct,
+    avgTicket,
+    comparison,
+    edited,
+    useSplit,
+    start,
+  ]);
 
   async function save() {
+    // Never a silent button: always say what happened or why nothing did.
+    if (!available) {
+      setStatus({
+        kind: "error",
+        message:
+          "Falta aplicar la migración 052 en este ambiente: todavía no se pueden guardar objetivos.",
+      });
+      return;
+    }
+    if (!canEdit) {
+      setStatus({
+        kind: "error",
+        message: "Tu rol no puede cambiar los objetivos.",
+      });
+      return;
+    }
+    if (!dirty) {
+      setStatus({ kind: "info", message: "No hay cambios que guardar." });
+      return;
+    }
     setStatus({ kind: "saving" });
     const body: Record<string, unknown> = {
       version: 2,
       location_id: props.applyTo,
       default_comparison: comparison,
+      effective_from: start,
     };
     // A number sets it; a field the person emptied clears it; an untouched empty one is left alone.
     const put = (key: string, draft: string, saved: number | null) => {
@@ -187,7 +222,10 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok)
         throw new Error(json.error ?? "No pude guardar los objetivos.");
-      setStatus({ kind: "ok" });
+      setStatus({
+        kind: "ok",
+        message: `Objetivos guardados. Vigentes desde ${startLabel.split(" · ")[0]} — ya se ven en el Cockpit.`,
+      });
       setEdited(null);
       router.refresh();
     } catch (err) {
@@ -345,16 +383,32 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
           </tbody>
         </table>
         <div className="mt-4 flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-[12px] text-[#4a5a85]">
+            Vigente desde
+            <select
+              aria-label="Vigente desde"
+              value={start}
+              disabled={disabled}
+              onChange={(e) => setStart(e.target.value)}
+              className="rounded-lg border border-[#c6d3f5] bg-white px-2 py-1 text-[12px] outline-none focus:border-[#1b40c8]"
+            >
+              {props.startOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <span className="text-[12px] text-[#8a92a3]">
-            Vigente desde {dateEs(props.effectiveFrom)} · los meses anteriores
+            Vigente desde {startLabel.split(" · ")[0]} · los meses anteriores
             guardan su objetivo
           </span>
-          {status.kind === "ok" ? (
+          {status.kind === "ok" || status.kind === "info" ? (
             <span
               role="status"
-              className="text-[12px] font-semibold text-[#15803d]"
+              className={`text-[12px] font-semibold ${status.kind === "ok" ? "text-[#15803d]" : "text-[#4a5a85]"}`}
             >
-              Guardado
+              {status.message}
             </span>
           ) : null}
           {status.kind === "error" ? (
@@ -365,7 +419,7 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
           <button
             type="button"
             onClick={() => void save()}
-            disabled={disabled || !dirty}
+            disabled={status.kind === "saving"}
             className="ml-auto rounded-lg bg-[#1b40c8] px-4 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6] disabled:opacity-50"
           >
             {status.kind === "saving" ? "Guardando…" : "Guardar objetivos"}

@@ -31,7 +31,10 @@ const base: ObjetivosFormProps = {
   },
   cost30: { food_cost_pct: 34, gross_margin_pct: 66 },
   today: "2026-10-15",
-  effectiveFrom: "2026-10-01",
+  startOptions: [
+    { value: "2026-10-01", label: "1 oct 2026 · este mes" },
+    { value: "1900-01-01", label: "Desde siempre · todo el historial" },
+  ],
   defaultComparison: "months_6",
   canEdit: true,
 };
@@ -85,7 +88,6 @@ describe("ObjetivosForm", () => {
   it("the derived daily target is shown from the monthly one (30-day month → $1,150)", () => {
     const html = draw({
       today: "2026-09-15",
-      effectiveFrom: "2026-09-01",
       rows: [target("revenue", 34500)],
       refs: { ...base.refs, suggestedWeights: null },
     });
@@ -113,5 +115,17 @@ describe("ObjetivosForm", () => {
     const html = draw({ applyTo: "r1", rows: [target("food_cost_pct", 32)] });
     expect(html).toContain("32 % (todos)");
     expect(html).toContain("Sin objetivo");
+  });
+});
+
+describe("Vigente desde and an always-answering save button", () => {
+  it("offers the start options and never disables the save button for being clean", () => {
+    const html = draw();
+    expect(html).toContain('aria-label="Vigente desde"');
+    expect(html).toContain("Desde siempre · todo el historial");
+    expect(html).toContain("Vigente desde 1 oct 2026");
+    expect(html).toMatch(
+      /<button type="button"(?![^>]*disabled="")[^>]*>Guardar objetivos/
+    );
   });
 });

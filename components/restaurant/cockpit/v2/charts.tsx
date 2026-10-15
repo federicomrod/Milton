@@ -307,7 +307,7 @@ export function WeekdayCostChart({
         {days.map((d) => (
           <div
             key={d.weekday}
-            className="flex flex-1 items-end justify-center"
+            className="flex h-full flex-1 items-end justify-center"
             title={
               d.food_cost_pct === null
                 ? `${DAYS[d.weekday]}: sin costo`

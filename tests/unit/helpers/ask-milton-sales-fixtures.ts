@@ -1,3 +1,4 @@
+import { EMPTY_INGREDIENT_PRICES } from "@/lib/restaurant/ask-milton-catalog";
 import {
   buildSalesSnapshot,
   weekdayFromDateKey,
@@ -137,6 +138,9 @@ export function salesContext(
     },
     briefing,
     menu: { most_profitable_items: [], least_profitable_items: [] },
+    ingredient_prices: EMPTY_INGREDIENT_PRICES,
+    menu_dishes: null,
+    item_groups: [],
     ingredient_usage: [],
     expensive_ingredients: [],
     suppliers: { total: 0, top: [], missing_metadata: [] },

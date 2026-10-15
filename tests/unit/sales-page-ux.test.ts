@@ -233,3 +233,16 @@ describe("existing aggregate totals stay on the same net definition", () => {
     expect(insights.highlights.length).toBeLessThanOrEqual(3);
   });
 });
+
+describe("one «Preguntar a Milton» per page (R1-16c)", () => {
+  it("the pages with a contextual ask button hide the header's own", () => {
+    for (const f of [
+      "components/restaurant/sales/SalesPageChrome.tsx",
+      "components/restaurant/kitchen/KitchenPageChrome.tsx",
+    ])
+      expect(read(f)).toContain("hideAskButton={!!periodAskQuestion}");
+    expect(
+      read("components/restaurant/shell/OperatingPageHeader.tsx")
+    ).toContain("hideAskButton ? null");
+  });
+});

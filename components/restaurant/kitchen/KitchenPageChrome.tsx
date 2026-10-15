@@ -37,6 +37,7 @@ export function KitchenPageHeader({
           />
         </Suspense>
       }
+      hideAskButton={!!periodAskQuestion}
       trailing={
         periodAskQuestion ? (
           <KitchenPeriodAskButton question={periodAskQuestion} lang={lang} />

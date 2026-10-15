@@ -40,6 +40,8 @@ export function SalesPageHeader({
           />
         </Suspense>
       }
+      // One «Preguntar a Milton»: with a question for this period it IS the header's button.
+      hideAskButton={!!periodAskQuestion}
       trailing={
         periodAskQuestion ? (
           <SalesPeriodAskButton question={periodAskQuestion} lang={lang} />

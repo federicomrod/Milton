@@ -22,7 +22,10 @@ import {
   type PeriodKey,
 } from "@/lib/restaurant/cockpit-v2";
 import type { DayPoint } from "@/lib/restaurant/cockpit-math";
-import type { TargetRow } from "@/lib/restaurant/objetivos";
+import {
+  explainMissingSalesTarget,
+  type TargetRow,
+} from "@/lib/restaurant/objetivos";
 import { weekdayIndex } from "@/lib/restaurant/cockpit-math";
 import {
   OBJECTIVES_HREF,
@@ -417,12 +420,20 @@ export function CockpitV2(props: CockpitV2Props) {
           />
           {!view.bars.some((b) => b.target !== null) ? (
             <p className="mt-1 text-[12px] text-[#8a92a3]">
-              Sin objetivo de ventas: no hay línea.{" "}
+              {missingGoalText(
+                explainMissingSalesTarget(
+                  props.targets,
+                  scope,
+                  view.bars.map((b) => b.date)
+                )
+              )}{" "}
               <a
                 href={OBJECTIVES_HREF}
                 className="font-semibold text-[#1b40c8] underline"
               >
-                Definir objetivos
+                {props.targets.length > 0
+                  ? "Ajusta tus objetivos"
+                  : "Definir objetivos"}
               </a>
             </p>
           ) : null}
@@ -487,27 +498,55 @@ export function CockpitV2(props: CockpitV2Props) {
           <h2 className="mb-2 text-[14px] font-bold">✦ Milton</h2>
           <p className="text-[13px] leading-relaxed">{insight.text}</p>
           <div className="mt-3">
+            <a
+              href={OBJECTIVES_HREF}
+              className="inline-block rounded-lg bg-[#1b40c8] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6]"
+            >
+              {props.targets.length > 0
+                ? "Ajusta tus objetivos"
+                : "Definir objetivos"}
+            </a>
             {insight.action === "days" ? (
               <button
                 type="button"
                 onClick={() => toSales(view.range.from, view.range.to)}
-                className="rounded-lg bg-[#1b40c8] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6]"
+                className="ml-2 rounded-lg border border-[#c6d3f5] bg-white px-3.5 py-2 text-[13px] font-semibold text-[#1b40c8] hover:bg-[#eef2fc]"
               >
                 Ver días bajo objetivo
               </button>
-            ) : (
-              <a
-                href={OBJECTIVES_HREF}
-                className="inline-block rounded-lg bg-[#1b40c8] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6]"
-              >
-                Definir objetivos
-              </a>
-            )}
+            ) : null}
           </div>
         </section>
       </div>
     </div>
   );
+}
+
+const MONTHS_ES = [
+  "ene",
+  "feb",
+  "mar",
+  "abr",
+  "may",
+  "jun",
+  "jul",
+  "ago",
+  "sep",
+  "oct",
+  "nov",
+  "dic",
+];
+function missingGoalText(
+  gap: ReturnType<typeof explainMissingSalesTarget>
+): string {
+  if (gap?.reason === "starts_later") {
+    const d = gap.from;
+    return `Tus objetivos empiezan el ${Number(d.slice(8))} ${MONTHS_ES[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)} y estos datos son anteriores: elige «Vigente desde» antes en Configuración › Objetivos.`;
+  }
+  if (gap?.reason === "company_only") {
+    return "Tu objetivo de ventas es para todos los restaurantes: elige «Todos los restaurantes» o define uno para este restaurante.";
+  }
+  return "Sin objetivo de ventas: no hay línea.";
 }
 
 /** One short reading from real numbers only; nothing is said that was not computed. */

@@ -103,6 +103,8 @@ interface FormBody {
   avg_ticket?: number | null;
   weekday_weights?: number[] | null;
   default_comparison?: string;
+  /** First of a month, or 1900-01-01 («desde siempre»). Default: the first of this month. */
+  effective_from?: string;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -202,11 +204,28 @@ async function saveForm(
     resolvePosTimezone(auth.supabase, auth.companyId),
     resolveCompanyCurrency(auth.supabase, auth.companyId),
   ]);
-  // A target applies from the first day of THIS month: earlier months keep theirs.
+  // A target applies from the first day of a month: earlier months keep theirs.
+  // The form offers a few starts (the month of the latest data, this month,
+  // the first month of data, always); the default is this month.
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(
     new Date()
   );
-  const effectiveFrom = monthStartOf(today);
+  let effectiveFrom = monthStartOf(today);
+  if (body.effective_from !== undefined) {
+    const f = body.effective_from;
+    const ok =
+      typeof f === "string" &&
+      /^\d{4}-\d{2}-01$/.test(f) &&
+      f >= "2000-01-01" &&
+      f <= today;
+    if (!(ok || f === "1900-01-01")) {
+      return NextResponse.json(
+        { error: "La fecha «Vigente desde» no es válida." },
+        { status: 400 }
+      );
+    }
+    effectiveFrom = f as string;
+  }
   const { data, error } = await auth.supabase.rpc("kpi_targets_save", {
     p_company_id: auth.companyId,
     p_location_id: location,

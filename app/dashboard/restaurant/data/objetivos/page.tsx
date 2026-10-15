@@ -25,7 +25,7 @@ import {
   loadTargetsConfig,
 } from "@/lib/restaurant/supabase-targets";
 import { parseComparison } from "@/lib/restaurant/cockpit-comparison";
-import { monthStartOf, addDays } from "@/lib/restaurant/objetivos";
+import { addDays, buildStartOptions } from "@/lib/restaurant/objetivos";
 import { objetivosReferences } from "@/lib/restaurant/objetivos-references";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
 import { periodCostKpisFromDishEconomics } from "@/lib/restaurant/costing/dish-economics-adapter";
@@ -128,6 +128,15 @@ export default async function ObjetivosPage({
     }
   }
 
+  // «Vigente desde»: the month of the latest sales first (so a goal applies to
+  // the data you are looking at, also when the POS data is older than today),
+  // then this month, the first month of data, and always.
+  const startOptions = buildStartOptions({
+    today,
+    refDay: refs.refDay,
+    firstDay: refs.firstDay,
+  });
+
   return (
     <div className="w-full px-[26px] pt-4 pb-10 space-y-4">
       {header}
@@ -148,7 +157,7 @@ export default async function ObjetivosPage({
         refs={refs}
         cost30={cost30}
         today={today}
-        effectiveFrom={monthStartOf(today)}
+        startOptions={startOptions}
         defaultComparison={parseComparison(defaultComparison)}
         canEdit={true}
       />

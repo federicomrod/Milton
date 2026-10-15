@@ -44,6 +44,17 @@ import {
 import { pendingRecipesLabel } from "@/lib/restaurant/cost-workbook/copy";
 import { type PreferredLanguage } from "@/lib/restaurant/language";
 import { positiveUnitCost } from "@/lib/restaurant/unit-cost";
+import {
+  buildIngredientPrices,
+  buildItemGroups,
+  buildMenuDishes,
+  dishNamesByIngredient,
+  type AskMiltonIngredientPrices,
+  type AskMiltonItemGroup,
+  type AskMiltonMenuDishes,
+} from "@/lib/restaurant/ask-milton-catalog";
+import { fetchIngredientLatestCosts } from "@/lib/restaurant/menu-recipes-server";
+import { loadIngredientUsage } from "@/lib/restaurant/ingredient-usage-server";
 
 // ---------------------------------------------------------------------------
 // Extra shapes layered on top of BriefingContext
@@ -168,6 +179,12 @@ export interface AskMiltonContext {
     /** Bottom 5 items with complete costing, sorted by gross_margin_pct asc. */
     least_profitable_items: AskMiltonProfitableItem[];
   };
+  /** R1-16c: latest confirmed prices, ranked; Sin precio never ranked or $0. */
+  ingredient_prices: AskMiltonIngredientPrices;
+  /** R1-16c: menu dishes with sales, cost and margin (same load as Menú). */
+  menu_dishes: AskMiltonMenuDishes | null;
+  /** R1-16c: the groups people made, with their sales. */
+  item_groups: AskMiltonItemGroup[];
   ingredient_usage: AskMiltonIngredientUsage[];
   expensive_ingredients: AskMiltonExpensiveIngredient[];
   suppliers: {
@@ -294,6 +311,16 @@ function isNewerCostEntry(
  *   suppliers/invoices/agent data remain company-wide regardless (out of
  *   scope — same as the rest of Multi-Restaurant UX v1).
  */
+/** Run the wide read; if it errors (a missing column), run the narrow one. */
+async function readWithFallback<T extends { error: unknown }>(
+  wide: () => PromiseLike<T>,
+  narrow: () => PromiseLike<T>
+): Promise<T> {
+  const first = await wide();
+  if (!first.error) return first;
+  return narrow();
+}
+
 export async function buildAskMiltonContext(
   supabase: SupabaseClient,
   companyId: string,
@@ -324,15 +351,29 @@ export async function buildAskMiltonContext(
     componentRecipeInputsRes,
     menuItemsRes,
     salesResult,
+    latestPrices,
+    usageLoad,
   ] = await Promise.all([
     buildBriefingContext(supabase, companyId, selected),
     fetchProfitabilityData(supabase, companyId, selected),
-    supabase
-      .from("suppliers")
-      .select("id, name, is_active, categories")
-      .eq("company_id", companyId)
-      .order("name", { ascending: true })
-      .limit(200),
+    // A column some deployments lack (is_active, categories) must not blank
+    // the whole block: retry with the columns every deployment has.
+    readWithFallback(
+      () =>
+        supabase
+          .from("suppliers")
+          .select("id, name, is_active, categories")
+          .eq("company_id", companyId)
+          .order("name", { ascending: true })
+          .limit(200),
+      () =>
+        supabase
+          .from("suppliers")
+          .select("id, name")
+          .eq("company_id", companyId)
+          .order("name", { ascending: true })
+          .limit(200)
+    ),
     supabase
       .from("supplier_invoices")
       .select(
@@ -342,13 +383,25 @@ export async function buildAskMiltonContext(
       .order("invoice_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(50),
-    supabase
-      .from("ingredients")
-      .select(
-        "id, name, category, default_unit, current_unit_cost, currency, supplier_id"
-      )
-      .eq("company_id", companyId)
-      .limit(500),
+    // `supplier_id` and `current_unit_cost` do not exist everywhere; when the
+    // wide select fails the ingredients still load (this used to blank the
+    // whole price ranking: «No tengo datos sobre ingredientes caros»).
+    readWithFallback(
+      () =>
+        supabase
+          .from("ingredients")
+          .select(
+            "id, name, category, default_unit, current_unit_cost, currency, supplier_id"
+          )
+          .eq("company_id", companyId)
+          .limit(2000),
+      () =>
+        supabase
+          .from("ingredients")
+          .select("id, name, category, default_unit")
+          .eq("company_id", companyId)
+          .limit(2000)
+    ),
     // Authoritative ingredient costs — latest per ingredient is picked
     // in memory below (query order is `id` for stable pagination).
     fetchAllRows<CostEntryRow>(() =>
@@ -415,6 +468,10 @@ export async function buildAskMiltonContext(
       selected?.locationId ?? null,
       options?.question
     ),
+    // R1-16c: the same latest-price and usage reads the Ingredientes screen
+    // uses, so "which ingredients are expensive" has real prices to quote.
+    fetchIngredientLatestCosts(supabase, companyId).catch(() => []),
+    loadIngredientUsage(supabase, companyId).catch(() => null),
   ]);
 
   const fallbackCurrency = briefing.currency;
@@ -939,6 +996,15 @@ export async function buildAskMiltonContext(
 
   const sales = salesResult.snapshot ?? emptySalesSnapshot();
 
+  const econ = profData.dishEconomics ?? null;
+  const ingredient_prices = buildIngredientPrices({
+    rows: latestPrices,
+    dishCount: usageLoad?.ok ? usageLoad.dishCount : null,
+    dishNames: dishNamesByIngredient(econ),
+    inUse: usageLoad?.ok ? usageLoad.inUse : null,
+    scope: selected ? "restaurant" : "company",
+  });
+
   return {
     context_scope: resolveContextScope(selected, briefing.restaurant_name),
     briefing,
@@ -946,6 +1012,9 @@ export async function buildAskMiltonContext(
       most_profitable_items: mostProfitable,
       least_profitable_items: leastProfitable,
     },
+    ingredient_prices,
+    menu_dishes: econ ? buildMenuDishes(econ) : null,
+    item_groups: econ ? buildItemGroups(econ) : [],
     ingredient_usage: ingredientUsageCapped,
     expensive_ingredients: expensiveIngredients,
     suppliers: {

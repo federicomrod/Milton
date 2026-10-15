@@ -93,3 +93,10 @@ select has_function_privilege('anon', 'public.cockpit_product_day_rollup(uuid,uu
 - No target = no line and no chip. Green/red only when it matters (≥ 2 % on sales, ≥ 0.5 points on a percentage);
   for cost, up is bad.
 - Click a day or a week → Ventas › detalle filtered to those days.
+
+## R1-16c — fixes from the first test
+
+- **Goals "not showing"**: the save persisted (4 company-wide rows + settings), but they were effective from 1 Oct 2026 while the POS data is July 2026, and a company-wide sales goal is not split per restaurant. Objetivos now has **Vigente desde** (default = the month of the latest sales; also this month, first data month, "Desde siempre"); the Cockpit says why a line is missing and the Milton card button reads **Ajusta tus objetivos** once goals exist. Saving always answers with a toast (saved / no changes / error / migration 052 missing), and refreshes the Cockpit (save-epoch + `router.refresh()`).
+- **Costo de comida por día** was empty because the bars had no sized parent for their % heights (`h-full`); empty/loading states unchanged.
+- **Ventas › detalle** showed two "Preguntar a Milton": the page header hides its own when the page renders the contextual one.
+- **Ask Milton, ingredients**: the context read `ingredients.supplier_id` / `suppliers.is_active,categories`, which do not exist in every deployment, so the whole ingredient block came back empty ("No tengo datos…"). Reads now fall back to the columns every deployment has. New blocks: `ingredient_prices` (latest confirmed price, unit, source, supplier, dishes using it; **Sin precio is counted, never ranked, never $0**), `menu_dishes` (sales, cost %, margin, sales by category) and `item_groups` (sales per group). A model answer that names none of the top ingredients is replaced by the deterministic ranking. Spanish phrasings ("más caros", "costosos") are recognised.

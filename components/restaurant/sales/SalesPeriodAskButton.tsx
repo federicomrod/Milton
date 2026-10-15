@@ -25,9 +25,9 @@ export function SalesPeriodAskButton({
       type="button"
       data-testid={testId}
       onClick={() => openAskMilton(question)}
-      className="text-xs font-medium text-orange-700 dark:text-orange-300 hover:underline underline-offset-2 whitespace-nowrap"
+      className="hidden lg:inline-flex h-8 items-center rounded-lg bg-[#151c2c] px-3 text-xs font-semibold text-white hover:bg-[#26314a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1b40c8] whitespace-nowrap"
     >
-      {label ?? t(lang, "Ask Milton", "Preguntar a Milton")}
+      ✦ {label ?? t(lang, "Ask Milton", "Preguntar a Milton")}
     </button>
   );
 }

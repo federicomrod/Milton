@@ -12,6 +12,10 @@ import {
 } from "@/lib/restaurant/auth-user";
 import { fetchIngredientLatestCosts } from "@/lib/restaurant/menu-recipes-server";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
+import {
+  loadDuplicateState,
+  type DuplicateState,
+} from "@/lib/restaurant/ingredient-duplicates-server";
 import { loadIngredientUsage } from "@/lib/restaurant/ingredient-usage-server";
 import { usageState } from "@/lib/restaurant/ingredient-usage";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
@@ -34,6 +38,7 @@ type LoadResult =
       currency: string;
       itemGroups: ItemGroupsLoad | null;
       archiveAvailable: boolean;
+      duplicates: DuplicateState;
     }
   | { kind: "no-company" };
 
@@ -46,7 +51,7 @@ async function loadIngredientes(
   if (!companyId) return { kind: "no-company" };
   const supabase = await createClient();
 
-  const [ingredients, suppliersRes, currency, economics, usage] =
+  const [ingredients, suppliersRes, currency, economics, usage, duplicates] =
     await Promise.all([
       fetchIngredientLatestCosts(supabase, companyId),
       supabase
@@ -58,6 +63,7 @@ async function loadIngredientes(
       resolveCompanyCurrency(supabase, companyId),
       loadDishEconomics(companyId, null, null, locationId),
       loadIngredientUsage(supabase, companyId),
+      loadDuplicateState(supabase, companyId),
     ]);
   if (!economics.ok) {
     console.error("[menu/ingredientes] dish economics:", economics.error);
@@ -85,6 +91,9 @@ async function loadIngredientes(
       price: ing.latest ? ing.latest.normalized_unit_cost : null,
       price_unit: ing.latest?.normalized_unit ?? null,
       price_date: ing.latest?.cost_date ?? null,
+      price_entry_id: ing.latest?.id ?? null,
+      recipeCount: usage.dishCount.get(ing.id) ?? 0,
+      lineCount: usage.lineCount.get(ing.id) ?? 0,
       previous_price: ing.latest?.previous_unit_cost ?? null,
       source: ing.latest?.source ?? null,
       supplier_id: ing.latest?.supplier_id ?? null,
@@ -110,6 +119,7 @@ async function loadIngredientes(
     suppliers,
     currency: currency || "USD",
     archiveAvailable: usage.archiveAvailable,
+    duplicates,
     itemGroups: economics.ok ? (economics.result.item_groups ?? null) : null,
   };
 }
@@ -139,6 +149,7 @@ export default async function IngredientesRoute({
       currency={result.currency}
       itemGroups={result.itemGroups}
       archiveAvailable={result.archiveAvailable}
+      duplicates={result.duplicates}
       initialSelectedId={params.ingrediente ?? null}
       initialFilter={parseIngredientesFilter(params.filtro)}
     />

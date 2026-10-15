@@ -176,3 +176,34 @@ Rules (`lib/restaurant/ingredient-usage.ts`, pure, tested):
   the recipes and refuses an ingredient that is in use. An archived ingredient that a recipe uses again is simply
   in use (comes back by itself); «Restaurar» undoes it by hand.
 - If the recipes cannot be read, nothing is hidden (everything counts as in use) and nothing is archived.
+
+## Limpieza de ingredientes, part 2 — Posibles duplicados and Unir (migration 051)
+
+**Migration `051_ingredient_duplicates_merge.sql` (needs 050).** Additive: three tables
+(`ingredient_duplicate_suggestions`, `ingredient_not_duplicates`, `ingredient_merges`; company-scoped, RLS via
+`is_company_member`) and three SECURITY INVOKER functions closed to anon/PUBLIC and raising `42501` for a
+non-member: `ingredient_merge` (ONE transaction), `ingredient_merge_undo`, `ingredient_duplicate_decide`.
+Reuses the existing `ingredient_aliases` (039) and `ingredients.chosen_cost_entry_id`. Read-only checks:
+
+```sql
+select status, count(*) from public.ingredient_duplicate_suggestions where company_id = '<company uuid>' group by 1;
+select count(*) from public.ingredient_merges where company_id = '<company uuid>';
+select has_function_privilege('anon', 'public.ingredient_merge(uuid,uuid,uuid[],uuid,jsonb,uuid)', 'execute'); -- false
+```
+
+- **Suggestions:** names with accents/case/fillers removed, one or two letters apart on a longer name, numbers
+  must match (600 ml ≠ 350 ml), **same unit family only**; pairs or clusters (max 6). «✦ Pedir más a Milton»
+  sends only names and units of what is left (≤250) to the existing OpenAI setup; the answer is validated like the
+  heuristics and stored as pending.
+- **Queue:** «✦ Posibles duplicados · N grupos», n de N with ‹ ›, «✦ duplicado?» on affected rows (clicking one
+  jumps the banner to its suggestion; a row with none leaves it). **Unir**, **No son iguales** (every pair of the
+  set is never suggested again, also after re-imports), **Ahora no** (end of the queue, still pending).
+- **Unir:** survivor = sourced price and most recent date (card marked «Se conserva», click another to change);
+  a price conflict is a picker (never averaged, never silent); every recipe line of dishes and preparations, price
+  entry and invoice match of the losers moves to the survivor (lines keep their own unit and quantity); the losers'
+  names become aliases (the importer reads them) and the losers are archived, never deleted. «Deshacer» toast + a
+  merge history; the undo puts lines, prices, aliases and archive state back exactly (a line someone moved
+  elsewhere since is left alone). Costs are computed when read, so dishes and preparations are recomputed by the
+  next read; the app re-reads the page after a merge or an undo.
+- **Not touched by a merge:** `supplier_ingredients`, kitchen recipe drafts and the legacy recipe tables.
+- The Cockpit/briefing «ingredientes sin costo» counter now ignores ingredients no active recipe uses.

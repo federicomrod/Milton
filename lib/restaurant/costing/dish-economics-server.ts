@@ -179,7 +179,31 @@ async function loadStoredGrouping(
   };
 }
 
+/**
+ * Never throws: a failed read (a missing table, a database error) is an
+ * `ok: false` every screen already handles, not a server exception.
+ */
 export async function loadDishCostContextWith(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<
+  { ok: true; context: DishCostContext } | { ok: false; error: string }
+> {
+  try {
+    return await loadDishCostContextUnsafe(supabase, companyId);
+  } catch (err) {
+    console.error(
+      "[dish-economics] cost context failed:",
+      err instanceof Error ? (err.stack ?? err.message) : err
+    );
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "No pude leer tus costos.",
+    };
+  }
+}
+
+async function loadDishCostContextUnsafe(
   supabase: SupabaseClient,
   companyId: string
 ): Promise<

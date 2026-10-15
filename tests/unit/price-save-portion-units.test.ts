@@ -57,9 +57,10 @@ describe("the cost-entry builder", () => {
       if (r.ok) expect(r.insert.normalized_unit_cost).toBe(0.23513);
     }
   });
-  it("a portion is never guessed to be an ounce or a unit", () => {
+  it("an ORDEN is 1:1 with a unidad (both ways) but never an ounce", () => {
     expect(build("ORDEN", "oz").ok).toBe(false);
-    expect(build("ORDEN", "unit").ok).toBe(false);
+    expect(build("ORDEN", "unit").ok).toBe(true);
+    expect(build("unidad", "ORDEN").ok).toBe(true);
     expect(build("oz", "ORDEN").ok).toBe(false);
   });
   it("an existing oz / lb conversion is unchanged", () => {

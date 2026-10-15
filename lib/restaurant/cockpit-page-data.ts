@@ -487,7 +487,7 @@ function writePeriodCostBundleCache(
   }
 }
 
-const loadCachedCockpitPosRollup = cache(
+export const loadCachedCockpitPosRollup = cache(
   async (
     companyId: string,
     locationId: string | null,

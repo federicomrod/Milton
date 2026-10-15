@@ -207,13 +207,17 @@ function channelKey(row: CockpitFactRow): string {
 }
 
 export function localSaleDateKey(
-  row: Pick<CockpitFactRow, "sale_date" | "order_placed_at">,
+  row: Pick<
+    CockpitFactRow,
+    "sale_date" | "order_placed_at" | "business_cutoff_min"
+  >,
   timezone: string
 ): string {
   return localWeekdayAndHour(
     {
       sale_date: row.sale_date,
       order_placed_at: row.order_placed_at ?? null,
+      business_cutoff_min: row.business_cutoff_min ?? null,
     },
     timezone
   ).dateKey;

@@ -1,14 +1,16 @@
 "use client";
 
 // R1-16a (mock 12): the four sections of Configuración as one segmented
-// control: Conexiones · Objetivos · Equipo · Cuenta. They are anchors of the
-// settings page, except Objetivos, which is a screen of its own.
+// control: Conexiones · Objetivos · Turnos · Equipo · Cuenta. They are anchors
+// of the settings page, except Objetivos and Turnos, which are screens of
+// their own.
 
 import Link from "next/link";
 import {
   DATA_SETTINGS_HREF,
   DATA_SETTINGS_SECTION_ANCHORS,
   OBJECTIVES_HREF,
+  SHIFTS_HREF,
   dataSettingsSectionLabel,
   type DataSettingsSectionId,
 } from "@/lib/restaurant/navigation";
@@ -17,6 +19,7 @@ import type { PreferredLanguage } from "@/lib/restaurant/language";
 const ORDER: DataSettingsSectionId[] = [
   "connections",
   "objectives",
+  "shifts",
   "team",
   "account",
 ];
@@ -39,7 +42,9 @@ export function ConfigTabs({
         const href =
           section === "objectives"
             ? OBJECTIVES_HREF
-            : `${DATA_SETTINGS_HREF}?seccion=${DATA_SETTINGS_SECTION_ANCHORS[section]}#${DATA_SETTINGS_SECTION_ANCHORS[section]}`;
+            : section === "shifts"
+              ? SHIFTS_HREF
+              : `${DATA_SETTINGS_HREF}?seccion=${DATA_SETTINGS_SECTION_ANCHORS[section]}#${DATA_SETTINGS_SECTION_ANCHORS[section]}`;
         return (
           <Link
             key={section}

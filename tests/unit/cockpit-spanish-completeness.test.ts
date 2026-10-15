@@ -102,9 +102,12 @@ describe("Spanish completeness for cockpit chrome", () => {
     expect(src).not.toMatch(/\? "No recipe"/);
     expect(src).not.toMatch(/^\s+Low margin$/m);
     expect(src).not.toMatch(/^\s+Dish Profitability$/m);
-    expect(src).toContain("Sin receta");
-    expect(src).toContain("Margen bajo");
-    expect(src).toContain("Recomendaciones");
+    // R1 prod bugs 1: the sample (mock) cockpit is gone; the empty state is
+    // the Spanish Cockpit v2.
+    expect(src).not.toContain("Showing sample data");
+    expect(read("components/restaurant/cockpit/v2/CockpitEmpty.tsx")).toContain(
+      "Sin datos aún"
+    );
   });
 
   it("does not keep the old system-language KPI strip copy", () => {

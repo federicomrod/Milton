@@ -17,6 +17,8 @@ export const KITCHEN_HREF = "/dashboard/restaurant/kitchen";
 export const DATA_SETTINGS_HREF = "/dashboard/restaurant/data";
 export const OBJECTIVES_HREF = "/dashboard/restaurant/data/objetivos";
 /** R1-17a: Configuración › Turnos (shifts and the business-day cutoff). */
+export const RESTAURANT_SETTINGS_HREF =
+  "/dashboard/restaurant/data/restaurante";
 export const SHIFTS_HREF = "/dashboard/restaurant/data/turnos";
 export const ASK_MILTON_HREF = "/dashboard/restaurant/briefing";
 
@@ -136,6 +138,7 @@ export function primaryNavLabels(lang: PreferredLanguage): string[] {
 
 /** Configuración has four sections (R1-09b, A10; Objetivos added in R1-16a). */
 export type DataSettingsSectionId =
+  | "restaurant"
   | "connections"
   | "objectives"
   | "shifts"
@@ -143,6 +146,7 @@ export type DataSettingsSectionId =
   | "account";
 
 export const DATA_SETTINGS_SECTIONS: readonly DataSettingsSectionId[] = [
+  "restaurant",
   "connections",
   "objectives",
   "shifts",
@@ -155,6 +159,7 @@ export const DATA_SETTINGS_SECTION_ANCHORS: Record<
   DataSettingsSectionId,
   string
 > = {
+  restaurant: "restaurante",
   connections: "conexiones",
   objectives: "objetivos",
   shifts: "turnos",
@@ -230,6 +235,14 @@ export const LEGACY_ROUTE_MAP: readonly MappedLegacyRoute[] = [
     legacyLabel: "Targets",
     area: "data_settings",
     section: "objectives",
+  },
+  {
+    // R1 prod bugs 1: rename (and archive) the restaurants.
+    id: "restaurant",
+    href: RESTAURANT_SETTINGS_HREF,
+    legacyLabel: "Restaurant",
+    area: "data_settings",
+    section: "restaurant",
   },
   {
     // R1-17a: the restaurant's shifts and business-day cutoff.
@@ -345,6 +358,8 @@ export function dataSettingsSectionLabel(
   lang: PreferredLanguage
 ): string {
   switch (section) {
+    case "restaurant":
+      return t(lang, "Restaurant", "Restaurante");
     case "connections":
       return t(lang, "Connections", "Conexiones");
     case "objectives":
@@ -373,6 +388,12 @@ export function dataSettingsLinkLabel(
       return t(lang, "Set your goals", "Definir tus objetivos");
     case "shifts":
       return t(lang, "Set your shifts", "Definir tus turnos");
+    case "restaurant":
+      return t(
+        lang,
+        "Rename your restaurant",
+        "Cambiar el nombre de tu restaurante"
+      );
     case "invitations":
       return t(lang, "Invitations", "Invitaciones");
     case "account":

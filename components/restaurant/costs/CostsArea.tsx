@@ -13,46 +13,12 @@ import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { dishHref, ingredientHref } from "@/lib/restaurant/menu-links";
 import { costsTabHref, type CostsTab } from "@/lib/restaurant/costs-tabs";
+import {
+  formatMoney,
+  formatPct,
+  formatUnitPrice,
+} from "@/lib/restaurant/costs-format";
 import type { IngredientPriceTrendRow } from "@/lib/restaurant/profitability-server";
-
-// ---------------------------------------------------------------------------
-// Formatting
-// ---------------------------------------------------------------------------
-
-function safeCurrency(currency: string | null | undefined): string {
-  return currency && /^[A-Z]{3}$/.test(currency) ? currency : "USD";
-}
-
-export function formatMoney(
-  n: number | null,
-  currency: string | null | undefined
-): string {
-  if (n === null || !Number.isFinite(n)) return "—";
-  const safe = safeCurrency(currency);
-  return new Intl.NumberFormat(safe === "MXN" ? "es-MX" : "en-US", {
-    style: "currency",
-    currency: safe,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(n);
-}
-
-function formatUnitPrice(n: number, unit: string, currency: string): string {
-  if (!Number.isFinite(n) || n <= 0) return "Sin precio";
-  const safe = safeCurrency(currency);
-  return (
-    new Intl.NumberFormat(safe === "MXN" ? "es-MX" : "en-US", {
-      style: "currency",
-      currency: safe,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 4,
-    }).format(n) + ` / ${unit}`
-  );
-}
-
-function formatPct(n: number): string {
-  return `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
-}
 
 // ---------------------------------------------------------------------------
 // KPI card

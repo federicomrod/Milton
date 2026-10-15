@@ -11,12 +11,14 @@ import {
   DATA_SETTINGS_SECTION_ANCHORS,
   OBJECTIVES_HREF,
   SHIFTS_HREF,
+  RESTAURANT_SETTINGS_HREF,
   dataSettingsSectionLabel,
   type DataSettingsSectionId,
 } from "@/lib/restaurant/navigation";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 const ORDER: DataSettingsSectionId[] = [
+  "restaurant",
   "connections",
   "objectives",
   "shifts",
@@ -44,7 +46,9 @@ export function ConfigTabs({
             ? OBJECTIVES_HREF
             : section === "shifts"
               ? SHIFTS_HREF
-              : `${DATA_SETTINGS_HREF}?seccion=${DATA_SETTINGS_SECTION_ANCHORS[section]}#${DATA_SETTINGS_SECTION_ANCHORS[section]}`;
+              : section === "restaurant"
+                ? RESTAURANT_SETTINGS_HREF
+                : `${DATA_SETTINGS_HREF}?seccion=${DATA_SETTINGS_SECTION_ANCHORS[section]}#${DATA_SETTINGS_SECTION_ANCHORS[section]}`;
         return (
           <Link
             key={section}

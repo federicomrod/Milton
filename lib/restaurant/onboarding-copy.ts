@@ -1,7 +1,7 @@
 // lib/restaurant/onboarding-copy.ts
 //
 // All restaurant onboarding copy, option lists, and small lookup tables in
-// one place. Centralized deliberately: English today, but every user-facing
+// one place. Centralized deliberately: Spanish (tú) since R1; every user-facing
 // string lives here (not scattered across JSX) so a future Spanish
 // translation is a matter of adding a parallel table, not hunting through
 // components. See the README/PR notes for the i18n follow-up plan.
@@ -47,32 +47,32 @@ export const MAX_PRIORITIES = 3;
 
 export const ONBOARDING_COPY = {
   step1: {
-    title: "Your place",
-    subtitle: "Let's set up {restaurantName}.",
-    conceptLabel: "What best describes it?",
-    countryLabel: "Where are you located?",
-    countryPlaceholder: "Select a country",
-    languageLabel: "What language should Milton use?",
+    title: "Tu restaurante",
+    subtitle: "Vamos a configurar {restaurantName}.",
+    conceptLabel: "¿Qué lo describe mejor?",
+    countryLabel: "¿Dónde está?",
+    countryPlaceholder: "Elige un país",
+    languageLabel: "¿En qué idioma te habla Milton?",
   },
   step2: {
-    title: "Your operation",
-    locationsLabel: "How many locations?",
-    posLabel: "What POS system do you use?",
+    title: "Tu operación",
+    locationsLabel: "¿Cuántos locales tienes?",
+    posLabel: "¿Qué sistema de punto de venta usas?",
   },
   step3: {
-    title: "What should Milton help with?",
-    subtitle: `Pick up to ${MAX_PRIORITIES}.`,
+    title: "¿En qué te ayuda Milton?",
+    subtitle: `Elige hasta ${MAX_PRIORITIES}.`,
   },
   step4: {
-    heading: "Milton is ready for {restaurantName}.",
-    subtitle: "Here's a good place to start:",
+    heading: "Milton está listo para {restaurantName}.",
+    subtitle: "Un buen lugar para empezar:",
   },
   nav: {
-    back: "Back",
-    next: "Next",
-    skip: "Skip",
-    finish: "Let's go",
-    saving: "Setting up...",
+    back: "Atrás",
+    next: "Siguiente",
+    skip: "Omitir",
+    finish: "Vamos",
+    saving: "Configurando…",
   },
 } as const;
 
@@ -83,12 +83,12 @@ export const ONBOARDING_COPY = {
 // ---------------------------------------------------------------------------
 
 export const CONCEPT_TYPE_OPTIONS: { value: ConceptType; label: string }[] = [
-  { value: "restaurant", label: "Restaurant" },
+  { value: "restaurant", label: "Restaurante" },
   { value: "bar", label: "Bar" },
   { value: "cafe", label: "Café" },
-  { value: "bakery", label: "Bakery" },
-  { value: "fast_casual", label: "Fast casual" },
-  { value: "other", label: "Other" },
+  { value: "bakery", label: "Panadería" },
+  { value: "fast_casual", label: "Comida rápida" },
+  { value: "other", label: "Otro" },
 ];
 
 export const LOCATION_COUNT_OPTIONS: {
@@ -106,17 +106,17 @@ export const POS_SYSTEM_OPTIONS: { value: PosSystemChoice; label: string }[] = [
   { value: "revel", label: "Revel" },
   { value: "square", label: "Square" },
   { value: "toast", label: "Toast" },
-  { value: "other", label: "Other" },
-  { value: "unknown", label: "I don't know" },
+  { value: "other", label: "Otro" },
+  { value: "unknown", label: "No sé" },
 ];
 
 export const PRIORITY_OPTIONS: { value: PriorityKey; label: string }[] = [
-  { value: "margins", label: "Understand my margins" },
-  { value: "food_cost", label: "Control food costs" },
-  { value: "sales", label: "Understand sales" },
-  { value: "inventory", label: "Track inventory" },
-  { value: "waste", label: "Reduce waste" },
-  { value: "forecast", label: "Forecast demand" },
+  { value: "margins", label: "Entender mis márgenes" },
+  { value: "food_cost", label: "Controlar el costo de comida" },
+  { value: "sales", label: "Entender mis ventas" },
+  { value: "inventory", label: "Llevar mi inventario" },
+  { value: "waste", label: "Reducir desperdicio" },
+  { value: "forecast", label: "Pronosticar la demanda" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -134,23 +134,23 @@ export interface CountryOption {
 }
 
 export const COUNTRY_OPTIONS: CountryOption[] = [
-  { code: "MX", label: "Mexico", currency: "MXN" },
-  { code: "US", label: "United States", currency: "USD" },
-  { code: "CA", label: "Canada", currency: "CAD" },
+  { code: "MX", label: "México", currency: "MXN" },
+  { code: "US", label: "Estados Unidos", currency: "USD" },
+  { code: "CA", label: "Canadá", currency: "CAD" },
   { code: "AR", label: "Argentina", currency: "ARS" },
-  { code: "BR", label: "Brazil", currency: "BRL" },
+  { code: "BR", label: "Brasil", currency: "BRL" },
   { code: "CL", label: "Chile", currency: "CLP" },
   { code: "CO", label: "Colombia", currency: "COP" },
   { code: "SV", label: "El Salvador", currency: "USD" },
   { code: "GT", label: "Guatemala", currency: "GTQ" },
-  { code: "ES", label: "Spain", currency: "EUR" },
-  { code: "DE", label: "Germany", currency: "EUR" },
-  { code: "IT", label: "Italy", currency: "EUR" },
-  { code: "CH", label: "Switzerland", currency: "CHF" },
-  { code: "PE", label: "Peru", currency: "PEN" },
-  { code: "GB", label: "United Kingdom", currency: "GBP" },
+  { code: "ES", label: "España", currency: "EUR" },
+  { code: "DE", label: "Alemania", currency: "EUR" },
+  { code: "IT", label: "Italia", currency: "EUR" },
+  { code: "CH", label: "Suiza", currency: "CHF" },
+  { code: "PE", label: "Perú", currency: "PEN" },
+  { code: "GB", label: "Reino Unido", currency: "GBP" },
   { code: "PT", label: "Portugal", currency: "EUR" },
-  { code: "OTHER", label: "Other", currency: "USD" },
+  { code: "OTHER", label: "Otro", currency: "USD" },
 ];
 
 export function currencyForCountry(countryCode: string): string {
@@ -239,34 +239,35 @@ export function getNextStepCards(posSystem: PosSystemChoice): NextStepCard[] {
     posSystem === "odoo"
       ? {
           key: "connect_pos",
-          title: "Connect my POS",
+          title: "Conecta tu POS",
           description:
-            "Odoo sync is on its way — upload a sales export to get started today.",
+            "Conecta Odoo o sube un archivo de ventas para empezar hoy.",
           href: "/dashboard/restaurant/upload",
-          cta: "Upload sales",
+          cta: "Subir ventas",
         }
       : {
           key: "connect_pos",
-          title: "Connect my POS",
-          description: "Bring in your sales data to unlock real numbers.",
+          title: "Conecta tu POS",
+          description: "Trae tus ventas para ver números reales.",
           href: "/dashboard/restaurant/upload",
-          cta: "Get started",
+          cta: "Empezar",
         };
 
   const uploadSales: NextStepCard = {
     key: "upload_sales",
-    title: "Upload sales",
-    description: "Import a POS export and see your dashboard come alive.",
+    title: "Sube tus ventas",
+    description:
+      "Importa un archivo del POS y mira tu Cockpit con datos reales.",
     href: "/dashboard/restaurant/upload",
-    cta: "Upload now",
+    cta: "Subir ahora",
   };
 
   const addRecipes: NextStepCard = {
     key: "add_recipes",
-    title: "Add recipes & costs",
-    description: "Build recipes so Milton can calculate real margins.",
+    title: "Agrega recetas y costos",
+    description: "Arma tus recetas para que Milton calcule márgenes reales.",
     href: "/dashboard/restaurant/menu",
-    cta: "Add recipes",
+    cta: "Agregar recetas",
   };
 
   // Lead with the connection step when the POS is unknown/unclear; lead

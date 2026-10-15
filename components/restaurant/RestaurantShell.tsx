@@ -87,6 +87,7 @@ export function RestaurantShell({
   isAdmin = false,
   lastSyncedAt = null,
   userName = null,
+  slim = false,
 }: {
   children: React.ReactNode;
   locations?: RestaurantShellLocation[];
@@ -94,6 +95,11 @@ export function RestaurantShell({
   isAdmin?: boolean;
   lastSyncedAt?: string | null;
   userName?: string | null;
+  /**
+   * Onboarding: the same shell and look, but no section navigation or
+   * restaurant switcher (there is no restaurant to switch to yet).
+   */
+  slim?: boolean;
 }) {
   const pathname = usePathname() ?? "";
   const chrome: RestaurantShellChromeValue = {
@@ -111,6 +117,7 @@ export function RestaurantShell({
             locations={locations}
             currentLocationId={null}
             lang={lang}
+            slim={slim}
           >
             {children}
           </RestaurantShellBody>
@@ -120,6 +127,7 @@ export function RestaurantShell({
           pathname={pathname}
           locations={locations}
           lang={lang}
+          slim={slim}
         >
           {children}
         </SearchParamsReader>
@@ -133,11 +141,13 @@ function SearchParamsReader({
   locations,
   pathname,
   lang,
+  slim,
 }: {
   children: React.ReactNode;
   locations: RestaurantShellLocation[];
   pathname: string;
   lang: PreferredLanguage;
+  slim: boolean;
 }) {
   const searchParams = useSearchParams();
   const currentLocationId = searchParams.get("location");
@@ -147,6 +157,7 @@ function SearchParamsReader({
       locations={locations}
       currentLocationId={currentLocationId}
       lang={lang}
+      slim={slim}
     >
       {children}
     </RestaurantShellBody>
@@ -159,12 +170,14 @@ function RestaurantShellBody({
   currentLocationId,
   pathname,
   lang,
+  slim = false,
 }: {
   children: React.ReactNode;
   locations: RestaurantShellLocation[];
   currentLocationId: string | null;
   pathname: string;
   lang: PreferredLanguage;
+  slim?: boolean;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -183,6 +196,7 @@ function RestaurantShellBody({
         currentLocationId={currentLocationId}
         pathname={pathname}
         lang={lang}
+        slim={slim}
         mobileOpen={mobileOpen}
         setMobileOpen={setMobileOpen}
         shellParams={shellParams}
@@ -202,7 +216,9 @@ function RestaurantShellChrome({
   mobileOpen,
   setMobileOpen,
   shellParams,
+  slim = false,
 }: {
+  slim?: boolean;
   children: React.ReactNode;
   locations: RestaurantShellLocation[];
   currentLocationId: string | null;
@@ -221,24 +237,36 @@ function RestaurantShellChrome({
   return (
     <div className="min-h-screen flex bg-muted/30">
       <aside className="hidden lg:flex lg:flex-col w-56 shrink-0 border-r border-border bg-background sticky top-0 h-screen">
-        <SidebarBrand
-          locations={locations}
-          currentLocationId={currentLocationId}
-          pathname={pathname}
-          lang={lang}
-        />
-        <SidebarNav pathname={pathname} shellParams={shellParams} lang={lang} />
-        <SidebarFooter
-          pathname={pathname}
-          shellParams={shellParams}
-          lang={lang}
-        />
+        {slim ? (
+          <SlimSidebar lang={lang} />
+        ) : (
+          <>
+            <SidebarBrand
+              locations={locations}
+              currentLocationId={currentLocationId}
+              pathname={pathname}
+              lang={lang}
+            />
+            <SidebarNav
+              pathname={pathname}
+              shellParams={shellParams}
+              lang={lang}
+            />
+            <SidebarFooter
+              pathname={pathname}
+              shellParams={shellParams}
+              lang={lang}
+            />
+          </>
+        )}
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col">
         <div className="lg:hidden flex items-center justify-between px-4 h-12 border-b border-border bg-background">
           <Link
-            href={withShellParams("/dashboard/restaurant", shellParams)}
+            href={
+              slim ? "#" : withShellParams("/dashboard/restaurant", shellParams)
+            }
             className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
           >
             <Image src="/Milton_Logo.png" alt="Milton" width={24} height={24} />
@@ -254,6 +282,7 @@ function RestaurantShellChrome({
             </button>
             <button
               type="button"
+              hidden={slim}
               className="p-2 rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
               aria-expanded={mobileOpen}
               aria-controls="mobile-restaurant-nav"
@@ -266,7 +295,7 @@ function RestaurantShellChrome({
             </button>
           </div>
         </div>
-        {mobileOpen ? (
+        {mobileOpen && !slim ? (
           <div
             id="mobile-restaurant-nav"
             className="lg:hidden border-b border-border bg-background px-3 py-3"
@@ -284,6 +313,31 @@ function RestaurantShellChrome({
 
       <AskMiltonDrawer open={askOpen} onOpenChange={setAskOpen} lang={lang} />
     </div>
+  );
+}
+
+/** Onboarding: the brand, where we are, and the way out. No sections yet. */
+function SlimSidebar({ lang }: { lang: PreferredLanguage }) {
+  const { userName } = useRestaurantShellChrome();
+  return (
+    <>
+      <div className="px-4 pt-4 pb-3 border-b border-border space-y-2.5">
+        <div className="flex items-center gap-2">
+          <Image src="/Milton_Logo.png" alt="Milton" width={28} height={28} />
+          <span className="text-lg font-bold tracking-tight">milton.</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {t(lang, "Initial setup", "Configuración inicial")}
+        </p>
+      </div>
+      <div className="flex-1" />
+      <div className="px-3 pb-3 pt-2 border-t border-border">
+        <div className="flex items-center gap-1 px-2.5 text-sm text-muted-foreground">
+          {userName ? <span className="truncate">{userName} ·</span> : null}
+          <LogoutButton lang={lang} variant="link" />
+        </div>
+      </div>
+    </>
   );
 }
 

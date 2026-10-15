@@ -146,9 +146,9 @@ describe("COUNTRY_OPTIONS", () => {
       expect.arrayContaining([
         "El Salvador",
         "Guatemala",
-        "Switzerland",
-        "Germany",
-        "Italy",
+        "Suiza",
+        "Alemania",
+        "Italia",
       ])
     );
   });

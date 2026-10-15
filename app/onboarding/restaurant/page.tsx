@@ -13,6 +13,8 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
+import { RestaurantShell } from "@/components/restaurant/RestaurantShell";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import { RestaurantOnboardingWizard } from "@/components/restaurant/onboarding/RestaurantOnboardingWizard";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +42,21 @@ export default async function RestaurantOnboardingPage() {
     .eq("id", companyId)
     .maybeSingle();
 
-  const restaurantName = company?.name || "your restaurant";
+  const restaurantName = company?.name || "tu restaurante";
+  const chrome = await loadRestaurantShellChrome();
 
-  return <RestaurantOnboardingWizard restaurantName={restaurantName} />;
+  // The same shell as the rest of the app (slim: no sections or switcher yet),
+  // not the old English top bar.
+  return (
+    <RestaurantShell
+      slim
+      locations={[]}
+      lang={chrome.lang}
+      isAdmin={chrome.isAdmin}
+      lastSyncedAt={null}
+      userName={chrome.userName ?? null}
+    >
+      <RestaurantOnboardingWizard restaurantName={restaurantName} />
+    </RestaurantShell>
+  );
 }

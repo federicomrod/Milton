@@ -14,6 +14,7 @@
 // rather than trusting a client-supplied id directly.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 import {
   getCachedAuthUser,
   getCachedCompanyId,
@@ -55,29 +56,71 @@ export function resolveSelectedLocation(
   return match ? { locationId: match.id, brandId: match.brand_id } : null;
 }
 
+// Before migration 055 `archived_at` does not exist: remember that for a
+// minute, so the first select is not repeated and failed on every request.
+let archivedColumnMissingUntil = 0;
+
+/**
+ * The company's restaurants, archived ones included (`archived_at` is null
+ * before 055 or when active). Never throws.
+ */
+export async function listAllCompanyRestaurants(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<{
+  locations: Array<RestaurantLocationOption & { archived_at: string | null }>;
+  archiveAvailable: boolean;
+}> {
+  type Row = RestaurantLocationOption & { archived_at?: string | null };
+  const read = (columns: string) =>
+    supabase
+      .from("restaurant_locations")
+      .select(columns)
+      .eq("company_id", companyId)
+      .order("name", { ascending: true });
+  let archiveAvailable = Date.now() >= archivedColumnMissingUntil;
+  let res = archiveAvailable
+    ? await read("id, name, brand_id, archived_at")
+    : await read("id, name, brand_id");
+  if (
+    res.error &&
+    archiveAvailable &&
+    errorMentionsColumn(res.error, "archived_at")
+  ) {
+    archiveAvailable = false;
+    archivedColumnMissingUntil = Date.now() + 60_000;
+    res = await read("id, name, brand_id");
+  }
+  if (res.error) {
+    console.error(
+      "[restaurant-context] locations lookup failed:",
+      res.error.message
+    );
+  }
+  const rows = ((res.data ?? []) as unknown as Row[]).map((r) => ({
+    id: r.id,
+    name: r.name,
+    brand_id: r.brand_id,
+    archived_at: r.archived_at ?? null,
+  }));
+  return { locations: rows, archiveAvailable };
+}
+
 /**
  * @param requestedLocationId the raw `?location=` value, or null/undefined
  *   for consolidated. Validated against `companyId`'s own locations before
- *   being trusted.
+ *   being trusted. Archived restaurants are not offered (switcher) and an
+ *   archived id falls back to consolidated.
  */
 export async function resolveRestaurantContext(
   supabase: SupabaseClient,
   companyId: string,
   requestedLocationId: string | null | undefined
 ): Promise<RestaurantContext> {
-  const { data, error } = await supabase
-    .from("restaurant_locations")
-    .select("id, name, brand_id")
-    .eq("company_id", companyId)
-    .order("name", { ascending: true });
-
-  if (error) {
-    console.error(
-      "[restaurant-context] locations lookup failed:",
-      error.message
-    );
-  }
-  const locations = (data ?? []) as RestaurantLocationOption[];
+  const all = await listAllCompanyRestaurants(supabase, companyId);
+  const locations: RestaurantLocationOption[] = all.locations
+    .filter((l) => !l.archived_at)
+    .map((l) => ({ id: l.id, name: l.name, brand_id: l.brand_id }));
   const selected = resolveSelectedLocation(locations, requestedLocationId);
 
   return { locations, selected };

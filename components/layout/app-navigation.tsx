@@ -21,6 +21,24 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
+/**
+ * Pages that have their own chrome: auth, onboarding (it wraps itself in the
+ * restaurant shell), the root page and every restaurant route (the sidebar).
+ */
+export function isAppNavigationHidden(
+  pathname: string | null | undefined
+): boolean {
+  return (
+    (!!pathname &&
+      (pathname.startsWith("/auth/") ||
+        pathname === "/onboarding-required" ||
+        pathname === "/" ||
+        pathname.startsWith("/onboarding") ||
+        pathname.startsWith("/dashboard/restaurant"))) ||
+    pathname === "/"
+  );
+}
+
 export function AppNavigation() {
   const pathname = usePathname();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -63,17 +81,11 @@ export function AppNavigation() {
     checkAuth();
   }, [pathname]);
 
-  // Don't show navigation on auth pages, onboarding-required page, root page, or while loading.
+  // Don't show navigation on auth pages, onboarding pages, onboarding-required page, root page, or while loading.
   // Also suppress on the restaurant cockpit and all of its sub-routes — those use the
   // dedicated left-sidebar shell (components/restaurant/RestaurantShell.tsx) and would
   // otherwise stack a redundant top nav above it.
-  if (
-    loading ||
-    pathname?.startsWith("/auth/") ||
-    pathname === "/onboarding-required" ||
-    pathname === "/" ||
-    pathname?.startsWith("/dashboard/restaurant")
-  ) {
+  if (loading || isAppNavigationHidden(pathname)) {
     return null;
   }
 

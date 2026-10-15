@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/auth/password-input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -177,9 +178,8 @@ export function InviteAcceptForm({
       </div>
       <div className="space-y-2">
         <Label htmlFor="new-password">Password</Label>
-        <Input
+        <PasswordInput
           id="new-password"
-          type="password"
           autoComplete="new-password"
           minLength={MIN_PASSWORD}
           value={password}
@@ -189,9 +189,8 @@ export function InviteAcceptForm({
       </div>
       <div className="space-y-2">
         <Label htmlFor="confirm-password">Confirm password</Label>
-        <Input
+        <PasswordInput
           id="confirm-password"
-          type="password"
           autoComplete="new-password"
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}

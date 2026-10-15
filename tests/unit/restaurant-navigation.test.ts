@@ -103,8 +103,9 @@ describe("primary restaurant navigation (#128)", () => {
     }
   });
 
-  it("Configuración has Conexiones, Objetivos, Turnos, Equipo and Cuenta (A10/A11, R1-16a, R1-17a)", () => {
+  it("Configuración has Restaurante, Conexiones, Objetivos, Turnos, Equipo and Cuenta (A10/A11, R1-16a, R1-17a)", () => {
     expect(DATA_SETTINGS_SECTIONS).toEqual([
+      "restaurant",
       "connections",
       "objectives",
       "shifts",

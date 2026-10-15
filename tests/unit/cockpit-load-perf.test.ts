@@ -12,8 +12,11 @@ describe("cockpit load split (#134)", () => {
   it("the cockpit page streams the executive strip before tab bodies", () => {
     const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
     expect(page).toContain("loadCockpitExecutiveFast");
-    expect(page).toContain("CockpitPeriodShell");
-    expect(page).toContain("CockpitBothCostKpis");
+    // R1-16b: the Cockpit v2 paints from the daily sales it loaded with the
+    // page; the cost and the mix come in ONE request after the first paint.
+    expect(page).toContain("CockpitV2");
+    expect(page).toContain("loadCockpitV2Model");
+    expect(page).not.toContain("CockpitBothCostKpis");
     // R1-09b (D5): no tab bodies under the Cockpit; they live in Menú,
     // Costos and Ventas.
     expect(page).not.toContain("CockpitTabsFromModel");

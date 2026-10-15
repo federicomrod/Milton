@@ -52,3 +52,44 @@ select count(*) from public.restaurant_company_settings where company_id = '<com
   The 6-month window is cut to the first POS day and says «solo N meses de datos».
 - Old Ventas editor: it now shows what is being drawn and links to Configuración › Objetivos (one place to edit).
   Existing daily rows still load; Ventas' daily line is derived from the monthly target for today.
+
+## R1-16b — Cockpit v2 (migration 053, optional speed-up)
+
+**File:** `supabase/migrations/053_cockpit_product_day_rollup.sql` — **optional**: the app falls back to reading the
+rows with the same rules if it is missing (same numbers, slower). One function `cockpit_product_day_rollup`,
+`SECURITY DEFINER` after `is_company_member` (42501 for a non-member), revoked from anon/PUBLIC, additive
+(`CREATE OR REPLACE FUNCTION` only). Needs 031 and 046. Read-only checks:
+
+```sql
+select jsonb_array_length(public.cockpit_product_day_rollup('<company uuid>', null, 'America/El_Salvador', null));
+select has_function_privilege('anon', 'public.cockpit_product_day_rollup(uuid,uuid,text,text)', 'execute');  -- must be false
+```
+
+### How it loads (no new request per control)
+
+- With the page: the daily net sales of all history (the `cockpit_pos_rollup` the page already reads), the targets
+  (`loadTargetsConfig`), the restaurants and the default comparison. The sales cards paint from this alone.
+- ONE request after the first paint: `GET /api/restaurant/cockpit-cost-days` → day × category rows
+  (net, cost of the costed products, the sales that cost covers). Kept in memory for the session.
+- Changing **period**, **Comparar con** or the **category** only recomputes `computeCockpit()` in the browser:
+  no request, no navigation (a test pins that the component has exactly one `fetch`, tied to the restaurant only;
+  every period × comparison over two years of days recomputes in well under 100 ms).
+
+### Definitions
+
+- **Periods** end on the last day with sales («Hoy» = that day; when the POS is live it is today): Hoy, 7 d, 30 d,
+  Trimestre = 90 days. Trailing baselines («Últimos 3 / 6 / 12 meses») end the day before it when it is today.
+- **Venta promedio diaria** = Σ net sales ÷ calendar days (zero-sales days count; days before the first POS day do
+  not). The trailing baseline is cut to where the data starts and says «solo N meses de datos».
+- **vs semana pasada**: the same days one week earlier (weekdays aligned). **vs mes pasado**: the block of the
+  same length right before it when the period is ≥ 28 days, otherwise four weeks back (weekdays aligned, a partial
+  week is never set against a full one). A comparison window that starts before the data is not shown.
+- **Costo de comida / Margen bruto**: Σ cost ÷ Σ sales over the window (never the average of daily %), compared
+  in points. Cost only where the dish is **covered** (an approved cost) — the same rule as Menú — so the Cockpit's
+  food cost % equals Menú's; a product without one is uncosted (never $0) and lowers the stated coverage.
+  Coverage here = costed sales ÷ all net sales (Menú's is over food sales only, so it reads a bit higher).
+- **Sales mix** by the menu dish's category, else the POS line's category, else «Sin categoría» (its share is
+  reported). Click a slice and the whole page filters to that category.
+- No target = no line and no chip. Green/red only when it matters (≥ 2 % on sales, ≥ 0.5 points on a percentage);
+  for cost, up is bad.
+- Click a day or a week → Ventas › detalle filtered to those days.

@@ -163,25 +163,22 @@ describe("rollup-based period costs match the row walk", () => {
 });
 
 describe("period switch stays on the already-loaded cockpit", () => {
-  it("the cockpit shell owns the toggle and costs load both periods once", () => {
+  it("R1-16b: the Cockpit v2 changes period, comparison and category in the browser, with no request and no navigation", () => {
     const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
-    const shell = read("components/restaurant/cockpit/CockpitPeriodShell.tsx");
-    const control = read(
-      "components/restaurant/cockpit/CockpitPeriodControl.tsx"
+    const cockpit = read("components/restaurant/cockpit/v2/CockpitV2.tsx");
+    expect(page).toContain("CockpitV2");
+    // The handlers only set state (computeCockpit recomputes from the loaded data).
+    expect(cockpit).toContain("onClick={() => setPeriod(p.key)}");
+    expect(cockpit).toContain("setComparison(e.target.value as Comparison)");
+    expect(cockpit).toContain("onSlice={setCategory}");
+    // The one extra read depends on the restaurant only, never on period/comparison/category.
+    const fetches = cockpit.match(/fetch\(/g) ?? [];
+    expect(fetches).toHaveLength(1);
+    expect(cockpit).toContain("[costKey, props.locationId, attempt]");
+    // Period/comparison/category never reach the router or the network.
+    expect(cockpit).not.toMatch(
+      /router\.(replace|push)\([^)]*(period|comparison|category)/
     );
-    const costs = read("lib/restaurant/cockpit-page-data.ts");
-    expect(page).toContain("CockpitPeriodShell");
-    expect(page).toContain("CockpitBothCostKpis");
-    expect(shell).toContain("setPreset(next)");
-    expect(shell).toContain("startTransition");
-    expect(control).toContain("data-pending");
-    expect(control).toContain("useCockpitPeriodOptional");
-    expect(control).toContain("useTransition");
-    expect(costs).toContain("loadBothPeriodCostKpis");
-    expect(costs).toContain("periodCostKpisFromProductLines");
-    expect(costs).toContain('for (const preset of ["last_7", "month"]');
-    expect(costs).not.toMatch(
-      /export async function loadPeriodCostSnapshot[\s\S]*loadCachedPosSalesRows/
-    );
+    expect(cockpit).not.toContain("useTransition");
   });
 });

@@ -37,19 +37,12 @@ import {
   loadCockpitExecutiveFast,
   type CockpitExecutiveFastModel,
 } from "@/lib/restaurant/cockpit-page-data";
-import {
-  CockpitBothCostKpis,
-  CockpitCostKpisSkeleton,
-} from "@/components/restaurant/cockpit/CockpitCostKpis";
-import { CockpitPeriodShell } from "@/components/restaurant/cockpit/CockpitPeriodShell";
+import { CockpitV2 } from "@/components/restaurant/cockpit/v2/CockpitV2";
+import { loadCockpitV2Model } from "@/lib/restaurant/cockpit-v2-server";
 import {} from "@/components/restaurant/ProfitabilityCockpit";
 import { CockpitHeadlineSkeleton } from "@/components/restaurant/cockpit/CockpitHeadline";
 import { CockpitHeroChartSkeleton } from "@/components/restaurant/cockpit/CockpitHeroChart";
-import {
-  CockpitInsightsCard,
-  CockpitInsightsCardSkeleton,
-} from "@/components/restaurant/cockpit/CockpitInsightsCard";
-import { CockpitInsightsUpgrade } from "@/components/restaurant/cockpit/CockpitInsightsUpgrade";
+import { CockpitInsightsCardSkeleton } from "@/components/restaurant/cockpit/CockpitInsightsCard";
 import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   t,
@@ -733,55 +726,16 @@ async function CockpitLiveBody({
     return <SampleRestaurantView reason={fast.reason ?? "no_sales"} />;
   }
   const lang = fast.lang;
-  const executive = fast.executive;
-  const week = {
-    thisWeek: fast.cockpit.this_week
-      ? { from: fast.cockpit.this_week.from, to: fast.cockpit.this_week.to }
-      : null,
-    lastWeek: fast.cockpit.last_week
-      ? { from: fast.cockpit.last_week.from, to: fast.cockpit.last_week.to }
-      : null,
-    deltaPct: fast.cockpit.week_delta_pct,
-  };
+  const model = await loadCockpitV2Model(fast);
   return (
-    <CockpitPeriodShell
-      lang={lang}
-      initialPreset={fast.periodPreset}
-      executives={fast.executives}
-      costSlot={
-        <Suspense fallback={<CockpitCostKpisSkeleton />}>
-          <CockpitBothCostKpis
-            locationId={location}
-            timezone={fast.timezone}
-            currency={fast.currency}
-            lang={lang}
-            week={week}
-          />
-        </Suspense>
-      }
-      insightsUpgrade={
-        executive ? (
-          <Suspense
-            fallback={
-              <CockpitInsightsCard
-                lang={lang}
-                insights={executive.insights.insights}
-                source="deterministic"
-              />
-            }
-          >
-            <CockpitInsightsUpgrade
-              facts={executive.insightFacts}
-              lang={lang}
-              cacheKey={executive.insightCacheKey}
-            />
-          </Suspense>
-        ) : (
-          <CockpitInsightsCardSkeleton />
-        )
-      }
-    >
-      {executive?.health.tone === "error" || fast.readError ? (
+    <div className="w-full px-[26px] pt-4 pb-10 space-y-3">
+      <OperatingPageHeader
+        title={t(lang, "Cockpit", "Cockpit")}
+        lang={lang}
+        showDateRange={false}
+        lastSyncedAt={fast.lastSyncedAt}
+      />
+      {fast.readError ? (
         <DataHealthBanner tone="error">
           {t(
             lang,
@@ -790,7 +744,6 @@ async function CockpitLiveBody({
           )}
         </DataHealthBanner>
       ) : null}
-
       {fast.truncated && (
         <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -803,11 +756,23 @@ async function CockpitLiveBody({
           </span>
         </div>
       )}
-
-      {/* R1-09b (D1–D5): menu profitability, suppliers, sales and setup
-          live in Menú, Costos and Ventas; the Cockpit keeps its 4 KPIs,
-          the chart and "Lo importante hoy". */}
-    </CockpitPeriodShell>
+      {/* R1-16b: the Cockpit v2. One dataset, all filtering in the browser. */}
+      {model.refDay ? (
+        <CockpitV2
+          currency={fast.currency}
+          daily={model.daily}
+          refDay={model.refDay}
+          today={model.today}
+          firstDay={model.firstDay}
+          targets={model.targets}
+          restaurants={model.restaurants}
+          locationId={fast.scope?.locationId ?? null}
+          defaultComparison={model.defaultComparison}
+        />
+      ) : (
+        <SampleRestaurantView reason="no_sales" />
+      )}
+    </div>
   );
 }
 

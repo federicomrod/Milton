@@ -678,12 +678,11 @@ describe("data health, local dates, and first paint", () => {
     expect(loader).toContain('source: "deterministic"');
     expect(loader).not.toContain("await wordCockpitInsights");
     const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
-    expect(page).toContain("CockpitInsightsUpgrade");
-    expect(page).toContain("CockpitPeriodShell");
+    // R1-16b: no AI wording call at all on first paint (Milton's reading is
+    // computed from the loaded numbers); the page streams behind a skeleton.
+    expect(page).toContain("CockpitV2");
     expect(page).toContain("<Suspense");
-    expect(
-      read("components/restaurant/cockpit/CockpitInsightsUpgrade.tsx")
-    ).toContain("blockOnMiss: false");
+    expect(page).not.toContain("CockpitInsightsUpgrade");
     expect(page).toContain("CockpitHeadlineSkeleton");
     expect(page).toContain("CockpitHeroChartSkeleton");
     const hero = read("components/restaurant/cockpit/CockpitHeroChart.tsx");

@@ -57,8 +57,11 @@ interface FilterChoice {
 
 export function DrillView({
   title,
-  variants: allVariants,
+  variants: incoming,
   scopeId,
+  backLabel = "Platos",
+  restaurants = [],
+  showRestaurants = false,
   menuSales,
   grouping,
   canEdit,
@@ -70,6 +73,12 @@ export function DrillView({
   title: string;
   /** The variant rows to break down (a dish's, or every member of a group). */
   variants: MenuDishVariant[];
+  /** Where "volver" goes: the list the person came from. */
+  backLabel?: string;
+  /** The company's restaurants (names), for the "Se vende en" line and the split. */
+  restaurants?: ReadonlyArray<{ id: string; name: string }>;
+  /** Todos los restaurantes: show where it sells and offer the split by restaurant. */
+  showRestaurants?: boolean;
   /** The stored menu dish whose value groups apply; null = a product group (global value groups only). */
   scopeId: string | null;
   /** Sales of every dish in view, for "x% del menú". */
@@ -80,13 +89,44 @@ export function DrillView({
   onBack: () => void;
   onOpenRecipe?: () => void;
 }) {
+  // Todos: every row says which restaurant(s) it sold in, by real name. A
+  // product sold in both has one row of combined sales: it says so.
+  const idsOf = (v: MenuDishVariant) =>
+    v.sales_scope?.sale_location_ids ?? v.sale_location_ids ?? [];
+  const nameOf = (id: string) =>
+    restaurants.find((r) => r.id === id)?.name ?? "Otro restaurante";
+  const allVariants = useMemo(() => {
+    if (!showRestaurants || restaurants.length < 2) return incoming;
+    return incoming.map((v) => {
+      const ids = idsOf(v);
+      return {
+        ...v,
+        restaurant_label:
+          ids.length === 1
+            ? nameOf(ids[0])
+            : ids.length > 1
+              ? "Ambos restaurantes"
+              : "Sin restaurante",
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incoming, showRestaurants, restaurants]);
+  const soldIn = useMemo(() => {
+    const names = new Set<string>();
+    for (const v of incoming) for (const id of idsOf(v)) names.add(nameOf(id));
+    return [...names].sort((a, b) => a.localeCompare(b, "es"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incoming, restaurants]);
+
   // Only the dimensions that have real data: drinks have no cooking point.
   const isGroup = scopeId === null;
-  const available = useMemo(() => {
+  const available = useMemo<DrillDimension[]>(() => {
     const a = availableDimensions(allVariants, { product: isGroup });
-    return a.length > 0
-      ? a
-      : availableDimensions(allVariants, { product: true });
+    if (a.length > 0) return a;
+    const p = availableDimensions(allVariants, { product: true });
+    // A dish with one variant and no size/side/point/channel has nothing to
+    // split by: it still opens, as a single row by product.
+    return p.length > 0 ? p : ["product"];
   }, [allVariants, isGroup]);
   const [dimChoice, setDim] = useState<DrillDimension | null>(null);
   const dim: DrillDimension =
@@ -94,9 +134,9 @@ export function DrillView({
       ? dimChoice
       : isGroup
         ? available[0]
-        : (["side", "size", "point", "channel", "product"] as const).find((d) =>
-            available.includes(d)
-          )!;
+        : ((["side", "size", "point", "channel", "product"] as const).find(
+            (d) => available.includes(d)
+          ) ?? available[0]);
   const [cross, setCross] = useState<DrillDimension | null>(null);
   const [choices, setChoices] = useState<
     Partial<Record<DrillDimension, FilterChoice>>
@@ -171,13 +211,20 @@ export function DrillView({
 
   return (
     <div className="space-y-[14px]" data-testid="drill-view">
+      <button
+        type="button"
+        onClick={onBack}
+        className="inline-flex items-center gap-1 rounded-lg border border-[#c6d3f5] bg-[#eef2fc] px-3 py-1 text-[13px] font-semibold text-[#1b40c8] hover:bg-[#dfe7fb]"
+      >
+        ← Volver a {backLabel}
+      </button>
       <nav className="text-[14px] text-[#6b7385]">
         <button
           type="button"
           onClick={onBack}
           className="font-semibold text-[#1b40c8] hover:underline"
         >
-          Platos
+          {backLabel}
         </button>{" "}
         ›{" "}
         <button
@@ -284,6 +331,14 @@ export function DrillView({
       </div>
 
       <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
+        {showRestaurants && soldIn.length > 0 ? (
+          <p className="mb-2 text-[12px] text-[#4a5a85]" data-testid="sold-in">
+            Se vende en: <b>{soldIn.join(" · ")}</b>
+            {soldIn.length > 1
+              ? ". Un producto vendido en ambos suma sus ventas en «Ambos restaurantes»."
+              : "."}
+          </p>
+        ) : null}
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h2 className="text-[15px] font-bold">
             Ventas por {dimLabel(dim).toLowerCase()}

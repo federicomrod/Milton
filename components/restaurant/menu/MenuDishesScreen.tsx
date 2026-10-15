@@ -7,7 +7,7 @@
 // Every number comes from the shared loader; the screen only re-adds the
 // sums after a move (dishSums, the loader's own function).
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { RowActions } from "@/components/restaurant/groups/RowActions";
 import {
@@ -40,6 +40,7 @@ import { StickyPanel, STICKY_TH } from "@/components/restaurant/ui/StickyPanel";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
 import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
 import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
+import { DrillErrorBoundary } from "@/components/restaurant/menu/DrillErrorBoundary";
 import { DrillView } from "@/components/restaurant/menu/DrillView";
 import { ProductosView } from "@/components/restaurant/groups/ProductosView";
 import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
@@ -171,11 +172,36 @@ export function MenuDishesScreen({
       }
       return !was;
     });
-  const [drill, setDrill] = useState<
+  // Opening a Desglose remembers where the person was in the list, so
+  // coming back lands on the same row with the same filter and search (the
+  // list stays mounted underneath).
+  const scrollBefore = useRef(0);
+  const [drill, setDrillState] = useState<
     | { kind: "dish"; id: string }
     | { kind: "group"; name: string; keys: string[] }
     | null
   >(null);
+
+  const setDrill = useCallback(
+    (
+      next:
+        | { kind: "dish"; id: string }
+        | { kind: "group"; name: string; keys: string[] }
+        | null
+    ) => {
+      if (next) {
+        scrollBefore.current = window.scrollY;
+        window.scrollTo({ top: 0 });
+      } else {
+        const y = scrollBefore.current;
+        requestAnimationFrame(() => window.scrollTo({ top: y }));
+      }
+      setDrillState(next);
+    },
+    []
+  );
+  /** The list the person opened it from. */
+  const [drillFrom, setDrillFrom] = useState<"platos" | "productos">("platos");
   const [view, setView] = useState<"platos" | "productos">("platos");
   const grouping = useItemGroups(data.item_groups);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -222,10 +248,18 @@ export function MenuDishesScreen({
     return sortRows(filtered, sort, dishValue);
   }, [dishes, excluded, showExcluded, statusFilter, sort]);
 
+  const openDrill = (
+    target:
+      | { kind: "dish"; id: string }
+      | { kind: "group"; name: string; keys: string[] }
+  ) => {
+    setDrillFrom(view);
+    setDrill(target);
+  };
   // Stable handlers, so the 100+ dish rows do not re-render on every change.
   const onToggleRow = useEventCallback((id: string) => toggle(id));
   const onDrillRow = useEventCallback((id: string) =>
-    setDrill({ kind: "dish", id })
+    openDrill({ kind: "dish", id })
   );
   const onOpenRow = useEventCallback((dish: MenuDish) => {
     if (dish.base_odoo_product_id != null)
@@ -445,21 +479,31 @@ export function MenuDishesScreen({
   return (
     <>
       {drilling ? (
-        <DrillView
+        <DrillErrorBoundary
           title={drilling.title}
-          variants={drilling.variants}
-          scopeId={drilling.scopeId}
-          menuSales={dishes.reduce((sum, d) => sum + d.net_sales, 0)}
-          grouping={grouping}
-          canEdit={data.actor.can_submit}
-          money={money}
           onBack={() => setDrill(null)}
-          onOpenRecipe={
-            drilling.recipe != null
-              ? () => onOpenDish(drilling.recipe!)
-              : undefined
-          }
-        />
+        >
+          <DrillView
+            title={drilling.title}
+            variants={drilling.variants}
+            scopeId={drilling.scopeId}
+            menuSales={dishes.reduce((sum, d) => sum + d.net_sales, 0)}
+            grouping={grouping}
+            canEdit={data.actor.can_submit}
+            money={money}
+            onBack={() => setDrill(null)}
+            backLabel={drillFrom === "productos" ? "Productos" : "Platos"}
+            restaurants={data.restaurants}
+            showRestaurants={
+              (data.restaurants?.length ?? 0) > 1 && !data.view_location_id
+            }
+            onOpenRecipe={
+              drilling.recipe != null
+                ? () => onOpenDish(drilling.recipe!)
+                : undefined
+            }
+          />
+        </DrillErrorBoundary>
       ) : null}
       {/* Kept mounted while drilling, so coming back is instant and keeps the filter and search. */}
       <div className="space-y-[14px]" hidden={!!drilling}>
@@ -558,9 +602,9 @@ export function MenuDishesScreen({
             canEdit={data.actor.can_submit}
             money={money}
             onAddToDish={addProductsToDish}
-            onDrillDish={(id) => setDrill({ kind: "dish", id })}
+            onDrillDish={(id) => openDrill({ kind: "dish", id })}
             onDrillGroup={(name, keys) =>
-              setDrill({ kind: "group", name, keys })
+              openDrill({ kind: "group", name, keys })
             }
             onOpenRecipe={onOpenDish}
             restaurants={data.restaurants}

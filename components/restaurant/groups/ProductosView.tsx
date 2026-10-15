@@ -159,12 +159,10 @@ export function ProductosView({
 
   // Todos los restaurantes: each product and group says which restaurant it is.
   const multi = restaurants.length > 1 && !viewLocationId;
+  /** The restaurant's real name (the choice of restaurant is the top-left selector). */
   const tagOf = useCallback(
-    (id: string | null | undefined): string | null => {
-      if (!id) return null;
-      const at = restaurants.findIndex((r) => r.id === id);
-      return at >= 0 ? `R${at + 1}` : null;
-    },
+    (id: string | null | undefined): string | null =>
+      id ? (restaurants.find((r) => r.id === id)?.name ?? null) : null,
     [restaurants]
   );
 
@@ -585,17 +583,6 @@ export function ProductosView({
       ) : null}
       <StickyPanel>
         {leading}
-        {multi ? (
-          <p
-            className="text-[12px] text-[#6b7a9e]"
-            data-testid="restaurants-legend"
-          >
-            Todos los restaurantes ·{" "}
-            {restaurants.map((r, i) => `R${i + 1} = ${r.name}`).join(" · ")}.
-            Las sugerencias y los grupos nuevos son de un solo restaurante;
-            elige uno arriba para verlos juntos.
-          </p>
-        ) : null}
         <SearchBox
           value={query}
           onChange={setQuery}
@@ -742,7 +729,6 @@ export function ProductosView({
                       canEdit={canEdit}
                       checked={selected.has(leaf.ref)}
                       onCheck={toggleSelect}
-                      tags={multi ? restaurantTags(leaf, tagOf) : null}
                       suggestion={
                         <SuggestionChip
                           targetName={suggestion?.target.name ?? null}
@@ -862,7 +848,6 @@ function NodeRows(props: {
         canEdit={canEdit}
         checked={props.selected.has(node.leaf.ref)}
         onCheck={props.onCheck}
-        tags={props.multi ? restaurantTags(node.leaf, props.tagOf) : null}
       />
     );
   }
@@ -922,9 +907,6 @@ function NodeRows(props: {
               {isAuto ? " · plato del menú" : ""}
             </span>
             {node.group?.source === "ai_suggested" ? <MiltonMark /> : null}
-            {props.multi && node.group?.restaurant_id ? (
-              <RestaurantTag tag={props.tagOf(node.group.restaurant_id)} />
-            ) : null}
             {canEdit && stored ? (
               <button
                 type="button"
@@ -985,11 +967,8 @@ const LeafRow = memo(function LeafRow({
   checked,
   onCheck,
   suggestion,
-  tags,
 }: {
   leaf: TreeLeaf;
-  /** "R1", "R2": which restaurant (Todos los restaurantes). */
-  tags?: string[] | null;
   depth: number;
   totalSales: number;
   money: (n: number) => string;
@@ -1026,9 +1005,6 @@ const LeafRow = memo(function LeafRow({
       </td>
       <td className="px-2 py-2" style={{ paddingLeft: 8 + depth * 18 }}>
         {leaf.name}
-        {tags?.map((t) => (
-          <RestaurantTag key={t} tag={t} />
-        ))}
       </td>
       <td className="px-2 py-2 text-right tabular-nums">
         {money(leaf.net_sales)}
@@ -1043,23 +1019,3 @@ const LeafRow = memo(function LeafRow({
     </tr>
   );
 });
-
-function restaurantTags(
-  leaf: TreeLeaf,
-  tagOf: (id: string | null | undefined) => string | null
-): string[] | null {
-  const tags = (leaf.restaurant_ids ?? [])
-    .map((id) => tagOf(id))
-    .filter((t): t is string => !!t);
-  return tags.length > 0 ? tags : null;
-}
-
-/** A small «R1» next to a name: identical names in two restaurants are two products. */
-function RestaurantTag({ tag }: { tag: string | null }) {
-  if (!tag) return null;
-  return (
-    <span className="ml-1.5 rounded bg-[#e6ecfb] px-1 py-px align-middle text-[11px] font-semibold text-[#1b40c8]">
-      {tag}
-    </span>
-  );
-}

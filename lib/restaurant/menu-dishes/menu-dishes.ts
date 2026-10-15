@@ -65,6 +65,8 @@ export interface MenuDishVariant {
   sales_scope: SalesScope | null;
   /** Restaurants this product sold in (R1-15h). */
   sale_location_ids?: string[];
+  /** Drill only: the restaurant(s) by real name, set by the Desglose (R1-15j). */
+  restaurant_label?: string;
   /** The grouping is stored (a dish or an exclusion on its link, 045). */
   saved: boolean;
   name: string;

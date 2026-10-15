@@ -92,6 +92,8 @@ export interface RankedPosProduct {
   parts?: RankedPosProduct[];
   /** On a part: whose link costs it. */
   sales_scope?: SalesScope;
+  /** Restaurants this product sold in (R1-15h): tags the row, scopes groups. */
+  sale_location_ids?: string[];
 }
 
 export interface SalesScope {
@@ -490,6 +492,11 @@ export function buildPosProductList(input: {
     if (!acc.is_combo && acc.standalone_net <= 0) continue;
 
     const row = rowOf(acc, { strict: false, location: locationId });
+    row.sale_location_ids = locationId
+      ? [locationId]
+      : [...(byProductLocation.get(acc.odoo_product_id)?.keys() ?? [])]
+          .filter(Boolean)
+          .sort();
     const parts = partsOf(acc);
     if (parts) {
       row.parts = parts;

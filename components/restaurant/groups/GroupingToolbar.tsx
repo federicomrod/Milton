@@ -42,6 +42,9 @@ export function GroupingToolbar({
   onAcceptShared,
   onClearSelection,
   defaultNewName,
+  selectionNote,
+  duplicateHint,
+  onDuplicateGroup,
 }: {
   grouping: ReturnType<typeof useItemGroups>;
   filter: GroupingFilterValue;
@@ -60,6 +63,11 @@ export function GroupingToolbar({
   onAcceptShared: () => void;
   onClearSelection: () => void;
   defaultNewName?: string;
+  /** e.g. "La selección mezcla restaurantes: el grupo será compartido." */
+  selectionNote?: string | null;
+  /** Same-restaurant products with the same or near-same name. */
+  duplicateHint?: { name: string; refs: string[] } | null;
+  onDuplicateGroup?: (name: string, refs: string[]) => void;
 }) {
   const [panel, setPanel] = useState<"picker" | "groupAs" | null>(null);
   return (
@@ -81,6 +89,20 @@ export function GroupingToolbar({
         onUngroup={onUngroup}
         onClear={onClearSelection}
       />
+      {selectedCount > 0 && selectionNote ? (
+        <p className="text-[12px] text-[#a35a00]">{selectionNote}</p>
+      ) : null}
+      {selectedCount > 0 && duplicateHint && onDuplicateGroup ? (
+        <button
+          type="button"
+          onClick={() =>
+            onDuplicateGroup(duplicateHint.name, duplicateHint.refs)
+          }
+          className="rounded-lg border border-dashed border-[#1b40c8] bg-white px-3 py-1 text-[12px] font-semibold text-[#1b40c8] hover:bg-[#e6ecfb]"
+        >
+          ✦ ¿Parecen duplicados? Agrupar como «{duplicateHint.name}»
+        </button>
+      ) : null}
       {panel === "picker" ? (
         <GroupPicker
           title="Añadir a grupo existente"

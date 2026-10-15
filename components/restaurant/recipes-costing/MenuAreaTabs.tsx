@@ -50,7 +50,7 @@ export function MenuAreaTabs({ lang }: { lang: PreferredLanguage }) {
   return (
     <nav
       aria-label={t(lang, "Menu sections", "Secciones del menú")}
-      className="mt-2 mb-4 flex gap-7 border-b border-[#dfe3ea]"
+      className="mt-2 mb-2 flex gap-7 border-b border-[#dfe3ea]"
     >
       {TABS.map((tab) => {
         const isPage = tab.id === "ingredientes" || active === "ingredientes";

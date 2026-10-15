@@ -133,3 +133,22 @@ for the items in no group.
    `item_groups_apply`, one «Deshacer»), so they survive a reload without asking the AI again. A suggested
    group is ignored by the tree and by every count until accepted; grouping an item by hand takes it out of
    a suggestion (one group per item).
+
+## R1-15h — Todos los restaurantes, sticky panel, group Desglose (no migration)
+
+- **Todos los restaurantes:** the payload is the same as for one restaurant (verified on staging); what changes is
+  now explicit. Each product row carries its restaurant tag (R1, R2 — order of the restaurant names; the legend
+  is above the table). Milton's suggestions are made **inside each restaurant** (products sold in both, or
+  unknown, form their own shared bucket) and the group they create is that restaurant's own
+  (`restaurant_id`), so a suggestion never mixes restaurants. A manual group over a mixed selection is shared
+  and says so; adding a product of another restaurant to a restaurant's own group is refused with a message.
+  With one restaurant selected, another restaurant's own groups are not shown or offered.
+- **Where it needs one restaurant:** nothing is hidden; the legend says suggestions and new groups are per restaurant.
+  Preparaciones and Ingredientes are company-wide (same under Todos); value groups in the Desglose are per dish.
+- **¿Parecen duplicados?:** among the selected products of the same restaurant with the same/near-same name the
+  bar offers «Agrupar como «…»». Grouping only; never a POS merge, never across restaurants.
+- **Renames** reach search, the picker, the strip and the Desglose at once; a server copy read before the save
+  (cached tab) is replayed under this session's changes, so the old name cannot come back.
+- **Desglose of a group:** default dimension *Producto* (sales by member, stacked bar, table with sales, % of
+  group, margin, Costo %), top/bottom 3 by margin marked «Más rentable» / «Menos rentable»; "Sin precio" is never
+  ranked. Only dimensions with real data are offered (drinks show no Tamaño/Punto/Acompañante; Canal only with events).

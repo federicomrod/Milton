@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   GroupOpError,
   applyOps,
+  replayOps,
   type GroupOps,
   type GroupsState,
   type OpResult,
@@ -35,12 +36,26 @@ async function save(ops: GroupOps): Promise<void> {
   throw new Error(json.error ?? "No pude guardar la agrupación.");
 }
 
+// The changes made in this browser session, newest last. A payload that was
+// read before a save (cached tab, slow read) is replayed over, never trusted
+// over, a change the person just made. Entries older than five minutes are
+// dropped: by then every payload has been re-read.
+const sessionLog: Array<{ id: number; at: number; ops: GroupOps }> = [];
+let logSeq = 0;
+const LOG_TTL_MS = 5 * 60_000;
+
+function reconcile(initial: ItemGroupsLoad | null | undefined): GroupsState {
+  const cutoff = Date.now() - LOG_TTL_MS;
+  while (sessionLog.length > 0 && sessionLog[0].at < cutoff) sessionLog.shift();
+  return replayOps(
+    { groups: initial?.groups ?? [], members: initial?.members ?? [] },
+    sessionLog.map((e) => e.ops)
+  );
+}
+
 export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
   const available = initial?.available === true;
-  const [state, setState] = useState<GroupsState>({
-    groups: initial?.groups ?? [],
-    members: initial?.members ?? [],
-  });
+  const [state, setState] = useState<GroupsState>(() => reconcile(initial));
   const stateRef = useRef(state);
   const pending = useRef(0);
   const [toast, setToast] = useState<GroupToast | null>(null);
@@ -56,10 +71,10 @@ export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
     setState(next);
   }, []);
 
-  // A fresh server copy replaces ours only when nothing is being saved.
+  // A new server copy replaces ours, with this session's changes on top.
   useEffect(() => {
-    if (!initial || pending.current > 0) return;
-    commit({ groups: initial.groups, members: initial.members });
+    if (!initial) return;
+    commit(reconcile(initial));
   }, [initial, commit]);
 
   const showToast = useCallback((next: GroupToast | null) => {
@@ -89,6 +104,8 @@ export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
           (!known.has(g.id) ||
             before.groups.find((x) => x.id === g.id)?.status === "suggested")
       );
+      const entry = { id: ++logSeq, at: Date.now(), ops };
+      sessionLog.push(entry);
       commit(applyOps(before, ops));
       if (fresh) {
         if (createdTimer.current) clearTimeout(createdTimer.current);
@@ -109,6 +126,8 @@ export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
         return true;
       } catch (err) {
         // Put back what this action changed (later actions stay).
+        const at = sessionLog.findIndex((e) => e.id === entry.id);
+        if (at >= 0) sessionLog.splice(at, 1);
         if (undoOps) commit(applyOps(stateRef.current, undoOps));
         showToast({
           message: err instanceof Error ? err.message : "No pude guardar.",

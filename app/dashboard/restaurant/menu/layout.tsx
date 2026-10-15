@@ -10,6 +10,7 @@ import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { MenuAreaTabs } from "@/components/restaurant/recipes-costing/MenuAreaTabs";
 import { t } from "@/lib/restaurant/language";
+import { StickyMenuHeader } from "@/components/restaurant/ui/StickyPanel";
 
 export default async function MenuLayout({
   children,
@@ -18,16 +19,19 @@ export default async function MenuLayout({
 }) {
   const { lang } = await loadRestaurantShellChrome();
   return (
-    <div className="w-full px-[26px] pt-4 pb-10">
-      <OperatingPageHeader
-        title={t(lang, "Menu", "Menú")}
-        lang={lang}
-        showDateRange={false}
-      />
-      <Suspense fallback={<div className="mt-2 mb-4 h-[42px]" />}>
-        <MenuAreaTabs lang={lang} />
-      </Suspense>
-      {children}
+    <div className="w-full px-[26px] pb-10">
+      {/* R1-15h: header and tabs stay fixed while a long table scrolls. */}
+      <StickyMenuHeader>
+        <OperatingPageHeader
+          title={t(lang, "Menu", "Menú")}
+          lang={lang}
+          showDateRange={false}
+        />
+        <Suspense fallback={<div className="mt-2 mb-2 h-[42px]" />}>
+          <MenuAreaTabs lang={lang} />
+        </Suspense>
+      </StickyMenuHeader>
+      <div className="pt-3">{children}</div>
     </div>
   );
 }

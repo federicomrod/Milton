@@ -451,7 +451,12 @@ export function createSuggestedGroups(
   state: GroupsState,
   input: {
     hierarchy: Hierarchy;
-    clusters: ReadonlyArray<{ name: string; refs: readonly string[] }>;
+    clusters: ReadonlyArray<{
+      name: string;
+      refs: readonly string[];
+      /** One restaurant's own suggestion (never mixes restaurants); null = shared. */
+      restaurantId?: string | null;
+    }>;
     itemType: GroupMemberType;
     uuid: Uuid;
   }
@@ -465,6 +470,7 @@ export function createSuggestedGroups(
       result = createGroup(working, {
         name: c.name,
         hierarchy: input.hierarchy,
+        restaurantId: c.restaurantId ?? null,
         items: c.refs.map((ref) => ({ type: input.itemType, ref })),
         source: "ai_suggested",
         status: "suggested",
@@ -488,9 +494,15 @@ export function createSuggestedGroups(
 /** Accept a suggestion: the group becomes real (still marked as Milton's). */
 export function confirmSuggestion(
   state: GroupsState,
-  groupId: string
+  groupId: string,
+  /** The person may rename the suggestion before accepting it. */
+  newName?: string
 ): OpResult {
-  const group = groupById(state, groupId);
+  const found = groupById(state, groupId);
+  const group =
+    newName !== undefined && newName.trim() !== found.name
+      ? { ...found, name: cleanName(newName) }
+      : found;
   if (group.status === "confirmed") {
     return finish(
       state,
@@ -709,6 +721,20 @@ export function mergeGroups(
 // ---------------------------------------------------------------------------
 // Reading
 // ---------------------------------------------------------------------------
+
+/**
+ * A server copy of the groups with this session's own changes put back on
+ * top. The copy can be older than a save (a cached tab, a read that started
+ * before it): replaying the changes keeps a rename or a new group from
+ * flickering back, and is harmless when the copy is already newer (every op
+ * is an upsert or a delete by id).
+ */
+export function replayOps(
+  base: GroupsState,
+  log: ReadonlyArray<GroupOps>
+): GroupsState {
+  return log.reduce((state, ops) => applyOps(state, ops), base);
+}
 
 /** "Bebidas › Refrescos" for a group. */
 export function groupPath(state: GroupsState, groupId: string): string {

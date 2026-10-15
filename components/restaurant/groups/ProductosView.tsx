@@ -7,6 +7,7 @@
 // arranges rows and calls the pure actions of group-ops.
 
 import { memo, useCallback, useMemo, useState } from "react";
+import { Pencil } from "lucide-react";
 import {
   buildGroupTree,
   costPctLabel,
@@ -51,6 +52,8 @@ import {
   type useItemGroups,
 } from "./use-item-groups";
 import { RowActions } from "./RowActions";
+import { StickyPanel, STICKY_TH } from "@/components/restaurant/ui/StickyPanel";
+import { duplicateHint as findDuplicates } from "@/lib/restaurant/groups/duplicates";
 import { MiltonMark, MiltonSuggestions } from "./MiltonSuggestions";
 import { useMiltonSuggestions } from "./use-milton-suggestions";
 import { SearchBox } from "@/components/restaurant/ui/SearchBox";
@@ -117,6 +120,9 @@ export function ProductosView({
   onDrillDish,
   onDrillGroup,
   onOpenRecipe,
+  restaurants = [],
+  viewLocationId = null,
+  leading,
 }: {
   dishes: readonly MenuDish[];
   excluded: readonly MenuDish[];
@@ -129,6 +135,12 @@ export function ProductosView({
   onDrillDish: (dishId: string) => void;
   onDrillGroup: (name: string, variantKeys: string[]) => void;
   onOpenRecipe: (odooProductId: number) => void;
+  /** The company's restaurants, in a stable order (R1, R2…). */
+  restaurants?: ReadonlyArray<{ id: string; name: string }>;
+  /** The restaurant in view; null = Todos los restaurantes. */
+  viewLocationId?: string | null;
+  /** The screen's own controls (view toggle…), kept in the sticky panel with the rest. */
+  leading?: React.ReactNode;
 }) {
   const [filter, setFilter] = useState<GroupingFilterValue>("todos");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -144,6 +156,17 @@ export function ProductosView({
     setQuery("");
     setFilter((f) => (f === "sin_agrupar" ? "agrupados" : f));
   });
+
+  // Todos los restaurantes: each product and group says which restaurant it is.
+  const multi = restaurants.length > 1 && !viewLocationId;
+  const tagOf = useCallback(
+    (id: string | null | undefined): string | null => {
+      if (!id) return null;
+      const at = restaurants.findIndex((r) => r.id === id);
+      return at >= 0 ? `R${at + 1}` : null;
+    },
+    [restaurants]
+  );
 
   const tree = useMemo(() => {
     const inputs = productTreeInputs({
@@ -186,9 +209,13 @@ export function ProductosView({
         (g) =>
           g.scope === "product" &&
           g.source !== "auto" &&
-          g.status === "confirmed"
+          g.status === "confirmed" &&
+          // One restaurant in view: another restaurant's own groups are not offered.
+          (!viewLocationId ||
+            !g.restaurant_id ||
+            g.restaurant_id === viewLocationId)
       ),
-    [grouping.state.groups]
+    [grouping.state.groups, viewLocationId]
   );
   const groupOptions: GroupOption[] = useMemo(
     () =>
@@ -196,10 +223,12 @@ export function ProductosView({
         .map((g) => ({
           id: g.id,
           name: g.name,
-          path: groupPath(grouping.state, g.id),
+          path:
+            groupPath(grouping.state, g.id) +
+            (multi && g.restaurant_id ? ` · ${tagOf(g.restaurant_id)}` : ""),
         }))
         .sort((a, b) => a.path.localeCompare(b.path, "es")),
-    [userGroups, grouping.state]
+    [userGroups, grouping.state, multi, tagOf]
   );
   const pickerOptions = useMemo(
     () => [
@@ -229,16 +258,22 @@ export function ProductosView({
         ref: l.ref,
         name: l.name,
         category: categoryByKey.get(l.key) ?? null,
+        restaurant: l.restaurant_ids?.length === 1 ? l.restaurant_ids[0] : null,
       }));
   }, [tree.ungrouped, categoryByKey]);
-  const takenNames = useMemo(
-    () => [
+  // Names already used in a restaurant's own scope (its groups and the shared ones).
+  const takenNames = useCallback(
+    (restaurantId: string | null) => [
       ...grouping.state.groups
-        .filter((g) => g.scope === "product")
+        .filter(
+          (g) =>
+            g.scope === "product" &&
+            (!multi || !g.restaurant_id || g.restaurant_id === restaurantId)
+        )
         .map((g) => g.name),
       ...dishes.map((d) => d.name),
     ],
-    [grouping.state.groups, dishes]
+    [grouping.state.groups, dishes, multi]
   );
   const milton = useMiltonSuggestions({
     scope: "product",
@@ -246,6 +281,7 @@ export function ProductosView({
     ungrouped: ungroupedItems,
     takenNames,
     enabled: canEdit && grouping.available,
+    perRestaurant: multi,
   });
 
   // Search finds groups and products; sort orders groups among themselves
@@ -334,6 +370,26 @@ export function ProductosView({
     (s, r) => s + (leafByRef.get(r)?.net_sales ?? 0),
     0
   );
+  const duplicates = useMemo(
+    () =>
+      selectedRefs.length >= 2
+        ? findDuplicates(
+            selectedRefs.map((r) => {
+              const leaf = leafByRef.get(r)!;
+              return {
+                ref: r,
+                name: leaf.name,
+                restaurant:
+                  leaf.restaurant_ids?.length === 1
+                    ? leaf.restaurant_ids[0]
+                    : null,
+              };
+            })
+          )
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selected, renderedRefs, leafByRef]
+  );
   const explicitRefs = useMemo(
     () =>
       new Set(
@@ -392,6 +448,20 @@ export function ProductosView({
       clear();
       return;
     }
+    const group = grouping.state.groups.find((g) => g.id === target.id);
+    if (group?.restaurant_id) {
+      const other = refs.find((r) => {
+        const ids = leafByRef.get(r)?.restaurant_ids;
+        return !ids || ids.length !== 1 || ids[0] !== group.restaurant_id;
+      });
+      if (other) {
+        grouping.notify(
+          `«${group.name}» es de ${tagOf(group.restaurant_id) ?? "un restaurante"}: no puede incluir productos de otro restaurante.`,
+          true
+        );
+        return;
+      }
+    }
     const { items, dishRefs } = split(refs);
     clear();
     await grouping.run((s) =>
@@ -404,14 +474,32 @@ export function ProductosView({
     );
   }
 
-  async function groupAs(name: string, parentId: string | null) {
-    const { items, dishRefs } = split(selectedRefs);
+  /** The ONE restaurant a set of products belongs to (Todos los restaurantes), else null = shared. */
+  function restaurantOf(refs: readonly string[]): string | null {
+    if (!multi) return null;
+    const ids = new Set<string>();
+    for (const r of refs) {
+      const rs = leafByRef.get(r)?.restaurant_ids;
+      if (!rs || rs.length !== 1) return null;
+      ids.add(rs[0]);
+    }
+    return ids.size === 1 ? [...ids][0] : null;
+  }
+
+  async function groupAs(
+    name: string,
+    parentId: string | null,
+    refs: readonly string[] = selectedRefs
+  ) {
+    const { items, dishRefs } = split(refs);
+    const restaurantId = restaurantOf(refs);
     clear();
     await grouping.run((s) =>
       createGroup(s, {
         name,
         hierarchy: HIERARCHY,
         parentId,
+        restaurantId,
         items,
         dishes: dishRefs,
         uuid,
@@ -495,81 +583,111 @@ export function ProductosView({
           Mientras tanto puedes ver los productos, no guardar grupos.
         </p>
       ) : null}
-      <SearchBox
-        value={query}
-        onChange={setQuery}
-        placeholder="Buscar producto o grupo…"
-        className="max-w-xl"
-      />
-      {canEdit && grouping.available ? (
-        <MiltonSuggestions
-          clusters={milton.clusters}
-          preview={milton.preview}
-          onPreview={(c) => {
-            setFilter("sin_agrupar");
-            setQuery("");
-            milton.startPreview(c);
-          }}
-          onApply={(c) => void milton.apply(c)}
-          onDismiss={(c) => void milton.dismiss(c)}
-          onEndPreview={milton.endPreview}
-          onAskAi={() => void milton.askAi()}
-          aiBusy={milton.aiBusy}
-          canAskAi={milton.canAskAi}
+      <StickyPanel>
+        {leading}
+        {multi ? (
+          <p
+            className="text-[12px] text-[#6b7a9e]"
+            data-testid="restaurants-legend"
+          >
+            Todos los restaurantes ·{" "}
+            {restaurants.map((r, i) => `R${i + 1} = ${r.name}`).join(" · ")}.
+            Las sugerencias y los grupos nuevos son de un solo restaurante;
+            elige uno arriba para verlos juntos.
+          </p>
+        ) : null}
+        <SearchBox
+          value={query}
+          onChange={setQuery}
+          placeholder="Buscar producto o grupo…"
+          className="max-w-xl"
         />
-      ) : null}
-      <GroupingToolbar
-        grouping={grouping}
-        filter={filter}
-        onFilter={setFilter}
-        counts={counts}
-        note={note}
-        selectedCount={canEdit ? selectedRefs.length : 0}
-        selectionSummary={money(selectedSales)}
-        sharedSuggestion={shared}
-        anySelectedGrouped={selectedRefs.some(
-          (r) => explicitRefs.has(r) || !ungroupedRefs.has(r)
-        )}
-        pickerOptions={pickerOptions}
-        parentOptions={parentOptions}
-        onAddToExisting={(t) => void addRefsTo(selectedRefs, t)}
-        onGroupAs={(name, parent) => void groupAs(name, parent)}
-        onUngroup={() => void ungroupSelected()}
-        onAcceptShared={() => shared && void addRefsTo(selectedRefs, shared)}
-        onClearSelection={clear}
-        defaultNewName={leafByRef.get(selectedRefs[0] ?? "")?.name}
-      />
-
-      {picker ? (
-        <GroupPicker
-          title={
-            picker.kind === "combine"
-              ? "Combinar con…"
-              : "Mover el grupo dentro de…"
+        {canEdit && grouping.available ? (
+          <MiltonSuggestions
+            clusters={milton.clusters}
+            preview={milton.preview}
+            onPreview={(c) => {
+              setFilter("sin_agrupar");
+              setQuery("");
+              milton.startPreview(c);
+            }}
+            onApply={(c, name) => void milton.apply(c, name)}
+            onDismiss={(c) => void milton.dismiss(c)}
+            onEndPreview={milton.endPreview}
+            onAskAi={() => void milton.askAi()}
+            aiBusy={milton.aiBusy}
+            canAskAi={milton.canAskAi}
+            restaurantTag={multi ? tagOf : undefined}
+          />
+        ) : null}
+        <GroupingToolbar
+          grouping={grouping}
+          filter={filter}
+          onFilter={setFilter}
+          counts={counts}
+          note={note}
+          selectedCount={canEdit ? selectedRefs.length : 0}
+          selectionSummary={money(selectedSales)}
+          sharedSuggestion={shared}
+          anySelectedGrouped={selectedRefs.some(
+            (r) => explicitRefs.has(r) || !ungroupedRefs.has(r)
+          )}
+          pickerOptions={pickerOptions}
+          parentOptions={parentOptions}
+          onAddToExisting={(t) => void addRefsTo(selectedRefs, t)}
+          onGroupAs={(name, parent) => void groupAs(name, parent)}
+          selectionNote={
+            multi &&
+            selectedRefs.length > 1 &&
+            restaurantOf(selectedRefs) === null
+              ? "La selección mezcla restaurantes (o productos de ambos): el grupo será compartido."
+              : null
           }
-          allowTop={picker.kind === "move"}
-          options={groupOptions.filter((o) => o.id !== picker.groupId)}
-          onCancel={() => setPicker(null)}
-          onPick={(id) => {
-            const p = picker;
-            setPicker(null);
-            if (p.kind === "combine" && id)
-              void grouping.run((s) => mergeGroups(s, [p.groupId, id]));
-            if (p.kind === "move")
-              void grouping.run((s) => moveGroup(s, p.groupId, id));
-          }}
+          duplicateHint={duplicates}
+          onDuplicateGroup={(name, refs) => void groupAs(name, null, refs)}
+          onUngroup={() => void ungroupSelected()}
+          onAcceptShared={() => shared && void addRefsTo(selectedRefs, shared)}
+          onClearSelection={clear}
+          defaultNewName={leafByRef.get(selectedRefs[0] ?? "")?.name}
         />
-      ) : null}
+
+        {picker ? (
+          <GroupPicker
+            title={
+              picker.kind === "combine"
+                ? "Combinar con…"
+                : "Mover el grupo dentro de…"
+            }
+            allowTop={picker.kind === "move"}
+            options={groupOptions.filter((o) => o.id !== picker.groupId)}
+            onCancel={() => setPicker(null)}
+            onPick={(id) => {
+              const p = picker;
+              setPicker(null);
+              if (p.kind === "combine" && id)
+                void grouping.run((s) => mergeGroups(s, [p.groupId, id]));
+              if (p.kind === "move")
+                void grouping.run((s) => moveGroup(s, p.groupId, id));
+            }}
+          />
+        ) : null}
+      </StickyPanel>
 
       <section className="rounded-[14px] border border-[#dbe3f7] bg-white px-3 py-1.5">
         <table className="w-full text-[13px]">
           <thead>
             <tr className="border-b border-[#dbe3f7] bg-[#f3f6fd] text-left text-[12px] font-semibold text-[#4a5a85]">
-              <th className="w-8" />
-              <SortTh sortKey="name" sort={sort} onSort={toggleSort}>
+              <th className={"w-8 " + STICKY_TH} />
+              <SortTh
+                className={"px-2 py-1.5 " + STICKY_TH}
+                sortKey="name"
+                sort={sort}
+                onSort={toggleSort}
+              >
                 {filter === "sin_agrupar" ? "Producto" : "Grupo / producto"}
               </SortTh>
               <SortTh
+                className={"px-2 py-1.5 " + STICKY_TH}
                 sortKey="sales"
                 sort={sort}
                 onSort={toggleSort}
@@ -578,6 +696,7 @@ export function ProductosView({
                 Ventas
               </SortTh>
               <SortTh
+                className={"px-2 py-1.5 " + STICKY_TH}
                 sortKey="margin"
                 sort={sort}
                 onSort={toggleSort}
@@ -586,6 +705,7 @@ export function ProductosView({
                 Margen
               </SortTh>
               <SortTh
+                className={"px-2 py-1.5 " + STICKY_TH}
                 sortKey="cost"
                 sort={sort}
                 onSort={toggleSort}
@@ -594,6 +714,7 @@ export function ProductosView({
                 Costo %
               </SortTh>
               <SortTh
+                className={"px-2 py-1.5 " + STICKY_TH}
                 sortKey="share"
                 sort={sort}
                 onSort={toggleSort}
@@ -601,10 +722,10 @@ export function ProductosView({
               >
                 % de ventas totales
               </SortTh>
-              <th className="px-2 py-1.5">
+              <th className={"px-2 py-1.5 " + STICKY_TH}>
                 {filter === "sin_agrupar" ? "Sugerencia" : ""}
               </th>
-              <th className="w-8" />
+              <th className={"w-8 " + STICKY_TH} />
             </tr>
           </thead>
           <tbody>
@@ -621,6 +742,7 @@ export function ProductosView({
                       canEdit={canEdit}
                       checked={selected.has(leaf.ref)}
                       onCheck={toggleSelect}
+                      tags={multi ? restaurantTags(leaf, tagOf) : null}
                       suggestion={
                         <SuggestionChip
                           targetName={suggestion?.target.name ?? null}
@@ -653,6 +775,8 @@ export function ProductosView({
                       onUngroup={onUngroupGroup}
                       onPicker={onPicker}
                       isDish={dishOfNode}
+                      tagOf={tagOf}
+                      multi={multi}
                       onDrill={onDrillNode}
                       onRecipe={onRecipeNode}
                     />
@@ -722,6 +846,8 @@ function NodeRows(props: {
   onUngroup: (id: string) => void;
   onPicker: (kind: "combine" | "move", groupId: string) => void;
   isDish: (node: TreeNode) => MenuDish | null;
+  tagOf: (id: string | null | undefined) => string | null;
+  multi: boolean;
   onDrill: (node: TreeNode) => void;
   onRecipe: (node: TreeNode) => void;
 }) {
@@ -736,6 +862,7 @@ function NodeRows(props: {
         canEdit={canEdit}
         checked={props.selected.has(node.leaf.ref)}
         onCheck={props.onCheck}
+        tags={props.multi ? restaurantTags(node.leaf, props.tagOf) : null}
       />
     );
   }
@@ -795,7 +922,21 @@ function NodeRows(props: {
               {isAuto ? " · plato del menú" : ""}
             </span>
             {node.group?.source === "ai_suggested" ? <MiltonMark /> : null}
-            <span className="ml-auto pl-3 font-normal">
+            {props.multi && node.group?.restaurant_id ? (
+              <RestaurantTag tag={props.tagOf(node.group.restaurant_id)} />
+            ) : null}
+            {canEdit && stored ? (
+              <button
+                type="button"
+                aria-label={`Renombrar ${node.name}`}
+                title="Renombrar"
+                onClick={() => props.onRenaming(node.id)}
+                className="rounded p-0.5 text-[#6b7a9e] opacity-0 hover:text-[#1b40c8] focus:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100"
+              >
+                <Pencil className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            ) : null}
+            <span className="pl-1 font-normal">
               <RowActions
                 onDrill={() => props.onDrill(node)}
                 onRecipe={
@@ -803,8 +944,6 @@ function NodeRows(props: {
                     ? () => props.onRecipe(node)
                     : undefined
                 }
-                onVariants={dish ? () => props.onToggle(node.id) : undefined}
-                variantsOpen={isOpen}
               />
             </span>
           </div>
@@ -846,8 +985,11 @@ const LeafRow = memo(function LeafRow({
   checked,
   onCheck,
   suggestion,
+  tags,
 }: {
   leaf: TreeLeaf;
+  /** "R1", "R2": which restaurant (Todos los restaurantes). */
+  tags?: string[] | null;
   depth: number;
   totalSales: number;
   money: (n: number) => string;
@@ -884,6 +1026,9 @@ const LeafRow = memo(function LeafRow({
       </td>
       <td className="px-2 py-2" style={{ paddingLeft: 8 + depth * 18 }}>
         {leaf.name}
+        {tags?.map((t) => (
+          <RestaurantTag key={t} tag={t} />
+        ))}
       </td>
       <td className="px-2 py-2 text-right tabular-nums">
         {money(leaf.net_sales)}
@@ -898,3 +1043,23 @@ const LeafRow = memo(function LeafRow({
     </tr>
   );
 });
+
+function restaurantTags(
+  leaf: TreeLeaf,
+  tagOf: (id: string | null | undefined) => string | null
+): string[] | null {
+  const tags = (leaf.restaurant_ids ?? [])
+    .map((id) => tagOf(id))
+    .filter((t): t is string => !!t);
+  return tags.length > 0 ? tags : null;
+}
+
+/** A small «R1» next to a name: identical names in two restaurants are two products. */
+function RestaurantTag({ tag }: { tag: string | null }) {
+  if (!tag) return null;
+  return (
+    <span className="ml-1.5 rounded bg-[#e6ecfb] px-1 py-px align-middle text-[11px] font-semibold text-[#1b40c8]">
+      {tag}
+    </span>
+  );
+}

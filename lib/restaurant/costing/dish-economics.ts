@@ -135,6 +135,8 @@ export interface DishEconomics {
    */
   row_key?: string;
   sales_scope?: SalesScope;
+  /** Restaurants the product sold in (R1-15h). */
+  sale_location_ids?: string[];
   /** The restaurant of the link that costs this row; null = the shared
    *  link (or none). */
   link_location_id?: string | null;
@@ -476,6 +478,8 @@ function dishFromProduct(
     lines: lines.map(lineEconomics),
     lines_missing_price: missing,
     link_location_id: link?.location_id ?? null,
+    sale_location_ids:
+      product.sales_scope?.sale_location_ids ?? product.sale_location_ids,
     ...(product.sales_scope
       ? {
           row_key: `${product.odoo_product_id}@${

@@ -8,10 +8,7 @@ export function workbookCostTolerance(excel: number): number {
   );
 }
 
-export function workbookVarianceAmount(
-  excel: number,
-  milton: number
-): number {
+export function workbookVarianceAmount(excel: number, milton: number): number {
   return milton - excel;
 }
 

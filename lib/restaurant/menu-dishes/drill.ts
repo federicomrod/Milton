@@ -12,14 +12,15 @@ import {
 } from "@/lib/restaurant/costing/rollup";
 import type { MenuDishVariant } from "./menu-dishes";
 
-export type DrillDimension = "size" | "side" | "point" | "channel";
+export type DrillDimension = "product" | "size" | "side" | "point" | "channel";
 
 export const DRILL_DIMENSIONS: ReadonlyArray<{
   id: DrillDimension;
   label: string;
-  /** The value of `item_groups.dimension` (migration 048). */
-  stored: "size" | "side" | "cooking_point" | "channel";
+  /** The value of `item_groups.dimension` (migration 048); null = not groupable (the product itself). */
+  stored: "size" | "side" | "cooking_point" | "channel" | null;
 }> = [
+  { id: "product", label: "Producto", stored: null },
   { id: "size", label: "Tamaño", stored: "size" },
   { id: "side", label: "Acompañante", stored: "side" },
   { id: "point", label: "Punto", stored: "cooking_point" },
@@ -27,6 +28,7 @@ export const DRILL_DIMENSIONS: ReadonlyArray<{
 ];
 
 const NONE_LABEL: Record<DrillDimension, string> = {
+  product: "Producto",
   size: "Sin tamaño",
   side: "Sin acompañante",
   point: "Sin punto",
@@ -39,6 +41,8 @@ export function dimensionValue(
   dim: DrillDimension
 ): string {
   switch (dim) {
+    case "product":
+      return v.name.trim() || "Sin nombre";
     case "size":
       return v.size !== null
         ? `${v.size} ${v.size_unit === "personas" ? "personas" : "oz"}`
@@ -55,6 +59,25 @@ export function dimensionValue(
 }
 
 /** One value, or the values of a group (a click on a grouped cell). */
+/**
+ * The dimensions that have real data for these rows, in display order. An
+ * empty dimension is not offered: drinks have no cooking point, a group of
+ * drinks no size. `product` (the rows themselves) is for groups of products.
+ */
+export function availableDimensions(
+  variants: readonly MenuDishVariant[],
+  opts: { product?: boolean } = {}
+): DrillDimension[] {
+  const out: DrillDimension[] = [];
+  if (opts.product && new Set(variants.map((v) => v.name)).size >= 2)
+    out.push("product");
+  if (variants.some((v) => v.size !== null)) out.push("size");
+  if (variants.some((v) => v.side?.trim())) out.push("side");
+  if (variants.some((v) => v.cooking_point?.trim())) out.push("point");
+  if (variants.some((v) => v.channel === "eventos")) out.push("channel");
+  return out;
+}
+
 export type DrillFilters = Partial<
   Record<DrillDimension, string | readonly string[]>
 >;
@@ -277,6 +300,7 @@ export function valueGroupsFor(
   menuDishId: string
 ): ValueGroup[] {
   const stored = DRILL_DIMENSIONS.find((d) => d.id === dim)!.stored;
+  if (!stored) return [];
   return groups
     .filter(
       (g) =>
@@ -297,4 +321,29 @@ export function valueGroupsFor(
           .map((m) => m.member_ref)
       ),
     }));
+}
+
+export interface ProfitRank {
+  /** Row ids of the most and the least profitable (never overlapping). */
+  best: Set<string>;
+  worst: Set<string>;
+}
+
+/**
+ * The top and bottom 3 by margin %, among rows that HAVE a cost. A row
+ * without a price ("Sin precio") is never ranked: it is not 0%. With few
+ * rows, fewer are marked (never more than half each, so they never overlap).
+ */
+export function profitRanking(
+  rows: ReadonlyArray<{ id: string; rollup: { margin_pct: number | null } }>
+): ProfitRank {
+  const ranked = rows
+    .filter((r) => r.rollup.margin_pct !== null)
+    .slice()
+    .sort((a, b) => b.rollup.margin_pct! - a.rollup.margin_pct!);
+  const n = Math.min(3, Math.floor(ranked.length / 2));
+  return {
+    best: new Set(ranked.slice(0, n).map((r) => r.id)),
+    worst: new Set(ranked.slice(ranked.length - n).map((r) => r.id)),
+  };
 }

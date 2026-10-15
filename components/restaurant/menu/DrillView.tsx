@@ -11,6 +11,8 @@ import { useMemo, useState } from "react";
 import {
   DRILL_DIMENSIONS,
   applyFilters,
+  availableDimensions,
+  profitRanking,
   crossTab,
   dimensionValues,
   drillRows,
@@ -78,7 +80,23 @@ export function DrillView({
   onBack: () => void;
   onOpenRecipe?: () => void;
 }) {
-  const [dim, setDim] = useState<DrillDimension>("side");
+  // Only the dimensions that have real data: drinks have no cooking point.
+  const isGroup = scopeId === null;
+  const available = useMemo(() => {
+    const a = availableDimensions(allVariants, { product: isGroup });
+    return a.length > 0
+      ? a
+      : availableDimensions(allVariants, { product: true });
+  }, [allVariants, isGroup]);
+  const [dimChoice, setDim] = useState<DrillDimension | null>(null);
+  const dim: DrillDimension =
+    dimChoice && available.includes(dimChoice)
+      ? dimChoice
+      : isGroup
+        ? available[0]
+        : (["side", "size", "point", "channel", "product"] as const).find((d) =>
+            available.includes(d)
+          )!;
   const [cross, setCross] = useState<DrillDimension | null>(null);
   const [choices, setChoices] = useState<
     Partial<Record<DrillDimension, FilterChoice>>
@@ -137,12 +155,16 @@ export function DrillView({
     cross && cross !== dim
       ? `${dimLabel(cross).toLowerCase()} × ${dimLabel(dim).toLowerCase()}`
       : `por ${dimLabel(dim).toLowerCase()}`,
-    Object.keys(choices).length === 0
-      ? "todos los tamaños"
-      : Object.values(choices)
-          .map((c) => c.label)
-          .join(" · "),
-  ].join(" · ");
+    Object.values(choices)
+      .map((c) => c.label)
+      .join(" · "),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const rank = useMemo(() => profitRanking(rows), [rows]);
+  const canGroupValues =
+    DRILL_DIMENSIONS.find((d) => d.id === dim)?.stored != null;
+  const labelOf = (id: string) => rows.find((r) => r.id === id)?.label ?? id;
 
   const miltonGroups = dimGroups.filter((g) => g.byMilton);
   const share = menuSales > 0 ? (total.net_sales / menuSales) * 100 : null;
@@ -183,7 +205,7 @@ export function DrillView({
           aria-label="Dimensión"
           className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold"
         >
-          {DRILL_DIMENSIONS.map((d) => (
+          {DRILL_DIMENSIONS.filter((d) => available.includes(d.id)).map((d) => (
             <button
               key={d.id}
               type="button"
@@ -216,7 +238,9 @@ export function DrillView({
             aria-label="Cruzar con"
           >
             <option value="">Ninguno</option>
-            {DRILL_DIMENSIONS.filter((d) => d.id !== dim).map((d) => (
+            {DRILL_DIMENSIONS.filter(
+              (d) => d.id !== dim && available.includes(d.id)
+            ).map((d) => (
               <option key={d.id} value={d.id}>
                 {d.label}
               </option>
@@ -224,7 +248,10 @@ export function DrillView({
           </select>
         </label>
         <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
-          {DRILL_DIMENSIONS.filter((d) => d.id !== dim).map((d) => (
+          {DRILL_DIMENSIONS.filter(
+            (d) =>
+              d.id !== dim && d.id !== "product" && available.includes(d.id)
+          ).map((d) => (
             <FilterChips
               key={d.id}
               label={d.label}
@@ -269,7 +296,7 @@ export function DrillView({
               ✦ {g.name} agrupado por Milton
             </span>
           ))}
-          {canEdit ? (
+          {canEdit && canGroupValues ? (
             <button
               type="button"
               onClick={() => setEditing(true)}
@@ -287,14 +314,28 @@ export function DrillView({
         ) : (
           <>
             <StackedBar rows={rows} />
+            {rank.best.size > 0 ? (
+              <p
+                className="mt-2 text-[12px] text-[#4a5a85]"
+                data-testid="profit-rank"
+              >
+                <b className="text-[#15803d]">Más rentables:</b>{" "}
+                {[...rank.best].map(labelOf).join(", ")} ·{" "}
+                <b className="text-[#c2410c]">Menos rentables:</b>{" "}
+                {[...rank.worst].map(labelOf).join(", ")}
+              </p>
+            ) : null}
             <table className="mt-3 w-full text-[13px]">
               <thead>
                 <tr className="text-left text-[12px] font-semibold text-[#8a92a3]">
                   <th className="px-2 py-1.5">{dimLabel(dim)}</th>
                   <th className="px-2 py-1.5 text-right">Unidades</th>
                   <th className="px-2 py-1.5 text-right">Ventas</th>
-                  <th className="px-2 py-1.5 text-right">% del plato</th>
+                  <th className="px-2 py-1.5 text-right">
+                    {isGroup ? "% del grupo" : "% del plato"}
+                  </th>
                   <th className="px-2 py-1.5 text-right">Margen</th>
+                  <th className="px-2 py-1.5 text-right">Costo %</th>
                 </tr>
               </thead>
               <tbody>
@@ -304,6 +345,13 @@ export function DrillView({
                     row={row}
                     color={COLORS[i % COLORS.length]}
                     open={openGroups.has(row.id)}
+                    badge={
+                      rank.best.has(row.id)
+                        ? "best"
+                        : rank.worst.has(row.id)
+                          ? "worst"
+                          : null
+                    }
                     onToggle={() =>
                       setOpenGroups((prev) => {
                         const next = new Set(prev);
@@ -326,6 +374,9 @@ export function DrillView({
                   <td className="px-2 py-2 text-right tabular-nums">100%</td>
                   <td className="px-2 py-2 text-right tabular-nums">
                     {marginLabel(total)}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {costPctLabel(total)}
                   </td>
                 </tr>
               </tbody>
@@ -485,12 +536,14 @@ function Rows({
   row,
   color,
   open,
+  badge,
   onToggle,
   money,
 }: {
   row: DrillRow;
   color: string;
   open: boolean;
+  badge: "best" | "worst" | null;
   onToggle: () => void;
   money: (n: number) => string;
 }) {
@@ -507,11 +560,23 @@ function Rows({
       <td className="px-2 py-2 text-right tabular-nums">
         {marginLabel(r.rollup)}
       </td>
+      <td className="px-2 py-2 text-right tabular-nums">
+        {costPctLabel(r.rollup)}
+      </td>
     </>
   );
   return (
     <>
-      <tr className="border-t border-[#f2f3f6] font-semibold">
+      <tr
+        className={
+          "border-t border-[#f2f3f6] font-semibold " +
+          (badge === "best"
+            ? "bg-[#f1faf4]"
+            : badge === "worst"
+              ? "bg-[#fff6f0]"
+              : "")
+        }
+      >
         <td className="px-2 py-2">
           {isGroup ? (
             <button
@@ -530,6 +595,18 @@ function Rows({
             style={{ background: color }}
           />
           {row.label}
+          {badge ? (
+            <span
+              className={
+                "ml-2 rounded-md px-1.5 py-0.5 text-[11px] font-semibold " +
+                (badge === "best"
+                  ? "bg-[#dcf3e4] text-[#15803d]"
+                  : "bg-[#fde6d8] text-[#c2410c]")
+              }
+            >
+              {badge === "best" ? "Más rentable" : "Menos rentable"}
+            </span>
+          ) : null}
           {isGroup ? (
             <span className="ml-2 rounded-md bg-[#f1f3f7] px-1.5 py-0.5 text-[12px] font-semibold text-[#5b6476]">
               {row.members.length}{" "}

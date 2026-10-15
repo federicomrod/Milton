@@ -364,7 +364,7 @@ export function DuplicatesBanner({
   const byId = new Map(q.candidates.map((c) => [c.id, c]));
   return (
     <section
-      className="space-y-3 rounded-[14px] border border-[#dbe3f7] bg-[#f6f8fe] px-4 py-3"
+      className="space-y-2 rounded-[14px] border border-[#dbe3f7] bg-[#f6f8fe] px-4 py-2.5"
       data-testid="duplicates-banner"
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -429,14 +429,15 @@ export function DuplicatesBanner({
                   type="button"
                   onClick={() => q.setSurvivor(id)}
                   aria-pressed={keep}
+                  title={c.name}
                   className={
-                    "min-w-[200px] rounded-xl border-2 bg-white px-3 py-2 text-left " +
+                    "min-w-0 max-w-[280px] flex-1 basis-[180px] rounded-xl border-2 bg-white px-3 py-1.5 text-left " +
                     (keep
                       ? "border-[#1b40c8]"
                       : "border-[#e1e8fa] hover:border-[#a9bcf0]")
                   }
                 >
-                  <span className="block text-[13px] font-bold text-[#151c2c]">
+                  <span className="line-clamp-2 break-words text-[13px] font-bold text-[#151c2c]">
                     {c.name}
                     {keep ? (
                       <span className="ml-2 rounded bg-[#dcf3e4] px-1.5 py-0.5 text-[12px] font-semibold text-[#15803d]">
@@ -457,7 +458,7 @@ export function DuplicatesBanner({
             })}
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[13px]">
-            <span>
+            <span className="min-w-0 break-words">
               Unir en <b>{byId.get(q.survivorId)?.name}</b> ·{" "}
               {q.plan.linesReassigned}{" "}
               {q.plan.linesReassigned === 1

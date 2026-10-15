@@ -152,3 +152,27 @@ for the items in no group.
 - **Desglose of a group:** default dimension *Producto* (sales by member, stacked bar, table with sales, % of
   group, margin, Costo %), top/bottom 3 by margin marked «Más rentable» / «Menos rentable»; "Sin precio" is never
   ranked. Only dimensions with real data are offered (drinks show no Tamaño/Punto/Acompañante; Canal only with events).
+
+## Limpieza de ingredientes, part 1 — En uso / Sin uso / Archivar (migration 050)
+
+**Migration `050_ingredient_archive.sql` (needed only for Archivar).** One nullable column
+`ingredients.archived_at` plus a partial index. Nothing dropped, renamed or backfilled; existing RLS already
+covers the UPDATE. Until it is applied En uso / Sin uso work (computed from the recipes) and Archivar says the
+migration is missing. Read-only check after applying:
+
+```sql
+select count(*) filter (where archived_at is not null) as archived, count(*) as total
+from public.ingredients where company_id = '<company uuid>';
+```
+
+Rules (`lib/restaurant/ingredient-usage.ts`, pure, tested):
+- **En uso** = an active recipe line references it: a dish's newest non-archived recipe version (approved or
+  still in review), or a preparation that an active dish uses, directly or nested through other preparations.
+  Superseded versions and preparations nobody uses do not count.
+- Filter **En uso (default) / Sin uso / Todos**, independent of Todos / Agrupados / Sin agrupar (AND).
+- **Falta precio** counts only ingredients that are in use; an unused ingredient shows «Sin uso» and never asks
+  for a price. A confirmed $0 is a price; missing is never $0.
+- **Archivar** (one, or «Archivar sin uso (N)») is a soft hide, never a delete; the server re-checks usage from
+  the recipes and refuses an ingredient that is in use. An archived ingredient that a recipe uses again is simply
+  in use (comes back by itself); «Restaurar» undoes it by hand.
+- If the recipes cannot be read, nothing is hidden (everything counts as in use) and nothing is archived.

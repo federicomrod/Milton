@@ -12,6 +12,8 @@ import {
 } from "@/lib/restaurant/auth-user";
 import { fetchIngredientLatestCosts } from "@/lib/restaurant/menu-recipes-server";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
+import { loadIngredientUsage } from "@/lib/restaurant/ingredient-usage-server";
+import { usageState } from "@/lib/restaurant/ingredient-usage";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
 import { dishesUsingIngredient } from "@/lib/restaurant/costing/dish-economics";
 import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
@@ -31,6 +33,7 @@ type LoadResult =
       suppliers: SupplierOption[];
       currency: string;
       itemGroups: ItemGroupsLoad | null;
+      archiveAvailable: boolean;
     }
   | { kind: "no-company" };
 
@@ -43,17 +46,19 @@ async function loadIngredientes(
   if (!companyId) return { kind: "no-company" };
   const supabase = await createClient();
 
-  const [ingredients, suppliersRes, currency, economics] = await Promise.all([
-    fetchIngredientLatestCosts(supabase, companyId),
-    supabase
-      .from("suppliers")
-      .select("id, name")
-      .eq("company_id", companyId)
-      .eq("status", "active")
-      .order("name", { ascending: true }),
-    resolveCompanyCurrency(supabase, companyId),
-    loadDishEconomics(companyId, null, null, locationId),
-  ]);
+  const [ingredients, suppliersRes, currency, economics, usage] =
+    await Promise.all([
+      fetchIngredientLatestCosts(supabase, companyId),
+      supabase
+        .from("suppliers")
+        .select("id, name")
+        .eq("company_id", companyId)
+        .eq("status", "active")
+        .order("name", { ascending: true }),
+      resolveCompanyCurrency(supabase, companyId),
+      loadDishEconomics(companyId, null, null, locationId),
+      loadIngredientUsage(supabase, companyId),
+    ]);
   if (!economics.ok) {
     console.error("[menu/ingredientes] dish economics:", economics.error);
   }
@@ -84,6 +89,10 @@ async function loadIngredientes(
       source: ing.latest?.source ?? null,
       supplier_id: ing.latest?.supplier_id ?? null,
       supplier_name: ing.latest?.supplier_name ?? null,
+      // Usage unknown (recipes unreadable): everything counts as in use, nothing is hidden.
+      ...(usage.ok
+        ? usageState(ing.id, usage, usage.archivedIds)
+        : { inUse: true, archived: false }),
       sold_net_sales: uses
         .filter((u) => u.units_sold > 0)
         .reduce((sum, u) => sum + u.net_sales, 0),
@@ -100,6 +109,7 @@ async function loadIngredientes(
     items,
     suppliers,
     currency: currency || "USD",
+    archiveAvailable: usage.archiveAvailable,
     itemGroups: economics.ok ? (economics.result.item_groups ?? null) : null,
   };
 }
@@ -128,6 +138,7 @@ export default async function IngredientesRoute({
       suppliers={result.suppliers}
       currency={result.currency}
       itemGroups={result.itemGroups}
+      archiveAvailable={result.archiveAvailable}
       initialSelectedId={params.ingrediente ?? null}
       initialFilter={parseIngredientesFilter(params.filtro)}
     />

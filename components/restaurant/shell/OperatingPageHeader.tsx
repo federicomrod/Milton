@@ -26,6 +26,7 @@ export function OperatingPageHeader({
   isAdmin,
   trailing,
   titleAction,
+  hideAskButton = false,
 }: {
   title: string;
   lang?: PreferredLanguage;
@@ -38,6 +39,8 @@ export function OperatingPageHeader({
   trailing?: ReactNode;
   /** The screen's one primary action, right next to the title. */
   titleAction?: ReactNode;
+  /** A page that renders its OWN contextual «Preguntar a Milton» (in `trailing`) hides this one: never two. */
+  hideAskButton?: boolean;
 }) {
   const chrome = useRestaurantShellChrome();
   const resolvedLang = lang ?? chrome.lang;
@@ -66,7 +69,7 @@ export function OperatingPageHeader({
           <SyncNowButton lang={resolvedLang} isAdmin={resolvedAdmin} />
         </Suspense>
         {trailing}
-        <AskMiltonHeaderButton lang={resolvedLang} />
+        {hideAskButton ? null : <AskMiltonHeaderButton lang={resolvedLang} />}
       </div>
     </header>
   );

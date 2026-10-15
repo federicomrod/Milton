@@ -307,3 +307,100 @@ export function toTargetRow(raw: Record<string, unknown>): TargetRow | null {
     weekday_weights: parseWeights(raw.weekday_weights),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Why a goal is not drawn
+// ---------------------------------------------------------------------------
+
+export type TargetGap =
+  | { reason: "starts_later"; from: string }
+  | { reason: "company_only" }
+  | { reason: "none" };
+
+/**
+ * Targets exist but none applies to the days on screen: say WHY instead of
+ * showing nothing. Either they start after the days shown (the POS data is
+ * older than the goal), or the sales goal is company-wide and a single
+ * restaurant is in view (a company goal is not split per restaurant).
+ */
+export function explainMissingSalesTarget(
+  rows: readonly TargetRow[],
+  scope: TargetScope,
+  days: readonly string[]
+): TargetGap | null {
+  const revenue = rows.filter((r) => r.metric_key === "revenue" && r.is_active);
+  if (revenue.length === 0) return { reason: "none" };
+  if (days.some((d) => dailySalesTarget(rows, d, scope) !== null)) return null;
+  const mine = scope.locationId
+    ? revenue.filter((r) => r.location_id === scope.locationId)
+    : revenue.filter((r) => r.location_id === null);
+  if (
+    scope.locationId &&
+    mine.length === 0 &&
+    revenue.some((r) => r.location_id === null)
+  ) {
+    return { reason: "company_only" };
+  }
+  const first = mine.map((r) => r.effective_from).sort()[0];
+  if (first && days.length > 0 && first > days[days.length - 1]) {
+    return { reason: "starts_later", from: first };
+  }
+  return { reason: "none" };
+}
+
+// ---------------------------------------------------------------------------
+// «Vigente desde»
+// ---------------------------------------------------------------------------
+
+export interface StartOption {
+  value: string;
+  label: string;
+}
+
+const MONTHS_ES = [
+  "ene",
+  "feb",
+  "mar",
+  "abr",
+  "may",
+  "jun",
+  "jul",
+  "ago",
+  "sep",
+  "oct",
+  "nov",
+  "dic",
+];
+const monthYear = (ymd: string) =>
+  `${MONTHS_ES[Number(ymd.slice(5, 7)) - 1]} ${ymd.slice(0, 4)}`;
+
+/**
+ * The starts a person can choose when saving goals. The first is the default:
+ * the month of the latest sales (never later than this month), so the goal
+ * applies to the days the Cockpit is showing even when the POS data is older
+ * than today. Earlier months keep the goal they had.
+ */
+export function buildStartOptions(input: {
+  today: string;
+  refDay: string | null;
+  firstDay: string | null;
+}): StartOption[] {
+  const thisMonth = monthStartOf(input.today);
+  const latest = input.refDay
+    ? monthStartOf(input.refDay <= input.today ? input.refDay : input.today)
+    : thisMonth;
+  const out: StartOption[] = [];
+  const add = (value: string, label: string) => {
+    if (!out.some((o) => o.value === value)) out.push({ value, label });
+  };
+  add(latest, `1 ${monthYear(latest)} · el mes de tus ventas más recientes`);
+  if (thisMonth !== latest)
+    add(thisMonth, `1 ${monthYear(thisMonth)} · este mes`);
+  if (input.firstDay) {
+    const first = monthStartOf(input.firstDay);
+    if (first !== latest)
+      add(first, `1 ${monthYear(first)} · desde tu primer mes de datos`);
+  }
+  add(LEGACY_FROM, "Desde siempre · todo el historial");
+  return out;
+}

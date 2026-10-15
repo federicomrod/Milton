@@ -11,6 +11,7 @@ import {
   CockpitV2,
   type CockpitV2Props,
 } from "@/components/restaurant/cockpit/v2/CockpitV2";
+import { WeekdayCostChart } from "@/components/restaurant/cockpit/v2/charts";
 import { eachDay } from "@/lib/restaurant/cockpit-math";
 
 const REF = "2026-10-14";
@@ -100,5 +101,60 @@ describe("CockpitV2", () => {
     const html = draw({ daily: [], firstDay: null });
     expect(html).toContain("Aún no hay ventas para mostrar");
     expect(html).not.toContain("Venta promedio diaria");
+  });
+});
+
+describe("goals that exist but do not reach these days (R1-16c)", () => {
+  const later = (metric: string, value: number) =>
+    ({
+      ...(target(metric, value) as object),
+      effective_from: "2026-12-01",
+    }) as never;
+  it("says why there is no line and offers «Ajusta tus objetivos», not «Definir»", () => {
+    const html = draw({ targets: [later("revenue", 31000)] });
+    expect(html).toContain("Tus objetivos empiezan el 1 dic 2026");
+    expect(html).toContain("Ajusta tus objetivos");
+    expect(html).not.toContain("Definir objetivos");
+  });
+  it("with a goal that applies: the chip shows and the button says «Ajusta tus objetivos»", () => {
+    const html = draw({ targets: [target("revenue", 31000)] });
+    expect(html).toContain("vs objetivo");
+    expect(html).toContain("Ajusta tus objetivos");
+  });
+  it("a company-wide sales goal is not split for one restaurant, and says so", () => {
+    const html = draw({
+      targets: [target("revenue", 31000)],
+      locationId: "r1",
+    });
+    expect(html).toContain("para todos los restaurantes");
+  });
+  it("the food cost per day bars have a height to grow in (percent heights need a sized parent)", () => {
+    const days = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
+      weekday,
+      food_cost_pct: 30 + weekday,
+      coverage_pct: 80,
+      above: null,
+    }));
+    const html = renderToString(
+      createElement(WeekdayCostChart, { days, target: 32, loading: false })
+    );
+    expect(html).toContain("flex h-full flex-1 items-end");
+    expect(html).toContain("height:");
+  });
+  it("with no costed day it says why instead of drawing empty weekday labels", () => {
+    const days = [0, 1, 2].map((weekday) => ({
+      weekday,
+      food_cost_pct: null,
+      coverage_pct: null,
+      above: null,
+    }));
+    const html = renderToString(
+      createElement(WeekdayCostChart, {
+        days: days as never,
+        target: null,
+        loading: false,
+      })
+    );
+    expect(html).toContain("Sin precio");
   });
 });

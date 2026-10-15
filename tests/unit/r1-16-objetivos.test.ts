@@ -290,3 +290,31 @@ describe("the reference column is real data or nothing", () => {
     expect(r.ticket30).toBeNull();
   });
 });
+
+import { explainMissingSalesTarget } from "@/lib/restaurant/objetivos";
+
+describe("why a goal is not drawn", () => {
+  const julyDays = eachDay("2026-07-01", "2026-07-31");
+  it("a goal that starts after the days shown says when it starts", () => {
+    const g = explainMissingSalesTarget(
+      [row({ effective_from: "2026-10-01" })],
+      all,
+      julyDays
+    );
+    expect(g).toEqual({ reason: "starts_later", from: "2026-10-01" });
+  });
+  it("a company-wide sales goal is not drawn for one restaurant, and says so", () => {
+    const g = explainMissingSalesTarget(
+      [row()],
+      { locationId: "r1", restaurantIds: ["r1", "r2"] },
+      julyDays
+    );
+    expect(g).toEqual({ reason: "company_only" });
+  });
+  it("no goals at all → none; a goal that applies → nothing to explain", () => {
+    expect(explainMissingSalesTarget([], all, julyDays)).toEqual({
+      reason: "none",
+    });
+    expect(explainMissingSalesTarget([row()], all, julyDays)).toBeNull();
+  });
+});

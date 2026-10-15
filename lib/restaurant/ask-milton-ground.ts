@@ -94,6 +94,20 @@ export function groundAskMiltonAnswer(
   intent: AskMiltonIntent,
   resolved: ResolvedEntities
 ): { answer: AskMiltonAnswer; replaced: boolean } {
+  if (intent === "expensive_ingredients") {
+    // R1-16c: when real prices exist the answer must be built on them. A
+    // model answer that names none of the top ingredients (e.g. "no tengo
+    // datos") is replaced by the deterministic ranking.
+    const top = ctx.ingredient_prices.top_by_unit_cost.slice(0, 3);
+    if (top.length === 0) return { answer: aiAnswer, replaced: false };
+    const text = fold(aiAnswer.answer);
+    const names = top.some((i) => text.includes(fold(i.name)));
+    if (names) return { answer: aiAnswer, replaced: false };
+    return {
+      answer: buildDeterministicAnswer(ctx, message, intent, resolved),
+      replaced: true,
+    };
+  }
   if (intent !== "best_sales_day") {
     return { answer: aiAnswer, replaced: false };
   }

@@ -1,3 +1,4 @@
+import { EMPTY_INGREDIENT_PRICES } from "@/lib/restaurant/ask-milton-catalog";
 import { describe, it, expect } from "vitest";
 import {
   buildDeterministicAnswer,
@@ -84,6 +85,9 @@ function contextFixture(
       ],
       least_profitable_items: [],
     },
+    ingredient_prices: EMPTY_INGREDIENT_PRICES,
+    menu_dishes: null,
+    item_groups: [],
     ingredient_usage: [],
     expensive_ingredients: [],
     suppliers: { total: 0, top: [], missing_metadata: [] },

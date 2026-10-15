@@ -604,7 +604,6 @@ export function ProductosView({
             onAskAi={() => void milton.askAi()}
             aiBusy={milton.aiBusy}
             canAskAi={milton.canAskAi}
-            restaurantTag={multi ? tagOf : undefined}
           />
         ) : null}
         <GroupingToolbar

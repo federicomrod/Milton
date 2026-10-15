@@ -20,7 +20,7 @@ import { ConfirmHowDialog } from "./ConfirmHowDialog";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
 import { Card, Chip, GhostBtn } from "./ui";
 import {
-  GroupedItemList,
+  useGroupedItemList,
   type SortColumn,
 } from "@/components/restaurant/groups/GroupedItemList";
 import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
@@ -219,114 +219,129 @@ export function PreparacionesScreen({
     );
   }, []);
 
-  return (
-    <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-[330px_1fr]">
-      <Card className="p-3">
-        {onBackToDish ? (
-          <button
-            type="button"
-            onClick={onBackToDish}
-            className="mb-2 text-[12px] font-semibold text-[#3557c9]"
-          >
-            ← Volver al plato
-          </button>
-        ) : null}
-        <h2
-          className="mb-2 text-[15px] font-semibold"
-          title="Un plato que usa una preparación queda pendiente hasta que la apruebes. Empieza por las que desbloquean más ventas."
-        >
-          Preparaciones de tu cocina
-        </h2>
-        {approveError ? (
-          <p className="mb-2 rounded-md border border-[#f1c0c0] bg-[#fdecec] px-2 py-1 text-xs text-[#c03535]">
-            {approveError}
-          </p>
-        ) : null}
-        {error ? (
-          <p className="text-xs text-[#c03535]">{error}</p>
-        ) : !overview ? (
-          <p className="text-xs text-[#5b6476]">Cargando…</p>
-        ) : (
-          <>
-            <div className="mb-2 flex gap-2 text-[12px]">
-              <Chip tone="warn">{overview.drafts} por aprobar</Chip>
-              <Chip tone="ok">{overview.approved} aprobadas</Chip>
-            </div>
-            {overview.rows.length === 0 ? (
-              <p className="text-xs text-[#5b6476]">
-                Todavía no hay preparaciones. Se crean al subir tu Excel de
-                costos, o desde un plato con «Crear preparación».
-              </p>
-            ) : (
-              <div className="max-h-[60vh] overflow-auto">
-                <GroupedItemList
-                  items={overview.rows.map((r) => ({
-                    ...r,
-                    id: r.component_id,
-                  }))}
-                  scope="preparation"
-                  grouping={grouping}
-                  canEdit={data.actor.can_submit}
-                  storageKey="milton:preparaciones:abiertos"
-                  sortId="preparaciones"
-                  sortColumns={PREPARATION_SORT}
-                  searchPlaceholder="Buscar preparación o grupo…"
-                  emptyText="No hay preparaciones con ese filtro."
-                  renderRow={(row) => (
-                    <button
-                      type="button"
-                      onClick={() => onSelect(row.component_id)}
-                      onMouseEnter={() => prefetchOnIntent(row.component_id)}
-                      onFocus={() => prefetchOnIntent(row.component_id)}
-                      className={
-                        "block w-full border-b border-slate-100 px-2 py-1.5 text-left text-xs last:border-b-0 hover:bg-slate-50 " +
-                        (selectedId === row.component_id ? "bg-[#f4f6fb]" : "")
-                      }
-                    >
-                      <div className="flex items-center gap-2">
-                        <b className="flex-1">{row.name}</b>
-                        <Chip tone={STATUS[row.status].tone}>
-                          {STATUS[row.status].label}
-                        </Chip>
-                      </div>
-                      <div className="text-[12px] text-[#5b6476]">
-                        {row.impact_label}
-                        {row.yield_to_confirm
-                          ? " · rendimiento por confirmar"
-                          : ""}
-                      </div>
-                    </button>
-                  )}
-                />
-              </div>
-            )}
-          </>
-        )}
-      </Card>
+  // The toolbar spans the full width above the list and the detail; the list
+  // column keeps only the rows.
+  const rows = (overview?.rows ?? []).map((r) => ({
+    ...r,
+    id: r.component_id,
+  }));
+  const { toolbar, list } = useGroupedItemList({
+    items: rows,
+    scope: "preparation",
+    grouping,
+    canEdit: data.actor.can_submit,
+    storageKey: "milton:preparaciones:abiertos",
+    sortId: "preparaciones",
+    sortColumns: PREPARATION_SORT,
+    searchPlaceholder: "Buscar preparación o grupo…",
+    emptyText: "No hay preparaciones con ese filtro.",
+    filters: overview ? (
+      <div className="flex gap-2 text-[12px]">
+        <Chip tone="warn">{overview.drafts} por aprobar</Chip>
+        <Chip tone="ok">{overview.approved} aprobadas</Chip>
+      </div>
+    ) : null,
+    renderRow: (row) => (
+      <button
+        type="button"
+        onClick={() => onSelect(row.component_id)}
+        onMouseEnter={() => prefetchOnIntent(row.component_id)}
+        onFocus={() => prefetchOnIntent(row.component_id)}
+        title={row.name}
+        className={
+          "block w-full border-b border-slate-100 px-2 py-1.5 text-left text-xs last:border-b-0 hover:bg-slate-50 " +
+          (selectedId === row.component_id ? "bg-[#f4f6fb]" : "")
+        }
+      >
+        <div className="flex items-start gap-2">
+          <b className="line-clamp-2 min-w-0 flex-1 break-words">{row.name}</b>
+          <Chip tone={STATUS[row.status].tone}>{STATUS[row.status].label}</Chip>
+        </div>
+        <div className="text-[12px] text-[#5b6476]">
+          {row.impact_label}
+          {row.yield_to_confirm ? " · rendimiento por confirmar" : ""}
+        </div>
+      </button>
+    ),
+  });
 
-      {selectedId ? (
-        <PreparationDetail
-          key={selectedId}
-          componentId={selectedId}
-          actor={data.actor}
-          onChanged={refresh}
-          onOpen={onSelect}
-          name={overview?.rows.find((r) => r.component_id === selectedId)?.name}
-          onApproveStart={(id) => {
-            setApproveError(null);
-            markApproved(id, true);
-          }}
-          onApproveFailed={(id, message) => {
-            markApproved(id, false);
-            setApproveError(message);
-          }}
-        />
-      ) : (
-        <Card className="p-4 text-sm text-[#5b6476]">
-          Elige una preparación para revisar sus ingredientes, confirmar cuánto
-          rinde y aprobarla.
+  return (
+    <div className="space-y-3">
+      {overview && overview.rows.length > 0 ? (
+        <div
+          data-testid="menu-toolbar"
+          className="space-y-2 rounded-[14px] border border-[#eef0f4] bg-white p-3"
+        >
+          {toolbar}
+        </div>
+      ) : null}
+      <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
+        <Card className="min-w-0 p-3">
+          {onBackToDish ? (
+            <button
+              type="button"
+              onClick={onBackToDish}
+              className="mb-2 text-[12px] font-semibold text-[#3557c9]"
+            >
+              ← Volver al plato
+            </button>
+          ) : null}
+          <h2
+            className="mb-2 text-[15px] font-semibold"
+            title="Un plato que usa una preparación queda pendiente hasta que la apruebes. Empieza por las que desbloquean más ventas."
+          >
+            Preparaciones de tu cocina
+          </h2>
+          {approveError ? (
+            <p className="mb-2 rounded-md border border-[#f1c0c0] bg-[#fdecec] px-2 py-1 text-xs text-[#c03535]">
+              {approveError}
+            </p>
+          ) : null}
+          {error ? (
+            <p className="text-xs text-[#c03535]">{error}</p>
+          ) : !overview ? (
+            <p className="text-xs text-[#5b6476]">Cargando…</p>
+          ) : overview.rows.length === 0 ? (
+            <p className="text-xs text-[#5b6476]">
+              Todavía no hay preparaciones. Se crean al subir tu Excel de
+              costos, o desde un plato con «Crear preparación».
+            </p>
+          ) : (
+            <div
+              data-testid="list-column"
+              className="max-h-[calc(100vh-260px)] min-h-[200px] overflow-y-auto"
+            >
+              {list}
+            </div>
+          )}
         </Card>
-      )}
+
+        {selectedId ? (
+          <PreparationDetail
+            key={selectedId}
+            componentId={selectedId}
+            actor={data.actor}
+            onChanged={refresh}
+            onOpen={onSelect}
+            name={
+              overview?.rows.find((r) => r.component_id === selectedId)?.name
+            }
+            onApproveStart={(id) => {
+              setApproveError(null);
+              markApproved(id, true);
+            }}
+            onApproveFailed={(id, message) => {
+              markApproved(id, false);
+              setApproveError(message);
+            }}
+          />
+        ) : (
+          <Card className="p-4 text-sm text-[#5b6476]">
+            Elige una preparación para revisar sus ingredientes, confirmar
+            cuánto rinde y aprobarla.
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

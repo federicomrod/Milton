@@ -1,324 +1,294 @@
 "use client";
 
-// Menú › Resumen (R1-09b, B3–B13): the "Configura tu menú · n de 4"
-// checklist (gone once complete), 4 big KPIs and the dish table with its
-// Estado, all from the shared dish-economics loader. Undo and "Empezar
-// de nuevo" live in the "⋯" menu; help lives in tooltips.
+// Menú › Resumen (R1-18): the menu's cockpit on one page. Four KPIs, Top
+// platos por ventas, Mejor / Peor margen and a compact Pendientes panel.
+// Setup (Excel de costos, recetas importadas, Costos por decidir) lives at the
+// top of Costos now. Like Cockpit v2 it reads ONE dataset after paint
+// (lib/restaurant/menu-resumen.ts) and recomputes range and rankings in the
+// browser: no navigation, no spinner. Nothing here is a made-up number: a
+// missing price is «Sin precio» / «margen —», never $0 or 0%.
 
 import Link from "next/link";
-import { useState } from "react";
-import { MoreHorizontal } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { useMemo, useState } from "react";
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
-import type {
-  MenuSummary,
-  SetupStep,
-  ToResolveRow,
+import {
+  computeResumen,
+  monthLabel,
+  resumenRange,
+  type DishRow,
+  type ResumenPeriod,
+  type ResumenView,
+} from "@/lib/restaurant/menu-resumen";
+import {
+  RANKING_INCLUDES_ESTIMATED,
+  type RankedDish,
 } from "@/lib/restaurant/costing/menu-summary";
 import {
   dishHref,
   ingredientesHref,
   platosHref,
 } from "@/lib/restaurant/menu-links";
+import { COSTS_HREF } from "@/lib/restaurant/navigation";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
-import { MenuReaderPanel } from "./MenuReaderPanel";
-import { PriceCatalogPanel } from "./PriceCatalogPanel";
-import { ResetPanel } from "./ResetPanel";
-import { Chip } from "./ui";
+import { useResumenData } from "./use-resumen-data";
+
+const BLUE = "#1b40c8";
+const pctOf = (n: number, digits = 1) => `${(n * 100).toFixed(digits)}%`;
+
+function IaChip() {
+  return (
+    <span
+      title="Costo estimado por IA: revísalo en Platos"
+      className="ml-1 rounded-md bg-[#f2ecff] px-1 py-px text-[10px] font-bold text-[#6b3fc9]"
+    >
+      IA
+    </span>
+  );
+}
 
 export function ResumenScreen({
   data,
-  onUndoBatch,
-  onUploaded,
-  generateBusy,
   locationId,
-  onResetDone,
-  epoch,
 }: {
   data: RecipeCostingWorkspace;
-  /** Undo every batch of one file (newest first). */
-  onUndoBatch: (batchIds: string[]) => void;
-  /** After "Subir Excel de costos": prepare the dishes from that file. */
-  onUploaded: () => void;
-  generateBusy: boolean;
   locationId: string | null;
-  /** After an import or "Empezar de nuevo": reload every panel. */
-  onResetDone: () => void;
-  /** Changes on "Empezar de nuevo" so the upload panels start empty. */
-  epoch: number;
 }) {
+  const { data: days, failed, retry } = useResumenData(locationId);
+  const [period, setPeriod] = useState<ResumenPeriod>("month");
+  const [now] = useState(() => Date.now());
+  const view = useMemo(
+    () =>
+      days && days.last_day
+        ? computeResumen(days, resumenRange(period, days.last_day), {
+            includeEstimatedInRanking: RANKING_INCLUDES_ESTIMATED,
+          })
+        : null,
+    [days, period]
+  );
   const summary = data.menu_summary;
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [resetOpen, setResetOpen] = useState(false);
-  const money = (n: number) => formatMoneyEs(n, data.currency);
-
   if (!summary) return null;
-  const { setup } = summary;
-  const showUpload =
-    uploadOpen || data.upload_draft_pending || setup.next?.id === "excel";
-  const more = (
-    <MoreMenu
-      data={data}
-      onUndoBatch={onUndoBatch}
-      onReset={() => setResetOpen(true)}
+  if (failed)
+    return (
+      <div
+        role="alert"
+        className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-6 text-[13px]"
+      >
+        <p className="text-[#c03535]">No pude cargar el resumen del menú.</p>
+        <button
+          type="button"
+          onClick={retry}
+          className="mt-2 rounded-lg bg-[#1b40c8] px-3 py-1.5 text-[12.5px] font-semibold text-white"
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  return (
+    <ResumenCockpit
+      view={view}
+      currency={data.currency}
+      period={period}
+      onPeriod={setPeriod}
+      monthText={days?.last_day ? monthLabel(days.last_day) : "Mes"}
+      missingPriceIngredients={summary.missing_price_ingredients}
+      latestUpload={data.latest_upload}
+      now={now}
     />
   );
+}
 
+export function ResumenCockpit({
+  view,
+  currency,
+  period,
+  onPeriod,
+  monthText,
+  missingPriceIngredients,
+  latestUpload,
+  now,
+}: {
+  view: ResumenView | null;
+  currency: string;
+  period: ResumenPeriod;
+  onPeriod: (p: ResumenPeriod) => void;
+  monthText: string;
+  missingPriceIngredients: number;
+  latestUpload: { filename: string; created_at: string | null } | null;
+  now: number;
+}) {
+  const money = (n: number, d = 0) =>
+    formatMoneyEs(n, currency, { decimals: d });
   return (
-    <div className="space-y-[14px]">
-      {!setup.complete ? (
-        <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px]">
-          <div className="flex items-center gap-2">
-            <h2 className="text-[15px] font-bold">
-              Configura tu menú · {setup.done} de {setup.total}
-            </h2>
-            {more}
-            {setup.next ? (
-              <NextStepButton
-                step={setup.next}
-                onUpload={() => setUploadOpen(true)}
-              />
-            ) : null}
-          </div>
-          {setup.steps.map((step, index) => (
-            <SetupRow
-              key={step.id}
-              step={step}
-              index={index}
-              onUpload={() => setUploadOpen((v) => !v)}
+    <div className="space-y-3" data-testid="menu-resumen">
+      <div
+        role="group"
+        aria-label="Rango"
+        className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold"
+      >
+        {(
+          [
+            ["7d", "7 días"],
+            ["month", monthText],
+            ["90d", "90 días"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={period === key}
+            onClick={() => onPeriod(key)}
+            className={
+              "rounded-[9px] px-3.5 py-1 " +
+              (period === key
+                ? "bg-white text-[#151c2c] shadow-sm"
+                : "text-[#4a5a85] hover:text-[#1b40c8]")
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {!view ? (
+        <ResumenSkeleton />
+      ) : view.empty ? (
+        <p className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-8 text-center text-[13px] text-[#6b7385]">
+          Todavía no hay ventas de platos en este rango.
+        </p>
+      ) : (
+        <>
+          <Kpis view={view} money={money} />
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_290px]">
+            <div className="space-y-3">
+              <TopPlatos view={view} />
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <MarginCard kind="best" view={view} money={money} />
+                <MarginCard kind="worst" view={view} money={money} />
+              </div>
+            </div>
+            <Pendientes
+              view={view}
+              missing={missingPriceIngredients}
+              latestUpload={latestUpload}
+              now={now}
             />
-          ))}
-          {showUpload ? (
-            <div className="mt-2">
-              <PriceCatalogPanel
-                key={`upload-${epoch}`}
-                embedded
-                onUploaded={onUploaded}
-                onRecipesImported={onResetDone}
-                locationId={locationId}
-                busyExternal={generateBusy}
-              />
-            </div>
-          ) : null}
-          <details className="mt-1 border-t border-[#f2f3f6] pt-2 text-[13px]">
-            <summary className="cursor-pointer text-[#4b5466]">
-              Leer tu menú web (opcional)
-            </summary>
-            <div className="mt-2">
-              <MenuReaderPanel
-                key={`menu-${epoch}`}
-                embedded
-                canEdit={data.actor.can_submit}
-                busyExternal={generateBusy}
-                locationId={locationId}
-                onDone={onResetDone}
-              />
-            </div>
-          </details>
-        </section>
-      ) : (
-        <div className="flex justify-end">{more}</div>
-      )}
-
-      {resetOpen && data.reset ? (
-        <ResetPanel
-          key={`reset-${epoch}`}
-          reset={data.reset}
-          locationId={locationId}
-          initiallyOpen
-          onCancel={() => setResetOpen(false)}
-          onDone={() => {
-            setResetOpen(false);
-            onResetDone();
-          }}
-        />
-      ) : null}
-
-      <Kpis summary={summary} money={money} />
-
-      {summary.mix.length > 0 ? (
-        <MixAndResolve
-          summary={summary}
-          missingPrices={summary.missing_price_ingredients}
-        />
-      ) : (
-        <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px]">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-[#eef0f4] text-left text-[12px] font-semibold text-[#8a92a3]">
-                <th className="px-2 py-1.5">Plato</th>
-                <th className="px-2 py-1.5 text-right">% ventas</th>
-                <th className="px-2 py-1.5 text-right">Costo</th>
-                <th className="px-2 py-1.5 text-right">Costo %</th>
-                <th className="px-2 py-1.5">Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {summary.rows.slice(0, 50).map((row) => (
-                <tr
-                  key={row.odoo_product_id}
-                  className="border-b border-[#f2f3f6]"
-                >
-                  <td className="px-2 py-2 font-semibold">
-                    <Link
-                      href={dishHref(row.odoo_product_id)}
-                      className="hover:underline"
-                    >
-                      {row.name}
-                    </Link>
-                  </td>
-                  <td className="px-2 py-2 text-right tabular-nums">
-                    {(row.share_of_food_sales * 100).toFixed(1)}%
-                  </td>
-                  <td className="px-2 py-2 text-right tabular-nums">
-                    {row.unit_cost !== null ? (
-                      <span>
-                        {money(row.unit_cost)}
-                        {row.excel_total !== null ? (
-                          <span
-                            className={
-                              "ml-1.5 text-[12px] " +
-                              (row.excel_diff_flag
-                                ? "font-semibold text-[#c03535]"
-                                : "text-[#8a92a3]")
-                            }
-                          >
-                            Excel: {money(row.excel_total)}
-                          </span>
-                        ) : null}
-                      </span>
-                    ) : (
-                      <span className="text-[#a35a00]">Sin precio</span>
-                    )}
-                  </td>
-                  <td className="px-2 py-2 text-right tabular-nums">
-                    {row.food_cost_pct !== null
-                      ? `${Math.round(row.food_cost_pct)}%`
-                      : "—"}
-                  </td>
-                  <td className="px-2 py-2">
-                    <Chip tone={row.tone}>{row.label}</Chip>
-                  </td>
-                </tr>
-              ))}
-              {summary.rows.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-2 py-4 text-[#5b6476]">
-                    Todavía no hay ventas de Odoo en este periodo.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-          {summary.rows.length > 50 ? (
-            <Link
-              href={platosHref()}
-              className="mt-2 inline-block text-[13px] font-semibold text-[#3557c9]"
-            >
-              Ver los {summary.rows.length} platos
-            </Link>
-          ) : null}
-        </section>
+          </div>
+        </>
       )}
     </div>
   );
 }
 
+function ResumenSkeleton() {
+  return (
+    <div
+      className="space-y-3"
+      aria-busy="true"
+      data-testid="menu-resumen-loading"
+    >
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="h-[92px] animate-pulse rounded-[14px] bg-[#e9ecf2]"
+          />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_290px]">
+        <div className="h-[330px] animate-pulse rounded-[14px] bg-[#e9ecf2]" />
+        <div className="h-[330px] animate-pulse rounded-[14px] bg-[#e9ecf2]" />
+      </div>
+    </div>
+  );
+}
+
 function Kpis({
-  summary,
+  view,
   money,
 }: {
-  summary: MenuSummary;
-  money: (n: number) => string;
+  view: ResumenView;
+  money: (n: number, d?: number) => string;
 }) {
-  // R1-10: per menu dish, the same helper as Platos (identical numbers).
-  const d = summary.dish_kpis;
-  const k = summary.kpis;
+  const k = view.kpis;
+  const allCosted = k.all_costed;
+  const costed = k.covered_dishes;
   const cards: Array<{
     label: string;
     value: string;
     sub: string;
     href: string;
-    tip: string;
-    alert?: boolean;
+    tone?: "bad" | "good";
   }> = [
     {
       label: "Costo de comida",
       value:
-        (d?.food_cost_pct ?? k.food_cost_pct) !== null
-          ? `${Math.round((d?.food_cost_pct ?? k.food_cost_pct) as number)}%`
+        k.food_cost_pct !== null
+          ? `${Math.round(k.food_cost_pct)}%`
           : "Sin precio",
-      sub: "sobre ventas con costo",
+      sub: allCosted
+        ? "sobre el 100% de ventas"
+        : `sobre ventas con costo · ${costed} de ${k.dish_count} platos`,
       href: platosHref(["aprobado"]),
-      tip: "Costo de los platos aprobados entre sus ventas netas (sin propinas).",
     },
-    d
-      ? {
-          label: "Margen bruto",
-          value: d.gross_margin !== null ? money(d.gross_margin) : "—",
-          sub: "ventas con costo",
-          href: platosHref(["aprobado"]),
-          tip: "Ventas con costo menos su costo estimado.",
-        }
-      : {
-          label: "Margen por plato",
-          value: k.avg_unit_margin !== null ? money(k.avg_unit_margin) : "—",
-          sub: "promedio",
-          href: platosHref(["aprobado"]),
-          tip: "Precio neto menos costo, promedio ponderado por unidades vendidas.",
-        },
+    {
+      label: "Margen bruto",
+      value:
+        k.gross_margin !== null
+          ? money(k.gross_margin, allCosted ? 0 : 2)
+          : "—",
+      sub: allCosted ? "en el rango" : "solo ventas con costo",
+      href: platosHref(["aprobado"]),
+    },
     {
       label: "Ventas con costo",
-      value: `${Math.round(d?.coverage_pct ?? k.coverage_pct)}%`,
-      sub: `${d?.covered_dishes ?? k.covered_dishes} de ${d?.dish_count ?? k.dish_count} platos`,
+      value: `${Math.round(k.coverage_pct)}%`,
+      sub: allCosted
+        ? `${costed} de ${k.dish_count} platos`
+        : `${costed} de ${k.dish_count} platos costeados`,
       href: platosHref(),
-      tip: "Parte de las ventas de comida que viene de platos con costo aprobado.",
+      tone: allCosted ? "good" : undefined,
     },
-    d
+    allCosted
       ? {
-          label: "Platos con problema",
-          value: String(d.problem_count),
-          sub: `de ${d.dish_count}`,
-          href: platosHref(["falta_precio", "sin_receta"]),
-          tip: "Platos del menú con algún precio pendiente o sin receta.",
-          alert: d.problem_count > 0,
+          label: "Platos bajo objetivo",
+          value: String(k.low_margin_count),
+          sub: "margen < 60%",
+          href: platosHref(["aprobado"]),
+          tone: k.low_margin_count > 0 ? "bad" : undefined,
         }
       : {
-          label: "Platos con margen bajo",
-          value: String(k.low_margin_count),
-          sub: "< 60%",
-          href: platosHref(["aprobado"]),
-          tip: "Platos aprobados cuyo margen bruto es menor al 60 % del precio.",
-          alert: k.low_margin_count > 0,
+          label: "Platos con problema",
+          value: String(k.problem_count),
+          sub: `de ${k.dish_count}`,
+          href: platosHref(["falta_precio", "sin_receta"]),
+          tone: k.problem_count > 0 ? "bad" : undefined,
         },
   ];
   return (
-    <div className="grid grid-cols-4 gap-3">
-      {cards.map((card) => (
+    <div
+      className="grid grid-cols-2 gap-3 lg:grid-cols-4"
+      data-testid="menu-resumen-kpis"
+    >
+      {cards.map((c) => (
         <Link
-          key={card.label}
-          href={card.href}
-          title={card.tip}
-          className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px] hover:border-[#f28c28]"
+          key={c.label}
+          href={c.href}
+          className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3 hover:border-[#1b40c8]"
         >
-          <div className="text-[12px] text-[#6b7385]">{card.label}</div>
+          <div className="text-[12px] text-[#6b7385]">{c.label}</div>
           <div className="mt-0.5 text-[30px] font-extrabold leading-tight tracking-[-0.5px] text-[#1b2333]">
-            {card.value}
+            {c.value}
           </div>
           <div
             className={
               "mt-0.5 text-[12px] " +
-              (card.alert ? "text-[#d14343]" : "text-[#8a92a3]")
+              (c.tone === "bad"
+                ? "text-[#d14343]"
+                : c.tone === "good"
+                  ? "text-[#1f9d55] font-semibold"
+                  : "text-[#8a92a3]")
             }
           >
-            {card.sub}
+            {c.sub}
           </div>
         </Link>
       ))}
@@ -326,212 +296,296 @@ function Kpis({
   );
 }
 
-const RESOLVE_LABEL: Record<ToResolveRow["kind"], string> = {
-  falta_precio: "platos sin precio de algún ingrediente",
-  sin_receta: "platos sin receta",
-  estimado: "platos con costo estimado por IA",
-  margen_bajo: "platos con margen bajo",
-};
-const RESOLVE_TONE: Record<ToResolveRow["kind"], "warn" | "bad" | "pur"> = {
-  falta_precio: "warn",
-  sin_receta: "bad",
-  estimado: "pur",
-  margen_bajo: "bad",
-};
+function marginChip(d: DishRow) {
+  if (d.margin_pct === null)
+    return <span className="text-[12px] text-[#8a92a3]">margen —</span>;
+  if (d.cost_status === "aprobado" || d.cost_status === "estimado") {
+    return (
+      <span className="inline-flex items-center">
+        <span className="rounded-md bg-[#e7f6ee] px-1.5 py-0.5 text-[12px] font-semibold text-[#1f7a45]">
+          {Math.round(d.margin_pct)}%
+        </span>
+        {d.cost_status === "estimado" ? <IaChip /> : null}
+      </span>
+    );
+  }
+  return <span className="text-[12px] text-[#8a92a3]">margen —</span>;
+}
 
-/** Mock 5: sales mix by dish and "Por resolver", per menu dish. */
-function MixAndResolve({
-  summary,
-  missingPrices,
-}: {
-  summary: MenuSummary;
-  missingPrices: number;
-}) {
-  if (summary.mix.length === 0) return null;
-  const max = Math.max(
-    ...summary.mix.filter((r) => !r.rest).map((r) => r.share),
-    0.0001
-  );
+function TopPlatos({ view }: { view: ResumenView }) {
+  const max = Math.max(...view.top.map((d) => d.share), 0.0001);
   return (
-    <div className="grid grid-cols-[1.25fr_1fr] gap-[14px]">
-      <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px]">
-        <h2 className="text-[15px] font-bold">Mezcla de ventas por plato</h2>
-        {summary.mix.map((row) => (
-          <div
-            key={row.name}
-            className="my-[7px] flex items-center gap-2.5 text-[13px]"
+    <section
+      className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3"
+      data-testid="menu-resumen-top"
+    >
+      <div className="flex items-baseline">
+        <h2 className="text-[13px] font-bold">Top platos por ventas</h2>
+        <span className="ml-auto text-[12px] text-[#8a92a3]">
+          % de ventas · clic para abrir el plato
+        </span>
+      </div>
+      {view.top.map((d) => (
+        <Link
+          key={d.id}
+          href={dishHrefOf(d)}
+          className="flex items-center gap-2 border-t border-[#f2f3f6] py-1.5 text-[13px] first:mt-1 hover:bg-[#f7f9ff]"
+        >
+          <span className="w-[190px] shrink-0 truncate">{d.name}</span>
+          <span className="h-2.5 flex-1 rounded-full bg-[#eef0f4]">
+            <span
+              className="block h-full rounded-full"
+              style={{ width: `${(d.share / max) * 100}%`, background: BLUE }}
+            />
+          </span>
+          <b className="w-[52px] text-right tabular-nums">{pctOf(d.share)}</b>
+          <span className="w-[84px] text-right">{marginChip(d)}</span>
+        </Link>
+      ))}
+      <p className="mt-1 text-[12px] text-[#8a92a3]">
+        Top {view.top.length} = {pctOf(view.top_share)} de tus ventas
+      </p>
+    </section>
+  );
+}
+
+/** A dish opens in Platos (its first variant's product). */
+function dishHrefOf(d: DishRow): string {
+  return d.product_id !== null ? dishHref(d.product_id) : platosHref();
+}
+
+function MarginCard({
+  kind,
+  view,
+  money,
+}: {
+  kind: "best" | "worst";
+  view: ResumenView;
+  money: (n: number, d?: number) => string;
+}) {
+  const r = view.ranking;
+  const list = kind === "best" ? r.best : r.worst;
+  const title = kind === "best" ? "Mejor margen" : "Peor margen";
+  const missingLink =
+    kind === "best"
+      ? {
+          href: ingredientesHref("falta_precio"),
+          text:
+            view.counts.falta_precio.dishes > 0
+              ? `Completa los precios en Costos →`
+              : "Revisa tus costos →",
+        }
+      : view.counts.sin_receta.dishes > 0
+        ? {
+            href: platosHref(["sin_receta"]),
+            text: `Ver ${view.counts.sin_receta.dishes} platos sin receta →`,
+          }
+        : {
+            href: platosHref(["falta_precio"]),
+            text: "Ver platos sin precio →",
+          };
+  const topNames = new Set(view.top.map((d) => d.id));
+  const flagged =
+    kind === "worst"
+      ? list.find((d) => d.id !== null && topNames.has(d.id))
+      : undefined;
+  return (
+    <section
+      className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3"
+      data-testid={`menu-resumen-${kind}`}
+    >
+      <div className="flex items-baseline">
+        <h2 className="text-[13px] font-bold">{title}</h2>
+        <span className="ml-auto text-[12px] text-[#8a92a3]">
+          margen de {r.costed} de {r.total} platos
+        </span>
+      </div>
+      <div
+        className="my-1.5 h-1.5 rounded-full bg-[#eef0f4]"
+        aria-label={`Cobertura ${Math.round(r.coverage * 100)}%`}
+      >
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${Math.max(r.costed > 0 ? 2 : 0, r.coverage * 100)}%`,
+            background: BLUE,
+          }}
+        />
+      </div>
+      {!r.enough ? (
+        <div className="rounded-[10px] border border-dashed border-[#d5dae3] px-2.5 py-2 text-[12.5px] text-[#6b7385]">
+          {kind === "best"
+            ? `Necesitas al menos ${MIN} platos con costo para ver el top ${MIN}. Hoy ${r.costed === 1 ? "solo hay 1" : `solo hay ${r.costed}`}.`
+            : "Sin ranking hasta que haya más platos costeados. Los platos sin costo nunca cuentan como $0."}
+          <br />
+          <Link
+            href={missingLink.href}
+            className="font-semibold text-[#1b40c8] hover:underline"
           >
-            <span className="w-[190px] truncate">{row.name}</span>
-            <div className="h-4 flex-1 rounded bg-[#f1f3f7]">
-              <div
-                className="h-full rounded"
-                style={{
-                  width: `${row.rest ? 100 : Math.max(2, (row.share / max) * 60)}%`,
-                  background: row.rest ? "#c9ced8" : "#f28c28",
-                }}
-              />
-            </div>
-            <b className="w-12 text-right tabular-nums">
-              {(row.share * 100).toFixed(1)}%
-            </b>
-          </div>
-        ))}
-      </section>
-      <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px]">
-        <div className="flex items-center">
-          <h2 className="text-[15px] font-bold">Por resolver</h2>
-          {missingPrices > 0 ? (
-            <Link
-              href={ingredientesHref("falta_precio")}
-              className="ml-auto rounded-lg bg-[#f28c28] px-3 py-[7px] text-[13px] font-semibold text-white hover:bg-[#e07b1a]"
-            >
-              Resolver {missingPrices}{" "}
-              {missingPrices === 1 ? "precio" : "precios"}
-            </Link>
-          ) : null}
+            {missingLink.text}
+          </Link>
         </div>
-        {summary.to_resolve.length === 0 ? (
-          <p className="mt-2 text-[13px] text-[#5b6476]">Nada pendiente.</p>
-        ) : (
-          summary.to_resolve.map((row) => (
-            <Link
-              key={row.kind}
-              href={row.href}
-              className="flex items-center gap-2.5 border-t border-[#f2f3f6] py-2 text-[13px] hover:text-[#151c2c]"
-            >
-              <Chip tone={RESOLVE_TONE[row.kind]}>{row.count}</Chip>
-              {RESOLVE_LABEL[row.kind]}
-              <span className="ml-auto text-[12px] text-[#8a92a3]">
-                {row.share !== null
-                  ? `${Math.round(row.share * 100)}% de ventas`
-                  : "< 60%"}
-              </span>
-            </Link>
-          ))
-        )}
-      </section>
+      ) : (
+        <>
+          {list.map((d) => (
+            <RankRow
+              key={d.id ?? d.name}
+              d={d}
+              money={money}
+              tone={kind === "best" ? "good" : "bad"}
+            />
+          ))}
+          {flagged ? (
+            <p className="mt-1 text-[12px] text-[#8a92a3]">
+              {flagged.name} vende mucho con margen bajo → revisa precio
+            </p>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+const MIN = 3;
+
+function RankRow({
+  d,
+  money,
+  tone,
+}: {
+  d: RankedDish;
+  money: (n: number, d?: number) => string;
+  tone: "good" | "bad";
+}) {
+  return (
+    <div className="flex items-center gap-2 border-t border-[#f2f3f6] py-1.5 text-[13px]">
+      <span className="min-w-0 flex-1 truncate">
+        {d.name}
+        {d.ai ? <IaChip /> : null}
+      </span>
+      <span className="text-[12px] text-[#8a92a3]">
+        {money(d.net_sales)} ventas
+      </span>
+      <b
+        className={
+          "w-12 text-right tabular-nums " +
+          (tone === "good" ? "text-[#1f9d55]" : "text-[#d14343]")
+        }
+      >
+        {Math.round(d.margin_pct)}%
+      </b>
     </div>
   );
 }
 
-function NextStepButton({
-  step,
-  onUpload,
-}: {
-  step: SetupStep;
-  onUpload: () => void;
-}) {
-  const cls =
-    "ml-auto inline-flex items-center rounded-lg bg-[#f28c28] px-3 py-[7px] text-[13px] font-semibold text-white hover:bg-[#e07b1a]";
-  if (step.href) {
-    return (
-      <Link href={step.href} className={cls}>
-        {step.action}
-      </Link>
-    );
-  }
-  return (
-    <button type="button" className={cls} onClick={onUpload}>
-      {step.action}
-    </button>
-  );
+function ageText(createdAt: string | null, now: number): string | null {
+  if (!createdAt) return null;
+  const t = Date.parse(createdAt);
+  if (Number.isNaN(t)) return null;
+  const days = Math.max(0, Math.floor((now - t) / 86_400_000));
+  return days === 0 ? "Hoy" : days === 1 ? "Hace 1 día" : `Hace ${days} días`;
 }
 
-function SetupRow({
-  step,
-  index,
-  onUpload,
+function Pendientes({
+  view,
+  missing,
+  latestUpload,
+  now,
 }: {
-  step: SetupStep;
-  index: number;
-  onUpload: () => void;
+  view: ResumenView;
+  missing: number;
+  latestUpload: { filename: string; created_at: string | null } | null;
+  now: number;
 }) {
-  const body = (
-    <>
-      <span
-        className={
-          "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[12px] font-bold " +
-          (step.done
-            ? "bg-[#e7f6ee] text-[#1f9d55]"
-            : "bg-[#eef0f4] text-[#6b7385]")
-        }
+  const sharePct = (n: number) => `${Math.round(n * 100)}% de ventas`;
+  const items: Array<{
+    key: string;
+    count: number;
+    label: string;
+    sub: string;
+    href: string;
+  }> = [];
+  if (missing > 0 || view.counts.falta_precio.dishes > 0)
+    items.push({
+      key: "precios",
+      count: missing,
+      label: missing === 1 ? "Precio por completar" : "Precios por completar",
+      sub: `${Math.round(view.counts.falta_precio.share * 100)}% de ventas afectadas`,
+      href: ingredientesHref("falta_precio"),
+    });
+  if (view.counts.sin_receta.dishes > 0)
+    items.push({
+      key: "receta",
+      count: view.counts.sin_receta.dishes,
+      label: "Platos sin receta",
+      sub: sharePct(view.counts.sin_receta.share),
+      href: platosHref(["sin_receta"]),
+    });
+  if (view.counts.estimado.dishes > 0)
+    items.push({
+      key: "ia",
+      count: view.counts.estimado.dishes,
+      label: "Costos estimados por IA",
+      sub: `${sharePct(view.counts.estimado.share)} · revisa`,
+      href: platosHref(["estimado"]),
+    });
+  const age = ageText(latestUpload?.created_at ?? null, now);
+  const complete = items.length === 0;
+  return (
+    <section
+      className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3"
+      data-testid="menu-resumen-pendientes"
+    >
+      <div className="flex items-baseline">
+        <h2 className="text-[13px] font-bold">Pendientes</h2>
+        {!complete ? (
+          <span className="ml-auto text-[12px] text-[#8a92a3]">
+            {items.length}
+          </span>
+        ) : null}
+      </div>
+      {complete ? (
+        <div className="flex gap-2.5 border-t border-[#f2f3f6] py-2 text-[13px]">
+          <b className="w-[26px] text-[#1b40c8]">✓</b>
+          <div>
+            Menú completo
+            <div className="text-[12px] text-[#8a92a3]">Costos al día</div>
+          </div>
+        </div>
+      ) : (
+        items.map((it) => (
+          <Link
+            key={it.key}
+            href={it.href}
+            className="flex gap-2.5 border-t border-[#f2f3f6] py-2 text-[13px] first:mt-1 hover:bg-[#f7f9ff]"
+          >
+            <b className="min-w-[26px] text-[#1b40c8]">{it.count}</b>
+            <div>
+              {it.label}
+              <div className="text-[12px] text-[#8a92a3]">{it.sub}</div>
+            </div>
+          </Link>
+        ))
+      )}
+      <div className="flex gap-2.5 border-t border-[#f2f3f6] py-2 text-[13px]">
+        <b className="w-[26px] text-[#1b40c8]">↑</b>
+        <div>
+          Sube tus costos más recientes
+          <div className="text-[12px] text-[#8a92a3]">
+            {latestUpload
+              ? age
+                ? `${age} · ${latestUpload.filename}`
+                : `Último: ${latestUpload.filename}`
+              : "Aún no subes un archivo"}
+          </div>
+        </div>
+      </div>
+      <Link
+        href={COSTS_HREF}
+        className="mt-2 inline-flex rounded-lg bg-[#1b40c8] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6]"
       >
-        {step.done ? "✓" : index + 1}
-      </span>
-      <span>{step.label}</span>
-    </>
-  );
-  const cls =
-    "flex w-full items-center gap-2.5 border-t border-[#f2f3f6] py-2 text-left text-[13px] hover:text-[#151c2c]";
-  if (step.href) {
-    return (
-      <Link href={step.href} className={cls}>
-        {body}
+        Ir a Costos →
       </Link>
-    );
-  }
-  return (
-    <button type="button" className={cls} onClick={onUpload}>
-      {body}
-      <span className="ml-auto text-[12px] font-semibold text-[#3557c9]">
-        {step.done ? "Subir otro archivo" : "Elegir archivo"}
-      </span>
-    </button>
-  );
-}
-
-/** "⋯": undo an upload (one row per file) and "Empezar de nuevo". */
-function MoreMenu({
-  data,
-  onUndoBatch,
-  onReset,
-}: {
-  data: RecipeCostingWorkspace;
-  onUndoBatch: (batchIds: string[]) => void;
-  onReset: () => void;
-}) {
-  if (data.batches.length === 0 && !data.reset) return null;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label="Más acciones"
-          className="ml-1 rounded-md p-1 text-[#6b7385] hover:bg-[#f1f3f7]"
-        >
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72">
-        {data.batches.length > 0 ? (
-          <>
-            <DropdownMenuLabel className="text-[12px] text-[#6b7385]">
-              Deshacer una carga
-            </DropdownMenuLabel>
-            {data.batches.map((batch) => (
-              <DropdownMenuItem
-                key={batch.id}
-                onClick={() => onUndoBatch(batch.batch_ids)}
-              >
-                <span className="flex-1 truncate">{batch.filename}</span>
-                {batch.uploads > 1 ? (
-                  <span className="text-[12px] text-[#8a92a3]">
-                    {batch.uploads} cargas
-                  </span>
-                ) : null}
-              </DropdownMenuItem>
-            ))}
-          </>
-        ) : null}
-        {data.reset ? (
-          <>
-            {data.batches.length > 0 ? <DropdownMenuSeparator /> : null}
-            <DropdownMenuItem className="text-[#c03535]" onClick={onReset}>
-              Empezar de nuevo…
-            </DropdownMenuItem>
-          </>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    </section>
   );
 }

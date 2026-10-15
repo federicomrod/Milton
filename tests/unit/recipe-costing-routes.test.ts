@@ -44,7 +44,11 @@ describe("recipe costing routes", () => {
     const resumen = read(
       "components/restaurant/recipes-costing/ResumenScreen.tsx"
     );
-    expect(resumen).toContain("Configura tu menú");
+    // R1-18: the setup checklist moved to Costos; Resumen is the cockpit.
+    expect(read("components/restaurant/costs/CostsSetupSection.tsx")).toContain(
+      "Configura tus costos"
+    );
+    expect(resumen).not.toContain("Configura tu menú");
     expect(resumen).not.toContain("Tu menú en Odoo");
     expect(resumen).not.toContain("Quién aprueba");
     expect(resumen).not.toContain("Generar sugerencias");

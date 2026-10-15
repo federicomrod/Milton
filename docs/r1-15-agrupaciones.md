@@ -205,5 +205,14 @@ select has_function_privilege('anon', 'public.ingredient_merge(uuid,uuid,uuid[],
   merge history; the undo puts lines, prices, aliases and archive state back exactly (a line someone moved
   elsewhere since is left alone). Costs are computed when read, so dishes and preparations are recomputed by the
   next read; the app re-reads the page after a merge or an undo.
+- **One unit family is enforced at the merge itself**, not only in the suggestions: `ingredient_merge` (051) refuses
+  ingredients whose units are of different families (peso / volumen / unidades / porciones) with SQLSTATE `22023` and
+  «No se pueden unir ingredientes de familias de unidad distintas: «A» (peso) y «B» (volumen)…»; the unit is the
+  ingredient's own, or its latest price's when it has none; an unknown unit fits any family. The
+  `/duplicates/merge` route checks the same first (with the app's unit synonyms) and answers 400 before anything is
+  written. The database rule reads the canonical units the app stores.
+- **Approved and manual recipe lines** only get their ingredient reference moved: quantity, unit and every other
+  field of the line are untouched, the move is logged in the undo record (id, original ingredient, unit,
+  quantity) and «Deshacer» puts it back. A merge never edits, re-approves or re-costs a recipe by hand.
 - **Not touched by a merge:** `supplier_ingredients`, kitchen recipe drafts and the legacy recipe tables.
 - The Cockpit/briefing «ingredientes sin costo» counter now ignores ingredients no active recipe uses.

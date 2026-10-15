@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildQueue,
   chooseSurvivor,
+  mergeUnitMismatch,
   findDuplicateSets,
   ingredientKey,
   pairKey,
@@ -291,5 +292,69 @@ describe("AI suggestions are validated like the heuristics", () => {
   it("garbage in, nothing out", () => {
     expect(validateAiSets("x", sent)).toEqual([]);
     expect(validateAiSets({ sets: "x" }, sent)).toEqual([]);
+  });
+});
+
+describe("a merge needs one unit family (also enforced in the route and the database)", () => {
+  it("refuses weight with volume, with a clear Spanish message naming both", () => {
+    const msg = mergeUnitMismatch([
+      { name: "ACEITE DE OLIVA", unit: "oz" },
+      { name: "ACEITE DE OIVA", unit: "ml" },
+    ]);
+    expect(msg).toContain(
+      "No se pueden unir ingredientes de familias de unidad distintas"
+    );
+    expect(msg).toContain("«ACEITE DE OLIVA» (peso)");
+    expect(msg).toContain("«ACEITE DE OIVA» (volumen)");
+  });
+  it("refuses count with weight and portion with count", () => {
+    expect(
+      mergeUnitMismatch([
+        { name: "A", unit: "unit" },
+        { name: "B", unit: "kg" },
+      ])
+    ).toContain("(unidades)");
+    expect(
+      mergeUnitMismatch([
+        { name: "A", unit: "portion" },
+        { name: "B", unit: "unit" },
+      ])
+    ).toContain("(porciones)");
+  });
+  it("accepts the same family in different units, and unknown units fit any family", () => {
+    expect(
+      mergeUnitMismatch([
+        { name: "A", unit: "oz" },
+        { name: "B", unit: "kg" },
+        { name: "C", unit: "g" },
+      ])
+    ).toBeNull();
+    expect(
+      mergeUnitMismatch([
+        { name: "A", unit: "oz" },
+        { name: "B", unit: null },
+        { name: "C", unit: "???" },
+      ])
+    ).toBeNull();
+    expect(
+      mergeUnitMismatch([
+        { name: "A", unit: "l" },
+        { name: "B", unit: "gal" },
+      ])
+    ).toBeNull();
+  });
+  it("accepts typed synonyms as the app reads them", () => {
+    expect(
+      mergeUnitMismatch([
+        { name: "A", unit: "Libras" },
+        { name: "B", unit: "onzas" },
+      ])
+    ).toBeNull();
+    expect(
+      mergeUnitMismatch([
+        { name: "A", unit: "litros" },
+        { name: "B", unit: "gramos" },
+      ])
+    ).not.toBeNull();
   });
 });

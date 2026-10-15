@@ -83,6 +83,31 @@ export function similarIngredients(a: string, b: string): number | null {
   return Math.round((1 - d / len) * 1000) / 1000;
 }
 
+const FAMILY_ES: Record<UnitFamily, string> = {
+  weight: "peso",
+  volume: "volumen",
+  count: "unidades",
+  portion: "porciones",
+  unknown: "sin unidad",
+};
+
+/**
+ * A merge needs ONE unit family (the survivor's price applies to every line).
+ * Returns the Spanish reason when two of them differ, else null. An unknown
+ * unit fits any family. The database enforces the same rule.
+ */
+export function mergeUnitMismatch(
+  items: ReadonlyArray<{ name: string; unit: string | null | undefined }>
+): string | null {
+  const known = items
+    .map((i) => ({ name: i.name, family: unitFamily(i.unit) }))
+    .filter((i) => i.family !== "unknown");
+  const first = known[0];
+  const other = first && known.find((k) => k.family !== first.family);
+  if (!first || !other) return null;
+  return `No se pueden unir ingredientes de familias de unidad distintas: «${first.name}» (${FAMILY_ES[first.family]}) y «${other.name}» (${FAMILY_ES[other.family]}). Revisa que sean el mismo producto en la misma unidad.`;
+}
+
 export interface DupItem {
   id: string;
   name: string;

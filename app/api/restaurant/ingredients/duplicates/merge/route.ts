@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { aliasKeyFor } from "@/lib/restaurant/cost-workbook/repo";
+import { mergeUnitMismatch } from "@/lib/restaurant/ingredient-duplicates";
 import {
   UUID,
   failureResponse,
@@ -61,20 +62,51 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  // The losers' names, from the database.
+  // The losers' names and every unit, from the database.
   const names = await supabase
     .from("ingredients")
-    .select("id, name")
+    .select("id, name, default_unit")
     .eq("company_id", companyId)
-    .in("id", losers);
+    .in("id", [...losers, survivor]);
   if (names.error)
     return failureResponse(
       names.error,
       "No pude leer los ingredientes.",
       "ingredient-merge"
     );
-  const aliases = ((names.data ?? []) as Array<{ id: string; name: string }>)
-    .filter((r) => r.name?.trim())
+  const rows = (names.data ?? []) as Array<{
+    id: string;
+    name: string;
+    default_unit: string | null;
+  }>;
+  // Unit families, in the route as well as in the database: a mismatch is
+  // refused before anything is written, with a clear message.
+  const needUnit = rows.filter((r) => !r.default_unit).map((r) => r.id);
+  const latestUnit = new Map<string, string>();
+  if (needUnit.length > 0) {
+    const entries = await supabase
+      .from("ingredient_cost_entries")
+      .select("ingredient_id, normalized_unit")
+      .eq("company_id", companyId)
+      .in("ingredient_id", needUnit)
+      .order("cost_date", { ascending: false })
+      .limit(5000);
+    for (const e of (entries.data ?? []) as Array<{
+      ingredient_id: string;
+      normalized_unit: string;
+    }>)
+      if (!latestUnit.has(e.ingredient_id))
+        latestUnit.set(e.ingredient_id, e.normalized_unit);
+  }
+  const mismatch = mergeUnitMismatch(
+    rows.map((r) => ({
+      name: r.name,
+      unit: r.default_unit ?? latestUnit.get(r.id) ?? null,
+    }))
+  );
+  if (mismatch) return NextResponse.json({ error: mismatch }, { status: 400 });
+  const aliases = rows
+    .filter((r) => r.id !== survivor && r.name?.trim())
     .map((r) => ({
       alias_key: aliasKeyFor(r.name),
       alias_name: r.name.trim(),

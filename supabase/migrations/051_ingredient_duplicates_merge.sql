@@ -37,8 +37,13 @@
 --     their lines and the survivor's price, so they are recomputed by the next
 --     read (the app also clears its caches after a merge or an undo).
 --   * A line keeps its own unit and quantity (a merge never converts them); the
---     undo record keeps them anyway. Only ingredients of the same unit family are
---     ever suggested, so the survivor's price applies to every line.
+--     undo record keeps them anyway. This also holds for APPROVED and MANUAL
+--     recipe lines: only the ingredient reference moves, nothing else on the
+--     line changes, and the move is logged and undoable.
+--   * UNIT FAMILIES ARE ENFORCED HERE, not only in the suggestions: a merge of
+--     ingredients whose units are of different families (weight / volume /
+--     count / portion) is refused with SQLSTATE 22023 and a message in Spanish,
+--     whoever calls it (the survivor's price must apply to every line).
 --
 -- IMPORTANT: not applied by CI. Paste into the Supabase SQL Editor after 050.
 
@@ -142,6 +147,25 @@ REVOKE ALL ON TABLE public.ingredient_not_duplicates FROM anon;
 REVOKE ALL ON TABLE public.ingredient_merges FROM anon;
 
 -- ---------------------------------------------------------------------------
+-- Unit family of an ingredient (canonical units, as stored)
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.ingredient_unit_family(p_unit text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT CASE lower(btrim(coalesce(p_unit, '')))
+    WHEN 'kg' THEN 'weight' WHEN 'g' THEN 'weight' WHEN 'lb' THEN 'weight' WHEN 'oz' THEN 'weight'
+    WHEN 'l' THEN 'volume' WHEN 'ml' THEN 'volume' WHEN 'gal' THEN 'volume'
+    WHEN 'unit' THEN 'count'
+    WHEN 'portion' THEN 'portion'
+    ELSE 'unknown'
+  END
+$$;
+
+-- ---------------------------------------------------------------------------
 -- ingredient_merge
 -- ---------------------------------------------------------------------------
 
@@ -167,6 +191,8 @@ DECLARE
   v_ins jsonb; v_arch jsonb; v_chosen jsonb;
   v_merge_id uuid;
   v_lines integer;
+  v_families text[];
+  v_bad record;
 BEGIN
   IF p_company_id IS NULL OR NOT public.is_company_member(p_company_id) THEN
     RAISE EXCEPTION 'not a member of this company' USING ERRCODE = '42501';
@@ -183,6 +209,46 @@ BEGIN
     WHERE company_id = p_company_id AND id = ANY (v_losers || p_survivor_id);
   IF v_found <> cardinality(v_losers) + 1 THEN
     RAISE EXCEPTION 'unknown ingredient for this company' USING ERRCODE = '22023';
+  END IF;
+  -- Same unit family only (an ingredient with an unknown unit fits any). The
+  -- unit is the ingredient's own, or its latest price's when it has none.
+  WITH u AS (
+    SELECT i.id, i.name,
+      public.ingredient_unit_family(COALESCE(
+        i.default_unit,
+        (SELECT e.normalized_unit FROM public.ingredient_cost_entries e
+          WHERE e.company_id = p_company_id AND e.ingredient_id = i.id
+          ORDER BY e.cost_date DESC, e.created_at DESC LIMIT 1)
+      )) AS fam
+    FROM public.ingredients i
+    WHERE i.company_id = p_company_id AND i.id = ANY (v_losers || p_survivor_id)
+  )
+  SELECT array_agg(DISTINCT fam) FILTER (WHERE fam <> 'unknown') INTO v_families FROM u;
+  IF COALESCE(cardinality(v_families), 0) > 1 THEN
+    SELECT a.name AS a_name, a.fam AS a_fam, b.name AS b_name, b.fam AS b_fam INTO v_bad
+    FROM (
+      SELECT i.name, public.ingredient_unit_family(COALESCE(i.default_unit,
+        (SELECT e.normalized_unit FROM public.ingredient_cost_entries e
+          WHERE e.company_id = p_company_id AND e.ingredient_id = i.id
+          ORDER BY e.cost_date DESC, e.created_at DESC LIMIT 1))) AS fam
+      FROM public.ingredients i
+      WHERE i.company_id = p_company_id AND i.id = ANY (v_losers || p_survivor_id)
+    ) a
+    JOIN (
+      SELECT i.name, public.ingredient_unit_family(COALESCE(i.default_unit,
+        (SELECT e.normalized_unit FROM public.ingredient_cost_entries e
+          WHERE e.company_id = p_company_id AND e.ingredient_id = i.id
+          ORDER BY e.cost_date DESC, e.created_at DESC LIMIT 1))) AS fam
+      FROM public.ingredients i
+      WHERE i.company_id = p_company_id AND i.id = ANY (v_losers || p_survivor_id)
+    ) b ON a.fam <> 'unknown' AND b.fam <> 'unknown' AND a.fam < b.fam
+    LIMIT 1;
+    RAISE EXCEPTION 'No se pueden unir ingredientes de familias de unidad distintas: «%» (%) y «%» (%). Revisa que sean el mismo producto en la misma unidad.',
+      v_bad.a_name,
+      CASE v_bad.a_fam WHEN 'weight' THEN 'peso' WHEN 'volume' THEN 'volumen' WHEN 'count' THEN 'unidades' ELSE 'porciones' END,
+      v_bad.b_name,
+      CASE v_bad.b_fam WHEN 'weight' THEN 'peso' WHEN 'volume' THEN 'volumen' WHEN 'count' THEN 'unidades' ELSE 'porciones' END
+      USING ERRCODE = '22023';
   END IF;
   IF EXISTS (SELECT 1 FROM public.ingredients
              WHERE company_id = p_company_id AND id = p_survivor_id AND archived_at IS NOT NULL) THEN

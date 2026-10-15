@@ -54,7 +54,7 @@ const casa: CockpitFactRow[] = [
   }),
 ];
 
-const lavara: CockpitFactRow[] = [
+const casasur: CockpitFactRow[] = [
   row({
     sale_date: "2026-07-10",
     check_id: "l1",
@@ -149,16 +149,16 @@ describe("rollup-based period costs match the row walk", () => {
       expect(fromRollup).toEqual(snap.cost);
     }
 
-    const lavaraMonth = buildCockpitPeriodSnapshot(
-      lavara,
+    const casasurMonth = buildCockpitPeriodSnapshot(
+      casasur,
       resolveCockpitPeriod("month", "2026-07-31")!,
       { currency: "USD", lang: "es" }
     );
     expect(
-      lavaraMonth.current.net_sales + lavaraMonth.current.tips
+      casasurMonth.current.net_sales + casasurMonth.current.tips
     ).toBeCloseTo(50_720.8, 2);
-    expect(lavaraMonth.current.net_sales).toBeCloseTo(46_087.9, 2);
-    expect(lavaraMonth.current.tips).toBeCloseTo(4_632.9, 2);
+    expect(casasurMonth.current.net_sales).toBeCloseTo(46_087.9, 2);
+    expect(casasurMonth.current.tips).toBeCloseTo(4_632.9, 2);
   });
 });
 

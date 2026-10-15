@@ -129,8 +129,8 @@ describe("Desglose draws for every kind of dish and group", () => {
 
   it("under Todos it says where the dish sells, by real name, and offers the split by restaurant", () => {
     const restaurants = [
-      { id: "r1", name: "Los Ranchos Norte" },
-      { id: "r2", name: "Los Ranchos Sur" },
+      { id: "r1", name: "Casa Norte" },
+      { id: "r2", name: "Casa Sur" },
     ];
     const html = renderToString(
       createElement(DrillView, {
@@ -150,7 +150,7 @@ describe("Desglose draws for every kind of dish and group", () => {
         ],
       })
     ).replace(/<!-- -->/g, "");
-    expect(html).toContain("Los Ranchos Norte · Los Ranchos Sur");
+    expect(html).toContain("Casa Norte · Casa Sur");
     expect(html).toContain("Restaurante");
     expect(html).toContain("Ambos restaurantes");
     expect(html).not.toContain("R1");

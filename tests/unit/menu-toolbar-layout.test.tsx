@@ -184,7 +184,7 @@ describe.each(SCREENS)(
       const column = screen.getByTestId("list-column");
       for (const area of [toolbar, column]) {
         expect(area.textContent).not.toMatch(
-          /Stage Test|Los Ranchos|\bR1\b|\bR2\b|Restaurante \d/
+          /Casa Piloto|Casa Norte|\bR1\b|\bR2\b|Restaurante \d/
         );
       }
     });

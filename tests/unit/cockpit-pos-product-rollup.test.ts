@@ -10,7 +10,7 @@ import { createCappedSupabase, type MockRow } from "./helpers/capped-supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const COMPANY_ID = "co-1";
-const LOC = "loc-lavara";
+const LOC = "loc-casasur";
 
 function posRow(
   partial: Partial<MockRow> & { raw_item_name: string }
@@ -73,7 +73,7 @@ function makeClient(posRows: MockRow[]) {
 }
 
 describe("cockpit POS product rollup", () => {
-  const julyLavara = [
+  const julyCasaSur = [
     posRow({
       id: "a",
       raw_item_name: "Pupusa",
@@ -121,19 +121,19 @@ describe("cockpit POS product rollup", () => {
       .reduce((s, p) => s + p.posted, 0);
     expect(casaNet + casaTips).toBeCloseTo(85_943.59, 2);
 
-    const lavara = buildCockpitPosProductRollupFromRows(julyLavara, "USD");
-    const lavaraNet = lavara.products
+    const casasur = buildCockpitPosProductRollupFromRows(julyCasaSur, "USD");
+    const casasurNet = casasur.products
       .filter((p) => !p.is_tip)
       .reduce((s, p) => s + p.net, 0);
-    const lavaraTips = lavara.products
+    const casasurTips = casasur.products
       .filter((p) => p.is_tip)
       .reduce((s, p) => s + p.posted, 0);
-    expect(lavaraNet + lavaraTips).toBeCloseTo(50_720.8, 2);
+    expect(casasurNet + casasurTips).toBeCloseTo(50_720.8, 2);
   });
 
   it("profitability from the product rollup matches the row walk", async () => {
     const rows = [
-      ...julyLavara,
+      ...julyCasaSur,
       posRow({
         id: "mxn",
         raw_item_name: "Taco",
@@ -180,7 +180,7 @@ describe("cockpit POS product rollup", () => {
 
   it("fail-closes to empty totals on an explicit POS error", async () => {
     const data = await fetchProfitabilityData(
-      makeClient(julyLavara),
+      makeClient(julyCasaSur),
       COMPANY_ID,
       { locationId: LOC, brandId: null },
       { posReadError: true }

@@ -756,7 +756,7 @@ describe("a line imported with its own cost from the file", () => {
   });
 });
 
-describe("line price, removal and speed (Stage Test 1 bugs)", () => {
+describe("line price, removal and speed (Casa Piloto 1 bugs)", () => {
   function withPrep(): MemoryEditorState {
     const d = draft();
     d.components = [{ id: "c-guac", name: "GUACAMOL", output_unit: "oz" }];

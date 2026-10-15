@@ -50,7 +50,7 @@ describe("cockpit POS rollup converters", () => {
       sales_channel: "delivery",
     }),
   ];
-  const lavara: CockpitFactRow[] = [
+  const casasur: CockpitFactRow[] = [
     row({
       sale_date: "2026-07-10",
       check_id: "l1",
@@ -76,11 +76,11 @@ describe("cockpit POS rollup converters", () => {
     expect(casaAgg.revenue.net_sales).toBeCloseTo(84_743, 2);
     expect(casaAgg.revenue.tips).toBeCloseTo(1_200.59, 2);
 
-    const lavaraRollup = rollupFromRows(lavara);
-    const lavaraAgg = rollupToCockpitSalesAggregate(lavaraRollup, {
+    const casasurRollup = rollupFromRows(casasur);
+    const casasurAgg = rollupToCockpitSalesAggregate(casasurRollup, {
       currency: "USD",
     });
-    expect(lavaraAgg.revenue.net_sales + lavaraAgg.revenue.tips).toBeCloseTo(
+    expect(casasurAgg.revenue.net_sales + casasurAgg.revenue.tips).toBeCloseTo(
       50_720.8,
       2
     );
@@ -109,7 +109,7 @@ describe("cockpit POS rollup converters", () => {
   });
 
   it("in-memory aggregate still matches the rollup converter on the same rows", () => {
-    const rows = [...casa, ...lavara];
+    const rows = [...casa, ...casasur];
     const direct = buildCockpitSalesAggregate(rows, { currency: "USD" });
     const via = rollupToCockpitSalesAggregate(rollupFromRows(rows), {
       currency: "USD",

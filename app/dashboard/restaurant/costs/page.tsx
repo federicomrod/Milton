@@ -27,8 +27,8 @@ import {
   CostsAreaTabs,
   CostsKpiCard,
   PriceChangesTable,
-  formatMoney,
 } from "@/components/restaurant/costs/CostsArea";
+import { formatMoney } from "@/lib/restaurant/costs-format";
 import { CostsSetupSection } from "@/components/restaurant/costs/CostsSetupSection";
 import { InvoicesPage } from "@/components/restaurant/InvoicesPage";
 import { SuppliersPage } from "@/components/restaurant/SuppliersPage";

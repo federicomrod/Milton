@@ -377,7 +377,11 @@ describe("one upload on screen", () => {
   it("Resumen has no second upload or generate button", () => {
     const ui = read("components/restaurant/recipes-costing/ResumenScreen.tsx");
     expect(ui).not.toContain('type="file"');
-    expect(ui).toContain("onUploaded");
+    // R1-18: the one upload (and its prepare-dishes handler) is at the top of Costos.
+    expect(ui).not.toContain("onUploaded");
+    expect(read("components/restaurant/costs/CostsSetupSection.tsx")).toContain(
+      "onUploaded"
+    );
     const panel = read(
       "components/restaurant/recipes-costing/PriceCatalogPanel.tsx"
     );

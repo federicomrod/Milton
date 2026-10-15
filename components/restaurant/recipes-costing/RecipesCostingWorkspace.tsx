@@ -46,9 +46,6 @@ import { MenuDishesScreen } from "@/components/restaurant/menu/MenuDishesScreen"
 import { PreparacionesScreen } from "./PreparacionesScreen";
 import { ResumenScreen } from "./ResumenScreen";
 
-/** Dishes per request when generating suggestions. */
-const SUGGESTION_CHUNK = 5;
-
 type WorkspaceTab = "resumen" | "plato" | "preparaciones";
 
 const TAB_OF_VIEW: Record<WorkspaceTab, MenuTab> = {
@@ -111,13 +108,6 @@ export function RecipesCostingWorkspace({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [howOpen, setHowOpen] = useState(false);
-  const [workbookBusy, setWorkbookBusy] = useState(false);
-  const [progress, setProgress] = useState<{
-    done: number;
-    total: number | null;
-  } | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [epoch, setEpoch] = useState(0);
   // Tab and dish switches re-render on the server; mark them as a
   // transition so the screen shows it is loading right away.
   const [navigating, startNavigation] = useTransition();
@@ -644,76 +634,6 @@ export function RecipesCostingWorkspace({
     }
   }
 
-  /**
-   * Generate suggestions a few dishes at a time (top sellers first), so no
-   * single request runs long and one failure never loses earlier work.
-   */
-  async function runSuggestions() {
-    const url = "/api/restaurant/recipes/suggestions";
-    setWorkbookBusy(true);
-    setError(null);
-    setNotice(null);
-    const totals = { suggested: 0, sinSugerencia: 0, skipped: 0 };
-    let offset = 0;
-    let total: number | null = null;
-    try {
-      for (let guard = 0; guard < 40; guard++) {
-        setProgress({ done: offset, total });
-        // The recipes come from the file just uploaded (kept with it).
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            source: "latest_upload",
-            limit: SUGGESTION_CHUNK,
-            offset,
-          }),
-        });
-        const json = (await res.json().catch(() => ({}))) as {
-          error?: string;
-          suggested?: number;
-          sin_sugerencia?: number;
-          skipped?: number;
-          total?: number;
-          next_offset?: number | null;
-        };
-        if (!res.ok) {
-          throw new Error(
-            json.error ?? "No pude preparar tus platos desde el archivo."
-          );
-        }
-        totals.suggested += json.suggested ?? 0;
-        totals.sinSugerencia += json.sin_sugerencia ?? 0;
-        totals.skipped += json.skipped ?? 0;
-        total = json.total ?? total;
-        if (json.next_offset == null) break;
-        offset = json.next_offset;
-      }
-      setNotice(
-        `Listo: ${totals.suggested} ${totals.suggested === 1 ? "plato preparado" : "platos preparados"} desde tu archivo` +
-          `, ${totals.sinSugerencia} sin sugerencia` +
-          (totals.skipped > 0
-            ? `, ${totals.skipped} ya resueltos o con receta propia.`
-            : ".")
-      );
-      await reload();
-    } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "No pude preparar tus platos desde el archivo.";
-      setError(
-        totals.suggested > 0
-          ? `${message} Lo que ya se generó (${totals.suggested} platos) quedó guardado.`
-          : message
-      );
-      await reload().catch(() => undefined);
-    } finally {
-      setWorkbookBusy(false);
-      setProgress(null);
-    }
-  }
-
   return (
     <div className="w-full">
       {error ? (
@@ -721,19 +641,6 @@ export function RecipesCostingWorkspace({
           {error}
         </div>
       ) : null}
-      {progress ? (
-        <div className="mb-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-          Preparando tus platos desde el archivo…{" "}
-          {progress.total
-            ? `${Math.min(progress.done, progress.total)} de ${progress.total} platos (los que más venden primero)`
-            : "empezando por los platos que más venden"}
-        </div>
-      ) : notice ? (
-        <div className="mb-3 rounded-lg border border-[#cfe9d9] bg-[#f1faf5] px-3 py-2 text-sm text-[#1f7a45]">
-          {notice}
-        </div>
-      ) : null}
-
       {navigating ? (
         <div
           role="status"
@@ -838,31 +745,7 @@ export function RecipesCostingWorkspace({
         ) : (
           <ResumenScreen
             data={data}
-            epoch={epoch}
-            onUploaded={() => void runSuggestions()}
-            generateBusy={workbookBusy}
             locationId={searchParams.get("location")}
-            onResetDone={() => {
-              // "Empezar de nuevo" / an import: every panel starts over
-              // (upload drafts remount) and the server parts refresh.
-              setEpoch((n) => n + 1);
-              void reload().catch(() => undefined);
-              router.refresh();
-            }}
-            onUndoBatch={(batchIds) =>
-              void mutate(async () => {
-                // Newest first, so a newer batch never blocks an older one.
-                for (const batchId of batchIds) {
-                  const res = await fetch(
-                    `/api/restaurant/costs/batches/${batchId}/undo`,
-                    { method: "POST" }
-                  );
-                  const json = (await res.json()) as { error?: string };
-                  if (!res.ok)
-                    throw new Error(json.error ?? "No pude deshacer el lote.");
-                }
-              })
-            }
           />
         )}
       </div>

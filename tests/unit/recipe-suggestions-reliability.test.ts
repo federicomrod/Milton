@@ -213,13 +213,13 @@ describe("route and screen guards", () => {
   });
 
   it("the screen runs small chunks with progress and keeps earlier work on error", () => {
-    const ui = read(
-      "components/restaurant/recipes-costing/RecipesCostingWorkspace.tsx"
-    );
-    expect(ui).toContain("const SUGGESTION_CHUNK = 5;");
-    expect(ui).toContain("json.next_offset == null");
+    // R1-18: the loop moved with the setup (Costos), unchanged.
+    const lib = read("lib/restaurant/recipe-costing/prepare-from-upload.ts");
+    const ui = read("components/restaurant/costs/CostsSetupSection.tsx");
+    expect(lib).toContain("export const SUGGESTION_CHUNK = 5;");
+    expect(lib).toContain("json.next_offset == null");
     expect(ui).toContain("Preparando tus platos desde el archivo…");
-    expect(ui).toContain("quedó guardado");
+    expect(lib).toContain("quedó guardado");
   });
 
   it("the price list upload keeps the recipe blocks too", () => {

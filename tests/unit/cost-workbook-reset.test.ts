@@ -578,9 +578,8 @@ describe("cost reset server and UI copy", () => {
     expect(server).toContain("canManageCompanyCostReset(roleLoad)");
     expect(server).toContain("multiRestaurantResetWarningEs");
     expect(server).toContain("resetConfirmPromptEs");
-    const resumen = read(
-      "components/restaurant/recipes-costing/ResumenScreen.tsx"
-    );
+    // R1-18: "Empezar de nuevo" moved with the setup, to Costos.
+    const resumen = read("components/restaurant/costs/CostsSetupSection.tsx");
     expect(resumen).toContain("data.reset ? (");
   });
 

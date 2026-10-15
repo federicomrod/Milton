@@ -378,3 +378,83 @@ export function toResolve(dishes: readonly MenuDish[]): ToResolveRow[] {
     },
   ].filter((row) => row.count > 0);
 }
+
+// ---------------------------------------------------------------------------
+// R1-18: Menú › Resumen as the menu's cockpit — best / worst margin
+// ---------------------------------------------------------------------------
+
+/** Fewer costed dishes than this and there is no ranking, only an empty state. */
+export const MIN_RANKED_DISHES = 3;
+/**
+ * Do dishes whose cost is an AI estimate («estimado») enter the margin
+ * rankings? They are always marked «IA» wherever they appear. Off: a ranking
+ * is built on approved costs only (the same dishes the KPIs call "con costo").
+ * One constant, so the answer to Sofia's open question is a one-line change.
+ */
+export const RANKING_INCLUDES_ESTIMATED = false;
+
+export interface MarginDish {
+  id: string | null;
+  name: string;
+  net_sales: number;
+  /** Null = no price (Sin precio): never 0, never ranked. */
+  margin_pct: number | null;
+  cost_status: DishStatus;
+}
+
+export interface RankedDish extends MarginDish {
+  margin_pct: number;
+  /** The cost is an AI estimate: shown with an «IA» chip. */
+  ai: boolean;
+}
+
+export interface MarginRanking {
+  /** Dishes sold in the period (the "M" of "N de M platos"). */
+  total: number;
+  /** Dishes with a usable cost (the "N"). */
+  costed: number;
+  /** costed / total, 0–1 (the coverage bar). */
+  coverage: number;
+  /** At least MIN_RANKED_DISHES costed dishes: the lists below are filled. */
+  enough: boolean;
+  best: RankedDish[];
+  worst: RankedDish[];
+}
+
+/**
+ * Top / bottom dishes by margin %, only among dishes with a usable cost
+ * (approved; plus AI estimates when RANKING_INCLUDES_ESTIMATED). A dish with
+ * no price is never in a list and never shows $0 / 0%. Without enough costed
+ * dishes there are no lists, only the coverage.
+ */
+export function marginRankings(
+  dishes: readonly MarginDish[],
+  opts: { min?: number; top?: number; includeEstimated?: boolean } = {}
+): MarginRanking {
+  const min = opts.min ?? MIN_RANKED_DISHES;
+  const top = opts.top ?? 3;
+  const includeEstimated = opts.includeEstimated ?? RANKING_INCLUDES_ESTIMATED;
+  const usable: RankedDish[] = [];
+  for (const d of dishes) {
+    if (d.margin_pct === null || !Number.isFinite(d.margin_pct)) continue;
+    const approved = d.cost_status === "aprobado";
+    const estimated = d.cost_status === "estimado";
+    if (!approved && !(estimated && includeEstimated)) continue;
+    usable.push({ ...d, margin_pct: d.margin_pct, ai: estimated });
+  }
+  const total = dishes.length;
+  const base = {
+    total,
+    costed: usable.length,
+    coverage: total > 0 ? usable.length / total : 0,
+    enough: usable.length >= min,
+  };
+  if (!base.enough) return { ...base, best: [], worst: [] };
+  const byBest = [...usable].sort(
+    (a, b) => b.margin_pct - a.margin_pct || b.net_sales - a.net_sales
+  );
+  const byWorst = [...usable].sort(
+    (a, b) => a.margin_pct - b.margin_pct || b.net_sales - a.net_sales
+  );
+  return { ...base, best: byBest.slice(0, top), worst: byWorst.slice(0, top) };
+}

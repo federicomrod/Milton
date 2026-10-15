@@ -46,12 +46,12 @@ describe("price catalog routes and screen", () => {
   });
 
   it("mounts the panel on Resumen, in Spanish with tú", () => {
+    // R1-18: step 1 of the setup lives at the top of Costos now (same panel).
     const resumen = read(
-      "components/restaurant/recipes-costing/ResumenScreen.tsx"
+      "components/restaurant/costs/CostsSetupSection.tsx"
     ).replace(/\s+/g, " ");
-    // Step 1 of "Configura tu menú" (B4): the panel, embedded.
     expect(resumen).toContain("<PriceCatalogPanel");
-    expect(resumen).toContain("embedded onUploaded={onUploaded}");
+    expect(resumen).toContain("embedded onUploaded={() => void onUploaded()}");
     expect(resumen).toContain("onRecipesImported={onResetDone}");
     const panel = read(
       "components/restaurant/recipes-costing/PriceCatalogPanel.tsx"

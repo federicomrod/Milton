@@ -29,6 +29,7 @@ import {
   PriceChangesTable,
   formatMoney,
 } from "@/components/restaurant/costs/CostsArea";
+import { CostsSetupSection } from "@/components/restaurant/costs/CostsSetupSection";
 import { InvoicesPage } from "@/components/restaurant/InvoicesPage";
 import { SuppliersPage } from "@/components/restaurant/SuppliersPage";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
@@ -86,6 +87,9 @@ export default async function CostsAreaPage({
           </Link>
         }
       />
+
+      {/* R1-18: the cost setup (it used to be Menú › Resumen's checklist). */}
+      <CostsSetupSection locationId={location ?? null} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <CostsKpiCard

@@ -28,11 +28,7 @@
 //     callers see status `circular_component_reference` and the engine
 //     never recurses infinitely.
 
-import {
-  convertToSubRecipeUnit,
-  convertUnitStr,
-  normalizeUnit,
-} from "@/lib/restaurant/units";
+import { convertToSubRecipeUnit } from "@/lib/restaurant/units";
 import { shouldApplyWorkbookMismatch } from "@/lib/restaurant/protect-imported-recipe";
 import { workbookMismatchEngineMessage } from "@/lib/restaurant/cost-workbook/copy";
 import { pickApprovedVersion } from "@/lib/restaurant/recipe-versions";
@@ -53,6 +49,8 @@ export interface CostingIngredient {
   id: string;
   name: string;
   default_unit: string | null;
+  /** Archived (merged away or hidden): kept so old lines read, never offered. */
+  archived?: boolean;
 }
 
 export interface CostingComponent {
@@ -365,10 +363,13 @@ function costIngredientInput(
   // Convert quantity from the recipe's unit to the cost-entry's
   // normalized unit. We multiply by `unit_cost` AFTER the conversion so
   // both sides agree on dimensionality.
-  if (normalizeUnit(input.unit) === null || normalizeUnit(cost.unit) === null) {
-    return { ok: false, status: "missing_unit_conversion" };
-  }
-  const converted = convertUnitStr(input.quantity, input.unit, cost.unit);
+  // The unit table first; otherwise the same label (or ORDEN / ORDENES /
+  // CONVOY) is 1:1. A portion is never guessed to be an ounce or a unit.
+  const converted = convertToSubRecipeUnit(
+    input.quantity,
+    input.unit,
+    cost.unit
+  );
   if (!converted.ok) {
     return { ok: false, status: "missing_unit_conversion" };
   }

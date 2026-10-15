@@ -11,7 +11,10 @@ import type {
   CostingRecipeInput,
 } from "@/lib/restaurant/costing";
 import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
-import { buildIngredientCostEntryInsert } from "@/lib/restaurant/cost-import";
+import {
+  buildIngredientCostEntryInsert,
+  unitMismatchMessage,
+} from "@/lib/restaurant/cost-import";
 import {
   aliasKeyFor,
   createSupabaseCostWorkbookRepo,
@@ -71,12 +74,19 @@ export function createSupabaseEditorStore(
         componentInputs,
         versions,
       ] = await Promise.all([
-        fetchAllRows<{ id: string; name: string; default_unit: string | null }>(
-          () =>
+        fetchAllRowsRetryingWithoutColumns<{
+          id: string;
+          name: string;
+          default_unit: string | null;
+          archived_at?: string | null;
+        }>(
+          ["archived_at"],
+          (select) =>
             supabase
               .from("ingredients")
-              .select("id, name, default_unit")
-              .eq("company_id", companyId)
+              .select(select)
+              .eq("company_id", companyId),
+          "id, name, default_unit, archived_at"
         ),
         fetchAllRowsRetryingWithoutColumns<IngredientCostEntry>(
           ["effective_date", "date_source"],
@@ -153,7 +163,17 @@ export function createSupabaseEditorStore(
         inputsByRecipe.set(row.component_recipe_id, list);
       }
       const data: CostingData = {
-        ingredientsById: new Map(ingredients.rows.map((r) => [r.id, r])),
+        ingredientsById: new Map(
+          ingredients.rows.map((r) => [
+            r.id,
+            {
+              id: r.id,
+              name: r.name,
+              default_unit: r.default_unit,
+              archived: !!r.archived_at,
+            },
+          ])
+        ),
         componentsById: new Map(
           components.rows.map((c) => [
             c.id,
@@ -682,14 +702,17 @@ export function createSupabaseEditorStore(
             supplier_sku: null,
           },
         });
-      let built = buildFor(
-        typeof ing.default_unit === "string" ? ing.default_unit : null
-      );
-      // The person's price is in a unit the ingredient's own unit cannot
-      // convert to ("unidad" vs "orden"): keep it in the person's unit
-      // instead of refusing the save.
-      if (!built.ok) built = buildFor(entry.unit);
-      if (!built.ok) throw new Error(built.reason);
+      const ingredientUnit =
+        typeof ing.default_unit === "string" ? ing.default_unit : null;
+      const built = buildFor(ingredientUnit);
+      // A price in a unit the ingredient's own unit cannot be read in
+      // («orden» on an oz ingredient): say so, never store it mislabeled.
+      if (!built.ok) {
+        return {
+          ok: false,
+          error: unitMismatchMessage(entry.unit, ingredientUnit),
+        };
+      }
       const { error } = await supabase.from("ingredient_cost_entries").insert({
         ...built.insert,
         source_type: "manual",
@@ -706,6 +729,22 @@ export function createSupabaseEditorStore(
         .eq("company_id", companyId)
         .eq("id", entry.ingredientId);
       if (updateError) throw new Error(updateError.message);
+      return { ok: true };
+    },
+
+    async mergedInto(companyId, ingredientId) {
+      const { data, error } = await supabase
+        .from("ingredient_merges")
+        .select("survivor_name")
+        .eq("company_id", companyId)
+        .is("undone_at", null)
+        .contains("loser_ids", [ingredientId])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      // Before the merges table exists nothing was merged.
+      if (error || !data) return null;
+      return { name: String(data.survivor_name ?? "") };
     },
 
     async loadAliases(companyId) {

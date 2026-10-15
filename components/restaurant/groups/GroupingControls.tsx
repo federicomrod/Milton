@@ -78,6 +78,7 @@ export function GroupActionBar({
   onAddToExisting,
   onGroupAs,
   onUngroup,
+  onMerge,
   onClear,
   busy,
 }: {
@@ -91,6 +92,8 @@ export function GroupActionBar({
   onAddToExisting: () => void;
   onGroupAs: () => void;
   onUngroup?: () => void;
+  /** Ingredientes: «Unir…» (two or more selected). */
+  onMerge?: () => void;
   onClear: () => void;
   busy?: boolean;
 }) {
@@ -139,6 +142,16 @@ export function GroupActionBar({
         >
           Agrupar como…
         </button>
+        {onMerge ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onMerge}
+            className={secondary}
+          >
+            Unir…
+          </button>
+        ) : null}
         {canUngroup && onUngroup ? (
           <button
             type="button"

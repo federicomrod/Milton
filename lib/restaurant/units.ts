@@ -548,3 +548,26 @@ export function convertUnitPriceStr(
   if (!converted.ok) return converted;
   return { ok: true, value: converted.value * t.multiplier };
 }
+
+/**
+ * Price conversion for a cost entry. The unit table first; otherwise a price
+ * per «orden» is a price per «orden» (the same label, or ORDEN / ORDENES /
+ * CONVOY, which are one thing) with no conversion. A portion is never guessed
+ * to be an ounce or a "unit": anything else is refused.
+ */
+export function convertUnitPriceOrPortion(
+  pricePerFrom: number,
+  from: string | null | undefined,
+  to: string | null | undefined
+): ConversionResult {
+  const regular = convertUnitPriceStr(pricePerFrom, from, to);
+  if (regular.ok) return regular;
+  if (typeof from !== "string" || typeof to !== "string") return regular;
+  const f = foldUnitKey(from);
+  const t = foldUnitKey(to);
+  if (f && f === t) return { ok: true, value: pricePerFrom };
+  if (isSubRecipePortionUnit(from) && isSubRecipePortionUnit(to)) {
+    return { ok: true, value: pricePerFrom };
+  }
+  return regular;
+}

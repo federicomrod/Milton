@@ -6,18 +6,15 @@ import type {
   RecipeCostingWorkspace,
   VincularProductRow,
 } from "@/lib/restaurant/recipe-costing/workspace";
+import {
+  loadIngredientOptions,
+  type IngredientOption,
+} from "./ingredient-options";
 import { PrimaryBtn } from "./ui";
 
 export type PostFn = (url: string, body: Record<string, unknown>) => void;
 
 const TREATMENT_URL = "/api/restaurant/pos/links/treatment";
-
-interface IngredientOption {
-  id: string;
-  name: string;
-  default_unit: string | null;
-  current_unit_cost: number | null;
-}
 
 /** Vincular side panel: change one product's treatment; for reventa,
  *  pick what you buy (a one-line draft recipe). */
@@ -86,30 +83,6 @@ export function TreatmentControl({
       ) : null}
     </div>
   );
-}
-
-// R1-09c: the ingredient list once per minute, not on every open.
-let ingredientOptions: {
-  at: number;
-  rows: Promise<IngredientOption[]>;
-} | null = null;
-
-function loadIngredientOptions(): Promise<IngredientOption[]> {
-  if (ingredientOptions && Date.now() - ingredientOptions.at < 60_000) {
-    return ingredientOptions.rows;
-  }
-  const rows = fetch("/api/restaurant/ingredients").then(async (res) => {
-    const json = (await res.json().catch(() => ({}))) as {
-      ingredients?: IngredientOption[];
-    };
-    if (!res.ok) throw new Error("ingredients");
-    return json.ingredients ?? [];
-  });
-  ingredientOptions = { at: Date.now(), rows };
-  rows.catch(() => {
-    ingredientOptions = null;
-  });
-  return rows;
 }
 
 function ResalePicker({

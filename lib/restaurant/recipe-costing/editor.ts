@@ -461,6 +461,7 @@ export function buildPickerOptions(input: {
 }): PickerOption[] {
   const out: PickerOption[] = [];
   for (const ingredient of input.data.ingredientsById.values()) {
+    if (ingredient.archived) continue;
     const price = input.priceOf(ingredient.id);
     out.push({
       kind: "ingredient",

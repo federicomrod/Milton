@@ -97,10 +97,11 @@ describe("RestaurantSalesExplorer compact Revenue-tab chrome (#85)", () => {
 });
 
 describe("RestaurantSalesExplorer filter logic and target math are unchanged", () => {
-  it("still POSTs targets to /api/restaurant/targets", () => {
-    expect(explorer).toContain('fetch("/api/restaurant/targets"');
-    expect(explorer).toContain('method: "POST"');
-    expect(explorer).toContain("JSON.stringify({ targets: payload })");
+  it("points the targets card to Configuración › Objetivos instead of editing here (R1-16a)", () => {
+    expect(explorer).toContain("OBJECTIVES_HREF");
+    expect(explorer).toContain("Editar objetivos en Configuración");
+    // One place to edit: no second form that POSTs targets from Ventas.
+    expect(explorer).not.toContain('fetch("/api/restaurant/targets"');
   });
 
   it("still scales flow targets by selectedDays and leaves avg ticket unmultiplied", () => {

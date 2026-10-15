@@ -7,6 +7,7 @@
 
 import Link from "next/link";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
+import { ConfigTabs } from "@/components/restaurant/settings/ConfigTabs";
 import { PosSalesUploadPanel } from "@/components/restaurant/settings/PosSalesUploadPanel";
 import { t } from "@/lib/restaurant/language";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
@@ -42,51 +43,55 @@ export default async function ConfiguracionPage({
         showDateRange={false}
       />
 
-      {DATA_SETTINGS_SECTIONS.map((section) => {
-        const links = routesForSection(section, { isAdmin });
-        if (links.length === 0) return null;
-        return (
-          <section
-            key={section}
-            id={DATA_SETTINGS_SECTION_ANCHORS[section]}
-            className="space-y-2 scroll-mt-4"
-          >
-            <h2 className="text-[15px] font-semibold text-[#151c2c]">
-              {dataSettingsSectionLabel(section, lang)}
-            </h2>
-            <ul className="divide-y divide-border rounded-[14px] border border-[#dfe3ea] bg-white">
-              {links.map((route) =>
-                route.id === "pos-sales" ? (
-                  <li key={route.id}>
-                    <details open={uploadOpen} className="group">
-                      <summary
-                        className={`${linkClass} cursor-pointer list-none flex items-center justify-between`}
-                      >
-                        {dataSettingsLinkLabel(route.id, lang)}
-                        <span
-                          aria-hidden
-                          className="text-[#6b7385] transition-transform group-open:rotate-90"
+      <ConfigTabs active="connections" lang={lang} isAdmin={isAdmin} />
+
+      {DATA_SETTINGS_SECTIONS.filter((s) => s !== "objectives").map(
+        (section) => {
+          const links = routesForSection(section, { isAdmin });
+          if (links.length === 0) return null;
+          return (
+            <section
+              key={section}
+              id={DATA_SETTINGS_SECTION_ANCHORS[section]}
+              className="space-y-2 scroll-mt-4"
+            >
+              <h2 className="text-[15px] font-semibold text-[#151c2c]">
+                {dataSettingsSectionLabel(section, lang)}
+              </h2>
+              <ul className="divide-y divide-border rounded-[14px] border border-[#dfe3ea] bg-white">
+                {links.map((route) =>
+                  route.id === "pos-sales" ? (
+                    <li key={route.id}>
+                      <details open={uploadOpen} className="group">
+                        <summary
+                          className={`${linkClass} cursor-pointer list-none flex items-center justify-between`}
                         >
-                          ›
-                        </span>
-                      </summary>
-                      <div className="px-4 pb-4 pt-1">
-                        <PosSalesUploadPanel lang={lang} />
-                      </div>
-                    </details>
-                  </li>
-                ) : (
-                  <li key={route.id}>
-                    <Link href={route.href} className={linkClass}>
-                      {dataSettingsLinkLabel(route.id, lang)}
-                    </Link>
-                  </li>
-                )
-              )}
-            </ul>
-          </section>
-        );
-      })}
+                          {dataSettingsLinkLabel(route.id, lang)}
+                          <span
+                            aria-hidden
+                            className="text-[#6b7385] transition-transform group-open:rotate-90"
+                          >
+                            ›
+                          </span>
+                        </summary>
+                        <div className="px-4 pb-4 pt-1">
+                          <PosSalesUploadPanel lang={lang} />
+                        </div>
+                      </details>
+                    </li>
+                  ) : (
+                    <li key={route.id}>
+                      <Link href={route.href} className={linkClass}>
+                        {dataSettingsLinkLabel(route.id, lang)}
+                      </Link>
+                    </li>
+                  )
+                )}
+              </ul>
+            </section>
+          );
+        }
+      )}
     </div>
   );
 }

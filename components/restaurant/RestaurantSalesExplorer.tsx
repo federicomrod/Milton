@@ -25,6 +25,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { OBJECTIVES_HREF } from "@/lib/restaurant/navigation";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
 import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
 import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
@@ -738,137 +739,41 @@ function DeltaBadge({
 // Targets editor
 // ---------------------------------------------------------------------------
 
-const TARGET_LABELS: Record<TargetMetricKey, string> = {
-  revenue: "Daily revenue target",
-  orders: "Daily orders target",
-  units_sold: "Daily units sold target",
-  avg_ticket: "Daily avg ticket target",
-};
-
 /**
- * "Edit targets" form. Collapsed by default (including when none are set)
- * so it never pushes Overview KPIs below the fold. The parent owns open
- * state and renders a compact toolbar button; this card stays mounted so
- * unsaved draft values survive hide/show. POSTs to /api/restaurant/targets.
- *
- * Server response is the canonical full target set — we replace local
- * state with it on save so partial edits never desynchronize.
+ * R1-16a: the goals are set in Configuración › Objetivos (one place), not
+ * here. This card only SHOWS what Ventas is drawing and links there. Still
+ * collapsed by default and opened from the compact toolbar button.
  */
 function TargetEditorCard({
   currentTargets,
   currency,
-  onSaved,
   anyTargetSet,
   open,
   onOpenChange,
 }: {
   currentTargets: TargetMap;
   currency: string;
-  onSaved: (next: TargetMap) => void;
   anyTargetSet: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  // Form state shadows currentTargets but holds strings so the user can
-  // clear a field without immediately falling back to a default.
-  const [draft, setDraft] = useState<Record<TargetMetricKey, string>>({
-    revenue: currentTargets.revenue?.toString() ?? "",
-    orders: currentTargets.orders?.toString() ?? "",
-    units_sold: currentTargets.units_sold?.toString() ?? "",
-    avg_ticket: currentTargets.avg_ticket?.toString() ?? "",
-  });
-  const [status, setStatus] = useState<
-    | { kind: "idle" }
-    | { kind: "saving" }
-    | { kind: "ok"; message: string }
-    | { kind: "error"; message: string }
-  >({ kind: "idle" });
-
-  const fmts = useMemo(() => makeFmts(currency), [currency]);
-
-  const handleSave = async () => {
-    setStatus({ kind: "saving" });
-    // Convert draft into a partial payload: empty strings are skipped so
-    // unchanged fields aren't touched, and bad values short-circuit.
-    const payload: Partial<Record<TargetMetricKey, number>> = {};
-    for (const key of TARGET_METRIC_KEYS_LOCAL) {
-      const raw = draft[key].trim();
-      if (raw === "") continue;
-      const n = Number(raw);
-      if (!Number.isFinite(n) || n < 0) {
-        setStatus({
-          kind: "error",
-          message: `“${TARGET_LABELS[key]}” must be a non-negative number.`,
-        });
-        return;
-      }
-      payload[key] = n;
-    }
-    if (Object.keys(payload).length === 0) {
-      setStatus({
-        kind: "error",
-        message: "Enter at least one target to save.",
-      });
-      return;
-    }
-    try {
-      const res = await fetch("/api/restaurant/targets", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targets: payload }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setStatus({
-          kind: "error",
-          message:
-            typeof body?.error === "string" ? body.error : `HTTP ${res.status}`,
-        });
-        return;
-      }
-      const next: TargetMap = body?.targets ?? {};
-      onSaved(next);
-      setDraft({
-        revenue: next.revenue?.toString() ?? "",
-        orders: next.orders?.toString() ?? "",
-        units_sold: next.units_sold?.toString() ?? "",
-        avg_ticket: next.avg_ticket?.toString() ?? "",
-      });
-      setStatus({ kind: "ok", message: "Targets saved." });
-    } catch (err) {
-      setStatus({
-        kind: "error",
-        message: err instanceof Error ? err.message : "Save failed",
-      });
-    }
-  };
-
-  // Summary line shown when collapsed — short factual recap of what's set.
-  const summary = (() => {
-    if (!anyTargetSet) {
-      return "No targets set yet. Add daily targets to compare actuals vs plan.";
-    }
-    const parts: string[] = [];
-    if (typeof currentTargets.revenue === "number")
-      parts.push(`Rev ${fmts.int.format(currentTargets.revenue)}/day`);
-    if (typeof currentTargets.orders === "number")
-      parts.push(`Orders ${Math.round(currentTargets.orders)}/day`);
-    if (typeof currentTargets.units_sold === "number")
-      parts.push(`Units ${Math.round(currentTargets.units_sold)}/day`);
-    if (typeof currentTargets.avg_ticket === "number")
-      parts.push(`Ticket ${fmts.dec2.format(currentTargets.avg_ticket)}`);
-    return parts.join(" · ");
-  })();
-
+  const fmts = makeFmts(currency);
   if (!open) return null;
-
+  const parts: string[] = [];
+  if (typeof currentTargets.revenue === "number")
+    parts.push(`Rev ${fmts.int.format(currentTargets.revenue)}/day`);
+  if (typeof currentTargets.orders === "number")
+    parts.push(`Orders ${Math.round(currentTargets.orders)}/day`);
+  if (typeof currentTargets.units_sold === "number")
+    parts.push(`Units ${Math.round(currentTargets.units_sold)}/day`);
+  if (typeof currentTargets.avg_ticket === "number")
+    parts.push(`Ticket ${fmts.dec2.format(currentTargets.avg_ticket)}`);
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-base flex items-center gap-2">
-            <Target className="h-4 w-4 text-orange-500" />
+            <Target className="h-4 w-4 text-[#1b40c8]" />
             Targets
           </CardTitle>
           <Button
@@ -883,71 +788,27 @@ function TargetEditorCard({
         </div>
       </CardHeader>
       <CardContent>
-        <p className="text-sm text-muted-foreground">{summary}</p>
-        {open && (
-          <div className="mt-4 space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {TARGET_METRIC_KEYS_LOCAL.map((key) => (
-                <label key={key} className="flex flex-col gap-1 min-w-0">
-                  <span className="text-xs text-muted-foreground">
-                    {TARGET_LABELS[key]}
-                  </span>
-                  <Input
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step={
-                      key === "avg_ticket" || key === "revenue" ? "0.01" : "1"
-                    }
-                    value={draft[key]}
-                    onChange={(e) =>
-                      setDraft((prev) => ({ ...prev, [key]: e.target.value }))
-                    }
-                    placeholder="—"
-                    className="h-9"
-                  />
-                </label>
-              ))}
-            </div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleSave}
-                disabled={status.kind === "saving"}
-              >
-                {status.kind === "saving" ? "Saving…" : "Save targets"}
-              </Button>
-              {status.kind === "ok" && (
-                <span className="text-sm text-green-700 dark:text-green-300">
-                  {status.message}
-                </span>
-              )}
-              {status.kind === "error" && (
-                <span className="text-sm text-red-700 dark:text-red-300">
-                  {status.message}
-                </span>
-              )}
-              <span className="text-xs text-muted-foreground">
-                Window totals = daily target × selected days. Avg ticket target
-                is not multiplied.
-              </span>
-            </div>
-          </div>
-        )}
+        <p className="text-sm text-muted-foreground">
+          {anyTargetSet
+            ? `Drawing: ${parts.join(" · ")}.`
+            : "No targets set yet. Add your goals to compare actuals vs plan."}
+        </p>
+        <div className="mt-3 flex items-center gap-3 flex-wrap">
+          <a
+            href={OBJECTIVES_HREF}
+            className="rounded-lg bg-[#1b40c8] px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-[#1535a6]"
+          >
+            Editar objetivos en Configuración ›
+          </a>
+          <span className="text-xs text-muted-foreground">
+            One place for sales, food cost, margin and ticket goals; Cockpit and
+            Ventas both read them.
+          </span>
+        </div>
       </CardContent>
     </Card>
   );
 }
-
-/** Local copy of the metric keys so the editor doesn't reach into the
- *  helper module's runtime types at render time. */
-const TARGET_METRIC_KEYS_LOCAL: ReadonlyArray<TargetMetricKey> = [
-  "revenue",
-  "orders",
-  "units_sold",
-  "avg_ticket",
-];
 
 function KpiCard({
   label,
@@ -1282,7 +1143,7 @@ export function RestaurantSalesExplorer({
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   // Targets live in client state so the editor's POST can update them
   // optimistically. Server is source of truth on next page reload.
-  const [targets, setTargets] = useState<TargetMap>(initialTargets);
+  const targets: TargetMap = initialTargets;
   // Item-level filters (search / min units / min revenue / price band) sit
   // behind "More filters" so the default toolbar is a single compact row.
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
@@ -1611,7 +1472,6 @@ export function RestaurantSalesExplorer({
       <TargetEditorCard
         currentTargets={targets}
         currency={aggs.currency}
-        onSaved={(next) => setTargets(next)}
         anyTargetSet={anyTargetSet}
         open={targetsOpen}
         onOpenChange={setTargetsOpen}

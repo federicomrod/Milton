@@ -39,6 +39,12 @@ export function pendingCostLabel(): "Pendiente" {
   return "Pendiente";
 }
 
+/** A line that HAS a price, but in a unit the line's unit cannot be read in. */
+export const UNIT_MISMATCH_LABEL = "Unidad distinta";
+export function unitMismatchHint(priceUnit: string, lineUnit: string): string {
+  return `El precio es por ${priceUnit} y la línea usa ${lineUnit}. Cambia una de las dos.`;
+}
+
 export function lineCostDisplay(input: {
   pending?: boolean;
   unit_cost?: number | null;

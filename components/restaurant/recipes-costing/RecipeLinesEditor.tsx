@@ -34,6 +34,10 @@ import {
   getCachedEditor,
   putEditor,
 } from "@/lib/restaurant/recipe-costing/editor-cache";
+import {
+  UNIT_MISMATCH_LABEL,
+  unitMismatchHint,
+} from "@/lib/restaurant/recipe-costing/format";
 import { Chip, GhostBtn, PrimaryBtn } from "./ui";
 
 const MASS = ["oz", "lb", "g", "kg"];
@@ -613,6 +617,14 @@ function Row({
     line.kind === "component" &&
     line.amount === null &&
     line.flags.includes(FLAG_PENDING_UNIT);
+  // The ingredient HAS a price, but in a unit this line cannot be read in: it
+  // still counts as missing (never $0), and says why.
+  const priceUnitMismatch =
+    line.kind === "ingredient" &&
+    line.amount === null &&
+    line.price !== null &&
+    line.price.unit != null &&
+    line.flags.includes(FLAG_PENDING_UNIT);
   const waitingPrep =
     line.kind === "component" && line.amount === null && !prepUnitProblem;
   // A line from the menu says what, not how much: the person types both
@@ -1028,7 +1040,21 @@ function Row({
         )}
       </td>
       <td className="py-1.5 text-right align-top font-semibold">
-        {line.amount !== null ? money(line.amount) : "Pendiente"}
+        {line.amount !== null ? (
+          money(line.amount)
+        ) : priceUnitMismatch ? (
+          <span
+            title={unitMismatchHint(
+              UNIT_LABEL[line.price!.unit] ?? line.price!.unit,
+              UNIT_LABEL[line.unit] ?? line.unit
+            )}
+            className="text-[#a35a00]"
+          >
+            {UNIT_MISMATCH_LABEL}
+          </span>
+        ) : (
+          "Pendiente"
+        )}
         {line.amount !== null && line.unit_cost !== null && line.qty > 0 ? (
           // The cost chain (do not remove): price × quantity = cost.
           <div className="text-[12px] font-normal text-[#8a92a3]">

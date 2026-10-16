@@ -162,7 +162,9 @@ export interface EditorStore {
   addCostEntry(
     companyId: string,
     entry: NewCostEntry
-  ): Promise<{ ok: true } | { ok: false; error: string }>;
+  ): Promise<
+    { ok: true } | { ok: false; error: string; conversion?: ConversionHint }
+  >;
   /** Unclear price-list rows still open. */
   catalogQuestions(companyId: string): Promise<CatalogQuestion[]>;
   /** The person picked how an unclear price-list row reads. Adds the
@@ -228,9 +230,17 @@ export interface EditorState {
   };
 }
 
+/** What «Definir conversión» needs: this ingredient, in this unit, to its price unit. */
+export interface ConversionHint {
+  ingredient_id: string;
+  ingredient_name: string;
+  from_unit: string;
+  to_unit: string;
+}
+
 export type EditorResult =
   | { ok: true; state: EditorState }
-  | { ok: false; error: string; status?: number };
+  | { ok: false; error: string; status?: number; conversion?: ConversionHint };
 
 export interface Ctx {
   store: EditorStore;
@@ -1131,7 +1141,13 @@ export async function applyEdit(
               ? ZERO_PRICE_NOTE
               : "Precio al crear el ingrediente en Recetas y costeo",
         });
-        if (!added.ok) return { ok: false, error: added.error, status: 400 };
+        if (!added.ok)
+          return {
+            ok: false,
+            error: added.error,
+            status: 400,
+            conversion: added.conversion,
+          };
       }
       if (action.line_key) {
         const line = await lineByKey(action.line_key);
@@ -1336,7 +1352,13 @@ export async function applyEdit(
           dateSource: "manual",
           note: cost === 0 ? ZERO_PRICE_NOTE : "Precio corregido en Platos",
         });
-        if (!added.ok) return { ok: false, error: added.error, status: 400 };
+        if (!added.ok)
+          return {
+            ok: false,
+            error: added.error,
+            status: 400,
+            conversion: added.conversion,
+          };
         // The rebuild below reads the catalog loaded at the start of this
         // edit: add the new entry to it instead of loading it again.
         const today = new Date().toISOString().slice(0, 10);
@@ -1380,7 +1402,15 @@ export async function applyEdit(
     }
     case "set_price": {
       const price = cleanPrice(action.unit_cost);
-      const unit = cleanUnit(action.unit);
+      // A unit outside the table («taza») is accepted when the ingredient
+      // has a unit of its own: saving then converts it with the ingredient's
+      // conversion, or answers with «Definir conversión». Never stored as is.
+      let unit = cleanUnit(action.unit);
+      if (!unit && typeof action.unit === "string") {
+        const raw = action.unit.trim();
+        const ing = data.ingredientsById.get(action.ingredient_id);
+        if (raw && raw.length <= 24 && ing?.default_unit) unit = raw;
+      }
       if (price === null || !unit) {
         return {
           ok: false,
@@ -1421,7 +1451,13 @@ export async function applyEdit(
             ? ZERO_PRICE_NOTE
             : "Precio corregido en Recetas y costeo",
       });
-      if (!added.ok) return { ok: false, error: added.error, status: 400 };
+      if (!added.ok)
+        return {
+          ok: false,
+          error: added.error,
+          status: 400,
+          conversion: added.conversion,
+        };
       break;
     }
   }

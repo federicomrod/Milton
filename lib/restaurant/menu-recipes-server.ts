@@ -10,6 +10,7 @@
 // the SSR Supabase client (cookies-bound) so the user's RLS policies
 // apply. No service-role calls anywhere in this milestone.
 
+import { loadUnitConversions } from "@/lib/restaurant/unit-conversions-server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PreparedComponent } from "@/types/restaurant";
 import type {
@@ -206,6 +207,7 @@ export async function fetchMenuRecipesData(
     };
   }
 
+  const conversionsPromise = loadUnitConversions(supabase, companyId);
   const [
     posRes,
     mappingsRes,
@@ -509,6 +511,7 @@ export async function fetchMenuRecipesData(
   // and the engine indexes them by id. Cost entries are grouped by
   // ingredient_id so the "latest as-of date" lookup is O(log n) per
   // call (after sorting the per-ingredient slice).
+  const unitConversionsByIngredientId = await conversionsPromise;
   const ingredientsById = new Map(ingredients.map((i) => [i.id, i]));
   const componentsById = new Map(
     components.map((c) => [c.id, { ...c, status: c.status ?? "draft" }])
@@ -559,6 +562,7 @@ export async function fetchMenuRecipesData(
     menuRecipesByMenuItemId,
     menuRecipeInputsByRecipeId: menuInputsByRecipeId,
     costEntriesByIngredientId,
+    unitConversionsByIngredientId,
     menuRecipeVersionsByMenuItemId: versions.menuRecipeVersionsByMenuItemId,
     menuRecipeVersionInputsByVersionId:
       versions.menuRecipeVersionInputsByVersionId,

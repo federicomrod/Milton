@@ -11,6 +11,11 @@ import type {
   PlatoQueueRow,
   RecipeCostingWorkspace,
 } from "./workspace";
+import { TREATMENT_RULES } from "@/lib/restaurant/pos-treatments";
+import {
+  CLASSIFICATION_LABELS,
+  type PosProductClassification,
+} from "@/lib/restaurant/pos-product-links";
 import {
   DISH_STATUS_LABELS,
   type DishStatus,
@@ -151,4 +156,45 @@ export function nextToReview(
   );
   const after = queue.slice(index + 1).find(pending);
   return (after ?? queue.find(pending))?.odoo_product_id ?? null;
+}
+
+/**
+ * Choosing how a product is costed (Plato preparado, Reventa, Combo,
+ * Excluido…): the product row and the queue change on screen at once; the
+ * save runs in the background and the caller rolls back on an error. Nothing
+ * is refetched. A treatment that needs no recipe leaves the queue.
+ */
+export function withTreatment(
+  data: RecipeCostingWorkspace,
+  odooProductId: number,
+  treatment: PosProductClassification
+): RecipeCostingWorkspace {
+  const rule = TREATMENT_RULES[treatment];
+  const patch = <
+    T extends {
+      odoo_product_id: number;
+      treatment: PosProductClassification;
+    },
+  >(
+    row: T
+  ): T =>
+    row.odoo_product_id === odooProductId
+      ? {
+          ...row,
+          treatment,
+          treatment_label: rule.label,
+          classification: treatment,
+          classification_label: CLASSIFICATION_LABELS[treatment],
+          in_food_sales: rule.in_food_sales,
+        }
+      : row;
+  const leavesQueue = !rule.needs_recipe && treatment !== "combo";
+  return {
+    ...data,
+    products: data.products.map(patch),
+    selected: data.selected ? patch(data.selected) : data.selected,
+    plato_queue: leavesQueue
+      ? data.plato_queue.filter((row) => row.odoo_product_id !== odooProductId)
+      : data.plato_queue,
+  };
 }

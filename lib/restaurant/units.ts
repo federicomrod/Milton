@@ -589,3 +589,82 @@ export function convertUnitPriceOrPortion(
   if (isPortionAndEach(from, to)) return { ok: true, value: pricePerFrom };
   return regular;
 }
+
+// ---------------------------------------------------------------------------
+// Per-ingredient conversions (migration 056)
+// ---------------------------------------------------------------------------
+
+/** «1 from_unit = factor to_unit» for ONE ingredient. One direction is stored. */
+export interface UnitConversion {
+  from_unit: string;
+  to_unit: string;
+  factor: number;
+}
+
+/** The same unit by name (folded) or by the unit table. */
+export function sameUnit(
+  a: string | null | undefined,
+  b: string | null | undefined
+): boolean {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const fa = foldUnitKey(a);
+  if (fa && fa === foldUnitKey(b)) return true;
+  const na = normalizeUnit(a);
+  return na !== null && na === normalizeUnit(b);
+}
+
+/**
+ * A quantity in `from` read in `to`: the standard rules first (table, portion,
+ * each); otherwise the ingredient's own conversion, forward or inverse, then
+ * the standard rules for the rest. No conversion = refused (never a density
+ * guess).
+ */
+export function convertWithIngredientConversions(
+  value: number,
+  from: string | null | undefined,
+  to: string | null | undefined,
+  conversions: readonly UnitConversion[] | undefined
+): ConversionResult {
+  const standard = convertToSubRecipeUnit(value, from, to);
+  if (standard.ok || !conversions || conversions.length === 0) return standard;
+  for (const c of conversions) {
+    if (!(c.factor > 0) || !Number.isFinite(c.factor)) continue;
+    const hops: Array<[number, string]> = [];
+    if (sameUnit(from, c.from_unit)) hops.push([value * c.factor, c.to_unit]);
+    if (sameUnit(from, c.to_unit)) hops.push([value / c.factor, c.from_unit]);
+    for (const [v, unit] of hops) {
+      const r = convertToSubRecipeUnit(v, unit, to);
+      if (r.ok) return r;
+    }
+  }
+  return standard;
+}
+
+/**
+ * A price per `from` read as a price per `to`: the standard rules first, then
+ * the ingredient's own conversion (1 taza = 5 oz: $0.11/oz is $0.55/taza).
+ */
+export function convertPriceWithIngredientConversions(
+  pricePerFrom: number,
+  from: string | null | undefined,
+  to: string | null | undefined,
+  conversions: readonly UnitConversion[] | undefined
+): ConversionResult {
+  const standard = convertUnitPriceOrPortion(pricePerFrom, from, to);
+  if (standard.ok || !conversions || conversions.length === 0) return standard;
+  for (const c of conversions) {
+    if (!(c.factor > 0) || !Number.isFinite(c.factor)) continue;
+    const hops: Array<[number, string]> = [];
+    // 1 from = f c.to  →  price per c.to = price per from / f
+    if (sameUnit(from, c.from_unit))
+      hops.push([pricePerFrom / c.factor, c.to_unit]);
+    // from is c.to: 1 c.from = f from  →  price per c.from = price per from × f
+    if (sameUnit(from, c.to_unit))
+      hops.push([pricePerFrom * c.factor, c.from_unit]);
+    for (const [p, unit] of hops) {
+      const r = convertUnitPriceOrPortion(p, unit, to);
+      if (r.ok) return r;
+    }
+  }
+  return standard;
+}

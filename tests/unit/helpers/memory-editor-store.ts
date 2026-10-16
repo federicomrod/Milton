@@ -3,10 +3,11 @@
 import type { CostingData } from "@/lib/restaurant/costing";
 import { aliasKeyFor } from "@/lib/restaurant/cost-workbook/repo";
 import {
-  convertUnitPriceOrPortion,
+  convertPriceWithIngredientConversions,
   normalizeUnit,
 } from "@/lib/restaurant/units";
 import { unitMismatchMessage } from "@/lib/restaurant/cost-import";
+import { groupConversions } from "@/lib/restaurant/unit-conversions-server";
 import type {
   CatalogQuestion,
   VersionInput,
@@ -59,6 +60,13 @@ export interface MemoryEditorState {
   failAlias?: boolean;
   /** Merges not undone: the ingredient that was merged away and its survivor. */
   merges?: Array<{ loserId: string; survivorName: string }>;
+  /** Per-ingredient unit bridges (migration 056). */
+  conversions?: Array<{
+    ingredient_id: string;
+    from_unit: string;
+    to_unit: string;
+    factor: number;
+  }>;
   seq: number;
   /** Open unclear price-list rows (catalog_row review items). */
   catalogRows?: Array<{
@@ -190,6 +198,9 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
         menuRecipesByMenuItemId: new Map(),
         menuRecipeInputsByRecipeId: new Map(),
         costEntriesByIngredientId: byIngredient,
+        unitConversionsByIngredientId: groupConversions(
+          (state.conversions ?? []).map((c, i) => ({ ...c, id: `c${i}` }))
+        ),
         componentRecipeVersionsByComponentId: new Map(
           state.preparations
             .filter((p) => p.version)
@@ -406,11 +417,26 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
     async addCostEntry(_companyId, e: NewCostEntry) {
       const ing = state.ingredients.find((r) => r.id === e.ingredientId)!;
       const target = ing.default_unit ?? e.unit;
-      const converted = convertUnitPriceOrPortion(e.unitCost, e.unit, target);
+      const converted = convertPriceWithIngredientConversions(
+        e.unitCost,
+        e.unit,
+        target,
+        (state.conversions ?? []).filter(
+          (c) => c.ingredient_id === e.ingredientId
+        )
+      );
       if (!converted.ok)
         return {
           ok: false,
           error: unitMismatchMessage(e.unit, ing.default_unit ?? null),
+          conversion: ing.default_unit
+            ? {
+                ingredient_id: e.ingredientId,
+                ingredient_name: ing.name,
+                from_unit: e.unit,
+                to_unit: ing.default_unit,
+              }
+            : undefined,
         };
       state.entries.push(
         entry(e.ingredientId, e.unit, e.unitCost, {

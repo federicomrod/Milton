@@ -10,6 +10,7 @@
 // manual cost entry dated today). Local state is updated from the
 // responses; the page is never refreshed.
 
+import { IngredientConversions } from "./IngredientConversions";
 import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import Link from "next/link";
 import {
@@ -974,6 +975,15 @@ function IngredienteDetail({
           <span>· Fuente: {PRICE_SOURCE_LABEL[item.source]}</span>
         )}
       </p>
+
+      <IngredientConversions
+        key={item.id}
+        ingredientId={item.id}
+        ingredientName={item.name}
+        priceUnit={item.price_unit ?? item.default_unit}
+        usedUnits={[...new Set(item.uses.map((u) => u.unit))]}
+        canEdit
+      />
 
       <h3 className="mt-6 text-[14px] font-bold text-[#151c2c]">Se usa en</h3>
       {item.uses.length === 0 ? (

@@ -15,6 +15,7 @@
 //   * Items with incomplete cost are NEVER coerced to 0; they show up in
 //     margin-risk tables and the data-quality checklist instead.
 
+import { loadUnitConversions } from "@/lib/restaurant/unit-conversions-server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   type CostingData,
@@ -402,6 +403,7 @@ export async function fetchProfitabilityData(
 
   // menu_items is intentionally fetched unfiltered and scoped in-memory via
   // filterMenuItemsForSelection below — see that function's docstring.
+  const conversionsPromise = loadUnitConversions(supabase, companyId);
   const [
     posFetched,
     mappingsRes,
@@ -657,6 +659,7 @@ export async function fetchProfitabilityData(
     });
     componentInputsByRecipeId.set(ci.component_recipe_id, list);
   }
+  const unitConversionsByIngredientId = await conversionsPromise;
   const ingredientsById = new Map(ingredients.map((i) => [i.id, i]));
   const componentsById = new Map(
     components.map((c) => [
@@ -708,6 +711,7 @@ export async function fetchProfitabilityData(
     menuRecipesByMenuItemId,
     menuRecipeInputsByRecipeId: menuInputsByRecipeId,
     costEntriesByIngredientId,
+    unitConversionsByIngredientId,
     menuRecipeVersionsByMenuItemId: versions.menuRecipeVersionsByMenuItemId,
     menuRecipeVersionInputsByVersionId:
       versions.menuRecipeVersionInputsByVersionId,

@@ -5,7 +5,7 @@
 // with its numbers from the shared loader, the one recipe editor
 // (RecipeLinesEditor) and one primary button, "Aprobar".
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
@@ -243,6 +243,23 @@ function Dish({
   onOpenPreparation: (componentId: string) => void;
 }) {
   const [picking, setPicking] = useState(false);
+  // The lines with no cost, from the editor's own live state, so the header
+  // can name what blocks the total.
+  const [pendingNames, setPendingNames] = useState<string[]>([]);
+  const handleEditorState = useCallback(
+    (state: EditorState) => {
+      const names = state.lines
+        .filter((l) => l.amount === null && l.kind !== "unresolved")
+        .map((l) => l.name ?? l.raw_name);
+      setPendingNames((prev) =>
+        prev.length === names.length && prev.every((n, i) => n === names[i])
+          ? prev
+          : names
+      );
+      onEditorState?.(state);
+    },
+    [onEditorState]
+  );
   const dish = data.selected_dish;
   const money = (n: number) => formatMoneyEs(n, data.currency);
   const takesRecipe =
@@ -379,17 +396,32 @@ function Dish({
                 dish?.unit_cost != null ? money(dish.unit_cost) : "Sin precio"
               }
               note={
-                dish?.excel_total != null ? (
-                  <span
-                    className={
-                      dish.excel_diff_flag
-                        ? "font-semibold text-[#c03535]"
-                        : "text-[#8a92a3]"
-                    }
-                  >
-                    Excel: {money(dish.excel_total)}
-                  </span>
-                ) : null
+                <>
+                  {dish?.unit_cost == null && pendingNames.length > 0 ? (
+                    <span
+                      className="block font-semibold text-[#a35a00]"
+                      data-testid="header-pending"
+                    >
+                      Sin precio · {pendingNames.length}{" "}
+                      {pendingNames.length === 1
+                        ? "línea pendiente"
+                        : "líneas pendientes"}
+                      : {pendingNames.slice(0, 3).join(", ")}
+                      {pendingNames.length > 3 ? "…" : ""}
+                    </span>
+                  ) : null}
+                  {dish?.excel_total != null ? (
+                    <span
+                      className={
+                        dish.excel_diff_flag
+                          ? "font-semibold text-[#c03535]"
+                          : "text-[#8a92a3]"
+                      }
+                    >
+                      Excel: {money(dish.excel_total)}
+                    </span>
+                  ) : null}
+                </>
               }
             />
             <Big
@@ -411,7 +443,7 @@ function Dish({
               locationId={locationId}
               portionCostLabel={editor?.portion_cost_label ?? null}
               onEdited={onEdited}
-              onState={onEditorState}
+              onState={handleEditorState}
               onOpenPreparation={onOpenPreparation}
             />
           ) : (

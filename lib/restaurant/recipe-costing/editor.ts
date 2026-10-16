@@ -208,6 +208,14 @@ export function hydrateLines(input: {
   evidenceLines: readonly EvidenceLineIn[];
   inputs: readonly VersionInput[];
   names: CatalogNames;
+  /**
+   * The version shown cannot be edited (it is approved). An old unit question
+   * saved in the evidence (Excel unit vs suggested unit) can no longer be
+   * answered there, so it does not keep a line pending when the line's amount
+   * is KNOWN (the price unit and the line unit convert, directly or with the
+   * ingredient's own conversion). A line with no amount stays pending.
+   */
+  readOnly?: boolean;
 }): EditorLine[] {
   const { data, names } = input;
   const used = new Set<string>();
@@ -238,7 +246,11 @@ export function hydrateLines(input: {
       unit_cost: row.unit_cost ?? null,
       cost_source: row.cost_source ?? null,
     });
-    const question = raw.unit_question ?? null;
+    // An answered-by-the-data question (see `readOnly`) is dropped.
+    const question =
+      input.readOnly && cost.amount !== null
+        ? null
+        : (raw.unit_question ?? null);
     const pending = cost.amount === null || question !== null;
     const flags = question
       ? [FLAG_PENDING_UNIT]

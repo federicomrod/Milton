@@ -1257,8 +1257,10 @@ function editorFromEvidence(input: {
     yield_unit: ev.yield.unit,
     yield_assumed: ev.yield.source === "assumed",
     yield_note: yieldNote,
-    portion_cost_label:
-      portionCost != null ? formatMoneyEs(portionCost, input.currency) : milton,
+    // NEVER from the stored evidence (a snapshot from import time that can
+    // disagree with the header): the editor's footer is the live total of its
+    // own lines, or «Sin precio · n líneas pendientes».
+    portion_cost_label: null,
     review_index: null,
     review_total: 0,
     next_odoo_product_id: null,

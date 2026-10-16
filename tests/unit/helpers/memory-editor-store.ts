@@ -51,6 +51,8 @@ export interface MemoryEditorState {
   } | null;
   version: VersionRef | null;
   inputs: VersionInput[];
+  /** The approved version in force when it is NOT the newest one (a later one has a future date). */
+  inForceVersion?: VersionRef | null;
   /** Versions replaced by a newer draft («Crear versión nueva»), untouched. */
   olderVersions?: Array<{ version: VersionRef; inputs: VersionInput[] }>;
   aliases: Array<{
@@ -154,6 +156,9 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
     if (version.kind === "preparation")
       return prepOf(companyId, version)?.inputs;
     if (state.version?.id === version.id) return state.inputs;
+    if (state.inForceVersion?.id === version.id)
+      return state.olderVersions?.find((v) => v.version.id === version.id)
+        ?.inputs;
     return state.olderVersions?.find((v) => v.version.id === version.id)
       ?.inputs;
   };
@@ -273,6 +278,9 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
         },
         version: prep.version ? { ...prep.version } : null,
       };
+    },
+    async approvedVersionInForce(companyId) {
+      return mine(companyId) ? (state.inForceVersion ?? null) : null;
     },
     async createDraftVersion(companyId, from) {
       if (!mine(companyId) || from.kind !== "dish")

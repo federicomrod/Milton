@@ -64,6 +64,25 @@ const UNIT_LABEL: Record<string, string> = {
   portion: "porción",
 };
 
+/** Why a line has no amount, in one short chip. */
+export function pendingReasonOf(
+  line: EditorLine,
+  prepUnitProblem = false
+): string {
+  if (line.unit_question) return "Unidad por confirmar";
+  if (line.kind === "component") {
+    return prepUnitProblem ? "Unidad distinta" : "Preparación sin costo";
+  }
+  if (
+    line.price !== null &&
+    line.price.unit != null &&
+    line.flags.includes(FLAG_PENDING_UNIT)
+  ) {
+    return "Unidad distinta";
+  }
+  return "Falta precio";
+}
+
 function money(value: number): string {
   const text = value >= 1 ? value.toFixed(2) : value.toPrecision(3);
   return `$${Number(text)}`;
@@ -141,7 +160,6 @@ export function RecipeLinesEditor({
   odooProductId,
   componentId,
   locationId,
-  portionCostLabel,
   reloadKey,
   onEdited,
   onState,
@@ -183,6 +201,8 @@ export function RecipeLinesEditor({
     null
   );
   const [defining, setDefining] = useState(false);
+  /** The line the banner's «Corregir precio» points at. */
+  const [fixKey, setFixKey] = useState<string | null>(null);
   const [picking, setPicking] = useState<PickTarget | null>(null);
   /** The item just added, to show "✓ guardado" for a moment. */
   const [justAdded, setJustAdded] = useState<string | null>(null);
@@ -357,6 +377,9 @@ export function RecipeLinesEditor({
   }
 
   const editable = state.editable && !busy && !forceLocked;
+  const pendingLines = state.lines.filter(
+    (l) => l.amount === null && l.kind !== "unresolved"
+  );
 
   return (
     <div>
@@ -391,6 +414,49 @@ export function RecipeLinesEditor({
         ) : null}
       </div>
 
+      {state.version_note ? (
+        <p
+          className="mb-2 text-[12px] text-[#6b7385]"
+          data-testid="version-note"
+        >
+          {state.version_note}
+        </p>
+      ) : null}
+      {!state.editable && state.version_id && pendingLines.length > 0 ? (
+        <div
+          className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[#f3d9a8] bg-[#fff8ec] px-3 py-2 text-[13px] text-[#7a4a00]"
+          data-testid="approved-pending-banner"
+        >
+          <span className="min-w-0 flex-1">
+            Esta receta aprobada tiene {pendingLines.length}{" "}
+            {pendingLines.length === 1 ? "línea sin costo" : "líneas sin costo"}
+            . Corrige el precio del ingrediente (no hace falta versión nueva) o
+            crea una versión nueva para cambiar cantidades o unidades.
+          </span>
+          {!forceLocked ? (
+            <>
+              <GhostBtn
+                disabled={busy}
+                onClick={() => {
+                  const first = pendingLines[0];
+                  setFixKey(first.key);
+                  document
+                    .getElementById(`linea-${first.key}`)
+                    ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                }}
+              >
+                Corregir precio
+              </GhostBtn>
+              <PrimaryBtn
+                disabled={busy}
+                onClick={() => void send({ action: "new_version" })}
+              >
+                Crear versión nueva
+              </PrimaryBtn>
+            </>
+          ) : null}
+        </div>
+      ) : null}
       {error ? (
         <div className="mb-2 rounded-md border border-[#f1c0c0] bg-[#fdecec] px-3 py-2 text-xs text-[#c03535]">
           {error}
@@ -588,6 +654,7 @@ export function RecipeLinesEditor({
                     : undefined
                 )
               }
+              openFix={fixKey === line.key}
               canFixPrice={!busy && !forceLocked}
               onCorrectUnit={(unit, cost) =>
                 void send({
@@ -625,20 +692,35 @@ export function RecipeLinesEditor({
           {componentId && state.lines.length > 0 ? (
             <PreparationTotalRow lines={state.lines} />
           ) : null}
-          {portionCostLabel ? (
-            <tr className="border-t border-[#f2f3f6]">
-              <td colSpan={4} className="py-2 text-right font-semibold">
-                Costo por porción vendible
-              </td>
-              <td className="py-2 text-right text-sm font-bold">
-                {portionCostLabel}
-              </td>
-              <td />
-            </tr>
+          {!componentId && state.lines.length > 0 ? (
+            <DishTotalRow lines={state.lines} />
           ) : null}
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** The dish's cost per portion: the LIVE sum of the lines above (never a stored snapshot). */
+export function DishTotalRow({ lines }: { lines: EditorLine[] }) {
+  const { total, missing } = recipeLinesTotal(lines);
+  return (
+    <tr className="border-t border-[#f2f3f6]" data-testid="dish-total-row">
+      <td colSpan={4} className="py-2 text-right font-semibold">
+        Costo por porción vendible
+      </td>
+      <td className="py-2 text-right text-sm font-bold">
+        {total !== null ? (
+          money(total)
+        ) : (
+          <span className="text-[#a35a00]">
+            Sin precio · {missing}{" "}
+            {missing === 1 ? "línea pendiente" : "líneas pendientes"}
+          </span>
+        )}
+      </td>
+      <td />
+    </tr>
   );
 }
 
@@ -688,6 +770,7 @@ function Row({
   onAdoptLegacy,
   canFixPrice,
   onCorrectUnit,
+  openFix,
 }: {
   line: EditorLine;
   editable: boolean;
@@ -716,9 +799,12 @@ function Row({
   canFixPrice: boolean;
   /** «Corregir unidad del precio»: the same price in another unit, as a new entry. */
   onCorrectUnit: (unit: string, cost: number) => void;
+  /** «Corregir precio» of the banner points at this line: open its fix. */
+  openFix: boolean;
 }) {
   const [correcting, setCorrecting] = useState(false);
   const [correctUnit, setCorrectUnit] = useState("");
+  const [fixOpened, setFixOpened] = useState(false);
   const [definingConversion, setDefiningConversion] = useState(false);
   const [qty, setQty] = useState(String(line.qty || ""));
   const [price, setPrice] = useState("");
@@ -760,6 +846,16 @@ function Row({
     line.flags.includes(FLAG_PENDING_UNIT);
   const waitingPrep =
     line.kind === "component" && line.amount === null && !prepUnitProblem;
+  if (openFix && !fixOpened) {
+    setFixOpened(true);
+    if (priceUnitMismatch) {
+      setCorrecting(true);
+      setCorrectUnit(line.unit);
+    } else if (line.kind === "ingredient" && line.amount === null) {
+      setEditingPrice(true);
+    }
+  }
+  if (!openFix && fixOpened) setFixOpened(false);
   // A line from the menu says what, not how much: the person types both
   // before it is matched or created. Never an assumed quantity.
   const fromMenu = unresolved && needsTypedQuantity(line);
@@ -780,6 +876,7 @@ function Row({
 
   return (
     <tr
+      id={`linea-${line.key}`}
       className={
         "border-t border-[#f2f3f6] " +
         (unresolved || waitingPrep ? "bg-[#fff8ec]" : "")
@@ -1186,8 +1283,23 @@ function Row({
             {UNIT_MISMATCH_LABEL}
           </span>
         ) : (
-          "Pendiente"
+          <span
+            className="rounded-md bg-[#fff4e5] px-1.5 py-0.5 text-[12px] font-semibold text-[#a35a00]"
+            data-testid="pending-reason"
+          >
+            {pendingReasonOf(line, prepUnitProblem)}
+          </span>
         )}
+        {line.amount !== null && line.unit_question ? (
+          <div>
+            <span
+              className="rounded-md bg-[#fff4e5] px-1.5 py-0.5 text-[12px] font-semibold text-[#a35a00]"
+              data-testid="pending-reason"
+            >
+              Unidad por confirmar
+            </span>
+          </div>
+        ) : null}
         {line.legacy_price && line.ingredient_id ? (
           <div
             className="text-left text-[12px] font-normal text-[#a35a00]"

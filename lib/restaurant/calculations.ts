@@ -40,7 +40,8 @@ function buildInvoiceDateMap(invoices: SupplierInvoice[]): Map<string, string> {
 /**
  * Resolves the unit price for an ingredient in the requested `targetUnit`.
  * Uses the most recent supplier invoice line (by invoice_date) as the
- * authoritative cost source, falling back to ingredient.current_unit_cost.
+ * authoritative cost source. The legacy ingredients.current_unit_cost cache is
+ * not read.
  *
  * Returns null with a status code when the cost cannot be determined
  * (e.g. missing invoice data, unsupported unit conversion).
@@ -67,23 +68,11 @@ function resolveIngredientUnitCost(
     });
 
   if (lines.length === 0) {
-    // No invoice data — fall back to ingredient's recorded cost, assuming
-    // its default_unit matches the target unit. null is a pending price,
-    // never a real $0; <= 0 is the legacy "no price yet" sentinel.
-    if (
-      ingredient.current_unit_cost == null ||
-      ingredient.current_unit_cost <= 0
-    ) {
-      return { unitCost: null, status: "missing_ingredient_cost" };
-    }
-    const conversion = convertUnitPrice(
-      ingredient.current_unit_cost,
-      ingredient.default_unit,
-      targetUnit
-    );
-    if (!conversion.ok)
-      return { unitCost: null, status: "missing_unit_conversion" };
-    return { unitCost: conversion.value, status: "ok" };
+    // No invoice data: the price lives in ingredient_cost_entries, which this
+    // invoice-based calculation does not read. The legacy
+    // ingredients.current_unit_cost cache is NOT a price source any more
+    // (one price per ingredient): no price here, never a guess and never $0.
+    return { unitCost: null, status: "missing_ingredient_cost" };
   }
 
   const { line } = lines[0];

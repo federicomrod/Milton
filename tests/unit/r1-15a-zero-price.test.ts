@@ -125,13 +125,23 @@ describe("a recipe line's own price", () => {
 
   it("a typed $0 counts; a 0 from a file or invoice and a missing price do not", () => {
     expect(lineHasOwnPrice(line(0, "manual"))).toBe(true);
-    expect(lineOwnCost(line(0, "manual"))).toBe(0);
     expect(lineHasOwnPrice(line(0, "DE LA PARRILLA!B8"))).toBe(false);
     expect(lineHasOwnPrice(line(0, "invoice_line"))).toBe(false);
     expect(lineHasOwnPrice(line(0, null))).toBe(false);
     expect(lineHasOwnPrice(line(null, "manual"))).toBe(false);
     expect(lineHasOwnPrice(line(-1, "manual"))).toBe(false);
-    expect(lineOwnCost(line(0.4, "DE LA PARRILLA!B8"))).toBeCloseTo(1.2);
+    // Only a line with no price record of its own (a preparation) costs from
+    // its own price; an INGREDIENT line reads the ingredient's cost entry.
+    const prep = (cost: number, source: string) => ({
+      ...line(cost, source),
+      input_type: "component" as const,
+      ingredient_id: null,
+      component_id: "c-1",
+    });
+    expect(lineOwnCost(prep(0, "manual"))).toBe(0);
+    expect(lineOwnCost(prep(0.4, "DE LA PARRILLA!B8"))).toBeCloseTo(1.2);
+    expect(lineOwnCost(line(0, "manual"))).toBeNull();
+    expect(lineOwnCost(line(0.4, "DE LA PARRILLA!B8"))).toBeNull();
   });
 
   const noPrice = {
@@ -147,10 +157,10 @@ describe("a recipe line's own price", () => {
     costEntriesByIngredientId: new Map(),
   } as unknown as CostingData;
 
-  it("costInput: manual $0 costs the line at 0; the same line with no price stays Sin precio", () => {
+  it("costInput: an ingredient line's own copy ($0 included) is not a price; with no entry it stays Sin precio", () => {
     expect(costInput(noPrice, line(0, "manual"))).toMatchObject({
-      amount: 0,
-      reason: null,
+      amount: null,
+      reason: "no_price",
     });
     expect(costInput(noPrice, line(0, null))).toMatchObject({
       amount: null,
@@ -159,7 +169,7 @@ describe("a recipe line's own price", () => {
     expect(costInput(noPrice, line(null, null)).amount).toBeNull();
   });
 
-  it("the editor line shows own_cost and is not pending for a manual $0", () => {
+  it("the editor line has no own cost; a copy with no ingredient price is pending and offered (legacy)", () => {
     const lines = hydrateLines({
       data: noPrice,
       evidenceLines: [],
@@ -172,9 +182,10 @@ describe("a recipe line's own price", () => {
       },
     });
     expect(lines[0]).toMatchObject({
-      amount: 0,
-      pending: false,
-      own_cost: true,
+      amount: null,
+      pending: true,
+      own_cost: false,
+      legacy_price: { unit_cost: 0, unit: "l" },
     });
     const missing = hydrateLines({
       data: noPrice,
@@ -194,7 +205,7 @@ describe("a recipe line's own price", () => {
     });
   });
 
-  it("a dish with a manual $0 line is costed; with a file-0 line it is not", () => {
+  it("a dish whose ingredient has no entry is not costed from a line copy, $0 or not", () => {
     const withDish = (cost: number | null, source: string | null) =>
       ({
         ...noPrice,
@@ -210,8 +221,8 @@ describe("a recipe line's own price", () => {
         menuRecipeInputsByRecipeId: new Map([["r1", [line(cost, source)]]]),
       }) as unknown as CostingData;
     const ok = calculateMenuItemCost("m1", withDish(0, "manual"));
-    expect(ok.status).toBe("complete");
-    expect(ok.cost).toBe(0);
+    expect(ok.status).not.toBe("complete");
+    expect(ok.cost).toBeNull();
     const missing = calculateMenuItemCost(
       "m1",
       withDish(0, "DE LA PARRILLA!B8")

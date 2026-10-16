@@ -94,10 +94,12 @@ export interface AskMiltonIngredientCost {
  */
 export function resolveAskMiltonIngredientUnitCost(
   latestEntryCost: number | null | undefined,
-  cachedUnitCost: number | null | undefined,
+  // The legacy ingredients.current_unit_cost cache is no longer a price source
+  // (one price per ingredient: the latest cost entry). Kept for callers.
+  _legacyCachedUnitCost: number | null | undefined,
   lang: PreferredLanguage = "es"
 ): { current_unit_cost: number | null; pending_label: string | null } {
-  const costValue = positiveUnitCost(latestEntryCost ?? cachedUnitCost);
+  const costValue = positiveUnitCost(latestEntryCost);
   return {
     current_unit_cost:
       costValue != null ? Math.round(costValue * 100) / 100 : null,
@@ -644,10 +646,7 @@ export async function buildAskMiltonContext(
       const latestEntry = latestCostByIngredientId.get(r.id);
       return {
         row: r,
-        sortCost:
-          positiveUnitCost(
-            latestEntry?.normalized_unit_cost ?? r.current_unit_cost
-          ) ?? 0,
+        sortCost: positiveUnitCost(latestEntry?.normalized_unit_cost) ?? 0,
       };
     })
     .filter(({ sortCost }) => sortCost > 0)
@@ -900,12 +899,9 @@ export async function buildAskMiltonContext(
       }
     }
 
-    // Use authoritative cost from entries; fall back to cached field.
-    // Null / 0 cache is pending — never a fabricated $0.
+    // The latest cost entry is the one price. No entry = pending, never $0.
     const latestEntry = latestCostByIngredientId.get(ingredientId);
-    const unitCost = positiveUnitCost(
-      latestEntry?.normalized_unit_cost ?? ing.current_unit_cost
-    );
+    const unitCost = positiveUnitCost(latestEntry?.normalized_unit_cost);
     const unitLabel = latestEntry?.normalized_unit ?? ing.default_unit;
     const currency = latestEntry?.currency ?? ing.currency ?? fallbackCurrency;
 

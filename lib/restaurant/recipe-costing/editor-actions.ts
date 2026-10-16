@@ -104,7 +104,13 @@ export function parseEditorAction(
       const unit = str(body.unit);
       const cost = num(body.unit_cost);
       if (!id || !unit || cost === undefined) return null;
-      return { action: "set_price", ingredient_id: id, unit, unit_cost: cost };
+      return {
+        action: "set_price",
+        ingredient_id: id,
+        unit,
+        unit_cost: cost,
+        ...(body.adopt_legacy === true ? { adopt_legacy: true } : {}),
+      };
     }
     case "answer_catalog_unit": {
       const itemId = str(body.item_id);

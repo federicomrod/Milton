@@ -1,4 +1,5 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { safeNextPath } from "@/lib/auth/safe-next";
 import { NextResponse, type NextRequest } from "next/server";
 
 // Routes that don't require authentication
@@ -117,6 +118,9 @@ export async function proxy(request: NextRequest) {
       `[Proxy] Unauthenticated user trying to access ${pathname}, redirecting to login`
     );
     const redirectUrl = new URL("/auth/login", request.url);
+    // Come back to where the person was going (only a safe same-origin path).
+    const next = safeNextPath(`${pathname}${request.nextUrl.search}`);
+    if (next && next !== "/") redirectUrl.searchParams.set("next", next);
     return NextResponse.redirect(redirectUrl);
   }
 

@@ -115,8 +115,10 @@ const verifyOtp = vi.fn();
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({ auth: { exchangeCodeForSession, verifyOtp } }),
 }));
-vi.mock("@/lib/restaurant/post-login", () => ({
+vi.mock("@/lib/restaurant/post-login", async () => ({
   getPostLoginRedirect: async () => "/dashboard/restaurant",
+  // the real, dependency-free function
+  safeNextPath: (await import("@/lib/auth/safe-next")).safeNextPath,
 }));
 
 describe("GET /auth/callback", () => {
@@ -151,6 +153,28 @@ describe("GET /auth/callback", () => {
     expect(await call("?code=abc")).toBe(
       "https://app.example.test/dashboard/restaurant"
     );
+  });
+  it("a safe ?next= wins over the default landing; an unsafe one is ignored", async () => {
+    const session = {
+      data: {
+        session: { user: { email_confirmed_at: "2026-01-01T00:00:00Z" } },
+      },
+      error: null,
+    };
+    exchangeCodeForSession.mockResolvedValue(session);
+    expect(
+      await call("?code=abc&next=%2Fdashboard%2Frestaurant%2Fplatos")
+    ).toBe("https://app.example.test/dashboard/restaurant/platos");
+    for (const bad of [
+      "%2F%2Fevil.com",
+      "https%3A%2F%2Fevil.com",
+      "%2Fauth%2Flogin",
+    ]) {
+      exchangeCodeForSession.mockResolvedValue(session);
+      expect(await call(`?code=abc&next=${bad}`)).toBe(
+        "https://app.example.test/dashboard/restaurant"
+      );
+    }
   });
   it("no session because the PKCE verifier is missing (another device) → /auth/confirmed", async () => {
     exchangeCodeForSession.mockResolvedValue({

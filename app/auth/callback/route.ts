@@ -13,7 +13,10 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { justConfirmed } from "@/lib/auth/email-confirmation";
-import { getPostLoginRedirect } from "@/lib/restaurant/post-login";
+import {
+  getPostLoginRedirect,
+  safeNextPath,
+} from "@/lib/restaurant/post-login";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
@@ -78,7 +81,9 @@ export async function GET(request: NextRequest) {
   }
 
   if (session) {
-    const destination = await getPostLoginRedirect(supabase);
+    const destination =
+      safeNextPath(params.get("next")) ??
+      (await getPostLoginRedirect(supabase));
     const target = justConfirmed(session.user)
       ? withParam(destination, "confirmed", "1")
       : destination;

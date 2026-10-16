@@ -5,6 +5,10 @@
 // Proveedores (?tab=proveedores, the suppliers UI). The old /invoices and
 // /suppliers URLs redirect here.
 
+import {
+  getCachedAuthUser,
+  getCachedCompanyId,
+} from "@/lib/restaurant/auth-user";
 import Link from "next/link";
 import { loadMenuAreaModel } from "@/lib/restaurant/cockpit-page-data";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
@@ -56,6 +60,14 @@ export default async function CostsAreaPage({
   // ingredients or costs) or a failed read must render the empty state, never
   // the white Next.js error screen. The stack is logged for the server logs.
   let lang: PreferredLanguage = "es";
+  let companyId: string | null = null;
+  try {
+    // For remembering the setup detail open / closed per company (cached per request).
+    const user = await getCachedAuthUser();
+    companyId = user?.id ? await getCachedCompanyId(user.id) : null;
+  } catch {
+    companyId = null;
+  }
   let profitability: Awaited<
     ReturnType<typeof loadMenuAreaModel>
   >["profitability"] = null;
@@ -124,9 +136,6 @@ export default async function CostsAreaPage({
           </Link>
         }
       />
-
-      {/* R1-18: the cost setup (it used to be Menú › Resumen's checklist). */}
-      <CostsSetupSection locationId={location ?? null} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <CostsKpiCard
@@ -207,6 +216,10 @@ export default async function CostsAreaPage({
           deltaTone={pendingSuppliers ? "bad" : "neutral"}
         />
       </div>
+
+      {/* R1-18: the cost setup (it used to be Menú › Resumen's checklist). Below
+          the KPIs and above the tabs: one compact row while incomplete. */}
+      <CostsSetupSection locationId={location ?? null} companyId={companyId} />
 
       {nothingYet ? (
         <EmptyState

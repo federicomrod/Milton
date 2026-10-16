@@ -51,6 +51,8 @@ export interface MemoryEditorState {
   } | null;
   version: VersionRef | null;
   inputs: VersionInput[];
+  /** Versions replaced by a newer draft («Crear versión nueva»), untouched. */
+  olderVersions?: Array<{ version: VersionRef; inputs: VersionInput[] }>;
   aliases: Array<{
     key: string;
     name: string;
@@ -151,7 +153,9 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
     if (!mine(companyId)) return undefined;
     if (version.kind === "preparation")
       return prepOf(companyId, version)?.inputs;
-    return state.version?.id === version.id ? state.inputs : undefined;
+    if (state.version?.id === version.id) return state.inputs;
+    return state.olderVersions?.find((v) => v.version.id === version.id)
+      ?.inputs;
   };
   return {
     async loadCosting() {
@@ -269,6 +273,22 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
         },
         version: prep.version ? { ...prep.version } : null,
       };
+    },
+    async createDraftVersion(companyId, from) {
+      if (!mine(companyId) || from.kind !== "dish")
+        throw new Error("wrong scope");
+      const draft: VersionRef = {
+        ...from,
+        id: `v-new-${++state.seq}`,
+        status: "in_review",
+      };
+      (state.olderVersions ??= []).push({
+        version: { ...from },
+        inputs: state.inputs,
+      });
+      state.version = draft;
+      state.inputs = [];
+      return { ...draft };
     },
     async listInputs(companyId, version) {
       return rowsFor(companyId, version)?.map((r) => ({ ...r })) ?? [];
@@ -416,7 +436,7 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
     },
     async addCostEntry(_companyId, e: NewCostEntry) {
       const ing = state.ingredients.find((r) => r.id === e.ingredientId)!;
-      const target = ing.default_unit ?? e.unit;
+      const target = e.keepUnit ? e.unit : (ing.default_unit ?? e.unit);
       const converted = convertPriceWithIngredientConversions(
         e.unitCost,
         e.unit,

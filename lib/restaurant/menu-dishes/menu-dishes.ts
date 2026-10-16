@@ -14,6 +14,7 @@
 // - Grouping is idempotent: a person's move or exclusion (persisted on the
 //   link) always wins; Milton only fills what is empty.
 
+import type { DishStateReason } from "@/lib/restaurant/costing/dish-state";
 import type {
   DishEconomics,
   DishEconomicsTotals,
@@ -88,6 +89,8 @@ export interface MenuDishVariant {
   cost_basis: "own" | "dish" | null;
   status: DishStatus;
   covered: boolean;
+  /** Why an «Aprobado» variant is not covered (its link is not confirmed). */
+  state_reason?: DishStateReason | null;
 }
 
 export interface MenuDish {
@@ -114,6 +117,9 @@ export interface MenuDish {
   /** 0–1: sales of covered (approved-cost) variants / dish sales. */
   coverage: number;
   cost_status: DishStatus;
+  /** Variants whose own status is «Aprobado», of `variant_count` (see groupStatusDisplay). */
+  approved_count?: number;
+  variant_count?: number;
   /** The variant whose recipe is the dish's (opens the recipe editor). */
   base_odoo_product_id: number | null;
   base_portion_qty: number | null;
@@ -188,6 +194,8 @@ export function dishSums(
   | "margin_pct"
   | "coverage"
   | "cost_status"
+  | "approved_count"
+  | "variant_count"
 > {
   // R1-15b: the one roll-up every screen uses (costing/rollup.ts).
   const r = rollupLeaves(
@@ -211,6 +219,8 @@ export function dishSums(
     margin_pct: r.margin_pct,
     coverage: r.coverage,
     cost_status: r.cost_status,
+    approved_count: r.approved_count,
+    variant_count: r.variant_count,
   };
 }
 
@@ -497,6 +507,7 @@ export function buildMenuDishes(input: {
         let basis: MenuDishVariant["cost_basis"];
         let status: DishStatus;
         let covered: boolean;
+        let reason: DishStateReason | null = null;
         if (excluded) {
           unitCost = dish.unit_cost;
           basis = dish.unit_cost !== null ? "own" : null;
@@ -507,6 +518,7 @@ export function buildMenuDishes(input: {
           basis = "own";
           status = dish.status;
           covered = dish.covered;
+          reason = dish.state_reason ?? null;
         } else if (
           base &&
           base.dish.unit_cost !== null &&
@@ -520,7 +532,8 @@ export function buildMenuDishes(input: {
           });
           basis = "dish";
           status = base.dish.status;
-          covered = base.dish.status === "aprobado";
+          covered = base.dish.covered;
+          reason = base.dish.state_reason ?? null;
         } else {
           unitCost = null;
           basis = null;
@@ -561,6 +574,7 @@ export function buildMenuDishes(input: {
           cost_basis: basis,
           status,
           covered,
+          state_reason: reason,
         };
         byProduct.set(variant.key, { dish_id: g.id, variant });
         return variant;

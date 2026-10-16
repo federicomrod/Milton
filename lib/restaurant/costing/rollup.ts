@@ -22,7 +22,7 @@
 // (the auto level); a restaurant-only group never takes another
 // restaurant's sales; a suggestion does not count until it is confirmed.
 
-import type { DishStatus } from "./dish-status";
+import { DISH_STATUS_LABELS, type DishStatus } from "./dish-status";
 
 // ---------------------------------------------------------------------------
 // Sums
@@ -58,6 +58,10 @@ export interface RollupTotals {
   /** Rows that are a problem: Falta precio or Sin receta. */
   problem_count: number;
   row_count: number;
+  /** Variants (leaf rows) whose own status is «Aprobado». */
+  approved_count: number;
+  /** All the variants (leaf rows) of the node. */
+  variant_count: number;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -105,6 +109,55 @@ export function rollupLeaves(leaves: readonly RollupLeaf[]): RollupTotals {
       (v) => v.status === "falta_precio" || v.status === "sin_receta"
     ).length,
     row_count: leaves.length,
+    approved_count: leaves.filter((v) => v.status === "aprobado").length,
+    variant_count: leaves.length,
+  };
+}
+
+/** Said once, next to every coverage number of a group. */
+export const GROUP_COVERAGE_TIP =
+  "Cobertura = ventas de variantes aprobadas / ventas del grupo";
+
+/**
+ * The status chip of a GROUP of variants, honest about its members: when only
+ * some are approved it says «Aprobado 1 de 3» (tone: warning) instead of the
+ * worst member's status; all approved → «Aprobado»; none → the worst status.
+ */
+export function groupStatusDisplay(node: {
+  cost_status: DishStatus;
+  approved_count?: number;
+  variant_count?: number;
+}): { status: DishStatus; label: string; mixed: boolean } {
+  return groupStatusOf({
+    cost_status: node.cost_status,
+    approved_count: node.approved_count ?? 0,
+    variant_count: node.variant_count ?? 0,
+  });
+}
+
+function groupStatusOf(node: {
+  cost_status: DishStatus;
+  approved_count: number;
+  variant_count: number;
+}): { status: DishStatus; label: string; mixed: boolean } {
+  const mixed =
+    node.variant_count > 1 &&
+    node.approved_count > 0 &&
+    node.approved_count < node.variant_count;
+  if (mixed) {
+    return {
+      status: node.cost_status,
+      label: `Aprobado ${node.approved_count} de ${node.variant_count}`,
+      mixed: true,
+    };
+  }
+  if (node.variant_count > 0 && node.approved_count === node.variant_count) {
+    return { status: "aprobado", label: "Aprobado", mixed: false };
+  }
+  return {
+    status: node.cost_status,
+    label: DISH_STATUS_LABELS[node.cost_status],
+    mixed: false,
   };
 }
 

@@ -376,12 +376,25 @@ export function RecipeLinesEditor({
             + Agregar ingrediente
           </GhostBtn>
         ) : null}
+        {!state.editable && state.version_id && !forceLocked ? (
+          <span className="ml-auto flex items-center gap-2">
+            <span className="text-[12px] text-[#8a92a3]">
+              La receta aprobada no se cambia; se crea un borrador.
+            </span>
+            <GhostBtn
+              disabled={busy}
+              onClick={() => void send({ action: "new_version" })}
+            >
+              Crear versión nueva
+            </GhostBtn>
+          </span>
+        ) : null}
       </div>
 
       {error ? (
         <div className="mb-2 rounded-md border border-[#f1c0c0] bg-[#fdecec] px-3 py-2 text-xs text-[#c03535]">
           {error}
-          {conversionHint && state.editable ? (
+          {conversionHint ? (
             <>
               {" "}
               <button
@@ -575,6 +588,16 @@ export function RecipeLinesEditor({
                     : undefined
                 )
               }
+              canFixPrice={!busy && !forceLocked}
+              onCorrectUnit={(unit, cost) =>
+                void send({
+                  action: "set_price",
+                  ingredient_id: line.ingredient_id,
+                  unit,
+                  unit_cost: cost,
+                  correct_unit: true,
+                })
+              }
               onConversionSaved={() => void refresh()}
               onAdoptLegacy={(unit, cost) =>
                 void send({
@@ -663,6 +686,8 @@ function Row({
   onLineCost,
   onConversionSaved,
   onAdoptLegacy,
+  canFixPrice,
+  onCorrectUnit,
 }: {
   line: EditorLine;
   editable: boolean;
@@ -687,7 +712,13 @@ function Row({
   onConversionSaved: () => void;
   /** «Usar como precio del ingrediente»: the old price copy of this line. */
   onAdoptLegacy: (unit: string, cost: number) => void;
+  /** The price unit is ingredient data, not recipe data: fixable on an approved recipe too. */
+  canFixPrice: boolean;
+  /** «Corregir unidad del precio»: the same price in another unit, as a new entry. */
+  onCorrectUnit: (unit: string, cost: number) => void;
 }) {
+  const [correcting, setCorrecting] = useState(false);
+  const [correctUnit, setCorrectUnit] = useState("");
   const [definingConversion, setDefiningConversion] = useState(false);
   const [qty, setQty] = useState(String(line.qty || ""));
   const [price, setPrice] = useState("");
@@ -1183,8 +1214,8 @@ function Row({
             ) : null}
           </div>
         ) : null}
-        {priceUnitMismatch && editable && line.ingredient_id ? (
-          <div>
+        {priceUnitMismatch && canFixPrice && line.ingredient_id ? (
+          <div className="flex flex-col items-end gap-0.5">
             <button
               type="button"
               onClick={() => setDefiningConversion((v) => !v)}
@@ -1192,6 +1223,50 @@ function Row({
             >
               Definir conversión
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCorrecting((v) => !v);
+                setCorrectUnit(line.unit);
+              }}
+              className="text-[12px] font-semibold text-[#1b40c8] underline"
+            >
+              Corregir unidad del precio
+            </button>
+          </div>
+        ) : null}
+        {correcting && priceUnitMismatch && canFixPrice && line.price ? (
+          <div
+            className="mt-1 text-left text-[12px] font-normal"
+            data-testid="correct-price-unit"
+          >
+            {money(line.price.unit_cost)} por{" "}
+            <select
+              value={correctUnit}
+              aria-label="Unidad del precio"
+              onChange={(e) => setCorrectUnit(e.target.value)}
+              className="rounded border border-[#c6d3f5] bg-white px-1 py-0.5"
+            >
+              {[...new Set([line.unit, ...ALL_UNITS])].map((u) => (
+                <option key={u} value={u}>
+                  {UNIT_LABEL[u] ?? u}
+                </option>
+              ))}
+            </select>{" "}
+            <button
+              type="button"
+              disabled={!correctUnit}
+              onClick={() => {
+                setCorrecting(false);
+                onCorrectUnit(correctUnit, line.price!.unit_cost);
+              }}
+              className="rounded bg-[#1b40c8] px-2 py-0.5 font-semibold text-white"
+            >
+              Guardar
+            </button>
+            <div className="text-[#8a92a3]">
+              Se guarda un precio nuevo con fecha; el anterior no se borra.
+            </div>
           </div>
         ) : null}
         {definingConversion && priceUnitMismatch && line.ingredient_id ? (

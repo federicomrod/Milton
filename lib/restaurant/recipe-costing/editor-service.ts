@@ -76,6 +76,8 @@ export interface CostingLoad {
 }
 
 export interface NewCostEntry {
+  /** Keep the entry in `unit` (a unit correction) instead of the ingredient's own unit. */
+  keepUnit?: boolean;
   ingredientId: string;
   unit: string;
   unitCost: number;
@@ -111,6 +113,9 @@ export interface EditorStore {
     componentId: string
   ): Promise<PreparationRef | null>;
   listInputs(companyId: string, version: VersionRef): Promise<VersionInput[]>;
+  /** An EMPTY in-review version after `from` (the next number, no effective date).
+   *  Its lines are copied by the caller; `from` is never touched. */
+  createDraftVersion(companyId: string, from: VersionRef): Promise<VersionRef>;
   insertInput(
     companyId: string,
     version: VersionRef,
@@ -617,6 +622,8 @@ export type EditorAction =
       line_unit?: string;
     }
   | { action: "remove"; line_key: string }
+  /** «Crear versión nueva»: a draft copy of the approved recipe (the approved one is not changed). */
+  | { action: "new_version" }
   | {
       /** This line's own price per its unit (null = back to the list). */
       action: "set_line_cost";
@@ -640,6 +647,8 @@ export type EditorAction =
       unit_cost: number;
       /** «Usar como precio del ingrediente»: the old price copy of a line. */
       adopt_legacy?: boolean;
+      /** «Corregir unidad del precio»: the same price in another unit, as a NEW dated entry. */
+      correct_unit?: boolean;
     }
   | {
       action: "answer_catalog_unit";
@@ -779,6 +788,36 @@ export async function applyEdit(
   }
 
   // Prices are not part of a version: setting one is allowed on any recipe.
+  if (action.action === "new_version") {
+    if (!version) {
+      return {
+        ok: false,
+        error: "Este plato todavía no tiene una receta.",
+        status: 400,
+      };
+    }
+    if (version.status === "in_review") {
+      return {
+        ok: false,
+        error: "Ya hay un borrador abierto de esta receta.",
+        status: 409,
+      };
+    }
+    // A copy: the approved version and its lines are never changed.
+    const draft = await ctx.store.createDraftVersion(ctx.companyId, version);
+    for (const row of await ctx.store.listInputs(ctx.companyId, version)) {
+      await ctx.store.insertInput(ctx.companyId, draft, {
+        input_type: row.input_type,
+        ingredient_id: row.ingredient_id,
+        component_id: row.component_id,
+        quantity: row.quantity,
+        unit: row.unit,
+        unit_cost: row.unit_cost ?? null,
+        cost_source: row.cost_source ?? null,
+      });
+    }
+    return loadEditor({ ...ctx, omitOptions: false });
+  }
   if (
     action.action !== "set_price" &&
     action.action !== "answer_catalog_unit"
@@ -1442,6 +1481,7 @@ export async function applyEdit(
       }
       const currency = await ctx.store.currency(ctx.companyId);
       const added = await ctx.store.addCostEntry(ctx.companyId, {
+        keepUnit: action.correct_unit === true,
         ingredientId: action.ingredient_id,
         unit,
         unitCost: price,
@@ -1453,7 +1493,9 @@ export async function applyEdit(
             ? ZERO_PRICE_NOTE
             : action.adopt_legacy === true
               ? "Adoptado del precio de línea"
-              : "Precio corregido en Recetas y costeo",
+              : action.correct_unit === true
+                ? "Unidad corregida"
+                : "Precio corregido en Recetas y costeo",
       });
       if (!added.ok)
         return {

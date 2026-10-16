@@ -982,6 +982,8 @@ function IngredienteDetail({
         ingredientName={item.name}
         priceUnit={item.price_unit ?? item.default_unit}
         usedUnits={[...new Set(item.uses.map((u) => u.unit))]}
+        price={item.price}
+        currency={currency}
         canEdit
       />
 

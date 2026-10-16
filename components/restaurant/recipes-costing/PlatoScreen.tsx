@@ -325,7 +325,9 @@ function Dish({
             </button>
           </span>
         ) : dish?.status === "aprobado" ? (
-          <Chip tone="ok">Aprobado</Chip>
+          <Chip tone={dish.state_reason ? "warn" : "ok"}>
+            {dish.status_label}
+          </Chip>
         ) : null}
       </div>
 

@@ -43,7 +43,37 @@ export function legacyUnitBase(unit: string): {
   family: string;
   factor: number;
 } {
-  const u = unit.trim().toLowerCase();
+  // The Spanish labels of the client workbook (migration 058) fold to the
+  // English tokens first.
+  const aliases: Record<string, string> = {
+    onza: "oz",
+    onzas: "oz",
+    libra: "lb",
+    libras: "lb",
+    gr: "g",
+    gramo: "g",
+    gramos: "g",
+    kilo: "kg",
+    kilos: "kg",
+    kilogramo: "kg",
+    kilogramos: "kg",
+    lt: "l",
+    litro: "l",
+    litros: "l",
+    mililitro: "ml",
+    mililitros: "ml",
+    galon: "gal",
+    galón: "gal",
+    galones: "gal",
+    unidad: "unit",
+    unidades: "unit",
+    ud: "unit",
+    pieza: "unit",
+    piezas: "unit",
+    pza: "unit",
+  };
+  const raw = unit.trim().toLowerCase();
+  const u = aliases[raw] ?? raw;
   const weight: Record<string, number> = {
     kg: 1000,
     g: 1,
@@ -53,6 +83,7 @@ export function legacyUnitBase(unit: string): {
   const volume: Record<string, number> = { l: 1000, ml: 1, gal: 3785.411784 };
   if (u in weight) return { family: "weight", factor: weight[u] };
   if (u in volume) return { family: "volume", factor: volume[u] };
+  if (u === "unit") return { family: "count", factor: 1 };
   return { family: `other:${u}`, factor: 1 };
 }
 

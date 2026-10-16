@@ -5,6 +5,7 @@
 // that uses the ingredient in that unit; removing one puts them back to
 // «Unidad distinta» (Sin precio), never a guess.
 
+import { formatMoney } from "@/lib/restaurant/costs-format";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -22,6 +23,8 @@ export function IngredientConversions({
   priceUnit,
   usedUnits,
   canEdit,
+  price = null,
+  currency = "USD",
 }: {
   ingredientId: string;
   ingredientName: string;
@@ -30,7 +33,13 @@ export function IngredientConversions({
   /** Units of the recipe lines that use it. */
   usedUnits: readonly string[];
   canEdit: boolean;
+  /** The latest price (its number), for «Corregir unidad del precio». */
+  price?: number | null;
+  currency?: string;
 }) {
+  const [correcting, setCorrecting] = useState(false);
+  const [correctUnit, setCorrectUnit] = useState("");
+  const [saving, setSaving] = useState(false);
   const router = useRouter();
   const [rows, setRows] = useState<ConversionRow[] | null>(null);
   const [adding, setAdding] = useState(false);
@@ -96,6 +105,18 @@ export function IngredientConversions({
             ) : null}
           </span>
         ))}
+        {canEdit && price !== null && priceUnit ? (
+          <button
+            type="button"
+            onClick={() => {
+              setCorrecting((v) => !v);
+              setCorrectUnit(priceUnit);
+            }}
+            className="text-[12px] font-semibold text-[#1b40c8] underline"
+          >
+            Corregir unidad del precio
+          </button>
+        ) : null}
         {canEdit && !adding ? (
           <button
             type="button"
@@ -106,6 +127,83 @@ export function IngredientConversions({
           </button>
         ) : null}
       </div>
+      {correcting && price !== null ? (
+        <div
+          className="mt-1 text-[12px]"
+          data-testid="ingredient-correct-price-unit"
+        >
+          {formatMoney(price, currency)} por{" "}
+          <select
+            value={correctUnit}
+            aria-label="Unidad del precio"
+            onChange={(e) => setCorrectUnit(e.target.value)}
+            className="rounded border border-[#c6d3f5] bg-white px-1 py-0.5"
+          >
+            {[
+              ...new Set([
+                priceUnit ?? "",
+                ...usedUnits,
+                "oz",
+                "lb",
+                "g",
+                "kg",
+                "ml",
+                "l",
+                "unit",
+              ]),
+            ]
+              .filter(Boolean)
+              .map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+          </select>{" "}
+          <button
+            type="button"
+            disabled={!correctUnit || saving}
+            onClick={async () => {
+              setSaving(true);
+              setError(null);
+              try {
+                const res = await fetch("/api/restaurant/ingredient-costs", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    ingredient_id: ingredientId,
+                    cost_date: new Date().toISOString().slice(0, 10),
+                    quantity: 1,
+                    unit: correctUnit,
+                    total_cost: price,
+                    currency,
+                    notes: "Unidad corregida",
+                    keep_unit: true,
+                  }),
+                });
+                const json = (await res.json().catch(() => ({}))) as {
+                  error?: string;
+                };
+                if (!res.ok) {
+                  setError(json.error ?? "No pude guardar el precio.");
+                } else {
+                  setCorrecting(false);
+                  changed();
+                }
+              } catch {
+                setError("No pude conectar. Intenta otra vez.");
+              } finally {
+                setSaving(false);
+              }
+            }}
+            className="rounded bg-[#1b40c8] px-2 py-0.5 font-semibold text-white disabled:opacity-50"
+          >
+            {saving ? "Guardando…" : "Guardar"}
+          </button>
+          <span className="ml-2 text-[#8a92a3]">
+            Se guarda un precio nuevo con fecha; el anterior no se borra.
+          </span>
+        </div>
+      ) : null}
       {adding ? (
         <UnitConversionForm
           ingredientId={ingredientId}

@@ -18,6 +18,12 @@
 // A missing price is never $0: such a dish has unit_cost = null and the
 // status "falta_precio", and it is left out of COGS and coverage.
 
+import {
+  UNCONFIRMED_LINK_LABEL,
+  dishStateFrom,
+  pickDishVersions,
+  type DishStateReason,
+} from "./dish-state";
 import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
 import type { CostingData } from "@/lib/restaurant/costing";
 import {
@@ -92,6 +98,8 @@ export interface DishEconomics {
   is_combo: boolean;
   status: DishStatus;
   status_label: string;
+  /** Why an «Aprobado» is not covered (the link is not confirmed), if so. */
+  state_reason?: DishStateReason | null;
   /** Cost of one unit sold (full precision). Null = unknown, never 0. */
   unit_cost: number | null;
   cost_source: DishCostSource | null;
@@ -310,19 +318,6 @@ function linkFor(
   );
 }
 
-function latest<T extends { version_number: number }>(rows: readonly T[]) {
-  let best: T | null = null;
-  for (const row of rows) {
-    if (!best || row.version_number > best.version_number) best = row;
-  }
-  return best;
-}
-
-/** The approved version in force today (latest approved number). */
-function approvedInForce(rows: readonly DishVersion[]): DishVersion | null {
-  return latest(rows.filter((row) => row.status === "approved"));
-}
-
 function lineEconomics(line: EditorLine): DishLineEconomics {
   const own = line.own_cost === true;
   return {
@@ -369,8 +364,9 @@ function dishFromProduct(
     : linkFor(input.links, product.odoo_product_id, input.locationId ?? null);
   const menuItemId = product.menu_item_id ?? link?.menu_item_id ?? null;
   const versions = menuItemId ? (versionsByMenuItem.get(menuItemId) ?? []) : [];
-  const approved = approvedInForce(versions);
-  const newest = latest(versions);
+  // The approved version in force is the engine's pick (effective dates), the
+  // same one the cost is calculated with.
+  const { approved, newest } = pickDishVersions(versions);
   const evidence = link?.evidence ?? {};
   const excelTotal = asFiniteNumber(evidence.excel_total);
 
@@ -399,55 +395,39 @@ function dishFromProduct(
   const linesTotal = totalOfLines(lines);
   const missing = lines.filter((l) => l.pending || l.amount === null).length;
 
-  let status: DishStatus;
-  let unitCost: number | null = null;
-  let costSource: DishCostSource | null = null;
-  let costDate: string | null = null;
-
-  if (product.treatment === "modificador_sin_costo") {
-    status = "aprobado";
-    unitCost = 0;
-    costSource = "sin_costo";
-  } else if (product.treatment === "combo" && !approved) {
-    // A combo is costed by its parts; covered when they all are.
-    status = product.counts_toward_coverage ? "aprobado" : "sin_receta";
-    costSource = product.counts_toward_coverage ? "partes" : null;
-  } else if (!version || lines.length === 0) {
-    status = "sin_receta";
-  } else if (linesTotal === null) {
-    status = "falta_precio";
-    costSource = approved ? "receta_aprobada" : "borrador";
-  } else if (approved && product.counts_toward_coverage) {
-    status = "aprobado";
-    unitCost = linesTotal;
-    costSource = "receta_aprobada";
-    costDate =
-      approved.approved_at?.slice(0, 10) ?? approved.effective_date ?? null;
-  } else {
-    // A draft (AI or import) with every price known: an estimate.
-    status = "estimado";
-    unitCost = linesTotal;
-    costSource = approved ? "receta_aprobada" : "borrador";
-    costDate =
-      (approved?.approved_at ?? version.created_at)?.slice(0, 10) ?? null;
-  }
-
   const avgNetPrice =
     product.units_sold > 0 ? product.net_sales / product.units_sold : null;
-  const foodCostPct =
-    unitCost !== null && avgNetPrice !== null && avgNetPrice > 0
-      ? (unitCost / avgNetPrice) * 100
-      : null;
+  // ONE rule for status, cost and coverage (dish-state.ts).
+  const state = dishStateFrom({
+    has_version: !!version,
+    line_count: lines.length,
+    missing,
+    total: linesTotal,
+    approved: !!approved,
+    confirmed: link?.link_state === "confirmado",
+    treatment: product.treatment,
+    combo_covered: product.counts_toward_coverage,
+    in_food_sales: product.in_food_sales,
+    avg_net_price: avgNetPrice,
+  });
+  const status = state.status;
+  const unitCost = state.unit_cost;
+  const costSource: DishCostSource | null = state.cost_source;
+  const costDate: string | null =
+    unitCost === null || state.cost_source === "sin_costo"
+      ? null
+      : approved
+        ? (approved.approved_at?.slice(0, 10) ??
+          approved.effective_date ??
+          null)
+        : (version?.created_at?.slice(0, 10) ?? null);
+  const foodCostPct = state.food_cost_pct;
   const unitMargin =
     unitCost !== null && avgNetPrice !== null ? avgNetPrice - unitCost : null;
   const excelDiff =
     unitCost !== null && excelTotal !== null ? unitCost - excelTotal : null;
-
-  const covered =
-    status === "aprobado" &&
-    product.in_food_sales &&
-    product.counts_toward_coverage;
-  const inCogs = covered && unitCost !== null;
+  const covered = state.covered;
+  const inCogs = state.in_cogs;
 
   return {
     odoo_product_id: product.odoo_product_id,
@@ -458,7 +438,8 @@ function dishFromProduct(
     treatment: product.treatment,
     is_combo: product.is_combo,
     status,
-    status_label: DISH_STATUS_LABELS[status],
+    status_label: state.status_label,
+    state_reason: state.reason,
     unit_cost: unitCost,
     cost_source: costSource,
     cost_date: costDate,
@@ -520,6 +501,11 @@ function mergeParts(parts: readonly DishEconomics[]): DishEconomics {
     STATUS_ORDER.find((st) => parts.some((p) => p.status === st)) ??
     base.status;
   const avg = units > 0 ? net / units : null;
+  // «Aprobado · vínculo sin confirmar» when an approved part is not confirmed.
+  const mergedReason: DishStateReason | null =
+    status === "aprobado" && parts.some((p) => p.state_reason)
+      ? "vinculo_sin_confirmar"
+      : null;
   const rest: DishEconomics = { ...base };
   delete rest.row_key;
   delete rest.sales_scope;
@@ -527,7 +513,10 @@ function mergeParts(parts: readonly DishEconomics[]): DishEconomics {
     ...rest,
     raw_names: [...new Set(parts.flatMap((p) => p.raw_names))].sort(),
     status,
-    status_label: DISH_STATUS_LABELS[status],
+    status_label: mergedReason
+      ? UNCONFIRMED_LINK_LABEL
+      : DISH_STATUS_LABELS[status],
+    state_reason: mergedReason,
     unit_cost: unitCost,
     units_sold: units,
     net_sales: net,
@@ -724,7 +713,11 @@ export function buildDishEconomics(
     dish.cost_basis = v.cost_basis;
     dish.unit_cost = v.unit_cost;
     dish.status = v.status;
-    dish.status_label = DISH_STATUS_LABELS[v.status];
+    // «Aprobado · vínculo sin confirmar» travels with the variant's own state.
+    dish.state_reason = v.state_reason ?? null;
+    dish.status_label = dish.state_reason
+      ? UNCONFIRMED_LINK_LABEL
+      : DISH_STATUS_LABELS[v.status];
     dish.covered = v.covered;
     dish.in_cogs = v.covered && v.unit_cost !== null;
     dish.food_cost_pct =

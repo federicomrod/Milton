@@ -273,6 +273,90 @@ export function createSupabaseEditorStore(
         : null;
     },
 
+    async createDraftVersion(companyId, from): Promise<VersionRef> {
+      if (from.kind === "preparation") {
+        const { data: src, error: srcErr } = await supabase
+          .from("component_recipe_versions")
+          .select(
+            "component_recipe_id, component_id, output_quantity, output_unit, source_type"
+          )
+          .eq("company_id", companyId)
+          .eq("id", from.id)
+          .maybeSingle();
+        if (srcErr || !src) {
+          throw new Error(srcErr?.message ?? "No encontré la versión.");
+        }
+        const { data: last } = await supabase
+          .from("component_recipe_versions")
+          .select("version_number")
+          .eq("company_id", companyId)
+          .eq("component_recipe_id", src.component_recipe_id)
+          .order("version_number", { ascending: false })
+          .limit(1);
+        const { data, error } = await supabase
+          .from("component_recipe_versions")
+          .insert({
+            company_id: companyId,
+            component_recipe_id: src.component_recipe_id,
+            component_id: src.component_id,
+            version_number: Number(last?.[0]?.version_number ?? 0) + 1,
+            status: "in_review",
+            effective_date: null,
+            output_quantity: src.output_quantity,
+            output_unit: src.output_unit,
+            source_type: src.source_type ?? null,
+          })
+          .select("id, status")
+          .single();
+        if (error || !data) {
+          throw new Error(error?.message ?? "No pude crear la versión nueva.");
+        }
+        return {
+          ...from,
+          id: String(data.id),
+          status: String(data.status),
+        };
+      }
+      const { data: src, error: srcErr } = await supabase
+        .from("recipe_versions")
+        .select(
+          "recipe_id, menu_item_id, serving_quantity, serving_unit, notes, source_type"
+        )
+        .eq("company_id", companyId)
+        .eq("id", from.id)
+        .maybeSingle();
+      if (srcErr || !src) {
+        throw new Error(srcErr?.message ?? "No encontré la versión.");
+      }
+      const { data: last } = await supabase
+        .from("recipe_versions")
+        .select("version_number")
+        .eq("company_id", companyId)
+        .eq("recipe_id", src.recipe_id)
+        .order("version_number", { ascending: false })
+        .limit(1);
+      const { data, error } = await supabase
+        .from("recipe_versions")
+        .insert({
+          company_id: companyId,
+          recipe_id: src.recipe_id,
+          menu_item_id: src.menu_item_id,
+          version_number: Number(last?.[0]?.version_number ?? 0) + 1,
+          status: "in_review",
+          effective_date: null,
+          serving_quantity: src.serving_quantity,
+          serving_unit: src.serving_unit,
+          notes: src.notes,
+          source_type: src.source_type ?? null,
+        })
+        .select("id, status")
+        .single();
+      if (error || !data) {
+        throw new Error(error?.message ?? "No pude crear la versión nueva.");
+      }
+      return { ...from, id: String(data.id), status: String(data.status) };
+    },
+
     async loadPreparation(companyId, componentId) {
       const { data: comp, error } = await supabase
         .from("prepared_components")
@@ -712,7 +796,8 @@ export function createSupabaseEditorStore(
         });
       const ingredientUnit =
         typeof ing.default_unit === "string" ? ing.default_unit : null;
-      const built = buildFor(ingredientUnit);
+      // A unit correction keeps the entry in the unit the person chose.
+      const built = buildFor(entry.keepUnit ? entry.unit : ingredientUnit);
       // A price in a unit the ingredient's own unit cannot be read in
       // («orden» on an oz ingredient): say so, never store it mislabeled.
       if (!built.ok) {

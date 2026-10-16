@@ -99,6 +99,8 @@ export function parseEditorAction(
         line_unit: str(body.line_unit) ?? undefined,
       };
     }
+    case "new_version":
+      return { action: "new_version" };
     case "set_price": {
       const id = str(body.ingredient_id);
       const unit = str(body.unit);
@@ -110,6 +112,7 @@ export function parseEditorAction(
         unit,
         unit_cost: cost,
         ...(body.adopt_legacy === true ? { adopt_legacy: true } : {}),
+        ...(body.correct_unit === true ? { correct_unit: true } : {}),
       };
     }
     case "answer_catalog_unit": {

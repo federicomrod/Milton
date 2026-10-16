@@ -7,6 +7,10 @@
 // Every number comes from the shared loader; the screen only re-adds the
 // sums after a move (dishSums, the loader's own function).
 
+import {
+  GROUP_COVERAGE_TIP,
+  groupStatusDisplay,
+} from "@/lib/restaurant/costing/rollup";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { RowActions } from "@/components/restaurant/groups/RowActions";
@@ -28,10 +32,7 @@ import {
   type MenuDish,
   type MenuDishVariant,
 } from "@/lib/restaurant/menu-dishes/menu-dishes";
-import {
-  DISH_STATUS_LABELS,
-  type DishStatus,
-} from "@/lib/restaurant/costing/dish-status";
+import { type DishStatus } from "@/lib/restaurant/costing/dish-status";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { platosHref } from "@/lib/restaurant/menu-links";
 import { Chip } from "@/components/restaurant/recipes-costing/ui";
@@ -670,7 +671,7 @@ export function MenuDishesScreen({
                     onSort={toggleSort}
                     align="right"
                   >
-                    Cobertura
+                    <span title={GROUP_COVERAGE_TIP}>Cobertura</span>
                   </SortTh>
                   <SortTh
                     className={"px-2 py-1.5 " + STICKY_TH}
@@ -827,6 +828,7 @@ const DishRows = memo(function DishRows({
 }) {
   const isExcluded = dish.status === "excluded";
   const coverage = Math.round(dish.coverage * 100);
+  const groupChip = groupStatusDisplay(dish);
   return (
     <>
       <tr
@@ -900,9 +902,11 @@ const DishRows = memo(function DishRows({
               {EXCLUDED_LABELS[dish.excluded_reason ?? ""] ?? "Excluido"}
             </Chip>
           ) : (
-            <Chip tone={TONE[dish.cost_status]}>
-              {DISH_STATUS_LABELS[dish.cost_status]}
-            </Chip>
+            <span title={groupChip.mixed ? GROUP_COVERAGE_TIP : undefined}>
+              <Chip tone={groupChip.mixed ? "warn" : TONE[dish.cost_status]}>
+                {groupChip.label}
+              </Chip>
+            </span>
           )}
         </td>
         <td className="px-1 py-2 text-right">

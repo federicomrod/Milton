@@ -11,6 +11,7 @@ import type {
   PlatoQueueRow,
   RecipeCostingWorkspace,
 } from "./workspace";
+import { dishStateFrom } from "@/lib/restaurant/costing/dish-state";
 import { TREATMENT_RULES } from "@/lib/restaurant/pos-treatments";
 import {
   CLASSIFICATION_LABELS,
@@ -49,26 +50,29 @@ export function summaryFromEditorState(
   // An approved dish is costed with its approved version; edits go to a
   // new draft and do not change the number in force.
   if (summary.status === "aprobado" || !state.editable) return summary;
-  const unitCost =
-    state.lines.length > 0 && state.total_cost !== null
-      ? state.total_cost
-      : null;
-  const status: DishStatus =
-    state.lines.length === 0
-      ? "sin_receta"
-      : unitCost === null
-        ? "falta_precio"
-        : "estimado";
+  // The same rule as the server (dish-state.ts): a draft is sin receta /
+  // falta precio / estimado, never approved.
+  const next = dishStateFrom({
+    has_version: true,
+    line_count: state.lines.length,
+    missing: state.pending,
+    total: state.lines.length > 0 ? state.total_cost : null,
+    approved: false,
+    confirmed: summary.covered,
+    treatment: summary.treatment,
+    combo_covered: false,
+    in_food_sales: true,
+    avg_net_price: summary.avg_net_price,
+  });
+  const unitCost = next.unit_cost;
   const price = summary.avg_net_price;
   return {
     ...summary,
-    status,
-    status_label: DISH_STATUS_LABELS[status],
+    status: next.status,
+    status_label: next.status_label,
+    state_reason: next.reason,
     unit_cost: unitCost,
-    food_cost_pct:
-      unitCost !== null && price !== null && price > 0
-        ? (unitCost / price) * 100
-        : null,
+    food_cost_pct: next.food_cost_pct,
     unit_margin: unitCost !== null && price !== null ? price - unitCost : null,
     excel_diff:
       unitCost !== null && summary.excel_total !== null
@@ -118,25 +122,54 @@ export function markApproved(
     (data.selected_dish?.odoo_product_id === odooProductId
       ? data.selected_dish
       : null);
+  // «Aprobar» approves the recipe AND confirms the POS link (two steps on the
+  // server). What the dish becomes is the server's rule (dish-state.ts) applied
+  // to what is on screen: every line priced → «Aprobado» (covered, in COGS);
+  // a line without price stays «Falta precio». Nothing is hand-set here.
+  const resolved = summary
+    ? dishStateFrom({
+        has_version: summary.status !== "sin_receta",
+        line_count: summary.status === "sin_receta" ? 0 : 1,
+        missing: summary.lines_missing_price,
+        total:
+          summary.lines_missing_price > 0 || summary.unit_cost === null
+            ? null
+            : summary.unit_cost,
+        approved: true,
+        confirmed: true,
+        treatment: summary.treatment,
+        combo_covered: summary.treatment === "combo",
+        in_food_sales: true,
+        avg_net_price: summary.avg_net_price,
+      })
+    : null;
   const next = withDishSummary(
     data,
-    summary
+    summary && resolved
       ? {
           ...summary,
-          status: "aprobado",
-          status_label: DISH_STATUS_LABELS.aprobado,
-          covered: true,
-          in_cogs: summary.unit_cost !== null,
+          status: resolved.status,
+          status_label: resolved.status_label,
+          state_reason: resolved.reason,
+          unit_cost: resolved.unit_cost,
+          food_cost_pct: resolved.food_cost_pct,
+          covered: resolved.covered,
+          in_cogs: resolved.in_cogs,
         }
       : ({
           odoo_product_id: odooProductId,
         } as DishSummary)
   );
+  const status = resolved?.status ?? "aprobado";
   return {
     ...next,
     plato_queue: next.plato_queue.map((row) =>
       row.odoo_product_id === odooProductId
-        ? { ...row, status: "listo", dish_status: "aprobado" }
+        ? {
+            ...row,
+            status: status === "aprobado" ? "listo" : row.status,
+            dish_status: status,
+          }
         : row
     ),
   };

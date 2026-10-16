@@ -5,8 +5,12 @@
 // route changed: the checklist, the cost file (PriceCatalogPanel: chips,
 // «Recetas de tu archivo» with Deshacer lote, «Costos por decidir»), the menu
 // reader (folded) and «Empezar de nuevo». Their endpoints and handlers are
-// unchanged (upload → prepare the dishes, undo a batch, reset). Once complete
-// it folds to one line that expands.
+// unchanged (upload → prepare the dishes, undo a batch, reset). Layout: the page
+// shows the KPIs and the tabs first; while setup is incomplete this block is ONE
+// compact row («Configura tus costos · 1 de 4 · Siguiente: …» + the next-step
+// button + «Ver detalle ▸»), collapsed by default and remembered per company,
+// and «Ver detalle» opens the full checklist and «Último archivo» inline. Once
+// complete it folds to one line that expands.
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -63,10 +67,41 @@ export function ageLabel(
       : `de hace ${days} días`;
 }
 
+/** localStorage key: the detail is open or closed, per company. */
+export function setupOpenKey(companyId: string | null | undefined): string {
+  return `milton:costos:configuracion-abierta:${companyId ?? "sin-empresa"}`;
+}
+
+function readOpen(
+  companyId: string | null | undefined,
+  startOpen: boolean
+): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    // A link to the file card («Subir archivo de costos») opens it.
+    if (window.location.hash === "#costos-ultimo-archivo") return true;
+    const stored = window.localStorage.getItem(setupOpenKey(companyId));
+    return stored === null ? startOpen : stored === "1";
+  } catch {
+    return startOpen;
+  }
+}
+
+/** The banner text for the next step: «completar 42 precios» → «Completar 42 precios». */
+export function nextStepText(action: string): string {
+  const text = action.replace(/^Continuar:\s*/i, "").trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
 export function CostsSetupSection({
   locationId,
+  companyId = null,
+  startOpen = false,
 }: {
   locationId: string | null;
+  companyId?: string | null;
+  /** An account with no data yet: the setup IS the next step, so it starts open (unless the person closed it). */
+  startOpen?: boolean;
 }) {
   const router = useRouter();
   const key = menuTabKey("resumen", { location: locationId });
@@ -78,6 +113,18 @@ export function CostsSetupSection({
   const [epoch, setEpoch] = useState(0);
   const [resetOpen, setResetOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // Incomplete setup: «Ver detalle» (collapsed by default, remembered per company).
+  const [detailOpen, setDetailOpen] = useState(() =>
+    readOpen(companyId, startOpen)
+  );
+  const setDetail = (next: boolean) => {
+    setDetailOpen(next);
+    try {
+      window.localStorage.setItem(setupOpenKey(companyId), next ? "1" : "0");
+    } catch {
+      // private mode: it simply is not remembered
+    }
+  };
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{
     done: number;
@@ -128,7 +175,7 @@ export function CostsSetupSection({
       </div>
     ) : (
       <div
-        className="h-[240px] animate-pulse rounded-[14px] bg-[#e9ecf2]"
+        className="h-[56px] animate-pulse rounded-[14px] bg-[#e9ecf2]"
         aria-busy="true"
         data-testid="costs-setup-loading"
       />
@@ -191,10 +238,17 @@ export function CostsSetupSection({
       setBusy(false);
     }
   };
-  const goToFile = () =>
-    document
-      .getElementById("costos-ultimo-archivo")
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const goToFile = () => {
+    // The file card lives in the detail: open it first, then scroll to it.
+    if (!setup.complete) setDetail(true);
+    setTimeout(
+      () =>
+        document
+          .getElementById("costos-ultimo-archivo")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      50
+    );
+  };
   const more = (
     <MoreMenu
       data={data}
@@ -254,79 +308,114 @@ export function CostsSetupSection({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5">
-          <div className="flex items-center gap-2">
-            <h2 className="text-[13px] font-bold">
-              Configura tus costos · {setup.done} de {setup.total}
-            </h2>
-            {more}
-            {setup.complete ? (
-              <button
-                type="button"
-                onClick={() => setExpanded(false)}
-                className="ml-auto text-[12px] font-semibold text-[#1b40c8]"
-              >
-                Plegar
-              </button>
-            ) : null}
-          </div>
-          {setup.steps.map((step, index) => (
-            <SetupRow
-              key={step.id}
-              step={step}
-              index={index}
-              onFile={goToFile}
-            />
-          ))}
-          {setup.next ? (
-            <div className="mt-3">
-              <NextStepButton step={setup.next} onFile={goToFile} />
-            </div>
-          ) : null}
-        </section>
-
+      {!setup.complete ? (
         <section
-          id="costos-ultimo-archivo"
-          className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5"
+          className="flex min-h-[48px] max-h-[56px] flex-wrap items-center gap-x-3 gap-y-1 overflow-hidden rounded-[14px] border border-[#dbe3f7] bg-[#f6f8fe] px-4 py-2 text-[13px]"
+          data-testid="costs-setup-banner"
         >
-          <div className="mb-1 flex items-baseline">
-            <h2 className="text-[13px] font-bold">Último archivo</h2>
-            {data.latest_upload ? (
-              <span className="ml-auto truncate text-[12px] text-[#8a92a3]">
-                {data.latest_upload.filename}
-              </span>
-            ) : (
-              <span className="ml-auto text-[12px] text-[#8a92a3]">
-                Aún no subes uno
-              </span>
-            )}
-          </div>
-          <PriceCatalogPanel
-            key={`upload-${epoch}`}
-            embedded
-            onUploaded={() => void onUploaded()}
-            onRecipesImported={onResetDone}
-            locationId={locationId}
-            busyExternal={busy}
-          />
-          <details className="mt-2 border-t border-[#f2f3f6] pt-2 text-[13px]">
-            <summary className="cursor-pointer text-[#4b5466]">
-              ▸ Leer tu menú web (opcional)
-            </summary>
-            <div className="mt-2">
-              <MenuReaderPanel
-                key={`menu-${epoch}`}
-                embedded
-                canEdit={data.actor.can_submit}
-                busyExternal={busy}
-                locationId={locationId}
-                onDone={onResetDone}
-              />
-            </div>
-          </details>
+          <b className="text-[#151c2c]">
+            Configura tus costos · {setup.done} de {setup.total}
+          </b>
+          {setup.next ? (
+            <span className="min-w-0 truncate text-[#4a5a85]">
+              · Siguiente: {nextStepText(setup.next.action)}
+            </span>
+          ) : null}
+          <span className="ml-auto flex items-center gap-2">
+            {setup.next ? (
+              <NextStepButton step={setup.next} onFile={goToFile} compact />
+            ) : null}
+            <button
+              type="button"
+              aria-expanded={detailOpen}
+              onClick={() => setDetail(!detailOpen)}
+              className="font-semibold text-[#1b40c8] hover:underline"
+            >
+              Ver detalle {detailOpen ? "▾" : "▸"}
+            </button>
+            {more}
+          </span>
         </section>
-      </div>
+      ) : null}
+
+      {setup.complete || detailOpen ? (
+        <div
+          className="grid grid-cols-1 gap-3 lg:grid-cols-2"
+          data-testid="costs-setup-detail"
+        >
+          <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5">
+            <div className="flex items-center gap-2">
+              <h2 className="text-[13px] font-bold">
+                Configura tus costos · {setup.done} de {setup.total}
+              </h2>
+              {setup.complete ? more : null}
+              {setup.complete ? (
+                <button
+                  type="button"
+                  onClick={() => setExpanded(false)}
+                  className="ml-auto text-[12px] font-semibold text-[#1b40c8]"
+                >
+                  Plegar
+                </button>
+              ) : null}
+            </div>
+            {setup.steps.map((step, index) => (
+              <SetupRow
+                key={step.id}
+                step={step}
+                index={index}
+                onFile={goToFile}
+              />
+            ))}
+            {setup.next ? (
+              <div className="mt-3">
+                <NextStepButton step={setup.next} onFile={goToFile} />
+              </div>
+            ) : null}
+          </section>
+
+          <section
+            id="costos-ultimo-archivo"
+            className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5"
+          >
+            <div className="mb-1 flex items-baseline">
+              <h2 className="text-[13px] font-bold">Último archivo</h2>
+              {data.latest_upload ? (
+                <span className="ml-auto truncate text-[12px] text-[#8a92a3]">
+                  {data.latest_upload.filename}
+                </span>
+              ) : (
+                <span className="ml-auto text-[12px] text-[#8a92a3]">
+                  Aún no subes uno
+                </span>
+              )}
+            </div>
+            <PriceCatalogPanel
+              key={`upload-${epoch}`}
+              embedded
+              onUploaded={() => void onUploaded()}
+              onRecipesImported={onResetDone}
+              locationId={locationId}
+              busyExternal={busy}
+            />
+            <details className="mt-2 border-t border-[#f2f3f6] pt-2 text-[13px]">
+              <summary className="cursor-pointer text-[#4b5466]">
+                ▸ Leer tu menú web (opcional)
+              </summary>
+              <div className="mt-2">
+                <MenuReaderPanel
+                  key={`menu-${epoch}`}
+                  embedded
+                  canEdit={data.actor.can_submit}
+                  busyExternal={busy}
+                  locationId={locationId}
+                  onDone={onResetDone}
+                />
+              </div>
+            </details>
+          </section>
+        </div>
+      ) : null}
 
       {resetOpen && data.reset ? (
         <ResetPanel
@@ -348,22 +437,27 @@ export function CostsSetupSection({
 function NextStepButton({
   step,
   onFile,
+  compact = false,
 }: {
   step: SetupStep;
   onFile: () => void;
+  /** In the one-row banner the text says «Continuar»; the step is named next to it. */
+  compact?: boolean;
 }) {
   const cls =
-    "inline-flex items-center rounded-lg bg-[#1b40c8] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6]";
+    "inline-flex items-center rounded-lg bg-[#1b40c8] px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-[#1535a6]" +
+    (compact ? " whitespace-nowrap" : "");
+  const label = compact ? "Continuar" : step.action;
   if (step.href) {
     return (
       <Link href={step.href} className={cls}>
-        {step.action}
+        {label}
       </Link>
     );
   }
   return (
     <button type="button" className={cls} onClick={onFile}>
-      {step.action}
+      {label}
     </button>
   );
 }

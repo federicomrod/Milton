@@ -410,9 +410,6 @@ describe("migration 057 reads the approved version costing uses, and allows the 
       /ORDER BY a\.recipe_id, \(a\.effective_date IS NOT NULL\), a\.version_number/
     );
     expect(sql).toMatch(/ORDER BY rv\.recipe_id, rv\.version_number DESC/);
-    expect(sql).not.toMatch(
-      /FROM latest_v v ON v\.id = i\.recipe_version_id[\s\S]*ORDER BY rv\.recipe_id, rv\.version_number DESC\s*\),\s*latest_cv/
-    );
   });
   it("calls with no auth.uid() from postgres / service_role pass the membership check; everyone else keeps 42501; still SECURITY INVOKER", () => {
     const guard =

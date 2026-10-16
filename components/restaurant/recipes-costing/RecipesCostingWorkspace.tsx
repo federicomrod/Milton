@@ -20,7 +20,10 @@ import {
   nextToReview,
   summaryFromEditorState,
   withDishSummary,
+  withTreatment,
 } from "@/lib/restaurant/recipe-costing/optimistic";
+import type { PosProductClassification } from "@/lib/restaurant/pos-product-links";
+import { TREATMENT_URL } from "./TreatmentPanel";
 import {
   clearEditors,
   dropEditorsForProduct,
@@ -431,6 +434,49 @@ export function RecipesCostingWorkspace({
   const postAndReload = (url: string, body: Record<string, unknown>) =>
     void mutate(() => post(url, body));
 
+  /**
+   * The treatment dropdown: the screen changes at once and the save runs in
+   * the background (no reload of the whole Platos page); an error rolls it
+   * back. Everything else still saves and reloads.
+   */
+  const postOptimistic = (url: string, body: Record<string, unknown>) => {
+    const item = (
+      body.items as Array<Record<string, unknown>> | undefined
+    )?.[0];
+    const id = Number(item?.odoo_product_id);
+    const treatment = item?.treatment as PosProductClassification | undefined;
+    const previous =
+      data.products.find((p) => p.odoo_product_id === id)?.treatment ??
+      (data.selected?.odoo_product_id === id ? data.selected.treatment : null);
+    if (
+      url !== TREATMENT_URL ||
+      !Number.isInteger(id) ||
+      !treatment ||
+      !previous
+    ) {
+      postAndReload(url, body);
+      return;
+    }
+    const queueBefore = data.plato_queue;
+    const name = String(item?.odoo_name ?? "");
+    setError(null);
+    // What was remembered about this dish, and what other tabs show, is old.
+    dropEditorsForProduct(id);
+    dishEpoch.current++;
+    dishPayloads.current.clear();
+    markTabsStale();
+    setData((prev) => withTreatment(prev, id, treatment));
+    void post(url, body).catch((err) => {
+      setData((prev) => ({
+        ...withTreatment(prev, id, previous),
+        plato_queue: queueBefore,
+      }));
+      setError(
+        `No se pudo cambiar cómo se costea ${name || "el producto"}: ${err instanceof Error ? err.message : "intenta otra vez."}`
+      );
+    });
+  };
+
   /** What a one-dish read changes on screen: the editor view and the
    *  dish's own price numbers; the shares stay from the full list. */
   const applyDishPayload = useCallback(
@@ -704,7 +750,7 @@ export function RecipesCostingWorkspace({
               onPrefetch={prefetchDishOnIntent}
               onEditorState={onEditorState}
               onEdited={scheduleReloadDish}
-              onPost={postAndReload}
+              onPost={postOptimistic}
               onConfirm={() => void confirmDish()}
               onOpenPreparation={(id) =>
                 openPreparation(id, { fromDish: true })

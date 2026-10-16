@@ -11,8 +11,9 @@
 
 import { parseDate } from "@/lib/restaurant/pos-import";
 import {
-  convertUnitPriceOrPortion,
+  convertPriceWithIngredientConversions,
   normalizeUnit,
+  type UnitConversion,
 } from "@/lib/restaurant/units";
 
 // ---------------------------------------------------------------------------
@@ -410,6 +411,8 @@ export function buildIngredientCostEntryInsert(params: {
   supplierId: string | null;
   row: NormalizedCostRow;
   sourceId?: string | null;
+  /** The ingredient's own unit bridges («1 taza = 5 oz»), if any. */
+  conversions?: readonly UnitConversion[];
 }):
   | { ok: true; insert: IngredientCostEntryInsert }
   | { ok: false; reason: string } {
@@ -419,7 +422,12 @@ export function buildIngredientCostEntryInsert(params: {
   const unitCost = row.total_cost / row.quantity;
   const targetUnit = ingredientDefaultUnit || row.unit;
 
-  const converted = convertUnitPriceOrPortion(unitCost, row.unit, targetUnit);
+  const converted = convertPriceWithIngredientConversions(
+    unitCost,
+    row.unit,
+    targetUnit,
+    params.conversions
+  );
   if (!converted.ok) {
     return {
       ok: false,

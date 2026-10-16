@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { ingredientHref } from "@/lib/restaurant/menu-links";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
+import type {
+  ConversionHint,
+  EditorState,
+} from "@/lib/restaurant/recipe-costing/editor-service";
 import {
   FLAG_NEW_SUGGESTED,
   FLAG_PENDING_UNIT,
@@ -24,6 +27,7 @@ import {
   CATALOG_CHANGING_ACTIONS,
   cachedPickerOptions,
   invalidatePickerOptions,
+  patchPickerOptionPrice,
   pickerOptionsFor,
   rememberPickerOptions,
 } from "@/lib/restaurant/recipe-costing/picker-cache";
@@ -39,6 +43,8 @@ import {
   unitMismatchHint,
 } from "@/lib/restaurant/recipe-costing/format";
 import { Chip, GhostBtn, PrimaryBtn } from "./ui";
+import { UnitConversionForm } from "./UnitConversionForm";
+import { sameUnit } from "@/lib/restaurant/units";
 
 const MASS = ["oz", "lb", "g", "kg"];
 /** "Ninguna / Pendiente": none of the readings is right. */
@@ -97,12 +103,22 @@ function priceLabel(option: {
 async function call(
   url: string,
   init?: RequestInit
-): Promise<{ ok: true; state: EditorState } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; state: EditorState }
+  | { ok: false; error: string; conversion?: ConversionHint }
+> {
   try {
     const res = await fetch(url, init);
-    const json = (await res.json()) as EditorState & { error?: string };
+    const json = (await res.json()) as EditorState & {
+      error?: string;
+      conversion?: ConversionHint;
+    };
     if (!res.ok) {
-      return { ok: false, error: json.error ?? "No pude guardar el cambio." };
+      return {
+        ok: false,
+        error: json.error ?? "No pude guardar el cambio.",
+        conversion: json.conversion,
+      };
     }
     return { ok: true, state: json };
   } catch {
@@ -162,6 +178,11 @@ export function RecipeLinesEditor({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The price error that «Definir conversión» can fix. */
+  const [conversionHint, setConversionHint] = useState<ConversionHint | null>(
+    null
+  );
+  const [defining, setDefining] = useState(false);
   const [picking, setPicking] = useState<PickTarget | null>(null);
   /** The item just added, to show "✓ guardado" for a moment. */
   const [justAdded, setJustAdded] = useState<string | null>(null);
@@ -237,6 +258,25 @@ export function RecipeLinesEditor({
     };
   }, [query, reloadKey, withOptions, odooProductId]);
 
+  /** A conversion was saved: every dish using the ingredient costs differently. */
+  async function refresh() {
+    editSeq.current++;
+    dropEditor(query);
+    clearEditors();
+    invalidatePickerOptions();
+    const res = await call(`/api/restaurant/recipes/editor?${query}`);
+    if (res.ok) {
+      putEditor(query, res.state, { productId: odooProductId ?? null });
+      setState(withOptions(res.state));
+      setError(null);
+      setConversionHint(null);
+      setDefining(false);
+      onEdited();
+    } else {
+      setError(res.error);
+    }
+  }
+
   async function send(
     body: Record<string, unknown>,
     /** Show the change right away (quantity, line price); no lock. */
@@ -261,8 +301,18 @@ export function RecipeLinesEditor({
       setBusy(true);
     }
     setError(null);
+    setConversionHint(null);
     const changesCatalog = CATALOG_CHANGING_ACTIONS.has(String(body.action));
-    if (changesCatalog) invalidatePickerOptions();
+    // A price in the ingredient's own unit moves ONE option: patch it, keep
+    // the list (the server then leaves it out of the answer).
+    const patchedList =
+      body.action === "set_price" &&
+      patchPickerOptionPrice(
+        String(body.ingredient_id),
+        String(body.unit),
+        Number(body.unit_cost)
+      );
+    if (changesCatalog && !patchedList) invalidatePickerOptions();
     const res = await call("/api/restaurant/recipes/editor", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -270,13 +320,17 @@ export function RecipeLinesEditor({
         ...target,
         ...body,
         // Only the changed line comes back, not the whole picker list.
-        omit_options: !changesCatalog && cachedPickerOptions() !== null,
+        omit_options:
+          (!changesCatalog || patchedList) && cachedPickerOptions() !== null,
       }),
     });
     setBusy(false);
     if (!res.ok) {
       if (optimistic && before) setState(before);
+      if (patchedList) invalidatePickerOptions();
       setError(res.error);
+      setConversionHint(res.conversion ?? null);
+      setDefining(false);
       return false;
     }
     // The server's answer for this dish is the freshest copy; a catalog
@@ -327,6 +381,30 @@ export function RecipeLinesEditor({
       {error ? (
         <div className="mb-2 rounded-md border border-[#f1c0c0] bg-[#fdecec] px-3 py-2 text-xs text-[#c03535]">
           {error}
+          {conversionHint && state.editable ? (
+            <>
+              {" "}
+              <button
+                type="button"
+                onClick={() => setDefining((v) => !v)}
+                className="font-semibold underline"
+              >
+                Definir conversión
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+      {conversionHint && defining ? (
+        <div className="mb-2">
+          <UnitConversionForm
+            ingredientId={conversionHint.ingredient_id}
+            ingredientName={conversionHint.ingredient_name}
+            unitA={conversionHint.to_unit}
+            unitB={conversionHint.from_unit}
+            onSaved={() => void refresh()}
+            onCancel={() => setDefining(false)}
+          />
         </div>
       ) : null}
 
@@ -483,13 +561,21 @@ export function RecipeLinesEditor({
                 })
               }
               onPrice={(unit, cost) =>
-                void send({
-                  action: "set_price",
-                  ingredient_id: line.ingredient_id,
-                  unit,
-                  unit_cost: cost,
-                })
+                void send(
+                  {
+                    action: "set_price",
+                    ingredient_id: line.ingredient_id,
+                    unit,
+                    unit_cost: cost,
+                  },
+                  // Only the affected line and the dish total change at once, and
+                  // only when the price is in the line's own unit.
+                  line.input_id && sameUnit(unit, line.unit)
+                    ? { inputId: line.input_id, unit_cost: cost }
+                    : undefined
+                )
               }
+              onConversionSaved={() => void refresh()}
               onLineCost={(cost) =>
                 void send(
                   {
@@ -566,6 +652,7 @@ function Row({
   onPrice,
   onCatalogUnit,
   onLineCost,
+  onConversionSaved,
 }: {
   line: EditorLine;
   editable: boolean;
@@ -586,7 +673,10 @@ function Row({
   onCatalogUnit: (itemId: string, unit: string, lineKey?: string) => void;
   /** This line's own price per its unit; null = back to the list's. */
   onLineCost: (cost: number | null) => void;
+  /** «Definir conversión» saved: re-read this dish. */
+  onConversionSaved: () => void;
 }) {
+  const [definingConversion, setDefiningConversion] = useState(false);
   const [qty, setQty] = useState(String(line.qty || ""));
   const [price, setPrice] = useState("");
   const [editingPrice, setEditingPrice] = useState(false);
@@ -1055,6 +1145,32 @@ function Row({
         ) : (
           "Pendiente"
         )}
+        {priceUnitMismatch && editable && line.ingredient_id ? (
+          <div>
+            <button
+              type="button"
+              onClick={() => setDefiningConversion((v) => !v)}
+              className="text-[12px] font-semibold text-[#1b40c8] underline"
+            >
+              Definir conversión
+            </button>
+          </div>
+        ) : null}
+        {definingConversion && priceUnitMismatch && line.ingredient_id ? (
+          <div className="text-left font-normal">
+            <UnitConversionForm
+              ingredientId={line.ingredient_id}
+              ingredientName={line.name ?? ""}
+              unitA={line.unit}
+              unitB={line.price!.unit}
+              onSaved={() => {
+                setDefiningConversion(false);
+                onConversionSaved();
+              }}
+              onCancel={() => setDefiningConversion(false)}
+            />
+          </div>
+        ) : null}
         {line.amount !== null && line.unit_cost !== null && line.qty > 0 ? (
           // The cost chain (do not remove): price × quantity = cost.
           <div className="text-[12px] font-normal text-[#8a92a3]">

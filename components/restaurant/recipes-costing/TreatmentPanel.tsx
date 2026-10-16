@@ -14,7 +14,7 @@ import { PrimaryBtn } from "./ui";
 
 export type PostFn = (url: string, body: Record<string, unknown>) => void;
 
-const TREATMENT_URL = "/api/restaurant/pos/links/treatment";
+export const TREATMENT_URL = "/api/restaurant/pos/links/treatment";
 
 /** Vincular side panel: change one product's treatment; for reventa,
  *  pick what you buy (a one-line draft recipe). */

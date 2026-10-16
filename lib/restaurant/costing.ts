@@ -28,7 +28,11 @@
 //     callers see status `circular_component_reference` and the engine
 //     never recurses infinitely.
 
-import { convertToSubRecipeUnit } from "@/lib/restaurant/units";
+import {
+  convertToSubRecipeUnit,
+  convertWithIngredientConversions,
+  type UnitConversion,
+} from "@/lib/restaurant/units";
 import { shouldApplyWorkbookMismatch } from "@/lib/restaurant/protect-imported-recipe";
 import { workbookMismatchEngineMessage } from "@/lib/restaurant/cost-workbook/copy";
 import { pickApprovedVersion } from "@/lib/restaurant/recipe-versions";
@@ -165,6 +169,8 @@ export interface CostingData {
   /** All cost entries grouped by ingredient_id. Ordering does NOT need
    *  to be pre-sorted; the engine picks the latest as-of `asOfDate`. */
   costEntriesByIngredientId: Map<string, IngredientCostEntry[]>;
+  /** Per-ingredient unit bridges («1 taza = 5 oz»), when any are defined. */
+  unitConversionsByIngredientId?: Map<string, UnitConversion[]>;
   /** Approved + in-review versions. Costing reads pick the approved
    *  version in force for `asOfDate`. Missing maps fall back to the
    *  working recipe (first-version semantics). */
@@ -349,7 +355,8 @@ function componentRecipeForAsOf(
  */
 function costIngredientInput(
   input: CostingRecipeInput,
-  cost: IngredientCostResult
+  cost: IngredientCostResult,
+  conversions?: readonly UnitConversion[]
 ):
   | { ok: true; amount: number }
   | { ok: false; status: "no_cost_entries" | "missing_unit_conversion" } {
@@ -365,10 +372,11 @@ function costIngredientInput(
   // both sides agree on dimensionality.
   // The unit table first; otherwise the same label (or ORDEN / ORDENES /
   // CONVOY) is 1:1. A portion is never guessed to be an ounce or a unit.
-  const converted = convertToSubRecipeUnit(
+  const converted = convertWithIngredientConversions(
     input.quantity,
     input.unit,
-    cost.unit
+    cost.unit,
+    conversions
   );
   if (!converted.ok) {
     return { ok: false, status: "missing_unit_conversion" };
@@ -520,7 +528,11 @@ export function calculateComponentCost(
       const ingName = ing?.name ?? "(unknown ingredient)";
       const cost = getLatestIngredientCost(input.ingredient_id, data, options);
       const lineTrail = [...trail, ingName];
-      const line = costIngredientInput(input, cost);
+      const line = costIngredientInput(
+        input,
+        cost,
+        data.unitConversionsByIngredientId?.get(input.ingredient_id)
+      );
       if (!line.ok) {
         pushIssue(
           issues,
@@ -690,7 +702,11 @@ export function calculateMenuItemCost(
       const ing = data.ingredientsById.get(input.ingredient_id);
       const ingName = ing?.name ?? "(ingredient)";
       const cost = getLatestIngredientCost(input.ingredient_id, data, options);
-      const line = costIngredientInput(input, cost);
+      const line = costIngredientInput(
+        input,
+        cost,
+        data.unitConversionsByIngredientId?.get(input.ingredient_id)
+      );
       if (!line.ok) {
         pushIssue(
           issues,

@@ -2,6 +2,7 @@
 // company that came from auth; ids from the client are only ever matched
 // inside that company.
 
+import { loadUnitConversions } from "@/lib/restaurant/unit-conversions-server";
 import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 import { updateWithApprovalAudit } from "./approval-audit";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -66,6 +67,7 @@ export function createSupabaseEditorStore(
 ): EditorStore {
   return {
     async loadCosting(companyId): Promise<CostingLoad> {
+      const conversionsPromise = loadUnitConversions(supabase, companyId);
       const [
         ingredients,
         entries,
@@ -196,6 +198,7 @@ export function createSupabaseEditorStore(
         menuRecipesByMenuItemId: new Map(),
         menuRecipeInputsByRecipeId: new Map(),
         costEntriesByIngredientId,
+        unitConversionsByIngredientId: await conversionsPromise,
         menuRecipeVersionsByMenuItemId: versions.menuRecipeVersionsByMenuItemId,
         menuRecipeVersionInputsByVersionId:
           versions.menuRecipeVersionInputsByVersionId,
@@ -675,14 +678,19 @@ export function createSupabaseEditorStore(
     async addCostEntry(companyId, entry: NewCostEntry) {
       const { data: ing, error: ingError } = await supabase
         .from("ingredients")
-        .select("id, default_unit")
+        .select("id, name, default_unit")
         .eq("company_id", companyId)
         .eq("id", entry.ingredientId)
         .maybeSingle();
       if (ingError) throw new Error(ingError.message);
       if (!ing) throw new Error("No encontré el ingrediente.");
+      const conversions =
+        (await loadUnitConversions(supabase, companyId)).get(
+          entry.ingredientId
+        ) ?? [];
       const buildFor = (defaultUnit: string | null) =>
         buildIngredientCostEntryInsert({
+          conversions,
           companyId,
           ingredientId: entry.ingredientId,
           ingredientDefaultUnit: defaultUnit,
@@ -711,6 +719,14 @@ export function createSupabaseEditorStore(
         return {
           ok: false,
           error: unitMismatchMessage(entry.unit, ingredientUnit),
+          conversion: ingredientUnit
+            ? {
+                ingredient_id: entry.ingredientId,
+                ingredient_name: String(ing.name ?? ""),
+                from_unit: entry.unit,
+                to_unit: ingredientUnit,
+              }
+            : undefined,
         };
       }
       const { error } = await supabase.from("ingredient_cost_entries").insert({

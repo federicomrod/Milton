@@ -7,6 +7,31 @@
 // copies that disagree, or are in incompatible units, are listed for a person;
 // an ingredient that already has an entry is left alone.
 
+import { pickApprovedVersion } from "@/lib/restaurant/recipe-versions";
+
+/**
+ * The versions of ONE recipe the report reads: the approved version costing
+ * uses today (`pickApprovedVersion`) AND the newest version (the draft the
+ * editor shows). Mirrors `latest_v` / `latest_cv` in migration 057.
+ */
+export function legacyVersionsToRead<
+  T extends {
+    id: string;
+    status: string;
+    effective_date: string | null;
+    version_number: number;
+  },
+>(versions: readonly T[], asOfDate?: string): T[] {
+  const picked = pickApprovedVersion([...versions], asOfDate ?? null);
+  const newest = [...versions].sort(
+    (a, b) => b.version_number - a.version_number
+  )[0];
+  const out = new Map<string, T>();
+  if (picked) out.set(picked.id, picked);
+  if (newest) out.set(newest.id, newest);
+  return [...out.values()];
+}
+
 export interface LegacyLineCopy {
   ingredient_id: string;
   unit: string;

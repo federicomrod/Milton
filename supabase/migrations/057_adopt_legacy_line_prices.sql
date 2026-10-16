@@ -34,7 +34,12 @@
 --
 -- SAFETY
 --   * SECURITY INVOKER: every statement runs through the caller's RLS.
---   * Not a member of the company: 42501 (nothing is read or written).
+--   * Not a member of the company: 42501 (nothing is read or written). The ONLY
+--     exception is a call with no auth.uid() made by the trusted roles postgres
+--     or service_role (the SQL Editor, a migration, a job): they have no
+--     membership and are let through. Anyone else, including anon and an
+--     authenticated user of another company, still gets 42501. current_user is
+--     the caller's role because the functions are SECURITY INVOKER.
 --   * Closed to anon / PUBLIC.
 --
 -- IMPORTANT: not applied by CI. Paste into the Supabase SQL Editor, then FIRST
@@ -80,7 +85,11 @@ $$;
 --            'adopt'        no entry, all copies agree: ONE entry would be added
 --            'disagree'     no entry, copies differ: a person decides
 --            'mixed_units'  no entry, copies in incompatible units: a person decides
--- Only the latest version of each recipe / preparation is looked at.
+-- Which versions are read: the APPROVED version costing uses today (the first
+-- approved one covers all history; a later approved one wins from its
+-- effective_date, as in pickApprovedVersion) AND the newest version (the draft
+-- the editor shows). If either carries a different price the ingredient is a
+-- «disagree»: a draft never decides alone, and neither does an old approval.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.legacy_line_price_report(p_company uuid)
@@ -100,36 +109,85 @@ SECURITY INVOKER
 SET search_path = public
 AS $$
 BEGIN
-  IF p_company IS NULL OR NOT public.is_company_member(p_company) THEN
+  IF p_company IS NULL OR NOT (
+       public.is_company_member(p_company)
+       OR (auth.uid() IS NULL AND current_user IN ('postgres', 'service_role'))
+     ) THEN
     RAISE EXCEPTION 'not a member of this company' USING ERRCODE = '42501';
   END IF;
 
   RETURN QUERY
-  WITH latest_v AS (
+  WITH ap_v AS (
+    SELECT rv.id, rv.recipe_id, rv.version_number, rv.effective_date
+    FROM public.recipe_versions rv
+    WHERE rv.company_id = p_company AND rv.status = 'approved'
+  ),
+  first_v AS (
+    SELECT DISTINCT ON (a.recipe_id) a.id, a.recipe_id
+    FROM ap_v a
+    ORDER BY a.recipe_id, (a.effective_date IS NOT NULL), a.version_number
+  ),
+  later_v AS (
+    SELECT DISTINCT ON (a.recipe_id) a.id, a.recipe_id
+    FROM ap_v a
+    WHERE a.effective_date IS NOT NULL AND a.effective_date <= current_date
+    ORDER BY a.recipe_id, a.effective_date DESC, a.version_number DESC
+  ),
+  newest_v AS (
     SELECT DISTINCT ON (rv.recipe_id) rv.id
     FROM public.recipe_versions rv
     WHERE rv.company_id = p_company
     ORDER BY rv.recipe_id, rv.version_number DESC
   ),
-  latest_cv AS (
+  latest_v AS (
+    SELECT coalesce(l.id, f.id) AS id
+    FROM first_v f
+    LEFT JOIN later_v l ON l.recipe_id = f.recipe_id
+    UNION
+    SELECT n.id FROM newest_v n
+  ),
+  ap_c AS (
+    SELECT cv.id, cv.component_recipe_id, cv.version_number, cv.effective_date
+    FROM public.component_recipe_versions cv
+    WHERE cv.company_id = p_company AND cv.status = 'approved'
+  ),
+  first_c AS (
+    SELECT DISTINCT ON (a.component_recipe_id) a.id, a.component_recipe_id
+    FROM ap_c a
+    ORDER BY a.component_recipe_id, (a.effective_date IS NOT NULL), a.version_number
+  ),
+  later_c AS (
+    SELECT DISTINCT ON (a.component_recipe_id) a.id, a.component_recipe_id
+    FROM ap_c a
+    WHERE a.effective_date IS NOT NULL AND a.effective_date <= current_date
+    ORDER BY a.component_recipe_id, a.effective_date DESC, a.version_number DESC
+  ),
+  newest_c AS (
     SELECT DISTINCT ON (cv.component_recipe_id) cv.id
     FROM public.component_recipe_versions cv
     WHERE cv.company_id = p_company
     ORDER BY cv.component_recipe_id, cv.version_number DESC
   ),
+  latest_cv AS (
+    SELECT coalesce(l.id, f.id) AS id
+    FROM first_c f
+    LEFT JOIN later_c l ON l.component_recipe_id = f.component_recipe_id
+    UNION
+    SELECT n.id FROM newest_c n
+  ),
   copies AS (
     SELECT i.ingredient_id AS ing_id, i.unit AS u, i.unit_cost AS c
     FROM public.recipe_version_inputs i
-    JOIN latest_v v ON v.id = i.recipe_version_id
-    WHERE i.company_id = p_company
+    WHERE i.recipe_version_id IN (SELECT lv.id FROM latest_v lv)
+      AND i.company_id = p_company
       AND i.input_type = 'ingredient'
       AND i.ingredient_id IS NOT NULL
       AND i.unit_cost IS NOT NULL AND i.unit_cost > 0
     UNION ALL
     SELECT i.ingredient_id, i.unit, i.unit_cost
     FROM public.component_recipe_version_inputs i
-    JOIN latest_cv v ON v.id = i.component_recipe_version_id
-    WHERE i.company_id = p_company
+    WHERE i.component_recipe_version_id IN (SELECT lc.id FROM latest_cv lc)
+      AND i.company_id = p_company
       AND i.input_type = 'ingredient'
       AND i.ingredient_id IS NOT NULL
       AND i.unit_cost IS NOT NULL AND i.unit_cost > 0
@@ -206,7 +264,10 @@ DECLARE
   v_rep_factor numeric;
   v_currency text;
 BEGIN
-  IF p_company IS NULL OR NOT public.is_company_member(p_company) THEN
+  IF p_company IS NULL OR NOT (
+       public.is_company_member(p_company)
+       OR (auth.uid() IS NULL AND current_user IN ('postgres', 'service_role'))
+     ) THEN
     RAISE EXCEPTION 'not a member of this company' USING ERRCODE = '42501';
   END IF;
 
@@ -305,7 +366,10 @@ SECURITY INVOKER
 SET search_path = public
 AS $$
 BEGIN
-  IF p_company IS NULL OR NOT public.is_company_member(p_company) THEN
+  IF p_company IS NULL OR NOT (
+       public.is_company_member(p_company)
+       OR (auth.uid() IS NULL AND current_user IN ('postgres', 'service_role'))
+     ) THEN
     RAISE EXCEPTION 'not a member of this company' USING ERRCODE = '42501';
   END IF;
 

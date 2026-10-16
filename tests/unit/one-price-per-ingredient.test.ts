@@ -24,6 +24,7 @@ import {
   type DishVersion,
 } from "@/lib/restaurant/costing/dish-economics";
 import {
+  legacyVersionsToRead,
   planLegacyAdoption,
   type LegacyLineCopy,
 } from "@/lib/restaurant/legacy-line-price";
@@ -340,6 +341,97 @@ describe("the cleanup rules (mirror of migration 057)", () => {
     );
     expect(sql).not.toMatch(/DELETE FROM/i);
     expect(sql).not.toMatch(/SET\s+unit_cost\s*=\s*NULL/i);
+  });
+});
+
+describe("migration 057 reads the approved version costing uses, and allows the trusted roles", () => {
+  const sql = read("supabase/migrations/057_adopt_legacy_line_prices.sql");
+  const v = (
+    id: string,
+    n: number,
+    status: string,
+    effective_date: string | null = null
+  ) => ({ id, version_number: n, status, effective_date });
+
+  it("approved v1 + newer draft v2: BOTH are read (not only the newest)", () => {
+    const ids = legacyVersionsToRead([
+      v("v1", 1, "approved"),
+      v("v2", 2, "in_review"),
+    ])
+      .map((x) => x.id)
+      .sort();
+    expect(ids).toEqual(["v1", "v2"]);
+  });
+  it("a later approved version wins once its date arrives; the old one is not read", () => {
+    const versions = [
+      v("v1", 1, "approved"),
+      v("v2", 2, "approved", "2026-09-01"),
+    ];
+    expect(
+      legacyVersionsToRead(versions, "2026-10-01").map((x) => x.id)
+    ).toEqual(["v2"]);
+    // before its effective date, v1 is the one in force and v2 is the newest
+    expect(
+      legacyVersionsToRead(versions, "2026-08-01")
+        .map((x) => x.id)
+        .sort()
+    ).toEqual(["v1", "v2"]);
+  });
+  it("a draft that disagrees with the approved version blocks the adoption instead of deciding alone", () => {
+    const rows = [
+      ...legacyVersionsToRead([
+        v("v1", 1, "approved"),
+        v("v2", 2, "in_review"),
+      ]).map((x) => ({
+        ingredient_id: "i",
+        unit: "oz",
+        unit_cost: x.id === "v1" ? 0.25 : 0.18,
+      })),
+    ];
+    const plan = planLegacyAdoption({ copies: rows, withEntry: new Set() });
+    expect(plan.adopt).toHaveLength(0);
+    expect(plan.disagree).toHaveLength(1);
+  });
+  it("the SQL picks the approved version in force (first / later by effective_date) plus the newest, for dishes and preparations", () => {
+    for (const cte of [
+      "first_v",
+      "later_v",
+      "newest_v",
+      "latest_v",
+      "first_c",
+      "later_c",
+      "newest_c",
+      "latest_cv",
+    ])
+      expect(sql).toContain(`${cte} AS (`);
+    expect(sql).toMatch(/status = 'approved'/);
+    expect(sql).toContain("a.effective_date <= current_date");
+    expect(sql).toMatch(
+      /ORDER BY a\.recipe_id, \(a\.effective_date IS NOT NULL\), a\.version_number/
+    );
+    expect(sql).toMatch(/ORDER BY rv\.recipe_id, rv\.version_number DESC/);
+    expect(sql).not.toMatch(
+      /FROM latest_v v ON v\.id = i\.recipe_version_id[\s\S]*ORDER BY rv\.recipe_id, rv\.version_number DESC\s*\),\s*latest_cv/
+    );
+  });
+  it("calls with no auth.uid() from postgres / service_role pass the membership check; everyone else keeps 42501; still SECURITY INVOKER", () => {
+    const guard =
+      /IF p_company IS NULL OR NOT \(\s*public\.is_company_member\(p_company\)\s*OR \(auth\.uid\(\) IS NULL AND current_user IN \('postgres', 'service_role'\)\)\s*\) THEN\s*RAISE EXCEPTION 'not a member of this company' USING ERRCODE = '42501';/g;
+    expect((sql.match(guard) ?? []).length).toBe(3); // report, adopt, current_unit_cost report
+    // no function became SECURITY DEFINER, and no bare membership check is left
+    expect(sql).not.toMatch(/SECURITY DEFINER/);
+    expect(
+      (sql.match(/SECURITY INVOKER/g) ?? []).length
+    ).toBeGreaterThanOrEqual(3);
+    expect(sql).not.toMatch(
+      /IF p_company IS NULL OR NOT public\.is_company_member\(p_company\) THEN/
+    );
+    // anon and PUBLIC still cannot execute
+    expect(sql).toMatch(
+      /REVOKE ALL ON FUNCTION public\.legacy_line_price_report\(uuid\) FROM PUBLIC, anon/
+    );
+    // an anon / authenticated caller is never in the trusted list
+    expect(sql).not.toMatch(/current_user IN \([^)]*(anon|authenticated)/);
   });
 });
 

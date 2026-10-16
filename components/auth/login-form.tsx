@@ -3,7 +3,10 @@
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { getPostLoginRedirect } from "@/lib/restaurant/post-login";
+import {
+  getPostLoginRedirect,
+  safeNextPath,
+} from "@/lib/restaurant/post-login";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -89,7 +92,11 @@ export function LoginForm() {
                 // Clear the hash from URL
                 window.history.replaceState(null, "", window.location.pathname);
 
-                router.push(await getPostLoginRedirect(supabase));
+                router.push(
+                  safeNextPath(
+                    new URLSearchParams(window.location.search).get("next")
+                  ) ?? (await getPostLoginRedirect(supabase))
+                );
               } else {
                 setError("No pudimos autenticarte. Inténtalo de nuevo.");
                 setLoading(false);
@@ -113,7 +120,11 @@ export function LoginForm() {
 
               if (session) {
                 window.history.replaceState(null, "", window.location.pathname);
-                router.push(await getPostLoginRedirect(supabase));
+                router.push(
+                  safeNextPath(
+                    new URLSearchParams(window.location.search).get("next")
+                  ) ?? (await getPostLoginRedirect(supabase))
+                );
                 router.refresh();
               } else {
                 setError("No pudimos autenticarte. Inténtalo de nuevo.");
@@ -154,7 +165,10 @@ export function LoginForm() {
       setLoading(false);
     } else {
       router.refresh();
-      router.push(await getPostLoginRedirect(supabase));
+      router.push(
+        safeNextPath(searchParams.get("next")) ??
+          (await getPostLoginRedirect(supabase))
+      );
     }
   };
 

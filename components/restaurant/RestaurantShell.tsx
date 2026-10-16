@@ -522,7 +522,7 @@ function SidebarFooter({
   shellParams: { locationId: string | null };
   lang: PreferredLanguage;
 }) {
-  const { userName } = useRestaurantShellChrome();
+  const { userName, isAdmin } = useRestaurantShellChrome();
   const settings = PRIMARY_NAV_ITEMS.find(
     (item) => item.group === "data_settings"
   );
@@ -537,6 +537,15 @@ function SidebarFooter({
             lang={lang}
           />
         </ul>
+      ) : null}
+      {/* Milton admins only (is_milton_admin, read once per request by the chrome). */}
+      {isAdmin ? (
+        <Link
+          href="/management/dashboard"
+          className="block px-2.5 py-1 text-sm font-medium text-muted-foreground hover:text-foreground"
+        >
+          Administración
+        </Link>
       ) : null}
       <div className="flex items-center gap-1 px-2.5 text-sm text-muted-foreground">
         {userName ? <span className="truncate">{userName} ·</span> : null}

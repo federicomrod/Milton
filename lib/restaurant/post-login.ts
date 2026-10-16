@@ -4,14 +4,19 @@
 // invite acceptance. Shared by the login form and app/auth/callback so
 // those paths cannot drift (GitHub #77).
 //
-// Order: Milton admin → invited-user rule → self-serve wizard if the
-// company has not finished onboarding → restaurant dashboard.
+// Order: invited-user rule → self-serve wizard if the company has not
+// finished onboarding → restaurant dashboard. Milton admins follow the same
+// path as everyone else (they used to be sent to /management/dashboard, the old
+// content area); the admin area is reached from the sidebar link
+// «Administración». An admin with no company lands on the restaurant dashboard.
 // Safe for browser and server (takes a Supabase client, imports no
 // server-only modules).
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDataConnectionStatus, hasDataConnection } from "./data-connection";
 import { resolveCompanyIdForUser } from "./supabase-sales";
+
+export { safeNextPath } from "@/lib/auth/safe-next";
 
 export const RESTAURANT_DASHBOARD_PATH = "/dashboard/restaurant";
 export const CONNECT_DATA_PATH = "/dashboard/restaurant/connect-data";
@@ -60,9 +65,9 @@ export function landingForOnboardingStatus(
 
 /**
  * Post-login landing for password login and auth-callback links.
- * Milton admins and invited users keep their existing rules; a brand-new
- * self-serve company still goes to the wizard until onboarding_status is
- * 'completed'. Lookup failures never block login (dashboard fallback).
+ * Invited users keep their rule; a brand-new self-serve company still goes to
+ * the wizard until onboarding_status is 'completed'. Milton admins are not
+ * special here. Lookup failures never block login (dashboard fallback).
  */
 export async function getPostLoginRedirect(
   supabase: SupabaseClient
@@ -72,12 +77,6 @@ export async function getPostLoginRedirect(
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return RESTAURANT_DASHBOARD_PATH;
-
-    const { data: isAdmin, error } = await supabase.rpc("is_milton_admin");
-    if (error) {
-      console.error("[post-login] is_milton_admin RPC error:", error.message);
-    }
-    if (isAdmin === true) return MANAGEMENT_DASHBOARD_PATH;
 
     const companyId = await resolveCompanyIdForUser(supabase, user.id);
     if (companyId) {

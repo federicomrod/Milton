@@ -638,6 +638,8 @@ export type EditorAction =
       ingredient_id: string;
       unit: string;
       unit_cost: number;
+      /** «Usar como precio del ingrediente»: the old price copy of a line. */
+      adopt_legacy?: boolean;
     }
   | {
       action: "answer_catalog_unit";
@@ -1449,7 +1451,9 @@ export async function applyEdit(
         note:
           price === 0
             ? ZERO_PRICE_NOTE
-            : "Precio corregido en Recetas y costeo",
+            : action.adopt_legacy === true
+              ? "Adoptado del precio de línea"
+              : "Precio corregido en Recetas y costeo",
       });
       if (!added.ok)
         return {

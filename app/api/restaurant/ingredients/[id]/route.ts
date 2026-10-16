@@ -67,7 +67,7 @@ export async function PATCH(
     .update(patch)
     .eq("company_id", auth.companyId)
     .eq("id", id)
-    .select("id, name, category, default_unit, current_unit_cost, currency")
+    .select("id, name, category, default_unit, currency")
     .single();
 
   if (error || !data) {

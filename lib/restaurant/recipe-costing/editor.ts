@@ -24,6 +24,8 @@ import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
 export const FLAG_PENDING_INGREDIENT = "pendiente_ingrediente";
 export const FLAG_PENDING_COST = "pendiente_costo";
 export const FLAG_PENDING_UNIT = "pendiente_unidad";
+/** An ingredient line has an old price copy and the ingredient has no price: Sin precio, with an offer. */
+export const FLAG_LEGACY_LINE_PRICE = "legacy_line_price";
 export const FLAG_OK = "ok";
 /** A line read from the restaurant's menu: it says what, never how much. */
 export const FLAG_FROM_MENU = "del_menu";
@@ -89,6 +91,8 @@ export interface EditorLine {
   price: PriceMeta | null;
   pending: boolean;
   flags: string[];
+  /** An old price copy on this ingredient line (never used for costing). */
+  legacy_price?: { unit_cost: number; unit: string } | null;
   reasons: string[];
   possible_match: PossibleMatch | null;
   /** Position in the cached evidence this line came from (null if added). */
@@ -241,6 +245,28 @@ export function hydrateLines(input: {
       : pending
         ? [cost.reason === "unit" ? FLAG_PENDING_UNIT : FLAG_PENDING_COST]
         : [FLAG_OK];
+    // An old copy of a price on an ingredient line is never used. When the
+    // ingredient has no price of its own, the line is Sin precio and the
+    // copy is offered to the person (not applied silently).
+    const ownCopy =
+      row.input_type === "ingredient" &&
+      row.ingredient_id &&
+      lineHasOwnPrice({
+        input_type: row.input_type,
+        ingredient_id: row.ingredient_id,
+        component_id: row.component_id,
+        quantity: row.quantity,
+        unit: row.unit,
+        unit_cost: row.unit_cost ?? null,
+        cost_source: row.cost_source ?? null,
+      })
+        ? (row.unit_cost as number)
+        : null;
+    const legacyPrice =
+      ownCopy !== null && names.priceOf(row.ingredient_id as string) === null
+        ? { unit_cost: ownCopy, unit: row.unit }
+        : null;
+    if (legacyPrice) flags.push(FLAG_LEGACY_LINE_PRICE);
     return {
       key: row.id,
       input_id: row.id,
@@ -269,15 +295,19 @@ export function hydrateLines(input: {
         row.input_type === "component" && row.component_id
           ? (data.componentsById.get(row.component_id)?.output_unit ?? null)
           : null,
-      own_cost: lineHasOwnPrice({
-        input_type: row.input_type,
-        ingredient_id: row.ingredient_id,
-        component_id: row.component_id,
-        quantity: row.quantity,
-        unit: row.unit,
-        unit_cost: row.unit_cost ?? null,
-        cost_source: row.cost_source ?? null,
-      }),
+      // Only a line with no price record (a preparation) has an own price.
+      own_cost:
+        row.input_type !== "ingredient" &&
+        lineHasOwnPrice({
+          input_type: row.input_type,
+          ingredient_id: row.ingredient_id,
+          component_id: row.component_id,
+          quantity: row.quantity,
+          unit: row.unit,
+          unit_cost: row.unit_cost ?? null,
+          cost_source: row.cost_source ?? null,
+        }),
+      legacy_price: legacyPrice,
       cost_source: row.cost_source ?? null,
     };
   };

@@ -576,6 +576,15 @@ export function RecipeLinesEditor({
                 )
               }
               onConversionSaved={() => void refresh()}
+              onAdoptLegacy={(unit, cost) =>
+                void send({
+                  action: "set_price",
+                  ingredient_id: line.ingredient_id,
+                  unit,
+                  unit_cost: cost,
+                  adopt_legacy: true,
+                })
+              }
               onLineCost={(cost) =>
                 void send(
                   {
@@ -653,6 +662,7 @@ function Row({
   onCatalogUnit,
   onLineCost,
   onConversionSaved,
+  onAdoptLegacy,
 }: {
   line: EditorLine;
   editable: boolean;
@@ -675,6 +685,8 @@ function Row({
   onLineCost: (cost: number | null) => void;
   /** «Definir conversión» saved: re-read this dish. */
   onConversionSaved: () => void;
+  /** «Usar como precio del ingrediente»: the old price copy of this line. */
+  onAdoptLegacy: (unit: string, cost: number) => void;
 }) {
   const [definingConversion, setDefiningConversion] = useState(false);
   const [qty, setQty] = useState(String(line.qty || ""));
@@ -1145,6 +1157,32 @@ function Row({
         ) : (
           "Pendiente"
         )}
+        {line.legacy_price && line.ingredient_id ? (
+          <div
+            className="text-left text-[12px] font-normal text-[#a35a00]"
+            data-testid="legacy-line-price"
+          >
+            Precio antiguo de la receta: {money(line.legacy_price.unit_cost)}/
+            {UNIT_LABEL[line.legacy_price.unit] ?? line.legacy_price.unit}
+            {editable ? (
+              <>
+                {" · "}
+                <button
+                  type="button"
+                  onClick={() =>
+                    onAdoptLegacy(
+                      line.legacy_price!.unit,
+                      line.legacy_price!.unit_cost
+                    )
+                  }
+                  className="font-semibold text-[#1b40c8] underline"
+                >
+                  Usar como precio del ingrediente
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
         {priceUnitMismatch && editable && line.ingredient_id ? (
           <div>
             <button

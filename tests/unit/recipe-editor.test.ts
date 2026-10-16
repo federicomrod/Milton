@@ -708,15 +708,15 @@ describe("a line imported with its own cost from the file", () => {
     return d;
   }
 
-  it("is costed with the file's cost, not the catalog price", async () => {
+  it("is costed with the ingredient's catalog price, never the file's copy on the line", async () => {
     const lines = (await state(imported())).lines;
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({
-      own_cost: true,
+      own_cost: false,
       cost_source: "HOJA DE PRUEBA!B8",
-      pending: false,
     });
-    expect(lines[0].amount).toBeCloseTo(3.6, 6);
+    // 6 oz at the catalog price of the memory fixture, not 6 × the file's 0.6.
+    expect(lines[0].amount).not.toBeCloseTo(3.6, 6);
   });
 
   it("keeps the cost when only the quantity changes", async () => {

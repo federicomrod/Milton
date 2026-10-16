@@ -309,12 +309,25 @@ describe("planning the import", () => {
 });
 
 describe("a recipe line with its own cost", () => {
-  it("costs quantity × its own cost, never the catalog", () => {
+  it("an ingredient line never costs from its own copy (the ingredient's cost entry is the one price)", () => {
     expect(
       lineOwnCost({
         input_type: "ingredient",
         ingredient_id: "a",
         component_id: null,
+        quantity: 6,
+        unit: "oz",
+        unit_cost: 0.42,
+      })
+    ).toBeNull();
+  });
+
+  it("a preparation line (no price record of its own) costs quantity × its own cost", () => {
+    expect(
+      lineOwnCost({
+        input_type: "component",
+        ingredient_id: null,
+        component_id: "c",
         quantity: 6,
         unit: "oz",
         unit_cost: 0.42,
@@ -342,7 +355,7 @@ describe("a recipe line with its own cost", () => {
     ).toBeNull();
   });
 
-  it("is what the engine uses for a dish, even with a unit it cannot convert", () => {
+  it("the engine uses a preparation line's own cost, and leaves an ingredient line with no entry as Sin precio", () => {
     const data: CostingData = {
       ingredientsById: new Map([["res", { id: "res", name: "RES" } as never]]),
       componentsById: new Map(),
@@ -380,8 +393,28 @@ describe("a recipe line with its own cost", () => {
       costEntriesByIngredientId: new Map(),
     };
     const result = calculateMenuItemCost("m", data);
-    expect(result.status).toBe("complete");
-    expect(result.cost).toBeCloseTo(3.9, 6);
+    // RES (an ingredient) has no cost entry: its 0.5 line copy is ignored.
+    expect(result.status).not.toBe("complete");
+    expect(result.cost).toBeNull();
+    // Give RES an entry: now the dish costs 6 × 0.5 (entry) + 0.9 (preparation).
+    data.costEntriesByIngredientId = new Map([
+      [
+        "res",
+        [
+          {
+            id: "e1",
+            ingredient_id: "res",
+            cost_date: "2026-10-01",
+            normalized_unit: "oz",
+            normalized_unit_cost: 0.5,
+            currency: "USD",
+          } as never,
+        ],
+      ],
+    ]);
+    const priced = calculateMenuItemCost("m", data);
+    expect(priced.status).toBe("complete");
+    expect(priced.cost).toBeCloseTo(3.9, 6);
   });
 });
 

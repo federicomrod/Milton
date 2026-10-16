@@ -56,6 +56,8 @@ export interface VersionRef {
    *  component_recipe_versions. */
   kind: "dish" | "preparation";
   menu_item_id?: string;
+  version_number?: number;
+  effective_date?: string | null;
   component_id?: string;
   component_recipe_id?: string;
   output_quantity?: number;
@@ -113,6 +115,11 @@ export interface EditorStore {
     componentId: string
   ): Promise<PreparationRef | null>;
   listInputs(companyId: string, version: VersionRef): Promise<VersionInput[]>;
+  /** The approved version in force today (`pickApprovedVersion`: effective dates), if any. */
+  approvedVersionInForce(
+    companyId: string,
+    menuItemId: string
+  ): Promise<VersionRef | null>;
   /** An EMPTY in-review version after `from` (the next number, no effective date).
    *  Its lines are copied by the caller; `from` is never touched. */
   createDraftVersion(companyId: string, from: VersionRef): Promise<VersionRef>;
@@ -216,6 +223,8 @@ export interface EditorState {
   editable: boolean;
   /** Why it cannot be edited, when it cannot. */
   locked_reason: string | null;
+  /** Which version is shown, when it is not the newest one. */
+  version_note?: string | null;
   version_id: string | null;
   lines: EditorLine[];
   options: PickerOption[];
@@ -404,6 +413,7 @@ async function build(
   };
 
   const lines = hydrateLines({
+    readOnly: version?.status !== "in_review",
     data,
     evidenceLines,
     inputs,
@@ -470,6 +480,7 @@ async function build(
           ? "Esta preparación ya está aprobada. Para cambiarla hace falta una versión nueva."
           : "Esta receta ya está aprobada. Para cambiarla hace falta una versión nueva.",
     version_id: version?.id ?? null,
+    version_note: loaded.version_note ?? null,
     lines,
     options,
     options_omitted: ctx.omitOptions === true,
@@ -531,6 +542,8 @@ export function preparationChecklist(
 interface Loaded {
   holder: EvidenceHolder;
   version: VersionRef | null;
+  /** Says which version is shown when it is not the newest one. */
+  version_note?: string | null;
   preparation?: { component_id: string; name: string };
 }
 
@@ -566,13 +579,32 @@ async function load(
       status: 404,
     };
   }
-  const version = link.menu_item_id
+  const newest = link.menu_item_id
     ? await ctx.store.latestVersion(ctx.companyId, link.menu_item_id)
     : null;
+  // The editor shows the version the header costs: a draft in review (what is
+  // being edited), else the APPROVED version in force. A newer approved version
+  // that has not started yet (future effective date) is not the one shown.
+  let version = newest;
+  let version_note: string | null = null;
+  if (newest && newest.status !== "in_review" && link.menu_item_id) {
+    const inForce = await ctx.store.approvedVersionInForce(
+      ctx.companyId,
+      link.menu_item_id
+    );
+    if (inForce && inForce.id !== newest.id) {
+      version = inForce;
+      const when = newest.effective_date
+        ? ` entra en vigor el ${newest.effective_date}`
+        : " todavía no está en vigor";
+      version_note = `Se muestra la versión aprobada en vigor${inForce.version_number ? ` (v${inForce.version_number})` : ""}; la v${newest.version_number ?? "nueva"}${when}.`;
+    }
+  }
   return {
     ok: true,
     holder: { kind: "dish", id: link.id, evidence: link.evidence },
     version,
+    version_note,
   };
 }
 

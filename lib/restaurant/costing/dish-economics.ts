@@ -100,6 +100,10 @@ export interface DishEconomics {
   status_label: string;
   /** Why an «Aprobado» is not covered (the link is not confirmed), if so. */
   state_reason?: DishStateReason | null;
+  /** An approved version is in force (the header follows it, not a newer draft). */
+  has_approved_version?: boolean;
+  /** The POS link is confirmed. */
+  link_confirmed?: boolean;
   /** Cost of one unit sold (full precision). Null = unknown, never 0. */
   unit_cost: number | null;
   cost_source: DishCostSource | null;
@@ -382,6 +386,9 @@ function dishFromProduct(
       version.id === newest?.id ? input.evidenceLinesOf(evidence) : [];
     lines = hydrateLines({
       data: input.costing,
+      // An approved recipe cannot answer an old unit question: a line whose
+      // amount is known is not pending because of it.
+      readOnly: !!approved,
       evidenceLines,
       inputs: input.inputsByVersionId.get(version.id) ?? [],
       names: {
@@ -440,6 +447,8 @@ function dishFromProduct(
     status,
     status_label: state.status_label,
     state_reason: state.reason,
+    has_approved_version: !!approved,
+    link_confirmed: link?.link_state === "confirmado",
     unit_cost: unitCost,
     cost_source: costSource,
     cost_date: costDate,

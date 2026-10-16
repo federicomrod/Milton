@@ -2,6 +2,7 @@
 // company that came from auth; ids from the client are only ever matched
 // inside that company.
 
+import { pickApprovedVersion } from "@/lib/restaurant/recipe-versions";
 import { loadUnitConversions } from "@/lib/restaurant/unit-conversions-server";
 import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 import { updateWithApprovalAudit } from "./approval-audit";
@@ -256,7 +257,7 @@ export function createSupabaseEditorStore(
     async latestVersion(companyId, menuItemId): Promise<VersionRef | null> {
       const { data, error } = await supabase
         .from("recipe_versions")
-        .select("id, status, menu_item_id, version_number")
+        .select("id, status, menu_item_id, version_number, effective_date")
         .eq("company_id", companyId)
         .eq("menu_item_id", menuItemId)
         .order("version_number", { ascending: false })
@@ -269,6 +270,39 @@ export function createSupabaseEditorStore(
             status: String(row.status),
             kind: "dish",
             menu_item_id: String(row.menu_item_id),
+            version_number: Number(row.version_number),
+            effective_date:
+              typeof row.effective_date === "string"
+                ? row.effective_date
+                : null,
+          }
+        : null;
+    },
+
+    async approvedVersionInForce(companyId, menuItemId) {
+      const { data, error } = await supabase
+        .from("recipe_versions")
+        .select("id, status, menu_item_id, version_number, effective_date")
+        .eq("company_id", companyId)
+        .eq("menu_item_id", menuItemId);
+      if (error) throw new Error(error.message);
+      const picked = pickApprovedVersion(
+        (data ?? []).map((row) => ({
+          id: String(row.id),
+          status: String(row.status),
+          version_number: Number(row.version_number),
+          effective_date:
+            typeof row.effective_date === "string" ? row.effective_date : null,
+        }))
+      );
+      return picked
+        ? {
+            id: picked.id,
+            status: picked.status,
+            kind: "dish" as const,
+            menu_item_id: menuItemId,
+            version_number: picked.version_number,
+            effective_date: picked.effective_date,
           }
         : null;
     },

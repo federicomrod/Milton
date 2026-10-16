@@ -47,18 +47,25 @@ export function summaryFromEditorState(
   summary: DishSummary,
   state: Pick<EditorState, "total_cost" | "pending" | "lines" | "editable">
 ): DishSummary {
-  // An approved dish is costed with its approved version; edits go to a
-  // new draft and do not change the number in force.
-  if (summary.status === "aprobado" || !state.editable) return summary;
-  // The same rule as the server (dish-state.ts): a draft is sin receta /
-  // falta precio / estimado, never approved.
+  // The header follows the APPROVED version in force. While a newer draft is
+  // being edited it keeps the approved number; when the editor shows the
+  // approved version itself (read-only), a price, conversion or unit fix
+  // updates the table AND the header: the same rule as the server
+  // (dish-state.ts) over the editor's live lines.
+  const approvedInForce =
+    summary.has_approved_version === true ||
+    (summary.status === "aprobado" && summary.has_approved_version == null);
+  if (approvedInForce && state.editable) return summary;
+  if (!approvedInForce && !state.editable) return summary;
   const next = dishStateFrom({
     has_version: true,
     line_count: state.lines.length,
     missing: state.pending,
     total: state.lines.length > 0 ? state.total_cost : null,
-    approved: false,
-    confirmed: summary.covered,
+    approved: approvedInForce,
+    confirmed: approvedInForce
+      ? (summary.link_confirmed ?? summary.state_reason == null)
+      : summary.covered,
     treatment: summary.treatment,
     combo_covered: false,
     in_food_sales: true,
@@ -68,6 +75,8 @@ export function summaryFromEditorState(
   const price = summary.avg_net_price;
   return {
     ...summary,
+    covered: next.covered,
+    in_cogs: next.in_cogs,
     status: next.status,
     status_label: next.status_label,
     state_reason: next.reason,

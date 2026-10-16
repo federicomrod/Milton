@@ -47,9 +47,13 @@ export function pickApprovedVersion<
   const approved = versions.filter((row) => row.status === "approved");
   if (approved.length === 0) return null;
   const asOf = (asOfDate ?? todayUtcDate()).slice(0, 10);
+  // The base: among the approved versions with no date, the LOWEST number (the
+  // order of the array must not decide); with none undated, the lowest number.
+  const byNumber = approved
+    .slice()
+    .sort((a, b) => a.version_number - b.version_number);
   const first =
-    approved.find((row) => row.effective_date == null) ??
-    approved.slice().sort((a, b) => a.version_number - b.version_number)[0];
+    byNumber.find((row) => row.effective_date == null) ?? byNumber[0];
   const later = approved.filter(
     (row) => row.effective_date != null && row.effective_date <= asOf
   );

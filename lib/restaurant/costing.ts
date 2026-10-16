@@ -332,11 +332,17 @@ function componentRecipeForAsOf(
   const working = data.componentRecipesByComponentId.get(componentId);
   const versions =
     data.componentRecipeVersionsByComponentId?.get(componentId) ?? [];
-  const picked = pickApprovedVersion(versions, asOfDate);
+  // A preparation costs as soon as every one of its lines is priced: the
+  // approved version in force if there is one, else its newest version.
+  // Approval does not gate cost (a price set once applies everywhere).
+  const picked =
+    pickApprovedVersion(versions, asOfDate) ??
+    versions.reduce<(typeof versions)[number] | null>(
+      (best, row) =>
+        !best || row.version_number > best.version_number ? row : best,
+      null
+    );
   if (!picked) {
-    if (versions.length > 0) {
-      return { recipe: undefined, inputs: [] };
-    }
     return {
       recipe: working,
       inputs: working

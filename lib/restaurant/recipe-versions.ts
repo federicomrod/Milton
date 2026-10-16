@@ -33,8 +33,11 @@ export interface RecipeVersionSnapshot<T extends { status: string }> {
 
 /**
  * Approved version in force on `asOfDate`.
- * First approved version (NULL effective_date) covers all history.
- * A later approved version wins from its effective_date forward.
+ * Among the approved versions that have STARTED (no effective date, or one on
+ * or before the day), the HIGHEST version number wins, whatever the order of
+ * the array. A future-dated version only counts once its date arrives.
+ * If none has started (every approved version is dated in the future) the
+ * lowest-numbered one is the base that covers the history before them.
  * Versions still in review never replace an approved one.
  */
 export function pickApprovedVersion<
@@ -47,25 +50,17 @@ export function pickApprovedVersion<
   const approved = versions.filter((row) => row.status === "approved");
   if (approved.length === 0) return null;
   const asOf = (asOfDate ?? todayUtcDate()).slice(0, 10);
-  // The base: among the approved versions with no date, the LOWEST number (the
-  // order of the array must not decide); with none undated, the lowest number.
-  const byNumber = approved
-    .slice()
-    .sort((a, b) => a.version_number - b.version_number);
-  const first =
-    byNumber.find((row) => row.effective_date == null) ?? byNumber[0];
-  const later = approved.filter(
-    (row) => row.effective_date != null && row.effective_date <= asOf
+  const started = approved.filter(
+    (row) => row.effective_date == null || row.effective_date <= asOf
   );
-  if (later.length === 0) return first ?? null;
-  later.sort((a, b) => {
-    const dateCmp = (a.effective_date ?? "").localeCompare(
-      b.effective_date ?? ""
+  if (started.length > 0) {
+    return started.reduce((best, row) =>
+      row.version_number > best.version_number ? row : best
     );
-    if (dateCmp !== 0) return dateCmp;
-    return a.version_number - b.version_number;
-  });
-  return later[later.length - 1] ?? first ?? null;
+  }
+  return approved.reduce((best, row) =>
+    row.version_number < best.version_number ? row : best
+  );
 }
 
 export function nextVersionNumber(

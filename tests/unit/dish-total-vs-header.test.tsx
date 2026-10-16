@@ -420,14 +420,14 @@ describe("two approved versions with no date: the same one everywhere", () => {
     status: "approved",
     effective_date: null,
   });
-  it("pickApprovedVersion takes the LOWEST number as the base, whatever the order of the array", () => {
-    expect(pickApprovedVersion([v("v1", 1), v("v2", 2)])?.id).toBe("v1");
-    expect(pickApprovedVersion([v("v2", 2), v("v1", 1)])?.id).toBe("v1");
+  it("pickApprovedVersion takes the HIGHEST started number, whatever the order of the array", () => {
+    expect(pickApprovedVersion([v("v1", 1), v("v2", 2)])?.id).toBe("v2");
+    expect(pickApprovedVersion([v("v2", 2), v("v1", 1)])?.id).toBe("v2");
     expect(pickApprovedVersion([v("v3", 3), v("v1", 1), v("v2", 2)])?.id).toBe(
-      "v1"
+      "v3"
     );
   });
-  it("dish economics costs v1, and so does the editor (it says which version it shows)", async () => {
+  it("two undated approved versions in reverse order: economics costs v2 and so does the editor (no override needed)", async () => {
     const v1 = [line("a1", "i-res", 4, "oz")];
     const v2 = [line("b1", "i-res", 8, "oz")];
     const entries = [entry("i-res", "oz", 0.5)];
@@ -441,9 +441,8 @@ describe("two approved versions with no date: the same one everywhere", () => {
         { id: "v1", n: 1, status: "approved", lines: v1 },
       ],
     });
-    expect(d.recipe_version_id).toBe("v1");
-    expect(d.unit_cost).toBeCloseTo(2, 10);
-    // the editor: the newest version is v2, the one in force is v1
+    expect(d.recipe_version_id).toBe("v2");
+    expect(d.unit_cost).toBeCloseTo(4, 10);
     const { ctx } = editorCtx({
       entries,
       lines: v2,
@@ -457,23 +456,98 @@ describe("two approved versions with no date: the same one everywhere", () => {
           version_number: 2,
           effective_date: null,
         },
-        inForceVersion: {
+      },
+    });
+    const r = await loadEditor(ctx);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.state.version_id).toBe("v2");
+    expect(r.state.version_note).toBeNull();
+    expect(r.state.total_cost).toBeCloseTo(d.unit_cost!, 10);
+  });
+
+  it("an undated v3 after a dated v2: economics costs v3", () => {
+    const entries = [entry("i-res", "oz", 0.5)];
+    const d = economicsFor({
+      entries,
+      lines: [],
+      evidence: {},
+      versions: [
+        {
+          id: "v3",
+          n: 3,
+          status: "approved",
+          lines: [line("c1", "i-res", 10, "oz")],
+        },
+        {
           id: "v1",
+          n: 1,
+          status: "approved",
+          lines: [line("a1", "i-res", 4, "oz")],
+        },
+        {
+          id: "v2",
+          n: 2,
+          status: "approved",
+          effective_date: "2026-09-01",
+          lines: [line("b1", "i-res", 8, "oz")],
+        },
+      ],
+    });
+    expect(d.recipe_version_id).toBe("v3");
+    expect(d.unit_cost).toBeCloseTo(5, 10);
+  });
+
+  it("a newest version that has not started: economics costs the one in force and the editor shows it, saying so", async () => {
+    const v2 = [line("b1", "i-res", 8, "oz")];
+    const v3 = [line("c1", "i-res", 10, "oz")];
+    const entries = [entry("i-res", "oz", 0.5)];
+    const d = economicsFor({
+      entries,
+      lines: [],
+      evidence: {},
+      versions: [
+        {
+          id: "v3",
+          n: 3,
+          status: "approved",
+          effective_date: "2999-01-01",
+          lines: v3,
+        },
+        { id: "v2", n: 2, status: "approved", lines: v2 },
+      ],
+    });
+    expect(d.recipe_version_id).toBe("v2");
+    const { ctx } = editorCtx({
+      entries,
+      lines: v3,
+      evidence: {},
+      extra: {
+        version: {
+          id: "v3",
           status: "approved",
           kind: "dish",
           menu_item_id: "m7",
-          version_number: 1,
+          version_number: 3,
+          effective_date: "2999-01-01",
+        },
+        inForceVersion: {
+          id: "v2",
+          status: "approved",
+          kind: "dish",
+          menu_item_id: "m7",
+          version_number: 2,
           effective_date: null,
         },
         olderVersions: [
           {
             version: {
-              id: "v1",
+              id: "v2",
               status: "approved",
               kind: "dish",
               menu_item_id: "m7",
             },
-            inputs: v1.map((l) => ({ ...l })),
+            inputs: v2.map((l) => ({ ...l })),
           },
         ],
       },
@@ -481,9 +555,10 @@ describe("two approved versions with no date: the same one everywhere", () => {
     const r = await loadEditor(ctx);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.state.version_id).toBe("v1");
+    expect(r.state.version_id).toBe("v2");
     expect(r.state.total_cost).toBeCloseTo(d.unit_cost!, 10);
     expect(r.state.version_note).toContain("versión aprobada en vigor");
+    expect(r.state.version_note).toContain("2999-01-01");
   });
 });
 

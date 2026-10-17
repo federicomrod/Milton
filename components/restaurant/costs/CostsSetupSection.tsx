@@ -13,7 +13,7 @@
 // complete it folds to one line that expands.
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
 import {
@@ -40,7 +40,14 @@ import {
   prepareNotice,
 } from "@/lib/restaurant/recipe-costing/prepare-from-upload";
 import { MenuReaderPanel } from "@/components/restaurant/recipes-costing/MenuReaderPanel";
-import { PriceCatalogPanel } from "@/components/restaurant/recipes-costing/PriceCatalogPanel";
+import {
+  PriceCatalogPanel,
+  type PriceCatalogPanelHandle,
+} from "@/components/restaurant/recipes-costing/PriceCatalogPanel";
+import {
+  COSTS_FILE_ANCHOR,
+  OPEN_COSTS_PICKER_EVENT,
+} from "@/lib/restaurant/costs-picker";
 import { ResetPanel } from "@/components/restaurant/recipes-costing/ResetPanel";
 
 async function fetchSetup(
@@ -125,6 +132,8 @@ export function CostsSetupSection({
       // private mode: it simply is not remembered
     }
   };
+  const panelRef = useRef<PriceCatalogPanelHandle>(null);
+  const goToFileRef = useRef<() => void>(() => {});
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{
     done: number;
@@ -155,6 +164,34 @@ export function CostsSetupSection({
       cancelled = true;
     };
   }, [key, locationId, attempt]);
+
+  // «Subir archivo de costos» elsewhere on this page: same click, same picker.
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      // Tell the link it was handled here (it must not also navigate).
+      const detail = (event as CustomEvent<{ handled?: boolean }>).detail;
+      if (detail) detail.handled = true;
+      goToFileRef.current();
+    };
+    window.addEventListener(OPEN_COSTS_PICKER_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_COSTS_PICKER_EVENT, onOpen);
+  }, []);
+
+  // Arriving from another page with #costos-ultimo-archivo (no click here, so
+  // no picker): open the detail and bring the button into view. The URL is
+  // read after a tick because a client-side navigation updates it just after
+  // this page mounts.
+  useEffect(() => {
+    if (!data) return;
+    const id = setTimeout(() => {
+      if (window.location.hash !== `#${COSTS_FILE_ANCHOR}`) return;
+      setDetailOpen(true);
+      document
+        .getElementById(COSTS_FILE_ANCHOR)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+    return () => clearTimeout(id);
+  }, [data !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!data) {
     return failed ? (
@@ -239,16 +276,20 @@ export function CostsSetupSection({
     }
   };
   const goToFile = () => {
-    // The file card lives in the detail: open it first, then scroll to it.
+    // The file card lives in the detail: open it, scroll to it and open the
+    // picker in this same click (the panel stays mounted, hidden, for that).
     if (!setup.complete) setDetail(true);
+    else if (!expanded) setExpanded(true);
+    panelRef.current?.openPicker();
     setTimeout(
       () =>
         document
-          .getElementById("costos-ultimo-archivo")
+          .getElementById(COSTS_FILE_ANCHOR)
           ?.scrollIntoView({ behavior: "smooth", block: "center" }),
       50
     );
   };
+  goToFileRef.current = goToFile;
   const more = (
     <MoreMenu
       data={data}
@@ -338,10 +379,17 @@ export function CostsSetupSection({
         </section>
       ) : null}
 
-      {setup.complete || detailOpen ? (
+      {/* Always mounted (hidden while folded) so the file picker can open from
+          «Continuar» in the same click. */}
+      {
         <div
-          className="grid grid-cols-1 gap-3 lg:grid-cols-2"
-          data-testid="costs-setup-detail"
+          className={
+            "grid grid-cols-1 gap-3 lg:grid-cols-2" +
+            (setup.complete || detailOpen ? "" : " hidden")
+          }
+          data-testid={
+            setup.complete || detailOpen ? "costs-setup-detail" : undefined
+          }
         >
           <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5">
             <div className="flex items-center gap-2">
@@ -375,7 +423,7 @@ export function CostsSetupSection({
           </section>
 
           <section
-            id="costos-ultimo-archivo"
+            id={COSTS_FILE_ANCHOR}
             className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5"
           >
             <div className="mb-1 flex items-baseline">
@@ -391,6 +439,7 @@ export function CostsSetupSection({
               )}
             </div>
             <PriceCatalogPanel
+              ref={panelRef}
               key={`upload-${epoch}`}
               embedded
               onUploaded={() => void onUploaded()}
@@ -415,7 +464,7 @@ export function CostsSetupSection({
             </details>
           </section>
         </div>
-      ) : null}
+      }
 
       {resetOpen && data.reset ? (
         <ResetPanel

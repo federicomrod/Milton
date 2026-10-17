@@ -43,11 +43,11 @@ describe("Costos tabs", () => {
     expect(suppliers).toContain('redirect(costsTabHref("proveedores"');
   });
 
-  it("the page has one orange button, real tabs, and no link row", () => {
+  it("the page has no orange, a blue «Subir factura», real tabs, and no link row", () => {
     const page = read("app/dashboard/restaurant/costs/page.tsx");
     expect(page).not.toContain("costLinks");
     expect(page).not.toContain("Preparaciones");
-    expect(page.match(/bg-\[#f28c28\]/g)?.length).toBe(1);
+    expect(page).not.toMatch(/f28c28|e07b17|orange-/i);
     expect(page).toContain("<CostsAreaTabs");
     expect(page).toContain("<InvoicesPage");
     expect(page).toContain("<SuppliersPage");

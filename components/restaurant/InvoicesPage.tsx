@@ -326,7 +326,7 @@ function UploadCard({
             type="submit"
             size="sm"
             disabled={!file || busy}
-            className="bg-orange-500 hover:bg-orange-600 text-white border-0"
+            className="bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
           >
             {busy ? "Uploading…" : "Upload invoices"}
           </Button>
@@ -573,7 +573,7 @@ function ManualCreateCard({
             <Button
               type="submit"
               size="sm"
-              className="bg-orange-500 hover:bg-orange-600 text-white border-0"
+              className="bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
               disabled={busy}
             >
               {busy ? "Saving…" : "Create invoice"}
@@ -948,7 +948,7 @@ function ReviewDetail({
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <FileText className="h-4 w-4 text-orange-500" />
+            <FileText className="h-4 w-4 text-[#1B40C8]" />
             {inv.supplier_name ?? "(no supplier)"} ·{" "}
             <span className="font-mono">{inv.invoice_number ?? "—"}</span>
             <span
@@ -1103,7 +1103,7 @@ function ReviewDetail({
             <p className="text-foreground/80">
               {postResult.next_steps}{" "}
               <Link
-                className="text-orange-600 dark:text-orange-300 hover:underline"
+                className="text-[#1B40C8] hover:underline"
                 href="/dashboard/restaurant/agents"
               >
                 Open Agent Control Center →
@@ -1313,7 +1313,7 @@ function LineRow({
           </div>
         )}
         {creatingNew && !disabled && (
-          <div className="mt-2 rounded border border-orange-200 dark:border-orange-900/40 bg-orange-50/40 dark:bg-orange-900/10 p-2 space-y-1.5">
+          <div className="mt-2 rounded border border-[#c6d3f5] bg-[#f6f8fe] p-2 space-y-1.5">
             <div className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
               Create new ingredient
             </div>
@@ -1341,7 +1341,7 @@ function LineRow({
             <div className="flex items-center gap-1.5 pt-0.5">
               <Button
                 size="sm"
-                className="h-6 px-2 text-xs bg-orange-500 hover:bg-orange-600 text-white border-0"
+                className="h-6 px-2 text-xs bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
                 onClick={submitInlineCreate}
                 disabled={creating || !newName.trim() || !newUnit.trim()}
                 title="Create the ingredient and match this line to it"
@@ -1892,10 +1892,10 @@ function AIExtractCard({
   };
 
   return (
-    <Card className="border-orange-200 dark:border-orange-900/40">
+    <Card className="border-[#c6d3f5]">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-orange-500" />
+          <Sparkles className="h-4 w-4 text-[#1B40C8]" />
           Upload invoice PDF or image
         </CardTitle>
       </CardHeader>
@@ -1915,7 +1915,7 @@ function AIExtractCard({
             <Button
               type="submit"
               size="sm"
-              className="bg-orange-500 hover:bg-orange-600 text-white border-0"
+              className="bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
               disabled={!file || extracting}
             >
               {extracting ? (
@@ -2000,11 +2000,11 @@ function ExtractedDraftReview({
   };
 
   return (
-    <Card className="border-orange-200 dark:border-orange-900/40">
+    <Card className="border-[#c6d3f5]">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-orange-500" />
+            <Sparkles className="h-4 w-4 text-[#1B40C8]" />
             Review extracted invoice
             {meta?.fileName && (
               <span className="text-xs font-normal text-muted-foreground font-mono">
@@ -2033,7 +2033,7 @@ function ExtractedDraftReview({
             </Button>
             <Button
               size="sm"
-              className="h-7 text-xs bg-orange-500 hover:bg-orange-600 text-white border-0"
+              className="h-7 text-xs bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
               onClick={onCreate}
               disabled={creating}
             >

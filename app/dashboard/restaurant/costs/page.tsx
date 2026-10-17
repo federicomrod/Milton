@@ -38,6 +38,7 @@ import { InvoicesPage } from "@/components/restaurant/InvoicesPage";
 import { SuppliersPage } from "@/components/restaurant/SuppliersPage";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { COSTS_HREF } from "@/lib/restaurant/navigation";
+import { COSTS_FILE_ANCHOR } from "@/lib/restaurant/costs-picker";
 import { ingredientesHref } from "@/lib/restaurant/menu-links";
 import { EmptyState } from "@/components/restaurant/shell/EmptyState";
 
@@ -130,7 +131,7 @@ export default async function CostsAreaPage({
         titleAction={
           <Link
             href={invoiceUploadHref(shellParams)}
-            className="inline-flex h-8 items-center rounded-lg bg-[#f28c28] px-3 text-sm font-semibold text-white hover:bg-[#e07b17] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2"
+            className="inline-flex h-8 items-center rounded-lg border border-[#1B40C8] bg-white px-3 text-sm font-semibold text-[#1B40C8] hover:bg-[#f6f8fe] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
           >
             {t(lang, "Upload invoice", "Subir factura")}
           </Link>
@@ -227,9 +228,10 @@ export default async function CostsAreaPage({
           text="Aún no tienes costos. Sube un archivo de costos o una factura para empezar."
           actions={[
             {
-              href: `${COSTS_HREF}#costos-ultimo-archivo`,
+              href: `${COSTS_HREF}#${COSTS_FILE_ANCHOR}`,
               label: "Subir archivo de costos",
               primary: true,
+              opensCostsPicker: true,
             },
             { href: invoiceUploadHref(shellParams), label: "Subir factura" },
           ]}

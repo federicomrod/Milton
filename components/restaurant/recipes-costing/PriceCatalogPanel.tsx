@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { CostConflict } from "@/lib/restaurant/price-catalog/conflicts";
 import type {
   CatalogUnit,
@@ -94,22 +102,36 @@ async function postJson(url: string, body: unknown) {
  * conflicts are asked later, on the dish that uses them). After saving,
  * `onUploaded` prepares the dishes from the same file.
  */
-export function PriceCatalogPanel({
-  onUploaded,
-  onRecipesImported,
-  locationId = null,
-  busyExternal = false,
-  embedded = false,
-}: {
-  /** Inside Resumen's checklist (step 1): no card or heading. */
-  embedded?: boolean;
-  onUploaded?: () => void;
-  /** After "Importar" on the recipes of the same file. */
-  onRecipesImported?: () => void;
-  locationId?: string | null;
-  busyExternal?: boolean;
-} = {}) {
+export interface PriceCatalogPanelHandle {
+  /** Open the file picker (call it from a click handler: browsers need the gesture). */
+  openPicker: () => void;
+}
+
+export const PriceCatalogPanel = forwardRef<
+  PriceCatalogPanelHandle,
+  {
+    /** Inside Resumen's checklist (step 1): no card or heading. */
+    embedded?: boolean;
+    onUploaded?: () => void;
+    /** After "Importar" on the recipes of the same file. */
+    onRecipesImported?: () => void;
+    locationId?: string | null;
+    busyExternal?: boolean;
+  }
+>(function PriceCatalogPanel(
+  {
+    onUploaded,
+    onRecipesImported,
+    locationId = null,
+    busyExternal = false,
+    embedded = false,
+  },
+  ref
+) {
   const fileRef = useRef<HTMLInputElement>(null);
+  useImperativeHandle(ref, () => ({
+    openPicker: () => fileRef.current?.click(),
+  }));
   // The picked file lives server-side as a draft (with every choice), so
   // leaving the page or reloading never loses it.
   const [draftName, setDraftName] = useState<string | null>(null);
@@ -396,7 +418,7 @@ export function PriceCatalogPanel({
           }}
         />
         <GhostBtn
-          className="ml-auto"
+          className="ml-auto border-[#1B40C8] px-3 py-1.5 text-[13px] text-[#1B40C8] hover:bg-[#f6f8fe] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
           disabled={busy || busyExternal}
           onClick={() => fileRef.current?.click()}
         >
@@ -780,4 +802,4 @@ export function PriceCatalogPanel({
       ) : null}
     </Wrapper>
   );
-}
+});

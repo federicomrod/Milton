@@ -145,8 +145,9 @@ describe("setup incomplete: one compact banner", () => {
     ).toBe("false");
     // nothing of the full block yet
     expect(screen.queryByTestId("costs-setup-detail")).toBeNull();
-    expect(screen.queryByText("Último archivo")).toBeNull();
-    expect(screen.queryByTestId("price-catalog-panel")).toBeNull();
+    // the file card stays mounted (hidden) so «Continuar» can open the picker
+    const card = document.getElementById("costos-ultimo-archivo");
+    expect(card?.parentElement?.className).toMatch(/\bhidden\b/);
   });
 
   it("«Ver detalle» expands the EXISTING checklist and «Último archivo» inline, unchanged", async () => {

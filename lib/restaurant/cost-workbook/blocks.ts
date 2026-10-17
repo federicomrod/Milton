@@ -105,13 +105,38 @@ function isBlankRow(cells: unknown[]): boolean {
   );
 }
 
-function isSheetTitle(cells: unknown[], isFirstContentRow = false): boolean {
+function isSheetTitle(
+  cells: unknown[],
+  rows?: unknown[][],
+  index?: number
+): boolean {
   if (SHEET_TITLE_RE.test(foldLabel(firstText(cells)))) return true;
-  // The first non-blank row of a tab, alone in its row and not a banner or
-  // footer, is the tab title whatever it says ("CASA DEMO — ENTRADAS").
-  if (!isFirstContentRow) return false;
-  const texts = cells.map(cellText).filter(Boolean);
-  return texts.length === 1 && !isBanner(cells) && !footerKind(cells);
+  return rows !== undefined && index !== undefined
+    ? isLoneFirstRowTitle(rows, index)
+    : false;
+}
+
+/**
+ * The first non-blank row of a tab, alone in its row, is the tab title
+ * whatever it says ("CASA DEMO — ENTRADAS") unless it is really a dish name:
+ * a recipe header row within the next two non-blank rows means a dish block
+ * starts right here. A row after a COSTO RESTAURANTE banner is never a title
+ * (it is not the first content row).
+ */
+function isLoneFirstRowTitle(rows: unknown[][], index: number): boolean {
+  const cells = rowCells(rows[index]);
+  if (cells.map(cellText).filter(Boolean).length !== 1) return false;
+  if (isBanner(cells) || footerKind(cells)) return false;
+  for (let i = 0; i < index; i++)
+    if (!isBlankRow(rowCells(rows[i]))) return false;
+  let seen = 0;
+  for (let i = index + 1; i < rows.length && seen < 2; i++) {
+    const next = rowCells(rows[i]);
+    if (isBlankRow(next)) continue;
+    seen++;
+    if (isRepeatingBlockHeader(next)) return false;
+  }
+  return true;
 }
 
 function isBanner(cells: unknown[]): boolean {
@@ -481,13 +506,10 @@ function inferCostTotalFromLines(lines: RecipeLineCandidate[]): number | null {
 export function collectCostoRestauranteBlockNames(aoa: unknown[][]): string[] {
   const names: string[] = [];
   let phase: "idle" | "after_banner" | "in_block" = "idle";
-  let seenContent = false;
-  for (const row of aoa) {
+  for (const [index, row] of aoa.entries()) {
     const cells = rowCells(row);
     if (isBlankRow(cells)) continue;
-    const firstContent = !seenContent;
-    seenContent = true;
-    if (isSheetTitle(cells, firstContent)) continue;
+    if (isSheetTitle(cells, aoa, index)) continue;
     if (isBanner(cells)) {
       phase = "after_banner";
       continue;
@@ -654,13 +676,10 @@ export function collectCostoRestauranteBlocks(input: {
     pendingName = "";
   };
 
-  let seenContent = false;
   for (const [rowIndex, row] of input.aoa.entries()) {
     const cells = rowCells(row);
     if (isBlankRow(cells)) continue;
-    const firstContent = !seenContent;
-    seenContent = true;
-    if (isSheetTitle(cells, firstContent)) {
+    if (isSheetTitle(cells, input.aoa, rowIndex)) {
       skipped.push({
         tabName: input.tabName,
         rowIndex,

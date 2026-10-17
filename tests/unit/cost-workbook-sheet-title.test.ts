@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   collectCostoRestauranteBlockNames,
+  collectCostoRestauranteBlocks,
   SHEET_TITLE_RE,
 } from "@/lib/restaurant/cost-workbook/blocks";
 
@@ -36,5 +37,48 @@ describe("cost workbook sheet title", () => {
         ["SOPA DEMO"]
       );
     }
+  });
+
+  const header = ["Articulo", "Unidad Detalle", "Cantidad", "Costo Unitario"];
+  const lines = [
+    ["CEBOLLA", "ONZA", 2, 0.1],
+    ["COSTO TOTAL", "", 0, 0.2],
+  ];
+
+  it("keeps a dish name when a tab starts directly with a dish block", () => {
+    expect(
+      collectCostoRestauranteBlockNames([["SOPA DEMO"], header, ...lines])
+    ).toEqual(["SOPA DEMO"]);
+    expect(
+      collectCostoRestauranteBlockNames([
+        ["COSTO RESTAURANTE"],
+        ["SOPA DEMO"],
+        header,
+        ...lines,
+      ])
+    ).toEqual(["SOPA DEMO"]);
+  });
+
+  it("skips a title followed by the banner and a dish name", () => {
+    const aoa = [
+      ["CASA DEMO — ENTRADAS"],
+      [],
+      ["COSTO RESTAURANTE"],
+      ["SOPA DEMO"],
+      header,
+      ...lines,
+    ];
+    expect(collectCostoRestauranteBlockNames(aoa)).toEqual(["SOPA DEMO"]);
+    const parsed = collectCostoRestauranteBlocks({
+      tabName: "Entradas",
+      tabKind: "recipe",
+      aoa,
+    });
+    expect(parsed.groups.map((g) => g.name)).toEqual(["SOPA DEMO"]);
+  });
+
+  it("never treats a dish name right after the banner at the top as a title", () => {
+    const aoa = [["COSTO RESTAURANTE"], ["SOPA DEMO"], header, ...lines];
+    expect(collectCostoRestauranteBlockNames(aoa)).toEqual(["SOPA DEMO"]);
   });
 });

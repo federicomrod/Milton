@@ -1,4 +1,4 @@
-// app/(restaurant-cockpit)/dashboard/restaurant/page.tsx
+// app/dashboard/restaurant/(cockpit)/page.tsx
 //
 // Restaurant cockpit (Cockpit v2). With sales: the live Cockpit. Without them
 // (no POS yet, no company, a read error): the SAME Cockpit v2 layout in an
@@ -6,8 +6,11 @@
 // mock / sample data path any more: no invented number or dish name is ever
 // drawn for a real account, and the currency is the company's setting.
 //
-// This page lives in the (restaurant-cockpit) route group so that it bypasses
-// app/dashboard/layout.tsx. Server Component: Supabase access uses the SSR
+// This page lives under app/dashboard/restaurant/ like every other restaurant
+// page (in the `(cockpit)` group, which keeps the URL /dashboard/restaurant and
+// scopes this skeleton to the Cockpit): ONE layout (one RestaurantShell) for all of /dashboard/restaurant/*, so
+// switching Cockpit ↔ Menú ↔ Ventas does not remount the sidebar or lose caches.
+// (app/dashboard/layout.tsx already skips its legacy work on restaurant paths.) Server Component: Supabase access uses the SSR
 // client, so the user's session cookie is honored and RLS applies.
 
 import { AlertTriangle } from "lucide-react";

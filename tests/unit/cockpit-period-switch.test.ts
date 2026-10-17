@@ -164,7 +164,7 @@ describe("rollup-based period costs match the row walk", () => {
 
 describe("period switch stays on the already-loaded cockpit", () => {
   it("R1-16b: the Cockpit v2 changes period, comparison and category in the browser, with no request and no navigation", () => {
-    const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
+    const page = read("app/dashboard/restaurant/(cockpit)/page.tsx");
     const cockpit = read("components/restaurant/cockpit/v2/CockpitV2.tsx");
     expect(page).toContain("CockpitV2");
     // The handlers only set state (computeCockpit recomputes from the loaded data).

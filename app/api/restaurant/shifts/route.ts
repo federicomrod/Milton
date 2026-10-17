@@ -9,6 +9,7 @@
 // overlapping active shifts get 22023 with a Spanish message). The company is
 // resolved from the user, never taken from the client.
 
+import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
@@ -166,6 +167,8 @@ export async function POST(req: NextRequest) {
     );
   }
   const out = (data ?? {}) as { saved?: number; cutoff?: string };
+  // Shifts and the business-day cutoff shape the sales cube.
+  revalidateSales(auth.companyId);
   return NextResponse.json({
     saved: out.saved ?? shifts.length,
     cutoff: out.cutoff ?? null,

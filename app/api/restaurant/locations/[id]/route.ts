@@ -9,6 +9,7 @@
 // restaurant_set_archived (42501 for a non-member, 22023 for the last active
 // restaurant) and says «falta aplicar la migración 055» before it is applied.
 
+import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { validateRestaurantName } from "@/lib/restaurant/restaurant-name";
@@ -94,6 +95,7 @@ export async function PATCH(
         { status: 500 }
       );
     }
+    revalidateSales(auth.companyId);
     return NextResponse.json({ archived: body.archived });
   }
 
@@ -115,5 +117,6 @@ export async function PATCH(
       { status: 500 }
     );
   }
+  revalidateSales(auth.companyId);
   return NextResponse.json({ id, name: check.name });
 }

@@ -115,7 +115,7 @@ async function draw(path: string, sp: Record<string, string> = {}) {
 }
 
 const PAGES: Array<[string, string, Record<string, string>]> = [
-  ["Cockpit", "@/app/(restaurant-cockpit)/dashboard/restaurant/page", {}],
+  ["Cockpit", "@/app/dashboard/restaurant/(cockpit)/page", {}],
   ["Ventas", "@/app/dashboard/restaurant/sales/page", {}],
   ["Menú › Resumen", "@/app/dashboard/restaurant/menu/page", {}],
   ["Menú › Platos", "@/app/dashboard/restaurant/menu/platos/page", {}],
@@ -197,9 +197,7 @@ describe("every main page renders for an empty account (no restaurant, POS, ingr
     expect(t).toContain("Sube tus costos");
   });
   it("Cockpit shows the empty Cockpit v2 («Sin datos aún»), no sample numbers", async () => {
-    const t = text(
-      await draw("@/app/(restaurant-cockpit)/dashboard/restaurant/page")
-    );
+    const t = text(await draw("@/app/dashboard/restaurant/(cockpit)/page"));
     expect(t).toContain("Sin datos aún");
     expect(t).toContain("Conecta tu POS");
     expect(t).not.toMatch(/BBQ|Rentabilidad por platillo|397/);
@@ -285,11 +283,8 @@ describe("the loaders never throw", () => {
 
 describe("error boundaries: a future error never shows the white Next.js screen", () => {
   const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
-  it("both the restaurant routes and the Cockpit group have an error.tsx with «Reintentar»", async () => {
-    for (const f of [
-      "app/dashboard/restaurant/error.tsx",
-      "app/(restaurant-cockpit)/error.tsx",
-    ]) {
+  it("the restaurant routes (the Cockpit included) have an error.tsx with «Reintentar»", async () => {
+    for (const f of ["app/dashboard/restaurant/error.tsx"]) {
       expect(existsSync(join(process.cwd(), f)), f).toBe(true);
       const src = read(f);
       expect(src).toContain('"use client"');
@@ -314,8 +309,19 @@ describe("error boundaries: a future error never shows the white Next.js screen"
     expect(
       existsSync(join(process.cwd(), "app/dashboard/restaurant/layout.tsx"))
     ).toBe(true);
+    // ONE layout for every /dashboard/restaurant page: the Cockpit no longer has its own
     expect(
       existsSync(join(process.cwd(), "app/(restaurant-cockpit)/layout.tsx"))
+    ).toBe(false);
+    expect(
+      existsSync(
+        join(process.cwd(), "app/dashboard/restaurant/(cockpit)/page.tsx")
+      )
+    ).toBe(true);
+    expect(
+      existsSync(
+        join(process.cwd(), "app/dashboard/restaurant/(cockpit)/loading.tsx")
+      )
     ).toBe(true);
   });
 });

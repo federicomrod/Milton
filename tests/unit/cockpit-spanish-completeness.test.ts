@@ -26,7 +26,7 @@ const SHELL_FILES = [
   "components/restaurant/ProfitabilityCockpit.tsx",
   "components/restaurant/BriefingCard.tsx",
   "components/restaurant/ComingSoonPage.tsx",
-  "app/(restaurant-cockpit)/dashboard/restaurant/page.tsx",
+  "app/dashboard/restaurant/(cockpit)/page.tsx",
   "app/dashboard/account/page.tsx",
   "components/restaurant/kitchen/KitchenQrCard.tsx",
   "components/restaurant/kitchen/KitchenStaffCard.tsx",
@@ -98,7 +98,7 @@ describe("Spanish completeness for cockpit chrome", () => {
   });
 
   it("does not leave listed English chrome on the live Cockpit body", () => {
-    const src = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
+    const src = read("app/dashboard/restaurant/(cockpit)/page.tsx");
     expect(src).not.toMatch(/\? "No recipe"/);
     expect(src).not.toMatch(/^\s+Low margin$/m);
     expect(src).not.toMatch(/^\s+Dish Profitability$/m);

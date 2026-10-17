@@ -22,6 +22,7 @@
 // RLS does the heavy lifting: even if the resolved company_id were wrong,
 // the row-level policies on restaurant_kpi_targets would refuse the write.
 
+import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
@@ -390,6 +391,8 @@ export async function POST(req: NextRequest) {
 
   // Return the full resolved target set so the client can update its
   // local state in one pass instead of merging diffs.
+  // The goals travel with the sales cube.
+  revalidateSales(auth.companyId);
   const full = await getRestaurantKpiTargets(auth.supabase, auth.companyId);
   return NextResponse.json({ targets: full, updated });
 }

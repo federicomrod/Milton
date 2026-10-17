@@ -677,7 +677,7 @@ describe("data health, local dates, and first paint", () => {
     const loader = read("lib/restaurant/cockpit-page-data.ts");
     expect(loader).toContain('source: "deterministic"');
     expect(loader).not.toContain("await wordCockpitInsights");
-    const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
+    const page = read("app/dashboard/restaurant/(cockpit)/page.tsx");
     // R1-16b: no AI wording call at all on first paint (Milton's reading is
     // computed from the loaded numbers); the page streams behind a skeleton.
     expect(page).toContain("CockpitV2");

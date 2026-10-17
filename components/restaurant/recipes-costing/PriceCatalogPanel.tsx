@@ -138,9 +138,6 @@ export const PriceCatalogPanel = forwardRef<
   ref
 ) {
   const fileRef = useRef<HTMLInputElement>(null);
-  useImperativeHandle(ref, () => ({
-    openPicker: () => fileRef.current?.click(),
-  }));
   // The picked file lives server-side as a draft (with every choice), so
   // leaving the page or reloading never loses it.
   const [draftName, setDraftName] = useState<string | null>(null);
@@ -153,6 +150,18 @@ export const PriceCatalogPanel = forwardRef<
   const [preview, setPreview] = useState<Preview | null>(null);
   const [saved, setSaved] = useState<Saved | null>(null);
   const [busy, setBusy] = useState(false);
+  // Same rule as the «Elegir archivo de costos» button: nothing while busy
+  // (a second upload must not start in the middle of a save).
+  useImperativeHandle(
+    ref,
+    () => ({
+      openPicker: () => {
+        if (busy || busyExternal) return;
+        fileRef.current?.click();
+      },
+    }),
+    [busy, busyExternal]
+  );
   const [error, setError] = useState<string | null>(null);
   /** Row key → unit, or "none" (Ninguna: leave it Pendiente). */
   const [units, setUnits] = useState<Record<string, string>>({});

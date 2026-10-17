@@ -40,7 +40,7 @@ export function DateRangeControl({
           data-testid="page-date-range"
           data-readonly="true"
           tabIndex={0}
-          className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-border bg-muted/40 text-sm font-medium text-muted-foreground cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+          className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-border bg-muted/40 text-sm font-medium text-muted-foreground cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
           aria-label={`${t(lang, "Period shown", "Periodo mostrado")}: ${label}. ${hint}`}
         >
           <CalendarRange className="h-3.5 w-3.5 shrink-0" />

@@ -68,7 +68,7 @@ export function CockpitCostKpiCells({
       {model.food_cost_pct.available ? (
         <Link
           href={menuResumenHref()}
-          className="block rounded-md border border-border bg-background px-2.5 py-1.5 min-h-[4.5rem] hover:border-[#f28c28]"
+          className="block rounded-md border border-border bg-background px-2.5 py-1.5 min-h-[4.5rem] hover:border-[#1B40C8]"
         >
           <p className="text-[12px] font-medium text-muted-foreground truncate">
             {t(lang, "Food cost %", "% costo de comida")}

@@ -21,13 +21,12 @@ import {
   unlinkedPosProduct,
 } from "@/lib/restaurant/pos-product-links";
 import { isImportProtectedSource } from "@/lib/restaurant/protect-imported-recipe";
-import {
-  hasApprovedVersion,
-  nextVersionNumber,
-} from "@/lib/restaurant/recipe-versions";
+import { nextVersionNumber } from "@/lib/restaurant/recipe-versions";
+import { existingRecipeState, isKeptRecipe } from "./existing";
 import { posPriceFromSales } from "@/lib/restaurant/recipe-costing/display";
 import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
 import {
+  loadEditor,
   refreshEvidence,
   withCachedCatalog,
 } from "@/lib/restaurant/recipe-costing/editor-service";
@@ -36,6 +35,8 @@ import {
   lineUnit,
   planImport,
   type ImportPlan,
+  type PreviewConflict,
+  type PlanExistingDish,
   type PlanPosProduct,
 } from "./plan";
 import { translateCostWorkbookBuffer } from "./translate";
@@ -75,7 +76,7 @@ interface Loaded {
   repo: CostWorkbookRepo;
 }
 
-async function loadAndPlan(
+export async function loadAndPlan(
   supabase: SupabaseClient,
   input: { companyId: string; buffer: Buffer; locationId: string | null }
 ): Promise<Loaded> {
@@ -111,7 +112,7 @@ async function loadAndPlan(
   const menuById = new Map(menuItems.map((row) => [row.id, row]));
   const recipeByMenu = new Map(recipes.map((row) => [row.menu_item_id, row]));
   const products: PlanPosProduct[] = [];
-  const existing: Array<{ odoo_product_id: number; protected: boolean }> = [];
+  const existing: PlanExistingDish[] = [];
   for (const product of list.list.products) {
     if (product.is_combo) continue;
     const link = links.find(
@@ -134,15 +135,13 @@ async function loadAndPlan(
     });
     const recipe = menu ? recipeByMenu.get(menu.id) : undefined;
     if (recipe) {
-      const versions = await repo.listRecipeVersions(
-        input.companyId,
-        recipe.id
-      );
+      // A recipe with lines made by hand or approved is a conflict the person
+      // decides; an empty placeholder is not (the import fills it).
+      const state = await existingRecipeState(repo, input.companyId, recipe);
       existing.push({
         odoo_product_id: product.odoo_product_id,
-        protected:
-          isImportProtectedSource(recipe.source_type) ||
-          hasApprovedVersion(versions),
+        protected: isKeptRecipe(state),
+        lines: state.lines,
       });
     }
   }
@@ -182,7 +181,53 @@ export async function previewRecipeImport(
     ...input,
     locationId: input.locationId ?? null,
   });
-  return { ok: true as const, tabs: workbook.tabs, ...plan.preview };
+  // «Tu receta: $X»: the cost the dish has now, read the way the dish page does.
+  const conflicts = await withCurrentCosts(supabase, {
+    companyId: input.companyId,
+    locationId: input.locationId ?? null,
+    conflicts: plan.preview.conflicts,
+  });
+  return {
+    ok: true as const,
+    tabs: workbook.tabs,
+    ...plan.preview,
+    conflicts,
+  };
+}
+
+const MAX_COST_LOOKUPS = 40;
+
+async function withCurrentCosts(
+  supabase: SupabaseClient,
+  input: {
+    companyId: string;
+    locationId: string | null;
+    conflicts: PreviewConflict[];
+  }
+): Promise<PreviewConflict[]> {
+  if (input.conflicts.length === 0) return input.conflicts;
+  const store = withCachedCatalog(createSupabaseEditorStore(supabase));
+  const out: PreviewConflict[] = [];
+  for (const [index, row] of input.conflicts.entries()) {
+    let cost: number | null = null;
+    if (row.odoo_product_id !== null && index < MAX_COST_LOOKUPS) {
+      try {
+        const editor = await loadEditor({
+          store,
+          companyId: input.companyId,
+          odooProductId: row.odoo_product_id,
+          locationId: input.locationId,
+          userId: null,
+          omitOptions: true,
+        });
+        if (editor.ok) cost = editor.state.total_cost;
+      } catch {
+        cost = null;
+      }
+    }
+    out.push({ ...row, my_cost: cost });
+  }
+  return out;
 }
 
 /** Migration 043 must be there before anything is written. */
@@ -288,6 +333,12 @@ export interface RecipeImportResult {
   /** POS products linked (a dish sold with different sides is several). */
   pos_products_linked: number;
   dishes_skipped: number;
+  /** Empty placeholders (no lines) that got the Excel recipe as a draft; also counted in dishes_imported. */
+  dishes_filled: number;
+  /** Recipes with lines (by hand or approved) kept as they were. */
+  dishes_kept: number;
+  /** Recipes where the person chose the Excel's: a NEW draft version, the old ones untouched; also in dishes_imported. */
+  dishes_replaced: number;
   preparations_created: number;
   /** Existing draft preparations that got the file's sub-recipe. */
   preparations_updated: number;
@@ -306,6 +357,8 @@ export async function applyRecipeImport(
     filename: string;
     createdBy?: string | null;
     locationId?: string | null;
+    /** recipe key → "excel" for the dishes whose existing recipe is replaced by a new draft. */
+    choices?: Record<string, string>;
   }
 ): Promise<RecipeImportResult> {
   await assertSchema(supabase);
@@ -324,6 +377,7 @@ export async function applyRecipeImport(
     filename: input.filename,
     createdBy: input.createdBy ?? null,
     locationId,
+    choices: input.choices,
     insertCanonicalRows: async (rows) => {
       for (let i = 0; i < rows.length; i += 500) {
         const { error } = await supabase
@@ -365,6 +419,8 @@ export async function writeImportPlan(input: {
   filename: string;
   createdBy: string | null;
   locationId: string | null;
+  /** recipe key → "excel": replace that dish's recipe with a new draft version. */
+  choices?: Record<string, string>;
   insertCanonicalRows: (rows: Array<Record<string, unknown>>) => Promise<void>;
 }): Promise<{ result: RecipeImportResult; linked: number[] }> {
   const { repo, plan, workbook, locationId } = input;
@@ -389,6 +445,9 @@ export async function writeImportPlan(input: {
     dishes_linked: 0,
     pos_products_linked: 0,
     dishes_skipped: 0,
+    dishes_filled: 0,
+    dishes_kept: 0,
+    dishes_replaced: 0,
     preparations_created: 0,
     preparations_updated: 0,
     ingredients_created: 0,
@@ -581,8 +640,15 @@ export async function writeImportPlan(input: {
         menuItems.push(menuItem);
       }
       let recipeRow = recipeByMenu.get(menuItem.id);
-      if (recipeRow && isImportProtectedSource(recipeRow.source_type)) {
-        result.dishes_skipped += 1;
+      // What the dish has now. A recipe with lines made by hand or approved is
+      // kept unless the person chose the Excel's for this dish; an empty
+      // placeholder is filled like a dish with no recipe.
+      const before = recipeRow
+        ? await existingRecipeState(repo, input.companyId, recipeRow)
+        : null;
+      const replacing = before !== null && isKeptRecipe(before);
+      if (replacing && input.choices?.[recipe.key] !== "excel") {
+        result.dishes_kept += 1;
         continue;
       }
       if (!recipeRow) {
@@ -600,10 +666,6 @@ export async function writeImportPlan(input: {
         input.companyId,
         recipeRow.id
       );
-      if (hasApprovedVersion(versions)) {
-        result.dishes_skipped += 1;
-        continue;
-      }
       // A price a person typed on a line of the previous draft is kept
       // when the same item comes in again: re-importing never undoes it.
       const previous = versions
@@ -659,6 +721,8 @@ export async function writeImportPlan(input: {
         version.id,
       ];
       result.dishes_imported += 1;
+      if (replacing) result.dishes_replaced += 1;
+      else if (before !== null && before.lines === 0) result.dishes_filled += 1;
 
       let linkedHere = 0;
       for (const product of dish.pos) {

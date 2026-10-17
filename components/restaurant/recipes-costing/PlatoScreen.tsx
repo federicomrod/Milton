@@ -28,6 +28,7 @@ import { primaryAction } from "@/lib/restaurant/recipe-costing/plato";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
+import { LastFileDialog, useLastFileRecipe } from "./LastFileRecipe";
 import { TreatmentControl, type PostFn } from "./TreatmentPanel";
 import { Chip, GhostBtn } from "./ui";
 
@@ -243,6 +244,9 @@ function Dish({
   onOpenPreparation: (componentId: string) => void;
 }) {
   const [picking, setPicking] = useState(false);
+  // This dish in the last uploaded cost file (saved upload, nothing re-uploaded).
+  const [bringOpen, setBringOpen] = useState(false);
+  const [editorKey, setEditorKey] = useState(0);
   // The lines with no cost, from the editor's own live state, so the header
   // can name what blocks the total.
   const [pendingNames, setPendingNames] = useState<string[]>([]);
@@ -267,7 +271,24 @@ function Dish({
   const hasRecipe = Boolean(
     product.menu_item_id && (editor ? editor.recipe_version_id : true)
   );
+  const { lookup: fileLookup, refresh: refreshFileLookup } = useLastFileRecipe(
+    product.odoo_product_id,
+    locationId,
+    data.actor.can_submit && takesRecipe
+  );
+  const fileRecipe = fileLookup && fileLookup.available ? fileLookup : null;
   const action = editor ? primaryAction(data.actor, editor, hasRecipe) : null;
+  const bringButton =
+    fileRecipe && fileRecipe.empty && data.actor.can_submit ? (
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => setBringOpen(true)}
+        className="rounded-md border border-[#1B40C8] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe] disabled:opacity-45"
+      >
+        Traer receta del último archivo
+      </button>
+    ) : null;
   const missing = dish?.lines_missing_price ?? 0;
   const costTip = [editor?.variance_note, editor?.yield_note]
     .filter(Boolean)
@@ -315,6 +336,11 @@ function Dish({
               <DropdownMenuItem onClick={() => setPicking(true)}>
                 Usar la receta de otro plato
               </DropdownMenuItem>
+              {fileRecipe?.differs ? (
+                <DropdownMenuItem onClick={() => setBringOpen(true)}>
+                  Traer receta del último archivo…
+                </DropdownMenuItem>
+              ) : null}
               {product.can_undo ? (
                 <DropdownMenuItem
                   className="text-[#c03535]"
@@ -437,8 +463,17 @@ function Dish({
               value={dish?.unit_margin != null ? money(dish.unit_margin) : "—"}
             />
           </div>
+          {hasRecipe && bringButton ? (
+            <div className="flex items-center gap-3 text-[13px] text-[#5b6476]">
+              <span>
+                Este plato no tiene líneas, pero el archivo trae su receta.
+              </span>
+              {bringButton}
+            </div>
+          ) : null}
           {hasRecipe ? (
             <RecipeLinesEditor
+              key={editorKey}
               odooProductId={product.odoo_product_id}
               locationId={locationId}
               portionCostLabel={editor?.portion_cost_label ?? null}
@@ -449,6 +484,7 @@ function Dish({
           ) : (
             <div className="flex items-center gap-3 text-[13px] text-[#5b6476]">
               <span>Este plato todavía no tiene receta.</span>
+              {bringButton}
               {data.actor.can_submit ? (
                 <GhostBtn
                   disabled={busy}
@@ -472,6 +508,22 @@ function Dish({
             : `No lleva receta (${product.treatment_label}).`}
         </p>
       )}
+      {fileRecipe ? (
+        <LastFileDialog
+          open={bringOpen}
+          lookup={fileRecipe}
+          odooProductId={product.odoo_product_id}
+          locationId={locationId}
+          currency={data.currency}
+          onClose={() => setBringOpen(false)}
+          onDone={() => {
+            setBringOpen(false);
+            refreshFileLookup();
+            setEditorKey((n) => n + 1);
+            onEdited();
+          }}
+        />
+      ) : null}
     </section>
   );
 }

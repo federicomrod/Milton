@@ -7,7 +7,9 @@
 // table. Preview never writes: it returns one row per dish (our cost,
 // the Excel's COSTO TOTAL, match, flags, POS link). Apply re-reads the
 // same file and creates the ingredients, preparations and draft recipes
-// (in_review) as one batch. Nothing is approved. Owner, admin, manager or
+// (in_review) as one batch. Nothing is approved. A dish that already has a
+// recipe with lines keeps it unless `choices` says "excel" for it (then a NEW
+// draft version; the old versions are untouched). Owner, admin, manager or
 // Milton staff. Company comes from auth.
 
 import { NextRequest, NextResponse, after } from "next/server";
@@ -83,6 +85,23 @@ export async function POST(req: NextRequest) {
       ? rawLocation.trim()
       : null;
 
+  // Per dish: {"<recipe key>": "excel"} replaces that dish's own recipe with a
+  // new draft version. Anything else keeps the recipe as it is.
+  let choices: Record<string, string> = {};
+  const rawChoices = form.get("choices");
+  if (typeof rawChoices === "string" && rawChoices.trim()) {
+    try {
+      const parsed: unknown = JSON.parse(rawChoices);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        for (const [key, value] of Object.entries(parsed)) {
+          if (value === "excel") choices[key] = "excel";
+        }
+      }
+    } catch {
+      choices = {};
+    }
+  }
+
   if (mode === "apply") {
     const actor = await loadRecipeActor(
       auth.supabase,
@@ -118,6 +137,7 @@ export async function POST(req: NextRequest) {
       filename,
       createdBy: auth.userId,
       locationId,
+      choices,
     });
     // New recipes can group new variants: save Milton's grouping once,
     // after the response.

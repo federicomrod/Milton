@@ -10,12 +10,14 @@
 //
 // Adjustment 2 (no silent re-pairing): refuses with 409 if this company
 // already has a Telegram connection, rather than issuing a code that could
-// let a second chat take over this company's slot. Disconnect/reconnect
-// is explicitly deferred to a later version.
+// let a second chat take over this company's slot. To change chats, an
+// owner/admin disconnects first (DELETE /api/restaurant/telegram/connection).
+// Only owner/admin members may issue a code (403 otherwise).
 
 import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { createPairingCode } from "@/lib/restaurant/telegram/pairing";
+import { telegramManagerGuard } from "@/lib/restaurant/telegram/access";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,7 +25,11 @@ export const runtime = "nodejs";
 export async function POST() {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
-  const { companyId } = auth;
+  const { supabase, companyId, userId } = auth;
+
+  // Only the company's owner or an admin may connect a chat.
+  const denied = await telegramManagerGuard(supabase, companyId, userId);
+  if (denied) return denied;
 
   try {
     const result = await createPairingCode(companyId);
@@ -31,7 +37,7 @@ export async function POST() {
       return NextResponse.json(
         {
           error:
-            "This company already has a Telegram chat connected. Disconnecting and re-pairing isn't supported yet.",
+            "Esta empresa ya tiene un chat de Telegram conectado. Desconéctalo primero para conectar otro.",
         },
         { status: 409 }
       );

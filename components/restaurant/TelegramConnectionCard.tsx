@@ -3,13 +3,14 @@
 //
 // Telegram Connection UI v1 — the smallest UI needed to make the
 // already-built Telegram Daily Briefing backend usable: pair a Telegram
-// chat, then send a first test briefing. No disconnect/reconnect, no
+// chat, send a first test briefing, and (owner/admin) disconnect it. No
 // scheduling, no chat/photo/voice UI — those are explicitly deferred.
 //
 // Talks only to the existing authenticated routes:
 //   GET  /api/restaurant/telegram/connection     (status — new, read-only,
 //        reuses restaurant_telegram_connections + isUsableConnection())
 //   POST /api/restaurant/telegram/pairing-code   (existing)
+//   DELETE /api/restaurant/telegram/connection   (disconnect)
 //   POST /api/restaurant/telegram/send-briefing  (existing)
 //
 // Pairing UX: requesting a code always shows both the deep link AND the
@@ -29,10 +30,13 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Send, MessageCircle, RefreshCw, CheckCircle2 } from "lucide-react";
 
 interface ConnectionStatus {
   connected: boolean;
+  /** Owner / admin members only can connect or disconnect. */
+  can_manage?: boolean;
   connected_at: string | null;
   preferred_language: "en" | "es";
 }
@@ -79,6 +83,10 @@ export function TelegramConnectionCard() {
   const [pairing, setPairing] = useState<PairingState | null>(null);
   const [pairingLoading, setPairingLoading] = useState(false);
   const [pairingError, setPairingError] = useState<string | null>(null);
+
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
+  const [disconnectLoading, setDisconnectLoading] = useState(false);
+  const [disconnectError, setDisconnectError] = useState<string | null>(null);
 
   const [sendLoading, setSendLoading] = useState(false);
   const [sendFeedback, setSendFeedback] = useState<SendFeedback | null>(null);
@@ -145,6 +153,32 @@ export function TelegramConnectionCard() {
       );
     } finally {
       setPairingLoading(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    setDisconnectLoading(true);
+    setDisconnectError(null);
+    try {
+      const res = await fetch("/api/restaurant/telegram/connection", {
+        method: "DELETE",
+      });
+      const json = await parseJsonSafely(res);
+      if (!res.ok) {
+        setDisconnectError(
+          (json.error as string) ||
+            "No se pudo desconectar Telegram. Inténtalo de nuevo."
+        );
+        return;
+      }
+      setSendFeedback(null);
+      await loadStatus();
+    } catch {
+      setDisconnectError(
+        "No se pudo desconectar Telegram. Inténtalo de nuevo."
+      );
+    } finally {
+      setDisconnectLoading(false);
     }
   }
 
@@ -235,6 +269,38 @@ export function TelegramConnectionCard() {
               <Send className="h-4 w-4" />
               {sendLoading ? "Enviando…" : "Enviar briefing de prueba"}
             </Button>
+            {status.can_manage ? (
+              <div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDisconnectOpen(true)}
+                  disabled={disconnectLoading}
+                >
+                  {disconnectLoading
+                    ? "Desconectando…"
+                    : "Desconectar Telegram"}
+                </Button>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Solo el dueño o un administrador puede desconectar Telegram.
+              </p>
+            )}
+            {disconnectError && (
+              <Alert variant="destructive">
+                <AlertDescription>{disconnectError}</AlertDescription>
+              </Alert>
+            )}
+            <ConfirmDialog
+              open={disconnectOpen}
+              onOpenChange={setDisconnectOpen}
+              title="¿Desconectar Telegram?"
+              description="Este chat dejará de recibir los briefings de Milton. Podrás conectar otro chat cuando quieras."
+              confirmText="Desconectar"
+              cancelText="Cancelar"
+              onConfirm={handleDisconnect}
+            />
             {sendFeedback && (
               <Alert
                 variant={
@@ -269,12 +335,18 @@ export function TelegramConnectionCard() {
             </p>
             <Button
               onClick={handleConnect}
-              disabled={pairingLoading}
+              disabled={pairingLoading || status?.can_manage === false}
               className="w-full sm:w-auto gap-2"
             >
               <MessageCircle className="h-4 w-4" />
               {pairingLoading ? "Empezando…" : "Conectar Telegram"}
             </Button>
+
+            {status?.can_manage === false && (
+              <p className="text-xs text-muted-foreground">
+                Solo el dueño o un administrador puede conectar Telegram.
+              </p>
+            )}
 
             {pairingError && (
               <Alert variant="destructive">

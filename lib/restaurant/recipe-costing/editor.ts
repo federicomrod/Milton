@@ -9,6 +9,7 @@
 // Costs always come from the costing engine against the catalog's latest
 // price. Nothing here invents a number or creates an ingredient.
 
+import { similarIngredients } from "@/lib/restaurant/ingredient-duplicates";
 import {
   calculateMenuItemCost,
   getLatestIngredientCost,
@@ -93,6 +94,10 @@ export interface EditorLine {
   flags: string[];
   /** An old price copy on this ingredient line (never used for costing). */
   legacy_price?: { unit_cost: number; unit: string } | null;
+  /** A preparation line with no cost: which ingredients of the preparation have no price. */
+  component_missing?: string[];
+  /** A likely typo of an existing preparation / ingredient (only a hint; nothing is changed). */
+  name_hint?: { name: string; kind: "component" | "ingredient" } | null;
   reasons: string[];
   possible_match: PossibleMatch | null;
   /** Position in the cached evidence this line came from (null if added). */
@@ -147,6 +152,8 @@ export interface LineCost {
   amount: number | null;
   unit_cost: number | null;
   reason: "no_price" | "unit" | "component" | null;
+  /** A preparation line with no cost: the ingredients of the preparation that have no price. */
+  missing_ingredients: string[];
 }
 
 /** Cost one input by running it through the real engine on its own. */
@@ -172,7 +179,12 @@ export function costInput(
   if (result.status === "complete" && result.cost !== null) {
     const unitCost =
       input.quantity > 0 ? result.cost / input.quantity : result.cost;
-    return { amount: result.cost, unit_cost: unitCost, reason: null };
+    return {
+      amount: result.cost,
+      unit_cost: unitCost,
+      reason: null,
+      missing_ingredients: [],
+    };
   }
   const issue = [result.status, ...result.issues.map((i) => i.kind)].join(" ");
   const reason = /no_cost_entries/.test(issue)
@@ -182,7 +194,19 @@ export function costInput(
       : input.input_type === "component"
         ? "component"
         : "no_price";
-  return { amount: null, unit_cost: null, reason };
+  // What blocks a preparation: its ingredients that have no price yet.
+  const missing_ingredients =
+    input.input_type === "component"
+      ? [
+          ...new Set(
+            result.issues
+              .filter((i) => i.kind === "no_cost_entries")
+              .map((i) => i.path[i.path.length - 1])
+              .filter((n): n is string => !!n)
+          ),
+        ]
+      : [];
+  return { amount: null, unit_cost: null, reason, missing_ingredients };
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +227,32 @@ export interface CatalogNames {
  * person) become lines of their own. Evidence lines that are still pending
  * stay as unresolved lines.
  */
+/** «¿Es CHIMICHURRI (preparación)?»: a likely typo, never applied automatically. */
+function nameHintFor(
+  name: string | null,
+  ownId: string | null,
+  hints: {
+    ingredients: ReadonlyMap<string, string>;
+    components: ReadonlyMap<string, string>;
+  }
+): { name: string; kind: "component" | "ingredient" } | null {
+  if (!name) return null;
+  const quick = (other: string) =>
+    other[0]?.toLowerCase() === name[0]?.toLowerCase() &&
+    Math.abs(other.length - name.length) <= 2;
+  for (const other of hints.components.values()) {
+    if (quick(other) && similarIngredients(name, other) !== null) {
+      return { name: other, kind: "component" };
+    }
+  }
+  for (const [id, other] of hints.ingredients) {
+    if (id === ownId || !quick(other)) continue;
+    const score = similarIngredients(name, other);
+    if (score !== null && score < 1) return { name: other, kind: "ingredient" };
+  }
+  return null;
+}
+
 export function hydrateLines(input: {
   data: CostingData;
   evidenceLines: readonly EvidenceLineIn[];
@@ -216,6 +266,11 @@ export function hydrateLines(input: {
    * ingredient's own conversion). A line with no amount stays pending.
    */
   readOnly?: boolean;
+  /** The open editor only: names to look for a likely typo of (not run for every dish). */
+  hints?: {
+    ingredients: ReadonlyMap<string, string>;
+    components: ReadonlyMap<string, string>;
+  };
 }): EditorLine[] {
   const { data, names } = input;
   const used = new Set<string>();
@@ -320,6 +375,12 @@ export function hydrateLines(input: {
           cost_source: row.cost_source ?? null,
         }),
       legacy_price: legacyPrice,
+      component_missing:
+        row.input_type === "component" ? cost.missing_ingredients : undefined,
+      name_hint:
+        input.hints && row.input_type === "ingredient" && cost.amount === null
+          ? nameHintFor(nameOfInput(row), row.ingredient_id, input.hints)
+          : null,
       cost_source: row.cost_source ?? null,
     };
   };

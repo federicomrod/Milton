@@ -105,8 +105,13 @@ function isBlankRow(cells: unknown[]): boolean {
   );
 }
 
-function isSheetTitle(cells: unknown[]): boolean {
-  return SHEET_TITLE_RE.test(foldLabel(firstText(cells)));
+function isSheetTitle(cells: unknown[], isFirstContentRow = false): boolean {
+  if (SHEET_TITLE_RE.test(foldLabel(firstText(cells)))) return true;
+  // The first non-blank row of a tab, alone in its row and not a banner or
+  // footer, is the tab title whatever it says ("CASA DEMO — ENTRADAS").
+  if (!isFirstContentRow) return false;
+  const texts = cells.map(cellText).filter(Boolean);
+  return texts.length === 1 && !isBanner(cells) && !footerKind(cells);
 }
 
 function isBanner(cells: unknown[]): boolean {
@@ -476,9 +481,13 @@ function inferCostTotalFromLines(lines: RecipeLineCandidate[]): number | null {
 export function collectCostoRestauranteBlockNames(aoa: unknown[][]): string[] {
   const names: string[] = [];
   let phase: "idle" | "after_banner" | "in_block" = "idle";
+  let seenContent = false;
   for (const row of aoa) {
     const cells = rowCells(row);
-    if (isBlankRow(cells) || isSheetTitle(cells)) continue;
+    if (isBlankRow(cells)) continue;
+    const firstContent = !seenContent;
+    seenContent = true;
+    if (isSheetTitle(cells, firstContent)) continue;
     if (isBanner(cells)) {
       phase = "after_banner";
       continue;
@@ -645,10 +654,13 @@ export function collectCostoRestauranteBlocks(input: {
     pendingName = "";
   };
 
+  let seenContent = false;
   for (const [rowIndex, row] of input.aoa.entries()) {
     const cells = rowCells(row);
     if (isBlankRow(cells)) continue;
-    if (isSheetTitle(cells)) {
+    const firstContent = !seenContent;
+    seenContent = true;
+    if (isSheetTitle(cells, firstContent)) {
       skipped.push({
         tabName: input.tabName,
         rowIndex,

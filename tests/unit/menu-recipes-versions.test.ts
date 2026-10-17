@@ -143,7 +143,7 @@ describe("fetchMenuRecipesData — recipe versions", () => {
     expect(pendingRecipesLabel("es")).toBe("Pendiente de recetas");
   });
 
-  it("marks a component with only an in_review version as pending", async () => {
+  it("a component with only an in_review version costs as soon as every line is priced (approval does not gate cost)", async () => {
     const supabase = makeClient({
       prepared_components: [
         {
@@ -240,9 +240,9 @@ describe("fetchMenuRecipesData — recipe versions", () => {
       posRows: [],
     });
     const component = data.components.find((row) => row.id === "comp-1");
-    expect(component?.cost.status).toBe("missing_recipe");
-    expect(component?.cost.cost_per_output_unit).toBeNull();
-    expect(isPendingRecipeCostStatus(component!.cost.status)).toBe(true);
+    expect(component?.cost.status).toBe("complete");
+    expect(component?.cost.cost_per_output_unit).toBeCloseTo(0.15, 10);
+    expect(isPendingRecipeCostStatus(component!.cost.status)).toBe(false);
   });
 
   it("wires pending copy through menu, details, ingredients, and execute", () => {

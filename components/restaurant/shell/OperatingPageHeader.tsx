@@ -82,7 +82,7 @@ function AskMiltonHeaderButton({ lang }: { lang: PreferredLanguage }) {
     <button
       type="button"
       onClick={() => openAskMilton()}
-      className="hidden lg:inline-flex h-8 items-center rounded-lg bg-[#151c2c] px-3 text-xs font-semibold text-white hover:bg-[#26314a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+      className="hidden lg:inline-flex h-8 items-center rounded-lg bg-[#151c2c] px-3 text-xs font-semibold text-white hover:bg-[#26314a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
     >
       ✦ {t(lang, "Ask Milton", "Preguntar a Milton")}
     </button>

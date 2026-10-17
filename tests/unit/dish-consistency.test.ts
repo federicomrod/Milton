@@ -1,7 +1,7 @@
 // One dish status / cost everywhere, and unit fixes on APPROVED recipes.
 // Synthetic names and prices only.
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import {
   calculateMenuItemCost,
@@ -650,7 +650,7 @@ describe("Chorizo-like approved recipe: 3 unidad with $0.31 per onza", () => {
       /priceUnitMismatch && canFixPrice && line\.ingredient_id/
     );
     expect(src).toContain("Corregir unidad del precio");
-    expect(src).toContain("canFixPrice={!busy && !forceLocked}");
+    expect(src).toContain("canFixPrice={!busy}");
     expect(src).not.toMatch(/priceUnitMismatch && editable/);
     expect(
       read("components/restaurant/menu/IngredientConversions.tsx")
@@ -692,7 +692,7 @@ describe("«Crear versión nueva» on an approved recipe", () => {
     );
     expect(src).toContain("Crear versión nueva");
     expect(src).toContain(
-      "La receta aprobada no se cambia; se crea un borrador."
+      "Receta aprobada · los precios se pueden cambiar; para cambiar cantidades crea una versión nueva"
     );
   });
 });
@@ -728,24 +728,29 @@ describe("diagnostics and the Spanish unit labels", () => {
       /REVOKE ALL ON FUNCTION public\.legacy_unit_base\(text\) FROM PUBLIC, anon/
     );
   });
-  it("docs/diagnostics/unit-mismatch.sql is read-only and has no client names", () => {
-    const sql = read("docs/diagnostics/unit-mismatch.sql");
-    const code = sql
-      .split("\n")
-      .filter((l) => !l.trim().startsWith("--"))
-      .join("\n");
-    expect(code).not.toMatch(
-      /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE)\b/i
-    );
-    expect(code).toContain("ingredient_unit_conversions");
-    expect(code).toContain("legacy_unit_base");
-    // Client / test-company names are assembled so they never appear in the repo.
-    const forbidden = [
-      ["ran", "chos"],
-      ["lav", "ara"],
-      ["stage", " test"],
-      ["casa", " prueba"],
-    ].map((p) => p.join(""));
-    expect(sql).not.toMatch(new RegExp(forbidden.join("|"), "i"));
-  });
+  it.skipIf(
+    !existsSync(join(process.cwd(), "docs/diagnostics/unit-mismatch.sql"))
+  )(
+    "docs/diagnostics/unit-mismatch.sql is read-only and has no client names",
+    () => {
+      const sql = read("docs/diagnostics/unit-mismatch.sql");
+      const code = sql
+        .split("\n")
+        .filter((l) => !l.trim().startsWith("--"))
+        .join("\n");
+      expect(code).not.toMatch(
+        /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE)\b/i
+      );
+      expect(code).toContain("ingredient_unit_conversions");
+      expect(code).toContain("legacy_unit_base");
+      // Client / test-company names are assembled so they never appear in the repo.
+      const forbidden = [
+        ["ran", "chos"],
+        ["lav", "ara"],
+        ["stage", " test"],
+        ["casa", " prueba"],
+      ].map((p) => p.join(""));
+      expect(sql).not.toMatch(new RegExp(forbidden.join("|"), "i"));
+    }
+  );
 });

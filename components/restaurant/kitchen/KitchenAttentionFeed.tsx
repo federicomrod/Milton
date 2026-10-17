@@ -113,7 +113,7 @@ export function KitchenAttentionFeed({
                 className={
                   "px-2.5 py-1 rounded-md text-xs " +
                   (on
-                    ? "bg-background text-orange-700 font-semibold shadow-sm"
+                    ? "bg-background text-[#102a85] font-semibold shadow-sm"
                     : "text-muted-foreground")
                 }
               >

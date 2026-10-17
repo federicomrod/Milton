@@ -165,7 +165,7 @@ export const CORPORATE_COLOR_PALETTES = [
   { name: "Blue", color: "#3b82f6" },
   { name: "Green", color: "#10b981" },
   { name: "Purple", color: "#8b5cf6" },
-  { name: "Orange", color: "#f59e0b" },
+  { name: "Amber", color: "#f59e0b" },
   { name: "Red", color: "#ef4444" },
   { name: "Teal", color: "#14b8a6" },
   { name: "Pink", color: "#ec4899" },

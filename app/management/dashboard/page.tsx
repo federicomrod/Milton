@@ -65,8 +65,8 @@ export default async function ManagementDashboard() {
       icon: Table,
       href: "/management/data-tables",
       count: counts.dataTables,
-      color: "text-orange-600",
-      bgColor: "bg-orange-50",
+      color: "text-[#1B40C8]",
+      bgColor: "bg-[#eef2fd]",
     },
   ];
 

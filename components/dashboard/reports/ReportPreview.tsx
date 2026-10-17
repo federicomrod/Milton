@@ -196,7 +196,7 @@ function getSectionColor(sectionId: string): string {
     executiveOverview: "from-blue-50 to-blue-100 border-blue-500",
     studioPerformance: "from-green-50 to-green-100 border-green-500",
     classesUtilization: "from-purple-50 to-purple-100 border-purple-500",
-    members: "from-orange-50 to-orange-100 border-orange-500",
+    members: "from-blue-50 to-blue-100 border-blue-500",
     instructors: "from-pink-50 to-pink-100 border-pink-500",
     financials: "from-teal-50 to-teal-100 border-teal-500",
     cashFlow: "from-indigo-50 to-indigo-100 border-indigo-500",

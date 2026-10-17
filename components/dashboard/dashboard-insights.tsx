@@ -521,7 +521,7 @@ export function DashboardInsights({
         };
       case "warning":
         return {
-          gradient: "from-amber-500/10 via-yellow-500/5 to-orange-500/10",
+          gradient: "from-amber-500/10 via-yellow-500/5 to-yellow-500/10",
           border: "border-amber-500/20",
           icon: AlertTriangle,
           iconColor: "text-amber-500",

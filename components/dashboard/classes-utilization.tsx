@@ -272,13 +272,13 @@ export function ClassesUtilization({
               kpiValue > 20
                 ? "text-red-600"
                 : kpiValue > 10
-                  ? "text-orange-600"
+                  ? "text-amber-600"
                   : "text-yellow-600";
             valueColor =
               kpiValue > 20
                 ? "text-red-600"
                 : kpiValue > 10
-                  ? "text-orange-600"
+                  ? "text-amber-600"
                   : "text-yellow-600";
             format = "percentage";
             suffix = "%";
@@ -288,13 +288,13 @@ export function ClassesUtilization({
               kpiValue > 20
                 ? "text-red-600"
                 : kpiValue > 10
-                  ? "text-orange-600"
+                  ? "text-amber-600"
                   : "text-yellow-600";
             valueColor =
               kpiValue > 20
                 ? "text-red-600"
                 : kpiValue > 10
-                  ? "text-orange-600"
+                  ? "text-amber-600"
                   : "text-yellow-600";
             format = "percentage";
             suffix = "%";
@@ -308,13 +308,13 @@ export function ClassesUtilization({
                 ? "text-green-600"
                 : kpiValue > 50
                   ? "text-yellow-600"
-                  : "text-orange-600";
+                  : "text-amber-600";
             valueColor =
               kpiValue > 75
                 ? "text-green-600"
                 : kpiValue > 50
                   ? "text-yellow-600"
-                  : "text-orange-600";
+                  : "text-amber-600";
             format = "percentage";
             suffix = "%";
           }
@@ -438,7 +438,7 @@ export function ClassesUtilization({
                     "#8b5cf6", // purple
                     "#ec4899", // pink
                     "#14b8a6", // teal
-                    "#f59e0b", // orange
+                    "#f59e0b", // amber
                     "#60a5fa", // light blue
                   ];
                   return (

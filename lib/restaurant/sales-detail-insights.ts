@@ -31,8 +31,8 @@ const WEEKDAYS = [
   "domingo",
 ];
 
-/** Where the day is split when there are no shifts: before / from 4 pm. */
-export const DAY_SPLIT_HOUR = 16;
+/** Where the day is split when there are no shifts: before / from 5 pm (the 17:00 lunch / dinner default). */
+export const DAY_SPLIT_HOUR = 17;
 
 const pct = (n: number) => `${Math.round(n)}%`;
 

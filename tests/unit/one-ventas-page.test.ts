@@ -16,6 +16,7 @@ import {
   type DetailState,
 } from "@/lib/restaurant/sales-detail";
 import {
+  DAY_SPLIT_HOUR,
   dimensionLeader,
   leaderLabel,
   salesFacts,
@@ -219,9 +220,24 @@ describe("«Lo que destaca» comes from the cube and follows the filters", () =>
     // with shiftsVisible=false there are no shift cards
     expect(facts[2].id).toBe("franja");
     expect(facts[2].body).toMatch(
-      /Antes de las 16h: \d+% · desde las 16h: \d+%/
+      /Antes de las 17h: \d+% · desde las 17h: \d+%/
     );
     expect(salesFacts(view(week(), { channels: ["nope"] }), fmt)).toEqual([]);
+  });
+});
+
+describe("the lunch / dinner split matches the 17:00 default", () => {
+  it("DAY_SPLIT_HOUR is 17", () => {
+    expect(DAY_SPLIT_HOUR).toBe(17);
+  });
+  it("a 16:30 order is lunch and a 17:30 one is dinner", () => {
+    const lines: L[] = [
+      { date: "2026-07-27", time: "16:30", order: "a", net: 100 },
+      { date: "2026-07-27", time: "17:30", order: "b", net: 300 },
+    ];
+    const facts = salesFacts(view(lines, {}, false), fmt);
+    const franja = facts.find((f) => f.id === "franja")!;
+    expect(franja.body).toBe("Antes de las 17h: 25% · desde las 17h: 75%");
   });
 });
 

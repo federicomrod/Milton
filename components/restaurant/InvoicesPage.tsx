@@ -16,6 +16,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { markTabsStale } from "@/lib/restaurant/recipe-costing/menu-tab-cache";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
 import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
 import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
@@ -35,14 +37,100 @@ import {
   ImageIcon,
   Trash2,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+
 import { INVOICE_UPLOAD_ANCHOR } from "@/lib/restaurant/costs-tabs";
 import type {
   SupplierInvoiceLine,
   InvoiceEvent,
 } from "@/types/supplier-invoices";
+
+// ---------------------------------------------------------------------------
+// Local UI primitives (match the redesigned app look)
+// ---------------------------------------------------------------------------
+
+const CARD_CLS = "rounded-[14px] border border-[#eef0f4] bg-white";
+const CARD_TITLE_CLS =
+  "text-[13px] font-bold text-[#151c2c] flex items-center gap-2";
+const INPUT_CLS =
+  "w-full rounded-lg border border-[#e3e7ee] bg-white px-3 text-[13px] text-[#151c2c] focus:border-[#1B40C8] focus:outline-none focus:ring-2 focus:ring-[#c6d3f5] disabled:opacity-60";
+const SELECT_CLS =
+  "w-full h-9 rounded-lg border border-[#e3e7ee] bg-white px-3 text-[13px] text-[#151c2c] focus:border-[#1B40C8] focus:outline-none focus:ring-2 focus:ring-[#c6d3f5] disabled:opacity-60";
+const SELECT_SM_CLS =
+  "w-full h-8 rounded-lg border border-[#e3e7ee] bg-white px-2 text-xs text-[#151c2c] focus:border-[#1B40C8] focus:outline-none focus:ring-2 focus:ring-[#c6d3f5] disabled:opacity-60";
+const LABEL_CLS = "text-xs font-semibold text-[#6b7385]";
+const BADGE_CLS =
+  "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold";
+
+function Card({
+  className = "",
+  flush = false,
+  children,
+}: {
+  className?: string;
+  flush?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className={`${CARD_CLS} ${flush ? "" : "px-4 py-3.5"} ${className}`}
+    >
+      {children}
+    </section>
+  );
+}
+
+function CardTitle({ children }: { children: React.ReactNode }) {
+  return <h3 className={CARD_TITLE_CLS}>{children}</h3>;
+}
+
+/** Text input. Call sites that pass `h-7`/`h-8` get the compact (32px) height. */
+function Input({
+  className = "",
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement>) {
+  const compact = /\bh-[78]\b/.test(className);
+  const extra = className.replace(/\bh-[78]\b|\btext-xs\b/g, "").trim();
+  return (
+    <input
+      className={`${INPUT_CLS} ${compact ? "h-8" : "h-9"} ${extra}`}
+      {...props}
+    />
+  );
+}
+
+type BtnVariant = "primary" | "secondary" | "danger";
+
+/** Brand button: one primary per card, everything else secondary / danger. */
+function Button({
+  variant = "primary",
+  size = "md",
+  className = "",
+  type = "button",
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: BtnVariant;
+  size?: "md" | "sm" | "icon";
+}) {
+  const v =
+    variant === "primary"
+      ? "bg-[#1B40C8] text-white hover:bg-[#1535a6] disabled:bg-[#b9c7f0] disabled:text-white"
+      : variant === "danger"
+        ? "border border-red-500 bg-white text-red-600 hover:bg-red-50 disabled:border-red-200 disabled:text-red-200"
+        : "border border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#f6f8fe] disabled:border-[#b9c7f0] disabled:text-[#b9c7f0]";
+  const sz =
+    size === "icon"
+      ? "h-8 w-8 p-0"
+      : size === "sm"
+        ? "h-8 px-2.5"
+        : "h-9 px-3.5";
+  return (
+    <button
+      type={type}
+      className={`inline-flex items-center justify-center gap-1 rounded-lg text-[13px] font-semibold transition-colors disabled:cursor-not-allowed ${sz} ${v} ${className}`}
+      {...props}
+    />
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Shared types (server page → here)
@@ -79,20 +167,34 @@ interface SupplierLite {
   name: string;
 }
 
+const STATUS_LABEL: Record<string, string> = {
+  draft: "Borrador",
+  needs_review: "Por revisar",
+  approved: "Aprobada",
+  rejected: "Rechazada",
+  posted: "Publicada",
+};
+const SOURCE_LABEL: Record<string, string> = {
+  csv: "CSV",
+  xlsx: "Excel",
+  manual: "Manual",
+  image: "Foto",
+  pdf: "PDF",
+};
+const statusLabel = (st: string) => STATUS_LABEL[st] ?? st;
+
 const STATUS_STYLE: Record<string, string> = {
-  draft: "bg-muted text-muted-foreground",
-  needs_review:
-    "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200",
-  approved: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200",
-  rejected: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200",
-  posted:
-    "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200",
+  draft: "bg-gray-100 text-gray-600",
+  needs_review: "bg-amber-100 text-amber-800",
+  approved: "bg-[#eef2fd] text-[#1B40C8]",
+  rejected: "bg-red-100 text-red-700",
+  posted: "bg-green-100 text-green-800",
 };
 
 function fmtMoney(n: number | null | undefined, currency: string): string {
   if (typeof n !== "number" || !Number.isFinite(n)) return "—";
   const safe = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
-  const locale = safe === "MXN" ? "es-MX" : "en-US";
+  const locale = "es-MX";
   try {
     return new Intl.NumberFormat(locale, {
       style: "currency",
@@ -180,9 +282,9 @@ export function InvoicesPage({
         <div className="flex items-center justify-end">
           <Button
             size="sm"
-            variant="ghost"
-            className="gap-1"
+            variant="secondary"
             onClick={refreshList}
+            disabled={refreshing}
           >
             <RefreshCw
               className={"h-3.5 w-3.5 " + (refreshing ? "animate-spin" : "")}
@@ -300,7 +402,7 @@ function UploadCard({
       setSummary(body.summary);
       await onUploaded();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error");
+      setError(err instanceof Error ? err.message : "Error de red");
     } finally {
       setBusy(false);
     }
@@ -308,13 +410,16 @@ function UploadCard({
 
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <Upload className="h-4 w-4" />
-          Upload CSV / XLSX
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
+      <div className="mb-2.5">
+        <CardTitle>
+          <Upload className="h-4 w-4 text-[#1B40C8]" /> Subir CSV / Excel{" "}
+        </CardTitle>{" "}
+      </div>{" "}
+      <div className="space-y-3">
+        <p className="text-xs text-[#6b7385]">
+          Sube un archivo con tus facturas de proveedores. Se crean como
+          borradores para que las revises.{" "}
+        </p>
         <form onSubmit={onSubmit} className="space-y-2">
           <Input
             type="file"
@@ -322,23 +427,17 @@ function UploadCard({
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             disabled={busy}
           />
-          <Button
-            type="submit"
-            size="sm"
-            disabled={!file || busy}
-            className="bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
-          >
-            {busy ? "Uploading…" : "Upload invoices"}
+          <Button type="submit" disabled={!file || busy}>
+            {busy ? "Subiendo…" : "Subir facturas"}
           </Button>
         </form>
-
         <details className="text-xs">
-          <summary className="cursor-pointer text-muted-foreground">
-            Expected columns
+          <summary className="cursor-pointer text-[#6b7385]">
+            Columnas esperadas
           </summary>
-          <div className="mt-2 space-y-1 text-muted-foreground">
+          <div className="mt-2 space-y-1 text-[#6b7385]">
             <p>
-              Required: <span className="font-mono">supplier_name</span>,{" "}
+              Obligatorias: <span className="font-mono">supplier_name</span>,{" "}
               <span className="font-mono">invoice_number</span>,{" "}
               <span className="font-mono">invoice_date</span>,{" "}
               <span className="font-mono">description</span>,{" "}
@@ -347,7 +446,7 @@ function UploadCard({
               <span className="font-mono">line_total</span>.
             </p>
             <p>
-              Optional: <span className="font-mono">due_date</span>,{" "}
+              Opcionales: <span className="font-mono">due_date</span>,{" "}
               <span className="font-mono">supplier_item_name</span>,{" "}
               <span className="font-mono">supplier_sku</span>,{" "}
               <span className="font-mono">ingredient_name</span>,{" "}
@@ -357,51 +456,54 @@ function UploadCard({
               <span className="font-mono">notes</span>.
             </p>
             <p>
-              Rows with the same{" "}
+              Las filas con el mismo{" "}
               <span className="font-mono">
                 supplier_name + invoice_number + invoice_date
               </span>{" "}
-              are grouped into one invoice. New invoices land in{" "}
-              <span className="font-mono">needs_review</span>.
+              se agrupan en una sola factura. Las facturas nuevas quedan en
+              estado <strong>Por revisar</strong>. Los nombres de las columnas
+              van en inglés porque el archivo los necesita así.
             </p>
           </div>
         </details>
-
-        {error && (
-          <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
-        )}
-
+        {error && <p className="text-xs text-red-600">{error}</p>}
         {summary && (
-          <div className="rounded-md border border-border bg-muted/30 p-3 text-xs space-y-1">
+          <div className="rounded-lg border border-[#eef0f4] bg-[#f9fafc] p-3 text-xs space-y-1">
             <p>
-              <strong>{summary.invoices_created}</strong> invoice
-              {summary.invoices_created === 1 ? "" : "s"} created with{" "}
-              <strong>{summary.lines_inserted}</strong> line
-              {summary.lines_inserted === 1 ? "" : "s"}.
+              <strong>{summary.invoices_created}</strong>{" "}
+              {summary.invoices_created === 1
+                ? "factura creada"
+                : "facturas creadas"}{" "}
+              con <strong>{summary.lines_inserted}</strong>{" "}
+              {summary.lines_inserted === 1 ? "línea" : "líneas"}.
             </p>
-            <p className="text-muted-foreground">
-              {summary.suppliers_created} new supplier
-              {summary.suppliers_created === 1 ? "" : "s"} ·{" "}
-              {summary.auto_matched_lines} auto-matched ·{" "}
-              {summary.unmatched_lines} unmatched
+            <p className="text-[#6b7385]">
+              {summary.suppliers_created}{" "}
+              {summary.suppliers_created === 1
+                ? "proveedor nuevo"
+                : "proveedores nuevos"}{" "}
+              · {summary.auto_matched_lines} con coincidencia automática ·{" "}
+              {summary.unmatched_lines} sin coincidencia
               {summary.default_currency
-                ? ` · currency ${summary.default_currency}`
+                ? ` · moneda ${summary.default_currency}`
                 : ""}
               .
             </p>
             {summary.warning && (
-              <p className="text-muted-foreground">{summary.warning}</p>
+              <p className="text-[#6b7385]">{summary.warning}</p>
             )}
             {summary.failed_rows && summary.failed_rows.length > 0 && (
               <details className="mt-2">
                 <summary className="cursor-pointer text-amber-600">
-                  {summary.failed_rows.length} failed row
-                  {summary.failed_rows.length === 1 ? "" : "s"}
+                  {summary.failed_rows.length}{" "}
+                  {summary.failed_rows.length === 1
+                    ? "fila con error"
+                    : "filas con error"}
                 </summary>
                 <ul className="mt-1 space-y-0.5">
                   {summary.failed_rows.slice(0, 8).map((f) => (
-                    <li key={f.rowIndex} className="text-muted-foreground">
-                      Row {f.rowIndex}: {f.reason}
+                    <li key={f.rowIndex} className="text-[#6b7385]">
+                      Fila {f.rowIndex}: {f.reason}
                       {f.description ? ` — ${f.description}` : ""}
                     </li>
                   ))}
@@ -409,13 +511,11 @@ function UploadCard({
               </details>
             )}
           </div>
-        )}
-      </CardContent>
+        )}{" "}
+      </div>{" "}
     </Card>
   );
-}
-
-// ---------------------------------------------------------------------------
+} // ---------------------------------------------------------------------------
 // Manual create card
 // ---------------------------------------------------------------------------
 
@@ -472,7 +572,7 @@ function ManualCreateCard({
       setNotes("");
       await onCreated(j.invoice.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error");
+      setError(err instanceof Error ? err.message : "Error de red");
     } finally {
       setBusy(false);
     }
@@ -480,23 +580,22 @@ function ManualCreateCard({
 
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <Plus className="h-4 w-4" />
-          Create invoice manually
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+      <div className="mb-2.5">
+        <CardTitle>
+          <Plus className="h-4 w-4 text-[#1B40C8]" /> Crear factura a mano{" "}
+        </CardTitle>{" "}
+      </div>{" "}
+      <div>
         <form onSubmit={submit} className="grid grid-cols-2 gap-2">
           <label className="col-span-2 text-xs">
-            <span className="text-muted-foreground">Supplier</span>
+            <span className={LABEL_CLS}>Proveedor</span>
             <select
-              className="mt-1 w-full h-8 rounded-md border border-border bg-background px-2 text-xs"
+              className={`mt-1 ${SELECT_CLS}`}
               value={supplierId}
               onChange={(e) => setSupplierId(e.target.value)}
               disabled={busy}
             >
-              <option value="">— New supplier —</option>
+              <option value="">— Proveedor nuevo —</option>
               {suppliers.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -506,7 +605,7 @@ function ManualCreateCard({
             {!supplierId && (
               <Input
                 className="mt-1 h-8 text-xs"
-                placeholder="New supplier name"
+                placeholder="Nombre del proveedor nuevo"
                 value={supplierName}
                 onChange={(e) => setSupplierName(e.target.value)}
                 disabled={busy}
@@ -515,7 +614,7 @@ function ManualCreateCard({
           </label>
 
           <label className="text-xs">
-            <span className="text-muted-foreground">Invoice number</span>
+            <span className={LABEL_CLS}>Nº de factura</span>
             <Input
               className="mt-1 h-8 text-xs"
               value={invoiceNumber}
@@ -524,7 +623,7 @@ function ManualCreateCard({
             />
           </label>
           <label className="text-xs">
-            <span className="text-muted-foreground">Invoice date</span>
+            <span className={LABEL_CLS}>Fecha</span>
             <Input
               type="date"
               className="mt-1 h-8 text-xs"
@@ -536,7 +635,7 @@ function ManualCreateCard({
           </label>
 
           <label className="text-xs">
-            <span className="text-muted-foreground">Currency</span>
+            <span className={LABEL_CLS}>Moneda</span>
             <Input
               className="mt-1 h-8 text-xs uppercase"
               value={currency}
@@ -548,7 +647,7 @@ function ManualCreateCard({
             />
           </label>
           <label className="text-xs">
-            <span className="text-muted-foreground">Total amount</span>
+            <span className={LABEL_CLS}>Total</span>
             <Input
               type="number"
               step="0.01"
@@ -560,7 +659,7 @@ function ManualCreateCard({
           </label>
 
           <label className="col-span-2 text-xs">
-            <span className="text-muted-foreground">Notes</span>
+            <span className={LABEL_CLS}>Notas</span>
             <Input
               className="mt-1 h-8 text-xs"
               value={notes}
@@ -570,25 +669,17 @@ function ManualCreateCard({
           </label>
 
           <div className="col-span-2 flex items-center gap-2">
-            <Button
-              type="submit"
-              size="sm"
-              className="bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
-              disabled={busy}
-            >
-              {busy ? "Saving…" : "Create invoice"}
+            <Button type="submit" disabled={busy}>
+              {busy ? "Guardando…" : "Crear factura"}
             </Button>
-            {error && (
-              <span className="text-xs text-red-600 dark:text-red-400">
-                {error}
-              </span>
-            )}
+            {error && <span className="text-xs text-red-600">{error}</span>}
           </div>
         </form>
-        <p className="text-xs text-muted-foreground mt-2">
-          Creates a draft header. Add lines from the review panel below.
-        </p>
-      </CardContent>
+        <p className="text-xs text-[#6b7385] mt-2">
+          Crea el encabezado como borrador. Agrega las líneas desde el panel de
+          revisión que aparece abajo.{" "}
+        </p>{" "}
+      </div>
     </Card>
   );
 }
@@ -630,142 +721,137 @@ function InvoiceListCard({
   if (invoices.length === 0) {
     return (
       <Card>
-        <CardContent className="px-6 py-10 text-center">
-          <Receipt className="h-8 w-8 text-muted-foreground/50 mx-auto mb-3" />
-          <p className="text-sm font-medium text-muted-foreground">
-            No invoices yet
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Upload a file or create one manually to start tracking supplier
-            costs.
-          </p>
-        </CardContent>
+        <div className="px-6 py-8 text-center">
+          <Receipt className="h-8 w-8 text-[#b9c7f0] mx-auto mb-3" />{" "}
+          <p className="text-[13px] font-bold text-[#151c2c]">
+            Aún no hay facturas{" "}
+          </p>{" "}
+          <p className="text-xs text-[#6b7385] mt-1">
+            Sube un archivo o crea una factura a mano para empezar a registrar
+            los costos de tus proveedores.{" "}
+          </p>{" "}
+        </div>{" "}
       </Card>
     );
   }
 
   return (
-    <Card>
-      <CardContent className="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b border-border bg-muted/40">
-              <tr className="text-left text-xs text-muted-foreground">
-                <SortTh
-                  sortKey="supplier"
-                  sort={sort}
-                  onSort={toggle}
-                  className="px-4 py-3 font-medium"
-                >
-                  Supplier
-                </SortTh>
-                <SortTh
-                  sortKey="number"
-                  sort={sort}
-                  onSort={toggle}
-                  className="px-4 py-3 font-medium"
-                >
-                  Invoice #
-                </SortTh>
-                <SortTh
-                  sortKey="date"
-                  sort={sort}
-                  onSort={toggle}
-                  className="px-4 py-3 font-medium"
-                >
-                  Date
-                </SortTh>
-                <SortTh
-                  sortKey="total"
-                  sort={sort}
-                  onSort={toggle}
-                  align="right"
-                  className="px-4 py-3 font-medium"
-                >
-                  Total
-                </SortTh>
-                <SortTh
-                  sortKey="status"
-                  sort={sort}
-                  onSort={toggle}
-                  className="px-4 py-3 font-medium"
-                >
-                  Status
-                </SortTh>
-                <SortTh
-                  sortKey="lines"
-                  sort={sort}
-                  onSort={toggle}
-                  className="px-4 py-3 font-medium"
-                >
-                  Lines (matched / total)
-                </SortTh>
-                <th className="px-4 py-3 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((inv, i) => (
-                <tr
-                  key={inv.id}
-                  className={
-                    (i % 2 === 1 ? "bg-muted/20" : "bg-background") +
-                    " border-b border-border last:border-0"
-                  }
-                >
-                  <td className="px-4 py-3">
-                    {inv.supplier_name ?? (
-                      <span className="text-muted-foreground italic">
-                        (no supplier)
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs">
-                    {inv.invoice_number ?? "—"}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                    {fmtDate(inv.invoice_date)}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {fmtMoney(inv.total_amount, inv.currency)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`text-xs uppercase tracking-wide px-1.5 py-0.5 rounded font-medium ${STATUS_STYLE[inv.status] ?? ""}`}
-                    >
-                      {inv.status}
+    <Card flush>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[13px]">
+          <thead className="border-b border-[#eef0f4] bg-[#f9fafc]">
+            <tr className="text-left text-xs text-[#6b7385]">
+              <SortTh
+                sortKey="supplier"
+                sort={sort}
+                onSort={toggle}
+                className="px-4 py-3 font-medium"
+              >
+                Proveedor
+              </SortTh>
+              <SortTh
+                sortKey="number"
+                sort={sort}
+                onSort={toggle}
+                className="px-4 py-3 font-medium"
+              >
+                Nº de factura{" "}
+              </SortTh>
+              <SortTh
+                sortKey="date"
+                sort={sort}
+                onSort={toggle}
+                className="px-4 py-3 font-medium"
+              >
+                Fecha{" "}
+              </SortTh>
+              <SortTh
+                sortKey="total"
+                sort={sort}
+                onSort={toggle}
+                align="right"
+                className="px-4 py-3 font-medium"
+              >
+                Total
+              </SortTh>
+              <SortTh
+                sortKey="status"
+                sort={sort}
+                onSort={toggle}
+                className="px-4 py-3 font-medium"
+              >
+                Estado{" "}
+              </SortTh>
+              <SortTh
+                sortKey="lines"
+                sort={sort}
+                onSort={toggle}
+                className="px-4 py-3 font-medium"
+              >
+                Líneas (asignadas / total){" "}
+              </SortTh>
+              <th className="px-4 py-3 font-medium" />
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((inv, i) => (
+              <tr
+                key={inv.id}
+                className={
+                  (i % 2 === 1 ? "bg-[#f9fafc]" : "bg-white") +
+                  " border-b border-[#eef0f4] last:border-0"
+                }
+              >
+                <td className="px-4 py-3">
+                  {inv.supplier_name ?? (
+                    <span className="text-[#6b7385] italic">
+                      (sin proveedor)
                     </span>
-                  </td>
-                  <td className="px-4 py-3 text-xs">
-                    {inv.line_counts.matched} / {inv.line_counts.total}
-                    {inv.line_counts.unmatched > 0 && (
-                      <span className="ml-1 text-amber-600 dark:text-amber-400">
-                        · {inv.line_counts.unmatched} unmatched
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Button
-                      size="sm"
-                      variant={reviewingId === inv.id ? "default" : "outline"}
-                      className="h-7 text-xs"
-                      onClick={() =>
-                        onReview(reviewingId === inv.id ? "" : inv.id)
-                      }
-                    >
-                      {reviewingId === inv.id ? "Hide" : "Review"}
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
+                  )}
+                </td>
+                <td className="px-4 py-3 font-mono text-xs">
+                  {inv.invoice_number ?? "—"}
+                </td>
+                <td className="px-4 py-3 text-[#6b7385] whitespace-nowrap">
+                  {fmtDate(inv.invoice_date)}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {fmtMoney(inv.total_amount, inv.currency)}
+                </td>
+                <td className="px-4 py-3">
+                  <span
+                    className={`${BADGE_CLS} ${STATUS_STYLE[inv.status] ?? ""}`}
+                  >
+                    {statusLabel(inv.status)}{" "}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-xs">
+                  {inv.line_counts.matched} / {inv.line_counts.total}
+                  {inv.line_counts.unmatched > 0 && (
+                    <span className="ml-1 text-amber-600">
+                      · {inv.line_counts.unmatched} sin asignar
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      onReview(reviewingId === inv.id ? "" : inv.id)
+                    }
+                  >
+                    {reviewingId === inv.id ? "Ocultar" : "Revisar"}
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>{" "}
+      </div>{" "}
     </Card>
   );
-}
-
-// ---------------------------------------------------------------------------
+} // ---------------------------------------------------------------------------
 // Review detail
 // ---------------------------------------------------------------------------
 
@@ -788,6 +874,7 @@ function ReviewDetail({
   onClose: () => void;
   onChanged: () => Promise<void> | void;
 }) {
+  const router = useRouter();
   const [data, setData] = useState<ReviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -814,7 +901,7 @@ function ReviewDetail({
       }
       setData(body as ReviewData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error");
+      setError(err instanceof Error ? err.message : "Error de red");
     } finally {
       setLoading(false);
     }
@@ -879,7 +966,7 @@ function ReviewDetail({
       void onChanged();
       return true;
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Network error");
+      alert(err instanceof Error ? err.message : "Error de red");
       return false;
     }
   };
@@ -906,10 +993,14 @@ function ReviewDetail({
         skipped_lines: body.skipped_lines ?? [],
         next_steps: body.next_steps ?? "",
       });
+      // The price now lives in ingredient_cost_entries: every page that shows
+      // it (Menú, Costos, Cockpit) must read it again.
+      markTabsStale();
       await load();
       void onChanged();
+      router.refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Network error");
+      alert(err instanceof Error ? err.message : "Error de red");
     } finally {
       setPostingBusy(false);
     }
@@ -918,18 +1009,16 @@ function ReviewDetail({
   if (loading) {
     return (
       <Card>
-        <CardContent className="px-6 py-6 text-sm text-muted-foreground">
-          Loading invoice…
-        </CardContent>
+        <div className="text-[13px] text-[#6b7385]">Cargando factura…</div>{" "}
       </Card>
     );
   }
   if (error || !data) {
     return (
       <Card>
-        <CardContent className="px-6 py-6 text-sm text-red-600 dark:text-red-400">
-          {error ?? "Could not load invoice"}
-        </CardContent>
+        <div className="text-[13px] text-red-600">
+          {error ?? "No se pudo cargar la factura"}{" "}
+        </div>{" "}
       </Card>
     );
   }
@@ -945,23 +1034,20 @@ function ReviewDetail({
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <div className="mb-2.5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <CardTitle>
             <FileText className="h-4 w-4 text-[#1B40C8]" />
-            {inv.supplier_name ?? "(no supplier)"} ·{" "}
+            {inv.supplier_name ?? "(sin proveedor)"} ·{" "}
             <span className="font-mono">{inv.invoice_number ?? "—"}</span>
-            <span
-              className={`text-xs uppercase tracking-wide px-1.5 py-0.5 rounded font-medium ${STATUS_STYLE[inv.status] ?? ""}`}
-            >
-              {inv.status}
+            <span className={`${BADGE_CLS} ${STATUS_STYLE[inv.status] ?? ""}`}>
+              {statusLabel(inv.status)}{" "}
             </span>
           </CardTitle>
           <div className="flex items-center gap-2">
             <Button
               size="sm"
-              variant="outline"
-              className="h-7 text-xs"
+              variant="secondary"
               onClick={() => setShowEvents((v) => !v)}
             >
               {showEvents ? (
@@ -969,42 +1055,36 @@ function ReviewDetail({
               ) : (
                 <ChevronDown className="h-3.5 w-3.5" />
               )}
-              History
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-xs"
-              onClick={onClose}
-            >
-              Close
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
+              Historial{" "}
+            </Button>{" "}
+            <Button size="sm" variant="secondary" onClick={onClose}>
+              Cerrar{" "}
+            </Button>{" "}
+          </div>{" "}
+        </div>{" "}
+      </div>{" "}
+      <div className="space-y-3">
         {/* Header summary */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
           <div>
-            <div className="text-muted-foreground">Date</div>
+            <div className="text-[#6b7385]">Fecha</div>
             <div>{fmtDate(inv.invoice_date)}</div>
           </div>
           <div>
-            <div className="text-muted-foreground">Due</div>
+            <div className="text-[#6b7385]">Vencimiento</div>
             <div>{inv.due_date ? fmtDate(inv.due_date) : "—"}</div>
           </div>
           <div>
-            <div className="text-muted-foreground">Total</div>
+            <div className="text-[#6b7385]">Total</div>
             <div className="font-mono">
               {fmtMoney(inv.total_amount, inv.currency)}
             </div>
           </div>
           <div>
-            <div className="text-muted-foreground">Source</div>
-            <div className="font-mono">{inv.source_type}</div>
+            <div className="text-[#6b7385]">Origen</div>{" "}
+            <div>{SOURCE_LABEL[inv.source_type] ?? inv.source_type}</div>
           </div>
         </div>
-
         {/* Add-line + lines table */}
         <AddLineForm
           invoiceId={invoiceId}
@@ -1017,27 +1097,26 @@ function ReviewDetail({
           }}
           disabled={inv.status === "posted"}
         />
-
         {lines.length === 0 ? (
-          <p className="text-sm text-muted-foreground italic">
-            No lines yet. Add one above or upload a CSV/XLSX.
+          <p className="text-[13px] text-[#6b7385] italic">
+            Aún no hay líneas. Agrega una arriba o sube un CSV / Excel.
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead className="border-b border-border bg-muted/30 text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <thead className="border-b border-[#eef0f4] bg-[#f9fafc] text-left text-xs text-[#6b7385]">
                 <tr>
-                  <th className="px-2 py-2 font-medium">Description</th>
-                  <th className="px-2 py-2 font-medium">Ingredient</th>
-                  <th className="px-2 py-2 font-medium text-right">Qty</th>
-                  <th className="px-2 py-2 font-medium">Unit</th>
+                  <th className="px-2 py-2 font-medium">Descripción</th>
+                  <th className="px-2 py-2 font-medium">Ingrediente</th>
+                  <th className="px-2 py-2 font-medium text-right">Cant. </th>
+                  <th className="px-2 py-2 font-medium">Unidad</th>
                   <th className="px-2 py-2 font-medium text-right">
-                    Unit cost
-                  </th>
+                    Costo unitario{" "}
+                  </th>{" "}
                   <th className="px-2 py-2 font-medium text-right">
-                    Line total
-                  </th>
-                  <th className="px-2 py-2 font-medium">Review</th>
+                    Total de línea{" "}
+                  </th>{" "}
+                  <th className="px-2 py-2 font-medium">Revisión</th>
                   <th className="px-2 py-2 font-medium" />
                 </tr>
               </thead>
@@ -1057,78 +1136,80 @@ function ReviewDetail({
             </table>
           </div>
         )}
-
         {/* Post invoice CTA */}
-        <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-border">
-          <div className="text-xs text-muted-foreground">
-            {approvedMatched.length} of {lines.length} line
-            {lines.length === 1 ? "" : "s"} ready to post.
+        <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-[#eef0f4]">
+          <div className="text-xs text-[#6b7385]">
+            {approvedMatched.length} de {lines.length}{" "}
+            {lines.length === 1 ? "línea lista" : "líneas listas"} para
+            publicar.
           </div>
           <Button
-            size="sm"
-            className="bg-green-600 hover:bg-green-700 text-white border-0"
             onClick={postInvoice}
             disabled={!canPost || postingBusy}
             title={
               !canPost
-                ? "Approve and match at least one line first"
-                : "Write ingredient_cost_entries and mark invoice posted"
+                ? "Primero aprueba y asigna al menos una línea"
+                : "Registra los costos de los ingredientes y marca la factura como publicada"
             }
           >
-            {postingBusy ? "Posting…" : "Post invoice"}
+            {postingBusy ? "Publicando…" : "Publicar factura"}
           </Button>
         </div>
-
         {postResult && (
-          <div className="rounded-md border border-green-300 dark:border-green-900 bg-green-50 dark:bg-green-900/20 p-3 text-xs space-y-2">
-            <p className="font-medium text-green-800 dark:text-green-200">
-              Posted {postResult.posted_lines} cost{" "}
-              {postResult.posted_lines === 1 ? "entry" : "entries"}.
+          <div className="rounded-lg border border-green-300 bg-green-50 p-3 text-xs space-y-2">
+            <p className="font-semibold text-green-800">
+              {postResult.posted_lines === 1 ? "Se publicó" : "Se publicaron"}{" "}
+              {postResult.posted_lines}{" "}
+              {postResult.posted_lines === 1
+                ? "registro de costo"
+                : "registros de costo"}
+              .
             </p>
             {postResult.skipped_lines.length > 0 && (
               <details>
-                <summary className="cursor-pointer text-amber-700 dark:text-amber-300">
-                  {postResult.skipped_lines.length} line
-                  {postResult.skipped_lines.length === 1 ? "" : "s"} skipped
+                <summary className="cursor-pointer text-amber-700">
+                  {postResult.skipped_lines.length}{" "}
+                  {postResult.skipped_lines.length === 1
+                    ? "línea omitida"
+                    : "líneas omitidas"}
                 </summary>
                 <ul className="mt-1 space-y-0.5">
                   {postResult.skipped_lines.map((s, i) => (
-                    <li key={i} className="text-muted-foreground">
+                    <li key={i} className="text-[#6b7385]">
                       {s.description}: {s.reason}
                     </li>
                   ))}
                 </ul>
               </details>
             )}
-            <p className="text-foreground/80">
+            <p className="text-[#151c2c]">
               {postResult.next_steps}{" "}
               <Link
                 className="text-[#1B40C8] hover:underline"
                 href="/dashboard/restaurant/agents"
               >
-                Open Agent Control Center →
+                Abrir el Centro de agentes →
               </Link>
             </p>
           </div>
         )}
-
         {/* Event history */}
         {showEvents && (
-          <div className="rounded-md border border-border bg-muted/20 p-3 space-y-1.5 text-xs">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
-              Event history
+          <div className="rounded-lg border border-[#eef0f4] bg-[#f9fafc] p-3 space-y-1.5 text-xs">
+            <p className="text-xs font-semibold text-[#6b7385]">
+              Historial de eventos
             </p>
             {data.events.length === 0 ? (
-              <p className="text-muted-foreground">
-                No events yet for this invoice.
+              <p className="text-[#6b7385]">
+                Esta factura aún no tiene eventos.
               </p>
             ) : (
-              <ol className="border-l-2 border-border pl-3 space-y-1.5">
+              <ol className="border-l-2 border-[#eef0f4] pl-3 space-y-1.5">
                 {data.events.map((e) => (
                   <li key={e.id}>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-medium">{e.event_type}</span>
-                      <span className="text-xs text-muted-foreground ml-auto">
+                      <span className="text-xs text-[#6b7385] ml-auto">
                         {new Date(e.created_at).toLocaleString("es-MX", {
                           day: "2-digit",
                           month: "2-digit",
@@ -1139,7 +1220,7 @@ function ReviewDetail({
                       </span>
                     </div>
                     {e.note && (
-                      <p className="text-xs italic text-muted-foreground">
+                      <p className="text-xs italic text-[#6b7385]">
                         “{e.note}”
                       </p>
                     )}
@@ -1148,21 +1229,23 @@ function ReviewDetail({
               </ol>
             )}
           </div>
-        )}
-      </CardContent>
+        )}{" "}
+      </div>{" "}
     </Card>
   );
-}
-
-// ---------------------------------------------------------------------------
+} // ---------------------------------------------------------------------------
 // Line row + add-line form
 // ---------------------------------------------------------------------------
 
 const REVIEW_STYLE: Record<string, string> = {
-  pending: "bg-muted text-muted-foreground",
-  approved:
-    "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200",
-  rejected: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200",
+  pending: "bg-gray-100 text-gray-600",
+  approved: "bg-green-100 text-green-800",
+  rejected: "bg-red-100 text-red-700",
+};
+const REVIEW_LABEL: Record<string, string> = {
+  pending: "Pendiente",
+  approved: "Aprobada",
+  rejected: "Rechazada",
 };
 
 function LineRow({
@@ -1226,13 +1309,15 @@ function LineRow({
   };
 
   return (
-    <tr className={(striped ? "bg-muted/15" : "") + " border-b border-border"}>
+    <tr
+      className={(striped ? "bg-[#f9fafc]" : "") + " border-b border-[#eef0f4]"}
+    >
       <td className="px-2 py-2 max-w-[260px]">
         <div className="truncate font-medium" title={line.description}>
           {line.description}
         </div>
         {(line.supplier_sku || line.supplier_item_name) && (
-          <div className="text-xs text-muted-foreground">
+          <div className="text-xs text-[#6b7385]">
             {[line.supplier_sku, line.supplier_item_name]
               .filter(Boolean)
               .join(" · ")}
@@ -1249,7 +1334,7 @@ function LineRow({
               {ingredientName}
             </div>
             <select
-              className="h-6 text-xs rounded border border-border bg-background px-1 w-full"
+              className={SELECT_SM_CLS}
               value={line.ingredient_id ?? ""}
               onChange={(e) => {
                 const v = e.target.value;
@@ -1260,14 +1345,14 @@ function LineRow({
                 void onChange({ ingredient_id: v || null });
               }}
               disabled={disabled || creatingNew}
-              aria-label="Change matched ingredient"
+              aria-label="Cambiar ingrediente asignado"
             >
-              <option value="">— Unmatch —</option>
+              <option value="">— Quitar asignación —</option>
               <option value={INGREDIENT_PICK_NEW}>
-                + Create new ingredient
-              </option>
+                + Crear ingrediente nuevo{" "}
+              </option>{" "}
               {ingredients.length > 0 && (
-                <optgroup label="Existing">
+                <optgroup label="Existentes">
                   {ingredients.map((i) => (
                     <option key={i.id} value={i.id}>
                       {i.name}
@@ -1279,11 +1364,11 @@ function LineRow({
           </div>
         ) : (
           <div className="space-y-1">
-            <span className="inline-flex items-center text-xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
-              Unmatched
+            <span className={`${BADGE_CLS} bg-amber-100 text-amber-800`}>
+              Sin asignar
             </span>
             <select
-              className="h-6 text-xs rounded border border-border bg-background px-1 w-full"
+              className={SELECT_SM_CLS}
               value=""
               onChange={(e) => {
                 const v = e.target.value;
@@ -1294,14 +1379,14 @@ function LineRow({
                 void onChange({ ingredient_id: v || null });
               }}
               disabled={disabled || creatingNew}
-              aria-label="Match to ingredient"
+              aria-label="Asignar a un ingrediente"
             >
-              <option value="">— Pick ingredient —</option>
+              <option value="">— Elegir ingrediente —</option>
               <option value={INGREDIENT_PICK_NEW}>
-                + Create new ingredient
-              </option>
+                + Crear ingrediente nuevo{" "}
+              </option>{" "}
               {ingredients.length > 0 && (
-                <optgroup label="Existing">
+                <optgroup label="Existentes">
                   {ingredients.map((i) => (
                     <option key={i.id} value={i.id}>
                       {i.name}
@@ -1313,27 +1398,27 @@ function LineRow({
           </div>
         )}
         {creatingNew && !disabled && (
-          <div className="mt-2 rounded border border-[#c6d3f5] bg-[#f6f8fe] p-2 space-y-1.5">
-            <div className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
-              Create new ingredient
+          <div className="mt-2 rounded-lg border border-[#c6d3f5] bg-[#f6f8fe] p-2 space-y-1.5">
+            <div className="text-xs text-[#6b7385] font-medium">
+              Crear ingrediente nuevo{" "}
             </div>
             <Input
               className="h-7 text-xs"
-              placeholder="Ingredient name"
+              placeholder="Nombre del ingrediente"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               disabled={creating}
             />
             <Input
               className="h-7 text-xs"
-              placeholder="Default unit (kg, l, unit…)"
+              placeholder="Unidad por defecto (kg, l, pieza…)"
               value={newUnit}
               onChange={(e) => setNewUnit(e.target.value)}
               disabled={creating}
             />
             <Input
               className="h-7 text-xs"
-              placeholder="Category (optional)"
+              placeholder="Categoría (opcional)"
               value={newCategory}
               onChange={(e) => setNewCategory(e.target.value)}
               disabled={creating}
@@ -1341,21 +1426,20 @@ function LineRow({
             <div className="flex items-center gap-1.5 pt-0.5">
               <Button
                 size="sm"
-                className="h-6 px-2 text-xs bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
+                variant="secondary"
                 onClick={submitInlineCreate}
                 disabled={creating || !newName.trim() || !newUnit.trim()}
-                title="Create the ingredient and match this line to it"
+                title="Crea el ingrediente y asigna esta línea a él"
               >
-                {creating ? "Creating…" : "Create & match"}
-              </Button>
+                {creating ? "Creando…" : "Crear y asignar"}{" "}
+              </Button>{" "}
               <Button
                 size="sm"
-                variant="ghost"
-                className="h-6 px-2 text-xs"
+                variant="secondary"
                 onClick={cancelInlineCreate}
                 disabled={creating}
               >
-                Cancel
+                Cancelar
               </Button>
             </div>
           </div>
@@ -1371,45 +1455,45 @@ function LineRow({
       </td>
       <td className="px-2 py-2">
         <span
-          className={`text-xs uppercase tracking-wide px-1.5 py-0.5 rounded ${REVIEW_STYLE[line.review_status] ?? ""}`}
+          className={`${BADGE_CLS} ${REVIEW_STYLE[line.review_status] ?? ""}`}
         >
-          {line.review_status}
+          {REVIEW_LABEL[line.review_status] ?? line.review_status}
         </span>
       </td>
       <td className="px-2 py-2 text-right whitespace-nowrap">
         <div className="inline-flex items-center gap-1">
           {line.review_status !== "approved" && (
             <Button
-              size="sm"
-              variant="default"
-              className="h-6 px-2 text-xs bg-green-600 hover:bg-green-700 text-white border-0"
+              size="icon"
+              variant="secondary"
               onClick={() => onChange({ review_status: "approved" })}
               disabled={disabled}
-              title="Approve line"
+              title="Aprobar línea"
+              aria-label="Aprobar línea"
             >
               <CheckCircle2 className="h-3 w-3" />
             </Button>
           )}
           {line.review_status !== "rejected" && (
             <Button
-              size="sm"
-              variant="outline"
-              className="h-6 px-2 text-xs"
+              size="icon"
+              variant="danger"
               onClick={() => onChange({ review_status: "rejected" })}
               disabled={disabled}
-              title="Reject line"
+              title="Rechazar línea"
+              aria-label="Rechazar línea"
             >
               <XCircle className="h-3 w-3" />
             </Button>
           )}
           {line.review_status !== "pending" && (
             <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 px-2 text-xs"
+              size="icon"
+              variant="secondary"
               onClick={() => onChange({ review_status: "pending" })}
               disabled={disabled}
-              title="Reset to pending"
+              title="Volver a pendiente"
+              aria-label="Volver a pendiente"
             >
               <RefreshCw className="h-3 w-3" />
             </Button>
@@ -1512,7 +1596,7 @@ function AddLineForm({
 
     // Validate create-new sub-form up front so the API doesn't have to.
     if (isCreatingNew && !newName.trim()) {
-      setError("New ingredient name is required.");
+      setError("El nombre del ingrediente nuevo es obligatorio.");
       setBusy(false);
       return;
     }
@@ -1572,7 +1656,7 @@ function AddLineForm({
       onAdded(j.line as SupplierInvoiceLine, created);
       reset();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error");
+      setError(err instanceof Error ? err.message : "Error de red");
     } finally {
       setBusy(false);
     }
@@ -1583,25 +1667,25 @@ function AddLineForm({
   return (
     <form
       onSubmit={submit}
-      className="rounded-md border border-border bg-muted/15 p-3 space-y-3 text-xs"
+      className="rounded-lg border border-[#eef0f4] bg-[#f9fafc] p-3 space-y-3 text-xs"
     >
       {/* Row 1: Ingredient selector (+ inline create-new fields) */}
       <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
         <label className="md:col-span-2">
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Ingredient
-          </span>
+          <span className={LABEL_CLS}>Ingrediente</span>{" "}
           <select
-            className="mt-1 h-7 text-xs w-full rounded-md border border-border bg-background px-2"
+            className={`mt-1 ${SELECT_CLS}`}
             value={pick}
             onChange={(e) => onPickChange(e.target.value)}
           >
             <option value={INGREDIENT_PICK_UNMATCHED}>
-              — Leave unmatched —
+              — Dejar sin asignar —
             </option>
-            <option value={INGREDIENT_PICK_NEW}>+ Create new ingredient</option>
+            <option value={INGREDIENT_PICK_NEW}>
+              + Crear ingrediente nuevo{" "}
+            </option>{" "}
             {ingredients.length > 0 && (
-              <optgroup label="Existing">
+              <optgroup label="Existentes">
                 {ingredients.map((i) => (
                   <option key={i.id} value={i.id}>
                     {i.name}
@@ -1615,37 +1699,31 @@ function AddLineForm({
         {isCreatingNew && (
           <>
             <label className="md:col-span-2">
-              <span className="text-muted-foreground text-xs uppercase tracking-wide">
-                New ingredient name
-              </span>
+              <span className={LABEL_CLS}>Nombre del ingrediente nuevo</span>
               <Input
                 className="mt-1 h-7 text-xs"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="e.g. Aceite de oliva"
+                placeholder="Ej. Aceite de oliva"
                 required
               />
             </label>
             <label>
-              <span className="text-muted-foreground text-xs uppercase tracking-wide">
-                Default unit
-              </span>
+              <span className={LABEL_CLS}>Unidad por defecto</span>
               <Input
                 className="mt-1 h-7 text-xs"
                 value={newDefaultUnit}
                 onChange={(e) => setNewDefaultUnit(e.target.value)}
-                placeholder="kg / l / unit"
+                placeholder="kg / l / pieza"
               />
             </label>
             <label>
-              <span className="text-muted-foreground text-xs uppercase tracking-wide">
-                Category (optional)
-              </span>
+              <span className={LABEL_CLS}>Categoría (opcional)</span>
               <Input
                 className="mt-1 h-7 text-xs"
                 value={newCategory}
                 onChange={(e) => setNewCategory(e.target.value)}
-                placeholder="Produce, Dairy…"
+                placeholder="Verduras, Lácteos…"
               />
             </label>
           </>
@@ -1655,8 +1733,8 @@ function AddLineForm({
       {/* Row 2: Description spans wide */}
       <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
         <label className="md:col-span-6">
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Description (invoice line text)
+          <span className={LABEL_CLS}>
+            Descripción (texto de la línea en la factura)
           </span>
           <Input
             className="mt-1 h-7 text-xs"
@@ -1664,8 +1742,8 @@ function AddLineForm({
             onChange={(e) => setDescription(e.target.value)}
             placeholder={
               isExistingPick
-                ? "Optional — defaults to ingredient name on the invoice line"
-                : "e.g. Cebolla blanca 5 kg saco"
+                ? "Opcional — por defecto se usa el nombre del ingrediente"
+                : "Ej. Cebolla blanca, saco de 5 kg"
             }
             required
           />
@@ -1675,9 +1753,7 @@ function AddLineForm({
       {/* Row 3: numerics */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
         <label>
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Qty
-          </span>
+          <span className={LABEL_CLS}>Cant.</span>
           <Input
             type="number"
             step="0.0001"
@@ -1688,9 +1764,7 @@ function AddLineForm({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Unit
-          </span>
+          <span className={LABEL_CLS}>Unidad</span>
           <Input
             className="mt-1 h-7 text-xs"
             value={unit}
@@ -1699,9 +1773,7 @@ function AddLineForm({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Unit cost
-          </span>
+          <span className={LABEL_CLS}>Costo unitario</span>
           <Input
             type="number"
             step="0.0001"
@@ -1711,9 +1783,7 @@ function AddLineForm({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Line total
-          </span>
+          <span className={LABEL_CLS}>Total de línea</span>
           <Input
             type="number"
             step="0.01"
@@ -1724,8 +1794,8 @@ function AddLineForm({
           />
         </label>
         <label className="md:col-span-2">
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Supplier item name (optional)
+          <span className={LABEL_CLS}>
+            Nombre del artículo del proveedor (opcional)
           </span>
           <Input
             className="mt-1 h-7 text-xs"
@@ -1738,9 +1808,7 @@ function AddLineForm({
       {/* Row 4: SKU + notes */}
       <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
         <label className="md:col-span-2">
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Supplier SKU (optional)
-          </span>
+          <span className={LABEL_CLS}>SKU del proveedor (opcional)</span>
           <Input
             className="mt-1 h-7 text-xs"
             value={supplierSku}
@@ -1748,9 +1816,7 @@ function AddLineForm({
           />
         </label>
         <label className="md:col-span-4">
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Notes (optional)
-          </span>
+          <span className={LABEL_CLS}>Notas (opcional)</span>
           <Input
             className="mt-1 h-7 text-xs"
             value={notes}
@@ -1760,25 +1826,19 @@ function AddLineForm({
       </div>
 
       <div className="flex items-center gap-2 pt-1">
-        <Button
-          type="submit"
-          size="sm"
-          variant="outline"
-          className="h-7 text-xs gap-1"
-          disabled={busy}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          {busy ? "Adding…" : "Add line"}
+        <Button type="submit" size="sm" variant="secondary" disabled={busy}>
+          <Plus className="h-3.5 w-3.5" />{" "}
+          {busy ? "Agregando…" : "Agregar línea"}
         </Button>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs text-[#6b7385]">
           {isCreatingNew
-            ? "A new ingredient will be created and linked to this supplier."
+            ? "Se creará un ingrediente nuevo y se vinculará a este proveedor."
             : isExistingPick
-              ? "Line will be marked matched."
-              : "Line will be marked unmatched. You can match it later."}
+              ? "La línea quedará asignada."
+              : "La línea quedará sin asignar. Puedes asignarla después."}
         </span>
         {error && (
-          <span className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1 ml-auto">
+          <span className="text-xs text-red-600 flex items-center gap-1 ml-auto">
             <AlertTriangle className="h-3.5 w-3.5" />
             {error}
           </span>
@@ -1885,67 +1945,57 @@ function AIExtractCard({
       });
       setFile(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error");
+      setError(err instanceof Error ? err.message : "Error de red");
     } finally {
       setExtracting(false);
     }
   };
 
   return (
-    <Card className="border-[#c6d3f5]">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-[#1B40C8]" />
-          Upload invoice PDF or image
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <p className="text-xs text-muted-foreground">
-          Milton will extract invoice fields for review. Nothing updates costs
-          until you post the reviewed invoice.
+    <Card>
+      <div className="mb-2.5">
+        <CardTitle>
+          <Sparkles className="h-4 w-4 text-[#1B40C8]" /> Subir factura
+          (foto){" "}
+        </CardTitle>{" "}
+      </div>{" "}
+      <div className="space-y-3">
+        <p className="text-xs text-[#6b7385]">
+          Milton lee los datos de la factura para que los revises. Los costos no
+          cambian hasta que publiques la factura revisada.{" "}
         </p>
         <form onSubmit={onExtract} className="space-y-2">
           <Input
             type="file"
-            accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
+            accept="image/png,image/jpeg,image/jpg,image/webp"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             disabled={extracting}
           />
           <div className="flex items-center gap-2">
-            <Button
-              type="submit"
-              size="sm"
-              className="bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
-              disabled={!file || extracting}
-            >
+            <Button type="submit" disabled={!file || extracting}>
               {extracting ? (
                 <>
                   <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1" />
-                  Extracting…
+                  Leyendo…
                 </>
               ) : (
                 <>
                   <Sparkles className="h-3.5 w-3.5 mr-1" />
-                  Extract with AI
+                  Leer con IA
                 </>
               )}
             </Button>
-            <span className="text-xs text-muted-foreground">
-              PNG / JPG / WEBP up to 10 MB.
-              <br />
-              PDF support is coming next.
+            <span className="text-xs text-[#6b7385]">
+              Foto de la factura: PNG / JPG / WEBP de hasta 10 MB. El PDF
+              todavía no se puede leer; tómale una foto.
             </span>
           </div>
-          {error && (
-            <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
-          )}
-        </form>
-      </CardContent>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </form>{" "}
+      </div>{" "}
     </Card>
   );
-}
-
-// ---------------------------------------------------------------------------
+} // ---------------------------------------------------------------------------
 // Full-width AI extraction review
 //
 // Mounted in place of the three entry cards once a draft exists. Owns its
@@ -1993,59 +2043,56 @@ function ExtractedDraftReview({
         await onCreated(id);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error");
+      setError(err instanceof Error ? err.message : "Error de red");
     } finally {
       setCreating(false);
     }
   };
 
   return (
-    <Card className="border-[#c6d3f5]">
-      <CardHeader className="pb-2">
+    <Card>
+      <div className="mb-2.5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-[#1B40C8]" />
-            Review extracted invoice
+          <CardTitle>
+            <Sparkles className="h-4 w-4 text-[#1B40C8]" /> Revisar factura
+            leída
             {meta?.fileName && (
-              <span className="text-xs font-normal text-muted-foreground font-mono">
+              <span className="text-xs font-normal text-[#6b7385] font-mono">
                 · {meta.fileName}
               </span>
             )}
-          </CardTitle>
-          <div className="flex items-center gap-2">
+          </CardTitle>{" "}
+          <div className="flex items-center gap-2 flex-wrap">
             <Button
               size="sm"
-              variant="ghost"
-              className="h-7 text-xs"
+              variant="secondary"
               onClick={onDiscard}
               disabled={creating}
             >
-              Back to upload options
-            </Button>
+              Volver a las opciones de carga{" "}
+            </Button>{" "}
             <Button
               size="sm"
-              variant="outline"
-              className="h-7 text-xs"
+              variant="danger"
               onClick={onDiscard}
               disabled={creating}
             >
-              Discard draft
-            </Button>
-            <Button
-              size="sm"
-              className="h-7 text-xs bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
-              onClick={onCreate}
-              disabled={creating}
-            >
-              <ImageIcon className="h-3.5 w-3.5 mr-1" />
-              {creating ? "Creating…" : "Create invoice for review"}
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <ExtractedDraftBody draft={draft} setDraft={setDraft} error={error} />
-      </CardContent>
+              Descartar borrador{" "}
+            </Button>{" "}
+            <Button size="sm" onClick={onCreate} disabled={creating}>
+              <ImageIcon className="h-3.5 w-3.5" />{" "}
+              {creating ? "Creando…" : "Crear factura para revisar"}{" "}
+            </Button>{" "}
+          </div>{" "}
+        </div>{" "}
+      </div>{" "}
+      <div>
+        <ExtractedDraftBody
+          draft={draft}
+          setDraft={setDraft}
+          error={error}
+        />{" "}
+      </div>{" "}
     </Card>
   );
 }
@@ -2094,15 +2141,16 @@ function ExtractedDraftBody({
   return (
     <div className="space-y-3">
       {/* Banner */}
-      <div className="rounded-md border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 flex items-start gap-2">
         <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
         <span>
-          AI extraction is a draft. Review all fields before creating the
-          invoice.
+          La lectura con IA es un borrador. Revisa todos los campos antes de
+          crear la factura.{" "}
           {needsReviewCount > 0 && (
-            <span className="ml-1 font-medium">
-              {needsReviewCount} line{needsReviewCount === 1 ? "" : "s"} need
-              attention.
+            <span className="ml-1 font-semibold">
+              {needsReviewCount}{" "}
+              {needsReviewCount === 1 ? "línea necesita" : "líneas necesitan"}{" "}
+              atención.
             </span>
           )}
         </span>
@@ -2111,9 +2159,7 @@ function ExtractedDraftBody({
       {/* Header fields */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
         <label className="col-span-2 md:col-span-1">
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Supplier name
-          </span>
+          <span className={LABEL_CLS}>Proveedor</span>
           <Input
             className="mt-1 h-7 text-xs"
             value={draft.supplier_name ?? ""}
@@ -2123,9 +2169,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Invoice number
-          </span>
+          <span className={LABEL_CLS}>Nº de factura</span>
           <Input
             className="mt-1 h-7 text-xs"
             value={draft.invoice_number ?? ""}
@@ -2135,9 +2179,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Currency
-          </span>
+          <span className={LABEL_CLS}>Moneda</span>
           <Input
             className="mt-1 h-7 text-xs uppercase"
             value={draft.currency ?? ""}
@@ -2148,9 +2190,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Invoice date
-          </span>
+          <span className={LABEL_CLS}>Fecha</span>
           <Input
             type="date"
             className="mt-1 h-7 text-xs"
@@ -2161,9 +2201,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Due date
-          </span>
+          <span className={LABEL_CLS}>Fecha de vencimiento</span>
           <Input
             type="date"
             className="mt-1 h-7 text-xs"
@@ -2172,9 +2210,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Subtotal
-          </span>
+          <span className={LABEL_CLS}>Subtotal</span>
           <Input
             type="number"
             step="0.01"
@@ -2184,9 +2220,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Tax
-          </span>
+          <span className={LABEL_CLS}>Impuesto</span>
           <Input
             type="number"
             step="0.01"
@@ -2196,9 +2230,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className="text-muted-foreground text-xs uppercase tracking-wide">
-            Total
-          </span>
+          <span className={LABEL_CLS}>Total</span>
           <Input
             type="number"
             step="0.01"
@@ -2212,13 +2244,12 @@ function ExtractedDraftBody({
       </div>
 
       {/* Lines */}
-      <div className="rounded-md border border-border bg-background">
-        <div className="px-3 py-2 border-b border-border flex items-center justify-between text-xs uppercase tracking-wide text-muted-foreground">
-          <span>Extracted lines ({draft.lines.length})</span>
+      <div className="rounded-lg border border-[#eef0f4] bg-white">
+        <div className="px-3 py-2 border-b border-[#eef0f4] flex items-center justify-between text-xs font-semibold text-[#6b7385]">
+          <span>Líneas leídas ({draft.lines.length})</span>{" "}
           <Button
             size="sm"
-            variant="ghost"
-            className="h-6 text-xs gap-1"
+            variant="secondary"
             onClick={() =>
               setDraft({
                 ...draft,
@@ -2247,37 +2278,37 @@ function ExtractedDraftBody({
               })
             }
           >
-            <Plus className="h-3 w-3" />
-            Add row
+            <Plus className="h-3 w-3" /> Agregar fila
           </Button>
         </div>
         {draft.lines.length === 0 ? (
-          <p className="text-xs text-muted-foreground px-3 py-3">
-            No lines detected. Use “Add row” or upload a clearer image.
+          <p className="text-xs text-[#6b7385] px-3 py-3">
+            No se detectaron líneas. Usa «Agregar fila» o sube una imagen más
+            nítida.
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead className="bg-muted/30 text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <thead className="bg-[#f9fafc] text-left text-xs text-[#6b7385]">
                 <tr>
                   <th className="px-2 py-1.5 font-medium w-[110px]">SKU</th>
-                  <th className="px-2 py-1.5 font-medium">Description</th>
+                  <th className="px-2 py-1.5 font-medium">Descripción</th>
                   <th className="px-2 py-1.5 font-medium w-[160px]">
-                    Supplier item name
+                    Artículo del proveedor{" "}
                   </th>
                   <th className="px-2 py-1.5 font-medium text-right w-[80px]">
-                    Qty
+                    Cant.{" "}
                   </th>
-                  <th className="px-2 py-1.5 font-medium w-[70px]">Unit</th>
+                  <th className="px-2 py-1.5 font-medium w-[70px]">Unidad</th>
                   <th className="px-2 py-1.5 font-medium text-right w-[100px]">
-                    Unit cost
+                    Costo unitario{" "}
                   </th>
                   <th className="px-2 py-1.5 font-medium text-right w-[110px]">
-                    Line total
+                    Total de línea{" "}
                   </th>
                   <th className="px-2 py-1.5 font-medium text-right w-[90px]">
-                    Tax
-                  </th>
+                    Impuesto{" "}
+                  </th>{" "}
                   <th className="px-2 py-1.5 font-medium w-[40px]" />
                 </tr>
               </thead>
@@ -2288,11 +2319,11 @@ function ExtractedDraftBody({
                     <tr
                       key={i}
                       className={
-                        "border-b border-border align-top " +
+                        "border-b border-[#eef0f4] align-top " +
                         (needs
-                          ? "bg-amber-50/40 dark:bg-amber-900/10"
+                          ? "bg-amber-50/60"
                           : i % 2 === 1
-                            ? "bg-muted/10"
+                            ? "bg-[#f9fafc]"
                             : "")
                       }
                     >
@@ -2362,8 +2393,10 @@ function ExtractedDraftBody({
                           }
                         />
                         {line.derived_unit_cost && (
-                          <span className="inline-flex items-center text-xs uppercase tracking-wide mt-1 px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
-                            Derived
+                          <span
+                            className={`${BADGE_CLS} mt-1 bg-[#eef2fd] text-[#1B40C8]`}
+                          >
+                            Calculado
                           </span>
                         )}
                       </td>
@@ -2381,8 +2414,10 @@ function ExtractedDraftBody({
                           }
                         />
                         {line.derived_line_total && (
-                          <span className="inline-flex items-center text-xs uppercase tracking-wide mt-1 px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
-                            Derived
+                          <span
+                            className={`${BADGE_CLS} mt-1 bg-[#eef2fd] text-[#1B40C8]`}
+                          >
+                            Calculado
                           </span>
                         )}
                       </td>
@@ -2401,11 +2436,11 @@ function ExtractedDraftBody({
                       </td>
                       <td className="px-2 py-1.5 text-right">
                         <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 w-6 p-0"
+                          size="icon"
+                          variant="danger"
                           onClick={() => removeLine(i)}
-                          title="Remove line"
+                          title="Quitar línea"
+                          aria-label="Quitar línea"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -2422,12 +2457,12 @@ function ExtractedDraftBody({
       {/* Confidence notes from the model */}
       {draft.confidence_notes.length > 0 && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-muted-foreground">
-            AI confidence notes ({draft.confidence_notes.length})
+          <summary className="cursor-pointer text-[#6b7385]">
+            Notas de confianza de la IA ({draft.confidence_notes.length})
           </summary>
           <ul className="mt-1 space-y-0.5">
             {draft.confidence_notes.map((n, i) => (
-              <li key={i} className="text-muted-foreground italic">
+              <li key={i} className="text-[#6b7385] italic">
                 · {n}
               </li>
             ))}
@@ -2435,14 +2470,12 @@ function ExtractedDraftBody({
         </details>
       )}
 
-      {error && (
-        <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
-      )}
+      {error && <p className="text-xs text-red-600">{error}</p>}
 
-      <p className="text-xs text-muted-foreground">
-        Lines land in <span className="font-mono">needs_review</span> after you
-        create the invoice. Cost entries are only written when you post the
-        invoice in the review panel below.
+      <p className="text-xs text-[#6b7385]">
+        Al crear la factura, las líneas quedan en estado{" "}
+        <strong>Por revisar</strong>. Los costos solo se registran cuando
+        publicas la factura en el panel de revisión de abajo.
       </p>
     </div>
   );
@@ -2464,9 +2497,9 @@ function LineBadges({
     chips.push(
       <span
         key="needs"
-        className="inline-flex items-center text-xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-800"
       >
-        Needs review
+        Por revisar
       </span>
     );
   }
@@ -2474,30 +2507,30 @@ function LineBadges({
     chips.push(
       <span
         key="low"
-        className="inline-flex items-center text-xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200"
+        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-red-100 text-red-700"
         title={line.confidence_notes ?? undefined}
       >
-        Low confidence
+        Confianza baja
       </span>
     );
   } else if (line.confidence === "medium") {
     chips.push(
       <span
         key="medium"
-        className="inline-flex items-center text-xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-800"
         title={line.confidence_notes ?? undefined}
       >
-        Medium confidence
+        Confianza media
       </span>
     );
   } else if (line.confidence === "high") {
     chips.push(
       <span
         key="high"
-        className="inline-flex items-center text-xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
+        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-green-100 text-green-800"
         title={line.confidence_notes ?? undefined}
       >
-        High confidence
+        Confianza alta
       </span>
     );
   }

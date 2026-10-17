@@ -34,11 +34,30 @@ export function useSectionWarmth(): { epoch: number; warm: boolean } {
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(
-      () => setWarmFor(epoch),
-      epoch === 0 ? FIRST_WARM_MS : WARM_AFTER_SAVE_MS
-    );
-    return () => clearTimeout(timer);
+    const wait = epoch === 0 ? FIRST_WARM_MS : WARM_AFTER_SAVE_MS;
+    // After the wait, and only once the browser is idle (never in the middle of
+    // painting the page the person asked for).
+    let idle: number | null = null;
+    const timer = setTimeout(() => {
+      const ric = (
+        window as unknown as {
+          requestIdleCallback?: (
+            cb: () => void,
+            opts?: { timeout: number }
+          ) => number;
+        }
+      ).requestIdleCallback;
+      if (ric) idle = ric(() => setWarmFor(epoch), { timeout: 2000 });
+      else setWarmFor(epoch);
+    }, wait);
+    return () => {
+      clearTimeout(timer);
+      if (idle !== null) {
+        (
+          window as unknown as { cancelIdleCallback?: (id: number) => void }
+        ).cancelIdleCallback?.(idle);
+      }
+    };
   }, [epoch]);
 
   return { epoch, warm: warmFor === epoch };

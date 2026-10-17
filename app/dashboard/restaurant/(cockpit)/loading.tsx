@@ -1,4 +1,4 @@
-// app/(restaurant-cockpit)/dashboard/restaurant/loading.tsx
+// app/dashboard/restaurant/(cockpit)/loading.tsx
 //
 // Final-dimension skeletons so the executive layout does not jump.
 

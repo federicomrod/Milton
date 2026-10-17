@@ -37,7 +37,11 @@ export interface SalesDetailPayload {
 export async function loadSalesDetail(
   supabase: SupabaseClient,
   companyId: string,
-  locationId: string | null
+  locationId: string | null,
+  options: {
+    /** Throw on a failed read of the sales rows (a cache must never keep a half-empty cube). */
+    failOnReadError?: boolean;
+  } = {}
 ): Promise<SalesDetailPayload> {
   const [timezone, currency, rowsRes, config, targets, locs] =
     await Promise.all([
@@ -52,6 +56,9 @@ export async function loadSalesDetail(
         .eq("company_id", companyId)
         .order("name", { ascending: true }),
     ]);
+  if (options.failOnReadError && rowsRes.error) {
+    throw new Error(`sales rows: ${rowsRes.error.message ?? "read failed"}`);
+  }
   const restaurants = (
     (locs.data ?? []) as Array<{ id: string; name: string }>
   ).map((r) => ({

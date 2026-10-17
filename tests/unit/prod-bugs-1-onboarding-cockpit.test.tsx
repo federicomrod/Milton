@@ -180,7 +180,7 @@ describe("6 · the empty Cockpit is Cockpit v2 with no numbers", () => {
     ).toContain("Entra a tu cuenta");
   });
   it("the page has no mock / sample path any more, no MXN default; the mock data file is gone", () => {
-    const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
+    const page = read("app/dashboard/restaurant/(cockpit)/page.tsx");
     for (const gone of [
       "SampleRestaurantView",
       "mock-data",

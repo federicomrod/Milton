@@ -10,6 +10,7 @@
 // the user's company row (created_by) — same pattern as the existing data
 // upload routes in app/api/data/*.
 
+import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import * as XLSX from "xlsx";
@@ -442,6 +443,8 @@ export async function POST(req: NextRequest) {
       currency: companyCurrency,
     };
 
+    // New sales rows: the cached sales cube / Cockpit rollup are out of date.
+    revalidateSales(company.id);
     return NextResponse.json(summary);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

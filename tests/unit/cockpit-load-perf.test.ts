@@ -10,7 +10,7 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
 describe("cockpit load split (#134)", () => {
   it("the cockpit page streams the executive strip before tab bodies", () => {
-    const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
+    const page = read("app/dashboard/restaurant/(cockpit)/page.tsx");
     expect(page).toContain("loadCockpitExecutiveFast");
     // R1-16b: the Cockpit v2 paints from the daily sales it loaded with the
     // page; the cost and the mix come in ONE request after the first paint.

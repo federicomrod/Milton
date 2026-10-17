@@ -83,11 +83,16 @@ describe("primary restaurant navigation (#128)", () => {
   });
 
   it("every old href still answers: a screen, or a redirect to resolvesTo", () => {
-    const appDirs = ["app", "app/(restaurant-cockpit)"];
+    // The Cockpit's page lives in the `(cockpit)` route group of the restaurant
+    // folder (same URL, same layout as every other restaurant page).
+    const pageDirs = (path: string) =>
+      path === "/dashboard/restaurant"
+        ? ["app/dashboard/restaurant/(cockpit)"]
+        : [`app${path}`];
     for (const route of LEGACY_ROUTE_MAP) {
       const path = route.href.split("#")[0].split("?")[0];
-      const page = appDirs
-        .map((dir) => join(process.cwd(), dir, path, "page.tsx"))
+      const page = pageDirs(path)
+        .map((dir) => join(process.cwd(), dir, "page.tsx"))
         .find((file) => existsSync(file));
       expect(page, route.href).toBeTruthy();
       const src = readFileSync(page!, "utf8");
@@ -95,8 +100,8 @@ describe("primary restaurant navigation (#128)", () => {
         expect(src, route.href).toMatch(/redirect\(/);
         // No JSX: a redirect, not a screen.
         expect(src, route.href).not.toMatch(/<[A-Z]\w*[\s/>]/);
-        const target = appDirs
-          .map((dir) => join(process.cwd(), dir, route.resolvesTo!, "page.tsx"))
+        const target = pageDirs(route.resolvesTo!)
+          .map((dir) => join(process.cwd(), dir, "page.tsx"))
           .find((file) => existsSync(file));
         expect(target, route.resolvesTo).toBeTruthy();
       }

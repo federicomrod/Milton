@@ -7,10 +7,11 @@
 
 "use client";
 
+import { platosHref } from "@/lib/restaurant/menu-links";
 import { type ComponentType, Suspense, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard,
   BookOpen,
@@ -389,7 +390,6 @@ function SidebarBrand({
   pathname: string;
   lang: PreferredLanguage;
 }) {
-  const router = useRouter();
   const [addOpen, setAddOpen] = useState(false);
 
   const selected = currentLocationId
@@ -399,12 +399,9 @@ function SidebarBrand({
     ? selected.name
     : t(lang, "All Restaurants", "Todos los restaurantes");
 
-  function switchTo(locationId: string | null) {
-    const href = withShellParams(pathname, {
-      locationId,
-    });
-    router.push(href);
-  }
+  // A plain <Link> per restaurant (prefetched, no imperative navigation).
+  const hrefFor = (locationId: string | null) =>
+    withShellParams(pathname, { locationId });
 
   return (
     <div className="px-4 pt-4 pb-3 border-b border-border space-y-2.5">
@@ -434,19 +431,23 @@ function SidebarBrand({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56">
-          <DropdownMenuItem onClick={() => switchTo(null)}>
-            <span className="flex-1">
-              {t(lang, "All Restaurants", "Todos los restaurantes")}
-            </span>
-            {!selected && <Check className="h-3.5 w-3.5" />}
+          <DropdownMenuItem asChild>
+            <Link href={hrefFor(null)}>
+              <span className="flex-1">
+                {t(lang, "All Restaurants", "Todos los restaurantes")}
+              </span>
+              {!selected && <Check className="h-3.5 w-3.5" />}
+            </Link>
           </DropdownMenuItem>
           {locations.length > 0 && <DropdownMenuSeparator />}
           {locations.map((loc) => (
-            <DropdownMenuItem key={loc.id} onClick={() => switchTo(loc.id)}>
-              <span className="flex-1 truncate">{loc.name}</span>
-              {selected?.id === loc.id && (
-                <Check className="h-3.5 w-3.5 shrink-0" />
-              )}
+            <DropdownMenuItem key={loc.id} asChild>
+              <Link href={hrefFor(loc.id)}>
+                <span className="flex-1 truncate">{loc.name}</span>
+                {selected?.id === loc.id && (
+                  <Check className="h-3.5 w-3.5 shrink-0" />
+                )}
+              </Link>
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
@@ -489,6 +490,10 @@ function SidebarLink({
   // up, and their link carries the save epoch so a copy never outlives a save.
   const { epoch, warm } = useSectionWarmth();
   const fullPrefetch = PREFETCHED_SECTIONS.has(item.id);
+  // Hovering (or focusing) a section prefetches it in full right away, without
+  // waiting for the browser to be idle.
+  const [intent, setIntent] = useState(false);
+  const full = fullPrefetch && (warm || intent);
   return (
     <li>
       <Link
@@ -496,7 +501,9 @@ function SidebarLink({
           withShellParams(item.href, shellParams),
           fullPrefetch ? epoch : 0
         )}
-        prefetch={fullPrefetch && warm ? true : undefined}
+        prefetch={full ? true : undefined}
+        onMouseEnter={() => setIntent(true)}
+        onFocus={() => setIntent(true)}
         className={
           "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 " +
           (active
@@ -508,6 +515,23 @@ function SidebarLink({
         <Icon className="h-4 w-4 shrink-0" />
         <span className="truncate">{label}</span>
       </Link>
+      {item.id === "menu" ? (
+        // Menú › Platos is where people land from the list: prefetched in full
+        // too (a 1 px, clipped link the viewport observer can see).
+        <Link
+          href={withSaveEpoch(
+            withShellParams(platosHref(), shellParams),
+            epoch
+          )}
+          prefetch={full ? true : undefined}
+          tabIndex={-1}
+          aria-hidden="true"
+          className="sr-only"
+          data-testid="prefetch-platos"
+        >
+          Platos
+        </Link>
+      ) : null}
     </li>
   );
 }

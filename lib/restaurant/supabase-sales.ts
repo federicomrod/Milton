@@ -2,7 +2,7 @@
 //
 // Server-only helpers for reading restaurant POS data from Supabase.
 //
-// Used by app/(restaurant-cockpit)/dashboard/restaurant/page.tsx to render
+// Used by app/dashboard/restaurant/(cockpit)/page.tsx to render
 // live KPIs from `pos_sales_items` when the authenticated user has a company
 // and uploaded data, with graceful fallback to mock data otherwise.
 //

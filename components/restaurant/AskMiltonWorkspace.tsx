@@ -287,11 +287,11 @@ function ExecutiveBriefingPanelInner() {
   }, [load]);
 
   return (
-    <Card className="border-orange-200 dark:border-orange-900/50 bg-gradient-to-br from-orange-50/60 via-background to-background dark:from-orange-950/20 dark:via-background">
+    <Card className="border-[#c6d3f5] dark:border-[#2a3f8f]/50 bg-gradient-to-br from-[#eef2fd]/60 via-background to-background dark:from-[#1B40C8]/20 dark:via-background">
       <CardContent className="pt-5 pb-5">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-orange-100 dark:bg-orange-900/40">
-            <Sparkles className="h-4 w-4 text-orange-600 dark:text-orange-300" />
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#e1e8fa] dark:bg-[#1B40C8]/40">
+            <Sparkles className="h-4 w-4 text-[#1B40C8] dark:text-[#9fb4f2]" />
           </span>
           <h2 className="text-base font-semibold">
             {t(lang, "Executive briefing", "Briefing ejecutivo")}
@@ -393,7 +393,7 @@ function BriefingList({
       ? "text-red-500"
       : tone === "opportunity"
         ? "text-emerald-500"
-        : "text-orange-500";
+        : "text-[#1B40C8]";
   return (
     <div>
       <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium mb-1.5">
@@ -419,7 +419,7 @@ function SourceBadge({ source }: { source: "openai" | "deterministic" }) {
       className={
         "text-[12px] uppercase tracking-wide " +
         (source === "openai"
-          ? "border-orange-300 bg-orange-100 text-orange-900 dark:border-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
+          ? "border-[#a9bcef] bg-[#e1e8fa] text-[#102a85] dark:border-[#2a3f8f] dark:bg-[#1B40C8]/40 dark:text-[#9fb4f2]"
           : "border-border text-muted-foreground")
       }
     >
@@ -594,7 +594,7 @@ function ChatWorkspace() {
                 "Pregúntale a Milton sobre ventas, márgenes, proveedores, recetas…"
               )}
               rows={2}
-              className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 dark:focus:ring-orange-800/50"
+              className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#c6d3f5] dark:focus:ring-[#2a3f8f]/50"
               disabled={pending}
             />
             <Button
@@ -647,7 +647,7 @@ function SuggestedQuestions({
             type="button"
             disabled={disabled}
             onClick={() => onPick(q)}
-            className="text-xs px-3 py-1.5 rounded-full border border-border bg-background hover:bg-muted hover:border-orange-300 dark:hover:border-orange-800 transition-colors disabled:opacity-50"
+            className="text-xs px-3 py-1.5 rounded-full border border-border bg-background hover:bg-muted hover:border-[#a9bcef] dark:hover:border-[#2a3f8f] transition-colors disabled:opacity-50"
           >
             {q}
           </button>
@@ -661,8 +661,8 @@ function EmptyState() {
   const lang = useMiltonLang();
   return (
     <div className="flex flex-col items-center text-center py-8">
-      <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-orange-100 dark:bg-orange-900/40 mb-3">
-        <Sparkles className="h-5 w-5 text-orange-600 dark:text-orange-300" />
+      <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#e1e8fa] dark:bg-[#1B40C8]/40 mb-3">
+        <Sparkles className="h-5 w-5 text-[#1B40C8] dark:text-[#9fb4f2]" />
       </span>
       <p className="text-sm font-semibold">
         {t(
@@ -701,7 +701,7 @@ function MessageBubble({
   if (turn.role === "user") {
     return (
       <div className="flex items-start gap-3 justify-end">
-        <div className="max-w-[80%] rounded-xl bg-orange-500 text-white px-3.5 py-2 text-sm leading-relaxed shadow-sm">
+        <div className="max-w-[80%] rounded-xl bg-[#1B40C8] text-white px-3.5 py-2 text-sm leading-relaxed shadow-sm">
           {turn.content}
         </div>
         <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
@@ -713,8 +713,8 @@ function MessageBubble({
   const a = turn.answer;
   return (
     <div className="flex items-start gap-3">
-      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-orange-100 dark:bg-orange-900/40">
-        <Sparkles className="h-4 w-4 text-orange-600 dark:text-orange-300" />
+      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#e1e8fa] dark:bg-[#1B40C8]/40">
+        <Sparkles className="h-4 w-4 text-[#1B40C8] dark:text-[#9fb4f2]" />
       </span>
       <div className="flex-1 min-w-0 space-y-2.5">
         <div className="flex items-center gap-2 flex-wrap">
@@ -751,7 +751,7 @@ function MessageBubble({
               <Link
                 key={i}
                 href={withLocationParam(l.href, locationId)}
-                className="inline-flex items-center gap-1 text-xs rounded-full border border-border bg-background px-2.5 py-1 hover:bg-muted hover:border-orange-300 dark:hover:border-orange-800 transition-colors"
+                className="inline-flex items-center gap-1 text-xs rounded-full border border-border bg-background px-2.5 py-1 hover:bg-muted hover:border-[#a9bcef] dark:hover:border-[#2a3f8f] transition-colors"
               >
                 {l.label}
                 <ArrowRight className="h-3 w-3" />
@@ -895,7 +895,7 @@ function SuggestedActionChip({
     return (
       <Link
         href={withLocationParam(action.target_route, locationId)}
-        className="inline-flex items-center gap-1.5 text-xs rounded-full border border-border bg-background px-2.5 py-1 hover:bg-muted hover:border-orange-300 dark:hover:border-orange-800 transition-colors"
+        className="inline-flex items-center gap-1.5 text-xs rounded-full border border-border bg-background px-2.5 py-1 hover:bg-muted hover:border-[#a9bcef] dark:hover:border-[#2a3f8f] transition-colors"
       >
         <ExternalLink className="h-3 w-3 text-muted-foreground" />
         {action.label}
@@ -911,7 +911,7 @@ function SuggestedActionChip({
         type="button"
         disabled={disabled}
         onClick={() => setState("confirming")}
-        className="inline-flex items-center gap-1.5 text-xs rounded-full border border-dashed border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-950/30 text-orange-900 dark:text-orange-200 px-2.5 py-1 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 text-xs rounded-full border border-dashed border-[#a9bcef] dark:border-[#2a3f8f] bg-[#eef2fd] dark:bg-[#1B40C8]/30 text-[#102a85] dark:text-[#9fb4f2] px-2.5 py-1 hover:bg-[#e1e8fa] dark:hover:bg-[#1B40C8]/40 transition-colors disabled:opacity-50"
       >
         <Zap className="h-3 w-3" />
         {action.label}
@@ -921,8 +921,8 @@ function SuggestedActionChip({
 
   if (state === "confirming") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/30 px-3 py-1.5 flex-wrap">
-        <span className="text-orange-900 dark:text-orange-200 font-medium">
+      <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-[#c6d3f5] dark:border-[#2a3f8f] bg-[#eef2fd] dark:bg-[#1B40C8]/30 px-3 py-1.5 flex-wrap">
+        <span className="text-[#102a85] dark:text-[#9fb4f2] font-medium">
           {t(
             lang,
             "Create this as an agent action?",
@@ -932,7 +932,7 @@ function SuggestedActionChip({
         <button
           type="button"
           onClick={() => void handleConfirm()}
-          className="rounded border border-orange-300 dark:border-orange-700 bg-orange-500 text-white px-2 py-0.5 hover:bg-orange-600 transition-colors"
+          className="rounded border border-[#a9bcef] dark:border-[#2a3f8f] bg-[#1B40C8] text-white px-2 py-0.5 hover:bg-[#1535a6] transition-colors"
         >
           {t(lang, "Yes", "Sí")}
         </button>
@@ -1017,8 +1017,8 @@ function SuggestedActionChip({
 function PendingBubble() {
   return (
     <div className="flex items-start gap-3">
-      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-orange-100 dark:bg-orange-900/40">
-        <Sparkles className="h-4 w-4 text-orange-600 dark:text-orange-300" />
+      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#e1e8fa] dark:bg-[#1B40C8]/40">
+        <Sparkles className="h-4 w-4 text-[#1B40C8] dark:text-[#9fb4f2]" />
       </span>
       <div className="rounded-xl border border-border bg-muted/30 px-3.5 py-3 text-sm text-muted-foreground flex items-center gap-2">
         <Loader2 className="h-4 w-4 animate-spin" />

@@ -2100,7 +2100,7 @@ function createFitnessStudioChartConfig(
               "#3B82F6", // Blue for Booked
               "#10B981", // Green for Attended
               "#EF4444", // Red for Cancelled
-              "#F59E0B", // Orange for No Show
+              "#F59E0B", // Amber for No Show
             ],
           },
         ],
@@ -2703,7 +2703,7 @@ function getWeekdayColor(weekday: number): string {
     "", // 0 - unused
     "#3B82F6", // Mon - Blue
     "#10B981", // Tue - Green
-    "#F59E0B", // Wed - Orange
+    "#F59E0B", // Wed - Amber
     "#EF4444", // Thu - Red
     "#8B5CF6", // Fri - Purple
     "#EC4899", // Sat - Pink

@@ -137,7 +137,7 @@ export function KitchenPageLive({
           {t(lang, "Legend", "Leyenda")}
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <i className="inline-block w-2.5 h-2.5 rounded-sm bg-orange-500" />
+          <i className="inline-block w-2.5 h-2.5 rounded-sm bg-[#1B40C8]" />
           {t(
             lang,
             "Kitchen reports already captured: alerts, waste, drafts",

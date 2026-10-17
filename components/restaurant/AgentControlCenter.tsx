@@ -318,7 +318,7 @@ export function AgentControlCenter({
       <div className="space-y-6 max-w-screen-2xl">
         {/* Header */}
         <div className="flex items-center gap-3">
-          <Cpu className="h-6 w-6 text-orange-500" />
+          <Cpu className="h-6 w-6 text-[#1B40C8]" />
           <h1 className="text-2xl font-bold tracking-tight">Agents</h1>
           <Badge className="text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0">
             Foundation
@@ -479,7 +479,7 @@ function AgentCard({
 
   return (
     <Card
-      className={enabled ? "border-orange-200 dark:border-orange-900/50" : ""}
+      className={enabled ? "border-[#c6d3f5] dark:border-[#2a3f8f]/50" : ""}
     >
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
@@ -497,8 +497,8 @@ function AgentCard({
             onClick={handleToggle}
             disabled={toggling}
             className={
-              "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 " +
-              (enabled ? "bg-orange-500" : "bg-muted")
+              "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] " +
+              (enabled ? "bg-[#1B40C8]" : "bg-muted")
             }
             role="switch"
             aria-checked={enabled}
@@ -584,7 +584,7 @@ function AgentCard({
           <Button
             size="sm"
             variant="default"
-            className="text-xs h-7 gap-1 bg-orange-500 hover:bg-orange-600 text-white border-0"
+            className="text-xs h-7 gap-1 bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
             onClick={handleRun}
             disabled={running || !enabled}
             title={
@@ -883,7 +883,7 @@ function RecommendationsTab({
               className={
                 "inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors " +
                 (statusFilter === opt.value
-                  ? "border-orange-500 bg-orange-50 text-orange-800 dark:bg-orange-900/20 dark:text-orange-200 dark:border-orange-700"
+                  ? "border-[#1B40C8] bg-[#eef2fd] text-[#102a85] dark:bg-[#1B40C8]/20 dark:text-[#9fb4f2] dark:border-[#2a3f8f]"
                   : "border-border text-muted-foreground hover:border-muted-foreground")
               }
             >
@@ -1002,7 +1002,7 @@ function RecommendationCard({
               {rec.description}
             </p>
             {rec.suggested_action && (
-              <p className="text-xs text-foreground/80 bg-muted/40 rounded px-2 py-1 border-l-2 border-orange-400">
+              <p className="text-xs text-foreground/80 bg-muted/40 rounded px-2 py-1 border-l-2 border-[#1B40C8]">
                 <span className="font-medium">Suggested:</span>{" "}
                 {rec.suggested_action}
               </p>
@@ -1447,7 +1447,7 @@ function RecommendationDetailPanel({
             <Button
               size="sm"
               variant="default"
-              className="h-7 text-xs gap-1 bg-orange-500 hover:bg-orange-600 text-white border-0"
+              className="h-7 text-xs gap-1 bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
               onClick={createAction}
               disabled={creating || proposals.length === 0}
             >
@@ -1504,7 +1504,7 @@ function RecommendationDetailPanel({
                 {targetRoute && (
                   <Link
                     href={targetRoute}
-                    className="inline-flex items-center gap-1 text-[12px] text-orange-600 dark:text-orange-300 hover:underline"
+                    className="inline-flex items-center gap-1 text-[12px] text-[#1B40C8] dark:text-[#9fb4f2] hover:underline"
                   >
                     <ExternalLink className="h-3 w-3" />
                     Open {targetRoute}
@@ -1726,7 +1726,7 @@ function ActionsTab({
               className={
                 "inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors " +
                 (statusFilter === opt.value
-                  ? "border-orange-500 bg-orange-50 text-orange-800 dark:bg-orange-900/20 dark:text-orange-200 dark:border-orange-700"
+                  ? "border-[#1B40C8] bg-[#eef2fd] text-[#102a85] dark:bg-[#1B40C8]/20 dark:text-[#9fb4f2] dark:border-[#2a3f8f]"
                   : "border-border text-muted-foreground hover:border-muted-foreground")
               }
             >
@@ -2041,7 +2041,7 @@ function ActionCard({
                 className={
                   "inline-flex items-center gap-1 px-1.5 py-0.5 rounded " +
                   (assignedToMe
-                    ? "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-200"
+                    ? "bg-[#e1e8fa] text-[#102a85] dark:bg-[#1B40C8]/30 dark:text-[#9fb4f2]"
                     : assignedToSomeoneElse
                       ? "bg-muted text-foreground/80"
                       : "")
@@ -2073,7 +2073,7 @@ function ActionCard({
             {targetRoute && (
               <Link
                 href={targetRoute}
-                className="inline-flex items-center gap-1 text-[12px] text-orange-600 dark:text-orange-300 hover:underline"
+                className="inline-flex items-center gap-1 text-[12px] text-[#1B40C8] dark:text-[#9fb4f2] hover:underline"
               >
                 <ExternalLink className="h-3 w-3" />
                 Open {targetRoute}
@@ -2403,11 +2403,11 @@ function ExecutePriceUpdateDialog({
                 {fmt(payload.current_price)}
               </div>
             </div>
-            <div className="rounded bg-orange-50 dark:bg-orange-900/20 px-2 py-1.5">
+            <div className="rounded bg-[#eef2fd] dark:bg-[#1B40C8]/20 px-2 py-1.5">
               <div className="text-muted-foreground uppercase tracking-wide text-[12px]">
                 New price
               </div>
-              <div className="font-mono text-sm font-semibold text-orange-700 dark:text-orange-300">
+              <div className="font-mono text-sm font-semibold text-[#102a85] dark:text-[#9fb4f2]">
                 {fmt(payload.suggested_price)}
               </div>
             </div>
@@ -2469,7 +2469,7 @@ function ExecutePriceUpdateDialog({
             Cancel
           </Button>
           <Button
-            className="bg-orange-500 hover:bg-orange-600 text-white border-0"
+            className="bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
             onClick={onConfirm}
             disabled={executing || success !== null}
           >

@@ -182,7 +182,7 @@ export interface CockpitView {
   salesChips: Chip[];
   /** "solo 4 meses de datos" when the trailing window is cut. */
   baselineNote: string | null;
-  /** The orange line: the baseline's average per day (null when it cannot be drawn). */
+  /** The baseline line: the baseline's average per day (null when it cannot be drawn). */
   baselineAvgDaily: number | null;
   baselineLabel: string;
   cost: CostFigures | null;

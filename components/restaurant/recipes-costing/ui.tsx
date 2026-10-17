@@ -66,7 +66,7 @@ export function PrimaryBtn({
     <button
       type="button"
       className={cn(
-        "inline-flex items-center justify-center rounded-md border border-[#1B40C8] bg-[#1B40C8] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[#1535a6] disabled:opacity-45",
+        "inline-flex items-center justify-center rounded-md border border-[#1B40C8] bg-[#1B40C8] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[#1535a6] disabled:cursor-not-allowed disabled:border-[#b9c7f0] disabled:bg-[#b9c7f0] disabled:opacity-100",
         className
       )}
       {...props}

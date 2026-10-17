@@ -547,7 +547,7 @@ function PreparationDetail({
                       ? setHowOpen(true)
                       : void approve()
                   }
-                  className="rounded-lg bg-[#1B40C8] px-3.5 py-[7px] text-[13px] font-semibold text-white hover:bg-[#1535a6] disabled:opacity-45"
+                  className="rounded-lg bg-[#1B40C8] px-3.5 py-[7px] text-[13px] font-semibold text-white hover:bg-[#1535a6] disabled:cursor-not-allowed disabled:border-[#b9c7f0] disabled:bg-[#b9c7f0] disabled:opacity-100"
                 >
                   Aprobar
                 </button>

@@ -1,7 +1,7 @@
 "use client";
 
 // Menú's four real tabs (R1-09b, A3): each is a route under the shared
-// menu/layout.tsx. 15 px labels, orange underline. Restaurant and period
+// menu/layout.tsx. 15 px labels, blue underline. Restaurant and period
 // params ride along; per-tab params (producto, prep, estado) do not.
 
 import Link from "next/link";

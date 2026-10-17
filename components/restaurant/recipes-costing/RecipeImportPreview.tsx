@@ -1,19 +1,10 @@
 "use client";
 
-import {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import { GhostBtn } from "./ui";
+import { useEffect, useRef, useState } from "react";
+import { GhostBtn, PrimaryBtn } from "./ui";
 
-export interface RecipeImportPreviewHandle {
-  /** Write the recipes of the file (what «Importar» did). Resolves true when it worked. */
-  importRecipes: () => Promise<boolean>;
-}
+/** Id of the «2. Importar recetas» button (scrolled into view after step 1). */
+export const IMPORT_RECIPES_BUTTON_ID = "importar-recetas";
 
 interface PreviewRow {
   key: string;
@@ -54,7 +45,20 @@ function money(value: number | null): string {
   return value === null ? "—" : `$${value.toFixed(2)}`;
 }
 
-interface RecipeImportPreviewProps {
+/**
+ * The recipes of the cost file, read before anything is saved: one row
+ * per dish with our cost, the Excel's COSTO TOTAL and whether they match.
+ * Nothing is written until "Importar".
+ */
+export function RecipeImportPreview({
+  draftToken,
+  initialImported,
+  locationId,
+  busyExternal,
+  onImported,
+  onDishes,
+  primary = true,
+}: {
   /** The saved upload (draft); changes when a new file is picked. */
   draftToken: string | null;
   /** What "Importar" already saved from this file, after a reload. */
@@ -62,32 +66,11 @@ interface RecipeImportPreviewProps {
   locationId: string | null;
   busyExternal: boolean;
   onImported: () => void;
-  /** How many dishes the file's recipes hold (0 = none shown / to import). */
+  /** How many dishes the file's recipes hold (0 = none to import). */
   onDishes?: (count: number) => void;
-  /** The one primary action of the card, shown once below the recipes table. */
-  footer?: ReactNode;
-}
-
-/**
- * The recipes of the cost file, read before anything is saved: one row
- * per dish with our cost, the Excel's COSTO TOTAL and whether they match.
- * Nothing is written until "Importar".
- */
-export const RecipeImportPreview = forwardRef<
-  RecipeImportPreviewHandle,
-  RecipeImportPreviewProps
->(function RecipeImportPreview(
-  {
-    draftToken,
-    initialImported,
-    locationId,
-    busyExternal,
-    onImported,
-    onDishes,
-    footer,
-  },
-  ref
-) {
+  /** Step 2 is the next primary action (prices already saved or nothing to save). */
+  primary?: boolean;
+}) {
   const [preview, setPreview] = useState<RecipePreview | null>(null);
   const [imported, setImported] = useState<Imported | null>(
     (initialImported as unknown as Imported | null) ?? null
@@ -129,7 +112,6 @@ export const RecipeImportPreview = forwardRef<
           setError(
             err instanceof Error ? err.message : "No pude leer las recetas."
           );
-          onDishesRef.current?.(0);
         }
       })
       .finally(() => {
@@ -140,8 +122,8 @@ export const RecipeImportPreview = forwardRef<
     };
   }, [draftToken, hasImported, locationId]);
 
-  async function importRecipes(): Promise<boolean> {
-    if (!draftToken) return false;
+  async function importRecipes() {
+    if (!draftToken) return;
     setBusy(true);
     setError(null);
     try {
@@ -159,17 +141,12 @@ export const RecipeImportPreview = forwardRef<
       setPreview(null);
       onDishesRef.current?.(0);
       onImported();
-      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "No pude importar.");
-      onDishesRef.current?.(0);
-      return false;
     } finally {
       setBusy(false);
     }
   }
-
-  useImperativeHandle(ref, () => ({ importRecipes }));
 
   async function undo(batchId: string) {
     setBusy(true);
@@ -288,7 +265,20 @@ export const RecipeImportPreview = forwardRef<
               </tbody>
             </table>
           </div>
-          {footer}
+          {(() => {
+            const Btn = primary ? PrimaryBtn : GhostBtn;
+            return (
+              <Btn
+                id={IMPORT_RECIPES_BUTTON_ID}
+                disabled={busy || busyExternal}
+                onClick={() => void importRecipes()}
+              >
+                {busy
+                  ? "Importando…"
+                  : `2. Importar recetas (${preview.dishes} ${preview.dishes === 1 ? "plato" : "platos"})`}
+              </Btn>
+            );
+          })()}
         </>
       ) : null}
 
@@ -314,4 +304,4 @@ export const RecipeImportPreview = forwardRef<
       ) : null}
     </section>
   );
-});
+}

@@ -15,8 +15,8 @@ import type {
   PriceCatalogRow,
 } from "@/lib/restaurant/price-catalog/reader";
 import {
+  IMPORT_RECIPES_BUTTON_ID,
   RecipeImportPreview,
-  type RecipeImportPreviewHandle,
 } from "./RecipeImportPreview";
 import { Card, Chip, GhostBtn, PrimaryBtn } from "./ui";
 
@@ -118,6 +118,10 @@ export const PriceCatalogPanel = forwardRef<
     onUploaded?: () => void;
     /** After "Importar" on the recipes of the same file. */
     onRecipesImported?: () => void;
+    /** Step 1 done and the file still has recipes to import: refresh, do not restart the panels. */
+    onPricesSaved?: () => void;
+    /** How many dishes wait for «2. Importar recetas» (null = none pending). */
+    onImportPending?: (dishes: number | null) => void;
     locationId?: string | null;
     busyExternal?: boolean;
   }
@@ -125,6 +129,8 @@ export const PriceCatalogPanel = forwardRef<
   {
     onUploaded,
     onRecipesImported,
+    onPricesSaved,
+    onImportPending,
     locationId = null,
     busyExternal = false,
     embedded = false,
@@ -132,7 +138,6 @@ export const PriceCatalogPanel = forwardRef<
   ref
 ) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const importRef = useRef<RecipeImportPreviewHandle>(null);
   useImperativeHandle(ref, () => ({
     openPicker: () => fileRef.current?.click(),
   }));
@@ -333,20 +338,8 @@ export const PriceCatalogPanel = forwardRef<
   const openDecisions =
     check.length + ambiguous.length + (preview?.conflicts.length ?? 0);
 
-  /**
-   * The ONE primary button: save the prices, then (when the file has recipes
-   * below) import them, in that order. The parent is told once, at the end.
-   */
-  async function uploadAndPrepare() {
-    if (preview) {
-      const ok = await save({ notify: recipeDishes === 0 });
-      if (!ok) return;
-    }
-    if (recipeDishes > 0) await importRef.current?.importRecipes();
-  }
-
-  async function save({ notify = true }: { notify?: boolean } = {}) {
-    if (!draftName || !preview) return false;
+  async function save() {
+    if (!draftName || !preview) return;
     setBusy(true);
     setError(null);
     try {
@@ -366,16 +359,21 @@ export const PriceCatalogPanel = forwardRef<
       void loadOpen();
       // The file has its own recipes: they come in with "Importar" below,
       // so no AI suggestions (they would only add drafts and questions).
-      if (notify) {
-        if (recipeDishes > 0 || recipesImported) onRecipesImported?.();
-        else onUploaded?.();
-      }
-      return true;
+      if (recipeDishes > 0 && !recipesImported) {
+        // Step 2 is next: refresh the page data but keep this panel (and its
+        // recipes table) as it is, and bring the import button into view.
+        onPricesSaved?.();
+        setTimeout(() => {
+          const button = document.getElementById(IMPORT_RECIPES_BUTTON_ID);
+          button?.scrollIntoView({ behavior: "smooth", block: "center" });
+          button?.focus({ preventScroll: true });
+        }, 100);
+      } else if (recipesImported) onRecipesImported?.();
+      else onUploaded?.();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "No pude guardar la lista."
       );
-      return false;
     } finally {
       setBusy(false);
     }
@@ -419,17 +417,15 @@ export const PriceCatalogPanel = forwardRef<
     }
   }
 
-  // Enabled when there is something to do: a catalog to save and/or recipes to import.
-  const primaryButton = (
-    <PrimaryBtn
-      disabled={
-        busy || busyExternal || (preview ? !canSave : recipeDishes === 0)
-      }
-      onClick={() => void uploadAndPrepare()}
-    >
-      Subir y preparar mis platos
-    </PrimaryBtn>
-  );
+  // Tell the checklist when «2. Importar recetas» is the next step.
+  const importPendingRef = useRef(onImportPending);
+  useEffect(() => {
+    importPendingRef.current = onImportPending;
+  }, [onImportPending]);
+  const pendingDishes = !preview && recipeDishes > 0 ? recipeDishes : null;
+  useEffect(() => {
+    importPendingRef.current?.(pendingDishes);
+  }, [pendingDishes]);
 
   const Wrapper = embedded ? "div" : Card;
   return (
@@ -746,7 +742,9 @@ export const PriceCatalogPanel = forwardRef<
           ) : null}
 
           <div className="flex items-center gap-2">
-            {recipeDishes === 0 ? primaryButton : null}
+            <PrimaryBtn disabled={!canSave} onClick={() => void save()}>
+              1. Guardar precios
+            </PrimaryBtn>
             {openDecisions > 0 ? (
               <span className="text-[12px] text-[#8a92a3]">
                 {openDecisions} por decidir (ahora o en cada plato)
@@ -787,8 +785,7 @@ export const PriceCatalogPanel = forwardRef<
         busyExternal={busy || busyExternal}
         onImported={() => onRecipesImported?.()}
         onDishes={setRecipeDishes}
-        ref={importRef}
-        footer={primaryButton}
+        primary={!preview}
       />
 
       {open.length > 0 ? (

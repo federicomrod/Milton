@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
+import { IMPORT_RECIPES_BUTTON_ID } from "@/components/restaurant/recipes-costing/RecipeImportPreview";
 import type { SetupStep } from "@/lib/restaurant/costing/menu-summary";
 import {
   getCachedTab,
@@ -133,6 +134,8 @@ export function CostsSetupSection({
     }
   };
   const panelRef = useRef<PriceCatalogPanelHandle>(null);
+  // Dishes waiting for «2. Importar recetas» (set by the file card once prices are saved).
+  const [importPending, setImportPending] = useState<number | null>(null);
   const goToFileRef = useRef<(() => void) | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{
@@ -245,6 +248,21 @@ export function CostsSetupSection({
       router.refresh();
     }
   };
+  // Prices saved, recipes still to import: refresh the checklist without
+  // restarting the file card.
+  const onPricesSaved = () => {
+    markTabsStale();
+    void reload().catch(() => undefined);
+    router.refresh();
+  };
+  const goToImport = () => {
+    setDetail(true);
+    setTimeout(() => {
+      const button = document.getElementById(IMPORT_RECIPES_BUTTON_ID);
+      button?.scrollIntoView({ behavior: "smooth", block: "center" });
+      button?.focus({ preventScroll: true });
+    }, 50);
+  };
   const onResetDone = () => {
     // "Empezar de nuevo" / an import: every panel starts over (upload drafts
     // remount) and the server parts refresh.
@@ -277,6 +295,17 @@ export function CostsSetupSection({
       setBusy(false);
     }
   };
+  // After «1. Guardar precios» the next step is «2. Importar recetas»: the
+  // checklist button points at it (not at «revisar 0 platos»).
+  const next: SetupStep | null = importPending
+    ? {
+        id: "excel",
+        label: "Importar recetas",
+        done: false,
+        href: null,
+        action: `Continuar: importar recetas (${importPending} ${importPending === 1 ? "plato" : "platos"})`,
+      }
+    : setup.next;
   const goToFile = () => {
     // The file card lives in the detail: open it, scroll to it and open the
     // picker in this same click (the panel stays mounted, hidden, for that).
@@ -292,6 +321,7 @@ export function CostsSetupSection({
     );
   };
   goToFileRef.current = goToFile;
+  const onNext = importPending ? goToImport : goToFile;
   const more = (
     <MoreMenu
       data={data}
@@ -359,14 +389,14 @@ export function CostsSetupSection({
           <b className="text-[#151c2c]">
             Configura tus costos · {setup.done} de {setup.total}
           </b>
-          {setup.next ? (
+          {next ? (
             <span className="min-w-0 truncate text-[#4a5a85]">
-              · Siguiente: {nextStepText(setup.next.action)}
+              · Siguiente: {nextStepText(next.action)}
             </span>
           ) : null}
           <span className="ml-auto flex items-center gap-2">
-            {setup.next ? (
-              <NextStepButton step={setup.next} onFile={goToFile} compact />
+            {next ? (
+              <NextStepButton step={next} onFile={onNext} compact />
             ) : null}
             <button
               type="button"
@@ -417,9 +447,9 @@ export function CostsSetupSection({
                 onFile={goToFile}
               />
             ))}
-            {setup.next ? (
+            {next ? (
               <div className="mt-3">
-                <NextStepButton step={setup.next} onFile={goToFile} />
+                <NextStepButton step={next} onFile={onNext} />
               </div>
             ) : null}
           </section>
@@ -446,6 +476,8 @@ export function CostsSetupSection({
               embedded
               onUploaded={() => void onUploaded()}
               onRecipesImported={onResetDone}
+              onPricesSaved={onPricesSaved}
+              onImportPending={setImportPending}
               locationId={locationId}
               busyExternal={busy}
             />

@@ -16,26 +16,26 @@ const walk = (dir: string): string[] =>
         : [];
   });
 
-describe("one primary button in the «Último archivo» card", () => {
+describe("two separate steps in the «Último archivo» card", () => {
   const panel = read(
     "components/restaurant/recipes-costing/PriceCatalogPanel.tsx"
   );
   const preview = read(
     "components/restaurant/recipes-costing/RecipeImportPreview.tsx"
   );
-  it("«Subir y preparar mis platos» is defined once and «Importar» is no longer a button", () => {
-    expect(panel.match(/Subir y preparar mis platos/g)?.length).toBe(1);
-    expect(preview).not.toMatch(/>\s*\{?busy \? "Importando…" : "Importar"/);
-    expect(preview).not.toContain("<PrimaryBtn");
+  it("«1. Guardar precios» and «2. Importar recetas (N platos)» are two buttons; the old names are gone", () => {
+    expect(panel).toContain("1. Guardar precios");
+    expect(preview).toContain("2. Importar recetas (");
+    expect(panel).not.toContain("Subir y preparar mis platos");
+    expect(preview).not.toContain(': "Importar"');
   });
-  it("saves the prices first, then imports the recipes, and tells the parent once", () => {
-    const fn = panel.slice(panel.indexOf("async function uploadAndPrepare"));
-    const save = fn.indexOf("await save(");
-    const imp = fn.indexOf("importRecipes()");
-    expect(save).toBeGreaterThan(-1);
-    expect(imp).toBeGreaterThan(save);
+  it("after step 1 the import button is scrolled into view and the panel is not restarted", () => {
+    expect(panel).toContain("onPricesSaved?.()");
+    expect(panel).toContain("IMPORT_RECIPES_BUTTON_ID");
+    expect(panel).toContain("scrollIntoView");
   });
-  it("the primary button is brand blue; secondary buttons are white with a blue border", () => {
+  it("step 2 is the primary button once step 1 is done, white with a blue border before", () => {
+    expect(preview).toContain("primary ? PrimaryBtn : GhostBtn");
     const ui = read("components/restaurant/recipes-costing/ui.tsx");
     expect(ui).toMatch(
       /bg-\[#1B40C8\][^"]*text-white[^"]*hover:bg-\[#1535a6\]/

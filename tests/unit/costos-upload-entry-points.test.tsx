@@ -4,11 +4,21 @@
 // Layout/behaviour only. Synthetic data.
 import { readFileSync } from "fs";
 import { join } from "path";
-import { forwardRef, useImperativeHandle } from "react";
+import { forwardRef, useEffect, useImperativeHandle } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 
 const openPicker = vi.fn();
+const panelState: { props: { onImportPending?: (n: number | null) => void } } =
+  {
+    props: {},
+  };
 let pathname = "/dashboard/restaurant/costs";
 
 vi.mock("next/navigation", () => ({
@@ -17,8 +27,11 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("@/components/restaurant/recipes-costing/PriceCatalogPanel", () => ({
-  PriceCatalogPanel: forwardRef<{ openPicker: () => void }>(
-    function PanelMock(_p, ref) {
+  PriceCatalogPanel: forwardRef<{ openPicker: () => void }, object>(
+    function PanelMock(props, ref) {
+      useEffect(() => {
+        panelState.props = props as typeof panelState.props;
+      });
       useImperativeHandle(ref, () => ({ openPicker }));
       return <div data-testid="price-catalog-panel">PANEL</div>;
     }
@@ -139,6 +152,34 @@ describe("Costos upload entry points open the file picker on the first click", (
     );
     expect(fireEvent.click(link)).toBe(true);
     expect(openPicker).not.toHaveBeenCalled();
+  });
+});
+
+describe("after «1. Guardar precios» the checklist points at «2. Importar recetas»", () => {
+  it("«Continuar» says what is next and scrolls the import button into view", async () => {
+    draw();
+    await screen.findByRole("button", { name: "Continuar" });
+    const button = document.createElement("button");
+    button.id = "importar-recetas";
+    button.focus = vi.fn();
+    document.body.appendChild(button);
+    act(() => panelState.props.onImportPending?.(12));
+    expect(screen.getByTestId("costs-setup-banner").textContent).toContain(
+      "Siguiente: Importar recetas (12 platos)"
+    );
+    expect(screen.getByTestId("costs-setup-banner").textContent).not.toContain(
+      "revisar 0"
+    );
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    vi.useRealTimers();
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    expect(button.focus).toHaveBeenCalled();
+    expect(openPicker).not.toHaveBeenCalled();
+    button.remove();
   });
 });
 

@@ -128,9 +128,12 @@ describe("source guards", () => {
     const panel = read(
       "components/restaurant/recipes-costing/PriceCatalogPanel.tsx"
     );
+    // Recipes waiting or imported: never the AI path (onUploaded).
+    expect(panel).toContain("if (recipeDishes > 0 && !recipesImported) {");
     expect(panel).toContain(
-      "if (recipeDishes > 0 || recipesImported) onRecipesImported?.();"
+      "} else if (recipesImported) onRecipesImported?.();"
     );
+    expect(panel).toContain("else onUploaded?.();");
   });
 
   it("a preparation without cost says what is missing and opens it", () => {

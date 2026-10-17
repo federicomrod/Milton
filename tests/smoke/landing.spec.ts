@@ -7,7 +7,7 @@ test.describe("Smoke: Landing Page", () => {
     // Navigate to the landing page
     await page.goto("/", { waitUntil: "networkidle" });
 
-    // Wait for the page to be interactive - this ensures AppNavigation auth check completes
+    // Wait for the page to be interactive
     await page.waitForLoadState("domcontentloaded");
 
     // Check hero heading

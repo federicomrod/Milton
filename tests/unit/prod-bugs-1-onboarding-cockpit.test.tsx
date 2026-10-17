@@ -5,7 +5,6 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { isAppNavigationHidden } from "@/components/layout/app-navigation";
 import { CockpitEmpty } from "@/components/restaurant/cockpit/v2/CockpitEmpty";
 import {
   COUNTRY_OPTIONS,
@@ -24,21 +23,11 @@ const text = (html: string) =>
     .replace(/\s+/g, " ");
 
 describe("5 · onboarding uses the restaurant shell, not the old top bar", () => {
-  it("AppNavigation is hidden on /onboarding* (and still on auth and the restaurant routes)", () => {
-    for (const p of [
-      "/onboarding/restaurant",
-      "/onboarding",
-      "/onboarding/chat",
-      "/onboarding/upload",
-      "/auth/login",
-      "/",
-      "/dashboard/restaurant",
-      "/dashboard/restaurant/menu",
-    ])
-      expect(isAppNavigationHidden(p), p).toBe(true);
-    expect(isAppNavigationHidden("/dashboard")).toBe(false);
-    expect(isAppNavigationHidden("/management/dashboard")).toBe(false);
-    expect(isAppNavigationHidden(null)).toBe(false);
+  it("there is no old top navigation bar any more: every page has the shell, its own chrome or none", () => {
+    expect(
+      existsSync(join(process.cwd(), "components/layout/app-navigation.tsx"))
+    ).toBe(false);
+    expect(read("app/layout.tsx")).not.toContain("AppNavigation");
   });
   it("the restaurant onboarding page wraps the wizard in RestaurantShell (slim: no sections or switcher yet)", () => {
     const page = read("app/onboarding/restaurant/page.tsx");

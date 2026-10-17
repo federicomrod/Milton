@@ -117,6 +117,14 @@ export function isPrimaryNavActive(
   pathname: string
 ): boolean {
   if (item.match === "exact") return pathname === item.href;
+  // Account and settings are reached from Configuración and live in the shell.
+  if (
+    item.id === "data_settings" &&
+    (pathname.startsWith("/dashboard/account") ||
+      pathname.startsWith("/dashboard/settings"))
+  ) {
+    return true;
+  }
   return pathname === item.href || pathname.startsWith(item.href + "/");
 }
 

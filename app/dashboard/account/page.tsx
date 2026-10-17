@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { useUserProfile } from "@/lib/hooks/useUserProfile";
 import { getUserCompany } from "@/lib/profile-service";
 import { createClient } from "@/lib/supabase/client";
+import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { TelegramConnectionCard } from "@/components/restaurant/TelegramConnectionCard";
 import { EmailBriefingCard } from "@/components/restaurant/EmailBriefingCard";
 import {
@@ -91,23 +92,25 @@ export default function AccountPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
+    <div className="w-full max-w-4xl px-[26px] pb-10 pt-4">
       {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Cuenta</h1>
-            <p className="text-muted-foreground mt-1">
-              Administra el perfil de tu empresa y tu cuenta
-            </p>
-          </div>
-          <Link href="/dashboard/settings">
-            <Button className="gap-2">
-              <Edit className="h-4 w-4" />
-              Editar perfil
-            </Button>
-          </Link>
-        </div>
+      <div className="mb-5">
+        <OperatingPageHeader
+          title="Cuenta"
+          lang="es"
+          showDateRange={false}
+          titleAction={
+            <Link href="/dashboard/settings">
+              <Button size="sm" className="gap-2">
+                <Edit className="h-4 w-4" />
+                Editar perfil
+              </Button>
+            </Link>
+          }
+        />
+        <p className="mt-0.5 text-[13px] text-[#6b7385]">
+          Tu empresa, tu cuenta y cómo recibes el briefing
+        </p>
       </div>
 
       {/* Profile Overview */}
@@ -295,15 +298,9 @@ export default function AccountPage() {
             <Link href="/dashboard/settings">
               <Button variant="outline">Actualizar perfil</Button>
             </Link>
-            <Link href="/dashboard">
+            <Link href="/dashboard/restaurant">
               <Button variant="outline">Ver el Cockpit</Button>
             </Link>
-            <Button variant="outline" disabled>
-              Administrar facturación
-            </Button>
-            <Button variant="outline" disabled>
-              Equipo
-            </Button>
           </div>
         </CardContent>
       </Card>

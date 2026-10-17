@@ -1,3 +1,4 @@
+import { legacyRedirectTarget } from "@/lib/restaurant/legacy-redirects";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { safeNextPath } from "@/lib/auth/safe-next";
 import { NextResponse, type NextRequest } from "next/server";
@@ -124,20 +125,17 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  // Restaurant pivot: send authenticated users away from the legacy product
-  // home and the paused model-builder straight to the restaurant cockpit.
-  // Placed BEFORE the onboarding gate so pilot users (who never completed the
-  // old onboarding) don't bounce through /onboarding-required first.
-  // Exact matches only — legacy sub-pages (analytics, reporting, data,
-  // scenarios) stay reachable if visited directly; they're just out of nav.
-  const LEGACY_HOME_REDIRECTS = ["/dashboard", "/dashboard/model"];
-  if (LEGACY_HOME_REDIRECTS.includes(pathname)) {
+  // Restaurant pivot: send authenticated users away from the legacy CFO
+  // pages (home, model builder, analytics, reporting, scenarios, data and
+  // upload — the ones with the old top navigation) to their restaurant
+  // equivalent. Placed BEFORE the onboarding gate so pilot users (who never
+  // completed the old onboarding) don't bounce through /onboarding-required.
+  const legacyTarget = legacyRedirectTarget(pathname);
+  if (legacyTarget) {
     console.log(
-      `[Proxy] Restaurant pivot: redirecting legacy ${pathname} -> /dashboard/restaurant`
+      `[Proxy] Restaurant pivot: redirecting legacy ${pathname} -> ${legacyTarget}`
     );
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard/restaurant";
-    return NextResponse.redirect(url);
+    return NextResponse.redirect(new URL(legacyTarget, request.url));
   }
 
   // Check onboarding status for protected routes (dashboard, analytics, etc.)

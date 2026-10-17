@@ -20,7 +20,12 @@ const MiltonChat = dynamic(() => import("@/components/dashboard/miltonchat"), {
 /** Restaurant pages run their own data and chat (RestaurantShell); none of
  *  the legacy CFO dashboard work below applies to them. */
 function isRestaurantPath(pathname: string | null): boolean {
-  return pathname?.startsWith("/dashboard/restaurant") ?? false;
+  return (
+    (pathname?.startsWith("/dashboard/restaurant") ||
+      pathname?.startsWith("/dashboard/account") ||
+      pathname?.startsWith("/dashboard/settings")) ??
+    false
+  );
 }
 
 type DataStatus = {
@@ -306,32 +311,31 @@ const DashboardContent = ({ children }: { children: React.ReactNode }) => {
               {children}
               {/* Legacy Milton chat — hidden on restaurant routes; those
                   use the Ask Milton drawer in RestaurantShell. */}
-              {!isChatOpen &&
-                !pathname?.startsWith("/dashboard/restaurant") && (
-                  <button
-                    aria-label="Open Milton Chat"
-                    onClick={() => setIsChatOpen(true)}
-                    style={{
-                      position: "fixed",
-                      right: 32,
-                      bottom: 32,
-                      zIndex: 10050,
-                      width: 56,
-                      height: 56,
-                      borderRadius: "50%",
-                      background: "#fff",
-                      boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-                      border: "none",
-                      fontSize: 28,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    💬
-                  </button>
-                )}
+              {!isChatOpen && !onRestaurant && (
+                <button
+                  aria-label="Open Milton Chat"
+                  onClick={() => setIsChatOpen(true)}
+                  style={{
+                    position: "fixed",
+                    right: 32,
+                    bottom: 32,
+                    zIndex: 10050,
+                    width: 56,
+                    height: 56,
+                    borderRadius: "50%",
+                    background: "#fff",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                    border: "none",
+                    fontSize: 28,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  💬
+                </button>
+              )}
               {!onRestaurant && (
                 <div
                   className="fixed top-0 right-0 h-screen w-[33.333vw] max-w-[420px] min-w-[320px] bg-background shadow-[0_0_24px_rgba(0,0,0,0.2)] z-[10000] flex flex-col transition-transform duration-300 ease-out"

@@ -663,9 +663,10 @@ export function buildDishEconomics(
     ) {
       continue;
     }
-    const approved = (versionsByMenuItem.get(link.menu_item_id) ?? []).some(
-      (v) => v.status === "approved"
-    );
+    // Same pick as the costing engine (never a second rule for "approved").
+    const approved =
+      pickDishVersions(versionsByMenuItem.get(link.menu_item_id) ?? [])
+        .approved !== null;
     const product: RankedPosProduct = {
       odoo_product_id: id,
       odoo_name: link.odoo_name ?? l.odoo_name,

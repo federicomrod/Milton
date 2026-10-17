@@ -18,7 +18,7 @@ export const THEME_DEFAULTS: DashboardTheme = {
 export const THEME_PRESETS: Array<{ label: string } & DashboardTheme> = [
   { label: "Default", primaryColor: "#202f9d", accentColor: "#9e9e9e" },
   { label: "Emerald", primaryColor: "#10b981", accentColor: "#06b6d4" },
-  { label: "Rose", primaryColor: "#f43f5e", accentColor: "#f97316" },
+  { label: "Rose", primaryColor: "#f43f5e", accentColor: "#fb7185" },
   { label: "Violet", primaryColor: "#7c3aed", accentColor: "#db2777" },
   { label: "Slate", primaryColor: "#475569", accentColor: "#0ea5e9" },
 ];

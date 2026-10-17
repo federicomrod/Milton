@@ -1,12 +1,14 @@
 // A short, friendly empty state for a brand-new account: what is missing and
 // the way to start. Never a number (no $0, no made-up amount). Server-safe.
 
-import Link from "next/link";
+import { EmptyActionLink } from "./EmptyActionLink";
 
 export interface EmptyAction {
   href: string;
   label: string;
   primary?: boolean;
+  /** Opens the cost-file picker when already on Costos (else goes there). */
+  opensCostsPicker?: boolean;
 }
 
 export function EmptyState({
@@ -27,9 +29,10 @@ export function EmptyState({
       {actions.length > 0 ? (
         <div className="mt-2.5 flex flex-wrap gap-2">
           {actions.map((a) => (
-            <Link
+            <EmptyActionLink
               key={a.href + a.label}
               href={a.href}
+              opensCostsPicker={a.opensCostsPicker}
               className={
                 a.primary
                   ? "inline-block rounded-lg bg-[#1b40c8] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6]"
@@ -37,7 +40,7 @@ export function EmptyState({
               }
             >
               {a.label}
-            </Link>
+            </EmptyActionLink>
           ))}
         </div>
       ) : null}

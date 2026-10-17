@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { GhostBtn, PrimaryBtn } from "./ui";
 
+/** Id of the «2. Importar recetas» button (scrolled into view after step 1). */
+export const IMPORT_RECIPES_BUTTON_ID = "importar-recetas";
+
 interface PreviewRow {
   key: string;
   dish: string;
@@ -71,6 +74,7 @@ export function RecipeImportPreview({
   busyExternal,
   onImported,
   onDishes,
+  primary = true,
 }: {
   /** The saved upload (draft); changes when a new file is picked. */
   draftToken: string | null;
@@ -81,6 +85,8 @@ export function RecipeImportPreview({
   onImported: () => void;
   /** How many dishes the file's recipes hold (0 = none to import). */
   onDishes?: (count: number) => void;
+  /** Step 2 is the next primary action (prices already saved or nothing to save). */
+  primary?: boolean;
 }) {
   const [preview, setPreview] = useState<RecipePreview | null>(null);
   const [imported, setImported] = useState<Imported | null>(
@@ -158,6 +164,7 @@ export function RecipeImportPreview({
       if (!res.ok) throw new Error(json.error ?? "No pude importar.");
       setImported(json);
       setPreview(null);
+      onDishesRef.current?.(0);
       onImported();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No pude importar.");
@@ -299,12 +306,20 @@ export function RecipeImportPreview({
               }
             />
           ) : null}
-          <PrimaryBtn
-            disabled={busy || busyExternal}
-            onClick={() => void importRecipes()}
-          >
-            {busy ? "Importando…" : "Importar"}
-          </PrimaryBtn>
+          {(() => {
+            const Btn = primary ? PrimaryBtn : GhostBtn;
+            return (
+              <Btn
+                id={IMPORT_RECIPES_BUTTON_ID}
+                disabled={busy || busyExternal}
+                onClick={() => void importRecipes()}
+              >
+                {busy
+                  ? "Importando…"
+                  : `2. Importar recetas (${preview.dishes} ${preview.dishes === 1 ? "plato" : "platos"})`}
+              </Btn>
+            );
+          })()}
         </>
       ) : null}
 

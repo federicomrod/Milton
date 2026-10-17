@@ -214,14 +214,15 @@ export function CockpitV2(props: CockpitV2Props) {
   const money = (n: number) =>
     formatMoneyEs(n, props.currency, { decimals: 0 });
   const periodLabel = PERIODS.find((p) => p.key === period)!.label;
-  const toSales = (from: string, to: string) =>
+  // Ventas reads p=custom&desde&hasta (not from/to).
+  const toSales = (from: string, to: string) => {
+    const base = withShellParams(SALES_DETAIL_HREF, {
+      locationId: props.locationId,
+    });
     router.push(
-      withShellParams(SALES_DETAIL_HREF, {
-        locationId: props.locationId,
-        from,
-        to,
-      })
+      `${base}${base.includes("?") ? "&" : "?"}p=custom&desde=${from}&hasta=${to}`
     );
+  };
 
   if (view.empty) {
     return (

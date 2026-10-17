@@ -612,7 +612,7 @@ function AddIngrediente({
           }}
           placeholder="Nombre del ingrediente"
           aria-label="Nombre del ingrediente"
-          className="h-9 min-w-0 flex-1 rounded-lg border border-[#e3e7ee] px-3 text-[13px] outline-none focus:border-[#f28c28]"
+          className="h-9 min-w-0 flex-1 rounded-lg border border-[#e3e7ee] px-3 text-[13px] outline-none focus:border-[#1B40C8]"
         />
         <button
           type="button"
@@ -938,7 +938,7 @@ function IngredienteDetail({
             }}
             placeholder="Sin categoría"
             aria-label="Categoría"
-            className="mt-2 h-9 w-[180px] rounded-md border border-[#e3e7ee] px-2 text-[13px] text-[#151c2c] outline-none focus:border-[#f28c28]"
+            className="mt-2 h-9 w-[180px] rounded-md border border-[#e3e7ee] px-2 text-[13px] text-[#151c2c] outline-none focus:border-[#1B40C8]"
           />
         </div>
       </div>

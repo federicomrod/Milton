@@ -47,7 +47,7 @@ export function DataHealthIndicator({
           type="button"
           data-testid="data-health-indicator"
           className={
-            "inline-flex items-center gap-1.5 h-7 px-2 rounded-md text-xs font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 " +
+            "inline-flex items-center gap-1.5 h-7 px-2 rounded-md text-xs font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] " +
             toneClass
           }
         >
@@ -81,7 +81,7 @@ export function DataHealthIndicator({
         <p className="px-5 pb-5 text-xs text-muted-foreground">
           <Link
             href={DATA_SETTINGS_HREF}
-            className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
+            className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] rounded-sm"
           >
             {t(lang, "Open Data & Settings →", "Abrir Datos y configuración →")}
           </Link>

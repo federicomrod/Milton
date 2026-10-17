@@ -51,7 +51,7 @@ export function DailyBarsChart({
   onDay,
 }: {
   bars: DayBar[];
-  /** The orange line (average per day of the baseline); null = not drawn. */
+  /** The baseline line (average per day of the baseline); null = not drawn. */
   baselineAvg: number | null;
   baselineLabel: string;
   money: (n: number) => string;

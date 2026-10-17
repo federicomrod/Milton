@@ -22,7 +22,7 @@ import {
 export const dynamic = "force-dynamic";
 
 const linkClass =
-  "block px-4 py-2.5 text-sm font-medium hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500";
+  "block px-4 py-2.5 text-sm font-medium hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]";
 
 export default async function ConfiguracionPage({
   searchParams,

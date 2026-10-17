@@ -735,7 +735,7 @@ function Kpi({
   return (
     <Link
       href={href}
-      className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px] hover:border-[#f28c28]"
+      className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px] hover:border-[#1B40C8]"
     >
       <div className="text-[12px] text-[#6b7385]">{label}</div>
       <div className="mt-0.5 text-[30px] font-extrabold leading-tight tracking-[-0.5px] text-[#1b2333]">
@@ -1027,7 +1027,7 @@ function MovePanel({
                 : dishes.find((d) => d.id === target);
             if (dest) onMove(variant, dest);
           }}
-          className="rounded-lg bg-[#f28c28] px-3 py-1.5 font-semibold text-white disabled:opacity-45"
+          className="rounded-lg bg-[#1B40C8] px-3 py-1.5 font-semibold text-white hover:bg-[#1535a6] disabled:cursor-not-allowed disabled:border-[#b9c7f0] disabled:bg-[#b9c7f0] disabled:opacity-100"
         >
           Mover
         </button>

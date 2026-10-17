@@ -278,7 +278,7 @@ export function GroupPicker({
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Buscar grupo…"
         aria-label="Buscar grupo"
-        className="mt-2 w-full rounded-lg border border-[#dfe3ea] px-3 py-2 text-[14px] outline-none focus:border-[#f28c28]"
+        className="mt-2 w-full rounded-lg border border-[#dfe3ea] px-3 py-2 text-[14px] outline-none focus:border-[#1B40C8]"
       />
       <ul className="mt-2 max-h-[280px] overflow-auto">
         {allowTop ? (

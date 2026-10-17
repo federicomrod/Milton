@@ -268,7 +268,7 @@ function RestaurantShellChrome({
             href={
               slim ? "#" : withShellParams("/dashboard/restaurant", shellParams)
             }
-            className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
+            className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] rounded-sm"
           >
             <Image src="/Milton_Logo.png" alt="Milton" width={24} height={24} />
             <span className="text-base font-bold">milton.</span>
@@ -276,7 +276,7 @@ function RestaurantShellChrome({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="rounded-full bg-primary text-primary-foreground h-8 px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+              className="rounded-full bg-primary text-primary-foreground h-8 px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
               onClick={() => openAskMilton()}
             >
               {t(lang, "Ask Milton", "Preguntar a Milton")}
@@ -284,7 +284,7 @@ function RestaurantShellChrome({
             <button
               type="button"
               hidden={slim}
-              className="p-2 rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+              className="p-2 rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
               aria-expanded={mobileOpen}
               aria-controls="mobile-restaurant-nav"
               onClick={() => setMobileOpen((v) => !v)}
@@ -302,6 +302,11 @@ function RestaurantShellChrome({
             className="lg:hidden border-b border-border bg-background px-3 py-3"
           >
             <SidebarNav
+              pathname={pathname}
+              shellParams={shellParams}
+              lang={lang}
+            />
+            <SidebarFooter
               pathname={pathname}
               shellParams={shellParams}
               lang={lang}
@@ -409,7 +414,7 @@ function SidebarBrand({
         href={withShellParams("/dashboard/restaurant", {
           locationId: currentLocationId,
         })}
-        className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
+        className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] rounded-sm"
       >
         <Image src="/Milton_Logo.png" alt="Milton" width={28} height={28} />
         <span className="text-lg font-bold tracking-tight">milton.</span>
@@ -419,10 +424,10 @@ function SidebarBrand({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+            className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
           >
             <span className="flex items-center gap-2 min-w-0">
-              <Building2 className="h-4 w-4 text-orange-500 shrink-0" />
+              <Building2 className="h-4 w-4 text-[#1B40C8] shrink-0" />
               <span className="text-sm font-medium truncate">
                 {displayLabel}
               </span>
@@ -505,7 +510,7 @@ function SidebarLink({
         onMouseEnter={() => setIntent(true)}
         onFocus={() => setIntent(true)}
         className={
-          "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 " +
+          "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] " +
           (active
             ? "bg-primary/10 text-primary"
             : "text-foreground/80 hover:bg-muted hover:text-foreground")

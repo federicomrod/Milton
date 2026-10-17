@@ -22,7 +22,7 @@ import { SalesHeatmap } from "./SalesHeatmap";
 import { salesChannelLabel } from "@/lib/restaurant/sales-channel-labels";
 
 const MIX_COLORS = [
-  "hsl(24 80% 50%)",
+  "hsl(224 77% 44%)",
   "hsl(210 55% 45%)",
   "hsl(160 40% 36%)",
   "hsl(280 35% 48%)",

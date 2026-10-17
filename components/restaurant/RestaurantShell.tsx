@@ -306,6 +306,11 @@ function RestaurantShellChrome({
               shellParams={shellParams}
               lang={lang}
             />
+            <SidebarFooter
+              pathname={pathname}
+              shellParams={shellParams}
+              lang={lang}
+            />
           </div>
         ) : null}
 

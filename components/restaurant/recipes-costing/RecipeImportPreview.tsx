@@ -1,7 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { GhostBtn, PrimaryBtn } from "./ui";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { GhostBtn } from "./ui";
+
+export interface RecipeImportPreviewHandle {
+  /** Write the recipes of the file (what «Importar» did). Resolves true when it worked. */
+  importRecipes: () => Promise<boolean>;
+}
 
 interface PreviewRow {
   key: string;
@@ -42,19 +54,7 @@ function money(value: number | null): string {
   return value === null ? "—" : `$${value.toFixed(2)}`;
 }
 
-/**
- * The recipes of the cost file, read before anything is saved: one row
- * per dish with our cost, the Excel's COSTO TOTAL and whether they match.
- * Nothing is written until "Importar".
- */
-export function RecipeImportPreview({
-  draftToken,
-  initialImported,
-  locationId,
-  busyExternal,
-  onImported,
-  onDishes,
-}: {
+interface RecipeImportPreviewProps {
   /** The saved upload (draft); changes when a new file is picked. */
   draftToken: string | null;
   /** What "Importar" already saved from this file, after a reload. */
@@ -62,9 +62,32 @@ export function RecipeImportPreview({
   locationId: string | null;
   busyExternal: boolean;
   onImported: () => void;
-  /** How many dishes the file's recipes hold (0 = none to import). */
+  /** How many dishes the file's recipes hold (0 = none shown / to import). */
   onDishes?: (count: number) => void;
-}) {
+  /** The one primary action of the card, shown once below the recipes table. */
+  footer?: ReactNode;
+}
+
+/**
+ * The recipes of the cost file, read before anything is saved: one row
+ * per dish with our cost, the Excel's COSTO TOTAL and whether they match.
+ * Nothing is written until "Importar".
+ */
+export const RecipeImportPreview = forwardRef<
+  RecipeImportPreviewHandle,
+  RecipeImportPreviewProps
+>(function RecipeImportPreview(
+  {
+    draftToken,
+    initialImported,
+    locationId,
+    busyExternal,
+    onImported,
+    onDishes,
+    footer,
+  },
+  ref
+) {
   const [preview, setPreview] = useState<RecipePreview | null>(null);
   const [imported, setImported] = useState<Imported | null>(
     (initialImported as unknown as Imported | null) ?? null
@@ -106,6 +129,7 @@ export function RecipeImportPreview({
           setError(
             err instanceof Error ? err.message : "No pude leer las recetas."
           );
+          onDishesRef.current?.(0);
         }
       })
       .finally(() => {
@@ -116,8 +140,8 @@ export function RecipeImportPreview({
     };
   }, [draftToken, hasImported, locationId]);
 
-  async function importRecipes() {
-    if (!draftToken) return;
+  async function importRecipes(): Promise<boolean> {
+    if (!draftToken) return false;
     setBusy(true);
     setError(null);
     try {
@@ -133,13 +157,19 @@ export function RecipeImportPreview({
       if (!res.ok) throw new Error(json.error ?? "No pude importar.");
       setImported(json);
       setPreview(null);
+      onDishesRef.current?.(0);
       onImported();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "No pude importar.");
+      onDishesRef.current?.(0);
+      return false;
     } finally {
       setBusy(false);
     }
   }
+
+  useImperativeHandle(ref, () => ({ importRecipes }));
 
   async function undo(batchId: string) {
     setBusy(true);
@@ -258,12 +288,7 @@ export function RecipeImportPreview({
               </tbody>
             </table>
           </div>
-          <PrimaryBtn
-            disabled={busy || busyExternal}
-            onClick={() => void importRecipes()}
-          >
-            {busy ? "Importando…" : "Importar"}
-          </PrimaryBtn>
+          {footer}
         </>
       ) : null}
 
@@ -289,4 +314,4 @@ export function RecipeImportPreview({
       ) : null}
     </section>
   );
-}
+});

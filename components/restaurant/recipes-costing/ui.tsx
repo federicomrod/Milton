@@ -47,7 +47,7 @@ export function GhostBtn({
     <button
       type="button"
       className={cn(
-        "inline-flex items-center justify-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-semibold text-slate-900 hover:bg-slate-50 disabled:opacity-45",
+        "inline-flex items-center justify-center rounded-md border border-[#1B40C8] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe] disabled:opacity-45",
         className
       )}
       {...props}
@@ -66,7 +66,7 @@ export function PrimaryBtn({
     <button
       type="button"
       className={cn(
-        "inline-flex items-center justify-center rounded-md border border-[#f28c28] bg-[#f28c28] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[#e07b1a] disabled:opacity-45",
+        "inline-flex items-center justify-center rounded-md border border-[#1B40C8] bg-[#1B40C8] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[#1535a6] disabled:opacity-45",
         className
       )}
       {...props}

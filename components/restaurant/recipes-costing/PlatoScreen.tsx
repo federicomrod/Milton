@@ -129,7 +129,7 @@ export function PlatoScreen({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Buscar plato…"
-          className="m-2.5 rounded-[9px] border border-[#dfe3ea] px-2.5 py-[7px] text-[13px] outline-none focus:border-[#f28c28]"
+          className="m-2.5 rounded-[9px] border border-[#dfe3ea] px-2.5 py-[7px] text-[13px] outline-none focus:border-[#1B40C8]"
         />
         <div className="flex flex-wrap gap-1.5 px-2.5 pb-2">
           {FILTERS.map((f) => {
@@ -174,7 +174,7 @@ export function PlatoScreen({
               className={
                 "flex w-full items-center justify-between gap-2 border-t border-[#f2f3f6] px-[14px] py-2.5 text-left text-[13px] " +
                 (row.odoo_product_id === product?.odoo_product_id
-                  ? "bg-[#fff6ec] shadow-[inset_3px_0_0_#f28c28]"
+                  ? "bg-[#eef2fd] shadow-[inset_3px_0_0_#1B40C8]"
                   : "hover:bg-[#fafbfc]")
               }
             >
@@ -336,7 +336,7 @@ function Dish({
               type="button"
               disabled={busy || !action.enabled}
               onClick={onConfirm}
-              className="rounded-lg bg-[#f28c28] px-3.5 py-[7px] text-[13px] font-semibold text-white hover:bg-[#e07b1a] disabled:opacity-45"
+              className="rounded-lg bg-[#1B40C8] px-3.5 py-[7px] text-[13px] font-semibold text-white hover:bg-[#1535a6] disabled:opacity-45"
             >
               {action.label}
             </button>

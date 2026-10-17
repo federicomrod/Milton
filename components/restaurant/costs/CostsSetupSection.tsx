@@ -133,7 +133,7 @@ export function CostsSetupSection({
     }
   };
   const panelRef = useRef<PriceCatalogPanelHandle>(null);
-  const goToFileRef = useRef<() => void>(() => {});
+  const goToFileRef = useRef<(() => void) | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{
     done: number;
@@ -168,7 +168,9 @@ export function CostsSetupSection({
   // «Subir archivo de costos» elsewhere on this page: same click, same picker.
   useEffect(() => {
     const onOpen = (event: Event) => {
-      // Tell the link it was handled here (it must not also navigate).
+      // Not ready yet (loading / failed): let the link fall through to its
+      // #costos-ultimo-archivo href; the mount effect opens the detail then.
+      if (!goToFileRef.current) return;
       const detail = (event as CustomEvent<{ handled?: boolean }>).detail;
       if (detail) detail.handled = true;
       goToFileRef.current();

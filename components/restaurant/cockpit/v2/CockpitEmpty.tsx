@@ -73,7 +73,10 @@ export function CockpitEmpty({
         {REASON_COPY[reason]}
       </p>
 
-      <div className="flex flex-wrap items-center gap-3" aria-hidden="true">
+      <div
+        className="pointer-events-none flex select-none flex-wrap items-center gap-3 opacity-60"
+        aria-hidden="true"
+      >
         <div className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold">
           {PERIODS.map((p, i) => (
             <span
@@ -101,7 +104,10 @@ export function CockpitEmpty({
         <Card label="Margen bruto" sub="Sube tus costos para calcularlo" />
       </div>
 
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" aria-hidden="true">
+      <div
+        className="pointer-events-none grid select-none grid-cols-2 gap-2 opacity-60 lg:grid-cols-4"
+        aria-hidden="true"
+      >
         {PERIODS.map((p) => (
           <div
             key={p}

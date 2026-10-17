@@ -472,11 +472,9 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
                       <button
                         type="button"
                         disabled={disabled || !amounts}
-                        onDoubleClick={() => amounts && setEditing(i)}
+                        onClick={() => amounts && setEditing(i)}
                         title={
-                          amounts
-                            ? "Doble clic para cambiar este día"
-                            : undefined
+                          amounts ? "Clic para cambiar este día" : undefined
                         }
                         className="mt-1 block w-full rounded-md border border-[#c6d3f5] bg-white px-1 py-1 text-[13px] disabled:bg-[#f4f6fb]"
                       >
@@ -500,7 +498,7 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
                 los días)
               </label>
               <p className="mt-1 text-[12px] text-[#8a92a3]">
-                Doble clic para cambiar un día.
+                Clic en un día para cambiarlo.
               </p>
             </>
           ) : (

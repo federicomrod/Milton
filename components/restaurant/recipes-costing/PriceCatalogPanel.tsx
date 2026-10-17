@@ -14,7 +14,10 @@ import type {
   CatalogUnit,
   PriceCatalogRow,
 } from "@/lib/restaurant/price-catalog/reader";
-import { RecipeImportPreview } from "./RecipeImportPreview";
+import {
+  RecipeImportPreview,
+  type RecipeImportPreviewHandle,
+} from "./RecipeImportPreview";
 import { Card, Chip, GhostBtn, PrimaryBtn } from "./ui";
 
 const UNIT_LABEL: Record<CatalogUnit, string> = {
@@ -129,6 +132,7 @@ export const PriceCatalogPanel = forwardRef<
   ref
 ) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const importRef = useRef<RecipeImportPreviewHandle>(null);
   useImperativeHandle(ref, () => ({
     openPicker: () => fileRef.current?.click(),
   }));
@@ -329,8 +333,20 @@ export const PriceCatalogPanel = forwardRef<
   const openDecisions =
     check.length + ambiguous.length + (preview?.conflicts.length ?? 0);
 
-  async function save() {
-    if (!draftName || !preview) return;
+  /**
+   * The ONE primary button: save the prices, then (when the file has recipes
+   * below) import them, in that order. The parent is told once, at the end.
+   */
+  async function uploadAndPrepare() {
+    if (preview) {
+      const ok = await save({ notify: recipeDishes === 0 });
+      if (!ok) return;
+    }
+    if (recipeDishes > 0) await importRef.current?.importRecipes();
+  }
+
+  async function save({ notify = true }: { notify?: boolean } = {}) {
+    if (!draftName || !preview) return false;
     setBusy(true);
     setError(null);
     try {
@@ -350,12 +366,16 @@ export const PriceCatalogPanel = forwardRef<
       void loadOpen();
       // The file has its own recipes: they come in with "Importar" below,
       // so no AI suggestions (they would only add drafts and questions).
-      if (recipeDishes > 0 || recipesImported) onRecipesImported?.();
-      else onUploaded?.();
+      if (notify) {
+        if (recipeDishes > 0 || recipesImported) onRecipesImported?.();
+        else onUploaded?.();
+      }
+      return true;
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "No pude guardar la lista."
       );
+      return false;
     } finally {
       setBusy(false);
     }
@@ -398,6 +418,18 @@ export const PriceCatalogPanel = forwardRef<
       setBusy(false);
     }
   }
+
+  // Enabled when there is something to do: a catalog to save and/or recipes to import.
+  const primaryButton = (
+    <PrimaryBtn
+      disabled={
+        busy || busyExternal || (preview ? !canSave : recipeDishes === 0)
+      }
+      onClick={() => void uploadAndPrepare()}
+    >
+      Subir y preparar mis platos
+    </PrimaryBtn>
+  );
 
   const Wrapper = embedded ? "div" : Card;
   return (
@@ -714,9 +746,7 @@ export const PriceCatalogPanel = forwardRef<
           ) : null}
 
           <div className="flex items-center gap-2">
-            <PrimaryBtn disabled={!canSave} onClick={() => void save()}>
-              Subir y preparar mis platos
-            </PrimaryBtn>
+            {recipeDishes === 0 ? primaryButton : null}
             {openDecisions > 0 ? (
               <span className="text-[12px] text-[#8a92a3]">
                 {openDecisions} por decidir (ahora o en cada plato)
@@ -757,6 +787,8 @@ export const PriceCatalogPanel = forwardRef<
         busyExternal={busy || busyExternal}
         onImported={() => onRecipesImported?.()}
         onDishes={setRecipeDishes}
+        ref={importRef}
+        footer={primaryButton}
       />
 
       {open.length > 0 ? (

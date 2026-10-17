@@ -227,13 +227,17 @@ export function DrillView({
           {backLabel}
         </button>{" "}
         ›{" "}
-        <button
-          type="button"
-          onClick={onOpenRecipe}
-          className="font-bold text-[#151c2c] hover:underline"
-        >
-          {title}
-        </button>{" "}
+        {onOpenRecipe ? (
+          <button
+            type="button"
+            onClick={onOpenRecipe}
+            className="font-bold text-[#151c2c] hover:underline"
+          >
+            {title}
+          </button>
+        ) : (
+          <b className="text-[#151c2c]">{title}</b>
+        )}{" "}
         › {pathText}
         {Object.keys(choices).length > 0 ? (
           <button

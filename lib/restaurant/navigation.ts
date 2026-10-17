@@ -117,6 +117,14 @@ export function isPrimaryNavActive(
   pathname: string
 ): boolean {
   if (item.match === "exact") return pathname === item.href;
+  // Account and settings are reached from Configuración and live in the shell.
+  if (
+    item.id === "data_settings" &&
+    (pathname.startsWith("/dashboard/account") ||
+      pathname.startsWith("/dashboard/settings"))
+  ) {
+    return true;
+  }
   return pathname === item.href || pathname.startsWith(item.href + "/");
 }
 
@@ -172,11 +180,10 @@ export const DATA_SETTINGS_SECTION_ANCHORS: Record<
 export function posUploadHref(
   params: Record<string, string | string[] | undefined> = {}
 ): string {
-  return hrefKeepingParams(
-    DATA_SETTINGS_HREF,
-    { ...params, seccion: DATA_SETTINGS_SECTION_ANCHORS.connections },
-    DATA_SETTINGS_SECTION_ANCHORS.connections
-  );
+  return hrefKeepingParams(DATA_SETTINGS_HREF, {
+    ...params,
+    tab: DATA_SETTINGS_SECTION_ANCHORS.connections,
+  });
 }
 
 export interface MappedLegacyRoute {
@@ -398,9 +405,17 @@ export function dataSettingsLinkLabel(
     case "invitations":
       return t(lang, "Invitations", "Invitaciones");
     case "account":
-      return t(lang, "Account", "Cuenta");
+      return t(
+        lang,
+        "Account: profile, company and alerts",
+        "Cuenta: perfil, empresa y avisos"
+      );
     case "settings":
-      return t(lang, "Settings", "Ajustes");
+      return t(
+        lang,
+        "Settings: time zone, currency and format",
+        "Ajustes: zona horaria, moneda y formato"
+      );
     case "ask-milton":
       return t(lang, "Ask Milton", "Preguntar a Milton");
     case "targets":

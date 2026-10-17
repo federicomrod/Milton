@@ -145,7 +145,7 @@ describe("primary restaurant navigation (#128)", () => {
 
   it("the old POS upload lands in Conexiones with its params", () => {
     expect(posUploadHref({ location: "l1" })).toBe(
-      "/dashboard/restaurant/data?location=l1&seccion=conexiones#conexiones"
+      "/dashboard/restaurant/data?location=l1&tab=conexiones"
     );
     const page = readFileSync(
       join(process.cwd(), "app/dashboard/restaurant/upload/page.tsx"),

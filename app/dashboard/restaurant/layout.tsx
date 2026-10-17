@@ -9,24 +9,12 @@
 // conflict with the sidebar: the chat panel is `position: fixed` and the
 // data-status redirect already exempts /dashboard/restaurant/*.
 
-import { RestaurantShell } from "@/components/restaurant/RestaurantShell";
-import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
+import RestaurantShellLayout from "@/components/restaurant/RestaurantShellLayout";
 
-export default async function RestaurantSubRoutesLayout({
+export default function RestaurantSubRoutesLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const chrome = await loadRestaurantShellChrome();
-  return (
-    <RestaurantShell
-      locations={chrome.locations}
-      lang={chrome.lang}
-      isAdmin={chrome.isAdmin}
-      lastSyncedAt={chrome.lastSyncedAt}
-      userName={chrome.userName ?? null}
-    >
-      {children}
-    </RestaurantShell>
-  );
+  return <RestaurantShellLayout>{children}</RestaurantShellLayout>;
 }

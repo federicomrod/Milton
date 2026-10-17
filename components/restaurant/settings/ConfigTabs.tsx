@@ -1,70 +1,62 @@
-"use client";
-
-// R1-16a (mock 12): the four sections of Configuración as one segmented
-// control: Conexiones · Objetivos · Turnos · Equipo · Cuenta. They are anchors
-// of the settings page, except Objetivos and Turnos, which are screens of
-// their own.
+// Configuración's tabs: Restaurante · Conexiones · Objetivos · Turnos ·
+// (Equipo, admins) · Cuenta. One page; the tab is in the URL (?tab=), so the
+// back button and shared links work. Server-safe (plain links).
 
 import Link from "next/link";
 import {
-  DATA_SETTINGS_HREF,
-  DATA_SETTINGS_SECTION_ANCHORS,
-  OBJECTIVES_HREF,
-  SHIFTS_HREF,
-  RESTAURANT_SETTINGS_HREF,
-  dataSettingsSectionLabel,
-  type DataSettingsSectionId,
-} from "@/lib/restaurant/navigation";
+  CONFIG_TABS,
+  configTabHref,
+  type ConfigTab,
+} from "@/lib/restaurant/config-tabs";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { t } from "@/lib/restaurant/language";
 
-const ORDER: DataSettingsSectionId[] = [
-  "restaurant",
-  "connections",
-  "objectives",
-  "shifts",
-  "team",
-  "account",
-];
+export function configTabLabel(tab: ConfigTab, lang: PreferredLanguage) {
+  switch (tab) {
+    case "restaurante":
+      return t(lang, "Restaurant", "Restaurante");
+    case "conexiones":
+      return t(lang, "Connections", "Conexiones");
+    case "objetivos":
+      return t(lang, "Goals", "Objetivos");
+    case "turnos":
+      return t(lang, "Shifts", "Turnos");
+    case "equipo":
+      return t(lang, "Team", "Equipo");
+    case "cuenta":
+      return t(lang, "Account", "Cuenta");
+  }
+}
 
 export function ConfigTabs({
   active,
   lang,
   isAdmin,
 }: {
-  active: DataSettingsSectionId;
+  active: ConfigTab;
   lang: PreferredLanguage;
   isAdmin: boolean;
 }) {
   return (
     <nav
       aria-label="Secciones de Configuración"
-      className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold"
+      className="inline-flex flex-wrap rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold"
     >
-      {ORDER.filter((s) => s !== "team" || isAdmin).map((section) => {
-        const href =
-          section === "objectives"
-            ? OBJECTIVES_HREF
-            : section === "shifts"
-              ? SHIFTS_HREF
-              : section === "restaurant"
-                ? RESTAURANT_SETTINGS_HREF
-                : `${DATA_SETTINGS_HREF}?seccion=${DATA_SETTINGS_SECTION_ANCHORS[section]}#${DATA_SETTINGS_SECTION_ANCHORS[section]}`;
-        return (
-          <Link
-            key={section}
-            href={href}
-            aria-current={active === section ? "page" : undefined}
-            className={
-              "rounded-[9px] px-3.5 py-1.5 " +
-              (active === section
-                ? "bg-[#1b40c8] text-white shadow-sm"
-                : "text-[#4a5a85] hover:text-[#1b40c8]")
-            }
-          >
-            {dataSettingsSectionLabel(section, lang)}
-          </Link>
-        );
-      })}
+      {CONFIG_TABS.filter((tab) => tab !== "equipo" || isAdmin).map((tab) => (
+        <Link
+          key={tab}
+          href={configTabHref(tab)}
+          aria-current={active === tab ? "page" : undefined}
+          className={
+            "rounded-[9px] px-3.5 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] " +
+            (active === tab
+              ? "bg-[#1B40C8] text-white shadow-sm"
+              : "text-[#4a5a85] hover:text-[#1B40C8]")
+          }
+        >
+          {configTabLabel(tab, lang)}
+        </Link>
+      ))}
     </nav>
   );
 }

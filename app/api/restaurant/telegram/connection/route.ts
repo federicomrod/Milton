@@ -1,6 +1,7 @@
 // app/api/restaurant/telegram/connection/route.ts
 //
-// GET /api/restaurant/telegram/connection
+// GET    /api/restaurant/telegram/connection   (status)
+// DELETE /api/restaurant/telegram/connection   (disconnect; owner/admin only)
 //
 // Telegram Connection UI v1 — the read-only status check the dashboard
 // card needs to show "Not connected" vs "Connected". None of the existing
@@ -20,6 +21,13 @@ import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { isUsableConnection } from "@/lib/restaurant/telegram/connections";
 import { resolvePreferredLanguage } from "@/lib/restaurant/language";
+import { disconnectTelegram } from "@/lib/restaurant/telegram/pairing";
+import { sendTelegramMessage } from "@/lib/restaurant/telegram/send";
+import {
+  canManageTelegram,
+  telegramManagerGuard,
+} from "@/lib/restaurant/telegram/access";
+import { loadCompanyMembershipRole } from "@/lib/restaurant/cost-workbook/reset-auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -27,7 +35,7 @@ export const runtime = "nodejs";
 export async function GET() {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
-  const { supabase, companyId } = auth;
+  const { supabase, companyId, userId } = auth;
 
   const [{ data: connection, error: connectionError }, { data: company }] =
     await Promise.all([
@@ -55,9 +63,56 @@ export async function GET() {
   }
 
   const connected = isUsableConnection(connection, companyId);
+  // Only owner/admin members can connect or disconnect; everyone can see the status.
+  const canManage = await loadCompanyMembershipRole(supabase, companyId, userId)
+    .then((load) => canManageTelegram(load.role))
+    .catch(() => false);
   return NextResponse.json({
+    can_manage: canManage,
     connected,
     connected_at: connected ? (connection?.connected_at ?? null) : null,
     preferred_language: resolvePreferredLanguage(company?.preferred_language),
   });
+}
+
+/** Final message to the chat that was disconnected. */
+export const DISCONNECTED_MESSAGE =
+  "Este chat ya no recibe los briefings de Milton.";
+
+export async function DELETE() {
+  const auth = await authAndCompany();
+  if (!auth.ok) return auth.response;
+  // The company comes from auth, never from the client.
+  const { supabase, companyId, userId } = auth;
+
+  const denied = await telegramManagerGuard(supabase, companyId, userId);
+  if (denied) return denied;
+
+  try {
+    const result = await disconnectTelegram(companyId);
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: "No pude desconectar Telegram." },
+        { status: 500 }
+      );
+    }
+    // One last message to the old chat (best effort: the disconnect already happened).
+    if (result.chatId !== null) {
+      try {
+        await sendTelegramMessage(result.chatId, DISCONNECTED_MESSAGE);
+      } catch {
+        // the bot may have been blocked or removed; nothing else to do
+      }
+    }
+    return NextResponse.json({ ok: true, disconnected: result.disconnected });
+  } catch (err) {
+    console.error(
+      "[telegram-disconnect] failed:",
+      err instanceof Error ? err.message : "Unknown error"
+    );
+    return NextResponse.json(
+      { error: "No pude desconectar Telegram." },
+      { status: 500 }
+    );
+  }
 }

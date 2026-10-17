@@ -208,6 +208,25 @@ export async function consumePairingCode(
     return { ok: false, reason: conflict };
   }
 
+  // Claim the code FIRST, atomically: only one caller can flip consumed_at
+  // from NULL, so two simultaneous /start messages with the same code can
+  // never create two connections. No row back = somebody else got it (or it
+  // expired in the meantime).
+  const nowIso = new Date().toISOString();
+  const { data: claimed, error: claimError } = await admin
+    .from("restaurant_telegram_pairing_codes")
+    .update({ consumed_at: nowIso })
+    .eq("id", pending.id as string)
+    .is("consumed_at", null)
+    .gt("expires_at", nowIso)
+    .select("id");
+  if (claimError) {
+    throw new Error(`Could not claim pairing code: ${claimError.message}`);
+  }
+  if (!claimed || claimed.length === 0) {
+    return { ok: false, reason: "invalid_or_expired" };
+  }
+
   const { error: insertError } = await admin
     .from("restaurant_telegram_connections")
     .insert({ company_id: companyId, chat_id: chatId });
@@ -217,13 +236,62 @@ export async function consumePairingCode(
     );
   }
 
-  const { error: consumeError } = await admin
-    .from("restaurant_telegram_pairing_codes")
-    .update({ consumed_at: new Date().toISOString() })
-    .eq("id", pending.id as string);
-  if (consumeError) {
-    throw new Error(`Could not consume pairing code: ${consumeError.message}`);
+  return { ok: true, companyId };
+}
+
+export type DisconnectTelegramResult =
+  | { ok: true; disconnected: boolean; chatId: number | null }
+  | { ok: false };
+
+/**
+ * Disconnects this company's Telegram chat: deletes ITS row (service role,
+ * always filtered by company_id) and marks every unconsumed pairing code of
+ * the company as consumed, so an old code cannot reconnect anything. After
+ * that a new pairing code can be issued. Returns the old chat id so the
+ * caller can tell that chat it no longer receives briefings.
+ */
+export async function disconnectTelegram(
+  companyId: string
+): Promise<DisconnectTelegramResult> {
+  const admin = createAdminClient();
+
+  const { data: existing, error: lookupError } = await admin
+    .from("restaurant_telegram_connections")
+    .select("id, chat_id")
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (lookupError) {
+    throw new Error(
+      `Could not check the Telegram connection: ${lookupError.message}`
+    );
   }
 
-  return { ok: true, companyId };
+  const { error: deleteError } = await admin
+    .from("restaurant_telegram_connections")
+    .delete()
+    .eq("company_id", companyId);
+  if (deleteError) {
+    throw new Error(
+      `Could not delete the Telegram connection: ${deleteError.message}`
+    );
+  }
+
+  const { error: codesError } = await admin
+    .from("restaurant_telegram_pairing_codes")
+    .update({ consumed_at: new Date().toISOString() })
+    .eq("company_id", companyId)
+    .is("consumed_at", null);
+  if (codesError) {
+    throw new Error(
+      `Could not retire the pairing codes: ${codesError.message}`
+    );
+  }
+
+  const chatId =
+    typeof existing?.chat_id === "number"
+      ? existing.chat_id
+      : existing?.chat_id != null
+        ? Number(existing.chat_id)
+        : null;
+  return { ok: true, disconnected: Boolean(existing?.id), chatId };
 }

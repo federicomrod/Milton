@@ -650,7 +650,7 @@ describe("Chorizo-like approved recipe: 3 unidad with $0.31 per onza", () => {
       /priceUnitMismatch && canFixPrice && line\.ingredient_id/
     );
     expect(src).toContain("Corregir unidad del precio");
-    expect(src).toContain("canFixPrice={!busy && !forceLocked}");
+    expect(src).toContain("canFixPrice={!busy}");
     expect(src).not.toMatch(/priceUnitMismatch && editable/);
     expect(
       read("components/restaurant/menu/IngredientConversions.tsx")
@@ -692,7 +692,7 @@ describe("«Crear versión nueva» on an approved recipe", () => {
     );
     expect(src).toContain("Crear versión nueva");
     expect(src).toContain(
-      "La receta aprobada no se cambia; se crea un borrador."
+      "Receta aprobada · los precios se pueden cambiar; para cambiar cantidades crea una versión nueva"
     );
   });
 });

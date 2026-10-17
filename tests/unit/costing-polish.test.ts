@@ -133,12 +133,12 @@ describe("source guards", () => {
     );
   });
 
-  it("a preparation waiting for approval says so and opens Preparaciones", () => {
+  it("a preparation without cost says what is missing and opens it", () => {
     const editor = read(
       "components/restaurant/recipes-costing/RecipeLinesEditor.tsx"
     );
-    expect(editor).toContain("Aprueba primero la preparación");
-    expect(editor).toContain("Abrir en Preparaciones");
+    expect(editor).toContain("no tiene costo todavía: falta precio en");
+    expect(editor).toContain("Abrir {line.name}");
     // Do-not-remove #6: inline price edit on the line (double-click).
     expect(editor).toContain('title="Doble clic para cambiar el precio"');
     const prep = read(

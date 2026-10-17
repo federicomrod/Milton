@@ -158,13 +158,13 @@ describe("a dish line that uses an approved preparation", () => {
     expect(s.inputs[0].unit).toBe("orden");
   });
 
-  it("a preparation that is not approved still reads as waiting for approval", async () => {
+  it("a preparation still in review costs the dish line as soon as its lines are priced (approval does not gate cost)", async () => {
     const s = kitchen("orden");
     s.preparations[0].version!.status = "in_review";
     const r = await loadEditor(ctx(s));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.state.lines[0].amount).toBeNull();
-    expect(r.state.lines[0].flags).not.toContain("pendiente_unidad");
+    expect(r.state.lines[0].amount).toBeCloseTo(1.0, 6);
+    expect(r.state.lines[0].pending).toBe(false);
   });
 });

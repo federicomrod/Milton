@@ -412,14 +412,17 @@ async function build(
     return null;
   };
 
+  const ingredientNames = new Map(allIngredientRefs.map((r) => [r.id, r.name]));
+  const componentNames = new Map(componentRefs.map((r) => [r.id, r.name]));
   const lines = hydrateLines({
     readOnly: version?.status !== "in_review",
+    hints: { ingredients: ingredientNames, components: componentNames },
     data,
     evidenceLines,
     inputs,
     names: {
-      ingredients: new Map(allIngredientRefs.map((r) => [r.id, r.name])),
-      components: new Map(componentRefs.map((r) => [r.id, r.name])),
+      ingredients: ingredientNames,
+      components: componentNames,
       priceOf,
       suggest,
     },

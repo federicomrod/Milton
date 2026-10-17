@@ -562,19 +562,15 @@ describe("two approved versions with no date: the same one everywhere", () => {
   });
 });
 
-describe("the approved banner", () => {
-  it("names the way out: «Corregir precio» and a primary «Crear versión nueva»", () => {
+describe("no banner on approved recipes", () => {
+  it("the orange banner is gone (one muted line + the price controls replace it); «Crear versión nueva» is in the ⋯ menu", () => {
     const src = read(
       "components/restaurant/recipes-costing/RecipeLinesEditor.tsx"
     );
-    expect(src).toContain('data-testid="approved-pending-banner"');
-    expect(src).toContain("tiene {pendingLines.length}");
-    expect(src).toContain(
+    expect(src).not.toContain('data-testid="approved-pending-banner"');
+    expect(src).not.toContain(
       "Corrige el precio del ingrediente (no hace falta versión nueva) o"
     );
-    expect(src).toContain("Corregir precio");
-    expect(src).toMatch(
-      /<PrimaryBtn[\s\S]{0,200}action: "new_version"[\s\S]{0,80}Crear versión nueva/
-    );
+    expect(src).toMatch(/<DropdownMenuItem[\s\S]{0,160}Crear versión nueva/);
   });
 });

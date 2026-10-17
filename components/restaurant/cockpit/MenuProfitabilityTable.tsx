@@ -433,18 +433,19 @@ export function MenuProfitabilityTable({
                           {showCostNumbers ? pct(r.cost.food_cost_pct) : "—"}
                         </td>
                         <td className="px-3 py-2">
-                          <Link
-                            href={
-                              r.odoo_product_id != null
-                                ? dishHref(r.odoo_product_id)
-                                : `/dashboard/restaurant/menu/${r.menu_item_id}`
-                            }
-                            className="text-xs font-medium text-orange-700 hover:underline dark:text-orange-300"
-                          >
-                            {r.cost.status === "missing_recipe"
-                              ? t(lang, "Add recipe", "Agregar receta")
-                              : t(lang, "View recipe", "Ver receta")}
-                          </Link>
+                          {r.odoo_product_id != null ? (
+                            <Link
+                              href={dishHref(r.odoo_product_id)}
+                              className="text-xs font-medium text-[#1B40C8] hover:underline"
+                            >
+                              {r.cost.status === "missing_recipe"
+                                ? t(lang, "Add recipe", "Agregar receta")
+                                : t(lang, "View recipe", "Ver receta")}
+                            </Link>
+                          ) : (
+                            // No POS product linked: there is no dish page to open.
+                            <span className="text-xs text-[#8a92a3]">—</span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-center">
                           <StatusDot

@@ -9,6 +9,7 @@ import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
 import { loadMenuAreaModel } from "@/lib/restaurant/cockpit-page-data";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
+import { COSTS_FILE_ANCHOR } from "@/lib/restaurant/costs-picker";
 import { EmptyState } from "@/components/restaurant/shell/EmptyState";
 import { COSTS_HREF } from "@/lib/restaurant/navigation";
 import { CONNECT_DATA_PATH } from "@/lib/restaurant/post-login";
@@ -68,8 +69,9 @@ export default async function MenuResumenPage({
                 primary: true,
               },
               {
-                href: `${COSTS_HREF}#costos-ultimo-archivo`,
+                href: `${COSTS_HREF}#${COSTS_FILE_ANCHOR}`,
                 label: "Sube tus costos",
+                opensCostsPicker: true,
               },
             ]}
           />

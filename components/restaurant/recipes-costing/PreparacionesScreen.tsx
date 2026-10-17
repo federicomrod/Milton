@@ -19,6 +19,9 @@ import { withPreparationApproved } from "@/lib/restaurant/recipe-costing/prepara
 import { ConfirmHowDialog } from "./ConfirmHowDialog";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
 import { Card, Chip, GhostBtn } from "./ui";
+import { EmptyActionLink } from "@/components/restaurant/shell/EmptyActionLink";
+import { COSTS_HREF } from "@/lib/restaurant/navigation";
+import { COSTS_FILE_ANCHOR } from "@/lib/restaurant/costs-picker";
 import {
   useGroupedItemList,
   type SortColumn,
@@ -304,7 +307,14 @@ export function PreparacionesScreen({
           ) : overview.rows.length === 0 ? (
             <p className="text-xs text-[#5b6476]">
               Todavía no hay preparaciones. Se crean al subir tu Excel de
-              costos, o desde un plato con «Crear preparación».
+              costos, o desde un plato con «Crear preparación».{" "}
+              <EmptyActionLink
+                href={`${COSTS_HREF}#${COSTS_FILE_ANCHOR}`}
+                opensCostsPicker
+                className="font-semibold text-[#1B40C8] hover:underline"
+              >
+                Subir archivo de costos
+              </EmptyActionLink>
             </p>
           ) : (
             <div
@@ -537,7 +547,7 @@ function PreparationDetail({
                       ? setHowOpen(true)
                       : void approve()
                   }
-                  className="rounded-lg bg-[#f28c28] px-3.5 py-[7px] text-[13px] font-semibold text-white hover:bg-[#e07b1a] disabled:opacity-45"
+                  className="rounded-lg bg-[#1B40C8] px-3.5 py-[7px] text-[13px] font-semibold text-white hover:bg-[#1535a6] disabled:opacity-45"
                 >
                   Aprobar
                 </button>

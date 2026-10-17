@@ -718,7 +718,7 @@ export function RecipesCostingWorkspace({
               <nav className="mb-3 text-[14px] text-[#6b7385]">
                 <button
                   type="button"
-                  className="font-semibold text-[#f28c28]"
+                  className="font-semibold text-[#1B40C8]"
                   onClick={() => {
                     const params = new URLSearchParams(window.location.search);
                     params.delete("producto");

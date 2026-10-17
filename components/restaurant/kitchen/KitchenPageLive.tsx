@@ -66,7 +66,9 @@ export function KitchenPageLive({
       return;
     }
     if (item.action === "review") {
-      setFocusDraftId(item.draft_id);
+      // Reset first so asking for the same draft again re-opens it.
+      setFocusDraftId(null);
+      setTimeout(() => setFocusDraftId(item.draft_id), 0);
       openExplore("drafts");
       return;
     }

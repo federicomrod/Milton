@@ -792,14 +792,21 @@ function Row({
   const priceEditable = line.kind === "ingredient" ? canFixPrice : editable;
   const editPrice = (content: React.ReactNode) =>
     priceEditable ? (
-      <button
-        type="button"
-        title="Doble clic para cambiar el precio"
-        onDoubleClick={() => setEditingPrice(true)}
-        className="rounded px-0.5 text-right hover:bg-[#eef3ff] hover:underline"
+      <span
+        role="button"
+        tabIndex={0}
+        title="Clic para cambiar el precio"
+        onClick={() => setEditingPrice(true)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setEditingPrice(true);
+          }
+        }}
+        className="cursor-pointer rounded px-0.5 text-right hover:bg-[#eef3ff] hover:underline"
       >
         {content}
-      </button>
+      </span>
     ) : (
       content
     );
@@ -1024,12 +1031,14 @@ function Row({
                 {line.name_hint.kind === "component" ? (
                   <>Para usarla, crea una versión nueva y cambia la línea. </>
                 ) : null}
-                <Link
-                  href={ingredientHref(line.ingredient_id ?? "")}
-                  className="font-semibold text-[#1b40c8] underline"
-                >
-                  Unir…
-                </Link>
+                {line.ingredient_id ? (
+                  <Link
+                    href={ingredientHref(line.ingredient_id)}
+                    className="font-semibold text-[#1b40c8] underline"
+                  >
+                    Ver ingrediente
+                  </Link>
+                ) : null}
               </div>
             ) : null}
             {prepUnitProblem ? (
@@ -1258,6 +1267,7 @@ function Row({
                 // Source and date link to the ingredient's one price record.
                 <Link
                   href={ingredientHref(line.ingredient_id)}
+                  onClick={(event) => event.stopPropagation()}
                   className="block text-[12px] text-[#8a92a3] hover:text-[#3557c9] hover:underline"
                 >
                   {[sourceLabel(line.price.source), monthLabel(line.price.date)]

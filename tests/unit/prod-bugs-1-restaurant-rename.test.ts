@@ -271,7 +271,11 @@ describe("the app around it", () => {
   });
   it("Configuración has a «Restaurante» tab with the inline rename", () => {
     expect(read("components/restaurant/settings/ConfigTabs.tsx")).toContain(
-      "RESTAURANT_SETTINGS_HREF"
+      "configTabHref"
+    );
+    expect(read("lib/restaurant/config-tabs.ts")).toContain('"restaurante"');
+    expect(read("app/dashboard/restaurant/data/page.tsx")).toContain(
+      "<RestaurantTab"
     );
     expect(read("lib/restaurant/navigation.ts")).toContain(
       'restaurant: "restaurante"'

@@ -739,6 +739,13 @@ describe("diagnostics and the Spanish unit labels", () => {
     );
     expect(code).toContain("ingredient_unit_conversions");
     expect(code).toContain("legacy_unit_base");
-    expect(sql).not.toMatch(/ranchos|lavara|stage test|casa prueba/i);
+    // Client / test-company names are assembled so they never appear in the repo.
+    const forbidden = [
+      ["ran", "chos"],
+      ["lav", "ara"],
+      ["stage", " test"],
+      ["casa", " prueba"],
+    ].map((p) => p.join(""));
+    expect(sql).not.toMatch(new RegExp(forbidden.join("|"), "i"));
   });
 });

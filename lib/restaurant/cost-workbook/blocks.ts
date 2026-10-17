@@ -1,4 +1,4 @@
-// Repeating "COSTO RESTAURANTE" recipe blocks from Los Ranchos-style
+// Repeating "COSTO RESTAURANTE" recipe blocks from restaurant-style
 // workbooks. Banner / sheet title / per-block headers / footer rows
 // are never recipe names. Totals are recomputed from qty × unit cost.
 
@@ -36,7 +36,8 @@ import type {
   SkipCandidate,
 } from "./types";
 
-export const SHEET_TITLE_RE = /^restaurante\s+los\s+ranchos$/i;
+/** Sheet title row: "RESTAURANTE <name>" (one to four words after it). */
+export const SHEET_TITLE_RE = /^restaurante\s+\S+(\s+\S+){0,3}$/i;
 export const BANNER_RE = /^costo\s+restaurante$/i;
 export const COSTO_TOTAL_RE = /^costo\s+total$/i;
 export const PRECIO_LIBRA_RE = /^precio(\s+de)?(\s+costo)?\s+(por\s+)?libra$/i;
@@ -61,7 +62,7 @@ function foldLabel(raw: string): string {
     .trim();
 }
 
-/** Footer labels in the real Los Ranchos file include typos (PRECIOPOR,
+/** Footer labels in real customer files include typos (PRECIOPOR,
  *  UNDIAD) and extra words (PRECIO COSTO POR UNIDAD / TORTA). */
 export function foldFooterLabel(raw: string): string {
   return foldLabel(raw)

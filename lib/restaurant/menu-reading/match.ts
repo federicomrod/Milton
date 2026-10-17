@@ -65,7 +65,7 @@ export function sizeOf(name: string): string | null {
   return null;
 }
 
-/** The name without its size: "Parrillada Pinolera 3P" -> "Parrillada Pinolera". */
+/** The name without its size: "Parrillada Mixta 3P" -> "Parrillada Mixta". */
 export function stripSize(name: string): string {
   let out = peopleInDigits(name);
   for (const [re] of SIZE_PATTERNS) out = out.replace(re, " ");

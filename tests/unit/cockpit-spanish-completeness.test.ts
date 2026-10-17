@@ -24,8 +24,6 @@ const SHELL_FILES = [
   "components/restaurant/cockpit/CockpitOnboardingChip.tsx",
   "components/restaurant/AskMiltonWorkspace.tsx",
   "components/restaurant/ProfitabilityCockpit.tsx",
-  "components/restaurant/BriefingCard.tsx",
-  "components/restaurant/ComingSoonPage.tsx",
   "app/dashboard/restaurant/(cockpit)/page.tsx",
   "app/dashboard/account/page.tsx",
   "components/restaurant/kitchen/KitchenQrCard.tsx",

@@ -46,8 +46,8 @@ function foldText(value: string): string {
 
 /**
  * Local hour ≥ 17:00 is dinner; 00:00–16:59 is lunch.
- * Matches typical Los Ranchos / Lavara service (lunch through mid-
- * afternoon, dinner from 5pm). Hours without `order_placed_at` are
+ * Matches typical restaurant service (lunch through mid-afternoon,
+ * dinner from 5pm). Hours without `order_placed_at` are
  * omitted from the daypart split — they still count in date-based KPIs.
  */
 export type Daypart = "lunch" | "dinner";

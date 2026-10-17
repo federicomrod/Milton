@@ -41,8 +41,8 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.restaurant_locations (id, company_id, name)
 VALUES
-  ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'Los Ranchos'),
-  ('33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', 'Lavara')
+  ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'Sala A'),
+  ('33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', 'Sala B')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO auth.users (id, email)
@@ -57,7 +57,7 @@ VALUES (
 )
 ON CONFLICT DO NOTHING;
 
--- 15k Los Ranchos + 10k Lavara July lines. Mix of dishes + Propina so
+-- 15k Sala A + 10k Sala B July lines. Mix of dishes + Propina so
 -- net+tips can be checked. is_tip set so pos_line_is_tip is cheap (030).
 INSERT INTO public.pos_sales_items (
   company_id, location_id, sale_date, order_id, check_id, raw_item_name,
@@ -138,11 +138,11 @@ SELECT set_config('request.jwt.claims', '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaa
 SELECT public.cockpit_pos_rollup(
   '11111111-1111-1111-1111-111111111111',
   '22222222-2222-2222-2222-222222222222',
-  'America/El_Salvador', 'USD')->>'row_count' AS ranchos_032;
+  'America/El_Salvador', 'USD')->>'row_count' AS salaa_032;
 SELECT public.cockpit_pos_rollup(
   '11111111-1111-1111-1111-111111111111',
   '33333333-3333-3333-3333-333333333333',
-  'America/El_Salvador', 'USD')->>'row_count' AS lavara_032;
+  'America/El_Salvador', 'USD')->>'row_count' AS salab_032;
 RESET ROLE;
 SQL
 
@@ -158,11 +158,11 @@ SELECT set_config('request.jwt.claims', '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaa
 SELECT public.cockpit_pos_rollup(
   '11111111-1111-1111-1111-111111111111',
   '22222222-2222-2222-2222-222222222222',
-  'America/El_Salvador', 'USD')->>'row_count' AS ranchos_033;
+  'America/El_Salvador', 'USD')->>'row_count' AS salaa_033;
 SELECT public.cockpit_pos_rollup(
   '11111111-1111-1111-1111-111111111111',
   '33333333-3333-3333-3333-333333333333',
-  'America/El_Salvador', 'USD')->>'row_count' AS lavara_033;
+  'America/El_Salvador', 'USD')->>'row_count' AS salab_033;
 SELECT jsonb_build_object(
   'rows', r->>'row_count',
   'products', jsonb_array_length(r->'products')

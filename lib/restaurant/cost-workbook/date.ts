@@ -1,5 +1,5 @@
 // Infer a default cost date from a filename or sheet title.
-// "Abril-2026", "Costos_Los Ranchos_Abril-2026.xlsx", "2026-04" → 2026-04-01.
+// "Abril-2026", "Costos_Mi Restaurante_Abril-2026.xlsx", "2026-04" → 2026-04-01.
 
 const MONTHS: Record<string, number> = {
   january: 1,

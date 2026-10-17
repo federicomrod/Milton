@@ -344,7 +344,6 @@ describe("the Ventas header and the Cockpit v1 pieces are brand blue, not orange
     "components/restaurant/cockpit/CockpitTabs.tsx",
     "components/restaurant/cockpit/CockpitChannelBreakdown.tsx",
     "components/restaurant/cockpit/CockpitHeroChart.tsx",
-    "components/restaurant/cockpit/CockpitCostKpiCells.tsx",
     "components/restaurant/cockpit/CockpitInsightsCard.tsx",
     "components/restaurant/cockpit/CockpitOnboardingChip.tsx",
   ];
@@ -368,8 +367,5 @@ describe("the Ventas header and the Cockpit v1 pieces are brand blue, not orange
     expect(
       read("components/restaurant/cockpit/CockpitHeroChart.tsx")
     ).toContain('stroke="#1B40C8"');
-    expect(
-      read("components/restaurant/cockpit/CockpitCostKpiCells.tsx")
-    ).toContain("hover:border-[#1B40C8]");
   });
 });

@@ -1,8 +1,8 @@
 // Which restaurant a cost-workbook upload is for.
 //
 // Costs / recipes live on the company catalog, but POS links and new
-// menu items are scoped to one location so a Los Ranchos file cannot
-// silently attach itself to Lavara. When the switcher is on
+// menu items are scoped to one location so a file for one restaurant cannot
+// silently attach itself to another. When the switcher is on
 // "Todos los restaurantes" and the company has more than one restaurant,
 // we refuse instead of guessing.
 

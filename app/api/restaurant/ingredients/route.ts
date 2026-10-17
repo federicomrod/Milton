@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
-  // `current_unit_cost` is the ingredient's latest cost entry (the one price),
+  // `latest_unit_cost` is the ingredient's latest cost entry (the one price),
   // never the legacy ingredients.current_unit_cost cache. No entry = null.
   const latest = new Map(
     (await fetchIngredientLatestCosts(auth.supabase, auth.companyId)).map(
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     ingredients: (data ?? []).map((row) => ({
       ...row,
-      current_unit_cost: latest.get(row.id as string) ?? null,
+      latest_unit_cost: latest.get(row.id as string) ?? null,
     })),
   });
 }
@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
       category,
       default_unit: defaultUnit,
       // Pending price — never $0. Migration 037 made this column nullable.
+      // LEGACY column, written only (a new ingredient has no price): never read.
       current_unit_cost: null,
       currency,
     })

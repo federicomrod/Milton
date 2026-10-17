@@ -7,7 +7,7 @@
 //   in_store → Eat In, takeaway → To Go, delivery → Delivery, online → Online
 // A dedicated Odoo label that does not match the vocabulary is stored as
 // the readable name. Till / pos.config names are used only when they map
-// to that vocabulary (a till named "Los Ranchos" is not a channel).
+// to that vocabulary (a till named after the restaurant is not a channel).
 //
 // Multi-payment rule: group pos.payment rows by method name and sum
 // amounts. One method → that name. Several → the method with the largest
@@ -76,7 +76,7 @@ export function foldLabel(raw: string): string {
     .trim();
 }
 
-/** "LOS RANCHOS, 5" → "LOS RANCHOS"; no comma → the whole display name. */
+/** "MAIN HALL, 5" → "MAIN HALL"; no comma → the whole display name. */
 export function tableFloorNameFromDisplay(
   display: string | null | undefined
 ): string | null {

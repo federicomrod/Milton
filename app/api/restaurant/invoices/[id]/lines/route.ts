@@ -219,6 +219,7 @@ export async function POST(
             name: newName,
             category: newCategory,
             default_unit: newDefaultUnit,
+            // LEGACY column, written only (a new ingredient has no price): never read.
             current_unit_cost: null,
             currency: await resolveCompanyCurrency(supabase, companyId),
           })

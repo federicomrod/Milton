@@ -1,4 +1,4 @@
-// Repeating "COSTO RESTAURANTE" recipe blocks from Los Ranchos-style
+// Repeating "COSTO RESTAURANTE" recipe blocks from restaurant-style
 // workbooks. Banner / sheet title / per-block headers / footer rows
 // are never recipe names. Totals are recomputed from qty × unit cost.
 
@@ -36,7 +36,8 @@ import type {
   SkipCandidate,
 } from "./types";
 
-export const SHEET_TITLE_RE = /^restaurante\s+los\s+ranchos$/i;
+/** Sheet title row: "RESTAURANTE <name>" (one to four words after it). */
+export const SHEET_TITLE_RE = /^restaurante\s+\S+(\s+\S+){0,3}$/i;
 export const BANNER_RE = /^costo\s+restaurante$/i;
 export const COSTO_TOTAL_RE = /^costo\s+total$/i;
 export const PRECIO_LIBRA_RE = /^precio(\s+de)?(\s+costo)?\s+(por\s+)?libra$/i;
@@ -61,7 +62,7 @@ function foldLabel(raw: string): string {
     .trim();
 }
 
-/** Footer labels in the real Los Ranchos file include typos (PRECIOPOR,
+/** Footer labels in real customer files include typos (PRECIOPOR,
  *  UNDIAD) and extra words (PRECIO COSTO POR UNIDAD / TORTA). */
 export function foldFooterLabel(raw: string): string {
   return foldLabel(raw)
@@ -104,8 +105,38 @@ function isBlankRow(cells: unknown[]): boolean {
   );
 }
 
-function isSheetTitle(cells: unknown[]): boolean {
-  return SHEET_TITLE_RE.test(foldLabel(firstText(cells)));
+function isSheetTitle(
+  cells: unknown[],
+  rows?: unknown[][],
+  index?: number
+): boolean {
+  if (SHEET_TITLE_RE.test(foldLabel(firstText(cells)))) return true;
+  return rows !== undefined && index !== undefined
+    ? isLoneFirstRowTitle(rows, index)
+    : false;
+}
+
+/**
+ * The first non-blank row of a tab, alone in its row, is the tab title
+ * whatever it says ("CASA DEMO — ENTRADAS") unless it is really a dish name:
+ * a recipe header row within the next two non-blank rows means a dish block
+ * starts right here. A row after a COSTO RESTAURANTE banner is never a title
+ * (it is not the first content row).
+ */
+function isLoneFirstRowTitle(rows: unknown[][], index: number): boolean {
+  const cells = rowCells(rows[index]);
+  if (cells.map(cellText).filter(Boolean).length !== 1) return false;
+  if (isBanner(cells) || footerKind(cells)) return false;
+  for (let i = 0; i < index; i++)
+    if (!isBlankRow(rowCells(rows[i]))) return false;
+  let seen = 0;
+  for (let i = index + 1; i < rows.length && seen < 2; i++) {
+    const next = rowCells(rows[i]);
+    if (isBlankRow(next)) continue;
+    seen++;
+    if (isRepeatingBlockHeader(next)) return false;
+  }
+  return true;
 }
 
 function isBanner(cells: unknown[]): boolean {
@@ -475,9 +506,10 @@ function inferCostTotalFromLines(lines: RecipeLineCandidate[]): number | null {
 export function collectCostoRestauranteBlockNames(aoa: unknown[][]): string[] {
   const names: string[] = [];
   let phase: "idle" | "after_banner" | "in_block" = "idle";
-  for (const row of aoa) {
+  for (const [index, row] of aoa.entries()) {
     const cells = rowCells(row);
-    if (isBlankRow(cells) || isSheetTitle(cells)) continue;
+    if (isBlankRow(cells)) continue;
+    if (isSheetTitle(cells, aoa, index)) continue;
     if (isBanner(cells)) {
       phase = "after_banner";
       continue;
@@ -647,7 +679,7 @@ export function collectCostoRestauranteBlocks(input: {
   for (const [rowIndex, row] of input.aoa.entries()) {
     const cells = rowCells(row);
     if (isBlankRow(cells)) continue;
-    if (isSheetTitle(cells)) {
+    if (isSheetTitle(cells, input.aoa, rowIndex)) {
       skipped.push({
         tabName: input.tabName,
         rowIndex,

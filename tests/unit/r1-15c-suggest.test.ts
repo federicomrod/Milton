@@ -24,7 +24,7 @@ const group = (
 describe("suggestGroup (names only)", () => {
   const targets = [
     dish("d1", "Churrasco Típico"),
-    dish("d2", "Parrilla Pinolera"),
+    dish("d2", "Parrilla Mixta"),
     group("g1", "Lomo de aguja"),
     group("g2", "Refrescos", ["Coca-Cola 12 oz", "Sprite 12 oz"]),
   ];

@@ -251,6 +251,9 @@ export async function runRecipeSuggestions(input: {
     id: row.id,
     name: row.name,
     default_unit: row.default_unit ?? null,
+    // LEGACY READ (kept on purpose): the suggestion's line copy still starts from the
+    // ingredient's cached price. Switching it to the latest cost entry would change
+    // the numbers of suggested lines, so it is listed in the cleanup PR instead.
     unit_cost: row.current_unit_cost ?? null,
   }));
   let preparationDrafts: Awaited<ReturnType<typeof prefillPreparations>>;

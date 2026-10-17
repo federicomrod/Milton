@@ -52,18 +52,18 @@ export function summaryFromEditorState(
   // approved version itself (read-only), a price, conversion or unit fix
   // updates the table AND the header: the same rule as the server
   // (dish-state.ts) over the editor's live lines.
-  const approvedInForce =
+  const hasApprovedInForce =
     summary.has_approved_version === true ||
     (summary.status === "aprobado" && summary.has_approved_version == null);
-  if (approvedInForce && state.editable) return summary;
-  if (!approvedInForce && !state.editable) return summary;
+  if (hasApprovedInForce && state.editable) return summary;
+  if (!hasApprovedInForce && !state.editable) return summary;
   const next = dishStateFrom({
     has_version: true,
     line_count: state.lines.length,
     missing: state.pending,
     total: state.lines.length > 0 ? state.total_cost : null,
-    approved: approvedInForce,
-    confirmed: approvedInForce
+    approved: hasApprovedInForce,
+    confirmed: hasApprovedInForce
       ? (summary.link_confirmed ?? summary.state_reason == null)
       : summary.covered,
     treatment: summary.treatment,

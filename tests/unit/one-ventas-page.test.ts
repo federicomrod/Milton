@@ -336,3 +336,40 @@ describe("no orange in the sales area", () => {
     }
   });
 });
+
+describe("the Ventas header and the Cockpit v1 pieces are brand blue, not orange", () => {
+  const FILES = [
+    "components/restaurant/shell/OperatingPageHeader.tsx",
+    "components/restaurant/shell/DateRangeControl.tsx",
+    "components/restaurant/cockpit/CockpitTabs.tsx",
+    "components/restaurant/cockpit/CockpitChannelBreakdown.tsx",
+    "components/restaurant/cockpit/CockpitHeroChart.tsx",
+    "components/restaurant/cockpit/CockpitCostKpiCells.tsx",
+    "components/restaurant/cockpit/CockpitInsightsCard.tsx",
+    "components/restaurant/cockpit/CockpitOnboardingChip.tsx",
+  ];
+  it("no orange-*, #f28c28 or hsl(24 …) in them", () => {
+    for (const f of FILES)
+      expect(read(f), f).not.toMatch(/orange-\d|#f28c28|#F28C28|hsl\(24/);
+  });
+  it("the focus rings, the active tab, the channel bar and the hero line use #1B40C8", () => {
+    expect(
+      read("components/restaurant/shell/OperatingPageHeader.tsx")
+    ).toContain("focus-visible:ring-[#1B40C8]");
+    expect(read("components/restaurant/shell/DateRangeControl.tsx")).toContain(
+      "focus-visible:ring-[#1B40C8]"
+    );
+    expect(read("components/restaurant/cockpit/CockpitTabs.tsx")).toContain(
+      "border-[#1B40C8]"
+    );
+    expect(
+      read("components/restaurant/cockpit/CockpitChannelBreakdown.tsx")
+    ).toContain("bg-[#1B40C8]");
+    expect(
+      read("components/restaurant/cockpit/CockpitHeroChart.tsx")
+    ).toContain('stroke="#1B40C8"');
+    expect(
+      read("components/restaurant/cockpit/CockpitCostKpiCells.tsx")
+    ).toContain("hover:border-[#1B40C8]");
+  });
+});

@@ -161,7 +161,7 @@ export function CockpitHeroChart({
                   type="monotone"
                   dataKey="current_net"
                   name="current"
-                  stroke="hsl(24 80% 45%)"
+                  stroke="#1B40C8"
                   strokeWidth={2}
                   dot={false}
                 />

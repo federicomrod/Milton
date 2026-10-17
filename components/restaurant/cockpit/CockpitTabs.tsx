@@ -71,9 +71,9 @@ export function CockpitTabs({
                 aria-selected={isActive}
                 onClick={() => setActive(t.id)}
                 className={
-                  "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-t-sm " +
+                  "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] rounded-t-sm " +
                   (isActive
-                    ? "border-orange-500 text-foreground"
+                    ? "border-[#1B40C8] text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30")
                 }
               >
@@ -83,7 +83,7 @@ export function CockpitTabs({
                     className={
                       "text-[12px] tabular-nums rounded-full px-1.5 py-0.5 font-semibold " +
                       (isActive
-                        ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
+                        ? "bg-[#1B40C8]/10 text-[#1B40C8] dark:bg-[#1B40C8]/25 dark:text-[#c9d6fb]"
                         : "bg-muted text-muted-foreground")
                     }
                   >

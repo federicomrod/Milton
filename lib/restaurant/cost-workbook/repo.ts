@@ -812,6 +812,8 @@ export function createSupabaseCostWorkbookRepo(
               name: input.name,
               category: input.category ?? null,
               default_unit: input.defaultUnit,
+              // LEGACY column: written for the old importer, never read for a price (the
+              // latest ingredient_cost_entries row is the price).
               current_unit_cost: input.currentUnitCost,
               currency: input.currency,
             }))
@@ -833,6 +835,8 @@ export function createSupabaseCostWorkbookRepo(
           const { error } = await supabase
             .from("ingredients")
             .update({
+              // LEGACY column: written for the old importer, never read for a price (the
+              // latest ingredient_cost_entries row is the price).
               current_unit_cost: update.currentUnitCost,
               currency: update.currency,
             })
@@ -864,6 +868,8 @@ export function createSupabaseCostWorkbookRepo(
             name: row.name,
             category: row.category,
             default_unit: row.defaultUnit ?? "unit",
+            // LEGACY column: written for the old importer, never read for a price (the
+            // latest ingredient_cost_entries row is the price).
             current_unit_cost: row.currentUnitCost,
             currency: row.currency,
           }))

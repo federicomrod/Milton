@@ -6,7 +6,8 @@ export interface IngredientOption {
   id: string;
   name: string;
   default_unit: string | null;
-  current_unit_cost: number | null;
+  /** The latest cost entry's price (null = Sin precio). */
+  latest_unit_cost: number | null;
 }
 
 let cache: { at: number; rows: Promise<IngredientOption[]> } | null = null;

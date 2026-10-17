@@ -14,7 +14,7 @@ const filterBar = read(`${D}/FilterBar.tsx`);
 const kpis = read(`${D}/KpiRow.tsx`);
 const chart = read(`${D}/DailyChart.tsx`);
 const dims = read(`${D}/DimensionPanel.tsx`);
-const page = read("app/dashboard/restaurant/sales/detalle/page.tsx");
+const page = read("app/dashboard/restaurant/sales/page.tsx");
 
 describe("Ventas › Detalle structure", () => {
   it("has three tabs: Tendencia · Desglose · Platos", () => {

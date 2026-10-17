@@ -117,7 +117,6 @@ async function draw(path: string, sp: Record<string, string> = {}) {
 const PAGES: Array<[string, string, Record<string, string>]> = [
   ["Cockpit", "@/app/(restaurant-cockpit)/dashboard/restaurant/page", {}],
   ["Ventas", "@/app/dashboard/restaurant/sales/page", {}],
-  ["Ventas › Detalle", "@/app/dashboard/restaurant/sales/detalle/page", {}],
   ["Menú › Resumen", "@/app/dashboard/restaurant/menu/page", {}],
   ["Menú › Platos", "@/app/dashboard/restaurant/menu/platos/page", {}],
   [

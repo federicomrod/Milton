@@ -137,8 +137,9 @@ export function DailyBarsChart({
             x2={W}
             y1={y(baselineAvg)}
             y2={y(baselineAvg)}
-            stroke="#f28c28"
-            strokeWidth={2}
+            stroke="#8a92a3"
+            strokeDasharray="5 4"
+            strokeWidth={1.5}
           />
         ) : null}
         <text x={0} y={H - 6} fontSize={11} fill="#8a92a3">
@@ -186,7 +187,7 @@ export function DailyBarsChart({
         ) : null}
         {baselineAvg !== null ? (
           <Legend
-            color="#f28c28"
+            color="#8a92a3"
             label={`Promedio (${baselineLabel.replace("vs ", "")})`}
             line
           />

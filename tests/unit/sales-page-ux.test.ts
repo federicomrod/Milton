@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { SALES_DETAIL_HREF, SALES_HREF } from "@/lib/restaurant/navigation";
 import { buildCockpitSalesAggregate } from "@/lib/restaurant/cockpit-aggregates";
@@ -12,17 +12,10 @@ import type { CockpitFactRow } from "@/lib/restaurant/cockpit-aggregates";
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
 const SALES_REACT = [
-  "components/restaurant/sales/SalesUnderstand.tsx",
-  "components/restaurant/sales/SalesExplore.tsx",
-  "components/restaurant/sales/SalesHighlights.tsx",
-  "components/restaurant/sales/SalesRankedBars.tsx",
-  "components/restaurant/sales/SalesInterpretation.tsx",
-  "components/restaurant/sales/SalesPageLive.tsx",
-  "components/restaurant/sales/SalesPeriodAskButton.tsx",
-  "components/restaurant/sales/SalesContextualAsk.tsx",
   "app/dashboard/restaurant/sales/page.tsx",
   "app/dashboard/restaurant/sales/detalle/page.tsx",
   "components/restaurant/sales/detail/SalesDetailV2.tsx",
+  "components/restaurant/sales/detail/Highlights.tsx",
   "components/restaurant/sales/detail/FilterBar.tsx",
   "components/restaurant/sales/detail/KpiRow.tsx",
   "components/restaurant/sales/detail/DailyChart.tsx",
@@ -35,7 +28,7 @@ const SALES_REACT = [
 const SALES_COPY = [
   ...SALES_REACT,
   "lib/restaurant/sales-insights.ts",
-  "components/restaurant/sales/SalesPageChrome.tsx",
+  "lib/restaurant/sales-detail-insights.ts",
 ];
 
 function spanishSlots(src: string): string[] {
@@ -49,47 +42,36 @@ function spanishSlots(src: string): string[] {
   return out;
 }
 
-describe("Sales page IA (#130)", () => {
-  it("keeps the thin Sales route and the redesigned detalle", () => {
+describe("One Ventas page", () => {
+  it("Ventas is the old Detalle; /sales/detalle only forwards; both links land on /sales", () => {
     expect(SALES_HREF).toBe("/dashboard/restaurant/sales");
-    expect(SALES_DETAIL_HREF).toBe("/dashboard/restaurant/sales/detalle");
+    expect(SALES_DETAIL_HREF).toBe(SALES_HREF);
     const sales = read("app/dashboard/restaurant/sales/page.tsx");
     const detalle = read("app/dashboard/restaurant/sales/detalle/page.tsx");
-    expect(sales).toContain("SalesPageLive");
-    expect(sales).not.toContain("<SalesUnderstand");
-    expect(sales).not.toContain("<SalesExplore");
-    expect(read("components/restaurant/sales/SalesPageLive.tsx")).toContain(
-      "SalesUnderstand"
-    );
-    expect(read("components/restaurant/sales/SalesPageLive.tsx")).toContain(
-      "onOpenExplore"
-    );
-    expect(sales).not.toContain("RestaurantSalesExplorer");
-    expect(sales).not.toContain("explorerRows");
+    expect(sales).toContain("SalesDetailV2");
+    expect(sales).toContain('title="Ventas"');
     expect(sales).not.toContain("loadCockpitPageModel");
-    // R1-17b: the detalle is the redesigned explorer (one request, all client-side).
-    expect(detalle).toContain("SalesDetailV2");
-    expect(detalle).not.toContain("<SalesHero");
-    expect(detalle).not.toContain("sales.explorerRows");
+    expect(sales).not.toContain("explorerRows");
+    expect(detalle).toContain("redirect(");
+    expect(detalle).not.toContain("SalesDetailV2");
     expect(
       read("components/restaurant/sales/detail/SalesDetailV2.tsx")
     ).toContain("/api/restaurant/sales-detail");
   });
 
-  it("honours the cockpit period contract on Sales", () => {
-    const page = read("app/dashboard/restaurant/sales/page.tsx");
-    const chrome = read("components/restaurant/sales/SalesPageChrome.tsx");
-    const loader = read("lib/restaurant/sales-page-data.ts");
-    expect(loader).toContain("loadCockpitExecutiveFast");
-    expect(loader).toContain("loadCachedPosSalesRows");
-    expect(loader).not.toContain("loadCockpitPageModel");
-    expect(loader).toContain("parseCockpitPeriodPreset");
-    expect(loader).toContain("resolveCockpitPeriod");
-    expect(loader).toContain("filterRowsForSalesPeriod");
-    expect(loader).toContain("salesDayStatsFromRows");
-    expect(loader).toContain("buildCockpitSalesAggregate");
-    expect(chrome).toContain("CockpitPeriodControl");
-    expect(page).not.toContain("shownPeriodFromSales");
+  it("the old Understand / Explore page is gone", () => {
+    for (const gone of [
+      "components/restaurant/sales/SalesUnderstand.tsx",
+      "components/restaurant/sales/SalesExplore.tsx",
+      "components/restaurant/sales/SalesHighlights.tsx",
+      "components/restaurant/sales/SalesPageLive.tsx",
+      "components/restaurant/sales/SalesInterpretation.tsx",
+      "components/restaurant/sales/SalesInterpretationUpgrade.tsx",
+      "components/restaurant/sales/SalesRankedBars.tsx",
+      "lib/restaurant/sales-page-data.ts",
+    ]) {
+      expect(existsSync(join(process.cwd(), gone)), gone).toBe(false);
+    }
   });
 
   it("does not put KPI aggregation in React", () => {
@@ -103,61 +85,25 @@ describe("Sales page IA (#130)", () => {
     }
   });
 
-  it("streams interpretation and keeps slot-sized skeletons", () => {
-    const page = read("app/dashboard/restaurant/sales/page.tsx");
+  it("the skeleton matches the layout (filter bar, five KPIs, chart + heatmap)", () => {
     const loading = read("app/dashboard/restaurant/sales/loading.tsx");
-    expect(page).toContain("<Suspense");
-    expect(page).toContain("SalesInterpretationUpgrade");
     expect(loading).toContain("PageSkeleton");
-    expect(loading).toContain("lg:grid-cols-3");
-    expect(loading).not.toContain("Reading your latest restaurant numbers");
-    expect(loading).not.toContain('label="explorer"');
+    expect(loading).toContain("lg:grid-cols-5");
+    expect(loading).toContain("lg:grid-cols-[1.25fr_1fr]");
+    expect(loading).not.toContain("SalesInterpretation");
   });
 });
 
-describe("Spanish completeness for Sales (#130)", () => {
-  it("ships the required Spanish operator copy", () => {
-    const understand = read("components/restaurant/sales/SalesUnderstand.tsx");
-    const explore = read("components/restaurant/sales/SalesExplore.tsx");
-    const highlights = read("components/restaurant/sales/SalesHighlights.tsx");
-    const chrome = read("components/restaurant/sales/SalesPageChrome.tsx");
-    const periodAsk = read(
-      "components/restaurant/sales/SalesPeriodAskButton.tsx"
-    );
-    expect(highlights).toContain("Lo que destaca");
-    expect(highlights).not.toContain("Preguntar a Milton");
-    expect(highlights).not.toContain("Pregúntale a Milton");
-    expect(highlights).not.toContain("openAskMilton");
-    expect(chrome).toContain("SalesPeriodAskButton");
-    expect(periodAsk).toContain("Preguntar a Milton");
-    expect(periodAsk).not.toContain("Preguntar a Milton sobre este periodo");
-    expect(periodAsk).not.toContain("Pregúntale a Milton");
-    expect(understand).toContain("Ventas netas");
-    expect(understand).toContain("Cuándo se vende");
-    expect(understand).toContain("sales-ask-milton-heatmap");
-    expect(explore).toContain("Canales");
-    expect(explore).toContain("Categorías");
-    expect(explore).toContain("Pagos");
-    expect(explore).toContain("Ver todas");
-    expect(read("components/restaurant/sales/SalesDetailLink.tsx")).toContain(
-      "Ver detalles"
-    );
-    expect(read("lib/restaurant/sales-insights.ts")).toContain(
-      "La lectura de Milton"
-    );
-    expect(read("lib/restaurant/sales-insights.ts")).toContain(
-      "Día más fuerte"
-    );
-    expect(read("lib/restaurant/sales-insights.ts")).toContain(
-      "Franja más fuerte"
-    );
-    expect(read("lib/restaurant/sales-insights.ts")).toContain(
-      "Almuerzo vs cena"
-    );
-    expect(read("lib/restaurant/sales-insights.ts")).toContain("por promedio");
-    expect(read("lib/restaurant/sales-insights.ts")).toContain(
-      "MAX_SALES_HIGHLIGHTS = 3"
-    );
+describe("Spanish completeness for Ventas", () => {
+  it("ships the Spanish copy of the ported pieces", () => {
+    const hl = read("components/restaurant/sales/detail/Highlights.tsx");
+    expect(hl).toContain("Lo que destaca");
+    expect(hl).toContain("Análisis de ventas y tickets");
+    expect(hl).not.toContain("Preguntar a Milton");
+    expect(hl).not.toContain("openAskMilton");
+    expect(
+      read("components/restaurant/sales/detail/SalesDetailV2.tsx")
+    ).toContain("Lo que más pesa:");
   });
 
   it("does not put English chrome in t() Spanish slots", () => {
@@ -231,12 +177,16 @@ describe("existing aggregate totals stay on the same net definition", () => {
 });
 
 describe("one «Preguntar a Milton» per page (R1-16c)", () => {
-  it("the pages with a contextual ask button hide the header's own", () => {
-    for (const f of [
-      "components/restaurant/sales/SalesPageChrome.tsx",
-      "components/restaurant/kitchen/KitchenPageChrome.tsx",
-    ])
-      expect(read(f)).toContain("hideAskButton={!!periodAskQuestion}");
+  it("Ventas uses the header's own button (no second one); Cocina hides it for its contextual one", () => {
+    expect(read("app/dashboard/restaurant/sales/page.tsx")).toContain(
+      "OperatingPageHeader"
+    );
+    expect(read("app/dashboard/restaurant/sales/page.tsx")).not.toContain(
+      "hideAskButton"
+    );
+    expect(
+      read("components/restaurant/kitchen/KitchenPageChrome.tsx")
+    ).toContain("hideAskButton={!!periodAskQuestion}");
     expect(
       read("components/restaurant/shell/OperatingPageHeader.tsx")
     ).toContain("hideAskButton ? null");

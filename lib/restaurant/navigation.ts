@@ -10,7 +10,8 @@ import { t } from "@/lib/restaurant/language";
 
 export const COCKPIT_HREF = "/dashboard/restaurant";
 export const SALES_HREF = "/dashboard/restaurant/sales";
-export const SALES_DETAIL_HREF = "/dashboard/restaurant/sales/detalle";
+// There is ONE Ventas page (the old Detalle): the export stays so callers compile.
+export const SALES_DETAIL_HREF = SALES_HREF;
 export const MENU_HREF = "/dashboard/restaurant/menu";
 export const COSTS_HREF = "/dashboard/restaurant/costs";
 export const KITCHEN_HREF = "/dashboard/restaurant/kitchen";

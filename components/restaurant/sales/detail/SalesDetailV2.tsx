@@ -25,7 +25,14 @@ import { ShiftCards } from "./ShiftCards";
 import { DetailHeatmap } from "./DetailHeatmap";
 import { DimensionPanel } from "./DimensionPanel";
 import { PlatosTab } from "./PlatosTab";
-import { dayLabelEs, moneyFmt, rangeLabelEs } from "./format";
+import { dayLabelEs, hourLabel, moneyFmt, rangeLabelEs } from "./format";
+import { Highlights } from "./Highlights";
+import {
+  dimensionLeader,
+  leaderLabel,
+  salesFacts,
+  salesRead,
+} from "@/lib/restaurant/sales-detail-insights";
 
 const PAGE_KEYS = [
   "tab",
@@ -126,6 +133,42 @@ export function SalesDetailV2({
         : null,
     [prepared, data, state, scope]
   );
+
+  // «Lo que destaca» and the one-paragraph read: deterministic, from the same
+  // view (so they follow every filter). No AI call on load.
+  const insights = useMemo(() => {
+    if (!view || !data) return null;
+    const m = moneyFmt(data.currency);
+    const fmt = {
+      money: (n: number) => m(n),
+      day: dayLabelEs,
+      hour: hourLabel,
+    };
+    return { facts: salesFacts(view, fmt), read: salesRead(view, fmt) };
+  }, [view, data]);
+  // The leader of each dimension, on top of the Desglose (computed only there).
+  const leaders = useMemo(() => {
+    if (!prepared || !data || state.tab !== "desglose") return null;
+    const dims = [
+      ["categoria", "Categoría"],
+      ["canal", "Canal"],
+      ["pago", "Pago"],
+      ...(data.shiftsVisible ? [["turno", "Turno"]] : []),
+    ] as Array<[DetailState["dim"], string]>;
+    return dims
+      .map(([dim, label]) => {
+        const v = computeDetail({
+          prepared,
+          state: { ...state, dim },
+          targets: data.targets,
+          scope,
+          shiftsVisible: data.shiftsVisible,
+        });
+        const leader = v ? dimensionLeader(v.dimRows) : null;
+        return leader ? { label, text: leaderLabel(leader) } : null;
+      })
+      .filter((x): x is { label: string; text: string } => x !== null);
+  }, [prepared, data, state, scope]);
 
   const update = useCallback((patch: Partial<DetailState>) => {
     setState((prev) => {
@@ -249,6 +292,9 @@ export function SalesDetailV2({
       {state.tab === "tendencia" ? (
         <>
           <KpiRow view={view} currency={data.currency} />
+          {insights ? (
+            <Highlights facts={insights.facts} read={insights.read} />
+          ) : null}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.25fr_1fr]">
             <div className="space-y-3">
               <DailyChart
@@ -308,25 +354,43 @@ export function SalesDetailV2({
           </div>
         </>
       ) : state.tab === "desglose" ? (
-        <DimensionPanel
-          view={view}
-          dim={state.dim}
-          mode={state.view}
-          money={money}
-          shiftsVisible={data.shiftsVisible}
-          compareShort={view.compare.short}
-          onDim={(dim) => update({ dim })}
-          onMode={(v) => update({ view: v })}
-          onToggle={onTile(dimKey[state.dim])}
-          onClear={() =>
-            update({ [dimKey[state.dim]]: [] } as Partial<DetailState>)
-          }
-          onSeeDishes={(token) =>
-            update(
-              token ? { tab: "platos", categories: [token] } : { tab: "platos" }
-            )
-          }
-        />
+        <>
+          {leaders && leaders.length > 0 ? (
+            <p
+              className="text-[12.5px] text-[#4a5a85]"
+              data-testid="dimension-leaders"
+            >
+              <b className="text-[#151c2c]">Lo que más pesa:</b>{" "}
+              {leaders.map((l, i) => (
+                <span key={l.label}>
+                  {i > 0 ? " · " : ""}
+                  {l.label}: {l.text}
+                </span>
+              ))}
+            </p>
+          ) : null}
+          <DimensionPanel
+            view={view}
+            dim={state.dim}
+            mode={state.view}
+            money={money}
+            shiftsVisible={data.shiftsVisible}
+            compareShort={view.compare.short}
+            onDim={(dim) => update({ dim })}
+            onMode={(v) => update({ view: v })}
+            onToggle={onTile(dimKey[state.dim])}
+            onClear={() =>
+              update({ [dimKey[state.dim]]: [] } as Partial<DetailState>)
+            }
+            onSeeDishes={(token) =>
+              update(
+                token
+                  ? { tab: "platos", categories: [token] }
+                  : { tab: "platos" }
+              )
+            }
+          />
+        </>
       ) : (
         <PlatosTab
           range={view.range}

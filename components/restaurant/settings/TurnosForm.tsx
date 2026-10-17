@@ -186,8 +186,8 @@ export function TurnosForm(props: TurnosFormProps) {
 
         {rows.length === 0 ? (
           <p className="border-t border-[#eef0f4] py-3 text-[13px] text-[#6b7385]">
-            Este restaurante aún no tiene turnos. Sin turnos, Ventas › Detalle
-            no muestra tarjetas ni filtro por turno.
+            Este restaurante aún no tiene turnos. Sin turnos, Ventas no muestra
+            tarjetas ni filtro por turno.
           </p>
         ) : null}
         {rows.map((r) => (
@@ -366,8 +366,8 @@ export function TurnosForm(props: TurnosFormProps) {
         <h2 className="text-[14px] font-bold">Cómo se usan</h2>
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-[12px] text-[#6b7385]">
           <li>
-            Con 2 turnos activos o más, Ventas › Detalle muestra una tarjeta por
-            turno y el filtro Turno.
+            Con 2 turnos activos o más, Ventas muestra una tarjeta por turno y
+            el filtro Turno.
           </li>
           <li>
             Con un solo turno (por ejemplo, un restaurante solo de cena) no hay

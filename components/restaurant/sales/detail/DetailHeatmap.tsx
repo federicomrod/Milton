@@ -13,6 +13,7 @@ import {
   type HeatGrid,
   type HeatMetric,
 } from "@/lib/restaurant/sales-detail";
+import { heatColor } from "@/lib/restaurant/ui/heat-scale";
 import { WEEKDAYS_LONG, WEEKDAYS_SHORT, hourLabel } from "./format";
 
 function hoursOf(grids: HeatGrid[]): number[] {
@@ -89,10 +90,7 @@ function Grid({
                 onClick={() => onCell?.(wd, h)}
                 className={`${cell} rounded-[3px]`}
                 style={{
-                  background:
-                    v === null || v === 0
-                      ? "#f2f3f6"
-                      : `rgba(27,64,200,${(0.08 + a * 0.84).toFixed(2)})`,
+                  background: heatColor(v === null || v === 0 ? null : a),
                   outline: isSel ? "2px solid #151c2c" : undefined,
                   cursor: onCell ? "pointer" : "default",
                 }}

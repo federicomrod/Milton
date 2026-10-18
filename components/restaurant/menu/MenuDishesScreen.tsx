@@ -7,6 +7,10 @@
 // Every number comes from the shared loader; the screen only re-adds the
 // sums after a move (dishSums, the loader's own function).
 
+import {
+  GROUP_COVERAGE_TIP,
+  groupStatusDisplay,
+} from "@/lib/restaurant/costing/rollup";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { RowActions } from "@/components/restaurant/groups/RowActions";
@@ -28,10 +32,7 @@ import {
   type MenuDish,
   type MenuDishVariant,
 } from "@/lib/restaurant/menu-dishes/menu-dishes";
-import {
-  DISH_STATUS_LABELS,
-  type DishStatus,
-} from "@/lib/restaurant/costing/dish-status";
+import { type DishStatus } from "@/lib/restaurant/costing/dish-status";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { platosHref } from "@/lib/restaurant/menu-links";
 import { Chip } from "@/components/restaurant/recipes-costing/ui";
@@ -670,7 +671,7 @@ export function MenuDishesScreen({
                     onSort={toggleSort}
                     align="right"
                   >
-                    Cobertura
+                    <span title={GROUP_COVERAGE_TIP}>Cobertura</span>
                   </SortTh>
                   <SortTh
                     className={"px-2 py-1.5 " + STICKY_TH}
@@ -734,7 +735,7 @@ function Kpi({
   return (
     <Link
       href={href}
-      className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px] hover:border-[#f28c28]"
+      className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px] hover:border-[#1B40C8]"
     >
       <div className="text-[12px] text-[#6b7385]">{label}</div>
       <div className="mt-0.5 text-[30px] font-extrabold leading-tight tracking-[-0.5px] text-[#1b2333]">
@@ -827,6 +828,7 @@ const DishRows = memo(function DishRows({
 }) {
   const isExcluded = dish.status === "excluded";
   const coverage = Math.round(dish.coverage * 100);
+  const groupChip = groupStatusDisplay(dish);
   return (
     <>
       <tr
@@ -900,9 +902,11 @@ const DishRows = memo(function DishRows({
               {EXCLUDED_LABELS[dish.excluded_reason ?? ""] ?? "Excluido"}
             </Chip>
           ) : (
-            <Chip tone={TONE[dish.cost_status]}>
-              {DISH_STATUS_LABELS[dish.cost_status]}
-            </Chip>
+            <span title={groupChip.mixed ? GROUP_COVERAGE_TIP : undefined}>
+              <Chip tone={groupChip.mixed ? "warn" : TONE[dish.cost_status]}>
+                {groupChip.label}
+              </Chip>
+            </span>
           )}
         </td>
         <td className="px-1 py-2 text-right">
@@ -1023,7 +1027,7 @@ function MovePanel({
                 : dishes.find((d) => d.id === target);
             if (dest) onMove(variant, dest);
           }}
-          className="rounded-lg bg-[#f28c28] px-3 py-1.5 font-semibold text-white disabled:opacity-45"
+          className="rounded-lg bg-[#1B40C8] px-3 py-1.5 font-semibold text-white hover:bg-[#1535a6] disabled:cursor-not-allowed disabled:border-[#b9c7f0] disabled:bg-[#b9c7f0] disabled:opacity-100"
         >
           Mover
         </button>

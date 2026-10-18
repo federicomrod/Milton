@@ -24,9 +24,7 @@ const SHELL_FILES = [
   "components/restaurant/cockpit/CockpitOnboardingChip.tsx",
   "components/restaurant/AskMiltonWorkspace.tsx",
   "components/restaurant/ProfitabilityCockpit.tsx",
-  "components/restaurant/BriefingCard.tsx",
-  "components/restaurant/ComingSoonPage.tsx",
-  "app/(restaurant-cockpit)/dashboard/restaurant/page.tsx",
+  "app/dashboard/restaurant/(cockpit)/page.tsx",
   "app/dashboard/account/page.tsx",
   "components/restaurant/kitchen/KitchenQrCard.tsx",
   "components/restaurant/kitchen/KitchenStaffCard.tsx",
@@ -98,13 +96,16 @@ describe("Spanish completeness for cockpit chrome", () => {
   });
 
   it("does not leave listed English chrome on the live Cockpit body", () => {
-    const src = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
+    const src = read("app/dashboard/restaurant/(cockpit)/page.tsx");
     expect(src).not.toMatch(/\? "No recipe"/);
     expect(src).not.toMatch(/^\s+Low margin$/m);
     expect(src).not.toMatch(/^\s+Dish Profitability$/m);
-    expect(src).toContain("Sin receta");
-    expect(src).toContain("Margen bajo");
-    expect(src).toContain("Recomendaciones");
+    // R1 prod bugs 1: the sample (mock) cockpit is gone; the empty state is
+    // the Spanish Cockpit v2.
+    expect(src).not.toContain("Showing sample data");
+    expect(read("components/restaurant/cockpit/v2/CockpitEmpty.tsx")).toContain(
+      "Sin datos aún"
+    );
   });
 
   it("does not keep the old system-language KPI strip copy", () => {

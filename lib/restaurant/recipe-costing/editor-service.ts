@@ -56,6 +56,8 @@ export interface VersionRef {
    *  component_recipe_versions. */
   kind: "dish" | "preparation";
   menu_item_id?: string;
+  version_number?: number;
+  effective_date?: string | null;
   component_id?: string;
   component_recipe_id?: string;
   output_quantity?: number;
@@ -76,6 +78,8 @@ export interface CostingLoad {
 }
 
 export interface NewCostEntry {
+  /** Keep the entry in `unit` (a unit correction) instead of the ingredient's own unit. */
+  keepUnit?: boolean;
   ingredientId: string;
   unit: string;
   unitCost: number;
@@ -87,6 +91,11 @@ export interface NewCostEntry {
 
 export interface EditorStore {
   loadCosting(companyId: string): Promise<CostingLoad>;
+  /** The ingredient this one was merged into (latest merge not undone), if any. */
+  mergedInto(
+    companyId: string,
+    ingredientId: string
+  ): Promise<{ name: string } | null>;
   loadLink(
     companyId: string,
     odooProductId: number,
@@ -106,6 +115,14 @@ export interface EditorStore {
     componentId: string
   ): Promise<PreparationRef | null>;
   listInputs(companyId: string, version: VersionRef): Promise<VersionInput[]>;
+  /** The approved version in force today (`pickApprovedVersion`: effective dates), if any. */
+  approvedVersionInForce(
+    companyId: string,
+    menuItemId: string
+  ): Promise<VersionRef | null>;
+  /** An EMPTY in-review version after `from` (the next number, no effective date).
+   *  Its lines are copied by the caller; `from` is never touched. */
+  createDraftVersion(companyId: string, from: VersionRef): Promise<VersionRef>;
   insertInput(
     companyId: string,
     version: VersionRef,
@@ -152,7 +169,14 @@ export interface EditorStore {
     companyId: string,
     input: { name: string; outputQuantity: number; outputUnit: string }
   ): Promise<{ id: string; name: string }>;
-  addCostEntry(companyId: string, entry: NewCostEntry): Promise<void>;
+  /** A refused price (its unit cannot be read in the ingredient's unit) is a
+   *  Spanish message to show, not an exception. */
+  addCostEntry(
+    companyId: string,
+    entry: NewCostEntry
+  ): Promise<
+    { ok: true } | { ok: false; error: string; conversion?: ConversionHint }
+  >;
   /** Unclear price-list rows still open. */
   catalogQuestions(companyId: string): Promise<CatalogQuestion[]>;
   /** The person picked how an unclear price-list row reads. Adds the
@@ -199,6 +223,8 @@ export interface EditorState {
   editable: boolean;
   /** Why it cannot be edited, when it cannot. */
   locked_reason: string | null;
+  /** Which version is shown, when it is not the newest one. */
+  version_note?: string | null;
   version_id: string | null;
   lines: EditorLine[];
   options: PickerOption[];
@@ -218,9 +244,17 @@ export interface EditorState {
   };
 }
 
+/** What «Definir conversión» needs: this ingredient, in this unit, to its price unit. */
+export interface ConversionHint {
+  ingredient_id: string;
+  ingredient_name: string;
+  from_unit: string;
+  to_unit: string;
+}
+
 export type EditorResult =
   | { ok: true; state: EditorState }
-  | { ok: false; error: string; status?: number };
+  | { ok: false; error: string; status?: number; conversion?: ConversionHint };
 
 export interface Ctx {
   store: EditorStore;
@@ -337,11 +371,15 @@ async function build(
   ]);
   const { data } = costing;
 
-  const ingredientRefs = [...data.ingredientsById.values()].map((row) => ({
+  // Names of every ingredient (old lines may still read an archived one);
+  // matching only offers the active ones.
+  const allIngredientRefs = [...data.ingredientsById.values()].map((row) => ({
     id: row.id,
     name: row.name,
     default_unit: row.default_unit,
+    archived: row.archived === true,
   }));
+  const ingredientRefs = allIngredientRefs.filter((r) => !r.archived);
   // A preparation never offers itself as one of its own lines.
   const componentRefs = [...data.componentsById.values()]
     .filter((row) => row.id !== loaded.preparation?.component_id)
@@ -374,13 +412,17 @@ async function build(
     return null;
   };
 
+  const ingredientNames = new Map(allIngredientRefs.map((r) => [r.id, r.name]));
+  const componentNames = new Map(componentRefs.map((r) => [r.id, r.name]));
   const lines = hydrateLines({
+    readOnly: version?.status !== "in_review",
+    hints: { ingredients: ingredientNames, components: componentNames },
     data,
     evidenceLines,
     inputs,
     names: {
-      ingredients: new Map(ingredientRefs.map((r) => [r.id, r.name])),
-      components: new Map(componentRefs.map((r) => [r.id, r.name])),
+      ingredients: ingredientNames,
+      components: componentNames,
       priceOf,
       suggest,
     },
@@ -441,6 +483,7 @@ async function build(
           ? "Esta preparación ya está aprobada. Para cambiarla hace falta una versión nueva."
           : "Esta receta ya está aprobada. Para cambiarla hace falta una versión nueva.",
     version_id: version?.id ?? null,
+    version_note: loaded.version_note ?? null,
     lines,
     options,
     options_omitted: ctx.omitOptions === true,
@@ -502,6 +545,8 @@ export function preparationChecklist(
 interface Loaded {
   holder: EvidenceHolder;
   version: VersionRef | null;
+  /** Says which version is shown when it is not the newest one. */
+  version_note?: string | null;
   preparation?: { component_id: string; name: string };
 }
 
@@ -537,13 +582,32 @@ async function load(
       status: 404,
     };
   }
-  const version = link.menu_item_id
+  const newest = link.menu_item_id
     ? await ctx.store.latestVersion(ctx.companyId, link.menu_item_id)
     : null;
+  // The editor shows the version the header costs: a draft in review (what is
+  // being edited), else the APPROVED version in force. A newer approved version
+  // that has not started yet (future effective date) is not the one shown.
+  let version = newest;
+  let version_note: string | null = null;
+  if (newest && newest.status !== "in_review" && link.menu_item_id) {
+    const inForce = await ctx.store.approvedVersionInForce(
+      ctx.companyId,
+      link.menu_item_id
+    );
+    if (inForce && inForce.id !== newest.id) {
+      version = inForce;
+      const when = newest.effective_date
+        ? ` entra en vigor el ${newest.effective_date}`
+        : " todavía no está en vigor";
+      version_note = `Se muestra la versión aprobada en vigor${inForce.version_number ? ` (v${inForce.version_number})` : ""}; la v${newest.version_number ?? "nueva"}${when}.`;
+    }
+  }
   return {
     ok: true,
     holder: { kind: "dish", id: link.id, evidence: link.evidence },
     version,
+    version_note,
   };
 }
 
@@ -593,6 +657,8 @@ export type EditorAction =
       line_unit?: string;
     }
   | { action: "remove"; line_key: string }
+  /** «Crear versión nueva»: a draft copy of the approved recipe (the approved one is not changed). */
+  | { action: "new_version" }
   | {
       /** This line's own price per its unit (null = back to the list). */
       action: "set_line_cost";
@@ -614,6 +680,10 @@ export type EditorAction =
       ingredient_id: string;
       unit: string;
       unit_cost: number;
+      /** «Usar como precio del ingrediente»: the old price copy of a line. */
+      adopt_legacy?: boolean;
+      /** «Corregir unidad del precio»: the same price in another unit, as a NEW dated entry. */
+      correct_unit?: boolean;
     }
   | {
       action: "answer_catalog_unit";
@@ -753,6 +823,36 @@ export async function applyEdit(
   }
 
   // Prices are not part of a version: setting one is allowed on any recipe.
+  if (action.action === "new_version") {
+    if (!version) {
+      return {
+        ok: false,
+        error: "Este plato todavía no tiene una receta.",
+        status: 400,
+      };
+    }
+    if (version.status === "in_review") {
+      return {
+        ok: false,
+        error: "Ya hay un borrador abierto de esta receta.",
+        status: 409,
+      };
+    }
+    // A copy: the approved version and its lines are never changed.
+    const draft = await ctx.store.createDraftVersion(ctx.companyId, version);
+    for (const row of await ctx.store.listInputs(ctx.companyId, version)) {
+      await ctx.store.insertInput(ctx.companyId, draft, {
+        input_type: row.input_type,
+        ingredient_id: row.ingredient_id,
+        component_id: row.component_id,
+        quantity: row.quantity,
+        unit: row.unit,
+        unit_cost: row.unit_cost ?? null,
+        cost_source: row.cost_source ?? null,
+      });
+    }
+    return loadEditor({ ...ctx, omitOptions: false });
+  }
   if (
     action.action !== "set_price" &&
     action.action !== "answer_catalog_unit"
@@ -1105,7 +1205,7 @@ export async function applyEdit(
         currency,
       });
       if (price !== null) {
-        await ctx.store.addCostEntry(ctx.companyId, {
+        const added = await ctx.store.addCostEntry(ctx.companyId, {
           ingredientId: created.id,
           unit,
           unitCost: price,
@@ -1117,6 +1217,13 @@ export async function applyEdit(
               ? ZERO_PRICE_NOTE
               : "Precio al crear el ingrediente en Recetas y costeo",
         });
+        if (!added.ok)
+          return {
+            ok: false,
+            error: added.error,
+            status: 400,
+            conversion: added.conversion,
+          };
       }
       if (action.line_key) {
         const line = await lineByKey(action.line_key);
@@ -1312,7 +1419,7 @@ export async function applyEdit(
         row.ingredient_id
       ) {
         const currency = await ctx.store.currency(ctx.companyId);
-        await ctx.store.addCostEntry(ctx.companyId, {
+        const added = await ctx.store.addCostEntry(ctx.companyId, {
           ingredientId: row.ingredient_id,
           unit: row.unit,
           unitCost: cost,
@@ -1321,6 +1428,13 @@ export async function applyEdit(
           dateSource: "manual",
           note: cost === 0 ? ZERO_PRICE_NOTE : "Precio corregido en Platos",
         });
+        if (!added.ok)
+          return {
+            ok: false,
+            error: added.error,
+            status: 400,
+            conversion: added.conversion,
+          };
         // The rebuild below reads the catalog loaded at the start of this
         // edit: add the new entry to it instead of loading it again.
         const today = new Date().toISOString().slice(0, 10);
@@ -1364,7 +1478,15 @@ export async function applyEdit(
     }
     case "set_price": {
       const price = cleanPrice(action.unit_cost);
-      const unit = cleanUnit(action.unit);
+      // A unit outside the table («taza») is accepted when the ingredient
+      // has a unit of its own: saving then converts it with the ingredient's
+      // conversion, or answers with «Definir conversión». Never stored as is.
+      let unit = cleanUnit(action.unit);
+      if (!unit && typeof action.unit === "string") {
+        const raw = action.unit.trim();
+        const ing = data.ingredientsById.get(action.ingredient_id);
+        if (raw && raw.length <= 24 && ing?.default_unit) unit = raw;
+      }
       if (price === null || !unit) {
         return {
           ok: false,
@@ -1379,8 +1501,22 @@ export async function applyEdit(
           status: 400,
         };
       }
+      // The screen may be older than a merge: an ingredient that was merged
+      // away has no price of its own any more.
+      const merged = await ctx.store.mergedInto(
+        ctx.companyId,
+        action.ingredient_id
+      );
+      if (merged) {
+        return {
+          ok: false,
+          error: `Este ingrediente se unió con ${merged.name || "otro"}; recarga la receta.`,
+          status: 409,
+        };
+      }
       const currency = await ctx.store.currency(ctx.companyId);
-      await ctx.store.addCostEntry(ctx.companyId, {
+      const added = await ctx.store.addCostEntry(ctx.companyId, {
+        keepUnit: action.correct_unit === true,
         ingredientId: action.ingredient_id,
         unit,
         unitCost: price,
@@ -1390,8 +1526,19 @@ export async function applyEdit(
         note:
           price === 0
             ? ZERO_PRICE_NOTE
-            : "Precio corregido en Recetas y costeo",
+            : action.adopt_legacy === true
+              ? "Adoptado del precio de línea"
+              : action.correct_unit === true
+                ? "Unidad corregida"
+                : "Precio corregido en Recetas y costeo",
       });
+      if (!added.ok)
+        return {
+          ok: false,
+          error: added.error,
+          status: 400,
+          conversion: added.conversion,
+        };
       break;
     }
   }

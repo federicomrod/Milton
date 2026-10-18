@@ -7,10 +7,11 @@
 
 "use client";
 
+import { platosHref } from "@/lib/restaurant/menu-links";
 import { type ComponentType, Suspense, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard,
   BookOpen,
@@ -87,6 +88,7 @@ export function RestaurantShell({
   isAdmin = false,
   lastSyncedAt = null,
   userName = null,
+  slim = false,
 }: {
   children: React.ReactNode;
   locations?: RestaurantShellLocation[];
@@ -94,6 +96,11 @@ export function RestaurantShell({
   isAdmin?: boolean;
   lastSyncedAt?: string | null;
   userName?: string | null;
+  /**
+   * Onboarding: the same shell and look, but no section navigation or
+   * restaurant switcher (there is no restaurant to switch to yet).
+   */
+  slim?: boolean;
 }) {
   const pathname = usePathname() ?? "";
   const chrome: RestaurantShellChromeValue = {
@@ -111,6 +118,7 @@ export function RestaurantShell({
             locations={locations}
             currentLocationId={null}
             lang={lang}
+            slim={slim}
           >
             {children}
           </RestaurantShellBody>
@@ -120,6 +128,7 @@ export function RestaurantShell({
           pathname={pathname}
           locations={locations}
           lang={lang}
+          slim={slim}
         >
           {children}
         </SearchParamsReader>
@@ -133,11 +142,13 @@ function SearchParamsReader({
   locations,
   pathname,
   lang,
+  slim,
 }: {
   children: React.ReactNode;
   locations: RestaurantShellLocation[];
   pathname: string;
   lang: PreferredLanguage;
+  slim: boolean;
 }) {
   const searchParams = useSearchParams();
   const currentLocationId = searchParams.get("location");
@@ -147,6 +158,7 @@ function SearchParamsReader({
       locations={locations}
       currentLocationId={currentLocationId}
       lang={lang}
+      slim={slim}
     >
       {children}
     </RestaurantShellBody>
@@ -159,12 +171,14 @@ function RestaurantShellBody({
   currentLocationId,
   pathname,
   lang,
+  slim = false,
 }: {
   children: React.ReactNode;
   locations: RestaurantShellLocation[];
   currentLocationId: string | null;
   pathname: string;
   lang: PreferredLanguage;
+  slim?: boolean;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -183,6 +197,7 @@ function RestaurantShellBody({
         currentLocationId={currentLocationId}
         pathname={pathname}
         lang={lang}
+        slim={slim}
         mobileOpen={mobileOpen}
         setMobileOpen={setMobileOpen}
         shellParams={shellParams}
@@ -202,7 +217,9 @@ function RestaurantShellChrome({
   mobileOpen,
   setMobileOpen,
   shellParams,
+  slim = false,
 }: {
+  slim?: boolean;
   children: React.ReactNode;
   locations: RestaurantShellLocation[];
   currentLocationId: string | null;
@@ -221,25 +238,37 @@ function RestaurantShellChrome({
   return (
     <div className="min-h-screen flex bg-muted/30">
       <aside className="hidden lg:flex lg:flex-col w-56 shrink-0 border-r border-border bg-background sticky top-0 h-screen">
-        <SidebarBrand
-          locations={locations}
-          currentLocationId={currentLocationId}
-          pathname={pathname}
-          lang={lang}
-        />
-        <SidebarNav pathname={pathname} shellParams={shellParams} lang={lang} />
-        <SidebarFooter
-          pathname={pathname}
-          shellParams={shellParams}
-          lang={lang}
-        />
+        {slim ? (
+          <SlimSidebar lang={lang} />
+        ) : (
+          <>
+            <SidebarBrand
+              locations={locations}
+              currentLocationId={currentLocationId}
+              pathname={pathname}
+              lang={lang}
+            />
+            <SidebarNav
+              pathname={pathname}
+              shellParams={shellParams}
+              lang={lang}
+            />
+            <SidebarFooter
+              pathname={pathname}
+              shellParams={shellParams}
+              lang={lang}
+            />
+          </>
+        )}
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col">
         <div className="lg:hidden flex items-center justify-between px-4 h-12 border-b border-border bg-background">
           <Link
-            href={withShellParams("/dashboard/restaurant", shellParams)}
-            className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
+            href={
+              slim ? "#" : withShellParams("/dashboard/restaurant", shellParams)
+            }
+            className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] rounded-sm"
           >
             <Image src="/Milton_Logo.png" alt="Milton" width={24} height={24} />
             <span className="text-base font-bold">milton.</span>
@@ -247,14 +276,15 @@ function RestaurantShellChrome({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="rounded-full bg-primary text-primary-foreground h-8 px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+              className="rounded-full bg-primary text-primary-foreground h-8 px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
               onClick={() => openAskMilton()}
             >
               {t(lang, "Ask Milton", "Preguntar a Milton")}
             </button>
             <button
               type="button"
-              className="p-2 rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+              hidden={slim}
+              className="p-2 rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
               aria-expanded={mobileOpen}
               aria-controls="mobile-restaurant-nav"
               onClick={() => setMobileOpen((v) => !v)}
@@ -266,12 +296,17 @@ function RestaurantShellChrome({
             </button>
           </div>
         </div>
-        {mobileOpen ? (
+        {mobileOpen && !slim ? (
           <div
             id="mobile-restaurant-nav"
             className="lg:hidden border-b border-border bg-background px-3 py-3"
           >
             <SidebarNav
+              pathname={pathname}
+              shellParams={shellParams}
+              lang={lang}
+            />
+            <SidebarFooter
               pathname={pathname}
               shellParams={shellParams}
               lang={lang}
@@ -284,6 +319,31 @@ function RestaurantShellChrome({
 
       <AskMiltonDrawer open={askOpen} onOpenChange={setAskOpen} lang={lang} />
     </div>
+  );
+}
+
+/** Onboarding: the brand, where we are, and the way out. No sections yet. */
+function SlimSidebar({ lang }: { lang: PreferredLanguage }) {
+  const { userName } = useRestaurantShellChrome();
+  return (
+    <>
+      <div className="px-4 pt-4 pb-3 border-b border-border space-y-2.5">
+        <div className="flex items-center gap-2">
+          <Image src="/Milton_Logo.png" alt="Milton" width={28} height={28} />
+          <span className="text-lg font-bold tracking-tight">milton.</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {t(lang, "Initial setup", "Configuración inicial")}
+        </p>
+      </div>
+      <div className="flex-1" />
+      <div className="px-3 pb-3 pt-2 border-t border-border">
+        <div className="flex items-center gap-1 px-2.5 text-sm text-muted-foreground">
+          {userName ? <span className="truncate">{userName} ·</span> : null}
+          <LogoutButton lang={lang} variant="link" />
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -335,7 +395,6 @@ function SidebarBrand({
   pathname: string;
   lang: PreferredLanguage;
 }) {
-  const router = useRouter();
   const [addOpen, setAddOpen] = useState(false);
 
   const selected = currentLocationId
@@ -345,12 +404,9 @@ function SidebarBrand({
     ? selected.name
     : t(lang, "All Restaurants", "Todos los restaurantes");
 
-  function switchTo(locationId: string | null) {
-    const href = withShellParams(pathname, {
-      locationId,
-    });
-    router.push(href);
-  }
+  // A plain <Link> per restaurant (prefetched, no imperative navigation).
+  const hrefFor = (locationId: string | null) =>
+    withShellParams(pathname, { locationId });
 
   return (
     <div className="px-4 pt-4 pb-3 border-b border-border space-y-2.5">
@@ -358,7 +414,7 @@ function SidebarBrand({
         href={withShellParams("/dashboard/restaurant", {
           locationId: currentLocationId,
         })}
-        className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
+        className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] rounded-sm"
       >
         <Image src="/Milton_Logo.png" alt="Milton" width={28} height={28} />
         <span className="text-lg font-bold tracking-tight">milton.</span>
@@ -368,10 +424,10 @@ function SidebarBrand({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+            className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md border border-border bg-muted/40 hover:bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
           >
             <span className="flex items-center gap-2 min-w-0">
-              <Building2 className="h-4 w-4 text-orange-500 shrink-0" />
+              <Building2 className="h-4 w-4 text-[#1B40C8] shrink-0" />
               <span className="text-sm font-medium truncate">
                 {displayLabel}
               </span>
@@ -380,19 +436,23 @@ function SidebarBrand({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56">
-          <DropdownMenuItem onClick={() => switchTo(null)}>
-            <span className="flex-1">
-              {t(lang, "All Restaurants", "Todos los restaurantes")}
-            </span>
-            {!selected && <Check className="h-3.5 w-3.5" />}
+          <DropdownMenuItem asChild>
+            <Link href={hrefFor(null)}>
+              <span className="flex-1">
+                {t(lang, "All Restaurants", "Todos los restaurantes")}
+              </span>
+              {!selected && <Check className="h-3.5 w-3.5" />}
+            </Link>
           </DropdownMenuItem>
           {locations.length > 0 && <DropdownMenuSeparator />}
           {locations.map((loc) => (
-            <DropdownMenuItem key={loc.id} onClick={() => switchTo(loc.id)}>
-              <span className="flex-1 truncate">{loc.name}</span>
-              {selected?.id === loc.id && (
-                <Check className="h-3.5 w-3.5 shrink-0" />
-              )}
+            <DropdownMenuItem key={loc.id} asChild>
+              <Link href={hrefFor(loc.id)}>
+                <span className="flex-1 truncate">{loc.name}</span>
+                {selected?.id === loc.id && (
+                  <Check className="h-3.5 w-3.5 shrink-0" />
+                )}
+              </Link>
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
@@ -435,6 +495,10 @@ function SidebarLink({
   // up, and their link carries the save epoch so a copy never outlives a save.
   const { epoch, warm } = useSectionWarmth();
   const fullPrefetch = PREFETCHED_SECTIONS.has(item.id);
+  // Hovering (or focusing) a section prefetches it in full right away, without
+  // waiting for the browser to be idle.
+  const [intent, setIntent] = useState(false);
+  const full = fullPrefetch && (warm || intent);
   return (
     <li>
       <Link
@@ -442,9 +506,11 @@ function SidebarLink({
           withShellParams(item.href, shellParams),
           fullPrefetch ? epoch : 0
         )}
-        prefetch={fullPrefetch && warm ? true : undefined}
+        prefetch={full ? true : undefined}
+        onMouseEnter={() => setIntent(true)}
+        onFocus={() => setIntent(true)}
         className={
-          "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 " +
+          "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] " +
           (active
             ? "bg-primary/10 text-primary"
             : "text-foreground/80 hover:bg-muted hover:text-foreground")
@@ -454,6 +520,23 @@ function SidebarLink({
         <Icon className="h-4 w-4 shrink-0" />
         <span className="truncate">{label}</span>
       </Link>
+      {item.id === "menu" ? (
+        // Menú › Platos is where people land from the list: prefetched in full
+        // too (a 1 px, clipped link the viewport observer can see).
+        <Link
+          href={withSaveEpoch(
+            withShellParams(platosHref(), shellParams),
+            epoch
+          )}
+          prefetch={full ? true : undefined}
+          tabIndex={-1}
+          aria-hidden="true"
+          className="sr-only"
+          data-testid="prefetch-platos"
+        >
+          Platos
+        </Link>
+      ) : null}
     </li>
   );
 }
@@ -468,7 +551,7 @@ function SidebarFooter({
   shellParams: { locationId: string | null };
   lang: PreferredLanguage;
 }) {
-  const { userName } = useRestaurantShellChrome();
+  const { userName, isAdmin } = useRestaurantShellChrome();
   const settings = PRIMARY_NAV_ITEMS.find(
     (item) => item.group === "data_settings"
   );
@@ -483,6 +566,15 @@ function SidebarFooter({
             lang={lang}
           />
         </ul>
+      ) : null}
+      {/* Milton admins only (is_milton_admin, read once per request by the chrome). */}
+      {isAdmin ? (
+        <Link
+          href="/management/dashboard"
+          className="block px-2.5 py-1 text-sm font-medium text-muted-foreground hover:text-foreground"
+        >
+          Administración
+        </Link>
       ) : null}
       <div className="flex items-center gap-1 px-2.5 text-sm text-muted-foreground">
         {userName ? <span className="truncate">{userName} ·</span> : null}

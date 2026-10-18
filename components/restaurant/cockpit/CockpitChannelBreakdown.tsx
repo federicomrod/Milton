@@ -63,7 +63,7 @@ export function CockpitChannelBreakdown({
                 </div>
                 <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-orange-500"
+                    className="h-full rounded-full bg-[#1B40C8]"
                     style={{ width: `${width}%` }}
                   />
                 </div>

@@ -2,6 +2,8 @@
 // company that came from auth; ids from the client are only ever matched
 // inside that company.
 
+import { pickApprovedVersion } from "@/lib/restaurant/recipe-versions";
+import { loadUnitConversions } from "@/lib/restaurant/unit-conversions-server";
 import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 import { updateWithApprovalAudit } from "./approval-audit";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -11,7 +13,10 @@ import type {
   CostingRecipeInput,
 } from "@/lib/restaurant/costing";
 import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
-import { buildIngredientCostEntryInsert } from "@/lib/restaurant/cost-import";
+import {
+  buildIngredientCostEntryInsert,
+  unitMismatchMessage,
+} from "@/lib/restaurant/cost-import";
 import {
   aliasKeyFor,
   createSupabaseCostWorkbookRepo,
@@ -63,6 +68,7 @@ export function createSupabaseEditorStore(
 ): EditorStore {
   return {
     async loadCosting(companyId): Promise<CostingLoad> {
+      const conversionsPromise = loadUnitConversions(supabase, companyId);
       const [
         ingredients,
         entries,
@@ -71,12 +77,19 @@ export function createSupabaseEditorStore(
         componentInputs,
         versions,
       ] = await Promise.all([
-        fetchAllRows<{ id: string; name: string; default_unit: string | null }>(
-          () =>
+        fetchAllRowsRetryingWithoutColumns<{
+          id: string;
+          name: string;
+          default_unit: string | null;
+          archived_at?: string | null;
+        }>(
+          ["archived_at"],
+          (select) =>
             supabase
               .from("ingredients")
-              .select("id, name, default_unit")
-              .eq("company_id", companyId)
+              .select(select)
+              .eq("company_id", companyId),
+          "id, name, default_unit, archived_at"
         ),
         fetchAllRowsRetryingWithoutColumns<IngredientCostEntry>(
           ["effective_date", "date_source"],
@@ -153,7 +166,17 @@ export function createSupabaseEditorStore(
         inputsByRecipe.set(row.component_recipe_id, list);
       }
       const data: CostingData = {
-        ingredientsById: new Map(ingredients.rows.map((r) => [r.id, r])),
+        ingredientsById: new Map(
+          ingredients.rows.map((r) => [
+            r.id,
+            {
+              id: r.id,
+              name: r.name,
+              default_unit: r.default_unit,
+              archived: !!r.archived_at,
+            },
+          ])
+        ),
         componentsById: new Map(
           components.rows.map((c) => [
             c.id,
@@ -176,6 +199,7 @@ export function createSupabaseEditorStore(
         menuRecipesByMenuItemId: new Map(),
         menuRecipeInputsByRecipeId: new Map(),
         costEntriesByIngredientId,
+        unitConversionsByIngredientId: await conversionsPromise,
         menuRecipeVersionsByMenuItemId: versions.menuRecipeVersionsByMenuItemId,
         menuRecipeVersionInputsByVersionId:
           versions.menuRecipeVersionInputsByVersionId,
@@ -233,7 +257,7 @@ export function createSupabaseEditorStore(
     async latestVersion(companyId, menuItemId): Promise<VersionRef | null> {
       const { data, error } = await supabase
         .from("recipe_versions")
-        .select("id, status, menu_item_id, version_number")
+        .select("id, status, menu_item_id, version_number, effective_date")
         .eq("company_id", companyId)
         .eq("menu_item_id", menuItemId)
         .order("version_number", { ascending: false })
@@ -246,8 +270,125 @@ export function createSupabaseEditorStore(
             status: String(row.status),
             kind: "dish",
             menu_item_id: String(row.menu_item_id),
+            version_number: Number(row.version_number),
+            effective_date:
+              typeof row.effective_date === "string"
+                ? row.effective_date
+                : null,
           }
         : null;
+    },
+
+    async approvedVersionInForce(companyId, menuItemId) {
+      const { data, error } = await supabase
+        .from("recipe_versions")
+        .select("id, status, menu_item_id, version_number, effective_date")
+        .eq("company_id", companyId)
+        .eq("menu_item_id", menuItemId);
+      if (error) throw new Error(error.message);
+      const picked = pickApprovedVersion(
+        (data ?? []).map((row) => ({
+          id: String(row.id),
+          status: String(row.status),
+          version_number: Number(row.version_number),
+          effective_date:
+            typeof row.effective_date === "string" ? row.effective_date : null,
+        }))
+      );
+      return picked
+        ? {
+            id: picked.id,
+            status: picked.status,
+            kind: "dish" as const,
+            menu_item_id: menuItemId,
+            version_number: picked.version_number,
+            effective_date: picked.effective_date,
+          }
+        : null;
+    },
+
+    async createDraftVersion(companyId, from): Promise<VersionRef> {
+      if (from.kind === "preparation") {
+        const { data: src, error: srcErr } = await supabase
+          .from("component_recipe_versions")
+          .select(
+            "component_recipe_id, component_id, output_quantity, output_unit, source_type"
+          )
+          .eq("company_id", companyId)
+          .eq("id", from.id)
+          .maybeSingle();
+        if (srcErr || !src) {
+          throw new Error(srcErr?.message ?? "No encontré la versión.");
+        }
+        const { data: last } = await supabase
+          .from("component_recipe_versions")
+          .select("version_number")
+          .eq("company_id", companyId)
+          .eq("component_recipe_id", src.component_recipe_id)
+          .order("version_number", { ascending: false })
+          .limit(1);
+        const { data, error } = await supabase
+          .from("component_recipe_versions")
+          .insert({
+            company_id: companyId,
+            component_recipe_id: src.component_recipe_id,
+            component_id: src.component_id,
+            version_number: Number(last?.[0]?.version_number ?? 0) + 1,
+            status: "in_review",
+            effective_date: null,
+            output_quantity: src.output_quantity,
+            output_unit: src.output_unit,
+            source_type: src.source_type ?? null,
+          })
+          .select("id, status")
+          .single();
+        if (error || !data) {
+          throw new Error(error?.message ?? "No pude crear la versión nueva.");
+        }
+        return {
+          ...from,
+          id: String(data.id),
+          status: String(data.status),
+        };
+      }
+      const { data: src, error: srcErr } = await supabase
+        .from("recipe_versions")
+        .select(
+          "recipe_id, menu_item_id, serving_quantity, serving_unit, notes, source_type"
+        )
+        .eq("company_id", companyId)
+        .eq("id", from.id)
+        .maybeSingle();
+      if (srcErr || !src) {
+        throw new Error(srcErr?.message ?? "No encontré la versión.");
+      }
+      const { data: last } = await supabase
+        .from("recipe_versions")
+        .select("version_number")
+        .eq("company_id", companyId)
+        .eq("recipe_id", src.recipe_id)
+        .order("version_number", { ascending: false })
+        .limit(1);
+      const { data, error } = await supabase
+        .from("recipe_versions")
+        .insert({
+          company_id: companyId,
+          recipe_id: src.recipe_id,
+          menu_item_id: src.menu_item_id,
+          version_number: Number(last?.[0]?.version_number ?? 0) + 1,
+          status: "in_review",
+          effective_date: null,
+          serving_quantity: src.serving_quantity,
+          serving_unit: src.serving_unit,
+          notes: src.notes,
+          source_type: src.source_type ?? null,
+        })
+        .select("id, status")
+        .single();
+      if (error || !data) {
+        throw new Error(error?.message ?? "No pude crear la versión nueva.");
+      }
+      return { ...from, id: String(data.id), status: String(data.status) };
     },
 
     async loadPreparation(companyId, componentId) {
@@ -655,14 +796,19 @@ export function createSupabaseEditorStore(
     async addCostEntry(companyId, entry: NewCostEntry) {
       const { data: ing, error: ingError } = await supabase
         .from("ingredients")
-        .select("id, default_unit")
+        .select("id, name, default_unit")
         .eq("company_id", companyId)
         .eq("id", entry.ingredientId)
         .maybeSingle();
       if (ingError) throw new Error(ingError.message);
       if (!ing) throw new Error("No encontré el ingrediente.");
+      const conversions =
+        (await loadUnitConversions(supabase, companyId)).get(
+          entry.ingredientId
+        ) ?? [];
       const buildFor = (defaultUnit: string | null) =>
         buildIngredientCostEntryInsert({
+          conversions,
           companyId,
           ingredientId: entry.ingredientId,
           ingredientDefaultUnit: defaultUnit,
@@ -682,14 +828,26 @@ export function createSupabaseEditorStore(
             supplier_sku: null,
           },
         });
-      let built = buildFor(
-        typeof ing.default_unit === "string" ? ing.default_unit : null
-      );
-      // The person's price is in a unit the ingredient's own unit cannot
-      // convert to ("unidad" vs "orden"): keep it in the person's unit
-      // instead of refusing the save.
-      if (!built.ok) built = buildFor(entry.unit);
-      if (!built.ok) throw new Error(built.reason);
+      const ingredientUnit =
+        typeof ing.default_unit === "string" ? ing.default_unit : null;
+      // A unit correction keeps the entry in the unit the person chose.
+      const built = buildFor(entry.keepUnit ? entry.unit : ingredientUnit);
+      // A price in a unit the ingredient's own unit cannot be read in
+      // («orden» on an oz ingredient): say so, never store it mislabeled.
+      if (!built.ok) {
+        return {
+          ok: false,
+          error: unitMismatchMessage(entry.unit, ingredientUnit),
+          conversion: ingredientUnit
+            ? {
+                ingredient_id: entry.ingredientId,
+                ingredient_name: String(ing.name ?? ""),
+                from_unit: entry.unit,
+                to_unit: ingredientUnit,
+              }
+            : undefined,
+        };
+      }
       const { error } = await supabase.from("ingredient_cost_entries").insert({
         ...built.insert,
         source_type: "manual",
@@ -706,6 +864,22 @@ export function createSupabaseEditorStore(
         .eq("company_id", companyId)
         .eq("id", entry.ingredientId);
       if (updateError) throw new Error(updateError.message);
+      return { ok: true };
+    },
+
+    async mergedInto(companyId, ingredientId) {
+      const { data, error } = await supabase
+        .from("ingredient_merges")
+        .select("survivor_name")
+        .eq("company_id", companyId)
+        .is("undone_at", null)
+        .contains("loser_ids", [ingredientId])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      // Before the merges table exists nothing was merged.
+      if (error || !data) return null;
+      return { name: String(data.survivor_name ?? "") };
     },
 
     async loadAliases(companyId) {

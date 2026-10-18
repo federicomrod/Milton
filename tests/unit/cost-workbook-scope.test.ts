@@ -6,13 +6,13 @@ import {
 
 const CASA = {
   id: "loc-casa",
-  name: "Stage Test 1",
+  name: "Casa Piloto 1",
   brand_id: "brand-casa",
 };
-const LAVARA = {
-  id: "loc-lavara",
-  name: "Lavara",
-  brand_id: "brand-lavara",
+const CASASUR = {
+  id: "loc-casasur",
+  name: "CasaSur",
+  brand_id: "brand-casasur",
 };
 
 describe("resolveUploadRestaurantScope", () => {
@@ -41,7 +41,7 @@ describe("resolveUploadRestaurantScope", () => {
 
   it("refuses All Restaurants when there are two restaurants", () => {
     const result = resolveUploadRestaurantScope({
-      locations: [CASA, LAVARA],
+      locations: [CASA, CASASUR],
       requestedLocationId: null,
     });
     expect(result).toEqual({ ok: false, code: "pick_restaurant" });
@@ -52,7 +52,7 @@ describe("resolveUploadRestaurantScope", () => {
   it("accepts an explicit restaurant", () => {
     expect(
       resolveUploadRestaurantScope({
-        locations: [CASA, LAVARA],
+        locations: [CASA, CASASUR],
         requestedLocationId: CASA.id,
       })
     ).toEqual({
@@ -66,7 +66,7 @@ describe("resolveUploadRestaurantScope", () => {
   it("refuses an unknown location id instead of guessing", () => {
     expect(
       resolveUploadRestaurantScope({
-        locations: [CASA, LAVARA],
+        locations: [CASA, CASASUR],
         requestedLocationId: "loc-other",
       })
     ).toEqual({ ok: false, code: "pick_restaurant" });

@@ -78,6 +78,7 @@ export function GroupActionBar({
   onAddToExisting,
   onGroupAs,
   onUngroup,
+  onMerge,
   onClear,
   busy,
 }: {
@@ -91,6 +92,8 @@ export function GroupActionBar({
   onAddToExisting: () => void;
   onGroupAs: () => void;
   onUngroup?: () => void;
+  /** Ingredientes: «Unir…» (two or more selected). */
+  onMerge?: () => void;
   onClear: () => void;
   busy?: boolean;
 }) {
@@ -139,6 +142,16 @@ export function GroupActionBar({
         >
           Agrupar como…
         </button>
+        {onMerge ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onMerge}
+            className={secondary}
+          >
+            Unir…
+          </button>
+        ) : null}
         {canUngroup && onUngroup ? (
           <button
             type="button"
@@ -265,7 +278,7 @@ export function GroupPicker({
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Buscar grupo…"
         aria-label="Buscar grupo"
-        className="mt-2 w-full rounded-lg border border-[#dfe3ea] px-3 py-2 text-[14px] outline-none focus:border-[#f28c28]"
+        className="mt-2 w-full rounded-lg border border-[#dfe3ea] px-3 py-2 text-[14px] outline-none focus:border-[#1B40C8]"
       />
       <ul className="mt-2 max-h-[280px] overflow-auto">
         {allowTop ? (

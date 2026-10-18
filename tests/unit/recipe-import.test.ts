@@ -20,6 +20,10 @@ import {
 import type { CanonicalRecipe } from "@/lib/restaurant/recipe-import/types";
 import { writeImportPlan } from "@/lib/restaurant/recipe-import/server";
 import {
+  existingRecipeState,
+  isKeptRecipe,
+} from "@/lib/restaurant/recipe-import/existing";
+import {
   createMemoryCostWorkbookRepo,
   emptyMemoryStore,
 } from "./helpers/memory-cost-workbook-repo";
@@ -240,17 +244,24 @@ describe("planning the import", () => {
     expect(names).not.toContain("ACOMPAÑAMIENTO");
   });
 
-  it("never touches an approved or hand-made recipe", () => {
+  it("a dish with a recipe that has lines is a conflict (kept unless chosen), with both sides to compare", () => {
     const guarded = planImport({
       workbook,
       catalog: { ingredients: [], preparations: [] },
       products,
-      existing: [{ odoo_product_id: 1, protected: true }],
+      existing: [{ odoo_product_id: 1, protected: true, lines: 3, cost: 4.2 }],
     });
-    expect(
-      guarded.dishes.find((d) => d.recipe.name === "ASADO DE PRUEBA 6")
-        ?.skip_reason
-    ).toMatch(/no se toca/);
+    const hit = guarded.dishes.find(
+      (d) => d.recipe.name === "ASADO DE PRUEBA 6"
+    );
+    expect(hit?.conflict).toEqual({ my_lines: 3, my_cost: 4.2 });
+    expect(hit?.skip_reason).toBeNull();
+    expect(hit?.pos.map((p) => p.odoo_product_id)).toEqual([1]);
+    const row = guarded.preview.conflicts.find(
+      (c) => c.dish === hit?.recipe.name
+    );
+    expect(row).toMatchObject({ my_lines: 3, odoo_product_id: 1 });
+    expect(row?.excel_lines).toBeGreaterThan(0);
   });
 
   it("previews one row per dish: our cost, Excel total, match, flags", () => {
@@ -309,12 +320,25 @@ describe("planning the import", () => {
 });
 
 describe("a recipe line with its own cost", () => {
-  it("costs quantity × its own cost, never the catalog", () => {
+  it("an ingredient line never costs from its own copy (the ingredient's cost entry is the one price)", () => {
     expect(
       lineOwnCost({
         input_type: "ingredient",
         ingredient_id: "a",
         component_id: null,
+        quantity: 6,
+        unit: "oz",
+        unit_cost: 0.42,
+      })
+    ).toBeNull();
+  });
+
+  it("a preparation line (no price record of its own) costs quantity × its own cost", () => {
+    expect(
+      lineOwnCost({
+        input_type: "component",
+        ingredient_id: null,
+        component_id: "c",
         quantity: 6,
         unit: "oz",
         unit_cost: 0.42,
@@ -342,7 +366,7 @@ describe("a recipe line with its own cost", () => {
     ).toBeNull();
   });
 
-  it("is what the engine uses for a dish, even with a unit it cannot convert", () => {
+  it("the engine uses a preparation line's own cost, and leaves an ingredient line with no entry as Sin precio", () => {
     const data: CostingData = {
       ingredientsById: new Map([["res", { id: "res", name: "RES" } as never]]),
       componentsById: new Map(),
@@ -380,8 +404,28 @@ describe("a recipe line with its own cost", () => {
       costEntriesByIngredientId: new Map(),
     };
     const result = calculateMenuItemCost("m", data);
-    expect(result.status).toBe("complete");
-    expect(result.cost).toBeCloseTo(3.9, 6);
+    // RES (an ingredient) has no cost entry: its 0.5 line copy is ignored.
+    expect(result.status).not.toBe("complete");
+    expect(result.cost).toBeNull();
+    // Give RES an entry: now the dish costs 6 × 0.5 (entry) + 0.9 (preparation).
+    data.costEntriesByIngredientId = new Map([
+      [
+        "res",
+        [
+          {
+            id: "e1",
+            ingredient_id: "res",
+            cost_date: "2026-10-01",
+            normalized_unit: "oz",
+            normalized_unit_cost: 0.5,
+            currency: "USD",
+          } as never,
+        ],
+      ],
+    ]);
+    const priced = calculateMenuItemCost("m", data);
+    expect(priced.status).toBe("complete");
+    expect(priced.cost).toBeCloseTo(3.9, 6);
   });
 });
 
@@ -533,7 +577,17 @@ describe("writing the import (in-memory repository)", () => {
     );
   });
 
-  it("leaves a hand-made recipe alone", async () => {
+  /** A dish (POS product 1) that already has a recipe, set up by `seed`. */
+  async function withExisting(
+    seed: (ctx: {
+      store: ReturnType<typeof emptyMemoryStore>;
+      repo: ReturnType<typeof createMemoryCostWorkbookRepo>;
+      recipeId: string;
+      menuItemId: string;
+      ingredientId: string;
+    }) => Promise<void>,
+    choices?: Record<string, string>
+  ) {
     const store = emptyMemoryStore();
     const repo = createMemoryCostWorkbookRepo(store);
     const menu = await repo.createMenuItem({
@@ -542,7 +596,6 @@ describe("writing the import (in-memory repository)", () => {
       currency: "USD",
       sourceId: "x",
     });
-    store.menuItems.find((m) => m.id === menu.id)!.source_type = "manual";
     const recipe = await repo.createRecipe({
       companyId: "co-1",
       menuItemId: menu.id,
@@ -551,18 +604,43 @@ describe("writing the import (in-memory repository)", () => {
       inputs: [],
     });
     store.recipes.find((r) => r.id === recipe.id)!.source_type = "manual";
+    const [ingredient] = await repo.createIngredients([
+      {
+        companyId: "co-1",
+        name: "Sal mía",
+        defaultUnit: "g",
+        currentUnitCost: null,
+        currency: "USD",
+      },
+    ]);
+    await seed({
+      store,
+      repo,
+      recipeId: recipe.id,
+      menuItemId: menu.id,
+      ingredientId: ingredient.id,
+    });
+    const product: PlanPosProduct = {
+      odoo_product_id: 1,
+      odoo_name: "Asado de Prueba (6 onz.)",
+      pos_price: 14.5,
+      link_state: "sin_vincular",
+    };
+    const state = await existingRecipeState(repo, "co-1", {
+      id: recipe.id,
+      source_type: "manual",
+    });
     const plan = planImport({
       workbook,
       catalog: { ingredients: [], preparations: [] },
-      products: [
+      products: [product],
+      existing: [
         {
           odoo_product_id: 1,
-          odoo_name: "Asado de Prueba (6 onz.)",
-          pos_price: 14.5,
-          link_state: "sin_vincular",
+          protected: isKeptRecipe(state),
+          lines: state.lines,
         },
       ],
-      existing: [],
     });
     const out = await writeImportPlan({
       repo,
@@ -573,16 +651,125 @@ describe("writing the import (in-memory repository)", () => {
       filename: "f.xlsx",
       createdBy: null,
       locationId: null,
+      choices,
       insertCanonicalRows: async () => {},
     });
-    expect(
-      store.recipeVersions.filter((v) => v.recipe_id === recipe.id)
-    ).toHaveLength(0);
-    expect(out.result.dishes_skipped).toBeGreaterThanOrEqual(1);
+    const versions = store.recipeVersions.filter(
+      (v) => v.recipe_id === recipe.id
+    );
+    return { store, out, versions, key: "ASADO DE PRUEBA 6" };
+  }
+  const myLine = (ingredientId: string) => ({
+    input_type: "ingredient" as const,
+    ingredient_id: ingredientId,
+    component_id: null,
+    quantity: 5,
+    unit: "g",
+    notes: null,
+  });
+
+  it("an empty placeholder (no lines) is filled with the Excel recipe as a new draft, counted as imported", async () => {
+    const { out, versions } = await withExisting(async () => {});
+    expect(versions).toHaveLength(1);
+    expect(versions[0].status).toBe("in_review");
+    expect(versions[0].inputs.length).toBeGreaterThan(0);
+    expect(out.result.dishes_imported).toBeGreaterThanOrEqual(1);
+    expect(out.result.dishes_filled).toBe(1);
+    expect(out.result.dishes_kept).toBe(0);
+  });
+
+  it("a hand-made recipe with lines is kept by default: no new version", async () => {
+    const { out, versions } = await withExisting(
+      async ({ repo, recipeId, menuItemId, ingredientId }) => {
+        await repo.insertRecipeVersion({
+          companyId: "co-1",
+          recipeId,
+          menuItemId,
+          versionNumber: 1,
+          status: "in_review",
+          effectiveDate: null,
+          sourceType: "manual",
+          inputs: [myLine(ingredientId)],
+        });
+      }
+    );
+    expect(versions).toHaveLength(1);
+    expect(versions[0].source_type).toBe("manual");
+    expect(out.result.dishes_kept).toBe(1);
+    expect(out.result.dishes_replaced).toBe(0);
+  });
+
+  it("an approved recipe with lines is kept by default too", async () => {
+    const { out, versions } = await withExisting(
+      async ({ repo, recipeId, menuItemId, ingredientId }) => {
+        await repo.insertRecipeVersion({
+          companyId: "co-1",
+          recipeId,
+          menuItemId,
+          versionNumber: 1,
+          status: "approved",
+          effectiveDate: null,
+          inputs: [myLine(ingredientId)],
+        });
+      }
+    );
+    expect(versions).toHaveLength(1);
+    expect(out.result.dishes_kept).toBe(1);
+  });
+
+  it("«Usar la del Excel» adds a NEW draft version and keeps the old ones (approved stays approved)", async () => {
+    const { out, versions } = await withExisting(
+      async ({ repo, recipeId, menuItemId, ingredientId }) => {
+        await repo.insertRecipeVersion({
+          companyId: "co-1",
+          recipeId,
+          menuItemId,
+          versionNumber: 1,
+          status: "approved",
+          effectiveDate: null,
+          inputs: [myLine(ingredientId)],
+        });
+      },
+      { [byName("ASADO DE PRUEBA 6").key]: "excel" }
+    );
+    expect(versions.map((v) => [v.version_number, v.status])).toEqual([
+      [1, "approved"],
+      [2, "in_review"],
+    ]);
+    expect(versions[0].inputs).toHaveLength(1);
+    expect(versions[1].inputs.length).toBeGreaterThan(1);
+    expect(out.result.dishes_replaced).toBe(1);
+    expect(out.result.dishes_kept).toBe(0);
+    expect(out.result.dishes_imported).toBeGreaterThanOrEqual(1);
+  });
+
+  it("the new version is part of the batch, so «Deshacer lote» can remove it", async () => {
+    const { store, out } = await withExisting(
+      async ({ repo, recipeId, menuItemId, ingredientId }) => {
+        await repo.insertRecipeVersion({
+          companyId: "co-1",
+          recipeId,
+          menuItemId,
+          versionNumber: 1,
+          status: "in_review",
+          effectiveDate: null,
+          sourceType: "manual",
+          inputs: [myLine(ingredientId)],
+        });
+      },
+      { [byName("ASADO DE PRUEBA 6").key]: "excel" }
+    );
+    const batch = store.batches.find((b) => b.id === out.result.batch_id);
+    const snapshot = JSON.stringify(batch);
+    const created = store.recipeVersions
+      .filter((v) => v.version_number === 2)
+      .map((v) => v.id);
+    expect(created).toHaveLength(1);
+    expect(snapshot).toContain(created[0]);
   });
 });
 
-describe("Stage Test 1 fixes in the import", () => {
+describe("Casa Piloto 1 fixes in the import", () => {
   it("a new ingredient takes the price list's unit, not a recipe line's label", () => {
     const plan = planImport({
       workbook,

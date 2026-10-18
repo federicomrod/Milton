@@ -157,7 +157,8 @@ export function ProductosView({
     setFilter((f) => (f === "sin_agrupar" ? "agrupados" : f));
   });
 
-  // Todos los restaurantes: each product and group says which restaurant it is.
+  // Todos los restaurantes: groups and suggestions never mix restaurants; rows carry
+  // no restaurant tag (the restaurant is the top selector; its name shows in the detail).
   const multi = restaurants.length > 1 && !viewLocationId;
   /** The restaurant's real name (the choice of restaurant is the top-left selector). */
   const tagOf = useCallback(
@@ -604,7 +605,6 @@ export function ProductosView({
             onAskAi={() => void milton.askAi()}
             aiBusy={milton.aiBusy}
             canAskAi={milton.canAskAi}
-            restaurantTag={multi ? tagOf : undefined}
           />
         ) : null}
         <GroupingToolbar
@@ -761,8 +761,6 @@ export function ProductosView({
                       onUngroup={onUngroupGroup}
                       onPicker={onPicker}
                       isDish={dishOfNode}
-                      tagOf={tagOf}
-                      multi={multi}
                       onDrill={onDrillNode}
                       onRecipe={onRecipeNode}
                     />
@@ -832,8 +830,6 @@ function NodeRows(props: {
   onUngroup: (id: string) => void;
   onPicker: (kind: "combine" | "move", groupId: string) => void;
   isDish: (node: TreeNode) => MenuDish | null;
-  tagOf: (id: string | null | undefined) => string | null;
-  multi: boolean;
   onDrill: (node: TreeNode) => void;
   onRecipe: (node: TreeNode) => void;
 }) {

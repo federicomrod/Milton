@@ -39,6 +39,7 @@ export function GroupingToolbar({
   onAddToExisting,
   onGroupAs,
   onUngroup,
+  onMerge,
   onAcceptShared,
   onClearSelection,
   defaultNewName,
@@ -60,6 +61,7 @@ export function GroupingToolbar({
   onAddToExisting: (target: GroupOption & { kind?: "dish" | "group" }) => void;
   onGroupAs: (name: string, parentId: string | null) => void;
   onUngroup: () => void;
+  onMerge?: () => void;
   onAcceptShared: () => void;
   onClearSelection: () => void;
   defaultNewName?: string;
@@ -87,6 +89,7 @@ export function GroupingToolbar({
         onAddToExisting={() => setPanel("picker")}
         onGroupAs={() => setPanel("groupAs")}
         onUngroup={onUngroup}
+        onMerge={onMerge}
         onClear={onClearSelection}
       />
       {selectedCount > 0 && selectionNote ? (

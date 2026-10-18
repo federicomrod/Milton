@@ -5,7 +5,7 @@
 // with its numbers from the shared loader, the one recipe editor
 // (RecipeLinesEditor) and one primary button, "Aprobar".
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
@@ -28,6 +28,7 @@ import { primaryAction } from "@/lib/restaurant/recipe-costing/plato";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
+import { LastFileDialog, useLastFileRecipe } from "./LastFileRecipe";
 import { TreatmentControl, type PostFn } from "./TreatmentPanel";
 import { Chip, GhostBtn } from "./ui";
 
@@ -129,7 +130,7 @@ export function PlatoScreen({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Buscar plato…"
-          className="m-2.5 rounded-[9px] border border-[#dfe3ea] px-2.5 py-[7px] text-[13px] outline-none focus:border-[#f28c28]"
+          className="m-2.5 rounded-[9px] border border-[#dfe3ea] px-2.5 py-[7px] text-[13px] outline-none focus:border-[#1B40C8]"
         />
         <div className="flex flex-wrap gap-1.5 px-2.5 pb-2">
           {FILTERS.map((f) => {
@@ -174,7 +175,7 @@ export function PlatoScreen({
               className={
                 "flex w-full items-center justify-between gap-2 border-t border-[#f2f3f6] px-[14px] py-2.5 text-left text-[13px] " +
                 (row.odoo_product_id === product?.odoo_product_id
-                  ? "bg-[#fff6ec] shadow-[inset_3px_0_0_#f28c28]"
+                  ? "bg-[#eef2fd] shadow-[inset_3px_0_0_#1B40C8]"
                   : "hover:bg-[#fafbfc]")
               }
             >
@@ -243,6 +244,26 @@ function Dish({
   onOpenPreparation: (componentId: string) => void;
 }) {
   const [picking, setPicking] = useState(false);
+  // This dish in the last uploaded cost file (saved upload, nothing re-uploaded).
+  const [bringOpen, setBringOpen] = useState(false);
+  const [editorKey, setEditorKey] = useState(0);
+  // The lines with no cost, from the editor's own live state, so the header
+  // can name what blocks the total.
+  const [pendingNames, setPendingNames] = useState<string[]>([]);
+  const handleEditorState = useCallback(
+    (state: EditorState) => {
+      const names = state.lines
+        .filter((l) => l.amount === null && l.kind !== "unresolved")
+        .map((l) => l.name ?? l.raw_name);
+      setPendingNames((prev) =>
+        prev.length === names.length && prev.every((n, i) => n === names[i])
+          ? prev
+          : names
+      );
+      onEditorState?.(state);
+    },
+    [onEditorState]
+  );
   const dish = data.selected_dish;
   const money = (n: number) => formatMoneyEs(n, data.currency);
   const takesRecipe =
@@ -250,7 +271,24 @@ function Dish({
   const hasRecipe = Boolean(
     product.menu_item_id && (editor ? editor.recipe_version_id : true)
   );
+  const { lookup: fileLookup, refresh: refreshFileLookup } = useLastFileRecipe(
+    product.odoo_product_id,
+    locationId,
+    data.actor.can_submit && takesRecipe
+  );
+  const fileRecipe = fileLookup && fileLookup.available ? fileLookup : null;
   const action = editor ? primaryAction(data.actor, editor, hasRecipe) : null;
+  const bringButton =
+    fileRecipe && fileRecipe.empty && data.actor.can_submit ? (
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => setBringOpen(true)}
+        className="rounded-md border border-[#1B40C8] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe] disabled:opacity-45"
+      >
+        Traer receta del último archivo
+      </button>
+    ) : null;
   const missing = dish?.lines_missing_price ?? 0;
   const costTip = [editor?.variance_note, editor?.yield_note]
     .filter(Boolean)
@@ -298,6 +336,11 @@ function Dish({
               <DropdownMenuItem onClick={() => setPicking(true)}>
                 Usar la receta de otro plato
               </DropdownMenuItem>
+              {fileRecipe?.differs ? (
+                <DropdownMenuItem onClick={() => setBringOpen(true)}>
+                  Traer receta del último archivo…
+                </DropdownMenuItem>
+              ) : null}
               {product.can_undo ? (
                 <DropdownMenuItem
                   className="text-[#c03535]"
@@ -319,13 +362,15 @@ function Dish({
               type="button"
               disabled={busy || !action.enabled}
               onClick={onConfirm}
-              className="rounded-lg bg-[#f28c28] px-3.5 py-[7px] text-[13px] font-semibold text-white hover:bg-[#e07b1a] disabled:opacity-45"
+              className="rounded-lg bg-[#1B40C8] px-3.5 py-[7px] text-[13px] font-semibold text-white hover:bg-[#1535a6] disabled:cursor-not-allowed disabled:border-[#b9c7f0] disabled:bg-[#b9c7f0] disabled:opacity-100"
             >
               {action.label}
             </button>
           </span>
         ) : dish?.status === "aprobado" ? (
-          <Chip tone="ok">Aprobado</Chip>
+          <Chip tone={dish.state_reason ? "warn" : "ok"}>
+            {dish.status_label}
+          </Chip>
         ) : null}
       </div>
 
@@ -377,17 +422,32 @@ function Dish({
                 dish?.unit_cost != null ? money(dish.unit_cost) : "Sin precio"
               }
               note={
-                dish?.excel_total != null ? (
-                  <span
-                    className={
-                      dish.excel_diff_flag
-                        ? "font-semibold text-[#c03535]"
-                        : "text-[#8a92a3]"
-                    }
-                  >
-                    Excel: {money(dish.excel_total)}
-                  </span>
-                ) : null
+                <>
+                  {dish?.unit_cost == null && pendingNames.length > 0 ? (
+                    <span
+                      className="block font-semibold text-[#a35a00]"
+                      data-testid="header-pending"
+                    >
+                      Sin precio · {pendingNames.length}{" "}
+                      {pendingNames.length === 1
+                        ? "línea pendiente"
+                        : "líneas pendientes"}
+                      : {pendingNames.slice(0, 3).join(", ")}
+                      {pendingNames.length > 3 ? "…" : ""}
+                    </span>
+                  ) : null}
+                  {dish?.excel_total != null ? (
+                    <span
+                      className={
+                        dish.excel_diff_flag
+                          ? "font-semibold text-[#c03535]"
+                          : "text-[#8a92a3]"
+                      }
+                    >
+                      Excel: {money(dish.excel_total)}
+                    </span>
+                  ) : null}
+                </>
               }
             />
             <Big
@@ -403,18 +463,28 @@ function Dish({
               value={dish?.unit_margin != null ? money(dish.unit_margin) : "—"}
             />
           </div>
+          {hasRecipe && bringButton ? (
+            <div className="flex items-center gap-3 text-[13px] text-[#5b6476]">
+              <span>
+                Este plato no tiene líneas, pero el archivo trae su receta.
+              </span>
+              {bringButton}
+            </div>
+          ) : null}
           {hasRecipe ? (
             <RecipeLinesEditor
+              key={editorKey}
               odooProductId={product.odoo_product_id}
               locationId={locationId}
               portionCostLabel={editor?.portion_cost_label ?? null}
               onEdited={onEdited}
-              onState={onEditorState}
+              onState={handleEditorState}
               onOpenPreparation={onOpenPreparation}
             />
           ) : (
             <div className="flex items-center gap-3 text-[13px] text-[#5b6476]">
               <span>Este plato todavía no tiene receta.</span>
+              {bringButton}
               {data.actor.can_submit ? (
                 <GhostBtn
                   disabled={busy}
@@ -438,6 +508,22 @@ function Dish({
             : `No lleva receta (${product.treatment_label}).`}
         </p>
       )}
+      {fileRecipe ? (
+        <LastFileDialog
+          open={bringOpen}
+          lookup={fileRecipe}
+          odooProductId={product.odoo_product_id}
+          locationId={locationId}
+          currency={data.currency}
+          onClose={() => setBringOpen(false)}
+          onDone={() => {
+            setBringOpen(false);
+            refreshFileLookup();
+            setEditorKey((n) => n + 1);
+            onEdited();
+          }}
+        />
+      ) : null}
     </section>
   );
 }

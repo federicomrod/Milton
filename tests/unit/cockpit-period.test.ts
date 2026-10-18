@@ -82,7 +82,7 @@ describe("period aggregation matches full-period totals", () => {
       sales_channel: "delivery",
     }),
   ];
-  const lavara: CockpitFactRow[] = [
+  const casasur: CockpitFactRow[] = [
     row({
       sale_date: "2026-07-10",
       check_id: "l1",
@@ -96,7 +96,7 @@ describe("period aggregation matches full-period totals", () => {
     }),
   ];
 
-  it("July month net + tips matches the unfiltered aggregate (Casa Prueba / Lavara lock)", () => {
+  it("July month net + tips matches the unfiltered aggregate (Casa Prueba / CasaSur lock)", () => {
     const casaAll = buildCockpitSalesAggregate(casa, { currency: "USD" });
     const casaMonth = buildCockpitPeriodSnapshot(
       casa,
@@ -112,18 +112,18 @@ describe("period aggregation matches full-period totals", () => {
       2
     );
 
-    const lavaraAll = buildCockpitSalesAggregate(lavara, { currency: "USD" });
-    const lavaraMonth = buildCockpitPeriodSnapshot(
-      lavara,
+    const casasurAll = buildCockpitSalesAggregate(casasur, { currency: "USD" });
+    const casasurMonth = buildCockpitPeriodSnapshot(
+      casasur,
       resolveCockpitPeriod("month", "2026-07-31")!,
       { currency: "USD", lang: "es" }
     );
-    expect(lavaraAll.revenue.net_sales + lavaraAll.revenue.tips).toBeCloseTo(
+    expect(casasurAll.revenue.net_sales + casasurAll.revenue.tips).toBeCloseTo(
       50_720.8,
       2
     );
     expect(
-      lavaraMonth.current.net_sales + lavaraMonth.current.tips
+      casasurMonth.current.net_sales + casasurMonth.current.tips
     ).toBeCloseTo(50_720.8, 2);
   });
 

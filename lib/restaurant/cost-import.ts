@@ -10,7 +10,11 @@
 // (buildIngredientCostEntryInsert) and partly in the route (DB lookups).
 
 import { parseDate } from "@/lib/restaurant/pos-import";
-import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
+import {
+  convertPriceWithIngredientConversions,
+  normalizeUnit,
+  type UnitConversion,
+} from "@/lib/restaurant/units";
 
 // ---------------------------------------------------------------------------
 // Column resolution
@@ -377,6 +381,16 @@ export interface IngredientCostEntryInsert {
   notes: string | null;
 }
 
+/** The Spanish message when a typed price cannot be read in the ingredient's unit. */
+export function unitMismatchMessage(
+  priceUnit: string,
+  ingredientUnit: string | null
+): string {
+  const a = priceUnit.trim().toLowerCase();
+  const b = (ingredientUnit ?? priceUnit).trim().toLowerCase();
+  return `No puedo guardar un precio por ${a} en un ingrediente que se compra por ${b}. Cambia la unidad de la línea o del ingrediente.`;
+}
+
 /**
  * Computes the cost-entry insert for a normalized row, given the resolved
  * ingredient (for its default_unit / canonical projection) and supplier id.
@@ -397,6 +411,8 @@ export function buildIngredientCostEntryInsert(params: {
   supplierId: string | null;
   row: NormalizedCostRow;
   sourceId?: string | null;
+  /** The ingredient's own unit bridges («1 taza = 5 oz»), if any. */
+  conversions?: readonly UnitConversion[];
 }):
   | { ok: true; insert: IngredientCostEntryInsert }
   | { ok: false; reason: string } {
@@ -406,7 +422,12 @@ export function buildIngredientCostEntryInsert(params: {
   const unitCost = row.total_cost / row.quantity;
   const targetUnit = ingredientDefaultUnit || row.unit;
 
-  const converted = convertUnitPriceStr(unitCost, row.unit, targetUnit);
+  const converted = convertPriceWithIngredientConversions(
+    unitCost,
+    row.unit,
+    targetUnit,
+    params.conversions
+  );
   if (!converted.ok) {
     return {
       ok: false,

@@ -90,7 +90,7 @@ describe("calculateRestaurantMenuItemCost pending cache", () => {
     expect(isPendingRecipeCostStatus(result.status)).toBe(true);
   });
 
-  it("still costs a dish when the cache has a real price", () => {
+  it("does NOT cost a dish from the legacy cache: one price per ingredient (the latest cost entry)", () => {
     const result = calculateRestaurantMenuItemCost(
       "mi-1",
       [RECIPE],
@@ -99,8 +99,8 @@ describe("calculateRestaurantMenuItemCost pending cache", () => {
       [],
       []
     );
-    expect(result.status).toBe("complete");
-    expect(result.cost).toBeCloseTo(3, 5);
+    expect(result.status).not.toBe("complete");
+    expect(result.cost).toBeNull();
   });
 });
 
@@ -138,9 +138,10 @@ describe("new ingredients insert a null pending price, never $0", () => {
     expect(src).not.toMatch(/current_unit_cost \?\? 0/);
   });
 
-  it("calculations.ts uses an explicit == null check", () => {
+  it("calculations.ts no longer reads ingredients.current_unit_cost", () => {
     const src = readFileSync("lib/restaurant/calculations.ts", "utf8");
-    expect(src).toContain("ingredient.current_unit_cost == null");
+    expect(src).not.toMatch(/ingredient\.current_unit_cost\s*(==|<=|\))/);
+    expect(src).not.toContain("ingredient.current_unit_cost ==");
   });
 
   it("ingredient create paths insert null", () => {

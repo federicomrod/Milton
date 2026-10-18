@@ -30,8 +30,8 @@
 
 import {
   convertToSubRecipeUnit,
-  convertUnitStr,
-  normalizeUnit,
+  convertWithIngredientConversions,
+  type UnitConversion,
 } from "@/lib/restaurant/units";
 import { shouldApplyWorkbookMismatch } from "@/lib/restaurant/protect-imported-recipe";
 import { workbookMismatchEngineMessage } from "@/lib/restaurant/cost-workbook/copy";
@@ -53,6 +53,8 @@ export interface CostingIngredient {
   id: string;
   name: string;
   default_unit: string | null;
+  /** Archived (merged away or hidden): kept so old lines read, never offered. */
+  archived?: boolean;
 }
 
 export interface CostingComponent {
@@ -146,8 +148,16 @@ export function lineHasOwnPrice(input: CostingRecipeInput): boolean {
   return cost > 0 || input.cost_source === "manual";
 }
 
-/** A line that carries its own cost (from the client's file or typed). */
+/**
+ * A line that carries its own cost. ONLY for lines that have no price record
+ * of their own (a preparation line). An INGREDIENT line never costs from its
+ * own copy: the ingredient's latest cost entry (ingredient_cost_entries) is
+ * the one current price, everywhere. A copy left on an ingredient line by an
+ * old import is ignored here; the editor flags it (`legacy_line_price`) so a
+ * person can adopt it as the ingredient's price.
+ */
 export function lineOwnCost(input: CostingRecipeInput): number | null {
+  if (input.input_type === "ingredient") return null;
   if (!lineHasOwnPrice(input)) return null;
   return input.quantity * (input.unit_cost as number);
 }
@@ -167,6 +177,8 @@ export interface CostingData {
   /** All cost entries grouped by ingredient_id. Ordering does NOT need
    *  to be pre-sorted; the engine picks the latest as-of `asOfDate`. */
   costEntriesByIngredientId: Map<string, IngredientCostEntry[]>;
+  /** Per-ingredient unit bridges («1 taza = 5 oz»), when any are defined. */
+  unitConversionsByIngredientId?: Map<string, UnitConversion[]>;
   /** Approved + in-review versions. Costing reads pick the approved
    *  version in force for `asOfDate`. Missing maps fall back to the
    *  working recipe (first-version semantics). */
@@ -206,20 +218,19 @@ export function isUnconfirmedZeroEntry(e: IngredientCostEntry): boolean {
   return zero && e.source_type !== "manual";
 }
 
-export function getLatestIngredientCost(
-  ingredientId: string,
-  data: CostingData,
-  options?: CostingOptions
-): IngredientCostResult {
-  const ingredient = data.ingredientsById.get(ingredientId);
-  const entries = data.costEntriesByIngredientId.get(ingredientId) ?? [];
-  const asOf = options?.asOfDate;
-
-  // Filter by as-of on the price's effective date (fall back to cost_date
-  // for rows that predate 036), then sort newest first.
+/**
+ * The ONE rule for "the current price entry" of an ingredient: newest
+ * effective date (cost_date before 036), then the most recently created; an
+ * unconfirmed $0 is not a price. The engine, the editor, Ingredientes and
+ * «Se usa en» all pick their entry through this, so they show the same number.
+ */
+export function latestCostEntry(
+  entries: readonly IngredientCostEntry[],
+  asOfDate?: string
+): IngredientCostEntry | undefined {
   const entryDate = (e: IngredientCostEntry) => e.effective_date || e.cost_date;
   const eligible = entries.filter(
-    (e) => (!asOf || entryDate(e) <= asOf) && !isUnconfirmedZeroEntry(e)
+    (e) => (!asOfDate || entryDate(e) <= asOfDate) && !isUnconfirmedZeroEntry(e)
   );
   eligible.sort((a, b) => {
     const aDate = entryDate(a);
@@ -232,7 +243,18 @@ export function getLatestIngredientCost(
     if ((a.created_at ?? "") > (b.created_at ?? "")) return -1;
     return 0;
   });
-  const latest = eligible[0];
+  return eligible[0];
+}
+
+export function getLatestIngredientCost(
+  ingredientId: string,
+  data: CostingData,
+  options?: CostingOptions
+): IngredientCostResult {
+  const ingredient = data.ingredientsById.get(ingredientId);
+  const entries = data.costEntriesByIngredientId.get(ingredientId) ?? [];
+  const entryDate = (e: IngredientCostEntry) => e.effective_date || e.cost_date;
+  const latest = latestCostEntry(entries, options?.asOfDate);
 
   if (!latest) {
     return {
@@ -310,11 +332,17 @@ function componentRecipeForAsOf(
   const working = data.componentRecipesByComponentId.get(componentId);
   const versions =
     data.componentRecipeVersionsByComponentId?.get(componentId) ?? [];
-  const picked = pickApprovedVersion(versions, asOfDate);
+  // A preparation costs as soon as every one of its lines is priced: the
+  // approved version in force if there is one, else its newest version.
+  // Approval does not gate cost (a price set once applies everywhere).
+  const picked =
+    pickApprovedVersion(versions, asOfDate) ??
+    versions.reduce<(typeof versions)[number] | null>(
+      (best, row) =>
+        !best || row.version_number > best.version_number ? row : best,
+      null
+    );
   if (!picked) {
-    if (versions.length > 0) {
-      return { recipe: undefined, inputs: [] };
-    }
     return {
       recipe: working,
       inputs: working
@@ -351,7 +379,8 @@ function componentRecipeForAsOf(
  */
 function costIngredientInput(
   input: CostingRecipeInput,
-  cost: IngredientCostResult
+  cost: IngredientCostResult,
+  conversions?: readonly UnitConversion[]
 ):
   | { ok: true; amount: number }
   | { ok: false; status: "no_cost_entries" | "missing_unit_conversion" } {
@@ -365,10 +394,14 @@ function costIngredientInput(
   // Convert quantity from the recipe's unit to the cost-entry's
   // normalized unit. We multiply by `unit_cost` AFTER the conversion so
   // both sides agree on dimensionality.
-  if (normalizeUnit(input.unit) === null || normalizeUnit(cost.unit) === null) {
-    return { ok: false, status: "missing_unit_conversion" };
-  }
-  const converted = convertUnitStr(input.quantity, input.unit, cost.unit);
+  // The unit table first; otherwise the same label (or ORDEN / ORDENES /
+  // CONVOY) is 1:1. A portion is never guessed to be an ounce or a unit.
+  const converted = convertWithIngredientConversions(
+    input.quantity,
+    input.unit,
+    cost.unit,
+    conversions
+  );
   if (!converted.ok) {
     return { ok: false, status: "missing_unit_conversion" };
   }
@@ -519,7 +552,11 @@ export function calculateComponentCost(
       const ingName = ing?.name ?? "(unknown ingredient)";
       const cost = getLatestIngredientCost(input.ingredient_id, data, options);
       const lineTrail = [...trail, ingName];
-      const line = costIngredientInput(input, cost);
+      const line = costIngredientInput(
+        input,
+        cost,
+        data.unitConversionsByIngredientId?.get(input.ingredient_id)
+      );
       if (!line.ok) {
         pushIssue(
           issues,
@@ -689,7 +726,11 @@ export function calculateMenuItemCost(
       const ing = data.ingredientsById.get(input.ingredient_id);
       const ingName = ing?.name ?? "(ingredient)";
       const cost = getLatestIngredientCost(input.ingredient_id, data, options);
-      const line = costIngredientInput(input, cost);
+      const line = costIngredientInput(
+        input,
+        cost,
+        data.unitConversionsByIngredientId?.get(input.ingredient_id)
+      );
       if (!line.ok) {
         pushIssue(
           issues,

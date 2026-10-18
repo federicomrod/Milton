@@ -66,7 +66,9 @@ export function KitchenPageLive({
       return;
     }
     if (item.action === "review") {
-      setFocusDraftId(item.draft_id);
+      // Reset first so asking for the same draft again re-opens it.
+      setFocusDraftId(null);
+      setTimeout(() => setFocusDraftId(item.draft_id), 0);
       openExplore("drafts");
       return;
     }
@@ -135,7 +137,7 @@ export function KitchenPageLive({
           {t(lang, "Legend", "Leyenda")}
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <i className="inline-block w-2.5 h-2.5 rounded-sm bg-orange-500" />
+          <i className="inline-block w-2.5 h-2.5 rounded-sm bg-[#1B40C8]" />
           {t(
             lang,
             "Kitchen reports already captured: alerts, waste, drafts",

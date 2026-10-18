@@ -10,13 +10,16 @@ import { t } from "@/lib/restaurant/language";
 
 export const COCKPIT_HREF = "/dashboard/restaurant";
 export const SALES_HREF = "/dashboard/restaurant/sales";
-export const SALES_DETAIL_HREF = "/dashboard/restaurant/sales/detalle";
+// There is ONE Ventas page (the old Detalle): the export stays so callers compile.
+export const SALES_DETAIL_HREF = SALES_HREF;
 export const MENU_HREF = "/dashboard/restaurant/menu";
 export const COSTS_HREF = "/dashboard/restaurant/costs";
 export const KITCHEN_HREF = "/dashboard/restaurant/kitchen";
 export const DATA_SETTINGS_HREF = "/dashboard/restaurant/data";
 export const OBJECTIVES_HREF = "/dashboard/restaurant/data/objetivos";
 /** R1-17a: Configuración › Turnos (shifts and the business-day cutoff). */
+export const RESTAURANT_SETTINGS_HREF =
+  "/dashboard/restaurant/data/restaurante";
 export const SHIFTS_HREF = "/dashboard/restaurant/data/turnos";
 export const ASK_MILTON_HREF = "/dashboard/restaurant/briefing";
 
@@ -114,6 +117,14 @@ export function isPrimaryNavActive(
   pathname: string
 ): boolean {
   if (item.match === "exact") return pathname === item.href;
+  // Account and settings are reached from Configuración and live in the shell.
+  if (
+    item.id === "data_settings" &&
+    (pathname.startsWith("/dashboard/account") ||
+      pathname.startsWith("/dashboard/settings"))
+  ) {
+    return true;
+  }
   return pathname === item.href || pathname.startsWith(item.href + "/");
 }
 
@@ -136,6 +147,7 @@ export function primaryNavLabels(lang: PreferredLanguage): string[] {
 
 /** Configuración has four sections (R1-09b, A10; Objetivos added in R1-16a). */
 export type DataSettingsSectionId =
+  | "restaurant"
   | "connections"
   | "objectives"
   | "shifts"
@@ -143,6 +155,7 @@ export type DataSettingsSectionId =
   | "account";
 
 export const DATA_SETTINGS_SECTIONS: readonly DataSettingsSectionId[] = [
+  "restaurant",
   "connections",
   "objectives",
   "shifts",
@@ -155,6 +168,7 @@ export const DATA_SETTINGS_SECTION_ANCHORS: Record<
   DataSettingsSectionId,
   string
 > = {
+  restaurant: "restaurante",
   connections: "conexiones",
   objectives: "objetivos",
   shifts: "turnos",
@@ -166,11 +180,10 @@ export const DATA_SETTINGS_SECTION_ANCHORS: Record<
 export function posUploadHref(
   params: Record<string, string | string[] | undefined> = {}
 ): string {
-  return hrefKeepingParams(
-    DATA_SETTINGS_HREF,
-    { ...params, seccion: DATA_SETTINGS_SECTION_ANCHORS.connections },
-    DATA_SETTINGS_SECTION_ANCHORS.connections
-  );
+  return hrefKeepingParams(DATA_SETTINGS_HREF, {
+    ...params,
+    tab: DATA_SETTINGS_SECTION_ANCHORS.connections,
+  });
 }
 
 export interface MappedLegacyRoute {
@@ -230,6 +243,14 @@ export const LEGACY_ROUTE_MAP: readonly MappedLegacyRoute[] = [
     legacyLabel: "Targets",
     area: "data_settings",
     section: "objectives",
+  },
+  {
+    // R1 prod bugs 1: rename (and archive) the restaurants.
+    id: "restaurant",
+    href: RESTAURANT_SETTINGS_HREF,
+    legacyLabel: "Restaurant",
+    area: "data_settings",
+    section: "restaurant",
   },
   {
     // R1-17a: the restaurant's shifts and business-day cutoff.
@@ -345,6 +366,8 @@ export function dataSettingsSectionLabel(
   lang: PreferredLanguage
 ): string {
   switch (section) {
+    case "restaurant":
+      return t(lang, "Restaurant", "Restaurante");
     case "connections":
       return t(lang, "Connections", "Conexiones");
     case "objectives":
@@ -373,12 +396,26 @@ export function dataSettingsLinkLabel(
       return t(lang, "Set your goals", "Definir tus objetivos");
     case "shifts":
       return t(lang, "Set your shifts", "Definir tus turnos");
+    case "restaurant":
+      return t(
+        lang,
+        "Rename your restaurant",
+        "Cambiar el nombre de tu restaurante"
+      );
     case "invitations":
       return t(lang, "Invitations", "Invitaciones");
     case "account":
-      return t(lang, "Account", "Cuenta");
+      return t(
+        lang,
+        "Account: profile, company and alerts",
+        "Cuenta: perfil, empresa y avisos"
+      );
     case "settings":
-      return t(lang, "Settings", "Ajustes");
+      return t(
+        lang,
+        "Settings: time zone, currency and format",
+        "Ajustes: zona horaria, moneda y formato"
+      );
     case "ask-milton":
       return t(lang, "Ask Milton", "Preguntar a Milton");
     case "targets":

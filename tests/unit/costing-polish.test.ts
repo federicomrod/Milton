@@ -128,19 +128,23 @@ describe("source guards", () => {
     const panel = read(
       "components/restaurant/recipes-costing/PriceCatalogPanel.tsx"
     );
+    // Recipes waiting or imported: never the AI path (onUploaded).
+    expect(panel).toContain("if (recipeDishes > 0 && !recipesImported) {");
     expect(panel).toContain(
-      "if (recipeDishes > 0 || recipesImported) onRecipesImported?.();"
+      "} else if (recipesImported) onRecipesImported?.();"
     );
+    expect(panel).toContain("else onUploaded?.();");
   });
 
-  it("a preparation waiting for approval says so and opens Preparaciones", () => {
+  it("a preparation without cost says what is missing and opens it", () => {
     const editor = read(
       "components/restaurant/recipes-costing/RecipeLinesEditor.tsx"
     );
-    expect(editor).toContain("Aprueba primero la preparación");
-    expect(editor).toContain("Abrir en Preparaciones");
-    // Do-not-remove #6: inline price edit on the line (double-click).
-    expect(editor).toContain('title="Doble clic para cambiar el precio"');
+    expect(editor).toContain("no tiene costo todavía: falta precio en");
+    expect(editor).toContain("Abrir {line.name}");
+    // Do-not-remove #6: inline price edit on the line (one click opens the field).
+    expect(editor).toContain('title="Clic para cambiar el precio"');
+    expect(editor).toContain("onClick={() => setEditingPrice(true)}");
     const prep = read(
       "components/restaurant/recipes-costing/PreparacionesScreen.tsx"
     );

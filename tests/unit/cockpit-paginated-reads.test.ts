@@ -30,7 +30,7 @@ function posRow(i: number): MockRow {
     sale_date: "2026-07-15",
     order_id: `ord-${i}`,
     check_id: `chk-${i}`,
-    raw_item_name: location_id === LOC_A ? "Casa Dish" : "Lavara Dish",
+    raw_item_name: location_id === LOC_A ? "Casa Dish" : "CasaSur Dish",
     quantity: 1,
     gross_revenue: ROW_REVENUE,
     net_revenue: ROW_REVENUE,
@@ -96,9 +96,9 @@ describe("fetchRealRestaurantDashboardData — PostgREST 1,000-row cap", () => {
     expect(data.overview.total_orders).toBe(TOTAL_ROWS);
     expect(data.explorerRows).toHaveLength(TOTAL_ROWS);
     const casa = data.dishSales.find((d) => d.item_name === "Casa Dish");
-    const lavara = data.dishSales.find((d) => d.item_name === "Lavara Dish");
+    const casasur = data.dishSales.find((d) => d.item_name === "CasaSur Dish");
     expect(casa?.revenue).toBe(ROWS_A * ROW_REVENUE);
-    expect(lavara?.revenue).toBe(ROWS_B * ROW_REVENUE);
+    expect(casasur?.revenue).toBe(ROWS_B * ROW_REVENUE);
   });
 
   it("location scoping still applies — Restaurant A excludes B's rows", async () => {
@@ -107,7 +107,7 @@ describe("fetchRealRestaurantDashboardData — PostgREST 1,000-row cap", () => {
     if (data.mode !== "live") return;
     expect(data.rowCount).toBe(ROWS_A);
     expect(data.overview.total_revenue).toBe(ROWS_A * ROW_REVENUE);
-    expect(data.dishSales.some((d) => d.item_name === "Lavara Dish")).toBe(
+    expect(data.dishSales.some((d) => d.item_name === "CasaSur Dish")).toBe(
       false
     );
     expect(data.explorerRows.every((r) => r.item_name === "Casa Dish")).toBe(
@@ -121,7 +121,7 @@ describe("fetchRealRestaurantDashboardData — PostgREST 1,000-row cap", () => {
     if (data.mode !== "live") return;
     expect(data.rowCount).toBe(ROWS_B);
     expect(data.overview.total_revenue).toBe(ROWS_B * ROW_REVENUE);
-    expect(data.dishSales.map((d) => d.item_name)).toEqual(["Lavara Dish"]);
+    expect(data.dishSales.map((d) => d.item_name)).toEqual(["CasaSur Dish"]);
   });
 });
 

@@ -18,7 +18,7 @@ export function CockpitOnboardingChip({
     <Link
       href={progress.nextHref}
       data-testid="cockpit-onboarding-chip"
-      className="inline-flex items-center gap-1.5 h-7 px-2 rounded-md border border-orange-200 dark:border-orange-900 bg-orange-50/70 dark:bg-orange-950/30 text-[12px] font-medium text-orange-900 dark:text-orange-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+      className="inline-flex items-center gap-1.5 h-7 px-2 rounded-md border border-[#1B40C8]/30 dark:border-[#1B40C8]/50 bg-[#1B40C8]/5 dark:bg-[#1B40C8]/20 text-[12px] font-medium text-[#1B40C8] dark:text-[#c9d6fb] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
     >
       {t(
         lang,

@@ -16,6 +16,9 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
+import { PasswordInput } from "@/components/auth/password-input";
+import { CheckEmail } from "@/components/auth/check-email";
+import { authCallbackUrl } from "@/lib/auth/email-confirmation";
 
 export function SignupForm() {
   const [email, setEmail] = useState("");
@@ -23,6 +26,8 @@ export function SignupForm() {
   const [companyName, setCompanyName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  /** Email confirmation is required: no session came back. */
+  const [checkEmail, setCheckEmail] = useState(false);
   const router = useRouter();
   const supabase = createClient();
 
@@ -36,6 +41,7 @@ export function SignupForm() {
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
+        options: { emailRedirectTo: authCallbackUrl() },
       });
 
       // Temporary diagnostics — safe to keep in production (no secrets logged).
@@ -54,9 +60,7 @@ export function SignupForm() {
       }
 
       if (!authData.user) {
-        throw new Error(
-          "Signup did not return a user id. Check email confirmation settings."
-        );
+        throw new Error("No pudimos crear tu cuenta. Inténtalo de nuevo.");
       }
 
       // Create profile and company via API endpoint (uses admin client to bypass RLS)
@@ -76,35 +80,46 @@ export function SignupForm() {
         if (errorData.error === "pending_invite") {
           throw new Error(
             errorData.message ||
-              "This email has a pending invitation. Please use your invite link."
+              "Este correo tiene una invitación pendiente. Usa el enlace de tu invitación."
           );
         }
         throw new Error(
           errorData.error ||
-            "Failed to create company profile. Please try again."
+            "No pudimos crear el perfil de tu restaurante. Inténtalo de nuevo."
         );
       }
 
-      // Restaurant MVP: new signups go through the fast restaurant
-      // onboarding wizard, not the legacy model-builder.
+      // The profile and company exist now (signup-complete needs no session).
+      // No session = the email must be confirmed first: say so, instead of
+      // bouncing an unconfirmed user to the login page without a word.
+      if (!authData.session) {
+        setCheckEmail(true);
+        setLoading(false);
+        return;
+      }
+      // Confirmation is off: new signups go through the restaurant onboarding.
       router.push("/onboarding/restaurant");
       router.refresh();
     } catch (err: unknown) {
       console.error("Signup error:", err);
       const errorMessage =
-        err instanceof Error ? err.message : "An error occurred during signup";
+        err instanceof Error
+          ? err.message
+          : "Ocurrió un error al crear tu cuenta.";
       setError(errorMessage);
       setLoading(false);
     }
   };
 
+  if (checkEmail) return <CheckEmail email={email} />;
+
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
-        <CardTitle>Create an account</CardTitle>
+        <CardTitle>Crea tu cuenta</CardTitle>
         <CardDescription>
-          Set up your restaurant control tower — sales, food costs, suppliers,
-          recipes, and actions in one place.
+          Ventas, costos, proveedores y recetas de tu restaurante en un solo
+          lugar.
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSignup}>
@@ -115,50 +130,48 @@ export function SignupForm() {
             </Alert>
           )}
           <div className="space-y-2">
-            <Label htmlFor="company">Restaurant Name</Label>
+            <Label htmlFor="company">Nombre del restaurante</Label>
             <Input
               id="company"
               type="text"
-              placeholder="Joe's Diner"
+              placeholder="Mi restaurante"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
               required
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email">Correo</Label>
             <Input
               id="email"
               type="email"
-              placeholder="you@company.com"
+              placeholder="tu@correo.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input
+            <Label htmlFor="password">Contraseña</Label>
+            <PasswordInput
               id="password"
-              type="password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
               minLength={6}
             />
-            <p className="text-xs text-muted-foreground">
-              Minimum 6 characters
-            </p>
+            <p className="text-xs text-muted-foreground">Mínimo 6 caracteres</p>
           </div>
         </CardContent>
         <CardFooter className="flex flex-col space-y-4 pt-6">
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Creating account..." : "Create account"}
+            {loading ? "Creando tu cuenta…" : "Crear cuenta"}
           </Button>
           <p className="text-sm text-center text-muted-foreground">
-            Already have an account?{" "}
+            ¿Ya tienes cuenta?{" "}
             <Link href="/auth/login" className="text-primary hover:underline">
-              Log in
+              Inicia sesión
             </Link>
           </p>
         </CardFooter>

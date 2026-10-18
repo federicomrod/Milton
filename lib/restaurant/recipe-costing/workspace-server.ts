@@ -138,25 +138,53 @@ async function probeComboSyncHintUncached(
   return COMBO_SYNC_HINT;
 }
 
+type WorkspaceInput = {
+  companyId: string;
+  userId: string;
+  view?: RecipeCostingView;
+  locationId?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  selectedOdooProductId?: number | null;
+  /** Plato por plato after an edit: reload only the open dish, with its
+   *  own sales (price, margin) instead of scanning every sale. */
+  editorOnly?: boolean;
+  /**
+   * R1-13: the dish economics of the same restaurant and period, already
+   * on its way. Several tabs asked together (one request) share one.
+   */
+  economics?: Promise<DishEconomicsLoad>;
+};
+export type WorkspaceLoad =
+  | { ok: true; workspace: RecipeCostingWorkspace }
+  | { ok: false; error: string };
+
+/**
+ * Never throws: a failed read (a table that is not there, a database error,
+ * a brand-new empty company hitting an unexpected shape) is an `ok: false`
+ * the screen can show, not a server exception that takes the page down.
+ */
 export async function loadRecipeCostingWorkspace(
   supabase: SupabaseClient,
-  input: {
-    companyId: string;
-    userId: string;
-    view?: RecipeCostingView;
-    locationId?: string | null;
-    startDate?: string | null;
-    endDate?: string | null;
-    selectedOdooProductId?: number | null;
-    /** Plato por plato after an edit: reload only the open dish, with its
-     *  own sales (price, margin) instead of scanning every sale. */
-    editorOnly?: boolean;
-    /**
-     * R1-13: the dish economics of the same restaurant and period, already
-     * on its way. Several tabs asked together (one request) share one.
-     */
-    economics?: Promise<DishEconomicsLoad>;
+  input: WorkspaceInput
+): Promise<WorkspaceLoad> {
+  try {
+    return await loadRecipeCostingWorkspaceUnsafe(supabase, input);
+  } catch (err) {
+    console.error(
+      "[recipe-costing] workspace failed:",
+      err instanceof Error ? (err.stack ?? err.message) : err
+    );
+    return {
+      ok: false,
+      error: "No pude cargar tus costos y recetas ahora. Inténtalo de nuevo.",
+    };
   }
+}
+
+async function loadRecipeCostingWorkspaceUnsafe(
+  supabase: SupabaseClient,
+  input: WorkspaceInput
 ): Promise<
   { ok: true; workspace: RecipeCostingWorkspace } | { ok: false; error: string }
 > {

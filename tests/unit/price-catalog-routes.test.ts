@@ -59,7 +59,7 @@ describe("price catalog routes and screen", () => {
     expect(panel).toContain("Subir Excel de costos");
     // B4: no explanatory paragraph on the page.
     expect(panel).not.toContain("Lo que no esté claro no te frena");
-    expect(panel).toContain("Subir y preparar mis platos");
+    expect(panel).toContain("1. Guardar precios");
     expect(panel).toContain("Puedes decidir algunas cosas ahora (opcional)");
     expect(panel).toContain("Revisé estas unidades");
     expect(panel).toContain("Encontramos dos costos");

@@ -163,13 +163,16 @@ export function RestaurantOnboardingWizard({
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(
-          data.error || "Could not finish setup. Please try again."
+          data.error ||
+            "No pudimos terminar la configuración. Inténtalo de nuevo."
         );
       }
       setStep(4);
     } catch (err) {
       setSubmitError(
-        err instanceof Error ? err.message : "Could not finish setup."
+        err instanceof Error
+          ? err.message
+          : "No pudimos terminar la configuración."
       );
     } finally {
       setSubmitting(false);
@@ -379,7 +382,7 @@ export function RestaurantOnboardingWizard({
               >
                 {i === 0 && (
                   <span className="bg-primary text-primary-foreground absolute -top-2.5 right-4 rounded-full px-2 py-0.5 text-[12px] font-semibold">
-                    Recommended
+                    Recomendado
                   </span>
                 )}
                 <span className="font-semibold">{card.title}</span>
@@ -401,7 +404,7 @@ export function RestaurantOnboardingWizard({
               router.refresh();
             }}
           >
-            Skip to dashboard
+            Ir al Cockpit
           </Button>
         </div>
       )}

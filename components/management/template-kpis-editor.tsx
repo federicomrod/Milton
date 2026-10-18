@@ -171,7 +171,7 @@ export function TemplateKpisEditor({
                       </div>
                     )}
                     {!isEnabled && !hasRequiredData && (
-                      <p className="text-xs text-orange-600 mt-2">
+                      <p className="text-xs text-amber-600 mt-2">
                         No data tables configured for this KPI
                       </p>
                     )}

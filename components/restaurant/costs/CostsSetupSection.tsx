@@ -5,11 +5,15 @@
 // route changed: the checklist, the cost file (PriceCatalogPanel: chips,
 // «Recetas de tu archivo» with Deshacer lote, «Costos por decidir»), the menu
 // reader (folded) and «Empezar de nuevo». Their endpoints and handlers are
-// unchanged (upload → prepare the dishes, undo a batch, reset). Once complete
-// it folds to one line that expands.
+// unchanged (upload → prepare the dishes, undo a batch, reset). Layout: the page
+// shows the KPIs and the tabs first; while setup is incomplete this block is ONE
+// compact row («Configura tus costos · 1 de 4 · Siguiente: …» + the next-step
+// button + «Ver detalle ▸»), collapsed by default and remembered per company,
+// and «Ver detalle» opens the full checklist and «Último archivo» inline. Once
+// complete it folds to one line that expands.
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
 import {
@@ -21,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
+import { IMPORT_RECIPES_BUTTON_ID } from "@/components/restaurant/recipes-costing/RecipeImportPreview";
 import type { SetupStep } from "@/lib/restaurant/costing/menu-summary";
 import {
   getCachedTab,
@@ -36,7 +41,14 @@ import {
   prepareNotice,
 } from "@/lib/restaurant/recipe-costing/prepare-from-upload";
 import { MenuReaderPanel } from "@/components/restaurant/recipes-costing/MenuReaderPanel";
-import { PriceCatalogPanel } from "@/components/restaurant/recipes-costing/PriceCatalogPanel";
+import {
+  PriceCatalogPanel,
+  type PriceCatalogPanelHandle,
+} from "@/components/restaurant/recipes-costing/PriceCatalogPanel";
+import {
+  COSTS_FILE_ANCHOR,
+  OPEN_COSTS_PICKER_EVENT,
+} from "@/lib/restaurant/costs-picker";
 import { ResetPanel } from "@/components/restaurant/recipes-costing/ResetPanel";
 
 async function fetchSetup(
@@ -63,10 +75,41 @@ export function ageLabel(
       : `de hace ${days} días`;
 }
 
+/** localStorage key: the detail is open or closed, per company. */
+export function setupOpenKey(companyId: string | null | undefined): string {
+  return `milton:costos:configuracion-abierta:${companyId ?? "sin-empresa"}`;
+}
+
+function readOpen(
+  companyId: string | null | undefined,
+  startOpen: boolean
+): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    // A link to the file card («Subir archivo de costos») opens it.
+    if (window.location.hash === "#costos-ultimo-archivo") return true;
+    const stored = window.localStorage.getItem(setupOpenKey(companyId));
+    return stored === null ? startOpen : stored === "1";
+  } catch {
+    return startOpen;
+  }
+}
+
+/** The banner text for the next step: «completar 42 precios» → «Completar 42 precios». */
+export function nextStepText(action: string): string {
+  const text = action.replace(/^Continuar:\s*/i, "").trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
 export function CostsSetupSection({
   locationId,
+  companyId = null,
+  startOpen = false,
 }: {
   locationId: string | null;
+  companyId?: string | null;
+  /** An account with no data yet: the setup IS the next step, so it starts open (unless the person closed it). */
+  startOpen?: boolean;
 }) {
   const router = useRouter();
   const key = menuTabKey("resumen", { location: locationId });
@@ -78,6 +121,22 @@ export function CostsSetupSection({
   const [epoch, setEpoch] = useState(0);
   const [resetOpen, setResetOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // Incomplete setup: «Ver detalle» (collapsed by default, remembered per company).
+  const [detailOpen, setDetailOpen] = useState(() =>
+    readOpen(companyId, startOpen)
+  );
+  const setDetail = (next: boolean) => {
+    setDetailOpen(next);
+    try {
+      window.localStorage.setItem(setupOpenKey(companyId), next ? "1" : "0");
+    } catch {
+      // private mode: it simply is not remembered
+    }
+  };
+  const panelRef = useRef<PriceCatalogPanelHandle>(null);
+  // Dishes waiting for «2. Importar recetas» (set by the file card once prices are saved).
+  const [importPending, setImportPending] = useState<number | null>(null);
+  const goToFileRef = useRef<(() => void) | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{
     done: number;
@@ -109,6 +168,36 @@ export function CostsSetupSection({
     };
   }, [key, locationId, attempt]);
 
+  // «Subir archivo de costos» elsewhere on this page: same click, same picker.
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      // Not ready yet (loading / failed): let the link fall through to its
+      // #costos-ultimo-archivo href; the mount effect opens the detail then.
+      if (!goToFileRef.current) return;
+      const detail = (event as CustomEvent<{ handled?: boolean }>).detail;
+      if (detail) detail.handled = true;
+      goToFileRef.current();
+    };
+    window.addEventListener(OPEN_COSTS_PICKER_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_COSTS_PICKER_EVENT, onOpen);
+  }, []);
+
+  // Arriving from another page with #costos-ultimo-archivo (no click here, so
+  // no picker): open the detail and bring the button into view. The URL is
+  // read after a tick because a client-side navigation updates it just after
+  // this page mounts.
+  useEffect(() => {
+    if (!data) return;
+    const id = setTimeout(() => {
+      if (window.location.hash !== `#${COSTS_FILE_ANCHOR}`) return;
+      setDetailOpen(true);
+      document
+        .getElementById(COSTS_FILE_ANCHOR)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+    return () => clearTimeout(id);
+  }, [data !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!data) {
     return failed ? (
       <div
@@ -128,7 +217,7 @@ export function CostsSetupSection({
       </div>
     ) : (
       <div
-        className="h-[240px] animate-pulse rounded-[14px] bg-[#e9ecf2]"
+        className="h-[56px] animate-pulse rounded-[14px] bg-[#e9ecf2]"
         aria-busy="true"
         data-testid="costs-setup-loading"
       />
@@ -158,6 +247,21 @@ export function CostsSetupSection({
       setProgress(null);
       router.refresh();
     }
+  };
+  // Prices saved, recipes still to import: refresh the checklist without
+  // restarting the file card.
+  const onPricesSaved = () => {
+    markTabsStale();
+    void reload().catch(() => undefined);
+    router.refresh();
+  };
+  const goToImport = () => {
+    setDetail(true);
+    setTimeout(() => {
+      const button = document.getElementById(IMPORT_RECIPES_BUTTON_ID);
+      button?.scrollIntoView({ behavior: "smooth", block: "center" });
+      button?.focus({ preventScroll: true });
+    }, 50);
   };
   const onResetDone = () => {
     // "Empezar de nuevo" / an import: every panel starts over (upload drafts
@@ -191,10 +295,33 @@ export function CostsSetupSection({
       setBusy(false);
     }
   };
-  const goToFile = () =>
-    document
-      .getElementById("costos-ultimo-archivo")
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  // After «1. Guardar precios» the next step is «2. Importar recetas»: the
+  // checklist button points at it (not at «revisar 0 platos»).
+  const next: SetupStep | null = importPending
+    ? {
+        id: "excel",
+        label: "Importar recetas",
+        done: false,
+        href: null,
+        action: `Continuar: importar recetas (${importPending} ${importPending === 1 ? "plato" : "platos"})`,
+      }
+    : setup.next;
+  const goToFile = () => {
+    // The file card lives in the detail: open it, scroll to it and open the
+    // picker in this same click (the panel stays mounted, hidden, for that).
+    if (!setup.complete) setDetail(true);
+    else if (!expanded) setExpanded(true);
+    panelRef.current?.openPicker();
+    setTimeout(
+      () =>
+        document
+          .getElementById(COSTS_FILE_ANCHOR)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      50
+    );
+  };
+  goToFileRef.current = goToFile;
+  const onNext = importPending ? goToImport : goToFile;
   const more = (
     <MoreMenu
       data={data}
@@ -254,79 +381,124 @@ export function CostsSetupSection({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5">
-          <div className="flex items-center gap-2">
-            <h2 className="text-[13px] font-bold">
-              Configura tus costos · {setup.done} de {setup.total}
-            </h2>
-            {more}
-            {setup.complete ? (
-              <button
-                type="button"
-                onClick={() => setExpanded(false)}
-                className="ml-auto text-[12px] font-semibold text-[#1b40c8]"
-              >
-                Plegar
-              </button>
-            ) : null}
-          </div>
-          {setup.steps.map((step, index) => (
-            <SetupRow
-              key={step.id}
-              step={step}
-              index={index}
-              onFile={goToFile}
-            />
-          ))}
-          {setup.next ? (
-            <div className="mt-3">
-              <NextStepButton step={setup.next} onFile={goToFile} />
-            </div>
-          ) : null}
-        </section>
-
+      {!setup.complete ? (
         <section
-          id="costos-ultimo-archivo"
-          className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5"
+          className="flex min-h-[48px] max-h-[56px] flex-wrap items-center gap-x-3 gap-y-1 overflow-hidden rounded-[14px] border border-[#dbe3f7] bg-[#f6f8fe] px-4 py-2 text-[13px]"
+          data-testid="costs-setup-banner"
         >
-          <div className="mb-1 flex items-baseline">
-            <h2 className="text-[13px] font-bold">Último archivo</h2>
-            {data.latest_upload ? (
-              <span className="ml-auto truncate text-[12px] text-[#8a92a3]">
-                {data.latest_upload.filename}
-              </span>
-            ) : (
-              <span className="ml-auto text-[12px] text-[#8a92a3]">
-                Aún no subes uno
-              </span>
-            )}
-          </div>
-          <PriceCatalogPanel
-            key={`upload-${epoch}`}
-            embedded
-            onUploaded={() => void onUploaded()}
-            onRecipesImported={onResetDone}
-            locationId={locationId}
-            busyExternal={busy}
-          />
-          <details className="mt-2 border-t border-[#f2f3f6] pt-2 text-[13px]">
-            <summary className="cursor-pointer text-[#4b5466]">
-              ▸ Leer tu menú web (opcional)
-            </summary>
-            <div className="mt-2">
-              <MenuReaderPanel
-                key={`menu-${epoch}`}
-                embedded
-                canEdit={data.actor.can_submit}
-                busyExternal={busy}
-                locationId={locationId}
-                onDone={onResetDone}
-              />
-            </div>
-          </details>
+          <b className="text-[#151c2c]">
+            Configura tus costos · {setup.done} de {setup.total}
+          </b>
+          {next ? (
+            <span className="min-w-0 truncate text-[#4a5a85]">
+              · Siguiente: {nextStepText(next.action)}
+            </span>
+          ) : null}
+          <span className="ml-auto flex items-center gap-2">
+            {next ? (
+              <NextStepButton step={next} onFile={onNext} compact />
+            ) : null}
+            <button
+              type="button"
+              aria-expanded={detailOpen}
+              onClick={() => setDetail(!detailOpen)}
+              className="font-semibold text-[#1b40c8] hover:underline"
+            >
+              Ver detalle {detailOpen ? "▾" : "▸"}
+            </button>
+            {more}
+          </span>
         </section>
-      </div>
+      ) : null}
+
+      {/* Always mounted (hidden while folded) so the file picker can open from
+          «Continuar» in the same click. */}
+      {
+        <div
+          className={
+            "grid grid-cols-1 gap-3 lg:grid-cols-2" +
+            (setup.complete || detailOpen ? "" : " hidden")
+          }
+          data-testid={
+            setup.complete || detailOpen ? "costs-setup-detail" : undefined
+          }
+        >
+          <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5">
+            <div className="flex items-center gap-2">
+              <h2 className="text-[13px] font-bold">
+                Configura tus costos · {setup.done} de {setup.total}
+              </h2>
+              {setup.complete ? more : null}
+              {setup.complete ? (
+                <button
+                  type="button"
+                  onClick={() => setExpanded(false)}
+                  className="ml-auto text-[12px] font-semibold text-[#1b40c8]"
+                >
+                  Plegar
+                </button>
+              ) : null}
+            </div>
+            {setup.steps.map((step, index) => (
+              <SetupRow
+                key={step.id}
+                step={step}
+                index={index}
+                onFile={goToFile}
+              />
+            ))}
+            {next ? (
+              <div className="mt-3">
+                <NextStepButton step={next} onFile={onNext} />
+              </div>
+            ) : null}
+          </section>
+
+          <section
+            id={COSTS_FILE_ANCHOR}
+            className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5"
+          >
+            <div className="mb-1 flex items-baseline">
+              <h2 className="text-[13px] font-bold">Último archivo</h2>
+              {data.latest_upload ? (
+                <span className="ml-auto truncate text-[12px] text-[#8a92a3]">
+                  {data.latest_upload.filename}
+                </span>
+              ) : (
+                <span className="ml-auto text-[12px] text-[#8a92a3]">
+                  Aún no subes uno
+                </span>
+              )}
+            </div>
+            <PriceCatalogPanel
+              ref={panelRef}
+              key={`upload-${epoch}`}
+              embedded
+              onUploaded={() => void onUploaded()}
+              onRecipesImported={onResetDone}
+              onPricesSaved={onPricesSaved}
+              onImportPending={setImportPending}
+              locationId={locationId}
+              busyExternal={busy}
+            />
+            <details className="mt-2 border-t border-[#f2f3f6] pt-2 text-[13px]">
+              <summary className="cursor-pointer text-[#4b5466]">
+                ▸ Leer tu menú web (opcional)
+              </summary>
+              <div className="mt-2">
+                <MenuReaderPanel
+                  key={`menu-${epoch}`}
+                  embedded
+                  canEdit={data.actor.can_submit}
+                  busyExternal={busy}
+                  locationId={locationId}
+                  onDone={onResetDone}
+                />
+              </div>
+            </details>
+          </section>
+        </div>
+      }
 
       {resetOpen && data.reset ? (
         <ResetPanel
@@ -348,22 +520,27 @@ export function CostsSetupSection({
 function NextStepButton({
   step,
   onFile,
+  compact = false,
 }: {
   step: SetupStep;
   onFile: () => void;
+  /** In the one-row banner the text says «Continuar»; the step is named next to it. */
+  compact?: boolean;
 }) {
   const cls =
-    "inline-flex items-center rounded-lg bg-[#1b40c8] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6]";
+    "inline-flex items-center rounded-lg bg-[#1b40c8] px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-[#1535a6]" +
+    (compact ? " whitespace-nowrap" : "");
+  const label = compact ? "Continuar" : step.action;
   if (step.href) {
     return (
       <Link href={step.href} className={cls}>
-        {step.action}
+        {label}
       </Link>
     );
   }
   return (
     <button type="button" className={cls} onClick={onFile}>
-      {step.action}
+      {label}
     </button>
   );
 }

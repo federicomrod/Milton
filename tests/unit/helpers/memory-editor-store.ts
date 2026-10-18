@@ -2,7 +2,12 @@
 
 import type { CostingData } from "@/lib/restaurant/costing";
 import { aliasKeyFor } from "@/lib/restaurant/cost-workbook/repo";
-import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
+import {
+  convertPriceWithIngredientConversions,
+  normalizeUnit,
+} from "@/lib/restaurant/units";
+import { unitMismatchMessage } from "@/lib/restaurant/cost-import";
+import { groupConversions } from "@/lib/restaurant/unit-conversions-server";
 import type {
   CatalogQuestion,
   VersionInput,
@@ -19,7 +24,12 @@ import type { ApprovalRecord } from "@/lib/restaurant/recipe-costing/approval-au
 export interface MemoryEditorState {
   companyId: string;
   currency: string;
-  ingredients: Array<{ id: string; name: string; default_unit: string | null }>;
+  ingredients: Array<{
+    id: string;
+    name: string;
+    default_unit: string | null;
+    archived?: boolean;
+  }>;
   entries: IngredientCostEntry[];
   components: Array<{ id: string; name: string; output_unit: string }>;
   componentRecipes: Array<{
@@ -41,6 +51,10 @@ export interface MemoryEditorState {
   } | null;
   version: VersionRef | null;
   inputs: VersionInput[];
+  /** The approved version in force when it is NOT the newest one (a later one has a future date). */
+  inForceVersion?: VersionRef | null;
+  /** Versions replaced by a newer draft («Crear versión nueva»), untouched. */
+  olderVersions?: Array<{ version: VersionRef; inputs: VersionInput[] }>;
   aliases: Array<{
     key: string;
     name: string;
@@ -48,6 +62,15 @@ export interface MemoryEditorState {
     by: string | null;
   }>;
   failAlias?: boolean;
+  /** Merges not undone: the ingredient that was merged away and its survivor. */
+  merges?: Array<{ loserId: string; survivorName: string }>;
+  /** Per-ingredient unit bridges (migration 056). */
+  conversions?: Array<{
+    ingredient_id: string;
+    from_unit: string;
+    to_unit: string;
+    factor: number;
+  }>;
   seq: number;
   /** Open unclear price-list rows (catalog_row review items). */
   catalogRows?: Array<{
@@ -132,7 +155,12 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
     if (!mine(companyId)) return undefined;
     if (version.kind === "preparation")
       return prepOf(companyId, version)?.inputs;
-    return state.version?.id === version.id ? state.inputs : undefined;
+    if (state.version?.id === version.id) return state.inputs;
+    if (state.inForceVersion?.id === version.id)
+      return state.olderVersions?.find((v) => v.version.id === version.id)
+        ?.inputs;
+    return state.olderVersions?.find((v) => v.version.id === version.id)
+      ?.inputs;
   };
   return {
     async loadCosting() {
@@ -179,6 +207,9 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
         menuRecipesByMenuItemId: new Map(),
         menuRecipeInputsByRecipeId: new Map(),
         costEntriesByIngredientId: byIngredient,
+        unitConversionsByIngredientId: groupConversions(
+          (state.conversions ?? []).map((c, i) => ({ ...c, id: `c${i}` }))
+        ),
         componentRecipeVersionsByComponentId: new Map(
           state.preparations
             .filter((p) => p.version)
@@ -247,6 +278,25 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
         },
         version: prep.version ? { ...prep.version } : null,
       };
+    },
+    async approvedVersionInForce(companyId) {
+      return mine(companyId) ? (state.inForceVersion ?? null) : null;
+    },
+    async createDraftVersion(companyId, from) {
+      if (!mine(companyId) || from.kind !== "dish")
+        throw new Error("wrong scope");
+      const draft: VersionRef = {
+        ...from,
+        id: `v-new-${++state.seq}`,
+        status: "in_review",
+      };
+      (state.olderVersions ??= []).push({
+        version: { ...from },
+        inputs: state.inputs,
+      });
+      state.version = draft;
+      state.inputs = [];
+      return { ...draft };
     },
     async listInputs(companyId, version) {
       return rowsFor(companyId, version)?.map((r) => ({ ...r })) ?? [];
@@ -394,8 +444,28 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
     },
     async addCostEntry(_companyId, e: NewCostEntry) {
       const ing = state.ingredients.find((r) => r.id === e.ingredientId)!;
-      const target = ing.default_unit ?? e.unit;
-      const converted = convertUnitPriceStr(e.unitCost, e.unit, target);
+      const target = e.keepUnit ? e.unit : (ing.default_unit ?? e.unit);
+      const converted = convertPriceWithIngredientConversions(
+        e.unitCost,
+        e.unit,
+        target,
+        (state.conversions ?? []).filter(
+          (c) => c.ingredient_id === e.ingredientId
+        )
+      );
+      if (!converted.ok)
+        return {
+          ok: false,
+          error: unitMismatchMessage(e.unit, ing.default_unit ?? null),
+          conversion: ing.default_unit
+            ? {
+                ingredient_id: e.ingredientId,
+                ingredient_name: ing.name,
+                from_unit: e.unit,
+                to_unit: ing.default_unit,
+              }
+            : undefined,
+        };
       state.entries.push(
         entry(e.ingredientId, e.unit, e.unitCost, {
           id: `e-new-${++state.seq}`,
@@ -404,12 +474,17 @@ export function createMemoryEditorStore(state: MemoryEditorState): EditorStore {
           effective_date: e.date,
           cost_date: e.date,
           normalized_unit: normalizeUnit(target) ?? target,
-          normalized_unit_cost: converted.ok ? converted.value : e.unitCost,
+          normalized_unit_cost: converted.value,
           currency: e.currency,
           notes: e.note,
           created_at: new Date(Date.now() + state.seq).toISOString(),
         })
       );
+      return { ok: true };
+    },
+    async mergedInto(_companyId, ingredientId) {
+      const m = (state.merges ?? []).find((x) => x.loserId === ingredientId);
+      return m ? { name: m.survivorName } : null;
     },
     async loadAliases(companyId) {
       const map = new Map<string, string>();

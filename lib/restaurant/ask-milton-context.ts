@@ -94,10 +94,12 @@ export interface AskMiltonIngredientCost {
  */
 export function resolveAskMiltonIngredientUnitCost(
   latestEntryCost: number | null | undefined,
-  cachedUnitCost: number | null | undefined,
+  // The legacy ingredients.current_unit_cost cache is no longer a price source
+  // (one price per ingredient: the latest cost entry). Kept for callers.
+  _legacyCachedUnitCost: number | null | undefined,
   lang: PreferredLanguage = "es"
 ): { current_unit_cost: number | null; pending_label: string | null } {
-  const costValue = positiveUnitCost(latestEntryCost ?? cachedUnitCost);
+  const costValue = positiveUnitCost(latestEntryCost);
   return {
     current_unit_cost:
       costValue != null ? Math.round(costValue * 100) / 100 : null,
@@ -383,16 +385,14 @@ export async function buildAskMiltonContext(
       .order("invoice_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(50),
-    // `supplier_id` and `current_unit_cost` do not exist everywhere; when the
+    // `supplier_id` does not exist everywhere; when the
     // wide select fails the ingredients still load (this used to blank the
     // whole price ranking: «No tengo datos sobre ingredientes caros»).
     readWithFallback(
       () =>
         supabase
           .from("ingredients")
-          .select(
-            "id, name, category, default_unit, current_unit_cost, currency, supplier_id"
-          )
+          .select("id, name, category, default_unit, currency, supplier_id")
           .eq("company_id", companyId)
           .limit(2000),
       () =>
@@ -542,7 +542,6 @@ export async function buildAskMiltonContext(
     name: string;
     category: string | null;
     default_unit: string;
-    current_unit_cost: number | null;
     currency: string | null;
     supplier_id: string | null;
   };
@@ -552,9 +551,7 @@ export async function buildAskMiltonContext(
 
   // ---- Latest cost per ingredient from ingredient_cost_entries ----
   // This is the authoritative source used by the costing engine.
-  // ingredients.current_unit_cost is a legacy cache that may be 0 when
-  // costs were entered via invoices or bulk import — do NOT use it for
-  // anything cost-related here.
+  // The legacy ingredients.current_unit_cost cache is not even read here.
   warnIfTruncated("ask-milton ingredient_cost_entries", costEntriesRes);
   const costEntryRows = succeededRows(costEntriesRes);
 
@@ -606,14 +603,13 @@ export async function buildAskMiltonContext(
 
   const pendingLang: PreferredLanguage = briefing.preferred_language;
   const toIngredientCost = (r: IngredientRow): AskMiltonIngredientCost => {
-    // Prefer authoritative cost from ingredient_cost_entries; fall back to
-    // ingredients.current_unit_cost only when no entry exists. Null stays
-    // null — a pending price is never shown as $0.
+    // The latest cost entry is the one price. No entry stays null — a pending
+    // price is never shown as $0.
     const latestEntry = latestCostByIngredientId.get(r.id);
     const { current_unit_cost, pending_label } =
       resolveAskMiltonIngredientUnitCost(
         latestEntry?.normalized_unit_cost,
-        r.current_unit_cost,
+        null,
         pendingLang
       );
     const costCurrency =
@@ -644,10 +640,7 @@ export async function buildAskMiltonContext(
       const latestEntry = latestCostByIngredientId.get(r.id);
       return {
         row: r,
-        sortCost:
-          positiveUnitCost(
-            latestEntry?.normalized_unit_cost ?? r.current_unit_cost
-          ) ?? 0,
+        sortCost: positiveUnitCost(latestEntry?.normalized_unit_cost) ?? 0,
       };
     })
     .filter(({ sortCost }) => sortCost > 0)
@@ -900,12 +893,9 @@ export async function buildAskMiltonContext(
       }
     }
 
-    // Use authoritative cost from entries; fall back to cached field.
-    // Null / 0 cache is pending — never a fabricated $0.
+    // The latest cost entry is the one price. No entry = pending, never $0.
     const latestEntry = latestCostByIngredientId.get(ingredientId);
-    const unitCost = positiveUnitCost(
-      latestEntry?.normalized_unit_cost ?? ing.current_unit_cost
-    );
+    const unitCost = positiveUnitCost(latestEntry?.normalized_unit_cost);
     const unitLabel = latestEntry?.normalized_unit ?? ing.default_unit;
     const currency = latestEntry?.currency ?? ing.currency ?? fallbackCurrency;
 

@@ -41,8 +41,14 @@ export interface PlanPosProduct {
 
 export interface PlanExistingDish {
   odoo_product_id: number;
-  /** An approved version or a recipe made by hand: never overwritten. */
+  /**
+   * An approved version or a recipe made by hand WITH lines: never replaced
+   * unless the person picks the Excel's for this dish (a new draft version).
+   */
   protected: boolean;
+  /** Lines of that recipe, and its cost when known, for the comparison. */
+  lines?: number;
+  cost?: number | null;
 }
 
 export interface PlanCatalog {
@@ -80,6 +86,22 @@ export interface PlannedDish {
   link_note: string;
   /** Set when the dish is left alone. */
   skip_reason: string | null;
+  /** The dish already has a recipe with lines (kept unless the person chooses the Excel's). */
+  conflict: { my_lines: number; my_cost: number | null } | null;
+}
+
+export interface PreviewConflict {
+  key: string;
+  dish: string;
+  size: string | null;
+  /** The recipe the dish has now. */
+  my_cost: number | null;
+  my_lines: number;
+  /** The Excel's; null cost = some lines have no price. */
+  excel_cost: number | null;
+  excel_lines: number;
+  /** Any one POS product of the dish, to read the current cost. */
+  odoo_product_id: number | null;
 }
 
 export interface PreviewRow {
@@ -112,6 +134,8 @@ export interface ImportPlan {
     skipped: number;
     /** Main-menu dishes with no POS link, and why (events copies left out). */
     unmatched: Array<{ dish: string; reason: string }>;
+    /** Dishes that already have a recipe with lines: kept unless chosen. */
+    conflicts: PreviewConflict[];
   };
 }
 
@@ -317,10 +341,10 @@ export function planImport(input: {
     }));
 
   // Dishes: main menu first, so an events copy never takes its POS product.
-  const protectedIds = new Set(
+  const protectedBy = new Map(
     input.existing
       .filter((row) => row.protected)
-      .map((row) => row.odoo_product_id)
+      .map((row) => [row.odoo_product_id, row])
   );
   const dishRecipes = recipes
     .filter((recipe) => recipe.kind === "dish")
@@ -338,9 +362,9 @@ export function planImport(input: {
       pos: [],
       link_note: hit.note,
       skip_reason: null,
+      conflict: null,
     };
     const taken: string[] = [];
-    let guarded = 0;
     for (const product of hit.products) {
       const earlier = claimed.get(product.odoo_product_id);
       if (earlier) {
@@ -348,20 +372,18 @@ export function planImport(input: {
         taken.push(`«${product.odoo_name}» ya va con ${earlier.recipe.name}`);
         continue;
       }
-      if (protectedIds.has(product.odoo_product_id)) {
-        guarded += 1;
-        continue;
+      const mine = protectedBy.get(product.odoo_product_id);
+      if (mine && !dish.conflict) {
+        dish.conflict = {
+          my_lines: mine.lines ?? 0,
+          my_cost: mine.cost ?? null,
+        };
       }
       claimed.set(product.odoo_product_id, dish);
       dish.pos.push(product);
     }
-    if (dish.pos.length === 0 && hit.products.length > 0) {
-      if (guarded > 0) {
-        dish.skip_reason =
-          "Ya tiene una receta aprobada o hecha a mano; no se toca";
-      } else if (taken.length > 0) {
-        dish.link_note = taken[0];
-      }
+    if (dish.pos.length === 0 && hit.products.length > 0 && taken.length > 0) {
+      dish.link_note = taken[0];
     }
     dishes.push(dish);
   }
@@ -416,6 +438,23 @@ export function planImport(input: {
           reason: dish.skip_reason ?? dish.link_note,
         })),
       skipped: dishes.filter((dish) => dish.skip_reason).length,
+      conflicts: dishes
+        .filter((dish) => dish.conflict)
+        .map((dish) => ({
+          key: dish.recipe.key,
+          dish: dish.recipe.name,
+          size: dish.recipe.size,
+          my_cost: dish.conflict!.my_cost,
+          my_lines: dish.conflict!.my_lines,
+          excel_cost:
+            dish.recipe.pending_lines > 0
+              ? null
+              : Math.round(dish.recipe.calculated_cost * 100) / 100,
+          excel_lines: dish.recipe.lines.filter(
+            (line) => line.quantity && line.quantity > 0
+          ).length,
+          odoo_product_id: dish.pos[0]?.odoo_product_id ?? null,
+        })),
     },
   };
 }

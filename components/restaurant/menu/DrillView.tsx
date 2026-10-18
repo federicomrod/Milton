@@ -227,13 +227,17 @@ export function DrillView({
           {backLabel}
         </button>{" "}
         ›{" "}
-        <button
-          type="button"
-          onClick={onOpenRecipe}
-          className="font-bold text-[#151c2c] hover:underline"
-        >
-          {title}
-        </button>{" "}
+        {onOpenRecipe ? (
+          <button
+            type="button"
+            onClick={onOpenRecipe}
+            className="font-bold text-[#151c2c] hover:underline"
+          >
+            {title}
+          </button>
+        ) : (
+          <b className="text-[#151c2c]">{title}</b>
+        )}{" "}
         › {pathText}
         {Object.keys(choices).length > 0 ? (
           <button
@@ -333,7 +337,8 @@ export function DrillView({
       <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
         {showRestaurants && soldIn.length > 0 ? (
           <p className="mb-2 text-[12px] text-[#4a5a85]" data-testid="sold-in">
-            Se vende en: <b>{soldIn.join(" · ")}</b>
+            {soldIn.length > 1 ? "Restaurantes" : "Restaurante"}:{" "}
+            <b>{soldIn.join(" · ")}</b>
             {soldIn.length > 1
               ? ". Un producto vendido en ambos suma sus ventas en «Ambos restaurantes»."
               : "."}

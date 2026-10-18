@@ -18,6 +18,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import {
   getUserProfile,
   upsertUserProfile,
@@ -104,10 +105,10 @@ export default function SettingsPage() {
       // ✅ Refresh preferences from Supabase - triggers live update across all components
       await refreshPrefs();
 
-      setMessage("Preferences updated successfully!");
+      setMessage("¡Listo! Guardamos tus cambios.");
       setTimeout(() => setMessage(""), 3000);
     } catch (error) {
-      setMessage("Failed to update preferences. Please try again.");
+      setMessage("No pudimos guardar tus cambios. Inténtalo de nuevo.");
       console.error(error);
     } finally {
       setSaving(false);
@@ -116,7 +117,7 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="container mx-auto p-6 max-w-3xl">
+      <div className="w-full max-w-3xl px-[26px] pb-10 pt-4">
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
         </div>
@@ -125,33 +126,31 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-3xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-foreground">Settings</h1>
-        <p className="text-muted-foreground mt-1">
-          Manage your company profile and preferences
+    <div className="w-full max-w-3xl px-[26px] pb-10 pt-4">
+      <div className="mb-5">
+        <OperatingPageHeader title="Ajustes" lang="es" showDateRange={false} />
+        <p className="mt-0.5 text-[13px] text-[#6b7385]">
+          El nombre de tu empresa y cómo se muestran fechas, números y tema
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Company Information */}
+        {/* Información de la empresa */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Building2 className="h-5 w-5" />
-              Company Information
+              Información de la empresa
             </CardTitle>
-            <CardDescription>
-              Basic details about your organization
-            </CardDescription>
+            <CardDescription>Datos básicos de tu empresa</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="company_name">Company Name</Label>
+              <Label htmlFor="company_name">Nombre de la empresa</Label>
               <Input
                 id="company_name"
                 name="company_name"
-                placeholder="Enter company name"
+                placeholder="Escribe el nombre de la empresa"
                 value={companyForm.name || ""}
                 onChange={(e) =>
                   setCompanyForm({ ...companyForm, name: e.target.value })
@@ -160,11 +159,11 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="industry">Industry</Label>
+              <Label htmlFor="industry">Industria</Label>
               <Input
                 id="industry"
                 name="industry"
-                placeholder="e.g., SaaS, E-commerce, Fintech"
+                placeholder="Ej.: restaurante, café, bar"
                 value={companyForm.industry || ""}
                 onChange={(e) =>
                   setCompanyForm({ ...companyForm, industry: e.target.value })
@@ -174,27 +173,27 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Regional & Format Preferences */}
+        {/* Preferencias regionales y de formato */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Globe className="h-5 w-5" />
-              Regional & Format Preferences
+              Preferencias regionales y de formato
             </CardTitle>
-            <CardDescription>Customize how data is displayed</CardDescription>
+            <CardDescription>Cómo se muestran tus datos</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="timezone" className="flex items-center gap-2">
                 <Globe className="h-4 w-4" />
-                Timezone
+                Zona horaria
               </Label>
               <Select
                 value={form.timezone}
                 onValueChange={(v) => handleChange("timezone", v)}
               >
                 <SelectTrigger id="timezone">
-                  <SelectValue placeholder="Select timezone" />
+                  <SelectValue placeholder="Elige una zona horaria" />
                 </SelectTrigger>
                 <SelectContent className="max-h-60">
                   {Intl.supportedValuesOf("timeZone").map((tz) => (
@@ -209,14 +208,14 @@ export default function SettingsPage() {
             <div className="space-y-2">
               <Label htmlFor="currency" className="flex items-center gap-2">
                 <DollarSign className="h-4 w-4" />
-                Currency
+                Moneda
               </Label>
               <Select
                 value={form.currency}
                 onValueChange={(v) => handleChange("currency", v)}
               >
                 <SelectTrigger id="currency">
-                  <SelectValue placeholder="Select currency" />
+                  <SelectValue placeholder="Elige una moneda" />
                 </SelectTrigger>
                 <SelectContent>
                   {currencies.map((c) => (
@@ -231,7 +230,7 @@ export default function SettingsPage() {
             <div className="space-y-2">
               <Label htmlFor="date_format" className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
-                Date Format
+                Formato de fecha
               </Label>
               <Select
                 value={form.date_format}
@@ -259,7 +258,7 @@ export default function SettingsPage() {
                 className="flex items-center gap-2"
               >
                 <Hash className="h-4 w-4" />
-                Number Format
+                Formato de número
               </Label>
               <Select
                 value={form.number_format}
@@ -285,13 +284,13 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Palette className="h-5 w-5" />
-              Appearance
+              Apariencia
             </CardTitle>
-            <CardDescription>Customize the look and feel</CardDescription>
+            <CardDescription>Cómo se ve la app</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="theme">Theme</Label>
+              <Label htmlFor="theme">Tema</Label>
               <Select
                 value={form.theme}
                 onValueChange={(v) => handleChange("theme", v)}
@@ -302,18 +301,20 @@ export default function SettingsPage() {
                 <SelectContent>
                   {themes.map((t) => (
                     <SelectItem key={t} value={t}>
-                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                      {t === "light"
+                        ? "Claro"
+                        : t === "dark"
+                          ? "Oscuro"
+                          : "Sistema"}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-gray-500">
                 {form.theme === "system" &&
-                  "Automatically switch between light and dark mode based on system settings"}
-                {form.theme === "light" &&
-                  "Use light mode throughout the application"}
-                {form.theme === "dark" &&
-                  "Use dark mode throughout the application"}
+                  "Cambia entre claro y oscuro según tu sistema"}
+                {form.theme === "light" && "Usar el tema claro en toda la app"}
+                {form.theme === "dark" && "Usar el tema oscuro en toda la app"}
               </p>
             </div>
           </CardContent>
@@ -322,7 +323,7 @@ export default function SettingsPage() {
         {/* Success/Error Message */}
         {message && (
           <div
-            className={`p-4 rounded-lg ${message.includes("success") ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"}`}
+            className={`p-4 rounded-lg ${message.startsWith("¡Listo") ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"}`}
           >
             {message}
           </div>
@@ -330,7 +331,7 @@ export default function SettingsPage() {
 
         {/* Submit Button */}
         <Button type="submit" disabled={saving} className="w-full" size="lg">
-          {saving ? "Saving..." : "Save Preferences"}
+          {saving ? "Guardando…" : "Guardar"}
         </Button>
       </form>
     </div>

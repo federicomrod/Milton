@@ -5,6 +5,10 @@
 // Proveedores (?tab=proveedores, the suppliers UI). The old /invoices and
 // /suppliers URLs redirect here.
 
+import {
+  getCachedAuthUser,
+  getCachedCompanyId,
+} from "@/lib/restaurant/auth-user";
 import Link from "next/link";
 import { loadMenuAreaModel } from "@/lib/restaurant/cockpit-page-data";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
@@ -27,13 +31,16 @@ import {
   CostsAreaTabs,
   CostsKpiCard,
   PriceChangesTable,
-  formatMoney,
 } from "@/components/restaurant/costs/CostsArea";
+import { formatMoney } from "@/lib/restaurant/costs-format";
 import { CostsSetupSection } from "@/components/restaurant/costs/CostsSetupSection";
 import { InvoicesPage } from "@/components/restaurant/InvoicesPage";
 import { SuppliersPage } from "@/components/restaurant/SuppliersPage";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { COSTS_HREF } from "@/lib/restaurant/navigation";
+import { COSTS_FILE_ANCHOR } from "@/lib/restaurant/costs-picker";
 import { ingredientesHref } from "@/lib/restaurant/menu-links";
+import { EmptyState } from "@/components/restaurant/shell/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -50,27 +57,70 @@ export default async function CostsAreaPage({
     typeof params.location === "string" ? params.location : undefined;
   const shellParams = shellParamsOf(params);
 
-  const [{ lang }, { profitability }, extras] = await timeCockpitStep(
-    "costs-route",
-    () =>
-      Promise.all([
-        loadRestaurantShellChrome(),
-        loadMenuAreaModel(location),
-        loadCostsKpiExtras(),
-      ]),
-    { location: location ?? null, tab }
-  );
+  // Every read here is best-effort: a brand-new account (no restaurant, POS,
+  // ingredients or costs) or a failed read must render the empty state, never
+  // the white Next.js error screen. The stack is logged for the server logs.
+  let lang: PreferredLanguage = "es";
+  let companyId: string | null = null;
+  try {
+    // For remembering the setup detail open / closed per company (cached per request).
+    const user = await getCachedAuthUser();
+    companyId = user?.id ? await getCachedCompanyId(user.id) : null;
+  } catch {
+    companyId = null;
+  }
+  let profitability: Awaited<
+    ReturnType<typeof loadMenuAreaModel>
+  >["profitability"] = null;
+  let extras: Awaited<ReturnType<typeof loadCostsKpiExtras>> = null;
+  try {
+    const [chrome, menu, kpiExtras] = await timeCockpitStep(
+      "costs-route",
+      () =>
+        Promise.all([
+          loadRestaurantShellChrome(),
+          loadMenuAreaModel(location),
+          loadCostsKpiExtras(),
+        ]),
+      { location: location ?? null, tab }
+    );
+    lang = chrome.lang;
+    profitability = menu.profitability;
+    extras = kpiExtras;
+  } catch (err) {
+    console.error(
+      "[costs page] load failed:",
+      err instanceof Error ? (err.stack ?? err.message) : err
+    );
+  }
 
-  const currency = profitability?.kpis.currency ?? extras?.currency ?? "USD";
-  const trends = profitability?.ingredientPriceTrends ?? [];
+  const kpis = profitability?.kpis ?? null;
+  const currency = kpis?.currency ?? extras?.currency ?? "USD";
+  const trends = Array.isArray(profitability?.ingredientPriceTrends)
+    ? (profitability?.ingredientPriceTrends ?? [])
+    : [];
   const increases = priceIncreaseCount(trends);
-  const ingredientsCount = profitability?.setupCounts.ingredients_count ?? null;
-  const foodCost = profitability?.kpis.food_cost_pct ?? null;
+  const ingredientsCount =
+    profitability?.setupCounts?.ingredients_count ?? null;
+  const foodCost = kpis?.food_cost_pct ?? null;
+  // «n% de las ventas con costo» only when there ARE sales; never a made-up 0%.
+  const coveragePct =
+    kpis &&
+    Number.isFinite(kpis.cost_coverage_pct) &&
+    (kpis.revenue_total ?? 0) > 0
+      ? kpis.cost_coverage_pct
+      : null;
   const purchases = extras?.purchases ?? { last30: null, previous30: null };
   const purchasesDelta = pctChange(purchases.last30, purchases.previous30);
   const supplierCount =
-    extras?.supplierCount ?? profitability?.topSupplierSpend.length ?? null;
+    extras?.supplierCount ?? profitability?.topSupplierSpend?.length ?? null;
   const pendingSuppliers = extras?.suppliersWithPendingInvoices ?? null;
+  // Nothing at all yet: say how to start (the setup section above is the upload).
+  const nothingYet =
+    (ingredientsCount ?? 0) === 0 &&
+    trends.length === 0 &&
+    (supplierCount ?? 0) === 0 &&
+    !purchases.last30;
 
   return (
     <div className="w-full px-[26px] pt-4 pb-10 space-y-5">
@@ -81,15 +131,12 @@ export default async function CostsAreaPage({
         titleAction={
           <Link
             href={invoiceUploadHref(shellParams)}
-            className="inline-flex h-8 items-center rounded-lg bg-[#f28c28] px-3 text-sm font-semibold text-white hover:bg-[#e07b17] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2"
+            className="inline-flex h-8 items-center rounded-lg border border-[#1B40C8] bg-white px-3 text-sm font-semibold text-[#1B40C8] hover:bg-[#f6f8fe] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
           >
             {t(lang, "Upload invoice", "Subir factura")}
           </Link>
         }
       />
-
-      {/* R1-18: the cost setup (it used to be Menú › Resumen's checklist). */}
-      <CostsSetupSection locationId={location ?? null} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <CostsKpiCard
@@ -125,13 +172,13 @@ export default async function CostsAreaPage({
               : `${foodCost.toFixed(1)}%`
           }
           delta={
-            profitability
+            coveragePct !== null
               ? t(
                   lang,
-                  `${profitability.kpis.cost_coverage_pct.toFixed(0)}% of sales costed`,
-                  `${profitability.kpis.cost_coverage_pct.toFixed(0)}% de las ventas con costo`
+                  `${coveragePct.toFixed(0)}% of sales costed`,
+                  `${coveragePct.toFixed(0)}% de las ventas con costo`
                 )
-              : "—"
+              : t(lang, "No sales yet", "Aún sin ventas")
           }
           help={t(
             lang,
@@ -170,6 +217,26 @@ export default async function CostsAreaPage({
           deltaTone={pendingSuppliers ? "bad" : "neutral"}
         />
       </div>
+
+      {/* R1-18: the cost setup (it used to be Menú › Resumen's checklist). Below
+          the KPIs and above the tabs: one compact row while incomplete. */}
+      <CostsSetupSection locationId={location ?? null} companyId={companyId} />
+
+      {nothingYet ? (
+        <EmptyState
+          testId="costs-empty"
+          text="Aún no tienes costos. Sube un archivo de costos o una factura para empezar."
+          actions={[
+            {
+              href: `${COSTS_HREF}#${COSTS_FILE_ANCHOR}`,
+              label: "Subir archivo de costos",
+              primary: true,
+              opensCostsPicker: true,
+            },
+            { href: invoiceUploadHref(shellParams), label: "Subir factura" },
+          ]}
+        />
+      ) : null}
 
       <CostsAreaTabs active={tab} lang={lang} shellParams={shellParams} />
 

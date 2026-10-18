@@ -1,12 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { CostConflict } from "@/lib/restaurant/price-catalog/conflicts";
 import type {
   CatalogUnit,
   PriceCatalogRow,
 } from "@/lib/restaurant/price-catalog/reader";
-import { RecipeImportPreview } from "./RecipeImportPreview";
+import {
+  IMPORT_RECIPES_BUTTON_ID,
+  RecipeImportPreview,
+} from "./RecipeImportPreview";
 import { Card, Chip, GhostBtn, PrimaryBtn } from "./ui";
 
 const UNIT_LABEL: Record<CatalogUnit, string> = {
@@ -94,21 +105,38 @@ async function postJson(url: string, body: unknown) {
  * conflicts are asked later, on the dish that uses them). After saving,
  * `onUploaded` prepares the dishes from the same file.
  */
-export function PriceCatalogPanel({
-  onUploaded,
-  onRecipesImported,
-  locationId = null,
-  busyExternal = false,
-  embedded = false,
-}: {
-  /** Inside Resumen's checklist (step 1): no card or heading. */
-  embedded?: boolean;
-  onUploaded?: () => void;
-  /** After "Importar" on the recipes of the same file. */
-  onRecipesImported?: () => void;
-  locationId?: string | null;
-  busyExternal?: boolean;
-} = {}) {
+export interface PriceCatalogPanelHandle {
+  /** Open the file picker (call it from a click handler: browsers need the gesture). */
+  openPicker: () => void;
+}
+
+export const PriceCatalogPanel = forwardRef<
+  PriceCatalogPanelHandle,
+  {
+    /** Inside Resumen's checklist (step 1): no card or heading. */
+    embedded?: boolean;
+    onUploaded?: () => void;
+    /** After "Importar" on the recipes of the same file. */
+    onRecipesImported?: () => void;
+    /** Step 1 done and the file still has recipes to import: refresh, do not restart the panels. */
+    onPricesSaved?: () => void;
+    /** How many dishes wait for «2. Importar recetas» (null = none pending). */
+    onImportPending?: (dishes: number | null) => void;
+    locationId?: string | null;
+    busyExternal?: boolean;
+  }
+>(function PriceCatalogPanel(
+  {
+    onUploaded,
+    onRecipesImported,
+    onPricesSaved,
+    onImportPending,
+    locationId = null,
+    busyExternal = false,
+    embedded = false,
+  },
+  ref
+) {
   const fileRef = useRef<HTMLInputElement>(null);
   // The picked file lives server-side as a draft (with every choice), so
   // leaving the page or reloading never loses it.
@@ -122,6 +150,18 @@ export function PriceCatalogPanel({
   const [preview, setPreview] = useState<Preview | null>(null);
   const [saved, setSaved] = useState<Saved | null>(null);
   const [busy, setBusy] = useState(false);
+  // Same rule as the «Elegir archivo de costos» button: nothing while busy
+  // (a second upload must not start in the middle of a save).
+  useImperativeHandle(
+    ref,
+    () => ({
+      openPicker: () => {
+        if (busy || busyExternal) return;
+        fileRef.current?.click();
+      },
+    }),
+    [busy, busyExternal]
+  );
   const [error, setError] = useState<string | null>(null);
   /** Row key → unit, or "none" (Ninguna: leave it Pendiente). */
   const [units, setUnits] = useState<Record<string, string>>({});
@@ -328,7 +368,16 @@ export function PriceCatalogPanel({
       void loadOpen();
       // The file has its own recipes: they come in with "Importar" below,
       // so no AI suggestions (they would only add drafts and questions).
-      if (recipeDishes > 0 || recipesImported) onRecipesImported?.();
+      if (recipeDishes > 0 && !recipesImported) {
+        // Step 2 is next: refresh the page data but keep this panel (and its
+        // recipes table) as it is, and bring the import button into view.
+        onPricesSaved?.();
+        setTimeout(() => {
+          const button = document.getElementById(IMPORT_RECIPES_BUTTON_ID);
+          button?.scrollIntoView({ behavior: "smooth", block: "center" });
+          button?.focus({ preventScroll: true });
+        }, 100);
+      } else if (recipesImported) onRecipesImported?.();
       else onUploaded?.();
     } catch (err) {
       setError(
@@ -377,6 +426,16 @@ export function PriceCatalogPanel({
     }
   }
 
+  // Tell the checklist when «2. Importar recetas» is the next step.
+  const importPendingRef = useRef(onImportPending);
+  useEffect(() => {
+    importPendingRef.current = onImportPending;
+  }, [onImportPending]);
+  const pendingDishes = !preview && recipeDishes > 0 ? recipeDishes : null;
+  useEffect(() => {
+    importPendingRef.current?.(pendingDishes);
+  }, [pendingDishes]);
+
   const Wrapper = embedded ? "div" : Card;
   return (
     <Wrapper className="space-y-3">
@@ -396,7 +455,7 @@ export function PriceCatalogPanel({
           }}
         />
         <GhostBtn
-          className="ml-auto"
+          className="ml-auto border-[#1B40C8] px-3 py-1.5 text-[13px] text-[#1B40C8] hover:bg-[#f6f8fe] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
           disabled={busy || busyExternal}
           onClick={() => fileRef.current?.click()}
         >
@@ -693,7 +752,7 @@ export function PriceCatalogPanel({
 
           <div className="flex items-center gap-2">
             <PrimaryBtn disabled={!canSave} onClick={() => void save()}>
-              Subir y preparar mis platos
+              1. Guardar precios
             </PrimaryBtn>
             {openDecisions > 0 ? (
               <span className="text-[12px] text-[#8a92a3]">
@@ -735,6 +794,7 @@ export function PriceCatalogPanel({
         busyExternal={busy || busyExternal}
         onImported={() => onRecipesImported?.()}
         onDishes={setRecipeDishes}
+        primary={!preview}
       />
 
       {open.length > 0 ? (
@@ -780,4 +840,4 @@ export function PriceCatalogPanel({
       ) : null}
     </Wrapper>
   );
-}
+});

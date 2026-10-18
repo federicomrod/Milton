@@ -98,7 +98,7 @@ export function KitchenExplore({
           }
           pendingLabel={insights.pending_recipes_label}
           showValue={tab === "waste"}
-          barClass={tab === "waste" ? "bg-amber-500" : "bg-orange-500"}
+          barClass={tab === "waste" ? "bg-amber-500" : "bg-[#1B40C8]"}
           empty={
             tab === "waste"
               ? t(

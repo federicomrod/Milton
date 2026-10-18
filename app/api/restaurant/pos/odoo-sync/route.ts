@@ -25,6 +25,7 @@
 // This route does not run on a schedule; it is triggered explicitly by an
 // authenticated request with a date range. No cron, no background job.
 
+import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
@@ -780,6 +781,8 @@ export async function POST(req: NextRequest) {
       dimension_calls: dimensions?.callCount ?? 0,
     };
     await persistLastSync(supabase, conn.id, companyId, payload);
+    // New sales rows: the cached sales cube / Cockpit rollup are out of date.
+    revalidateSales(companyId);
     return NextResponse.json(payload);
   } catch (err) {
     const statusClass = logOdooFault("[Odoo Sync] Unexpected error:", err);

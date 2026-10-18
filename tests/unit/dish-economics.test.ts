@@ -260,13 +260,13 @@ describe("buildDishEconomics", () => {
     expect(result.totals.dish_count).toBe(4);
   });
 
-  it("costs lines like the editor: Excel line cost, catalog price, preparation", () => {
+  it("costs lines like the editor: the ingredient's catalog price (a line copy is ignored), preparation", () => {
     const dish = byId.get(1)!;
-    // 6 × 0.60 + 2 × 0.05 + 2 × (1.60 / 16)
-    expect(dish.unit_cost).toBeCloseTo(3.6 + 0.1 + 0.2, 10);
+    // 6 × 0.50 (the catalog, NOT the line's 0.60 copy) + 2 × 0.05 + 2 × (1.60 / 16)
+    expect(dish.unit_cost).toBeCloseTo(3.0 + 0.1 + 0.2, 10);
     expect(dish.lines).toHaveLength(3);
-    expect(dish.lines[0].own_cost).toBe(true);
-    expect(dish.lines[0].price_source).toBe("excel");
+    expect(dish.lines[0].own_cost).toBe(false);
+    expect(dish.lines[0].price_source).toBe("lista");
     expect(dish.lines[1].price_source).toBe("lista");
     expect(dish.lines[1].price_date).toBe("2026-04-01");
     expect(dish.cost_date).toBe("2026-10-01");
@@ -275,7 +275,7 @@ describe("buildDishEconomics", () => {
   it("keeps the Excel COSTO TOTAL as a reference and flags a gap over $0.05", () => {
     const dish = byId.get(1)!;
     expect(dish.excel_total).toBe(4.2);
-    expect(dish.excel_diff).toBeCloseTo(-0.3, 10);
+    expect(dish.excel_diff).toBeCloseTo(3.3 - 4.2, 10);
     expect(dish.excel_diff_flag).toBe(true);
   });
 
@@ -294,8 +294,8 @@ describe("buildDishEconomics", () => {
     const t = result.totals;
     expect(t.covered_net_sales).toBe(200);
     expect(t.coverage_pct).toBe(66.7);
-    expect(t.estimated_cogs).toBe(39);
-    expect(t.food_cost_pct).toBe(19.5);
+    expect(t.estimated_cogs).toBe(33);
+    expect(t.food_cost_pct).toBe(16.5);
     expect(t.problem_count).toBe(2);
     expect(t.estimated_count).toBe(1);
     expect(periodCostKpisFromDishEconomics(result).coverage_pct).toBe(66.7);

@@ -231,10 +231,13 @@ describe("Resumen is the menu's cockpit", () => {
 describe("the setup moved to Costos, same components", () => {
   const costs = read("app/dashboard/restaurant/costs/page.tsx");
   const section = read("components/restaurant/costs/CostsSetupSection.tsx");
-  it("Costos mounts the section above the KPIs and tabs", () => {
+  it("Costos mounts the section under the KPIs and above the tabs", () => {
     expect(costs).toContain("<CostsSetupSection");
+    expect(costs.indexOf("<CostsKpiCard")).toBeLessThan(
+      costs.indexOf("<CostsSetupSection")
+    );
     expect(costs.indexOf("<CostsSetupSection")).toBeLessThan(
-      costs.indexOf("<CostsKpiCard")
+      costs.indexOf("<CostsAreaTabs")
     );
   });
   it("it reuses the existing panels and endpoints (upload → prepare dishes, undo batch, reset, menu reader)", () => {

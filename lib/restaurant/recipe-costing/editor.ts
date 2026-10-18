@@ -9,6 +9,7 @@
 // Costs always come from the costing engine against the catalog's latest
 // price. Nothing here invents a number or creates an ingredient.
 
+import { similarIngredients } from "@/lib/restaurant/ingredient-duplicates";
 import {
   calculateMenuItemCost,
   getLatestIngredientCost,
@@ -24,6 +25,8 @@ import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
 export const FLAG_PENDING_INGREDIENT = "pendiente_ingrediente";
 export const FLAG_PENDING_COST = "pendiente_costo";
 export const FLAG_PENDING_UNIT = "pendiente_unidad";
+/** An ingredient line has an old price copy and the ingredient has no price: Sin precio, with an offer. */
+export const FLAG_LEGACY_LINE_PRICE = "legacy_line_price";
 export const FLAG_OK = "ok";
 /** A line read from the restaurant's menu: it says what, never how much. */
 export const FLAG_FROM_MENU = "del_menu";
@@ -89,6 +92,12 @@ export interface EditorLine {
   price: PriceMeta | null;
   pending: boolean;
   flags: string[];
+  /** An old price copy on this ingredient line (never used for costing). */
+  legacy_price?: { unit_cost: number; unit: string } | null;
+  /** A preparation line with no cost: which ingredients of the preparation have no price. */
+  component_missing?: string[];
+  /** A likely typo of an existing preparation / ingredient (only a hint; nothing is changed). */
+  name_hint?: { name: string; kind: "component" | "ingredient" } | null;
   reasons: string[];
   possible_match: PossibleMatch | null;
   /** Position in the cached evidence this line came from (null if added). */
@@ -143,6 +152,8 @@ export interface LineCost {
   amount: number | null;
   unit_cost: number | null;
   reason: "no_price" | "unit" | "component" | null;
+  /** A preparation line with no cost: the ingredients of the preparation that have no price. */
+  missing_ingredients: string[];
 }
 
 /** Cost one input by running it through the real engine on its own. */
@@ -168,7 +179,12 @@ export function costInput(
   if (result.status === "complete" && result.cost !== null) {
     const unitCost =
       input.quantity > 0 ? result.cost / input.quantity : result.cost;
-    return { amount: result.cost, unit_cost: unitCost, reason: null };
+    return {
+      amount: result.cost,
+      unit_cost: unitCost,
+      reason: null,
+      missing_ingredients: [],
+    };
   }
   const issue = [result.status, ...result.issues.map((i) => i.kind)].join(" ");
   const reason = /no_cost_entries/.test(issue)
@@ -178,7 +194,19 @@ export function costInput(
       : input.input_type === "component"
         ? "component"
         : "no_price";
-  return { amount: null, unit_cost: null, reason };
+  // What blocks a preparation: its ingredients that have no price yet.
+  const missing_ingredients =
+    input.input_type === "component"
+      ? [
+          ...new Set(
+            result.issues
+              .filter((i) => i.kind === "no_cost_entries")
+              .map((i) => i.path[i.path.length - 1])
+              .filter((n): n is string => !!n)
+          ),
+        ]
+      : [];
+  return { amount: null, unit_cost: null, reason, missing_ingredients };
 }
 
 // ---------------------------------------------------------------------------
@@ -199,11 +227,50 @@ export interface CatalogNames {
  * person) become lines of their own. Evidence lines that are still pending
  * stay as unresolved lines.
  */
+/** «¿Es CHIMICHURRI (preparación)?»: a likely typo, never applied automatically. */
+function nameHintFor(
+  name: string | null,
+  ownId: string | null,
+  hints: {
+    ingredients: ReadonlyMap<string, string>;
+    components: ReadonlyMap<string, string>;
+  }
+): { name: string; kind: "component" | "ingredient" } | null {
+  if (!name) return null;
+  const quick = (other: string) =>
+    other[0]?.toLowerCase() === name[0]?.toLowerCase() &&
+    Math.abs(other.length - name.length) <= 2;
+  for (const other of hints.components.values()) {
+    if (quick(other) && similarIngredients(name, other) !== null) {
+      return { name: other, kind: "component" };
+    }
+  }
+  for (const [id, other] of hints.ingredients) {
+    if (id === ownId || !quick(other)) continue;
+    const score = similarIngredients(name, other);
+    if (score !== null && score < 1) return { name: other, kind: "ingredient" };
+  }
+  return null;
+}
+
 export function hydrateLines(input: {
   data: CostingData;
   evidenceLines: readonly EvidenceLineIn[];
   inputs: readonly VersionInput[];
   names: CatalogNames;
+  /**
+   * The version shown cannot be edited (it is approved). An old unit question
+   * saved in the evidence (Excel unit vs suggested unit) can no longer be
+   * answered there, so it does not keep a line pending when the line's amount
+   * is KNOWN (the price unit and the line unit convert, directly or with the
+   * ingredient's own conversion). A line with no amount stays pending.
+   */
+  readOnly?: boolean;
+  /** The open editor only: names to look for a likely typo of (not run for every dish). */
+  hints?: {
+    ingredients: ReadonlyMap<string, string>;
+    components: ReadonlyMap<string, string>;
+  };
 }): EditorLine[] {
   const { data, names } = input;
   const used = new Set<string>();
@@ -234,13 +301,39 @@ export function hydrateLines(input: {
       unit_cost: row.unit_cost ?? null,
       cost_source: row.cost_source ?? null,
     });
-    const question = raw.unit_question ?? null;
+    // An answered-by-the-data question (see `readOnly`) is dropped.
+    const question =
+      input.readOnly && cost.amount !== null
+        ? null
+        : (raw.unit_question ?? null);
     const pending = cost.amount === null || question !== null;
     const flags = question
       ? [FLAG_PENDING_UNIT]
       : pending
         ? [cost.reason === "unit" ? FLAG_PENDING_UNIT : FLAG_PENDING_COST]
         : [FLAG_OK];
+    // An old copy of a price on an ingredient line is never used. When the
+    // ingredient has no price of its own, the line is Sin precio and the
+    // copy is offered to the person (not applied silently).
+    const ownCopy =
+      row.input_type === "ingredient" &&
+      row.ingredient_id &&
+      lineHasOwnPrice({
+        input_type: row.input_type,
+        ingredient_id: row.ingredient_id,
+        component_id: row.component_id,
+        quantity: row.quantity,
+        unit: row.unit,
+        unit_cost: row.unit_cost ?? null,
+        cost_source: row.cost_source ?? null,
+      })
+        ? (row.unit_cost as number)
+        : null;
+    const legacyPrice =
+      ownCopy !== null && names.priceOf(row.ingredient_id as string) === null
+        ? { unit_cost: ownCopy, unit: row.unit }
+        : null;
+    if (legacyPrice) flags.push(FLAG_LEGACY_LINE_PRICE);
     return {
       key: row.id,
       input_id: row.id,
@@ -269,15 +362,25 @@ export function hydrateLines(input: {
         row.input_type === "component" && row.component_id
           ? (data.componentsById.get(row.component_id)?.output_unit ?? null)
           : null,
-      own_cost: lineHasOwnPrice({
-        input_type: row.input_type,
-        ingredient_id: row.ingredient_id,
-        component_id: row.component_id,
-        quantity: row.quantity,
-        unit: row.unit,
-        unit_cost: row.unit_cost ?? null,
-        cost_source: row.cost_source ?? null,
-      }),
+      // Only a line with no price record (a preparation) has an own price.
+      own_cost:
+        row.input_type !== "ingredient" &&
+        lineHasOwnPrice({
+          input_type: row.input_type,
+          ingredient_id: row.ingredient_id,
+          component_id: row.component_id,
+          quantity: row.quantity,
+          unit: row.unit,
+          unit_cost: row.unit_cost ?? null,
+          cost_source: row.cost_source ?? null,
+        }),
+      legacy_price: legacyPrice,
+      component_missing:
+        row.input_type === "component" ? cost.missing_ingredients : undefined,
+      name_hint:
+        input.hints && row.input_type === "ingredient" && cost.amount === null
+          ? nameHintFor(nameOfInput(row), row.ingredient_id, input.hints)
+          : null,
       cost_source: row.cost_source ?? null,
     };
   };
@@ -461,6 +564,7 @@ export function buildPickerOptions(input: {
 }): PickerOption[] {
   const out: PickerOption[] = [];
   for (const ingredient of input.data.ingredientsById.values()) {
+    if (ingredient.archived) continue;
     const price = input.priceOf(ingredient.id);
     out.push({
       kind: "ingredient",

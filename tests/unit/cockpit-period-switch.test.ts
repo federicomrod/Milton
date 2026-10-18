@@ -54,7 +54,7 @@ const casa: CockpitFactRow[] = [
   }),
 ];
 
-const lavara: CockpitFactRow[] = [
+const casasur: CockpitFactRow[] = [
   row({
     sale_date: "2026-07-10",
     check_id: "l1",
@@ -149,22 +149,22 @@ describe("rollup-based period costs match the row walk", () => {
       expect(fromRollup).toEqual(snap.cost);
     }
 
-    const lavaraMonth = buildCockpitPeriodSnapshot(
-      lavara,
+    const casasurMonth = buildCockpitPeriodSnapshot(
+      casasur,
       resolveCockpitPeriod("month", "2026-07-31")!,
       { currency: "USD", lang: "es" }
     );
     expect(
-      lavaraMonth.current.net_sales + lavaraMonth.current.tips
+      casasurMonth.current.net_sales + casasurMonth.current.tips
     ).toBeCloseTo(50_720.8, 2);
-    expect(lavaraMonth.current.net_sales).toBeCloseTo(46_087.9, 2);
-    expect(lavaraMonth.current.tips).toBeCloseTo(4_632.9, 2);
+    expect(casasurMonth.current.net_sales).toBeCloseTo(46_087.9, 2);
+    expect(casasurMonth.current.tips).toBeCloseTo(4_632.9, 2);
   });
 });
 
 describe("period switch stays on the already-loaded cockpit", () => {
   it("R1-16b: the Cockpit v2 changes period, comparison and category in the browser, with no request and no navigation", () => {
-    const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
+    const page = read("app/dashboard/restaurant/(cockpit)/page.tsx");
     const cockpit = read("components/restaurant/cockpit/v2/CockpitV2.tsx");
     expect(page).toContain("CockpitV2");
     // The handlers only set state (computeCockpit recomputes from the loaded data).

@@ -19,7 +19,6 @@ export function MiltonSuggestions({
   aiBusy,
   canAskAi,
   itemWord = "productos",
-  restaurantTag,
 }: {
   clusters: readonly SuggestedCluster[];
   preview: SuggestedCluster | null;
@@ -32,8 +31,6 @@ export function MiltonSuggestions({
   aiBusy: boolean;
   canAskAi: boolean;
   itemWord?: string;
-  /** "R1" for a restaurant's own suggestion (Todos los restaurantes); null/absent = no tag. */
-  restaurantTag?: (restaurantId: string | null | undefined) => string | null;
 }) {
   if (clusters.length === 0 && !canAskAi && !preview) return null;
   return (
@@ -66,11 +63,6 @@ export function MiltonSuggestions({
             }
           >
             {c.name} · {c.refs.length}
-            {restaurantTag?.(c.restaurantId) ? (
-              <span className="ml-1.5 rounded bg-[#e6ecfb] px-1 text-[11px] text-[#1b40c8]">
-                {restaurantTag(c.restaurantId)}
-              </span>
-            ) : null}
           </button>
         ))}
         {clusters.length > MAX_CHIPS ? (
@@ -94,7 +86,6 @@ export function MiltonSuggestions({
           key={preview.key}
           preview={preview}
           itemWord={itemWord}
-          tag={restaurantTag?.(preview.restaurantId) ?? null}
           onApply={onApply}
           onDismiss={onDismiss}
           onEndPreview={onEndPreview}
@@ -116,14 +107,12 @@ export function MiltonMark() {
 function PreviewBanner({
   preview,
   itemWord,
-  tag,
   onApply,
   onDismiss,
   onEndPreview,
 }: {
   preview: SuggestedCluster;
   itemWord: string;
-  tag: string | null;
   onApply: (c: SuggestedCluster, name: string) => void;
   onDismiss: (c: SuggestedCluster) => void;
   onEndPreview: () => void;
@@ -135,8 +124,8 @@ function PreviewBanner({
       role="status"
     >
       <span>
-        Vista previa · {preview.refs.length} {itemWord}
-        {tag ? ` de ${tag}` : ""}. Todavía no cuenta como agrupado.
+        Vista previa · {preview.refs.length} {itemWord}. Todavía no cuenta como
+        agrupado.
       </span>
       <label className="flex items-center gap-1.5">
         <span className="text-[#6b7a9e]">Nombre</span>

@@ -97,21 +97,22 @@ describe("routing", () => {
       "components/auth/login-form.tsx",
     ]) {
       const src = read(f);
-      expect(src).toContain("import { getPostLoginRedirect }");
+      expect(src).toMatch(
+        /import \{[^}]*getPostLoginRedirect[^}]*\} from "@\/lib\/restaurant\/post-login"/
+      );
       expect(src).toContain("getPostLoginRedirect(");
     }
   });
 
-  it("getPostLoginRedirect checks admin, then invited, then onboarding_status", () => {
+  it("getPostLoginRedirect checks invited, then onboarding_status (admins are not special)", () => {
     const src = read("lib/restaurant/post-login.ts");
     const fn = src.slice(
       src.indexOf("export async function getPostLoginRedirect")
     );
-    const adminAt = fn.indexOf('is_milton_admin"');
     const invitedAt = fn.indexOf("resolveInvitedUserLanding(");
     const onboardingAt = fn.indexOf("onboarding_status");
-    expect(adminAt).toBeGreaterThan(-1);
-    expect(invitedAt).toBeGreaterThan(adminAt);
+    expect(fn).not.toContain("is_milton_admin");
+    expect(invitedAt).toBeGreaterThan(-1);
     expect(onboardingAt).toBeGreaterThan(invitedAt);
   });
 

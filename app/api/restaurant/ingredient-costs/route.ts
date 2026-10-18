@@ -20,7 +20,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
+import {
+  convertUnitPriceOrPortion,
+  normalizeUnit,
+} from "@/lib/restaurant/units";
 import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
 import {
@@ -74,6 +77,8 @@ interface PostBody {
   currency?: unknown;
   supplier_id?: unknown;
   notes?: unknown;
+  /** «Corregir unidad del precio»: keep the new entry in `unit`. */
+  keep_unit?: unknown;
 }
 
 export async function POST(req: NextRequest) {
@@ -176,8 +181,11 @@ export async function POST(req: NextRequest) {
   // bridge-able. Otherwise we store the unit as-typed and the engine
   // will surface a `missing_unit_conversion` if/when a recipe tries to
   // consume this ingredient in an incompatible unit.
-  const targetUnit = ingredient.default_unit || unit;
-  const normalized = convertUnitPriceStr(unitCost, unit, targetUnit);
+  // keep_unit: «Corregir unidad del precio» keeps the NEW entry in the unit the
+  // person chose (the old entry is never touched).
+  const keepUnit = body.keep_unit === true;
+  const targetUnit = keepUnit ? unit : ingredient.default_unit || unit;
+  const normalized = convertUnitPriceOrPortion(unitCost, unit, targetUnit);
   const normalizedUnit = normalizeUnit(targetUnit) ?? targetUnit;
   const normalizedUnitCost = normalized.ok ? normalized.value : unitCost;
   // Note: when conversion fails we still record SOMETHING (the supplier

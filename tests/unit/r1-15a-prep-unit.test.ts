@@ -109,9 +109,12 @@ describe("units of a preparation", () => {
       ok: true,
       value: 48,
     });
-    // A portion is never guessed to be an order, an ounce or a "unit".
+    // A portion is a count: 1 orden = 1 unidad. Never an ounce or any weight.
     expect(convertToSubRecipeUnit(1, "portion", "orden").ok).toBe(false);
-    expect(convertToSubRecipeUnit(1, "unit", "orden").ok).toBe(false);
+    expect(convertToSubRecipeUnit(1, "unit", "orden")).toEqual({
+      ok: true,
+      value: 1,
+    });
     expect(convertToSubRecipeUnit(1, "oz", "orden").ok).toBe(false);
   });
 
@@ -155,13 +158,13 @@ describe("a dish line that uses an approved preparation", () => {
     expect(s.inputs[0].unit).toBe("orden");
   });
 
-  it("a preparation that is not approved still reads as waiting for approval", async () => {
+  it("a preparation still in review costs the dish line as soon as its lines are priced (approval does not gate cost)", async () => {
     const s = kitchen("orden");
     s.preparations[0].version!.status = "in_review";
     const r = await loadEditor(ctx(s));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.state.lines[0].amount).toBeNull();
-    expect(r.state.lines[0].flags).not.toContain("pendiente_unidad");
+    expect(r.state.lines[0].amount).toBeCloseTo(1.0, 6);
+    expect(r.state.lines[0].pending).toBe(false);
   });
 });

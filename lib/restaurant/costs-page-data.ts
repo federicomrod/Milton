@@ -123,6 +123,22 @@ export interface InvoicesTabData {
 }
 
 export async function loadInvoicesTabData(): Promise<InvoicesTabData | null> {
+  // A brand-new company has nothing here, and a failed read must never take
+  // Costos down: an empty (not null: null means "sign in") result.
+  try {
+    return await loadInvoicesTabDataUnsafe();
+  } catch (err) {
+    console.error("[loadInvoicesTabData] failed:", err);
+    return {
+      invoices: [],
+      suppliers: [],
+      ingredients: [],
+      companyCurrency: "USD",
+    };
+  }
+}
+
+async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
   const scope = await companyScope();
   if (!scope) return null;
   const { supabase, companyId } = scope;
@@ -256,6 +272,15 @@ export async function loadInvoicesTabData(): Promise<InvoicesTabData | null> {
 // ---------------------------------------------------------------------------
 
 export async function loadSuppliersTabData(): Promise<SupplierRow[] | null> {
+  try {
+    return await loadSuppliersTabDataUnsafe();
+  } catch (err) {
+    console.error("[loadSuppliersTabData] failed:", err);
+    return [];
+  }
+}
+
+async function loadSuppliersTabDataUnsafe(): Promise<SupplierRow[] | null> {
   const scope = await companyScope();
   if (!scope) return null;
   const { supabase, companyId } = scope;

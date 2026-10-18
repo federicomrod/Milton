@@ -3,7 +3,10 @@
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { getPostLoginRedirect } from "@/lib/restaurant/post-login";
+import {
+  getPostLoginRedirect,
+  safeNextPath,
+} from "@/lib/restaurant/post-login";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +20,13 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
+import { PasswordInput } from "@/components/auth/password-input";
+import { ResendConfirmation } from "@/components/auth/resend-confirmation";
+import {
+  loginProblem,
+  loginUrlProblem,
+  type LoginProblem,
+} from "@/lib/auth/email-confirmation";
 
 export function LoginForm() {
   const [email, setEmail] = useState("");
@@ -27,10 +37,15 @@ export function LoginForm() {
 
   const notice =
     searchParams.get("notice") === "password_updated"
-      ? "Your password was updated. Log in with your new password."
+      ? "Cambiaste tu contraseña. Inicia sesión con la nueva."
       : null;
   const urlError = searchParams.get("error");
-  const [error, setError] = useState<string | null>(urlError || null);
+  const [problem, setProblem] = useState<LoginProblem | null>(
+    loginUrlProblem(urlError)
+  );
+  const error = problem?.message ?? null;
+  const setError = (message: string | null) =>
+    setProblem(message ? { kind: "other", message } : null);
   const [loading, setLoading] = useState(false);
 
   // Clear the error query param from the URL on mount (side-effect only, no setState)
@@ -66,7 +81,7 @@ export function LoginForm() {
                 });
 
               if (setSessionError) {
-                setError(setSessionError.message || "Failed to authenticate");
+                setError(setSessionError.message || "No pudimos autenticarte");
                 setLoading(false);
                 window.history.replaceState(null, "", window.location.pathname);
                 return;
@@ -77,9 +92,13 @@ export function LoginForm() {
                 // Clear the hash from URL
                 window.history.replaceState(null, "", window.location.pathname);
 
-                router.push(await getPostLoginRedirect(supabase));
+                router.push(
+                  safeNextPath(
+                    new URLSearchParams(window.location.search).get("next")
+                  ) ?? (await getPostLoginRedirect(supabase))
+                );
               } else {
-                setError("Authentication failed. Please try again.");
+                setError("No pudimos autenticarte. Inténtalo de nuevo.");
                 setLoading(false);
                 window.history.replaceState(null, "", window.location.pathname);
               }
@@ -93,7 +112,7 @@ export function LoginForm() {
               } = await supabase.auth.getSession();
 
               if (sessionError) {
-                setError(sessionError.message || "Failed to authenticate");
+                setError(sessionError.message || "No pudimos autenticarte");
                 setLoading(false);
                 window.history.replaceState(null, "", window.location.pathname);
                 return;
@@ -101,10 +120,14 @@ export function LoginForm() {
 
               if (session) {
                 window.history.replaceState(null, "", window.location.pathname);
-                router.push(await getPostLoginRedirect(supabase));
+                router.push(
+                  safeNextPath(
+                    new URLSearchParams(window.location.search).get("next")
+                  ) ?? (await getPostLoginRedirect(supabase))
+                );
                 router.refresh();
               } else {
-                setError("Authentication failed. Please try again.");
+                setError("No pudimos autenticarte. Inténtalo de nuevo.");
                 setLoading(false);
                 window.history.replaceState(null, "", window.location.pathname);
               }
@@ -114,7 +137,7 @@ export function LoginForm() {
             const errorMessage =
               err instanceof Error
                 ? err.message
-                : "Failed to authenticate with magic link";
+                : "No pudimos autenticarte with magic link";
             setError(errorMessage);
             setLoading(false);
             window.history.replaceState(null, "", window.location.pathname);
@@ -137,20 +160,24 @@ export function LoginForm() {
     });
 
     if (error) {
-      setError(error.message);
+      // Spanish, and for an unconfirmed email the way to get a new link.
+      setProblem(loginProblem(error));
       setLoading(false);
     } else {
       router.refresh();
-      router.push(await getPostLoginRedirect(supabase));
+      router.push(
+        safeNextPath(searchParams.get("next")) ??
+          (await getPostLoginRedirect(supabase))
+      );
     }
   };
 
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
-        <CardTitle>Welcome back</CardTitle>
+        <CardTitle>Bienvenido de vuelta</CardTitle>
         <CardDescription>
-          Log in to your restaurant profitability workspace
+          Entra a tu espacio de rentabilidad del restaurante
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleLogin}>
@@ -165,12 +192,18 @@ export function LoginForm() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
+          {problem?.kind === "unconfirmed" ? (
+            <ResendConfirmation
+              email={email}
+              label="Reenviar correo de confirmación"
+            />
+          ) : null}
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email">Correo</Label>
             <Input
               id="email"
               type="email"
-              placeholder="you@company.com"
+              placeholder="tu@correo.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -178,17 +211,17 @@ export function LoginForm() {
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">Contraseña</Label>
               <Link
                 href="/auth/forgot-password"
                 className="text-sm text-primary hover:underline"
               >
-                Forgot password?
+                ¿Olvidaste tu contraseña?
               </Link>
             </div>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -197,12 +230,12 @@ export function LoginForm() {
         </CardContent>
         <CardFooter className="flex flex-col space-y-4 pt-6">
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Signing in..." : "Sign in"}
+            {loading ? "Entrando…" : "Entrar"}
           </Button>
           <p className="text-sm text-center text-muted-foreground">
-            Don&apos;t have an account?{" "}
+            ¿No tienes cuenta?{" "}
             <Link href="/auth/signup" className="text-primary hover:underline">
-              Sign up
+              Crea una
             </Link>
           </p>
         </CardFooter>

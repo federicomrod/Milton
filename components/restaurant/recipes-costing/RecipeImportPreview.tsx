@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { GhostBtn, PrimaryBtn } from "./ui";
 
+/** Id of the «2. Importar recetas» button (scrolled into view after step 1). */
+export const IMPORT_RECIPES_BUTTON_ID = "importar-recetas";
+
 interface PreviewRow {
   key: string;
   dish: string;
@@ -26,7 +29,21 @@ interface RecipePreview {
   linked: number;
   skipped: number;
   unmatched?: Array<{ dish: string; reason: string }>;
+  /** Dishes that already have a recipe with lines. */
+  conflicts?: ConflictRow[];
 }
+
+interface ConflictRow {
+  key: string;
+  dish: string;
+  size: string | null;
+  my_cost: number | null;
+  my_lines: number;
+  excel_cost: number | null;
+  excel_lines: number;
+}
+
+type Choice = "mine" | "excel";
 
 interface Imported {
   batch_id: string;
@@ -34,6 +51,9 @@ interface Imported {
   typed_prices_not_carried?: number;
   dishes_linked: number;
   dishes_skipped: number;
+  dishes_filled?: number;
+  dishes_kept?: number;
+  dishes_replaced?: number;
   preparations_created: number;
   ingredients_created: number;
 }
@@ -54,6 +74,7 @@ export function RecipeImportPreview({
   busyExternal,
   onImported,
   onDishes,
+  primary = true,
 }: {
   /** The saved upload (draft); changes when a new file is picked. */
   draftToken: string | null;
@@ -64,6 +85,8 @@ export function RecipeImportPreview({
   onImported: () => void;
   /** How many dishes the file's recipes hold (0 = none to import). */
   onDishes?: (count: number) => void;
+  /** Step 2 is the next primary action (prices already saved or nothing to save). */
+  primary?: boolean;
 }) {
   const [preview, setPreview] = useState<RecipePreview | null>(null);
   const [imported, setImported] = useState<Imported | null>(
@@ -71,6 +94,8 @@ export function RecipeImportPreview({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Per dish with its own recipe: keep mine (default) or use the Excel's. */
+  const [choices, setChoices] = useState<Record<string, Choice>>({});
 
   useEffect(() => {
     setImported((initialImported as unknown as Imported | null) ?? null);
@@ -125,6 +150,12 @@ export function RecipeImportPreview({
       form.append("draft", "1");
       form.append("mode", "apply");
       if (locationId) form.append("location_id", locationId);
+      const excel = Object.fromEntries(
+        Object.entries(choices).filter(([, choice]) => choice === "excel")
+      );
+      if (Object.keys(excel).length > 0) {
+        form.append("choices", JSON.stringify(excel));
+      }
       const res = await fetch("/api/restaurant/recipes/import", {
         method: "POST",
         body: form,
@@ -133,6 +164,7 @@ export function RecipeImportPreview({
       if (!res.ok) throw new Error(json.error ?? "No pude importar.");
       setImported(json);
       setPreview(null);
+      onDishesRef.current?.(0);
       onImported();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No pude importar.");
@@ -258,12 +290,36 @@ export function RecipeImportPreview({
               </tbody>
             </table>
           </div>
-          <PrimaryBtn
-            disabled={busy || busyExternal}
-            onClick={() => void importRecipes()}
-          >
-            {busy ? "Importando…" : "Importar"}
-          </PrimaryBtn>
+          {preview.conflicts && preview.conflicts.length > 0 ? (
+            <ConflictSection
+              conflicts={preview.conflicts}
+              choices={choices}
+              onChoice={(key, choice) =>
+                setChoices((prev) => ({ ...prev, [key]: choice }))
+              }
+              onAllExcel={() =>
+                setChoices(
+                  Object.fromEntries(
+                    (preview.conflicts ?? []).map((row) => [row.key, "excel"])
+                  ) as Record<string, Choice>
+                )
+              }
+            />
+          ) : null}
+          {(() => {
+            const Btn = primary ? PrimaryBtn : GhostBtn;
+            return (
+              <Btn
+                id={IMPORT_RECIPES_BUTTON_ID}
+                disabled={busy || busyExternal}
+                onClick={() => void importRecipes()}
+              >
+                {busy
+                  ? "Importando…"
+                  : `2. Importar recetas (${preview.dishes} ${preview.dishes === 1 ? "plato" : "platos"})`}
+              </Btn>
+            );
+          })()}
         </>
       ) : null}
 
@@ -273,8 +329,17 @@ export function RecipeImportPreview({
           {imported.dishes_linked} vinculados a tu POS),{" "}
           {imported.preparations_created} preparaciones y{" "}
           {imported.ingredients_created} ingredientes nuevos.
+          {imported.dishes_filled
+            ? ` ${imported.dishes_filled} ${imported.dishes_filled === 1 ? "plato vacío se llenó" : "platos vacíos se llenaron"} con la receta del Excel.`
+            : ""}
+          {imported.dishes_kept
+            ? ` Mantuvimos ${imported.dishes_kept} ${imported.dishes_kept === 1 ? "receta tuya" : "recetas tuyas"}.`
+            : ""}
+          {imported.dishes_replaced
+            ? ` ${imported.dishes_replaced} ${imported.dishes_replaced === 1 ? "plato tiene" : "platos tienen"} un borrador nuevo del Excel (la receta anterior sigue en su historial).`
+            : ""}
           {imported.dishes_skipped > 0
-            ? ` ${imported.dishes_skipped} platos ya tenían receta aprobada o hecha a mano y no se tocaron.`
+            ? ` ${imported.dishes_skipped} platos no se tocaron.`
             : ""}
           {imported.typed_prices_not_carried
             ? ` ${imported.typed_prices_not_carried} precios escritos a mano cambiaron de unidad y quedaron Pendiente: escríbelos de nuevo en el plato.`
@@ -287,6 +352,99 @@ export function RecipeImportPreview({
           </GhostBtn>
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function linesWord(n: number): string {
+  return `${n} ${n === 1 ? "línea" : "líneas"}`;
+}
+
+/** «N platos ya tienen receta»: keep mine (default) or use the Excel's, per dish. */
+function ConflictSection({
+  conflicts,
+  choices,
+  onChoice,
+  onAllExcel,
+}: {
+  conflicts: ConflictRow[];
+  choices: Record<string, Choice>;
+  onChoice: (key: string, choice: Choice) => void;
+  onAllExcel: () => void;
+}) {
+  return (
+    <section
+      className="space-y-1.5 rounded-lg border border-[#c6d3f5] bg-[#f6f8fe] px-3 py-2"
+      data-testid="import-conflicts"
+    >
+      <div className="flex items-center gap-2">
+        <h4 className="text-[12.5px] font-semibold text-[#151c2c]">
+          {conflicts.length}{" "}
+          {conflicts.length === 1 ? "plato ya tiene" : "platos ya tienen"}{" "}
+          receta
+        </h4>
+        <button
+          type="button"
+          onClick={onAllExcel}
+          className="ml-auto text-[12px] font-semibold text-[#1B40C8] hover:underline"
+        >
+          Usar Excel en todos
+        </button>
+      </div>
+      <p className="text-[12px] text-[#5b6476]">
+        Por defecto se queda la tuya. Si eliges el Excel, se crea un borrador
+        nuevo y la receta anterior sigue en su historial.
+      </p>
+      <ul className="max-h-48 divide-y divide-[#e3e9f8] overflow-auto rounded-md border border-[#e3e9f8] bg-white">
+        {conflicts.map((row) => {
+          const choice = choices[row.key] ?? "mine";
+          return (
+            <li
+              key={row.key}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2.5 py-1.5 text-[12px]"
+            >
+              <b className="min-w-32">{row.dish}</b>
+              <span className="text-[#5b6476]">
+                Tu receta:{" "}
+                {row.my_cost !== null ? money(row.my_cost) : "Sin precio"} ·{" "}
+                {linesWord(row.my_lines)}
+              </span>
+              <span className="text-[#5b6476]">
+                Excel:{" "}
+                {row.excel_cost !== null ? money(row.excel_cost) : "Sin precio"}{" "}
+                · {linesWord(row.excel_lines)}
+              </span>
+              <span
+                role="group"
+                aria-label={`Receta de ${row.dish}`}
+                className="ml-auto inline-flex overflow-hidden rounded-md border border-[#1B40C8]"
+              >
+                {(
+                  [
+                    ["mine", "Mantener la mía"],
+                    ["excel", "Usar la del Excel"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={choice === value}
+                    onClick={() => onChoice(row.key, value)}
+                    className={
+                      "px-2 py-0.5 text-[12px] font-semibold " +
+                      (choice === value
+                        ? "bg-[#1B40C8] text-white"
+                        : "bg-white text-[#1B40C8] hover:bg-[#f6f8fe]")
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }

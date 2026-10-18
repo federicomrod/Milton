@@ -24,6 +24,7 @@
 // under one company cannot share the exact same name in this v1 — an
 // acceptable, documented tradeoff rather than a new schema column.
 
+import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
@@ -184,6 +185,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // A new restaurant changes the sales scope (names, shifts, targets).
+    revalidateSales(companyId);
     return NextResponse.json({
       success: true,
       created: true,

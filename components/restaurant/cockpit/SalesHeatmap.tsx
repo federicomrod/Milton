@@ -1,7 +1,7 @@
 // components/restaurant/cockpit/SalesHeatmap.tsx
 //
 // Hour × weekday heatmap of net sales. Lightweight SVG — no extra chart
-// dependency. Colors are a single orange sequential scale (not red/green).
+// dependency. Colors are the brand-blue sequential scale (lib/restaurant/ui/heat-scale).
 
 "use client";
 
@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import type { HeatmapCell } from "@/lib/restaurant/cockpit-aggregates";
 import { localeForCurrency } from "@/lib/restaurant/currency";
+import { heatColor, heatText } from "@/lib/restaurant/ui/heat-scale";
 
 export type HeatmapDisplayCell = HeatmapCell & {
   avg_ticket?: number;
@@ -20,15 +21,8 @@ const WEEKDAY_SHORT_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAY_SHORT_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 function cellFill(intensity: number): string {
-  if (intensity <= 0) return "var(--muted)";
-  const t = Math.min(1, Math.max(0, intensity));
-  const light = 96 - Math.round(t * 52);
-  const sat = 55 + Math.round(t * 30);
-  return `hsl(24 ${sat}% ${light}%)`;
-}
-
-function textColor(intensity: number): string {
-  return intensity > 0.65 ? "hsl(24 40% 18%)" : "hsl(24 10% 28%)";
+  // The same blue scale as Ventas › hora × día (lib/restaurant/ui/heat-scale).
+  return heatColor(intensity <= 0 ? null : intensity);
 }
 
 export type HeatmapMetric = "net" | "tickets";
@@ -173,7 +167,7 @@ export function SalesHeatmap({
                           (focus &&
                             focus.weekday === weekday &&
                             focus.hour === hour)
-                            ? "hsl(24 80% 40%)"
+                            ? "#151c2c"
                             : "transparent"
                         }
                         tabIndex={0}
@@ -238,7 +232,7 @@ export function SalesHeatmap({
                           y={y + cellH / 2 + 3}
                           textAnchor="middle"
                           fontSize="8"
-                          fill={textColor(intensity)}
+                          fill={heatText(intensity)}
                           className="pointer-events-none"
                         >
                           {metric === "tickets" ? tickets : Math.round(net)}

@@ -5,6 +5,8 @@
 // in the browser. Company and user come from auth; the restaurant is validated
 // against the caller's company.
 
+import { accessTokenOf, cacheClientFor } from "@/lib/restaurant/cache-client";
+import { cachedForCompany, salesTag } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
@@ -23,11 +25,29 @@ export async function GET(req: NextRequest) {
   );
   const started = Date.now();
   try {
-    const payload = await loadSalesDetail(
-      auth.supabase,
-      auth.companyId,
-      context.selected?.locationId ?? null
-    );
+    const locationId = context.selected?.locationId ?? null;
+    // The cube (every sales row) is the heavy read: keep it across requests
+    // (5 min, expired by a POS sync / upload, a shift, a goal or a restaurant
+    // change). The cached read runs RLS-bound with the caller's token.
+    const token = await accessTokenOf(auth.supabase);
+    const payload = token
+      ? await cachedForCompany(
+          {
+            name: "sales-detail",
+            companyId: auth.companyId,
+            parts: { location: locationId },
+            tags: [salesTag(auth.companyId)],
+          },
+          async () =>
+            loadSalesDetail(
+              await cacheClientFor(token),
+              auth.companyId,
+              locationId,
+              { failOnReadError: true }
+            ),
+          () => loadSalesDetail(auth.supabase, auth.companyId, locationId)
+        )
+      : await loadSalesDetail(auth.supabase, auth.companyId, locationId);
     console.info(
       `[sales-detail] ${Date.now() - started}ms rows=${payload.cube.rows.length} orders=${payload.cube.order_count}`
     );

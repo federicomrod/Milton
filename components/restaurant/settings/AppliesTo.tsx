@@ -20,8 +20,8 @@ export function AppliesTo({
         onChange={(e) =>
           router.push(
             e.target.value
-              ? `?aplica=${encodeURIComponent(e.target.value)}`
-              : "?"
+              ? `?tab=objetivos&aplica=${encodeURIComponent(e.target.value)}`
+              : "?tab=objetivos"
           )
         }
         className="bg-transparent font-bold outline-none"

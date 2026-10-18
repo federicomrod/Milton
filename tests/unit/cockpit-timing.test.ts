@@ -21,10 +21,6 @@ describe("cockpit timing (#134)", () => {
     const rollup = read("lib/restaurant/cockpit-pos-rollup.ts");
     const proxy = read("proxy.ts");
     const sales = read("app/dashboard/restaurant/sales/page.tsx");
-    const salesDetalle = read(
-      "app/dashboard/restaurant/sales/detalle/page.tsx"
-    );
-    const salesPageData = read("lib/restaurant/sales-page-data.ts");
     const menu = read("app/dashboard/restaurant/menu/page.tsx");
     const costs = read("app/dashboard/restaurant/costs/page.tsx");
     expect(chrome).toContain('timeCockpitStep("chrome"');
@@ -47,15 +43,12 @@ describe("cockpit timing (#134)", () => {
     expect(read("lib/restaurant/cockpit-insights-ai.ts")).toContain(
       'logCockpitTiming("insights"'
     );
-    expect(sales).toMatch(/timeCockpitStep\(\s*"sales-route"/);
-    // R1-17b: the detalle page is a shell; its one read is the sales-detail API,
-    // which logs its own timing.
-    expect(salesDetalle).toContain("SalesDetailV2");
+    // R1-17b: Ventas is a shell; its one read is the sales-detail API, which
+    // logs its own timing.
+    expect(sales).toContain("SalesDetailV2");
     expect(read("app/api/restaurant/sales-detail/route.ts")).toContain(
       "console.info(\n      `[sales-detail] ${Date.now() - started}ms"
     );
-    expect(salesPageData).toMatch(/timeCockpitStep\(\s*"sales-pos-rows"/);
-    expect(salesPageData).toContain('logCockpitTiming("sales-page"');
     expect(menu).toContain("loadMenuAreaModel");
     expect(costs).toMatch(/timeCockpitStep\(\s*"costs-route"/);
     expect(proxy).toContain('console.info("[cockpit-timing] proxy"');

@@ -287,8 +287,8 @@ export function StudioPerformance({
             valueColor = "text-green-600";
           } else if (dbKpi.name.includes("Churn Rate")) {
             icon = UserMinus;
-            iconColor = kpiValue > 5 ? "text-red-600" : "text-orange-600";
-            valueColor = kpiValue > 5 ? "text-red-600" : "text-orange-600";
+            iconColor = kpiValue > 5 ? "text-red-600" : "text-amber-600";
+            valueColor = kpiValue > 5 ? "text-red-600" : "text-amber-600";
             suffix = "%";
           } else if (dbKpi.name.includes("Member Tenure")) {
             icon = Clock;
@@ -309,13 +309,13 @@ export function StudioPerformance({
                 ? "text-green-600"
                 : kpiValue > 50
                   ? "text-yellow-600"
-                  : "text-orange-600";
+                  : "text-amber-600";
             valueColor =
               kpiValue > 75
                 ? "text-green-600"
                 : kpiValue > 50
                   ? "text-yellow-600"
-                  : "text-orange-600";
+                  : "text-amber-600";
             suffix = "%";
           } else if (dbKpi.name.includes("Cancellation")) {
             icon = XCircle;
@@ -323,13 +323,13 @@ export function StudioPerformance({
               kpiValue > 20
                 ? "text-red-600"
                 : kpiValue > 10
-                  ? "text-orange-600"
+                  ? "text-amber-600"
                   : "text-yellow-600";
             valueColor =
               kpiValue > 20
                 ? "text-red-600"
                 : kpiValue > 10
-                  ? "text-orange-600"
+                  ? "text-amber-600"
                   : "text-yellow-600";
             suffix = "%";
           }

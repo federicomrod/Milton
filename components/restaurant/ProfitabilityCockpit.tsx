@@ -393,7 +393,7 @@ export function SupplierTrendsSection({
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-orange-500" />
+              <TrendingUp className="h-4 w-4 text-[#1B40C8]" />
               {t(
                 lang,
                 "Ingredient price changes",
@@ -529,7 +529,7 @@ export function SupplierTrendsSection({
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-orange-500" />
+              <Building2 className="h-4 w-4 text-[#1B40C8]" />
               {t(lang, "Top supplier spend", "Mayor gasto por proveedor")}
               <span className="text-xs text-muted-foreground font-normal">
                 · {t(lang, "total", "total")}{" "}
@@ -589,7 +589,7 @@ export function SupplierTrendsSection({
                           <div className="flex items-center justify-end gap-2">
                             <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
                               <div
-                                className="h-full bg-orange-500"
+                                className="h-full bg-[#1B40C8]"
                                 style={{
                                   width: `${Math.min(100, s.pct_of_total).toFixed(1)}%`,
                                 }}
@@ -731,7 +731,7 @@ export function DataQualityChecklistSection({
             />
             <li className="flex items-center justify-between gap-4 px-4 py-3">
               <div className="flex items-center gap-3 min-w-0">
-                <Building2 className="h-4 w-4 text-orange-500 shrink-0" />
+                <Building2 className="h-4 w-4 text-[#1B40C8] shrink-0" />
                 <span className="text-sm text-muted-foreground">
                   {t(
                     lang,
@@ -754,7 +754,7 @@ export function DataQualityChecklistSection({
             </li>
             <li className="flex items-center justify-between gap-4 px-4 py-3">
               <div className="flex items-center gap-3 min-w-0">
-                <Upload className="h-4 w-4 text-orange-500 shrink-0" />
+                <Upload className="h-4 w-4 text-[#1B40C8] shrink-0" />
                 <span className="text-sm text-muted-foreground">
                   {t(lang, "Import more cost data", "Importar más costos")}
                 </span>
@@ -905,7 +905,7 @@ export function SupplierPriceAlerts({
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2">
-          <TrendingUp className="h-4 w-4 text-orange-500" />
+          <TrendingUp className="h-4 w-4 text-[#1B40C8]" />
           {t(lang, "Supplier price alerts", "Alertas de precio de proveedores")}
         </CardTitle>
       </CardHeader>
@@ -974,7 +974,7 @@ function Kpi({
   const card = (
     <Card
       className={
-        href ? "h-full transition-colors hover:border-[#f28c28]" : undefined
+        href ? "h-full transition-colors hover:border-[#1B40C8]" : undefined
       }
     >
       <CardHeader className="pb-2">

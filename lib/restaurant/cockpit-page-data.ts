@@ -3,6 +3,8 @@
 // Shared loader for the cockpit and the thin Sales / Menu / Costs routes.
 // Same fetches as the original cockpit page — no KPI math lives here.
 
+import { accessTokenOf, cacheClientFor } from "@/lib/restaurant/cache-client";
+import { cachedForCompany, salesTag } from "@/lib/restaurant/cache-tags";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -11,7 +13,6 @@ import {
 } from "@/lib/restaurant/supabase-targets";
 import {
   fetchRealRestaurantDashboardData,
-  resolveCompanyIdForUser,
   toExplorerRow,
   type ExplorerRow,
   type RestaurantDashboardData,
@@ -138,12 +139,10 @@ export async function loadCockpitPageModel(
 
     let selectedBrandId: string | null = null;
     if (requestedLocationId) {
-      const { data: userData } = await supabase.auth.getUser();
-      if (userData.user?.id) {
-        const companyIdForContext = await resolveCompanyIdForUser(
-          supabase,
-          userData.user.id
-        );
+      // The cached sign-in / company (no second Auth round trip).
+      const user = await getCachedAuthUser();
+      if (user?.id) {
+        const companyIdForContext = await getCachedCompanyId(user.id);
         if (companyIdForContext) {
           const context = await resolveRestaurantContext(
             supabase,
@@ -160,25 +159,30 @@ export async function loadCockpitPageModel(
 
     data = await fetchRealRestaurantDashboardData(supabase, selectedLocationId);
     if (data.mode === "live") {
-      try {
-        targets = await getRestaurantKpiTargets(supabase, data.companyId);
-      } catch (err) {
-        console.error("[loadCockpitPageModel] targets load failed:", err);
-        targets = {};
-      }
-      try {
-        profitability = await fetchProfitabilityData(
+      // The goals and the profitability are independent: read them together.
+      const live = data;
+      const [targetsRead, profitabilityRead] = await Promise.all([
+        getRestaurantKpiTargets(supabase, live.companyId).catch((err) => {
+          console.error("[loadCockpitPageModel] targets load failed:", err);
+          return {} as TargetMap;
+        }),
+        fetchProfitabilityData(
           supabase,
-          data.companyId,
+          live.companyId,
           selectedLocationId
             ? { locationId: selectedLocationId, brandId: selectedBrandId }
             : null,
-          data.readError ? undefined : { posRows: data.posFactRows }
-        );
-      } catch (err) {
-        console.error("[loadCockpitPageModel] profitability load failed:", err);
-        profitability = null;
-      }
+          live.readError ? undefined : { posRows: live.posFactRows }
+        ).catch((err) => {
+          console.error(
+            "[loadCockpitPageModel] profitability load failed:",
+            err
+          );
+          return null;
+        }),
+      ]);
+      targets = targetsRead;
+      profitability = profitabilityRead;
     }
   } catch (err) {
     console.error("[loadCockpitPageModel] Supabase init failed:", err);
@@ -495,11 +499,34 @@ export const loadCachedCockpitPosRollup = cache(
     currency: string
   ) => {
     const supabase = await createClient();
-    return fetchCockpitPosRollup(supabase, companyId, {
-      locationId,
-      timezone,
-      currency,
-    });
+    const read = (client: Parameters<typeof fetchCockpitPosRollup>[0]) =>
+      fetchCockpitPosRollup(client, companyId, {
+        locationId,
+        timezone,
+        currency,
+      });
+    // The rollup (an RPC over every sales row) is kept across requests for 5
+    // minutes and expired with the company's sales tag (POS sync / upload,
+    // shifts, goals, restaurants). Only a good rollup is cached; the RPC checks
+    // membership with the caller's token, so it runs RLS-bound.
+    const token = await accessTokenOf(supabase);
+    if (!token) return read(supabase);
+    return cachedForCompany(
+      {
+        name: "cockpit-pos-rollup",
+        companyId,
+        parts: { location: locationId, tz: timezone, currency },
+        tags: [salesTag(companyId)],
+      },
+      async () => {
+        const result = await read(await cacheClientFor(token));
+        if (result.error || result.missing || !result.rollup) {
+          throw new Error("rollup not cacheable");
+        }
+        return result;
+      },
+      () => read(supabase)
+    );
   }
 );
 
@@ -538,8 +565,11 @@ async function resolveCockpitScopeUncached(
     return await timeCockpitStep(
       "scope",
       async () => {
-        const supabase = await createClient();
-        const user = await getCachedAuthUser();
+        // Independent: the client (cookies) and the cached sign-in.
+        const [supabase, user] = await Promise.all([
+          createClient(),
+          getCachedAuthUser(),
+        ]);
         if (!user?.id) return { ok: false, reason: "unauthenticated" as const };
         const companyId = await getCachedCompanyId(user.id);
         if (!companyId) return { ok: false, reason: "no_company" as const };
@@ -895,8 +925,11 @@ export const loadCockpitTabsModel = cache(loadCockpitTabsModelUncached);
 async function loadCockpitTabsModelUncached(
   requestedLocationId?: string
 ): Promise<CockpitTabsModel> {
-  const chrome = await loadRestaurantShellChrome();
-  const resolved = await resolveCockpitScope(requestedLocationId);
+  // Independent reads (both share the cached sign-in and company): one wait.
+  const [chrome, resolved] = await Promise.all([
+    loadRestaurantShellChrome(),
+    resolveCockpitScope(requestedLocationId),
+  ]);
   if (!resolved.ok) {
     return {
       lang: chrome.lang,

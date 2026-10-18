@@ -5,7 +5,7 @@ export const TOTAL_ROW_RE =
   /^(total|sub[\s-]?total|totales|subtotales|suma|costo\s+total|precio\s+por\s+libra|precio\s+por\s+onza|precio\s+de\s+venta|margen\s+de\s+contribuci)(\b|:|$)/i;
 
 const HEADERISH_RE =
-  /^(item|nombre|producto|ingrediente|ingredient|articulo|artículo|unidad(\s+detalle)?|unit|costo(\s+unitario)?|precio|cantidad|quantity|total(\s+costo)?|libra|onza|costo\s+restaurante|restaurante\s+los\s+ranchos)$/i;
+  /^(item|nombre|producto|ingrediente|ingredient|articulo|artículo|unidad(\s+detalle)?|unit|costo(\s+unitario)?|precio|cantidad|quantity|total(\s+costo)?|libra|onza|costo\s+restaurante|restaurante\s+\S+(\s+\S+){0,3})$/i;
 
 export function skipReasonForWorkbookRow(
   tabType: CostTabType,

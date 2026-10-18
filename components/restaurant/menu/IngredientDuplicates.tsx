@@ -12,6 +12,7 @@ import {
   buildQueue,
   chooseSurvivor,
   findDuplicateSets,
+  mergeUnitMismatch,
   pairKey,
   planMerge,
   type MergeCandidate,
@@ -23,6 +24,7 @@ import type {
   MergeRecord,
 } from "@/lib/restaurant/ingredient-duplicates-server";
 import type { IngredienteItem } from "./IngredientesScreen";
+import { clearIngredientOptionsCache } from "@/components/restaurant/recipes-costing/ingredient-options";
 
 export interface DupToast {
   message: string;
@@ -55,7 +57,11 @@ export function useDuplicateQueue({
 }) {
   const router = useRouter();
   /** A merge or an undo changed recipes and prices: re-read the page's data. */
-  const onChanged = () => router.refresh();
+  const onChanged = () => {
+    // The Reventa picker keeps the ingredient list for a minute: drop it.
+    clearIngredientOptionsCache();
+    router.refresh();
+  };
   const [stored, setStored] = useState<StoredSuggestion[]>(duplicates.stored);
   const [notDup, setNotDup] = useState<Set<string>>(
     () => new Set(duplicates.notDuplicates)
@@ -254,6 +260,34 @@ export function useDuplicateQueue({
     }
   }
 
+  /** «Unir…» from the selection bar: same route, same transaction. Returns an error message, or null when it worked. */
+  async function mergeManual(
+    survivorId: string,
+    loserIds: string[],
+    chosenEntryId: string | null,
+    survivorName: string
+  ): Promise<string | null> {
+    setBusy(true);
+    try {
+      const json = await post("/api/restaurant/ingredients/duplicates/merge", {
+        survivor_id: survivorId,
+        loser_ids: loserIds,
+        chosen_cost_entry_id: chosenEntryId,
+        suggestion_id: null,
+      });
+      show({
+        message: `Unido en ${survivorName}. Las recetas se actualizan al instante.`,
+        undoMergeId: json.result?.merge_id,
+      });
+      onChanged();
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : "No pude unir.";
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function undo(mergeId: string) {
     setBusy(true);
     try {
@@ -331,6 +365,7 @@ export function useDuplicateQueue({
       current && setEntryOf((p) => ({ ...p, [current.key]: id })),
     decide,
     merge,
+    mergeManual,
     undo,
     askAi,
     canAskAi: dupItems.filter((i) => !i.archived).length >= 4,
@@ -364,7 +399,7 @@ export function DuplicatesBanner({
   const byId = new Map(q.candidates.map((c) => [c.id, c]));
   return (
     <section
-      className="space-y-3 rounded-[14px] border border-[#dbe3f7] bg-[#f6f8fe] px-4 py-3"
+      className="space-y-2 rounded-[14px] border border-[#dbe3f7] bg-[#f6f8fe] px-4 py-2.5"
       data-testid="duplicates-banner"
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -429,14 +464,15 @@ export function DuplicatesBanner({
                   type="button"
                   onClick={() => q.setSurvivor(id)}
                   aria-pressed={keep}
+                  title={c.name}
                   className={
-                    "min-w-[200px] rounded-xl border-2 bg-white px-3 py-2 text-left " +
+                    "min-w-0 max-w-[280px] flex-1 basis-[180px] rounded-xl border-2 bg-white px-3 py-1.5 text-left " +
                     (keep
                       ? "border-[#1b40c8]"
                       : "border-[#e1e8fa] hover:border-[#a9bcf0]")
                   }
                 >
-                  <span className="block text-[13px] font-bold text-[#151c2c]">
+                  <span className="line-clamp-2 break-words text-[13px] font-bold text-[#151c2c]">
                     {c.name}
                     {keep ? (
                       <span className="ml-2 rounded bg-[#dcf3e4] px-1.5 py-0.5 text-[12px] font-semibold text-[#15803d]">
@@ -457,7 +493,7 @@ export function DuplicatesBanner({
             })}
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[13px]">
-            <span>
+            <span className="min-w-0 break-words">
               Unir en <b>{byId.get(q.survivorId)?.name}</b> ·{" "}
               {q.plan.linesReassigned}{" "}
               {q.plan.linesReassigned === 1
@@ -570,5 +606,190 @@ export function DuplicatesBanner({
         </div>
       ) : null}
     </section>
+  );
+}
+
+function candidateOf(i: IngredienteItem): MergeCandidate {
+  return {
+    id: i.id,
+    name: i.name,
+    price: i.price,
+    priceUnit: i.price_unit,
+    priceDate: i.price_date,
+    priceSourced: i.price !== null,
+    priceEntryId: i.price_entry_id ?? null,
+    recipeCount: i.recipeCount ?? 0,
+    lineCount: i.lineCount ?? 0,
+  };
+}
+
+/**
+ * «Unir…» from the selection bar (2+ ingredients): «¿Cuál se conserva?». The
+ * pre-pick is the banner's (has a price, newest price, more recipes, A–Z); when
+ * the prices differ the person picks one, never an average. Confirming calls
+ * the same merge route as the banner.
+ */
+export function ManualMergeDialog({
+  q,
+  items,
+  ids,
+  money,
+  onClose,
+  onMerged,
+}: {
+  q: DuplicateQueue;
+  items: readonly IngredienteItem[];
+  ids: readonly string[];
+  money: (n: number, unit: string | null) => string;
+  onClose: () => void;
+  onMerged: (survivorId: string, loserIds: string[]) => void;
+}) {
+  const candidates = useMemo(() => {
+    const byId = new Map(items.map((i) => [i.id, i]));
+    return ids
+      .map((id) => byId.get(id))
+      .filter((i): i is IngredienteItem => !!i && !i.archived)
+      .map(candidateOf);
+  }, [items, ids]);
+  const [survivorPick, setSurvivorPick] = useState<string | null>(null);
+  const [entryPick, setEntryPick] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  if (candidates.length < 2) return null;
+  const survivorId =
+    survivorPick && candidates.some((c) => c.id === survivorPick)
+      ? survivorPick
+      : chooseSurvivor(candidates);
+  const plan = planMerge(candidates, survivorId);
+  const chosenEntry = plan.priceConflict
+    ? entryPick && plan.priceOptions.some((o) => o.entryId === entryPick)
+      ? entryPick
+      : plan.defaultEntryId
+    : null;
+  const unitById = new Map(
+    items.map((i) => [i.id, i.default_unit ?? i.price_unit])
+  );
+  const mismatch = mergeUnitMismatch(
+    candidates.map((c) => ({ name: c.name, unit: unitById.get(c.id) ?? null }))
+  );
+  const survivor = candidates.find((c) => c.id === survivorId)!;
+  const blocked = q.busy || !!mismatch || !q.available;
+
+  async function confirm() {
+    setError(null);
+    const failure = await q.mergeManual(
+      plan.survivorId,
+      plan.loserIds,
+      chosenEntry,
+      survivor.name
+    );
+    if (failure) setError(failure);
+    else onMerged(plan.survivorId, plan.loserIds);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Unir ingredientes"
+      data-testid="manual-merge-dialog"
+    >
+      <div className="max-h-full w-full max-w-[640px] space-y-3 overflow-y-auto rounded-[14px] border border-[#dbe3f7] bg-white p-4 shadow-xl">
+        <h2 className="text-[15px] font-bold text-[#151c2c]">
+          ¿Cuál se conserva?
+        </h2>
+        <div className="flex flex-wrap gap-2">
+          {candidates.map((c) => {
+            const keep = c.id === survivorId;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setSurvivorPick(c.id)}
+                aria-pressed={keep}
+                title={c.name}
+                className={
+                  "min-w-0 max-w-[280px] flex-1 basis-[180px] rounded-xl border-2 bg-white px-3 py-1.5 text-left " +
+                  (keep
+                    ? "border-[#1b40c8]"
+                    : "border-[#e1e8fa] hover:border-[#a9bcf0]")
+                }
+              >
+                <span className="line-clamp-2 break-words text-[13px] font-bold text-[#151c2c]">
+                  {c.name}
+                  {keep ? (
+                    <span className="ml-2 rounded bg-[#dcf3e4] px-1.5 py-0.5 text-[12px] font-semibold text-[#15803d]">
+                      Se conserva
+                    </span>
+                  ) : null}
+                </span>
+                <span className="block text-[12px] text-[#6b7a9e]">
+                  {c.price !== null
+                    ? `${money(c.price, c.priceUnit)} · ${fmtDate(c.priceDate)}`
+                    : "Sin precio · —"}
+                </span>
+                <span className="block text-[12px] text-[#6b7a9e]">
+                  {c.recipeCount} {c.recipeCount === 1 ? "receta" : "recetas"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[13px]">
+          Unir en <b>{survivor.name}</b> · {plan.linesReassigned}{" "}
+          {plan.linesReassigned === 1
+            ? "línea de receta se reasigna"
+            : "líneas de receta se reasignan"}{" "}
+          · los nombres quedan como alias y se archivan.
+        </p>
+        {plan.priceConflict ? (
+          <label className="inline-flex items-center gap-1 rounded-md bg-[#fff1d6] px-2 py-0.5 text-[12px] font-semibold text-[#a35a00]">
+            Los precios son distintos. Precio que se conserva:
+            <select
+              value={chosenEntry ?? ""}
+              onChange={(e) => setEntryPick(e.target.value)}
+              aria-label="Precio que se conserva"
+              className="bg-transparent font-semibold outline-none"
+            >
+              {plan.priceOptions.map((o) => (
+                <option key={o.entryId} value={o.entryId}>
+                  {money(o.price, o.unit)} ({o.from})
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {mismatch || error ? (
+          <p
+            role="alert"
+            className="rounded-lg bg-[#fdecec] px-3 py-2 text-[13px] text-[#c03535]"
+          >
+            {mismatch ?? error}
+          </p>
+        ) : null}
+        {!q.available ? (
+          <p className="text-[12px] text-[#a35a00]">
+            Para unir falta aplicar las migraciones 050 y 051 en este ambiente.
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2 text-[13px]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-[#c6d3f5] bg-white px-3 py-1.5 font-semibold text-[#4a5a85]"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={blocked}
+            onClick={() => void confirm()}
+            className="rounded-lg bg-[#2f5be0] px-4 py-1.5 font-semibold text-white hover:bg-[#1b40c8] disabled:opacity-50"
+          >
+            {q.busy ? "Uniendo…" : "Unir"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -69,7 +69,7 @@ describe("filterMenuItemsForSelection (Multi-Restaurant UX v1 — Phase 4 menu s
         location_id: "loc-a",
       },
       {
-        id: "item-lavara",
+        id: "item-casasur",
         name: "Ceviche",
         brand_id: null,
         location_id: "loc-b",
@@ -80,6 +80,6 @@ describe("filterMenuItemsForSelection (Multi-Restaurant UX v1 — Phase 4 menu s
       brandId: BRAND_A,
     });
     expect(casa.map((m) => m.id)).toContain("item-casa");
-    expect(casa.map((m) => m.id)).not.toContain("item-lavara");
+    expect(casa.map((m) => m.id)).not.toContain("item-casasur");
   });
 });

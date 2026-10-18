@@ -7,7 +7,7 @@ const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 
 describe("cockpit step-1 review nits", () => {
   it("does not render a visible TODO step 2 box on the Menu tab", () => {
-    const page = read("app/(restaurant-cockpit)/dashboard/restaurant/page.tsx");
+    const page = read("app/dashboard/restaurant/(cockpit)/page.tsx");
     const menuTab = read(
       "components/restaurant/cockpit/MenuProfitabilityTab.tsx"
     );

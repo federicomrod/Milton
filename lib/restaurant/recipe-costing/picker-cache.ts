@@ -7,6 +7,7 @@
 // Browser memory only: a reload starts empty.
 
 import type { PickerOption } from "./editor";
+import { sameUnit } from "@/lib/restaurant/units";
 
 /** Editor actions that change the catalog (names, prices, units). */
 export const CATALOG_CHANGING_ACTIONS: ReadonlySet<string> = new Set([
@@ -47,4 +48,34 @@ export function pickerOptionsFor(
   return componentId
     ? options.filter((o) => !(o.kind === "component" && o.id === componentId))
     : options;
+}
+
+/**
+ * A price typed in the ingredient's own unit changes ONE option of the list:
+ * patch it in place instead of throwing the whole list away and asking the
+ * server for it again. Returns false when it cannot be patched exactly (the
+ * unit differs, the ingredient is not in the list): the caller then clears it.
+ */
+export function patchPickerOptionPrice(
+  ingredientId: string,
+  unit: string,
+  unitCost: number
+): boolean {
+  if (!cached) return false;
+  const index = cached.options.findIndex(
+    (o) => o.kind === "ingredient" && o.id === ingredientId
+  );
+  if (index < 0) return false;
+  const option = cached.options[index];
+  if (option.unit !== null && !sameUnit(option.unit, unit)) return false;
+  const next = cached.options.slice();
+  next[index] = {
+    ...option,
+    unit: option.unit ?? unit,
+    unit_cost: unitCost,
+    price_date: new Date().toISOString().slice(0, 10),
+    price_source: "manual",
+  };
+  cached = { options: next, at: cached.at };
+  return true;
 }

@@ -95,7 +95,27 @@ export async function upsertUserProfile(
   return data as UserProfile;
 }
 
+/**
+ * The company of the signed-in person, read through their membership
+ * (restaurant accounts have no `companies.created_by`). Null when the
+ * request fails, so callers fall back to the legacy lookup.
+ */
+async function fetchMemberCompany(): Promise<Company | null> {
+  try {
+    const res = await fetch("/api/restaurant/company", {
+      credentials: "include",
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { company?: Company | null };
+    return json.company ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getUserCompany(): Promise<Company | null> {
+  const member = await fetchMemberCompany();
+  if (member) return member;
   const supabase = createClient();
   const {
     data: { user },
@@ -133,6 +153,21 @@ export async function updateCompany(
 
   if (userError) console.error("Auth error (updateCompany):", userError);
   if (!user) throw new Error("User not authenticated");
+
+  // Restaurant accounts: rename through the membership (the legacy
+  // `created_by` update below matches nothing for them).
+  if (typeof companyData.name === "string" && companyData.name.trim()) {
+    const res = await fetch("/api/restaurant/company", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: companyData.name }),
+    }).catch(() => null);
+    if (res?.ok) {
+      const json = (await res.json()) as { company: Company };
+      return json.company;
+    }
+  }
 
   // Filter out fields that don't exist in the companies table
   const {

@@ -69,7 +69,7 @@ export function AskMiltonDrawer({
           </div>
           <button
             type="button"
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
             aria-label={t(lang, "Close", "Cerrar")}
             onClick={() => onOpenChange(false)}
           >
@@ -122,7 +122,7 @@ export function AskMiltonButton({
       type="button"
       data-testid="ask-milton-button"
       onClick={onClick}
-      className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-primary text-primary-foreground h-10 px-4 text-sm font-semibold shadow-sm hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2"
+      className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-primary text-primary-foreground h-10 px-4 text-sm font-semibold shadow-sm hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
     >
       <MessageSquareText className="h-4 w-4" />
       {t(lang, "Ask Milton", "Preguntar a Milton")}

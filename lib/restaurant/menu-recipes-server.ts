@@ -10,6 +10,7 @@
 // the SSR Supabase client (cookies-bound) so the user's RLS policies
 // apply. No service-role calls anywhere in this milestone.
 
+import { loadUnitConversions } from "@/lib/restaurant/unit-conversions-server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PreparedComponent } from "@/types/restaurant";
 import type {
@@ -23,7 +24,7 @@ import {
   type CostingRecipeInput,
   calculateAllComponentCosts,
   calculateAllMenuItemCosts,
-  getLatestIngredientCost,
+  latestCostEntry,
   parseWorkbookCostMatch,
 } from "@/lib/restaurant/costing";
 import {
@@ -31,7 +32,10 @@ import {
   succeededRows,
   warnIfTruncated,
 } from "@/lib/restaurant/paginated-read";
-import { fetchAllRowsRetryingWithoutColumn } from "@/lib/restaurant/missing-schema-column";
+import {
+  fetchAllRowsRetryingWithoutColumn,
+  fetchAllRowsRetryingWithoutColumns,
+} from "@/lib/restaurant/missing-schema-column";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
 import {
@@ -206,6 +210,7 @@ export async function fetchMenuRecipesData(
     };
   }
 
+  const conversionsPromise = loadUnitConversions(supabase, companyId);
   const [
     posRes,
     mappingsRes,
@@ -509,6 +514,7 @@ export async function fetchMenuRecipesData(
   // and the engine indexes them by id. Cost entries are grouped by
   // ingredient_id so the "latest as-of date" lookup is O(log n) per
   // call (after sorting the per-ingredient slice).
+  const unitConversionsByIngredientId = await conversionsPromise;
   const ingredientsById = new Map(ingredients.map((i) => [i.id, i]));
   const componentsById = new Map(
     components.map((c) => [c.id, { ...c, status: c.status ?? "draft" }])
@@ -559,6 +565,7 @@ export async function fetchMenuRecipesData(
     menuRecipesByMenuItemId,
     menuRecipeInputsByRecipeId: menuInputsByRecipeId,
     costEntriesByIngredientId,
+    unitConversionsByIngredientId,
     menuRecipeVersionsByMenuItemId: versions.menuRecipeVersionsByMenuItemId,
     menuRecipeVersionInputsByVersionId:
       versions.menuRecipeVersionInputsByVersionId,
@@ -693,13 +700,16 @@ export async function fetchIngredientLatestCosts(
         .select("id, name, category, default_unit")
         .eq("company_id", companyId)
     ),
-    fetchAllRows<IngredientCostEntry>(() =>
-      supabase
-        .from("ingredient_cost_entries")
-        .select(
-          "id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
-        )
-        .eq("company_id", companyId)
+    // effective_date / date_source (036) decide which entry is the current
+    // one, exactly as in the editor: read them (older databases fall back).
+    fetchAllRowsRetryingWithoutColumns<IngredientCostEntry>(
+      ["effective_date", "date_source"],
+      (select) =>
+        supabase
+          .from("ingredient_cost_entries")
+          .select(select)
+          .eq("company_id", companyId),
+      "id, ingredient_id, supplier_id, source_type, source_id, cost_date, effective_date, date_source, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
     ),
     fetchAllRows<{ id: string; name: string }>(() =>
       supabase.from("suppliers").select("id, name").eq("company_id", companyId)
@@ -735,28 +745,13 @@ export async function fetchIngredientLatestCosts(
     list.push(e);
     byIngredient.set(e.ingredient_id, list);
   }
-  const fakeData: CostingData = {
-    ingredientsById: new Map(),
-    componentsById: new Map(),
-    componentRecipesByComponentId: new Map(),
-    componentRecipeInputsByRecipeId: new Map(),
-    menuItemsById: new Map(),
-    menuRecipesByMenuItemId: new Map(),
-    menuRecipeInputsByRecipeId: new Map(),
-    costEntriesByIngredientId: byIngredient,
-  };
   const ingredients = [...succeededRows(ingredientsRes)].sort((a, b) =>
     a.name.localeCompare(b.name)
   );
   return ingredients.map((ing) => {
-    const latest = getLatestIngredientCost(ing.id, fakeData);
     const list = byIngredient.get(ing.id) ?? [];
-    const latestRow =
-      latest.cost_date && latest.unit_cost !== null
-        ? list
-            .filter((e) => e.cost_date === latest.cost_date)
-            .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0]
-        : null;
+    // The same entry the editor and the engine use (never a different "latest").
+    const latestRow = latestCostEntry(list) ?? null;
     return {
       id: ing.id,
       name: ing.name,

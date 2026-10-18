@@ -65,7 +65,7 @@ export function CockpitInsightsCard({
                   </span>
                   <Link
                     href={insight.action.href}
-                    className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 rounded-sm"
+                    className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] rounded-sm"
                   >
                     {insight.action.label}
                   </Link>

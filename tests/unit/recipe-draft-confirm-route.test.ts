@@ -765,3 +765,22 @@ describe("an archived (merged-away) ingredient is never saved on a recipe", () =
     );
   });
 });
+
+describe("confirm fails closed when the prices cannot be read", () => {
+  it("a failed read of the cost entries → 500, nothing written, the draft stays draft", async () => {
+    failRule = (table, mode) =>
+      table === "ingredient_cost_entries" && mode === "select";
+    const res = await confirm(body());
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe(
+      "No pude leer los precios. Inténtalo de nuevo."
+    );
+    expect(store.recipe_versions.map((v) => v.id)).toEqual(["ver-1"]);
+    expect(store.recipe_version_inputs).toEqual(approvedLines);
+    expect(store.menu_items).toHaveLength(1);
+    expect(store.kitchen_recipe_drafts[0].status).toBe("draft");
+    // and it works once the prices can be read again
+    failRule = null;
+    expect((await confirm(body())).status).toBe(200);
+  });
+});

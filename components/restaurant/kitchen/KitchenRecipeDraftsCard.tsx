@@ -279,6 +279,7 @@ export function KitchenRecipeDraftsCard({
       }
     );
     if (res.ok) {
+      await teachNames(cleanLines);
       closeEditor();
       setReloadKey((k) => k + 1);
     } else {
@@ -299,21 +300,37 @@ export function KitchenRecipeDraftsCard({
     }
   };
 
-  /** Remember that a name the cook said means this ingredient (this company). */
-  const rememberAlias = (rawName: string, ing: ComboIngredient) => {
-    const raw = rawName.trim();
-    if (!raw || normalizeKitchenName(raw) === normalizeKitchenName(ing.name)) {
-      return;
-    }
-    void fetch("/api/restaurant/kitchen/ingredient-aliases", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ raw_name: raw, ingredient_id: ing.id }),
-    }).catch(() => undefined);
+  /**
+   * After a successful Confirmar: remember, for each line whose ingredient the
+   * reviewer chose (the bot matched none, or another one), that the cook's
+   * words mean it. The server only ever INSERTS (it never repoints a name that
+   * already has an alias), and ignores names that are an ingredient's own name.
+   */
+  const teachNames = async (lines: DraftLine[]) => {
+    const botPicked = new Map(
+      (selectedDraft?.lines ?? []).map((l) => [l.id, l.ingredient_id])
+    );
+    const taught = lines.filter(
+      (l) =>
+        l.ingredient_id &&
+        l.raw_name.trim() &&
+        botPicked.get(l.id) !== l.ingredient_id
+    );
+    await Promise.allSettled(
+      taught.map((l) =>
+        fetch("/api/restaurant/kitchen/ingredient-aliases", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            raw_name: l.raw_name.trim(),
+            ingredient_id: l.ingredient_id,
+          }),
+        })
+      )
+    );
   };
 
   const updateLineIngredient = (index: number, ing: ComboIngredient) => {
-    const previous = editedLines[index];
     const newLines = [...editedLines];
     newLines[index] = {
       ...newLines[index],
@@ -321,11 +338,8 @@ export function KitchenRecipeDraftsCard({
       ingredient_name: ing.name,
     };
     setEditedLines(newLines);
-    // Accepting a suggestion or picking another ingredient for the cook's own
-    // words teaches Milton that name for next time.
-    if (previous && previous.ingredient_id !== ing.id) {
-      rememberAlias(previous.raw_name, ing);
-    }
+    // Nothing is taught here: a pick in a draft that is cancelled or rejected
+    // teaches nothing. The names are saved after a successful Confirmar.
   };
 
   /** «+ Crear "texto"»: a new ingredient WITHOUT a price (duplicates are refused). */

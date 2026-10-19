@@ -2,12 +2,17 @@
 //
 // Remembers that a name a cook said means an ingredient of THIS company
 // (ingredient_aliases), so the next draft with that name matches exactly.
+// INSERT ONLY: an existing alias (also one from a merge or an import) is never
+// repointed; the answer is { saved: false, existing }.
 // The ingredient must belong to the caller's company. Owner / Milton staff.
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
-import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
+import {
+  aliasKeyFor,
+  createSupabaseCostWorkbookRepo,
+} from "@/lib/restaurant/cost-workbook/repo";
 import {
   isActiveIngredient,
   loadCompanyIngredients,
@@ -55,20 +60,62 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  // The ingredient's own name needs no alias.
+  const active = (
+    await loadCompanyIngredients(auth.supabase, auth.companyId)
+  ).filter(isActiveIngredient);
+  const key = normalizeMatchName(rawName);
+  // No alias when the words ARE the name of an active ingredient (its own, or
+  // another one): the name already says what it means.
   if (
-    normalizeMatchName(rawName) === normalizeMatchName(String(ingredient.name))
+    normalizeMatchName(String(ingredient.name)) === key ||
+    active.some((row) => normalizeMatchName(row.name) === key)
   ) {
     return NextResponse.json({ ok: true, saved: false });
   }
 
   try {
-    await createSupabaseCostWorkbookRepo(auth.supabase).upsertIngredientAlias({
-      companyId: auth.companyId,
-      aliasName: rawName,
-      ingredientId,
-      createdBy: auth.userId,
+    // INSERT ONLY. ingredient_aliases is shared with the Excel import, the menu
+    // reader and the ingredient merges (a merge points the loser's name at the
+    // survivor, and "undo merge" relies on it): a name that already has an alias
+    // is never repointed from here.
+    const aliasKey = aliasKeyFor(rawName);
+    const already = (
+      await createSupabaseCostWorkbookRepo(auth.supabase).listIngredientAliases(
+        auth.companyId
+      )
+    ).find((row) => row.alias_key === aliasKey);
+    const existingResponse = (ingredientId: string) => {
+      const target = active.find((row) => row.id === ingredientId);
+      return NextResponse.json({
+        ok: true,
+        saved: false,
+        existing: {
+          id: ingredientId,
+          name: target?.name ?? "",
+        },
+      });
+    };
+    if (already) return existingResponse(already.ingredient_id);
+
+    const { error } = await auth.supabase.from("ingredient_aliases").insert({
+      company_id: auth.companyId,
+      alias_key: aliasKey,
+      alias_name: rawName,
+      ingredient_id: ingredientId,
+      created_by: auth.userId,
     });
+    if (error) {
+      // Somebody saved the same name a moment ago: keep theirs.
+      if (error.code === "23505") {
+        const winner = (
+          await createSupabaseCostWorkbookRepo(
+            auth.supabase
+          ).listIngredientAliases(auth.companyId)
+        ).find((row) => row.alias_key === aliasKey);
+        if (winner) return existingResponse(winner.ingredient_id);
+      }
+      throw new Error(error.message);
+    }
     return NextResponse.json({ ok: true, saved: true });
   } catch (err) {
     console.error(

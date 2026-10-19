@@ -515,3 +515,81 @@ describe("merged-away and archived ingredients", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("the alias route only ever INSERTS", () => {
+  beforeEach(() => {
+    // the merge pointed "bacon" at Tocino; Panceta is another live ingredient
+    store.ingredients.push(
+      {
+        id: "i-tocino",
+        company_id: COMPANY,
+        name: "Tocino",
+        default_unit: "kg",
+      },
+      {
+        id: "i-panceta",
+        company_id: COMPANY,
+        name: "Panceta",
+        default_unit: "kg",
+      }
+    );
+    store.ingredient_aliases.push({
+      id: "al-1",
+      company_id: COMPANY,
+      alias_key: aliasKeyFor("bacon"),
+      alias_name: "bacon",
+      ingredient_id: "i-tocino",
+      created_by: "merge",
+    });
+  });
+
+  it("«bacon» already points at Tocino: picking Panceta writes NOTHING and answers with the existing alias", async () => {
+    const before = JSON.stringify(store.ingredient_aliases);
+    const res = await saveAlias(
+      json({ raw_name: "Bacon", ingredient_id: "i-panceta" })
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      saved: false,
+      existing: { id: "i-tocino", name: "Tocino" },
+    });
+    expect(JSON.stringify(store.ingredient_aliases)).toBe(before);
+    expect(store.ingredient_aliases[0].ingredient_id).toBe("i-tocino");
+  });
+
+  it("a new name is saved (insert)", async () => {
+    const res = await saveAlias(
+      json({ raw_name: "tocineta", ingredient_id: "i-panceta" })
+    );
+    expect((await res.json()).saved).toBe(true);
+    expect(store.ingredient_aliases).toHaveLength(2);
+    expect(store.ingredient_aliases[1]).toMatchObject({
+      company_id: COMPANY,
+      alias_key: "TOCINETA",
+      ingredient_id: "i-panceta",
+    });
+  });
+
+  it("a name that IS another active ingredient's name teaches nothing", async () => {
+    const res = await saveAlias(
+      json({ raw_name: "pan", ingredient_id: "i-panceta" })
+    );
+    expect(await res.json()).toEqual({ ok: true, saved: false });
+    expect(store.ingredient_aliases).toHaveLength(1);
+  });
+
+  it("two saves of the same new name keep the first", async () => {
+    await saveAlias(json({ raw_name: "tocineta", ingredient_id: "i-panceta" }));
+    const again = await saveAlias(
+      json({ raw_name: "TOCINETA", ingredient_id: "i-tocino" })
+    );
+    const body = await again.json();
+    expect(body.saved).toBe(false);
+    expect(body.existing).toEqual({ id: "i-panceta", name: "Panceta" });
+    expect(
+      store.ingredient_aliases.find((a) => a.alias_key === "TOCINETA")!
+        .ingredient_id
+    ).toBe("i-panceta");
+  });
+});

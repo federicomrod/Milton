@@ -240,8 +240,13 @@ export async function POST(
       .eq("company_id", auth.companyId)
       .in("ingredient_id", ingredientIds)
   );
+  // Fail closed: if the prices cannot be read, every line would look unpriced
+  // and the unit check would be skipped. Nothing has been written yet.
+  if (costEntries.error) {
+    return fail("No pude leer los precios. Inténtalo de nuevo.", 500);
+  }
   const entriesByIngredient = new Map<string, IngredientCostEntry[]>();
-  for (const entry of costEntries.error ? [] : costEntries.rows) {
+  for (const entry of costEntries.rows) {
     const list = entriesByIngredient.get(entry.ingredient_id) ?? [];
     list.push(entry);
     entriesByIngredient.set(entry.ingredient_id, list);

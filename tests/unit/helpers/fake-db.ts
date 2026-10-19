@@ -68,7 +68,7 @@ export interface FakeDbOptions {
   /** Make a write fail: return true to answer with a database error. */
   fail?: (
     table: string,
-    mode: "insert" | "update" | "delete",
+    mode: "select" | "insert" | "update" | "delete",
     payload: unknown
   ) => boolean;
 }
@@ -85,10 +85,7 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
     let offset = 0;
     const rows = () => (store[table] ??= []);
     const run = () => {
-      if (
-        mode !== "select" &&
-        options.fail?.(table, mode === "upsert" ? "insert" : mode, payload)
-      ) {
+      if (options.fail?.(table, mode === "upsert" ? "insert" : mode, payload)) {
         return {
           data: null as unknown as Row[],
           error: { message: "forced failure" },

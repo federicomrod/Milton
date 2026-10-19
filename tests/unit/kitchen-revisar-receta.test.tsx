@@ -156,6 +156,8 @@ async function openModal() {
   );
   return await screen.findByRole("dialog");
 }
+const aliasCalls = () =>
+  calls.filter((c) => c.url === "/api/restaurant/kitchen/ingredient-aliases");
 const combo = (dialog: HTMLElement, n: number) =>
   within(dialog).getByLabelText(
     `Ingrediente de la línea ${n}`
@@ -172,7 +174,7 @@ describe("matching only suggests", () => {
     ).toBeTruthy();
   });
 
-  it("«queso fresco» with only «Queso mozzarella»: a suggestion, NOT selected; accepting it selects it and teaches the name", async () => {
+  it("«queso fresco» with only «Queso mozzarella»: a suggestion, NOT selected; accepting it only selects it (nothing is taught yet)", async () => {
     const dialog = await openModal();
     expect(combo(dialog, 2).value).toBe("");
     expect(within(dialog).getByText("Queso mozzarella")).toBeTruthy();
@@ -180,13 +182,7 @@ describe("matching only suggests", () => {
     await waitFor(() =>
       expect(combo(dialog, 2).value).toBe("Queso mozzarella")
     );
-    await waitFor(() =>
-      expect(
-        calls.find(
-          (c) => c.url === "/api/restaurant/kitchen/ingredient-aliases"
-        )?.body
-      ).toEqual({ raw_name: "queso fresco", ingredient_id: "i-mozz" })
-    );
+    expect(aliasCalls()).toHaveLength(0);
   });
 
   it("the pure rules: exact is picked, a shared word is only suggested", () => {
@@ -196,6 +192,119 @@ describe("matching only suggests", () => {
       "i-mozz"
     );
     expect(findExactIngredient("QUESO MOZZARELLA", list)?.id).toBe("i-mozz");
+  });
+});
+
+describe("names are taught only after a successful Confirmar", () => {
+  beforeEach(() => {
+    // queso fresco: the bot matched nothing; pan: the bot matched Pan
+    drafts[0].lines = [
+      {
+        id: "l-2",
+        raw_name: "queso fresco",
+        ingredient_id: null,
+        ingredient_name: null,
+        total_quantity: 0.2,
+        unit: "kg",
+        per_portion_quantity: null,
+        confidence: "low",
+        line_cost: null,
+      },
+      {
+        id: "l-3",
+        raw_name: "pan",
+        ingredient_id: "i-pan",
+        ingredient_name: "Pan",
+        total_quantity: 2,
+        unit: "pza",
+        per_portion_quantity: 1,
+        confidence: "high",
+        line_cost: null,
+      },
+    ];
+  });
+
+  it("confirming saves ONE alias, for the line the reviewer chose (not for what the bot matched)", async () => {
+    const dialog = await openModal();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Sí, usarlo" }));
+    await waitFor(() =>
+      expect(combo(dialog, 1).value).toBe("Queso mozzarella")
+    );
+    expect(aliasCalls()).toHaveLength(0);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar" }));
+    await waitFor(() => expect(aliasCalls()).toHaveLength(1));
+    expect(aliasCalls()[0].body).toEqual({
+      raw_name: "queso fresco",
+      ingredient_id: "i-mozz",
+    });
+    // the alias comes AFTER the recipe was confirmed
+    const order = calls.map((c) => `${c.method} ${c.url}`);
+    expect(
+      order.indexOf("POST /api/restaurant/kitchen/recipe-drafts/d-1/confirm")
+    ).toBeGreaterThan(-1);
+    expect(
+      order.indexOf("POST /api/restaurant/kitchen/ingredient-aliases")
+    ).toBeGreaterThan(
+      order.indexOf("POST /api/restaurant/kitchen/recipe-drafts/d-1/confirm")
+    );
+  });
+
+  it("closing the editor without confirming teaches nothing", async () => {
+    const dialog = await openModal();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Sí, usarlo" }));
+    await waitFor(() =>
+      expect(combo(dialog, 1).value).toBe("Queso mozzarella")
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(aliasCalls()).toHaveLength(0);
+    expect(calls.some((c) => c.url.endsWith("/confirm"))).toBe(false);
+  });
+
+  it("a failed confirm teaches nothing", async () => {
+    const dialog = await openModal();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Sí, usarlo" }));
+    await waitFor(() =>
+      expect(combo(dialog, 1).value).toBe("Queso mozzarella")
+    );
+    const original = fetch as unknown as {
+      getMockImplementation: () => (
+        url: string,
+        init?: RequestInit
+      ) => Promise<unknown>;
+      mockImplementation: (
+        fn: (url: string, init?: RequestInit) => Promise<unknown>
+      ) => void;
+    };
+    const impl = original.getMockImplementation();
+    original.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.endsWith("/confirm")
+        ? respond({ error: "No pude confirmar la receta." }, 500)
+        : impl(url, init)
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar" }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(aliasCalls()).toHaveLength(0);
+  });
+
+  it("changing what the bot matched also teaches the new pick (after confirm)", async () => {
+    const dialog = await openModal();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Sí, usarlo" }));
+    fireEvent.focus(combo(dialog, 2));
+    fireEvent.mouseDown(
+      await screen.findByRole("option", { name: "Queso mozzarella" })
+    );
+    await waitFor(() =>
+      expect(combo(dialog, 2).value).toBe("Queso mozzarella")
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar" }));
+    await waitFor(() => expect(aliasCalls()).toHaveLength(2));
+    expect(aliasCalls().map((c) => c.body)).toEqual(
+      expect.arrayContaining([
+        { raw_name: "queso fresco", ingredient_id: "i-mozz" },
+        { raw_name: "pan", ingredient_id: "i-mozz" },
+      ])
+    );
   });
 });
 

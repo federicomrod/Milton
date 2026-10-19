@@ -1,3 +1,4 @@
+import { can, normalizeRole, type Actor } from "@/lib/auth/capabilities";
 import { confirmPosProductLinkError } from "@/lib/restaurant/pos-product-links";
 import type { SuggestionEvidenceView, SuggestionLineView } from "./evidence";
 
@@ -33,8 +34,22 @@ export interface ApprovalChecklist {
   }>;
 }
 
+/** The recipe actor as the shared permissions actor (the rules live in lib/auth). */
+export function toPermissionActor(actor: RecipeActor): Actor {
+  return {
+    userId: actor.user_id,
+    companyId: null,
+    role: actor.role,
+    isMiltonStaff: actor.is_milton_staff,
+  };
+}
+
 export function actorCanApproveDirectly(actor: RecipeActor): boolean {
-  return actor.role === "owner" || actor.role === "admin";
+  // Owner / admin by role; Milton staff are not "direct" (they confirm for the client).
+  return can(
+    { ...toPermissionActor(actor), isMiltonStaff: false },
+    "recipes.approve"
+  );
 }
 
 export function actorNeedsClientConfirmation(actor: RecipeActor): boolean {
@@ -42,11 +57,7 @@ export function actorNeedsClientConfirmation(actor: RecipeActor): boolean {
 }
 
 export function actorCanSubmitForApproval(actor: RecipeActor): boolean {
-  return (
-    actorCanApproveDirectly(actor) ||
-    actor.role === "manager" ||
-    actor.is_milton_staff
-  );
+  return can(toPermissionActor(actor), "recipes.submit");
 }
 
 export function actorCanApprove(
@@ -58,7 +69,7 @@ export function actorCanApprove(
   }
 ): { ok: true } | { ok: false; error: string } {
   if (actorCanApproveDirectly(actor)) return { ok: true };
-  if (actor.role === "manager" && !actor.is_milton_staff) {
+  if (normalizeRole(actor.role) === "manager" && !actor.is_milton_staff) {
     return {
       ok: false,
       error:

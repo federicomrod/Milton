@@ -6,7 +6,7 @@
 // add/remove lines, pick menu item, confirm or reject. English UI (cook-facing bot
 // stays Spanish). Confirm disabled until all lines resolved.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,6 +32,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  IngredientCombobox,
+  type ComboIngredient,
+  type CreateOutcome,
+} from "./IngredientCombobox";
+import { InlinePriceEditor } from "./InlinePriceEditor";
+import {
+  computeDraftCost,
+  type CostLineInput,
+  type DraftCost,
+  type PriceInfo,
+} from "@/lib/restaurant/kitchen-draft-costing";
+import {
+  normalizeKitchenName,
+  suggestIngredient,
+} from "@/lib/restaurant/kitchen-ingredient-match";
+import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
+import { normalizeUnit } from "@/lib/restaurant/units";
 
 interface DraftLine {
   id: string;
@@ -62,6 +80,9 @@ interface Draft {
 interface Ingredient {
   id: string;
   name: string;
+  default_unit?: string | null;
+  /** Current price per unit (the shared latest entry); null = Sin precio. */
+  price?: PriceInfo | null;
 }
 
 interface MenuItem {
@@ -102,6 +123,9 @@ export function KitchenRecipeDraftsCard({
   const [selectedMenuItem, setSelectedMenuItem] = useState<string>("");
   const [newSellingPrice, setNewSellingPrice] = useState<string>("");
   const [reloadKey, setReloadKey] = useState(0);
+  // Which line / draft has its «Editar precio» form open.
+  const [priceEditLine, setPriceEditLine] = useState<string | null>(null);
+  const [pricesOpenFor, setPricesOpenFor] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,15 +159,21 @@ export function KitchenRecipeDraftsCard({
     };
   }, [locationId, reloadKey, focusDraftId]);
 
+  const loadIngredients = useCallback(async () => {
+    const res = await fetch("/api/restaurant/kitchen/ingredients");
+    if (res.ok) {
+      const data = await res.json();
+      setIngredients(data.ingredients ?? []);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const res = await fetch("/api/restaurant/kitchen/ingredients");
-      if (cancelled) return;
-      if (res.ok) {
-        const data = await res.json();
-        setIngredients(data.ingredients ?? []);
-      }
+      if (cancelled || !res.ok) return;
+      const data = await res.json();
+      if (!cancelled) setIngredients(data.ingredients ?? []);
     })();
     return () => {
       cancelled = true;
@@ -263,15 +293,65 @@ export function KitchenRecipeDraftsCard({
     }
   };
 
-  const updateLineIngredient = (index: number, ingredientId: string) => {
-    const ing = ingredients.find((i) => i.id === ingredientId);
+  /** Remember that a name the cook said means this ingredient (this company). */
+  const rememberAlias = (rawName: string, ing: ComboIngredient) => {
+    const raw = rawName.trim();
+    if (!raw || normalizeKitchenName(raw) === normalizeKitchenName(ing.name)) {
+      return;
+    }
+    void fetch("/api/restaurant/kitchen/ingredient-aliases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ raw_name: raw, ingredient_id: ing.id }),
+    }).catch(() => undefined);
+  };
+
+  const updateLineIngredient = (index: number, ing: ComboIngredient) => {
+    const previous = editedLines[index];
     const newLines = [...editedLines];
     newLines[index] = {
       ...newLines[index],
-      ingredient_id: ingredientId,
-      ingredient_name: ing?.name ?? null,
+      ingredient_id: ing.id,
+      ingredient_name: ing.name,
     };
     setEditedLines(newLines);
+    // Accepting a suggestion or picking another ingredient for the cook's own
+    // words teaches Milton that name for next time.
+    if (previous && previous.ingredient_id !== ing.id) {
+      rememberAlias(previous.raw_name, ing);
+    }
+  };
+
+  /** «+ Crear "texto"»: a new ingredient WITHOUT a price (duplicates are refused). */
+  const createIngredient = async (
+    index: number,
+    name: string
+  ): Promise<CreateOutcome> => {
+    const lineUnit = editedLines[index]?.unit;
+    const res = await fetch("/api/restaurant/kitchen/ingredients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        unit: lineUnit && normalizeUnit(lineUnit) ? lineUnit : undefined,
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      existing?: ComboIngredient;
+      ingredient?: ComboIngredient;
+    };
+    if (res.ok && json.ingredient) {
+      await loadIngredients();
+      return {
+        ok: true,
+        ingredient: { id: json.ingredient.id, name: json.ingredient.name },
+      };
+    }
+    if (res.status === 409 && json.existing) {
+      return { ok: false, similar: json.existing };
+    }
+    return { ok: false, error: json.error };
   };
 
   const updateLineQuantity = (index: number, quantity: number | null) => {
@@ -335,6 +415,50 @@ export function KitchenRecipeDraftsCard({
       }))
     );
   };
+
+  const priceMap = useMemo(() => {
+    const map = new Map<string, PriceInfo | null>();
+    for (const ing of ingredients) map.set(ing.id, ing.price ?? null);
+    return map;
+  }, [ingredients]);
+  const ingredientById = useMemo(
+    () => new Map(ingredients.map((i) => [i.id, i])),
+    [ingredients]
+  );
+  const currencyOf = (draft: { currency: string | null } | null) =>
+    draft?.currency || "USD";
+  const costInputs = (lines: DraftLine[]): CostLineInput[] =>
+    lines.map((l) => ({
+      key: l.id,
+      ingredient_id: l.ingredient_id,
+      name:
+        (l.ingredient_id ? ingredientById.get(l.ingredient_id)?.name : null) ??
+        l.ingredient_name ??
+        (l.raw_name || null),
+      total_quantity: l.total_quantity,
+      unit: l.unit,
+    }));
+
+  // The dish's selling price: the chosen menu dish, or the one typed for a new dish.
+  const sellingPrice = (() => {
+    if (selectedMenuItem === "new") {
+      const typed = parseFloat(newSellingPrice);
+      return Number.isFinite(typed) ? typed : null;
+    }
+    const price = menuItems.find(
+      (m) => m.id === selectedMenuItem
+    )?.selling_price;
+    return typeof price === "number" ? price : null;
+  })();
+  // Recalculated on every change of quantity, unit, ingredient, price or portions.
+  const liveCost: DraftCost | null = editedDraft
+    ? computeDraftCost(
+        costInputs(editedLines),
+        priceMap,
+        editedDraft.portions,
+        sellingPrice
+      )
+    : null;
 
   const canConfirm =
     !!editedDraft?.portions &&
@@ -408,14 +532,25 @@ export function KitchenRecipeDraftsCard({
                       {draft.staff_name} • {draft.location_name} •{" "}
                       {new Date(draft.created_at).toLocaleDateString()}
                     </p>
-                    {draft.portions && draft.per_portion_cost !== null && (
-                      <p className="text-sm">
-                        {draft.portions}{" "}
-                        {draft.portions > 1 ? "porciones" : "porción"} •{" "}
-                        {draft.currency} {draft.per_portion_cost.toFixed(2)} por
-                        porción
-                      </p>
-                    )}
+                    <DraftListCost
+                      draft={draft}
+                      cost={computeDraftCost(
+                        costInputs(draft.lines),
+                        priceMap,
+                        draft.portions,
+                        null
+                      )}
+                      currency={currencyOf(draft)}
+                      canManage={canManage}
+                      ingredientById={ingredientById}
+                      open={pricesOpenFor === draft.id}
+                      onToggle={() =>
+                        setPricesOpenFor(
+                          pricesOpenFor === draft.id ? null : draft.id
+                        )
+                      }
+                      onPriceSaved={() => void loadIngredients()}
+                    />
                   </div>
                   {canManage && (
                     <div className="flex gap-2">
@@ -516,23 +651,14 @@ export function KitchenRecipeDraftsCard({
                       key={line.id}
                       className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2 items-center"
                     >
-                      <Select
-                        value={line.ingredient_id ?? ""}
-                        onValueChange={(val) => updateLineIngredient(idx, val)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue
-                            placeholder={line.raw_name || "Elegir ingrediente"}
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ingredients.map((ing) => (
-                            <SelectItem key={ing.id} value={ing.id}>
-                              {ing.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <IngredientCombobox
+                        ingredients={ingredients}
+                        value={line.ingredient_id}
+                        placeholder={line.raw_name || "Elegir ingrediente"}
+                        ariaLabel={`Ingrediente de la línea ${idx + 1}`}
+                        onSelect={(ing) => updateLineIngredient(idx, ing)}
+                        onCreate={(name) => createIngredient(idx, name)}
+                      />
                       <Input
                         type="number"
                         step="0.001"
@@ -553,14 +679,52 @@ export function KitchenRecipeDraftsCard({
                       <Button
                         size="sm"
                         variant="ghost"
+                        aria-label={`Quitar la línea ${idx + 1}`}
                         onClick={() => removeLine(idx)}
                       >
                         ×
                       </Button>
+                      <LineHints
+                        line={line}
+                        costLine={liveCost?.lines[idx] ?? null}
+                        currency={currencyOf(editedDraft)}
+                        suggestion={
+                          !line.ingredient_id && line.raw_name
+                            ? (suggestIngredient(line.raw_name, ingredients)
+                                ?.ingredient ?? null)
+                            : null
+                        }
+                        ingredient={
+                          line.ingredient_id
+                            ? (ingredientById.get(line.ingredient_id) ?? null)
+                            : null
+                        }
+                        priceEditOpen={priceEditLine === line.id}
+                        onAcceptSuggestion={(ing) =>
+                          updateLineIngredient(idx, ing)
+                        }
+                        onTogglePriceEdit={() =>
+                          setPriceEditLine(
+                            priceEditLine === line.id ? null : line.id
+                          )
+                        }
+                        onPriceSaved={() => {
+                          setPriceEditLine(null);
+                          void loadIngredients();
+                        }}
+                      />
                     </div>
                   ))}
                 </div>
               </div>
+              {liveCost ? (
+                <CostFooter
+                  cost={liveCost}
+                  currency={currencyOf(editedDraft)}
+                  hasLines={editedLines.length > 0}
+                  sellingPrice={sellingPrice}
+                />
+              ) : null}
               <div className="flex gap-2 justify-end pt-4">
                 <Button variant="outline" onClick={closeEditor}>
                   Cancelar
@@ -574,5 +738,227 @@ export function KitchenRecipeDraftsCard({
         </Dialog>
       )}
     </>
+  );
+}
+
+/** Under a line: «¿Es X?», its price and cost, and «Editar precio». */
+function LineHints({
+  line,
+  costLine,
+  currency,
+  suggestion,
+  ingredient,
+  priceEditOpen,
+  onAcceptSuggestion,
+  onTogglePriceEdit,
+  onPriceSaved,
+}: {
+  line: DraftLine;
+  costLine: DraftCost["lines"][number] | null;
+  currency: string;
+  suggestion: ComboIngredient | null;
+  ingredient: Ingredient | null;
+  priceEditOpen: boolean;
+  onAcceptSuggestion: (ingredient: ComboIngredient) => void;
+  onTogglePriceEdit: () => void;
+  onPriceSaved: () => void;
+}) {
+  const money = (n: number) => formatMoneyEs(n, currency);
+  const price = ingredient?.price ?? null;
+  return (
+    <div className="col-span-full -mt-1 space-y-1 text-[12px] text-[#6b7385]">
+      {suggestion ? (
+        <p>
+          ¿Es <b>{suggestion.name}</b>?{" "}
+          <button
+            type="button"
+            className="rounded border border-[#1B40C8] px-1.5 font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
+            onClick={() => onAcceptSuggestion(suggestion)}
+          >
+            Sí, usarlo
+          </button>
+        </p>
+      ) : null}
+      {ingredient ? (
+        <p className="flex flex-wrap items-center gap-x-3">
+          {price ? (
+            <span>
+              Precio: {money(price.unit_cost)}/{price.unit}
+              {costLine?.line_cost !== null && costLine?.line_cost !== undefined
+                ? ` · Costo de la línea: ${money(costLine.line_cost)}`
+                : ""}
+            </span>
+          ) : (
+            <span className="font-semibold text-[#a35a00]">Sin precio</span>
+          )}
+          <button
+            type="button"
+            className="rounded border border-[#1B40C8] px-1.5 font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
+            onClick={onTogglePriceEdit}
+          >
+            Editar precio
+          </button>
+        </p>
+      ) : null}
+      {ingredient && priceEditOpen ? (
+        <InlinePriceEditor
+          ingredient={{
+            id: ingredient.id,
+            name: ingredient.name,
+            default_unit: ingredient.default_unit ?? null,
+          }}
+          initialPrice={price?.unit_cost ?? null}
+          initialUnit={price?.unit ?? null}
+          onSaved={onPriceSaved}
+          onCancel={onTogglePriceEdit}
+        />
+      ) : null}
+      {line.unit && !normalizeUnit(line.unit) ? (
+        <p className="text-[#c03535]">
+          Esa unidad no la reconozco (g, kg, ml, l, pza…).
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Estimated cost per portion and margin; never a total that is not complete. */
+function CostFooter({
+  cost,
+  currency,
+  hasLines,
+  sellingPrice,
+}: {
+  cost: DraftCost;
+  currency: string;
+  hasLines: boolean;
+  sellingPrice: number | null;
+}) {
+  const money = (n: number) => formatMoneyEs(n, currency);
+  if (!hasLines) return null;
+  const hasPrice = sellingPrice !== null && sellingPrice > 0;
+  return (
+    <div
+      className="space-y-0.5 rounded-md border border-[#eef0f4] bg-[#f6f8fe] px-3 py-2 text-sm"
+      data-testid="cost-footer"
+    >
+      {cost.complete && cost.total !== null ? (
+        <p className="font-semibold text-[#151c2c]">
+          {cost.per_portion !== null
+            ? `Costo estimado: ${money(cost.per_portion)} por porción`
+            : `Costo estimado: ${money(cost.total)} en total · indica las porciones`}
+        </p>
+      ) : (
+        <p className="font-semibold text-[#a35a00]">
+          Costo parcial · faltan precios de {cost.missing.join(", ")}
+        </p>
+      )}
+      {cost.margin_pct !== null ? (
+        <p className="text-[#26314a]">
+          Margen estimado: {Math.round(cost.margin_pct * 10) / 10}%
+        </p>
+      ) : hasPrice ? (
+        <p className="text-[#6b7385]">
+          Margen estimado: falta el costo completo
+        </p>
+      ) : (
+        <p className="text-[#6b7385]">Sin precio de venta</p>
+      )}
+      <p className="text-[12px] text-[#8a92a3]">
+        Es solo un estimado: la receta no cuenta en costos hasta que se aprueba.
+      </p>
+    </div>
+  );
+}
+
+/** On the Cocina card: live cost (partial vs complete) and «Faltan precios: N». */
+function DraftListCost({
+  draft,
+  cost,
+  currency,
+  canManage,
+  ingredientById,
+  open,
+  onToggle,
+  onPriceSaved,
+}: {
+  draft: Draft;
+  cost: DraftCost;
+  currency: string;
+  canManage: boolean;
+  ingredientById: Map<string, Ingredient>;
+  open: boolean;
+  onToggle: () => void;
+  onPriceSaved: () => void;
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const money = (n: number) => formatMoneyEs(n, currency);
+  if (draft.lines.length === 0) return null;
+  // The distinct ingredients (chosen) that still have no price.
+  const unpriced = [
+    ...new Map(
+      cost.lines
+        .map((c, i) => ({ c, line: draft.lines[i] }))
+        .filter(({ c, line }) => c.reason === "no_price" && line.ingredient_id)
+        .map(({ line }) => [line.ingredient_id as string, line.ingredient_id])
+    ).keys(),
+  ]
+    .map((id) => ingredientById.get(id))
+    .filter((ing): ing is Ingredient => Boolean(ing));
+  return (
+    <div className="space-y-1 text-sm">
+      {cost.complete && cost.per_portion !== null && draft.portions ? (
+        <p>
+          {draft.portions} {draft.portions > 1 ? "porciones" : "porción"} •
+          Costo: {money(cost.per_portion)} por porción
+        </p>
+      ) : cost.missing.length > 0 ? (
+        <p className="text-[#a35a00]">
+          Costo parcial · faltan precios de {cost.missing.join(", ")}
+        </p>
+      ) : null}
+      {cost.unpriced_count > 0 ? (
+        <p className="flex items-center gap-2">
+          <Badge variant="outline">Faltan precios: {cost.unpriced_count}</Badge>
+          {canManage && unpriced.length > 0 ? (
+            <button
+              type="button"
+              className="text-[12px] font-semibold text-[#1B40C8] underline"
+              onClick={onToggle}
+            >
+              {open ? "Ocultar" : "Poner precios"}
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+      {open && canManage
+        ? unpriced.map((ing) => (
+            <div key={ing.id} className="text-[12px]">
+              <span className="font-medium">{ing.name}</span>{" "}
+              <button
+                type="button"
+                className="rounded border border-[#1B40C8] px-1.5 font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
+                onClick={() => setEditing(editing === ing.id ? null : ing.id)}
+              >
+                Editar precio
+              </button>
+              {editing === ing.id ? (
+                <InlinePriceEditor
+                  ingredient={{
+                    id: ing.id,
+                    name: ing.name,
+                    default_unit: ing.default_unit ?? null,
+                  }}
+                  onSaved={() => {
+                    setEditing(null);
+                    onPriceSaved();
+                  }}
+                  onCancel={() => setEditing(null)}
+                />
+              ) : null}
+            </div>
+          ))
+        : null}
+    </div>
   );
 }

@@ -25,6 +25,9 @@ import {
   isStaleClaim,
 } from "@/lib/restaurant/telegram/kitchen-draft-confirm";
 import { normalizeUnit, convertUnitStr } from "@/lib/restaurant/units";
+import { fetchAllRows } from "@/lib/restaurant/paginated-read";
+import { latestCostEntry } from "@/lib/restaurant/costing";
+import type { IngredientCostEntry } from "@/types/restaurant-costing";
 
 export const dynamic = "force-dynamic";
 
@@ -188,39 +191,38 @@ export async function POST(
     }
   }
 
-  const { data: costEntries } = await admin
-    .from("ingredient_cost_entries")
-    .select("ingredient_id, normalized_unit_cost, normalized_unit, cost_date")
-    .eq("company_id", auth.companyId)
-    .in("ingredient_id", ingredientIds)
-    .order("cost_date", { ascending: false });
-
-  const costMap = new Map<string, { normalized_unit: string }>();
-  for (const entry of costEntries ?? []) {
-    if (
-      !costMap.has(entry.ingredient_id) &&
-      entry.normalized_unit_cost !== null &&
-      entry.normalized_unit !== null
-    ) {
-      costMap.set(entry.ingredient_id, {
-        normalized_unit: entry.normalized_unit,
-      });
-    }
+  // Current price of each ingredient (paged; the shared "latest entry" rule).
+  // A line WITHOUT a price is saved normally and stays «Sin precio»; only a
+  // unit that cannot be read in the price's unit is refused.
+  const costEntries = await fetchAllRows<IngredientCostEntry>(() =>
+    admin
+      .from("ingredient_cost_entries")
+      .select(
+        "id, ingredient_id, source_type, cost_date, effective_date, normalized_unit_cost, normalized_unit, unit_cost, created_at"
+      )
+      .eq("company_id", auth.companyId)
+      .in("ingredient_id", ingredientIds)
+  );
+  const entriesByIngredient = new Map<string, IngredientCostEntry[]>();
+  for (const entry of costEntries.error ? [] : costEntries.rows) {
+    const list = entriesByIngredient.get(entry.ingredient_id) ?? [];
+    list.push(entry);
+    entriesByIngredient.set(entry.ingredient_id, list);
   }
 
   for (const line of body.lines) {
-    const cost = costMap.get(line.ingredient_id);
-    if (!cost) {
-      return fail(`Falta el precio de ${nameOf(line.ingredient_id)}.`, 400);
-    }
+    const latest = latestCostEntry(
+      entriesByIngredient.get(line.ingredient_id) ?? []
+    );
+    if (!latest?.normalized_unit) continue; // no price yet: any recognized unit
     const conversion = convertUnitStr(
       line.total_quantity,
       line.unit,
-      cost.normalized_unit
+      latest.normalized_unit
     );
     if (!conversion.ok) {
       return fail(
-        `No puedo convertir "${line.unit}" a la unidad del precio de ${nameOf(line.ingredient_id)} (${cost.normalized_unit}).`,
+        `No puedo convertir "${line.unit}" a la unidad del precio de ${nameOf(line.ingredient_id)} (${latest.normalized_unit}).`,
         400
       );
     }

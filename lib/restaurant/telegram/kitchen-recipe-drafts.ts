@@ -8,17 +8,15 @@
 // Bot API URLs or OpenAI keys. Follows the same rules as files.ts.
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  findExactIngredient,
+  findSynonymIngredient,
+  normalizeKitchenName as normalize,
+} from "@/lib/restaurant/kitchen-ingredient-match";
 import { getLatestIngredientCost } from "@/lib/restaurant/costing";
 import { convertUnitStr, normalizeUnit } from "@/lib/restaurant/units";
 import type { CostingData, CostingIngredient } from "@/lib/restaurant/costing";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
-
-function normalize(text: string): string {
-  return text
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-}
 
 const RECIPE_KEYWORDS = [/\breceta\b/i];
 
@@ -429,71 +427,6 @@ export function validateExtractedRecipe(
   return true;
 }
 
-const KITCHEN_SYNONYMS: Record<string, string> = {
-  tomate: "jitomate",
-  jitomate: "tomate",
-  papa: "patata",
-  patata: "papa",
-  chile: "chili",
-  chili: "chile",
-  elote: "maiz",
-  maiz: "elote",
-};
-
-function spanishWordForms(word: string): Set<string> {
-  const forms = new Set<string>([word]);
-  if (word.length <= 3) return forms;
-
-  if (word.endsWith("ces")) {
-    forms.add(`${word.slice(0, -3)}z`);
-  }
-  if (word.endsWith("es")) {
-    const stem = word.slice(0, -2);
-    if (stem.length > 0) {
-      forms.add(stem);
-      forms.add(`${stem}e`);
-    }
-  } else if (word.endsWith("s")) {
-    forms.add(word.slice(0, -1));
-  }
-  return forms;
-}
-
-function formsOverlap(a: Set<string>, b: Set<string>): boolean {
-  for (const form of a) {
-    if (b.has(form)) return true;
-  }
-  return false;
-}
-
-function synonymForms(word: string): Set<string> {
-  const expanded = new Set<string>();
-  for (const form of spanishWordForms(word)) {
-    const synonym = KITCHEN_SYNONYMS[form];
-    if (!synonym) continue;
-    expanded.add(synonym);
-    for (const synForm of spanishWordForms(synonym)) {
-      expanded.add(synForm);
-    }
-  }
-  return expanded;
-}
-
-function directWordsMatch(cookWord: string, catalogWord: string): boolean {
-  if (cookWord.length < 3) return false;
-  return formsOverlap(
-    spanishWordForms(cookWord),
-    spanishWordForms(catalogWord)
-  );
-}
-
-function synonymWordsMatch(cookWord: string, catalogWord: string): boolean {
-  if (cookWord.length < 3) return false;
-  const catalogForms = spanishWordForms(catalogWord);
-  if (formsOverlap(synonymForms(cookWord), catalogForms)) return true;
-  return formsOverlap(synonymForms(catalogWord), spanishWordForms(cookWord));
-}
-
 export interface MatchedIngredientLine {
   raw_name: string;
   ingredient_id: string | null;
@@ -511,54 +444,39 @@ export function matchIngredients(
   lines: ExtractedIngredientLine[],
   companyIngredients: CostingIngredient[],
   costEntriesByIngredientId: Map<string, IngredientCostEntry[]>,
-  portions: number | null
+  portions: number | null,
+  /** Remembered names (ingredient_aliases): aliasKeyFor(name) → ingredient id. */
+  aliasKeyToId: ReadonlyMap<string, string> = new Map(),
+  aliasKeyOf: (name: string) => string = (name) =>
+    name
+      .normalize("NFD")
+      .replace(/\p{M}/gu, "")
+      .toUpperCase()
+      .replace(/\s+/g, " ")
+      .trim()
 ): MatchedIngredientLine[] {
   const matched: MatchedIngredientLine[] = [];
 
   for (const line of lines) {
     if (!line.name || !line.name.trim()) continue;
 
-    const normName = normalize(line.name);
-    let bestMatch: CostingIngredient | null = null;
+    // Only a sure match is picked: the exact name, a remembered alias, or a
+    // whole-name synonym. A looser guess is NOT picked here; Revisar receta
+    // shows it as «¿Es <X>?» and a person accepts it.
+    let bestMatch: CostingIngredient | null = findExactIngredient(
+      line.name,
+      companyIngredients
+    );
     let matchConfidence: "high" | "medium" | "low" = line.confidence;
-
-    for (const ing of companyIngredients) {
-      const ingNorm = normalize(ing.name);
-      if (ingNorm === normName) {
-        bestMatch = ing;
-        matchConfidence = line.confidence;
-        break;
-      }
+    if (!bestMatch) {
+      const aliasId = aliasKeyToId.get(aliasKeyOf(line.name));
+      bestMatch = aliasId
+        ? (companyIngredients.find((ing) => ing.id === aliasId) ?? null)
+        : null;
     }
-
-    if (!bestMatch && normName.length >= 3) {
-      const words = normName.split(/\s+/);
-
-      for (const ing of companyIngredients) {
-        const ingWords = normalize(ing.name).split(/\s+/);
-        const hasDirect = words.some((w) =>
-          ingWords.some((iw) => directWordsMatch(w, iw))
-        );
-        if (hasDirect) {
-          bestMatch = ing;
-          matchConfidence = "medium";
-          break;
-        }
-      }
-
-      if (!bestMatch) {
-        for (const ing of companyIngredients) {
-          const ingWords = normalize(ing.name).split(/\s+/);
-          const hasSynonym = words.some((w) =>
-            ingWords.some((iw) => synonymWordsMatch(w, iw))
-          );
-          if (hasSynonym) {
-            bestMatch = ing;
-            matchConfidence = "medium";
-            break;
-          }
-        }
-      }
+    if (!bestMatch) {
+      bestMatch = findSynonymIngredient(line.name, companyIngredients);
+      if (bestMatch) matchConfidence = "medium";
     }
 
     const perPortion =
@@ -806,7 +724,8 @@ export interface ExtractRecipeInput {
 export async function extractAndCreateRecipeDraft(
   input: ExtractRecipeInput,
   companyIngredients: CostingIngredient[],
-  costEntriesByIngredientId: Map<string, IngredientCostEntry[]>
+  costEntriesByIngredientId: Map<string, IngredientCostEntry[]>,
+  aliasKeyToId: ReadonlyMap<string, string> = new Map()
 ): Promise<{ ok: true; draftId: string } | { ok: false; error: string }> {
   let extracted: ExtractedRecipe | null = null;
 
@@ -895,7 +814,8 @@ export async function extractAndCreateRecipeDraft(
     extracted.ingredients,
     companyIngredients,
     costEntriesByIngredientId,
-    portions
+    portions,
+    aliasKeyToId
   );
 
   const hasUnmatched = matched.some((l) => l.ingredient_id === null);

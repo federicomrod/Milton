@@ -336,13 +336,35 @@ describe("safety and company scope", () => {
 });
 
 describe("errors are Spanish, with tú, and name the ingredient", () => {
-  it("missing price → «Falta el precio de Bacon.»", async () => {
+  it("a line WITHOUT a price is saved normally (it stays «Sin precio»), in any recognized unit", async () => {
     store.ingredient_cost_entries = store.ingredient_cost_entries.filter(
       (c) => c.ingredient_id !== BACON
     );
-    const res = await confirm(body());
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe("Falta el precio de Bacon.");
+    const res = await confirm(
+      body({
+        lines: [
+          {
+            id: "line-1",
+            ingredient_id: BACON,
+            total_quantity: 3,
+            unit: "pza",
+          },
+          { id: "line-2", ingredient_id: PAN, total_quantity: 2, unit: "pza" },
+        ],
+      })
+    );
+    expect(res.status).toBe(200);
+    const version = store.recipe_versions.find(
+      (v) => v.status === "in_review"
+    )!;
+    const lines = store.recipe_version_inputs.filter(
+      (r) => r.recipe_version_id === version.id
+    );
+    expect(lines.map((r) => r.ingredient_id)).toEqual([BACON, PAN]);
+    // no price entry was invented for it
+    expect(
+      store.ingredient_cost_entries.some((c) => c.ingredient_id === BACON)
+    ).toBe(false);
   });
   it("a unit that cannot be converted names the ingredient and its price unit", async () => {
     const res = await confirm(

@@ -12,6 +12,7 @@
 // - After every edit the cached evidence is rebuilt from the inputs, so the
 //   screen, the checklist and the approved recipe agree.
 
+import { findSimilarIngredient } from "@/lib/restaurant/ingredient-similar";
 import { approvalRecord, type ApprovalRecord } from "./approval-audit";
 import type { CostingData } from "@/lib/restaurant/costing";
 import {
@@ -780,6 +781,99 @@ function cleanUnit(value: unknown): string | null {
   return isUsableLineUnit(text) ? text : null;
 }
 
+export type SetPriceResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error: string;
+      status: number;
+      conversion?: ConversionHint;
+    };
+
+/**
+ * THE way a typed price becomes the ingredient's current price: one dated
+ * `ingredient_cost_entries` row (store.addCostEntry), which every dish reads
+ * (#280: a price set once applies everywhere). Used by the recipe editor's
+ * «set_price» and by Revisar receta's inline price edit, so there is no second
+ * pricing path.
+ *
+ * @param known the ingredient as the caller loaded it, or undefined when it is
+ *        not one of the company's.
+ */
+export async function setIngredientPrice(
+  store: Pick<EditorStore, "mergedInto" | "currency" | "addCostEntry">,
+  companyId: string,
+  input: {
+    ingredientId: string;
+    unit: unknown;
+    unitCost: unknown;
+    adoptLegacy?: boolean;
+    correctUnit?: boolean;
+  },
+  known: { default_unit?: string | null } | undefined
+): Promise<SetPriceResult> {
+  const price = cleanPrice(input.unitCost);
+  // A unit outside the table («taza») is accepted when the ingredient has a
+  // unit of its own: saving then converts it with the ingredient's
+  // conversion, or answers with «Definir conversión». Never stored as is.
+  let unit = cleanUnit(input.unit);
+  if (!unit && typeof input.unit === "string") {
+    const raw = input.unit.trim();
+    if (raw && raw.length <= 24 && known?.default_unit) unit = raw;
+  }
+  if (price === null || !unit) {
+    return {
+      ok: false,
+      error: "Indica un precio y una unidad válidos.",
+      status: 400,
+    };
+  }
+  if (!known) {
+    return {
+      ok: false,
+      error: "Ese ingrediente no está en tu lista.",
+      status: 400,
+    };
+  }
+  // The screen may be older than a merge: an ingredient that was merged away
+  // has no price of its own any more.
+  const merged = await store.mergedInto(companyId, input.ingredientId);
+  if (merged) {
+    return {
+      ok: false,
+      error: `Este ingrediente se unió con ${merged.name || "otro"}; recarga la receta.`,
+      status: 409,
+    };
+  }
+  const currency = await store.currency(companyId);
+  const added = await store.addCostEntry(companyId, {
+    keepUnit: input.correctUnit === true,
+    ingredientId: input.ingredientId,
+    unit,
+    unitCost: price,
+    currency,
+    date: new Date().toISOString().slice(0, 10),
+    dateSource: "manual",
+    note:
+      price === 0
+        ? ZERO_PRICE_NOTE
+        : input.adoptLegacy === true
+          ? "Adoptado del precio de línea"
+          : input.correctUnit === true
+            ? "Unidad corregida"
+            : "Precio corregido en Recetas y costeo",
+  });
+  if (!added.ok) {
+    return {
+      ok: false,
+      error: added.error,
+      status: 400,
+      conversion: added.conversion,
+    };
+  }
+  return { ok: true };
+}
+
 /** Edits that touch file (evidence) lines by position: pin them first. */
 const PIN_ACTIONS = new Set<EditorAction["action"]>([
   "resolve",
@@ -1188,9 +1282,9 @@ export async function applyEdit(
           status: 400,
         };
       }
-      const existing = [...data.ingredientsById.values()].find(
-        (row) => normalizeMatchName(row.name) === normalizeMatchName(name)
-      );
+      const existing = findSimilarIngredient(name, [
+        ...data.ingredientsById.values(),
+      ]);
       if (existing) {
         return {
           ok: false,
@@ -1477,68 +1571,19 @@ export async function applyEdit(
       break;
     }
     case "set_price": {
-      const price = cleanPrice(action.unit_cost);
-      // A unit outside the table («taza») is accepted when the ingredient
-      // has a unit of its own: saving then converts it with the ingredient's
-      // conversion, or answers with «Definir conversión». Never stored as is.
-      let unit = cleanUnit(action.unit);
-      if (!unit && typeof action.unit === "string") {
-        const raw = action.unit.trim();
-        const ing = data.ingredientsById.get(action.ingredient_id);
-        if (raw && raw.length <= 24 && ing?.default_unit) unit = raw;
-      }
-      if (price === null || !unit) {
-        return {
-          ok: false,
-          error: "Indica un precio y una unidad válidos.",
-          status: 400,
-        };
-      }
-      if (!data.ingredientsById.has(action.ingredient_id)) {
-        return {
-          ok: false,
-          error: "Ese ingrediente no está en tu lista.",
-          status: 400,
-        };
-      }
-      // The screen may be older than a merge: an ingredient that was merged
-      // away has no price of its own any more.
-      const merged = await ctx.store.mergedInto(
+      const out = await setIngredientPrice(
+        ctx.store,
         ctx.companyId,
-        action.ingredient_id
+        {
+          ingredientId: action.ingredient_id,
+          unit: action.unit,
+          unitCost: action.unit_cost,
+          adoptLegacy: action.adopt_legacy === true,
+          correctUnit: action.correct_unit === true,
+        },
+        data.ingredientsById.get(action.ingredient_id)
       );
-      if (merged) {
-        return {
-          ok: false,
-          error: `Este ingrediente se unió con ${merged.name || "otro"}; recarga la receta.`,
-          status: 409,
-        };
-      }
-      const currency = await ctx.store.currency(ctx.companyId);
-      const added = await ctx.store.addCostEntry(ctx.companyId, {
-        keepUnit: action.correct_unit === true,
-        ingredientId: action.ingredient_id,
-        unit,
-        unitCost: price,
-        currency,
-        date: new Date().toISOString().slice(0, 10),
-        dateSource: "manual",
-        note:
-          price === 0
-            ? ZERO_PRICE_NOTE
-            : action.adopt_legacy === true
-              ? "Adoptado del precio de línea"
-              : action.correct_unit === true
-                ? "Unidad corregida"
-                : "Precio corregido en Recetas y costeo",
-      });
-      if (!added.ok)
-        return {
-          ok: false,
-          error: added.error,
-          status: 400,
-          conversion: added.conversion,
-        };
+      if (!out.ok) return out;
       break;
     }
   }

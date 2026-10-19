@@ -150,19 +150,49 @@ export function parseDishName(text: string | null | undefined): string | null {
   return null;
 }
 
-export function parsePortionsFromFollowUp(text: string): number | null {
-  const normalized = normalize(text.trim());
-  const portionsRe =
-    /^\s*(?:(\d{1,3})(?!\d)(?!\.\d)|\b(uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b)(?:\s*porcion(?:es)?\b)?\s*\.?\s*$/;
-  const match = normalized.match(portionsRe);
-  if (!match) return null;
+const FOLLOW_UP_NUMBER_WORDS: Record<string, number> = {
+  ...SPANISH_NUMBERS,
+  once: 11,
+  doce: 12,
+  quince: 15,
+  veinte: 20,
+};
+const FOLLOW_UP_WORD_ALT = Object.keys(FOLLOW_UP_NUMBER_WORDS).join("|");
 
-  const value = match[1] ?? match[2];
-  if (!value) return null;
-  if (/^\d+$/.test(value)) {
-    return parseInt(value, 10);
+/** A weight or volume right after a number: "500 g", "2 kilos", "1.5 l". */
+const MEASURE_RE =
+  /\d\s*(?:g|gr|grs|gramos?|kg|kgs|kilos?|kilogramos?|ml|mililitros?|l|lt|lts|litros?|oz|onzas?|lb|lbs|libras?)\b/;
+const MEASURE_WORD_RE =
+  /\b(?:gramos?|kilos?|kilogramos?|mililitros?|litros?|onzas?|libras?)\b/;
+
+/** "para", "salieron", "son"… that may come before the number. */
+const FOLLOW_UP_LEAD =
+  "(?:(?:salio\\s+para|salieron|salio|salen|sale|son|fueron|para|rinde|rindio|hice|hizo)\\s+)*";
+const FOLLOW_UP_RE = new RegExp(
+  `^${FOLLOW_UP_LEAD}(?:(\\d{1,3})(?![\\d.,]\\d)|\\b(${FOLLOW_UP_WORD_ALT})\\b)(?:\\s*[a-zñ]+(?:\\s+[a-zñ]+){0,2})?\\s*[.!]*$`
+);
+
+/**
+ * The answer to «¿Para cuántas porciones salió?». A leading number or number
+ * word (1–100), optionally after «para / salieron / son / salió para», and
+ * up to three plain words after it: «1», «1 hamburguesa», «una», «para 2»,
+ * «2 porciones», «salieron 4». Not an answer: report words (se acabó, merma,
+ * tiré…), a weight or volume («500 g»), more words, or a number outside 1–100.
+ */
+export function parsePortionsFromFollowUp(text: string): number | null {
+  const normalized = normalize(text.trim()).replace(/\s+/g, " ");
+  if (!normalized) return null;
+  if (hasReportKeywords(normalized)) return null;
+  if (MEASURE_RE.test(normalized) || MEASURE_WORD_RE.test(normalized)) {
+    return null;
   }
-  return SPANISH_NUMBERS[value] ?? null;
+  const match = normalized.match(FOLLOW_UP_RE);
+  if (!match) return null;
+  const value = match[1]
+    ? parseInt(match[1], 10)
+    : FOLLOW_UP_NUMBER_WORDS[match[2]];
+  if (!value || value < 1 || value > 100) return null;
+  return value;
 }
 
 export interface ExtractedIngredientLine {

@@ -7,7 +7,9 @@ export type FakeStore = Record<string, Row[]>;
 
 type Op =
   | { type: "eq" | "is" | "gte" | "lt" | "in"; col: string; val: unknown }
-  | { type: "or"; expr: string };
+  | { type: "or"; expr: string }
+  | { type: "not"; col: string; op: string; val: unknown }
+  | { type: "contains"; col: string; val: unknown[] };
 
 /** A PostgREST filter list: "a.eq.1,and(b.is.null,c.lt.2)" (comma = OR). */
 function splitTop(expr: string): string[] {
@@ -41,6 +43,14 @@ function matchesFilter(row: Row, filter: string): boolean {
 
 function matches(row: Row, ops: Op[]) {
   return ops.every((op) => {
+    if (op.type === "contains") {
+      const cell = row[op.col];
+      return Array.isArray(cell) && op.val.every((v) => cell.includes(v));
+    }
+    if (op.type === "not") {
+      if (op.op === "is") return (row[op.col] ?? null) !== op.val;
+      return row[op.col] !== op.val;
+    }
     if (op.type === "or") {
       return splitTop(op.expr).some((f) => matchesFilter(row, f));
     }
@@ -58,7 +68,7 @@ export interface FakeDbOptions {
   /** Make a write fail: return true to answer with a database error. */
   fail?: (
     table: string,
-    mode: "insert" | "update" | "delete",
+    mode: "select" | "insert" | "update" | "delete",
     payload: unknown
   ) => boolean;
 }
@@ -67,13 +77,15 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
   let generated = 1;
   function from(table: string) {
     const ops: Op[] = [];
-    let mode: "select" | "update" | "insert" | "delete" = "select";
+    let mode: "select" | "update" | "insert" | "delete" | "upsert" = "select";
+    let conflictCols: string[] = [];
     let payload: unknown = null;
     let orderCol: string | null = null;
     let cap: number | null = null;
+    let offset = 0;
     const rows = () => (store[table] ??= []);
     const run = () => {
-      if (mode !== "select" && options.fail?.(table, mode, payload)) {
+      if (options.fail?.(table, mode === "upsert" ? "insert" : mode, payload)) {
         return {
           data: null as unknown as Row[],
           error: { message: "forced failure" },
@@ -83,6 +95,24 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
         const hit = rows().filter((r) => matches(r, ops));
         for (const r of hit) Object.assign(r, payload as Row);
         return { data: hit.map((r) => ({ ...r })), error: null };
+      }
+      if (mode === "upsert") {
+        const incoming = (
+          Array.isArray(payload) ? payload : [payload]
+        ) as Row[];
+        const out = incoming.map((r) => {
+          const hit = rows().find((row) =>
+            conflictCols.every((c) => row[c] === r[c])
+          );
+          if (hit) {
+            Object.assign(hit, r);
+            return { ...hit };
+          }
+          const row = { ...r, id: r.id ?? `gen-${generated++}` };
+          rows().push(row);
+          return { ...row };
+        });
+        return { data: out, error: null };
       }
       if (mode === "insert") {
         const incoming = (
@@ -112,7 +142,7 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
             : Number(a[col] ?? 0) - Number(b[col] ?? 0)
         );
       }
-      if (cap !== null) data = data.slice(0, cap);
+      data = data.slice(offset, cap === null ? undefined : offset + cap);
       return { data, error: null };
     };
     const self: Record<string, unknown> = {
@@ -133,6 +163,14 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
         ops.push({ type: "lt", col, val }),
         self
       ),
+      contains: (col: string, val: unknown[]) => (
+        ops.push({ type: "contains", col, val }),
+        self
+      ),
+      not: (col: string, op: string, val: unknown) => (
+        ops.push({ type: "not", col, op, val }),
+        self
+      ),
       or: (expr: string) => (ops.push({ type: "or", expr }), self),
       in: (col: string, val: unknown[]) => (
         ops.push({ type: "in", col, val }),
@@ -140,6 +178,11 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
       ),
       order: (col: string) => ((orderCol = col), self),
       limit: (n: number) => ((cap = n), self),
+      range: (from: number, to: number) => (
+        (offset = from),
+        (cap = to - from + 1),
+        self
+      ),
       update: (data: Row) => ((mode = "update"), (payload = data), self),
       insert: (data: Row | Row[]) => (
         (mode = "insert"),
@@ -147,6 +190,12 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
         self
       ),
       delete: () => ((mode = "delete"), self),
+      upsert: (data: Row | Row[], opts?: { onConflict?: string }) => (
+        (mode = "upsert"),
+        (payload = data),
+        (conflictCols = (opts?.onConflict ?? "id").split(",")),
+        self
+      ),
       maybeSingle: async () => {
         const { data, error } = run();
         return { data: data[0] ?? null, error };

@@ -28,6 +28,12 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { consumePairingCode } from "@/lib/restaurant/telegram/pairing";
 import { sendTelegramMessage } from "@/lib/restaurant/telegram/send";
+import { fetchAllRows } from "@/lib/restaurant/paginated-read";
+import {
+  isActiveIngredient,
+  loadCompanyIngredients,
+} from "@/lib/restaurant/ingredient-active";
+import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
 import { resolvePreferredLanguage, t } from "@/lib/restaurant/language";
 import { isValidWebhookSecret } from "@/lib/restaurant/telegram/webhook-secret";
 import {
@@ -353,15 +359,20 @@ async function processRecipeDraftAsync(
       return;
     }
 
-    const ingredientsRes = await admin
-      .from("ingredients")
-      .select("id, name, default_unit")
-      .eq("company_id", staff.company_id);
-
-    const ingredients = ingredientsRes.data ?? [];
+    // Every ingredient and every cost entry, in pages: a plain select stops
+    // at 1,000 rows and would silently leave ingredients without a price.
+    // Only ACTIVE ingredients: a merged-away (archived) one is never matched;
+    // its old name reaches the survivor through the alias.
+    const ingredients = (await loadCompanyIngredients(admin, staff.company_id))
+      .filter(isActiveIngredient)
+      .map((row) => ({
+        id: row.id,
+        name: row.name,
+        default_unit: row.default_unit ?? "unit",
+      }));
     const ingredientIds = ingredients.map((i) => i.id);
 
-    let costEntries: Array<{
+    type CostEntryRow = {
       ingredient_id: string;
       normalized_unit_cost: number;
       normalized_unit: string;
@@ -377,18 +388,32 @@ async function processRecipeDraftAsync(
       unit: string;
       total_cost: number;
       unit_cost: number;
-    }> = [];
+    };
+    let costEntries: CostEntryRow[] = [];
 
     if (ingredientIds.length > 0) {
-      const costEntriesRes = await admin
-        .from("ingredient_cost_entries")
-        .select(
-          "id, company_id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit_cost, normalized_unit, currency, created_at"
-        )
-        .eq("company_id", staff.company_id)
-        .in("ingredient_id", ingredientIds);
+      const costEntriesRes = await fetchAllRows<CostEntryRow>(() =>
+        admin
+          .from("ingredient_cost_entries")
+          .select(
+            "id, company_id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit_cost, normalized_unit, currency, created_at"
+          )
+          .eq("company_id", staff.company_id)
+      );
+      costEntries = costEntriesRes.error ? [] : costEntriesRes.rows;
+    }
 
-      costEntries = (costEntriesRes.data ?? []) as typeof costEntries;
+    // Names this company already taught Milton (ingredient_aliases).
+    const aliasKeyToId = new Map<string, string>();
+    try {
+      const aliasRepo = createSupabaseCostWorkbookRepo(admin);
+      for (const row of await aliasRepo.listIngredientAliases(
+        staff.company_id
+      )) {
+        aliasKeyToId.set(row.alias_key, row.ingredient_id);
+      }
+    } catch {
+      // no alias table yet: exact and synonym matching still work
     }
 
     const costMap = new Map<string, typeof costEntries>();
@@ -416,7 +441,8 @@ async function processRecipeDraftAsync(
         ),
       },
       ingredients,
-      costMap
+      costMap,
+      aliasKeyToId
     );
 
     if (result.ok) {

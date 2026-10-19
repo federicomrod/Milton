@@ -25,6 +25,11 @@ import {
   isStaleClaim,
 } from "@/lib/restaurant/telegram/kitchen-draft-confirm";
 import { normalizeUnit, convertUnitStr } from "@/lib/restaurant/units";
+import { fetchAllRows } from "@/lib/restaurant/paginated-read";
+import { archivedIngredientMessage } from "@/lib/restaurant/ingredient-active";
+import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
+import { latestCostEntry } from "@/lib/restaurant/costing";
+import type { IngredientCostEntry } from "@/types/restaurant-costing";
 
 export const dynamic = "force-dynamic";
 
@@ -163,19 +168,54 @@ export async function POST(
 
   // Ingredient names for the messages (company-scoped).
   const ingredientIds = body.lines.map((l) => l.ingredient_id);
-  const { data: ingredients } = await admin
+  // archived_at too: a merged-away ingredient is never saved on a recipe line.
+  // (Before the archive column exists nothing is archived.)
+  type IngredientResult = {
+    data: Array<Record<string, unknown>> | null;
+    error: { message?: string } | null;
+  };
+  let ingredientRes = (await admin
     .from("ingredients")
-    .select("id, name, default_unit")
+    .select("id, name, default_unit, archived_at")
     .eq("company_id", auth.companyId)
-    .in("id", ingredientIds);
+    .in("id", ingredientIds)) as unknown as IngredientResult;
+  if (
+    ingredientRes.error &&
+    /archived_at/.test(ingredientRes.error.message ?? "")
+  ) {
+    ingredientRes = (await admin
+      .from("ingredients")
+      .select("id, name, default_unit")
+      .eq("company_id", auth.companyId)
+      .in("id", ingredientIds)) as unknown as IngredientResult;
+  }
+  const ingredients = ingredientRes.data as Array<
+    Record<string, unknown>
+  > | null;
   const nameById = new Map(
     (ingredients ?? []).map((i) => [i.id as string, String(i.name ?? "")])
+  );
+  const archivedIds = new Set(
+    (ingredients ?? []).filter((i) => i.archived_at).map((i) => i.id as string)
   );
   const nameOf = (id: string) => nameById.get(id) || "ese ingrediente";
 
   for (const line of body.lines) {
     if (!nameById.has(line.ingredient_id)) {
       return fail("Uno de los ingredientes ya no está en tu lista.", 400);
+    }
+    if (archivedIds.has(line.ingredient_id)) {
+      // Merged into another ingredient? Say which one to use instead.
+      const merged = await createSupabaseEditorStore(admin)
+        .mergedInto(auth.companyId, line.ingredient_id)
+        .catch(() => null);
+      return fail(
+        archivedIngredientMessage(
+          nameOf(line.ingredient_id),
+          merged?.name ?? null
+        ),
+        400
+      );
     }
     if (!line.total_quantity || line.total_quantity <= 0) {
       return fail(`Falta la cantidad de ${nameOf(line.ingredient_id)}.`, 400);
@@ -188,39 +228,43 @@ export async function POST(
     }
   }
 
-  const { data: costEntries } = await admin
-    .from("ingredient_cost_entries")
-    .select("ingredient_id, normalized_unit_cost, normalized_unit, cost_date")
-    .eq("company_id", auth.companyId)
-    .in("ingredient_id", ingredientIds)
-    .order("cost_date", { ascending: false });
-
-  const costMap = new Map<string, { normalized_unit: string }>();
-  for (const entry of costEntries ?? []) {
-    if (
-      !costMap.has(entry.ingredient_id) &&
-      entry.normalized_unit_cost !== null &&
-      entry.normalized_unit !== null
-    ) {
-      costMap.set(entry.ingredient_id, {
-        normalized_unit: entry.normalized_unit,
-      });
-    }
+  // Current price of each ingredient (paged; the shared "latest entry" rule).
+  // A line WITHOUT a price is saved normally and stays «Sin precio»; only a
+  // unit that cannot be read in the price's unit is refused.
+  const costEntries = await fetchAllRows<IngredientCostEntry>(() =>
+    admin
+      .from("ingredient_cost_entries")
+      .select(
+        "id, ingredient_id, source_type, cost_date, effective_date, date_source, normalized_unit_cost, normalized_unit, unit_cost, created_at"
+      )
+      .eq("company_id", auth.companyId)
+      .in("ingredient_id", ingredientIds)
+  );
+  // Fail closed: if the prices cannot be read, every line would look unpriced
+  // and the unit check would be skipped. Nothing has been written yet.
+  if (costEntries.error) {
+    return fail("No pude leer los precios. Inténtalo de nuevo.", 500);
+  }
+  const entriesByIngredient = new Map<string, IngredientCostEntry[]>();
+  for (const entry of costEntries.rows) {
+    const list = entriesByIngredient.get(entry.ingredient_id) ?? [];
+    list.push(entry);
+    entriesByIngredient.set(entry.ingredient_id, list);
   }
 
   for (const line of body.lines) {
-    const cost = costMap.get(line.ingredient_id);
-    if (!cost) {
-      return fail(`Falta el precio de ${nameOf(line.ingredient_id)}.`, 400);
-    }
+    const latest = latestCostEntry(
+      entriesByIngredient.get(line.ingredient_id) ?? []
+    );
+    if (!latest?.normalized_unit) continue; // no price yet: any recognized unit
     const conversion = convertUnitStr(
       line.total_quantity,
       line.unit,
-      cost.normalized_unit
+      latest.normalized_unit
     );
     if (!conversion.ok) {
       return fail(
-        `No puedo convertir "${line.unit}" a la unidad del precio de ${nameOf(line.ingredient_id)} (${cost.normalized_unit}).`,
+        `No puedo convertir "${line.unit}" a la unidad del precio de ${nameOf(line.ingredient_id)} (${latest.normalized_unit}).`,
         400
       );
     }

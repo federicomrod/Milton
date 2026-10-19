@@ -1,11 +1,10 @@
 // Who may change kitchen recipe drafts and what they use (ingredients, names,
-// prices): the company's owner or Milton staff, the same rule as confirming a
-// draft. Returns null when allowed, otherwise the Spanish 403.
+// prices): the company's owner, admin or manager, and Milton staff. Returns null when allowed, otherwise the Spanish 403.
 
 import { NextResponse } from "next/server";
 import { isUserAdminServer } from "@/lib/profile-service-server";
 import {
-  canManageKitchenQr,
+  canManageKitchenDrafts,
   loadMembershipRole,
 } from "@/lib/restaurant/telegram/kitchen-join";
 
@@ -17,7 +16,7 @@ export async function kitchenManagerGuard(
     isUserAdminServer(userId),
     loadMembershipRole(companyId, userId),
   ]);
-  if (canManageKitchenQr({ isMiltonAdmin, membershipRole })) return null;
+  if (canManageKitchenDrafts({ isMiltonAdmin, membershipRole })) return null;
   return NextResponse.json(
     { error: "No tienes permiso para cambiar esto." },
     { status: 403 }

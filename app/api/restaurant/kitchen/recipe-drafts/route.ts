@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
       `
       id,
       dish_name,
+      menu_item_id,
       portions,
       status,
       confidence,
@@ -73,6 +74,7 @@ export async function GET(req: NextRequest) {
   const enriched = (drafts ?? []).map((d) => ({
     id: d.id,
     dish_name: d.dish_name,
+    menu_item_id: d.menu_item_id ?? null,
     portions: d.portions,
     status: d.status,
     confidence: d.confidence,

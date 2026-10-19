@@ -3,7 +3,8 @@
 // PATCH /api/restaurant/kitchen/recipe-drafts/:id
 //
 // Updates a draft's editable fields (dish_name, portions, menu_item_id, lines).
-// Only Milton admins and owners can edit (enforced server-side).
+// Owners, admins, managers and Milton staff can edit (enforced server-side),
+// and only drafts of their own company (404 otherwise).
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
@@ -11,17 +12,17 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { isUserAdminServer } from "@/lib/profile-service-server";
 import {
-  canManageKitchenQr,
+  canManageKitchenDrafts,
   loadMembershipRole,
 } from "@/lib/restaurant/telegram/kitchen-join";
-import { normalizeUnit } from "@/lib/restaurant/units";
+import { forbidden } from "@/lib/restaurant/telegram/kitchen-manager-guard";
 
 export const dynamic = "force-dynamic";
 
 interface PatchBody {
   dish_name?: string;
-  portions?: number;
-  menu_item_id?: string;
+  portions?: number | null;
+  menu_item_id?: string | null;
   lines?: Array<{
     id?: string;
     raw_name: string;
@@ -50,9 +51,8 @@ export async function PATCH(
     isUserAdminServer(user.id),
     loadMembershipRole(auth.companyId, user.id),
   ]);
-  const canManage = canManageKitchenQr({ isMiltonAdmin, membershipRole });
-  if (!canManage) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!canManageKitchenDrafts({ isMiltonAdmin, membershipRole })) {
+    return forbidden();
   }
 
   const { id: draftId } = await params;
@@ -81,7 +81,8 @@ export async function PATCH(
     );
   }
 
-  if (body.portions !== undefined) {
+  // portions: null means "unchanged" (a draft saved before the cook's answer).
+  if (body.portions !== undefined && body.portions !== null) {
     if (
       typeof body.portions !== "number" ||
       body.portions <= 0 ||
@@ -142,21 +143,22 @@ export async function PATCH(
           { status: 400 }
         );
       }
+      // A draft may keep the cook's own unit word (it is checked when the
+      // recipe is confirmed): only the type and a sane length are checked here.
       if (
         line.unit !== null &&
         line.unit !== undefined &&
-        line.unit !== "" &&
-        !normalizeUnit(line.unit)
+        (typeof line.unit !== "string" || line.unit.length > 40)
       ) {
         return NextResponse.json(
-          { error: `Invalid unit: ${line.unit}` },
+          { error: `Invalid unit: ${String(line.unit).slice(0, 40)}` },
           { status: 400 }
         );
       }
     }
 
     const ingredientIds = body.lines
-      .filter((l) => l.ingredient_id !== null)
+      .filter((l) => l.ingredient_id != null)
       .map((l) => l.ingredient_id!);
 
     if (ingredientIds.length > 0) {
@@ -172,7 +174,7 @@ export async function PATCH(
 
       for (const line of body.lines) {
         if (
-          line.ingredient_id !== null &&
+          line.ingredient_id != null &&
           !companyIngredientIds.has(line.ingredient_id)
         ) {
           return NextResponse.json(
@@ -188,7 +190,7 @@ export async function PATCH(
 
   const updates: Record<string, unknown> = {};
   if (body.dish_name !== undefined) updates.dish_name = body.dish_name;
-  if (body.portions !== undefined) {
+  if (body.portions !== undefined && body.portions !== null) {
     updates.portions = body.portions;
     if (draft.status === "awaiting_portions") {
       updates.status = "draft";
@@ -298,11 +300,11 @@ export async function PATCH(
         .from("kitchen_recipe_draft_lines")
         .update({
           raw_name: line.raw_name,
-          ingredient_id: line.ingredient_id,
-          total_quantity: line.total_quantity,
-          unit: line.unit,
+          ingredient_id: line.ingredient_id ?? null,
+          total_quantity: line.total_quantity ?? null,
+          unit: line.unit ?? null,
           per_portion_quantity:
-            line.total_quantity !== null && portionsForLines
+            line.total_quantity != null && portionsForLines
               ? line.total_quantity / portionsForLines
               : null,
           line_number,
@@ -328,11 +330,11 @@ export async function PATCH(
             company_id: auth.companyId,
             line_number,
             raw_name: line.raw_name,
-            ingredient_id: line.ingredient_id,
-            total_quantity: line.total_quantity,
-            unit: line.unit,
+            ingredient_id: line.ingredient_id ?? null,
+            total_quantity: line.total_quantity ?? null,
+            unit: line.unit ?? null,
             per_portion_quantity:
-              line.total_quantity !== null && portionsForLines
+              line.total_quantity != null && portionsForLines
                 ? line.total_quantity / portionsForLines
                 : null,
             confidence: "low" as const,

@@ -7,6 +7,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { normalizeKitchenName } from "@/lib/restaurant/kitchen-ingredient-match";
+import { sentenceCase } from "@/lib/restaurant/sentence-case";
 
 export interface ComboIngredient {
   id: string;
@@ -23,6 +24,7 @@ export function IngredientCombobox({
   ingredients,
   value,
   placeholder,
+  rawName,
   ariaLabel,
   onSelect,
   onCreate,
@@ -30,6 +32,8 @@ export function IngredientCombobox({
   ingredients: readonly ComboIngredient[];
   value: string | null;
   placeholder?: string;
+  /** The cook's own word for a line nothing matched: shown in the box with a «+ Crear» chip. */
+  rawName?: string;
   ariaLabel: string;
   onSelect: (ingredient: ComboIngredient) => void;
   /** Create «text» as a new ingredient (no price). */
@@ -71,8 +75,8 @@ export function IngredientCombobox({
     onSelect(ingredient);
   };
 
-  const create = async () => {
-    const name = text.trim().replace(/\s+/g, " ");
+  const create = async (fixed?: string) => {
+    const name = sentenceCase(fixed ?? text);
     if (!name || busy) return;
     setBusy(true);
     setError(null);
@@ -88,15 +92,28 @@ export function IngredientCombobox({
 
   return (
     <div className="relative">
+      {!selected && rawName?.trim() && !open ? (
+        <button
+          type="button"
+          aria-label={`Crear "${sentenceCase(rawName)}"`}
+          disabled={busy}
+          className="absolute right-1.5 top-1.5 z-10 rounded-full bg-[#eef2fd] px-2 text-[12px] font-semibold text-[#1B40C8] hover:bg-[#dfe7fb] disabled:opacity-60"
+          onClick={() => void create(rawName)}
+        >
+          + Crear
+        </button>
+      ) : null}
       <input
         ref={inputRef}
         role="combobox"
         aria-expanded={open}
         aria-label={ariaLabel}
         aria-autocomplete="list"
-        className="h-9 w-full rounded-md border border-[#e3e7ee] bg-white px-2 text-sm focus:border-[#1B40C8] focus:outline-none focus:ring-2 focus:ring-[#c6d3f5]"
-        placeholder={selected ? selected.name : placeholder}
-        value={open ? text : (selected?.name ?? "")}
+        className="h-9 w-full rounded-md border border-[#e3e7ee] bg-white px-2 pr-16 text-sm focus:border-[#1B40C8] focus:outline-none focus:ring-2 focus:ring-[#c6d3f5]"
+        placeholder={selected ? sentenceCase(selected.name) : placeholder}
+        value={
+          open ? text : selected ? sentenceCase(selected.name) : (rawName ?? "")
+        }
         onFocus={() => {
           setOpen(true);
           setText("");
@@ -135,7 +152,7 @@ export function IngredientCombobox({
                 pick(ing);
               }}
             >
-              {ing.name}
+              {sentenceCase(ing.name)}
             </li>
           ))}
           {options.length === 0 && !canCreate ? (
@@ -151,14 +168,14 @@ export function IngredientCombobox({
                 void create();
               }}
             >
-              + Crear &quot;{text.trim()}&quot;
+              + Crear &quot;{sentenceCase(text)}&quot;
             </li>
           ) : null}
         </ul>
       ) : null}
       {similar ? (
         <p className="mt-1 text-[12px] text-[#26314a]" role="status">
-          Ya existe &quot;{similar.name}&quot;. ¿Usarlo?{" "}
+          Ya existe &quot;{sentenceCase(similar.name)}&quot;. ¿Usarlo?{" "}
           <button
             type="button"
             className="rounded border border-[#1B40C8] px-1.5 font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"

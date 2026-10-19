@@ -141,7 +141,7 @@ describe("«+ Crear bacon»", () => {
     const res = await createIngredient(json({ name: "bacon", unit: "kg" }));
     expect(res.status).toBe(200);
     const created = (await res.json()).ingredient;
-    expect(created.name).toBe("bacon");
+    expect(created.name).toBe("Bacon");
     expect(addCostEntry).not.toHaveBeenCalled();
     expect(store.ingredient_cost_entries).toHaveLength(0);
 
@@ -149,8 +149,8 @@ describe("«+ Crear bacon»", () => {
       const again = await createIngredient(json({ name: variant }));
       expect(again.status, variant).toBe(409);
       const body = await again.json();
-      expect(body.error).toBe('Ya existe "bacon". ¿Usarlo?');
-      expect(body.existing).toEqual({ id: created.id, name: "bacon" });
+      expect(body.error).toBe('Ya existe "Bacon". ¿Usarlo?');
+      expect(body.existing).toEqual({ id: created.id, name: "Bacon" });
     }
     expect(
       store.ingredients.filter((i) => i.company_id === COMPANY)
@@ -174,6 +174,19 @@ describe("«+ Crear bacon»", () => {
   it("another company's ingredient does not block this company", async () => {
     const res = await createIngredient(json({ name: "Tocino" }));
     expect(res.status).toBe(200);
+  });
+
+  it("saves new ingredients in sentence case, whatever the cook typed", async () => {
+    const res = await createIngredient(
+      json({ name: "PATTIES  DE HAMBURGUESA", unit: "piezas" })
+    );
+    expect(res.status).toBe(200);
+    const created = (await res.json()).ingredient;
+    expect(created.name).toBe("Patties de hamburguesa");
+    // existing ingredients are never renamed
+    expect(store.ingredients.find((i) => i.id === "i-mozz")?.name).toBe(
+      "Queso mozzarella"
+    );
   });
 
   it("refuses an empty name and a member without permission", async () => {
@@ -284,6 +297,38 @@ describe("inline price: the ONE pricing path", () => {
       unitCost: 7.5,
       dateSource: "manual",
     });
+  });
+
+  it("the owner, an admin, a manager and Milton staff can all save a price; a member or viewer cannot", async () => {
+    for (const role of ["owner", "admin", "manager"]) {
+      loadMembershipRole.mockResolvedValue(role);
+      addCostEntry.mockClear();
+      const res = await savePrice(
+        json({ ingredient_id: "i-pan", unit: "pza", unit_cost: 0.5 })
+      );
+      expect(res.status, role).toBe(200);
+      expect(addCostEntry, role).toHaveBeenCalledTimes(1);
+    }
+    loadMembershipRole.mockResolvedValue(null);
+    isUserAdminServer.mockResolvedValue(true);
+    addCostEntry.mockClear();
+    expect(
+      (
+        await savePrice(
+          json({ ingredient_id: "i-pan", unit: "pza", unit_cost: 0.5 })
+        )
+      ).status
+    ).toBe(200);
+    isUserAdminServer.mockResolvedValue(false);
+    for (const role of ["member", "viewer", null]) {
+      loadMembershipRole.mockResolvedValue(role);
+      addCostEntry.mockClear();
+      const res = await savePrice(
+        json({ ingredient_id: "i-pan", unit: "pza", unit_cost: 0.5 })
+      );
+      expect(res.status, String(role)).toBe(403);
+      expect(addCostEntry).not.toHaveBeenCalled();
+    }
   });
 
   it("rejects another company's ingredient: nothing is priced", async () => {

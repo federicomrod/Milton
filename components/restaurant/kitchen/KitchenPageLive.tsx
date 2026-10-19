@@ -27,12 +27,14 @@ export function KitchenPageLive({
   insights,
   lang,
   canManage,
+  canManageDrafts,
   locations,
   children,
 }: {
   insights: KitchenInsights;
   lang: PreferredLanguage;
   canManage: boolean;
+  canManageDrafts?: boolean;
   locations: { id: string; name: string }[];
   children?: ReactNode;
 }) {
@@ -126,6 +128,7 @@ export function KitchenPageLive({
         onTabChange={setTab}
         lang={lang}
         canManage={canManage}
+        canManageDrafts={canManageDrafts}
         locations={locations}
         focusDraftId={focusDraftId}
       />

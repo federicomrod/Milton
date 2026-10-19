@@ -146,25 +146,36 @@ export async function confirmKitchenDraftAsVersion(
   // claim below is the one conditional update that decides.)
   const { data: before } = await admin
     .from("kitchen_recipe_drafts")
-    .select("status, confirmed_recipe_id, confirmed_at")
+    .select("status, portions, confirmed_recipe_id, confirmed_at")
     .eq("id", input.draftId)
     .eq("company_id", companyId)
     .maybeSingle();
   const staleBefore = before ? isStaleClaim(before) : false;
   const staleCutoffIso = new Date(Date.now() - STALE_CLAIM_MS).toISOString();
+  // A failed confirm puts the draft back EXACTLY as it was: its status
+  // (draft / awaiting_portions) and the portions it had (the claim writes the
+  // typed ones). Taking over a stale claim releases to 'draft' as before.
+  const releaseTo: Record<string, unknown> =
+    before && !staleBefore && typeof before.status === "string"
+      ? { status: before.status, portions: before.portions ?? null }
+      : { status: "draft" };
 
   // ONE conditional update: a `draft`, or a stale claim that never finished.
   const { data: claimed, error: claimError } = await admin
     .from("kitchen_recipe_drafts")
     .update({
       status: "confirmed",
+      // The portions the reviewer typed (a draft still awaiting them gets
+      // them here, in the same conditional update, so a failed confirm never
+      // rewrites anything).
+      portions: input.portions,
       confirmed_by: input.userId,
       confirmed_at: nowIso,
     })
     .eq("id", input.draftId)
     .eq("company_id", companyId)
     .or(
-      `status.eq.draft,and(status.eq.confirmed,confirmed_recipe_id.is.null,confirmed_at.lt.${staleCutoffIso})`
+      `status.in.(draft,awaiting_portions),and(status.eq.confirmed,confirmed_recipe_id.is.null,confirmed_at.lt.${staleCutoffIso})`
     )
     .select("id");
   if (claimError) {
@@ -354,7 +365,7 @@ export async function confirmKitchenDraftAsVersion(
     // this call created (never an existing one).
     await admin
       .from("kitchen_recipe_drafts")
-      .update({ status: "draft", confirmed_by: null, confirmed_at: null })
+      .update({ ...releaseTo, confirmed_by: null, confirmed_at: null })
       .eq("id", input.draftId)
       .eq("company_id", companyId);
     if (createdRecipeId) {

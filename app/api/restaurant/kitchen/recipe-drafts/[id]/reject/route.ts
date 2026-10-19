@@ -2,8 +2,8 @@
 //
 // POST /api/restaurant/kitchen/recipe-drafts/:id/reject
 //
-// Rejects a recipe draft (marks status 'rejected'). Only Milton admins
-// and owners can reject (enforced server-side). Uses admin client after
+// Rejects a recipe draft (marks status 'rejected'). Owners, admins,
+// managers and Milton staff can reject (enforced server-side). Uses admin client after
 // role check. Only drafts in 'draft' or 'awaiting_portions' can be rejected.
 
 import { NextRequest, NextResponse } from "next/server";
@@ -11,8 +11,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { isUserAdminServer } from "@/lib/profile-service-server";
+import { forbidden } from "@/lib/restaurant/telegram/kitchen-manager-guard";
 import {
-  canManageKitchenQr,
+  canManageKitchenDrafts,
   loadMembershipRole,
 } from "@/lib/restaurant/telegram/kitchen-join";
 
@@ -37,13 +38,21 @@ export async function POST(
     isUserAdminServer(user.id),
     loadMembershipRole(auth.companyId, user.id),
   ]);
-  const canManage = canManageKitchenQr({ isMiltonAdmin, membershipRole });
-  if (!canManage) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!canManageKitchenDrafts({ isMiltonAdmin, membershipRole })) {
+    return forbidden();
   }
 
   const { id: draftId } = await params;
   const admin = createAdminClient();
+
+  const { data: draft } = await admin
+    .from("kitchen_recipe_drafts")
+    .select("id, company_id")
+    .eq("id", draftId)
+    .maybeSingle();
+  if (!draft || draft.company_id !== auth.companyId) {
+    return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+  }
 
   const { data: updated, error: updateError } = await admin
     .from("kitchen_recipe_drafts")

@@ -22,8 +22,10 @@ import {
   createSupabaseCostWorkbookRepo,
 } from "@/lib/restaurant/cost-workbook/repo";
 import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
+import { sentenceCase } from "@/lib/restaurant/sentence-case";
 import { kitchenManagerGuard } from "@/lib/restaurant/telegram/kitchen-manager-guard";
 import { normalizeUnit } from "@/lib/restaurant/units";
+import { mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
 
 export const dynamic = "force-dynamic";
 
@@ -79,15 +81,18 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
-  const denied = await kitchenManagerGuard(auth.companyId, auth.userId);
-  if (denied) return denied;
-
   const body = (await req.json().catch(() => null)) as {
     name?: unknown;
     unit?: unknown;
+    draft_id?: unknown;
   } | null;
-  const name =
-    typeof body?.name === "string" ? body.name.trim().replace(/\s+/g, " ") : "";
+  const denied = await kitchenManagerGuard(auth.companyId, auth.userId, {
+    draftId: typeof body?.draft_id === "string" ? body.draft_id : null,
+  });
+  if (denied) return denied;
+  // A new ingredient is saved in sentence case («Bacon»); existing ones are
+  // never renamed.
+  const name = typeof body?.name === "string" ? sentenceCase(body.name) : "";
   if (!name || name.length > MAX_NAME) {
     return NextResponse.json(
       { error: "Escribe el nombre del ingrediente." },
@@ -96,7 +101,7 @@ export async function POST(req: NextRequest) {
   }
   const unit =
     typeof body?.unit === "string" && normalizeUnit(body.unit)
-      ? body.unit.trim()
+      ? (mapKitchenUnit(body.unit) ?? body.unit.trim())
       : "unit";
 
   try {

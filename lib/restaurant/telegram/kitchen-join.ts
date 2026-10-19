@@ -66,6 +66,23 @@ export function canManageKitchenQr(input: {
   return input.isMiltonAdmin || input.membershipRole === "owner";
 }
 
+/**
+ * Who may price and shape the ingredients of a kitchen recipe draft: Milton
+ * staff and the company's owner, admin or manager.
+ */
+export function canManageKitchenDrafts(input: {
+  isMiltonAdmin: boolean;
+  membershipRole: string | null | undefined;
+}): boolean {
+  const role = input.membershipRole?.trim().toLowerCase();
+  return (
+    input.isMiltonAdmin ||
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager"
+  );
+}
+
 export interface ExistingStaff {
   location_id: string;
   is_active: boolean;

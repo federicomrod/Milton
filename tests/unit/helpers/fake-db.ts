@@ -36,6 +36,11 @@ function matchesFilter(row: Row, filter: string): boolean {
   const cell = row[col];
   if (op === "eq") return String(cell) === val;
   if (op === "is") return val === "null" ? cell == null : String(cell) === val;
+  if (op === "in")
+    return val
+      .replace(/^\(|\)$/g, "")
+      .split(",")
+      .includes(String(cell));
   if (op === "lt") return cell != null && String(cell) < val;
   if (op === "gte") return cell != null && String(cell) >= val;
   return false;

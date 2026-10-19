@@ -8,6 +8,7 @@
 // Bot API URLs or OpenAI keys. Follows the same rules as files.ts.
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
 import {
   findExactIngredient,
   findSynonymIngredient,
@@ -459,6 +460,9 @@ export function matchIngredients(
 
   for (const line of lines) {
     if (!line.name || !line.name.trim()) continue;
+    // The unit is one of the dropdown's (g, kg, ml, l, pza, unidad, oz, lb), or
+    // null when what the cook said cannot be mapped: the reviewer chooses.
+    const mappedUnit = mapKitchenUnit(line.unit);
 
     // Only a sure match is picked: the exact name, a remembered alias, or a
     // whole-name synonym. A looser guess is NOT picked here; Revisar receta
@@ -507,13 +511,13 @@ export function matchIngredients(
         unitCostUnit = cost.unit;
         if (
           line.estimated_quantity !== null &&
-          line.unit &&
-          normalizeUnit(line.unit) !== null &&
+          mappedUnit &&
+          normalizeUnit(mappedUnit) !== null &&
           normalizeUnit(cost.unit) !== null
         ) {
           const converted = convertUnitStr(
             line.estimated_quantity,
-            line.unit,
+            mappedUnit,
             cost.unit
           );
           if (converted.ok) {
@@ -538,7 +542,7 @@ export function matchIngredients(
       ingredient_id: bestMatch?.id ?? null,
       ingredient_name: bestMatch?.name ?? null,
       total_quantity: line.estimated_quantity,
-      unit: line.unit,
+      unit: mappedUnit,
       per_portion_quantity: perPortion,
       confidence: finalConfidence,
       unit_cost_snapshot: unitCost,

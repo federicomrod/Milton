@@ -13,11 +13,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { forbidden } from "@/lib/restaurant/telegram/kitchen-manager-guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { isUserAdminServer } from "@/lib/profile-service-server";
 import {
-  canManageKitchenQr,
+  canManageKitchenDrafts,
   loadMembershipRole,
 } from "@/lib/restaurant/telegram/kitchen-join";
 import {
@@ -67,8 +68,8 @@ export async function POST(
     isUserAdminServer(user.id),
     loadMembershipRole(auth.companyId, user.id),
   ]);
-  if (!canManageKitchenQr({ isMiltonAdmin, membershipRole })) {
-    return fail("No tienes permiso para confirmar recetas.", 403);
+  if (!canManageKitchenDrafts({ isMiltonAdmin, membershipRole })) {
+    return forbidden();
   }
 
   const { id: draftId } = await params;
@@ -95,8 +96,14 @@ export async function POST(
     return fail("No encontré esa receta.", 404);
   }
 
-  if (draft.status !== "draft" && draft.status !== "confirmed") {
-    return fail("Primero indica las porciones para poder confirmar.", 400);
+  // A draft still waiting for portions can be confirmed when the reviewer
+  // typed them (checked below); nothing is saved unless the confirm works.
+  if (
+    draft.status !== "draft" &&
+    draft.status !== "confirmed" &&
+    draft.status !== "awaiting_portions"
+  ) {
+    return fail("Esta receta ya no está pendiente de revisar.", 400);
   }
 
   // A claim that never finished (the call died) and is older than 2 minutes

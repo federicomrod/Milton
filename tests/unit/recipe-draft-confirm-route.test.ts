@@ -474,6 +474,28 @@ describe("a dish whose recipe is only in the old lines (no versions)", () => {
 });
 
 describe("a failed write leaves nothing behind", () => {
+  it("an awaiting_portions draft (portions null), confirmed with 4, whose version insert throws, comes back awaiting_portions with portions null", async () => {
+    store.kitchen_recipe_drafts[0].status = "awaiting_portions";
+    store.kitchen_recipe_drafts[0].portions = null;
+    failRule = (table, mode) =>
+      table === "recipe_versions" && mode === "insert";
+    const res = await confirm(body({ portions: 4 }));
+    expect(res.status).toBe(500);
+    expect(store.kitchen_recipe_drafts[0].status).toBe("awaiting_portions");
+    expect(store.kitchen_recipe_drafts[0].portions).toBeNull();
+    expect(store.kitchen_recipe_drafts[0].confirmed_by ?? null).toBeNull();
+    expect(store.kitchen_recipe_drafts[0].confirmed_at ?? null).toBeNull();
+  });
+
+  it("a draft with portions 2 confirmed with 6, whose version insert throws, keeps portions 2 and status draft", async () => {
+    failRule = (table, mode) =>
+      table === "recipe_versions" && mode === "insert";
+    const res = await confirm(body({ portions: 6 }));
+    expect(res.status).toBe(500);
+    expect(store.kitchen_recipe_drafts[0].status).toBe("draft");
+    expect(store.kitchen_recipe_drafts[0].portions).toBe(2);
+  });
+
   it("inputs insert fails → the new version is removed, the draft goes back to draft, the approved version is untouched", async () => {
     failRule = (table, mode) =>
       table === "recipe_version_inputs" && mode === "insert";

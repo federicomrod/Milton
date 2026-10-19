@@ -211,14 +211,16 @@ async function handleKitchenReport(
           return;
         }
         const result = await updateDraftPortions(chatId, staff.id, portions);
-        if (result.ok) {
-          await sendTelegramMessage(
-            chatId,
-            renderKitchenCopy(KITCHEN_COPY.RECIPE_PORTIONS_SET, {
-              porciones: `${portions} ${portions === 1 ? "porción" : "porciones"}`,
-            })
-          );
-        }
+        // Never leave the cook without an answer: if the draft could not be
+        // updated (someone else just did, or it expired), ask again.
+        await sendTelegramMessage(
+          chatId,
+          result.ok
+            ? renderKitchenCopy(KITCHEN_COPY.RECIPE_PORTIONS_SET, {
+                porciones: `${portions} ${portions === 1 ? "porción" : "porciones"}`,
+              })
+            : KITCHEN_COPY.RECIPE_PORTIONS_UNCLEAR
+        );
         return;
       }
     }

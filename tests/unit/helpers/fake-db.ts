@@ -16,7 +16,16 @@ function matches(row: Row, ops: Op[]) {
   });
 }
 
-export function makeFakeDb(store: FakeStore) {
+export interface FakeDbOptions {
+  /** Make a write fail: return true to answer with a database error. */
+  fail?: (
+    table: string,
+    mode: "insert" | "update" | "delete",
+    payload: unknown
+  ) => boolean;
+}
+
+export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
   let generated = 1;
   function from(table: string) {
     const ops: Op[] = [];
@@ -26,6 +35,12 @@ export function makeFakeDb(store: FakeStore) {
     let cap: number | null = null;
     const rows = () => (store[table] ??= []);
     const run = () => {
+      if (mode !== "select" && options.fail?.(table, mode, payload)) {
+        return {
+          data: null as unknown as Row[],
+          error: { message: "forced failure" },
+        };
+      }
       if (mode === "update") {
         const hit = rows().filter((r) => matches(r, ops));
         for (const r of hit) Object.assign(r, payload as Row);

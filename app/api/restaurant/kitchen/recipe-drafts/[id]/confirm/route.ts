@@ -96,10 +96,14 @@ export async function POST(
       .eq("id", draftId)
       .eq("company_id", auth.companyId)
       .maybeSingle();
+    // Confirmed but no recipe yet: another request is still writing it.
+    if (!existing?.confirmed_recipe_id) {
+      return fail("Esta receta se está confirmando. Espera un momento.", 409);
+    }
     return NextResponse.json({
       ok: true,
-      recipe_id: existing?.confirmed_recipe_id,
-      menu_item_id: existing?.menu_item_id,
+      recipe_id: existing.confirmed_recipe_id,
+      menu_item_id: existing.menu_item_id,
     });
   }
 

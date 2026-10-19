@@ -10,6 +10,9 @@ const authAndCompany = vi.fn();
 const isUserAdminServer = vi.fn();
 const loadMembershipRole = vi.fn();
 const rpc = vi.fn();
+let failRule:
+  | ((table: string, mode: string, payload: unknown) => boolean)
+  | null = null;
 
 vi.mock("@/lib/restaurant/api-auth", () => ({
   authAndCompany: (...a: unknown[]) => authAndCompany(...a),
@@ -21,7 +24,9 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
-    ...makeFakeDb(store),
+    ...makeFakeDb(store, {
+      fail: (table, mode, payload) => failRule?.(table, mode, payload) ?? false,
+    }),
     rpc: (...a: unknown[]) => rpc(...a),
   }),
 }));
@@ -86,6 +91,7 @@ const approvedLines: Row[] = [
 ];
 
 beforeEach(() => {
+  failRule = null;
   rpc.mockReset();
   authAndCompany.mockResolvedValue({
     ok: true,
@@ -394,5 +400,112 @@ describe("errors are Spanish, with tú, and name the ingredient", () => {
       })
     );
     expect(res.status).toBe(200);
+  });
+});
+
+describe("a dish whose recipe is only in the old lines (no versions)", () => {
+  beforeEach(() => {
+    // confirmed by the old SQL function: legacy lines, no recipe_versions
+    store.recipe_versions = [];
+    store.recipe_version_inputs = [];
+  });
+
+  it("is refused with 409 and nothing is created, claimed or changed", async () => {
+    const before = JSON.stringify(store.menu_recipe_inputs);
+    const res = await confirm(body());
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe(
+      "Este platillo ya tiene una receta guardada. Para no cambiar sus costos, confirma esta receta como platillo nuevo o edita la receta desde Menú."
+    );
+    expect(store.recipe_versions).toHaveLength(0);
+    expect(store.kitchen_recipe_drafts[0].status).toBe("draft");
+    expect(JSON.stringify(store.menu_recipe_inputs)).toBe(before);
+    expect(store.recipes[0]).toMatchObject({
+      status: "active",
+      source_type: "manual",
+    });
+  });
+
+  it("an existing dish with a recipe header but NO legacy lines still gets a version", async () => {
+    store.menu_recipe_inputs = [];
+    expect((await confirm(body())).status).toBe(200);
+    expect(store.recipe_versions).toHaveLength(1);
+  });
+
+  it("the same recipe as a NEW dish works", async () => {
+    const res = await confirm(body({ menu_item_id: undefined }));
+    expect(res.status).toBe(200);
+    expect(store.menu_recipe_inputs).toHaveLength(1);
+  });
+
+  it("another company's legacy lines do not block this company", async () => {
+    store.menu_recipe_inputs = [
+      {
+        id: "legacy-x",
+        recipe_id: RECIPE,
+        company_id: OTHER,
+        ingredient_id: PAN,
+      },
+    ];
+    expect((await confirm(body())).status).toBe(200);
+  });
+});
+
+describe("a failed write leaves nothing behind", () => {
+  it("inputs insert fails → the new version is removed, the draft goes back to draft, the approved version is untouched", async () => {
+    failRule = (table, mode) =>
+      table === "recipe_version_inputs" && mode === "insert";
+    const res = await confirm(body());
+    expect(res.status).toBe(500);
+    expect(store.recipe_versions.map((v) => [v.id, v.status])).toEqual([
+      ["ver-1", "approved"],
+    ]);
+    expect(store.recipe_version_inputs).toEqual(approvedLines);
+    expect(store.kitchen_recipe_drafts[0].status).toBe("draft");
+    expect(store.kitchen_recipe_drafts[0].confirmed_by ?? null).toBeNull();
+  });
+
+  it("the final draft update fails → the created version (and its lines) are removed", async () => {
+    failRule = (table, mode, payload) =>
+      table === "kitchen_recipe_drafts" &&
+      mode === "update" &&
+      Boolean((payload as Record<string, unknown>)?.confirmed_recipe_id);
+    const res = await confirm(body());
+    expect(res.status).toBe(500);
+    expect(store.recipe_versions.map((v) => v.id)).toEqual(["ver-1"]);
+    expect(store.recipe_version_inputs).toEqual(approvedLines);
+    expect(store.kitchen_recipe_drafts[0].status).toBe("draft");
+    // and it can be confirmed again afterwards
+    failRule = null;
+    expect((await confirm(body())).status).toBe(200);
+    expect(store.recipe_versions).toHaveLength(2);
+  });
+
+  it("a new dish created by a failed call is removed too", async () => {
+    failRule = (table, mode) =>
+      table === "recipe_version_inputs" && mode === "insert";
+    const res = await confirm(body({ menu_item_id: undefined }));
+    expect(res.status).toBe(500);
+    expect(store.menu_items.map((m) => m.id)).toEqual([MENU]);
+    expect(store.recipes.map((r) => r.id)).toEqual([RECIPE]);
+  });
+});
+
+describe("a double click while the first request is still writing", () => {
+  it("status confirmed but no recipe yet → 409 «se está confirmando», not ok with empty ids", async () => {
+    store.kitchen_recipe_drafts[0] = {
+      id: DRAFT,
+      company_id: COMPANY,
+      status: "confirmed",
+      portions: 2,
+      confirmed_recipe_id: null,
+      menu_item_id: null,
+    };
+    const res = await confirm(body());
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe(
+      "Esta receta se está confirmando. Espera un momento."
+    );
+    expect(store.recipe_versions).toHaveLength(1);
   });
 });

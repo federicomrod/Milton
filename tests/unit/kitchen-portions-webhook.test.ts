@@ -7,13 +7,20 @@ import { makeFakeDb, type FakeStore } from "./helpers/fake-db";
 const store: FakeStore = {};
 const send = vi.fn(async () => ({ ok: true }));
 const record = vi.fn(async () => true);
+let failDraftUpdate = false;
 
 vi.mock("@/lib/restaurant/telegram/send", () => ({
   sendTelegramMessage: (...a: unknown[]) => send(...(a as [])),
   TelegramConfigError: class extends Error {},
 }));
 vi.mock("@/lib/supabase/admin", () => ({
-  createAdminClient: () => makeFakeDb(store),
+  createAdminClient: () =>
+    makeFakeDb(store, {
+      fail: (table, mode) =>
+        failDraftUpdate &&
+        table === "kitchen_recipe_drafts" &&
+        mode === "update",
+    }),
 }));
 vi.mock("@/lib/restaurant/telegram/kitchen-reports", async (importOriginal) => {
   const actual =
@@ -72,6 +79,7 @@ function waitingDraft(ageMs = 60_000) {
 }
 
 beforeEach(() => {
+  failDraftUpdate = false;
   process.env.TELEGRAM_WEBHOOK_SECRET = "s3cret";
   send.mockClear();
   record.mockClear();
@@ -123,6 +131,19 @@ describe("a draft is waiting for portions", () => {
         String((c as unknown[])[1]).includes("Recibido")
       )
     ).toBe(false);
+  });
+
+  it("if the draft cannot be updated the cook still gets an answer: «No entendí…», no report", async () => {
+    waitingDraft();
+    failDraftUpdate = true;
+    await POST(update("2"));
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      555,
+      "No entendí. ¿Para cuántas porciones salió? Responde con un número, por ejemplo: 2."
+    );
+    expect(record).not.toHaveBeenCalled();
+    expect(store.kitchen_recipe_drafts[0].status).toBe("awaiting_portions");
   });
 
   it("a real report («se acabó…») is still stored and acknowledged", async () => {

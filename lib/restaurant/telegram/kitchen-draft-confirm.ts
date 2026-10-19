@@ -26,6 +26,10 @@ import { nextVersionNumber } from "@/lib/restaurant/recipe-versions";
 export const KITCHEN_DRAFT_VERSION_SOURCE = "kitchen_draft";
 export const KITCHEN_DRAFT_VERSION_NOTES = "Receta enviada por cocina";
 
+/** A dish whose recipe lives only in the old lines (no versions at all). */
+export const LEGACY_RECIPE_MESSAGE =
+  "Este platillo ya tiene una receta guardada. Para no cambiar sus costos, confirma esta receta como platillo nuevo o edita la receta desde Menú.";
+
 /**
  * menu_items.selling_price is NOT NULL (default 0) and a migration is out of
  * scope, so «no price yet» is stored as 0 — the column's own «not set». The
@@ -83,6 +87,37 @@ export async function confirmKitchenDraftAsVersion(
   const { companyId } = input;
   const nowIso = new Date().toISOString();
 
+  // A dish with an old-style recipe (lines in menu_recipe_inputs, no version
+  // at all) is costed from those lines. The costing ignores them as soon as
+  // the dish has ANY version that is not approved, so adding an in_review
+  // version here would silently remove its cost and margin. Checked BEFORE
+  // the draft is claimed; nothing is created or approved from the old lines.
+  if (input.menuItemId) {
+    const { data: recipe } = await admin
+      .from("recipes")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("menu_item_id", input.menuItemId)
+      .maybeSingle();
+    if (recipe) {
+      const versions = await repo.listRecipeVersions(
+        companyId,
+        String(recipe.id)
+      );
+      if (versions.length === 0) {
+        const { data: legacy } = await admin
+          .from("menu_recipe_inputs")
+          .select("id")
+          .eq("company_id", companyId)
+          .eq("recipe_id", String(recipe.id))
+          .limit(1);
+        if (legacy && legacy.length > 0) {
+          return { ok: false, status: 409, error: LEGACY_RECIPE_MESSAGE };
+        }
+      }
+    }
+  }
+
   const { data: claimed, error: claimError } = await admin
     .from("kitchen_recipe_drafts")
     .update({
@@ -107,6 +142,9 @@ export async function confirmKitchenDraftAsVersion(
 
   let createdMenuItemId: string | null = null;
   let createdRecipeId: string | null = null;
+  let createdVersionId: string | null = null;
+  let attemptedVersion: { recipeId: string; versionNumber: number } | null =
+    null;
   try {
     let menuItemId = input.menuItemId;
     if (!menuItemId) {
@@ -168,6 +206,7 @@ export async function confirmKitchenDraftAsVersion(
       unit: line.unit,
       notes: null,
     }));
+    attemptedVersion = { recipeId, versionNumber };
     const version = await repo.insertRecipeVersion({
       companyId,
       recipeId,
@@ -179,6 +218,7 @@ export async function confirmKitchenDraftAsVersion(
       notes: KITCHEN_DRAFT_VERSION_NOTES,
       inputs,
     });
+    createdVersionId = version.id;
 
     const { error: finishError } = await admin
       .from("kitchen_recipe_drafts")
@@ -205,6 +245,38 @@ export async function confirmKitchenDraftAsVersion(
       "[kitchen-draft-confirm] failed:",
       err instanceof Error ? err.message : "Unknown error"
     );
+    // Remove ONLY the version this call created (its inputs go with it), so
+    // no orphan in_review version is left behind. When the insert threw after
+    // the version row was written, it is found by company + recipe + the
+    // number we tried + our source; no other version is ever touched.
+    try {
+      let doomed = createdVersionId;
+      if (!doomed && attemptedVersion) {
+        const { data: found } = await admin
+          .from("recipe_versions")
+          .select("id")
+          .eq("company_id", companyId)
+          .eq("recipe_id", attemptedVersion.recipeId)
+          .eq("version_number", attemptedVersion.versionNumber)
+          .eq("source_type", KITCHEN_DRAFT_VERSION_SOURCE)
+          .maybeSingle();
+        doomed = found ? String(found.id) : null;
+      }
+      if (doomed) {
+        await admin
+          .from("recipe_version_inputs")
+          .delete()
+          .eq("company_id", companyId)
+          .eq("recipe_version_id", doomed);
+        await admin
+          .from("recipe_versions")
+          .delete()
+          .eq("company_id", companyId)
+          .eq("id", doomed);
+      }
+    } catch {
+      // best effort: the claim is still released below
+    }
     // Release the claim so the manager can try again; remove only the dish
     // this call created (never an existing one).
     await admin

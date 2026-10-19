@@ -11,6 +11,7 @@ const {
   loadMembershipRole,
   addCostEntry,
   economics,
+  merged,
 } = vi.hoisted(() => ({
   store: {} as Record<string, Record<string, unknown>[]>,
   authAndCompany: vi.fn(),
@@ -18,6 +19,7 @@ const {
   loadMembershipRole: vi.fn(),
   addCostEntry: vi.fn(),
   economics: vi.fn(),
+  merged: new Map<string, string>(),
 }));
 
 vi.mock("@/lib/restaurant/api-auth", () => ({
@@ -44,7 +46,8 @@ vi.mock("@/lib/restaurant/recipe-costing/editor-store", async () => {
   const fake = makeFakeDb(store);
   return {
     createSupabaseEditorStore: () => ({
-      mergedInto: async () => null,
+      mergedInto: async (_c: string, id: string) =>
+        merged.has(id) ? { name: merged.get(id) as string } : null,
       currency: async () => "USD",
       addCostEntry: (...a: unknown[]) => addCostEntry(...a),
       createIngredient: async (
@@ -104,6 +107,7 @@ function json(body: unknown) {
 }
 
 beforeEach(() => {
+  merged.clear();
   addCostEntry.mockReset();
   addCostEntry.mockResolvedValue({ ok: true });
   economics.mockReset();
@@ -426,5 +430,88 @@ describe("the ingredient list", () => {
     const { ingredients } = await res.json();
     expect(ingredients.map((i: { id: string }) => i.id)).toEqual(["i-mozz"]);
     expect(ingredients[0].price).toEqual({ unit_cost: 7, unit: "kg" });
+  });
+});
+
+describe("merged-away and archived ingredients", () => {
+  beforeEach(() => {
+    // "Bacon" was merged into "Tocino": Bacon archived, its name an alias of Tocino
+    store.ingredients.push(
+      {
+        id: "i-bacon",
+        company_id: COMPANY,
+        name: "Bacon",
+        default_unit: "kg",
+        archived_at: "2026-09-01T00:00:00Z",
+      },
+      {
+        id: "i-tocino",
+        company_id: COMPANY,
+        name: "Tocino",
+        default_unit: "kg",
+      },
+      {
+        id: "i-chorizo",
+        company_id: COMPANY,
+        name: "Chorizo",
+        default_unit: "kg",
+        archived_at: "2026-09-01T00:00:00Z",
+      }
+    );
+    store.ingredient_aliases.push({
+      company_id: COMPANY,
+      alias_key: aliasKeyFor("bacon"),
+      alias_name: "bacon",
+      ingredient_id: "i-tocino",
+    });
+    merged.set("i-bacon", "Tocino");
+  });
+
+  it("creating «bacon» answers «Ya existe Tocino» (the survivor) and creates nothing", async () => {
+    const before = store.ingredients.length;
+    const res = await createIngredient(json({ name: "bacon" }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe('Ya existe "Tocino". ¿Usarlo?');
+    expect(body.existing).toEqual({ id: "i-tocino", name: "Tocino" });
+    expect(store.ingredients).toHaveLength(before);
+  });
+
+  it("same answer when the alias is missing: the archived name is resolved through the merge", async () => {
+    store.ingredient_aliases = [];
+    const res = await createIngredient(json({ name: "Bacon" }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).existing).toEqual({
+      id: "i-tocino",
+      name: "Tocino",
+    });
+  });
+
+  it("the name of an archived ingredient that was NOT merged → «está archivado», no «existing», nothing created", async () => {
+    const before = store.ingredients.length;
+    const res = await createIngredient(json({ name: "chorizo" }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe(
+      '"Chorizo" está archivado. Restáuralo en Ingredientes o usa otro nombre.'
+    );
+    expect(body).not.toHaveProperty("existing");
+    expect(store.ingredients).toHaveLength(before);
+  });
+
+  it("an alias POST on an archived ingredient → 400, not active", async () => {
+    const res = await saveAlias(
+      json({ raw_name: "panceta", ingredient_id: "i-bacon" })
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Ese ingrediente ya no está activo.");
+    expect(store.ingredient_aliases).toHaveLength(1); // only the merge's own
+  });
+
+  it("an alias to the survivor is fine", async () => {
+    const res = await saveAlias(
+      json({ raw_name: "panceta", ingredient_id: "i-tocino" })
+    );
+    expect(res.status).toBe(200);
   });
 });

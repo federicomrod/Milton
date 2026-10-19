@@ -447,6 +447,54 @@ describe("the inline price edit", () => {
   });
 });
 
+describe("an ingredient that is no longer active", () => {
+  const deadLine = {
+    id: "l-9",
+    raw_name: "bacon",
+    ingredient_id: "i-dead",
+    ingredient_name: "Bacon",
+    total_quantity: 0.4,
+    unit: "kg",
+    per_portion_quantity: 0.2,
+    confidence: "high",
+    line_cost: null,
+  };
+
+  it("a line on an archived / merged-away ingredient shows NO selection and Confirmar stays disabled until a new one is chosen", async () => {
+    drafts[0].lines = [deadLine];
+    const dialog = await openModal();
+    await waitFor(() => expect(combo(dialog, 1).value).toBe(""));
+    expect(combo(dialog, 1).placeholder).toBe("bacon");
+    const confirm = within(dialog).getByRole("button", {
+      name: "Confirmar",
+    }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    // choosing a live ingredient enables it
+    fireEvent.focus(combo(dialog, 1));
+    fireEvent.mouseDown(await screen.findByRole("option", { name: "Pan" }));
+    await waitFor(() => expect(combo(dialog, 1).value).toBe("Pan"));
+    expect(
+      (
+        within(dialog).getByRole("button", {
+          name: "Confirmar",
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(false); // a live ingredient is chosen: portions, quantity and unit are all there
+  });
+
+  it("the unsure messages use the neutral gray, not the amber that reads as orange", async () => {
+    const { readFileSync } = await import("fs");
+    const src = readFileSync(
+      "components/restaurant/kitchen/KitchenRecipeDraftsCard.tsx",
+      "utf8"
+    );
+    expect(src).not.toContain("a35a00");
+    const dialog = await openModal();
+    const footer = within(dialog).getByTestId("cost-footer");
+    expect(footer.innerHTML).not.toMatch(/a35a00/i);
+  });
+});
+
 describe("rules of the screen", () => {
   it("no orange anywhere in the new pieces", async () => {
     const { readFileSync } = await import("fs");

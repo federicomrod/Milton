@@ -8,7 +8,8 @@ export type FakeStore = Record<string, Row[]>;
 type Op =
   | { type: "eq" | "is" | "gte" | "lt" | "in"; col: string; val: unknown }
   | { type: "or"; expr: string }
-  | { type: "not"; col: string; op: string; val: unknown };
+  | { type: "not"; col: string; op: string; val: unknown }
+  | { type: "contains"; col: string; val: unknown[] };
 
 /** A PostgREST filter list: "a.eq.1,and(b.is.null,c.lt.2)" (comma = OR). */
 function splitTop(expr: string): string[] {
@@ -42,6 +43,10 @@ function matchesFilter(row: Row, filter: string): boolean {
 
 function matches(row: Row, ops: Op[]) {
   return ops.every((op) => {
+    if (op.type === "contains") {
+      const cell = row[op.col];
+      return Array.isArray(cell) && op.val.every((v) => cell.includes(v));
+    }
     if (op.type === "not") {
       if (op.op === "is") return (row[op.col] ?? null) !== op.val;
       return row[op.col] !== op.val;
@@ -159,6 +164,10 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
       ),
       lt: (col: string, val: unknown) => (
         ops.push({ type: "lt", col, val }),
+        self
+      ),
+      contains: (col: string, val: unknown[]) => (
+        ops.push({ type: "contains", col, val }),
         self
       ),
       not: (col: string, op: string, val: unknown) => (

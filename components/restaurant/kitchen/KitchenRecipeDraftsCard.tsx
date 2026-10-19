@@ -114,6 +114,8 @@ export function KitchenRecipeDraftsCard({
 }) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  // The active list is known (an empty list is a real answer, not "loading").
+  const [ingredientsLoaded, setIngredientsLoaded] = useState(false);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [locationId, setLocationId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -164,6 +166,7 @@ export function KitchenRecipeDraftsCard({
     if (res.ok) {
       const data = await res.json();
       setIngredients(data.ingredients ?? []);
+      setIngredientsLoaded(true);
     }
   }, []);
 
@@ -173,7 +176,10 @@ export function KitchenRecipeDraftsCard({
       const res = await fetch("/api/restaurant/kitchen/ingredients");
       if (cancelled || !res.ok) return;
       const data = await res.json();
-      if (!cancelled) setIngredients(data.ingredients ?? []);
+      if (!cancelled) {
+        setIngredients(data.ingredients ?? []);
+        setIngredientsLoaded(true);
+      }
     })();
     return () => {
       cancelled = true;
@@ -221,7 +227,7 @@ export function KitchenRecipeDraftsCard({
         ? parseFloat(newSellingPrice)
         : undefined;
 
-    const linePayload = editedLines.map((l) => ({
+    const linePayload = cleanLines.map((l) => ({
       id: l.id,
       raw_name: l.raw_name || l.ingredient_name || "ingredient",
       ingredient_id: l.ingredient_id,
@@ -251,7 +257,7 @@ export function KitchenRecipeDraftsCard({
     const patchData = await patchRes.json().catch(() => ({}));
     const savedLines: DraftLine[] = Array.isArray(patchData.lines)
       ? patchData.lines
-      : editedLines;
+      : cleanLines;
 
     const res = await fetch(
       `/api/restaurant/kitchen/recipe-drafts/${editedDraft.id}/confirm`,
@@ -427,10 +433,19 @@ export function KitchenRecipeDraftsCard({
   );
   const currencyOf = (draft: { currency: string | null } | null) =>
     draft?.currency || "USD";
+  // A line whose ingredient is not in the ACTIVE list (merged away or
+  // archived) counts as not picked: the person has to choose again.
+  const isStale = (l: DraftLine) =>
+    ingredientsLoaded &&
+    Boolean(l.ingredient_id) &&
+    !ingredientById.has(l.ingredient_id as string);
+  const cleanLines: DraftLine[] = editedLines.map((l) =>
+    isStale(l) ? { ...l, ingredient_id: null, ingredient_name: null } : l
+  );
   const costInputs = (lines: DraftLine[]): CostLineInput[] =>
     lines.map((l) => ({
       key: l.id,
-      ingredient_id: l.ingredient_id,
+      ingredient_id: isStale(l) ? null : l.ingredient_id,
       name:
         (l.ingredient_id ? ingredientById.get(l.ingredient_id)?.name : null) ??
         l.ingredient_name ??
@@ -453,7 +468,7 @@ export function KitchenRecipeDraftsCard({
   // Recalculated on every change of quantity, unit, ingredient, price or portions.
   const liveCost: DraftCost | null = editedDraft
     ? computeDraftCost(
-        costInputs(editedLines),
+        costInputs(cleanLines),
         priceMap,
         editedDraft.portions,
         sellingPrice
@@ -464,8 +479,8 @@ export function KitchenRecipeDraftsCard({
     !!editedDraft?.portions &&
     Number.isInteger(editedDraft.portions) &&
     editedDraft.portions > 0 &&
-    editedLines.length > 0 &&
-    editedLines.every(
+    cleanLines.length > 0 &&
+    cleanLines.every(
       (l) =>
         l.ingredient_id &&
         l.total_quantity !== null &&
@@ -646,7 +661,7 @@ export function KitchenRecipeDraftsCard({
                   </Button>
                 </div>
                 <div className="space-y-2">
-                  {editedLines.map((line, idx) => (
+                  {cleanLines.map((line, idx) => (
                     <div
                       key={line.id}
                       className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2 items-center"
@@ -789,7 +804,12 @@ function LineHints({
                 : ""}
             </span>
           ) : (
-            <span className="font-semibold text-[#a35a00]">Sin precio</span>
+            <span className="font-semibold text-[#6b7385]">
+              <span aria-hidden className="mr-1 text-[#aeb4c2]">
+                ●
+              </span>
+              Sin precio
+            </span>
           )}
           <button
             type="button"
@@ -849,7 +869,7 @@ function CostFooter({
             : `Costo estimado: ${money(cost.total)} en total · indica las porciones`}
         </p>
       ) : (
-        <p className="font-semibold text-[#a35a00]">
+        <p className="font-semibold text-[#6b7385]">
           Costo parcial · faltan precios de {cost.missing.join(", ")}
         </p>
       )}
@@ -913,7 +933,7 @@ function DraftListCost({
           Costo: {money(cost.per_portion)} por porción
         </p>
       ) : cost.missing.length > 0 ? (
-        <p className="text-[#a35a00]">
+        <p className="text-[#6b7385]">
           Costo parcial · faltan precios de {cost.missing.join(", ")}
         </p>
       ) : null}

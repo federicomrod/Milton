@@ -712,3 +712,56 @@ describe("a claim left by a call that died", () => {
     expect((await confirm(body())).status).toBe(404);
   });
 });
+
+describe("an archived (merged-away) ingredient is never saved on a recipe", () => {
+  beforeEach(() => {
+    store.ingredients.find((i) => i.id === BACON)!.archived_at =
+      "2026-09-01T00:00:00Z";
+  });
+
+  it("merged into another one → 400 «Bacon se unió con Tocino. Elige Tocino en esa línea.», nothing written, draft stays draft", async () => {
+    store.ingredient_merges = [
+      {
+        company_id: COMPANY,
+        loser_ids: [BACON],
+        survivor_name: "Tocino",
+        undone_at: null,
+        created_at: "2026-09-01T00:00:00Z",
+      },
+    ];
+    const res = await confirm(body());
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(
+      "Bacon se unió con Tocino. Elige Tocino en esa línea."
+    );
+    expect(store.recipe_versions.map((v) => v.id)).toEqual(["ver-1"]);
+    expect(store.recipe_version_inputs).toEqual(approvedLines);
+    expect(store.kitchen_recipe_drafts[0].status).toBe("draft");
+  });
+
+  it("archived but not merged → «Bacon está archivado. Elige otro ingrediente.»", async () => {
+    store.ingredient_merges = [];
+    const res = await confirm(body());
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(
+      "Bacon está archivado. Elige otro ingrediente."
+    );
+    expect(store.recipe_versions).toHaveLength(1);
+    expect(store.kitchen_recipe_drafts[0].status).toBe("draft");
+  });
+
+  it("a merge that was undone does not count as a merge", async () => {
+    store.ingredient_merges = [
+      {
+        company_id: COMPANY,
+        loser_ids: [BACON],
+        survivor_name: "Tocino",
+        undone_at: "2026-09-02",
+        created_at: "2026-09-01",
+      },
+    ];
+    expect((await (await confirm(body())).json()).error).toBe(
+      "Bacon está archivado. Elige otro ingrediente."
+    );
+  });
+});

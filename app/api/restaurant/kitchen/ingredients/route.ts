@@ -11,7 +11,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { fetchIngredientLatestCosts } from "@/lib/restaurant/menu-recipes-server";
-import { fetchAllRows } from "@/lib/restaurant/paginated-read";
+import {
+  isActiveIngredient,
+  loadCompanyIngredients,
+} from "@/lib/restaurant/ingredient-active";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { findSimilarIngredient } from "@/lib/restaurant/ingredient-similar";
 import {
@@ -97,23 +100,52 @@ export async function POST(req: NextRequest) {
       : "unit";
 
   try {
-    const [ingredients, aliases] = await Promise.all([
-      fetchAllRows<{ id: string; name: string }>(() =>
-        auth.supabase
-          .from("ingredients")
-          .select("id, name")
-          .eq("company_id", auth.companyId)
-      ),
+    const [everyone, aliases] = await Promise.all([
+      loadCompanyIngredients(auth.supabase, auth.companyId),
       createSupabaseCostWorkbookRepo(auth.supabase)
         .listIngredientAliases(auth.companyId)
         .catch(() => []),
     ]);
+    // Only ACTIVE ingredients can be "the same": a name that belonged to a
+    // merged-away ingredient resolves to the survivor through its alias.
+    const active = everyone.filter(isActiveIngredient);
     const similar = findSimilarIngredient(
       name,
-      ingredients.error ? [] : ingredients.rows,
+      active,
       new Map(aliases.map((row) => [row.alias_key, row.ingredient_id])),
       aliasKeyFor
     );
+    if (!similar) {
+      // The typed name is an ARCHIVED ingredient: merged → use its survivor;
+      // otherwise nothing is created and the person is told how to get it back.
+      const archivedHit = findSimilarIngredient(
+        name,
+        everyone.filter((row) => !isActiveIngredient(row))
+      );
+      if (archivedHit) {
+        const merged = await createSupabaseEditorStore(auth.supabase)
+          .mergedInto(auth.companyId, archivedHit.id)
+          .catch(() => null);
+        const survivor = merged?.name
+          ? findSimilarIngredient(merged.name, active)
+          : null;
+        if (survivor) {
+          return NextResponse.json(
+            {
+              error: `Ya existe "${survivor.name}". ¿Usarlo?`,
+              existing: { id: survivor.id, name: survivor.name },
+            },
+            { status: 409 }
+          );
+        }
+        return NextResponse.json(
+          {
+            error: `"${archivedHit.name}" está archivado. Restáuralo en Ingredientes o usa otro nombre.`,
+          },
+          { status: 409 }
+        );
+      }
+    }
     if (similar) {
       return NextResponse.json(
         {

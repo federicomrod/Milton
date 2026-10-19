@@ -8,6 +8,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
 import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
+import {
+  isActiveIngredient,
+  loadCompanyIngredients,
+} from "@/lib/restaurant/ingredient-active";
 import { kitchenManagerGuard } from "@/lib/restaurant/telegram/kitchen-manager-guard";
 
 export const dynamic = "force-dynamic";
@@ -35,15 +39,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { data: ingredient } = await auth.supabase
-    .from("ingredients")
-    .select("id, name")
-    .eq("company_id", auth.companyId)
-    .eq("id", ingredientId)
-    .maybeSingle();
+  const ingredient = (
+    await loadCompanyIngredients(auth.supabase, auth.companyId)
+  ).find((row) => row.id === ingredientId);
   if (!ingredient) {
     return NextResponse.json(
       { error: "Ese ingrediente no está en tu lista." },
+      { status: 400 }
+    );
+  }
+  // A merged-away / archived ingredient is never the target of a name.
+  if (!isActiveIngredient(ingredient)) {
+    return NextResponse.json(
+      { error: "Ese ingrediente ya no está activo." },
       { status: 400 }
     );
   }

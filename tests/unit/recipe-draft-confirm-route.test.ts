@@ -560,7 +560,7 @@ describe("two drafts of the same dish confirmed at the same time", () => {
   });
 
   it("a version of ours found by lookup with NO lines (insert died after the row) is still removed", async () => {
-    failRule = (table, mode, payload) => {
+    failRule = (table, mode) => {
       if (table === "recipe_version_inputs" && mode === "insert") return true;
       return false;
     };

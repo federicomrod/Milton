@@ -19,8 +19,6 @@ const { store, rpc } = vi.hoisted(() => {
   return { store, rpc };
 });
 
-let nextGeneratedId = 1;
-
 const authAndCompany = vi.fn();
 const isUserAdminServer = vi.fn();
 const loadMembershipRole = vi.fn();
@@ -72,7 +70,6 @@ const ING_REMOVE = "ing-remove";
 const MENU_ID = "menu-1";
 
 function seed() {
-  nextGeneratedId = 1;
   store.recipes = [];
   store.recipe_versions = [];
   store.recipe_version_inputs = [];

@@ -26,6 +26,30 @@ import { nextVersionNumber } from "@/lib/restaurant/recipe-versions";
 export const KITCHEN_DRAFT_VERSION_SOURCE = "kitchen_draft";
 export const KITCHEN_DRAFT_VERSION_NOTES = "Receta enviada por cocina";
 
+/**
+ * A draft claimed (`confirmed`) with no recipe after this long belongs to a
+ * call that died between the claim and the final update: it can be claimed
+ * again. Younger claims are a request still being written.
+ */
+export const STALE_CLAIM_MS = 2 * 60 * 1000;
+
+/** True for a claim that never finished and is old enough to be taken over. */
+export function isStaleClaim(
+  draft: {
+    status?: unknown;
+    confirmed_recipe_id?: unknown;
+    confirmed_at?: unknown;
+  },
+  now: number = Date.now()
+): boolean {
+  if (draft.status !== "confirmed" || draft.confirmed_recipe_id) return false;
+  const at =
+    typeof draft.confirmed_at === "string"
+      ? Date.parse(draft.confirmed_at)
+      : NaN;
+  return Number.isFinite(at) && now - at >= STALE_CLAIM_MS;
+}
+
 /** A dish whose recipe lives only in the old lines (no versions at all). */
 export const LEGACY_RECIPE_MESSAGE =
   "Este platillo ya tiene una receta guardada. Para no cambiar sus costos, confirma esta receta como platillo nuevo o edita la receta desde Menú.";
@@ -118,6 +142,18 @@ export async function confirmKitchenDraftAsVersion(
     }
   }
 
+  // Was the draft left half-confirmed by a call that died? (read only; the
+  // claim below is the one conditional update that decides.)
+  const { data: before } = await admin
+    .from("kitchen_recipe_drafts")
+    .select("status, confirmed_recipe_id, confirmed_at")
+    .eq("id", input.draftId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  const staleBefore = before ? isStaleClaim(before) : false;
+  const staleCutoffIso = new Date(Date.now() - STALE_CLAIM_MS).toISOString();
+
+  // ONE conditional update: a `draft`, or a stale claim that never finished.
   const { data: claimed, error: claimError } = await admin
     .from("kitchen_recipe_drafts")
     .update({
@@ -127,7 +163,9 @@ export async function confirmKitchenDraftAsVersion(
     })
     .eq("id", input.draftId)
     .eq("company_id", companyId)
-    .eq("status", "draft")
+    .or(
+      `status.eq.draft,and(status.eq.confirmed,confirmed_recipe_id.is.null,confirmed_at.lt.${staleCutoffIso})`
+    )
     .select("id");
   if (claimError) {
     return { ok: false, status: 500, error: "No pude confirmar la receta." };
@@ -138,6 +176,34 @@ export async function confirmKitchenDraftAsVersion(
       status: 409,
       error: "Esta receta ya no está pendiente de revisar.",
     };
+  }
+
+  // Taking over a dead call's claim: remove the empty kitchen_draft version
+  // it may have left on THIS dish's recipe (zero lines, old enough that no
+  // live call can still be writing it). Never any other version.
+  if (staleBefore && input.menuItemId) {
+    try {
+      const { data: recipe } = await admin
+        .from("recipes")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("menu_item_id", input.menuItemId)
+        .maybeSingle();
+      if (recipe) {
+        const { data: leftovers } = await admin
+          .from("recipe_versions")
+          .select("id")
+          .eq("company_id", companyId)
+          .eq("recipe_id", String(recipe.id))
+          .eq("source_type", KITCHEN_DRAFT_VERSION_SOURCE)
+          .lt("created_at", staleCutoffIso);
+        for (const row of leftovers ?? []) {
+          await deleteVersionIfEmpty(admin, companyId, String(row.id));
+        }
+      }
+    } catch {
+      // best effort: the new version gets the next free number anyway
+    }
   }
 
   let createdMenuItemId: string | null = null;
@@ -262,7 +328,8 @@ export async function confirmKitchenDraftAsVersion(
           .maybeSingle();
         doomed = found ? String(found.id) : null;
       }
-      if (doomed) {
+      if (doomed && createdVersionId) {
+        // Ours for certain (we got its id back): remove it with its lines.
         await admin
           .from("recipe_version_inputs")
           .delete()
@@ -273,6 +340,12 @@ export async function confirmKitchenDraftAsVersion(
           .delete()
           .eq("company_id", companyId)
           .eq("id", doomed);
+      } else if (doomed) {
+        // Found by lookup only. It may belong to ANOTHER call that took the
+        // same version number first (unique key on recipe + number), so it is
+        // removed only if it has no lines: a version of ours that died before
+        // its lines were written always has none (the route requires a line).
+        await deleteVersionIfEmpty(admin, companyId, doomed);
       }
     } catch {
       // best effort: the claim is still released below
@@ -300,4 +373,25 @@ export async function confirmKitchenDraftAsVersion(
     }
     return { ok: false, status: 500, error: "No pude confirmar la receta." };
   }
+}
+
+/** Deletes the version only when it has zero rows in recipe_version_inputs. */
+async function deleteVersionIfEmpty(
+  admin: SupabaseClient,
+  companyId: string,
+  versionId: string
+): Promise<boolean> {
+  const { data: lines } = await admin
+    .from("recipe_version_inputs")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("recipe_version_id", versionId)
+    .limit(1);
+  if (lines && lines.length > 0) return false;
+  await admin
+    .from("recipe_versions")
+    .delete()
+    .eq("company_id", companyId)
+    .eq("id", versionId);
+  return true;
 }

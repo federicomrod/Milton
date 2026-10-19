@@ -5,10 +5,48 @@
 export type Row = Record<string, unknown>;
 export type FakeStore = Record<string, Row[]>;
 
-type Op = { type: "eq" | "is" | "gte" | "in"; col: string; val: unknown };
+type Op =
+  | { type: "eq" | "is" | "gte" | "lt" | "in"; col: string; val: unknown }
+  | { type: "or"; expr: string };
+
+/** A PostgREST filter list: "a.eq.1,and(b.is.null,c.lt.2)" (comma = OR). */
+function splitTop(expr: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of expr) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      out.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+function matchesFilter(row: Row, filter: string): boolean {
+  const and = filter.match(/^and\((.*)\)$/);
+  if (and) return splitTop(and[1]).every((f) => matchesFilter(row, f));
+  const [col, op, ...rest] = filter.split(".");
+  const val = rest.join(".");
+  const cell = row[col];
+  if (op === "eq") return String(cell) === val;
+  if (op === "is") return val === "null" ? cell == null : String(cell) === val;
+  if (op === "lt") return cell != null && String(cell) < val;
+  if (op === "gte") return cell != null && String(cell) >= val;
+  return false;
+}
 
 function matches(row: Row, ops: Op[]) {
   return ops.every((op) => {
+    if (op.type === "or") {
+      return splitTop(op.expr).some((f) => matchesFilter(row, f));
+    }
+    if (op.type === "lt") {
+      return row[op.col] != null && String(row[op.col]) < String(op.val);
+    }
     if (op.type === "eq") return row[op.col] === op.val;
     if (op.type === "is") return (row[op.col] ?? null) === op.val;
     if (op.type === "gte") return String(row[op.col] ?? "") >= String(op.val);
@@ -91,6 +129,11 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
         ops.push({ type: "gte", col, val }),
         self
       ),
+      lt: (col: string, val: unknown) => (
+        ops.push({ type: "lt", col, val }),
+        self
+      ),
+      or: (expr: string) => (ops.push({ type: "or", expr }), self),
       in: (col: string, val: unknown[]) => (
         ops.push({ type: "in", col, val }),
         self

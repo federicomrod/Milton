@@ -20,7 +20,10 @@ import {
   canManageKitchenQr,
   loadMembershipRole,
 } from "@/lib/restaurant/telegram/kitchen-join";
-import { confirmKitchenDraftAsVersion } from "@/lib/restaurant/telegram/kitchen-draft-confirm";
+import {
+  confirmKitchenDraftAsVersion,
+  isStaleClaim,
+} from "@/lib/restaurant/telegram/kitchen-draft-confirm";
 import { normalizeUnit, convertUnitStr } from "@/lib/restaurant/units";
 
 export const dynamic = "force-dynamic";
@@ -77,7 +80,9 @@ export async function POST(
   // exactly like one that does not exist.
   const { data: draft, error: draftError } = await admin
     .from("kitchen_recipe_drafts")
-    .select("id, company_id, status, portions, currency")
+    .select(
+      "id, company_id, status, portions, currency, confirmed_recipe_id, confirmed_at"
+    )
     .eq("id", draftId)
     .eq("company_id", auth.companyId)
     .maybeSingle();
@@ -89,7 +94,10 @@ export async function POST(
     return fail("Primero indica las porciones para poder confirmar.", 400);
   }
 
-  if (draft.status === "confirmed") {
+  // A claim that never finished (the call died) and is older than 2 minutes
+  // is taken over below; a younger one is a request still being written.
+  const staleClaim = isStaleClaim(draft);
+  if (draft.status === "confirmed" && !staleClaim) {
     const { data: existing } = await admin
       .from("kitchen_recipe_drafts")
       .select("confirmed_recipe_id, menu_item_id")

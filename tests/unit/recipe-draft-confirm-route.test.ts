@@ -491,6 +491,8 @@ describe("a failed write leaves nothing behind", () => {
   });
 });
 
+const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+
 describe("a double click while the first request is still writing", () => {
   it("status confirmed but no recipe yet → 409 «se está confirmando», not ok with empty ids", async () => {
     store.kitchen_recipe_drafts[0] = {
@@ -499,6 +501,7 @@ describe("a double click while the first request is still writing", () => {
       status: "confirmed",
       portions: 2,
       confirmed_recipe_id: null,
+      confirmed_at: ago(30_000),
       menu_item_id: null,
     };
     const res = await confirm(body());
@@ -507,5 +510,183 @@ describe("a double click while the first request is still writing", () => {
       "Esta receta se está confirmando. Espera un momento."
     );
     expect(store.recipe_versions).toHaveLength(1);
+  });
+});
+
+describe("two drafts of the same dish confirmed at the same time", () => {
+  it("our insert loses on the unique key: the OTHER call's version and lines stay, our draft goes back to draft, 500", async () => {
+    let raced = false;
+    failRule = (table, mode, payload) => {
+      if (table !== "recipe_versions" || mode !== "insert") return false;
+      // the other call got this version number first and already wrote its lines
+      const number = (payload as Record<string, unknown>).version_number;
+      store.recipe_versions.push({
+        id: "ver-other",
+        company_id: COMPANY,
+        recipe_id: RECIPE,
+        menu_item_id: MENU,
+        version_number: number,
+        status: "in_review",
+        source_type: "kitchen_draft",
+        created_at: ago(1_000),
+      });
+      store.recipe_version_inputs.push({
+        id: "vi-other",
+        recipe_version_id: "ver-other",
+        company_id: COMPANY,
+        ingredient_id: BACON,
+        quantity: 0.3,
+        unit: "kg",
+      });
+      raced = true;
+      return true; // unique-key error for us
+    };
+    const res = await confirm(body());
+    expect(raced).toBe(true);
+    expect(res.status).toBe(500);
+    expect(store.recipe_versions.map((v) => v.id)).toEqual([
+      "ver-1",
+      "ver-other",
+    ]);
+    expect(
+      store.recipe_version_inputs.filter(
+        (r) => r.recipe_version_id === "ver-other"
+      )
+    ).toHaveLength(1);
+    expect(
+      store.recipe_version_inputs.filter((r) => r.recipe_version_id === "ver-1")
+    ).toEqual(approvedLines);
+    expect(store.kitchen_recipe_drafts[0].status).toBe("draft");
+  });
+
+  it("a version of ours found by lookup with NO lines (insert died after the row) is still removed", async () => {
+    failRule = (table, mode, payload) => {
+      if (table === "recipe_version_inputs" && mode === "insert") return true;
+      return false;
+    };
+    const res = await confirm(body());
+    expect(res.status).toBe(500);
+    expect(store.recipe_versions.map((v) => v.id)).toEqual(["ver-1"]);
+  });
+});
+
+describe("a claim left by a call that died", () => {
+  const stale = (ms: number) => {
+    store.kitchen_recipe_drafts[0] = {
+      id: DRAFT,
+      company_id: COMPANY,
+      status: "confirmed",
+      portions: 2,
+      currency: "USD",
+      confirmed_recipe_id: null,
+      confirmed_at: ago(ms),
+      menu_item_id: null,
+    };
+  };
+
+  it("older than 2 minutes: it is taken over and creates exactly one version", async () => {
+    stale(3 * 60_000);
+    const res = await confirm(body());
+    expect(res.status).toBe(200);
+    const mine = store.recipe_versions.filter((v) => v.status === "in_review");
+    expect(mine).toHaveLength(1);
+    expect(store.recipe_versions.map((v) => v.version_number)).toEqual([1, 2]);
+    expect(store.kitchen_recipe_drafts[0]).toMatchObject({
+      status: "confirmed",
+      confirmed_recipe_id: RECIPE,
+    });
+    // confirming again does not add a second version
+    expect((await confirm(body())).status).toBe(200);
+    expect(store.recipe_versions).toHaveLength(2);
+  });
+
+  it("younger than 2 minutes (30 s): still «se está confirmando», nothing written", async () => {
+    stale(30_000);
+    const res = await confirm(body());
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe(
+      "Esta receta se está confirmando. Espera un momento."
+    );
+    expect(store.recipe_versions).toHaveLength(1);
+    expect(store.kitchen_recipe_drafts[0].confirmed_at).toBeTruthy();
+  });
+
+  it("taking over removes the dead call's EMPTY kitchen_draft version, and only that", async () => {
+    stale(3 * 60_000);
+    store.recipe_versions.push(
+      // the dead call: version row written, no lines, old
+      {
+        id: "ver-dead",
+        company_id: COMPANY,
+        recipe_id: RECIPE,
+        menu_item_id: MENU,
+        version_number: 2,
+        status: "in_review",
+        source_type: "kitchen_draft",
+        created_at: ago(10 * 60_000),
+      },
+      // another draft's version WITH lines
+      {
+        id: "ver-live",
+        company_id: COMPANY,
+        recipe_id: RECIPE,
+        menu_item_id: MENU,
+        version_number: 3,
+        status: "in_review",
+        source_type: "kitchen_draft",
+        created_at: ago(10 * 60_000),
+      },
+      // a recent empty one (a live call may still be writing its lines)
+      {
+        id: "ver-new",
+        company_id: COMPANY,
+        recipe_id: RECIPE,
+        menu_item_id: MENU,
+        version_number: 4,
+        status: "in_review",
+        source_type: "kitchen_draft",
+        created_at: ago(5_000),
+      },
+      // an empty version that is not ours (imported draft)
+      {
+        id: "ver-imp",
+        company_id: COMPANY,
+        recipe_id: RECIPE,
+        menu_item_id: MENU,
+        version_number: 5,
+        status: "in_review",
+        source_type: "import",
+        created_at: ago(10 * 60_000),
+      }
+    );
+    store.recipe_version_inputs.push({
+      id: "vi-live",
+      recipe_version_id: "ver-live",
+      company_id: COMPANY,
+      ingredient_id: PAN,
+      quantity: 1,
+      unit: "pza",
+    });
+    const res = await confirm(body());
+    expect(res.status).toBe(200);
+    const ids = store.recipe_versions.map((v) => v.id);
+    expect(ids).not.toContain("ver-dead");
+    expect(ids).toEqual(
+      expect.arrayContaining(["ver-1", "ver-live", "ver-new", "ver-imp"])
+    );
+    expect(
+      store.recipe_version_inputs.filter(
+        (r) => r.recipe_version_id === "ver-live"
+      )
+    ).toHaveLength(1);
+    expect(
+      store.recipe_version_inputs.filter((r) => r.recipe_version_id === "ver-1")
+    ).toEqual(approvedLines);
+  });
+
+  it("another company's draft with a stale claim is still a 404", async () => {
+    stale(3 * 60_000);
+    store.kitchen_recipe_drafts[0].company_id = OTHER;
+    expect((await confirm(body())).status).toBe(404);
   });
 });

@@ -15,6 +15,19 @@ import {
 } from "@/lib/restaurant/recipe-costing/editor";
 import { parsePriceInput } from "@/lib/restaurant/ingredientes-screen";
 
+// The role is read with the admin client (lib/auth/permissions.ts).
+vi.mock("@/lib/supabase/admin", () => {
+  const chain: Record<string, unknown> = {
+    from: () => chain,
+    select: () => chain,
+    eq: () => chain,
+    maybeSingle: async () => ({ data: { role: "owner" }, error: null }),
+  };
+  return { createAdminClient: () => chain };
+});
+vi.mock("@/lib/profile-service-server", () => ({
+  isUserAdminServer: async () => false,
+}));
 const inserted: Array<Record<string, unknown>> = [];
 vi.mock("@/lib/restaurant/api-auth", () => ({
   authAndCompany: async () => ({

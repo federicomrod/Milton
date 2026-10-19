@@ -8,7 +8,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isUserAdminServer } from "@/lib/profile-service-server";
+import {
+  requireMiltonStaff,
+  unauthorizedResponse,
+} from "@/lib/auth/permissions";
 import {
   storeOdooSecret,
   assertOdooEncryptionConfigured,
@@ -59,14 +62,10 @@ export async function GET(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!user) return unauthorizedResponse();
 
-  const isAdmin = await isUserAdminServer(user.id);
-  if (!isAdmin) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const notStaff = await requireMiltonStaff(user.id);
+  if (notStaff) return notStaff;
 
   const url = new URL(req.url);
   const companyId = url.searchParams.get("company_id");
@@ -163,14 +162,10 @@ export async function POST(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!user) return unauthorizedResponse();
 
-  const isAdmin = await isUserAdminServer(user.id);
-  if (!isAdmin) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const notStaff = await requireMiltonStaff(user.id);
+  if (notStaff) return notStaff;
 
   let body: {
     company_id?: unknown;

@@ -10,12 +10,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { isUserAdminServer } from "@/lib/profile-service-server";
 import {
-  canManageKitchenDrafts,
-  loadMembershipRole,
-} from "@/lib/restaurant/telegram/kitchen-join";
-import { forbidden } from "@/lib/restaurant/telegram/kitchen-manager-guard";
+  requireCapability,
+  resolveActor,
+  unauthorizedResponse,
+} from "@/lib/auth/permissions";
+import { KITCHEN_FORBIDDEN_MESSAGE } from "@/lib/restaurant/telegram/kitchen-manager-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -43,17 +43,15 @@ export async function PATCH(
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!user) return unauthorizedResponse();
 
-  const [isMiltonAdmin, membershipRole] = await Promise.all([
-    isUserAdminServer(user.id),
-    loadMembershipRole(auth.companyId, user.id),
-  ]);
-  if (!canManageKitchenDrafts({ isMiltonAdmin, membershipRole })) {
-    return forbidden();
-  }
+  const actor = await resolveActor(null, user.id, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "kitchen.drafts", {
+    message: KITCHEN_FORBIDDEN_MESSAGE,
+  });
+  if (denied) return denied;
 
   const { id: draftId } = await params;
   let body: PatchBody;

@@ -13,6 +13,7 @@
 import { IngredientConversions } from "./IngredientConversions";
 import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import Link from "next/link";
+import type { Capability } from "@/lib/auth/capabilities";
 import {
   DuplicatesBanner,
   ManualMergeDialog,
@@ -90,7 +91,6 @@ export interface IngredienteItem {
 
 const UNITS = ["kg", "g", "l", "ml", "unit", "portion", "oz", "lb"];
 const RED = "#d14343";
-const AMBER = "#a35a00";
 const GREEN = "#1f9d55";
 const MUTED = "#8a92a3";
 
@@ -166,6 +166,7 @@ export function IngredientesScreen({
   itemGroups = null,
   archiveAvailable = true,
   duplicates = NO_DUPLICATE_STATE,
+  capabilities,
 }: {
   items: IngredienteItem[];
   suppliers: SupplierOption[];
@@ -177,7 +178,11 @@ export function IngredientesScreen({
   archiveAvailable?: boolean;
   /** Possible duplicates and the merge history (051); empty before it is applied. */
   duplicates?: DuplicateState;
+  /** What this person may do: the server's can() answers (capabilityFlags). */
+  capabilities?: Partial<Record<Capability, boolean>>;
 }) {
+  const allowed = (capability: Capability) =>
+    capabilities?.[capability] ?? true;
   const grouping = useItemGroups(itemGroups);
   const [items, setItems] = useState(initialItems);
   // A merge or an undo re-reads the page: the new rows replace ours.
@@ -283,7 +288,7 @@ export function IngredientesScreen({
     items: visible,
     scope: "ingredient",
     grouping,
-    canEdit: true,
+    canEdit: allowed("groups.manage"),
     onMergeSelected: (ids, clear) => setMergeSel({ ids, clear }),
     storageKey: "milton:ingredientes:abiertos",
     sortId: "ingredientes",
@@ -355,7 +360,7 @@ export function IngredientesScreen({
           </button>
         ) : null}
         {!archiveAvailable && counts.sin_uso > 0 ? (
-          <span className="text-[12px]" style={{ color: MUTED }}>
+          <span className="text-[12px]" style={{ color: "#6b7280" }}>
             Para archivar falta aplicar la migración 050 en este ambiente.
           </span>
         ) : null}
@@ -381,7 +386,7 @@ export function IngredientesScreen({
             "flex w-full items-start justify-between gap-3 border-b border-[#f3f4f7] px-2 py-2.5 text-left " +
             (isSelected
               ? "bg-[#eef2fc] shadow-[inset_3px_0_0_#1b40c8]"
-              : "hover:bg-[#fafbfc]")
+              : "hover:bg-[#f6f8fe]")
           }
         >
           <span className="min-w-0">
@@ -395,7 +400,7 @@ export function IngredientesScreen({
             </span>
             <span
               className="block truncate text-[12px]"
-              style={{ color: MUTED }}
+              style={{ color: "#6b7280" }}
             >
               {item.supplier_name ?? "—"}
             </span>
@@ -404,19 +409,19 @@ export function IngredientesScreen({
             {!item.inUse && item.price === null ? (
               <span
                 className="font-semibold"
-                style={{ color: MUTED }}
+                style={{ color: "#6b7280" }}
                 title="Ninguna receta activa lo usa: no hace falta precio."
               >
                 {item.archived ? "Archivado" : "Sin uso"}
               </span>
             ) : item.price === null ? (
-              <span className="font-semibold" style={{ color: AMBER }}>
+              <span className="font-semibold" style={{ color: "#6b7280" }}>
                 Falta precio
               </span>
             ) : (
               <span className="text-[#151c2c]">
                 {formatMoney(item.price, currency)}
-                <span style={{ color: MUTED }}>
+                <span style={{ color: "#6b7280" }}>
                   {" "}
                   / {item.price_unit ?? item.default_unit ?? "—"}
                 </span>
@@ -432,7 +437,7 @@ export function IngredientesScreen({
     <div className="mt-3 space-y-3">
       <DuplicatesBanner
         q={dupQueue}
-        canEdit
+        canEdit={allowed("ingredients.manage")}
         money={(n, unit) =>
           `${formatMoney(n, currency)}${unit ? `/${unit}` : ""}`
         }
@@ -485,13 +490,14 @@ export function IngredientesScreen({
             currency={currency}
             onSaved={onSaved}
             archiveAvailable={archiveAvailable}
+            canEditPrices={allowed("prices.edit")}
             archiving={archiving}
             onArchive={(archived) => void setArchived([selected.id], archived)}
           />
         ) : (
           <section
             className="rounded-[14px] border border-[#eef0f4] bg-white p-6 text-[13px]"
-            style={{ color: MUTED }}
+            style={{ color: "#6b7280" }}
           >
             Elige un ingrediente de la lista.
           </section>
@@ -593,7 +599,7 @@ function AddIngrediente({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="px-4 py-3 text-left text-[13px] font-semibold text-[#b25e10] hover:bg-[#fafbfc]"
+        className="px-4 py-3 text-left text-[13px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
       >
         + Agregar ingrediente
       </button>
@@ -638,6 +644,7 @@ function IngredienteDetail({
   currency,
   onSaved,
   archiveAvailable,
+  canEditPrices,
   archiving,
   onArchive,
 }: {
@@ -646,6 +653,7 @@ function IngredienteDetail({
   currency: string;
   onSaved: (next: IngredienteItem) => void;
   archiveAvailable: boolean;
+  canEditPrices: boolean;
   archiving: boolean;
   onArchive: (archived: boolean) => void;
 }) {
@@ -803,12 +811,12 @@ function IngredienteDetail({
           <h2 className="truncate text-[18px] font-bold text-[#151c2c]">
             {item.name}
           </h2>
-          <p className="text-[12px]" style={{ color: MUTED }}>
+          <p className="text-[12px]" style={{ color: "#6b7280" }}>
             {categoryLabel(item.category)} · en {item.uses.length}{" "}
             {item.uses.length === 1 ? "plato" : "platos"}
           </p>
           {!item.inUse ? (
-            <p className="mt-1 text-[12px]" style={{ color: MUTED }}>
+            <p className="mt-1 text-[12px]" style={{ color: "#6b7280" }}>
               {item.archived ? "Archivado · " : "Sin uso · "}
               Ninguna receta activa lo usa, así que no hace falta precio.{" "}
               <button
@@ -847,7 +855,7 @@ function IngredienteDetail({
 
       <div className="mt-5 flex flex-wrap gap-x-12 gap-y-4">
         <div>
-          <p className="text-[12px] font-semibold" style={{ color: MUTED }}>
+          <p className="text-[12px] font-semibold" style={{ color: "#6b7280" }}>
             Precio actual
           </p>
           <div className="flex items-center gap-1.5">
@@ -864,12 +872,12 @@ function IngredienteDetail({
               aria-label="Precio actual"
               inputMode="decimal"
               className={
-                "h-9 w-[180px] rounded-lg border border-[#c6d3f5] bg-white px-2.5 text-[15px] font-semibold tabular-nums text-[#151c2c] outline-none placeholder:font-normal placeholder:text-[#a35a00] focus:border-[#1b40c8] focus:ring-2 focus:ring-[#1b40c8]/20"
+                "h-9 w-[180px] rounded-lg border border-[#c6d3f5] bg-white px-2.5 text-[15px] font-semibold tabular-nums text-[#151c2c] outline-none placeholder:font-normal placeholder:text-[#6b7280] focus:border-[#1b40c8] focus:ring-2 focus:ring-[#1b40c8]/20"
               }
             />
             <span
               className="text-[14px] font-semibold"
-              style={{ color: MUTED }}
+              style={{ color: "#6b7280" }}
             >
               /
             </span>
@@ -901,13 +909,13 @@ function IngredienteDetail({
             </p>
           )}
           {priceDraft.trim() === "" && item.price === null && (
-            <p className="mt-1 text-[12px]" style={{ color: MUTED }}>
+            <p className="mt-1 text-[12px]" style={{ color: "#6b7280" }}>
               ¿Es gratis (agua, hielo)? Escribe 0 para confirmarlo.
             </p>
           )}
         </div>
         <div>
-          <p className="text-[12px] font-semibold" style={{ color: MUTED }}>
+          <p className="text-[12px] font-semibold" style={{ color: "#6b7280" }}>
             Cambio 30 días
           </p>
           <p
@@ -927,7 +935,7 @@ function IngredienteDetail({
           </p>
         </div>
         <div>
-          <p className="text-[12px] font-semibold" style={{ color: MUTED }}>
+          <p className="text-[12px] font-semibold" style={{ color: "#6b7280" }}>
             Categoría
           </p>
           <input
@@ -945,7 +953,7 @@ function IngredienteDetail({
 
       <p
         className="mt-4 flex flex-wrap items-center gap-1.5 text-[13px]"
-        style={{ color: MUTED }}
+        style={{ color: "#6b7280" }}
       >
         <span>Proveedor</span>
         <select
@@ -984,12 +992,12 @@ function IngredienteDetail({
         usedUnits={[...new Set(item.uses.map((u) => u.unit))]}
         price={item.price}
         currency={currency}
-        canEdit
+        canEdit={canEditPrices}
       />
 
       <h3 className="mt-6 text-[14px] font-bold text-[#151c2c]">Se usa en</h3>
       {item.uses.length === 0 ? (
-        <p className="mt-2 text-[13px]" style={{ color: MUTED }}>
+        <p className="mt-2 text-[13px]" style={{ color: "#6b7280" }}>
           Ningún plato usa este ingrediente.
         </p>
       ) : (
@@ -997,7 +1005,7 @@ function IngredienteDetail({
           <thead>
             <tr
               className="border-b border-[#eef0f4] text-left text-[12px]"
-              style={{ color: MUTED }}
+              style={{ color: "#6b7280" }}
             >
               <th className="py-2 font-semibold">Plato</th>
               <th className="py-2 text-right font-semibold">Cantidad</th>
@@ -1013,7 +1021,7 @@ function IngredienteDetail({
                 <td className="py-2">
                   <Link
                     href={dishHref(u.odoo_product_id)}
-                    className="font-semibold text-[#151c2c] hover:text-[#b25e10] hover:underline"
+                    className="font-semibold text-[#151c2c] hover:text-[#1B40C8] hover:underline"
                   >
                     {u.dish_name}
                   </Link>

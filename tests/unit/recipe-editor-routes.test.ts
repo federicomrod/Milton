@@ -13,8 +13,8 @@ describe("recipe editor route and screen", () => {
       /body\.company_id|searchParams\.get\(["']company/
     );
     const post = route.slice(route.indexOf("export async function POST"));
-    expect(post.indexOf("actorCanSubmitForApproval")).toBeGreaterThan(-1);
-    expect(post.indexOf("actorCanSubmitForApproval")).toBeLessThan(
+    expect(post.indexOf('can(actor, "recipes.edit")')).toBeGreaterThan(-1);
+    expect(post.indexOf('can(actor, "recipes.edit")')).toBeLessThan(
       post.indexOf("applyEdit(")
     );
   });

@@ -56,8 +56,8 @@ describe("admin-only management routes", () => {
   it("finds the invite routes", () => {
     expect(routes.length).toBeGreaterThanOrEqual(2);
   });
-  it.each(routes)("%s calls isUserAdminServer(", (f) => {
-    expect(read(f)).toContain("isUserAdminServer(");
+  it.each(routes)("%s calls requireMiltonStaff(", (f) => {
+    expect(read(f)).toContain("requireMiltonStaff(");
   });
   it("never selects token_hash in list queries", () => {
     const src = code("app/api/management/invites/route.ts");

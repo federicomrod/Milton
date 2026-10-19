@@ -1,27 +1,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadCompanyRole } from "@/lib/auth/permissions";
 
 export interface CompanyMembershipRoleLoad {
   role: string | null;
 }
 
+/** Kept for callers that load the role first; it is the shared helper's read. */
 export async function loadCompanyMembershipRole(
-  supabase: SupabaseClient,
+  _supabase: SupabaseClient,
   companyId: string,
   userId: string
 ): Promise<CompanyMembershipRoleLoad> {
-  const { data, error } = await supabase
-    .from("company_memberships")
-    .select("role")
-    .eq("company_id", companyId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-  return {
-    role: typeof data?.role === "string" ? data.role : null,
-  };
+  return { role: await loadCompanyRole(companyId, userId) };
 }
 
 export async function loadCompanyName(

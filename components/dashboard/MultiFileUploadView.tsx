@@ -713,7 +713,7 @@ export default function MultiFileUploadView({
                             entry.confidence >= 0.8
                               ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
                               : entry.confidence >= 0.5
-                                ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300"
+                                ? "bg-gray-100 text-gray-700 dark:bg-gray-800/40 dark:text-gray-400"
                                 : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300"
                           }
                         >

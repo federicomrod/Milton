@@ -976,9 +976,9 @@ function SuggestedActionChip({
 
   if (state === "duplicate") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-1 flex-wrap">
-        <Info className="h-3 w-3 text-amber-600 dark:text-amber-400" />
-        <span className="text-amber-800 dark:text-amber-300">
+      <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/30 px-3 py-1 flex-wrap">
+        <Info className="h-3 w-3 text-gray-500 dark:text-gray-400" />
+        <span className="text-gray-700 dark:text-gray-400">
           {t(
             lang,
             "An open action already exists for this item.",
@@ -987,7 +987,7 @@ function SuggestedActionChip({
         </span>
         <Link
           href="/dashboard/restaurant/agents"
-          className="inline-flex items-center gap-0.5 text-amber-700 dark:text-amber-400 underline hover:no-underline"
+          className="inline-flex items-center gap-0.5 text-gray-700 dark:text-gray-400 underline hover:no-underline"
         >
           {t(lang, "View in Agents", "Ver en Agentes")}
           <ArrowRight className="h-3 w-3" />

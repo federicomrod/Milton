@@ -245,7 +245,7 @@ describe("POST /api/restaurant/pos/odoo-sync - admin only", () => {
     const body = await response.json();
 
     expect(response.status).toBe(403);
-    expect(body.error).toBe("Forbidden");
+    expect(body.error).toBe("No tienes permiso para cambiar esto.");
     expect(authenticateSpy).not.toHaveBeenCalled();
     expect(fromSpy).not.toHaveBeenCalled();
   });

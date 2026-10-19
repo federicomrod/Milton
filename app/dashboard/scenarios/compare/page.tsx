@@ -25,7 +25,7 @@ import { projectKPIsFromDrivers } from "@/lib/scenario-projection";
 const COMPARE_COLORS = [
   "#3b82f6",
   "#10b981",
-  "#f59e0b",
+  "#9ca3af",
   "#8b5cf6",
   "#ec4899",
   "#06b6d4",

@@ -20,7 +20,10 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Inicia sesión de nuevo." },
+        { status: 401 }
+      );
     }
 
     const formData = await req.formData();

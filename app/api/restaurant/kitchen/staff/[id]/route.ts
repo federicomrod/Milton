@@ -7,12 +7,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { isUserAdminServer } from "@/lib/profile-service-server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import {
-  canManageKitchenQr,
-  loadMembershipRole,
-} from "@/lib/restaurant/telegram/kitchen-join";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,13 +25,9 @@ export async function DELETE(
     if (!auth.ok) return auth.response;
     const { companyId, userId } = auth;
 
-    const [isMiltonAdmin, membershipRole] = await Promise.all([
-      isUserAdminServer(userId),
-      loadMembershipRole(companyId, userId),
-    ]);
-    if (!canManageKitchenQr({ isMiltonAdmin, membershipRole })) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const actor = await resolveActor(auth.supabase, userId, { companyId });
+    const denied = requireCapability(actor, "kitchen.qr");
+    if (denied) return denied;
 
     const { id } = await params;
     if (!UUID_RE.test(id)) {

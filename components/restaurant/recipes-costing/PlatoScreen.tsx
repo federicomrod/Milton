@@ -425,7 +425,7 @@ function Dish({
                 <>
                   {dish?.unit_cost == null && pendingNames.length > 0 ? (
                     <span
-                      className="block font-semibold text-[#a35a00]"
+                      className="block font-semibold text-[#6b7280]"
                       data-testid="header-pending"
                     >
                       Sin precio · {pendingNames.length}{" "}

@@ -553,7 +553,7 @@ function PreparationDetail({
                 </button>
               </span>
               {!prep.checklist.ready && prep.checklist.blockers[0] ? (
-                <span className="rounded-md bg-[#fff4e5] px-1.5 py-0.5 text-[12px] font-semibold text-[#a35a00]">
+                <span className="rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]">
                   {prep.checklist.blockers.length === 1
                     ? prep.checklist.blockers[0]
                     : `${prep.checklist.blockers.length} pendientes`}

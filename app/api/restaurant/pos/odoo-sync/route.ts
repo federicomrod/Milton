@@ -29,7 +29,7 @@ import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { isUserAdminServer } from "@/lib/profile-service-server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { compactLastSync } from "@/lib/restaurant/odoo/sync-summary";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { buildNameIndex } from "@/lib/restaurant/pos-import";
@@ -168,10 +168,11 @@ export async function POST(req: NextRequest) {
     if (!auth.ok) return auth.response;
     const { supabase, companyId, userId } = auth;
 
-    const isAdmin = await isUserAdminServer(userId);
-    if (!isAdmin) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // Staff only: no company role is read (companyId null = no membership
+    // lookup), so only the Milton-staff flag can pass.
+    const actor = await resolveActor(null, userId, { companyId: null });
+    const denied = requireCapability(actor, "odoo.sync");
+    if (denied) return denied;
 
     // --- Parse + validate the requested range ---------------------------
     let body: RequestBody;

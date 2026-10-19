@@ -1,3 +1,4 @@
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   TREATMENT_EVIDENCE_KEY,
@@ -19,6 +20,8 @@ import type { RecipeActor } from "./approval";
 import {
   actorCanApprove,
   actorCanConfirmLink,
+  actorCanLinkProducts,
+  actorNeedsClientConfirmation,
   actorCanSubmitForApproval,
 } from "./approval";
 import { isConfirmedHow } from "./copy";
@@ -135,9 +138,7 @@ function confirmationFromActor(
 }
 
 function actorNeedsSelfHow(actor: RecipeActor): boolean {
-  return (
-    actor.is_milton_staff && actor.role !== "owner" && actor.role !== "admin"
-  );
+  return actorNeedsClientConfirmation(actor);
 }
 
 export async function confirmPosLinkForCompany(input: {
@@ -157,6 +158,9 @@ export async function confirmPosLinkForCompany(input: {
   const how = input.confirmedHow?.trim() ?? "";
   if (how && !isConfirmedHow(how)) {
     return { ok: false, error: "Indica cómo confirmó el cliente." };
+  }
+  if (!actorCanLinkProducts(input.actor)) {
+    return { ok: false, error: CAPABILITY_MESSAGES["links.confirm"] };
   }
   const confirmation = confirmationFromActor(input.actor, how || "en_pantalla");
   const allowed = actorCanConfirmLink(input.actor, confirmation);

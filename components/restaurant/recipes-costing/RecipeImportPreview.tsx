@@ -276,7 +276,7 @@ export function RecipeImportPreview({
                     </td>
                     <td className="px-2 py-1 text-[12px] text-[#5b6476]">
                       {row.skip_reason ? (
-                        <div className="text-[#a35a00]">{row.skip_reason}</div>
+                        <div className="text-[#6b7280]">{row.skip_reason}</div>
                       ) : null}
                       <div>
                         {row.pos_name ? `POS: ${row.pos_name}` : row.link_note}

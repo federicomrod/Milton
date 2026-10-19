@@ -11,8 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
-import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
-import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { MAX_MENU_TEXT } from "@/lib/restaurant/menu-reading/sources";
 import {
   MenuReadError,
@@ -66,17 +65,13 @@ export async function POST(req: NextRequest) {
       ? body.location_id.trim()
       : null;
 
-  const actor = await loadRecipeActor(
-    auth.supabase,
-    auth.companyId,
-    auth.userId
-  );
-  if (!actorCanSubmitForApproval(actor)) {
-    return NextResponse.json(
-      { error: "Tu rol no puede preparar recetas." },
-      { status: 403 }
-    );
-  }
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "recipes.edit", {
+    message: "Tu rol no puede preparar recetas.",
+  });
+  if (denied) return denied;
 
   const currency = await resolveCompanyCurrency(auth.supabase, auth.companyId);
   try {

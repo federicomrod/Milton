@@ -745,7 +745,7 @@ export const PriceCatalogPanel = forwardRef<
           ) : null}
 
           {problems.length > 0 ? (
-            <p className="text-[12px] text-[#a35a00]">
+            <p className="text-[12px] text-[#6b7280]">
               {problems.length} filas sin precio usable: quedan Pendiente.
             </p>
           ) : null}

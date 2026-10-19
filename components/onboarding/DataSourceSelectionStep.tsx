@@ -279,7 +279,7 @@ export function DataSourceSelectionStep({
           className={
             hasIntegrations
               ? "bg-blue-50 border-blue-200"
-              : "bg-amber-50 border-amber-200"
+              : "bg-gray-50 border-gray-200"
           }
         >
           <CardContent className="pt-6">
@@ -299,12 +299,12 @@ export function DataSourceSelectionStep({
                 </>
               ) : (
                 <>
-                  <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
+                  <AlertCircle className="h-5 w-5 text-gray-500 mt-0.5" />
                   <div className="flex-1">
-                    <p className="font-medium text-amber-900">
+                    <p className="font-medium text-gray-700">
                       Manual Upload Required
                     </p>
-                    <p className="text-sm text-amber-700 mt-1">
+                    <p className="text-sm text-gray-700 mt-1">
                       No integrations are currently available for your selected
                       tools. You can upload files manually below, or skip and
                       upload later.

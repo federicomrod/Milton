@@ -502,7 +502,7 @@ export function DuplicatesBanner({
               · los nombres quedan como alias
             </span>
             {q.plan.priceConflict ? (
-              <label className="inline-flex items-center gap-1 rounded-md bg-[#fff1d6] px-2 py-0.5 text-[12px] font-semibold text-[#a35a00]">
+              <label className="inline-flex items-center gap-1 rounded-md bg-[#f9fafb] px-2 py-0.5 text-[12px] font-semibold text-[#6b7280]">
                 Precio:
                 <select
                   value={q.chosenEntry ?? ""}
@@ -546,7 +546,7 @@ export function DuplicatesBanner({
             </span>
           </div>
           {!q.available ? (
-            <p className="text-[12px] text-[#a35a00]">
+            <p className="text-[12px] text-[#6b7280]">
               Para unir falta aplicar las migraciones 050 y 051 en este
               ambiente.
             </p>
@@ -743,7 +743,7 @@ export function ManualMergeDialog({
           · los nombres quedan como alias y se archivan.
         </p>
         {plan.priceConflict ? (
-          <label className="inline-flex items-center gap-1 rounded-md bg-[#fff1d6] px-2 py-0.5 text-[12px] font-semibold text-[#a35a00]">
+          <label className="inline-flex items-center gap-1 rounded-md bg-[#f9fafb] px-2 py-0.5 text-[12px] font-semibold text-[#6b7280]">
             Los precios son distintos. Precio que se conserva:
             <select
               value={chosenEntry ?? ""}
@@ -768,7 +768,7 @@ export function ManualMergeDialog({
           </p>
         ) : null}
         {!q.available ? (
-          <p className="text-[12px] text-[#a35a00]">
+          <p className="text-[12px] text-[#6b7280]">
             Para unir falta aplicar las migraciones 050 y 051 en este ambiente.
           </p>
         ) : null}

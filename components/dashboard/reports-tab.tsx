@@ -1477,9 +1477,9 @@ export function ReportsTab() {
 
           {/* Data Status Warning */}
           {!dataStatus.hasAnyData && (
-            <Alert className="border-yellow-200 bg-yellow-50">
-              <AlertCircle className="h-4 w-4 text-yellow-600" />
-              <AlertDescription className="text-yellow-800">
+            <Alert className="border-gray-200 bg-gray-50">
+              <AlertCircle className="h-4 w-4 text-gray-500" />
+              <AlertDescription className="text-gray-700">
                 No data available. Please upload transactions, CRM deals, or
                 budget data to generate a report.
               </AlertDescription>

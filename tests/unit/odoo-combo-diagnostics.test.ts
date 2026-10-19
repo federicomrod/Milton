@@ -96,32 +96,39 @@ describe("Odoo read-only allowlist", () => {
   });
 });
 
+/** An admin client whose company_memberships read answers `result`. */
+function membershipReadReturns(result: {
+  data?: { role: string } | null;
+  error?: { message: string } | null;
+}) {
+  const chain: Record<string, unknown> = {};
+  chain.select = () => chain;
+  chain.eq = () => chain;
+  chain.maybeSingle = async () => ({ data: null, error: null, ...result });
+  return { createAdminClient: () => ({ from: () => chain }) };
+}
+
+const actorOf = (role: string | null, isMiltonStaff: boolean) => ({
+  userId: "u",
+  companyId: "c",
+  role,
+  isMiltonStaff,
+});
+
 describe("canAccessOdooComboDiagnostics", () => {
   it("allows owner, admin, and Milton admin", () => {
-    expect(
-      canAccessOdooComboDiagnostics({ isMiltonAdmin: false, role: "owner" })
-    ).toBe(true);
-    expect(
-      canAccessOdooComboDiagnostics({ isMiltonAdmin: false, role: "admin" })
-    ).toBe(true);
-    expect(
-      canAccessOdooComboDiagnostics({ isMiltonAdmin: true, role: "member" })
-    ).toBe(true);
+    expect(canAccessOdooComboDiagnostics(actorOf("owner", false))).toBe(true);
+    expect(canAccessOdooComboDiagnostics(actorOf("admin", false))).toBe(true);
+    expect(canAccessOdooComboDiagnostics(actorOf("member", true))).toBe(true);
   });
 
   it("denies member, viewer, manager, and a missing role", () => {
-    expect(
-      canAccessOdooComboDiagnostics({ isMiltonAdmin: false, role: "member" })
-    ).toBe(false);
-    expect(
-      canAccessOdooComboDiagnostics({ isMiltonAdmin: false, role: "viewer" })
-    ).toBe(false);
-    expect(
-      canAccessOdooComboDiagnostics({ isMiltonAdmin: false, role: "manager" })
-    ).toBe(false);
-    expect(
-      canAccessOdooComboDiagnostics({ isMiltonAdmin: false, role: null })
-    ).toBe(false);
+    expect(canAccessOdooComboDiagnostics(actorOf("member", false))).toBe(false);
+    expect(canAccessOdooComboDiagnostics(actorOf("viewer", false))).toBe(false);
+    expect(canAccessOdooComboDiagnostics(actorOf("manager", false))).toBe(
+      false
+    );
+    expect(canAccessOdooComboDiagnostics(actorOf(null, false))).toBe(false);
   });
 });
 
@@ -249,9 +256,9 @@ describe("GET /api/restaurant/pos/odoo-combo-diagnostics — role check", () => 
     vi.doMock("@/lib/profile-service-server", () => ({
       isUserAdminServer: vi.fn().mockResolvedValue(false),
     }));
-    vi.doMock("@/lib/restaurant/cost-workbook/reset-auth", () => ({
-      loadCompanyMembershipRole: vi.fn().mockResolvedValue({ role: "member" }),
-    }));
+    vi.doMock("@/lib/supabase/admin", () =>
+      membershipReadReturns({ data: { role: "member" } })
+    );
     const loadSession = vi.fn();
     vi.doMock("@/lib/restaurant/odoo/load-connection", () => ({
       loadOdooSession: loadSession,
@@ -261,7 +268,9 @@ describe("GET /api/restaurant/pos/odoo-combo-diagnostics — role check", () => 
       await import("@/app/api/restaurant/pos/odoo-combo-diagnostics/route");
     const response = await GET();
     expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "Forbidden" });
+    expect(await response.json()).toEqual({
+      error: "No tienes permiso para cambiar esto.",
+    });
     expect(loadSession).not.toHaveBeenCalled();
   });
 
@@ -277,11 +286,11 @@ describe("GET /api/restaurant/pos/odoo-combo-diagnostics — role check", () => 
     vi.doMock("@/lib/profile-service-server", () => ({
       isUserAdminServer: vi.fn().mockResolvedValue(false),
     }));
-    vi.doMock("@/lib/restaurant/cost-workbook/reset-auth", () => ({
-      loadCompanyMembershipRole: vi
-        .fn()
-        .mockRejectedValue(new Error('role "authenticator" does not exist')),
-    }));
+    vi.doMock("@/lib/supabase/admin", () =>
+      membershipReadReturns({
+        error: { message: 'role "authenticator" does not exist' },
+      })
+    );
 
     const { GET } =
       await import("@/app/api/restaurant/pos/odoo-combo-diagnostics/route");
@@ -300,7 +309,7 @@ describe("combo diagnostics route source", () => {
   );
 
   it("checks the role before loading the Odoo session", () => {
-    const roleAt = src.indexOf("canAccessOdooComboDiagnostics({");
+    const roleAt = src.indexOf("canAccessOdooComboDiagnostics(actor)");
     const sessionAt = src.indexOf("loadOdooSession(\n      supabase");
     expect(roleAt).toBeGreaterThan(-1);
     expect(sessionAt).toBeGreaterThan(roleAt);

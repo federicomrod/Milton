@@ -86,7 +86,7 @@ const SEVERITY_STYLE: Record<
   },
   warning: {
     chipClass:
-      "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200",
+      "bg-gray-100 text-gray-700 dark:bg-gray-800/30 dark:text-gray-400",
     icon: <AlertTriangle className="h-3.5 w-3.5" />,
   },
   critical: {
@@ -537,7 +537,7 @@ function AgentCard({
             {enabled ? "Active" : "Inactive"}
           </span>
           {openCount > 0 && (
-            <span className="inline-flex items-center gap-1 text-xs rounded-full px-2 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+            <span className="inline-flex items-center gap-1 text-xs rounded-full px-2 py-0.5 bg-gray-100 text-gray-700 dark:bg-gray-800/30 dark:text-gray-400">
               <Inbox className="h-3 w-3" />
               {openCount} open
             </span>
@@ -1663,7 +1663,7 @@ function PriceChangePreview({
         </div>
       </div>
       {disclaimer && (
-        <div className="text-[12px] italic text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded px-2 py-1 border border-amber-200 dark:border-amber-900/40">
+        <div className="text-[12px] italic text-gray-700 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/20 rounded px-2 py-1 border border-gray-200 dark:border-gray-600/40">
           {disclaimer}
         </div>
       )}
@@ -2006,7 +2006,7 @@ function ActionCard({
                   (action.priority === "critical"
                     ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
                     : action.priority === "high"
-                      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+                      ? "bg-gray-100 text-gray-700 dark:bg-gray-800/30 dark:text-gray-400"
                       : action.priority === "medium"
                         ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200"
                         : "bg-muted text-muted-foreground")
@@ -2442,7 +2442,7 @@ function ExecutePriceUpdateDialog({
           </div>
 
           {/* Scope warning */}
-          <div className="rounded-md border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
+          <div className="rounded-md border border-gray-200 dark:border-gray-600/40 bg-gray-50 dark:bg-gray-800/20 px-3 py-2 text-xs text-gray-700 dark:text-gray-400 flex items-start gap-2">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
             <span>
               This updates Milton&apos;s internal menu item price only. It does

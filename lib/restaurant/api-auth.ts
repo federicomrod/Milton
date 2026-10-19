@@ -35,7 +35,10 @@ async function authAndCompanyUncached(): Promise<AuthAndCompanyResult> {
   if (!user) {
     return {
       ok: false,
-      response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      response: NextResponse.json(
+        { error: "Inicia sesión de nuevo." },
+        { status: 401 }
+      ),
     };
   }
   const companyId = await getCachedCompanyId(user.id);

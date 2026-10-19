@@ -9,11 +9,8 @@ import {
   resetConfirmErrorEs,
   resetConfirmationAccepted,
 } from "@/lib/restaurant/cost-workbook";
-import {
-  loadCompanyMembershipRole,
-  loadCompanyName,
-} from "@/lib/restaurant/cost-workbook/reset-auth";
-import { canManageCompanyCostReset } from "@/lib/restaurant/cost-workbook/reset";
+import { loadCompanyName } from "@/lib/restaurant/cost-workbook/reset-auth";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 
 export const dynamic = "force-dynamic";
@@ -23,13 +20,15 @@ export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
-  let membership;
+  let denied;
   try {
-    membership = await loadCompanyMembershipRole(
-      auth.supabase,
-      auth.companyId,
-      auth.userId
-    );
+    const actor = await resolveActor(auth.supabase, auth.userId, {
+      companyId: auth.companyId,
+    });
+    denied = requireCapability(actor, "costs.reset", {
+      message: RESET_FORBIDDEN_ERROR_ES,
+      extra: { code: "forbidden" },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error";
     console.error("[costs/reset] role", message);
@@ -38,12 +37,7 @@ export async function POST(req: NextRequest) {
       { status: 403 }
     );
   }
-  if (!canManageCompanyCostReset(membership)) {
-    return NextResponse.json(
-      { error: RESET_FORBIDDEN_ERROR_ES, code: "forbidden" },
-      { status: 403 }
-    );
-  }
+  if (denied) return denied;
 
   let body: { confirm_name?: unknown; location_id?: unknown } = {};
   try {

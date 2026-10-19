@@ -326,7 +326,7 @@ export function TemplateModelPreview({
                 </div>
                 <div>
                   <div
-                    className={`text-2xl font-bold ${relationships.length === 0 && selectedTables.length > 1 ? "text-amber-600" : ""}`}
+                    className={`text-2xl font-bold ${relationships.length === 0 && selectedTables.length > 1 ? "text-gray-500" : ""}`}
                   >
                     {relationships.length}
                   </div>
@@ -334,7 +334,7 @@ export function TemplateModelPreview({
                     Relationships
                     {relationships.length === 0 &&
                       selectedTables.length > 1 && (
-                        <span className="text-amber-600 ml-1">⚠️</span>
+                        <span className="text-gray-500 ml-1">⚠️</span>
                       )}
                   </div>
                 </div>
@@ -353,8 +353,8 @@ export function TemplateModelPreview({
               </div>
 
               {relationships.length === 0 && selectedTables.length > 1 && (
-                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-sm text-amber-800">
+                <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                  <p className="text-sm text-gray-700">
                     <strong>Tip:</strong> Consider adding relationships between
                     your tables to create a proper data model. Most databases
                     benefit from defined relationships for data integrity and

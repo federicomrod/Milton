@@ -27,6 +27,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
 import {
+  requireCapability,
+  resolveActor,
+  unauthorizedResponse,
+} from "@/lib/auth/permissions";
+import {
   getRestaurantKpiTargets,
   upsertRestaurantKpiTarget,
   TARGET_METRIC_KEYS,
@@ -52,6 +57,7 @@ async function authAndCompany(): Promise<
       ok: true;
       supabase: Awaited<ReturnType<typeof createClient>>;
       companyId: string;
+      userId: string;
     }
   | { ok: false; response: NextResponse }
 > {
@@ -62,7 +68,7 @@ async function authAndCompany(): Promise<
   if (!user) {
     return {
       ok: false,
-      response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      response: unauthorizedResponse(),
     };
   }
   const companyId = await resolveCompanyIdForUser(supabase, user.id);
@@ -75,7 +81,7 @@ async function authAndCompany(): Promise<
       ),
     };
   }
-  return { ok: true, supabase, companyId };
+  return { ok: true, supabase, companyId, userId: user.id };
 }
 
 export async function GET() {
@@ -254,7 +260,7 @@ async function saveForm(
     }
     if (code === "42501") {
       return NextResponse.json(
-        { error: "No tienes permiso para cambiar los objetivos." },
+        { error: "Tu rol no puede cambiar los objetivos." },
         { status: 403 }
       );
     }
@@ -285,6 +291,11 @@ interface BatchBody {
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "targets.edit");
+  if (denied) return denied;
 
   let body: BatchBody & FormBody;
   try {

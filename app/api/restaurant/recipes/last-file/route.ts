@@ -11,8 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { actionableError } from "@/lib/restaurant/actionable-error";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
-import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
-import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import {
   applyDishFromLastFile,
   lookupDishInLastFile,
@@ -78,17 +77,13 @@ export async function POST(req: NextRequest) {
   if (odooProductId === null || !recipeKey) {
     return NextResponse.json({ error: "Falta el plato." }, { status: 400 });
   }
-  const actor = await loadRecipeActor(
-    auth.supabase,
-    auth.companyId,
-    auth.userId
-  );
-  if (!actorCanSubmitForApproval(actor)) {
-    return NextResponse.json(
-      { error: "Tu rol no puede importar recetas." },
-      { status: 403 }
-    );
-  }
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "imports.run", {
+    message: "Tu rol no puede importar recetas.",
+  });
+  if (denied) return denied;
   try {
     const currency = await resolveCompanyCurrency(
       auth.supabase,

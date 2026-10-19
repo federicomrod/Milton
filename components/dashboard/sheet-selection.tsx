@@ -1033,7 +1033,7 @@ export default function SheetSelection({
       return "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30 border-l-green-500";
     }
     if (mapping.confidence >= 0.6) {
-      return "text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-950/30 border-l-yellow-500";
+      return "text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/30 border-l-gray-300";
     }
     return "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border-l-red-500";
   };
@@ -1091,7 +1091,7 @@ export default function SheetSelection({
       );
     if (confidence >= 0.6)
       return (
-        <Badge className="bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-300">
+        <Badge className="bg-gray-100 dark:bg-gray-800/50 text-gray-700 dark:text-gray-400">
           {percentage}%
         </Badge>
       );
@@ -1313,7 +1313,7 @@ export default function SheetSelection({
                               (mappingValid ? (
                                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
                               ) : (
-                                <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 flex-shrink-0" />
+                                <AlertTriangle className="h-4 w-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                               ))}
                           </div>
                         </div>
@@ -1495,15 +1495,15 @@ export default function SheetSelection({
 
                   {/* Missing Dependencies Info */}
                   {missingDependencies.length > 0 && (
-                    <Alert className="mt-4 mx-4 flex-shrink-0 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30">
-                      <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <Alert className="mt-4 mx-4 flex-shrink-0 border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/30">
+                      <AlertTriangle className="h-4 w-4 text-gray-500" />
                       <AlertDescription>
-                        <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                        <p className="text-sm font-medium text-gray-700 dark:text-gray-400">
                           {missingDependencies.map((t) => `"${t}"`).join(", ")}{" "}
                           {missingDependencies.length === 1 ? "has" : "have"} no
                           data yet
                         </p>
-                        <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                        <p className="text-sm text-gray-700 dark:text-gray-400 mt-1">
                           Foreign key references to{" "}
                           {missingDependencies.length === 1
                             ? "this table"
@@ -1596,7 +1596,7 @@ export default function SheetSelection({
                                     showAutoGen
                                       ? "border-l-blue-400 bg-blue-50/30 dark:bg-blue-950/10"
                                       : field.required && !isMapped
-                                        ? "border-l-amber-500 bg-amber-50/50 dark:bg-amber-950/20"
+                                        ? "border-l-gray-300 bg-gray-50/50 dark:bg-gray-800/20"
                                         : "border-l-green-500 bg-green-50/30 dark:bg-green-950/10"
                                   }`}
                                 >

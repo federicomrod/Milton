@@ -73,8 +73,8 @@ export function PipelineSummaryCards({
       title: "Revenue per Customer (ARPA)",
       value: arpa > 0 ? formatCurrencyUtil(arpa, currency, numberFormat) : "—",
       icon: DollarSign,
-      iconColor: "text-amber-600",
-      valueColor: "text-amber-600",
+      iconColor: "text-gray-500",
+      valueColor: "text-gray-500",
     },
     {
       title: "Client Concentration",

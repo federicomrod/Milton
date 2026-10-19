@@ -6,13 +6,16 @@
 // GET ?company_id= lists invites (never tokens or hashes), plus the company
 //   list for the picker and recent "Connect your data" requests.
 //
-// Every handler is gated by isUserAdminServer() (which calls the
+// Every handler is gated by requireMiltonStaff() (which calls the
 // is_milton_admin() RPC from migration 020); everyone else gets 403.
 // The admin client is used only after that gate, for the privileged
 // invite reads/writes.
 
 import { NextRequest, NextResponse } from "next/server";
-import { isUserAdminServer } from "@/lib/profile-service-server";
+import {
+  requireMiltonStaff,
+  unauthorizedResponse,
+} from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -32,17 +35,15 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const forbidden = () =>
-  NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
 export async function POST(req: NextRequest) {
   try {
-    if (!(await isUserAdminServer())) return forbidden();
+    const notStaff = await requireMiltonStaff();
+    if (notStaff) return notStaff;
     const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return forbidden();
+    if (!user) return unauthorizedResponse();
 
     let body: { company_id?: unknown; email?: unknown; role?: unknown };
     try {
@@ -158,7 +159,8 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
-    if (!(await isUserAdminServer())) return forbidden();
+    const notStaff = await requireMiltonStaff();
+    if (notStaff) return notStaff;
     const companyId = new URL(req.url).searchParams.get("company_id");
     if (companyId && !UUID_RE.test(companyId)) {
       return NextResponse.json(

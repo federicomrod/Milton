@@ -10,6 +10,7 @@
 // the user's company row (created_by) — same pattern as the existing data
 // upload routes in app/api/data/*.
 
+import { unauthorizedResponse } from "@/lib/auth/permissions";
 import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return unauthorizedResponse();
     }
 
     // --- File handling ----------------------------------------------------

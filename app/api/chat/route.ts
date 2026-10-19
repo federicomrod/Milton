@@ -69,7 +69,7 @@ export async function POST(req: Request) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return new Response("Unauthorized", { status: 401 });
+    return new Response("Inicia sesión de nuevo.", { status: 401 });
   }
 
   const {

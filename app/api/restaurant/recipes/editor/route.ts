@@ -9,8 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
-import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
+import { can, resolveActor } from "@/lib/auth/permissions";
 import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
 import {
   applyEdit,
@@ -100,12 +99,10 @@ export async function POST(req: NextRequest) {
 
   // R1-12: the role check runs while the dish and catalog are read;
   // applyEdit waits for it before its first write.
-  const guard = loadRecipeActor(
-    auth.supabase,
-    auth.companyId,
-    auth.userId
-  ).then((actor) =>
-    actorCanSubmitForApproval(actor)
+  const guard = resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  }).then((actor) =>
+    can(actor, "recipes.edit")
       ? null
       : {
           ok: false as const,

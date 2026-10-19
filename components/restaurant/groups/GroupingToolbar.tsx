@@ -93,7 +93,7 @@ export function GroupingToolbar({
         onClear={onClearSelection}
       />
       {selectedCount > 0 && selectionNote ? (
-        <p className="text-[12px] text-[#a35a00]">{selectionNote}</p>
+        <p className="text-[12px] text-[#6b7280]">{selectionNote}</p>
       ) : null}
       {selectedCount > 0 && duplicateHint && onDuplicateGroup ? (
         <button

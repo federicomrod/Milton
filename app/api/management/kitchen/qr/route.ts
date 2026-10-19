@@ -4,10 +4,13 @@
 //   GET  ?company_id= -> per-location QR status (never a token or hash).
 //   POST { company_id, location_id } -> create/rotate; the location must
 //        belong to that company. The QR is returned once.
-// Both handlers are gated by isUserAdminServer(); everyone else gets 403.
+// Both handlers are gated by requireMiltonStaff(); everyone else gets 403.
 
 import { NextRequest, NextResponse } from "next/server";
-import { isUserAdminServer } from "@/lib/profile-service-server";
+import {
+  requireMiltonStaff,
+  unauthorizedResponse,
+} from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadKitchenQrStatus } from "@/lib/restaurant/telegram/kitchen-join";
@@ -18,12 +21,11 @@ export const runtime = "nodejs";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const forbidden = () =>
-  NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
 export async function GET(req: NextRequest) {
   try {
-    if (!(await isUserAdminServer())) return forbidden();
+    const notStaff = await requireMiltonStaff();
+    if (notStaff) return notStaff;
     const companyId = new URL(req.url).searchParams.get("company_id");
     const admin = createAdminClient();
     const { data: companies } = await admin
@@ -57,11 +59,12 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    if (!(await isUserAdminServer())) return forbidden();
+    const notStaff = await requireMiltonStaff();
+    if (notStaff) return notStaff;
     const {
       data: { user },
     } = await (await createClient()).auth.getUser();
-    if (!user) return forbidden();
+    if (!user) return unauthorizedResponse();
 
     let body: { company_id?: unknown; location_id?: unknown };
     try {

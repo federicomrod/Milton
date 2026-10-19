@@ -13,12 +13,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { isUserAdminServer } from "@/lib/profile-service-server";
-import {
-  canManageKitchenQr,
-  loadKitchenQrStatus,
-  loadMembershipRole,
-} from "@/lib/restaurant/telegram/kitchen-join";
+import { can, requireCapability, resolveActor } from "@/lib/auth/permissions";
+import { loadKitchenQrStatus } from "@/lib/restaurant/telegram/kitchen-join";
 import { createOrRotateKitchenQr } from "@/lib/restaurant/telegram/kitchen-qr";
 
 export const dynamic = "force-dynamic";
@@ -28,11 +24,8 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function callerCanManage(companyId: string, userId: string) {
-  const [isMiltonAdmin, membershipRole] = await Promise.all([
-    isUserAdminServer(userId),
-    loadMembershipRole(companyId, userId),
-  ]);
-  return canManageKitchenQr({ isMiltonAdmin, membershipRole });
+  const actor = await resolveActor(null, userId, { companyId });
+  return can(actor, "kitchen.qr");
 }
 
 export async function GET() {
@@ -66,13 +59,9 @@ export async function POST(req: NextRequest) {
     if (!auth.ok) return auth.response;
     const { companyId, userId } = auth;
 
-    const [isMiltonAdmin, membershipRole] = await Promise.all([
-      isUserAdminServer(userId),
-      loadMembershipRole(companyId, userId),
-    ]);
-    if (!canManageKitchenQr({ isMiltonAdmin, membershipRole })) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const actor = await resolveActor(auth.supabase, userId, { companyId });
+    const denied = requireCapability(actor, "kitchen.qr");
+    if (denied) return denied;
 
     let body: { location_id?: unknown };
     try {

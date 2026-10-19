@@ -201,7 +201,7 @@ function getSectionColor(sectionId: string): string {
     financials: "from-teal-50 to-teal-100 border-teal-500",
     cashFlow: "from-indigo-50 to-indigo-100 border-indigo-500",
     restaurantOverview: "from-blue-50 to-blue-100 border-blue-500",
-    revenueMenu: "from-amber-50 to-amber-100 border-amber-500",
+    revenueMenu: "from-gray-50 to-gray-100 border-gray-300",
     operations: "from-emerald-50 to-emerald-100 border-emerald-500",
     restaurantCashFlow: "from-indigo-50 to-indigo-100 border-indigo-500",
   };

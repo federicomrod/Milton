@@ -185,7 +185,7 @@ const statusLabel = (st: string) => STATUS_LABEL[st] ?? st;
 
 const STATUS_STYLE: Record<string, string> = {
   draft: "bg-gray-100 text-gray-600",
-  needs_review: "bg-amber-100 text-amber-800",
+  needs_review: "bg-gray-100 text-gray-700",
   approved: "bg-[#eef2fd] text-[#1B40C8]",
   rejected: "bg-red-100 text-red-700",
   posted: "bg-green-100 text-green-800",
@@ -494,7 +494,7 @@ function UploadCard({
             )}
             {summary.failed_rows && summary.failed_rows.length > 0 && (
               <details className="mt-2">
-                <summary className="cursor-pointer text-amber-600">
+                <summary className="cursor-pointer text-gray-500">
                   {summary.failed_rows.length}{" "}
                   {summary.failed_rows.length === 1
                     ? "fila con error"
@@ -828,7 +828,7 @@ function InvoiceListCard({
                 <td className="px-4 py-3 text-xs">
                   {inv.line_counts.matched} / {inv.line_counts.total}
                   {inv.line_counts.unmatched > 0 && (
-                    <span className="ml-1 text-amber-600">
+                    <span className="ml-1 text-gray-500">
                       · {inv.line_counts.unmatched} sin asignar
                     </span>
                   )}
@@ -1167,7 +1167,7 @@ function ReviewDetail({
             </p>
             {postResult.skipped_lines.length > 0 && (
               <details>
-                <summary className="cursor-pointer text-amber-700">
+                <summary className="cursor-pointer text-gray-700">
                   {postResult.skipped_lines.length}{" "}
                   {postResult.skipped_lines.length === 1
                     ? "línea omitida"
@@ -1364,7 +1364,7 @@ function LineRow({
           </div>
         ) : (
           <div className="space-y-1">
-            <span className={`${BADGE_CLS} bg-amber-100 text-amber-800`}>
+            <span className={`${BADGE_CLS} bg-gray-100 text-gray-700`}>
               Sin asignar
             </span>
             <select
@@ -2141,7 +2141,7 @@ function ExtractedDraftBody({
   return (
     <div className="space-y-3">
       {/* Banner */}
-      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 flex items-start gap-2">
+      <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 flex items-start gap-2">
         <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
         <span>
           La lectura con IA es un borrador. Revisa todos los campos antes de
@@ -2321,7 +2321,7 @@ function ExtractedDraftBody({
                       className={
                         "border-b border-[#eef0f4] align-top " +
                         (needs
-                          ? "bg-amber-50/60"
+                          ? "bg-gray-50/60"
                           : i % 2 === 1
                             ? "bg-[#f9fafc]"
                             : "")
@@ -2497,7 +2497,7 @@ function LineBadges({
     chips.push(
       <span
         key="needs"
-        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-800"
+        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-gray-100 text-gray-700"
       >
         Por revisar
       </span>
@@ -2517,7 +2517,7 @@ function LineBadges({
     chips.push(
       <span
         key="medium"
-        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-800"
+        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-gray-100 text-gray-700"
         title={line.confidence_notes ?? undefined}
       >
         Confianza media

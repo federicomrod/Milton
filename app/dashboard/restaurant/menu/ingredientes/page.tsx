@@ -6,6 +6,8 @@
 // comes from the shared dish economics load.
 
 import { createClient } from "@/lib/supabase/server";
+import { capabilityFlags, resolveActor } from "@/lib/auth/permissions";
+import type { Capability } from "@/lib/auth/capabilities";
 import {
   getCachedAuthUser,
   getCachedCompanyId,
@@ -39,6 +41,7 @@ type LoadResult =
       itemGroups: ItemGroupsLoad | null;
       archiveAvailable: boolean;
       duplicates: DuplicateState;
+      capabilities: Record<Capability, boolean>;
     }
   | { kind: "no-company" };
 
@@ -65,6 +68,9 @@ async function loadIngredientes(
       loadIngredientUsage(supabase, companyId),
       loadDuplicateState(supabase, companyId),
     ]);
+  const capabilities = capabilityFlags(
+    await resolveActor(supabase, user.id, { companyId })
+  );
   if (!economics.ok) {
     console.error("[menu/ingredientes] dish economics:", economics.error);
   }
@@ -120,6 +126,7 @@ async function loadIngredientes(
     currency: currency || "USD",
     archiveAvailable: usage.archiveAvailable,
     duplicates,
+    capabilities,
     itemGroups: economics.ok ? (economics.result.item_groups ?? null) : null,
   };
 }
@@ -150,6 +157,7 @@ export default async function IngredientesRoute({
       itemGroups={result.itemGroups}
       archiveAvailable={result.archiveAvailable}
       duplicates={result.duplicates}
+      capabilities={result.capabilities}
       initialSelectedId={params.ingrediente ?? null}
       initialFilter={parseIngredientesFilter(params.filtro)}
     />

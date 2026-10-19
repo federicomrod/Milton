@@ -187,7 +187,7 @@ function Kpi({
       : delta > 0
         ? "text-emerald-700 dark:text-emerald-400"
         : delta < 0
-          ? "text-amber-800 dark:text-amber-300"
+          ? "text-gray-700 dark:text-gray-400"
           : "text-muted-foreground";
   return (
     <div className="rounded-md border border-border bg-background px-2.5 py-1.5 min-h-[4.5rem]">

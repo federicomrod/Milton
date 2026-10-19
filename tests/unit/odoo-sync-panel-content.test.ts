@@ -56,10 +56,10 @@ describe("Odoo Sync now panel", () => {
   });
 
   it("the sync route stays admin-only and persists a compact last_sync", () => {
-    expect(route).toContain("isUserAdminServer");
+    expect(route).toContain('requireCapability(actor, "odoo.sync")');
     expect(route).toContain("persistLastSync");
     expect(route).toContain("compactLastSync");
-    const adminAt = route.indexOf("isUserAdminServer(userId)");
+    const adminAt = route.indexOf('requireCapability(actor, "odoo.sync")');
     const secretAt = route.indexOf("loadDecryptedOdooSecret(conn.id");
     expect(adminAt).toBeGreaterThan(-1);
     expect(secretAt).toBeGreaterThan(-1);

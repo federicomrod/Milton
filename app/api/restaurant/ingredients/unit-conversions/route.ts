@@ -10,6 +10,7 @@
 // know. Company and user come from auth; RLS (is_company_member) is the guard.
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { actionableError } from "@/lib/restaurant/actionable-error";
 import { convertToSubRecipeUnit, sameUnit } from "@/lib/restaurant/units";
@@ -91,6 +92,13 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "prices.edit", {
+    message: "Tu rol no puede cambiar precios.",
+  });
+  if (denied) return denied;
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
@@ -176,6 +184,13 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "prices.edit", {
+    message: "Tu rol no puede cambiar precios.",
+  });
+  if (denied) return denied;
   let body: { id?: unknown };
   try {
     body = (await req.json()) as typeof body;

@@ -33,14 +33,25 @@ vi.mock("@/lib/supabase/admin", () => ({
 vi.mock("@/lib/profile-service-server", () => ({
   isUserAdminServer: (...a: unknown[]) => isUserAdminServer(...a),
 }));
-vi.mock("@/lib/restaurant/telegram/kitchen-join", async (importOriginal) => {
+// The role is read through resolveActor (loadCompanyRole + the admin client in
+// production); here the tests decide the role and the Milton-staff flag.
+vi.mock("@/lib/auth/permissions", async (importOriginal) => {
   const actual =
-    await importOriginal<
-      typeof import("@/lib/restaurant/telegram/kitchen-join")
-    >();
+    await importOriginal<typeof import("@/lib/auth/permissions")>();
   return {
     ...actual,
-    loadMembershipRole: (...a: unknown[]) => loadMembershipRole(...a),
+    resolveActor: async (
+      _supabase: unknown,
+      userId: string,
+      opts?: { companyId?: string | null }
+    ) => ({
+      userId,
+      companyId: opts?.companyId ?? null,
+      role: actual.normalizeRole(
+        await loadMembershipRole(opts?.companyId, userId)
+      ),
+      isMiltonStaff: Boolean(await isUserAdminServer(userId)),
+    }),
   };
 });
 vi.mock("@/lib/restaurant/currency", () => ({

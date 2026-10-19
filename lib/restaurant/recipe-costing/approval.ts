@@ -44,6 +44,15 @@ export function toPermissionActor(actor: RecipeActor): Actor {
   };
 }
 
+/** A resolved permissions actor as the recipe actor the services take. */
+export function toRecipeActor(actor: Actor): RecipeActor {
+  return {
+    user_id: actor.userId,
+    role: actor.role,
+    is_milton_staff: actor.isMiltonStaff,
+  };
+}
+
 export function actorCanApproveDirectly(actor: RecipeActor): boolean {
   // Owner / admin by role; Milton staff are not "direct" (they confirm for the client).
   return can(
@@ -91,6 +100,11 @@ export function actorCanApprove(
     ok: false,
     error: "Solo el dueño o un admin puede aprobar esta receta.",
   };
+}
+
+/** May this person link, change or undo POS products? (links.confirm) */
+export function actorCanLinkProducts(actor: RecipeActor): boolean {
+  return can(toPermissionActor(actor), "links.confirm");
 }
 
 export function actorCanConfirmLink(

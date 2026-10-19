@@ -10,7 +10,7 @@ export function Chip({
   const tones = {
     ok: "bg-[#e7f6ee] text-[#1f7a45]",
     sug: "bg-[#e9efff] text-[#3557c9]",
-    warn: "bg-[#fff4e5] text-[#a35a00]",
+    warn: "bg-[#f9fafb] text-[#6b7280]",
     bad: "bg-[#fdecec] text-[#c03535]",
     grey: "bg-[#f1f3f7] text-[#5b6476]",
     pur: "bg-[#f2ecff] text-[#6b3fc9]",

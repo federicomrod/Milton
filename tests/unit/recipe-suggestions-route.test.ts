@@ -71,12 +71,17 @@ describe("POST /api/restaurant/recipes/suggestions", () => {
         userId: "user-1",
       }),
     }));
-    vi.doMock("@/lib/restaurant/recipe-costing/actor-server", () => ({
-      loadRecipeActor: vi.fn().mockResolvedValue({
-        user_id: "user-1",
-        role,
-        is_milton_staff: false,
-      }),
+    vi.doMock("@/lib/supabase/admin", () => {
+      const chain: Record<string, unknown> = {
+        from: () => chain,
+        select: () => chain,
+        eq: () => chain,
+        maybeSingle: async () => ({ data: { role }, error: null }),
+      };
+      return { createAdminClient: () => chain };
+    });
+    vi.doMock("@/lib/profile-service-server", () => ({
+      isUserAdminServer: async () => false,
     }));
     vi.doMock("@/lib/restaurant/recipe-suggestion-server", () => ({
       NO_STORED_BLOCKS_ERROR: "x",

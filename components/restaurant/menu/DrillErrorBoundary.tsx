@@ -36,7 +36,7 @@ export class DrillErrorBoundary extends Component<
     return (
       <div
         role="alert"
-        className="space-y-3 rounded-[14px] border border-[#f5c98b] bg-[#fff8ec] px-4 py-4 text-[13px]"
+        className="space-y-3 rounded-[14px] border border-[#e5e7eb] bg-[#f9fafb] px-4 py-4 text-[13px]"
       >
         <p className="font-semibold">
           No pude mostrar el desglose de «{this.props.title}».

@@ -364,7 +364,7 @@ export function SuggestionChip({
   }
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="rounded-full border border-dashed border-[#f5c98b] bg-[#fff8ec] px-2.5 py-0.5 text-[12px] font-semibold text-[#a35a00]">
+      <span className="rounded-full border border-dashed border-[#e5e7eb] bg-[#f9fafb] px-2.5 py-0.5 text-[12px] font-semibold text-[#6b7280]">
         ✦ ¿Añadir a {targetName}?
       </span>
       <button
@@ -407,7 +407,7 @@ export function GroupToastView({
             toast.undo?.();
             onDismiss();
           }}
-          className="font-bold text-[#f5a85a] hover:text-white"
+          className="font-bold text-[#d1d5db] hover:text-white"
         >
           Deshacer
         </button>

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
 import {
@@ -20,6 +20,20 @@ import {
   emptyMemoryStore,
 } from "./helpers/memory-cost-workbook-repo";
 import type { CostWorkbookCostEntry } from "@/lib/restaurant/cost-workbook/types";
+
+// loadCompanyMembershipRole reads the role with the admin client.
+const adminRead = vi.hoisted(() => ({
+  error: null as { message: string } | null,
+}));
+vi.mock("@/lib/supabase/admin", () => {
+  const chain = {
+    from: () => chain,
+    select: () => chain,
+    eq: () => chain,
+    maybeSingle: async () => ({ data: null, error: adminRead.error }),
+  };
+  return { createAdminClient: () => chain };
+});
 
 const COMPANY_A = "co-casa";
 const COMPANY_B = "co-casasur";
@@ -522,21 +536,8 @@ describe("resetCompanyCostData", () => {
   });
 
   it("denies a membership read error even when the message contains role", async () => {
-    const supabase = {
-      from() {
-        return this;
-      },
-      select() {
-        return this;
-      },
-      eq() {
-        return this;
-      },
-      maybeSingle: async () => ({
-        data: null,
-        error: { message: 'role "authenticator" does not exist' },
-      }),
-    };
+    adminRead.error = { message: 'role "authenticator" does not exist' };
+    const supabase = {};
     await expect(
       loadCompanyMembershipRole(supabase as never, "co-casa", "user-1")
     ).rejects.toThrow(/role "authenticator"/);
@@ -556,7 +557,8 @@ describe("cost reset server and UI copy", () => {
     expect(src).not.toContain('error: "Reset failed"');
     expect(src).not.toContain("error_en");
     expect(src).toContain("RESET_FAILED_ERROR_ES");
-    expect(src).toContain("canManageCompanyCostReset");
+    expect(src).toContain("costs.reset");
+    expect(src).toContain("requireCapability");
     // Company-wide: never refused for not picking a restaurant.
     expect(src).not.toContain("resolveUploadRestaurantScope");
     expect(src).not.toContain("PICK_RESTAURANT_ERROR_ES");
@@ -593,6 +595,6 @@ describe("cost reset server and UI copy", () => {
     expect(auth).not.toContain("errorMentionsColumn");
     const reset = read("lib/restaurant/cost-workbook/reset.ts");
     expect(reset).not.toContain("roleColumnMissing");
-    expect(reset).toContain('role === "owner" || input.role === "admin"');
+    expect(reset).toContain('"costs.reset"');
   });
 });

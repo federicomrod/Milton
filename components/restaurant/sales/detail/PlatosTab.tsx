@@ -141,7 +141,7 @@ export function PlatosTab({
           </span>
         ) : null}
         {channelsActive ? (
-          <span className="rounded-md bg-[#fff8ec] px-2 py-0.5 text-[#a35a00]">
+          <span className="rounded-md bg-[#f9fafb] px-2 py-0.5 text-[#6b7280]">
             Canal, pago y turno no aplican a Platos: el costo de un plato se
             calcula por período y restaurante.
           </span>

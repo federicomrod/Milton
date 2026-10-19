@@ -19,6 +19,7 @@
 // tomorrow the invoice importer).
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
   convertUnitPriceOrPortion,
@@ -84,6 +85,13 @@ interface PostBody {
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "prices.edit", {
+    message: "Tu rol no puede cambiar precios.",
+  });
+  if (denied) return denied;
 
   let body: PostBody;
   try {
@@ -241,6 +249,13 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "prices.edit", {
+    message: "Tu rol no puede cambiar precios.",
+  });
+  if (denied) return denied;
 
   const url = new URL(req.url);
   const id = url.searchParams.get("id");

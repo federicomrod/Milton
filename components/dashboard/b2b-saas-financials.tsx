@@ -86,8 +86,8 @@ function getCardStyle(kpi: {
   if (id.includes("gross-margin") || n.includes("gross margin")) {
     return {
       icon: PieChart,
-      iconColor: "text-amber-600",
-      valueColor: "text-amber-600",
+      iconColor: "text-gray-500",
+      valueColor: "text-gray-500",
     };
   }
   if (n.includes("expense")) {

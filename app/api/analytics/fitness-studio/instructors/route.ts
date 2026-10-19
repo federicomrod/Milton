@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return jsonNoStore({ error: "Unauthorized" });
+      return jsonNoStore({ error: "Inicia sesión de nuevo." });
     }
 
     const { data: company } = await supabase

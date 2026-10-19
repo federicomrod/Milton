@@ -1,3 +1,4 @@
+import { can, resolveActor } from "@/lib/auth/permissions";
 import { ObjetivosForm } from "@/components/restaurant/settings/ObjetivosForm";
 import { AppliesTo } from "@/components/restaurant/settings/AppliesTo";
 import { createClient } from "@/lib/supabase/server";
@@ -32,7 +33,7 @@ export async function ObjetivosTab({ aplica }: { aplica?: string }) {
     );
   }
   const supabase = await createClient();
-  const [currency, timezone, locations, config, defaultComparison] =
+  const [currency, timezone, locations, config, defaultComparison, actor] =
     await Promise.all([
       resolveCompanyCurrency(supabase, companyId),
       resolvePosTimezone(supabase, companyId),
@@ -43,6 +44,7 @@ export async function ObjetivosTab({ aplica }: { aplica?: string }) {
         .order("name", { ascending: true }),
       loadTargetsConfig(supabase, companyId),
       loadDefaultComparison(supabase, companyId),
+      resolveActor(supabase, user.id, { companyId }),
     ]);
   const restaurants = (locations.data ?? []) as Array<{
     id: string;
@@ -121,7 +123,7 @@ export async function ObjetivosTab({ aplica }: { aplica?: string }) {
         today={today}
         startOptions={startOptions}
         defaultComparison={parseComparison(defaultComparison)}
-        canEdit={true}
+        canEdit={can(actor, "targets.edit")}
       />
     </div>
   );

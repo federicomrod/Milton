@@ -1,5 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
-import { isUserAdminServer } from "@/lib/profile-service-server";
+import {
+  requireMiltonStaff,
+  unauthorizedResponse,
+} from "@/lib/auth/permissions";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function PUT(
@@ -11,14 +14,10 @@ export async function PUT(
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!user) return unauthorizedResponse();
 
-  const isAdmin = await isUserAdminServer(user.id);
-  if (!isAdmin) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const notStaff = await requireMiltonStaff(user.id);
+  if (notStaff) return notStaff;
 
   try {
     const { id } = await params;
@@ -66,14 +65,10 @@ export async function DELETE(
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!user) return unauthorizedResponse();
 
-  const isAdmin = await isUserAdminServer(user.id);
-  if (!isAdmin) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const notStaff = await requireMiltonStaff(user.id);
+  if (notStaff) return notStaff;
 
   try {
     const { id } = await params;

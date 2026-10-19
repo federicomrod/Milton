@@ -272,14 +272,14 @@ export function ClassesUtilization({
               kpiValue > 20
                 ? "text-red-600"
                 : kpiValue > 10
-                  ? "text-amber-600"
-                  : "text-yellow-600";
+                  ? "text-gray-500"
+                  : "text-gray-500";
             valueColor =
               kpiValue > 20
                 ? "text-red-600"
                 : kpiValue > 10
-                  ? "text-amber-600"
-                  : "text-yellow-600";
+                  ? "text-gray-500"
+                  : "text-gray-500";
             format = "percentage";
             suffix = "%";
           } else if (dbKpi.name.includes("Cancellation")) {
@@ -288,14 +288,14 @@ export function ClassesUtilization({
               kpiValue > 20
                 ? "text-red-600"
                 : kpiValue > 10
-                  ? "text-amber-600"
-                  : "text-yellow-600";
+                  ? "text-gray-500"
+                  : "text-gray-500";
             valueColor =
               kpiValue > 20
                 ? "text-red-600"
                 : kpiValue > 10
-                  ? "text-amber-600"
-                  : "text-yellow-600";
+                  ? "text-gray-500"
+                  : "text-gray-500";
             format = "percentage";
             suffix = "%";
           } else if (
@@ -307,14 +307,14 @@ export function ClassesUtilization({
               kpiValue > 75
                 ? "text-green-600"
                 : kpiValue > 50
-                  ? "text-yellow-600"
-                  : "text-amber-600";
+                  ? "text-gray-500"
+                  : "text-gray-500";
             valueColor =
               kpiValue > 75
                 ? "text-green-600"
                 : kpiValue > 50
-                  ? "text-yellow-600"
-                  : "text-amber-600";
+                  ? "text-gray-500"
+                  : "text-gray-500";
             format = "percentage";
             suffix = "%";
           }
@@ -438,7 +438,7 @@ export function ClassesUtilization({
                     "#8b5cf6", // purple
                     "#ec4899", // pink
                     "#14b8a6", // teal
-                    "#f59e0b", // amber
+                    "#9ca3af", // gray
                     "#60a5fa", // light blue
                   ];
                   return (

@@ -8,8 +8,7 @@
 
 import { after, NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
-import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import {
   MenuDishError,
   excludeDish,
@@ -45,17 +44,13 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  const actor = await loadRecipeActor(
-    auth.supabase,
-    auth.companyId,
-    auth.userId
-  );
-  if (!actorCanSubmitForApproval(actor)) {
-    return NextResponse.json(
-      { error: "Tu rol no puede cambiar los platos del menú." },
-      { status: 403 }
-    );
-  }
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "menu.manage", {
+    message: "Tu rol no puede cambiar los platos del menú.",
+  });
+  if (denied) return denied;
 
   // R1-15b: after a save, the Plato del menú level of the groups follows (048;
   // insert-only, after the response, a no-op until 048 is applied).

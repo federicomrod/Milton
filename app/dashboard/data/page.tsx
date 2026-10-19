@@ -468,7 +468,7 @@ export default function DataManagementPage() {
                   className={
                     hasIntegrations
                       ? "bg-blue-50 border border-blue-200 rounded-lg p-4"
-                      : "bg-amber-50 border border-amber-200 rounded-lg p-4"
+                      : "bg-gray-50 border border-gray-200 rounded-lg p-4"
                   }
                 >
                   <div className="flex items-start gap-3">
@@ -488,12 +488,12 @@ export default function DataManagementPage() {
                       </>
                     ) : (
                       <>
-                        <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
+                        <AlertCircle className="h-5 w-5 text-gray-500 mt-0.5" />
                         <div className="flex-1">
-                          <p className="font-medium text-amber-900">
+                          <p className="font-medium text-gray-700">
                             Manual Upload Required
                           </p>
-                          <p className="text-sm text-amber-700 mt-1">
+                          <p className="text-sm text-gray-700 mt-1">
                             No integrations are currently available for your
                             selected tools. You can upload files manually in the
                             Data Model Builder.

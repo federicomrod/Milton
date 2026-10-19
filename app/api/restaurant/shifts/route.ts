@@ -13,6 +13,11 @@ import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
+import {
+  requireCapability,
+  resolveActor,
+  unauthorizedResponse,
+} from "@/lib/auth/permissions";
 import { loadShifts } from "@/lib/restaurant/business-day-server";
 import {
   cutoffMinutes,
@@ -34,7 +39,7 @@ async function authAndCompany() {
   if (!user) {
     return {
       ok: false as const,
-      response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      response: unauthorizedResponse(),
     };
   }
   const companyId = await resolveCompanyIdForUser(supabase, user.id);
@@ -47,7 +52,7 @@ async function authAndCompany() {
       ),
     };
   }
-  return { ok: true as const, supabase, companyId };
+  return { ok: true as const, supabase, companyId, userId: user.id };
 }
 
 export async function GET() {
@@ -99,6 +104,11 @@ function parseShifts(raw: unknown): Shift[] | null {
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "shifts.edit");
+  if (denied) return denied;
   let body: { restaurant_id?: unknown; shifts?: unknown };
   try {
     body = await req.json();

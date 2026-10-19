@@ -119,7 +119,7 @@ export function ProfitabilityKpisSection({
         </Link>
       </div>
       {data.dataQuality.currency_mismatch_rows > 0 && (
-        <div className="mb-3 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+        <div className="mb-3 rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/30 px-3 py-2 text-sm text-gray-700 dark:text-gray-400 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
           <span>
             {t(
@@ -224,7 +224,7 @@ export function MarginRiskSection({
           `Gross margin below 60% · ${data.lowMargin.length} items`,
           `Margen bruto menor a 60% · ${data.lowMargin.length} platillos`
         )}
-        icon={<TrendingDown className="h-4 w-4 text-amber-600" />}
+        icon={<TrendingDown className="h-4 w-4 text-gray-500" />}
         empty={t(
           lang,
           "No low-margin items below 60%.",
@@ -241,7 +241,7 @@ export function MarginRiskSection({
               `${pct(r.cost.gross_margin_pct)} de margen · ${fmt.money.format(r.revenue)} en ventas`
             )}
             trailing={pct(r.cost.gross_margin_pct)}
-            trailingClass="text-amber-700 dark:text-amber-300"
+            trailingClass="text-gray-700 dark:text-gray-400"
           />
         ))}
       </RiskCard>
@@ -287,7 +287,7 @@ export function MarginRiskSection({
             `Revenue but unknown cost · ${data.highRevenueIncomplete.length} items`,
             `Ventas sin costo conocido · ${data.highRevenueIncomplete.length} platillos`
           )}
-          icon={<AlertTriangle className="h-4 w-4 text-amber-600" />}
+          icon={<AlertTriangle className="h-4 w-4 text-gray-500" />}
           empty={t(
             lang,
             "Every revenue-generating item has a complete cost.",
@@ -300,7 +300,7 @@ export function MarginRiskSection({
               title={r.name}
               detail={`${fmt.money.format(r.revenue)} · ${STATUS_LABEL[r.cost.status] ?? r.cost.status}`}
               trailing={fmt.money.format(r.revenue)}
-              trailingClass="text-amber-700 dark:text-amber-300"
+              trailingClass="text-gray-700 dark:text-gray-400"
             />
           ))}
         </RiskCard>
@@ -854,7 +854,7 @@ export function ItemsNeedingAttention({
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-amber-600" />
+          <AlertTriangle className="h-4 w-4 text-gray-500" />
           {t(
             lang,
             "Items needing attention",
@@ -876,7 +876,7 @@ export function ItemsNeedingAttention({
                   {t(lang, "revenue", "en ventas")}
                 </div>
               </div>
-              <span className="font-medium tabular-nums shrink-0 text-amber-700 dark:text-amber-300">
+              <span className="font-medium tabular-nums shrink-0 text-gray-700 dark:text-gray-400">
                 {fmt.money.format(row.revenue)}
               </span>
             </li>
@@ -1079,7 +1079,7 @@ function ChecklistItem({
         {done ? (
           <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
         ) : (
-          <Circle className="h-4 w-4 text-amber-600 shrink-0" />
+          <Circle className="h-4 w-4 text-gray-500 shrink-0" />
         )}
         <span className="shrink-0 text-muted-foreground">{icon}</span>
         <span className="text-sm truncate">

@@ -16,8 +16,7 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { actionableError } from "@/lib/restaurant/actionable-error";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
-import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
-import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { saveMenuGroupingQuietly } from "@/lib/restaurant/menu-dishes/save-grouping";
 import { MAX_CATALOG_FILE_BYTES } from "@/lib/restaurant/price-catalog/server";
 import {
@@ -103,17 +102,13 @@ export async function POST(req: NextRequest) {
   }
 
   if (mode === "apply") {
-    const actor = await loadRecipeActor(
-      auth.supabase,
-      auth.companyId,
-      auth.userId
-    );
-    if (!actorCanSubmitForApproval(actor)) {
-      return NextResponse.json(
-        { error: "Tu rol no puede importar recetas." },
-        { status: 403 }
-      );
-    }
+    const actor = await resolveActor(auth.supabase, auth.userId, {
+      companyId: auth.companyId,
+    });
+    const denied = requireCapability(actor, "imports.run", {
+      message: "Tu rol no puede importar recetas.",
+    });
+    if (denied) return denied;
   }
 
   try {

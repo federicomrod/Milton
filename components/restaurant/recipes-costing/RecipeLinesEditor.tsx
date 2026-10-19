@@ -689,7 +689,7 @@ export function DishTotalRow({ lines }: { lines: EditorLine[] }) {
         {total !== null ? (
           money(total)
         ) : (
-          <span className="text-[#a35a00]">
+          <span className="text-[#6b7280]">
             Sin precio · {missing}{" "}
             {missing === 1 ? "línea pendiente" : "líneas pendientes"}
           </span>
@@ -711,7 +711,7 @@ function PreparationTotalRow({ lines }: { lines: EditorLine[] }) {
       <td colSpan={4} className="py-2 text-right font-semibold">
         Total de la preparación
         {total === null ? (
-          <span className="ml-2 rounded-md bg-[#fff4e5] px-1.5 py-0.5 text-[12px] font-semibold text-[#a35a00]">
+          <span className="ml-2 rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]">
             incompleto ·{" "}
             {missing === 1
               ? "1 línea sin precio"
@@ -866,7 +866,7 @@ function Row({
       id={`linea-${line.key}`}
       className={
         "border-t border-[#f2f3f6] " +
-        (unresolved || waitingPrep ? "bg-[#fff8ec]" : "")
+        (unresolved || waitingPrep ? "bg-[#f9fafb]" : "")
       }
     >
       <td className="py-1.5 pr-2 align-top">
@@ -874,7 +874,7 @@ function Row({
           <>
             <b>{line.raw_name}</b>
             {line.catalog_question ? (
-              <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[12px]">
+              <div className="mt-1 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-[12px]">
                 Está en tu lista de precios, pero no dice en qué unidad viene el
                 precio. ¿Cuál es?
                 {editable ? (
@@ -927,7 +927,7 @@ function Row({
                       : undefined
                   }
                   onClick={() => onPick(typed)}
-                  className="inline-flex min-w-44 items-center justify-between gap-2 rounded-md border border-[#f5a524] bg-white px-2 py-0.5 text-left text-[12px] disabled:opacity-45"
+                  className="inline-flex min-w-44 items-center justify-between gap-2 rounded-md border border-[#e5e7eb] bg-white px-2 py-0.5 text-left text-[12px] disabled:opacity-45"
                 >
                   <span className="truncate">
                     {line.possible_match
@@ -994,7 +994,7 @@ function Row({
             </div>
             {waitingPrep ? (
               <div
-                className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[12px] text-[#5b4515]"
+                className="mt-1 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-[12px] text-[#6b7280]"
                 data-testid="prep-without-cost"
               >
                 {line.component_missing && line.component_missing.length > 0 ? (
@@ -1014,7 +1014,7 @@ function Row({
                     </GhostBtn>
                   </div>
                 ) : null}
-                <div className="mt-1 text-[#8a7340]">
+                <div className="mt-1 text-[#6b7280]">
                   O escribe aquí el precio de esta línea.
                 </div>
               </div>
@@ -1043,7 +1043,7 @@ function Row({
             ) : null}
             {prepUnitProblem ? (
               <div
-                className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[12px] text-[#5b4515]"
+                className="mt-1 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-[12px] text-[#6b7280]"
                 data-testid="prep-unit-problem"
               >
                 La preparación <b>{line.name}</b> ya está aprobada, pero esta
@@ -1058,7 +1058,7 @@ function Row({
               </div>
             ) : null}
             {line.unit_question ? (
-              <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[12px]">
+              <div className="mt-1 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-[12px]">
                 Tu archivo dice{" "}
                 {UNIT_LABEL[line.unit_question.written] ??
                   line.unit_question.written}
@@ -1090,7 +1090,7 @@ function Row({
             disabled={!editable}
             placeholder="Pendiente"
             onChange={(event) => setQty(event.target.value)}
-            className="inline-block w-20 rounded-md border border-[#f5a524] bg-[#fff8ec] px-1.5 py-0.5 text-right"
+            className="inline-block w-20 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-1.5 py-0.5 text-right"
           />
         ) : unresolved ? (
           <span className="text-[#6b7385]">{line.qty}</span>
@@ -1113,7 +1113,7 @@ function Row({
             value={menuUnit}
             disabled={!editable}
             onChange={(event) => setMenuUnit(event.target.value)}
-            className="rounded-md border border-[#f5a524] bg-[#fff8ec] px-1 py-0.5"
+            className="rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-1 py-0.5"
           >
             <option value="">—</option>
             {ALL_UNITS.map((unit) => (
@@ -1202,7 +1202,7 @@ function Row({
           !line.price &&
           line.catalog_question ? (
           <div className="text-left text-[12px]">
-            <div className="text-[#a35a00]">
+            <div className="text-[#6b7280]">
               Tu lista no deja clara la unidad. ¿Cuál es?
             </div>
             <div className="mt-1 flex flex-wrap justify-end gap-1">
@@ -1235,7 +1235,7 @@ function Row({
               placeholder="Precio"
               disabled={!canFixPrice}
               onChange={(event) => setPrice(event.target.value)}
-              className="w-16 rounded-md border border-[#f5a524] bg-[#fff8ec] px-1.5 py-0.5 text-right font-bold"
+              className="w-16 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-1.5 py-0.5 text-right font-bold"
             />
             <span className="text-[12px] text-[#8a92a3]">
               /{UNIT_LABEL[line.unit] ?? line.unit}
@@ -1305,13 +1305,13 @@ function Row({
               UNIT_LABEL[line.price!.unit] ?? line.price!.unit,
               UNIT_LABEL[line.unit] ?? line.unit
             )}
-            className="text-[#a35a00]"
+            className="text-[#6b7280]"
           >
             {UNIT_MISMATCH_LABEL}
           </span>
         ) : (
           <span
-            className="rounded-md bg-[#fff4e5] px-1.5 py-0.5 text-[12px] font-semibold text-[#a35a00]"
+            className="rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]"
             data-testid="pending-reason"
           >
             {pendingReasonOf(line, prepUnitProblem)}
@@ -1320,7 +1320,7 @@ function Row({
         {line.amount !== null && line.unit_question ? (
           <div>
             <span
-              className="rounded-md bg-[#fff4e5] px-1.5 py-0.5 text-[12px] font-semibold text-[#a35a00]"
+              className="rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]"
               data-testid="pending-reason"
             >
               Unidad por confirmar
@@ -1329,7 +1329,7 @@ function Row({
         ) : null}
         {line.legacy_price && line.ingredient_id ? (
           <div
-            className="text-left text-[12px] font-normal text-[#a35a00]"
+            className="text-left text-[12px] font-normal text-[#6b7280]"
             data-testid="legacy-line-price"
           >
             Precio antiguo de la receta: {money(line.legacy_price.unit_cost)}/
@@ -1358,7 +1358,7 @@ function Row({
             <button
               type="button"
               onClick={() => setDefiningConversion((v) => !v)}
-              className="text-[12px] font-semibold text-[#1b40c8] underline"
+              className="rounded-md border border-[#c6d3f5] bg-white px-2 py-0.5 text-[12px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
             >
               Definir conversión
             </button>
@@ -1368,7 +1368,7 @@ function Row({
                 setCorrecting((v) => !v);
                 setCorrectUnit(line.unit);
               }}
-              className="text-[12px] font-semibold text-[#1b40c8] underline"
+              className="rounded-md border border-[#c6d3f5] bg-white px-2 py-0.5 text-[12px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
             >
               Corregir unidad del precio
             </button>
@@ -1556,7 +1556,7 @@ function Picker({
   }
 
   return (
-    <div className="mb-2 space-y-2 rounded-[10px] border border-[#f5c98b] bg-[#fff8ec] p-2.5 text-xs">
+    <div className="mb-2 space-y-2 rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] p-2.5 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <input
           autoFocus

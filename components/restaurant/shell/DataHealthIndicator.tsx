@@ -37,7 +37,7 @@ export function DataHealthIndicator({
     health.tone === "error"
       ? "text-red-800 dark:text-red-200"
       : health.tone === "warn"
-        ? "text-amber-800 dark:text-amber-200"
+        ? "text-gray-700 dark:text-gray-400"
         : "text-muted-foreground";
 
   return (
@@ -124,7 +124,7 @@ function issueLabel(lang: PreferredLanguage, count: number): string {
 
 function dotClass(tone: DataHealthTone): string {
   if (tone === "error") return "text-red-600";
-  if (tone === "warn") return "text-amber-600";
+  if (tone === "warn") return "text-gray-500";
   return "text-emerald-600";
 }
 
@@ -139,7 +139,7 @@ export function DataHealthBanner({
     tone === "error"
       ? "border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 text-red-900 dark:text-red-200"
       : tone === "warn"
-        ? "border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 text-amber-900 dark:text-amber-200"
+        ? "border-gray-200 dark:border-gray-600 bg-gray-50/50 dark:bg-gray-800/20 text-gray-700 dark:text-gray-400"
         : "border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20 text-green-900 dark:text-green-200";
   return (
     <div

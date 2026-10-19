@@ -76,7 +76,7 @@ const COLORS = {
   primary: "#8B5CF6", // Purple
   success: "#10B981",
   danger: "#EF4444",
-  warning: "#F59E0B",
+  warning: "#9ca3af",
   blue: "#3B82F6",
   pink: "#EC4899",
 };

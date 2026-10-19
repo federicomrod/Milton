@@ -12,6 +12,7 @@
 import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { validateRestaurantName } from "@/lib/restaurant/restaurant-name";
 
 export const dynamic = "force-dynamic";
@@ -62,6 +63,15 @@ export async function PATCH(
   }
 
   if (typeof body.archived === "boolean") {
+    // First layer: the shared permissions table. The database refuses a
+    // non-member too (42501 below).
+    const actor = await resolveActor(auth.supabase, auth.userId, {
+      companyId: auth.companyId,
+    });
+    const denied = requireCapability(actor, "locations.archive", {
+      message: "Tu rol no puede archivar restaurantes.",
+    });
+    if (denied) return denied;
     const { error } = await auth.supabase.rpc("restaurant_set_archived", {
       p_company_id: auth.companyId,
       p_location_id: id,

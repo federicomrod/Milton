@@ -30,6 +30,7 @@ let drafts: Json[] = [];
 let calls: Array<{ url: string; method: string; body: Json | null }> = [];
 let createStatus: "ok" | "similar" = "ok";
 let usageDishes = 3;
+let confirmFails = false;
 
 function respond(body: unknown, status = 200) {
   return { ok: status < 400, status, json: async () => body };
@@ -51,6 +52,7 @@ const line = (over: Json) => ({
 beforeEach(() => {
   createStatus = "ok";
   usageDishes = 3;
+  confirmFails = false;
   calls = [];
   ingredients = [
     {
@@ -93,6 +95,29 @@ beforeEach(() => {
       const method = init?.method ?? "GET";
       const body = init?.body ? (JSON.parse(String(init.body)) as Json) : null;
       calls.push({ url, method, body });
+      if (url.endsWith("/confirm") && confirmFails)
+        return respond({ error: "No tienes permiso para cambiar esto." }, 403);
+      if (
+        url === "/api/restaurant/kitchen/recipe-drafts/d-1" &&
+        method === "PATCH"
+      ) {
+        // behave like the server: store what was sent (numbers as numeric text)
+        const sent = (body?.lines ?? []) as Json[];
+        const stored = sent.map((l, i) => ({
+          ...l,
+          id: String(l.id).startsWith("new-") ? `s-${i}` : l.id,
+          total_quantity:
+            l.total_quantity === null ? null : String(l.total_quantity),
+        }));
+        drafts[0] = {
+          ...drafts[0],
+          dish_name: body?.dish_name,
+          portions: body?.portions ?? drafts[0].portions,
+          menu_item_id: body?.menu_item_id ?? null,
+          lines: stored,
+        };
+        return respond({ ok: true, lines: stored });
+      }
       if (url.startsWith("/api/restaurant/kitchen/recipe-drafts")) {
         return method === "GET" ? respond({ drafts }) : respond({ ok: true });
       }
@@ -423,6 +448,7 @@ describe("the price popover", () => {
       ingredient_id: "i-pan",
       unit: "pza",
       unit_cost: 0.5,
+      draft_id: "d-1",
     });
     // 2 pza × $0.50 = $1.00
     await waitFor(() =>
@@ -612,6 +638,7 @@ describe("names are taught only after a successful Confirmar", () => {
     expect(aliasCalls()[0].body).toEqual({
       raw_name: "queso fresco",
       ingredient_id: "i-mozz",
+      draft_id: "d-1",
     });
     const order = calls.map((c) => `${c.method} ${c.url}`);
     expect(
@@ -711,5 +738,292 @@ describe("rules of the screen", () => {
       expect(readFileSync(f, "utf8"), f).not.toMatch(
         /f28c28|e07b1|orange-|a35a00/i
       );
+  });
+});
+
+describe("numbers that arrive as text, and missing pieces", () => {
+  it("«240.000» with «gramos» shows 240 and g; Porciones «2» shows 2", async () => {
+    drafts[0].portions = "2";
+    drafts[0].lines = [
+      line({
+        id: "l-1",
+        raw_name: "queso",
+        ingredient_id: "i-mozz",
+        ingredient_name: "Queso",
+        total_quantity: "240.000",
+        unit: "gramos",
+      }),
+    ];
+    const dialog = await openModal();
+    expect(
+      (
+        within(dialog).getByLabelText(
+          "Cantidad de la línea 1"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("240");
+    expect(unitSelect(dialog, 1).value).toBe("g");
+    expect(
+      (within(dialog).getByLabelText("Porciones") as HTMLInputElement).value
+    ).toBe("2");
+    // 240 g of a $8/kg ingredient = $1.92
+    expect(
+      within(dialog).getByRole("button", { name: "Precio de Queso mozzarella" })
+        .textContent
+    ).toBe("$1.92");
+  });
+
+  it("a priced ingredient with no quantity says «Falta cantidad», not a dash; no unit says «Falta unidad»", async () => {
+    drafts[0].lines = [
+      line({
+        id: "l-1",
+        raw_name: "queso",
+        ingredient_id: "i-mozz",
+        ingredient_name: "Queso",
+        total_quantity: null,
+        unit: "kg",
+      }),
+      line({
+        id: "l-2",
+        raw_name: "queso",
+        ingredient_id: "i-mozz",
+        ingredient_name: "Queso",
+        total_quantity: 1,
+        unit: null,
+      }),
+    ];
+    const dialog = await openModal();
+    const cells = within(dialog).getAllByRole("button", {
+      name: "Precio de Queso mozzarella",
+    });
+    expect(cells.map((c) => c.textContent)).toEqual([
+      "Falta cantidad",
+      "Falta unidad",
+    ]);
+    expect(within(dialog).queryByText("—")).toBeNull();
+  });
+
+  it("no portions on a draft waiting for them: a gray hint, and Confirmar stays disabled until filled", async () => {
+    drafts[0].portions = null;
+    drafts[0].status = "awaiting_portions";
+    drafts[0].lines = [
+      line({
+        id: "l-1",
+        raw_name: "queso",
+        ingredient_id: "i-mozz",
+        ingredient_name: "Queso",
+        total_quantity: 1,
+        unit: "kg",
+      }),
+    ];
+    const dialog = await openModal();
+    expect(
+      within(dialog).getByText(
+        "El cocinero no dijo para cuántas porciones. Escríbelo aquí."
+      )
+    ).toBeTruthy();
+    expect(confirmButton(dialog).disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText("Porciones"), {
+      target: { value: "4" },
+    });
+    await waitFor(() => expect(confirmButton(dialog).disabled).toBe(false));
+  });
+});
+
+describe("Confirmar does not rewrite the draft first", () => {
+  it("it sends only the confirm call (no PATCH); a refused confirm leaves the draft alone and says why", async () => {
+    confirmFails = true;
+    drafts[0].lines = [
+      line({
+        id: "l-1",
+        raw_name: "queso",
+        ingredient_id: "i-mozz",
+        ingredient_name: "Queso",
+        total_quantity: 300,
+        unit: "gramos",
+      }),
+      line({
+        id: "l-2",
+        raw_name: "sal",
+        ingredient_id: "i-pan",
+        ingredient_name: "Pan",
+        total_quantity: 1,
+        unit: "pizca",
+      }),
+    ];
+    const dialog = await openModal();
+    fireEvent.change(unitSelect(dialog, 2), { target: { value: "unidad" } });
+    fireEvent.click(confirmButton(dialog));
+    expect(
+      await within(dialog).findByText("No tienes permiso para cambiar esto.")
+    ).toBeTruthy();
+    expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(0);
+    const confirms = calls.filter((c) => c.url.endsWith("/confirm"));
+    expect(confirms).toHaveLength(1);
+    expect(confirms[0].body?.lines).toEqual([
+      { id: "l-1", ingredient_id: "i-mozz", total_quantity: 300, unit: "g" },
+      { id: "l-2", ingredient_id: "i-pan", total_quantity: 1, unit: "unidad" },
+    ]);
+    // the stored draft is exactly as it was
+    expect((drafts[0].lines as Json[])[0].unit).toBe("gramos");
+    expect((drafts[0].lines as Json[])[1].unit).toBe("pizca");
+  });
+
+  it("a unit the dropdown cannot map shows the cook's word as «pizca?» and still needs a choice", async () => {
+    drafts[0].lines = [
+      line({
+        id: "l-2",
+        raw_name: "sal",
+        ingredient_id: "i-pan",
+        ingredient_name: "Pan",
+        total_quantity: 1,
+        unit: "pizca",
+      }),
+    ];
+    const dialog = await openModal();
+    expect(
+      within(unitSelect(dialog, 1)).getByRole("option", { name: "pizca?" })
+    ).toBeTruthy();
+    expect(unitSelect(dialog, 1).value).toBe("");
+    expect(confirmButton(dialog).disabled).toBe(true);
+  });
+});
+
+describe("Guardar borrador", () => {
+  const rough = () => {
+    drafts[0].portions = null;
+    drafts[0].status = "awaiting_portions";
+    drafts[0].lines = [
+      line({ id: "l-1", raw_name: "bacon", total_quantity: null, unit: null }),
+      line({
+        id: "l-2",
+        raw_name: "salsa rara",
+        total_quantity: 3,
+        unit: "pizca",
+      }),
+    ];
+  };
+
+  it("saves a draft with an unmatched line, no quantity, no unit and no portions (types only), keeps the cook's unit word, and reopening shows the same", async () => {
+    rough();
+    const dialog = await openModal();
+    const save = within(dialog).getByRole("button", {
+      name: "Guardar borrador",
+    });
+    expect(save.className).toContain("border-[#1B40C8]");
+    fireEvent.click(save);
+    expect(await within(dialog).findByText("Borrador guardado.")).toBeTruthy();
+    const patches = calls.filter((c) => c.method === "PATCH");
+    expect(patches).toHaveLength(1);
+    expect(patches[0].body?.portions).toBeNull();
+    expect(patches[0].body?.lines).toEqual([
+      {
+        id: "l-1",
+        raw_name: "bacon",
+        ingredient_id: null,
+        total_quantity: null,
+        unit: null,
+      },
+      {
+        id: "l-2",
+        raw_name: "salsa rara",
+        ingredient_id: null,
+        total_quantity: 3,
+        unit: "pizca",
+      },
+    ]);
+    // reopen: same values
+    cleanup();
+    const again = await openModal();
+    expect(combo(again, 1).value).toBe("bacon");
+    expect(
+      (
+        within(again).getByLabelText(
+          "Cantidad de la línea 1"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("");
+    expect(unitSelect(again, 1).value).toBe("");
+    expect(combo(again, 2).value).toBe("salsa rara");
+    expect(
+      (
+        within(again).getByLabelText(
+          "Cantidad de la línea 2"
+        ) as HTMLInputElement
+      ).value
+    ).toBe("3");
+    expect(
+      within(unitSelect(again, 2)).getByRole("option", { name: "pizca?" })
+    ).toBeTruthy();
+    expect(
+      (within(again).getByLabelText("Porciones") as HTMLInputElement).value
+    ).toBe("");
+  });
+
+  it("saves the chosen menu dish and the picked ingredients", async () => {
+    const dialog = await openModal();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Sí, usarlo" }));
+    await waitFor(() =>
+      expect(combo(dialog, 2).value).toBe("Queso mozzarella")
+    );
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Guardar borrador" })
+    );
+    await within(dialog).findByText("Borrador guardado.");
+    const body = calls.find((c) => c.method === "PATCH")!.body!;
+    expect((body.lines as Json[])[1].ingredient_id).toBe("i-mozz");
+    expect(body.portions).toBe(2);
+  });
+
+  it("closing with unsaved changes asks «¿Guardar cambios?»; «Salir sin guardar» leaves without saving", async () => {
+    const dialog = await openModal();
+    fireEvent.change(within(dialog).getByLabelText("Cantidad de la línea 1"), {
+      target: { value: "9" },
+    });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    const ask = await screen.findByRole("alertdialog", {
+      name: "¿Guardar cambios?",
+    });
+    expect(
+      within(ask).getByRole("button", { name: "Salir sin guardar" })
+    ).toBeTruthy();
+    fireEvent.click(
+      within(ask).getByRole("button", { name: "Salir sin guardar" })
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: /Revisar receta/ })
+      ).toBeNull()
+    );
+    expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+  });
+
+  it("«Guardar» in that question saves and then closes", async () => {
+    const dialog = await openModal();
+    fireEvent.change(within(dialog).getByLabelText("Cantidad de la línea 1"), {
+      target: { value: "9" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    const ask = await screen.findByRole("alertdialog", {
+      name: "¿Guardar cambios?",
+    });
+    fireEvent.click(within(ask).getByRole("button", { name: "Guardar" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: /Revisar receta/ })
+      ).toBeNull()
+    );
+    expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1);
+  });
+
+  it("closing with nothing changed does not ask", async () => {
+    const dialog = await openModal();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: /Revisar receta/ })
+      ).toBeNull()
+    );
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 });

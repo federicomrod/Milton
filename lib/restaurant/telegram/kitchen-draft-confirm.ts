@@ -158,13 +158,17 @@ export async function confirmKitchenDraftAsVersion(
     .from("kitchen_recipe_drafts")
     .update({
       status: "confirmed",
+      // The portions the reviewer typed (a draft still awaiting them gets
+      // them here, in the same conditional update, so a failed confirm never
+      // rewrites anything).
+      portions: input.portions,
       confirmed_by: input.userId,
       confirmed_at: nowIso,
     })
     .eq("id", input.draftId)
     .eq("company_id", companyId)
     .or(
-      `status.eq.draft,and(status.eq.confirmed,confirmed_recipe_id.is.null,confirmed_at.lt.${staleCutoffIso})`
+      `status.in.(draft,awaiting_portions),and(status.eq.confirmed,confirmed_recipe_id.is.null,confirmed_at.lt.${staleCutoffIso})`
     )
     .select("id");
   if (claimError) {

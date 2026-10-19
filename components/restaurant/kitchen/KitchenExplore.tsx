@@ -25,6 +25,7 @@ export function KitchenExplore({
   onTabChange,
   lang,
   canManage,
+  canManageDrafts,
   locations,
   focusDraftId,
 }: {
@@ -33,6 +34,7 @@ export function KitchenExplore({
   onTabChange: (tab: KitchenExploreTab) => void;
   lang: PreferredLanguage;
   canManage: boolean;
+  canManageDrafts?: boolean;
   locations: { id: string; name: string }[];
   focusDraftId?: string | null;
 }) {
@@ -126,7 +128,7 @@ export function KitchenExplore({
             )}
           />
           <KitchenRecipeDraftsCard
-            canManage={canManage}
+            canManage={canManageDrafts ?? canManage}
             locations={locations}
             focusDraftId={focusDraftId}
           />

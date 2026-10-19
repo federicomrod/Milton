@@ -172,13 +172,43 @@ export async function resolveCompanyIdForUser(
   // Restaurant schema has no companies.created_by (001 / 026). Hitting that
   // column first costs a failed PostgREST round trip on every cockpit load.
   // Memberships is the real owner path; keep created_by last for legacy.
+  // A user can belong to several companies (.maybeSingle() errors on 2+ rows
+  // and used to drop us into the profile fallback, i.e. maybe a company the
+  // user has no membership in). With memberships the answer is always one of
+  // them: the only one; else profiles.company_id when it is one of them; else
+  // the oldest (created_at, then company_id) so it never flips between calls.
+  // Without any membership (Milton staff, legacy) the fallbacks below apply.
   {
     const { data, error } = await supabase
       .from("company_memberships")
-      .select("company_id")
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (!error && data?.company_id) return data.company_id;
+      .select("company_id, created_at")
+      .eq("user_id", userId);
+    const memberships = (
+      (!error && Array.isArray(data) ? data : []) as {
+        company_id: string | null;
+        created_at?: string | null;
+      }[]
+    ).filter((m) => !!m.company_id);
+    if (memberships.length === 1) return memberships[0].company_id as string;
+    if (memberships.length > 1) {
+      const ids = new Set(memberships.map((m) => m.company_id as string));
+      for (const column of ["id", "user_id"]) {
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("company_id")
+          .eq(column, userId)
+          .maybeSingle();
+        const preferred = profile?.company_id as string | null | undefined;
+        if (!profileError && preferred && ids.has(preferred)) return preferred;
+      }
+      const oldest = [...memberships].sort(
+        (a, b) =>
+          String(a.created_at ?? "").localeCompare(
+            String(b.created_at ?? "")
+          ) || String(a.company_id).localeCompare(String(b.company_id))
+      )[0];
+      return oldest.company_id as string;
+    }
   }
 
   {

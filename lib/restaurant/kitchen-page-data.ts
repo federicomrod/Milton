@@ -36,6 +36,7 @@ import {
 } from "@/lib/restaurant/cockpit-insights-ai";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import {
+  canManageKitchenDrafts,
   canManageKitchenQr,
   loadMembershipRole,
 } from "@/lib/restaurant/telegram/kitchen-join";
@@ -59,6 +60,8 @@ export interface KitchenPageModel {
   locationId: string | null;
   companyId: string | null;
   canManage: boolean;
+  /** Owner, admin, manager or Milton staff: may review and confirm recipe drafts. */
+  canManageDrafts: boolean;
   locations: { id: string; name: string }[];
   insights: KitchenInsights | null;
   insightCacheKey: string;
@@ -134,6 +137,10 @@ export async function loadKitchenPageModel(
   ]);
 
   const canManage = canManageKitchenQr({ isMiltonAdmin, membershipRole });
+  const canManageDrafts = canManageKitchenDrafts({
+    isMiltonAdmin,
+    membershipRole,
+  });
   const locations = (locationsRes.data ?? []) as { id: string; name: string }[];
 
   const wallToday = todayKeyInZone(timezone);
@@ -176,6 +183,7 @@ export async function loadKitchenPageModel(
       locationId,
       companyId,
       canManage,
+      canManageDrafts,
       locations,
     };
   }
@@ -226,6 +234,7 @@ export async function loadKitchenPageModel(
     locationId,
     companyId,
     canManage,
+    canManageDrafts,
     locations,
     insights,
     insightCacheKey,
@@ -247,6 +256,7 @@ function emptyModel(
     locationId: null,
     companyId: null,
     canManage: false,
+    canManageDrafts: false,
     locations: [],
     insights: null,
     insightCacheKey: "",

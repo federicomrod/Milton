@@ -23,6 +23,7 @@ export function PricePopover({
   triggerClassName,
   triggerLabel,
   children,
+  draftId,
   onSaved,
 }: {
   ingredient: PriceEditable;
@@ -33,6 +34,8 @@ export function PricePopover({
   triggerLabel: string;
   /** What the button shows ($0.11, «Sin precio», …). */
   children: ReactNode;
+  /** The draft being reviewed: the server checks it belongs to this company. */
+  draftId?: string;
   onSaved: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -114,6 +117,7 @@ export function PricePopover({
           ingredient_id: ingredient.id,
           unit,
           unit_cost: parsed,
+          ...(draftId ? { draft_id: draftId } : {}),
         }),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };

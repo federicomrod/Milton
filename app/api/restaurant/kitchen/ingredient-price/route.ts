@@ -17,14 +17,16 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
-  const denied = await kitchenManagerGuard(auth.companyId, auth.userId);
-  if (denied) return denied;
-
   const body = (await req.json().catch(() => null)) as {
+    draft_id?: unknown;
     ingredient_id?: unknown;
     unit?: unknown;
     unit_cost?: unknown;
   } | null;
+  const denied = await kitchenManagerGuard(auth.companyId, auth.userId, {
+    draftId: typeof body?.draft_id === "string" ? body.draft_id : null,
+  });
+  if (denied) return denied;
   const ingredientId =
     typeof body?.ingredient_id === "string" ? body.ingredient_id : "";
   if (!ingredientId) {

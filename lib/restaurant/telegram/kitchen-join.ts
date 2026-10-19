@@ -74,11 +74,12 @@ export function canManageKitchenDrafts(input: {
   isMiltonAdmin: boolean;
   membershipRole: string | null | undefined;
 }): boolean {
+  const role = input.membershipRole?.trim().toLowerCase();
   return (
     input.isMiltonAdmin ||
-    input.membershipRole === "owner" ||
-    input.membershipRole === "admin" ||
-    input.membershipRole === "manager"
+    role === "owner" ||
+    role === "admin" ||
+    role === "manager"
   );
 }
 

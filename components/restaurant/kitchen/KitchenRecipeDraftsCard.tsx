@@ -6,7 +6,7 @@
 // add/remove lines, pick menu item, confirm or reject. English UI (cook-facing bot
 // stays Spanish). Confirm disabled until all lines resolved.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,6 +59,8 @@ interface DraftLine {
   ingredient_name: string | null;
   total_quantity: number | null;
   unit: string | null;
+  /** Client only: what the cook said when it is not one of the dropdown's units. */
+  raw_unit?: string | null;
   per_portion_quantity: number | null;
   confidence: string;
   line_cost: number | null;
@@ -67,6 +69,7 @@ interface DraftLine {
 interface Draft {
   id: string;
   dish_name: string;
+  menu_item_id?: string | null;
   portions: number | null;
   status: string;
   confidence: string;
@@ -104,12 +107,84 @@ const CONFIDENCE_COLORS: Record<string, string> = {
   low: "bg-red-100 text-red-800",
 };
 
-/** Each line's unit as one of the dropdown's; what cannot be mapped is left empty. */
+/** numeric columns can arrive as strings ("240.000"): always a number or null. */
+function toNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeDraft(draft: Draft): Draft {
+  return {
+    ...draft,
+    portions: toNumber(draft.portions),
+    per_portion_cost: toNumber(draft.per_portion_cost),
+    lines: (draft.lines ?? []).map((l) => ({
+      ...l,
+      total_quantity: toNumber(l.total_quantity),
+      per_portion_quantity: toNumber(l.per_portion_quantity),
+      line_cost: toNumber(l.line_cost),
+    })),
+  };
+}
+
+/**
+ * Each line's unit as one of the dropdown's. What cannot be mapped is left
+ * empty in the dropdown but the cook's word is kept (raw_unit) so it is never
+ * lost or overwritten with nothing.
+ */
 function withDropdownUnits(lines: DraftLine[]): DraftLine[] {
-  return (JSON.parse(JSON.stringify(lines)) as DraftLine[]).map((l) => ({
-    ...l,
-    unit: mapKitchenUnit(l.unit),
-  }));
+  return (JSON.parse(JSON.stringify(lines)) as DraftLine[]).map((l) => {
+    const original = typeof l.unit === "string" ? l.unit.trim() : "";
+    const mapped = mapKitchenUnit(l.unit);
+    return {
+      ...l,
+      unit: mapped,
+      raw_unit: mapped ? null : original || null,
+    };
+  });
+}
+
+/** What the editor shows, as one string: used to know if there are unsaved changes. */
+function editorSnapshot(
+  draft: Draft | null,
+  lines: DraftLine[],
+  menuItemId: string,
+  price: string
+): string {
+  if (!draft) return "";
+  return JSON.stringify([
+    draft.dish_name,
+    draft.portions,
+    menuItemId,
+    price.trim(),
+    lines.map((l) => [
+      l.id,
+      l.raw_name,
+      l.ingredient_id,
+      l.total_quantity,
+      l.unit,
+      l.raw_unit ?? null,
+    ]),
+  ]);
+}
+
+const sellingPriceKey = (draftId: string) => `milton:draft-price:${draftId}`;
+function readSavedPrice(draftId: string): string {
+  try {
+    return window.localStorage.getItem(sellingPriceKey(draftId)) ?? "";
+  } catch {
+    return "";
+  }
+}
+function writeSavedPrice(draftId: string, value: string) {
+  try {
+    if (value.trim())
+      window.localStorage.setItem(sellingPriceKey(draftId), value);
+    else window.localStorage.removeItem(sellingPriceKey(draftId));
+  } catch {
+    // private window / blocked storage: the price just is not remembered
+  }
 }
 
 export function KitchenRecipeDraftsCard({
@@ -136,6 +211,17 @@ export function KitchenRecipeDraftsCard({
   const [reloadKey, setReloadKey] = useState(0);
   // Which draft has its «Poner precios» list open (Cocina card).
   const [pricesOpenFor, setPricesOpenFor] = useState<string | null>(null);
+  // What the editor looked like when it was opened / last saved, to know if
+  // there are unsaved changes; and the ingredient the bot picked per line, so
+  // only the reviewer's own picks are taught after Confirmar.
+  const [baseline, setBaseline] = useState("");
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [modalMessage, setModalMessage] = useState<{
+    kind: "ok" | "error";
+    text: string;
+  } | null>(null);
+  const botPicks = useRef(new Map<string, string | null>());
 
   useEffect(() => {
     let cancelled = false;
@@ -153,14 +239,23 @@ export function KitchenRecipeDraftsCard({
       const data = await res.json();
       if (cancelled) return;
       setError(null);
-      const next = (data.drafts ?? []) as Draft[];
+      const next = ((data.drafts ?? []) as Draft[]).map(normalizeDraft);
       setDrafts(next);
       if (focusDraftId) {
         const hit = next.find((d) => d.id === focusDraftId);
         if (hit) {
+          const lines = withDropdownUnits(hit.lines);
+          const menuId = hit.menu_item_id ?? "";
+          const price = readSavedPrice(hit.id);
           setSelectedDraft(hit);
           setEditedDraft(JSON.parse(JSON.stringify(hit)));
-          setEditedLines(withDropdownUnits(hit.lines));
+          setEditedLines(lines);
+          setSelectedMenuItem(menuId);
+          setNewSellingPrice(price);
+          setBaseline(editorSnapshot(hit, lines, menuId, price));
+          botPicks.current = new Map(
+            hit.lines.map((l) => [l.id, l.ingredient_id])
+          );
         }
       }
     })();
@@ -210,11 +305,18 @@ export function KitchenRecipeDraftsCard({
   }, []);
 
   const openEditor = (draft: Draft) => {
+    const lines = withDropdownUnits(draft.lines);
+    const menuId = draft.menu_item_id ?? "";
+    const price = readSavedPrice(draft.id);
     setSelectedDraft(draft);
     setEditedDraft(JSON.parse(JSON.stringify(draft)));
-    setEditedLines(withDropdownUnits(draft.lines));
-    setSelectedMenuItem("");
-    setNewSellingPrice("");
+    setEditedLines(lines);
+    setSelectedMenuItem(menuId);
+    setNewSellingPrice(price);
+    setBaseline(editorSnapshot(draft, lines, menuId, price));
+    setConfirmClose(false);
+    setModalMessage(null);
+    botPicks.current = new Map(draft.lines.map((l) => [l.id, l.ingredient_id]));
   };
 
   const closeEditor = () => {
@@ -223,8 +325,115 @@ export function KitchenRecipeDraftsCard({
     setEditedLines([]);
     setSelectedMenuItem("");
     setNewSellingPrice("");
+    setBaseline("");
+    setConfirmClose(false);
+    setModalMessage(null);
   };
 
+  /** ×, Esc, outside click and «Cancelar»: ask first when there is unsaved work. */
+  const requestClose = () => {
+    if (
+      editedDraft &&
+      editorSnapshot(
+        editedDraft,
+        editedLines,
+        selectedMenuItem,
+        newSellingPrice
+      ) !== baseline
+    ) {
+      setConfirmClose(true);
+      return;
+    }
+    closeEditor();
+  };
+
+  /**
+   * «Guardar borrador»: stores exactly what is on screen (unmatched lines,
+   * missing quantities, units or portions included; no prices) through the
+   * draft PATCH. The cook's own unit word is kept when it is not in the
+   * dropdown, never replaced by nothing.
+   */
+  const handleSaveDraft = async (): Promise<boolean> => {
+    if (!editedDraft) return false;
+    setSaving(true);
+    setModalMessage(null);
+    try {
+      const menuItemId =
+        selectedMenuItem && selectedMenuItem !== "new"
+          ? selectedMenuItem
+          : null;
+      const res = await fetch(
+        `/api/restaurant/kitchen/recipe-drafts/${editedDraft.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dish_name: editedDraft.dish_name,
+            portions: editedDraft.portions,
+            menu_item_id: menuItemId,
+            lines: cleanLines.map((l) => ({
+              id: l.id,
+              raw_name: l.raw_name || l.ingredient_name || "",
+              ingredient_id: l.ingredient_id,
+              total_quantity:
+                l.total_quantity && l.total_quantity > 0
+                  ? l.total_quantity
+                  : null,
+              unit: l.unit ?? l.raw_unit ?? null,
+            })),
+          }),
+        }
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        lines?: DraftLine[];
+      };
+      if (!res.ok) {
+        setModalMessage({
+          kind: "error",
+          text: data.error ?? "No se pudo guardar el borrador.",
+        });
+        return false;
+      }
+      const stored = Array.isArray(data.lines) ? data.lines : [];
+      const lines: DraftLine[] =
+        stored.length === cleanLines.length
+          ? cleanLines.map((l, i) => ({
+              ...l,
+              id: stored[i].id,
+              total_quantity: toNumber(stored[i].total_quantity),
+              per_portion_quantity: toNumber(stored[i].per_portion_quantity),
+            }))
+          : cleanLines;
+      const saved: Draft = {
+        ...editedDraft,
+        menu_item_id: menuItemId,
+        status:
+          editedDraft.status === "awaiting_portions" && editedDraft.portions
+            ? "draft"
+            : editedDraft.status,
+        lines,
+      };
+      writeSavedPrice(saved.id, newSellingPrice);
+      setSelectedDraft(saved);
+      setEditedDraft(saved);
+      setEditedLines(lines);
+      setDrafts((all) => all.map((d) => (d.id === saved.id ? saved : d)));
+      setBaseline(
+        editorSnapshot(saved, lines, selectedMenuItem, newSellingPrice)
+      );
+      setModalMessage({ kind: "ok", text: "Borrador guardado." });
+      return true;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /**
+   * Confirmar sends everything in the confirm body and nothing else: the
+   * draft is not rewritten first, so a refused confirm leaves it exactly as
+   * it was.
+   */
   const handleConfirm = async () => {
     if (!editedDraft) return;
 
@@ -236,38 +445,7 @@ export function KitchenRecipeDraftsCard({
         ? typedPrice
         : undefined;
 
-    const linePayload = cleanLines.map((l) => ({
-      id: l.id,
-      raw_name: l.raw_name || l.ingredient_name || "ingredient",
-      ingredient_id: l.ingredient_id,
-      total_quantity: l.total_quantity,
-      unit: l.unit,
-    }));
-
-    const patchRes = await fetch(
-      `/api/restaurant/kitchen/recipe-drafts/${editedDraft.id}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dish_name: editedDraft.dish_name,
-          portions: editedDraft.portions,
-          menu_item_id: menuItemId,
-          lines: linePayload,
-        }),
-      }
-    );
-    if (!patchRes.ok) {
-      const data = await patchRes.json().catch(() => ({}));
-      setError(data.error ?? "No se pudieron guardar los cambios.");
-      return;
-    }
-
-    const patchData = await patchRes.json().catch(() => ({}));
-    const savedLines: DraftLine[] = Array.isArray(patchData.lines)
-      ? patchData.lines
-      : cleanLines;
-
+    setModalMessage(null);
     const res = await fetch(
       `/api/restaurant/kitchen/recipe-drafts/${editedDraft.id}/confirm`,
       {
@@ -278,7 +456,7 @@ export function KitchenRecipeDraftsCard({
           portions: editedDraft.portions,
           menu_item_id: menuItemId,
           selling_price: sellingPrice,
-          lines: savedLines.map((l) => ({
+          lines: cleanLines.map((l) => ({
             id: l.id,
             ingredient_id: l.ingredient_id,
             total_quantity: l.total_quantity,
@@ -289,11 +467,15 @@ export function KitchenRecipeDraftsCard({
     );
     if (res.ok) {
       await teachNames(cleanLines);
+      writeSavedPrice(editedDraft.id, "");
       closeEditor();
       setReloadKey((k) => k + 1);
     } else {
-      const data = await res.json();
-      setError(data.error ?? "No se pudo confirmar.");
+      const data = await res.json().catch(() => ({}));
+      setModalMessage({
+        kind: "error",
+        text: data.error ?? "No se pudo confirmar.",
+      });
     }
   };
 
@@ -316,9 +498,7 @@ export function KitchenRecipeDraftsCard({
    * already has an alias), and ignores names that are an ingredient's own name.
    */
   const teachNames = async (lines: DraftLine[]) => {
-    const botPicked = new Map(
-      (selectedDraft?.lines ?? []).map((l) => [l.id, l.ingredient_id])
-    );
+    const botPicked = botPicks.current;
     const taught = lines.filter(
       (l) =>
         l.ingredient_id &&
@@ -333,6 +513,7 @@ export function KitchenRecipeDraftsCard({
           body: JSON.stringify({
             raw_name: l.raw_name.trim(),
             ingredient_id: l.ingredient_id,
+            draft_id: editedDraft?.id,
           }),
         })
       )
@@ -363,6 +544,7 @@ export function KitchenRecipeDraftsCard({
       body: JSON.stringify({
         name,
         unit: lineUnit || undefined,
+        draft_id: editedDraft?.id,
       }),
     });
     const json = (await res.json().catch(() => ({}))) as {
@@ -398,7 +580,7 @@ export function KitchenRecipeDraftsCard({
 
   const updateLineUnit = (index: number, unit: string) => {
     const newLines = [...editedLines];
-    newLines[index] = { ...newLines[index], unit };
+    newLines[index] = { ...newLines[index], unit, raw_unit: null };
     setEditedLines(newLines);
   };
 
@@ -617,7 +799,12 @@ export function KitchenRecipeDraftsCard({
       </Card>
 
       {editedDraft && (
-        <Dialog open={!!editedDraft} onOpenChange={closeEditor}>
+        <Dialog
+          open={!!editedDraft}
+          onOpenChange={(open) => {
+            if (!open) requestClose();
+          }}
+        >
           <DialogContent className="flex max-h-[90vh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[960px] max-sm:left-0 max-sm:top-0 max-sm:h-dvh max-sm:max-h-none max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none">
             <DialogHeader className="px-5 pb-2 pt-5">
               <DialogTitle>Revisar receta</DialogTitle>
@@ -631,6 +818,7 @@ export function KitchenRecipeDraftsCard({
               <div>
                 <Label>Nombre del platillo</Label>
                 <Input
+                  aria-label="Nombre del platillo"
                   value={editedDraft.dish_name}
                   onChange={(e) => updateDishName(e.target.value)}
                 />
@@ -638,6 +826,7 @@ export function KitchenRecipeDraftsCard({
               <div>
                 <Label>Porciones</Label>
                 <Input
+                  aria-label="Porciones"
                   type="number"
                   min="1"
                   value={editedDraft.portions ?? ""}
@@ -647,6 +836,12 @@ export function KitchenRecipeDraftsCard({
                     )
                   }
                 />
+                {editedDraft.portions === null &&
+                selectedDraft?.status === "awaiting_portions" ? (
+                  <p className="mt-1 text-[12px] text-[#6b7385]">
+                    El cocinero no dijo para cuántas porciones. Escríbelo aquí.
+                  </p>
+                ) : null}
               </div>
               <div>
                 <Label>Platillo del menú</Label>
@@ -670,6 +865,7 @@ export function KitchenRecipeDraftsCard({
               <div>
                 <Label>Precio de venta</Label>
                 <Input
+                  aria-label="Precio de venta"
                   type="number"
                   min="0"
                   step="0.01"
@@ -774,7 +970,9 @@ export function KitchenRecipeDraftsCard({
                                 updateLineUnit(idx, e.target.value)
                               }
                             >
-                              <option value="">Unidad</option>
+                              <option value="">
+                                {line.raw_unit ? `${line.raw_unit}?` : "Unidad"}
+                              </option>
                               {KITCHEN_UNITS.map((u) => (
                                 <option key={u.value} value={u.value}>
                                   {u.label}
@@ -787,6 +985,9 @@ export function KitchenRecipeDraftsCard({
                               ingredient={ingredient}
                               costLine={liveCost?.lines[idx] ?? null}
                               currency={currencyOf(editedDraft)}
+                              quantity={line.total_quantity}
+                              unit={line.unit}
+                              draftId={editedDraft.id}
                               onSaved={() => void loadIngredients()}
                             />
                           </td>
@@ -818,15 +1019,73 @@ export function KitchenRecipeDraftsCard({
                   sellingPrice={sellingPrice}
                 />
               ) : null}
-              <div className="ml-auto flex gap-2">
-                <Button variant="outline" onClick={closeEditor}>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                {modalMessage ? (
+                  <p
+                    role={modalMessage.kind === "error" ? "alert" : "status"}
+                    className={
+                      modalMessage.kind === "error"
+                        ? "text-sm text-red-600"
+                        : "text-sm text-[#6b7385]"
+                    }
+                  >
+                    {modalMessage.text}
+                  </p>
+                ) : null}
+                <Button variant="outline" onClick={requestClose}>
                   Cancelar
                 </Button>
-                <Button onClick={handleConfirm} disabled={!canConfirm}>
+                <Button
+                  variant="outline"
+                  className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#f6f8fe]"
+                  disabled={saving}
+                  onClick={() => void handleSaveDraft()}
+                >
+                  Guardar borrador
+                </Button>
+                <Button
+                  onClick={handleConfirm}
+                  disabled={!canConfirm || saving}
+                >
                   Confirmar
                 </Button>
               </div>
             </div>
+            {confirmClose ? (
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/85 p-4">
+                <div
+                  role="alertdialog"
+                  aria-label="¿Guardar cambios?"
+                  className="w-full max-w-sm space-y-3 rounded-lg border border-[#e3e7ee] bg-white p-4 shadow-lg"
+                >
+                  <p className="font-semibold text-[#151c2c]">
+                    ¿Guardar cambios?
+                  </p>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#f6f8fe]"
+                      onClick={() => {
+                        setConfirmClose(false);
+                        closeEditor();
+                      }}
+                    >
+                      Salir sin guardar
+                    </Button>
+                    <Button
+                      disabled={saving}
+                      onClick={async () => {
+                        const ok = await handleSaveDraft();
+                        setConfirmClose(false);
+                        if (ok) closeEditor();
+                      }}
+                    >
+                      Guardar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </DialogContent>
         </Dialog>
       )}
@@ -839,11 +1098,17 @@ function LineCost({
   ingredient,
   costLine,
   currency,
+  quantity,
+  unit,
+  draftId,
   onSaved,
 }: {
   ingredient: Ingredient | null;
   costLine: DraftCost["lines"][number] | null;
   currency: string;
+  quantity: number | null;
+  unit: string | null;
+  draftId: string;
   onSaved: () => void;
 }) {
   if (!ingredient) return <span className="text-[#aeb4c2]">—</span>;
@@ -858,19 +1123,24 @@ function LineCost({
       }}
       initialPrice={price?.unit_cost ?? null}
       initialUnit={price?.unit ?? null}
+      draftId={draftId}
       triggerLabel={`Precio de ${sentenceCase(ingredient.name)}`}
       triggerClassName={
-        price
+        price && lineCost !== null
           ? "rounded px-1 font-semibold text-[#151c2c] hover:bg-[#f6f8fe] hover:underline"
           : "rounded px-1 text-[12px] text-[#6b7385] underline hover:bg-[#f6f8fe]"
       }
       onSaved={onSaved}
     >
-      {price
-        ? lineCost !== null
+      {!price
+        ? "Sin precio"
+        : lineCost !== null
           ? formatMoneyEs(lineCost, currency)
-          : "—"
-        : "Sin precio"}
+          : !quantity || quantity <= 0
+            ? "Falta cantidad"
+            : !unit
+              ? "Falta unidad"
+              : "—"}
     </PricePopover>
   );
 }
@@ -995,6 +1265,7 @@ function DraftListCost({
                   name: ing.name,
                   default_unit: ing.default_unit ?? null,
                 }}
+                draftId={draft.id}
                 triggerLabel={`Poner precio a ${sentenceCase(ing.name)}`}
                 triggerClassName="rounded border border-[#1B40C8] px-1.5 font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
                 onSaved={onPriceSaved}

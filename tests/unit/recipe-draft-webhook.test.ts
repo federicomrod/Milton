@@ -76,6 +76,7 @@ function makeChain(table: string) {
     gte: () => typeof self;
     limit: () => typeof self;
     not: () => typeof self;
+    range: () => typeof self;
     maybeSingle: () => Promise<{ data: unknown; error: null }>;
     then: (
       resolve: (v: { data: unknown[]; error: null }) => unknown,
@@ -92,6 +93,7 @@ function makeChain(table: string) {
   self.gte = () => self;
   self.limit = () => self;
   self.not = () => self;
+  self.range = () => self;
   self.maybeSingle = async () => {
     if (table === "kitchen_recipe_drafts") {
       const found =

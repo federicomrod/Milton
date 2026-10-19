@@ -237,11 +237,44 @@ describe("portions follow-up parsing", () => {
     expect(parsePortionsFromFollowUp("dos porción")).toBe(2);
   });
 
+  it("accepts a number with a few plain words around it", () => {
+    for (const [text, n] of [
+      ["1", 1],
+      ["1 hamburguesa", 1],
+      ["una", 1],
+      ["una hamburguesa", 1],
+      ["para 2", 2],
+      ["2 porciones", 2],
+      ["salieron 4", 4],
+      ["salió para 3", 3],
+      ["son 6 hamburguesas", 6],
+      ["Para 2.", 2],
+    ] as const)
+      expect(parsePortionsFromFollowUp(text), text).toBe(n);
+  });
+
+  it("is not an answer: report words, weights and volumes, other text, out of range", () => {
+    for (const text of [
+      "2 cajas de limón se acabó",
+      "se agota el limón, quedan 3",
+      "merma de 2 kilos",
+      "tiré 2 charolas",
+      "500 g",
+      "2 kg de pollo",
+      "1.5 l",
+      "hola",
+      "0",
+      "101",
+      "500",
+      "3 hamburguesas con queso y bacon",
+    ])
+      expect(parsePortionsFromFollowUp(text), text).toBeNull();
+  });
+
   it("rejects non-bare-number messages", () => {
     expect(parsePortionsFromFollowUp("solo para 3 mesas")).toBeNull();
     expect(parsePortionsFromFollowUp("quedan 3 porciones de flan")).toBeNull();
     expect(parsePortionsFromFollowUp("receta de 2 porciones")).toBeNull();
-    expect(parsePortionsFromFollowUp("2 porcionado")).toBeNull();
     expect(parsePortionsFromFollowUp("2.5 porciones")).toBeNull();
   });
 });

@@ -359,7 +359,8 @@ export function KitchenRecipeDraftsCard({
           <CardTitle>Recetas para revisar</CardTitle>
           <CardDescription>
             Recetas que envían tus cocineros por foto, voz o texto. Revísalas y
-            confírmalas para agregarlas al menú.
+            confírmalas: pasan a Menú como borrador y no cuentan en los costos
+            hasta que alguien las apruebe.
           </CardDescription>
         </CardHeader>
         <CardContent>

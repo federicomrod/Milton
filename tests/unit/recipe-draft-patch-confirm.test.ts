@@ -10,6 +10,9 @@ const { store, rpc } = vi.hoisted(() => {
     menu_items: [],
     ingredients: [],
     ingredient_cost_entries: [],
+    recipes: [],
+    recipe_versions: [],
+    recipe_version_inputs: [],
   };
   const rpc = vi.fn();
   return { store, rpc };
@@ -174,6 +177,9 @@ const MENU_ID = "menu-1";
 
 function seed() {
   nextGeneratedId = 1;
+  store.recipes = [];
+  store.recipe_versions = [];
+  store.recipe_version_inputs = [];
   store.kitchen_recipe_drafts = [
     {
       id: DRAFT_ID,
@@ -250,10 +256,6 @@ describe("PATCH then confirm with returned line ids", () => {
     isUserAdminServer.mockResolvedValue(false);
     loadMembershipRole.mockResolvedValue("owner");
     rpc.mockReset();
-    rpc.mockResolvedValue({
-      data: [{ out_recipe_id: "recipe-1", out_menu_item_id: MENU_ID }],
-      error: null,
-    });
   });
 
   it("keeps existing ids, inserts new lines, deletes missing, then confirm succeeds", async () => {
@@ -333,7 +335,12 @@ describe("PATCH then confirm with returned line ids", () => {
     expect(confirmRes.status).toBe(200);
     const confirmBody = await confirmRes.json();
     expect(confirmBody.ok).toBe(true);
-    expect(confirmBody.recipe_id).toBe("recipe-1");
-    expect(rpc).toHaveBeenCalledOnce();
+    expect(confirmBody.status).toBe("in_review");
+    expect(confirmBody.recipe_id).toBeTruthy();
+    // a NEW in_review version with the two lines; the SQL function is not used
+    expect(store.recipe_versions).toHaveLength(1);
+    expect(store.recipe_versions[0].status).toBe("in_review");
+    expect(store.recipe_version_inputs).toHaveLength(2);
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

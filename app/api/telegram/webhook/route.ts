@@ -44,6 +44,7 @@ import {
   renderKitchenCopy,
 } from "@/lib/restaurant/telegram/kitchen-copy";
 import {
+  classifyKitchenReport,
   extractReportFromMessage,
   findActiveKitchenStaff,
   recordKitchenReport,
@@ -172,28 +173,26 @@ async function handleKitchenReport(
       updateDraftPortions,
     } = await import("@/lib/restaurant/telegram/kitchen-recipe-drafts");
 
-    const portionsFollowUp = parsePortionsFromFollowUp(textContent);
-    if (portionsFollowUp !== null && !isVoiceWithoutText) {
-      const followUpReport = extractReportFromMessage(message);
-      if (followUpReport) {
-        const inserted = await recordKitchenReport({
-          companyId: staff.company_id,
-          locationId: staff.location_id,
-          staffId: staff.id,
-          chatId,
-          report: followUpReport,
-        });
-        if (!inserted) {
-          return;
-        }
-      }
+    const intent = detectRecipeIntent(textContent);
 
+    // BEFORE anything is stored as a report: is this chat waiting for the
+    // portions of a recipe (asked within the last 2 hours)? A plain text
+    // answer then belongs to that draft: it is parsed leniently («1»,
+    // «1 hamburguesa», «para 2»…), never stored as a report and never
+    // answered with «Recibido…». Photos, voice notes, recipes and report
+    // keywords (se acabó, merma…) are NOT answers and go the normal way.
+    const isPlainText =
+      Boolean(message.text) && !message.photo?.length && !message.voice;
+    const hasReportWords =
+      classifyKitchenReport(textContent) !== "unclassified";
+    if (isPlainText && !intent.isRecipe && !hasReportWords) {
       const twoHoursAgo = new Date(
         Date.now() - 2 * 60 * 60 * 1000
       ).toISOString();
       const { data: awaitingDraft } = await admin
         .from("kitchen_recipe_drafts")
         .select("id")
+        .eq("company_id", staff.company_id)
         .eq("telegram_chat_id", chatId)
         .eq("staff_id", staff.id)
         .eq("status", "awaiting_portions")
@@ -203,29 +202,26 @@ async function handleKitchenReport(
         .maybeSingle();
 
       if (awaitingDraft) {
-        const result = await updateDraftPortions(
-          chatId,
-          staff.id,
-          portionsFollowUp
-        );
-        if (result.ok) {
-          const { data: draft } = await admin
-            .from("kitchen_recipe_drafts")
-            .select("dish_name")
-            .eq("id", result.draftId)
-            .maybeSingle();
+        const portions = parsePortionsFromFollowUp(textContent);
+        if (portions === null) {
           await sendTelegramMessage(
             chatId,
-            renderKitchenCopy(KITCHEN_COPY.RECIPE_RECEIVED, {
-              plato: draft?.dish_name ?? "tu receta",
+            KITCHEN_COPY.RECIPE_PORTIONS_UNCLEAR
+          );
+          return;
+        }
+        const result = await updateDraftPortions(chatId, staff.id, portions);
+        if (result.ok) {
+          await sendTelegramMessage(
+            chatId,
+            renderKitchenCopy(KITCHEN_COPY.RECIPE_PORTIONS_SET, {
+              porciones: `${portions} ${portions === 1 ? "porción" : "porciones"}`,
             })
           );
         }
+        return;
       }
-      return;
     }
-
-    const intent = detectRecipeIntent(textContent);
 
     const report = extractReportFromMessage(message);
     if (!report) return;

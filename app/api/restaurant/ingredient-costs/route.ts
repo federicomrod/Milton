@@ -194,7 +194,11 @@ export async function POST(req: NextRequest) {
   const keepUnit = body.keep_unit === true;
   const targetUnit = keepUnit ? unit : ingredient.default_unit || unit;
   const normalized = convertUnitPriceOrPortion(unitCost, unit, targetUnit);
-  const normalizedUnit = normalizeUnit(targetUnit) ?? targetUnit;
+  // A price that does not convert is kept in the unit it was typed in, never
+  // relabelled as the ingredient's unit (that would be a wrong number).
+  const normalizedUnit = normalized.ok
+    ? (normalizeUnit(targetUnit) ?? targetUnit)
+    : (normalizeUnit(unit) ?? unit);
   const normalizedUnitCost = normalized.ok ? normalized.value : unitCost;
   // Note: when conversion fails we still record SOMETHING (the supplier
   // unit cost) so the entry is queryable; downstream costing.ts will

@@ -10,6 +10,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
@@ -108,7 +109,10 @@ describe("«Unidad distinta» actions", () => {
       expect(screen.getByText("Unidad distinta")).toBeTruthy()
     );
     expect(screen.queryByText("$2.82")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Definir conversión" }));
+    // The question is already open under the line: no extra click.
+    expect(screen.getByTestId("unit-question").textContent).toContain(
+      "¿Cuántas unit lleva 1 oz de POLLO DE PRUEBA?"
+    );
     fireEvent.change(screen.getByLabelText(/Cuántos/), {
       target: { value: "0.5" },
     });
@@ -148,7 +152,11 @@ describe("«Unidad distinta» actions", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Corregir unidad del precio" })
     );
-    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    fireEvent.click(
+      within(screen.getByTestId("correct-price-unit")).getByRole("button", {
+        name: "Guardar",
+      })
+    );
     await waitFor(() =>
       expect(screen.getAllByText(/\$2\.82/).length).toBeGreaterThan(0)
     );

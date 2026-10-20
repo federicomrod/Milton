@@ -29,28 +29,26 @@ import {
 } from "./helpers/memory-editor-store";
 
 describe("portion ↔ each in the unit rules", () => {
-  it("quantities: 2 orden = 2 unidad, both ways, ORDENES ≡ ORDEN ≡ CONVOY", () => {
+  it("quantities: orden ≡ ORDEN ≡ ordenes ≡ CONVOY are 1:1; an orden is NEVER a unidad", () => {
     for (const a of ["ORDEN", "ORDENES", "CONVOY", "orden"])
-      for (const b of ["unidad", "unit", "pieza", "each"]) {
+      for (const b of ["ORDEN", "ordenes", "convoy", "Orden"])
         expect(convertToSubRecipeUnit(2, a, b), `${a}→${b}`).toEqual({
           ok: true,
           value: 2,
         });
-        expect(convertToSubRecipeUnit(2, b, a), `${b}→${a}`).toEqual({
-          ok: true,
-          value: 2,
-        });
+    for (const a of ["ORDEN", "ORDENES", "CONVOY", "orden"])
+      for (const b of ["unidad", "unit", "pieza", "each"]) {
+        expect(convertToSubRecipeUnit(2, a, b).ok, `${a}→${b}`).toBe(false);
+        expect(convertToSubRecipeUnit(2, b, a).ok, `${b}→${a}`).toBe(false);
       }
   });
-  it("prices: $0.23/unidad is $0.23/orden", () => {
-    expect(convertUnitPriceOrPortion(0.23, "unidad", "ORDEN")).toEqual({
+  it("prices: $0.23/orden is $0.23/ORDEN; $0.23/unidad is NOT a price per orden", () => {
+    expect(convertUnitPriceOrPortion(0.23, "ordenes", "ORDEN")).toEqual({
       ok: true,
       value: 0.23,
     });
-    expect(convertUnitPriceOrPortion(0.892, "CONVOY", "unit")).toEqual({
-      ok: true,
-      value: 0.892,
-    });
+    expect(convertUnitPriceOrPortion(0.23, "unidad", "ORDEN").ok).toBe(false);
+    expect(convertUnitPriceOrPortion(0.892, "CONVOY", "unit").ok).toBe(false);
   });
   it("a portion never converts to weight or volume", () => {
     for (const u of ["oz", "lb", "g", "kg", "ml", "l"]) {
@@ -63,13 +61,13 @@ describe("portion ↔ each in the unit rules", () => {
 
 const CO = "co-1";
 const ING = [
-  { id: "i-guar", name: "Guarniciones de prueba", default_unit: "unit" },
-  { id: "i-conv", name: "Convoy de prueba", default_unit: "unit" },
+  { id: "i-guar", name: "Guarniciones de prueba", default_unit: "orden" },
+  { id: "i-conv", name: "Convoy de prueba", default_unit: "orden" },
   { id: "i-oz", name: "Salsa de prueba", default_unit: "oz" },
 ];
 const ENTRIES = [
-  entry("i-guar", "unit", 0.23),
-  entry("i-conv", "unit", 0.892),
+  entry("i-guar", "orden", 0.23),
+  entry("i-conv", "orden", 0.892),
   entry("i-oz", "oz", 0.5),
 ];
 function inputs(
@@ -181,7 +179,7 @@ const GOOD = () =>
     { id: "l2", ing: "i-conv", qty: 1, unit: "CONVOY" },
   ]);
 
-describe("a dish with 2 ORDEN × $0.23/unidad and 1 CONVOY × $0.892/unidad", () => {
+describe("a dish with 2 ORDEN × $0.23/orden and 1 CONVOY × $0.892/orden", () => {
   it("the editor costs both lines and the total includes both", async () => {
     const r = await loadEditor(editorCtx(GOOD()));
     expect(r.ok).toBe(true);

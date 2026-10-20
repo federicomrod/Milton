@@ -438,27 +438,11 @@ export function isSubRecipePortionUnit(raw: string): boolean {
 }
 
 /**
- * ORDEN / ORDENES / CONVOY are counts: 1 orden = 1 unidad (each), in both
- * directions, so a price per unidad costs a line in ordenes and vice versa.
- * A portion NEVER converts to weight or volume.
- */
-function isPortionAndEach(
-  from: string | null | undefined,
-  to: string | null | undefined
-): boolean {
-  if (typeof from !== "string" || typeof to !== "string") return false;
-  return (
-    (isSubRecipePortionUnit(from) && normalizeUnit(to) === "unit") ||
-    (isSubRecipePortionUnit(to) && normalizeUnit(from) === "unit")
-  );
-}
-
-/**
  * A sub-recipe (a preparation) is used in the label it yields in: a prep that
  * yields "1 orden" is used as "1 orden" with no conversion, whatever the
  * label is (the same text, or CONVOY / ORDEN / ORDENES, which are one thing).
- * A portion is also 1:1 with a unidad (each). Anything else is converted by the
- * unit table, or refused: a portion is never guessed to be an ounce.
+ * An orden is NEVER read as a unidad (or anything else) here: the pair is
+ * refused unless the ingredient has its own saved conversion.
  */
 export function convertToSubRecipeUnit(
   value: number,
@@ -474,13 +458,24 @@ export function convertToSubRecipeUnit(
   if (isSubRecipePortionUnit(from) && isSubRecipePortionUnit(to)) {
     return { ok: true, value };
   }
-  if (isPortionAndEach(from, to)) return { ok: true, value };
   return regular;
 }
 
 /** A unit a person may pick on a line: in the table, or a sub-recipe label. */
 export function isUsableLineUnit(raw: string): boolean {
   return normalizeUnit(raw) !== null || isSubRecipePortionUnit(raw);
+}
+
+/** Two unit labels that are the same thing once folded (case, accents, plural orden). */
+export function sameNormalizedUnit(
+  a: string | null | undefined,
+  b: string | null | undefined
+): boolean {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const fa = foldUnitKey(a);
+  if (!fa) return false;
+  if (fa === foldUnitKey(b)) return true;
+  return isSubRecipePortionUnit(a) && isSubRecipePortionUnit(b);
 }
 
 export function resolveUnitCell(
@@ -569,8 +564,9 @@ export function convertUnitPriceStr(
 /**
  * Price conversion for a cost entry. The unit table first; otherwise a price
  * per «orden» is a price per «orden» (the same label, or ORDEN / ORDENES /
- * CONVOY, which are one thing) with no conversion, and 1 orden = 1 unidad.
- * A portion is never guessed to be an ounce: anything else is refused.
+ * CONVOY, which are one thing) with no conversion. orden <-> unidad is NOT
+ * assumed: anything else is refused (a saved per-ingredient conversion may
+ * bridge it).
  */
 export function convertUnitPriceOrPortion(
   pricePerFrom: number,
@@ -586,7 +582,6 @@ export function convertUnitPriceOrPortion(
   if (isSubRecipePortionUnit(from) && isSubRecipePortionUnit(to)) {
     return { ok: true, value: pricePerFrom };
   }
-  if (isPortionAndEach(from, to)) return { ok: true, value: pricePerFrom };
   return regular;
 }
 

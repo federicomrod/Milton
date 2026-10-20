@@ -57,6 +57,7 @@ export function UnitConversionForm({
   unitA,
   unitB,
   editableUnits = false,
+  asQuestion = false,
   onSaved,
   onCancel,
 }: {
@@ -68,6 +69,8 @@ export function UnitConversionForm({
   unitB: string;
   /** The ingredient detail lets the person choose both units. */
   editableUnits?: boolean;
+  /** Ask «¿Cuántas {unitB} lleva 1 {unitA} de NOMBRE?» above the field. */
+  asQuestion?: boolean;
   onSaved: () => void;
   onCancel?: () => void;
 }) {
@@ -124,6 +127,11 @@ export function UnitConversionForm({
       className="mt-1 space-y-1 rounded-lg border border-[#dbe3f7] bg-[#f6f8fe] p-2 text-[13px]"
       data-testid="unit-conversion-form"
     >
+      {asQuestion ? (
+        <p className="font-semibold" data-testid="unit-question">
+          ¿Cuántas {b} lleva 1 {a} de {ingredientName}?
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-1.5">
         <span>1</span>
         {editableUnits ? (

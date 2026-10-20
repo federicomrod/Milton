@@ -35,11 +35,10 @@ import {
   usageCounts,
   type UsageFilter,
 } from "@/lib/restaurant/ingredient-usage";
-import { dishHref } from "@/lib/restaurant/menu-links";
+import type { IngredientUseEntry } from "@/lib/restaurant/ingredient-uses";
 import { normalizeUnit } from "@/lib/restaurant/units";
 import {
   PRICE_SOURCE_LABEL,
-  lineImpactAfterPrice,
   parsePriceInput,
   priceChangePct,
   sortIngredientes,
@@ -50,17 +49,6 @@ import {
 export interface SupplierOption {
   id: string;
   name: string;
-}
-
-export interface IngredienteUse {
-  odoo_product_id: number;
-  dish_name: string;
-  qty: number;
-  unit: string;
-  /** Line cost; null = no price (shown as "Sin precio", never $0). */
-  amount: number | null;
-  units_sold: number;
-  net_sales: number;
 }
 
 export interface IngredienteItem {
@@ -82,7 +70,8 @@ export interface IngredienteItem {
   supplier_id: string | null;
   supplier_name: string | null;
   sold_net_sales: number;
-  uses: IngredienteUse[];
+  /** Every dish and preparation that uses it; null = it could not be read. */
+  usedIn: IngredientUseEntry[] | null;
   /** An active recipe (dish, or preparation an active dish uses) has a line with it. */
   inUse: boolean;
   /** Soft-hidden (050). Never true for an ingredient in use. */
@@ -581,7 +570,7 @@ function AddIngrediente({
         supplier_id: null,
         supplier_name: null,
         sold_net_sales: 0,
-        uses: [],
+        usedIn: [],
         inUse: false,
         archived: false,
       });
@@ -781,17 +770,6 @@ function IngredienteDetail({
           supplier_id: entry.supplier_id ?? null,
           supplier_name:
             suppliers.find((s) => s.id === entry.supplier_id)?.name ?? null,
-          uses: item.uses.map((u) => ({
-            ...u,
-            amount: lineImpactAfterPrice({
-              qty: u.qty,
-              unit: u.unit,
-              oldAmount: u.amount,
-              oldPrice: item.price,
-              newPrice,
-              newPriceUnit: entry.normalized_unit,
-            }),
-          })),
         };
         onSaved(next);
         setPriceDraft(formatMoney(newPrice, currency));
@@ -812,8 +790,10 @@ function IngredienteDetail({
             {item.name}
           </h2>
           <p className="text-[12px]" style={{ color: "#6b7280" }}>
-            {categoryLabel(item.category)} · en {item.uses.length}{" "}
-            {item.uses.length === 1 ? "plato" : "platos"}
+            {categoryLabel(item.category)}
+            {item.usedIn
+              ? ` · en ${item.usedIn.length} ${item.usedIn.length === 1 ? "receta" : "recetas"}`
+              : ""}
           </p>
           {!item.inUse ? (
             <p className="mt-1 text-[12px]" style={{ color: "#6b7280" }}>
@@ -989,60 +969,76 @@ function IngredienteDetail({
         ingredientId={item.id}
         ingredientName={item.name}
         priceUnit={item.price_unit ?? item.default_unit}
-        usedUnits={[...new Set(item.uses.map((u) => u.unit))]}
+        usedUnits={[
+          ...new Set(
+            (item.usedIn ?? []).flatMap((u) => (u.unit ? [u.unit] : []))
+          ),
+        ]}
         price={item.price}
         currency={currency}
         canEdit={canEditPrices}
       />
 
       <h3 className="mt-6 text-[14px] font-bold text-[#151c2c]">Se usa en</h3>
-      {item.uses.length === 0 ? (
-        <p className="mt-2 text-[13px]" style={{ color: "#6b7280" }}>
-          Ningún plato usa este ingrediente.
-        </p>
-      ) : (
-        <table className="mt-2 w-full text-[13px]">
-          <thead>
-            <tr
-              className="border-b border-[#eef0f4] text-left text-[12px]"
-              style={{ color: "#6b7280" }}
-            >
-              <th className="py-2 font-semibold">Plato</th>
-              <th className="py-2 text-right font-semibold">Cantidad</th>
-              <th className="py-2 text-right font-semibold">Impacto</th>
-            </tr>
-          </thead>
-          <tbody>
-            {item.uses.map((u) => (
-              <tr
-                key={u.odoo_product_id}
-                className="border-b border-[#f3f4f7] last:border-0"
-              >
-                <td className="py-2">
-                  <Link
-                    href={dishHref(u.odoo_product_id)}
-                    className="font-semibold text-[#151c2c] hover:text-[#1B40C8] hover:underline"
-                  >
-                    {u.dish_name}
-                  </Link>
-                </td>
-                <td className="py-2 text-right tabular-nums text-[#151c2c]">
-                  {formatQty(u.qty)} {u.unit}
-                </td>
-                <td className="py-2 text-right tabular-nums">
-                  {u.amount === null ? (
-                    <span style={{ color: RED }}>Sin precio</span>
-                  ) : (
-                    <span className="text-[#151c2c]">
-                      {formatMoney(u.amount, currency)}
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <UsesList usedIn={item.usedIn} />
     </section>
+  );
+}
+
+/** "Se usa en": the one list the counters come from. */
+export function UsesList({ usedIn }: { usedIn: IngredientUseEntry[] | null }) {
+  if (usedIn === null)
+    return (
+      <p className="mt-2 text-[13px]" style={{ color: "#6b7280" }}>
+        No pude leer dónde se usa.
+      </p>
+    );
+  if (usedIn.length === 0)
+    return (
+      <p className="mt-2 text-[13px]" style={{ color: "#6b7280" }}>
+        Ningún plato usa este ingrediente.
+      </p>
+    );
+  return (
+    <table className="mt-2 w-full text-[13px]">
+      <thead>
+        <tr
+          className="border-b border-[#eef0f4] text-left text-[12px]"
+          style={{ color: "#6b7280" }}
+        >
+          <th className="py-2 font-semibold">Receta</th>
+          <th className="py-2 font-semibold">Estado</th>
+          <th className="py-2 text-right font-semibold">Cantidad</th>
+        </tr>
+      </thead>
+      <tbody>
+        {usedIn.map((u) => (
+          <tr key={u.key} className="border-b border-[#f3f4f7] last:border-0">
+            <td className="py-2">
+              <Link
+                href={u.href}
+                className="font-semibold text-[#151c2c] hover:text-[#1B40C8] hover:underline"
+              >
+                {u.name}
+              </Link>
+              <span className="ml-2 text-[12px]" style={{ color: "#6b7280" }}>
+                {u.kind === "preparacion" ? "Preparación" : "Plato"}
+                {u.via ? ` · ${u.via}` : ""}
+              </span>
+            </td>
+            <td className="py-2">
+              <span className="rounded-full bg-[#f3f4f7] px-2 py-0.5 text-[12px] font-semibold text-[#5b6476]">
+                {u.statusLabel}
+              </span>
+            </td>
+            <td className="py-2 text-right tabular-nums text-[#151c2c]">
+              {u.qty !== null
+                ? `${formatQty(u.qty)} ${u.unit ?? ""}`.trim()
+                : ""}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

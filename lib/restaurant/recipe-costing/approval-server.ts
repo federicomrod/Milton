@@ -3,12 +3,13 @@ import { effectiveDateForNewApprovedVersion } from "@/lib/restaurant/recipe-vers
 import {
   actorCanApprove,
   actorCanSubmitForApproval,
-  buildApprovalChecklist,
   type RecipeActor,
 } from "./approval";
 import { approvalRecord, updateWithApprovalAudit } from "./approval-audit";
-import { parseSuggestionEvidence } from "./evidence";
-import { loadPosProductLink } from "./link-actions-server";
+import { liveApproval } from "./approval-live";
+import { loadEditor } from "./editor-service";
+import { createSupabaseEditorStore } from "./editor-store";
+import type { EditorLine } from "./editor";
 import type { PosProductLinkRecord } from "@/lib/restaurant/pos-product-links";
 import { loadInReviewVersion, type InReviewVersionRow } from "./version-read";
 
@@ -47,6 +48,15 @@ export async function submitRecipeForApproval(input: {
   return { ok: true };
 }
 
+export const APPROVE_VERSION_MISMATCH_ERROR =
+  "Esa versión no es la que muestra el plato. Recarga la página.";
+
+/** The lines the editor shows for the dish: what Aprobar is checked on. */
+export type LiveLinesLoad = () => Promise<
+  | { ok: true; version_id: string | null; lines: EditorLine[] }
+  | { ok: false; error: string }
+>;
+
 export async function approveRecipeVersion(input: {
   supabase: SupabaseClient;
   companyId: string;
@@ -67,6 +77,11 @@ export async function approveRecipeVersion(input: {
    * link confirmation). The reads below run while it is in flight.
    */
   gate?: Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * The live lines of the dish (the same ones the screen totals). Default:
+   * the editor service on this client. Tests inject their own.
+   */
+  loadLiveLines?: LiveLinesLoad;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const confirmation = {
     confirmed_by: input.actor.user_id,
@@ -89,19 +104,31 @@ export async function approveRecipeVersion(input: {
     return { ok: false, error: "Esta receta ya está Aprobada." };
   }
 
-  // The link, the line count and the sibling versions do not depend on
+  // The live lines, the line count and the sibling versions do not depend on
   // each other: one wave.
-  const [link, inputCountRead, siblings] = await Promise.all([
-    input.odooProductId == null
-      ? Promise.resolve(null)
-      : input.link !== undefined
-        ? Promise.resolve(input.link)
-        : loadPosProductLink(
-            input.supabase,
-            input.companyId,
-            input.odooProductId,
-            input.locationId
-          ),
+  const loadLive: LiveLinesLoad | null =
+    input.loadLiveLines ??
+    (input.odooProductId != null
+      ? async () => {
+          const result = await loadEditor({
+            store: createSupabaseEditorStore(input.supabase),
+            companyId: input.companyId,
+            odooProductId: input.odooProductId as number,
+            locationId: input.locationId ?? null,
+            userId: input.actor.user_id,
+            omitOptions: true,
+          });
+          return result.ok
+            ? {
+                ok: true as const,
+                version_id: result.state.version_id,
+                lines: result.state.lines,
+              }
+            : { ok: false as const, error: result.error };
+        }
+      : null);
+  const [live, inputCountRead, siblings] = await Promise.all([
+    loadLive ? loadLive() : Promise.resolve(null),
     input.supabase
       .from("recipe_version_inputs")
       .select("id", { count: "exact", head: true })
@@ -113,28 +140,26 @@ export async function approveRecipeVersion(input: {
       .eq("company_id", input.companyId)
       .eq("recipe_id", version.recipe_id),
   ]);
-  const evidence =
-    input.odooProductId != null
-      ? parseSuggestionEvidence(link?.evidence)
-      : parseSuggestionEvidence({});
   const { count: inputCount, error: inputError } = inputCountRead;
   if (inputError) throw new Error(inputError.message);
-  if ((inputCount ?? 0) === 0 && evidence.lines.length === 0) {
+  if (live) {
+    if (!live.ok) return { ok: false, error: live.error };
+    if (live.version_id !== input.recipeVersionId) {
+      return { ok: false, error: APPROVE_VERSION_MISMATCH_ERROR };
+    }
+    // The same rule the Aprobar button uses (approval-live.ts).
+    const approval = liveApproval({ lines: live.lines });
+    if (!approval.ready) {
+      return {
+        ok: false,
+        error:
+          approval.first?.text ?? "La receta todavía no pasa el checklist.",
+      };
+    }
+  } else if ((inputCount ?? 0) === 0) {
     return {
       ok: false,
       error: "La receta no tiene ingredientes.",
-    };
-  }
-
-  const checklist = buildApprovalChecklist({
-    link_state: input.odooProductId != null ? "confirmado" : "sugerido",
-    evidence,
-    yield_confirmed: input.yieldConfirmed,
-  });
-  if (!checklist.ready) {
-    return {
-      ok: false,
-      error: checklist.blockers[0] ?? "La receta todavía no pasa el checklist.",
     };
   }
 

@@ -75,6 +75,23 @@ function fakeDb() {
   return { db: db as unknown as SupabaseClient, writes, reads };
 }
 
+const liveOk = async () => ({
+  ok: true as const,
+  version_id: "v1",
+  lines: [
+    {
+      key: "l1",
+      kind: "ingredient",
+      raw_name: "HARINA",
+      name: "Harina",
+      unit: "oz",
+      amount: 0.2,
+      pending: false,
+      flags: ["ok"],
+    },
+  ] as never,
+});
+
 const owner = { user_id: "u1", role: "owner", is_milton_staff: false };
 
 describe("approveRecipeVersion with a gate", () => {
@@ -89,6 +106,7 @@ describe("approveRecipeVersion with a gate", () => {
       yieldConfirmed: true,
       version: version as never,
       link: { evidence } as never,
+      loadLiveLines: liveOk,
       gate: Promise.resolve({ ok: true }),
     });
     expect(result).toEqual({ ok: true });
@@ -108,6 +126,7 @@ describe("approveRecipeVersion with a gate", () => {
       yieldConfirmed: true,
       version: version as never,
       link: { evidence } as never,
+      loadLiveLines: liveOk,
       gate: Promise.resolve({
         ok: false,
         error: "No pude guardar el vínculo.",

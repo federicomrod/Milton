@@ -12,7 +12,10 @@
 // A draft never counts in Costos or margins; this is only an estimate for the
 // person reviewing it.
 
-import { convertUnitStr, normalizeUnit } from "@/lib/restaurant/units";
+import {
+  convertToSubRecipeUnit,
+  isUsableLineUnit,
+} from "@/lib/restaurant/units";
 
 export interface PriceInfo {
   /** Price per ONE `unit` (normalized). */
@@ -112,12 +115,12 @@ export function computeDraftCost(
       miss(line.name);
       continue;
     }
-    if (!line.unit || !normalizeUnit(line.unit)) {
+    if (!line.unit || !isUsableLineUnit(line.unit)) {
       out.push({ key: line.key, reason: "unit", price, line_cost: null });
       miss(line.name);
       continue;
     }
-    const converted = convertUnitStr(
+    const converted = convertToSubRecipeUnit(
       line.total_quantity,
       line.unit,
       price.unit

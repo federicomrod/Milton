@@ -282,7 +282,7 @@ describe("typing a price on a line whose unit differs from the price unit", () =
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.status).toBe(400);
-    expect(r.error).toContain("No puedo guardar un precio por taza");
+    expect(r.error).toContain("¿Cuántas oz lleva 1 taza?");
     expect(r.conversion).toMatchObject({
       ingredient_id: "i-papas",
       from_unit: "taza",

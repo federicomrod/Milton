@@ -22,6 +22,8 @@ import {
   type FormEvent,
 } from "react";
 import Link from "next/link";
+import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { useSearchParams } from "next/navigation";
 import {
   Sparkles,
@@ -855,6 +857,7 @@ function SuggestedActionChip({
   disabled: boolean;
 }) {
   const lang = useMiltonLang();
+  const canManage = useCan("menu.manage");
   const [state, setState] = useState<ChipActionState>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const locationId = useSearchParams().get("location");
@@ -905,6 +908,23 @@ function SuggestedActionChip({
   }
 
   // Agent-action chip states
+  if (state === "idle" && !canManage) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs flex-wrap">
+        <button
+          type="button"
+          disabled
+          className="inline-flex items-center gap-1.5 text-xs rounded-full border border-dashed border-border px-2.5 py-1 text-[#6b7280] opacity-60"
+        >
+          <Zap className="h-3 w-3" />
+          {action.label}
+        </button>
+        <span className="text-[#6b7280]">
+          {CAPABILITY_MESSAGES["menu.manage"]}
+        </span>
+      </span>
+    );
+  }
   if (state === "idle") {
     return (
       <button

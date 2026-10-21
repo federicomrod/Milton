@@ -30,7 +30,8 @@ export type Capability =
   | "costs.reset"
   | "odoo.sync"
   | "odoo.diagnostics"
-  | "imports.run";
+  | "imports.run"
+  | "company.edit";
 
 export const KNOWN_ROLES: readonly Role[] = [
   "owner",
@@ -72,6 +73,8 @@ export const CAPABILITIES: Record<Capability, Role[]> = {
   "odoo.sync": [],
   "odoo.diagnostics": OWNER_ADMIN,
   "imports.run": OWNER_ADMIN_MANAGER,
+  // The company's own data (name, restaurants, agents settings): owner and admin.
+  "company.edit": OWNER_ADMIN,
 };
 
 /** Capabilities Milton staff do not get just by being staff. */
@@ -141,6 +144,7 @@ export const CAPABILITY_MESSAGES: Record<Capability, string> = {
   "odoo.sync": DEFAULT_FORBIDDEN_MESSAGE,
   "odoo.diagnostics": DEFAULT_FORBIDDEN_MESSAGE,
   "imports.run": "Tu rol no puede importar recetas.",
+  "company.edit": "Tu rol no puede cambiar los datos de la empresa.",
 };
 
 /** Every capability as a plain object: what the server sends to the client. */

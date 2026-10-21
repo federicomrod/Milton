@@ -6,6 +6,7 @@
 // no rejected pair). The sets are STORED as pending suggestions (source ai) so
 // they survive a reload; nothing is merged here.
 
+import { requireCapability } from "@/lib/auth/permissions";
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai-client";
 import {
@@ -24,6 +25,10 @@ const MAX_ITEMS = 250;
 export async function POST(req: NextRequest) {
   const g = await gate();
   if (!g.ok) return g.response;
+  const denied = requireCapability(g.actor, "ingredients.manage", {
+    message: "Tu rol no puede unir ni descartar ingredientes.",
+  });
+  if (denied) return denied;
   const { supabase, companyId } = g.auth;
   let body: { items?: unknown };
   try {

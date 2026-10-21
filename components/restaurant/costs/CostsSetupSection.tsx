@@ -24,6 +24,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
 import { IMPORT_RECIPES_BUTTON_ID } from "@/components/restaurant/recipes-costing/RecipeImportPreview";
 import type { SetupStep } from "@/lib/restaurant/costing/menu-summary";
@@ -322,9 +323,12 @@ export function CostsSetupSection({
   };
   goToFileRef.current = goToFile;
   const onNext = importPending ? goToImport : goToFile;
+  // The server's can("prices.edit") answer (absent in old fixtures = allowed).
+  const canEditPrices = data.actor.capabilities?.["prices.edit"] ?? true;
   const more = (
     <MoreMenu
       data={data}
+      canEditPrices={canEditPrices}
       onUndoBatch={(ids) => void onUndoBatch(ids)}
       onReset={() => setResetOpen(true)}
     />
@@ -480,6 +484,7 @@ export function CostsSetupSection({
               onImportPending={setImportPending}
               locationId={locationId}
               busyExternal={busy}
+              canEditPrices={canEditPrices}
             />
             <details className="mt-2 border-t border-[#f2f3f6] pt-2 text-[13px]">
               <summary className="cursor-pointer text-[#4b5466]">
@@ -591,10 +596,12 @@ function SetupRow({
 /** "⋯": undo an upload (one row per file) and "Empezar de nuevo". */
 function MoreMenu({
   data,
+  canEditPrices,
   onUndoBatch,
   onReset,
 }: {
   data: RecipeCostingWorkspace;
+  canEditPrices: boolean;
   onUndoBatch: (batchIds: string[]) => void;
   onReset: () => void;
 }) {
@@ -616,9 +623,15 @@ function MoreMenu({
             <DropdownMenuLabel className="text-[12px] text-[#6b7385]">
               Deshacer una carga
             </DropdownMenuLabel>
+            {canEditPrices ? null : (
+              <p className="px-2 pb-1 text-[12px] text-[#6b7280]">
+                {CAPABILITY_MESSAGES["prices.edit"]}
+              </p>
+            )}
             {data.batches.map((batch) => (
               <DropdownMenuItem
                 key={batch.id}
+                disabled={!canEditPrices}
                 onClick={() => onUndoBatch(batch.batch_ids)}
               >
                 <span className="flex-1 truncate">{batch.filename}</span>

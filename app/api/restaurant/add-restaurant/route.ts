@@ -27,6 +27,7 @@
 import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import {
   normalizeConceptType,
   normalizePosSystemChoice,
@@ -62,6 +63,11 @@ export async function POST(req: NextRequest) {
     const auth = await authAndCompany();
     if (!auth.ok) return auth.response;
     const { supabase, companyId } = auth;
+    const actor = await resolveActor(supabase, auth.userId, {
+      companyId,
+    });
+    const denied = requireCapability(actor, "company.edit");
+    if (denied) return denied;
 
     let body: RequestBody = {};
     try {

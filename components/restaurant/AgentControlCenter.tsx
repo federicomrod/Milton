@@ -43,6 +43,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { CockpitTabs } from "@/components/restaurant/cockpit/CockpitTabs";
 import type {
   AgentDefinition,
@@ -402,6 +404,8 @@ function AgentCard({
   onConfigUpdated: (key: string, config: AgentConfig) => void;
   onRunCompleted: () => Promise<void> | void;
 }) {
+  const canConfigure = useCan("company.edit");
+  const canManage = useCan("menu.manage");
   const [configOpen, setConfigOpen] = useState(false);
   const [toggling, startToggle] = useTransition();
   const [freqChanging, startFreqChange] = useTransition();
@@ -495,7 +499,7 @@ function AgentCard({
           <button
             type="button"
             onClick={handleToggle}
-            disabled={toggling}
+            disabled={toggling || !canConfigure}
             className={
               "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] " +
               (enabled ? "bg-[#1B40C8]" : "bg-muted")
@@ -556,7 +560,7 @@ function AgentCard({
           <select
             value={frequency}
             onChange={(e) => handleFrequencyChange(e.target.value)}
-            disabled={freqChanging}
+            disabled={freqChanging || !canConfigure}
             className="h-7 rounded-md border border-border bg-background px-2 text-xs flex-1 min-w-0"
           >
             <option value="manual">Manual</option>
@@ -586,7 +590,7 @@ function AgentCard({
             variant="default"
             className="text-xs h-7 gap-1 bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
             onClick={handleRun}
-            disabled={running || !enabled}
+            disabled={running || !enabled || !canManage}
             title={
               !enabled
                 ? "Enable agent first."
@@ -603,6 +607,11 @@ function AgentCard({
             {running ? "Running…" : "Run"}
           </Button>
         </div>
+        {!canManage && (
+          <p className="text-xs text-[#6b7280]">
+            {CAPABILITY_MESSAGES["menu.manage"]}
+          </p>
+        )}
         {runSummary && (
           <p className="text-xs text-green-700 dark:text-green-300">
             {runSummary}
@@ -721,6 +730,7 @@ function ConfigForm({
   agent: AgentWithConfig;
   onSaved: (updated: AgentConfig) => void;
 }) {
+  const canConfigure = useCan("company.edit");
   const fields = CONFIG_FIELDS[agent.agent_key] ?? [];
   const defaultConfig = (agent.config?.config ??
     agent.default_config) as Record<string, number>;
@@ -803,11 +813,16 @@ function ConfigForm({
         <Button
           size="sm"
           onClick={save}
-          disabled={saving}
+          disabled={saving || !canConfigure}
           className="h-7 text-xs"
         >
           {saving ? "Saving…" : "Save configuration"}
         </Button>
+        {!canConfigure && (
+          <span className="text-xs text-[#6b7280]">
+            {CAPABILITY_MESSAGES["company.edit"]}
+          </span>
+        )}
         {success && (
           <span className="text-xs text-green-700 dark:text-green-300 flex items-center gap-1">
             <CheckCircle2 className="h-3.5 w-3.5" /> Saved
@@ -940,6 +955,7 @@ function RecommendationCard({
   onActionCreated: (created: AgentAction[]) => void;
   onSwitchToActions: () => void;
 }) {
+  const canManage = useCan("menu.manage");
   const [acting, startAct] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -1018,25 +1034,30 @@ function RecommendationCard({
             </p>
 
             {/* Action buttons */}
+            {!canManage && (
+              <p className="text-[12px] text-[#6b7280]">
+                {CAPABILITY_MESSAGES["menu.manage"]}
+              </p>
+            )}
             <div className="flex flex-wrap gap-1.5 pt-1">
               {rec.status === "open" && (
                 <>
                   <ActionBtn
                     label="Approve"
                     onClick={() => act("approved")}
-                    disabled={acting}
+                    disabled={acting || !canManage}
                     variant="green"
                   />
                   <ActionBtn
                     label="Dismiss"
                     onClick={() => act("dismissed")}
-                    disabled={acting}
+                    disabled={acting || !canManage}
                     variant="muted"
                   />
                   <ActionBtn
                     label="Snooze"
                     onClick={() => act("snoozed")}
-                    disabled={acting}
+                    disabled={acting || !canManage}
                     variant="muted"
                   />
                 </>
@@ -1046,13 +1067,13 @@ function RecommendationCard({
                   <ActionBtn
                     label="Mark resolved"
                     onClick={() => act("resolved")}
-                    disabled={acting}
+                    disabled={acting || !canManage}
                     variant="green"
                   />
                   <ActionBtn
                     label="Dismiss"
                     onClick={() => act("dismissed")}
-                    disabled={acting}
+                    disabled={acting || !canManage}
                     variant="muted"
                   />
                 </>
@@ -1063,7 +1084,7 @@ function RecommendationCard({
                 <ActionBtn
                   label="Reopen"
                   onClick={() => act("open")}
-                  disabled={acting}
+                  disabled={acting || !canManage}
                   variant="muted"
                   icon={<RotateCcw className="h-3 w-3" />}
                 />
@@ -1318,6 +1339,7 @@ function RecommendationDetailPanel({
   onActionCreated: (created: AgentAction[]) => void;
   onSwitchToActions: () => void;
 }) {
+  const canManage = useCan("menu.manage");
   const [loading, setLoading] = useState(true);
   const [proposals, setProposals] = useState<AgentActionProposal[]>([]);
   const [creating, setCreating] = useState(false);
@@ -1449,7 +1471,7 @@ function RecommendationDetailPanel({
               variant="default"
               className="h-7 text-xs gap-1 bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
               onClick={createAction}
-              disabled={creating || proposals.length === 0}
+              disabled={creating || proposals.length === 0 || !canManage}
             >
               <ListChecks className="h-3.5 w-3.5" />
               {creating ? "Creating…" : "Create action"}
@@ -1818,6 +1840,7 @@ function ActionCard({
   currentUserId: string | null;
   onStatusChanged: (updated: AgentAction) => void;
 }) {
+  const canManage = useCan("menu.manage");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -2087,12 +2110,17 @@ function ActionCard({
             )}
 
             {/* Action buttons */}
+            {!canManage && (
+              <p className="text-[12px] text-[#6b7280]">
+                {CAPABILITY_MESSAGES["menu.manage"]}
+              </p>
+            )}
             <div className="flex flex-wrap gap-1.5 pt-1">
               {canApprove && (
                 <ActionBtn
                   label="Approve"
                   onClick={() => transition("approved")}
-                  disabled={busy}
+                  disabled={busy || !canManage}
                   variant="green"
                 />
               )}
@@ -2100,7 +2128,7 @@ function ActionCard({
                 <ActionBtn
                   label="Reject"
                   onClick={() => transition("rejected")}
-                  disabled={busy}
+                  disabled={busy || !canManage}
                   variant="muted"
                 />
               )}
@@ -2108,7 +2136,7 @@ function ActionCard({
                 <ActionBtn
                   label="Assign to me"
                   onClick={() => transition("assigned")}
-                  disabled={busy}
+                  disabled={busy || !canManage}
                   variant="muted"
                 />
               )}
@@ -2116,7 +2144,7 @@ function ActionCard({
                 <ActionBtn
                   label="Unassign"
                   onClick={() => transition("approved", { unassign: true })}
-                  disabled={busy}
+                  disabled={busy || !canManage}
                   variant="muted"
                 />
               )}
@@ -2128,7 +2156,7 @@ function ActionCard({
                     setExecuteSuccess(null);
                     setExecuteOpen(true);
                   }}
-                  disabled={busy}
+                  disabled={busy || !canManage}
                   variant="green"
                 />
               )}
@@ -2136,7 +2164,7 @@ function ActionCard({
                 <ActionBtn
                   label="Mark manually executed"
                   onClick={() => transition("executed")}
-                  disabled={busy}
+                  disabled={busy || !canManage}
                   variant="muted"
                   title="Records that you completed the work outside Milton. No data is mutated."
                 />
@@ -2145,7 +2173,7 @@ function ActionCard({
                 <ActionBtn
                   label="Mark verified"
                   onClick={() => transition("verified")}
-                  disabled={busy}
+                  disabled={busy || !canManage}
                   variant="green"
                 />
               )}
@@ -2153,7 +2181,7 @@ function ActionCard({
                 <ActionBtn
                   label="Cancel"
                   onClick={() => transition("cancelled")}
-                  disabled={busy}
+                  disabled={busy || !canManage}
                   variant="muted"
                 />
               )}
@@ -2161,7 +2189,7 @@ function ActionCard({
                 <ActionBtn
                   label="Reopen"
                   onClick={() => transition("proposed", { reopen: true })}
-                  disabled={busy}
+                  disabled={busy || !canManage}
                   variant="muted"
                   icon={<RotateCcw className="h-3 w-3" />}
                 />
@@ -2345,6 +2373,7 @@ function ExecutePriceUpdateDialog({
   success: string | null;
   onConfirm: () => void;
 }) {
+  const canManage = useCan("menu.manage");
   const currency =
     typeof payload.currency === "string" ? (payload.currency as string) : "USD";
   const safeCurrency = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
@@ -2461,6 +2490,11 @@ function ExecutePriceUpdateDialog({
         </div>
 
         <DialogFooter className="gap-2">
+          {!canManage && (
+            <span className="mr-auto text-xs text-[#6b7280]">
+              {CAPABILITY_MESSAGES["menu.manage"]}
+            </span>
+          )}
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
@@ -2471,7 +2505,7 @@ function ExecutePriceUpdateDialog({
           <Button
             className="bg-[#1B40C8] hover:bg-[#1535a6] text-white border-0"
             onClick={onConfirm}
-            disabled={executing || success !== null}
+            disabled={executing || success !== null || !canManage}
           >
             {executing ? "Updating…" : success ? "Updated" : "Confirm update"}
           </Button>

@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
   AGENT_RUNNERS,
@@ -132,6 +133,11 @@ async function upsertFinding(
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "menu.manage");
+  if (denied) return denied;
   const { supabase, companyId, userId } = auth;
 
   let body: Record<string, unknown>;

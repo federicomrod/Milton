@@ -4,6 +4,7 @@
 // stays pending) and «No son iguales» (reject: every pair of the set is
 // never suggested again). One transaction (ingredient_duplicate_decide, 051).
 
+import { requireCapability } from "@/lib/auth/permissions";
 import { NextRequest, NextResponse } from "next/server";
 import {
   UUID,
@@ -17,6 +18,10 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const g = await gate();
   if (!g.ok) return g.response;
+  const denied = requireCapability(g.actor, "ingredients.manage", {
+    message: "Tu rol no puede unir ni descartar ingredientes.",
+  });
+  if (denied) return denied;
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;

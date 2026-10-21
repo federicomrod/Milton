@@ -37,6 +37,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import {
   storeOdooSecret,
   assertOdooEncryptionConfigured,
@@ -95,6 +96,11 @@ export async function POST(req: NextRequest) {
     const auth = await authAndCompany();
     if (!auth.ok) return auth.response;
     const { supabase, companyId } = auth;
+    const actor = await resolveActor(supabase, auth.userId, {
+      companyId,
+    });
+    const denied = requireCapability(actor, "odoo.diagnostics");
+    if (denied) return denied;
 
     let body: RequestBody;
     try {

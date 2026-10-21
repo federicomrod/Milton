@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,11 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "company.edit");
+  if (denied) return denied;
   const body = (await req.json().catch(() => null)) as {
     name?: unknown;
   } | null;

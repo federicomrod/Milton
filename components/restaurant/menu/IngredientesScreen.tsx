@@ -13,7 +13,7 @@
 import { IngredientConversions } from "./IngredientConversions";
 import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import Link from "next/link";
-import type { Capability } from "@/lib/auth/capabilities";
+import { CAPABILITY_MESSAGES, type Capability } from "@/lib/auth/capabilities";
 import {
   DuplicatesBanner,
   ManualMergeDialog,
@@ -278,7 +278,9 @@ export function IngredientesScreen({
     scope: "ingredient",
     grouping,
     canEdit: allowed("groups.manage"),
-    onMergeSelected: (ids, clear) => setMergeSel({ ids, clear }),
+    onMergeSelected: allowed("ingredients.manage")
+      ? (ids, clear) => setMergeSel({ ids, clear })
+      : undefined,
     storageKey: "milton:ingredientes:abiertos",
     sortId: "ingredientes",
     sortColumns: INGREDIENT_SORT,
@@ -333,7 +335,7 @@ export function IngredientesScreen({
             Falta precio ({counts.falta_precio})
           </FilterChip>
         </div>
-        {counts.archivable > 0 ? (
+        {counts.archivable > 0 && allowed("ingredients.manage") ? (
           <button
             type="button"
             onClick={archiveAll}
@@ -468,7 +470,10 @@ export function IngredientesScreen({
           >
             {list}
           </div>
-          <AddIngrediente onAdded={onAdded} />
+          <AddIngrediente
+            onAdded={onAdded}
+            canManage={allowed("ingredients.manage")}
+          />
         </section>
 
         {selected ? (
@@ -480,6 +485,7 @@ export function IngredientesScreen({
             onSaved={onSaved}
             archiveAvailable={archiveAvailable}
             canEditPrices={allowed("prices.edit")}
+            canManage={allowed("ingredients.manage")}
             archiving={archiving}
             onArchive={(archived) => void setArchived([selected.id], archived)}
           />
@@ -524,8 +530,10 @@ function FilterChip({
 
 function AddIngrediente({
   onAdded,
+  canManage,
 }: {
   onAdded: (item: IngredienteItem) => void;
+  canManage: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -583,6 +591,13 @@ function AddIngrediente({
     }
   };
 
+  if (!canManage) {
+    return (
+      <p className="px-4 py-3 text-[12px]" style={{ color: "#6b7280" }}>
+        {CAPABILITY_MESSAGES["ingredients.manage"]}
+      </p>
+    );
+  }
   if (!open) {
     return (
       <button
@@ -634,6 +649,7 @@ function IngredienteDetail({
   onSaved,
   archiveAvailable,
   canEditPrices,
+  canManage,
   archiving,
   onArchive,
 }: {
@@ -643,6 +659,7 @@ function IngredienteDetail({
   onSaved: (next: IngredienteItem) => void;
   archiveAvailable: boolean;
   canEditPrices: boolean;
+  canManage: boolean;
   archiving: boolean;
   onArchive: (archived: boolean) => void;
 }) {
@@ -795,18 +812,25 @@ function IngredienteDetail({
               ? ` · en ${item.usedIn.length} ${item.usedIn.length === 1 ? "receta" : "recetas"}`
               : ""}
           </p>
+          {!canManage ? (
+            <p className="mt-1 text-[12px]" style={{ color: "#6b7280" }}>
+              {CAPABILITY_MESSAGES["ingredients.manage"]}
+            </p>
+          ) : null}
           {!item.inUse ? (
             <p className="mt-1 text-[12px]" style={{ color: "#6b7280" }}>
               {item.archived ? "Archivado · " : "Sin uso · "}
               Ninguna receta activa lo usa, así que no hace falta precio.{" "}
-              <button
-                type="button"
-                disabled={archiving || !archiveAvailable}
-                onClick={() => onArchive(!item.archived)}
-                className="font-semibold text-[#1b40c8] disabled:opacity-50"
-              >
-                {item.archived ? "Restaurar" : "Archivar"}
-              </button>
+              {canManage ? (
+                <button
+                  type="button"
+                  disabled={archiving || !archiveAvailable}
+                  onClick={() => onArchive(!item.archived)}
+                  className="font-semibold text-[#1b40c8] disabled:opacity-50"
+                >
+                  {item.archived ? "Restaurar" : "Archivar"}
+                </button>
+              ) : null}
             </p>
           ) : null}
         </div>
@@ -824,7 +848,7 @@ function IngredienteDetail({
           <button
             type="button"
             onClick={() => void save()}
-            disabled={!dirty || saving}
+            disabled={!dirty || saving || (!canManage && !canEditPrices)}
             className="h-9 rounded-lg px-5 text-[13px] font-semibold text-white disabled:opacity-50"
             style={{ backgroundColor: "#1b40c8" }}
           >
@@ -850,6 +874,7 @@ function IngredienteDetail({
               }}
               placeholder="Falta precio"
               aria-label="Precio actual"
+              disabled={!canEditPrices}
               inputMode="decimal"
               className={
                 "h-9 w-[180px] rounded-lg border border-[#c6d3f5] bg-white px-2.5 text-[15px] font-semibold tabular-nums text-[#151c2c] outline-none placeholder:font-normal placeholder:text-[#6b7280] focus:border-[#1b40c8] focus:ring-2 focus:ring-[#1b40c8]/20"
@@ -868,6 +893,7 @@ function IngredienteDetail({
                 setSaved(false);
               }}
               aria-label="Unidad"
+              disabled={!canManage}
               className="h-8 rounded-md border border-[#e3e7ee] bg-white px-1.5 text-[14px] font-semibold text-[#151c2c]"
             >
               {units.map((u) => (
@@ -926,6 +952,7 @@ function IngredienteDetail({
             }}
             placeholder="Sin categoría"
             aria-label="Categoría"
+            disabled={!canManage}
             className="mt-2 h-9 w-[180px] rounded-md border border-[#e3e7ee] px-2 text-[13px] text-[#151c2c] outline-none focus:border-[#1B40C8]"
           />
         </div>
@@ -943,6 +970,7 @@ function IngredienteDetail({
             setSaved(false);
           }}
           aria-label="Proveedor"
+          disabled={!canEditPrices}
           className="h-8 rounded-md border border-[#e3e7ee] bg-white px-1.5 text-[13px] text-[#151c2c]"
         >
           <option value="">—</option>

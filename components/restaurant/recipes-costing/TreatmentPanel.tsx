@@ -7,9 +7,11 @@ import type {
   VincularProductRow,
 } from "@/lib/restaurant/recipe-costing/workspace";
 import {
+  clearIngredientOptionsCache,
   loadIngredientOptions,
   type IngredientOption,
 } from "./ingredient-options";
+import { KITCHEN_UNITS } from "@/lib/restaurant/kitchen-units";
 import { PrimaryBtn } from "./ui";
 
 export type PostFn = (url: string, body: Record<string, unknown>) => void;
@@ -22,12 +24,18 @@ export function TreatmentControl({
   product,
   options,
   canEdit,
+  canEditPrices,
+  onPriceSaved,
   busy,
   onPost,
 }: {
   product: VincularProductRow;
   options: RecipeCostingWorkspace["treatment_options"];
   canEdit: boolean;
+  /** prices.edit, from the server-provided actor capabilities. */
+  canEditPrices?: boolean;
+  /** After an ingredient price is saved: refresh the open dish. */
+  onPriceSaved?: () => void;
   busy: boolean;
   onPost: PostFn;
 }) {
@@ -79,20 +87,40 @@ export function TreatmentControl({
         <b title={hint}>{product.treatment_label}</b>
       )}
       {needsResalePick && canEdit ? (
-        <ResalePicker product={product} busy={busy} onPost={onPost} />
+        <ResalePicker
+          product={product}
+          busy={busy}
+          onPost={onPost}
+          canEditPrices={canEditPrices ?? canEdit}
+          onPriceSaved={onPriceSaved}
+        />
       ) : null}
     </div>
   );
+}
+
+export const INGREDIENT_COSTS_URL = "/api/restaurant/ingredient-costs";
+const DEFAULT_RESALE_UNIT = "unidad";
+
+/** A unit from the stored value, or the default when it is not in the list. */
+function pickUnit(raw: string | null | undefined): string {
+  return KITCHEN_UNITS.some((u) => u.value === raw)
+    ? (raw as string)
+    : DEFAULT_RESALE_UNIT;
 }
 
 function ResalePicker({
   product,
   busy,
   onPost,
+  canEditPrices,
+  onPriceSaved,
 }: {
   product: VincularProductRow;
   busy: boolean;
   onPost: PostFn;
+  canEditPrices: boolean;
+  onPriceSaved?: () => void;
 }) {
   const [ingredients, setIngredients] = useState<IngredientOption[] | null>(
     null
@@ -100,7 +128,12 @@ function ResalePicker({
   const [error, setError] = useState<string | null>(null);
   const [ingredientId, setIngredientId] = useState("");
   const [qty, setQty] = useState("1");
-  const [unit, setUnit] = useState("unit");
+  const [unit, setUnit] = useState(DEFAULT_RESALE_UNIT);
+  const [priceAmount, setPriceAmount] = useState("");
+  const [priceUnit, setPriceUnit] = useState(DEFAULT_RESALE_UNIT);
+  const [savingPrice, setSavingPrice] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
+  const [pricedIds, setPricedIds] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -121,6 +154,43 @@ function ResalePicker({
     [ingredients, ingredientId]
   );
 
+  const missingPrice =
+    picked !== null &&
+    picked.latest_unit_cost == null &&
+    !pricedIds.has(picked.id);
+
+  async function savePrice() {
+    if (!picked || savingPrice) return;
+    setSavingPrice(true);
+    setPriceError(null);
+    try {
+      const res = await fetch(INGREDIENT_COSTS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ingredient_id: picked.id,
+          cost_date: new Date().toISOString().slice(0, 10),
+          quantity: 1,
+          unit: priceUnit,
+          total_cost: Number(priceAmount),
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setPriceError(json.error ?? "No pude guardar el precio.");
+        return;
+      }
+      clearIngredientOptionsCache();
+      setPricedIds((prev) => new Set(prev).add(picked.id));
+      setPriceAmount("");
+      onPriceSaved?.();
+    } catch {
+      setPriceError("No pude guardar el precio.");
+    } finally {
+      setSavingPrice(false);
+    }
+  }
+
   return (
     <div className="mt-2 border-t border-[#eef0f4] pt-2">
       <div className="mb-1 font-semibold">¿Qué compras para venderlo?</div>
@@ -136,7 +206,11 @@ function ResalePicker({
             onChange={(event) => {
               setIngredientId(event.target.value);
               const row = ingredients.find((r) => r.id === event.target.value);
-              if (row?.default_unit) setUnit(row.default_unit);
+              setPriceError(null);
+              if (row?.default_unit) {
+                setUnit(pickUnit(row.default_unit));
+                setPriceUnit(pickUnit(row.default_unit));
+              }
             }}
             className="min-w-0 flex-1 rounded-md border border-[#d5dae3] bg-white px-1.5 py-1"
           >
@@ -153,8 +227,24 @@ function ResalePicker({
             className="w-14 rounded-md border border-[#d5dae3] px-1.5 py-1 text-right"
             aria-label="Cantidad por venta"
           />
-          <span className="text-[#5b6476]">{unit}</span>
+          <select
+            aria-label="Unidad de la cantidad"
+            value={unit}
+            onChange={(event) => setUnit(event.target.value)}
+            className="rounded-md border border-[#d5dae3] bg-white px-1.5 py-1 text-[#5b6476]"
+          >
+            {KITCHEN_UNITS.map((u) => (
+              <option key={u.value} value={u.value}>
+                {u.label}
+              </option>
+            ))}
+          </select>
           <PrimaryBtn
+            className={
+              missingPrice
+                ? "border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#f6f8fe]"
+                : undefined
+            }
             disabled={busy || !ingredientId || !(Number(qty) > 0)}
             onClick={() =>
               onPost("/api/restaurant/pos/links/resale", {
@@ -170,11 +260,58 @@ function ResalePicker({
           </PrimaryBtn>
         </div>
       )}
-      <div className="mt-1 text-[12px] text-[#8a92a3]">
-        {picked && picked.latest_unit_cost == null
-          ? "Este producto aún no tiene precio: agrégalo en la receta del plato."
-          : "Queda como borrador: confirma el vínculo y apruébalo como cualquier receta."}
-      </div>
+      {missingPrice ? (
+        <div className="mt-2" data-testid="resale-price">
+          <div className="text-[12px] text-[#6b7280]">
+            Sin precio: este producto aún no tiene precio.
+          </div>
+          {canEditPrices ? (
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <input
+                value={priceAmount}
+                inputMode="decimal"
+                onChange={(event) => setPriceAmount(event.target.value)}
+                className="w-20 rounded-md border border-[#d5dae3] px-1.5 py-1 text-right"
+                aria-label="Precio"
+                placeholder="Precio"
+              />
+              <span className="text-[#5b6476]">por</span>
+              <select
+                aria-label="Unidad del precio"
+                value={priceUnit}
+                onChange={(event) => setPriceUnit(event.target.value)}
+                className="rounded-md border border-[#d5dae3] bg-white px-1.5 py-1 text-[#5b6476]"
+              >
+                {KITCHEN_UNITS.map((u) => (
+                  <option key={u.value} value={u.value}>
+                    {u.label}
+                  </option>
+                ))}
+              </select>
+              <PrimaryBtn
+                disabled={
+                  savingPrice ||
+                  !(Number(priceAmount) >= 0) ||
+                  !priceAmount.trim()
+                }
+                onClick={() => void savePrice()}
+              >
+                Guardar precio
+              </PrimaryBtn>
+            </div>
+          ) : null}
+          {priceError ? (
+            <p className="mt-1 text-[12px] text-[#c03535]" role="alert">
+              {priceError}
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <div className="mt-1 text-[12px] text-[#8a92a3]">
+          Queda como borrador: confirma el vínculo y apruébalo como cualquier
+          receta.
+        </div>
+      )}
     </div>
   );
 }

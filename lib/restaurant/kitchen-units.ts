@@ -3,7 +3,7 @@
 // mapped to one of these when the draft is made; if it cannot be mapped the
 // dropdown stays empty and Confirmar waits for a choice.
 
-import { normalizeUnit } from "@/lib/restaurant/units";
+import { isSubRecipePortionUnit, normalizeUnit } from "@/lib/restaurant/units";
 
 export const KITCHEN_UNITS = [
   { value: "g", label: "g" },
@@ -14,6 +14,7 @@ export const KITCHEN_UNITS = [
   { value: "unidad", label: "unidad" },
   { value: "oz", label: "oz" },
   { value: "lb", label: "lb" },
+  { value: "orden", label: "orden" },
 ] as const;
 
 export type KitchenUnit = (typeof KITCHEN_UNITS)[number]["value"];
@@ -72,6 +73,7 @@ export function mapKitchenUnit(
   const key = fold(raw);
   if (!key) return null;
   if (KITCHEN_UNIT_VALUES.has(key)) return key as KitchenUnit;
+  if (isSubRecipePortionUnit(key)) return "orden";
   if (PIECE_WORDS.has(key)) return "pza";
   if (UNIT_WORDS.has(key)) return "unidad";
   switch (normalizeUnit(raw)) {

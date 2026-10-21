@@ -471,12 +471,17 @@ export function buildMenuDishes(input: {
     // The dish's recipe: an approved variant first (top seller), else an
     // estimated one. With every restaurant shown, a shared link's recipe
     // comes before one linked only in one restaurant.
+    // A resale product (a soda, a beer) is costed by what you buy, never by
+    // another variant's recipe and never as a base others borrow from.
     const approvedBase = (m: Group["members"][number]) =>
+      m.dish.treatment !== "reventa" &&
       m.dish.status === "aprobado" &&
       m.dish.unit_cost !== null &&
       m.dish.treatment !== "modificador_sin_costo";
     const estimatedBase = (m: Group["members"][number]) =>
-      m.dish.status === "estimado" && m.dish.unit_cost !== null;
+      m.dish.treatment !== "reventa" &&
+      m.dish.status === "estimado" &&
+      m.dish.unit_cost !== null;
     const shared = (m: Group["members"][number]) =>
       !input.allRestaurants || !m.dish.link_location_id;
     const pool = [...members, ...(g.recipeOnly ?? [])];
@@ -521,6 +526,7 @@ export function buildMenuDishes(input: {
           reason = dish.state_reason ?? null;
         } else if (
           base &&
+          dish.treatment !== "reventa" &&
           base.dish.unit_cost !== null &&
           canBorrow(base.dish, dish)
         ) {

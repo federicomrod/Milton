@@ -109,12 +109,10 @@ describe("units of a preparation", () => {
       ok: true,
       value: 48,
     });
-    // A portion is a count: 1 orden = 1 unidad. Never an ounce or any weight.
+    // An orden is never a unidad (no silent 1:1), nor an ounce or any weight.
     expect(convertToSubRecipeUnit(1, "portion", "orden").ok).toBe(false);
-    expect(convertToSubRecipeUnit(1, "unit", "orden")).toEqual({
-      ok: true,
-      value: 1,
-    });
+    expect(convertToSubRecipeUnit(1, "unit", "orden").ok).toBe(false);
+    expect(convertToSubRecipeUnit(1, "orden", "unidad").ok).toBe(false);
     expect(convertToSubRecipeUnit(1, "oz", "orden").ok).toBe(false);
   });
 

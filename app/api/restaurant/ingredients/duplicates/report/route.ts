@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       archived: usage.archivedIds.has(i.id),
       price: i.latest ? i.latest.normalized_unit_cost : null,
       priceUnit: i.latest?.normalized_unit ?? null,
-      recipeCount: usage.dishCount.get(i.id) ?? 0,
+      recipeCount: usage.usesCount.get(i.id) ?? 0,
     })),
     new Set(state.notDuplicates)
   );

@@ -61,6 +61,8 @@ import {
 import { can, capabilityFlags, type Capability } from "@/lib/auth/capabilities";
 import type { PreparationsOverview } from "./preparations-server";
 import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
+import { resolveDishMenuItemId } from "@/lib/restaurant/costing/dish-version";
+import { pickDishVersions } from "@/lib/restaurant/costing/dish-state";
 import {
   isUncertainEvidence,
   toReviewLine,
@@ -610,9 +612,12 @@ export function buildRecipeCostingWorkspace(input: {
     const fromMenu = isMenuSuggestion(evidence);
     const bound = isBoundSuggestion(evidence) || fromMenu;
     const canConfirm = canConfirmSuggestedLink(evidence);
-    const menu = product.menu_item_id
-      ? menuById.get(product.menu_item_id)
-      : undefined;
+    // The recipe id: the list row's own, or the link's (dish-version.ts).
+    const recipeId = resolveDishMenuItemId(
+      product.menu_item_id,
+      link?.menu_item_id
+    );
+    const menu = recipeId ? menuById.get(recipeId) : undefined;
     const recipeName = menu?.name ?? evidence.block_name;
     const kind = productKindLabel({
       name: product.odoo_name,
@@ -688,7 +693,7 @@ export function buildRecipeCostingWorkspace(input: {
       link_state_label: product.link_state_label,
       display_state_label: display.label,
       display_state_tone: display.tone,
-      menu_item_id: product.menu_item_id,
+      menu_item_id: recipeId,
       recipe_name: recipeName ?? null,
       evidence_label: bound
         ? evidenceSentence(evidence)
@@ -1140,9 +1145,8 @@ function buildEditorView(input: {
   versions: readonly WorkspaceVersion[];
   currency: string;
 }): RecipeEditorView {
-  const latest = input.versions
-    .slice()
-    .sort((a, b) => b.version_number - a.version_number)[0];
+  // Approved in force, else the newest of any status (dish-version.ts).
+  const latest = pickDishVersions(input.versions).version ?? undefined;
   const notes = latest?.notes?.trim();
   const versionLabel = latest
     ? `${notes || (latest.status === "approved" ? "Aprobada" : "Borrador")} · v${latest.version_number}`

@@ -56,7 +56,7 @@ const ing = (
   inUse: true,
   archived: false,
   sold_net_sales: 100,
-  uses: [],
+  usedIn: [],
   ...over,
 });
 const ITEMS: IngredienteItem[] = [

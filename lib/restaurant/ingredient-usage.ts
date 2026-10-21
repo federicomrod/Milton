@@ -46,6 +46,26 @@ export interface IngredientUsage {
   dishCount: Map<string, number>;
   /** Recipe lines of active versions that name each ingredient directly (dishes and preparations). */
   lineCount: Map<string, number>;
+  /** Dishes and preparations that use each ingredient: the length of the "Se usa en" list. */
+  usesCount: Map<string, number>;
+}
+
+/** Counters from the ONE uses list, so a counter can never disagree with the list. */
+export function usageFromUses(
+  uses: ReadonlyMap<string, readonly { kind: string }[]>
+): IngredientUsage {
+  const inUse = new Set<string>();
+  const dishCount = new Map<string, number>();
+  const lineCount = new Map<string, number>();
+  const usesCount = new Map<string, number>();
+  for (const [id, list] of uses) {
+    if (list.length === 0) continue;
+    inUse.add(id);
+    usesCount.set(id, list.length);
+    lineCount.set(id, list.length);
+    dishCount.set(id, list.filter((e) => e.kind === "plato").length);
+  }
+  return { inUse, dishCount, lineCount, usesCount };
 }
 
 export function computeIngredientUsage(input: UsageInput): IngredientUsage {
@@ -113,7 +133,7 @@ export function computeIngredientUsage(input: UsageInput): IngredientUsage {
     const version = active(versions);
     if (version) countLines(input.componentInputsByVersionId.get(version.id));
   }
-  return { inUse, dishCount, lineCount };
+  return { inUse, dishCount, lineCount, usesCount: dishCount };
 }
 
 export type UsageFilter = "en_uso" | "sin_uso" | "todos";

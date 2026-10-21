@@ -15,7 +15,10 @@ import {
   normalizeKitchenName as normalize,
 } from "@/lib/restaurant/kitchen-ingredient-match";
 import { getLatestIngredientCost } from "@/lib/restaurant/costing";
-import { convertUnitStr, normalizeUnit } from "@/lib/restaurant/units";
+import {
+  convertToSubRecipeUnit,
+  isUsableLineUnit,
+} from "@/lib/restaurant/units";
 import type { CostingData, CostingIngredient } from "@/lib/restaurant/costing";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
 
@@ -512,10 +515,10 @@ export function matchIngredients(
         if (
           line.estimated_quantity !== null &&
           mappedUnit &&
-          normalizeUnit(mappedUnit) !== null &&
-          normalizeUnit(cost.unit) !== null
+          isUsableLineUnit(mappedUnit) &&
+          isUsableLineUnit(cost.unit)
         ) {
-          const converted = convertUnitStr(
+          const converted = convertToSubRecipeUnit(
             line.estimated_quantity,
             mappedUnit,
             cost.unit

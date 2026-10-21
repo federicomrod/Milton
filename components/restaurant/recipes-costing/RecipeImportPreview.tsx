@@ -269,7 +269,7 @@ export function RecipeImportPreview({
                     <td
                       className={
                         "px-2 py-1 text-center font-bold " +
-                        (row.match ? "text-[#1f9d55]" : "text-[#c03535]")
+                        (row.match ? "text-[#1f9d55]" : "text-[#6b7280]")
                       }
                     >
                       {row.match ? "✓" : "✗"}

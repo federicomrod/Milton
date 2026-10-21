@@ -25,7 +25,10 @@ import {
   confirmKitchenDraftAsVersion,
   isStaleClaim,
 } from "@/lib/restaurant/telegram/kitchen-draft-confirm";
-import { normalizeUnit, convertUnitStr } from "@/lib/restaurant/units";
+import {
+  isUsableLineUnit,
+  convertToSubRecipeUnit,
+} from "@/lib/restaurant/units";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { archivedIngredientMessage } from "@/lib/restaurant/ingredient-active";
 import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
@@ -227,7 +230,7 @@ export async function POST(
     if (!line.total_quantity || line.total_quantity <= 0) {
       return fail(`Falta la cantidad de ${nameOf(line.ingredient_id)}.`, 400);
     }
-    if (!line.unit || !normalizeUnit(line.unit)) {
+    if (!line.unit || !isUsableLineUnit(line.unit)) {
       return fail(
         `La unidad "${line.unit ?? ""}" de ${nameOf(line.ingredient_id)} no es válida.`,
         400
@@ -264,7 +267,7 @@ export async function POST(
       entriesByIngredient.get(line.ingredient_id) ?? []
     );
     if (!latest?.normalized_unit) continue; // no price yet: any recognized unit
-    const conversion = convertUnitStr(
+    const conversion = convertToSubRecipeUnit(
       line.total_quantity,
       line.unit,
       latest.normalized_unit

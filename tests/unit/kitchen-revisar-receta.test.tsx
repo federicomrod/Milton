@@ -335,6 +335,7 @@ describe("units are a dropdown", () => {
       "unidad",
       "oz",
       "lb",
+      "orden",
     ]);
   });
 
@@ -372,9 +373,9 @@ describe("units are a dropdown", () => {
     expect(confirmButton(dialog).disabled).toBe(true);
     fireEvent.change(unitSelect(dialog, 3), { target: { value: "kg" } });
     await waitFor(() => expect(confirmButton(dialog).disabled).toBe(false));
-    // the dropdown has exactly the eight units (plus the empty one)
+    // the dropdown has exactly the nine units (plus the empty one)
     expect(within(unitSelect(dialog, 1)).getAllByRole("option")).toHaveLength(
-      9
+      10
     );
   });
 });

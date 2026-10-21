@@ -24,6 +24,7 @@ import {
   pickDishVersions,
   type DishStateReason,
 } from "./dish-state";
+import { pickDishVersion } from "./dish-version";
 import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
 import type { CostingData } from "@/lib/restaurant/costing";
 import {
@@ -366,11 +367,16 @@ function dishFromProduct(
         product.sales_scope.location_id
       )
     : linkFor(input.links, product.odoo_product_id, input.locationId ?? null);
-  const menuItemId = product.menu_item_id ?? link?.menu_item_id ?? null;
-  const versions = menuItemId ? (versionsByMenuItem.get(menuItemId) ?? []) : [];
-  // The approved version in force is the engine's pick (effective dates), the
-  // same one the cost is calculated with.
-  const { approved, newest } = pickDishVersions(versions);
+  // The SAME pick the Plato screen uses (dish-version.ts).
+  const {
+    menu_item_id: menuItemId,
+    approved,
+    newest,
+  } = pickDishVersion({
+    productMenuItemId: product.menu_item_id,
+    linkMenuItemId: link?.menu_item_id,
+    versionsByMenuItem,
+  });
   const evidence = link?.evidence ?? {};
   const excelTotal = asFiniteNumber(evidence.excel_total);
 

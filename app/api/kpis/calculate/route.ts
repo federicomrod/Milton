@@ -2,6 +2,7 @@
 // Executes KPI formulas and returns calculated values for the current user's selected KPIs
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import {
   calculateNoShowRate,
   calculateActiveMembers,
@@ -61,6 +62,12 @@ export async function POST(request: Request) {
     if (companyError || !company) {
       return NextResponse.json({ error: "company_not_found" }, { status: 404 });
     }
+
+    const actor = await resolveActor(supabase, user.id, {
+      companyId: company.id,
+    });
+    const denied = requireCapability(actor, "company.edit");
+    if (denied) return denied;
 
     // Get selected KPI IDs from business_models
     const { data: businessModel, error: modelError } = await supabase

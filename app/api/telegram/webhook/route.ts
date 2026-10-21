@@ -83,6 +83,9 @@ const GENERIC_ALREADY_CONNECTED_MESSAGE =
   "This chat or company is already connected to Milton.\n\n" +
   "Este chat o empresa ya está conectado a Milton.";
 
+const PRIVATE_CHAT_ONLY_MESSAGE =
+  "Abre el enlace de Milton en un chat privado con el bot.";
+
 const GENERIC_USAGE_MESSAGE =
   "Please use the connection link from Milton to pair this chat.\n\n" +
   "Usa el enlace de conexión de Milton para vincular este chat.";
@@ -505,6 +508,13 @@ export async function POST(req: NextRequest) {
   // Kitchen QR payloads (kq1_...) never collide with 12-char pairing codes.
   if (isKitchenPayload(code)) {
     await handleKitchenJoin(message, chatId, code);
+    return NextResponse.json({ ok: true });
+  }
+
+  // A manager pairing code is accepted from a PRIVATE chat only. In a group
+  // or channel the code (which anyone there could read) is NOT consumed.
+  if (message.chat?.type !== "private") {
+    await sendTelegramMessage(chatId, PRIVATE_CHAT_ONLY_MESSAGE);
     return NextResponse.json({ ok: true });
   }
 

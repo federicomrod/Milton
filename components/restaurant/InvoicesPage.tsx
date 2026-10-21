@@ -38,6 +38,7 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { INVOICE_UPLOAD_ANCHOR } from "@/lib/restaurant/costs-tabs";
 import type {
   SupplierInvoiceLine,
@@ -227,11 +228,14 @@ export function InvoicesPage({
   suppliers,
   ingredients: initialIngredients,
   companyCurrency = "USD",
+  canEditPrices = true,
 }: {
   initialInvoices: InvoiceListItem[];
   suppliers: SupplierLite[];
   ingredients: IngredientLite[];
   companyCurrency?: string;
+  /** The server's can("prices.edit") answer; false = read-only. */
+  canEditPrices?: boolean;
 }) {
   const [invoices, setInvoices] = useState<InvoiceListItem[]>(initialInvoices);
   const [ingredients, setIngredients] =
@@ -294,7 +298,11 @@ export function InvoicesPage({
         </div>
 
         {/* Entry options OR focused AI extraction review */}
-        {aiDraft ? (
+        {!canEditPrices ? (
+          <p data-testid="prices-readonly" className="text-xs text-[#6b7280]">
+            {CAPABILITY_MESSAGES["prices.edit"]}
+          </p>
+        ) : aiDraft ? (
           <ExtractedDraftReview
             draft={aiDraft}
             setDraft={setAiDraft}
@@ -348,6 +356,7 @@ export function InvoicesPage({
             onIngredientCreated={upsertIngredient}
             onClose={() => setReviewingId(null)}
             onChanged={refreshList}
+            canEdit={canEditPrices}
           />
         )}
       </div>
@@ -867,12 +876,14 @@ function ReviewDetail({
   onIngredientCreated,
   onClose,
   onChanged,
+  canEdit = true,
 }: {
   invoiceId: string;
   ingredients: IngredientLite[];
   onIngredientCreated: (ing: IngredientLite) => void;
   onClose: () => void;
   onChanged: () => Promise<void> | void;
+  canEdit?: boolean;
 }) {
   const router = useRouter();
   const [data, setData] = useState<ReviewData | null>(null);
@@ -1095,7 +1106,7 @@ function ReviewDetail({
             );
             if (createdIngredient) onIngredientCreated(createdIngredient);
           }}
-          disabled={inv.status === "posted"}
+          disabled={inv.status === "posted" || !canEdit}
         />
         {lines.length === 0 ? (
           <p className="text-[13px] text-[#6b7385] italic">
@@ -1127,7 +1138,7 @@ function ReviewDetail({
                     line={line}
                     ingredients={ingredients}
                     striped={idx % 2 === 1}
-                    disabled={inv.status === "posted"}
+                    disabled={inv.status === "posted" || !canEdit}
                     onChange={(patch) => patchLine(line.id, patch)}
                     currency={inv.currency}
                   />
@@ -1145,7 +1156,7 @@ function ReviewDetail({
           </div>
           <Button
             onClick={postInvoice}
-            disabled={!canPost || postingBusy}
+            disabled={!canPost || postingBusy || !canEdit}
             title={
               !canPost
                 ? "Primero aprueba y asigna al menos una línea"

@@ -23,6 +23,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
 import {
   isInvoiceStatus,
@@ -174,6 +175,11 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "prices.edit");
+  if (denied) return denied;
   const { supabase, companyId, userId } = auth;
 
   let body: Record<string, unknown>;

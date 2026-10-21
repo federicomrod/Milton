@@ -24,6 +24,7 @@
 // previous_status / new_status pair.
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
   AGENT_ACTION_TRANSITIONS,
@@ -77,6 +78,11 @@ function isAllowedTransition(
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "menu.manage");
+  if (denied) return denied;
   const { supabase, companyId, userId } = auth;
 
   let body: Record<string, unknown>;

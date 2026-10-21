@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import type { CostConflict } from "@/lib/restaurant/price-catalog/conflicts";
 import type {
   CatalogUnit,
@@ -124,6 +125,8 @@ export const PriceCatalogPanel = forwardRef<
     onImportPending?: (dishes: number | null) => void;
     locationId?: string | null;
     busyExternal?: boolean;
+    /** The server's can("prices.edit") answer; false = read-only. */
+    canEditPrices?: boolean;
   }
 >(function PriceCatalogPanel(
   {
@@ -134,6 +137,7 @@ export const PriceCatalogPanel = forwardRef<
     locationId = null,
     busyExternal = false,
     embedded = false,
+    canEditPrices = true,
   },
   ref
 ) {
@@ -156,11 +160,11 @@ export const PriceCatalogPanel = forwardRef<
     ref,
     () => ({
       openPicker: () => {
-        if (busy || busyExternal) return;
+        if (busy || busyExternal || !canEditPrices) return;
         fileRef.current?.click();
       },
     }),
-    [busy, busyExternal]
+    [busy, busyExternal, canEditPrices]
   );
   const [error, setError] = useState<string | null>(null);
   /** Row key → unit, or "none" (Ninguna: leave it Pendiente). */
@@ -456,7 +460,7 @@ export const PriceCatalogPanel = forwardRef<
         />
         <GhostBtn
           className="ml-auto border-[#1B40C8] px-3 py-1.5 text-[13px] text-[#1B40C8] hover:bg-[#f6f8fe] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
-          disabled={busy || busyExternal}
+          disabled={busy || busyExternal || !canEditPrices}
           onClick={() => fileRef.current?.click()}
         >
           {preview || saved
@@ -464,6 +468,12 @@ export const PriceCatalogPanel = forwardRef<
             : "Elegir archivo de costos"}
         </GhostBtn>
       </div>
+
+      {canEditPrices ? null : (
+        <p data-testid="prices-readonly" className="text-[12px] text-[#6b7280]">
+          {CAPABILITY_MESSAGES["prices.edit"]}
+        </p>
+      )}
 
       {draftName ? (
         <p className="text-[12px] text-[#6b7385]">
@@ -779,7 +789,7 @@ export const PriceCatalogPanel = forwardRef<
           <button
             type="button"
             className="font-semibold underline"
-            disabled={busy}
+            disabled={busy || !canEditPrices}
             onClick={() => void undo(saved.batch_id)}
           >
             Deshacer esta carga
@@ -792,6 +802,7 @@ export const PriceCatalogPanel = forwardRef<
         initialImported={recipesImported}
         locationId={locationId}
         busyExternal={busy || busyExternal}
+        canEditPrices={canEditPrices}
         onImported={() => onRecipesImported?.()}
         onDishes={setRecipeDishes}
         primary={!preview}
@@ -810,7 +821,7 @@ export const PriceCatalogPanel = forwardRef<
               >
                 <span className="min-w-40 font-semibold">{item.name}</span>
                 <GhostBtn
-                  disabled={busy}
+                  disabled={busy || !canEditPrices}
                   onClick={() => void resolve(item.id, "catalog")}
                 >
                   Usar lista {money(item.catalog.unitCost)}/
@@ -819,7 +830,7 @@ export const PriceCatalogPanel = forwardRef<
                 {item.candidates.map((candidate, index) => (
                   <GhostBtn
                     key={index}
-                    disabled={busy}
+                    disabled={busy || !canEditPrices}
                     onClick={() => void resolve(item.id, index)}
                   >
                     Usar recetas {money(candidate.unitCost)}/
@@ -828,7 +839,7 @@ export const PriceCatalogPanel = forwardRef<
                   </GhostBtn>
                 ))}
                 <GhostBtn
-                  disabled={busy}
+                  disabled={busy || !canEditPrices}
                   onClick={() => void resolve(item.id, NONE)}
                 >
                   {NONE_LABEL}

@@ -28,6 +28,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Send, MessageCircle, RefreshCw, CheckCircle2 } from "lucide-react";
 
@@ -72,6 +74,7 @@ async function parseJsonSafely(
 }
 
 export function TelegramConnectionCard() {
+  const canEdit = useCan("company.edit");
   const [status, setStatus] = useState<ConnectionStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -229,12 +232,17 @@ export function TelegramConnectionCard() {
             </p>
             <Button
               onClick={handleSendTest}
-              disabled={sendLoading}
+              disabled={sendLoading || !canEdit}
               className="w-full sm:w-auto gap-2"
             >
               <Send className="h-4 w-4" />
               {sendLoading ? "Enviando…" : "Enviar briefing de prueba"}
             </Button>
+            {!canEdit && (
+              <p className="text-[13px] text-[#6b7280]">
+                {CAPABILITY_MESSAGES["company.edit"]}
+              </p>
+            )}
             {sendFeedback && (
               <Alert
                 variant={
@@ -269,13 +277,18 @@ export function TelegramConnectionCard() {
             </p>
             <Button
               onClick={handleConnect}
-              disabled={pairingLoading}
+              disabled={pairingLoading || !canEdit}
               className="w-full sm:w-auto gap-2"
             >
               <MessageCircle className="h-4 w-4" />
               {pairingLoading ? "Empezando…" : "Conectar Telegram"}
             </Button>
 
+            {!canEdit && (
+              <p className="text-[13px] text-[#6b7280]">
+                {CAPABILITY_MESSAGES["company.edit"]}
+              </p>
+            )}
             {pairingError && (
               <Alert variant="destructive">
                 <AlertDescription>{pairingError}</AlertDescription>

@@ -11,6 +11,7 @@
 // was never referenced anywhere.
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,11 @@ export async function PATCH(
   const { id } = await params;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "recipes.edit");
+  if (denied) return denied;
 
   let body: PatchBody;
   try {
@@ -104,6 +110,11 @@ export async function DELETE(
   const { id } = await params;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "recipes.edit");
+  if (denied) return denied;
 
   const { error } = await auth.supabase
     .from("prepared_components")

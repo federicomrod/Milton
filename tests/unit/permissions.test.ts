@@ -57,6 +57,7 @@ const EXPECTED: Record<Capability, boolean[]> = {
   "odoo.sync": [false, false, false, false, false, false],
   "odoo.diagnostics": [true, true, false, false, false, false],
   "imports.run": [true, true, true, false, false, false],
+  "company.edit": [true, true, false, false, false, false],
 };
 const ROLES = ["owner", "admin", "manager", "member", "viewer", null];
 

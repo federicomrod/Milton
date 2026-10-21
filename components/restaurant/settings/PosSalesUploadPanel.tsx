@@ -11,6 +11,8 @@ import { useState } from "react";
 import { Upload, CheckCircle2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
+import { SALES_UPLOAD_DENIED_MESSAGE } from "@/lib/restaurant/pos-upload-messages";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 
 interface UploadSummary {
@@ -62,6 +64,7 @@ function moneyFmt(currency: string) {
 }
 
 export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
+  const canUpload = useCan("imports.run");
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [summary, setSummary] = useState<UploadSummary | null>(null);
@@ -134,6 +137,7 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
           type="file"
           accept=".csv,.xlsx,.xls"
           aria-label={t(lang, "Sales file", "Archivo de ventas")}
+          disabled={!canUpload}
           onChange={(e) => {
             setFile(e.target.files?.[0] ?? null);
             setSummary(null);
@@ -174,7 +178,7 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
         <Button
           type="submit"
           variant="outline"
-          disabled={!file || submitting}
+          disabled={!file || submitting || !canUpload}
           className="gap-2"
         >
           <Upload className="h-4 w-4" />
@@ -182,6 +186,11 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
             ? t(lang, "Uploading…", "Subiendo…")
             : t(lang, "Upload sales", "Subir ventas")}
         </Button>
+        {!canUpload && (
+          <p className="text-[13px] text-[#6b7280]">
+            {SALES_UPLOAD_DENIED_MESSAGE}
+          </p>
+        )}
       </form>
 
       {error && (

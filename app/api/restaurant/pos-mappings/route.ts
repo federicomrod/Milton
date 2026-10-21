@@ -19,6 +19,7 @@
 // omitted param wiping every location's mapping for that name.
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
   upsertPosItemMapping,
@@ -48,6 +49,11 @@ function isMatchType(v: string): v is MatchType {
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "links.confirm");
+  if (denied) return denied;
 
   let body: PostBody;
   try {
@@ -136,6 +142,11 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "links.confirm");
+  if (denied) return denied;
 
   const url = new URL(req.url);
   const rawName = url.searchParams.get("raw_pos_item_name");

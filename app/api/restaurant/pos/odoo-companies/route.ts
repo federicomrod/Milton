@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OdooRpcError } from "@/lib/restaurant/odoo/client";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { loadOdooSession } from "@/lib/restaurant/odoo/load-connection";
 import { discoverOdooCompanies } from "@/lib/restaurant/odoo/scoped";
 import { resolveOdooCompanySelection } from "@/lib/restaurant/odoo/company-selection";
@@ -85,6 +86,11 @@ export async function POST(req: NextRequest) {
     const auth = await authAndCompany();
     if (!auth.ok) return auth.response;
     const { supabase, companyId } = auth;
+    const actor = await resolveActor(supabase, auth.userId, {
+      companyId,
+    });
+    const denied = requireCapability(actor, "odoo.diagnostics");
+    if (denied) return denied;
 
     let body: { odoo_company_ids?: unknown };
     try {

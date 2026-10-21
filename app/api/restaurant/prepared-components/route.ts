@@ -8,6 +8,7 @@
 // the component header row.
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,11 @@ interface CreateBody {
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "recipes.edit");
+  if (denied) return denied;
 
   let body: CreateBody;
   try {

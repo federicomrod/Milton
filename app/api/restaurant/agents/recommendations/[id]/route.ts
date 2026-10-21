@@ -12,6 +12,7 @@
 //     resolved    → reopened (status becomes 'open')
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { isAgentRecommendationStatus } from "@/lib/restaurant/agents/config";
 import type { AgentRecommendationEventType } from "@/types/agents";
@@ -35,6 +36,11 @@ export async function PATCH(
   const { id } = await params;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "menu.manage");
+  if (denied) return denied;
   const { supabase, companyId } = auth;
 
   let body: Record<string, unknown>;

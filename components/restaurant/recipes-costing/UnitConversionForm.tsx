@@ -57,6 +57,7 @@ export function UnitConversionForm({
   unitA,
   unitB,
   editableUnits = false,
+  asQuestion = false,
   onSaved,
   onCancel,
 }: {
@@ -68,6 +69,8 @@ export function UnitConversionForm({
   unitB: string;
   /** The ingredient detail lets the person choose both units. */
   editableUnits?: boolean;
+  /** Ask «¿Cuántas {unitB} lleva 1 {unitA} de NOMBRE?» above the field. */
+  asQuestion?: boolean;
   onSaved: () => void;
   onCancel?: () => void;
 }) {
@@ -76,6 +79,8 @@ export function UnitConversionForm({
   const [factor, setFactor] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Migration 056 is not applied in this environment. */
+  const [unavailable, setUnavailable] = useState(false);
   const n = Number(factor.replace(",", "."));
   const valid =
     n > 0 && Number.isFinite(n) && a.trim() !== "" && b.trim() !== "";
@@ -94,8 +99,15 @@ export function UnitConversionForm({
           factor: n,
         }),
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        unavailable?: boolean;
+      };
       if (!res.ok) {
+        if (res.status === 409 && json.unavailable === true) {
+          setUnavailable(true);
+          return;
+        }
         setError(json.error ?? "No pude guardar la conversión.");
         return;
       }
@@ -115,6 +127,11 @@ export function UnitConversionForm({
       className="mt-1 space-y-1 rounded-lg border border-[#dbe3f7] bg-[#f6f8fe] p-2 text-[13px]"
       data-testid="unit-conversion-form"
     >
+      {asQuestion ? (
+        <p className="font-semibold" data-testid="unit-question">
+          ¿Cuántas {b} lleva 1 {a} de {ingredientName}?
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-1.5">
         <span>1</span>
         {editableUnits ? (
@@ -146,14 +163,16 @@ export function UnitConversionForm({
         ) : (
           <b>{b}</b>
         )}
-        <button
-          type="button"
-          disabled={!valid || saving}
-          onClick={() => void save()}
-          className="rounded-md bg-[#1b40c8] px-2.5 py-1 font-semibold text-white disabled:opacity-50"
-        >
-          {saving ? "Guardando…" : "Guardar"}
-        </button>
+        {unavailable ? null : (
+          <button
+            type="button"
+            disabled={!valid || saving}
+            onClick={() => void save()}
+            className="rounded-md bg-[#1b40c8] px-2.5 py-1 font-semibold text-white disabled:opacity-50"
+          >
+            {saving ? "Guardando…" : "Guardar"}
+          </button>
+        )}
         {onCancel ? (
           <button
             type="button"
@@ -164,6 +183,14 @@ export function UnitConversionForm({
           </button>
         ) : null}
       </div>
+      {unavailable ? (
+        <p
+          className="text-[12px] text-gray-500"
+          data-testid="conversion-unavailable"
+        >
+          Las conversiones aún no están activas en este ambiente.
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="text-[12px] text-[#c03535]">
           {error}

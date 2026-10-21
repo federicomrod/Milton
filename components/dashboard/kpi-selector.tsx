@@ -326,13 +326,13 @@ export function KpiSelector({
 
           {/* Missing data warning */}
           {missingTableNames.length > 0 && (
-            <div className="flex items-start gap-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2">
-              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+            <div className="flex items-start gap-2 rounded-md bg-gray-50 dark:bg-gray-800/30 border border-gray-200 dark:border-gray-600 px-3 py-2">
+              <AlertTriangle className="h-3.5 w-3.5 text-gray-500 mt-0.5 shrink-0" />
               <div className="space-y-0.5">
-                <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                <p className="text-[11px] font-medium text-gray-700 dark:text-gray-400">
                   Data not available
                 </p>
-                <p className="text-[11px] text-amber-600/80 dark:text-amber-500/80">
+                <p className="text-[11px] text-gray-500/80 dark:text-gray-400/80">
                   Upload required: {missingTableNames.join(", ")}
                 </p>
               </div>

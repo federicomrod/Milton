@@ -29,7 +29,7 @@ interface KpiHistorical {
   value: number;
 }
 
-const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8"];
+const COLORS = ["#0088FE", "#00C49F", "#9ca3af", "#6b7280", "#8884d8"];
 
 interface EcommerceMarketingAcquisitionProps {
   period: "month" | "year" | "ytd" | "custom";

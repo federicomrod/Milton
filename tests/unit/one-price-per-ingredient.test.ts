@@ -223,11 +223,11 @@ function economics(entries: ReturnType<typeof entry>[]) {
 }
 
 describe("the dish line offers the old price", () => {
-  it("«Precio antiguo de la receta: $X/oz · Usar como precio del ingrediente» calls set_price (adopt_legacy)", () => {
+  it("«en tu Excel: $X/oz · Usar como precio del ingrediente» calls set_price (adopt_legacy)", () => {
     const src = read(
       "components/restaurant/recipes-costing/RecipeLinesEditor.tsx"
     );
-    expect(src).toContain("Precio antiguo de la receta");
+    expect(src).toContain("en tu Excel:");
     expect(src).toContain("Usar como precio del ingrediente");
     expect(src).toContain("adopt_legacy: true");
     expect(src).toContain("line.legacy_price");

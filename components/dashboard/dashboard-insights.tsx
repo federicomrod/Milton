@@ -521,12 +521,12 @@ export function DashboardInsights({
         };
       case "warning":
         return {
-          gradient: "from-amber-500/10 via-yellow-500/5 to-yellow-500/10",
-          border: "border-amber-500/20",
+          gradient: "from-gray-400/10 via-gray-400/5 to-gray-400/10",
+          border: "border-gray-300/20",
           icon: AlertTriangle,
-          iconColor: "text-amber-500",
+          iconColor: "text-gray-500",
           badge:
-            "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400",
+            "bg-gray-400/10 text-gray-500 border-gray-300/20 dark:text-gray-400",
         };
       case "action":
         return {

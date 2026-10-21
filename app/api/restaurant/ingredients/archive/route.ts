@@ -7,8 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
-import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { loadIngredientUsage } from "@/lib/restaurant/ingredient-usage-server";
 import { actionableError } from "@/lib/restaurant/actionable-error";
 
@@ -46,17 +45,13 @@ export async function POST(req: NextRequest) {
     );
   }
   const archive = body.archived !== false;
-  const actor = await loadRecipeActor(
-    auth.supabase,
-    auth.companyId,
-    auth.userId
-  );
-  if (!actorCanSubmitForApproval(actor)) {
-    return NextResponse.json(
-      { error: "Tu rol no puede archivar ingredientes." },
-      { status: 403 }
-    );
-  }
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "ingredients.manage", {
+    message: "Tu rol no puede archivar ingredientes.",
+  });
+  if (denied) return denied;
 
   let skipped: string[] = [];
   let target = ids;

@@ -3,9 +3,11 @@
 // Menú › Ingredientes (R1-09b, A6/D7): list + detail. The layout renders
 // the header and tabs; this page only loads the tab's data. Prices come
 // from ingredient_cost_entries (fetchIngredientLatestCosts); "Se usa en"
-// comes from the shared dish economics load.
+// comes from loadIngredientUsage (one list for the counters and the detail).
 
 import { createClient } from "@/lib/supabase/server";
+import { capabilityFlags, resolveActor } from "@/lib/auth/permissions";
+import type { Capability } from "@/lib/auth/capabilities";
 import {
   getCachedAuthUser,
   getCachedCompanyId,
@@ -19,7 +21,6 @@ import {
 import { loadIngredientUsage } from "@/lib/restaurant/ingredient-usage-server";
 import { usageState } from "@/lib/restaurant/ingredient-usage";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
-import { dishesUsingIngredient } from "@/lib/restaurant/costing/dish-economics";
 import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
 import { parseIngredientesFilter } from "@/lib/restaurant/ingredientes-screen";
 import {
@@ -39,6 +40,7 @@ type LoadResult =
       itemGroups: ItemGroupsLoad | null;
       archiveAvailable: boolean;
       duplicates: DuplicateState;
+      capabilities: Record<Capability, boolean>;
     }
   | { kind: "no-company" };
 
@@ -65,24 +67,29 @@ async function loadIngredientes(
       loadIngredientUsage(supabase, companyId),
       loadDuplicateState(supabase, companyId),
     ]);
+  const capabilities = capabilityFlags(
+    await resolveActor(supabase, user.id, { companyId })
+  );
   if (!economics.ok) {
     console.error("[menu/ingredientes] dish economics:", economics.error);
   }
 
+  // Net sales of the sold dishes that use each ingredient: only ranks the
+  // list; "Se usa en" comes from the uses list.
+  const soldNetSales = new Map<string, number>();
+  if (economics.ok) {
+    for (const dish of economics.result.dishes) {
+      if (!(dish.units_sold > 0)) continue;
+      const ids = new Set(
+        dish.lines.flatMap((l) => (l.ingredient_id ? [l.ingredient_id] : []))
+      );
+      for (const id of ids)
+        soldNetSales.set(id, (soldNetSales.get(id) ?? 0) + dish.net_sales);
+    }
+  }
+
   const items: IngredienteItem[] = ingredients.map((ing) => {
-    const uses = economics.ok
-      ? dishesUsingIngredient(economics.result, ing.id).map(
-          ({ dish, line }) => ({
-            odoo_product_id: dish.odoo_product_id,
-            dish_name: dish.name,
-            qty: line.qty,
-            unit: line.unit,
-            amount: line.amount,
-            units_sold: dish.units_sold,
-            net_sales: dish.net_sales,
-          })
-        )
-      : [];
+    const usedIn = usage.ok ? (usage.usesByIngredient.get(ing.id) ?? []) : null;
     return {
       id: ing.id,
       name: ing.name,
@@ -92,8 +99,8 @@ async function loadIngredientes(
       price_unit: ing.latest?.normalized_unit ?? null,
       price_date: ing.latest?.cost_date ?? null,
       price_entry_id: ing.latest?.id ?? null,
-      recipeCount: usage.dishCount.get(ing.id) ?? 0,
-      lineCount: usage.lineCount.get(ing.id) ?? 0,
+      recipeCount: usedIn?.length ?? 0,
+      lineCount: usedIn?.length ?? 0,
       previous_price: ing.latest?.previous_unit_cost ?? null,
       source: ing.latest?.source ?? null,
       supplier_id: ing.latest?.supplier_id ?? null,
@@ -102,10 +109,8 @@ async function loadIngredientes(
       ...(usage.ok
         ? usageState(ing.id, usage, usage.archivedIds)
         : { inUse: true, archived: false }),
-      sold_net_sales: uses
-        .filter((u) => u.units_sold > 0)
-        .reduce((sum, u) => sum + u.net_sales, 0),
-      uses: uses.sort((a, b) => b.net_sales - a.net_sales),
+      sold_net_sales: soldNetSales.get(ing.id) ?? 0,
+      usedIn,
     };
   });
 
@@ -120,6 +125,7 @@ async function loadIngredientes(
     currency: currency || "USD",
     archiveAvailable: usage.archiveAvailable,
     duplicates,
+    capabilities,
     itemGroups: economics.ok ? (economics.result.item_groups ?? null) : null,
   };
 }
@@ -150,6 +156,7 @@ export default async function IngredientesRoute({
       itemGroups={result.itemGroups}
       archiveAvailable={result.archiveAvailable}
       duplicates={result.duplicates}
+      capabilities={result.capabilities}
       initialSelectedId={params.ingrediente ?? null}
       initialFilter={parseIngredientesFilter(params.filtro)}
     />

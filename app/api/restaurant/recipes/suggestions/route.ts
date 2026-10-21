@@ -19,8 +19,7 @@ import {
 } from "@/lib/restaurant/recipe-suggestion-server";
 import { createDefaultWorkbookAi } from "@/lib/restaurant/cost-workbook";
 import { isWorkbookLimitError } from "@/lib/restaurant/cost-workbook";
-import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
-import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -105,17 +104,13 @@ export async function POST(req: NextRequest) {
       ? body.location_id.trim()
       : null;
 
-  const actor = await loadRecipeActor(
-    auth.supabase,
-    auth.companyId,
-    auth.userId
-  );
-  if (!actorCanSubmitForApproval(actor)) {
-    return NextResponse.json(
-      { error: "Tu rol no puede preparar recetas." },
-      { status: 403 }
-    );
-  }
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "recipes.edit", {
+    message: "Tu rol no puede preparar recetas.",
+  });
+  if (denied) return denied;
 
   const limit = readLimit(limitRaw);
   if (typeof limit !== "number") {

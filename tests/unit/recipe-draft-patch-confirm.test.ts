@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { makeFakeDb } from "./helpers/fake-db";
 
 type Row = Record<string, unknown>;
 
@@ -10,117 +11,13 @@ const { store, rpc } = vi.hoisted(() => {
     menu_items: [],
     ingredients: [],
     ingredient_cost_entries: [],
+    recipes: [],
+    recipe_versions: [],
+    recipe_version_inputs: [],
   };
   const rpc = vi.fn();
   return { store, rpc };
 });
-
-let nextGeneratedId = 1;
-
-function matches(
-  row: Row,
-  ops: { type: "eq" | "in"; col: string; val: unknown }[]
-) {
-  return ops.every((op) => {
-    if (op.type === "eq") return row[op.col] === op.val;
-    return Array.isArray(op.val) && op.val.includes(row[op.col]);
-  });
-}
-
-function makeFrom(table: string) {
-  const ops: { type: "eq" | "in"; col: string; val: unknown }[] = [];
-  let mode: "select" | "update" | "insert" | "delete" = "select";
-  let payload: unknown = null;
-  let orderCol: string | null = null;
-
-  const rows = () => store[table] ?? [];
-
-  const run = () => {
-    if (mode === "update") {
-      const patch = payload as Row;
-      const matched = rows().filter((row) => matches(row, ops));
-      for (const row of matched) Object.assign(row, patch);
-      return {
-        data: matched.map((r) => ({ ...r })),
-        error: null,
-      };
-    }
-    if (mode === "insert") {
-      const incoming = (Array.isArray(payload) ? payload : [payload]) as Row[];
-      const inserted = incoming.map((r) => {
-        const row = { ...r, id: r.id ?? `gen-${nextGeneratedId++}` };
-        rows().push(row);
-        return { ...row };
-      });
-      return { data: inserted, error: null };
-    }
-    if (mode === "delete") {
-      const matched = rows().filter((row) => matches(row, ops));
-      const ids = new Set(matched.map((r) => r.id));
-      store[table] = rows().filter((r) => !ids.has(r.id));
-      return { data: matched.map((r) => ({ ...r })), error: null };
-    }
-    const data = rows()
-      .filter((row) => matches(row, ops))
-      .map((r) => ({ ...r }));
-    if (orderCol) {
-      const col = orderCol;
-      data.sort((a, b) => Number(a[col] ?? 0) - Number(b[col] ?? 0));
-    }
-    return { data, error: null };
-  };
-
-  const chain: Record<string, unknown> = {};
-  const self = chain as {
-    select: () => typeof self;
-    eq: (col: string, val: unknown) => typeof self;
-    in: (col: string, val: unknown[]) => typeof self;
-    order: (col: string) => typeof self;
-    update: (data: Row) => typeof self;
-    insert: (data: Row | Row[]) => typeof self;
-    delete: () => typeof self;
-    maybeSingle: () => Promise<{ data: Row | null; error: null }>;
-    single: () => Promise<{ data: Row | null; error: null }>;
-    then: (
-      resolve: (v: { data: Row[]; error: null }) => unknown,
-      reject: (e: unknown) => unknown
-    ) => Promise<unknown>;
-  };
-  self.select = () => self;
-  self.eq = (col, val) => {
-    ops.push({ type: "eq", col, val });
-    return self;
-  };
-  self.in = (col, val) => {
-    ops.push({ type: "in", col, val });
-    return self;
-  };
-  self.order = (col) => {
-    orderCol = col;
-    return self;
-  };
-  self.update = (data) => {
-    mode = "update";
-    payload = data;
-    return self;
-  };
-  self.insert = (data) => {
-    mode = "insert";
-    payload = data;
-    return self;
-  };
-  self.delete = () => {
-    mode = "delete";
-    return self;
-  };
-  self.maybeSingle = async () => {
-    const { data, error } = run();
-    return { data: data[0] ?? null, error };
-  };
-  self.single = self.maybeSingle;
-  self.then = (resolve, reject) => Promise.resolve(run()).then(resolve, reject);
-  return self;
-}
 
 const authAndCompany = vi.fn();
 const isUserAdminServer = vi.fn();
@@ -140,7 +37,7 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
-    from: (table: string) => makeFrom(table),
+    ...makeFakeDb(store),
     rpc: (...args: unknown[]) => rpc(...args),
   }),
 }));
@@ -149,14 +46,25 @@ vi.mock("@/lib/profile-service-server", () => ({
   isUserAdminServer: (...args: unknown[]) => isUserAdminServer(...args),
 }));
 
-vi.mock("@/lib/restaurant/telegram/kitchen-join", async (importOriginal) => {
+// The role is read through resolveActor (loadCompanyRole + the admin client in
+// production); here the tests decide the role and the Milton-staff flag.
+vi.mock("@/lib/auth/permissions", async (importOriginal) => {
   const actual =
-    await importOriginal<
-      typeof import("@/lib/restaurant/telegram/kitchen-join")
-    >();
+    await importOriginal<typeof import("@/lib/auth/permissions")>();
   return {
     ...actual,
-    loadMembershipRole: (...args: unknown[]) => loadMembershipRole(...args),
+    resolveActor: async (
+      _supabase: unknown,
+      userId: string,
+      opts?: { companyId?: string | null }
+    ) => ({
+      userId,
+      companyId: opts?.companyId ?? null,
+      role: actual.normalizeRole(
+        await loadMembershipRole(opts?.companyId, userId)
+      ),
+      isMiltonStaff: Boolean(await isUserAdminServer(userId)),
+    }),
   };
 });
 
@@ -173,7 +81,9 @@ const ING_REMOVE = "ing-remove";
 const MENU_ID = "menu-1";
 
 function seed() {
-  nextGeneratedId = 1;
+  store.recipes = [];
+  store.recipe_versions = [];
+  store.recipe_version_inputs = [];
   store.kitchen_recipe_drafts = [
     {
       id: DRAFT_ID,
@@ -250,10 +160,6 @@ describe("PATCH then confirm with returned line ids", () => {
     isUserAdminServer.mockResolvedValue(false);
     loadMembershipRole.mockResolvedValue("owner");
     rpc.mockReset();
-    rpc.mockResolvedValue({
-      data: [{ out_recipe_id: "recipe-1", out_menu_item_id: MENU_ID }],
-      error: null,
-    });
   });
 
   it("keeps existing ids, inserts new lines, deletes missing, then confirm succeeds", async () => {
@@ -333,7 +239,12 @@ describe("PATCH then confirm with returned line ids", () => {
     expect(confirmRes.status).toBe(200);
     const confirmBody = await confirmRes.json();
     expect(confirmBody.ok).toBe(true);
-    expect(confirmBody.recipe_id).toBe("recipe-1");
-    expect(rpc).toHaveBeenCalledOnce();
+    expect(confirmBody.status).toBe("in_review");
+    expect(confirmBody.recipe_id).toBeTruthy();
+    // a NEW in_review version with the two lines; the SQL function is not used
+    expect(store.recipe_versions).toHaveLength(1);
+    expect(store.recipe_versions[0].status).toBe("in_review");
+    expect(store.recipe_version_inputs).toHaveLength(2);
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

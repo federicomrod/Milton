@@ -22,6 +22,7 @@
 
 import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { generateBriefing } from "@/lib/restaurant/briefing-generate";
 import { formatBriefingForTelegram } from "@/lib/restaurant/telegram/briefing-formatter";
 import { sendTelegramMessage } from "@/lib/restaurant/telegram/send";
@@ -34,6 +35,11 @@ export async function POST() {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   const { supabase, companyId } = auth;
+  const actor = await resolveActor(supabase, auth.userId, {
+    companyId: companyId,
+  });
+  const denied = requireCapability(actor, "company.edit");
+  if (denied) return denied;
 
   const { data: connection, error: connectionError } = await supabase
     .from("restaurant_telegram_connections")

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
+import { toRecipeActor } from "@/lib/restaurant/recipe-costing/approval";
 import { createRecipeAndLink } from "@/lib/restaurant/recipe-costing/link-actions-server";
 
 export const dynamic = "force-dynamic";
@@ -28,11 +29,12 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  const actor = await loadRecipeActor(
-    auth.supabase,
-    auth.companyId,
-    auth.userId
-  );
+  const permission = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(permission, "links.confirm");
+  if (denied) return denied;
+  const actor = toRecipeActor(permission);
   try {
     const result = await createRecipeAndLink({
       supabase: auth.supabase,

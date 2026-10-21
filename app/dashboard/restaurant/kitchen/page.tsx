@@ -50,6 +50,7 @@ export default async function KitchenPage({
           insights={model.insights}
           lang={lang}
           canManage={model.canManage}
+          canManageDrafts={model.canManageDrafts}
           locations={model.locations}
         >
           <Suspense

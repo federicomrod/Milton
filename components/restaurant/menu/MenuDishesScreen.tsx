@@ -966,7 +966,7 @@ function MovePanel({
   const [newName, setNewName] = useState("");
   const variant = moving.variant;
   return (
-    <section className="space-y-2 rounded-[14px] border border-[#f5c98b] bg-[#fff8ec] px-4 py-3 text-[13px]">
+    <section className="space-y-2 rounded-[14px] border border-[#e5e7eb] bg-[#f9fafb] px-4 py-3 text-[13px]">
       <div className="font-semibold">
         Mover una variante de {moving.dish.name}
       </div>

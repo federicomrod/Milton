@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { undoConfirmedPosLink } from "@/lib/restaurant/recipe-costing/link-actions-server";
 
@@ -25,6 +26,11 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "links.confirm");
+  if (denied) return denied;
   try {
     const result = await undoConfirmedPosLink({
       supabase: auth.supabase,

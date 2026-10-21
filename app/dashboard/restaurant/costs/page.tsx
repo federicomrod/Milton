@@ -37,12 +37,29 @@ import { CostsSetupSection } from "@/components/restaurant/costs/CostsSetupSecti
 import { InvoicesPage } from "@/components/restaurant/InvoicesPage";
 import { SuppliersPage } from "@/components/restaurant/SuppliersPage";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { createClient } from "@/lib/supabase/server";
+import { capabilityFlags, resolveActor } from "@/lib/auth/permissions";
 import { COSTS_HREF } from "@/lib/restaurant/navigation";
 import { COSTS_FILE_ANCHOR } from "@/lib/restaurant/costs-picker";
 import { ingredientesHref } from "@/lib/restaurant/menu-links";
 import { EmptyState } from "@/components/restaurant/shell/EmptyState";
 
 export const dynamic = "force-dynamic";
+
+/** The server's can("prices.edit") answer for the signed-in person. */
+async function canEditPricesForUser(): Promise<boolean> {
+  try {
+    const user = await getCachedAuthUser();
+    if (!user?.id) return false;
+    const companyId = await getCachedCompanyId(user.id);
+    if (!companyId) return false;
+    const supabase = await createClient();
+    const actor = await resolveActor(supabase, user.id, { companyId });
+    return capabilityFlags(actor)["prices.edit"];
+  } catch {
+    return false;
+  }
+}
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -285,6 +302,7 @@ async function ComprasTab({ lang }: { lang: PreferredLanguage }) {
       suppliers={data.suppliers}
       ingredients={data.ingredients}
       companyCurrency={data.companyCurrency}
+      canEditPrices={await canEditPricesForUser()}
     />
   );
 }
@@ -292,5 +310,10 @@ async function ComprasTab({ lang }: { lang: PreferredLanguage }) {
 async function ProveedoresTab({ lang }: { lang: PreferredLanguage }) {
   const suppliers = await loadSuppliersTabData();
   if (!suppliers) return <SignInNote lang={lang} />;
-  return <SuppliersPage suppliers={suppliers} />;
+  return (
+    <SuppliersPage
+      suppliers={suppliers}
+      canEditPrices={await canEditPricesForUser()}
+    />
+  );
 }

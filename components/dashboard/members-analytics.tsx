@@ -62,7 +62,7 @@ const COLORS = {
   primary: "#3B82F6",
   success: "#10B981",
   danger: "#EF4444",
-  warning: "#F59E0B",
+  warning: "#9ca3af",
   purple: "#8B5CF6",
   pink: "#EC4899",
   teal: "#14B8A6",
@@ -73,7 +73,7 @@ const PIE_COLORS = [
   "#8B5CF6", // Purple
   "#EC4899", // Pink
   "#10B981", // Green
-  "#F59E0B", // Amber
+  "#9ca3af", // Gray
   "#EF4444", // Red
 ];
 
@@ -263,8 +263,8 @@ export function MembersAnalytics({
           }}
           value={kpis?.avgTenure || 0}
           icon={Clock}
-          iconColor="text-amber-600"
-          valueColor="text-amber-600"
+          iconColor="text-gray-500"
+          valueColor="text-gray-500"
           suffix=" Months"
           fetchFromApi={false}
         />

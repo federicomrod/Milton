@@ -10,6 +10,12 @@
 // the user's company row (created_by) — same pattern as the existing data
 // upload routes in app/api/data/*.
 
+import {
+  requireCapability,
+  resolveActor,
+  unauthorizedResponse,
+} from "@/lib/auth/permissions";
+import { SALES_UPLOAD_DENIED_MESSAGE } from "@/lib/restaurant/pos-upload-messages";
 import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
@@ -63,8 +69,105 @@ export async function POST(req: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return unauthorizedResponse();
     }
+
+    // --- Resolve tenant context ------------------------------------------
+    // Robust three-step fallback so manually-inserted companies and pilot users
+    // whose row was linked via company_memberships are all found.
+    //
+    // Step 1: canonical path — companies.created_by = user.id
+    // Step 2: profiles table where id = user.id (Supabase sometimes uses id as PK = auth.uid())
+    // Step 3: profiles table where user_id = user.id (older profile schema)
+    // Step 4: company_memberships where user_id = user.id → resolve company_id
+    //
+    // If none of these yield a company we return a diagnostic 404 — never weaken auth.
+
+    let companyId: string | null = null;
+
+    // Step 1 — companies.created_by
+    {
+      const { data, error } = await supabase
+        .from("companies")
+        .select("id")
+        .eq("created_by", user.id)
+        .maybeSingle();
+      if (!error && data?.id) companyId = data.id;
+    }
+
+    // Step 2 — profiles.id = user.id → profiles.company_id
+    if (!companyId) {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("company_id")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (!error && data?.company_id) companyId = data.company_id;
+    }
+
+    // Step 3 — profiles.user_id = user.id → profiles.company_id
+    if (!companyId) {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("company_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!error && data?.company_id) companyId = data.company_id;
+    }
+
+    // Step 4 — company_memberships.user_id = user.id → company_id
+    if (!companyId) {
+      const { data, error } = await supabase
+        .from("company_memberships")
+        .select("company_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!error && data?.company_id) companyId = data.company_id;
+    }
+
+    if (!companyId) {
+      // Gather diagnostic counts to make the 404 actionable without leaking data.
+      const [profilesByIdRes, profilesByUserIdRes, membershipsRes] =
+        await Promise.all([
+          supabase
+            .from("profiles")
+            .select("id", { count: "exact", head: true })
+            .eq("id", user.id),
+          supabase
+            .from("profiles")
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", user.id),
+          supabase
+            .from("company_memberships")
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", user.id),
+        ]);
+      console.error(
+        `[POS Upload] Company not found for user ${user.id}. ` +
+          `profiles(id)=${profilesByIdRes.count ?? "err"}, ` +
+          `profiles(user_id)=${profilesByUserIdRes.count ?? "err"}, ` +
+          `memberships=${membershipsRes.count ?? "err"}`
+      );
+      return NextResponse.json(
+        {
+          error: "Company not found for user",
+          message:
+            "No company could be resolved via created_by, profiles.id, profiles.user_id, or company_memberships. " +
+            "Ensure the user is linked to a company in at least one of these tables.",
+          user_id: user.id,
+          checked_profiles_id_count: profilesByIdRes.count ?? null,
+          checked_profiles_user_id_count: profilesByUserIdRes.count ?? null,
+          checked_memberships_count: membershipsRes.count ?? null,
+        },
+        { status: 404 }
+      );
+    }
+
+    const actor = await resolveActor(supabase, user.id, { companyId });
+    const denied = requireCapability(actor, "imports.run", {
+      message: SALES_UPLOAD_DENIED_MESSAGE,
+    });
+    if (denied) return denied;
 
     // --- File handling ----------------------------------------------------
     const formData = await req.formData();
@@ -162,97 +265,6 @@ export async function POST(req: NextRequest) {
           headers,
         },
         { status: 400 }
-      );
-    }
-
-    // --- Resolve tenant context ------------------------------------------
-    // Robust three-step fallback so manually-inserted companies and pilot users
-    // whose row was linked via company_memberships are all found.
-    //
-    // Step 1: canonical path — companies.created_by = user.id
-    // Step 2: profiles table where id = user.id (Supabase sometimes uses id as PK = auth.uid())
-    // Step 3: profiles table where user_id = user.id (older profile schema)
-    // Step 4: company_memberships where user_id = user.id → resolve company_id
-    //
-    // If none of these yield a company we return a diagnostic 404 — never weaken auth.
-
-    let companyId: string | null = null;
-
-    // Step 1 — companies.created_by
-    {
-      const { data, error } = await supabase
-        .from("companies")
-        .select("id")
-        .eq("created_by", user.id)
-        .maybeSingle();
-      if (!error && data?.id) companyId = data.id;
-    }
-
-    // Step 2 — profiles.id = user.id → profiles.company_id
-    if (!companyId) {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("company_id")
-        .eq("id", user.id)
-        .maybeSingle();
-      if (!error && data?.company_id) companyId = data.company_id;
-    }
-
-    // Step 3 — profiles.user_id = user.id → profiles.company_id
-    if (!companyId) {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("company_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (!error && data?.company_id) companyId = data.company_id;
-    }
-
-    // Step 4 — company_memberships.user_id = user.id → company_id
-    if (!companyId) {
-      const { data, error } = await supabase
-        .from("company_memberships")
-        .select("company_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (!error && data?.company_id) companyId = data.company_id;
-    }
-
-    if (!companyId) {
-      // Gather diagnostic counts to make the 404 actionable without leaking data.
-      const [profilesByIdRes, profilesByUserIdRes, membershipsRes] =
-        await Promise.all([
-          supabase
-            .from("profiles")
-            .select("id", { count: "exact", head: true })
-            .eq("id", user.id),
-          supabase
-            .from("profiles")
-            .select("id", { count: "exact", head: true })
-            .eq("user_id", user.id),
-          supabase
-            .from("company_memberships")
-            .select("id", { count: "exact", head: true })
-            .eq("user_id", user.id),
-        ]);
-      console.error(
-        `[POS Upload] Company not found for user ${user.id}. ` +
-          `profiles(id)=${profilesByIdRes.count ?? "err"}, ` +
-          `profiles(user_id)=${profilesByUserIdRes.count ?? "err"}, ` +
-          `memberships=${membershipsRes.count ?? "err"}`
-      );
-      return NextResponse.json(
-        {
-          error: "Company not found for user",
-          message:
-            "No company could be resolved via created_by, profiles.id, profiles.user_id, or company_memberships. " +
-            "Ensure the user is linked to a company in at least one of these tables.",
-          user_id: user.id,
-          checked_profiles_id_count: profilesByIdRes.count ?? null,
-          checked_profiles_user_id_count: profilesByUserIdRes.count ?? null,
-          checked_memberships_count: membershipsRes.count ?? null,
-        },
-        { status: 404 }
       );
     }
 

@@ -8,7 +8,7 @@ import type { KitchenExploreTab } from "@/lib/restaurant/kitchen-explore";
 
 const BAR: Record<KitchenSummary["id"], string> = {
   running_out: "bg-red-600",
-  waste: "bg-amber-500",
+  waste: "bg-gray-400",
   drafts: "bg-blue-500",
 };
 
@@ -61,7 +61,7 @@ export function KitchenSummaries({
                   key={`${row.id}-${i}`}
                   className={
                     row.id === "waste" && i === 1
-                      ? "bg-amber-100 dark:bg-amber-900/40"
+                      ? "bg-gray-100 dark:bg-gray-800"
                       : BAR[row.id]
                   }
                   style={{ width: `${pct}%` }}

@@ -5,6 +5,7 @@
 // read-only method allowlist (fields_get, search_count, search_read, read).
 // Missing combo fields (older Odoo) become notes, never a hard failure.
 
+import { can, type Actor } from "@/lib/auth/capabilities";
 import { getOdooVersion, type OdooCredentials } from "./client";
 import { many2oneId, many2oneName, pickPresentFields } from "./dimensions";
 import { assertOdooReadOnlyMethod } from "./read-only-methods";
@@ -34,13 +35,9 @@ const LINE_PRICE_FIELDS = [
 
 const CUSTOM_ATTRIBUTE_NAME_RE = /attribute|modifier/i;
 
-export function canAccessOdooComboDiagnostics(input: {
-  isMiltonAdmin: boolean;
-  role: string | null | undefined;
-}): boolean {
-  return (
-    input.isMiltonAdmin || input.role === "owner" || input.role === "admin"
-  );
+/** Owner, admin and Milton staff (capability odoo.diagnostics). */
+export function canAccessOdooComboDiagnostics(actor: Actor): boolean {
+  return can(actor, "odoo.diagnostics");
 }
 
 export interface ComboLineFieldFlags {

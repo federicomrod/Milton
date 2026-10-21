@@ -8,6 +8,7 @@
 // Company and user come from auth, never from the request.
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
   MAX_DRAFT_FILE_BYTES,
@@ -43,6 +44,11 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "imports.run");
+  if (denied) return denied;
   let form: FormData;
   try {
     form = await req.formData();
@@ -93,6 +99,11 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "imports.run");
+  if (denied) return denied;
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
@@ -126,6 +137,11 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE() {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "imports.run");
+  if (denied) return denied;
   try {
     await deleteUploadDraft(auth.supabase, auth.companyId);
     return NextResponse.json({ ok: true });

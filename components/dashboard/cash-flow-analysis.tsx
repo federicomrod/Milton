@@ -232,14 +232,14 @@ export function CashFlowAnalysis({
               metrics.runwayMonths > 12
                 ? "text-green-600"
                 : metrics.runwayMonths > 6
-                  ? "text-yellow-600"
+                  ? "text-gray-500"
                   : "text-red-600"
             }
             valueColor={
               metrics.runwayMonths > 12
                 ? "text-green-600"
                 : metrics.runwayMonths > 6
-                  ? "text-yellow-600"
+                  ? "text-gray-500"
                   : "text-red-600"
             }
             suffix=" months"

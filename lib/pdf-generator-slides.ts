@@ -2100,7 +2100,7 @@ function createFitnessStudioChartConfig(
               "#3B82F6", // Blue for Booked
               "#10B981", // Green for Attended
               "#EF4444", // Red for Cancelled
-              "#F59E0B", // Amber for No Show
+              "#9ca3af", // Gray for No Show
             ],
           },
         ],
@@ -2396,11 +2396,11 @@ function createRestaurantChartConfig(chartType: string, chartData: any[]): any {
             backgroundColor: [
               "#0088FE",
               "#00C49F",
-              "#FFBB28",
-              "#FF8042",
+              "#9ca3af",
+              "#6b7280",
               "#8884d8",
               "#82CA9D",
-              "#FFC658",
+              "#d1d5db",
               "#FF7C7C",
             ],
           },
@@ -2545,9 +2545,9 @@ function createRestaurantChartConfig(chartType: string, chartData: any[]): any {
             data: amounts,
             backgroundColor: chartData.map((d, i) => {
               if (d.category === "Net Cash Flow") {
-                return d.amount >= 0 ? "#00C49F" : "#FF8042";
+                return d.amount >= 0 ? "#00C49F" : "#6b7280";
               }
-              return d.category === "Inflows" ? "#00C49F" : "#FF8042";
+              return d.category === "Inflows" ? "#00C49F" : "#6b7280";
             }),
           },
         ],
@@ -2629,7 +2629,7 @@ function createRestaurantChartConfig(chartType: string, chartData: any[]): any {
           {
             label: "Covers",
             data: covers,
-            backgroundColor: "#FF8042",
+            backgroundColor: "#6b7280",
           },
         ],
       },
@@ -2661,7 +2661,7 @@ function createRestaurantChartConfig(chartType: string, chartData: any[]): any {
             label: chartType === "inflowsByCategory" ? "Inflows" : "Outflows",
             data: amounts,
             backgroundColor:
-              chartType === "inflowsByCategory" ? "#00C49F" : "#FF8042",
+              chartType === "inflowsByCategory" ? "#00C49F" : "#6b7280",
           },
         ],
       },
@@ -2703,7 +2703,7 @@ function getWeekdayColor(weekday: number): string {
     "", // 0 - unused
     "#3B82F6", // Mon - Blue
     "#10B981", // Tue - Green
-    "#F59E0B", // Wed - Amber
+    "#9ca3af", // Wed - Gray
     "#EF4444", // Thu - Red
     "#8B5CF6", // Fri - Purple
     "#EC4899", // Sat - Pink

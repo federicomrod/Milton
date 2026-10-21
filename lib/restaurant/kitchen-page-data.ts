@@ -35,11 +35,7 @@ import {
   hashCockpitInsightFacts,
 } from "@/lib/restaurant/cockpit-insights-ai";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
-import {
-  canManageKitchenQr,
-  loadMembershipRole,
-} from "@/lib/restaurant/telegram/kitchen-join";
-import { isUserAdminServer } from "@/lib/profile-service-server";
+import { can, resolveActor } from "@/lib/auth/permissions";
 import {
   fetchKitchenAttentionBundle,
   localKitchenInstant,
@@ -59,6 +55,8 @@ export interface KitchenPageModel {
   locationId: string | null;
   companyId: string | null;
   canManage: boolean;
+  /** Owner, admin, manager or Milton staff: may review and confirm recipe drafts. */
+  canManageDrafts: boolean;
   locations: { id: string; name: string }[];
   insights: KitchenInsights | null;
   insightCacheKey: string;
@@ -109,22 +107,14 @@ export async function loadKitchenPageModel(
     locationId = context.selected?.locationId ?? null;
   }
 
-  const [
-    timezone,
-    currency,
-    isMiltonAdmin,
-    membershipRole,
-    locationsRes,
-    fast,
-  ] = await Promise.all([
+  const [timezone, currency, actor, locationsRes, fast] = await Promise.all([
     timeCockpitStep("kitchen-timezone", () =>
       resolvePosTimezone(supabase, companyId)
     ),
     timeCockpitStep("kitchen-currency", () =>
       resolveCompanyCurrency(supabase, companyId)
     ),
-    isUserAdminServer(user.id),
-    loadMembershipRole(companyId, user.id),
+    resolveActor(supabase, user.id, { companyId }),
     supabase
       .from("restaurant_locations")
       .select("id, name")
@@ -133,7 +123,10 @@ export async function loadKitchenPageModel(
     loadCockpitExecutiveFast(requestedLocationId, periodRaw),
   ]);
 
-  const canManage = canManageKitchenQr({ isMiltonAdmin, membershipRole });
+  // Computed here, once, from the shared capability table; the client only
+  // shows or hides.
+  const canManage = can(actor, "kitchen.qr");
+  const canManageDrafts = can(actor, "kitchen.drafts");
   const locations = (locationsRes.data ?? []) as { id: string; name: string }[];
 
   const wallToday = todayKeyInZone(timezone);
@@ -176,6 +169,7 @@ export async function loadKitchenPageModel(
       locationId,
       companyId,
       canManage,
+      canManageDrafts,
       locations,
     };
   }
@@ -226,6 +220,7 @@ export async function loadKitchenPageModel(
     locationId,
     companyId,
     canManage,
+    canManageDrafts,
     locations,
     insights,
     insightCacheKey,
@@ -247,6 +242,7 @@ function emptyModel(
     locationId: null,
     companyId: null,
     canManage: false,
+    canManageDrafts: false,
     locations: [],
     insights: null,
     insightCacheKey: "",

@@ -14,6 +14,8 @@
 // SECURITY: never logs raw tokens, token hashes, or message text.
 
 import { createHash, randomBytes } from "crypto";
+import { can, type Actor } from "@/lib/auth/capabilities";
+import { loadCompanyRole } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const KITCHEN_PAYLOAD_PREFIX = "kq1_";
@@ -58,12 +60,35 @@ export function buildDisplayName(from: {
   return (name || "Cocina").slice(0, MAX_DISPLAY_NAME);
 }
 
-/** Owners and Milton admins manage QRs; members don't. */
+/** Owners and Milton staff manage QRs, cooks and reports (kitchen.qr). */
 export function canManageKitchenQr(input: {
   isMiltonAdmin: boolean;
   membershipRole: string | null | undefined;
 }): boolean {
-  return input.isMiltonAdmin || input.membershipRole === "owner";
+  return can(asActor(input), "kitchen.qr");
+}
+
+/**
+ * Who may price and shape the ingredients of a kitchen recipe draft: Milton
+ * staff and the company's owner, admin or manager (kitchen.drafts).
+ */
+export function canManageKitchenDrafts(input: {
+  isMiltonAdmin: boolean;
+  membershipRole: string | null | undefined;
+}): boolean {
+  return can(asActor(input), "kitchen.drafts");
+}
+
+function asActor(input: {
+  isMiltonAdmin: boolean;
+  membershipRole: string | null | undefined;
+}): Actor {
+  return {
+    userId: "",
+    companyId: null,
+    role: input.membershipRole ?? null,
+    isMiltonStaff: input.isMiltonAdmin,
+  };
 }
 
 export interface ExistingStaff {
@@ -254,19 +279,12 @@ export async function consumeKitchenJoin(input: {
 // Dashboard-side helpers (service role): permission input + QR status
 // ---------------------------------------------------------------------------
 
-/** The user's company_memberships.role for this company (admin client). */
+/** The user's company_memberships.role for this company (the shared helper's read). */
 export async function loadMembershipRole(
   companyId: string,
   userId: string
 ): Promise<string | null> {
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("company_memberships")
-    .select("role")
-    .eq("company_id", companyId)
-    .eq("user_id", userId)
-    .maybeSingle();
-  return (data?.role as string | undefined) ?? null;
+  return loadCompanyRole(companyId, userId);
 }
 
 export interface KitchenQrLocationStatus {

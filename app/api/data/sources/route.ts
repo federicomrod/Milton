@@ -18,7 +18,10 @@ export async function GET() {
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Inicia sesión de nuevo." },
+        { status: 401 }
+      );
     }
 
     // Get user's company

@@ -165,29 +165,41 @@ describe("main button per role", () => {
 
   // R1-09b (C7): one primary button, "Aprobar"; the list on the left
   // replaces "siguiente" and "saltar".
-  it("owner and admin: Aprobar, only when the checklist passes", () => {
-    expect(primaryAction(actor("owner", true), editor(), true)).toMatchObject({
-      label: "Aprobar",
-      enabled: true,
+  const line = (over: Record<string, unknown> = {}) =>
+    ({
+      key: "l1",
+      kind: "ingredient",
+      raw_name: "SAL",
+      name: "Sal",
+      unit: "g",
+      amount: 1,
+      pending: false,
+      flags: ["ok"],
+      ...over,
+    }) as never;
+
+  it("owner and admin: Aprobar, only when the LIVE lines pass", () => {
+    const live = { lines: [line()] };
+    expect(
+      primaryAction(actor("owner", true), editor(), true, live)
+    ).toMatchObject({ label: "Aprobar", enabled: true });
+    const blocked = primaryAction(actor("admin", true), editor(), true, {
+      lines: [
+        line({ amount: null, pending: true, flags: ["pendiente_costo"] }),
+      ],
     });
-    const blocked = primaryAction(
-      actor("admin", true),
-      editor({
-        checklist: {
-          ready: false,
-          blockers: ["Hay líneas pendientes. No dejes ninguna en $0."],
-        } as RecipeEditorView["checklist"],
-      }),
-      true
-    );
     expect(blocked).toMatchObject({ enabled: false });
-    // What blocks it lives in the button's tooltip (C3).
-    expect(blocked?.hint).toMatch(/pendientes/);
+    expect(blocked?.hint).toBe("Falta el precio de Sal");
+    // Not reported by the editor yet: not enabled.
+    expect(primaryAction(actor("owner", true), editor(), true)?.enabled).toBe(
+      false
+    );
   });
 
   it("Milton staff see Aprobar (the dialog asks how the client confirmed)", () => {
     expect(
-      primaryAction(actor("member", true, true, true), editor(), true)?.label
+      primaryAction(actor("member", true, true, true), editor(), true, null)
+        ?.label
     ).toBe("Aprobar");
   });
 

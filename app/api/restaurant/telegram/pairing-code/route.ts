@@ -15,6 +15,7 @@
 
 import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { createPairingCode } from "@/lib/restaurant/telegram/pairing";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,11 @@ export async function POST() {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   const { companyId } = auth;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: companyId,
+  });
+  const denied = requireCapability(actor, "company.edit");
+  if (denied) return denied;
 
   try {
     const result = await createPairingCode(companyId);

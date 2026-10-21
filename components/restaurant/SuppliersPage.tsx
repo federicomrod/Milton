@@ -12,6 +12,7 @@
 
 import { useState, useTransition } from "react";
 import { Plus, Pencil, X, Check } from "lucide-react";
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -42,8 +43,11 @@ export interface SupplierRow {
 
 export function SuppliersPage({
   suppliers: initial,
+  canEditPrices = true,
 }: {
   suppliers: SupplierRow[];
+  /** The server's can("prices.edit") answer; false = read-only. */
+  canEditPrices?: boolean;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   // R1-09c: saves update this list from the API's answer; no refresh of
@@ -70,12 +74,19 @@ export function SuppliersPage({
             size="sm"
             variant="outline"
             className="gap-2"
+            disabled={!canEditPrices}
             onClick={() => setShowCreate((v) => !v)}
           >
             <Plus className="h-4 w-4" />
             {showCreate ? "Cancelar" : "Agregar proveedor"}
           </Button>
         </div>
+
+        {canEditPrices ? null : (
+          <p data-testid="prices-readonly" className="text-xs text-[#6b7280]">
+            {CAPABILITY_MESSAGES["prices.edit"]}
+          </p>
+        )}
 
         {/* Create form */}
         {showCreate && (
@@ -112,6 +123,7 @@ export function SuppliersPage({
               <SupplierCard
                 key={s.id}
                 supplier={s}
+                canEdit={canEditPrices}
                 onSaved={upsert}
                 onArchived={(id) =>
                   setSuppliers((prev) =>
@@ -135,10 +147,12 @@ export function SuppliersPage({
 
 function SupplierCard({
   supplier,
+  canEdit,
   onSaved,
   onArchived,
 }: {
   supplier: SupplierRow;
+  canEdit: boolean;
   onSaved: (row: SupplierRow) => void;
   onArchived: (id: string) => void;
 }) {
@@ -179,7 +193,7 @@ function SupplierCard({
       ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
       : supplier.status === "archived"
         ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
-        : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300";
+        : "bg-gray-100 text-gray-700 dark:bg-gray-800/30 dark:text-gray-400";
 
   return (
     <Card>
@@ -252,6 +266,7 @@ function SupplierCard({
                 size="sm"
                 variant="ghost"
                 className="gap-1 text-xs"
+                disabled={!canEdit}
                 onClick={() => setEditing(true)}
               >
                 <Pencil className="h-3.5 w-3.5" />
@@ -263,7 +278,7 @@ function SupplierCard({
                   variant="ghost"
                   className="text-xs text-muted-foreground hover:text-red-700"
                   onClick={onArchive}
-                  disabled={archiving}
+                  disabled={archiving || !canEdit}
                 >
                   Archive
                 </Button>

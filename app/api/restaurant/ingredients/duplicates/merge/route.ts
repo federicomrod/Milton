@@ -7,6 +7,7 @@
 // undo record. The aliases are made here from the names in the database, never
 // from the request.
 
+import { requireCapability } from "@/lib/auth/permissions";
 import { NextRequest, NextResponse } from "next/server";
 import { aliasKeyFor } from "@/lib/restaurant/cost-workbook/repo";
 import { mergeUnitMismatch } from "@/lib/restaurant/ingredient-duplicates";
@@ -22,6 +23,10 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const g = await gate();
   if (!g.ok) return g.response;
+  const denied = requireCapability(g.actor, "ingredients.manage", {
+    message: "Tu rol no puede unir ni descartar ingredientes.",
+  });
+  if (denied) return denied;
   const { supabase, companyId } = g.auth;
   let body: Record<string, unknown>;
   try {

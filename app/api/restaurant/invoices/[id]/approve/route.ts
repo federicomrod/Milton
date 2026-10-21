@@ -24,6 +24,7 @@
 
 import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { normalizeUnit, convertUnitPriceStr } from "@/lib/restaurant/units";
 import type {
   SupplierInvoice,
@@ -52,6 +53,11 @@ export async function POST(
   const { id: invoiceId } = await params;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "prices.edit");
+  if (denied) return denied;
   const { supabase, companyId, userId } = auth;
 
   // ---- Load invoice ----

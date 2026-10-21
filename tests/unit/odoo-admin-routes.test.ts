@@ -35,7 +35,7 @@ describe("Admin Odoo routes - access control", () => {
       const response = await POST(mockReq as any);
       expect(response.status).toBe(403);
       const body = await response.json();
-      expect(body.error).toContain("Forbidden");
+      expect(body.error).toBe("No tienes permiso para cambiar esto.");
     });
   });
 
@@ -65,7 +65,7 @@ describe("Admin Odoo routes - access control", () => {
       const response = await GET(mockReq as any);
       expect(response.status).toBe(403);
       const body = await response.json();
-      expect(body.error).toContain("Forbidden");
+      expect(body.error).toBe("No tienes permiso para cambiar esto.");
     });
   });
 
@@ -97,7 +97,7 @@ describe("Admin Odoo routes - access control", () => {
       const response = await POST(mockReq as any);
       expect(response.status).toBe(403);
       const body = await response.json();
-      expect(body.error).toContain("Forbidden");
+      expect(body.error).toBe("No tienes permiso para cambiar esto.");
     });
   });
 
@@ -127,7 +127,7 @@ describe("Admin Odoo routes - access control", () => {
       const response = await GET(mockReq as any);
       expect(response.status).toBe(403);
       const body = await response.json();
-      expect(body.error).toContain("Forbidden");
+      expect(body.error).toBe("No tienes permiso para cambiar esto.");
     });
   });
 
@@ -155,7 +155,7 @@ describe("Admin Odoo routes - access control", () => {
       const response = await POST(mockReq as any);
       expect(response.status).toBe(403);
       const body = await response.json();
-      expect(body.error).toContain("Forbidden");
+      expect(body.error).toBe("No tienes permiso para cambiar esto.");
     });
   });
 
@@ -179,7 +179,7 @@ describe("Admin Odoo routes - access control", () => {
       const response = await GET();
       expect(response.status).toBe(403);
       const body = await response.json();
-      expect(body.error).toContain("Forbidden");
+      expect(body.error).toBe("No tienes permiso para cambiar esto.");
     });
 
     it("marks the signed-in workspace with is_own", async () => {
@@ -251,7 +251,7 @@ describe("Admin Odoo routes - access control", () => {
       const response = await GET(mockReq as any);
       expect(response.status).toBe(403);
       const body = await response.json();
-      expect(body.error).toContain("Forbidden");
+      expect(body.error).toBe("No tienes permiso para cambiar esto.");
     });
   });
 });
@@ -390,7 +390,7 @@ describe("Location mapping admin routes", () => {
       const response = await GET(mockReq as any);
       expect(response.status).toBe(403);
       const body = await response.json();
-      expect(body.error).toContain("Forbidden");
+      expect(body.error).toBe("No tienes permiso para cambiar esto.");
     });
   });
 
@@ -422,7 +422,7 @@ describe("Location mapping admin routes", () => {
       const response = await POST(mockReq as any);
       expect(response.status).toBe(403);
       const body = await response.json();
-      expect(body.error).toContain("Forbidden");
+      expect(body.error).toBe("No tienes permiso para cambiar esto.");
     });
   });
 });

@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import {
   matchIngredientForLine,
   nameKey,
@@ -58,6 +59,11 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await authAndCompany();
     if (!auth.ok) return auth.response;
+    const actor = await resolveActor(auth.supabase, auth.userId, {
+      companyId: auth.companyId,
+    });
+    const denied = requireCapability(actor, "prices.edit");
+    if (denied) return denied;
     const { supabase, companyId, userId } = auth;
 
     // --- Form parsing ----------------------------------------------------

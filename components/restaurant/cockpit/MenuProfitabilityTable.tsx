@@ -4,7 +4,7 @@
 //
 // Status column is replaced with a small color-coded dot:
 //   * green  → costing complete
-//   * yellow → missing setup (no recipe, missing cost, etc.)
+//   * gray → missing setup (no recipe, missing cost, etc.)
 //   * red    → costing blocked (unit mismatch, circular reference)
 //
 // Hovering or focusing the dot reveals the full explanation via a native
@@ -36,15 +36,15 @@ import {
 // Status color mapping
 // ---------------------------------------------------------------------------
 
-type StatusTone = "green" | "yellow" | "red";
+type StatusTone = "green" | "gray" | "red";
 
 const STATUS_TONE: Record<string, StatusTone> = {
   complete: "green",
-  missing_recipe: "yellow",
-  missing_component_recipe: "yellow",
-  missing_input_cost: "yellow",
-  no_cost_entries: "yellow",
-  inactive_recipe: "yellow",
+  missing_recipe: "gray",
+  missing_component_recipe: "gray",
+  missing_input_cost: "gray",
+  no_cost_entries: "gray",
+  inactive_recipe: "gray",
   missing_unit_conversion: "red",
   circular_component_reference: "red",
   workbook_mismatch: "red",
@@ -52,7 +52,7 @@ const STATUS_TONE: Record<string, StatusTone> = {
 
 const TONE_BG: Record<StatusTone, string> = {
   green: "bg-green-500",
-  yellow: "bg-amber-500",
+  gray: "bg-gray-400",
   red: "bg-red-500",
 };
 
@@ -245,7 +245,7 @@ export function MenuProfitabilityTable({
             className="h-8 text-xs gap-1.5"
             onClick={() => setOnlyIssues((v) => !v)}
           >
-            <Dot tone="yellow" />
+            <Dot tone="gray" />
             {t(lang, "Only show issues", "Solo problemas")}
             <span className="tabular-nums opacity-80">({totalIssues})</span>
           </Button>
@@ -353,7 +353,7 @@ export function MenuProfitabilityTable({
                 </thead>
                 <tbody>
                   {filtered.slice(0, 100).map((r, i) => {
-                    const tone = STATUS_TONE[r.cost.status] ?? "yellow";
+                    const tone = STATUS_TONE[r.cost.status] ?? "gray";
                     const showCostNumbers =
                       r.cost.status === "complete" && r.cost.cost !== null;
                     return (
@@ -414,7 +414,7 @@ export function MenuProfitabilityTable({
                               fmt.money2.format(r.cost.cost!)
                             )
                           ) : r.cost.status === "no_cost_entries" ? (
-                            <span className="text-amber-700 dark:text-amber-300">
+                            <span className="text-gray-700 dark:text-gray-400">
                               {t(lang, "No price", "Sin precio")}
                             </span>
                           ) : (
@@ -523,7 +523,7 @@ function Legend({ lang }: { lang: PreferredLanguage }) {
         <Dot tone="green" /> {t(lang, "Complete", "Completo")}
       </span>
       <span className="inline-flex items-center gap-1.5">
-        <Dot tone="yellow" /> {t(lang, "Missing setup", "Falta configuración")}
+        <Dot tone="gray" /> {t(lang, "Missing setup", "Falta configuración")}
       </span>
       <span className="inline-flex items-center gap-1.5">
         <Dot tone="red" /> {t(lang, "Costing blocked", "Costeo bloqueado")}

@@ -1,3 +1,4 @@
+import { can, resolveActor } from "@/lib/auth/permissions";
 import { TurnosForm } from "@/components/restaurant/settings/TurnosForm";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -19,13 +20,14 @@ export async function TurnosTab() {
     );
   }
   const supabase = await createClient();
-  const [loaded, locations] = await Promise.all([
+  const [loaded, locations, actor] = await Promise.all([
     loadShifts(supabase, companyId),
     supabase
       .from("restaurant_locations")
       .select("id, name")
       .eq("company_id", companyId)
       .order("name", { ascending: true }),
+    resolveActor(supabase, user.id, { companyId }),
   ]);
   const restaurants = (locations.data ?? []) as Array<{
     id: string;
@@ -50,7 +52,7 @@ export async function TurnosTab() {
       restaurants={restaurants}
       shiftsByRestaurant={shiftsByRestaurant}
       available={loaded.available}
-      canEdit={true}
+      canEdit={can(actor, "shifts.edit")}
     />
   );
 }

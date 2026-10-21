@@ -53,7 +53,21 @@ let rpcResult: { error: { code?: string; message: string } | null } = {
 };
 let rpcCalls: Array<[string, Record<string, unknown>]> = [];
 let authed = true;
+let actorRole: string | null = "owner";
 
+vi.mock("@/lib/auth/permissions", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/auth/permissions")>();
+  return {
+    ...actual,
+    resolveActor: async (_s: unknown, userId: string) => ({
+      userId,
+      companyId: "11111111-1111-4111-8111-111111111111",
+      role: actorRole,
+      isMiltonStaff: false,
+    }),
+  };
+});
 vi.mock("@/lib/restaurant/api-auth", () => ({
   authAndCompany: async () => {
     if (!authed) {
@@ -118,6 +132,7 @@ describe("PATCH /api/restaurant/locations/:id", () => {
     rpcCalls = [];
     rpcResult = { error: null };
     authed = true;
+    actorRole = "owner";
   });
   it("needs a signed-in member: no session is a 401 and nothing is written", async () => {
     authed = false;
@@ -160,6 +175,15 @@ describe("PATCH /api/restaurant/locations/:id", () => {
     ]);
     rpcResult = { error: { code: "42501", message: "not a member" } };
     expect((await patch(L2, { archived: true })).status).toBe(403);
+    // First layer: a member is refused before the rpc is even called.
+    rpcCalls.length = 0;
+    actorRole = "member";
+    expect(await patch(L2, { archived: true })).toMatchObject({
+      status: 403,
+      json: { error: "Tu rol no puede archivar restaurantes." },
+    });
+    expect(rpcCalls).toHaveLength(0);
+    actorRole = "owner";
     rpcResult = {
       error: {
         code: "22023",

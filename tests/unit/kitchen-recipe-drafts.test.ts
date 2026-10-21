@@ -1,3 +1,4 @@
+import { suggestIngredient } from "@/lib/restaurant/kitchen-ingredient-match";
 import { describe, it, expect } from "vitest";
 import {
   detectRecipeIntent,
@@ -237,11 +238,44 @@ describe("portions follow-up parsing", () => {
     expect(parsePortionsFromFollowUp("dos porción")).toBe(2);
   });
 
+  it("accepts a number with a few plain words around it", () => {
+    for (const [text, n] of [
+      ["1", 1],
+      ["1 hamburguesa", 1],
+      ["una", 1],
+      ["una hamburguesa", 1],
+      ["para 2", 2],
+      ["2 porciones", 2],
+      ["salieron 4", 4],
+      ["salió para 3", 3],
+      ["son 6 hamburguesas", 6],
+      ["Para 2.", 2],
+    ] as const)
+      expect(parsePortionsFromFollowUp(text), text).toBe(n);
+  });
+
+  it("is not an answer: report words, weights and volumes, other text, out of range", () => {
+    for (const text of [
+      "2 cajas de limón se acabó",
+      "se agota el limón, quedan 3",
+      "merma de 2 kilos",
+      "tiré 2 charolas",
+      "500 g",
+      "2 kg de pollo",
+      "1.5 l",
+      "hola",
+      "0",
+      "101",
+      "500",
+      "3 hamburguesas con queso y bacon",
+    ])
+      expect(parsePortionsFromFollowUp(text), text).toBeNull();
+  });
+
   it("rejects non-bare-number messages", () => {
     expect(parsePortionsFromFollowUp("solo para 3 mesas")).toBeNull();
     expect(parsePortionsFromFollowUp("quedan 3 porciones de flan")).toBeNull();
     expect(parsePortionsFromFollowUp("receta de 2 porciones")).toBeNull();
-    expect(parsePortionsFromFollowUp("2 porcionado")).toBeNull();
     expect(parsePortionsFromFollowUp("2.5 porciones")).toBeNull();
   });
 });
@@ -367,7 +401,7 @@ describe("ingredient matching", () => {
     expect(matched[1].per_portion_quantity).toBe(0.25);
   });
 
-  it("matches whole-word substrings with medium confidence", () => {
+  it("a shared word is only a suggestion: «aceite» is NOT picked for «Aceite de oliva»", () => {
     const lines = [
       {
         name: "aceite",
@@ -397,8 +431,11 @@ describe("ingredient matching", () => {
       },
     ]);
     const matched = matchIngredients(lines, ingredients, withOilCost, 2);
-    expect(matched[0].ingredient_id).toBe("ing3");
-    expect(matched[0].confidence).toBe("medium");
+    expect(matched[0].ingredient_id).toBeNull();
+    expect(matched[0].confidence).toBe("low");
+    expect(suggestIngredient("aceite", ingredients)?.ingredient.name).toBe(
+      "Aceite de oliva"
+    );
   });
 
   it("does not match short partial strings", () => {
@@ -491,7 +528,7 @@ describe("ingredient matching", () => {
     expect(matched).toHaveLength(0);
   });
 
-  it("still matches pechuga de pollo to Pollo", () => {
+  it("«pechuga de pollo» is not picked for Pollo; it is suggested", () => {
     const lines = [
       {
         name: "pechuga de pollo",
@@ -501,9 +538,10 @@ describe("ingredient matching", () => {
       },
     ];
     const matched = matchIngredients(lines, ingredients, costEntries, 2);
-    expect(matched[0].ingredient_id).toBe("ing1");
-    expect(matched[0].ingredient_name).toBe("Pollo");
-    expect(matched[0].confidence).toBe("medium");
+    expect(matched[0].ingredient_id).toBeNull();
+    expect(
+      suggestIngredient("pechuga de pollo", ingredients)?.ingredient.name
+    ).toBe("Pollo");
   });
 });
 
@@ -553,16 +591,17 @@ describe("Spanish singularisation and kitchen synonyms", () => {
     };
   }
 
-  it("matches tortillas to Tortilla de maíz at medium confidence", () => {
+  it("«tortillas» is only a suggestion for Tortilla de maíz", () => {
     const matched = matchIngredients(
       [line("tortillas")],
       mexicanIngredients,
       mexicanCosts,
       2
     );
-    expect(matched[0].ingredient_id).toBe("mx1");
-    expect(matched[0].ingredient_name).toBe("Tortilla de maíz");
-    expect(matched[0].confidence).toBe("medium");
+    expect(matched[0].ingredient_id).toBeNull();
+    expect(
+      suggestIngredient("tortillas", mexicanIngredients)?.ingredient.name
+    ).toBe("Tortilla de maíz");
   });
 
   it("matches frijoles to Frijol at medium confidence", () => {
@@ -675,9 +714,12 @@ describe("Spanish singularisation and kitchen synonyms", () => {
     expect(matchCook("elote", "Maíz").confidence).toBe("medium");
   });
 
-  it("prefers a direct Maíz match over an earlier Elote synonym", () => {
+  it("suggests a direct Maíz match before an Elote synonym, and picks neither", () => {
     const matched = matchCook("tortilla de maíz", "Elote", "Maíz");
-    expect(matched.ingredient_name).toBe("Maíz");
-    expect(matched.confidence).toBe("medium");
+    expect(matched.ingredient_id).toBeNull();
+    const { ingredients } = catalog("Elote", "Maíz");
+    expect(
+      suggestIngredient("tortilla de maíz", ingredients)?.ingredient.name
+    ).toBe("Maíz");
   });
 });

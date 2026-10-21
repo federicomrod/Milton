@@ -24,9 +24,18 @@ import {
   DISH_STATUS_LABELS,
   type DishStatus,
 } from "@/lib/restaurant/costing/dish-status";
+import {
+  fixStepFor,
+  type FocusRequest,
+} from "@/lib/restaurant/recipe-costing/approval-live";
+import {
+  dishHasRecipe,
+  resolveDishMenuItemId,
+} from "@/lib/restaurant/costing/dish-version";
 import { primaryAction } from "@/lib/restaurant/recipe-costing/plato";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
+import type { EditorLine } from "@/lib/restaurant/recipe-costing/editor";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
 import { LastFileDialog, useLastFileRecipe } from "./LastFileRecipe";
 import { TreatmentControl, type PostFn } from "./TreatmentPanel";
@@ -250,8 +259,17 @@ function Dish({
   // The lines with no cost, from the editor's own live state, so the header
   // can name what blocks the total.
   const [pendingNames, setPendingNames] = useState<string[]>([]);
+  // The editor's live lines: what Aprobar is checked on (never the evidence
+  // saved at import time).
+  const [liveLines, setLiveLines] = useState<EditorLine[] | null>(null);
+  // Asks the editor to scroll to a line and open its price / unit question.
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
+  // The tipo de plato saves on change today, so nothing is ever left unsaved;
+  // a classification control with unsaved changes would set this.
+  const [classificationUnsaved] = useState(false);
   const handleEditorState = useCallback(
     (state: EditorState) => {
+      setLiveLines(state.lines);
       const names = state.lines
         .filter((l) => l.amount === null && l.kind !== "unresolved")
         .map((l) => l.name ?? l.raw_name);
@@ -268,16 +286,48 @@ function Dish({
   const money = (n: number) => formatMoneyEs(n, data.currency);
   const takesRecipe =
     !product.is_combo && TREATMENT_RULES[product.treatment].needs_recipe;
-  const hasRecipe = Boolean(
-    product.menu_item_id && (editor ? editor.recipe_version_id : true)
+  // Same rule as the engine (dish-version.ts): the recipe id is the row's or
+  // the link's; ANY version (approved, in review, legacy) is shown. Only a dish
+  // with no version, or one with no lines and no evidence lines, is empty.
+  const menuItemId = resolveDishMenuItemId(
+    product.menu_item_id,
+    editor?.menu_item_id
   );
+  const hasRecipe = editor
+    ? dishHasRecipe({
+        menuItemId,
+        versionId: editor.recipe_version_id,
+        lineCount: dish && dish.status === "sin_receta" ? 0 : 1,
+        evidenceLineCount: editor.lines.length,
+      })
+    : Boolean(menuItemId);
   const { lookup: fileLookup, refresh: refreshFileLookup } = useLastFileRecipe(
     product.odoo_product_id,
     locationId,
     data.actor.can_submit && takesRecipe
   );
   const fileRecipe = fileLookup && fileLookup.available ? fileLookup : null;
-  const action = editor ? primaryAction(data.actor, editor, hasRecipe) : null;
+  const action = editor
+    ? primaryAction(
+        data.actor,
+        editor,
+        hasRecipe,
+        liveLines
+          ? { lines: liveLines, classification_unsaved: classificationUnsaved }
+          : null
+      )
+    : null;
+  const blocker = action && !action.enabled ? action.blocker : null;
+  const fixBlocker = () => {
+    const step = blocker ? fixStepFor(blocker, focusRequest?.nonce ?? 0) : null;
+    if (!step) return;
+    if (step.do === "open_preparation") onOpenPreparation(step.componentId);
+    else if (step.do === "focus_line") setFocusRequest(step.request);
+    else
+      document
+        .querySelector<HTMLElement>('select[aria-label="Cómo se costea"]')
+        ?.focus();
+  };
   const bringButton =
     fileRecipe && fileRecipe.empty && data.actor.can_submit ? (
       <button
@@ -318,6 +368,10 @@ function Dish({
           product={product}
           options={data.treatment_options}
           canEdit={data.actor.can_submit}
+          canEditPrices={
+            data.actor.capabilities?.["prices.edit"] ?? data.actor.can_submit
+          }
+          onPriceSaved={onEdited}
           busy={busy}
           onPost={onPost}
         />
@@ -357,7 +411,10 @@ function Dish({
           </DropdownMenu>
         ) : null}
         {action ? (
-          <span title={action.hint ?? undefined}>
+          <span
+            title={action.hint ?? undefined}
+            className="flex flex-col items-end gap-1"
+          >
             <button
               type="button"
               disabled={busy || !action.enabled}
@@ -366,6 +423,26 @@ function Dish({
             >
               {action.label}
             </button>
+            {blocker ? (
+              <span
+                className="max-w-[320px] text-right text-[12px] text-[#6b7280]"
+                data-testid="approve-blocker"
+              >
+                {blocker.text}
+                {blocker.fix && blocker.fix_label ? (
+                  <>
+                    {" · "}
+                    <button
+                      type="button"
+                      onClick={fixBlocker}
+                      className="font-semibold text-[#1B40C8] hover:underline"
+                    >
+                      {blocker.fix_label}
+                    </button>
+                  </>
+                ) : null}
+              </span>
+            ) : null}
           </span>
         ) : dish?.status === "aprobado" ? (
           <Chip tone={dish.state_reason ? "warn" : "ok"}>
@@ -425,7 +502,7 @@ function Dish({
                 <>
                   {dish?.unit_cost == null && pendingNames.length > 0 ? (
                     <span
-                      className="block font-semibold text-[#a35a00]"
+                      className="block font-semibold text-[#6b7280]"
                       data-testid="header-pending"
                     >
                       Sin precio · {pendingNames.length}{" "}
@@ -440,7 +517,7 @@ function Dish({
                     <span
                       className={
                         dish.excel_diff_flag
-                          ? "font-semibold text-[#c03535]"
+                          ? "font-semibold text-[#6b7280]"
                           : "text-[#8a92a3]"
                       }
                     >
@@ -471,6 +548,14 @@ function Dish({
               {bringButton}
             </div>
           ) : null}
+          {hasRecipe && editor ? (
+            <div data-testid="version-chip">
+              <Chip tone={editor.recipe_status === "aprobada" ? "ok" : "grey"}>
+                {VERSION_STATUS_LABEL[editor.recipe_status] ??
+                  editor.version_label}
+              </Chip>
+            </div>
+          ) : null}
           {hasRecipe ? (
             <RecipeLinesEditor
               key={editorKey}
@@ -480,6 +565,7 @@ function Dish({
               onEdited={onEdited}
               onState={handleEditorState}
               onOpenPreparation={onOpenPreparation}
+              focusRequest={focusRequest}
             />
           ) : (
             <div className="flex items-center gap-3 text-[13px] text-[#5b6476]">
@@ -527,6 +613,13 @@ function Dish({
     </section>
   );
 }
+
+const VERSION_STATUS_LABEL: Record<string, string> = {
+  aprobada: "Receta aprobada",
+  listo: "Receta aprobada",
+  por_aprobar: "Receta por aprobar",
+  borrador: "Receta en borrador",
+};
 
 function Big({
   label,

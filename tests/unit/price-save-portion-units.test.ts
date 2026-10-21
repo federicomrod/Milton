@@ -57,10 +57,12 @@ describe("the cost-entry builder", () => {
       if (r.ok) expect(r.insert.normalized_unit_cost).toBe(0.23513);
     }
   });
-  it("an ORDEN is 1:1 with a unidad (both ways) but never an ounce", () => {
+  it("an ORDEN is never read as a unidad (either way) nor as an ounce; ORDEN = orden = ordenes", () => {
     expect(build("ORDEN", "oz").ok).toBe(false);
-    expect(build("ORDEN", "unit").ok).toBe(true);
-    expect(build("unidad", "ORDEN").ok).toBe(true);
+    expect(build("ORDEN", "unit").ok).toBe(false);
+    expect(build("unidad", "ORDEN").ok).toBe(false);
+    expect(build("ORDEN", "orden").ok).toBe(true);
+    expect(build("ordenes", "ORDEN").ok).toBe(true);
     expect(build("oz", "ORDEN").ok).toBe(false);
   });
   it("an existing oz / lb conversion is unchanged", () => {
@@ -72,7 +74,7 @@ describe("the cost-entry builder", () => {
   });
   it("the Spanish message names both units", () => {
     expect(unitMismatchMessage("ORDEN", "oz")).toBe(
-      "No puedo guardar un precio por orden en un ingrediente que se compra por oz. Cambia la unidad de la línea o del ingrediente."
+      "¿Cuántas oz lleva 1 orden? Dime la equivalencia y guardo el precio."
     );
   });
 });
@@ -156,7 +158,7 @@ describe("«Agregar precio» in the recipe editor", () => {
     if (r.ok) return;
     expect(r.status).toBe(400);
     expect(r.error).toBe(
-      "No puedo guardar un precio por orden en un ingrediente que se compra por oz. Cambia la unidad de la línea o del ingrediente."
+      "¿Cuántas oz lleva 1 orden? Dime la equivalencia y guardo el precio."
     );
     expect(s.entries).toHaveLength(0);
   });

@@ -13,7 +13,11 @@
 
 import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { loadCompanyMembershipRole } from "@/lib/restaurant/cost-workbook/reset-auth";
+import {
+  forbiddenResponse,
+  resolveActor,
+  type Actor,
+} from "@/lib/auth/permissions";
 import {
   canAccessOdooComboDiagnostics,
   collectOdooComboDiagnostics,
@@ -53,28 +57,24 @@ export async function GET() {
     if (!auth.ok) return auth.response;
     const { supabase, companyId, userId } = auth;
 
-    const isMiltonAdmin = await isUserAdminServer(userId);
-    let membershipRole: string | null = null;
+    let actor: Actor;
     try {
-      membershipRole = (
-        await loadCompanyMembershipRole(supabase, companyId, userId)
-      ).role;
+      actor = await resolveActor(supabase, userId, { companyId });
     } catch (err) {
+      // The role could not be read: only Milton staff may continue.
       console.error(
         "[Odoo Combo Diagnostics] role",
         err instanceof Error ? err.message : "Unknown error"
       );
-      if (!isMiltonAdmin) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
+      actor = {
+        userId,
+        companyId,
+        role: null,
+        isMiltonStaff: await isUserAdminServer(userId),
+      };
     }
-    if (
-      !canAccessOdooComboDiagnostics({
-        isMiltonAdmin,
-        role: membershipRole,
-      })
-    ) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!canAccessOdooComboDiagnostics(actor)) {
+      return forbiddenResponse();
     }
 
     const session = await loadOdooSession(

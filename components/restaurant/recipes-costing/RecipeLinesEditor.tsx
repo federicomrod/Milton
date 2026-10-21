@@ -44,6 +44,33 @@ import {
 } from "@/lib/restaurant/recipe-costing/format";
 import { Chip, GhostBtn, PrimaryBtn } from "./ui";
 import { UnitConversionForm } from "./UnitConversionForm";
+import { KITCHEN_UNITS, mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
+
+/** What another screen asks of this editor: open a line's price or unit question. */
+export interface EditorFocusRequest {
+  lineKey: string;
+  what: "price" | "unit_question";
+  nonce: number;
+}
+
+/** The one list of units for a line and for a price. */
+function unitOptions(current: string | null | undefined): Array<{
+  value: string;
+  label: string;
+}> {
+  const list: Array<{ value: string; label: string }> = KITCHEN_UNITS.map(
+    (u) => ({ value: u.value, label: u.label })
+  );
+  if (current && !list.some((u) => u.value === current)) {
+    list.push({ value: current, label: UNIT_LABEL[current] ?? current });
+  }
+  return list;
+}
+
+/** The dropdown value for a unit as the editor stores it («unit» is «unidad»). */
+function unitValue(raw: string): string {
+  return mapKitchenUnit(raw) ?? raw;
+}
 import { MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
@@ -69,6 +96,7 @@ const UNIT_LABEL: Record<string, string> = {
   gal: "galón",
   unit: "unidad",
   portion: "porción",
+  orden: "orden",
 };
 
 /** Why a line has no amount, in one short chip. */
@@ -172,7 +200,10 @@ export function RecipeLinesEditor({
   onState,
   onOpenPreparation,
   forceLocked = false,
+  focusRequest = null,
 }: {
+  /** Another screen asks to open a line's price editor or unit question. */
+  focusRequest?: EditorFocusRequest | null;
   /** A dish, by POS product… */
   odooProductId?: number;
   /** …or a preparation. */
@@ -208,6 +239,9 @@ export function RecipeLinesEditor({
     null
   );
   const [defining, setDefining] = useState(false);
+  /** The line whose save needs the unit question, and the save to repeat. */
+  const [hintLineKey, setHintLineKey] = useState<string | null>(null);
+  const retryBody = useRef<Record<string, unknown> | null>(null);
   const [picking, setPicking] = useState<PickTarget | null>(null);
   /** The item just added, to show "✓ guardado" for a moment. */
   const [justAdded, setJustAdded] = useState<string | null>(null);
@@ -230,6 +264,21 @@ export function RecipeLinesEditor({
   useEffect(() => {
     if (state && onState) onState(state);
   }, [state, onState]);
+
+  // The line opens its own editor on a new nonce (see LineRow); here only the
+  // scroll, so no state is set inside the effect.
+  const focusedLine: EditorFocusRequest | null = state ? focusRequest : null;
+  const lastFocusNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!focusRequest || lastFocusNonce.current === focusRequest.nonce) return;
+    if (!state) return;
+    lastFocusNonce.current = focusRequest.nonce;
+    const el =
+      typeof document !== "undefined"
+        ? document.getElementById(`linea-${focusRequest.lineKey}`)
+        : null;
+    el?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  }, [focusRequest, state]);
 
   /** Use the session's picker list when the server left it out. */
   const withOptions = useCallback(
@@ -295,6 +344,7 @@ export function RecipeLinesEditor({
       setState(withOptions(res.state));
       setError(null);
       setConversionHint(null);
+      setHintLineKey(null);
       setDefining(false);
       onEdited();
     } else {
@@ -302,12 +352,22 @@ export function RecipeLinesEditor({
     }
   }
 
+  /** The conversion is saved: costs refresh, and the price that asked is saved. */
+  async function afterConversion() {
+    const again = retryBody.current;
+    retryBody.current = null;
+    await refresh();
+    if (again) await send(again);
+  }
+
   async function send(
     body: Record<string, unknown>,
     /** Show the change right away (quantity, line price); no lock. */
     optimistic?:
       | { inputId: string; qty?: number; unit_cost?: number | null }
-      | { add: PickerOption; qty: number; unit: string }
+      | { add: PickerOption; qty: number; unit: string },
+    /** The line this save belongs to: its unit question opens under it. */
+    lineKey?: string
   ): Promise<boolean> {
     const before = state;
     editSeq.current++;
@@ -327,6 +387,7 @@ export function RecipeLinesEditor({
     }
     setError(null);
     setConversionHint(null);
+    setHintLineKey(null);
     const changesCatalog = CATALOG_CHANGING_ACTIONS.has(String(body.action));
     // A price in the ingredient's own unit moves ONE option: patch it, keep
     // the list (the server then leaves it out of the answer).
@@ -353,8 +414,17 @@ export function RecipeLinesEditor({
     if (!res.ok) {
       if (optimistic && before) setState(before);
       if (patchedList) invalidatePickerOptions();
-      setError(res.error);
-      setConversionHint(res.conversion ?? null);
+      // Units that do not convert are a question, never a dead end.
+      if (res.conversion) {
+        setError(null);
+        setConversionHint(res.conversion);
+        setHintLineKey(lineKey ?? null);
+        retryBody.current = body;
+      } else {
+        setError(res.error);
+        setConversionHint(null);
+        setHintLineKey(null);
+      }
       setDefining(false);
       return false;
     }
@@ -437,29 +507,18 @@ export function RecipeLinesEditor({
       {error ? (
         <div className="mb-2 rounded-md border border-[#f1c0c0] bg-[#fdecec] px-3 py-2 text-xs text-[#c03535]">
           {error}
-          {conversionHint ? (
-            <>
-              {" "}
-              <button
-                type="button"
-                onClick={() => setDefining((v) => !v)}
-                className="font-semibold underline"
-              >
-                Definir conversión
-              </button>
-            </>
-          ) : null}
         </div>
       ) : null}
-      {conversionHint && defining ? (
+      {conversionHint && !hintLineKey ? (
         <div className="mb-2">
           <UnitConversionForm
+            asQuestion
             ingredientId={conversionHint.ingredient_id}
             ingredientName={conversionHint.ingredient_name}
-            unitA={conversionHint.to_unit}
-            unitB={conversionHint.from_unit}
-            onSaved={() => void refresh()}
-            onCancel={() => setDefining(false)}
+            unitA={conversionHint.from_unit}
+            unitB={conversionHint.to_unit}
+            onSaved={() => void afterConversion()}
+            onCancel={() => setConversionHint(null)}
           />
         </div>
       ) : null}
@@ -594,7 +653,11 @@ export function RecipeLinesEditor({
                 )
               }
               onUnit={(unit) =>
-                void send({ action: "update", input_id: line.input_id, unit })
+                void send(
+                  { action: "update", input_id: line.input_id, unit },
+                  undefined,
+                  line.key
+                )
               }
               onAnswerUnit={(unit) =>
                 void send({
@@ -628,20 +691,37 @@ export function RecipeLinesEditor({
                   // only when the price is in the line's own unit.
                   line.input_id && sameUnit(unit, line.unit)
                     ? { inputId: line.input_id, unit_cost: cost }
-                    : undefined
+                    : undefined,
+                  line.key
                 )
               }
               canFixPrice={!busy}
               onCorrectUnit={(unit, cost) =>
-                void send({
-                  action: "set_price",
-                  ingredient_id: line.ingredient_id,
-                  unit,
-                  unit_cost: cost,
-                  correct_unit: true,
-                })
+                void send(
+                  {
+                    action: "set_price",
+                    ingredient_id: line.ingredient_id,
+                    unit,
+                    unit_cost: cost,
+                    correct_unit: true,
+                  },
+                  undefined,
+                  line.key
+                )
               }
               onConversionSaved={() => void refresh()}
+              conversionQuestion={
+                conversionHint && hintLineKey === line.key
+                  ? {
+                      ingredient_id: conversionHint.ingredient_id,
+                      ingredient_name: conversionHint.ingredient_name,
+                      from_unit: conversionHint.from_unit,
+                      to_unit: conversionHint.to_unit,
+                      onSaved: () => void afterConversion(),
+                    }
+                  : null
+              }
+              focus={focusedLine?.lineKey === line.key ? focusedLine : null}
               onAdoptLegacy={(unit, cost) =>
                 void send({
                   action: "set_price",
@@ -689,7 +769,7 @@ export function DishTotalRow({ lines }: { lines: EditorLine[] }) {
         {total !== null ? (
           money(total)
         ) : (
-          <span className="text-[#a35a00]">
+          <span className="text-[#6b7280]">
             Sin precio · {missing}{" "}
             {missing === 1 ? "línea pendiente" : "líneas pendientes"}
           </span>
@@ -711,7 +791,7 @@ function PreparationTotalRow({ lines }: { lines: EditorLine[] }) {
       <td colSpan={4} className="py-2 text-right font-semibold">
         Total de la preparación
         {total === null ? (
-          <span className="ml-2 rounded-md bg-[#fff4e5] px-1.5 py-0.5 text-[12px] font-semibold text-[#a35a00]">
+          <span className="ml-2 rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]">
             incompleto ·{" "}
             {missing === 1
               ? "1 línea sin precio"
@@ -747,6 +827,8 @@ function Row({
   canFixPrice,
   onCorrectUnit,
   openFix = false,
+  conversionQuestion = null,
+  focus = null,
 }: {
   line: EditorLine;
   editable: boolean;
@@ -777,14 +859,35 @@ function Row({
   onCorrectUnit: (unit: string, cost: number) => void;
   /** «Corregir precio» of the banner points at this line: open its fix. */
   openFix?: boolean;
+  /** A save failed because the units do not convert: ask it under this line. */
+  conversionQuestion?: {
+    ingredient_id: string;
+    ingredient_name: string;
+    from_unit: string;
+    to_unit: string;
+    onSaved: () => void;
+  } | null;
+  /** Another screen asked to open this line's price or unit question. */
+  focus?: EditorFocusRequest | null;
 }) {
   const [correcting, setCorrecting] = useState(false);
   const [correctUnit, setCorrectUnit] = useState("");
   const [fixOpened, setFixOpened] = useState(false);
-  const [definingConversion, setDefiningConversion] = useState(false);
+  const [priceUnit, setPriceUnit] = useState(
+    unitValue(line.price?.unit ?? line.unit)
+  );
+  const [questionForced, setQuestionForced] = useState(false);
+  const [editingPrice, setEditingPrice] = useState(false);
+  // A new request (new nonce) opens this line's price editor or its unit
+  // question. Adjusted while rendering, not in an effect.
+  const [seenFocus, setSeenFocus] = useState<number | null>(null);
+  if (focus && focus.nonce !== seenFocus) {
+    setSeenFocus(focus.nonce);
+    if (focus.what === "price") setEditingPrice(true);
+    else setQuestionForced(true);
+  }
   const [qty, setQty] = useState(String(line.qty || ""));
   const [price, setPrice] = useState("");
-  const [editingPrice, setEditingPrice] = useState(false);
   /** One click on a price opens the field to type a new one. */
   // An INGREDIENT's price is ingredient data, not recipe data: it can be set on
   // an approved recipe too (set_price never touches the version). Quantity,
@@ -837,7 +940,7 @@ function Row({
     setFixOpened(true);
     if (priceUnitMismatch) {
       setCorrecting(true);
-      setCorrectUnit(line.unit);
+      setCorrectUnit(unitValue(line.unit));
     } else if (line.kind === "ingredient" && line.amount === null) {
       setEditingPrice(true);
     }
@@ -853,20 +956,30 @@ function Row({
       ? { quantity: typedQty, line_unit: menuUnit }
       : undefined;
   const waitingForAmount = fromMenu && !typed;
-  const units = unitsLike(line.price?.unit ?? line.unit);
-  const baseUnits = units.includes(line.unit) ? units : [line.unit, ...units];
-  // A preparation can always be used in the label it yields in.
-  const shownUnits =
-    line.component_unit && !baseUnits.includes(line.component_unit)
-      ? [...baseUnits, line.component_unit]
-      : baseUnits;
+  // One fixed Spanish list for the line and for the price; a unit outside it
+  // (a preparation's own label, galón…) is added so nothing is lost.
+  const lineUnitValue = unitValue(line.unit);
+  const shownUnits = unitOptions(
+    line.component_unit && !mapKitchenUnit(line.component_unit)
+      ? lineUnitValue === line.component_unit
+        ? lineUnitValue
+        : (line.component_unit ?? lineUnitValue)
+      : lineUnitValue
+  );
+  if (!shownUnits.some((u) => u.value === lineUnitValue)) {
+    shownUnits.push({
+      value: lineUnitValue,
+      label: UNIT_LABEL[lineUnitValue] ?? lineUnitValue,
+    });
+  }
+  const priceUnitOptions = unitOptions(priceUnit);
 
   return (
     <tr
       id={`linea-${line.key}`}
       className={
         "border-t border-[#f2f3f6] " +
-        (unresolved || waitingPrep ? "bg-[#fff8ec]" : "")
+        (unresolved || waitingPrep ? "bg-[#f9fafb]" : "")
       }
     >
       <td className="py-1.5 pr-2 align-top">
@@ -874,7 +987,7 @@ function Row({
           <>
             <b>{line.raw_name}</b>
             {line.catalog_question ? (
-              <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[12px]">
+              <div className="mt-1 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-[12px]">
                 Está en tu lista de precios, pero no dice en qué unidad viene el
                 precio. ¿Cuál es?
                 {editable ? (
@@ -927,7 +1040,7 @@ function Row({
                       : undefined
                   }
                   onClick={() => onPick(typed)}
-                  className="inline-flex min-w-44 items-center justify-between gap-2 rounded-md border border-[#f5a524] bg-white px-2 py-0.5 text-left text-[12px] disabled:opacity-45"
+                  className="inline-flex min-w-44 items-center justify-between gap-2 rounded-md border border-[#e5e7eb] bg-white px-2 py-0.5 text-left text-[12px] disabled:opacity-45"
                 >
                   <span className="truncate">
                     {line.possible_match
@@ -994,7 +1107,7 @@ function Row({
             </div>
             {waitingPrep ? (
               <div
-                className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[12px] text-[#5b4515]"
+                className="mt-1 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-[12px] text-[#6b7280]"
                 data-testid="prep-without-cost"
               >
                 {line.component_missing && line.component_missing.length > 0 ? (
@@ -1014,7 +1127,7 @@ function Row({
                     </GhostBtn>
                   </div>
                 ) : null}
-                <div className="mt-1 text-[#8a7340]">
+                <div className="mt-1 text-[#6b7280]">
                   O escribe aquí el precio de esta línea.
                 </div>
               </div>
@@ -1043,7 +1156,7 @@ function Row({
             ) : null}
             {prepUnitProblem ? (
               <div
-                className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[12px] text-[#5b4515]"
+                className="mt-1 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-[12px] text-[#6b7280]"
                 data-testid="prep-unit-problem"
               >
                 La preparación <b>{line.name}</b> ya está aprobada, pero esta
@@ -1058,7 +1171,7 @@ function Row({
               </div>
             ) : null}
             {line.unit_question ? (
-              <div className="mt-1 rounded-md border border-[#f5c98b] bg-[#fff8ec] px-2 py-1 text-[12px]">
+              <div className="mt-1 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-[12px]">
                 Tu archivo dice{" "}
                 {UNIT_LABEL[line.unit_question.written] ??
                   line.unit_question.written}
@@ -1090,7 +1203,7 @@ function Row({
             disabled={!editable}
             placeholder="Pendiente"
             onChange={(event) => setQty(event.target.value)}
-            className="inline-block w-20 rounded-md border border-[#f5a524] bg-[#fff8ec] px-1.5 py-0.5 text-right"
+            className="inline-block w-20 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-1.5 py-0.5 text-right"
           />
         ) : unresolved ? (
           <span className="text-[#6b7385]">{line.qty}</span>
@@ -1113,7 +1226,7 @@ function Row({
             value={menuUnit}
             disabled={!editable}
             onChange={(event) => setMenuUnit(event.target.value)}
-            className="rounded-md border border-[#f5a524] bg-[#fff8ec] px-1 py-0.5"
+            className="rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-1 py-0.5"
           >
             <option value="">—</option>
             {ALL_UNITS.map((unit) => (
@@ -1128,14 +1241,15 @@ function Row({
           </span>
         ) : (
           <select
-            value={line.unit}
+            value={lineUnitValue}
             disabled={!editable}
+            aria-label="Unidad de la línea"
             onChange={(event) => onUnit(event.target.value)}
             className="rounded-md border border-[#d5dae3] bg-white px-1 py-0.5"
           >
             {shownUnits.map((unit) => (
-              <option key={unit} value={unit}>
-                {UNIT_LABEL[unit] ?? unit}
+              <option key={unit.value} value={unit.value}>
+                {unit.label}
               </option>
             ))}
           </select>
@@ -1154,9 +1268,17 @@ function Row({
               }}
               className="w-16 rounded-md border border-[#d5dae3] px-1.5 py-0.5 text-right"
             />
-            <span className="text-[12px] text-[#8a92a3]">
-              /{UNIT_LABEL[line.unit] ?? line.unit}
-            </span>
+            {line.kind === "ingredient" ? (
+              <PriceUnitSelect
+                value={priceUnit}
+                options={priceUnitOptions}
+                onChange={setPriceUnit}
+              />
+            ) : (
+              <span className="text-[12px] text-[#8a92a3]">
+                /{UNIT_LABEL[line.unit] ?? line.unit}
+              </span>
+            )}
             <GhostBtn
               onClick={() => {
                 const n = Number(linePrice);
@@ -1165,7 +1287,7 @@ function Row({
                   setEditingPrice(false);
                   // An ingredient's price is the ingredient's (one price,
                   // everywhere); a preparation line keeps its own cost.
-                  if (line.kind === "ingredient") onPrice(line.unit, n);
+                  if (line.kind === "ingredient") onPrice(priceUnit, n);
                   else onLineCost(n);
                 }
               }}
@@ -1202,7 +1324,7 @@ function Row({
           !line.price &&
           line.catalog_question ? (
           <div className="text-left text-[12px]">
-            <div className="text-[#a35a00]">
+            <div className="text-[#6b7280]">
               Tu lista no deja clara la unidad. ¿Cuál es?
             </div>
             <div className="mt-1 flex flex-wrap justify-end gap-1">
@@ -1235,16 +1357,19 @@ function Row({
               placeholder="Precio"
               disabled={!canFixPrice}
               onChange={(event) => setPrice(event.target.value)}
-              className="w-16 rounded-md border border-[#f5a524] bg-[#fff8ec] px-1.5 py-0.5 text-right font-bold"
+              className="w-16 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-1.5 py-0.5 text-right font-bold"
             />
-            <span className="text-[12px] text-[#8a92a3]">
-              /{UNIT_LABEL[line.unit] ?? line.unit}
-            </span>
+            <PriceUnitSelect
+              value={priceUnit}
+              options={priceUnitOptions}
+              disabled={!canFixPrice}
+              onChange={setPriceUnit}
+            />
             <GhostBtn
               disabled={!canFixPrice}
               onClick={() => {
                 const n = Number(price);
-                if (Number.isFinite(n) && n > 0) onPrice(line.unit, n);
+                if (Number.isFinite(n) && n > 0) onPrice(priceUnit, n);
               }}
             >
               Agregar precio
@@ -1305,13 +1430,13 @@ function Row({
               UNIT_LABEL[line.price!.unit] ?? line.price!.unit,
               UNIT_LABEL[line.unit] ?? line.unit
             )}
-            className="text-[#a35a00]"
+            className="text-[#6b7280]"
           >
             {UNIT_MISMATCH_LABEL}
           </span>
         ) : (
           <span
-            className="rounded-md bg-[#fff4e5] px-1.5 py-0.5 text-[12px] font-semibold text-[#a35a00]"
+            className="rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]"
             data-testid="pending-reason"
           >
             {pendingReasonOf(line, prepUnitProblem)}
@@ -1320,7 +1445,7 @@ function Row({
         {line.amount !== null && line.unit_question ? (
           <div>
             <span
-              className="rounded-md bg-[#fff4e5] px-1.5 py-0.5 text-[12px] font-semibold text-[#a35a00]"
+              className="rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]"
               data-testid="pending-reason"
             >
               Unidad por confirmar
@@ -1329,10 +1454,10 @@ function Row({
         ) : null}
         {line.legacy_price && line.ingredient_id ? (
           <div
-            className="text-left text-[12px] font-normal text-[#a35a00]"
+            className="text-left text-[12px] font-normal text-[#6b7280]"
             data-testid="legacy-line-price"
           >
-            Precio antiguo de la receta: {money(line.legacy_price.unit_cost)}/
+            en tu Excel: {money(line.legacy_price.unit_cost)}/
             {UNIT_LABEL[line.legacy_price.unit] ?? line.legacy_price.unit}
             {canFixPrice ? (
               <>
@@ -1357,18 +1482,11 @@ function Row({
           <div className="flex flex-col items-end gap-0.5">
             <button
               type="button"
-              onClick={() => setDefiningConversion((v) => !v)}
-              className="text-[12px] font-semibold text-[#1b40c8] underline"
-            >
-              Definir conversión
-            </button>
-            <button
-              type="button"
               onClick={() => {
                 setCorrecting((v) => !v);
                 setCorrectUnit(line.unit);
               }}
-              className="text-[12px] font-semibold text-[#1b40c8] underline"
+              className="rounded-md border border-[#c6d3f5] bg-white px-2 py-0.5 text-[12px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
             >
               Corregir unidad del precio
             </button>
@@ -1386,9 +1504,9 @@ function Row({
               onChange={(e) => setCorrectUnit(e.target.value)}
               className="rounded border border-[#c6d3f5] bg-white px-1 py-0.5"
             >
-              {[...new Set([line.unit, ...ALL_UNITS])].map((u) => (
-                <option key={u} value={u}>
-                  {UNIT_LABEL[u] ?? u}
+              {unitOptions(unitValue(correctUnit || line.unit)).map((u) => (
+                <option key={u.value} value={u.value}>
+                  {u.label}
                 </option>
               ))}
             </select>{" "}
@@ -1408,18 +1526,34 @@ function Row({
             </div>
           </div>
         ) : null}
-        {definingConversion && priceUnitMismatch && line.ingredient_id ? (
+        {(priceUnitMismatch || questionForced) &&
+        canFixPrice &&
+        line.ingredient_id &&
+        line.price?.unit &&
+        !conversionQuestion ? (
           <div className="text-left font-normal">
             <UnitConversionForm
+              asQuestion
               ingredientId={line.ingredient_id}
               ingredientName={line.name ?? ""}
               unitA={line.unit}
-              unitB={line.price!.unit}
+              unitB={line.price.unit}
               onSaved={() => {
-                setDefiningConversion(false);
+                setQuestionForced(false);
                 onConversionSaved();
               }}
-              onCancel={() => setDefiningConversion(false)}
+            />
+          </div>
+        ) : null}
+        {conversionQuestion ? (
+          <div className="text-left font-normal">
+            <UnitConversionForm
+              asQuestion
+              ingredientId={conversionQuestion.ingredient_id}
+              ingredientName={conversionQuestion.ingredient_name}
+              unitA={conversionQuestion.from_unit}
+              unitB={conversionQuestion.to_unit}
+              onSaved={conversionQuestion.onSaved}
             />
           </div>
         ) : null}
@@ -1463,6 +1597,34 @@ function Row({
         ) : null}
       </td>
     </tr>
+  );
+}
+
+function PriceUnitSelect({
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (unit: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      aria-label="Unidad del precio"
+      onChange={(event) => onChange(event.target.value)}
+      className="rounded-md border border-[#d5dae3] bg-white px-1 py-0.5 text-[12px]"
+    >
+      {options.map((u) => (
+        <option key={u.value} value={u.value}>
+          {u.label}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -1556,7 +1718,7 @@ function Picker({
   }
 
   return (
-    <div className="mb-2 space-y-2 rounded-[10px] border border-[#f5c98b] bg-[#fff8ec] p-2.5 text-xs">
+    <div className="mb-2 space-y-2 rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] p-2.5 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <input
           autoFocus

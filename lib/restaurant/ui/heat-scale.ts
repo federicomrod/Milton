@@ -2,7 +2,7 @@
 //
 // The ONE colour scale of every heatmap (Ventas › hora × día, Cockpit): brand
 // blue #1B40C8 from light to dark. Intensity is 0–1 (the cell's value over the
-// maximum); `null` / nothing sold is the neutral grey. No warning hue: yellow/red mean
+// maximum); `null` / nothing sold is the neutral grey. No warning hue: red means
 // «warning / pending» in this product, never "more sales".
 
 /** A cell with no value (or no sales). */

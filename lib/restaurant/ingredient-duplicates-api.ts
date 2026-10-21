@@ -3,31 +3,20 @@
 
 import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
-import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
+import { resolveActor } from "@/lib/auth/permissions";
 import { actionableError } from "@/lib/restaurant/actionable-error";
 
 export const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Signed-in person + company + role. The caller asks requireCapability.
 export async function gate() {
   const auth = await authAndCompany();
   if (!auth.ok) return { ok: false as const, response: auth.response };
-  const actor = await loadRecipeActor(
-    auth.supabase,
-    auth.companyId,
-    auth.userId
-  );
-  if (!actorCanSubmitForApproval(actor)) {
-    return {
-      ok: false as const,
-      response: NextResponse.json(
-        { error: "Tu rol no puede unir ni descartar ingredientes." },
-        { status: 403 }
-      ),
-    };
-  }
-  return { ok: true as const, auth };
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  return { ok: true as const, auth, actor };
 }
 
 export function failureResponse(

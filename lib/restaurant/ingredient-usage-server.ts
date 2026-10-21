@@ -2,11 +2,14 @@
 // preparations) and the archived ingredient ids. Read-only.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
 import {
-  computeIngredientUsage,
+  usageFromUses,
   type IngredientUsage,
 } from "@/lib/restaurant/ingredient-usage";
+import {
+  loadIngredientUses,
+  type IngredientUseEntry,
+} from "@/lib/restaurant/ingredient-uses-server";
 
 export interface IngredientUsageLoad extends IngredientUsage {
   /** Ids with `archived_at` set (050). */
@@ -15,14 +18,16 @@ export interface IngredientUsageLoad extends IngredientUsage {
   archiveAvailable: boolean;
   /** The recipes could be read; false = usage is unknown (do not hide anything). */
   ok: boolean;
+  /** Every dish and preparation that uses each ingredient: the SAME list the detail shows. */
+  usesByIngredient: Map<string, IngredientUseEntry[]>;
 }
 
 export async function loadIngredientUsage(
   supabase: SupabaseClient,
   companyId: string
 ): Promise<IngredientUsageLoad> {
-  const [versions, archivedRes] = await Promise.all([
-    fetchCostingRecipeVersions(supabase, companyId),
+  const [uses, archivedRes] = await Promise.all([
+    loadIngredientUses(supabase, companyId),
     Promise.resolve(
       supabase
         .from("ingredients")
@@ -36,20 +41,11 @@ export async function loadIngredientUsage(
   const archivedIds = new Set(
     ((archivedRes.data ?? []) as Array<{ id: string }>).map((r) => r.id)
   );
-  const ok = !versions.recipeVersionsError && !versions.componentVersionsError;
-  if (!ok) {
-    console.error(
-      "[ingredient-usage] recipes:",
-      versions.recipeVersionsError ?? versions.componentVersionsError
-    );
-  }
-  const usage = computeIngredientUsage({
-    menuVersionsByMenuItemId: versions.menuRecipeVersionsByMenuItemId,
-    menuInputsByVersionId: versions.menuRecipeVersionInputsByVersionId,
-    componentVersionsByComponentId:
-      versions.componentRecipeVersionsByComponentId,
-    componentInputsByVersionId:
-      versions.componentRecipeVersionInputsByVersionId,
-  });
-  return { ...usage, archivedIds, archiveAvailable, ok };
+  return {
+    ...usageFromUses(uses.usesByIngredient),
+    usesByIngredient: uses.usesByIngredient,
+    archivedIds,
+    archiveAvailable,
+    ok: uses.ok,
+  };
 }

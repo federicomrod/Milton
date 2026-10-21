@@ -381,14 +381,14 @@ export interface IngredientCostEntryInsert {
   notes: string | null;
 }
 
-/** The Spanish message when a typed price cannot be read in the ingredient's unit. */
+/** The question (never a dead end) when a typed price cannot be read in the ingredient's unit. */
 export function unitMismatchMessage(
   priceUnit: string,
   ingredientUnit: string | null
 ): string {
   const a = priceUnit.trim().toLowerCase();
   const b = (ingredientUnit ?? priceUnit).trim().toLowerCase();
-  return `No puedo guardar un precio por ${a} en un ingrediente que se compra por ${b}. Cambia la unidad de la línea o del ingrediente.`;
+  return `¿Cuántas ${b} lleva 1 ${a}? Dime la equivalencia y guardo el precio.`;
 }
 
 /**

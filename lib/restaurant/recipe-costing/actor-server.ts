@@ -1,20 +1,21 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isUserAdminServer } from "@/lib/profile-service-server";
-import { loadCompanyMembershipRole } from "@/lib/restaurant/cost-workbook/reset-auth";
+import { resolveActor } from "@/lib/auth/permissions";
 import type { RecipeActor } from "./approval";
 
+/**
+ * The recipe actor for ONE company: the role is the membership in exactly
+ * that company (admin read, trimmed + lowercased); Milton staff via the
+ * shared helper. Every permission question then goes through lib/auth.
+ */
 export async function loadRecipeActor(
   supabase: SupabaseClient,
   companyId: string,
   userId: string
 ): Promise<RecipeActor> {
-  const [roleLoad, isMiltonStaff] = await Promise.all([
-    loadCompanyMembershipRole(supabase, companyId, userId),
-    isUserAdminServer(userId),
-  ]);
+  const actor = await resolveActor(supabase, userId, { companyId });
   return {
     user_id: userId,
-    role: roleLoad.role,
-    is_milton_staff: isMiltonStaff,
+    role: actor.role,
+    is_milton_staff: actor.isMiltonStaff,
   };
 }

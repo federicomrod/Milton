@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook";
 import {
@@ -25,6 +26,11 @@ export async function POST(
   const { id } = await params;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "prices.edit");
+  if (denied) return denied;
 
   let body: Record<string, unknown>;
   try {

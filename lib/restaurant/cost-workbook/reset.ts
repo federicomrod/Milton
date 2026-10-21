@@ -1,3 +1,4 @@
+import { can } from "@/lib/auth/capabilities";
 import type { CostWorkbookRepo } from "./repo";
 import type {
   CompanyCostResetSummary,
@@ -232,7 +233,15 @@ export function resetConfirmErrorEs(target: CostResetConfirmTarget): string {
 export function canManageCompanyCostReset(input: {
   role: string | null | undefined;
 }): boolean {
-  return input.role === "owner" || input.role === "admin";
+  return can(
+    {
+      userId: "",
+      companyId: null,
+      role: input.role ?? null,
+      isMiltonStaff: false,
+    },
+    "costs.reset"
+  );
 }
 
 export function undoFailureMessageEs(

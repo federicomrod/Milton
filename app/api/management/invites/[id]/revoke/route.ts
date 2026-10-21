@@ -4,7 +4,7 @@
 // Already accepted or revoked invites cannot be revoked (404).
 
 import { NextRequest, NextResponse } from "next/server";
-import { isUserAdminServer } from "@/lib/profile-service-server";
+import { requireMiltonStaff } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -18,9 +18,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    if (!(await isUserAdminServer())) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const notStaff = await requireMiltonStaff();
+    if (notStaff) return notStaff;
     const { id } = await params;
     if (!UUID_RE.test(id)) {
       return NextResponse.json({ error: "Invalid invite id" }, { status: 400 });

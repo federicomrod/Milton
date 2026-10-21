@@ -35,6 +35,21 @@ vi.mock("@/lib/restaurant/recipe-costing/link-actions-server", () => ({
 import { approveRecipeVersion } from "@/lib/restaurant/recipe-costing/approval-server";
 
 /** recipe_versions + recipe_version_inputs, capturing the approval update. */
+const liveOk = async () => ({
+  ok: true as const,
+  version_id: "v1",
+  lines: [
+    {
+      key: "l",
+      kind: "ingredient",
+      raw_name: "A",
+      unit: "g",
+      amount: 1,
+      flags: ["ok"],
+    },
+  ] as never,
+});
+
 function fakeDb(opts: { before041?: boolean } = {}) {
   const updates: Record<string, unknown>[] = [];
   const version = {
@@ -101,6 +116,7 @@ describe("approval audit (migration 041)", () => {
       actor: { user_id: "owner-1", role: "owner", is_milton_staff: false },
       recipeVersionId: "v1",
       odooProductId: 7,
+      loadLiveLines: liveOk,
     });
     expect(r).toEqual({ ok: true });
     expect(db.updates).toHaveLength(1);
@@ -121,6 +137,7 @@ describe("approval audit (migration 041)", () => {
       actor: { user_id: "staff-1", role: null, is_milton_staff: true },
       recipeVersionId: "v1",
       odooProductId: 7,
+      loadLiveLines: liveOk,
       confirmedHow: "whatsapp",
     });
     expect(r).toEqual({ ok: true });
@@ -142,6 +159,7 @@ describe("approval audit (migration 041)", () => {
       actor: { user_id: "owner-1", role: "owner", is_milton_staff: false },
       recipeVersionId: "v1",
       odooProductId: 7,
+      loadLiveLines: liveOk,
     });
     expect(r).toEqual({ ok: true });
     expect(db.updates).toEqual([

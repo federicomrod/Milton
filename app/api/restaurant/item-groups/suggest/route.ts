@@ -8,8 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
-import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { suggestGroupsWithAi } from "@/lib/ai/group-suggestions";
 import { MAX_AI_ITEMS } from "@/lib/restaurant/groups/ai-clusters";
 
@@ -63,17 +62,13 @@ export async function POST(req: NextRequest) {
     .filter((n): n is string => typeof n === "string")
     .slice(0, 500);
 
-  const actor = await loadRecipeActor(
-    auth.supabase,
-    auth.companyId,
-    auth.userId
-  );
-  if (!actorCanSubmitForApproval(actor)) {
-    return NextResponse.json(
-      { error: "Tu rol no puede cambiar las agrupaciones." },
-      { status: 403 }
-    );
-  }
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "groups.manage", {
+    message: "Tu rol no puede cambiar las agrupaciones.",
+  });
+  if (denied) return denied;
   try {
     const result = await suggestGroupsWithAi({
       scope: scope as "product" | "preparation" | "ingredient",

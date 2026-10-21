@@ -282,7 +282,7 @@ describe("typing a price on a line whose unit differs from the price unit", () =
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.status).toBe(400);
-    expect(r.error).toContain("No puedo guardar un precio por taza");
+    expect(r.error).toContain("¿Cuántas oz lleva 1 taza?");
     expect(r.conversion).toMatchObject({
       ingredient_id: "i-papas",
       from_unit: "taza",
@@ -355,6 +355,19 @@ function fakeSupabase() {
   };
 }
 
+// The role is read with the admin client (lib/auth/permissions.ts).
+vi.mock("@/lib/supabase/admin", () => {
+  const chain: Record<string, unknown> = {
+    from: () => chain,
+    select: () => chain,
+    eq: () => chain,
+    maybeSingle: async () => ({ data: { role: "owner" }, error: null }),
+  };
+  return { createAdminClient: () => chain };
+});
+vi.mock("@/lib/profile-service-server", () => ({
+  isUserAdminServer: async () => false,
+}));
 vi.mock("@/lib/restaurant/api-auth", () => ({
   authAndCompany: async () => ({
     ok: true,

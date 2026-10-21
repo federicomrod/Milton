@@ -42,6 +42,11 @@ export const KITCHEN_COPY = {
   /** R8 — recipe received but portions missing. */
   RECIPE_ASK_PORTIONS:
     "¿Para cuántas porciones salió? Responde con un número, por ejemplo: 2.",
+  /** R9 — the answer was understood; {porciones} = «2 porciones» / «1 porción». */
+  RECIPE_PORTIONS_SET: "Listo: {porciones}. Ya está en Cocina para revisar.",
+  /** R10 — a draft is waiting for portions and the reply was not a number. */
+  RECIPE_PORTIONS_UNCLEAR:
+    "No entendí. ¿Para cuántas porciones salió? Responde con un número, por ejemplo: 2.",
 } as const;
 
 export type KitchenCopyKey = keyof typeof KITCHEN_COPY;

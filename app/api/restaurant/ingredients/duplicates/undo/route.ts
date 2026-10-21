@@ -2,6 +2,7 @@
 // R1-15k: Deshacer a merge (ingredient_merge_undo, 051): lines, prices,
 // aliases and archive state go back exactly as the undo record says.
 
+import { requireCapability } from "@/lib/auth/permissions";
 import { NextRequest, NextResponse } from "next/server";
 import {
   UUID,
@@ -15,6 +16,10 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const g = await gate();
   if (!g.ok) return g.response;
+  const denied = requireCapability(g.actor, "ingredients.manage", {
+    message: "Tu rol no puede unir ni descartar ingredientes.",
+  });
+  if (denied) return denied;
   let body: { merge_id?: unknown };
   try {
     body = (await req.json()) as typeof body;

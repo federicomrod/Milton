@@ -13,6 +13,7 @@
 import { IngredientConversions } from "./IngredientConversions";
 import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import Link from "next/link";
+import { CAPABILITY_MESSAGES, type Capability } from "@/lib/auth/capabilities";
 import {
   DuplicatesBanner,
   ManualMergeDialog,
@@ -34,11 +35,10 @@ import {
   usageCounts,
   type UsageFilter,
 } from "@/lib/restaurant/ingredient-usage";
-import { dishHref } from "@/lib/restaurant/menu-links";
+import type { IngredientUseEntry } from "@/lib/restaurant/ingredient-uses";
 import { normalizeUnit } from "@/lib/restaurant/units";
 import {
   PRICE_SOURCE_LABEL,
-  lineImpactAfterPrice,
   parsePriceInput,
   priceChangePct,
   sortIngredientes,
@@ -49,17 +49,6 @@ import {
 export interface SupplierOption {
   id: string;
   name: string;
-}
-
-export interface IngredienteUse {
-  odoo_product_id: number;
-  dish_name: string;
-  qty: number;
-  unit: string;
-  /** Line cost; null = no price (shown as "Sin precio", never $0). */
-  amount: number | null;
-  units_sold: number;
-  net_sales: number;
 }
 
 export interface IngredienteItem {
@@ -81,7 +70,8 @@ export interface IngredienteItem {
   supplier_id: string | null;
   supplier_name: string | null;
   sold_net_sales: number;
-  uses: IngredienteUse[];
+  /** Every dish and preparation that uses it; null = it could not be read. */
+  usedIn: IngredientUseEntry[] | null;
   /** An active recipe (dish, or preparation an active dish uses) has a line with it. */
   inUse: boolean;
   /** Soft-hidden (050). Never true for an ingredient in use. */
@@ -90,7 +80,6 @@ export interface IngredienteItem {
 
 const UNITS = ["kg", "g", "l", "ml", "unit", "portion", "oz", "lb"];
 const RED = "#d14343";
-const AMBER = "#a35a00";
 const GREEN = "#1f9d55";
 const MUTED = "#8a92a3";
 
@@ -166,6 +155,7 @@ export function IngredientesScreen({
   itemGroups = null,
   archiveAvailable = true,
   duplicates = NO_DUPLICATE_STATE,
+  capabilities,
 }: {
   items: IngredienteItem[];
   suppliers: SupplierOption[];
@@ -177,7 +167,11 @@ export function IngredientesScreen({
   archiveAvailable?: boolean;
   /** Possible duplicates and the merge history (051); empty before it is applied. */
   duplicates?: DuplicateState;
+  /** What this person may do: the server's can() answers (capabilityFlags). */
+  capabilities?: Partial<Record<Capability, boolean>>;
 }) {
+  const allowed = (capability: Capability) =>
+    capabilities?.[capability] ?? true;
   const grouping = useItemGroups(itemGroups);
   const [items, setItems] = useState(initialItems);
   // A merge or an undo re-reads the page: the new rows replace ours.
@@ -283,8 +277,10 @@ export function IngredientesScreen({
     items: visible,
     scope: "ingredient",
     grouping,
-    canEdit: true,
-    onMergeSelected: (ids, clear) => setMergeSel({ ids, clear }),
+    canEdit: allowed("groups.manage"),
+    onMergeSelected: allowed("ingredients.manage")
+      ? (ids, clear) => setMergeSel({ ids, clear })
+      : undefined,
     storageKey: "milton:ingredientes:abiertos",
     sortId: "ingredientes",
     sortColumns: INGREDIENT_SORT,
@@ -339,7 +335,7 @@ export function IngredientesScreen({
             Falta precio ({counts.falta_precio})
           </FilterChip>
         </div>
-        {counts.archivable > 0 ? (
+        {counts.archivable > 0 && allowed("ingredients.manage") ? (
           <button
             type="button"
             onClick={archiveAll}
@@ -355,7 +351,7 @@ export function IngredientesScreen({
           </button>
         ) : null}
         {!archiveAvailable && counts.sin_uso > 0 ? (
-          <span className="text-[12px]" style={{ color: MUTED }}>
+          <span className="text-[12px]" style={{ color: "#6b7280" }}>
             Para archivar falta aplicar la migración 050 en este ambiente.
           </span>
         ) : null}
@@ -381,7 +377,7 @@ export function IngredientesScreen({
             "flex w-full items-start justify-between gap-3 border-b border-[#f3f4f7] px-2 py-2.5 text-left " +
             (isSelected
               ? "bg-[#eef2fc] shadow-[inset_3px_0_0_#1b40c8]"
-              : "hover:bg-[#fafbfc]")
+              : "hover:bg-[#f6f8fe]")
           }
         >
           <span className="min-w-0">
@@ -395,7 +391,7 @@ export function IngredientesScreen({
             </span>
             <span
               className="block truncate text-[12px]"
-              style={{ color: MUTED }}
+              style={{ color: "#6b7280" }}
             >
               {item.supplier_name ?? "—"}
             </span>
@@ -404,19 +400,19 @@ export function IngredientesScreen({
             {!item.inUse && item.price === null ? (
               <span
                 className="font-semibold"
-                style={{ color: MUTED }}
+                style={{ color: "#6b7280" }}
                 title="Ninguna receta activa lo usa: no hace falta precio."
               >
                 {item.archived ? "Archivado" : "Sin uso"}
               </span>
             ) : item.price === null ? (
-              <span className="font-semibold" style={{ color: AMBER }}>
+              <span className="font-semibold" style={{ color: "#6b7280" }}>
                 Falta precio
               </span>
             ) : (
               <span className="text-[#151c2c]">
                 {formatMoney(item.price, currency)}
-                <span style={{ color: MUTED }}>
+                <span style={{ color: "#6b7280" }}>
                   {" "}
                   / {item.price_unit ?? item.default_unit ?? "—"}
                 </span>
@@ -432,7 +428,7 @@ export function IngredientesScreen({
     <div className="mt-3 space-y-3">
       <DuplicatesBanner
         q={dupQueue}
-        canEdit
+        canEdit={allowed("ingredients.manage")}
         money={(n, unit) =>
           `${formatMoney(n, currency)}${unit ? `/${unit}` : ""}`
         }
@@ -474,7 +470,10 @@ export function IngredientesScreen({
           >
             {list}
           </div>
-          <AddIngrediente onAdded={onAdded} />
+          <AddIngrediente
+            onAdded={onAdded}
+            canManage={allowed("ingredients.manage")}
+          />
         </section>
 
         {selected ? (
@@ -485,13 +484,15 @@ export function IngredientesScreen({
             currency={currency}
             onSaved={onSaved}
             archiveAvailable={archiveAvailable}
+            canEditPrices={allowed("prices.edit")}
+            canManage={allowed("ingredients.manage")}
             archiving={archiving}
             onArchive={(archived) => void setArchived([selected.id], archived)}
           />
         ) : (
           <section
             className="rounded-[14px] border border-[#eef0f4] bg-white p-6 text-[13px]"
-            style={{ color: MUTED }}
+            style={{ color: "#6b7280" }}
           >
             Elige un ingrediente de la lista.
           </section>
@@ -529,8 +530,10 @@ function FilterChip({
 
 function AddIngrediente({
   onAdded,
+  canManage,
 }: {
   onAdded: (item: IngredienteItem) => void;
+  canManage: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -575,7 +578,7 @@ function AddIngrediente({
         supplier_id: null,
         supplier_name: null,
         sold_net_sales: 0,
-        uses: [],
+        usedIn: [],
         inUse: false,
         archived: false,
       });
@@ -588,12 +591,19 @@ function AddIngrediente({
     }
   };
 
+  if (!canManage) {
+    return (
+      <p className="px-4 py-3 text-[12px]" style={{ color: "#6b7280" }}>
+        {CAPABILITY_MESSAGES["ingredients.manage"]}
+      </p>
+    );
+  }
   if (!open) {
     return (
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="px-4 py-3 text-left text-[13px] font-semibold text-[#b25e10] hover:bg-[#fafbfc]"
+        className="px-4 py-3 text-left text-[13px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
       >
         + Agregar ingrediente
       </button>
@@ -638,6 +648,8 @@ function IngredienteDetail({
   currency,
   onSaved,
   archiveAvailable,
+  canEditPrices,
+  canManage,
   archiving,
   onArchive,
 }: {
@@ -646,6 +658,8 @@ function IngredienteDetail({
   currency: string;
   onSaved: (next: IngredienteItem) => void;
   archiveAvailable: boolean;
+  canEditPrices: boolean;
+  canManage: boolean;
   archiving: boolean;
   onArchive: (archived: boolean) => void;
 }) {
@@ -773,17 +787,6 @@ function IngredienteDetail({
           supplier_id: entry.supplier_id ?? null,
           supplier_name:
             suppliers.find((s) => s.id === entry.supplier_id)?.name ?? null,
-          uses: item.uses.map((u) => ({
-            ...u,
-            amount: lineImpactAfterPrice({
-              qty: u.qty,
-              unit: u.unit,
-              oldAmount: u.amount,
-              oldPrice: item.price,
-              newPrice,
-              newPriceUnit: entry.normalized_unit,
-            }),
-          })),
         };
         onSaved(next);
         setPriceDraft(formatMoney(newPrice, currency));
@@ -803,22 +806,31 @@ function IngredienteDetail({
           <h2 className="truncate text-[18px] font-bold text-[#151c2c]">
             {item.name}
           </h2>
-          <p className="text-[12px]" style={{ color: MUTED }}>
-            {categoryLabel(item.category)} · en {item.uses.length}{" "}
-            {item.uses.length === 1 ? "plato" : "platos"}
+          <p className="text-[12px]" style={{ color: "#6b7280" }}>
+            {categoryLabel(item.category)}
+            {item.usedIn
+              ? ` · en ${item.usedIn.length} ${item.usedIn.length === 1 ? "receta" : "recetas"}`
+              : ""}
           </p>
+          {!canManage ? (
+            <p className="mt-1 text-[12px]" style={{ color: "#6b7280" }}>
+              {CAPABILITY_MESSAGES["ingredients.manage"]}
+            </p>
+          ) : null}
           {!item.inUse ? (
-            <p className="mt-1 text-[12px]" style={{ color: MUTED }}>
+            <p className="mt-1 text-[12px]" style={{ color: "#6b7280" }}>
               {item.archived ? "Archivado · " : "Sin uso · "}
               Ninguna receta activa lo usa, así que no hace falta precio.{" "}
-              <button
-                type="button"
-                disabled={archiving || !archiveAvailable}
-                onClick={() => onArchive(!item.archived)}
-                className="font-semibold text-[#1b40c8] disabled:opacity-50"
-              >
-                {item.archived ? "Restaurar" : "Archivar"}
-              </button>
+              {canManage ? (
+                <button
+                  type="button"
+                  disabled={archiving || !archiveAvailable}
+                  onClick={() => onArchive(!item.archived)}
+                  className="font-semibold text-[#1b40c8] disabled:opacity-50"
+                >
+                  {item.archived ? "Restaurar" : "Archivar"}
+                </button>
+              ) : null}
             </p>
           ) : null}
         </div>
@@ -836,7 +848,7 @@ function IngredienteDetail({
           <button
             type="button"
             onClick={() => void save()}
-            disabled={!dirty || saving}
+            disabled={!dirty || saving || (!canManage && !canEditPrices)}
             className="h-9 rounded-lg px-5 text-[13px] font-semibold text-white disabled:opacity-50"
             style={{ backgroundColor: "#1b40c8" }}
           >
@@ -847,7 +859,7 @@ function IngredienteDetail({
 
       <div className="mt-5 flex flex-wrap gap-x-12 gap-y-4">
         <div>
-          <p className="text-[12px] font-semibold" style={{ color: MUTED }}>
+          <p className="text-[12px] font-semibold" style={{ color: "#6b7280" }}>
             Precio actual
           </p>
           <div className="flex items-center gap-1.5">
@@ -862,14 +874,15 @@ function IngredienteDetail({
               }}
               placeholder="Falta precio"
               aria-label="Precio actual"
+              disabled={!canEditPrices}
               inputMode="decimal"
               className={
-                "h-9 w-[180px] rounded-lg border border-[#c6d3f5] bg-white px-2.5 text-[15px] font-semibold tabular-nums text-[#151c2c] outline-none placeholder:font-normal placeholder:text-[#a35a00] focus:border-[#1b40c8] focus:ring-2 focus:ring-[#1b40c8]/20"
+                "h-9 w-[180px] rounded-lg border border-[#c6d3f5] bg-white px-2.5 text-[15px] font-semibold tabular-nums text-[#151c2c] outline-none placeholder:font-normal placeholder:text-[#6b7280] focus:border-[#1b40c8] focus:ring-2 focus:ring-[#1b40c8]/20"
               }
             />
             <span
               className="text-[14px] font-semibold"
-              style={{ color: MUTED }}
+              style={{ color: "#6b7280" }}
             >
               /
             </span>
@@ -880,6 +893,7 @@ function IngredienteDetail({
                 setSaved(false);
               }}
               aria-label="Unidad"
+              disabled={!canManage}
               className="h-8 rounded-md border border-[#e3e7ee] bg-white px-1.5 text-[14px] font-semibold text-[#151c2c]"
             >
               {units.map((u) => (
@@ -901,13 +915,13 @@ function IngredienteDetail({
             </p>
           )}
           {priceDraft.trim() === "" && item.price === null && (
-            <p className="mt-1 text-[12px]" style={{ color: MUTED }}>
+            <p className="mt-1 text-[12px]" style={{ color: "#6b7280" }}>
               ¿Es gratis (agua, hielo)? Escribe 0 para confirmarlo.
             </p>
           )}
         </div>
         <div>
-          <p className="text-[12px] font-semibold" style={{ color: MUTED }}>
+          <p className="text-[12px] font-semibold" style={{ color: "#6b7280" }}>
             Cambio 30 días
           </p>
           <p
@@ -927,7 +941,7 @@ function IngredienteDetail({
           </p>
         </div>
         <div>
-          <p className="text-[12px] font-semibold" style={{ color: MUTED }}>
+          <p className="text-[12px] font-semibold" style={{ color: "#6b7280" }}>
             Categoría
           </p>
           <input
@@ -938,6 +952,7 @@ function IngredienteDetail({
             }}
             placeholder="Sin categoría"
             aria-label="Categoría"
+            disabled={!canManage}
             className="mt-2 h-9 w-[180px] rounded-md border border-[#e3e7ee] px-2 text-[13px] text-[#151c2c] outline-none focus:border-[#1B40C8]"
           />
         </div>
@@ -945,7 +960,7 @@ function IngredienteDetail({
 
       <p
         className="mt-4 flex flex-wrap items-center gap-1.5 text-[13px]"
-        style={{ color: MUTED }}
+        style={{ color: "#6b7280" }}
       >
         <span>Proveedor</span>
         <select
@@ -955,6 +970,7 @@ function IngredienteDetail({
             setSaved(false);
           }}
           aria-label="Proveedor"
+          disabled={!canEditPrices}
           className="h-8 rounded-md border border-[#e3e7ee] bg-white px-1.5 text-[13px] text-[#151c2c]"
         >
           <option value="">—</option>
@@ -981,60 +997,76 @@ function IngredienteDetail({
         ingredientId={item.id}
         ingredientName={item.name}
         priceUnit={item.price_unit ?? item.default_unit}
-        usedUnits={[...new Set(item.uses.map((u) => u.unit))]}
+        usedUnits={[
+          ...new Set(
+            (item.usedIn ?? []).flatMap((u) => (u.unit ? [u.unit] : []))
+          ),
+        ]}
         price={item.price}
         currency={currency}
-        canEdit
+        canEdit={canEditPrices}
       />
 
       <h3 className="mt-6 text-[14px] font-bold text-[#151c2c]">Se usa en</h3>
-      {item.uses.length === 0 ? (
-        <p className="mt-2 text-[13px]" style={{ color: MUTED }}>
-          Ningún plato usa este ingrediente.
-        </p>
-      ) : (
-        <table className="mt-2 w-full text-[13px]">
-          <thead>
-            <tr
-              className="border-b border-[#eef0f4] text-left text-[12px]"
-              style={{ color: MUTED }}
-            >
-              <th className="py-2 font-semibold">Plato</th>
-              <th className="py-2 text-right font-semibold">Cantidad</th>
-              <th className="py-2 text-right font-semibold">Impacto</th>
-            </tr>
-          </thead>
-          <tbody>
-            {item.uses.map((u) => (
-              <tr
-                key={u.odoo_product_id}
-                className="border-b border-[#f3f4f7] last:border-0"
-              >
-                <td className="py-2">
-                  <Link
-                    href={dishHref(u.odoo_product_id)}
-                    className="font-semibold text-[#151c2c] hover:text-[#b25e10] hover:underline"
-                  >
-                    {u.dish_name}
-                  </Link>
-                </td>
-                <td className="py-2 text-right tabular-nums text-[#151c2c]">
-                  {formatQty(u.qty)} {u.unit}
-                </td>
-                <td className="py-2 text-right tabular-nums">
-                  {u.amount === null ? (
-                    <span style={{ color: RED }}>Sin precio</span>
-                  ) : (
-                    <span className="text-[#151c2c]">
-                      {formatMoney(u.amount, currency)}
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <UsesList usedIn={item.usedIn} />
     </section>
+  );
+}
+
+/** "Se usa en": the one list the counters come from. */
+export function UsesList({ usedIn }: { usedIn: IngredientUseEntry[] | null }) {
+  if (usedIn === null)
+    return (
+      <p className="mt-2 text-[13px]" style={{ color: "#6b7280" }}>
+        No pude leer dónde se usa.
+      </p>
+    );
+  if (usedIn.length === 0)
+    return (
+      <p className="mt-2 text-[13px]" style={{ color: "#6b7280" }}>
+        Ningún plato usa este ingrediente.
+      </p>
+    );
+  return (
+    <table className="mt-2 w-full text-[13px]">
+      <thead>
+        <tr
+          className="border-b border-[#eef0f4] text-left text-[12px]"
+          style={{ color: "#6b7280" }}
+        >
+          <th className="py-2 font-semibold">Receta</th>
+          <th className="py-2 font-semibold">Estado</th>
+          <th className="py-2 text-right font-semibold">Cantidad</th>
+        </tr>
+      </thead>
+      <tbody>
+        {usedIn.map((u) => (
+          <tr key={u.key} className="border-b border-[#f3f4f7] last:border-0">
+            <td className="py-2">
+              <Link
+                href={u.href}
+                className="font-semibold text-[#151c2c] hover:text-[#1B40C8] hover:underline"
+              >
+                {u.name}
+              </Link>
+              <span className="ml-2 text-[12px]" style={{ color: "#6b7280" }}>
+                {u.kind === "preparacion" ? "Preparación" : "Plato"}
+                {u.via ? ` · ${u.via}` : ""}
+              </span>
+            </td>
+            <td className="py-2">
+              <span className="rounded-full bg-[#f3f4f7] px-2 py-0.5 text-[12px] font-semibold text-[#5b6476]">
+                {u.statusLabel}
+              </span>
+            </td>
+            <td className="py-2 text-right tabular-nums text-[#151c2c]">
+              {u.qty !== null
+                ? `${formatQty(u.qty)} ${u.unit ?? ""}`.trim()
+                : ""}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

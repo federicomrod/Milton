@@ -2,20 +2,38 @@
 //
 // POST /api/restaurant/kitchen/recipe-drafts/:id/confirm
 //
-// Confirms a recipe draft via SECURITY DEFINER function (atomic, idempotent).
-// Only Milton admins and owners can confirm (enforced server-side).
-// Validates all inputs server-side before calling the function.
+// Confirms a recipe a cook sent through Telegram. Confirming is NOT approving:
+// it adds a NEW recipe version in status `in_review` for the chosen dish (or
+// for a new dish, created with no price). Existing recipe lines and any
+// approved / manual version are never changed. Nothing counts in Costos or
+// margins until the version is approved in the normal flow.
+// Only Milton admins and owners / admins / managers of the company can confirm
+// (enforced server-side). The company comes from auth, never from the client.
+// All errors are Spanish and name the ingredient, never a raw id.
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { KITCHEN_FORBIDDEN_MESSAGE } from "@/lib/restaurant/telegram/kitchen-manager-guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { isUserAdminServer } from "@/lib/profile-service-server";
 import {
-  canManageKitchenQr,
-  loadMembershipRole,
-} from "@/lib/restaurant/telegram/kitchen-join";
-import { normalizeUnit, convertUnitStr } from "@/lib/restaurant/units";
+  requireCapability,
+  resolveActor,
+  unauthorizedResponse,
+} from "@/lib/auth/permissions";
+import {
+  confirmKitchenDraftAsVersion,
+  isStaleClaim,
+} from "@/lib/restaurant/telegram/kitchen-draft-confirm";
+import {
+  isUsableLineUnit,
+  convertToSubRecipeUnit,
+} from "@/lib/restaurant/units";
+import { fetchAllRows } from "@/lib/restaurant/paginated-read";
+import { archivedIngredientMessage } from "@/lib/restaurant/ingredient-active";
+import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
+import { latestCostEntry } from "@/lib/restaurant/costing";
+import type { IngredientCostEntry } from "@/types/restaurant-costing";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +50,10 @@ interface ConfirmBody {
   }>;
 }
 
+function fail(error: string, status: number) {
+  return NextResponse.json({ error }, { status });
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -43,82 +65,85 @@ export async function POST(
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!user) return unauthorizedResponse();
 
-  const [isMiltonAdmin, membershipRole] = await Promise.all([
-    isUserAdminServer(user.id),
-    loadMembershipRole(auth.companyId, user.id),
-  ]);
-  const canManage = canManageKitchenQr({ isMiltonAdmin, membershipRole });
-  if (!canManage) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const actor = await resolveActor(null, user.id, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "kitchen.drafts", {
+    message: KITCHEN_FORBIDDEN_MESSAGE,
+  });
+  if (denied) return denied;
 
   const { id: draftId } = await params;
-  const body: ConfirmBody = await req.json();
+  let body: ConfirmBody;
+  try {
+    body = (await req.json()) as ConfirmBody;
+  } catch {
+    return fail("No pude leer lo que enviaste. Inténtalo de nuevo.", 400);
+  }
 
   const admin = createAdminClient();
 
+  // The draft must belong to THIS company. Another company's draft answers
+  // exactly like one that does not exist.
   const { data: draft, error: draftError } = await admin
     .from("kitchen_recipe_drafts")
-    .select("id, company_id, status, portions")
+    .select(
+      "id, company_id, status, portions, currency, confirmed_recipe_id, confirmed_at"
+    )
     .eq("id", draftId)
+    .eq("company_id", auth.companyId)
     .maybeSingle();
-
-  if (draftError || !draft) {
-    return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+  if (draftError || !draft || draft.company_id !== auth.companyId) {
+    return fail("No encontré esa receta.", 404);
   }
 
-  if (draft.company_id !== auth.companyId) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // A draft still waiting for portions can be confirmed when the reviewer
+  // typed them (checked below); nothing is saved unless the confirm works.
+  if (
+    draft.status !== "draft" &&
+    draft.status !== "confirmed" &&
+    draft.status !== "awaiting_portions"
+  ) {
+    return fail("Esta receta ya no está pendiente de revisar.", 400);
   }
 
-  if (draft.status !== "draft" && draft.status !== "confirmed") {
-    return NextResponse.json(
-      { error: "Draft must be in draft status to confirm" },
-      { status: 400 }
-    );
-  }
-
-  if (draft.status === "confirmed") {
-    const { data: existingRecipe } = await admin
+  // A claim that never finished (the call died) and is older than 2 minutes
+  // is taken over below; a younger one is a request still being written.
+  const staleClaim = isStaleClaim(draft);
+  if (draft.status === "confirmed" && !staleClaim) {
+    const { data: existing } = await admin
       .from("kitchen_recipe_drafts")
       .select("confirmed_recipe_id, menu_item_id")
       .eq("id", draftId)
-      .single();
-
+      .eq("company_id", auth.companyId)
+      .maybeSingle();
+    // Confirmed but no recipe yet: another request is still writing it.
+    if (!existing?.confirmed_recipe_id) {
+      return fail("Esta receta se está confirmando. Espera un momento.", 409);
+    }
     return NextResponse.json({
       ok: true,
-      recipe_id: existingRecipe?.confirmed_recipe_id,
-      menu_item_id: existingRecipe?.menu_item_id,
+      recipe_id: existing.confirmed_recipe_id,
+      menu_item_id: existing.menu_item_id,
     });
   }
 
-  if (!body.dish_name || !body.dish_name.trim()) {
-    return NextResponse.json(
-      { error: "Dish name is required" },
-      { status: 400 }
-    );
-  }
+  const dishName =
+    typeof body.dish_name === "string" ? body.dish_name.trim() : "";
+  if (!dishName) return fail("Escribe el nombre del platillo.", 400);
 
   if (
     !body.portions ||
     body.portions <= 0 ||
     !Number.isInteger(body.portions)
   ) {
-    return NextResponse.json(
-      { error: "Portions must be a positive integer" },
-      { status: 400 }
-    );
+    return fail("Escribe cuántas porciones salen (un número entero).", 400);
   }
 
-  if (!body.lines || body.lines.length === 0) {
-    return NextResponse.json(
-      { error: "At least one ingredient line is required" },
-      { status: 400 }
-    );
+  if (!Array.isArray(body.lines) || body.lines.length === 0) {
+    return fail("Agrega al menos un ingrediente.", 400);
   }
 
   if (body.menu_item_id) {
@@ -128,176 +153,157 @@ export async function POST(
       .eq("id", body.menu_item_id)
       .eq("company_id", auth.companyId)
       .maybeSingle();
-
     if (!menuItem) {
-      return NextResponse.json(
-        { error: "Menu item not found or does not belong to your company" },
-        { status: 400 }
-      );
+      return fail("Ese platillo no existe en tu empresa.", 400);
     }
   }
 
   const { data: draftLines } = await admin
     .from("kitchen_recipe_draft_lines")
     .select("id, ingredient_id")
-    .eq("draft_id", draftId);
-
+    .eq("draft_id", draftId)
+    .eq("company_id", auth.companyId);
   const draftLineIds = new Set((draftLines ?? []).map((l) => l.id));
-
   const isExistingLineId = (id: string | undefined): id is string =>
     !!id && !id.startsWith("new-");
 
   for (const line of body.lines) {
     if (isExistingLineId(line.id) && !draftLineIds.has(line.id)) {
-      return NextResponse.json(
-        { error: `Line ${line.id} does not belong to this draft` },
-        { status: 400 }
-      );
+      return fail("Una de las líneas no pertenece a esta receta.", 400);
     }
-
     if (!line.ingredient_id) {
-      return NextResponse.json(
-        { error: "All lines must have a matched ingredient" },
-        { status: 400 }
-      );
-    }
-
-    if (!line.total_quantity || line.total_quantity <= 0) {
-      return NextResponse.json(
-        { error: "All lines must have a positive quantity" },
-        { status: 400 }
-      );
-    }
-
-    if (!line.unit || !normalizeUnit(line.unit)) {
-      return NextResponse.json(
-        { error: `Invalid unit: ${line.unit}` },
-        { status: 400 }
-      );
+      return fail("Elige el ingrediente de todas las líneas.", 400);
     }
   }
 
+  // Ingredient names for the messages (company-scoped).
   const ingredientIds = body.lines.map((l) => l.ingredient_id);
-  const { data: ingredients } = await admin
+  // archived_at too: a merged-away ingredient is never saved on a recipe line.
+  // (Before the archive column exists nothing is archived.)
+  type IngredientResult = {
+    data: Array<Record<string, unknown>> | null;
+    error: { message?: string } | null;
+  };
+  let ingredientRes = (await admin
     .from("ingredients")
-    .select("id, default_unit")
+    .select("id, name, default_unit, archived_at")
     .eq("company_id", auth.companyId)
-    .in("id", ingredientIds);
-
-  const companyIngredientIds = new Set((ingredients ?? []).map((i) => i.id));
+    .in("id", ingredientIds)) as unknown as IngredientResult;
+  if (
+    ingredientRes.error &&
+    /archived_at/.test(ingredientRes.error.message ?? "")
+  ) {
+    ingredientRes = (await admin
+      .from("ingredients")
+      .select("id, name, default_unit")
+      .eq("company_id", auth.companyId)
+      .in("id", ingredientIds)) as unknown as IngredientResult;
+  }
+  const ingredients = ingredientRes.data as Array<
+    Record<string, unknown>
+  > | null;
+  const nameById = new Map(
+    (ingredients ?? []).map((i) => [i.id as string, String(i.name ?? "")])
+  );
+  const archivedIds = new Set(
+    (ingredients ?? []).filter((i) => i.archived_at).map((i) => i.id as string)
+  );
+  const nameOf = (id: string) => nameById.get(id) || "ese ingrediente";
 
   for (const line of body.lines) {
-    if (!companyIngredientIds.has(line.ingredient_id)) {
-      return NextResponse.json(
-        { error: `Ingredient ${line.ingredient_id} not found` },
-        { status: 400 }
+    if (!nameById.has(line.ingredient_id)) {
+      return fail("Uno de los ingredientes ya no está en tu lista.", 400);
+    }
+    if (archivedIds.has(line.ingredient_id)) {
+      // Merged into another ingredient? Say which one to use instead.
+      const merged = await createSupabaseEditorStore(admin)
+        .mergedInto(auth.companyId, line.ingredient_id)
+        .catch(() => null);
+      return fail(
+        archivedIngredientMessage(
+          nameOf(line.ingredient_id),
+          merged?.name ?? null
+        ),
+        400
+      );
+    }
+    if (!line.total_quantity || line.total_quantity <= 0) {
+      return fail(`Falta la cantidad de ${nameOf(line.ingredient_id)}.`, 400);
+    }
+    if (!line.unit || !isUsableLineUnit(line.unit)) {
+      return fail(
+        `La unidad "${line.unit ?? ""}" de ${nameOf(line.ingredient_id)} no es válida.`,
+        400
       );
     }
   }
 
-  const { data: costEntries } = await admin
-    .from("ingredient_cost_entries")
-    .select("ingredient_id, normalized_unit_cost, normalized_unit, cost_date")
-    .eq("company_id", auth.companyId)
-    .in("ingredient_id", ingredientIds)
-    .order("cost_date", { ascending: false });
-
-  const costMap = new Map<
-    string,
-    { normalized_unit_cost: number; normalized_unit: string }
-  >();
-  for (const entry of costEntries ?? []) {
-    if (
-      !costMap.has(entry.ingredient_id) &&
-      entry.normalized_unit_cost !== null &&
-      entry.normalized_unit !== null
-    ) {
-      costMap.set(entry.ingredient_id, {
-        normalized_unit_cost: entry.normalized_unit_cost,
-        normalized_unit: entry.normalized_unit,
-      });
-    }
+  // Current price of each ingredient (paged; the shared "latest entry" rule).
+  // A line WITHOUT a price is saved normally and stays «Sin precio»; only a
+  // unit that cannot be read in the price's unit is refused.
+  const costEntries = await fetchAllRows<IngredientCostEntry>(() =>
+    admin
+      .from("ingredient_cost_entries")
+      .select(
+        "id, ingredient_id, source_type, cost_date, effective_date, date_source, normalized_unit_cost, normalized_unit, unit_cost, created_at"
+      )
+      .eq("company_id", auth.companyId)
+      .in("ingredient_id", ingredientIds)
+  );
+  // Fail closed: if the prices cannot be read, every line would look unpriced
+  // and the unit check would be skipped. Nothing has been written yet.
+  if (costEntries.error) {
+    return fail("No pude leer los precios. Inténtalo de nuevo.", 500);
+  }
+  const entriesByIngredient = new Map<string, IngredientCostEntry[]>();
+  for (const entry of costEntries.rows) {
+    const list = entriesByIngredient.get(entry.ingredient_id) ?? [];
+    list.push(entry);
+    entriesByIngredient.set(entry.ingredient_id, list);
   }
 
   for (const line of body.lines) {
-    const cost = costMap.get(line.ingredient_id);
-    if (!cost) {
-      return NextResponse.json(
-        { error: `No cost entry for ingredient ${line.ingredient_id}` },
-        { status: 400 }
-      );
-    }
-
-    const conversion = convertUnitStr(
+    const latest = latestCostEntry(
+      entriesByIngredient.get(line.ingredient_id) ?? []
+    );
+    if (!latest?.normalized_unit) continue; // no price yet: any recognized unit
+    const conversion = convertToSubRecipeUnit(
       line.total_quantity,
       line.unit,
-      cost.normalized_unit
+      latest.normalized_unit
     );
     if (!conversion.ok) {
-      return NextResponse.json(
-        {
-          error: `Cannot convert ${line.unit} to ${cost.normalized_unit} for ingredient ${line.ingredient_id}`,
-        },
-        { status: 400 }
+      return fail(
+        `No puedo convertir "${line.unit}" a la unidad del precio de ${nameOf(line.ingredient_id)} (${latest.normalized_unit}).`,
+        400
       );
     }
   }
 
-  const preparedLines = body.lines.map((line) => ({
-    ingredient_id: line.ingredient_id,
-    per_portion_quantity: line.total_quantity / body.portions,
-    unit: line.unit,
-  }));
+  const result = await confirmKitchenDraftAsVersion(admin, {
+    companyId: auth.companyId,
+    userId: user.id,
+    draftId,
+    dishName,
+    portions: body.portions,
+    menuItemId: body.menu_item_id || null,
+    sellingPrice:
+      typeof body.selling_price === "number" ? body.selling_price : null,
+    currency: typeof draft.currency === "string" ? draft.currency : null,
+    lines: body.lines.map((line) => ({
+      ingredient_id: line.ingredient_id,
+      total_quantity: line.total_quantity,
+      unit: line.unit,
+    })),
+  });
+  if (!result.ok) return fail(result.error, result.status);
 
-  for (const bodyLine of body.lines) {
-    if (!isExistingLineId(bodyLine.id)) continue;
-    const { error: lineUpdateError } = await admin
-      .from("kitchen_recipe_draft_lines")
-      .update({
-        total_quantity: bodyLine.total_quantity,
-        unit: bodyLine.unit,
-        per_portion_quantity: bodyLine.total_quantity / body.portions,
-      })
-      .eq("id", bodyLine.id);
-    if (lineUpdateError) {
-      console.error("[confirm] line update failed");
-      return NextResponse.json(
-        { error: "Could not update draft lines" },
-        { status: 500 }
-      );
-    }
-  }
-
-  try {
-    const { data, error } = await admin.rpc("confirm_kitchen_recipe_draft", {
-      p_draft_id: draftId,
-      p_confirmed_by: user.id,
-      p_dish_name: body.dish_name.trim(),
-      p_portions: body.portions,
-      p_menu_item_id: body.menu_item_id || null,
-      p_selling_price: body.selling_price || 0,
-      p_lines: preparedLines,
-    });
-
-    if (error) {
-      console.error("[confirm] RPC failed");
-      return NextResponse.json(
-        { error: "Could not confirm draft" },
-        { status: 500 }
-      );
-    }
-
-    const result = data?.[0];
-    return NextResponse.json({
-      ok: true,
-      recipe_id: result?.out_recipe_id,
-      menu_item_id: result?.out_menu_item_id,
-    });
-  } catch (err) {
-    console.error("[confirm] unexpected error");
-    return NextResponse.json(
-      { error: "Could not confirm draft" },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json({
+    ok: true,
+    recipe_id: result.recipeId,
+    menu_item_id: result.menuItemId,
+    version_id: result.versionId,
+    // Confirming sends the recipe to review; it is not approved yet.
+    status: "in_review",
+  });
 }

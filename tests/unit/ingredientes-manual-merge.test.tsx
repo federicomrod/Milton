@@ -55,7 +55,7 @@ const ing = (
   inUse: true,
   archived: false,
   sold_net_sales: 10,
-  uses: [],
+  usedIn: [],
   ...over,
 });
 const NO_GROUPS = { available: true, groups: [], members: [] };

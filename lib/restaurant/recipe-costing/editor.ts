@@ -9,6 +9,7 @@
 // Costs always come from the costing engine against the catalog's latest
 // price. Nothing here invents a number or creates an ingredient.
 
+import { pickApprovedVersion } from "@/lib/restaurant/recipe-versions";
 import { similarIngredients } from "@/lib/restaurant/ingredient-duplicates";
 import {
   calculateMenuItemCost,
@@ -114,6 +115,11 @@ export interface EditorLine {
   /** A preparation line: the unit that preparation yields in (its label). */
   component_unit?: string | null;
   cost_source?: string | null;
+  /**
+   * A preparation line: does the preparation have an approved version in
+   * force? Read by the dish's Aprobar rule (approval-live.ts).
+   */
+  component_approved?: boolean;
 }
 
 export interface CatalogQuestion {
@@ -253,6 +259,19 @@ function nameHintFor(
   return null;
 }
 
+function preparationApproved(
+  versions:
+    | ReadonlyArray<{
+        status: string;
+        effective_date: string | null;
+        version_number: number;
+      }>
+    | undefined
+): boolean {
+  if (!versions || versions.length === 0) return true;
+  return pickApprovedVersion([...versions]) !== null;
+}
+
 export function hydrateLines(input: {
   data: CostingData;
   evidenceLines: readonly EvidenceLineIn[];
@@ -382,6 +401,14 @@ export function hydrateLines(input: {
           ? nameHintFor(nameOfInput(row), row.ingredient_id, input.hints)
           : null,
       cost_source: row.cost_source ?? null,
+      ...(row.input_type === "component" && row.component_id
+        ? {
+            // A preparation with no versions at all has nothing to approve.
+            component_approved: preparationApproved(
+              data.componentRecipeVersionsByComponentId?.get(row.component_id)
+            ),
+          }
+        : {}),
     };
   };
 

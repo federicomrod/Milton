@@ -19,6 +19,7 @@
 // tomorrow the invoice importer).
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
   convertUnitPriceOrPortion,
@@ -84,6 +85,13 @@ interface PostBody {
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "prices.edit", {
+    message: "Tu rol no puede cambiar precios.",
+  });
+  if (denied) return denied;
 
   let body: PostBody;
   try {
@@ -186,7 +194,11 @@ export async function POST(req: NextRequest) {
   const keepUnit = body.keep_unit === true;
   const targetUnit = keepUnit ? unit : ingredient.default_unit || unit;
   const normalized = convertUnitPriceOrPortion(unitCost, unit, targetUnit);
-  const normalizedUnit = normalizeUnit(targetUnit) ?? targetUnit;
+  // A price that does not convert is kept in the unit it was typed in, never
+  // relabelled as the ingredient's unit (that would be a wrong number).
+  const normalizedUnit = normalized.ok
+    ? (normalizeUnit(targetUnit) ?? targetUnit)
+    : (normalizeUnit(unit) ?? unit);
   const normalizedUnitCost = normalized.ok ? normalized.value : unitCost;
   // Note: when conversion fails we still record SOMETHING (the supplier
   // unit cost) so the entry is queryable; downstream costing.ts will
@@ -241,6 +253,13 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "prices.edit", {
+    message: "Tu rol no puede cambiar precios.",
+  });
+  if (denied) return denied;
 
   const url = new URL(req.url);
   const id = url.searchParams.get("id");

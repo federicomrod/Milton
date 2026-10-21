@@ -18,6 +18,8 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import {
   getUserProfile,
@@ -42,6 +44,7 @@ const themes = ["light", "dark", "system"];
 
 export default function SettingsPage() {
   const { setPrefs, refreshPrefs } = useUserPreferences();
+  const canEditCompany = useCan("company.edit");
   const [form, setForm] = useState({
     timezone: "Europe/Berlin",
     currency: "EUR",
@@ -100,7 +103,11 @@ export default function SettingsPage() {
     setMessage("");
     try {
       // Update profile and company separately
-      await Promise.all([upsertUserProfile(form), updateCompany(companyForm)]);
+      await Promise.all([
+        upsertUserProfile(form),
+        // The server's answer: this role may not change the company data.
+        canEditCompany ? updateCompany(companyForm) : Promise.resolve(),
+      ]);
 
       // ✅ Refresh preferences from Supabase - triggers live update across all components
       await refreshPrefs();
@@ -151,6 +158,7 @@ export default function SettingsPage() {
                 id="company_name"
                 name="company_name"
                 placeholder="Escribe el nombre de la empresa"
+                disabled={!canEditCompany}
                 value={companyForm.name || ""}
                 onChange={(e) =>
                   setCompanyForm({ ...companyForm, name: e.target.value })
@@ -164,12 +172,18 @@ export default function SettingsPage() {
                 id="industry"
                 name="industry"
                 placeholder="Ej.: restaurante, café, bar"
+                disabled={!canEditCompany}
                 value={companyForm.industry || ""}
                 onChange={(e) =>
                   setCompanyForm({ ...companyForm, industry: e.target.value })
                 }
               />
             </div>
+            {!canEditCompany && (
+              <p className="text-[13px] text-[#6b7280]">
+                {CAPABILITY_MESSAGES["company.edit"]}
+              </p>
+            )}
           </CardContent>
         </Card>
 

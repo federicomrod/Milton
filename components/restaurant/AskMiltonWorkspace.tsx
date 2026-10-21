@@ -22,6 +22,8 @@ import {
   type FormEvent,
 } from "react";
 import Link from "next/link";
+import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { useSearchParams } from "next/navigation";
 import {
   Sparkles,
@@ -855,6 +857,7 @@ function SuggestedActionChip({
   disabled: boolean;
 }) {
   const lang = useMiltonLang();
+  const canManage = useCan("menu.manage");
   const [state, setState] = useState<ChipActionState>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const locationId = useSearchParams().get("location");
@@ -905,6 +908,23 @@ function SuggestedActionChip({
   }
 
   // Agent-action chip states
+  if (state === "idle" && !canManage) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs flex-wrap">
+        <button
+          type="button"
+          disabled
+          className="inline-flex items-center gap-1.5 text-xs rounded-full border border-dashed border-border px-2.5 py-1 text-[#6b7280] opacity-60"
+        >
+          <Zap className="h-3 w-3" />
+          {action.label}
+        </button>
+        <span className="text-[#6b7280]">
+          {CAPABILITY_MESSAGES["menu.manage"]}
+        </span>
+      </span>
+    );
+  }
   if (state === "idle") {
     return (
       <button
@@ -976,9 +996,9 @@ function SuggestedActionChip({
 
   if (state === "duplicate") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-1 flex-wrap">
-        <Info className="h-3 w-3 text-amber-600 dark:text-amber-400" />
-        <span className="text-amber-800 dark:text-amber-300">
+      <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/30 px-3 py-1 flex-wrap">
+        <Info className="h-3 w-3 text-gray-500 dark:text-gray-400" />
+        <span className="text-gray-700 dark:text-gray-400">
           {t(
             lang,
             "An open action already exists for this item.",
@@ -987,7 +1007,7 @@ function SuggestedActionChip({
         </span>
         <Link
           href="/dashboard/restaurant/agents"
-          className="inline-flex items-center gap-0.5 text-amber-700 dark:text-amber-400 underline hover:no-underline"
+          className="inline-flex items-center gap-0.5 text-gray-700 dark:text-gray-400 underline hover:no-underline"
         >
           {t(lang, "View in Agents", "Ver en Agentes")}
           <ArrowRight className="h-3 w-3" />

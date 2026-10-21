@@ -39,7 +39,7 @@ const COLORS = [
   "#1b40c8",
   "#151c2c",
   "#8a92a3",
-  "#e8b98a",
+  "#e5e7eb",
   "#4a5a7a",
   "#c9704a",
 ];
@@ -381,7 +381,7 @@ export function DrillView({
               >
                 <b className="text-[#15803d]">Más rentables:</b>{" "}
                 {[...rank.best].map(labelOf).join(", ")} ·{" "}
-                <b className="text-[#c2410c]">Menos rentables:</b>{" "}
+                <b className="text-[#6b7280]">Menos rentables:</b>{" "}
                 {[...rank.worst].map(labelOf).join(", ")}
               </p>
             ) : null}
@@ -661,7 +661,7 @@ function Rows({
                 "ml-2 rounded-md px-1.5 py-0.5 text-[11px] font-semibold " +
                 (badge === "best"
                   ? "bg-[#dcf3e4] text-[#15803d]"
-                  : "bg-[#fde6d8] text-[#c2410c]")
+                  : "bg-[#f9fafb] text-[#6b7280]")
               }
             >
               {badge === "best" ? "Más rentable" : "Menos rentable"}
@@ -861,7 +861,7 @@ function EditGroupsPanel({
         Nada se borra: los valores siguen en sus ventas.
       </p>
       {!isSaved || !grouping.available ? (
-        <p className="mt-3 rounded-lg border border-[#f5c98b] bg-[#fff8ec] px-3 py-2 text-[13px]">
+        <p className="mt-3 rounded-lg border border-[#e5e7eb] bg-[#f9fafb] px-3 py-2 text-[13px]">
           {!grouping.available
             ? "Falta aplicar las migraciones 048 y 049 para guardar grupos."
             : "Primero guarda la agrupación de Milton (botón «Guardar agrupación» en Platos)."}

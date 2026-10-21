@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import {
   normalizeFieldValues,
   type NormalizeFieldRequest,
@@ -19,8 +20,15 @@ export async function POST(req: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Inicia sesión de nuevo." },
+        { status: 401 }
+      );
     }
+
+    const actor = await resolveActor(supabase, user.id);
+    const denied = requireCapability(actor, "company.edit");
+    if (denied) return denied;
 
     const body: NormalizeRequest = await req.json();
 

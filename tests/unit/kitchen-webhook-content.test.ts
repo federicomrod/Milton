@@ -88,21 +88,21 @@ describe("route authorization", () => {
   it.each(CLIENT_ROUTES)("%s calls authAndCompany(", (f) => {
     expect(read(f)).toContain("authAndCompany(");
   });
-  it("the admin route calls isUserAdminServer(", () => {
+  it("the admin route calls requireMiltonStaff(", () => {
     expect(read("app/api/management/kitchen/qr/route.ts")).toContain(
-      "isUserAdminServer("
+      "requireMiltonStaff("
     );
   });
-  it("QR POST, staff DELETE and report PATCH call canManageKitchenQr", () => {
+  it("QR POST, staff DELETE and report PATCH require the kitchen.qr capability", () => {
     const post = read("app/api/restaurant/kitchen/qr/route.ts");
     expect(post.slice(post.indexOf("export async function POST"))).toContain(
-      "canManageKitchenQr("
+      'requireCapability(actor, "kitchen.qr"'
     );
     expect(read("app/api/restaurant/kitchen/staff/[id]/route.ts")).toContain(
-      "canManageKitchenQr("
+      'requireCapability(actor, "kitchen.qr"'
     );
     expect(read("app/api/restaurant/kitchen/reports/[id]/route.ts")).toContain(
-      "canManageKitchenQr("
+      'requireCapability(actor, "kitchen.qr"'
     );
   });
   it("no kitchen route reads a client-supplied company_id (except the admin route)", () => {

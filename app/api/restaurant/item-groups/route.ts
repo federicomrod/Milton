@@ -8,8 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
-import { actorCanSubmitForApproval } from "@/lib/restaurant/recipe-costing/approval";
-import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { parseGroupOps } from "@/lib/restaurant/groups/parse-ops";
 import { actionableError } from "@/lib/restaurant/actionable-error";
 
@@ -33,17 +32,13 @@ export async function POST(req: NextRequest) {
   if (!parsed.ok) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
-  const actor = await loadRecipeActor(
-    auth.supabase,
-    auth.companyId,
-    auth.userId
-  );
-  if (!actorCanSubmitForApproval(actor)) {
-    return NextResponse.json(
-      { error: "Tu rol no puede cambiar las agrupaciones." },
-      { status: 403 }
-    );
-  }
+  const actor = await resolveActor(auth.supabase, auth.userId, {
+    companyId: auth.companyId,
+  });
+  const denied = requireCapability(actor, "groups.manage", {
+    message: "Tu rol no puede cambiar las agrupaciones.",
+  });
+  if (denied) return denied;
 
   const started = Date.now();
   const { data, error } = await auth.supabase.rpc("item_groups_apply", {

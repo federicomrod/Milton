@@ -72,6 +72,7 @@ export function RecipeImportPreview({
   initialImported,
   locationId,
   busyExternal,
+  canEditPrices = true,
   onImported,
   onDishes,
   primary = true,
@@ -82,6 +83,8 @@ export function RecipeImportPreview({
   initialImported: Record<string, unknown> | null;
   locationId: string | null;
   busyExternal: boolean;
+  /** The server's can("prices.edit") answer: undoing a batch changes prices. */
+  canEditPrices?: boolean;
   onImported: () => void;
   /** How many dishes the file's recipes hold (0 = none to import). */
   onDishes?: (count: number) => void;
@@ -269,14 +272,14 @@ export function RecipeImportPreview({
                     <td
                       className={
                         "px-2 py-1 text-center font-bold " +
-                        (row.match ? "text-[#1f9d55]" : "text-[#c03535]")
+                        (row.match ? "text-[#1f9d55]" : "text-[#6b7280]")
                       }
                     >
                       {row.match ? "✓" : "✗"}
                     </td>
                     <td className="px-2 py-1 text-[12px] text-[#5b6476]">
                       {row.skip_reason ? (
-                        <div className="text-[#a35a00]">{row.skip_reason}</div>
+                        <div className="text-[#6b7280]">{row.skip_reason}</div>
                       ) : null}
                       <div>
                         {row.pos_name ? `POS: ${row.pos_name}` : row.link_note}
@@ -345,7 +348,7 @@ export function RecipeImportPreview({
             ? ` ${imported.typed_prices_not_carried} precios escritos a mano cambiaron de unidad y quedaron Pendiente: escríbelos de nuevo en el plato.`
             : ""}{" "}
           <GhostBtn
-            disabled={busy}
+            disabled={busy || !canEditPrices}
             onClick={() => void undo(imported.batch_id)}
           >
             Deshacer lote

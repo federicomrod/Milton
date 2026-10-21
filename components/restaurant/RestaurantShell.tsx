@@ -51,6 +51,7 @@ import {
 } from "@/lib/restaurant/language";
 import {
   RestaurantShellChromeProvider,
+  useCan,
   useRestaurantShellChrome,
   type RestaurantShellChromeValue,
 } from "@/components/restaurant/shell/shell-chrome-context";
@@ -88,6 +89,7 @@ export function RestaurantShell({
   isAdmin = false,
   lastSyncedAt = null,
   userName = null,
+  capabilities,
   slim = false,
 }: {
   children: React.ReactNode;
@@ -96,6 +98,8 @@ export function RestaurantShell({
   isAdmin?: boolean;
   lastSyncedAt?: string | null;
   userName?: string | null;
+  /** The server's capabilityFlags for this person (see shell-chrome-context). */
+  capabilities?: RestaurantShellChromeValue["capabilities"];
   /**
    * Onboarding: the same shell and look, but no section navigation or
    * restaurant switcher (there is no restaurant to switch to yet).
@@ -108,6 +112,7 @@ export function RestaurantShell({
     isAdmin,
     lastSyncedAt,
     userName,
+    capabilities,
   };
   return (
     <RestaurantShellChromeProvider value={chrome}>
@@ -396,6 +401,7 @@ function SidebarBrand({
   lang: PreferredLanguage;
 }) {
   const [addOpen, setAddOpen] = useState(false);
+  const canAddRestaurant = useCan("company.edit");
 
   const selected = currentLocationId
     ? (locations.find((l) => l.id === currentLocationId) ?? null)
@@ -455,11 +461,15 @@ function SidebarBrand({
               </Link>
             </DropdownMenuItem>
           ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setAddOpen(true)}>
-            <Plus className="h-3.5 w-3.5" />
-            <span>{t(lang, "Add restaurant", "Agregar restaurante")}</span>
-          </DropdownMenuItem>
+          {canAddRestaurant ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setAddOpen(true)}>
+                <Plus className="h-3.5 w-3.5" />
+                <span>{t(lang, "Add restaurant", "Agregar restaurante")}</span>
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 

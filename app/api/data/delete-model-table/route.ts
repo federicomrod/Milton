@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,10 @@ export async function DELETE(req: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Inicia sesión de nuevo." },
+        { status: 401 }
+      );
     }
 
     const body = await req.json();
@@ -41,6 +45,12 @@ export async function DELETE(req: NextRequest) {
     if (!company) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
+
+    const actor = await resolveActor(supabase, user.id, {
+      companyId: company.id,
+    });
+    const denied = requireCapability(actor, "company.edit");
+    if (denied) return denied;
 
     // Get table ID from table name by querying data_tables
     const { data: dataTableDef } = await supabase

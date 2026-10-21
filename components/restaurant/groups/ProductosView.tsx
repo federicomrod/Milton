@@ -577,7 +577,7 @@ export function ProductosView({
   return (
     <div className="space-y-3" data-testid="productos-view">
       {!grouping.available ? (
-        <p className="rounded-lg border border-[#f5c98b] bg-[#fff8ec] px-3 py-2 text-[13px]">
+        <p className="rounded-lg border border-[#e5e7eb] bg-[#f9fafb] px-3 py-2 text-[13px]">
           Para agrupar falta aplicar las migraciones 048 y 049 en este ambiente.
           Mientras tanto puedes ver los productos, no guardar grupos.
         </p>

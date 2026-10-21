@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { generateUniqueIds, resolveReferences } from "@/lib/ai/generate-ids";
 import { normalizeFieldValues } from "@/lib/ai/normalize-values";
 import type { DataTableField } from "@/lib/types/data";
@@ -58,6 +59,12 @@ export async function POST(req: NextRequest) {
     if (!company) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
+
+    const actor = await resolveActor(supabase, user.id, {
+      companyId: company.id,
+    });
+    const denied = requireCapability(actor, "company.edit");
+    if (denied) return denied;
 
     // Verify the table exists in the model
     const { data: businessModel } = await supabase

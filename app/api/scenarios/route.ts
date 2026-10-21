@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import type { PlanningScenarioRow } from "@/lib/types/scenario";
 import { mapRowToScenario } from "@/lib/types/scenario";
 
@@ -13,15 +14,29 @@ async function getCompanyId(
     error: userError,
   } = await supabase.auth.getUser();
   if (userError || !user)
-    return { error: "unauthorized" as const, companyId: null };
+    return { error: "unauthorized" as const, companyId: null, userId: null };
   const { data: company, error: companyError } = await supabase
     .from("companies")
     .select("id")
     .eq("created_by", user.id)
     .single();
   if (companyError || !company)
-    return { error: "company_not_found" as const, companyId: null };
-  return { companyId: company.id, error: null };
+    return {
+      error: "company_not_found" as const,
+      companyId: null,
+      userId: null,
+    };
+  return { companyId: company.id, userId: user.id, error: null };
+}
+
+/** Scenarios are the company's own data: changing them needs company.edit. */
+async function denyUnlessEditor(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  companyId: string
+) {
+  const actor = await resolveActor(supabase, userId, { companyId });
+  return requireCapability(actor, "company.edit");
 }
 
 /** GET /api/scenarios – list scenarios for the company */
@@ -78,13 +93,19 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
-    const { companyId, error: authError } = await getCompanyId(supabase);
+    const {
+      companyId,
+      userId,
+      error: authError,
+    } = await getCompanyId(supabase);
     if (authError) {
       return NextResponse.json(
         { error: authError },
         { status: authError === "unauthorized" ? 401 : 404 }
       );
     }
+    const denied = await denyUnlessEditor(supabase, userId!, companyId!);
+    if (denied) return denied;
 
     const body = await request.json().catch(() => ({}));
     const name =

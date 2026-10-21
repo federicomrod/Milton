@@ -53,17 +53,8 @@ export const ALLOW: Record<string, string> = {
     "records a «please support this source» request for Milton; no company data",
   "restaurant/kitchen/reports/resolve/route.ts":
     "any company member resolves cook reports, by design (documented in the route)",
-  // Legacy non-restaurant (CFO) dashboard: hidden by the restaurant pivot, not
-  // reachable from the restaurant cockpit. NOT gated here: listed as a follow-up in the PR.
-  "data/delete-model-table/route.ts": "legacy CFO flow, follow-up",
-  "data/normalize-values/route.ts": "legacy CFO flow, follow-up",
-  "data/parse/route.ts": "legacy CFO flow (parses a file, writes nothing)",
-  "data/upload-model-table/route.ts": "legacy CFO flow, follow-up",
-  "data/upload/route.ts": "legacy CFO flow, follow-up",
-  "kpis/calculate/route.ts": "legacy CFO flow, follow-up",
-  "kpis/select/route.ts": "legacy CFO flow, follow-up",
-  "scenarios/route.ts": "legacy CFO flow, follow-up",
-  "scenarios/[id]/route.ts": "legacy CFO flow, follow-up",
+  // Legacy non-restaurant (CFO) flow that only parses a file and writes nothing.
+  "data/parse/route.ts": "legacy CFO flow: parses a file, writes nothing",
 };
 
 function routes(dir: string): string[] {

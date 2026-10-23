@@ -7,7 +7,9 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 describe("Odoo Sync now panel", () => {
   const panel = read("components/management/odoo-sync-panel.tsx");
   const page = read("app/management/odoo/page.tsx");
-  const route = read("app/api/restaurant/pos/odoo-sync/route.ts");
+  const route =
+    read("app/api/restaurant/pos/odoo-sync/route.ts") +
+    read("lib/restaurant/odoo/sync-company.ts");
   const companies = read("app/api/admin/companies/route.ts");
 
   it("is mounted on the admin Odoo page", () => {

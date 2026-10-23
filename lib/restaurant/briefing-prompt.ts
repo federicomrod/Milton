@@ -6,6 +6,8 @@
 
 import type { BriefingContext } from "@/lib/restaurant/briefing-context";
 import { t } from "@/lib/restaurant/language";
+import { formatUnitPricePair } from "@/lib/restaurant/price-trends";
+import { noYesterdaySalesText } from "@/lib/restaurant/briefing-periods";
 
 // ---------------------------------------------------------------------------
 // Output schema
@@ -67,6 +69,21 @@ export const BRIEFING_SYSTEM_PROMPT = [
   '   natural, professional Spanish for "es", never a mix. NEVER translate',
   "   restaurant names, dish/menu item names, ingredient names, or supplier",
   "   names — keep those exactly as given in `context`.",
+  "9. Sales periods: `context.sales_periods.facts` holds already-formatted,",
+  "   dated lines (yesterday vs the same weekday last week, last 7 days vs",
+  "   the previous 7 days). When talking about sales, quote ONLY those lines",
+  '   and ALWAYS with their date label (e.g. "Ayer, jue 22 oct"). Never',
+  "   compute your own percentages or totals. If a line says there is no data",
+  "   to compare, say so — never turn it into 0% or $0. If it says there are",
+  "   no synced sales for yesterday, say the sync may not have run.",
+  "10. `kpis` (revenue, orders, avg_ticket, margin, food cost, coverage)",
+  "   cover `context.period_label` (all loaded POS data), NOT yesterday.",
+  "   Never present them as yesterday's or last week's sales. When citing",
+  "   margin or food cost, name that period and the cost coverage %.",
+  "11. Ingredient price changes: quote `previous_cost` / `latest_cost` with",
+  "   all their decimals (they can be fractions of a cent) and never round",
+  "   them to 0. Items in `price_review_items` are NOT increases: say the",
+  '   price needs checking ("revisar precio").',
   "",
   "JSON schema:",
   "{",
@@ -88,6 +105,13 @@ export function buildBriefingUserPrompt(ctx: BriefingContext): string {
     "Write a briefing for the restaurant manager using ONLY the context below.",
     "Reply with the JSON object specified in the system prompt.",
     "",
+    ...(ctx.sales_periods && ctx.sales_periods.facts.length > 0
+      ? [
+          "Dated sales facts (quote exactly, with their date labels):",
+          ...ctx.sales_periods.facts.map((f) => `- ${f}`),
+          "",
+        ]
+      : []),
     "context = ",
     JSON.stringify(ctx, null, 2),
   ].join("\n");
@@ -127,9 +151,18 @@ export function buildDeterministicBriefing(
   const k = ctx.kpis;
   const lang = ctx.preferred_language;
 
+  const sp = ctx.sales_periods;
+
   // Headline
-  const headline =
-    k.revenue > 0
+  const headline = sp
+    ? sp.yesterday.current.sales !== null
+      ? t(
+          lang,
+          `${ctx.restaurant_name}: ${fmtCurrency(sp.yesterday.current.sales, c)} in sales (${sp.yesterday.current.label})`,
+          `${ctx.restaurant_name}: ${fmtCurrency(sp.yesterday.current.sales, c)} en ventas (${sp.yesterday.current.label})`
+        )
+      : `${ctx.restaurant_name}: ${noYesterdaySalesText(lang)}`
+    : k.revenue > 0
       ? t(
           lang,
           `${ctx.restaurant_name}: ${fmtCurrency(k.revenue, c)} in revenue`,
@@ -143,7 +176,17 @@ export function buildDeterministicBriefing(
 
   // Summary
   const summaryParts: string[] = [];
-  if (k.revenue > 0) {
+  if (sp) {
+    // Dated, labelled periods; the same facts the AI is told to quote.
+    summaryParts.push(sp.facts.join(". ") + ".");
+    summaryParts.push(
+      t(
+        lang,
+        `Margin and food cost cover ${ctx.period_label}, with ${k.cost_coverage_pct}% cost coverage.`,
+        `El margen y el costo de alimentos cubren ${ctx.period_label}, con ${k.cost_coverage_pct}% de cobertura de costo.`
+      )
+    );
+  } else if (k.revenue > 0) {
     summaryParts.push(
       t(
         lang,
@@ -160,7 +203,7 @@ export function buildDeterministicBriefing(
       )
     );
   }
-  if (k.cost_coverage_pct < 90) {
+  if (!sp && k.cost_coverage_pct < 90) {
     summaryParts.push(
       t(
         lang,
@@ -194,11 +237,22 @@ export function buildDeterministicBriefing(
     );
   }
   for (const trend of ctx.supplier_price_increases.slice(0, 1)) {
+    const p = formatUnitPricePair(trend.previous_cost, trend.latest_cost, c);
     risks.push(
       t(
         lang,
-        `${trend.ingredient_name} price up ${trend.pct_change}% (now ${fmtCurrency(trend.latest_cost, c)} per ${trend.unit}).`,
-        `El precio de ${trend.ingredient_name} subió ${trend.pct_change}% (ahora ${fmtCurrency(trend.latest_cost, c)} por ${trend.unit}).`
+        `${trend.ingredient_name} price up ${trend.pct_change}% (${p.previous} → ${p.latest} per ${trend.unit}).`,
+        `El precio de ${trend.ingredient_name} subió ${trend.pct_change}% (${p.previous} → ${p.latest} por ${trend.unit}).`
+      )
+    );
+  }
+  for (const item of (ctx.price_review_items ?? []).slice(0, 1)) {
+    const p = formatUnitPricePair(item.previous_cost, item.latest_cost, c);
+    risks.push(
+      t(
+        lang,
+        `${item.ingredient_name}: revisar precio (${p.previous} → ${p.latest} per ${item.unit}) — the jump looks like a data error.`,
+        `${item.ingredient_name}: revisar precio (${p.previous} → ${p.latest} por ${item.unit}) — el salto parece un error de datos.`
       )
     );
   }

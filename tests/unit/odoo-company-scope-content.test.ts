@@ -61,7 +61,10 @@ describe("no Odoo RPC bypasses the scoped helper", () => {
 });
 
 describe("odoo-sync route", () => {
-  const src = read("app/api/restaurant/pos/odoo-sync/route.ts");
+  // Route is a thin auth shell; the logic lives in sync-company.ts.
+  const src =
+    read("app/api/restaurant/pos/odoo-sync/route.ts") +
+    read("lib/restaurant/odoo/sync-company.ts");
 
   it("uses the scoped helper and the scope assertion", () => {
     expect(src).toContain("scopedExecuteKw");
@@ -230,7 +233,12 @@ describe("Odoo routes never leak err.message or raw fault text", () => {
 
   it("client-facing details use the generic status-class helper", () => {
     for (const f of files) {
-      const src = read(f);
+      // The sync route imports the helper from the shared core.
+      const src =
+        read(f) +
+        (f.endsWith("pos/odoo-sync/route.ts")
+          ? read("lib/restaurant/odoo/sync-company.ts")
+          : "");
       if (!src.includes("details:")) continue;
       expect(src).toContain("Odoo request failed (");
       expect(src).toContain("function odooFaultDetails");

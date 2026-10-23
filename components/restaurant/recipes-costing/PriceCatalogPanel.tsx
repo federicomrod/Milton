@@ -19,6 +19,7 @@ import {
   IMPORT_RECIPES_BUTTON_ID,
   RecipeImportPreview,
 } from "./RecipeImportPreview";
+import { PENDING_PRICE_CHOICES_NOTE } from "./pending-price-note";
 import { Card, Chip, GhostBtn, PrimaryBtn } from "./ui";
 
 const UNIT_LABEL: Record<CatalogUnit, string> = {
@@ -350,6 +351,12 @@ export const PriceCatalogPanel = forwardRef<
   const canSave = !!draftName && !!preview && !busy && !busyExternal;
   const openDecisions =
     check.length + ambiguous.length + (preview?.conflicts.length ?? 0);
+
+  const hasPendingPriceChoices =
+    open.length > 0 ||
+    (preview?.conflicts ?? []).some(
+      (conflict) => conflictChoice[conflict.key] === undefined
+    );
 
   async function save() {
     if (!draftName || !preview) return;
@@ -806,6 +813,7 @@ export const PriceCatalogPanel = forwardRef<
         onImported={() => onRecipesImported?.()}
         onDishes={setRecipeDishes}
         primary={!preview}
+        hasPendingPriceChoices={hasPendingPriceChoices}
       />
 
       {open.length > 0 ? (
@@ -813,6 +821,9 @@ export const PriceCatalogPanel = forwardRef<
           <h3 className="text-[12.5px] font-semibold">
             Costos por decidir ({open.length})
           </h3>
+          <p className="text-[12px] text-[#6b7280]">
+            {PENDING_PRICE_CHOICES_NOTE}
+          </p>
           <div className="rounded-lg border border-slate-200">
             {open.map((item) => (
               <div

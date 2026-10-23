@@ -147,6 +147,30 @@ function gaugeBar(pct: number, color: string): string {
 // Builder
 // ---------------------------------------------------------------------------
 
+/** «AGUACATE: el precio cambió de USD 0.13 a USD 0.55 por oz. ¿Es correcto?» (no percentage). */
+export function priceReviewLine(
+  name: string,
+  previous: string,
+  latest: string,
+  unit: string,
+  lang: PreferredLanguage
+): string {
+  return t(
+    lang,
+    `${name}: the price changed from ${previous} to ${latest} per ${unit}. Is that right?`,
+    `${name}: el precio cambió de ${previous} a ${latest} por ${unit}. ¿Es correcto?`
+  );
+}
+
+/** Under the button, only for companies with Telegram connected. */
+export function telegramNote(lang: PreferredLanguage): string {
+  return t(
+    lang,
+    "For quick questions from your phone, message Milton on Telegram.",
+    "Para preguntas rápidas desde el teléfono, escríbele a Milton por Telegram."
+  );
+}
+
 export function renderBriefingEmail(
   ctx: BriefingContext,
   briefing: BriefingOutput,
@@ -172,34 +196,6 @@ export function renderBriefingEmail(
     "Here's your latest Milton briefing",
     "Aquí tienes tu último briefing de Milton"
   );
-
-  // ---- No revenue yet: simplified body, no fabricated KPIs ----
-  if (!sp && k.revenue <= 0) {
-    const noDataLine = t(
-      lang,
-      "No POS revenue is loaded yet — import sales to see live KPIs here.",
-      "Aún no hay ingresos de POS cargados — importa tus ventas para ver KPIs en vivo aquí."
-    );
-    const html = wrapHtml({
-      lang,
-      restaurantName: ctx.restaurant_name,
-      periodLabel: headerPeriod,
-      heading,
-      bodyHtml: `<p style="font-size:14px;color:${COLORS.text};line-height:1.5;">${esc(noDataLine)}</p>`,
-      ctaLabel: t(lang, "Open Milton", "Abrir Milton"),
-      ctaUrl: dashboardUrl,
-    });
-    const text = [
-      "MILTON",
-      heading,
-      `${ctx.restaurant_name} · ${headerPeriod}`,
-      "",
-      noDataLine,
-      "",
-      `${t(lang, "Open Milton", "Abrir Milton")}: ${dashboardUrl}`,
-    ].join("\n");
-    return { subject, html, text };
-  }
 
   // ---- KPI cards ----
   const cards: string[] = [];
@@ -255,8 +251,8 @@ export function renderBriefingEmail(
             `${k.estimated_gross_margin_pct}%`,
             t(
               lang,
-              `${k.food_cost_pct !== null ? `Food cost ${k.food_cost_pct}% · ` : ""}${ctx.period_label} · ${k.cost_coverage_pct}% cost coverage`,
-              `${k.food_cost_pct !== null ? `Costo de alimentos ${k.food_cost_pct}% · ` : ""}${ctx.period_label} · ${k.cost_coverage_pct}% de cobertura de costo`
+              `${k.food_cost_pct !== null ? `Food cost ${k.food_cost_pct}% · ` : ""}${ctx.period_label} · based on ${k.cost_coverage_pct}% of sales with cost`,
+              `${k.food_cost_pct !== null ? `Costo de alimentos ${k.food_cost_pct}% · ` : ""}${ctx.period_label} · basado en ${k.cost_coverage_pct}% de las ventas con costo`
             )
           )
         : kpiCard(
@@ -266,56 +262,15 @@ export function renderBriefingEmail(
           )
     );
   } else {
-    cards.push(kpiCard(t(lang, "Sales", "Ventas"), fmtCurrency(k.revenue, c)));
+    // The dated periods could not be built: say so. Never fall back to the
+    // all-time totals, they are not yesterday's or last week's sales.
     cards.push(
-      k.orders !== null
-        ? kpiCard(t(lang, "Orders", "Órdenes"), fmtNumber(k.orders, lang))
-        : kpiCard(t(lang, "Orders", "Órdenes"), "—", k.orders_reason)
-    );
-    cards.push(
-      k.avg_ticket !== null
-        ? kpiCard(
-            t(lang, "Avg ticket", "Ticket promedio"),
-            fmtCurrency(k.avg_ticket, c)
-          )
-        : kpiCard(
-            t(lang, "Avg ticket", "Ticket promedio"),
-            "—",
-            k.avg_ticket_reason
-          )
-    );
-    cards.push(
-      k.estimated_gross_margin_pct !== null
-        ? kpiCard(
-            t(lang, "Gross margin", "Margen bruto"),
-            `${k.estimated_gross_margin_pct}%`,
-            k.food_cost_pct !== null
-              ? t(
-                  lang,
-                  `Food cost ${k.food_cost_pct}%`,
-                  `Costo de alimentos ${k.food_cost_pct}%`
-                )
-              : undefined
-          )
-        : kpiCard(
-            t(lang, "Gross margin", "Margen bruto"),
-            "—",
-            k.estimated_gross_margin_pct_reason
-          )
+      kpiCard(t(lang, "Sales", "Ventas"), "—", noComparisonText(lang))
     );
   }
 
   // ---- Visual section: only real, known-data visuals ----
   const visualParts: string[] = [];
-  if (k.cost_coverage_pct > 0) {
-    visualParts.push(`
-      <div style="margin-bottom:14px;">
-        <div style="font-size:13px;color:${COLORS.text};margin-bottom:6px;">
-          ${esc(t(lang, "Cost coverage", "Cobertura de costo"))}: <strong>${k.cost_coverage_pct}%</strong>
-        </div>
-        ${gaugeBar(k.cost_coverage_pct, k.cost_coverage_pct < 90 ? COLORS.warn : COLORS.good)}
-      </div>`);
-  }
   for (const trend of ctx.supplier_price_increases.slice(0, 2)) {
     // Unit prices can be fractions of a cent: show enough decimals that the
     // change is visible (never "0 → 0").
@@ -326,17 +281,40 @@ export function renderBriefingEmail(
         &nbsp;${esc(trend.ingredient_name)} — ${esc(p.previous)} → ${esc(p.latest)} / ${esc(trend.unit)}
       </div>`);
   }
-  for (const item of (ctx.price_review_items ?? []).slice(0, 2)) {
-    const p = formatUnitPricePair(item.previous_cost, item.latest_cost, c);
-    visualParts.push(`
-      <div style="font-size:13px;color:${COLORS.text};padding:8px 0;border-top:1px solid ${COLORS.border};">
-        <span style="color:${COLORS.muted};font-weight:700;">${esc(t(lang, "Check price", "Revisar precio"))}</span>
-        &nbsp;${esc(item.ingredient_name)} — ${esc(p.previous)} → ${esc(p.latest)} / ${esc(item.unit)}
-      </div>`);
-  }
   const visualSection =
     visualParts.length > 0
       ? section(t(lang, "Performance", "Desempeño"), visualParts.join(""))
+      : "";
+
+  // ---- Price changes to check: neutral, no percentage, no red arrow ----
+  const reviewItems = (ctx.price_review_items ?? []).slice(0, 3);
+  const reviewSection =
+    reviewItems.length > 0
+      ? section(
+          t(lang, "Check price", "Revisar precio"),
+          reviewItems
+            .map((item) => {
+              const p = formatUnitPricePair(
+                item.previous_cost,
+                item.latest_cost,
+                c
+              );
+              return `<div style="font-size:13px;color:${COLORS.text};padding:6px 0;">${esc(priceReviewLine(item.ingredient_name, p.previous, p.latest, item.unit, lang))}</div>`;
+            })
+            .join("")
+        )
+      : "";
+
+  // ---- For your team: the cost-coverage bar (not a headline number) ----
+  const teamSection =
+    k.cost_coverage_pct > 0
+      ? section(
+          t(lang, "For your team", "Para tu equipo"),
+          `<div style="font-size:13px;color:${COLORS.text};margin-bottom:6px;">
+            ${esc(t(lang, "Cost coverage", "Cobertura de costo"))}: <strong>${k.cost_coverage_pct}%</strong>
+          </div>
+          ${gaugeBar(k.cost_coverage_pct, k.cost_coverage_pct < 90 ? COLORS.warn : COLORS.good)}`
+        )
       : "";
 
   // ---- Watch (top risks) ----
@@ -377,6 +355,8 @@ export function renderBriefingEmail(
     kpiGrid(cards),
     salesSection,
     visualSection,
+    reviewSection,
+    teamSection,
     watchSection,
     actionsSection,
   ].join("");
@@ -389,6 +369,7 @@ export function renderBriefingEmail(
     bodyHtml,
     ctaLabel: t(lang, "Open Milton", "Abrir Milton"),
     ctaUrl: dashboardUrl,
+    ctaNote: ctx.telegram_connected ? telegramNote(lang) : undefined,
   });
 
   // ---- Plain-text fallback ----
@@ -400,15 +381,26 @@ export function renderBriefingEmail(
     ...(sp
       ? [
           ...sp.facts,
-          `${t(lang, "Gross margin", "Margen bruto")}: ${k.estimated_gross_margin_pct !== null ? `${k.estimated_gross_margin_pct}%` : "—"} (${ctx.period_label}; ${t(lang, "cost coverage", "cobertura de costo")} ${k.cost_coverage_pct}%)`,
+          `${t(lang, "Gross margin", "Margen bruto")}: ${k.estimated_gross_margin_pct !== null ? `${k.estimated_gross_margin_pct}%` : "—"} (${ctx.period_label}; ${t(lang, `based on ${k.cost_coverage_pct}% of sales with cost`, `basado en ${k.cost_coverage_pct}% de las ventas con costo`)})`,
         ]
-      : [
-          `${t(lang, "Sales", "Ventas")}: ${fmtCurrency(k.revenue, c)}`,
-          `${t(lang, "Orders", "Órdenes")}: ${k.orders !== null ? fmtNumber(k.orders, lang) : "—"}`,
-          `${t(lang, "Avg ticket", "Ticket promedio")}: ${k.avg_ticket !== null ? fmtCurrency(k.avg_ticket, c) : "—"}`,
-          `${t(lang, "Gross margin", "Margen bruto")}: ${k.estimated_gross_margin_pct !== null ? `${k.estimated_gross_margin_pct}%` : "—"}`,
-        ]),
+      : [`${t(lang, "Sales", "Ventas")}: ${noComparisonText(lang)}`]),
   ];
+  if (reviewItems.length > 0) {
+    textLines.push("", t(lang, "CHECK PRICE", "REVISAR PRECIO"));
+    for (const item of reviewItems) {
+      const p = formatUnitPricePair(item.previous_cost, item.latest_cost, c);
+      textLines.push(
+        `- ${priceReviewLine(item.ingredient_name, p.previous, p.latest, item.unit, lang)}`
+      );
+    }
+  }
+  if (k.cost_coverage_pct > 0) {
+    textLines.push(
+      "",
+      t(lang, "FOR YOUR TEAM", "PARA TU EQUIPO"),
+      `${t(lang, "Cost coverage", "Cobertura de costo")}: ${k.cost_coverage_pct}%`
+    );
+  }
   if (briefing.top_risks.length > 0) {
     textLines.push("", t(lang, "WATCH", "ATENCIÓN"));
     for (const r of briefing.top_risks.slice(0, 3)) textLines.push(`- ${r}`);
@@ -423,6 +415,7 @@ export function renderBriefingEmail(
     "",
     `${t(lang, "Open Milton", "Abrir Milton")}: ${dashboardUrl}`
   );
+  if (ctx.telegram_connected) textLines.push(telegramNote(lang));
 
   return { subject, html, text: textLines.join("\n") };
 }
@@ -451,6 +444,8 @@ function wrapHtml(args: {
   bodyHtml: string;
   ctaLabel: string;
   ctaUrl: string;
+  /** A small gray line under the button (omitted when undefined). */
+  ctaNote?: string;
 }): string {
   const { restaurantName, periodLabel, heading, bodyHtml, ctaLabel, ctaUrl } =
     args;
@@ -498,6 +493,7 @@ function wrapHtml(args: {
                   </td>
                 </tr>
               </table>
+              ${args.ctaNote ? `<div style="font-size:12px;color:${COLORS.muted};margin-top:12px;line-height:1.4;">${esc(args.ctaNote)}</div>` : ""}
             </td>
           </tr>
         </table>

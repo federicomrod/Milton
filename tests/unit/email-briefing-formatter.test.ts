@@ -3,6 +3,7 @@ import { renderBriefingEmail } from "@/lib/restaurant/email/briefing-email-forma
 import { buildDeterministicBriefing } from "@/lib/restaurant/briefing-prompt";
 import type { BriefingContext } from "@/lib/restaurant/briefing-context";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { computeBriefingSalesPeriods } from "@/lib/restaurant/briefing-periods";
 
 // Email Briefing Extension v1 — proves the email formatter reuses the SAME
 // BriefingContext/BriefingOutput as the dashboard and Telegram (no second
@@ -10,6 +11,22 @@ import type { PreferredLanguage } from "@/lib/restaurant/language";
 // missing KPIs, and never fabricates a period or a historical comparison.
 
 const APP_URL = "https://app.example.com";
+
+/** 14 days of synthetic sales ending yesterday (thu 22 oct 2026, El Salvador). */
+function periods(lang: PreferredLanguage) {
+  const daily = Array.from({ length: 14 }, (_, i) => ({
+    date: `2026-10-${String(9 + i).padStart(2, "0")}`,
+    net_sales: 1000 + i * 10,
+    tickets: 20,
+  }));
+  return computeBriefingSalesPeriods({
+    daily,
+    now: new Date("2026-10-23T15:00:00Z"),
+    timezone: "America/El_Salvador",
+    lang,
+    formatMoney: (n) => `$${Math.round(n)}`,
+  });
+}
 
 function fixture(
   lang: PreferredLanguage,
@@ -19,6 +36,7 @@ function fixture(
     restaurant_name: "Pinche Gringo BBQ",
     preferred_language: lang,
     period_label: "all available POS data",
+    sales_periods: periods(lang),
     currency: "MXN",
     kpis: {
       revenue: 50000,
@@ -128,35 +146,26 @@ describe("renderBriefingEmail — English (scenario 1)", () => {
 });
 
 describe("renderBriefingEmail — compact 2x2 KPI grid (adjustment)", () => {
-  it("puts Sales+Orders in the first row and Avg ticket+Gross margin in the second", () => {
+  it("puts the two dated sales cards in the first row and Orders+Avg ticket in the second", () => {
     const ctx = fixture("en");
     const briefing = buildDeterministicBriefing(ctx);
     const { html } = renderBriefingEmail(ctx, briefing, APP_URL);
 
-    // kpiGrid() concatenates two complete "<tr>...</tr>" row strings with
-    // no separator, so a literal "</tr><tr>" substring can only occur at
-    // the boundary between the grid's two outer rows (every card's own
-    // inner single-cell table produces exactly one inner <tr>, never two
-    // adjacent closing/opening tags) — a reliable marker without needing
-    // to parse the nested table structure.
+    // kpiGrid() concatenates complete "<tr>...</tr>" rows with no separator,
+    // so "</tr><tr>" only occurs at the boundary between the grid's outer rows.
     const rowBreak = html.indexOf("</tr><tr>");
     expect(rowBreak).toBeGreaterThan(-1);
 
     const row1 = html.slice(0, rowBreak);
-    // A generous fixed window rather than trying to locate the exact
-    // outer-row close (the first "</tr>" after this point is actually
-    // Avg ticket's own INNER card table closing, not the outer row) —
-    // the KPI grid section is far smaller than this, so both row-2 cards
-    // are safely inside it.
     const row2 = html.slice(rowBreak, rowBreak + 3000);
 
-    expect(row1).toContain("Sales");
-    expect(row1).toContain("Orders");
+    expect(row1).toContain("Yesterday");
+    expect(row1).toContain("Last 7 days");
     expect(row1).not.toContain("Avg ticket");
 
+    expect(row2).toContain("Orders");
     expect(row2).toContain("Avg ticket");
-    expect(row2).toContain("Gross margin");
-    expect(row2).not.toContain(">Sales<");
+    expect(html).toContain("Gross margin");
   });
 
   it("includes a conservative media-query fallback for narrow/mobile clients", () => {
@@ -267,39 +276,32 @@ describe("renderBriefingEmail — missing KPI graceful rendering", () => {
     });
     const briefing = buildDeterministicBriefing(ctx);
     const { html, text } = renderBriefingEmail(ctx, briefing, APP_URL);
-    expect(html).toContain("POS rows have no check_id");
+    // Orders and ticket come from the dated periods now; the margin card
+    // keeps its own reason.
     expect(html).toContain("No revenue with complete cost coverage");
     expect(text).toContain("—"); // placeholder in the plain-text KPI lines
   });
 
-  it("never throws and shows a simplified body when there is no revenue at all", () => {
-    const ctx = fixture("en", {
-      kpis: {
-        revenue: 0,
-        orders: null,
-        units_sold: 0,
-        avg_ticket: null,
-        cost_coverage_pct: 0,
-        estimated_cogs: 0,
-        estimated_gross_profit: 0,
-        estimated_gross_margin_pct: null,
-        food_cost_pct: null,
-      },
-      supplier_price_increases: [],
-    });
+  it("when the dated periods cannot be built it says «No data to compare», never the all-time cards", () => {
+    const ctx = fixture("en", { sales_periods: undefined });
     const briefing = buildDeterministicBriefing(ctx);
     expect(() => renderBriefingEmail(ctx, briefing, APP_URL)).not.toThrow();
     const { html, text } = renderBriefingEmail(ctx, briefing, APP_URL);
-    expect(html).toMatch(/No POS revenue is loaded yet/);
-    expect(text).toMatch(/No POS revenue is loaded yet/);
-    // No fabricated KPI cards in the zero-revenue body.
+    expect(html).toMatch(/No data to compare/);
+    expect(text).toMatch(/No data to compare/);
+    // none of the all-time numbers (revenue 50000, 200 orders, ticket 250)
+    expect(html).not.toMatch(/50,?000/);
+    expect(html).not.toContain("Avg ticket");
     expect(html).not.toContain("Gross margin");
   });
 });
 
 describe("renderBriefingEmail — period wording (never fabricated)", () => {
   it("states the actual period_label verbatim rather than assuming a time of day", () => {
-    const ctx = fixture("en", { period_label: "Jan 1 – Jan 7, 2026" });
+    const ctx = fixture("en", {
+      period_label: "Jan 1 – Jan 7, 2026",
+      sales_periods: undefined,
+    });
     const briefing = buildDeterministicBriefing(ctx);
     const { html, text } = renderBriefingEmail(ctx, briefing, APP_URL);
     expect(html).toContain("Jan 1 – Jan 7, 2026");
@@ -311,7 +313,7 @@ describe("renderBriefingEmail — period wording (never fabricated)", () => {
 
 describe("renderBriefingEmail — no fabricated historical comparison", () => {
   it("never renders a revenue/margin trend chart when the context has no prior-period series", () => {
-    const ctx = fixture("en");
+    const ctx = fixture("en", { sales_periods: undefined });
     const briefing = buildDeterministicBriefing(ctx);
     const { html } = renderBriefingEmail(ctx, briefing, APP_URL);
     // Only the real supplier price comparison (previous_cost -> latest_cost)

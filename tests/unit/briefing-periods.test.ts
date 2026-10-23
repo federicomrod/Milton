@@ -192,7 +192,10 @@ describe("briefing surfaces use the labelled periods", () => {
     const b = buildDeterministicBriefing(ctxFixture(daily));
     expect(b.headline).toContain("Ayer, jue 22 oct");
     expect(b.summary).toContain("Últimos 7 días (16–22 oct)");
-    expect(b.summary).toContain("72% de cobertura");
+    expect(b.summary).toContain("El margen y el costo de alimentos cubren");
+    // coverage is not a headline number: it lives in «Para tu equipo»
+    expect(b.summary).not.toContain("cobertura");
+    expect(b.headline).not.toContain("cobertura");
     expect(b.summary).not.toContain("99999");
   });
 

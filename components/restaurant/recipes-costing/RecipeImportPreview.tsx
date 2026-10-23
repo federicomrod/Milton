@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { GhostBtn, PrimaryBtn } from "./ui";
+import { PENDING_PRICE_CHOICES_NOTE } from "./pending-price-note";
 
 /** Id of the «2. Importar recetas» button (scrolled into view after step 1). */
 export const IMPORT_RECIPES_BUTTON_ID = "importar-recetas";
@@ -76,6 +77,7 @@ export function RecipeImportPreview({
   onImported,
   onDishes,
   primary = true,
+  hasPendingPriceChoices = false,
 }: {
   /** The saved upload (draft); changes when a new file is picked. */
   draftToken: string | null;
@@ -88,6 +90,8 @@ export function RecipeImportPreview({
   onImported: () => void;
   /** How many dishes the file's recipes hold (0 = none to import). */
   onDishes?: (count: number) => void;
+  /** True while some «dos costos» choice is still unanswered. */
+  hasPendingPriceChoices?: boolean;
   /** Step 2 is the next primary action (prices already saved or nothing to save). */
   primary?: boolean;
 }) {
@@ -312,15 +316,22 @@ export function RecipeImportPreview({
           {(() => {
             const Btn = primary ? PrimaryBtn : GhostBtn;
             return (
-              <Btn
-                id={IMPORT_RECIPES_BUTTON_ID}
-                disabled={busy || busyExternal}
-                onClick={() => void importRecipes()}
-              >
-                {busy
-                  ? "Importando…"
-                  : `2. Importar recetas (${preview.dishes} ${preview.dishes === 1 ? "plato" : "platos"})`}
-              </Btn>
+              <>
+                {hasPendingPriceChoices ? (
+                  <p className="text-[12px] text-[#6b7280]">
+                    {PENDING_PRICE_CHOICES_NOTE}
+                  </p>
+                ) : null}
+                <Btn
+                  id={IMPORT_RECIPES_BUTTON_ID}
+                  disabled={busy || busyExternal}
+                  onClick={() => void importRecipes()}
+                >
+                  {busy
+                    ? "Importando…"
+                    : `2. Importar recetas (${preview.dishes} ${preview.dishes === 1 ? "plato" : "platos"})`}
+                </Btn>
+              </>
             );
           })()}
         </>

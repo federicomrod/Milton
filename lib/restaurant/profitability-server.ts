@@ -46,6 +46,7 @@ import {
   resolveCompanyCurrency,
 } from "@/lib/restaurant/currency";
 import { classifySaleLine } from "@/lib/restaurant/sales-revenue";
+import { evaluateIngredientPriceTrend } from "@/lib/restaurant/price-trends";
 import { fetchAllRowsRetryingWithoutColumn } from "@/lib/restaurant/missing-schema-column";
 import {
   fetchCockpitPosProductRollup,
@@ -163,6 +164,8 @@ export interface ProfitabilityData {
   highRevenueIncomplete: MenuMarginRow[];
   missingRecipeHighVolume: MenuMarginRow[];
   ingredientPriceTrends: IngredientPriceTrendRow[];
+  /** Implausible jumps (tiny previous price, huge %): « revisar precio », never an alert. Optional so older fixtures stay valid. */
+  ingredientPriceReview?: IngredientPriceTrendRow[];
   topSupplierSpend: SupplierSpendRow[];
   dataQuality: DataQualityCounts;
   /** Total spend across all cost entries — used by the supplier-spend chart. */
@@ -977,27 +980,14 @@ export async function fetchProfitabilityData(
   const ingredientNameById = new Map(ingredients.map((i) => [i.id, i.name]));
 
   const ingredientPriceTrends: IngredientPriceTrendRow[] = [];
+  const ingredientPriceReview: IngredientPriceTrendRow[] = [];
   for (const [ingredientId, entries] of costEntriesByIngredientId) {
     if (entries.length < 2) continue;
-    // Sort by cost_date desc, then created_at desc, so [0] = latest.
-    const sorted = [...entries].sort((a, b) => {
-      if (a.cost_date !== b.cost_date)
-        return a.cost_date > b.cost_date ? -1 : 1;
-      return a.created_at > b.created_at ? -1 : 1;
-    });
-    const latest = sorted[0];
-    // Previous: first entry with a different cost_date AND a compatible
-    // normalized_unit (so the % change is meaningful).
-    const previous = sorted
-      .slice(1)
-      .find((e) => e.normalized_unit === latest.normalized_unit);
-    if (!previous) continue;
-    if (latest.normalized_unit_cost <= 0 || previous.normalized_unit_cost <= 0)
-      continue;
-    const pctChange =
-      ((latest.normalized_unit_cost - previous.normalized_unit_cost) /
-        previous.normalized_unit_cost) *
-      100;
+    // One final price per day (latest created_at), latest day vs the previous
+    // day with the same unit — see lib/restaurant/price-trends.ts.
+    const outcome = evaluateIngredientPriceTrend(entries);
+    if (outcome.kind === "none") continue;
+    const { latest, previous, pct_change: pctChange } = outcome;
     if (Math.abs(pctChange) < PRICE_INCREASE_MIN_PCT) continue;
     if (
       (latest.currency && !isSameCurrency(latest.currency, companyCurrency)) ||
@@ -1005,7 +995,7 @@ export async function fetchProfitabilityData(
     ) {
       continue;
     }
-    ingredientPriceTrends.push({
+    const row: IngredientPriceTrendRow = {
       ingredient_id: ingredientId,
       ingredient_name: ingredientNameById.get(ingredientId) ?? "(unknown)",
       latest_supplier_name: latest.supplier_id
@@ -1018,7 +1008,9 @@ export async function fetchProfitabilityData(
       previous_date: previous.cost_date,
       unit: latest.normalized_unit,
       currency: latest.currency,
-    });
+    };
+    if (outcome.kind === "review") ingredientPriceReview.push(row);
+    else ingredientPriceTrends.push(row);
   }
   ingredientPriceTrends.sort((a, b) => b.pct_change - a.pct_change);
   const topPriceTrends = ingredientPriceTrends.slice(0, 12);
@@ -1150,6 +1142,7 @@ export async function fetchProfitabilityData(
     highRevenueIncomplete,
     missingRecipeHighVolume,
     ingredientPriceTrends: topPriceTrends,
+    ingredientPriceReview: ingredientPriceReview.slice(0, 12),
     topSupplierSpend,
     dataQuality,
     total_supplier_spend: totalSupplierSpend,

@@ -63,6 +63,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateBriefing } from "@/lib/restaurant/briefing-generate";
 import { renderBriefingEmail } from "@/lib/restaurant/email/briefing-email-formatter";
+import { autoSyncOdooCompany } from "@/lib/restaurant/odoo/auto-sync";
 import { sendBriefingEmail } from "@/lib/restaurant/email/send";
 import {
   normalizeEmail,
@@ -156,6 +157,17 @@ export async function GET(req: NextRequest) {
       if (!decision.due) {
         skipped++;
         continue;
+      }
+
+      // Never brief on stale data: sync Odoo (yesterday + today) first. The
+      // helper never throws and a failed sync must NOT block the briefing,
+      // which proceeds with whatever sales already exist.
+      const sync = await autoSyncOdooCompany(admin, row.id, nowUtc);
+      if (!sync.ok) {
+        console.error(
+          `[briefing-email-scheduler] pre-briefing odoo sync failed for company ${sync.company}:`,
+          sync.error_kind
+        );
       }
 
       const { ctx, briefing } = await generateBriefing(admin, row.id);

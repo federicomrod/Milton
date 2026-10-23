@@ -234,7 +234,7 @@ describe("GET /api/restaurant/sales-detail", () => {
 describe("the writers revalidate the company's sales tag", () => {
   const WRITERS: Array<[string, RegExp]> = [
     [
-      "app/api/restaurant/pos/odoo-sync/route.ts",
+      "lib/restaurant/odoo/sync-company.ts",
       /persistLastSync\([^)]*\);\s*[\s\S]{0,120}revalidateSales\(companyId\)/,
     ],
     [

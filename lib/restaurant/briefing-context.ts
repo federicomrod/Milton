@@ -17,6 +17,17 @@ import {
   fetchProfitabilityData,
   type ProfitabilitySelection,
 } from "@/lib/restaurant/profitability-server";
+import { fetchCockpitPosRollup } from "@/lib/restaurant/cockpit-pos-rollup";
+import { fetchCompanyPosSalesRows } from "@/lib/restaurant/supabase-sales";
+import { dailyFromRollup, dailyFromRows } from "@/lib/restaurant/cockpit-daily";
+import { normalizeTimezone } from "@/lib/restaurant/email/preferences";
+import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
+import {
+  computeBriefingSalesPeriods,
+  formatDayLabel,
+  type BriefingSalesPeriods,
+  type DailySalesPoint,
+} from "@/lib/restaurant/briefing-periods";
 import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   resolveRestaurantCockpitLanguage,
@@ -73,6 +84,16 @@ export interface BriefingPriceTrend {
   latest_date: string;
 }
 
+/** Implausible price jump (tiny previous price, huge %): « revisar precio ». */
+export interface BriefingPriceReview {
+  ingredient_id: string;
+  ingredient_name: string;
+  previous_cost: number;
+  latest_cost: number;
+  unit: string;
+  latest_date: string;
+}
+
 export interface BriefingSupplierSpend {
   supplier_id: string;
   supplier_name: string;
@@ -108,7 +129,13 @@ export interface BriefingContext {
    * rather than each one re-fetching or re-deciding language on its own.
    */
   preferred_language: PreferredLanguage;
+  /**
+   * Period covered by `kpis` (all loaded POS data), with its first and last
+   * day when known. NOT "yesterday": see `sales_periods` for dated periods.
+   */
   period_label: string;
+  /** Dated sales periods in the company timezone (yesterday, last 7 days). */
+  sales_periods?: BriefingSalesPeriods;
   currency: string;
   kpis: {
     revenue: number;
@@ -132,6 +159,9 @@ export interface BriefingContext {
   high_revenue_missing_recipe: BriefingMissingRecipeItem[];
   costing_blockers: BriefingCostingBlocker[];
   supplier_price_increases: BriefingPriceTrend[];
+  price_review_items?: BriefingPriceReview[];
+  /** The company has Telegram connected (a row in restaurant_telegram_connections). */
+  telegram_connected?: boolean;
   top_suppliers: BriefingSupplierSpend[];
   open_recommendations: {
     total: number;
@@ -158,6 +188,72 @@ function roundInt(n: number | null): number | null {
   return Math.round(n);
 }
 
+function fmtMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("es-MX", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `${amount.toFixed(0)} ${currency}`;
+  }
+}
+
+/**
+ * Timezone the briefing speaks in: companies.briefing_email_timezone first
+ * (the zone the email is scheduled in), then the POS connection / UTC.
+ */
+async function resolveBriefingTimezone(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<string> {
+  try {
+    const { data } = await supabase
+      .from("companies")
+      .select("briefing_email_timezone")
+      .eq("id", companyId)
+      .maybeSingle();
+    const tz = normalizeTimezone(data?.briefing_email_timezone);
+    if (tz) return tz;
+  } catch (err) {
+    console.error("[briefing-context] timezone lookup:", err);
+  }
+  return resolvePosTimezone(supabase, companyId);
+}
+
+/** Net sales + tickets per local day, or null when POS could not be read. */
+async function loadDailySales(
+  supabase: SupabaseClient,
+  companyId: string,
+  selected: ProfitabilitySelection | null,
+  timezone: string,
+  currency: string
+): Promise<DailySalesPoint[] | null> {
+  try {
+    const { rollup } = await fetchCockpitPosRollup(supabase, companyId, {
+      locationId: selected?.locationId ?? null,
+      timezone,
+      currency,
+    });
+    if (rollup) return dailyFromRollup(rollup);
+  } catch (err) {
+    console.error("[briefing-context] rollup:", err);
+  }
+  try {
+    const walked = await fetchCompanyPosSalesRows(
+      supabase as never,
+      companyId,
+      selected?.locationId ?? null
+    );
+    if (walked.error) return null;
+    return dailyFromRows(walked.rows, timezone, currency);
+  } catch (err) {
+    console.error("[briefing-context] daily rows:", err);
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Builder
 // ---------------------------------------------------------------------------
@@ -171,7 +267,8 @@ function roundInt(n: number | null): number | null {
 export async function buildBriefingContext(
   supabase: SupabaseClient,
   companyId: string,
-  selected?: ProfitabilitySelection | null
+  selected?: ProfitabilitySelection | null,
+  options?: { now?: Date }
 ): Promise<BriefingContext> {
   // Same resolver as the restaurant cockpit so Ask Milton / briefing
   // prose match the shell (R1 Spanish). Emails/Telegram formatters that
@@ -239,6 +336,48 @@ export async function buildBriefingContext(
   // ---- Profitability snapshot (single round-trip aggregator) ----
   const data = await fetchProfitabilityData(supabase, companyId, selected);
   const currency = data.kpis.currency;
+
+  // ---- Dated sales periods (company briefing timezone) ----
+  const briefingTimezone = await resolveBriefingTimezone(supabase, companyId);
+  const daily = await loadDailySales(
+    supabase,
+    companyId,
+    selected ?? null,
+    briefingTimezone,
+    currency
+  );
+  let telegramConnected = false;
+  try {
+    const { count } = await supabase
+      .from("restaurant_telegram_connections")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId);
+    telegramConnected = (count ?? 0) > 0;
+  } catch {
+    telegramConnected = false; // unknown: the line is simply left out
+  }
+  const salesPeriods = daily
+    ? computeBriefingSalesPeriods({
+        daily,
+        now: options?.now ?? new Date(),
+        timezone: briefingTimezone,
+        lang: preferredLanguage,
+        formatMoney: (n) => fmtMoney(n, currency),
+      })
+    : undefined;
+  const firstDay = daily?.length ? daily[0].date : null;
+  const lastDay = daily?.length ? daily[daily.length - 1].date : null;
+  const periodLabel = firstDay
+    ? t(
+        preferredLanguage,
+        `all loaded POS data (${formatDayLabel(firstDay, "en")} to ${formatDayLabel(lastDay ?? firstDay, "en")})`,
+        `todos los datos de POS cargados (${formatDayLabel(firstDay, "es")} a ${formatDayLabel(lastDay ?? firstDay, "es")})`
+      )
+    : t(
+        preferredLanguage,
+        "all loaded POS data",
+        "todos los datos de POS cargados"
+      );
 
   // Distinct checks come from the profitability POS read — do not page
   // pos_sales_items a second time just for check_id.
@@ -330,19 +469,47 @@ export async function buildBriefingContext(
     }));
 
   // ---- Supplier price trends (top 5 increases only) ----
+  // A missing price is never 0: an item whose price cannot be read is dropped
+  // (null), not shown as "0 → 0".
   const priceIncreases: BriefingPriceTrend[] = data.ingredientPriceTrends
     .filter((t) => t.pct_change > 0)
-    .slice(0, 5)
-    .map((t) => ({
-      ingredient_id: t.ingredient_id,
-      ingredient_name: t.ingredient_name,
-      supplier_name: t.latest_supplier_name,
-      previous_cost: round(t.previous_cost, 2) ?? 0,
-      latest_cost: round(t.latest_cost, 2) ?? 0,
-      pct_change: round(t.pct_change, 1) ?? 0,
-      unit: t.unit,
-      latest_date: t.latest_date,
-    }));
+    .map((t): BriefingPriceTrend | null => {
+      // Unit prices can be fractions of a cent: never round to 2 decimals.
+      const previous = round(t.previous_cost, 6);
+      const latest = round(t.latest_cost, 6);
+      const pct = round(t.pct_change, 1);
+      if (previous === null || latest === null || pct === null) return null;
+      return {
+        ingredient_id: t.ingredient_id,
+        ingredient_name: t.ingredient_name,
+        supplier_name: t.latest_supplier_name,
+        previous_cost: previous,
+        latest_cost: latest,
+        pct_change: pct,
+        unit: t.unit,
+        latest_date: t.latest_date,
+      };
+    })
+    .filter((t): t is BriefingPriceTrend => t !== null)
+    .slice(0, 5);
+
+  // Price changes a person should check («Revisar precio»): no percentage.
+  const priceReview: BriefingPriceReview[] = (data.ingredientPriceReview ?? [])
+    .map((t): BriefingPriceReview | null => {
+      const previous = round(t.previous_cost, 6);
+      const latest = round(t.latest_cost, 6);
+      if (previous === null || latest === null) return null;
+      return {
+        ingredient_id: t.ingredient_id,
+        ingredient_name: t.ingredient_name,
+        previous_cost: previous,
+        latest_cost: latest,
+        unit: t.unit,
+        latest_date: t.latest_date,
+      };
+    })
+    .filter((t): t is BriefingPriceReview => t !== null)
+    .slice(0, 5);
 
   // ---- Top suppliers by spend (top 5) ----
   const topSuppliers: BriefingSupplierSpend[] = data.topSupplierSpend
@@ -418,7 +585,8 @@ export async function buildBriefingContext(
   const ctx: BriefingContext = {
     restaurant_name: restaurantName,
     preferred_language: preferredLanguage,
-    period_label: "all available POS data",
+    period_label: periodLabel,
+    sales_periods: salesPeriods,
     currency,
     kpis: {
       revenue: roundInt(data.kpis.revenue_total) ?? 0,
@@ -458,6 +626,8 @@ export async function buildBriefingContext(
     high_revenue_missing_recipe: missingRecipe,
     costing_blockers: costingBlockers,
     supplier_price_increases: priceIncreases,
+    price_review_items: priceReview,
+    telegram_connected: telegramConnected,
     top_suppliers: topSuppliers,
     open_recommendations: {
       total: totalOpen,

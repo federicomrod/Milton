@@ -8,6 +8,7 @@
 // just read existing restaurant data and surface auditable issues using the
 // thresholds the user configured in agent_configs.config.
 
+import { formatUnitPricePair } from "@/lib/restaurant/price-trends";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchProfitabilityData } from "@/lib/restaurant/profitability-server";
 import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
@@ -299,16 +300,17 @@ export async function runSupplierAgent(
     if (trend.pct_change < priceIncreaseThreshold) continue;
     const severity: AgentSeverity =
       trend.pct_change >= priceIncreaseThreshold * 3 ? "critical" : "warning";
+    // Unit prices can be fractions of a cent: show enough decimals that the
+    // change is visible (never "0 -> 0").
+    const prices = formatUnitPricePair(
+      trend.previous_cost,
+      trend.latest_cost,
+      trend.currency
+    );
     findings.push({
       agent_key: "supplier_agent",
       title: `${trend.ingredient_name} price up ${trend.pct_change.toFixed(1)}%`,
-      description: `${trend.ingredient_name} went from ${fmtCurrency(
-        trend.previous_cost,
-        trend.currency
-      )} on ${trend.previous_date} to ${fmtCurrency(
-        trend.latest_cost,
-        trend.currency
-      )} on ${trend.latest_date} per ${trend.unit}${
+      description: `${trend.ingredient_name} went from ${prices.previous} on ${trend.previous_date} to ${prices.latest} on ${trend.latest_date} per ${trend.unit}${
         trend.latest_supplier_name
           ? ` (supplier: ${trend.latest_supplier_name})`
           : ""

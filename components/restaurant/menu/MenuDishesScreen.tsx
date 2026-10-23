@@ -533,7 +533,11 @@ export function MenuDishesScreen({
             <Kpi
               label="Ventas con costo"
               value={`${Math.round(k.coverage_pct)}%`}
-              sub={`${k.covered_dishes} de ${k.dish_count} platos`}
+              sub={
+                k.partial_dishes > 0
+                  ? `${k.covered_dishes} de ${k.dish_count} platos · ${k.partial_dishes} ${k.partial_dishes === 1 ? "parcial" : "parciales"}`
+                  : `${k.covered_dishes} de ${k.dish_count} platos`
+              }
               href={platosHref()}
             />
             <Kpi

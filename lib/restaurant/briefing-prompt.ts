@@ -52,8 +52,9 @@ export const BRIEFING_SYSTEM_PROMPT = [
   "   `context` JSON. Do not invent, extrapolate, or estimate any value.",
   "2. If a metric is null, do NOT cite a number for it. You may mention the",
   "   accompanying `*_reason` field instead.",
-  "3. If `kpis.cost_coverage_pct` is below 90, explicitly note that margin",
-  "   numbers cover only part of revenue.",
+  "3. Margin covers only the sales that have a cost (`kpis.cost_coverage_pct`).",
+  "   When you cite margin you may say it is based on that share of sales with",
+  "   cost, but never put the coverage in the headline.",
   "4. If `data_quality` shows blockers (unmapped POS items, missing recipes,",
   "   unit mismatches, ingredients without costs), treat them as setup",
   "   priorities in the briefing.",
@@ -79,11 +80,13 @@ export const BRIEFING_SYSTEM_PROMPT = [
   "10. `kpis` (revenue, orders, avg_ticket, margin, food cost, coverage)",
   "   cover `context.period_label` (all loaded POS data), NOT yesterday.",
   "   Never present them as yesterday's or last week's sales. When citing",
-  "   margin or food cost, name that period and the cost coverage %.",
+  "   margin or food cost, name that period. Never put the cost coverage in the",
+  "   headline or summary (it appears in a separate team section).",
   "11. Ingredient price changes: quote `previous_cost` / `latest_cost` with",
   "   all their decimals (they can be fractions of a cent) and never round",
-  "   them to 0. Items in `price_review_items` are NOT increases: say the",
-  '   price needs checking ("revisar precio").',
+  "   them to 0. Items in `price_review_items` are NOT increases: no",
+  '   percentage and no "up" wording; ask whether the price is right',
+  '   ("¿Es correcto?").',
   "",
   "JSON schema:",
   "{",
@@ -182,25 +185,14 @@ export function buildDeterministicBriefing(
     summaryParts.push(
       t(
         lang,
-        `Margin and food cost cover ${ctx.period_label}, with ${k.cost_coverage_pct}% cost coverage.`,
-        `El margen y el costo de alimentos cubren ${ctx.period_label}, con ${k.cost_coverage_pct}% de cobertura de costo.`
-      )
-    );
-  } else if (k.revenue > 0) {
-    summaryParts.push(
-      t(
-        lang,
-        `Revenue across ${ctx.period_label} is ${fmtCurrency(k.revenue, c)} on ${k.units_sold.toLocaleString("en-US")} units sold.`,
-        `Los ingresos de ${ctx.period_label} son ${fmtCurrency(k.revenue, c)} con ${k.units_sold.toLocaleString("es-MX")} unidades vendidas.`
+        `Margin and food cost cover ${ctx.period_label}.`,
+        `El margen y el costo de alimentos cubren ${ctx.period_label}.`
       )
     );
   } else {
+    // The dated periods could not be built: never fall back to all-time totals.
     summaryParts.push(
-      t(
-        lang,
-        `No POS revenue is loaded for ${ctx.restaurant_name} yet — import sales to see live KPIs.`,
-        `Aún no hay ingresos de POS cargados para ${ctx.restaurant_name} — importa tus ventas para ver KPIs en vivo.`
-      )
+      t(lang, "No data to compare.", "Sin datos para comparar.")
     );
   }
   if (!sp && k.cost_coverage_pct < 90) {
@@ -251,8 +243,8 @@ export function buildDeterministicBriefing(
     risks.push(
       t(
         lang,
-        `${item.ingredient_name}: revisar precio (${p.previous} → ${p.latest} per ${item.unit}) — the jump looks like a data error.`,
-        `${item.ingredient_name}: revisar precio (${p.previous} → ${p.latest} por ${item.unit}) — el salto parece un error de datos.`
+        `${item.ingredient_name}: the price changed from ${p.previous} to ${p.latest} per ${item.unit}. Is that right?`,
+        `${item.ingredient_name}: el precio cambió de ${p.previous} a ${p.latest} por ${item.unit}. ¿Es correcto?`
       )
     );
   }

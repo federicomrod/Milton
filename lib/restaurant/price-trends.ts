@@ -39,6 +39,15 @@ export const PRICE_TREND_TINY_PREVIOUS_UNIT_PRICE = 0.005;
 export const PRICE_TREND_IMPLAUSIBLE_PCT = 200;
 
 /**
+ * An INCREASE above this percentage is never shown as a supplier price
+ * alert, whatever the price size: a price that more than doubles overnight is
+ * far more often a typo or a unit slip than a real move, so a person is asked
+ * «¿Es correcto?» instead (neutral, no percentage, no red arrow). Increases
+ * up to this keep the normal alert.
+ */
+export const PRICE_TREND_REVIEW_INCREASE_PCT = 100;
+
+/**
  * Absolute change per normalized unit below which the move is noise (a
  * rounding difference), regardless of the percentage. Also drops "no change".
  */
@@ -98,8 +107,9 @@ export function evaluateIngredientPriceTrend<E extends TrendCostEntry>(
     return { kind: "none" };
   const pct = (abs / previous.normalized_unit_cost) * 100;
   if (
-    previous.normalized_unit_cost < PRICE_TREND_TINY_PREVIOUS_UNIT_PRICE &&
-    Math.abs(pct) > PRICE_TREND_IMPLAUSIBLE_PCT
+    pct > PRICE_TREND_REVIEW_INCREASE_PCT ||
+    (previous.normalized_unit_cost < PRICE_TREND_TINY_PREVIOUS_UNIT_PRICE &&
+      Math.abs(pct) > PRICE_TREND_IMPLAUSIBLE_PCT)
   ) {
     return { kind: "review", latest, previous, pct_change: pct };
   }

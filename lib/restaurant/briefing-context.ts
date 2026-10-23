@@ -160,6 +160,8 @@ export interface BriefingContext {
   costing_blockers: BriefingCostingBlocker[];
   supplier_price_increases: BriefingPriceTrend[];
   price_review_items?: BriefingPriceReview[];
+  /** The company has Telegram connected (a row in restaurant_telegram_connections). */
+  telegram_connected?: boolean;
   top_suppliers: BriefingSupplierSpend[];
   open_recommendations: {
     total: number;
@@ -344,6 +346,16 @@ export async function buildBriefingContext(
     briefingTimezone,
     currency
   );
+  let telegramConnected = false;
+  try {
+    const { count } = await supabase
+      .from("restaurant_telegram_connections")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId);
+    telegramConnected = (count ?? 0) > 0;
+  } catch {
+    telegramConnected = false; // unknown: the line is simply left out
+  }
   const salesPeriods = daily
     ? computeBriefingSalesPeriods({
         daily,
@@ -457,31 +469,47 @@ export async function buildBriefingContext(
     }));
 
   // ---- Supplier price trends (top 5 increases only) ----
+  // A missing price is never 0: an item whose price cannot be read is dropped
+  // (null), not shown as "0 → 0".
   const priceIncreases: BriefingPriceTrend[] = data.ingredientPriceTrends
     .filter((t) => t.pct_change > 0)
-    .slice(0, 5)
-    .map((t) => ({
-      ingredient_id: t.ingredient_id,
-      ingredient_name: t.ingredient_name,
-      supplier_name: t.latest_supplier_name,
+    .map((t): BriefingPriceTrend | null => {
       // Unit prices can be fractions of a cent: never round to 2 decimals.
-      previous_cost: round(t.previous_cost, 6) ?? 0,
-      latest_cost: round(t.latest_cost, 6) ?? 0,
-      pct_change: round(t.pct_change, 1) ?? 0,
-      unit: t.unit,
-      latest_date: t.latest_date,
-    }));
+      const previous = round(t.previous_cost, 6);
+      const latest = round(t.latest_cost, 6);
+      const pct = round(t.pct_change, 1);
+      if (previous === null || latest === null || pct === null) return null;
+      return {
+        ingredient_id: t.ingredient_id,
+        ingredient_name: t.ingredient_name,
+        supplier_name: t.latest_supplier_name,
+        previous_cost: previous,
+        latest_cost: latest,
+        pct_change: pct,
+        unit: t.unit,
+        latest_date: t.latest_date,
+      };
+    })
+    .filter((t): t is BriefingPriceTrend => t !== null)
+    .slice(0, 5);
 
+  // Price changes a person should check («Revisar precio»): no percentage.
   const priceReview: BriefingPriceReview[] = (data.ingredientPriceReview ?? [])
-    .slice(0, 5)
-    .map((t) => ({
-      ingredient_id: t.ingredient_id,
-      ingredient_name: t.ingredient_name,
-      previous_cost: round(t.previous_cost, 6) ?? 0,
-      latest_cost: round(t.latest_cost, 6) ?? 0,
-      unit: t.unit,
-      latest_date: t.latest_date,
-    }));
+    .map((t): BriefingPriceReview | null => {
+      const previous = round(t.previous_cost, 6);
+      const latest = round(t.latest_cost, 6);
+      if (previous === null || latest === null) return null;
+      return {
+        ingredient_id: t.ingredient_id,
+        ingredient_name: t.ingredient_name,
+        previous_cost: previous,
+        latest_cost: latest,
+        unit: t.unit,
+        latest_date: t.latest_date,
+      };
+    })
+    .filter((t): t is BriefingPriceReview => t !== null)
+    .slice(0, 5);
 
   // ---- Top suppliers by spend (top 5) ----
   const topSuppliers: BriefingSupplierSpend[] = data.topSupplierSpend
@@ -599,6 +627,7 @@ export async function buildBriefingContext(
     costing_blockers: costingBlockers,
     supplier_price_increases: priceIncreases,
     price_review_items: priceReview,
+    telegram_connected: telegramConnected,
     top_suppliers: topSuppliers,
     open_recommendations: {
       total: totalOpen,

@@ -162,6 +162,7 @@ describe("email never renders 0 → 0", () => {
     expect(html).not.toMatch(/USD 0 →/);
     expect(html).toContain("USD 0.023 → USD 0.030");
     expect(html).toContain("Revisar precio");
-    expect(html).toContain("USD 0.0023 → USD 0.0100");
+    expect(html).toContain("USD 0.0023 a USD 0.0100");
+    expect(html).not.toMatch(/\+\d+(\.\d+)?%/);
   });
 });

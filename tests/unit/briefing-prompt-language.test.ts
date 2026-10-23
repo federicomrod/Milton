@@ -105,7 +105,8 @@ describe("buildDeterministicBriefing — English (Phase 6, scenario 1)", () => {
 
   it("produces an English headline and summary", () => {
     expect(out.headline).toMatch(/revenue/i);
-    expect(out.summary).toMatch(/Revenue across/i);
+    // no dated periods in this fixture: never the all-time totals
+    expect(out.summary).toMatch(/No data to compare/i);
   });
 
   it("never emits Spanish sentence fragments", () => {

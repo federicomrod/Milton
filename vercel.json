@@ -1,1 +1,12 @@
-{}
+{
+  "crons": [
+    {
+      "path": "/api/cron/odoo-sync",
+      "schedule": "30 12 * * *"
+    },
+    {
+      "path": "/api/cron/briefing-email",
+      "schedule": "0 13 * * *"
+    }
+  ]
+}

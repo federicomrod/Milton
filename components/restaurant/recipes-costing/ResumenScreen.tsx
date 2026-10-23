@@ -28,6 +28,8 @@ import {
   ingredientesHref,
   platosHref,
 } from "@/lib/restaurant/menu-links";
+import { dishCoverageLabel } from "@/lib/restaurant/costing/dish-coverage";
+import { groupStatusDisplay } from "@/lib/restaurant/costing/rollup";
 import { COSTS_HREF } from "@/lib/restaurant/navigation";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { useResumenData } from "./use-resumen-data";
@@ -243,7 +245,11 @@ function Kpis({
       value: `${Math.round(k.coverage_pct)}%`,
       sub: allCosted
         ? `${costed} de ${k.dish_count} platos`
-        : `${costed} de ${k.dish_count} platos costeados`,
+        : dishCoverageLabel({
+            covered: costed,
+            partial: k.partial_dishes,
+            total: k.dish_count,
+          }),
       href: platosHref(),
       tone: allCosted ? "good" : undefined,
     },
@@ -297,6 +303,21 @@ function Kpis({
 }
 
 function marginChip(d: DishRow) {
+  const g = groupStatusDisplay(d);
+  if (g.mixed && d.approved_margin_pct !== null) {
+    return (
+      <span
+        className="inline-flex items-center"
+        title={g.label}
+        data-testid="margen-parcial"
+      >
+        <span className="rounded-md bg-[#eef2fd] px-1.5 py-0.5 text-[12px] font-semibold text-[#1b40c8]">
+          {Math.round(d.approved_margin_pct)}% · {d.approved_count} de{" "}
+          {d.variant_count} tamaños
+        </span>
+      </span>
+    );
+  }
   if (d.margin_pct === null)
     return <span className="text-[12px] text-[#8a92a3]">margen —</span>;
   if (d.cost_status === "aprobado" || d.cost_status === "estimado") {

@@ -40,6 +40,12 @@
 import type { BriefingContext } from "@/lib/restaurant/briefing-context";
 import type { BriefingOutput } from "@/lib/restaurant/briefing-prompt";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { formatUnitPricePair } from "@/lib/restaurant/price-trends";
+import {
+  formatDeltaPct,
+  noComparisonText,
+  noYesterdaySalesText,
+} from "@/lib/restaurant/briefing-periods";
 
 export interface RenderedBriefingEmail {
   subject: string;
@@ -149,6 +155,10 @@ export function renderBriefingEmail(
   const lang = ctx.preferred_language;
   const k = ctx.kpis;
   const c = ctx.currency;
+  const sp = ctx.sales_periods;
+  // With dated periods the header names the day the briefing is about;
+  // otherwise it states ctx.period_label verbatim.
+  const headerPeriod = sp ? sp.yesterday.current.label : ctx.period_label;
   const dashboardUrl = `${appUrl.replace(/\/+$/, "")}/dashboard/restaurant/briefing`;
 
   const subject = t(
@@ -164,7 +174,7 @@ export function renderBriefingEmail(
   );
 
   // ---- No revenue yet: simplified body, no fabricated KPIs ----
-  if (k.revenue <= 0) {
+  if (!sp && k.revenue <= 0) {
     const noDataLine = t(
       lang,
       "No POS revenue is loaded yet — import sales to see live KPIs here.",
@@ -173,7 +183,7 @@ export function renderBriefingEmail(
     const html = wrapHtml({
       lang,
       restaurantName: ctx.restaurant_name,
-      periodLabel: ctx.period_label,
+      periodLabel: headerPeriod,
       heading,
       bodyHtml: `<p style="font-size:14px;color:${COLORS.text};line-height:1.5;">${esc(noDataLine)}</p>`,
       ctaLabel: t(lang, "Open Milton", "Abrir Milton"),
@@ -182,7 +192,7 @@ export function renderBriefingEmail(
     const text = [
       "MILTON",
       heading,
-      `${ctx.restaurant_name} · ${ctx.period_label}`,
+      `${ctx.restaurant_name} · ${headerPeriod}`,
       "",
       noDataLine,
       "",
@@ -193,43 +203,107 @@ export function renderBriefingEmail(
 
   // ---- KPI cards ----
   const cards: string[] = [];
-  cards.push(kpiCard(t(lang, "Sales", "Ventas"), fmtCurrency(k.revenue, c)));
-  cards.push(
-    k.orders !== null
-      ? kpiCard(t(lang, "Orders", "Órdenes"), fmtNumber(k.orders, lang))
-      : kpiCard(t(lang, "Orders", "Órdenes"), "—", k.orders_reason)
-  );
-  cards.push(
-    k.avg_ticket !== null
-      ? kpiCard(
-          t(lang, "Avg ticket", "Ticket promedio"),
-          fmtCurrency(k.avg_ticket, c)
-        )
-      : kpiCard(
-          t(lang, "Avg ticket", "Ticket promedio"),
-          "—",
-          k.avg_ticket_reason
-        )
-  );
-  cards.push(
-    k.estimated_gross_margin_pct !== null
-      ? kpiCard(
-          t(lang, "Gross margin", "Margen bruto"),
-          `${k.estimated_gross_margin_pct}%`,
-          k.food_cost_pct !== null
-            ? t(
-                lang,
-                `Food cost ${k.food_cost_pct}%`,
-                `Costo de alimentos ${k.food_cost_pct}%`
-              )
-            : undefined
-        )
-      : kpiCard(
-          t(lang, "Gross margin", "Margen bruto"),
-          "—",
-          k.estimated_gross_margin_pct_reason
-        )
-  );
+  if (sp) {
+    // Dated periods: every number carries its own date label.
+    const y = sp.yesterday;
+    const w = sp.last_7_days;
+    cards.push(
+      y.current.sales !== null
+        ? kpiCard(
+            y.current.label,
+            fmtCurrency(y.current.sales, c),
+            y.delta_pct !== null
+              ? `${formatDeltaPct(y.delta_pct)} vs ${y.previous.label}`
+              : `${noComparisonText(lang)} (${y.previous.label})`
+          )
+        : kpiCard(y.current.label, "—", noYesterdaySalesText(lang))
+    );
+    cards.push(
+      w.current.sales !== null
+        ? kpiCard(
+            w.current.label,
+            fmtCurrency(w.current.sales, c),
+            w.delta_pct !== null
+              ? `${formatDeltaPct(w.delta_pct)} vs ${w.previous.label}`
+              : `${noComparisonText(lang)} (${w.previous.label})`
+          )
+        : kpiCard(w.current.label, "—", noComparisonText(lang))
+    );
+    cards.push(
+      y.current.orders !== null
+        ? kpiCard(
+            `${t(lang, "Orders", "Órdenes")} · ${y.current.label}`,
+            fmtNumber(y.current.orders, lang)
+          )
+        : kpiCard(`${t(lang, "Orders", "Órdenes")} · ${y.current.label}`, "—")
+    );
+    cards.push(
+      y.current.avg_ticket !== null
+        ? kpiCard(
+            `${t(lang, "Avg ticket", "Ticket promedio")} · ${y.current.label}`,
+            fmtCurrency(y.current.avg_ticket, c)
+          )
+        : kpiCard(
+            `${t(lang, "Avg ticket", "Ticket promedio")} · ${y.current.label}`,
+            "—"
+          )
+    );
+    cards.push(
+      k.estimated_gross_margin_pct !== null
+        ? kpiCard(
+            t(lang, "Gross margin", "Margen bruto"),
+            `${k.estimated_gross_margin_pct}%`,
+            t(
+              lang,
+              `${k.food_cost_pct !== null ? `Food cost ${k.food_cost_pct}% · ` : ""}${ctx.period_label} · ${k.cost_coverage_pct}% cost coverage`,
+              `${k.food_cost_pct !== null ? `Costo de alimentos ${k.food_cost_pct}% · ` : ""}${ctx.period_label} · ${k.cost_coverage_pct}% de cobertura de costo`
+            )
+          )
+        : kpiCard(
+            t(lang, "Gross margin", "Margen bruto"),
+            "—",
+            k.estimated_gross_margin_pct_reason
+          )
+    );
+  } else {
+    cards.push(kpiCard(t(lang, "Sales", "Ventas"), fmtCurrency(k.revenue, c)));
+    cards.push(
+      k.orders !== null
+        ? kpiCard(t(lang, "Orders", "Órdenes"), fmtNumber(k.orders, lang))
+        : kpiCard(t(lang, "Orders", "Órdenes"), "—", k.orders_reason)
+    );
+    cards.push(
+      k.avg_ticket !== null
+        ? kpiCard(
+            t(lang, "Avg ticket", "Ticket promedio"),
+            fmtCurrency(k.avg_ticket, c)
+          )
+        : kpiCard(
+            t(lang, "Avg ticket", "Ticket promedio"),
+            "—",
+            k.avg_ticket_reason
+          )
+    );
+    cards.push(
+      k.estimated_gross_margin_pct !== null
+        ? kpiCard(
+            t(lang, "Gross margin", "Margen bruto"),
+            `${k.estimated_gross_margin_pct}%`,
+            k.food_cost_pct !== null
+              ? t(
+                  lang,
+                  `Food cost ${k.food_cost_pct}%`,
+                  `Costo de alimentos ${k.food_cost_pct}%`
+                )
+              : undefined
+          )
+        : kpiCard(
+            t(lang, "Gross margin", "Margen bruto"),
+            "—",
+            k.estimated_gross_margin_pct_reason
+          )
+    );
+  }
 
   // ---- Visual section: only real, known-data visuals ----
   const visualParts: string[] = [];
@@ -243,10 +317,21 @@ export function renderBriefingEmail(
       </div>`);
   }
   for (const trend of ctx.supplier_price_increases.slice(0, 2)) {
+    // Unit prices can be fractions of a cent: show enough decimals that the
+    // change is visible (never "0 → 0").
+    const p = formatUnitPricePair(trend.previous_cost, trend.latest_cost, c);
     visualParts.push(`
       <div style="font-size:13px;color:${COLORS.text};padding:8px 0;border-top:1px solid ${COLORS.border};">
         <span style="color:${COLORS.warn};font-weight:700;">▲ ${trend.pct_change}%</span>
-        &nbsp;${esc(trend.ingredient_name)} — ${fmtCurrency(trend.previous_cost, c)} → ${fmtCurrency(trend.latest_cost, c)} / ${esc(trend.unit)}
+        &nbsp;${esc(trend.ingredient_name)} — ${esc(p.previous)} → ${esc(p.latest)} / ${esc(trend.unit)}
+      </div>`);
+  }
+  for (const item of (ctx.price_review_items ?? []).slice(0, 2)) {
+    const p = formatUnitPricePair(item.previous_cost, item.latest_cost, c);
+    visualParts.push(`
+      <div style="font-size:13px;color:${COLORS.text};padding:8px 0;border-top:1px solid ${COLORS.border};">
+        <span style="color:${COLORS.muted};font-weight:700;">${esc(t(lang, "Check price", "Revisar precio"))}</span>
+        &nbsp;${esc(item.ingredient_name)} — ${esc(p.previous)} → ${esc(p.latest)} / ${esc(item.unit)}
       </div>`);
   }
   const visualSection =
@@ -278,8 +363,19 @@ export function renderBriefingEmail(
         )
       : "";
 
+  const salesSection =
+    sp && sp.facts.length > 0
+      ? section(
+          t(lang, "Sales by period", "Ventas por periodo"),
+          `<ul style="margin:0;padding-left:18px;color:${COLORS.text};font-size:13px;line-height:1.6;">${sp.facts
+            .map((f) => `<li>${esc(f)}</li>`)
+            .join("")}</ul>`
+        )
+      : "";
+
   const bodyHtml = [
     kpiGrid(cards),
+    salesSection,
     visualSection,
     watchSection,
     actionsSection,
@@ -288,7 +384,7 @@ export function renderBriefingEmail(
   const html = wrapHtml({
     lang,
     restaurantName: ctx.restaurant_name,
-    periodLabel: ctx.period_label,
+    periodLabel: headerPeriod,
     heading,
     bodyHtml,
     ctaLabel: t(lang, "Open Milton", "Abrir Milton"),
@@ -299,12 +395,19 @@ export function renderBriefingEmail(
   const textLines: string[] = [
     "MILTON",
     heading,
-    `${ctx.restaurant_name} · ${ctx.period_label}`,
+    `${ctx.restaurant_name} · ${headerPeriod}`,
     "",
-    `${t(lang, "Sales", "Ventas")}: ${fmtCurrency(k.revenue, c)}`,
-    `${t(lang, "Orders", "Órdenes")}: ${k.orders !== null ? fmtNumber(k.orders, lang) : "—"}`,
-    `${t(lang, "Avg ticket", "Ticket promedio")}: ${k.avg_ticket !== null ? fmtCurrency(k.avg_ticket, c) : "—"}`,
-    `${t(lang, "Gross margin", "Margen bruto")}: ${k.estimated_gross_margin_pct !== null ? `${k.estimated_gross_margin_pct}%` : "—"}`,
+    ...(sp
+      ? [
+          ...sp.facts,
+          `${t(lang, "Gross margin", "Margen bruto")}: ${k.estimated_gross_margin_pct !== null ? `${k.estimated_gross_margin_pct}%` : "—"} (${ctx.period_label}; ${t(lang, "cost coverage", "cobertura de costo")} ${k.cost_coverage_pct}%)`,
+        ]
+      : [
+          `${t(lang, "Sales", "Ventas")}: ${fmtCurrency(k.revenue, c)}`,
+          `${t(lang, "Orders", "Órdenes")}: ${k.orders !== null ? fmtNumber(k.orders, lang) : "—"}`,
+          `${t(lang, "Avg ticket", "Ticket promedio")}: ${k.avg_ticket !== null ? fmtCurrency(k.avg_ticket, c) : "—"}`,
+          `${t(lang, "Gross margin", "Margen bruto")}: ${k.estimated_gross_margin_pct !== null ? `${k.estimated_gross_margin_pct}%` : "—"}`,
+        ]),
   ];
   if (briefing.top_risks.length > 0) {
     textLines.push("", t(lang, "WATCH", "ATENCIÓN"));

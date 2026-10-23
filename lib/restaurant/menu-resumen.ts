@@ -16,6 +16,7 @@
 
 import { addDays } from "@/lib/restaurant/cockpit-math";
 import { rollupLeaves, type RollupLeaf } from "@/lib/restaurant/costing/rollup";
+import { countDishCoverage } from "@/lib/restaurant/costing/dish-coverage";
 import type { DishStatus } from "@/lib/restaurant/costing/dish-status";
 import {
   LOW_MARGIN_PCT,
@@ -105,13 +106,21 @@ export interface DishRow {
   margin_pct: number | null;
   coverage: number;
   cost_status: DishStatus;
+  /** Variants (tamaños) with sales in the range, and how many are approved. */
+  approved_count: number;
+  variant_count: number;
+  /** Margin of the APPROVED variants only; null when none is approved. */
+  approved_margin_pct: number | null;
 }
 
 export interface ResumenKpis {
   food_cost_pct: number | null;
   gross_margin: number | null;
   coverage_pct: number;
+  /** Dishes with at least one approved variant (same definition as Platos). */
   covered_dishes: number;
+  /** Of those, dishes with some variants not approved yet. */
+  partial_dishes: number;
   dish_count: number;
   problem_count: number;
   low_margin_count: number;
@@ -209,6 +218,9 @@ export function computeResumen(
   for (const [i, leaves] of leavesByDish) {
     const r = rollupLeaves(leaves);
     if (r.net_sales <= 0) continue;
+    const approvedLeaves = leaves.filter(
+      (l) => l.status === "aprobado" && l.cost_total !== null
+    );
     const lead = [...leaves].sort((a, b) => b.net_sales - a.net_sales)[0];
     rows.push({
       id: data.dishes[i].id,
@@ -220,6 +232,12 @@ export function computeResumen(
       margin_pct: r.margin_pct,
       coverage: r.coverage,
       cost_status: r.cost_status,
+      approved_count: r.approved_count,
+      variant_count: r.variant_count,
+      approved_margin_pct:
+        approvedLeaves.length > 0
+          ? rollupLeaves(approvedLeaves).margin_pct
+          : null,
     });
   }
   rows.sort(
@@ -234,6 +252,7 @@ export function computeResumen(
     };
   };
   const approved = rows.filter((d) => d.cost_status === "aprobado").length;
+  const cov = countDishCoverage(rows);
   const problem = rows.filter(
     (d) => d.cost_status === "falta_precio" || d.cost_status === "sin_receta"
   ).length;
@@ -261,7 +280,8 @@ export function computeResumen(
         foodSales > 0
           ? Math.round((coveredSalesOf(sums) / foodSales) * 1000) / 10
           : 0,
-      covered_dishes: approved,
+      covered_dishes: cov.covered,
+      partial_dishes: cov.partial,
       dish_count: rows.length,
       problem_count: problem,
       low_margin_count: low,

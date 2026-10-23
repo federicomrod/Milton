@@ -7,6 +7,7 @@
 
 import type { DishEconomicsResult, DishStatus } from "./dish-economics";
 import type { MenuDish } from "@/lib/restaurant/menu-dishes/menu-dishes";
+import { countDishCoverage } from "./dish-coverage";
 import { ingredientesHref, platosHref } from "@/lib/restaurant/menu-links";
 
 /** Food cost above this share of the price = "margen bajo" (< 60 %). */
@@ -277,8 +278,10 @@ export interface MenuDishKpis {
   food_cost_pct: number | null;
   gross_margin: number | null;
   coverage_pct: number;
-  /** Dishes whose every variant has an approved cost. */
+  /** Dishes with at least one approved variant (see dish-coverage.ts). */
   covered_dishes: number;
+  /** Of those, the ones with some variants not approved yet. */
+  partial_dishes: number;
   dish_count: number;
   problem_count: number;
   missing_price_dishes: number;
@@ -289,11 +292,13 @@ export function menuDishKpis(
   result: Pick<DishEconomicsResult, "totals" | "menu_dishes">
 ): MenuDishKpis {
   const dishes = result.menu_dishes;
+  const cov = countDishCoverage(dishes);
   return {
     food_cost_pct: result.totals.food_cost_pct,
     gross_margin: result.totals.gross_margin,
     coverage_pct: result.totals.coverage_pct,
-    covered_dishes: dishes.filter((d) => d.cost_status === "aprobado").length,
+    covered_dishes: cov.covered,
+    partial_dishes: cov.partial,
     dish_count: dishes.length,
     problem_count: result.totals.problem_count,
     missing_price_dishes: dishes.filter((d) => d.cost_status === "falta_precio")

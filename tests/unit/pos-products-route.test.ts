@@ -7,7 +7,7 @@ const routeSrc = readFileSync(
   "utf8"
 );
 const syncSrc = readFileSync(
-  join(process.cwd(), "app/api/restaurant/pos/odoo-sync/route.ts"),
+  join(process.cwd(), "lib/restaurant/odoo/sync-company.ts"),
   "utf8"
 );
 

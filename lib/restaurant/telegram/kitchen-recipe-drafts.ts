@@ -13,7 +13,7 @@ import {
   createOpenAIClient,
   openAiModel,
 } from "@/lib/restaurant/openai-client";
-import { mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
+import { mapKitchenUnit, volumeWord } from "@/lib/restaurant/kitchen-units";
 import {
   findExactIngredient,
   findSynonymIngredient,
@@ -440,6 +440,11 @@ export function matchIngredients(
     // The unit is one of the dropdown's (g, kg, ml, l, pza, unidad, oz, lb), or
     // null when what the cook said cannot be mapped: the reviewer chooses.
     const mappedUnit = mapKitchenUnit(line.unit);
+    // A volume word (taza, cucharada...) is stored AS WRITTEN: the reviewer
+    // sees it and the conversion to ml (with its note) happens in Revisar
+    // receta. Other unmapped words still store null.
+    const storedUnit =
+      mappedUnit ?? (volumeWord(line.unit) ? (line.unit ?? "").trim() : null);
 
     // Only a sure match is picked: the exact name, a remembered alias, or a
     // whole-name synonym. A looser guess is NOT picked here; Revisar receta
@@ -519,7 +524,7 @@ export function matchIngredients(
       ingredient_id: bestMatch?.id ?? null,
       ingredient_name: bestMatch?.name ?? null,
       total_quantity: line.estimated_quantity,
-      unit: mappedUnit,
+      unit: storedUnit,
       per_portion_quantity: perPortion,
       confidence: finalConfidence,
       unit_cost_snapshot: unitCost,

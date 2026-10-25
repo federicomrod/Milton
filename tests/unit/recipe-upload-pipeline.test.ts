@@ -12,6 +12,7 @@ import {
   detectUploadKind,
   processRecipeFile,
 } from "@/lib/restaurant/recipe-upload/process";
+import { persistRecipes } from "@/lib/restaurant/recipe-upload/persist";
 import { validateUploadResponse } from "@/lib/restaurant/recipe-upload/validate";
 import {
   findApprovedDuplicate,
@@ -751,5 +752,46 @@ describe("processRecipeFile never throws", () => {
       expect(res.errors.length).toBeGreaterThan(0);
       expect(res.errors.every((e) => /[a-záéíóú]/i.test(e))).toBe(true);
     }
+  });
+});
+
+describe("volume words are kept as written", () => {
+  it("«2 tazas leche» stores unit tazas / quantity 2; an unmapped non-volume word stores null", async () => {
+    const store = baseStore();
+    const { admin } = trackedDb(store);
+    const res = await persistRecipes({
+      admin,
+      companyId: COMPANY,
+      locationId: LOCATION,
+      recipes: [
+        {
+          dish_name: "Atol",
+          kind: "plato",
+          portions: 4,
+          yield_text: null,
+          ingredients: [
+            {
+              name: "Leche",
+              estimated_quantity: 2,
+              unit: "tazas",
+              confidence: "high",
+            },
+            {
+              name: "Sal",
+              estimated_quantity: 1,
+              unit: "pizca",
+              confidence: "high",
+            },
+          ],
+          overall_confidence: "high",
+        },
+      ],
+    });
+    expect(res.drafts_created).toBe(1);
+    const lines = store.kitchen_recipe_draft_lines;
+    const leche = lines.find((l) => l.raw_name === "Leche")!;
+    expect(leche.unit).toBe("tazas");
+    expect(Number(leche.total_quantity)).toBe(2);
+    expect(lines.find((l) => l.raw_name === "Sal")!.unit).toBeNull();
   });
 });

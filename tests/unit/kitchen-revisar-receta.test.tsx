@@ -1028,3 +1028,65 @@ describe("Guardar borrador", () => {
     expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 });
+
+describe("volume words are converted to ml, visibly", () => {
+  const taza = (over: Json = {}) => {
+    drafts[0].lines = [
+      line({
+        id: "l-1",
+        raw_name: "leche",
+        ingredient_id: "i-mozz",
+        ingredient_name: "Queso",
+        total_quantity: 2,
+        unit: "taza",
+        ...over,
+      }),
+    ];
+  };
+  const qty = (dialog: HTMLElement) =>
+    within(dialog).getByLabelText("Cantidad de la línea 1") as HTMLInputElement;
+
+  it("taza × 2 shows 480 ml with the note, and Guardar borrador sends 480 ml", async () => {
+    taza();
+    const dialog = await openModal();
+    expect(qty(dialog).value).toBe("480");
+    expect(unitSelect(dialog, 1).value).toBe("ml");
+    expect(within(dialog).getByText("2 tazas = 480 ml")).toBeTruthy();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Guardar borrador" })
+    );
+    expect(await within(dialog).findByText("Borrador guardado.")).toBeTruthy();
+    const body = calls.find((c) => c.method === "PATCH")!.body!;
+    expect((body.lines as Json[])[0]).toMatchObject({
+      total_quantity: 480,
+      unit: "ml",
+    });
+  });
+
+  it("reopening a saved draft (unit ml) shows no hint and does not convert twice", async () => {
+    taza({ total_quantity: 480, unit: "ml" });
+    const dialog = await openModal();
+    expect(qty(dialog).value).toBe("480");
+    expect(unitSelect(dialog, 1).value).toBe("ml");
+    expect(within(dialog).queryByText(/= 480 ml/)).toBeNull();
+  });
+
+  it("editing the quantity removes the hint", async () => {
+    taza();
+    const dialog = await openModal();
+    expect(within(dialog).getByText("2 tazas = 480 ml")).toBeTruthy();
+    fireEvent.change(qty(dialog), { target: { value: "500" } });
+    await waitFor(() =>
+      expect(within(dialog).queryByText("2 tazas = 480 ml")).toBeNull()
+    );
+  });
+
+  it("a taza with no quantity is not converted: «falta cantidad» and no hint", async () => {
+    taza({ total_quantity: null });
+    const dialog = await openModal();
+    expect(qty(dialog).value).toBe("");
+    expect(within(dialog).getByText("falta cantidad")).toBeTruthy();
+    expect(within(dialog).queryByText(/ = \d/)).toBeNull();
+    expect(unitSelect(dialog, 1).value).toBe("");
+  });
+});

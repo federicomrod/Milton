@@ -49,7 +49,12 @@ import {
   suggestIngredient,
 } from "@/lib/restaurant/kitchen-ingredient-match";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
-import { KITCHEN_UNITS, mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
+import {
+  KITCHEN_UNITS,
+  convertVolumeWord,
+  mapKitchenUnit,
+  volumeWord,
+} from "@/lib/restaurant/kitchen-units";
 import { sentenceCase } from "@/lib/restaurant/sentence-case";
 import {
   isPreparationName,
@@ -66,6 +71,8 @@ interface DraftLine {
   unit: string | null;
   /** Client only: what the cook said when it is not one of the dropdown's units. */
   raw_unit?: string | null;
+  /** Client only: «2 tazas = 480 ml» while the line holds the converted value. */
+  conversion_note?: string | null;
   per_portion_quantity: number | null;
   confidence: string;
   line_cost: number | null;
@@ -146,6 +153,26 @@ function withDropdownUnits(lines: DraftLine[]): DraftLine[] {
   return (JSON.parse(JSON.stringify(lines)) as DraftLine[]).map((l) => {
     const original = typeof l.unit === "string" ? l.unit.trim() : "";
     const mapped = mapKitchenUnit(l.unit);
+    // A stored volume word (taza, cucharada...) is converted to ml here, with a
+    // visible note. Once saved the unit is ml, so it never converts twice.
+    if (!mapped && volumeWord(l.unit)) {
+      const qty = toNumber(l.total_quantity);
+      const conv = convertVolumeWord(qty, l.unit);
+      if (conv) {
+        return {
+          ...l,
+          total_quantity: conv.quantity,
+          unit: conv.unit,
+          raw_unit: null,
+          conversion_note: conv.note,
+        };
+      }
+      return {
+        ...l,
+        unit: null,
+        raw_unit: original || null,
+      };
+    }
     return {
       ...l,
       unit: mapped,
@@ -190,8 +217,19 @@ function editorSnapshot(
       l.total_quantity,
       l.unit,
       l.raw_unit ?? null,
+      l.conversion_note ?? null,
     ]),
   ]);
+}
+
+/**
+ * A line converted to ml on load is NOT saved yet: the baseline differs from
+ * the screen for it, so the draft counts as changed until «Guardar borrador».
+ */
+function unsavedConversions(lines: DraftLine[]): DraftLine[] {
+  return lines.map((l) =>
+    l.conversion_note ? { ...l, conversion_note: "__unsaved__" } : l
+  );
 }
 
 const sellingPriceKey = (draftId: string) => `milton:draft-price:${draftId}`;
@@ -284,7 +322,9 @@ export function KitchenRecipeDraftsCard({
           setEditedLines(lines);
           setSelectedMenuItem(menuId);
           setNewSellingPrice(price);
-          setBaseline(editorSnapshot(hit, lines, menuId, price));
+          setBaseline(
+            editorSnapshot(hit, unsavedConversions(lines), menuId, price)
+          );
           botPicks.current = new Map(
             hit.lines.map((l) => [l.id, l.ingredient_id])
           );
@@ -348,7 +388,9 @@ export function KitchenRecipeDraftsCard({
     setYieldQty("");
     setYieldUnit("");
     setNotice(null);
-    setBaseline(editorSnapshot(draft, lines, menuId, price));
+    setBaseline(
+      editorSnapshot(draft, unsavedConversions(lines), menuId, price)
+    );
     setConfirmClose(false);
     setModalMessage(null);
     botPicks.current = new Map(draft.lines.map((l) => [l.id, l.ingredient_id]));
@@ -620,6 +662,7 @@ export function KitchenRecipeDraftsCard({
     newLines[index] = {
       ...newLines[index],
       total_quantity: quantity,
+      conversion_note: null,
       per_portion_quantity:
         quantity !== null && editedDraft?.portions
           ? quantity / editedDraft.portions
@@ -630,7 +673,12 @@ export function KitchenRecipeDraftsCard({
 
   const updateLineUnit = (index: number, unit: string) => {
     const newLines = [...editedLines];
-    newLines[index] = { ...newLines[index], unit, raw_unit: null };
+    newLines[index] = {
+      ...newLines[index],
+      unit,
+      raw_unit: null,
+      conversion_note: null,
+    };
     setEditedLines(newLines);
   };
 
@@ -1098,6 +1146,11 @@ export function KitchenRecipeDraftsCard({
                             line.total_quantity <= 0 ? (
                               <p className="mt-0.5 text-[12px] text-[#6b7280]">
                                 falta cantidad
+                              </p>
+                            ) : null}
+                            {line.conversion_note ? (
+                              <p className="mt-0.5 text-[12px] text-[#6b7280]">
+                                {line.conversion_note}
                               </p>
                             ) : null}
                           </td>

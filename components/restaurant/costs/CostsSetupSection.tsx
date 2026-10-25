@@ -4,7 +4,7 @@
 // Menú › Resumen's setup block; the components are the SAME ones, only their
 // route changed: the checklist, the cost file (PriceCatalogPanel: chips,
 // «Recetas de tu archivo» with Deshacer lote, «Costos por decidir»), the menu
-// reader (folded) and «Empezar de nuevo». Their endpoints and handlers are
+// reader (now a card on Menú › Resumen, linked from here) and «Empezar de nuevo». Their endpoints and handlers are
 // unchanged (upload → prepare the dishes, undo a batch, reset). Layout: the page
 // shows the KPIs and the tabs first; while setup is incomplete this block is ONE
 // compact row («Configura tus costos · 1 de 4 · Siguiente: …» + the next-step
@@ -41,7 +41,6 @@ import {
   prepareFailure,
   prepareNotice,
 } from "@/lib/restaurant/recipe-costing/prepare-from-upload";
-import { MenuReaderPanel } from "@/components/restaurant/recipes-costing/MenuReaderPanel";
 import {
   PriceCatalogPanel,
   type PriceCatalogPanelHandle,
@@ -50,6 +49,7 @@ import {
   COSTS_FILE_ANCHOR,
   OPEN_COSTS_PICKER_EVENT,
 } from "@/lib/restaurant/costs-picker";
+import { menuResumenHref } from "@/lib/restaurant/menu-links";
 import { ResetPanel } from "@/components/restaurant/recipes-costing/ResetPanel";
 
 async function fetchSetup(
@@ -96,6 +96,25 @@ function readOpen(
   }
 }
 
+/** localStorage key: the person hid the setup line («Ocultar»), per company. */
+export function setupDismissedKey(
+  companyId: string | null | undefined
+): string {
+  return `milton:costos:configuracion-oculta:${companyId ?? "sin-empresa"}`;
+}
+
+function readDismissed(companyId: string | null | undefined): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(setupDismissedKey(companyId)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Menú › Resumen, at the «Lee tu menú y estima costos» card. */
+export const READ_MENU_HREF = `${menuResumenHref()}#leer-menu`;
+
 /** The banner text for the next step: «completar 42 precios» → «Completar 42 precios». */
 export function nextStepText(action: string): string {
   const text = action.replace(/^Continuar:\s*/i, "").trim();
@@ -130,6 +149,19 @@ export function CostsSetupSection({
     setDetailOpen(next);
     try {
       window.localStorage.setItem(setupOpenKey(companyId), next ? "1" : "0");
+    } catch {
+      // private mode: it simply is not remembered
+    }
+  };
+  // «Ocultar»: the incomplete setup folds to the one-line summary (per company).
+  const [dismissed, setDismissedState] = useState(() =>
+    readDismissed(companyId)
+  );
+  const setDismissed = (next: boolean) => {
+    setDismissedState(next);
+    try {
+      if (next) window.localStorage.setItem(setupDismissedKey(companyId), "1");
+      else window.localStorage.removeItem(setupDismissedKey(companyId));
     } catch {
       // private mode: it simply is not remembered
     }
@@ -335,29 +367,68 @@ export function CostsSetupSection({
   );
   const age = ageLabel(data.latest_upload?.created_at, Date.now());
 
-  if (setup.complete && !expanded && !resetOpen) {
+  const foldedLine =
+    (setup.complete && !expanded) ||
+    (!setup.complete && dismissed && !detailOpen);
+  if (foldedLine && !resetOpen) {
     return (
       <section
-        className="flex flex-wrap items-center gap-2 rounded-[14px] border border-[#eef0f4] bg-white px-4 py-2.5 text-[13px]"
+        className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[14px] border border-[#eef0f4] bg-white px-4 py-2.5 text-[13px]"
         data-testid="costs-setup-folded"
       >
-        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#e7f6ee] text-[12px] font-bold text-[#1f9d55]">
-          ✓
-        </span>
-        <b>Costos configurados</b>
+        {setup.complete ? (
+          <>
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#e7f6ee] text-[12px] font-bold text-[#1f7a45]">
+              ✓
+            </span>
+            <b className="text-[#151c2c]">Costos configurados</b>
+          </>
+        ) : (
+          <b className="text-[#151c2c]">
+            Costos · {setup.done} de {setup.total} configurados
+          </b>
+        )}
         {data.latest_upload ? (
-          <span className="text-[#6b7385]">
+          <span className="text-[#4b5466]">
             · archivo {age ?? data.latest_upload.filename}
           </span>
         ) : null}
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="ml-auto font-semibold text-[#1b40c8] hover:underline"
-        >
-          Subir nuevo
-        </button>
-        {more}
+        <span className="ml-auto flex items-center gap-3">
+          <Link
+            href={READ_MENU_HREF}
+            className="font-semibold text-[#1b40c8] hover:underline"
+          >
+            Leer tu menú →
+          </Link>
+          <button
+            type="button"
+            onClick={() =>
+              setup.complete ? setExpanded(true) : setDetail(true)
+            }
+            className="font-semibold text-[#1b40c8] hover:underline"
+          >
+            Subir nuevo
+          </button>
+          {!setup.complete ? (
+            <button
+              type="button"
+              onClick={() => setDismissed(false)}
+              className="font-semibold text-[#1b40c8] hover:underline"
+            >
+              Mostrar
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() =>
+              setup.complete ? setExpanded(true) : setDetail(true)
+            }
+            className="font-semibold text-[#1b40c8] hover:underline"
+          >
+            Ver detalle ▸
+          </button>
+          {more}
+        </span>
       </section>
     );
   }
@@ -385,7 +456,7 @@ export function CostsSetupSection({
         </div>
       ) : null}
 
-      {!setup.complete ? (
+      {!setup.complete && !dismissed ? (
         <section
           className="flex min-h-[48px] max-h-[56px] flex-wrap items-center gap-x-3 gap-y-1 overflow-hidden rounded-[14px] border border-[#dbe3f7] bg-[#f6f8fe] px-4 py-2 text-[13px]"
           data-testid="costs-setup-banner"
@@ -398,7 +469,13 @@ export function CostsSetupSection({
               · Siguiente: {nextStepText(next.action)}
             </span>
           ) : null}
-          <span className="ml-auto flex items-center gap-2">
+          <span className="ml-auto flex items-center gap-3">
+            <Link
+              href={READ_MENU_HREF}
+              className="whitespace-nowrap font-semibold text-[#1b40c8] hover:underline"
+            >
+              Leer tu menú →
+            </Link>
             {next ? (
               <NextStepButton step={next} onFile={onNext} compact />
             ) : null}
@@ -409,6 +486,13 @@ export function CostsSetupSection({
               className="font-semibold text-[#1b40c8] hover:underline"
             >
               Ver detalle {detailOpen ? "▾" : "▸"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismissed(true)}
+              className="text-[13px] text-[#4b5466] hover:underline"
+            >
+              Ocultar
             </button>
             {more}
           </span>
@@ -429,14 +513,16 @@ export function CostsSetupSection({
         >
           <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5">
             <div className="flex items-center gap-2">
-              <h2 className="text-[13px] font-bold">
+              <h2 className="text-[13px] font-semibold text-[#151c2c]">
                 Configura tus costos · {setup.done} de {setup.total}
               </h2>
               {setup.complete ? more : null}
-              {setup.complete ? (
+              {setup.complete || dismissed ? (
                 <button
                   type="button"
-                  onClick={() => setExpanded(false)}
+                  onClick={() =>
+                    setup.complete ? setExpanded(false) : setDetail(false)
+                  }
                   className="ml-auto text-[12px] font-semibold text-[#1b40c8]"
                 >
                   Plegar
@@ -463,13 +549,15 @@ export function CostsSetupSection({
             className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5"
           >
             <div className="mb-1 flex items-baseline">
-              <h2 className="text-[13px] font-bold">Último archivo</h2>
+              <h2 className="text-[13px] font-semibold text-[#151c2c]">
+                Último archivo
+              </h2>
               {data.latest_upload ? (
-                <span className="ml-auto truncate text-[12px] text-[#8a92a3]">
+                <span className="ml-auto truncate text-[12px] text-[#6b7280]">
                   {data.latest_upload.filename}
                 </span>
               ) : (
-                <span className="ml-auto text-[12px] text-[#8a92a3]">
+                <span className="ml-auto text-[12px] text-[#6b7280]">
                   Aún no subes uno
                 </span>
               )}
@@ -486,25 +574,14 @@ export function CostsSetupSection({
               busyExternal={busy}
               canEditPrices={canEditPrices}
             />
-            <details className="mt-2 border-t border-[#f2f3f6] pt-2 text-[13px]">
-              <summary className="cursor-pointer text-[#4b5466]">
-                ▸ Leer tu menú web (opcional)
-              </summary>
-              <div className="mt-2">
-                <MenuReaderPanel
-                  key={`menu-${epoch}`}
-                  embedded
-                  canEdit={data.actor.can_submit}
-                  busyExternal={busy}
-                  locationId={locationId}
-                  onDone={onResetDone}
-                  onEstimated={() => {
-                    markTabsStale();
-                    router.refresh();
-                  }}
-                />
-              </div>
-            </details>
+            <p className="mt-2 border-t border-[#f2f3f6] pt-2 text-[13px]">
+              <Link
+                href={READ_MENU_HREF}
+                className="font-semibold text-[#1b40c8] hover:underline"
+              >
+                Leer tu menú →
+              </Link>
+            </p>
           </section>
         </div>
       }
@@ -570,7 +647,7 @@ function SetupRow({
           "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[12px] font-bold " +
           (step.done
             ? "bg-[#e7f6ee] text-[#1f9d55]"
-            : "bg-[#eef0f4] text-[#6b7385]")
+            : "bg-[#eef0f4] text-[#4b5466]")
         }
       >
         {step.done ? "✓" : index + 1}
@@ -640,7 +717,7 @@ function MoreMenu({
               >
                 <span className="flex-1 truncate">{batch.filename}</span>
                 {batch.uploads > 1 ? (
-                  <span className="text-[12px] text-[#8a92a3]">
+                  <span className="text-[12px] text-[#6b7280]">
                     {batch.uploads} cargas
                   </span>
                 ) : null}

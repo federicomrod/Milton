@@ -18,6 +18,26 @@ export const ESTIMATE_USE_BUTTON = "Usar como borrador";
 export const ESTIMATE_MISSING_TABLE =
   "Falta aplicar la actualización de la base de datos (062).";
 
+export const ESTIMATE_NO_ROLE_HINT =
+  "Pídele a la persona dueña o administradora que cambie tu rol.";
+export const ESTIMATE_UNAVAILABLE =
+  "Las estimaciones aún no están activas en este ambiente.";
+export const ESTIMATE_NOTHING_TO_DO =
+  "Todos tus platos tienen receta. No hay nada que estimar.";
+export const ESTIMATE_PROBE_FAILED = "No pude revisar tus platos.";
+export const ESTIMATE_RETRY = "Reintentar";
+
+/**
+ * The ONE gate for reading the menu and estimating: the capability the API
+ * routes enforce (`recipes.edit`), as the server sent it. Never a role rule,
+ * never `can_submit`. Old fixtures without the map read as "not allowed".
+ */
+export function canEditRecipes(actor: {
+  capabilities?: Record<string, boolean> | null;
+}): boolean {
+  return actor.capabilities?.["recipes.edit"] === true;
+}
+
 /** What the screen already knows about the dish's REAL numbers. */
 export interface RealDishState {
   real_cost: number | null;

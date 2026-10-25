@@ -15,7 +15,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { markTabsStale } from "@/lib/restaurant/recipe-costing/menu-tab-cache";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
@@ -43,7 +43,10 @@ import {
   isPriceUpdateNote,
   isTelegramInvoice,
 } from "@/lib/restaurant/price-update-note";
-import { INVOICE_UPLOAD_ANCHOR } from "@/lib/restaurant/costs-tabs";
+import {
+  INVOICE_REVIEW_PARAM,
+  INVOICE_UPLOAD_ANCHOR,
+} from "@/lib/restaurant/costs-tabs";
 import type {
   SupplierInvoiceLine,
   InvoiceEvent,
@@ -65,6 +68,21 @@ const SELECT_SM_CLS =
 const LABEL_CLS = "text-xs font-semibold text-[#6b7385]";
 const BADGE_CLS =
   "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold";
+
+/** Disclosure title: dark, 13px semibold, one chevron (no doubled marker). */
+const SUMMARY_CLS =
+  "flex cursor-pointer list-none items-center gap-1.5 text-[13px] font-semibold text-[#151c2c] [&::-webkit-details-marker]:hidden";
+
+function Chevron() {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-block text-[#4b5466] transition-transform group-open:rotate-90"
+    >
+      ▸
+    </span>
+  );
+}
 
 function PriceUpdateLabel() {
   return (
@@ -336,6 +354,50 @@ export function InvoicesPage({
     useState<IngredientLite[]>(initialIngredients);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // «Agregar factura» (CSV, foto, a mano) folds below the list; open it when
+  // there is nothing yet or a «Subir factura» link points at its anchor.
+  const [addOpen, setAddOpen] = useState(initialInvoices.length === 0);
+
+  // ?factura=<id> (from «Revisar» on Costos): open that invoice's review once,
+  // then take the param out of the URL (other params stay) so a reload does not reopen it.
+  const consumedReview = useRef(false);
+  useEffect(() => {
+    if (consumedReview.current) return;
+    consumedReview.current = true;
+    try {
+      const url = new URL(window.location.href);
+      const id = url.searchParams.get(INVOICE_REVIEW_PARAM);
+      if (!id) return;
+      setReviewingId(id);
+      url.searchParams.delete(INVOICE_REVIEW_PARAM);
+      const query = url.searchParams.toString();
+      // history.replaceState is synced by the Next router (no navigation).
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${url.pathname}${query ? `?${query}` : ""}${url.hash}`
+      );
+    } catch {
+      // no URL to read (tests / odd embeds): nothing to open
+    }
+  }, []);
+
+  useEffect(() => {
+    const openIfAnchored = () => {
+      if (window.location.hash !== `#${INVOICE_UPLOAD_ANCHOR}`) return;
+      setAddOpen(true);
+      setTimeout(
+        () =>
+          document
+            .getElementById(INVOICE_UPLOAD_ANCHOR)
+            ?.scrollIntoView?.({ behavior: "smooth", block: "start" }),
+        50
+      );
+    };
+    openIfAnchored();
+    window.addEventListener("hashchange", openIfAnchored);
+    return () => window.removeEventListener("hashchange", openIfAnchored);
+  }, []);
 
   // Lift the AI extraction draft into the parent so we can collapse the
   // three entry cards into a focused, full-width review when a draft exists.
@@ -391,12 +453,14 @@ export function InvoicesPage({
           </Button>
         </div>
 
-        {/* Entry options OR focused AI extraction review */}
         {!canEditPrices ? (
           <p data-testid="prices-readonly" className="text-xs text-[#6b7280]">
             {CAPABILITY_MESSAGES["prices.edit"]}
           </p>
-        ) : aiDraft ? (
+        ) : null}
+
+        {/* Focused AI extraction review (a photo was just read) */}
+        {canEditPrices && aiDraft ? (
           <ExtractedDraftReview
             draft={aiDraft}
             setDraft={setAiDraft}
@@ -412,28 +476,7 @@ export function InvoicesPage({
               setReviewingId(id);
             }}
           />
-        ) : (
-          <div
-            id={INVOICE_UPLOAD_ANCHOR}
-            className="grid grid-cols-1 lg:grid-cols-3 gap-4 scroll-mt-4"
-          >
-            <UploadCard onUploaded={refreshList} />
-            <AIExtractCard
-              onExtracted={(draft, meta) => {
-                setAiDraft(draft);
-                setAiDraftMeta(meta);
-              }}
-            />
-            <ManualCreateCard
-              suppliers={suppliers}
-              companyCurrency={companyCurrency}
-              onCreated={async (id) => {
-                await refreshList();
-                setReviewingId(id);
-              }}
-            />
-          </div>
-        )}
+        ) : null}
 
         {/* Invoice list */}
         <InvoiceListCard
@@ -453,6 +496,48 @@ export function InvoicesPage({
             canEdit={canEditPrices}
           />
         )}
+
+        {/* One compact «Agregar factura» action: CSV, photo or by hand */}
+        {canEditPrices && !aiDraft ? (
+          <details
+            id={INVOICE_UPLOAD_ANCHOR}
+            open={addOpen}
+            onToggle={(e) =>
+              setAddOpen((e.currentTarget as HTMLDetailsElement).open)
+            }
+            className="group scroll-mt-4"
+          >
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-[13px] font-semibold text-[#151c2c] [&::-webkit-details-marker]:hidden">
+              <span
+                aria-hidden="true"
+                className="inline-block text-[#4b5466] transition-transform group-open:rotate-90"
+              >
+                ▸
+              </span>
+              Agregar factura
+              <span className="font-normal text-[#4b5466]">
+                · CSV / Excel, foto o a mano
+              </span>
+            </summary>
+            <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <UploadCard onUploaded={refreshList} />
+              <AIExtractCard
+                onExtracted={(draft, meta) => {
+                  setAiDraft(draft);
+                  setAiDraftMeta(meta);
+                }}
+              />
+              <ManualCreateCard
+                suppliers={suppliers}
+                companyCurrency={companyCurrency}
+                onCreated={async (id) => {
+                  await refreshList();
+                  setReviewingId(id);
+                }}
+              />
+            </div>
+          </details>
+        ) : null}
       </div>
     </div>
   );
@@ -534,8 +619,9 @@ function UploadCard({
             {busy ? "Subiendo…" : "Subir facturas"}
           </Button>
         </form>
-        <details className="text-xs">
-          <summary className="cursor-pointer text-[#6b7385]">
+        <details className="group text-xs">
+          <summary className={SUMMARY_CLS}>
+            <Chevron />
             Columnas esperadas
           </summary>
           <div className="mt-2 space-y-1 text-[#6b7385]">
@@ -596,8 +682,9 @@ function UploadCard({
               <p className="text-[#6b7385]">{summary.warning}</p>
             )}
             {summary.failed_rows && summary.failed_rows.length > 0 && (
-              <details className="mt-2">
-                <summary className="cursor-pointer text-gray-500">
+              <details className="group mt-2">
+                <summary className={SUMMARY_CLS}>
+                  <Chevron />
                   {summary.failed_rows.length}{" "}
                   {summary.failed_rows.length === 1
                     ? "fila con error"
@@ -2614,8 +2701,9 @@ function ExtractedDraftBody({
 
       {/* Confidence notes from the model */}
       {draft.confidence_notes.length > 0 && (
-        <details className="text-xs">
-          <summary className="cursor-pointer text-[#6b7385]">
+        <details className="group text-xs">
+          <summary className={SUMMARY_CLS}>
+            <Chevron />
             Notas de confianza de la IA ({draft.confidence_notes.length})
           </summary>
           <ul className="mt-1 space-y-0.5">

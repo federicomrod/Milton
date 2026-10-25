@@ -7,11 +7,20 @@
 // apart from the real figures.
 
 import { useEffect, useRef, useState } from "react";
-import { GhostBtn } from "@/components/restaurant/recipes-costing/ui";
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
+import {
+  GhostBtn,
+  PrimaryBtn,
+} from "@/components/restaurant/recipes-costing/ui";
 import {
   ESTIMATE_BUTTON,
   ESTIMATE_HELP,
   ESTIMATE_MISSING_TABLE,
+  ESTIMATE_NOTHING_TO_DO,
+  ESTIMATE_NO_ROLE_HINT,
+  ESTIMATE_PROBE_FAILED,
+  ESTIMATE_RETRY,
+  ESTIMATE_UNAVAILABLE,
 } from "./estimate-overlay";
 
 const ENDPOINT = "/api/restaurant/recipes/menu/estimate";
@@ -132,10 +141,29 @@ export function useEstimateRun({
   return { state, start };
 }
 
+/** Why the person cannot edit recipes: the shared message plus what to do. */
+export function NoRecipeEditNotice({ className = "" }: { className?: string }) {
+  return (
+    <p
+      className={"text-[12px] text-[#6b7280] " + className}
+      data-testid="recipes-edit-denied"
+    >
+      {CAPABILITY_MESSAGES["recipes.edit"]} {ESTIMATE_NO_ROLE_HINT}
+    </p>
+  );
+}
+
+type Probe =
+  | { status: "loading" }
+  | { status: "failed" }
+  | { status: "ok"; available: boolean; eligible: number };
+
 /**
- * The button (or a small link) with its progress and summary. Hidden without
- * permission and when there is nothing to estimate (unless `forceShow`, right
- * after a menu reading that prepared drafts).
+ * The button (or a small link) with its progress and summary. It always
+ * renders: without `recipes.edit`, with estimates not active, with nothing to
+ * estimate or with a failed check it is disabled and says why, never hidden.
+ * `onVisibleChange` tells a card when the run button is live (so it can keep
+ * a single primary button).
  */
 export function EstimateWithMilton({
   canEdit,
@@ -144,18 +172,21 @@ export function EstimateWithMilton({
   forceShow = false,
   busyExternal = false,
   variant = "button",
+  onVisibleChange,
+  hideNoRoleNotice = false,
 }: {
+  /** From capabilities["recipes.edit"] (see canEditRecipes). */
   canEdit: boolean;
   locationId: string | null;
   onDone: () => void;
   forceShow?: boolean;
   busyExternal?: boolean;
-  variant?: "button" | "link";
+  variant?: "button" | "link" | "primary";
+  onVisibleChange?: (live: boolean) => void;
+  hideNoRoleNotice?: boolean;
 }) {
-  const [probe, setProbe] = useState<{
-    available: boolean;
-    eligible: number;
-  } | null>(null);
+  const [probe, setProbe] = useState<Probe>({ status: "loading" });
+  const [attempt, setAttempt] = useState(0);
   const { state, start } = useEstimateRun({ locationId, onDone });
 
   useEffect(() => {
@@ -167,54 +198,94 @@ export function EstimateWithMilton({
     void (async () => {
       try {
         const res = await fetch(`${ENDPOINT}${q}`);
-        if (!res || !res.ok) return;
+        if (!res || !res.ok) throw new Error("probe");
         const json = (await res.json()) as {
           available?: boolean;
           eligible?: number;
         };
         if (!cancelled)
           setProbe({
+            status: "ok",
             available: json.available === true,
             eligible: Number(json.eligible ?? 0),
           });
       } catch {
-        // No probe: the button stays hidden, as before this feature.
+        if (!cancelled) setProbe({ status: "failed" });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [canEdit, locationId]);
+  }, [canEdit, locationId, attempt]);
 
-  if (!canEdit) return null;
-  const hasWork = probe ? probe.available && probe.eligible > 0 : false;
-  const shown = hasWork || forceShow || state.running || state.summary;
-  if (!shown && !state.note) return null;
+  const eligible = probe.status === "ok" ? probe.eligible : null;
+  const hasWork =
+    probe.status === "ok" && probe.available && probe.eligible > 0;
+  const live =
+    canEdit &&
+    (hasWork || forceShow || state.running || Boolean(state.summary));
+  useEffect(() => {
+    onVisibleChange?.(Boolean(live));
+  }, [live, onVisibleChange]);
 
+  // Why the button is off (one line), in priority order.
+  let reason: React.ReactNode = null;
+  if (!canEdit) {
+    reason = hideNoRoleNotice ? null : <NoRecipeEditNotice />;
+  } else if (!live && !state.note) {
+    if (probe.status === "failed") {
+      reason = (
+        <p className="text-[12px] text-[#6b7280]">
+          {ESTIMATE_PROBE_FAILED}{" "}
+          <button
+            type="button"
+            onClick={() => {
+              setProbe({ status: "loading" });
+              setAttempt((n) => n + 1);
+            }}
+            className="font-semibold text-[#1B40C8] underline"
+          >
+            {ESTIMATE_RETRY}
+          </button>
+        </p>
+      );
+    } else if (probe.status === "ok" && !probe.available) {
+      reason = (
+        <p className="text-[12px] text-[#6b7280]">{ESTIMATE_UNAVAILABLE}</p>
+      );
+    } else if (probe.status === "ok") {
+      reason = (
+        <p className="text-[12px] text-[#6b7280]">{ESTIMATE_NOTHING_TO_DO}</p>
+      );
+    }
+  }
+
+  const disabled = !live || state.running || busyExternal;
   const label = state.running ? "Estimando…" : ESTIMATE_BUTTON;
+  const Btn = variant === "primary" ? PrimaryBtn : GhostBtn;
   return (
     <div className="space-y-1.5" data-testid="estimate-with-milton">
       {variant === "link" ? (
         <button
           type="button"
-          disabled={state.running || busyExternal}
+          disabled={disabled}
           title={ESTIMATE_HELP}
-          onClick={() => void start(probe?.eligible ?? null)}
+          onClick={() => void start(eligible)}
           className="font-semibold text-[#3557c9] disabled:opacity-60"
         >
           {label}
         </button>
       ) : (
         <>
-          <GhostBtn
-            disabled={state.running || busyExternal}
-            onClick={() => void start(probe?.eligible ?? null)}
-          >
+          <Btn disabled={disabled} onClick={() => void start(eligible)}>
             {label}
-          </GhostBtn>
-          <p className="text-[12px] text-[#6b7280]">{ESTIMATE_HELP}</p>
+          </Btn>
+          {live ? (
+            <p className="text-[12px] text-[#6b7280]">{ESTIMATE_HELP}</p>
+          ) : null}
         </>
       )}
+      {reason}
       {state.running ? (
         <p role="status" className="text-[12px] text-[#6b7280]">
           {progressText(state.processed, state.total)}

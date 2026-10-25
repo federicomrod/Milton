@@ -43,6 +43,7 @@ import {
   estimateForProducts,
   estimateText,
   overlayAllowed,
+  canEditRecipes,
 } from "@/components/restaurant/menu/estimate-overlay";
 import { EstimateWithMilton } from "@/components/restaurant/menu/EstimateWithMilton";
 import Link from "next/link";
@@ -619,16 +620,13 @@ export function MenuDishesScreen({
                 : `Guardar agrupación (${unsaved} ${unsaved === 1 ? "producto nuevo" : "productos nuevos"})`}
             </button>
           ) : null}
-          {(data.actor.capabilities?.["recipes.edit"] ??
-          data.actor.can_submit) ? (
-            k.no_recipe_dishes > 0 ? (
-              <EstimateWithMilton
-                variant="link"
-                canEdit
-                locationId={data.view_location_id ?? null}
-                onDone={() => onEstimated?.()}
-              />
-            ) : null
+          {k.no_recipe_dishes > 0 ? (
+            <EstimateWithMilton
+              variant="link"
+              canEdit={canEditRecipes(data.actor)}
+              locationId={data.view_location_id ?? null}
+              onDone={() => onEstimated?.()}
+            />
           ) : null}
           <UploadRecipesLink
             actor={data.actor}

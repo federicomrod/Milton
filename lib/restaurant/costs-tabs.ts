@@ -52,6 +52,18 @@ export function invoiceUploadHref(params: Params = {}): string {
   return costsTabHref("compras", params, INVOICE_UPLOAD_ANCHOR);
 }
 
+/** Query param that opens one invoice's review in Compras (consumed once). */
+export const INVOICE_REVIEW_PARAM = "factura";
+
+/** Compras with the review panel of one invoice open. */
+export function invoiceReviewHref(
+  invoiceId: string,
+  params: Params = {}
+): string {
+  const base = costsTabHref("compras", params);
+  return `${base}${base.includes("?") ? "&" : "?"}${INVOICE_REVIEW_PARAM}=${encodeURIComponent(invoiceId)}`;
+}
+
 /** Only the shell params (restaurant + period) survive a tab switch. */
 export function shellParamsOf(params: Params): Params {
   const out: Params = {};

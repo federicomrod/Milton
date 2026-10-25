@@ -121,6 +121,8 @@ describe("Resumen is the menu's cockpit", () => {
       "RecipeImportPreview",
     ])
       expect(src).not.toContain(comp);
+    // The one thing Resumen does carry: the reader as a card (not an accordion).
+    expect(src).toContain("MenuReaderCard");
   });
   it("with 2 costed dishes: both margin cards show the empty state and «margen de 2 de 20 platos»; no $0 / 0% for a missing price", () => {
     expect(t).toContain("margen de 2 de 20 platos");
@@ -243,7 +245,6 @@ describe("the setup moved to Costos, same components", () => {
   it("it reuses the existing panels and endpoints (upload → prepare dishes, undo batch, reset, menu reader)", () => {
     for (const c of [
       "PriceCatalogPanel",
-      "MenuReaderPanel",
       "ResetPanel",
       "prepareDishesFromUpload",
     ])
@@ -251,7 +252,8 @@ describe("the setup moved to Costos, same components", () => {
     expect(section).toContain("/api/restaurant/costs/batches/${batchId}/undo");
     expect(section).toContain("Configura tus costos");
     expect(section).toContain("Último archivo");
-    expect(section).toContain("Leer tu menú web (opcional)");
+    // The menu reader moved to the Resumen card; Costos only links to it.
+    expect(section).not.toContain("Leer tu menú web (opcional)");
     expect(section).toContain("Costos configurados");
     expect(
       read("lib/restaurant/recipe-costing/prepare-from-upload.ts")

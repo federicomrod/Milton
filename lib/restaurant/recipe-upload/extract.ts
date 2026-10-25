@@ -51,8 +51,8 @@ Reglas:
 2. Si un bloque no tiene fila de título, usa el nombre de la hoja («Hoja: …») como nombre de la receta.
 3. Ignora todo lo que no sea una receta (listas de proveedores, teléfonos, listas de precios, notas sueltas) y anótalo en "ignored" con un motivo corto en español, por ejemplo «no parece una receta: lista de proveedores».
 4. NO son ingredientes: «Tiempo: …», «Porciones/Rinde/Rendimiento: …», «Tipo: …», los pasos de preparación, las notas al pie que empiezan con «*» y los totales («Costo total»). No los pongas en "ingredients".
-5. portions: un número entero SOLO cuando está escrito como porciones, platos o servicios («Porciones: 6», «Rendimiento: 4 platos», «Rinde: 12 panes», «Rinde: 10 unidades»). Si el rendimiento es un peso o volumen («Rinde: 1 litro», «2 tazas») o no se puede dividir en un número entero, pon portions null y copia el texto original en yield_text. Si no hay porciones escritas, portions es null. Nunca las calcules ni las adivines.
-6. kind es "preparacion" cuando el texto dice sub-receta o preparación, o cuando el rendimiento es un peso o volumen (salsas, bases, curtidos); en cualquier otro caso es "plato".
+5. portions: un número entero SOLO cuando está escrito como porciones, platos, personas o servicios («Porciones: 6», «Rendimiento: 4 platos (1 pescado por plato)» → 4, «Rinde: 12 panes» → 12, «Rinde: 10 unidades» → 10). Un paréntesis aclaratorio no cambia el número. Si el rendimiento es un peso o volumen («Rinde: 1 litro», «2 tazas», «3 kg») o no se puede dividir en un número entero, pon portions null. SIEMPRE copia el texto original del rendimiento en yield_text. Si no hay porciones escritas, portions es null. Nunca las calcules ni las adivines.
+6. kind: es "plato" cuando el rendimiento está escrito en platos, porciones, personas o servicios (o en unidades contables como panes); un plato NO es una preparación aunque use una salsa o una preparación como ingrediente («chimol», «ver Salsas: chimol»). Es "preparacion" SOLO cuando el rendimiento es un volumen o peso (litro, taza, kg, g, ml, galón, libra, onza), o cuando la hoja se llama «Salsas», «Preparaciones» o «Bases» (salvo que el rendimiento diga platos o porciones). Si no hay nada de eso, es "plato".
 7. Cantidades: copia solo lo que está escrito. Las fracciones pasan a decimales (1/2 → 0.5, 1 1/2 → 1.5). «al gusto», «una pizca», «c/n» o vacío → estimated_quantity null y confidence "low". Nunca estimes ni inventes una cantidad.
 8. Unidades: copia la palabra de unidad tal como está escrita (lb, kg, g, ml, litro, taza, cucharada, cucharadita, diente, manojo, unidad…). Si solo hay un conteo («2 zanahorias», «1/2 repollo»), la unidad es «unidad».
 9. Conserva «(opcional)» o una referencia («ver Salsas: chimol») dentro del nombre del ingrediente, tal como está escrito.
@@ -137,7 +137,8 @@ export async function extractRecipesFromChunks(
         const raw = await ai(chunk);
         const validated = validateUploadResponse(
           raw,
-          chunk.kind === "text" ? (chunk.text ?? "") : null
+          chunk.kind === "text" ? (chunk.text ?? "") : null,
+          chunk.label
         );
         results[i] = { ...validated, failed: false };
       } catch {

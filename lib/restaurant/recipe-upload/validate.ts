@@ -17,12 +17,15 @@ import {
   type ExtractedIngredientLine,
   type ExtractedRecipe,
 } from "@/lib/restaurant/telegram/kitchen-recipe-drafts";
+import { classifyRecipeKind } from "./classify";
 
 export type UploadRecipeKind = "plato" | "preparacion";
 
 export type ExtractedUploadRecipe = ExtractedRecipe & {
   kind: UploadRecipeKind;
   yield_text: string | null;
+  /** The tab/section the recipe came from (feeds the deterministic classifier). */
+  tab_label?: string | null;
 };
 
 export interface IgnoredSection {
@@ -167,7 +170,9 @@ function cleanText(v: unknown, max: number): string | null {
 export function validateUploadResponse(
   raw: unknown,
   /** The chunk's text, when it is a text chunk (enables the anti-invention guard). */
-  chunkText: string | null
+  chunkText: string | null,
+  /** The chunk's label (sheet/tab name), when known. */
+  tabLabel: string | null = null
 ): ValidatedChunk {
   const out: ValidatedChunk = { recipes: [], ignored: [] };
   if (!raw || typeof raw !== "object") return out;
@@ -252,9 +257,18 @@ export function validateUploadResponse(
       portions = null;
     }
 
+    // The model's kind is advisory: what is written decides (classify.ts).
+    const yieldText = cleanText(r.yield_text, 120);
+    const classified = classifyRecipeKind({
+      yieldText,
+      tabLabel,
+      modelKind: typeof r.kind === "string" ? r.kind : null,
+      modelPortions: portions,
+    });
+
     const candidate = {
       dish_name: name,
-      portions,
+      portions: classified.portions,
       ingredients: lines,
       overall_confidence: confidenceOf(r.overall_confidence),
     };
@@ -265,8 +279,9 @@ export function validateUploadResponse(
 
     out.recipes.push({
       ...candidate,
-      kind: r.kind === "preparacion" ? "preparacion" : "plato",
-      yield_text: cleanText(r.yield_text, 120),
+      kind: classified.kind,
+      yield_text: yieldText,
+      tab_label: tabLabel,
     });
   }
   return out;

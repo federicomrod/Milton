@@ -70,6 +70,8 @@ export const KITCHEN_COPY = {
   /** A price was mentioned but the item, price or unit is missing (parse failures only). */
   PRICE_UPDATE_UNCLEAR:
     "No entendí el precio. Escribe producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra».",
+  /** A price without a unit: asked once. {producto} = «queso». Nothing is saved yet. */
+  PRICE_UNIT_ASK: "¿El precio de {producto} es por libra, onza o unidad?",
   /** The price was understood but could not be saved. */
   PRICE_UPDATE_FAILED:
     "No pude guardar el precio. Vuelve a mandarlo en un momento.",

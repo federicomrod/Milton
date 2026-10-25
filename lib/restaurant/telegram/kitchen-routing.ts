@@ -274,8 +274,26 @@ export function anchorMessageId(messageId: number): number {
   return -Math.abs(messageId || 1);
 }
 
+/**
+ * Open «¿por libra, onza o unidad?» questions (price-unit-question.ts) are
+ * rows too. Their telegram_message_id is -(10_000_000_000 + message id):
+ * below every anchor (-1 .. about -2.2e9) and every real id, so the
+ * UNIQUE (chat_id, telegram_message_id) never collides and a webhook retry
+ * of the same message maps to the same row.
+ */
+export const UNIT_QUESTION_BASE = 10_000_000_000;
+
+export function unitQuestionMessageId(messageId: number): number {
+  return -(UNIT_QUESTION_BASE + Math.abs(messageId || 1));
+}
+
+export function isUnitQuestion(telegramMessageId: number): boolean {
+  return telegramMessageId <= -UNIT_QUESTION_BASE;
+}
+
+/** Default-only «Cambiar restaurante» rows. Unit questions are NOT anchors. */
 export function isAnchor(telegramMessageId: number): boolean {
-  return telegramMessageId < 0;
+  return telegramMessageId < 0 && !isUnitQuestion(telegramMessageId);
 }
 
 /** Creates the anchor behind a «Cambiar restaurante» button; null if it fails. */
@@ -303,7 +321,7 @@ export async function createChangeAnchor(input: {
 
 /**
  * Tells the cook ONCE that an unanswered question expired, and closes every
- * other expired one silently. Anchors (default-only rows) never get a notice.
+ * other expired one silently. Anchors (default-only rows) and unit questions never get a notice.
  * With `send:false` it only closes them (the caller already told the cook).
  * Returns whether a notice was sent.
  */
@@ -317,7 +335,14 @@ export async function announceExpiredOnce(
     const item = await latestExpiredUnannounced(telegramUserId, chatId);
     if (!item) break;
     await markExpiryAnnounced(item.id);
-    if (isAnchor(item.telegramMessageId) || announced) continue;
+    // Anchors and unit questions are closed silently: nothing was lost.
+    if (
+      isAnchor(item.telegramMessageId) ||
+      isUnitQuestion(item.telegramMessageId) ||
+      announced
+    ) {
+      continue;
+    }
     announced = true;
     console.info(`[telegram-webhook] pending expired id=${item.id}`);
     await sendTelegramMessage(chatId, KITCHEN_COPY.ROUTING_EXPIRED);

@@ -58,12 +58,14 @@ export async function GET() {
           id: row.id,
           name: row.name,
           default_unit: row.default_unit,
-          price: row.latest
-            ? {
-                unit_cost: Number(row.latest.normalized_unit_cost),
-                unit: row.latest.normalized_unit,
-              }
-            : null,
+          // A price of 0 (or no number) is «Sin precio», never $0.
+          price:
+            row.latest && Number(row.latest.normalized_unit_cost) > 0
+              ? {
+                  unit_cost: Number(row.latest.normalized_unit_cost),
+                  unit: row.latest.normalized_unit,
+                }
+              : null,
         })),
     });
   } catch (err) {

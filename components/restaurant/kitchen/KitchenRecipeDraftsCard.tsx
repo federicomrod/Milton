@@ -47,6 +47,8 @@ import {
 import {
   normalizeKitchenName,
   suggestIngredient,
+  suggestPreparation,
+  stripParenthetical,
 } from "@/lib/restaurant/kitchen-ingredient-match";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { KITCHEN_UNITS, mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
@@ -216,11 +218,14 @@ export function KitchenRecipeDraftsCard({
   canManage,
   locations,
   focusDraftId,
+  onFocusConsumed,
   reloadSignal = 0,
 }: {
   canManage: boolean;
   locations: { id: string; name: string }[];
   focusDraftId?: string | null;
+  /** Called once the deep link has opened its draft: clear it upstream. */
+  onFocusConsumed?: () => void;
   /** Changes when something outside (a file upload) added drafts: reload. */
   reloadSignal?: number;
 }) {
@@ -250,6 +255,15 @@ export function KitchenRecipeDraftsCard({
     text: string;
   } | null>(null);
   const botPicks = useRef(new Map<string, string | null>());
+  // The deep link (focusDraftId) opens its draft AT MOST ONCE; reloads after
+  // save / confirm / reject / upload never re-apply it.
+  const consumedFocus = useRef<string | null>(null);
+  // Drafts created by the last upload get a «Nuevo» mark until the next reload.
+  const knownIds = useRef<Set<string> | null>(null);
+  const lastSignal = useRef(reloadSignal);
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
+  // Existing preparations of the company (names only, for the hint).
+  const [preparationNames, setPreparationNames] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -269,28 +283,63 @@ export function KitchenRecipeDraftsCard({
       setError(null);
       const next = ((data.drafts ?? []) as Draft[]).map(normalizeDraft);
       setDrafts(next);
-      if (focusDraftId) {
-        const hit = next.find((d) => d.id === focusDraftId);
-        if (hit) {
-          const lines = withDropdownUnits(hit.lines);
-          const menuId = hit.menu_item_id ?? "";
-          const price = readSavedPrice(hit.id);
-          setSelectedDraft(hit);
-          setEditedDraft(editableCopy(hit));
-          setEditedLines(lines);
-          setSelectedMenuItem(menuId);
-          setNewSellingPrice(price);
-          setBaseline(editorSnapshot(hit, lines, menuId, price));
-          botPicks.current = new Map(
-            hit.lines.map((l) => [l.id, l.ingredient_id])
-          );
-        }
+      const fromUpload = lastSignal.current !== reloadSignal;
+      lastSignal.current = reloadSignal;
+      const before = knownIds.current;
+      knownIds.current = new Set(next.map((d) => d.id));
+      setNewIds(
+        fromUpload && before
+          ? new Set(next.filter((d) => !before.has(d.id)).map((d) => d.id))
+          : new Set()
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [locationId, reloadKey, reloadSignal]);
+
+  // Open the focused draft once it is in the list; never again for that id.
+  useEffect(() => {
+    if (!focusDraftId) {
+      consumedFocus.current = null;
+      return;
+    }
+    if (consumedFocus.current === focusDraftId) return;
+    const hit = drafts.find((d) => d.id === focusDraftId);
+    if (!hit) return;
+    consumedFocus.current = focusDraftId;
+    const lines = withDropdownUnits(hit.lines);
+    const menuId = hit.menu_item_id ?? "";
+    const price = readSavedPrice(hit.id);
+    setSelectedDraft(hit);
+    setEditedDraft(editableCopy(hit));
+    setEditedLines(lines);
+    setSelectedMenuItem(menuId);
+    setNewSellingPrice(price);
+    setBaseline(editorSnapshot(hit, lines, menuId, price));
+    botPicks.current = new Map(hit.lines.map((l) => [l.id, l.ingredient_id]));
+    onFocusConsumed?.();
+  }, [focusDraftId, drafts, onFocusConsumed]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/restaurant/prepared-components");
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        const names = ((data.components ?? []) as { name?: unknown }[])
+          .map((c) => (typeof c.name === "string" ? c.name : ""))
+          .filter(Boolean);
+        if (!cancelled) setPreparationNames(names);
+      } catch {
+        // the hint is optional
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [locationId, reloadKey, focusDraftId, reloadSignal]);
+  }, []);
 
   const loadIngredients = useCallback(async () => {
     const res = await fetch("/api/restaurant/kitchen/ingredients");
@@ -331,6 +380,18 @@ export function KitchenRecipeDraftsCard({
       cancelled = true;
     };
   }, []);
+
+  // Preparations to compare against: the company's own plus the preparation
+  // drafts already on the list (for example from the same upload).
+  const preparationCandidates = useMemo(() => {
+    const out: { name: string }[] = preparationNames.map((name) => ({ name }));
+    for (const d of drafts) {
+      if (d.is_preparation || isPreparationName(d.dish_name)) {
+        out.push({ name: stripPreparationMarker(d.dish_name) });
+      }
+    }
+    return out;
+  }, [preparationNames, drafts]);
 
   const openEditor = (draft: Draft) => {
     const lines = withDropdownUnits(draft.lines);
@@ -657,7 +718,9 @@ export function KitchenRecipeDraftsCard({
 
   const priceMap = useMemo(() => {
     const map = new Map<string, PriceInfo | null>();
-    for (const ing of ingredients) map.set(ing.id, ing.price ?? null);
+    for (const ing of ingredients) {
+      map.set(ing.id, ing.price && ing.price.unit_cost > 0 ? ing.price : null);
+    }
     return map;
   }, [ingredients]);
   const ingredientById = useMemo(
@@ -768,7 +831,11 @@ export function KitchenRecipeDraftsCard({
             {drafts.map((draft) => (
               <div
                 key={draft.id}
-                className="rounded-lg border p-3 hover:bg-muted/50"
+                data-new={newIds.has(draft.id) ? "true" : undefined}
+                className={
+                  "rounded-lg border p-3 hover:bg-muted/50" +
+                  (newIds.has(draft.id) ? " border-[#c6d3f5] bg-[#f6f8fe]" : "")
+                }
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -783,6 +850,11 @@ export function KitchenRecipeDraftsCard({
                       {draft.approved_exists ? (
                         <Badge variant="outline">
                           Ya existe una receta aprobada
+                        </Badge>
+                      ) : null}
+                      {newIds.has(draft.id) ? (
+                        <Badge variant="outline" className="text-[#1B40C8]">
+                          Nuevo
                         </Badge>
                       ) : null}
                       <Badge
@@ -982,6 +1054,13 @@ export function KitchenRecipeDraftsCard({
                           ? (suggestIngredient(line.raw_name, ingredients)
                               ?.ingredient ?? null)
                           : null;
+                      const preparation =
+                        !line.ingredient_id && line.raw_name && !suggestion
+                          ? suggestPreparation(
+                              line.raw_name,
+                              preparationCandidates
+                            )
+                          : null;
                       return (
                         <tr key={line.id} className="align-top">
                           <td className="py-1 pr-2">
@@ -1006,6 +1085,20 @@ export function KitchenRecipeDraftsCard({
                                 >
                                   Sí, usarlo
                                 </button>
+                              </p>
+                            ) : null}
+                            {preparation ? (
+                              <p
+                                data-testid="preparation-hint"
+                                className="mt-0.5 text-[12px] text-[#6b7280]"
+                              >
+                                Parece la preparación «
+                                {sentenceCase(
+                                  stripParenthetical(preparation.name)
+                                )}
+                                ». Por ahora créala en Menú › Preparaciones y
+                                agrégala a la receta allí; aquí elige un
+                                ingrediente.
                               </p>
                             ) : null}
                           </td>
@@ -1183,8 +1276,10 @@ function LineCost({
   onSaved: () => void;
 }) {
   if (!ingredient) return <span className="text-[#aeb4c2]">—</span>;
-  const price = ingredient.price ?? null;
-  const lineCost = costLine?.line_cost ?? null;
+  // A stored price of 0 or null is «Sin precio», never $0.00.
+  const rawPrice = ingredient.price ?? null;
+  const price = rawPrice && rawPrice.unit_cost > 0 ? rawPrice : null;
+  const lineCost = price ? (costLine?.line_cost ?? null) : null;
   return (
     <PricePopover
       ingredient={{

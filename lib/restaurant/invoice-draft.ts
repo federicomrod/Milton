@@ -46,9 +46,13 @@ import {
 export { PRICE_UPDATE_NOTE_PREFIX };
 
 export const DEFAULT_FALLBACK_DATE_NOTE =
-  "Fecha no leída en la foto: se usó la fecha de envío por Telegram";
+  "No se leyó la fecha en la foto; usamos la fecha en que se mandó por Telegram.";
 
 export const DEFAULT_VISION_TIMEOUT_MS = 40_000;
+
+/** Telegram path: the person reads the notes, and they read Spanish. */
+const NOTES_IN_SPANISH =
+  "Write every free-text note (confidence_notes) in Spanish (neutral Latin American). Do not translate names, brands or values read from the invoice.";
 
 // ---------------------------------------------------------------------------
 // Vision call
@@ -72,6 +76,8 @@ export interface ExtractInvoiceOptions {
   signal?: AbortSignal;
   /** Own timeout. Default 40 s. */
   timeoutMs?: number;
+  /** Language of the model's free-text notes (default: as the invoice is written). */
+  notesLanguage?: "es";
 }
 
 export async function extractInvoiceFromImage(
@@ -129,7 +135,13 @@ export async function extractInvoiceFromImage(
         temperature: 0,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
+          {
+            role: "system",
+            content:
+              opts.notesLanguage === "es"
+                ? `${EXTRACTION_SYSTEM_PROMPT}\n\n${NOTES_IN_SPANISH}`
+                : EXTRACTION_SYSTEM_PROMPT,
+          },
           {
             role: "user",
             content: [
@@ -289,8 +301,7 @@ export async function createInvoiceDraft(
       return {
         ok: false,
         reason: "missing_date",
-        message:
-          "invoice_date is required to create an invoice. Edit the draft to add a date before saving.",
+        message: "Falta la fecha de la factura. Agrégala antes de guardar.",
       };
     }
   }
@@ -494,7 +505,7 @@ export async function createInvoiceDraft(
   }
   if (extraction.confidence_notes.length > 0) {
     noteParts.push(
-      `AI extraction notes: ${extraction.confidence_notes.join(" · ")}`
+      `Notas de la lectura: ${extraction.confidence_notes.join(" · ")}`
     );
   }
   if (usedFallbackDate) {

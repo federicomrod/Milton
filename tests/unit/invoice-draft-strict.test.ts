@@ -156,7 +156,7 @@ describe("createInvoiceDraft strictPrices:true", () => {
     expect(r.ok && r.usedFallbackDate).toBe(true);
     expect(store.supplier_invoices[0].invoice_date).toBe("2026-05-06");
     expect(String(store.supplier_invoices[0].notes)).toContain(
-      "Fecha no leída en la foto: se usó la fecha de envío por Telegram"
+      "No se leyó la fecha en la foto; usamos la fecha en que se mandó por Telegram."
     );
   });
 

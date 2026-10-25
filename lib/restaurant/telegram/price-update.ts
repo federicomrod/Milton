@@ -218,9 +218,58 @@ export function parsePriceUpdate(text: string): PriceUpdateParse {
   return null;
 }
 
-/** «aguacate 1.50 por lb, tomate 0.80 por lb» for reply copy. */
-export function formatPriceUpdateItems(items: PriceUpdateItem[]): string {
+/** «la libra», «el kilo»… the way a person says it; other units: «por <unit>». */
+const UNIT_PHRASE: Record<string, string> = {
+  lb: "la libra",
+  kg: "el kilo",
+  unidad: "la unidad",
+  pza: "la pieza",
+  pieza: "la pieza",
+  caja: "la caja",
+  docena: "la docena",
+  litro: "el litro",
+  galón: "el galón",
+  botella: "la botella",
+  bolsa: "la bolsa",
+  paquete: "el paquete",
+  saco: "el saco",
+  atado: "el atado",
+  manojo: "el manojo",
+  lata: "la lata",
+  quintal: "el quintal",
+  arroba: "la arroba",
+  bandeja: "la bandeja",
+  frasco: "el frasco",
+  gramo: "el gramo",
+  onza: "la onza",
+};
+
+/** The currency's own symbol («$», «€», «Q»…), from the ISO code. «$» when unknown. */
+export function currencySymbolFor(code: string | null | undefined): string {
+  if (!code) return "$";
+  try {
+    const part = new Intl.NumberFormat("es", {
+      style: "currency",
+      currency: code,
+      currencyDisplay: "narrowSymbol",
+    })
+      .formatToParts(1)
+      .find((p) => p.type === "currency");
+    return part?.value ?? "$";
+  } catch {
+    return "$";
+  }
+}
+
+/** «aguacate $1.50 la libra, tomate $0.80 la libra» for reply copy. */
+export function formatPriceUpdateItems(
+  items: PriceUpdateItem[],
+  currencySymbol = "$"
+): string {
   return items
-    .map((i) => `${i.name} ${i.price.toFixed(2)} por ${i.unit}`)
+    .map((i) => {
+      const per = UNIT_PHRASE[i.unit.toLowerCase()] ?? `por ${i.unit}`;
+      return `${i.name} ${currencySymbol}${i.price.toFixed(2)} ${per}`;
+    })
     .join(", ");
 }

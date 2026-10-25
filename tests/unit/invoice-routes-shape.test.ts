@@ -247,7 +247,7 @@ describe("POST /invoices/from-extraction", () => {
       jsonReq({ extraction: { ...goodModel, invoice_date: null } })
     );
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/^invoice_date is required/);
+    expect((await res.json()).error).toMatch(/^Falta la fecha de la factura/);
     res = await fromPOST(jsonReq({ extraction: { ...goodModel, lines: [] } }));
     expect([res.status, (await res.json()).error]).toEqual([
       400,

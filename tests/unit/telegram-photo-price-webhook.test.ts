@@ -14,6 +14,7 @@ const classify = vi.fn();
 const extractRecipe = vi.fn();
 const openFile = vi.fn();
 let transcript = "";
+let failInvoiceInsert = false;
 
 vi.mock("next/server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("next/server")>();
@@ -32,7 +33,11 @@ vi.mock("@/lib/restaurant/telegram/send", () => ({
   TelegramConfigError: class extends Error {},
 }));
 vi.mock("@/lib/supabase/admin", () => ({
-  createAdminClient: () => makeFakeDb(store),
+  createAdminClient: () =>
+    makeFakeDb(store, {
+      fail: (table, mode) =>
+        failInvoiceInsert && table === "supplier_invoices" && mode === "insert",
+    }),
 }));
 vi.mock("@/lib/restaurant/telegram/files", () => ({
   openTelegramFile: (...a: unknown[]) => openFile(...a),
@@ -178,6 +183,7 @@ beforeEach(() => {
   replies.length = 0;
   consoleCalls.length = 0;
   transcript = "";
+  failInvoiceInsert = false;
   process.env.TELEGRAM_WEBHOOK_SECRET = "s3cret";
   process.env.OPENAI_API_KEY = "test-key";
   extractInvoice.mockReset().mockResolvedValue(goodExtraction());
@@ -240,8 +246,11 @@ describe("photo routing", () => {
     expect(classify).toHaveBeenCalledTimes(1);
     expect(invoices()).toHaveLength(1);
     expect(replies).toHaveLength(1);
-    expect(replies[0]).toContain("Leí la factura de Proveedor Demo");
-    expect(replies[0]).toContain("1 línea, leídas de la foto");
+    expect(extractInvoice).toHaveBeenCalledWith(
+      expect.objectContaining({ notesLanguage: "es" })
+    );
+    expect(replies[0]).toContain("Recibí la factura de Proveedor Demo");
+    expect(replies[0]).toContain("leí 1 línea");
   });
 
   it("no caption + classifier recipe (medium): recipe draft", async () => {
@@ -264,7 +273,7 @@ describe("photo routing", () => {
     classify.mockResolvedValue(verdict);
     await send(photo());
     expect(replies).toEqual([
-      "✅ Recibido. ¿Es una factura o una receta? Responde «factura» o «receta».",
+      "✅ Recibí la foto. ¿Es una factura o una receta? Responde «factura» o «receta».",
     ]);
     expect(invoices()).toHaveLength(0);
     expect(extractRecipe).not.toHaveBeenCalled();
@@ -310,7 +319,7 @@ describe("«factura» / «receta» follow-up", () => {
     expect(
       (store.invoice_events as Row[])[0].metadata as Record<string, unknown>
     ).toMatchObject({ kitchen_report_id: "kr-2", source: "telegram" });
-    expect(lastReply()).toContain("Leí la factura");
+    expect(lastReply()).toContain("Recibí la factura");
 
     // The same word again goes to the OLDER photo (the newest is decided).
     await send({ text: "factura" });
@@ -419,7 +428,9 @@ describe("invoice path (Telegram, strict)", () => {
     extractInvoice.mockResolvedValue(goodExtraction({ invoice_date: null }));
     await send({ ...photo(), caption: "factura" });
     expect(invoices()[0].invoice_date).toBe("2026-03-04");
-    expect(String(invoices()[0].notes)).toContain("Fecha no leída en la foto");
+    expect(String(invoices()[0].notes)).toContain(
+      "No se leyó la fecha en la foto"
+    );
   });
 
   it("a duplicate delivery creates no second invoice or reply", async () => {
@@ -444,7 +455,7 @@ describe("invoice path (Telegram, strict)", () => {
     });
     await send({ ...photo(), caption: "factura" });
     expect(replies).toEqual([
-      "No pude leer la factura. Prueba con otra foto: completa, derecha y con buena luz.",
+      "No pude leer la factura. Manda otra foto: que se vea completa, de frente y con buena luz.",
     ]);
     expect(invoices()).toHaveLength(0);
   });
@@ -513,14 +524,32 @@ describe("price updates", () => {
     ]);
     expect(store.ingredient_cost_entries ?? []).toHaveLength(0);
     expect(replies).toHaveLength(1);
-    expect(replies[0]).toContain("Anoté: aguacate 1.50 por lb (de tu mensaje)");
+    expect(replies[0]).toContain("Anoté: aguacate $1.50 la libra.");
     expect(replies[0]).not.toContain("Se lo pasamos");
+  });
+
+  it("a failed save answers PRICE_UPDATE_FAILED, never the «no entendí» copy", async () => {
+    failInvoiceInsert = true;
+    await send({ text: "el aguacate subió a 1.50 la libra" });
+    expect(replies).toEqual([
+      "No pude guardar el precio. Vuelve a mandarlo en un momento.",
+    ]);
+    expect(invoices()).toHaveLength(0);
+  });
+
+  it("the reply shows the company's currency symbol and the unit as a person says it", async () => {
+    await send({
+      text: "el tomate subió a 0.80 el kilo y el aguacate a 1.50 la libra",
+    });
+    expect(replies[0]).toContain(
+      "tomate $0.80 el kilo, aguacate $1.50 la libra"
+    );
   });
 
   it("unclear: asks for price and unit, no draft", async () => {
     await send({ text: "el aguacate subió" });
     expect(replies).toEqual([
-      "¿A cuánto y por qué unidad? Por ejemplo: «aguacate 1.50 la libra».",
+      "No entendí el precio. Escribe producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra».",
     ]);
     expect(invoices()).toHaveLength(0);
   });
@@ -551,7 +580,7 @@ describe("price updates", () => {
     transcript = "el aguacate subió a 1.50 la libra";
     await send(voice);
     expect(invoices()).toHaveLength(1);
-    expect(lastReply()).toContain("(de tu nota de voz)");
+    expect(lastReply()).not.toContain("(de tu nota de voz)");
     expect(extractRecipe).not.toHaveBeenCalled();
 
     transcript = "receta de pollo con arroz para 2 porciones";
@@ -567,7 +596,7 @@ describe("price updates", () => {
 
     transcript = "subió el aguacate";
     await send(voice);
-    expect(lastReply()).toContain("¿A cuánto y por qué unidad?");
+    expect(lastReply()).toContain("No entendí el precio");
     expect(invoices()).toHaveLength(1);
   });
 });

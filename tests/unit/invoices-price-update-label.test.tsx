@@ -47,7 +47,7 @@ describe("price update label", () => {
       <InvoicesPage
         initialInvoices={[
           row("A", `${PRICE_UPDATE_NOTE_PREFIX}\nLíneas sin precio: sal`),
-          row("B", "AI extraction notes: borrosa"),
+          row("B", "Notas de la lectura: borrosa"),
           row("C", `nota previa. ${PRICE_UPDATE_NOTE_PREFIX}`),
           row("D", null),
         ]}

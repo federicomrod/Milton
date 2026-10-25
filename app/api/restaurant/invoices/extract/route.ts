@@ -25,14 +25,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
-import {
-  EXTRACTION_SYSTEM_PROMPT,
-  EXTRACTION_USER_INSTRUCTION,
-  enrichExtraction,
-  isExtractedInvoice,
-  normalizeExtraction,
-  type ExtractedInvoice,
-} from "@/lib/restaurant/invoice-extraction";
+import { extractInvoiceFromImage } from "@/lib/restaurant/invoice-draft";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -47,85 +40,6 @@ const IMAGE_MIME_TYPES = new Set([
 ]);
 
 const PDF_MIME_TYPES = new Set(["application/pdf"]);
-
-// ---------------------------------------------------------------------------
-// OpenAI vision call (isolated so any failure surfaces cleanly to the UI)
-// ---------------------------------------------------------------------------
-
-async function callOpenAIVision(
-  imageDataUrl: string
-): Promise<
-  { ok: true; data: ExtractedInvoice } | { ok: false; error: string }
-> {
-  if (!process.env.OPENAI_API_KEY) {
-    return {
-      ok: false,
-      error: "OpenAI API key is not configured on the server.",
-    };
-  }
-
-  let OpenAIctor: typeof import("openai").OpenAI;
-  try {
-    const mod = await import("openai");
-    OpenAIctor =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-  } catch (err) {
-    console.error("[invoices/extract] openai sdk import failed:", err);
-    return { ok: false, error: "Could not load OpenAI SDK on the server." };
-  }
-  if (!OpenAIctor) {
-    return { ok: false, error: "OpenAI SDK is unavailable." };
-  }
-
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const client = new OpenAIctor({ apiKey: process.env.OPENAI_API_KEY });
-
-  try {
-    const completion = await client.chat.completions.create({
-      model,
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: EXTRACTION_USER_INSTRUCTION },
-            {
-              type: "image_url",
-              image_url: { url: imageDataUrl, detail: "high" },
-            },
-          ],
-        },
-      ],
-    });
-    const raw = completion.choices?.[0]?.message?.content ?? "";
-    if (!raw) {
-      return { ok: false, error: "Model returned no content." };
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return {
-        ok: false,
-        error: "Model output was not valid JSON. Try a clearer image.",
-      };
-    }
-    if (!isExtractedInvoice(parsed)) {
-      return {
-        ok: false,
-        error: "Model output did not match the invoice extraction schema.",
-      };
-    }
-    return { ok: true, data: normalizeExtraction(parsed) };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown OpenAI error";
-    console.error("[invoices/extract] openai call failed:", msg);
-    return { ok: false, error: `OpenAI call failed: ${msg}` };
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -189,19 +103,14 @@ export async function POST(req: NextRequest) {
   const buf = Buffer.from(await file.arrayBuffer());
   const dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
 
-  // ---- Extract ----
-  const result = await callOpenAIVision(dataUrl);
+  // ---- Extract (vision call + enrichment live in lib/restaurant/invoice-draft) ----
+  const result = await extractInvoiceFromImage({ dataUrl });
   if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: 502 });
+    return NextResponse.json({ error: result.message }, { status: 502 });
   }
 
-  // Enrich with per-line flags + cheap derivations (missing_*, derived_*,
-  // low_confidence). The UI consumes the enriched shape; /from-extraction
-  // accepts it too (the extra flags are ignored at insert time).
-  const enriched = enrichExtraction(result.data);
-
   return NextResponse.json({
-    extraction: enriched,
+    extraction: result.extraction,
     original_file_name: file.name,
     source_type: "image",
   });

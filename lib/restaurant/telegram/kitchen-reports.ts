@@ -65,8 +65,38 @@ export interface TelegramVoice {
   file_size?: number;
 }
 
+export interface TelegramDocument {
+  file_id: string;
+  file_unique_id?: string;
+  mime_type?: string;
+  file_name?: string;
+  file_size?: number;
+}
+
+/** Image types sent «as a file» that are read like photos. PDFs are not. */
+export const IMAGE_DOCUMENT_MIMES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+] as const;
+
+export function isImageDocument(
+  doc: TelegramDocument | undefined | null
+): doc is TelegramDocument {
+  return (
+    !!doc &&
+    typeof doc.file_id === "string" &&
+    (IMAGE_DOCUMENT_MIMES as readonly string[]).includes(
+      (doc.mime_type ?? "").toLowerCase()
+    )
+  );
+}
+
 export interface TelegramIncomingMessage {
   message_id?: number;
+  /** Unix seconds when Telegram received the message. */
+  date?: number;
+  document?: TelegramDocument;
   text?: string;
   caption?: string;
   photo?: TelegramPhotoSize[];
@@ -97,7 +127,7 @@ function photoArea(p: TelegramPhotoSize): number {
 /**
  * Maps a Telegram message to a report. Photo -> largest PhotoSize, text =
  * caption. Voice -> file details, text = caption. Plain text -> text.
- * Anything else (sticker, document, video, location, empty) -> null.
+ * Image documents (jpeg/png/webp) count as photos. Anything else (sticker, PDF, video, location, empty) -> null.
  */
 export function extractReportFromMessage(
   message: TelegramIncomingMessage
@@ -133,6 +163,21 @@ export function extractReportFromMessage(
       telegram_file_unique_id: largest.file_unique_id ?? null,
       media_mime: "image/jpeg", // Telegram re-encodes photos as JPEG
       media_size_bytes: largest.file_size ?? null,
+    };
+  }
+
+  if (isImageDocument(message.document)) {
+    const d = message.document;
+    const text = cap(message.caption);
+    return {
+      ...base,
+      report_type: classifyKitchenReport(text),
+      text,
+      media_kind: "photo",
+      telegram_file_id: d.file_id,
+      telegram_file_unique_id: d.file_unique_id ?? null,
+      media_mime: (d.mime_type ?? "image/jpeg").toLowerCase(),
+      media_size_bytes: d.file_size ?? null,
     };
   }
 

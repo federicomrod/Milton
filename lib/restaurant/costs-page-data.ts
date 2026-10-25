@@ -238,6 +238,7 @@ async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
       total_amount: number | null;
       status: string;
       source_type: string;
+      notes?: string | null;
       created_at: string;
     }>
   ).map((r) => ({
@@ -253,6 +254,7 @@ async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
     total_amount: r.total_amount,
     status: r.status,
     source_type: r.source_type,
+    notes: r.notes ?? null,
     created_at: r.created_at,
     line_counts: lineCounts.get(r.id) ?? emptyCount(),
   }));

@@ -225,6 +225,14 @@ export interface FetchProfitabilityOptions {
    * to force the legacy name-mapped path (tests). Undefined: load it.
    */
   dishEconomics?: DishEconomicsResult | null;
+  /**
+   * Trusted server job with NO user session (the briefing cron uses the
+   * service role). The membership-gated rollup RPC answers an EMPTY payload
+   * to a non-member, so it is skipped and `pos_sales_items` is read directly,
+   * always scoped by company_id (the only guard: the service role bypasses
+   * RLS). Never set from a user-facing route.
+   */
+  serverTrusted?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -359,11 +367,16 @@ export async function fetchProfitabilityData(
         posSource: "preloaded",
       };
     }
-    const rpc = await fetchCockpitPosProductRollup(supabase, companyId, {
-      locationId: selected?.locationId ?? null,
-      currency: companyCurrency,
-    });
-    if (rpc.rollup) {
+    // serverTrusted: no auth.uid(), the RPC would answer "empty" (not an
+    // error). Walk the rows instead. A rollup with no rows is not final
+    // either: the walk below finds nothing for a real member with no sales.
+    const rpc = options?.serverTrusted
+      ? { rollup: null, missing: true, error: null }
+      : await fetchCockpitPosProductRollup(supabase, companyId, {
+          locationId: selected?.locationId ?? null,
+          currency: companyCurrency,
+        });
+    if (rpc.rollup && rpc.rollup.row_count > 0) {
       return {
         rows: [],
         truncated: false,
@@ -372,7 +385,7 @@ export async function fetchProfitabilityData(
         posSource: "product-rpc",
       };
     }
-    if (!rpc.missing) {
+    if (!rpc.missing && !rpc.rollup) {
       return {
         rows: [],
         truncated: false,

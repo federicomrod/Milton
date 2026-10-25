@@ -17,6 +17,7 @@
     "format": "prettier --write .",
     "prepare": "husky || echo 'Husky setup skipped'",
     "test:unit": "vitest run tests/unit",
+    "briefing:dry-run": "npx tsx scripts/briefing-dry-run.ts",
     "test:unit:watch": "vitest tests/unit"
   },
   "dependencies": {

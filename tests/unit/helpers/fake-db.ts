@@ -6,7 +6,11 @@ export type Row = Record<string, unknown>;
 export type FakeStore = Record<string, Row[]>;
 
 type Op =
-  | { type: "eq" | "is" | "gte" | "lt" | "in"; col: string; val: unknown }
+  | {
+      type: "eq" | "neq" | "is" | "gte" | "lt" | "in";
+      col: string;
+      val: unknown;
+    }
   | { type: "or"; expr: string }
   | { type: "not"; col: string; op: string; val: unknown }
   | { type: "contains"; col: string; val: unknown[] }
@@ -82,6 +86,7 @@ function matches(row: Row, ops: Op[]) {
       return row[op.col] != null && String(row[op.col]) < String(op.val);
     }
     if (op.type === "eq") return cellOf(row, op.col) === op.val;
+    if (op.type === "neq") return cellOf(row, op.col) !== op.val;
     if (op.type === "is") return (row[op.col] ?? null) === op.val;
     if (op.type === "gte") return String(row[op.col] ?? "") >= String(op.val);
     return (op.val as unknown[]).includes(row[op.col]);
@@ -186,6 +191,10 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
       select: () => self,
       eq: (col: string, val: unknown) => (
         ops.push({ type: "eq", col, val }),
+        self
+      ),
+      neq: (col: string, val: unknown) => (
+        ops.push({ type: "neq", col, val }),
         self
       ),
       is: (col: string, val: unknown) => (

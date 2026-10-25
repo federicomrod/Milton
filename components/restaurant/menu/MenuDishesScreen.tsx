@@ -36,6 +36,14 @@ import { type DishStatus } from "@/lib/restaurant/costing/dish-status";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { platosHref } from "@/lib/restaurant/menu-links";
 import { Chip } from "@/components/restaurant/recipes-costing/ui";
+import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
+import {
+  ESTIMATE_BADGE,
+  estimateForProducts,
+  estimateText,
+  overlayAllowed,
+} from "@/components/restaurant/menu/estimate-overlay";
+import { EstimateWithMilton } from "@/components/restaurant/menu/EstimateWithMilton";
 import Link from "next/link";
 import { StickyPanel, STICKY_TH } from "@/components/restaurant/ui/StickyPanel";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
@@ -131,7 +139,13 @@ export function MenuDishesScreen({
   data,
   onOpenDish,
   statusFilter = [],
+  estimates = [],
+  onEstimated,
 }: {
+  /** «Estimado por Milton»: muted overlay for dishes with no real cost. */
+  estimates?: DishEstimateRow[];
+  /** After a «Estimar con Milton» run: re-read the estimates. */
+  onEstimated?: () => void;
   data: RecipeCostingWorkspace;
   /** Open the dish's recipe (its base variant) in the editor. */
   onOpenDish: (odooProductId: number) => void;
@@ -248,6 +262,34 @@ export function MenuDishesScreen({
     // Variants stay under their dish: only the dishes are ordered.
     return sortRows(filtered, sort, dishValue);
   }, [dishes, excluded, showExcluded, statusFilter, sort]);
+
+  // The estimate of each dish with NO real cost (never in the real columns).
+  const estimateOf = useMemo(() => {
+    const map = new Map<string, string>();
+    if (estimates.length === 0) return map;
+    for (const dish of [...dishes, ...excluded]) {
+      if (dish.status === "excluded") continue;
+      const est = estimateForProducts(estimates, [
+        dish.base_odoo_product_id,
+        ...dish.variants.map((v) => v.odoo_product_id),
+      ]);
+      if (!est) continue;
+      if (
+        !overlayAllowed(est, {
+          real_cost: dish.cost_total,
+          has_approved_version: (dish.approved_count ?? 0) > 0,
+          excel_total: dish.excel_total,
+        }) ||
+        dish.source === "excel" ||
+        dish.cost_status === "aprobado" ||
+        dish.cost_status === "estimado"
+      )
+        continue;
+      const avg = dish.units > 0 ? dish.net_sales / dish.units : null;
+      map.set(dish.id, estimateText(est, data.currency, avg).text);
+    }
+    return map;
+  }, [estimates, dishes, excluded, data.currency]);
 
   const openDrill = (
     target:
@@ -576,6 +618,17 @@ export function MenuDishesScreen({
                 : `Guardar agrupación (${unsaved} ${unsaved === 1 ? "producto nuevo" : "productos nuevos"})`}
             </button>
           ) : null}
+          {(data.actor.capabilities?.["recipes.edit"] ??
+          data.actor.can_submit) ? (
+            k.no_recipe_dishes > 0 ? (
+              <EstimateWithMilton
+                variant="link"
+                canEdit
+                locationId={data.view_location_id ?? null}
+                onDone={() => onEstimated?.()}
+              />
+            ) : null
+          ) : null}
           {statusFilter.length > 0 ? (
             <Link href={platosHref()} className="font-semibold text-[#3557c9]">
               Ver todos
@@ -696,6 +749,7 @@ export function MenuDishesScreen({
                     open={expanded.has(dish.id)}
                     money={money}
                     canEdit={data.actor.can_submit}
+                    estimate={estimateOf.get(dish.id) ?? null}
                     onToggle={onToggleRow}
                     onDrill={onDrillRow}
                     onOpen={onOpenRow}
@@ -814,6 +868,7 @@ const DishRows = memo(function DishRows({
   open,
   money,
   canEdit,
+  estimate = null,
   onToggle,
   onDrill,
   onOpen,
@@ -821,6 +876,8 @@ const DishRows = memo(function DishRows({
   onExclude,
 }: {
   dish: MenuDish;
+  /** «≈ $4.20 costo estimado · ≈ 62% margen estimado», muted, apart from the real columns. */
+  estimate?: string | null;
   open: boolean;
   money: (n: number) => string;
   canEdit: boolean;
@@ -875,6 +932,17 @@ const DishRows = memo(function DishRows({
               />
             </span>
           </div>
+          {estimate ? (
+            <div
+              data-testid="dish-estimate"
+              className="mt-1 ml-5 inline-flex flex-wrap items-center gap-1.5 rounded-md border border-dashed border-[#c9cfdb] px-1.5 py-0.5 text-[12px] text-[#6b7280]"
+            >
+              <span className="rounded-md bg-[#f1f3f7] px-1.5 py-px text-[11px] font-semibold text-[#5b6476]">
+                {ESTIMATE_BADGE}
+              </span>
+              <span>{estimate}</span>
+            </div>
+          ) : null}
         </td>
         <td className="px-2 py-2 text-right tabular-nums">
           {money(dish.net_sales)}

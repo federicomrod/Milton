@@ -32,6 +32,11 @@ import { dishCoverageLabel } from "@/lib/restaurant/costing/dish-coverage";
 import { groupStatusDisplay } from "@/lib/restaurant/costing/rollup";
 import { COSTS_HREF } from "@/lib/restaurant/navigation";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
+import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
+import {
+  extraEstimatedDishes,
+  extraEstimatedLabel,
+} from "@/components/restaurant/menu/estimate-overlay";
 import { useResumenData } from "./use-resumen-data";
 
 const BLUE = "#1b40c8";
@@ -51,9 +56,12 @@ function IaChip() {
 export function ResumenScreen({
   data,
   locationId,
+  estimates = [],
 }: {
   data: RecipeCostingWorkspace;
   locationId: string | null;
+  /** «Estimado por Milton»: only counted in one separate line. */
+  estimates?: DishEstimateRow[];
 }) {
   const { data: days, failed, retry } = useResumenData(locationId);
   const [period, setPeriod] = useState<ResumenPeriod>("month");
@@ -66,6 +74,10 @@ export function ResumenScreen({
           })
         : null,
     [days, period]
+  );
+  const extraEstimated = useMemo(
+    () => (view ? extraEstimatedDishes(estimates, view.dishes) : 0),
+    [view, estimates]
   );
   const summary = data.menu_summary;
   if (!summary) return null;
@@ -95,6 +107,7 @@ export function ResumenScreen({
       missingPriceIngredients={summary.missing_price_ingredients}
       latestUpload={data.latest_upload}
       now={now}
+      extraEstimated={extraEstimated}
     />
   );
 }
@@ -108,7 +121,10 @@ export function ResumenCockpit({
   missingPriceIngredients,
   latestUpload,
   now,
+  extraEstimated = 0,
 }: {
+  /** Dishes with an approximate margin only from Milton's estimate (separate line). */
+  extraEstimated?: number;
   view: ResumenView | null;
   currency: string;
   period: ResumenPeriod;
@@ -159,6 +175,14 @@ export function ResumenCockpit({
       ) : (
         <>
           <Kpis view={view} money={money} />
+          {extraEstimated > 0 ? (
+            <p
+              className="text-[12px] text-[#6b7280]"
+              data-testid="resumen-estimates-line"
+            >
+              {extraEstimatedLabel(extraEstimated)}
+            </p>
+          ) : null}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_290px]">
             <div className="space-y-3">
               <TopPlatos view={view} />

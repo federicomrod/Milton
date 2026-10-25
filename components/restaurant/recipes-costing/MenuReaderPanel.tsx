@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { menuReadSummary } from "@/lib/restaurant/menu-reading/summary";
+import { EstimateWithMilton } from "@/components/restaurant/menu/EstimateWithMilton";
 import { Card, GhostBtn } from "./ui";
 
 interface MenuReadResponse {
@@ -24,6 +25,7 @@ export function MenuReaderPanel({
   busyExternal,
   locationId,
   onDone,
+  onEstimated,
   embedded = false,
 }: {
   /** Inside Resumen's checklist: no card or heading of its own. */
@@ -33,6 +35,8 @@ export function MenuReaderPanel({
   locationId: string | null;
   /** After a reading that prepared drafts: reload the workspace. */
   onDone: () => void;
+  /** After «Estimar con Milton»: refresh the page data (no remount of this panel). */
+  onEstimated?: () => void;
 }) {
   const [mode, setMode] = useState<"url" | "text">("url");
   const [url, setUrl] = useState("");
@@ -122,6 +126,14 @@ export function MenuReaderPanel({
           </div>
         </>
       ) : null}
+
+      <EstimateWithMilton
+        canEdit={canEdit}
+        locationId={locationId}
+        busyExternal={busyExternal || busy}
+        forceShow={(result?.drafted ?? 0) > 0}
+        onDone={onEstimated ?? onDone}
+      />
 
       {error ? (
         <div className="rounded-md border border-[#f1c0c0] bg-[#fdecec] px-3 py-2 text-xs text-[#c03535]">

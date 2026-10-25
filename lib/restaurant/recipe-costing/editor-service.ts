@@ -22,6 +22,7 @@ import {
 import { isUsableLineUnit, normalizeUnit } from "@/lib/restaurant/units";
 import { matchExistingIngredient } from "./ingredient-match";
 import {
+  FLAG_MILTON_ESTIMATE,
   buildPickerOptions,
   hydrateLines,
   latestPrice,
@@ -32,6 +33,7 @@ import {
   type EvidenceLineIn,
   type PickerOption,
   type PossibleMatch,
+  type PriceEstimateHint,
   type PriceMeta,
   type VersionInput,
 } from "./editor";
@@ -269,6 +271,12 @@ export interface Ctx {
   /** The client already has the picker list (R1-09c): do not send it. */
   omitOptions?: boolean;
   /**
+   * The open editor only (loadEditor): «Precio estimado por Milton» rows, to
+   * show next to a line with no real price. Never read when costing; if the
+   * read fails or the table is missing, nothing is attached.
+   */
+  priceEstimates?: () => Promise<readonly PriceEstimateHint[]>;
+  /**
    * R1-12: a permission check the caller runs in parallel with the reads.
    * applyEdit awaits it before its first write; a non-null answer is
    * returned as is and nothing is written.
@@ -309,6 +317,12 @@ export function yieldOf(
     confirmed: row.confirmed !== false && row.source !== "assumed",
     source: typeof row.source === "string" ? row.source : null,
   };
+}
+
+function stripEstimateFlag(line: { flags: string[] }): void {
+  if (line.flags.includes(FLAG_MILTON_ESTIMATE)) {
+    line.flags = line.flags.filter((flag) => flag !== FLAG_MILTON_ESTIMATE);
+  }
 }
 
 export function evidenceLinesOf(
@@ -428,6 +442,12 @@ async function build(
       suggest,
     },
   });
+
+  // «Estimado por Milton» is a mark on a draft: an approved recipe is a
+  // person's, so the mark is not shown there.
+  if (version?.status !== "in_review") {
+    for (const line of lines) stripEstimateFlag(line);
+  }
 
   // A line whose ingredient sits on an unclear price-list row: ask how the
   // row reads, right on the line (by ingredient, or by the exact name for
@@ -624,7 +644,50 @@ export async function loadEditor(ctx: Ctx): Promise<EditorResult> {
     loaded,
     evidenceLinesOf(loaded.holder.evidence)
   );
+  if (ctx.priceEstimates && built.state.editable) {
+    await attachPriceEstimates(built.lines, ctx.priceEstimates);
+  }
   return { ok: true, state: built.state };
+}
+
+/**
+ * Show «Precio estimado ≈ …» on lines with NO real price. Only a hint: the
+ * line keeps `amount: null`, so it still counts as missing a price and
+ * approval stays blocked until a real price is registered.
+ */
+async function attachPriceEstimates(
+  lines: EditorLine[],
+  read: () => Promise<readonly PriceEstimateHint[]>
+): Promise<void> {
+  const wanting = lines.filter(
+    (line) =>
+      line.kind !== "component" &&
+      line.amount === null &&
+      (line.kind === "unresolved" || !line.price)
+  );
+  if (wanting.length === 0) return;
+  let rows: readonly PriceEstimateHint[] = [];
+  try {
+    rows = await read();
+  } catch {
+    return;
+  }
+  if (rows.length === 0) return;
+  for (const line of wanting) {
+    const keys = [line.name, line.raw_name]
+      .filter((n): n is string => Boolean(n))
+      .map((n) => normalizeMatchName(n));
+    const hit =
+      rows.find(
+        (row) => line.ingredient_id && row.ingredient_id === line.ingredient_id
+      ) ?? rows.find((row) => keys.includes(row.name_key));
+    if (hit && hit.unit_price > 0) {
+      line.milton_price_estimate = {
+        unit_price: hit.unit_price,
+        unit: hit.unit,
+      };
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -970,6 +1033,8 @@ export async function applyEdit(
 
   let evidenceLines = evidenceLinesOf(holder.evidence);
   let evidenceYield: Record<string, unknown> | null = null;
+  // Lines a person edits lose the «Estimado por Milton» mark.
+  const editedInputIds = new Set<string>();
   // The company's catalog is read once per edit (it was read 3–4 times:
   // pinning, lookups, the final rebuild). Only an edit that changes the
   // catalog itself reads it again at the end.
@@ -1005,7 +1070,9 @@ export async function applyEdit(
     line: EditorLine,
     input: VersionInput,
     name: string,
-    kind: "ingredient" | "component"
+    kind: "ingredient" | "component",
+    /** The quantity is still Milton's estimate: the mark stays. */
+    keepEstimate = false
   ) => {
     const target =
       line.evidence_index !== null
@@ -1014,7 +1081,10 @@ export async function applyEdit(
     if (!target) return;
     target.input_id = input.id;
     target.pending = false;
-    target.flags = [];
+    target.flags =
+      keepEstimate && target.flags.includes(FLAG_MILTON_ESTIMATE)
+        ? [FLAG_MILTON_ESTIMATE]
+        : [];
     target.ingredient_match = kind === "ingredient" ? name : null;
     target.sub_recipe_match = kind === "component" ? name : null;
   };
@@ -1047,6 +1117,7 @@ export async function applyEdit(
       break;
     }
     case "update": {
+      editedInputIds.add(action.input_id);
       const patch: { quantity?: number; unit?: string } = {};
       if (action.quantity !== undefined) {
         const qty = cleanQuantity(action.quantity);
@@ -1103,6 +1174,7 @@ export async function applyEdit(
       break;
     }
     case "answer_unit": {
+      editedInputIds.add(action.input_id);
       const unit = cleanUnit(action.unit);
       if (!unit) {
         return { ok: false, error: "Esa unidad no es válida.", status: 400 };
@@ -1122,6 +1194,7 @@ export async function applyEdit(
       break;
     }
     case "change_item": {
+      editedInputIds.add(action.input_id);
       if (!itemExists(action.kind, action.id)) {
         return {
           ok: false,
@@ -1186,7 +1259,13 @@ export async function applyEdit(
         unit: amount.unit,
       });
       const name = nameOfItem(action.kind, action.id);
-      bind(line, row, name, action.kind);
+      bind(
+        line,
+        row,
+        name,
+        action.kind,
+        action.quantity === undefined && action.line_unit === undefined
+      );
       if (
         action.kind === "ingredient" &&
         normalizeMatchName(line.raw_name) !== normalizeMatchName(name)
@@ -1334,7 +1413,13 @@ export async function applyEdit(
             quantity: amount.quantity,
             unit: amount.unit,
           });
-          bind(line, row, created.name, "ingredient");
+          bind(
+            line,
+            row,
+            created.name,
+            "ingredient",
+            action.quantity === undefined && action.line_unit === undefined
+          );
           if (normalizeMatchName(line.raw_name) !== normalizeMatchName(name)) {
             await rememberQuietly(ctx, line.raw_name, created.id);
           }
@@ -1395,7 +1480,8 @@ export async function applyEdit(
             row,
             fresh.data.ingredientsById.get(answered.ingredientId)?.name ??
               line.raw_name,
-            "ingredient"
+            "ingredient",
+            true
           );
         }
       }
@@ -1467,7 +1553,13 @@ export async function applyEdit(
             quantity: amount.quantity,
             unit: amount.unit,
           });
-          bind(line, row, created.name, "component");
+          bind(
+            line,
+            row,
+            created.name,
+            "component",
+            action.quantity === undefined && action.line_unit === undefined
+          );
         }
       } else if (action.quantity !== undefined) {
         const qty = cleanQuantity(action.quantity);
@@ -1490,6 +1582,7 @@ export async function applyEdit(
       break;
     }
     case "set_line_cost": {
+      editedInputIds.add(action.input_id);
       const inputs = await ctx.store.listInputs(ctx.companyId, version!);
       const row = inputs.find((r) => r.id === action.input_id);
       if (!row) {
@@ -1603,6 +1696,13 @@ export async function applyEdit(
     nextHolder,
     evidenceLines
   );
+  if (editedInputIds.size > 0) {
+    for (const line of built.lines) {
+      if (line.input_id && editedInputIds.has(line.input_id)) {
+        stripEstimateFlag(line);
+      }
+    }
+  }
   if (version) {
     await ctx.store.saveEvidence(
       ctx.companyId,

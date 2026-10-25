@@ -33,6 +33,12 @@ export const FLAG_OK = "ok";
 export const FLAG_FROM_MENU = "del_menu";
 export const FLAG_PENDING_QTY = "pendiente_cantidad";
 export const FLAG_NEW_SUGGESTED = "nuevo_sugerido";
+/**
+ * «Estimado por Milton» (issue #212): this line's quantity and unit were
+ * proposed by Milton from a dish estimate, not typed by a person. It stays
+ * until a person edits the line, and is not shown on an approved recipe.
+ */
+export const FLAG_MILTON_ESTIMATE = "estimado_milton";
 
 /** True for a line from the menu that still has no quantity. */
 export function needsTypedQuantity(line: {
@@ -120,6 +126,20 @@ export interface EditorLine {
    * force? Read by the dish's Aprobar rule (approval-live.ts).
    */
   component_approved?: boolean;
+  /**
+   * «Precio estimado ≈ $X / unidad». Only attached by the open editor, for a
+   * line with NO real price. It is never a price: `amount` stays null and
+   * approval stays blocked until a real price is registered.
+   */
+  milton_price_estimate?: { unit_price: number; unit: string };
+}
+
+/** A row of ingredient_price_estimates, as the editor view needs it. */
+export interface PriceEstimateHint {
+  ingredient_id: string | null;
+  name_key: string;
+  unit: string;
+  unit_price: number;
 }
 
 export interface CatalogQuestion {
@@ -309,6 +329,8 @@ export function hydrateLines(input: {
       evidence_index: number | null;
       unit_question?: { written: string; suggested: string } | null;
       excel_unit_cost?: number | null;
+      /** The evidence line carried «Estimado por Milton». */
+      milton_estimate?: boolean;
     }
   ): EditorLine => {
     const cost = costInput(data, {
@@ -353,6 +375,7 @@ export function hydrateLines(input: {
         ? { unit_cost: ownCopy, unit: row.unit }
         : null;
     if (legacyPrice) flags.push(FLAG_LEGACY_LINE_PRICE);
+    if (raw.milton_estimate) flags.push(FLAG_MILTON_ESTIMATE);
     return {
       key: row.id,
       input_id: row.id,
@@ -452,6 +475,7 @@ export function hydrateLines(input: {
           evidence_index: evidenceIndex,
           unit_question: line.unit_question ?? null,
           excel_unit_cost: line.excel_unit_cost ?? null,
+          milton_estimate: line.flags.includes(FLAG_MILTON_ESTIMATE),
         })
       );
       continue;
@@ -480,7 +504,8 @@ export function hydrateLines(input: {
           (flag) =>
             flag === FLAG_FROM_MENU ||
             flag === FLAG_PENDING_QTY ||
-            flag === FLAG_NEW_SUGGESTED
+            flag === FLAG_NEW_SUGGESTED ||
+            flag === FLAG_MILTON_ESTIMATE
         ),
       ],
       reasons: line.reasons,

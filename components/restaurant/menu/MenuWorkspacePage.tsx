@@ -5,6 +5,7 @@
 import { Suspense } from "react";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { loadRecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace-server";
+import { loadDishEstimates } from "@/lib/restaurant/menu-reading/estimate-store";
 import { RecipesCostingWorkspace } from "@/components/restaurant/recipes-costing/RecipesCostingWorkspace";
 
 export type MenuWorkspaceSearchParams = {
@@ -33,21 +34,40 @@ export async function MenuWorkspacePage({
     params.producto && Number.isInteger(Number(params.producto))
       ? Number(params.producto)
       : null;
-  const loaded = await loadRecipeCostingWorkspace(auth.supabase, {
-    companyId: auth.companyId,
-    userId: auth.userId,
-    view,
-    locationId: params.location ?? null,
-    startDate: params.from ?? null,
-    endDate: params.to ?? null,
-    selectedOdooProductId: selected,
-  });
+  // «Estimado por Milton» (#212): read APART from the dish economics and never
+  // passed into the costing code. A missing table (062) reads as "no estimates"
+  // and the screens look exactly as before.
+  const [loaded, estimateLoad] = await Promise.all([
+    loadRecipeCostingWorkspace(auth.supabase, {
+      companyId: auth.companyId,
+      userId: auth.userId,
+      view,
+      locationId: params.location ?? null,
+      startDate: params.from ?? null,
+      endDate: params.to ?? null,
+      selectedOdooProductId: selected,
+    }),
+    view === "preparaciones"
+      ? Promise.resolve(null)
+      : loadDishEstimates(auth.supabase, auth.companyId).catch(() => null),
+  ]);
   if (!loaded.ok) {
     return <p className="text-sm text-red-700">{loaded.error}</p>;
   }
+  const location = params.location ?? null;
+  const estimates =
+    estimateLoad && estimateLoad.ok
+      ? estimateLoad.rows.filter(
+          (row) => !location || !row.location_id || row.location_id === location
+        )
+      : [];
   return (
     <Suspense fallback={null}>
-      <RecipesCostingWorkspace initial={loaded.workspace} view={view} />
+      <RecipesCostingWorkspace
+        initial={loaded.workspace}
+        view={view}
+        estimates={estimates}
+      />
     </Suspense>
   );
 }

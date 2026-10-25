@@ -22,6 +22,7 @@ import {
 } from "@/lib/restaurant/cost-workbook/repo";
 import type { RecipeInputSnapshot } from "@/lib/restaurant/cost-workbook/types";
 import { nextVersionNumber } from "@/lib/restaurant/recipe-versions";
+import { foldDishName } from "@/lib/restaurant/recipe-upload/marker";
 
 export const KITCHEN_DRAFT_VERSION_SOURCE = "kitchen_draft";
 export const KITCHEN_DRAFT_VERSION_NOTES = "Receta enviada por cocina";
@@ -405,4 +406,306 @@ async function deleteVersionIfEmpty(
     .eq("company_id", companyId)
     .eq("id", versionId);
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// «Confirmar como preparación»
+//
+// A draft marked as preparación (see recipe-upload/marker.ts) is confirmed
+// into Menú › Preparaciones through the SAME tables the preparations editor
+// uses (prepared_components → component_recipes → component_recipe_versions,
+// as editor-store.createPreparation does), by the same CostWorkbookRepo the
+// plato path uses. It only ever ADDS an `in_review` version: an existing
+// preparation (found by folded name) keeps its name, yield and approved
+// version. It writes no price, no recipe / menu_items / menu_recipe_inputs
+// row, and nothing in ingredient_cost_entries.
+//
+// Idempotency key: the version's `source_type` is `kitchen_draft:<draftId>`
+// (component_recipe_versions has no notes column and a migration is out of
+// scope; source_type is free text that nothing else reads for preparations).
+// A second Confirmar finds that version and answers ok with it.
+// ---------------------------------------------------------------------------
+
+export const KITCHEN_DRAFT_PREPARATION_SOURCE_PREFIX = "kitchen_draft:";
+
+export function preparationDraftSourceType(draftId: string): string {
+  return `${KITCHEN_DRAFT_PREPARATION_SOURCE_PREFIX}${draftId}`;
+}
+
+/** The in_review version an earlier Confirmar of this draft created, if any. */
+export async function findPreparationConfirmedByDraft(
+  admin: SupabaseClient,
+  companyId: string,
+  draftId: string
+): Promise<{
+  componentId: string;
+  versionId: string;
+  status: string;
+} | null> {
+  const { data } = await admin
+    .from("component_recipe_versions")
+    .select("id, component_id, status")
+    .eq("company_id", companyId)
+    .eq("source_type", preparationDraftSourceType(draftId));
+  for (const row of data ?? []) {
+    // A version with no lines is a call that died half way: not a result.
+    const { data: lines } = await admin
+      .from("component_recipe_version_inputs")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("component_recipe_version_id", String(row.id))
+      .limit(1);
+    if (lines && lines.length > 0) {
+      return {
+        componentId: String(row.component_id),
+        versionId: String(row.id),
+        status: String(row.status ?? "in_review"),
+      };
+    }
+  }
+  return null;
+}
+
+export interface ConfirmPreparationInput {
+  companyId: string;
+  userId: string;
+  draftId: string;
+  /** Without the « · preparación» marker. */
+  name: string;
+  yieldQuantity: number;
+  yieldUnit: string;
+  lines: ConfirmDraftLine[];
+}
+
+export type ConfirmPreparationResult =
+  | {
+      ok: true;
+      componentId: string;
+      versionId: string;
+      versionNumber: number;
+      createdComponent: boolean;
+    }
+  | { ok: false; status: number; error: string };
+
+export async function confirmKitchenDraftAsPreparation(
+  admin: SupabaseClient,
+  input: ConfirmPreparationInput,
+  repo: CostWorkbookRepo = createSupabaseCostWorkbookRepo(admin)
+): Promise<ConfirmPreparationResult> {
+  const { companyId } = input;
+  const sourceType = preparationDraftSourceType(input.draftId);
+  const nowIso = new Date().toISOString();
+
+  const { data: before } = await admin
+    .from("kitchen_recipe_drafts")
+    .select("status, confirmed_recipe_id, confirmed_at")
+    .eq("id", input.draftId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  const staleBefore = before ? isStaleClaim(before) : false;
+  const staleCutoffIso = new Date(Date.now() - STALE_CLAIM_MS).toISOString();
+  // A failed confirm puts the draft back as it was (status only: the
+  // portions of a preparation draft are never touched).
+  const releaseTo: Record<string, unknown> =
+    before && !staleBefore && typeof before.status === "string"
+      ? { status: before.status }
+      : { status: "draft" };
+
+  const { data: claimed, error: claimError } = await admin
+    .from("kitchen_recipe_drafts")
+    .update({
+      status: "confirmed",
+      confirmed_by: input.userId,
+      confirmed_at: nowIso,
+    })
+    .eq("id", input.draftId)
+    .eq("company_id", companyId)
+    .or(
+      `status.in.(draft,awaiting_portions),and(status.eq.confirmed,confirmed_recipe_id.is.null,confirmed_at.lt.${staleCutoffIso})`
+    )
+    .select("id");
+  if (claimError) {
+    return { ok: false, status: 500, error: "No pude confirmar la receta." };
+  }
+  if (!claimed || claimed.length === 0) {
+    return {
+      ok: false,
+      status: 409,
+      error: "Esta receta ya no está pendiente de revisar.",
+    };
+  }
+
+  let createdComponentId: string | null = null;
+  let createdHeaderId: string | null = null;
+  let createdVersionId: string | null = null;
+  try {
+    // A leftover version of THIS draft with no lines (a dead call): remove it.
+    const { data: leftovers } = await admin
+      .from("component_recipe_versions")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("source_type", sourceType);
+    for (const row of leftovers ?? []) {
+      await deleteComponentVersionIfEmpty(admin, companyId, String(row.id));
+    }
+
+    // Find the preparation by folded name (accents, case, spaces).
+    const key = foldDishName(input.name);
+    const components = await repo.listComponents(companyId);
+    const existing = components.find((c) => foldDishName(c.name) === key);
+    let componentId = existing?.id ?? null;
+    if (!componentId) {
+      const { data: created, error: componentError } = await admin
+        .from("prepared_components")
+        .insert({
+          company_id: companyId,
+          name: input.name,
+          output_unit: input.yieldUnit,
+          status: "active",
+          source_type: "manual",
+        })
+        .select("id")
+        .single();
+      if (componentError || !created) {
+        throw new Error(componentError?.message ?? "component insert failed");
+      }
+      componentId = String(created.id);
+      createdComponentId = componentId;
+    }
+
+    // The preparation's recipe header: reused as it is (never renamed or
+    // given another yield), or created for a new preparation.
+    const headers = existing
+      ? (await repo.listComponentRecipes(companyId)).filter(
+          (r) => r.component_id === componentId
+        )
+      : [];
+    let headerId = headers[0]?.id ?? null;
+    if (!headerId) {
+      const { data: header, error: headerError } = await admin
+        .from("component_recipes")
+        .insert({
+          company_id: companyId,
+          component_id: componentId,
+          name: existing?.name ?? input.name,
+          output_quantity: input.yieldQuantity,
+          output_unit: existing?.output_unit ?? input.yieldUnit,
+          status: "active",
+          source_type: "manual",
+        })
+        .select("id")
+        .single();
+      if (headerError || !header) {
+        throw new Error(headerError?.message ?? "recipe insert failed");
+      }
+      headerId = String(header.id);
+      createdHeaderId = headerId;
+    }
+
+    const versions = await repo.listComponentRecipeVersions(
+      companyId,
+      headerId
+    );
+    const versionNumber = nextVersionNumber(versions);
+    const inputs: RecipeInputSnapshot[] = input.lines.map((line) => ({
+      input_type: "ingredient",
+      ingredient_id: line.ingredient_id,
+      component_id: null,
+      quantity: line.total_quantity,
+      unit: line.unit,
+      notes: null,
+    }));
+    const version = await repo.insertComponentRecipeVersion({
+      companyId,
+      componentRecipeId: headerId,
+      componentId,
+      versionNumber,
+      status: "in_review",
+      effectiveDate: null,
+      outputQuantity: input.yieldQuantity,
+      outputUnit: input.yieldUnit,
+      sourceType,
+      inputs,
+    });
+    createdVersionId = version.id;
+
+    return {
+      ok: true,
+      componentId,
+      versionId: version.id,
+      versionNumber,
+      createdComponent: createdComponentId !== null,
+    };
+  } catch (err) {
+    console.error(
+      "[kitchen-draft-confirm] preparation failed:",
+      err instanceof Error ? err.message : "Unknown error"
+    );
+    // Remove ONLY what this call created. The version carries this draft's
+    // key, so it is ours even when the insert threw after writing the row.
+    try {
+      const { data: ours } = await admin
+        .from("component_recipe_versions")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("source_type", sourceType);
+      const doomed = new Set<string>(
+        (ours ?? []).map((r) => String(r.id)).filter(Boolean)
+      );
+      if (createdVersionId) doomed.add(createdVersionId);
+      for (const id of doomed) {
+        await admin
+          .from("component_recipe_version_inputs")
+          .delete()
+          .eq("company_id", companyId)
+          .eq("component_recipe_version_id", id);
+        await admin
+          .from("component_recipe_versions")
+          .delete()
+          .eq("company_id", companyId)
+          .eq("id", id);
+      }
+    } catch {
+      // best effort: the claim is still released below
+    }
+    await admin
+      .from("kitchen_recipe_drafts")
+      .update({ ...releaseTo, confirmed_by: null, confirmed_at: null })
+      .eq("id", input.draftId)
+      .eq("company_id", companyId);
+    if (createdHeaderId) {
+      await admin
+        .from("component_recipes")
+        .delete()
+        .eq("id", createdHeaderId)
+        .eq("company_id", companyId);
+    }
+    if (createdComponentId) {
+      await admin
+        .from("prepared_components")
+        .delete()
+        .eq("id", createdComponentId)
+        .eq("company_id", companyId);
+    }
+    return { ok: false, status: 500, error: "No pude confirmar la receta." };
+  }
+}
+
+async function deleteComponentVersionIfEmpty(
+  admin: SupabaseClient,
+  companyId: string,
+  versionId: string
+): Promise<void> {
+  const { data: lines } = await admin
+    .from("component_recipe_version_inputs")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("component_recipe_version_id", versionId)
+    .limit(1);
+  if (lines && lines.length > 0) return;
+  await admin
+    .from("component_recipe_versions")
+    .delete()
+    .eq("company_id", companyId)
+    .eq("id", versionId);
 }

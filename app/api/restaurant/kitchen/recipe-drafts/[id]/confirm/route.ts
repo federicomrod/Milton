@@ -22,7 +22,9 @@ import {
   unauthorizedResponse,
 } from "@/lib/auth/permissions";
 import {
+  confirmKitchenDraftAsPreparation,
   confirmKitchenDraftAsVersion,
+  findPreparationConfirmedByDraft,
   isStaleClaim,
 } from "@/lib/restaurant/telegram/kitchen-draft-confirm";
 import {
@@ -32,12 +34,21 @@ import {
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { archivedIngredientMessage } from "@/lib/restaurant/ingredient-active";
 import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
+import { KITCHEN_UNITS } from "@/lib/restaurant/kitchen-units";
+import {
+  isPreparationName,
+  stripPreparationMarker,
+} from "@/lib/restaurant/recipe-upload/marker";
 import { latestCostEntry } from "@/lib/restaurant/costing";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
 
 export const dynamic = "force-dynamic";
 
 interface ConfirmBody {
+  /** "preparacion" confirms a preparation draft into Menú › Preparaciones. */
+  kind?: string;
+  yield_quantity?: unknown;
+  yield_unit?: unknown;
   dish_name: string;
   portions: number;
   menu_item_id?: string;
@@ -90,7 +101,7 @@ export async function POST(
   const { data: draft, error: draftError } = await admin
     .from("kitchen_recipe_drafts")
     .select(
-      "id, company_id, status, portions, currency, confirmed_recipe_id, confirmed_at"
+      "id, company_id, status, dish_name, portions, currency, confirmed_recipe_id, confirmed_at"
     )
     .eq("id", draftId)
     .eq("company_id", auth.companyId)
@@ -112,7 +123,51 @@ export async function POST(
   // A claim that never finished (the call died) and is older than 2 minutes
   // is taken over below; a younger one is a request still being written.
   const staleClaim = isStaleClaim(draft);
-  if (draft.status === "confirmed" && !staleClaim) {
+
+  // A draft marked as preparación goes to Menú › Preparaciones; a plato goes
+  // to Platos. The marker on the stored name decides, never the client.
+  const isPreparation = isPreparationName(
+    typeof draft.dish_name === "string" ? draft.dish_name : ""
+  );
+  let yieldQuantity = 0;
+  let yieldUnit = "";
+  if (isPreparation) {
+    if (body.kind !== "preparacion") {
+      return fail("Indica cuánto rinde esta preparación.", 400);
+    }
+    // A second Confirmar answers with the version the first one created.
+    const done = await findPreparationConfirmedByDraft(
+      admin,
+      auth.companyId,
+      draftId
+    );
+    if (done) {
+      return NextResponse.json({
+        ok: true,
+        kind: "preparacion",
+        component_id: done.componentId,
+        version_id: done.versionId,
+        status: "in_review",
+      });
+    }
+    if (draft.status === "confirmed" && !staleClaim) {
+      return fail("Esta receta se está confirmando. Espera un momento.", 409);
+    }
+    const q = body.yield_quantity;
+    if (typeof q !== "number" || !Number.isFinite(q) || q <= 0) {
+      return fail("Indica cuánto rinde esta preparación (mayor a 0).", 400);
+    }
+    const u = typeof body.yield_unit === "string" ? body.yield_unit.trim() : "";
+    if (!KITCHEN_UNITS.some((k) => k.value === u)) {
+      return fail("Elige la unidad en la que rinde esta preparación.", 400);
+    }
+    yieldQuantity = q;
+    yieldUnit = u;
+  } else if (body.kind === "preparacion") {
+    return fail("Esta receta es un plato, no una preparación.", 400);
+  }
+
+  if (!isPreparation && draft.status === "confirmed" && !staleClaim) {
     const { data: existing } = await admin
       .from("kitchen_recipe_drafts")
       .select("confirmed_recipe_id, menu_item_id")
@@ -135,9 +190,8 @@ export async function POST(
   if (!dishName) return fail("Escribe el nombre del plato.", 400);
 
   if (
-    !body.portions ||
-    body.portions <= 0 ||
-    !Number.isInteger(body.portions)
+    !isPreparation &&
+    (!body.portions || body.portions <= 0 || !Number.isInteger(body.portions))
   ) {
     return fail("Escribe cuántas porciones salen (un número entero).", 400);
   }
@@ -146,7 +200,7 @@ export async function POST(
     return fail("Agrega al menos un ingrediente.", 400);
   }
 
-  if (body.menu_item_id) {
+  if (!isPreparation && body.menu_item_id) {
     const { data: menuItem } = await admin
       .from("menu_items")
       .select("id")
@@ -278,6 +332,33 @@ export async function POST(
         400
       );
     }
+  }
+
+  if (isPreparation) {
+    const prepName = stripPreparationMarker(dishName).trim();
+    if (!prepName) return fail("Escribe el nombre de la preparación.", 400);
+    const prep = await confirmKitchenDraftAsPreparation(admin, {
+      companyId: auth.companyId,
+      userId: user.id,
+      draftId,
+      name: prepName,
+      yieldQuantity,
+      yieldUnit,
+      lines: body.lines.map((line) => ({
+        ingredient_id: line.ingredient_id,
+        total_quantity: line.total_quantity,
+        unit: line.unit,
+      })),
+    });
+    if (!prep.ok) return fail(prep.error, prep.status);
+    return NextResponse.json({
+      ok: true,
+      kind: "preparacion",
+      component_id: prep.componentId,
+      version_id: prep.versionId,
+      // Created for review; not approved, not counted in Costos yet.
+      status: "in_review",
+    });
   }
 
   const result = await confirmKitchenDraftAsVersion(admin, {

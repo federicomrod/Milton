@@ -2,7 +2,13 @@
 // Drafts from files: the list API's approved_exists / is_preparation, and the
 // review modal's badges, banners and wording. Synthetic data only.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { NextRequest } from "next/server";
 import { makeFakeDb, type FakeStore } from "./helpers/fake-db";
 
@@ -142,9 +148,11 @@ describe("the review modal", () => {
   });
   let drafts: Record<string, unknown>[] = [];
   const saved: Record<string, unknown>[] = [];
+  const confirmed: Record<string, unknown>[] = [];
 
   beforeEach(() => {
     saved.length = 0;
+    confirmed.length = 0;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
@@ -154,6 +162,12 @@ describe("the review modal", () => {
           status: 200,
           json: async () => b,
         });
+        if (method === "POST" && url.endsWith("/confirm")) {
+          confirmed.push(JSON.parse(String(init?.body)));
+          // like the server: a confirmed draft is no longer listed
+          drafts = [];
+          return body({ ok: true, kind: "preparacion" });
+        }
         if (method === "PATCH") {
           saved.push(JSON.parse(String(init?.body)));
           return body({ ok: true, lines: [] });
@@ -221,30 +235,36 @@ describe("the review modal", () => {
     ).toBe(false);
   });
 
-  it("preparation: badge, banner, no marker anywhere, Confirmar disabled, Guardar borrador keeps the marker", async () => {
-    const dialog = await open(
-      draft({
-        dish_name: "Salsa roja · preparación",
-        is_preparation: true,
-        lines: [
-          {
-            id: "l-1",
-            raw_name: "tomate",
-            ingredient_id: "i-1",
-            ingredient_name: "Pescado",
-            total_quantity: 2,
-            unit: "kg",
-            per_portion_quantity: null,
-            confidence: "low",
-            line_cost: null,
-          },
-        ],
-      })
-    );
+  const prepDraft = () =>
+    draft({
+      dish_name: "Salsa roja · preparación",
+      is_preparation: true,
+      portions: null,
+      lines: [
+        {
+          id: "l-1",
+          raw_name: "tomate",
+          ingredient_id: "i-1",
+          ingredient_name: "Pescado",
+          total_quantity: 2,
+          unit: "kg",
+          per_portion_quantity: null,
+          confidence: "low",
+          line_cost: null,
+        },
+      ],
+    });
+  const confirmButton = (dialog: HTMLElement) =>
+    within(dialog).getByRole("button", {
+      name: "Confirmar",
+    }) as HTMLButtonElement;
+
+  it("preparation: badge, new banner, Rinde/Unidad, no marker, Confirmar waits for the yield, Guardar borrador keeps the marker", async () => {
+    const dialog = await open(prepDraft());
     expect(screen.getAllByText("Preparación").length).toBeGreaterThan(0);
     expect(
       within(dialog).getByText(
-        "Esta es una preparación (sub-receta). Por ahora créala en Menú › Preparaciones; aquí se confirmaría como plato."
+        "Esta es una preparación (sub-receta). Se creará en Menú › Preparaciones como borrador para revisar."
       )
     ).toBeTruthy();
     expect(document.body.textContent).not.toContain("· preparación");
@@ -252,13 +272,12 @@ describe("the review modal", () => {
       (within(dialog).getByLabelText("Nombre del plato") as HTMLInputElement)
         .value
     ).toBe("Salsa roja");
-    expect(
-      (
-        within(dialog).getByRole("button", {
-          name: "Confirmar",
-        }) as HTMLButtonElement
-      ).disabled
-    ).toBe(true);
+    expect(within(dialog).getByLabelText("Rinde")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Unidad de rendimiento")).toBeTruthy();
+    // portions / menu dish / price do not apply to a preparation
+    expect(within(dialog).queryByLabelText("Porciones")).toBeNull();
+    expect(within(dialog).queryByText("Plato del menú")).toBeNull();
+    expect(confirmButton(dialog).disabled).toBe(true);
     const save = within(dialog).getByRole("button", {
       name: "Guardar borrador",
     });
@@ -266,6 +285,40 @@ describe("the review modal", () => {
     save.click();
     await vi.waitFor(() => expect(saved).toHaveLength(1));
     expect(saved[0].dish_name).toBe("Salsa roja · preparación");
+  });
+
+  it("preparation: Confirmar needs a yield > 0 and a unit, posts kind:'preparacion', then closes with a gray note", async () => {
+    const dialog = await open(prepDraft());
+    const qty = within(dialog).getByLabelText("Rinde") as HTMLInputElement;
+    const unit = within(dialog).getByLabelText(
+      "Unidad de rendimiento"
+    ) as HTMLSelectElement;
+    fireEvent.change(qty, { target: { value: "0" } });
+    fireEvent.change(unit, { target: { value: "l" } });
+    expect(confirmButton(dialog).disabled).toBe(true);
+    fireEvent.change(qty, { target: { value: "1.5" } });
+    fireEvent.change(unit, { target: { value: "" } });
+    expect(confirmButton(dialog).disabled).toBe(true);
+    fireEvent.change(unit, { target: { value: "l" } });
+    expect(confirmButton(dialog).disabled).toBe(false);
+    fireEvent.click(confirmButton(dialog));
+    await vi.waitFor(() => expect(confirmed).toHaveLength(1));
+    expect(confirmed[0]).toMatchObject({
+      kind: "preparacion",
+      dish_name: "Salsa roja · preparación",
+      yield_quantity: 1.5,
+      yield_unit: "l",
+    });
+    expect(confirmed[0]).not.toHaveProperty("portions");
+    const note = await screen.findByText(
+      "Preparación creada en Menú › Preparaciones para revisar."
+    );
+    expect(note.className).toContain("text-[#6b7280]");
+    await vi.waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: /Revisar receta/ })
+      ).toBeNull()
+    );
   });
 
   it("a line without quantity says «falta cantidad» and Confirmar stays disabled", async () => {

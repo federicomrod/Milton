@@ -236,6 +236,10 @@ export function KitchenRecipeDraftsCard({
   const [editedLines, setEditedLines] = useState<DraftLine[]>([]);
   const [selectedMenuItem, setSelectedMenuItem] = useState<string>("");
   const [newSellingPrice, setNewSellingPrice] = useState<string>("");
+  // A preparation draft needs «Rinde» + «Unidad», picked by the reviewer.
+  const [yieldQty, setYieldQty] = useState<string>("");
+  const [yieldUnit, setYieldUnit] = useState<string>("");
+  const [notice, setNotice] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   // Which draft has its «Poner precios» list open (Cocina card).
   const [pricesOpenFor, setPricesOpenFor] = useState<string | null>(null);
@@ -341,6 +345,9 @@ export function KitchenRecipeDraftsCard({
     setEditedLines(lines);
     setSelectedMenuItem(menuId);
     setNewSellingPrice(price);
+    setYieldQty("");
+    setYieldUnit("");
+    setNotice(null);
     setBaseline(editorSnapshot(draft, lines, menuId, price));
     setConfirmClose(false);
     setModalMessage(null);
@@ -353,6 +360,8 @@ export function KitchenRecipeDraftsCard({
     setEditedLines([]);
     setSelectedMenuItem("");
     setNewSellingPrice("");
+    setYieldQty("");
+    setYieldUnit("");
     setBaseline("");
     setConfirmClose(false);
     setModalMessage(null);
@@ -481,9 +490,19 @@ export function KitchenRecipeDraftsCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           dish_name: nameForSave(editedDraft, editingPreparation),
-          portions: editedDraft.portions,
-          menu_item_id: menuItemId,
-          selling_price: sellingPrice,
+          // A preparation sends its yield (typed by the reviewer), never
+          // portions / menu dish / selling price.
+          ...(editingPreparation
+            ? {
+                kind: "preparacion",
+                yield_quantity: parseFloat(yieldQty),
+                yield_unit: yieldUnit,
+              }
+            : {
+                portions: editedDraft.portions,
+                menu_item_id: menuItemId,
+                selling_price: sellingPrice,
+              }),
           lines: cleanLines.map((l) => ({
             id: l.id,
             ingredient_id: l.ingredient_id,
@@ -497,6 +516,9 @@ export function KitchenRecipeDraftsCard({
       await teachNames(cleanLines);
       writeSavedPrice(editedDraft.id, "");
       closeEditor();
+      if (editingPreparation) {
+        setNotice("Preparación creada en Menú › Preparaciones para revisar.");
+      }
       setReloadKey((k) => k + 1);
     } else {
       const data = await res.json().catch(() => ({}));
@@ -715,11 +737,18 @@ export function KitchenRecipeDraftsCard({
       isPreparationName(selectedDraft.dish_name));
   const editingApprovedExists = selectedDraft?.approved_exists === true;
 
+  const yieldNumber = parseFloat(yieldQty);
+  const yieldFilled =
+    Number.isFinite(yieldNumber) &&
+    yieldNumber > 0 &&
+    KITCHEN_UNITS.some((u) => u.value === yieldUnit);
+
   const canConfirm =
-    !editingPreparation &&
-    !!editedDraft?.portions &&
-    Number.isInteger(editedDraft.portions) &&
-    editedDraft.portions > 0 &&
+    (editingPreparation
+      ? yieldFilled
+      : !!editedDraft?.portions &&
+        Number.isInteger(editedDraft.portions) &&
+        editedDraft.portions > 0) &&
     cleanLines.length > 0 &&
     cleanLines.every(
       (l) =>
@@ -759,6 +788,11 @@ export function KitchenRecipeDraftsCard({
             </select>
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
+          {notice && (
+            <p role="status" className="mb-3 text-sm text-[#6b7280]">
+              {notice}
+            </p>
+          )}
           {drafts.length === 0 && !error && (
             <p className="text-sm text-muted-foreground">
               No hay recetas pendientes.
@@ -864,8 +898,8 @@ export function KitchenRecipeDraftsCard({
                 role="note"
                 className="mx-5 mb-2 rounded-md border border-[#dfe3ea] bg-[#f6f8fe] px-3 py-2 text-sm text-[#151c2c]"
               >
-                Esta es una preparación (sub-receta). Por ahora créala en Menú ›
-                Preparaciones; aquí se confirmaría como plato.
+                Esta es una preparación (sub-receta). Se creará en Menú ›
+                Preparaciones como borrador para revisar.
               </p>
             ) : null}
             {editingApprovedExists ? (
@@ -888,65 +922,100 @@ export function KitchenRecipeDraftsCard({
                   onChange={(e) => updateDishName(e.target.value)}
                 />
               </div>
-              <div>
-                <Label>Porciones</Label>
-                <Input
-                  aria-label="Porciones"
-                  type="number"
-                  min="1"
-                  value={editedDraft.portions ?? ""}
-                  onChange={(e) =>
-                    updatePortions(
-                      e.target.value ? parseInt(e.target.value, 10) : null
-                    )
-                  }
-                />
-                {editedDraft.portions === null &&
-                selectedDraft?.status === "awaiting_portions" ? (
-                  <p className="mt-1 text-[12px] text-[#6b7385]">
-                    El cocinero no dijo para cuántas porciones. Escríbelo aquí.
-                  </p>
-                ) : null}
-              </div>
-              <div>
-                <Label>Plato del menú</Label>
-                <Select
-                  value={selectedMenuItem}
-                  onValueChange={setSelectedMenuItem}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Crear uno nuevo o elegir uno" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="new">Crear plato nuevo</SelectItem>
-                    {menuItems.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Precio de venta</Label>
-                <Input
-                  aria-label="Precio de venta"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="Sin precio"
-                  className="placeholder:text-[#8a92a3]"
-                  disabled={!priceEditable}
-                  value={
-                    priceEditable
-                      ? newSellingPrice
-                      : sellingPrice !== null
-                        ? String(sellingPrice)
-                        : ""
-                  }
-                  onChange={(e) => setNewSellingPrice(e.target.value)}
-                />
-              </div>
+              {editingPreparation ? (
+                <>
+                  <div>
+                    <Label>Rinde</Label>
+                    <Input
+                      aria-label="Rinde"
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={yieldQty}
+                      onChange={(e) => setYieldQty(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label>Unidad</Label>
+                    <select
+                      aria-label="Unidad de rendimiento"
+                      value={yieldUnit}
+                      onChange={(e) => setYieldUnit(e.target.value)}
+                      className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+                    >
+                      <option value="">Elegir unidad</option>
+                      {KITCHEN_UNITS.map((u) => (
+                        <option key={u.value} value={u.value}>
+                          {u.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <Label>Porciones</Label>
+                    <Input
+                      aria-label="Porciones"
+                      type="number"
+                      min="1"
+                      value={editedDraft.portions ?? ""}
+                      onChange={(e) =>
+                        updatePortions(
+                          e.target.value ? parseInt(e.target.value, 10) : null
+                        )
+                      }
+                    />
+                    {editedDraft.portions === null &&
+                    selectedDraft?.status === "awaiting_portions" ? (
+                      <p className="mt-1 text-[12px] text-[#6b7385]">
+                        El cocinero no dijo para cuántas porciones. Escríbelo
+                        aquí.
+                      </p>
+                    ) : null}
+                  </div>
+                  <div>
+                    <Label>Plato del menú</Label>
+                    <Select
+                      value={selectedMenuItem}
+                      onValueChange={setSelectedMenuItem}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Crear uno nuevo o elegir uno" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="new">Crear plato nuevo</SelectItem>
+                        {menuItems.map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Precio de venta</Label>
+                    <Input
+                      aria-label="Precio de venta"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Sin precio"
+                      className="placeholder:text-[#8a92a3]"
+                      disabled={!priceEditable}
+                      value={
+                        priceEditable
+                          ? newSellingPrice
+                          : sellingPrice !== null
+                            ? String(sellingPrice)
+                            : ""
+                      }
+                      onChange={(e) => setNewSellingPrice(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             {/* The ingredient table: only this part scrolls. */}

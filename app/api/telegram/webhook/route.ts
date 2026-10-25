@@ -46,6 +46,7 @@ import {
   isKitchenPayload,
 } from "@/lib/restaurant/telegram/kitchen-join";
 import {
+  destinationVars,
   KITCHEN_COPY,
   renderKitchenCopy,
 } from "@/lib/restaurant/telegram/kitchen-copy";
@@ -64,6 +65,7 @@ import {
   processPriceUpdate,
   routeCaption,
 } from "@/lib/restaurant/telegram/kitchen-media";
+import { maybeGuideOwnerChat } from "@/lib/restaurant/telegram/owner-chat-guidance";
 import { classifyKitchenPhoto } from "@/lib/restaurant/telegram/photo-classify";
 import { parsePriceUpdate } from "@/lib/restaurant/telegram/price-update";
 
@@ -130,17 +132,21 @@ async function handleKitchenJoin(
         break;
       case "already_joined":
         reply = renderKitchenCopy(KITCHEN_COPY.ALREADY_JOINED, {
+          empresa: result.companyName || "tu restaurante",
           local: result.locationName,
         });
         break;
       case "moved":
         reply = renderKitchenCopy(KITCHEN_COPY.MOVED, {
+          empresa: result.companyName || "tu restaurante",
+          "empresa anterior": result.previousCompanyName || "tu restaurante",
           "local nuevo": result.locationName,
           "local anterior": result.previousLocationName,
         });
         break;
       default:
         reply = renderKitchenCopy(KITCHEN_COPY.JOINED, {
+          empresa: result.companyName || "tu restaurante",
           local: result.locationName,
         });
     }
@@ -165,7 +171,12 @@ async function handleKitchenReport(
   if (message.chat?.type !== "private" || !fromId) return;
   try {
     const staff = await findActiveKitchenStaff(fromId);
-    if (!staff) return;
+    if (!staff) {
+      // Not a cook. If this chat is an owner-paired briefing chat, say once
+      // how to send invoices. Unknown chats stay silent. Nothing is captured.
+      await maybeGuideOwnerChat(createAdminClient(), chatId);
+      return;
+    }
 
     const messageId = message.message_id ?? 0;
     const admin = createAdminClient();
@@ -268,6 +279,7 @@ async function handleKitchenReport(
           chatId,
           result.ok
             ? renderKitchenCopy(KITCHEN_COPY.RECIPE_PORTIONS_SET, {
+                ...destinationVars(staff),
                 porciones: `${portions} ${portions === 1 ? "porción" : "porciones"}`,
               })
             : KITCHEN_COPY.RECIPE_PORTIONS_UNCLEAR
@@ -366,6 +378,7 @@ async function handleKitchenReport(
 async function processRecipeDraftAsync(
   staff: {
     company_id: string;
+    company_name: string;
     location_id: string;
     id: string;
     location_name: string;
@@ -570,10 +583,15 @@ async function processRecipeDraftAsync(
         await sendTelegramMessage(
           chatId,
           renderKitchenCopy(KITCHEN_COPY.RECIPE_RECEIVED, {
+            ...destinationVars(staff),
             plato: draft?.dish_name ?? "tu receta",
           })
         );
       }
+    } else if (result.error !== "duplicate") {
+      // Never stay silent when the recipe could not be saved.
+      console.error("[telegram-webhook] recipe draft not saved");
+      await sendTelegramMessage(chatId, KITCHEN_COPY.RECIPE_SAVE_FAILED);
     }
   } catch (err) {
     console.error("[telegram-webhook] recipe draft async failed");
@@ -594,6 +612,7 @@ interface PhotoJob {
 async function processPhotoAsync(
   staff: {
     company_id: string;
+    company_name: string;
     location_id: string;
     id: string;
     location_name: string;
@@ -668,7 +687,7 @@ async function processPhotoAsync(
   } catch {
     console.error("[telegram-webhook] photo processing failed");
     try {
-      await sendTelegramMessage(chatId, KITCHEN_COPY.PHOTO_ASK_KIND);
+      await sendTelegramMessage(chatId, KITCHEN_COPY.PHOTO_PROCESS_FAILED);
     } catch {
       // nothing more to do
     }
@@ -731,7 +750,9 @@ export async function POST(req: NextRequest) {
     const message =
       result.reason === "invalid_or_expired"
         ? GENERIC_INVALID_CODE_MESSAGE
-        : GENERIC_ALREADY_CONNECTED_MESSAGE;
+        : result.reason === "chat_already_connected"
+          ? KITCHEN_COPY.BRIEFING_CHAT_ALREADY_CONNECTED
+          : GENERIC_ALREADY_CONNECTED_MESSAGE;
     await sendTelegramMessage(chatId, message);
     return NextResponse.json({ ok: true });
   }

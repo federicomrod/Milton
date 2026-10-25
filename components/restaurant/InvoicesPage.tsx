@@ -39,7 +39,10 @@ import {
 } from "lucide-react";
 
 import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
-import { isPriceUpdateNote } from "@/lib/restaurant/price-update-note";
+import {
+  isPriceUpdateNote,
+  isTelegramInvoice,
+} from "@/lib/restaurant/price-update-note";
 import { INVOICE_UPLOAD_ANCHOR } from "@/lib/restaurant/costs-tabs";
 import type {
   SupplierInvoiceLine,
@@ -147,6 +150,82 @@ function Button({
 
 // ---------------------------------------------------------------------------
 // Shared types (server page → here)
+function TelegramLabel() {
+  return (
+    <span
+      data-testid="telegram-label"
+      className="inline-flex items-center rounded-full bg-[#f3f4f6] px-2 py-0.5 text-xs font-semibold text-[#6b7280]"
+    >
+      Telegram
+    </span>
+  );
+}
+
+function MissingBadge({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      data-testid="missing-badge"
+      className="inline-flex items-center rounded-full bg-[#f3f4f6] px-2 py-0.5 text-xs font-semibold text-[#6b7280]"
+    >
+      {children}
+    </span>
+  );
+}
+
+/** «Líneas sin precio …: a, b» sections of the notes, shown as small lists. */
+export function parseMissingSections(notes: string | null | undefined): {
+  label: string;
+  items: string[];
+}[] {
+  const out: { label: string; items: string[] }[] = [];
+  for (const raw of (notes ?? "").split("\n")) {
+    const m = raw
+      .trim()
+      .match(/^(Líneas sin (precio|cantidad)[^:]*):\s*(.*)$/i);
+    if (!m) continue;
+    const items = m[3]
+      .split(",")
+      .map((x) => x.trim().replace(/\.$/, ""))
+      .filter(Boolean);
+    out.push({
+      label: m[2].toLowerCase() === "precio" ? "Sin precio" : "Sin cantidad",
+      items,
+    });
+  }
+  return out;
+}
+
+/** Line total, or null when the price is missing (never a made-up 0). */
+function lineTotalOrNull(l: {
+  unit_cost: number | null;
+  line_total: number | null;
+}): number | null {
+  if (typeof l.line_total !== "number" || !Number.isFinite(l.line_total))
+    return null;
+  if (l.unit_cost === null && l.line_total === 0) return null;
+  return l.line_total;
+}
+
+/** Text for an invoice total; a missing price is never counted as 0. */
+function totalText(
+  total: number | null | undefined,
+  currency: string,
+  lines?: { unit_cost: number | null; line_total: number | null }[]
+): string {
+  const missing = lines?.some((l) => lineTotalOrNull(l) === null) ?? false;
+  if (typeof total === "number" && Number.isFinite(total)) {
+    if (missing && total === 0) return "Incompleto";
+    return fmtMoney(total, currency);
+  }
+  if (lines && lines.length > 0 && !missing) {
+    return fmtMoney(
+      lines.reduce((a, l) => a + (lineTotalOrNull(l) ?? 0), 0),
+      currency
+    );
+  }
+  return lines && lines.length > 0 ? "Incompleto" : "Sin precio";
+}
+
 // ---------------------------------------------------------------------------
 
 export interface InvoiceListItem {
@@ -162,6 +241,7 @@ export interface InvoiceListItem {
   source_type: string;
   /** Only used to recognise price updates sent by Telegram. */
   notes?: string | null;
+  original_file_name?: string | null;
   created_at: string;
   line_counts: {
     total: number;
@@ -844,7 +924,7 @@ function InvoiceListCard({
                   {fmtDate(inv.invoice_date)}
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums">
-                  {fmtMoney(inv.total_amount, inv.currency)}
+                  {totalText(inv.total_amount, inv.currency)}
                 </td>
                 <td className="px-4 py-3">
                   <span
@@ -852,6 +932,11 @@ function InvoiceListCard({
                   >
                     {statusLabel(inv.status)}{" "}
                   </span>
+                  {isTelegramInvoice(inv) && (
+                    <span className="ml-2">
+                      <TelegramLabel />
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-xs">
                   {inv.line_counts.matched} / {inv.line_counts.total}
@@ -1073,6 +1158,7 @@ function ReviewDetail({
             <span className={`${BADGE_CLS} ${STATUS_STYLE[inv.status] ?? ""}`}>
               {statusLabel(inv.status)}{" "}
             </span>
+            {isTelegramInvoice(inv) && <TelegramLabel />}
             {isPriceUpdateNote(inv.notes) && <PriceUpdateLabel />}
           </CardTitle>
           <div className="flex items-center gap-2">
@@ -1108,7 +1194,7 @@ function ReviewDetail({
           <div>
             <div className="text-[#6b7385]">Total</div>
             <div className="font-mono">
-              {fmtMoney(inv.total_amount, inv.currency)}
+              {totalText(inv.total_amount, inv.currency, lines)}
             </div>
           </div>
           <div>
@@ -1116,6 +1202,27 @@ function ReviewDetail({
             <div>{SOURCE_LABEL[inv.source_type] ?? inv.source_type}</div>
           </div>
         </div>
+        {inv.notes && inv.notes.trim() && (
+          <div
+            data-testid="milton-notes"
+            className="rounded-lg border border-[#e3e7ee] bg-[#f9fafc] p-3 text-xs text-[#6b7280]"
+          >
+            <div className="mb-1 font-semibold text-[#151c2c]">
+              Notas de Milton
+            </div>
+            <p className="whitespace-pre-wrap break-words">{inv.notes}</p>
+            {parseMissingSections(inv.notes).map((sec, i) => (
+              <ul key={i} className="mt-2 space-y-1">
+                {sec.items.map((it, j) => (
+                  <li key={j} className="flex items-center gap-2">
+                    <span className="text-[#151c2c]">{it}</span>
+                    <MissingBadge>{sec.label}</MissingBadge>
+                  </li>
+                ))}
+              </ul>
+            ))}
+          </div>
+        )}
         {/* Add-line + lines table */}
         <AddLineForm
           invoiceId={invoiceId}
@@ -1479,10 +1586,18 @@ function LineRow({
       <td className="px-2 py-2 text-right tabular-nums">{line.quantity}</td>
       <td className="px-2 py-2">{line.unit}</td>
       <td className="px-2 py-2 text-right tabular-nums">
-        {line.unit_cost !== null ? fmtMoney(line.unit_cost, currency) : "—"}
+        {line.unit_cost !== null ? (
+          fmtMoney(line.unit_cost, currency)
+        ) : (
+          <MissingBadge>Sin precio</MissingBadge>
+        )}
       </td>
       <td className="px-2 py-2 text-right tabular-nums">
-        {fmtMoney(line.line_total, currency)}
+        {lineTotalOrNull(line) !== null ? (
+          fmtMoney(line.line_total, currency)
+        ) : (
+          <MissingBadge>Sin precio</MissingBadge>
+        )}
       </td>
       <td className="px-2 py-2">
         <span
@@ -1907,6 +2022,8 @@ interface ExtractedLineDraft {
   missing_unit?: boolean;
   missing_line_total?: boolean;
   derived_unit_cost?: boolean;
+  /** The quantity was calculated as total ÷ unit price (it was not readable). */
+  derived_quantity?: boolean;
   derived_line_total?: boolean;
   low_confidence?: boolean;
 }
@@ -2397,9 +2514,19 @@ function ExtractedDraftBody({
                           className="h-7 text-xs text-right"
                           value={line.quantity ?? ""}
                           onChange={(e) =>
-                            setLine(i, { quantity: numOrNull(e.target.value) })
+                            setLine(i, {
+                              quantity: numOrNull(e.target.value),
+                              derived_quantity: false,
+                            })
                           }
                         />
+                        {line.derived_quantity && (
+                          <span
+                            className={`${BADGE_CLS} mt-1 bg-[#eef2fd] text-[#1B40C8]`}
+                          >
+                            Calculado
+                          </span>
+                        )}
                       </td>
                       <td className="px-2 py-1.5">
                         <Input

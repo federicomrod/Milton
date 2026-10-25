@@ -22,6 +22,7 @@ import { PRICE_UPDATE_NOTE_PREFIX } from "@/lib/restaurant/price-update-note";
 import {
   EXTRACTION_SYSTEM_PROMPT,
   EXTRACTION_USER_INSTRUCTION,
+  deriveQuantityFromTotal,
   enrichExtraction,
   isExtractedInvoice,
   normalizeExtraction,
@@ -270,6 +271,10 @@ export type CreateInvoiceDraftResult =
       invoice?: Record<string, unknown>;
     };
 
+const money = (n: number) => n.toFixed(2);
+/** Up to 3 decimals, trailing zeros trimmed (15, 2.5, 0.125). */
+const trimNum = (n: number) => String(Number(n.toFixed(3)));
+
 type Client = Pick<SupabaseClient, "from">;
 
 interface PlannedLine {
@@ -364,6 +369,7 @@ export async function createInvoiceDraft(
   // ---- Plan the lines ----
   const planned: PlannedLine[] = [];
   const skipped: SkippedLine[] = [];
+  const derivedQtyNotes: string[] = [];
   for (const line of extraction.lines) {
     const match = matchIngredientForLine(
       {
@@ -404,7 +410,18 @@ export async function createInvoiceDraft(
     // Strict: only what was really read.
     const description = (line.description ?? "").trim();
     if (description === "") continue; // nothing to show a reviewer
-    const hasQty = line.quantity !== null && line.quantity > 0;
+    // A quantity the model left blank but that follows exactly from the read
+    // price and total (also when enrichExtraction already derived it).
+    const readQty = line.quantity !== null && line.quantity > 0;
+    const calcQty = readQty
+      ? null
+      : deriveQuantityFromTotal(line.unit_cost, line.line_total);
+    const enrichedDerived =
+      readQty &&
+      (line as { derived_quantity?: boolean }).derived_quantity === true &&
+      line.unit_cost !== null &&
+      line.line_total !== null;
+    const hasQty = readQty || calcQty !== null;
     const hasPrice =
       line.line_total !== null ||
       (line.unit_cost !== null && line.unit_cost >= 0);
@@ -416,7 +433,7 @@ export async function createInvoiceDraft(
       skipped.push({ description, reason: "no_quantity" });
       continue;
     }
-    const quantity = line.quantity as number;
+    const quantity = readQty ? (line.quantity as number) : (calcQty as number);
     const lineTotal =
       line.line_total !== null
         ? line.line_total
@@ -441,6 +458,13 @@ export async function createInvoiceDraft(
       unitCost: unitCostRead,
       lineTotal,
     });
+    if ((calcQty !== null || enrichedDerived) && line.unit_cost !== null) {
+      derivedQtyNotes.push(
+        `Cantidad calculada de total ÷ precio: ${description} = ${money(
+          line.line_total as number
+        )} ÷ ${money(line.unit_cost)} = ${trimNum(quantity)}`
+      );
+    }
   }
 
   if (strict && planned.length === 0) {
@@ -512,15 +536,22 @@ export async function createInvoiceDraft(
     noteParts.push(input.fallbackDateNote ?? DEFAULT_FALLBACK_DATE_NOTE);
   }
   if (strict) {
-    const unpriced = skipped
-      .filter((s) => s.reason !== "no_unit")
-      .map((s) => s.description);
-    const noUnit = skipped
-      .filter((s) => s.reason === "no_unit")
-      .map((s) => s.description);
+    const names = (reason: SkippedLine["reason"]) =>
+      skipped.filter((s) => s.reason === reason).map((s) => s.description);
+    const unpriced = names("no_price");
+    const noQty = names("no_quantity");
+    const noUnit = names("no_unit");
+    if (derivedQtyNotes.length > 0) {
+      noteParts.push(derivedQtyNotes.join("\n"));
+    }
     if (unpriced.length > 0) {
       noteParts.push(
         `Líneas sin precio (leídas de la foto): ${unpriced.join(", ")}`
+      );
+    }
+    if (noQty.length > 0) {
+      noteParts.push(
+        `Líneas sin cantidad (leídas de la foto): ${noQty.join(", ")}`
       );
     }
     if (noUnit.length > 0) {

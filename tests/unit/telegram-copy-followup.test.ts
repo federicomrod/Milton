@@ -85,9 +85,32 @@ describe("formatPriceUpdateItems", () => {
 describe("invoice copy", () => {
   it("reviewer term is the app's own («el dueño o un admin»)", () => {
     for (const key of ["INVOICE_RECEIVED", "PRICE_UPDATE_RECEIVED"] as const) {
-      expect(KITCHEN_COPY[key]).toContain("El dueño o un admin");
+      expect(KITCHEN_COPY[key].toLowerCase()).toContain("el dueño o un admin");
       expect(KITCHEN_COPY[key]).not.toContain("encargado");
     }
     expect(KITCHEN_COPY.PRICE_UPDATE_RECEIVED).not.toContain("{origen}");
+  });
+});
+
+describe("the invoice reply names the right reason for skipped lines", () => {
+  it("sin precio / sin cantidad / sin unidad legible, each with its own count", async () => {
+    const { skippedSentence } =
+      await import("@/lib/restaurant/telegram/kitchen-media");
+    expect(skippedSentence([])).toBe("");
+    expect(skippedSentence([{ reason: "no_price" }])).toBe(
+      " 1 línea quedó sin precio."
+    );
+    expect(
+      skippedSentence([{ reason: "no_quantity" }, { reason: "no_quantity" }])
+    ).toBe(" 2 líneas quedaron sin cantidad.");
+    expect(
+      skippedSentence([
+        { reason: "no_price" },
+        { reason: "no_quantity" },
+        { reason: "no_unit" },
+      ])
+    ).toBe(
+      " 1 línea quedó sin precio. 1 línea quedó sin cantidad. 1 línea quedó sin unidad legible."
+    );
   });
 });

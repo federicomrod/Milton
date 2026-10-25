@@ -27,7 +27,10 @@ import {
 import type { ExtractedInvoice } from "@/lib/restaurant/invoice-extraction";
 import { INVOICE_TELEGRAM_NOTE } from "@/lib/restaurant/price-update-note";
 import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
-import { sendTelegramMessage } from "@/lib/restaurant/telegram/send";
+import {
+  sendTelegramMessage,
+  type InlineKeyboardMarkup,
+} from "@/lib/restaurant/telegram/send";
 import { openTelegramFile } from "@/lib/restaurant/telegram/files";
 import {
   destinationVars,
@@ -252,6 +255,8 @@ export interface InvoicePhotoInput {
   dateSec: number | null;
   /** Already downloaded (the classifier did it). */
   dataUrl?: string | null;
+  /** «Cambiar restaurante» button on the success reply (default routing). */
+  replyMarkup?: InlineKeyboardMarkup;
 }
 
 // The note text lives in price-update-note.ts (client-safe) so Compras can
@@ -279,6 +284,13 @@ export function skippedSentence(
     }
   }
   return parts.length > 0 ? ` ${parts.join(" ")}` : "";
+}
+
+// Same as sendTelegramMessage(chatId, text) unless a button is attached.
+function reply(chatId: number, text: string, markup?: InlineKeyboardMarkup) {
+  return markup
+    ? sendTelegramMessage(chatId, text, { replyMarkup: markup })
+    : sendTelegramMessage(chatId, text);
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -425,14 +437,15 @@ export async function processInvoicePhoto(
   console.info(
     `[kitchen-media] invoice draft saved id=${created.invoiceId} company=${staff.company_id} lines=${created.linesInserted} unpriced=${skipped} ${Date.now() - started}ms`
   );
-  await sendTelegramMessage(
+  await reply(
     chatId,
     renderKitchenCopy(KITCHEN_COPY.INVOICE_RECEIVED, {
       ...destinationVars(staff),
       de_proveedor: created.supplierName ? ` de ${created.supplierName}` : "",
       lineas: plural(created.linesInserted, "línea", "líneas"),
       sin_precio: skippedSentence(created.linesSkipped),
-    })
+    }),
+    input.replyMarkup
   );
 }
 
@@ -448,6 +461,8 @@ export interface PriceUpdateInput {
   dateSec: number | null;
   items: PriceUpdateItem[];
   origin: "voice" | "text";
+  /** «Cambiar restaurante» button on the success reply (default routing). */
+  replyMarkup?: InlineKeyboardMarkup;
 }
 
 /** Stores the update as a needs_review draft. Never applies a price. */
@@ -524,7 +539,7 @@ export async function processPriceUpdate(
   console.info(
     `[kitchen-media] price update draft items=${input.items.length}`
   );
-  await sendTelegramMessage(
+  await reply(
     chatId,
     renderKitchenCopy(KITCHEN_COPY.PRICE_UPDATE_RECEIVED, {
       ...destinationVars(staff),
@@ -536,6 +551,7 @@ export async function processPriceUpdate(
           )
         )
       ),
-    })
+    }),
+    input.replyMarkup
   );
 }

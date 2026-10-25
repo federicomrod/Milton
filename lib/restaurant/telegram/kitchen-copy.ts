@@ -20,11 +20,10 @@ export const KITCHEN_COPY = {
   QR_INVALID:
     "Este QR ya no funciona. Pide al encargado el código actualizado.",
   /** R3 — same cook, same location. */
-  ALREADY_JOINED:
-    "Ya estás en Milton de {empresa} › {local}. No tienes que hacer nada más.",
-  /** R4 — joined at A, scans B. */
-  MOVED:
-    "🔄 Ahora estás en {empresa} › {local nuevo}. Lo que mandes desde ya va a {empresa} › {local nuevo}, no a {empresa anterior} › {local anterior}.",
+  ALREADY_JOINED: "Ya estás en {empresa} › {local}.",
+  /** R4 — already at another restaurant, scans a new QR: now at both. */
+  JOINED_ADDED:
+    "✅ Ahora también estás en {empresa} › {local}. Cuando mandes algo te preguntaré para qué restaurante es.",
   /** R5 — after each stored report. The only variant used in R1. */
   REPORT_ACK:
     "✅ Recibido, gracias. Se lo pasamos al encargado de {nombre_local}.",
@@ -84,6 +83,32 @@ export const KITCHEN_COPY = {
   /** Briefing pairing: this chat already receives another restaurant's briefing. */
   BRIEFING_CHAT_ALREADY_CONNECTED:
     "Este chat de Telegram ya recibe el briefing de otro restaurante en Milton. Un chat solo puede recibir el briefing de un restaurante.",
+  // --- Several restaurants: routing questions ------------------------------
+  /** Question above the restaurant buttons. */
+  ROUTING_ASK: "¿Para qué restaurante es?",
+  BUTTON_CANCEL: "Cancelar",
+  BUTTON_CHANGE: "Cambiar restaurante",
+  BUTTON_MORE: "Ver más",
+  /** Edit of the question once a restaurant was chosen. */
+  ROUTING_CHOSEN_EDIT: "Para {empresa} › {local} ✓",
+  ROUTING_CANCELLED: "Cancelado. No guardé nada.",
+  ROUTING_EXPIRED:
+    "Pasaron 15 minutos y no guardé lo que mandaste (foto/nota de voz/mensaje). Vuelve a enviarlo y elige el restaurante.",
+  /** Edit of the question when the buttons expired. */
+  ROUTING_EXPIRED_EDIT: "Expiró",
+  CALLBACK_INVALID: "Esta opción ya no es válida.",
+  DEFAULT_SET: "Listo: lo próximo va a {empresa} › {local} (por 30 minutos).",
+  ONLY_ONE: "Solo estás en {empresa} › {local}.",
+  /** Header of the list of the cook's restaurants (one «• …» line each). */
+  LINKS_LIST: "Tus restaurantes:",
+  CHANGE_HINT:
+    "Si te equivocaste, el dueño o un admin puede rechazarlo en Milton y lo vuelves a mandar.",
+  /** Above the buttons of /restaurante and «Cambiar restaurante». */
+  DEFAULT_ASK: "Elige el restaurante para lo próximo que mandes.",
+  /** After «Cambiar restaurante»: what was already saved stays where it is. */
+  CHANGE_NOTE: "Lo que ya mandaste no se mueve.",
+  /** The message could not be parked to ask the question; nothing was saved. */
+  ROUTING_FAILED: "No pude guardar tu mensaje. Vuelve a enviarlo.",
 } as const;
 
 export type KitchenCopyKey = keyof typeof KITCHEN_COPY;
@@ -110,4 +135,20 @@ export function destinationVars(staff: {
     empresa: staff.company_name?.trim() || "tu restaurante",
     local: staff.location_name?.trim() || "tu local",
   };
+}
+
+/** «Tus restaurantes:» followed by one «• {empresa} › {local}» line each. */
+export function renderLinksList(
+  links: Array<{ companyName: string; locationName: string }>
+): string {
+  return [
+    KITCHEN_COPY.LINKS_LIST,
+    ...links.map((l) => {
+      const d = destinationVars({
+        company_name: l.companyName,
+        location_name: l.locationName,
+      });
+      return `• ${d.empresa} › ${d.local}`;
+    }),
+  ].join("\n");
 }

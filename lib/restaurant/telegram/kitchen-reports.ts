@@ -12,6 +12,7 @@
 // SECURITY: never logs message text, file ids or tokens.
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { listActiveLinks } from "./kitchen-links";
 
 export type KitchenReportType = "running_out" | "86" | "waste" | "unclassified";
 
@@ -253,37 +254,24 @@ export interface ActiveKitchenStaff {
 }
 
 /**
- * The cook's active kitchen_staff row (and their company's and location's names), or null
- * for unknown or removed cooks. Service role; throws on DB errors.
+ * COMPATIBILITY WRAPPER. A Telegram account can now have several active
+ * links (kitchen-links.ts). This returns the single link when EXACTLY ONE
+ * is active, and null when there are none AND ALSO when there are several:
+ * callers that must handle several restaurants have to switch to
+ * listActiveLinks(telegramUserId) (then ask the cook, or use validateLink).
+ * Service role; throws on DB errors.
  */
 export async function findActiveKitchenStaff(
   telegramUserId: number
 ): Promise<ActiveKitchenStaff | null> {
-  const admin = createAdminClient();
-  const { data: staff, error } = await admin
-    .from("kitchen_staff")
-    .select("id, company_id, location_id")
-    .eq("telegram_user_id", telegramUserId)
-    .eq("is_active", true)
-    .maybeSingle();
-  if (error) throw new Error("staff lookup failed");
-  if (!staff) return null;
-  const { data: location } = await admin
-    .from("restaurant_locations")
-    .select("name")
-    .eq("id", staff.location_id)
-    .eq("company_id", staff.company_id)
-    .maybeSingle();
-  const { data: company } = await admin
-    .from("companies")
-    .select("name")
-    .eq("id", staff.company_id)
-    .maybeSingle();
+  const links = await listActiveLinks(telegramUserId);
+  if (links.length !== 1) return null;
+  const l = links[0];
   return {
-    id: staff.id,
-    company_id: staff.company_id,
-    company_name: company?.name ?? "",
-    location_id: staff.location_id,
-    location_name: location?.name ?? "",
+    id: l.staffId,
+    company_id: l.companyId,
+    company_name: l.companyName,
+    location_id: l.locationId,
+    location_name: l.locationName,
   };
 }

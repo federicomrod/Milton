@@ -14,7 +14,7 @@ const drafts: Array<{
 
 const extractAndCreateRecipeDraft = vi.fn();
 const updateDraftPortions = vi.fn();
-const findActiveKitchenStaff = vi.fn();
+const listActiveLinks = vi.fn();
 const recordKitchenReport = vi.fn();
 const sendTelegramMessage = vi.fn(async (_chatId: number, text: string) => {
   replies.push(text);
@@ -36,6 +36,11 @@ vi.mock("@/lib/restaurant/telegram/send", () => ({
     sendTelegramMessage(chatId, text),
 }));
 
+vi.mock("@/lib/restaurant/telegram/kitchen-links", () => ({
+  listActiveLinks: (...args: unknown[]) => listActiveLinks(...args),
+  validateLink: async () => null,
+}));
+
 vi.mock("@/lib/restaurant/telegram/kitchen-reports", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -43,8 +48,6 @@ vi.mock("@/lib/restaurant/telegram/kitchen-reports", async (importOriginal) => {
     >();
   return {
     ...actual,
-    findActiveKitchenStaff: (...args: unknown[]) =>
-      findActiveKitchenStaff(...args),
     recordKitchenReport: (...args: unknown[]) => recordKitchenReport(...args),
   };
 });
@@ -164,14 +167,18 @@ describe("telegram webhook recipe drafts", () => {
     extractAndCreateRecipeDraft.mockReset();
     recordKitchenReport.mockReset();
     sendTelegramMessage.mockClear();
-    findActiveKitchenStaff.mockReset();
+    listActiveLinks.mockReset();
 
-    findActiveKitchenStaff.mockResolvedValue({
-      id: "staff-1",
-      company_id: "company-1",
-      location_id: "loc-1",
-      location_name: "Roma",
-    });
+    listActiveLinks.mockResolvedValue([
+      {
+        staffId: "staff-1",
+        companyId: "company-1",
+        companyName: "Demo Resto",
+        locationId: "loc-1",
+        locationName: "Roma",
+        telegramUserId: 99,
+      },
+    ]);
 
     recordKitchenReport.mockImplementation(
       async (input: {

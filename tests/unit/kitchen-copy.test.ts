@@ -14,10 +14,7 @@ describe("kitchen copy", () => {
       "Este QR ya no funciona. Pide al encargado el código actualizado."
     );
     expect(KITCHEN_COPY.ALREADY_JOINED).toBe(
-      "Ya estás en Milton de {empresa} › {local}. No tienes que hacer nada más."
-    );
-    expect(KITCHEN_COPY.MOVED).toBe(
-      "🔄 Ahora estás en {empresa} › {local nuevo}. Lo que mandes desde ya va a {empresa} › {local nuevo}, no a {empresa anterior} › {local anterior}."
+      "Ya estás en {empresa} › {local}."
     );
     expect(KITCHEN_COPY.REPORT_ACK).toBe(
       "✅ Recibido, gracias. Se lo pasamos al encargado de {nombre_local}."
@@ -51,14 +48,12 @@ describe("kitchen copy", () => {
       })
     ).toContain("Milton de Demo Resto › Roma Norte.");
     expect(
-      renderKitchenCopy(KITCHEN_COPY.MOVED, {
-        empresa: "Demo Resto",
-        "empresa anterior": "Otro Resto",
-        "local nuevo": "Condesa",
-        "local anterior": "Roma",
+      renderKitchenCopy(KITCHEN_COPY.JOINED_ADDED, {
+        empresa: "Stage Test 1",
+        local: "Local Norte",
       })
     ).toBe(
-      "🔄 Ahora estás en Demo Resto › Condesa. Lo que mandes desde ya va a Demo Resto › Condesa, no a Otro Resto › Roma."
+      "✅ Ahora también estás en Stage Test 1 › Local Norte. Cuando mandes algo te preguntaré para qué restaurante es."
     );
     expect(renderKitchenCopy("hola {x}")).toBe("hola {x}");
   });

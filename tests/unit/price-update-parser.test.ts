@@ -183,6 +183,6 @@ describe("formatPriceUpdateItems", () => {
         { name: "aguacate", price: 1.5, unit: "lb" },
         { name: "tomate", price: 0.8, unit: "lb" },
       ])
-    ).toBe("aguacate 1.50 por lb, tomate 0.80 por lb");
+    ).toBe("aguacate $1.50 la libra, tomate $0.80 la libra");
   });
 });

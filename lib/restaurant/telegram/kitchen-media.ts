@@ -17,6 +17,7 @@
 // photo content or transcripts.
 
 import type { createAdminClient } from "@/lib/supabase/admin";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import {
   createInvoiceDraft,
   extractInvoiceFromImage,
@@ -33,6 +34,7 @@ import {
 } from "@/lib/restaurant/telegram/kitchen-copy";
 import { classifyKitchenReport } from "@/lib/restaurant/telegram/kitchen-reports";
 import {
+  currencySymbolFor,
   formatPriceUpdateItems,
   type PriceUpdateItem,
 } from "@/lib/restaurant/telegram/price-update";
@@ -286,6 +288,7 @@ export async function processInvoicePhoto(
   const extracted = await extractInvoiceFromImage({
     dataUrl,
     timeoutMs: 45_000,
+    notesLanguage: "es",
   });
   if (!extracted.ok) {
     console.error(
@@ -406,7 +409,7 @@ export async function processPriceUpdate(
   });
   if (!created.ok) {
     console.error("[kitchen-media] price update not stored:", created.reason);
-    await sendTelegramMessage(chatId, KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
+    await sendTelegramMessage(chatId, KITCHEN_COPY.PRICE_UPDATE_FAILED);
     return;
   }
   console.info(
@@ -415,8 +418,14 @@ export async function processPriceUpdate(
   await sendTelegramMessage(
     chatId,
     renderKitchenCopy(KITCHEN_COPY.PRICE_UPDATE_RECEIVED, {
-      items: formatPriceUpdateItems(input.items),
-      origen: input.origin === "voice" ? "de tu nota de voz" : "de tu mensaje",
+      items: formatPriceUpdateItems(
+        input.items,
+        currencySymbolFor(
+          await resolveCompanyCurrency(admin as never, staff.company_id).catch(
+            () => null
+          )
+        )
+      ),
     })
   );
 }

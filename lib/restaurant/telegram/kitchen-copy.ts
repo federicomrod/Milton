@@ -51,19 +51,22 @@ export const KITCHEN_COPY = {
   // Draft copy, pending Sofia's review.
   /** Invoice read. {de_proveedor} = « de <Proveedor>» or empty; {lineas} = «3 líneas»; {sin_precio} = sentence or empty. */
   INVOICE_RECEIVED:
-    "✅ Leí la factura{de_proveedor} ({lineas}, leídas de la foto). Queda en Costos › Compras para que el encargado la revise antes de que cambie algún precio.{sin_precio}",
+    "✅ Recibí la factura{de_proveedor}: leí {lineas}. El dueño o un admin la revisa en Costos › Compras antes de cambiar precios.{sin_precio} Si falta algo, manda otra foto.",
   /** Invoice could not be read (download, timeout, nothing usable). */
   INVOICE_UNREADABLE:
-    "No pude leer la factura. Prueba con otra foto: completa, derecha y con buena luz.",
+    "No pude leer la factura. Manda otra foto: que se vea completa, de frente y con buena luz.",
   /** Photo that is neither obviously an invoice nor a recipe. */
   PHOTO_ASK_KIND:
-    "✅ Recibido. ¿Es una factura o una receta? Responde «factura» o «receta».",
-  /** Price update stored as a draft. {items}, {origen} = «de tu nota de voz» / «de tu mensaje». */
+    "✅ Recibí la foto. ¿Es una factura o una receta? Responde «factura» o «receta».",
+  /** Price update stored as a draft. {items} = «aguacate $1.50 la libra». */
   PRICE_UPDATE_RECEIVED:
-    "✅ Anoté: {items} ({origen}). El encargado lo revisa en Costos › Compras antes de que cambie el precio.",
-  /** A price was mentioned but the item, price or unit is missing. */
+    "✅ Anoté: {items}. El dueño o un admin lo revisa en Costos › Compras antes de cambiar el precio.",
+  /** A price was mentioned but the item, price or unit is missing (parse failures only). */
   PRICE_UPDATE_UNCLEAR:
-    "¿A cuánto y por qué unidad? Por ejemplo: «aguacate 1.50 la libra».",
+    "No entendí el precio. Escribe producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra».",
+  /** The price was understood but could not be saved. */
+  PRICE_UPDATE_FAILED:
+    "No pude guardar el precio. Vuelve a mandarlo en un momento.",
 } as const;
 
 export type KitchenCopyKey = keyof typeof KITCHEN_COPY;

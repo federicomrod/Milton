@@ -6,10 +6,16 @@
 // precio" label for those rows.
 
 export const PRICE_UPDATE_NOTE_PREFIX =
+  "Actualización de precio enviada por Telegram (nota de voz o mensaje). Revísala antes de aprobar.";
+
+/** The first wording, already saved on some staging drafts: still recognized. */
+export const LEGACY_PRICE_UPDATE_NOTE_PREFIX =
   "Actualización de precio enviada por Telegram (de tu nota de voz / texto): revisa antes de aprobar.";
 
 export function isPriceUpdateNote(notes: string | null | undefined): boolean {
   return (
-    typeof notes === "string" && notes.startsWith(PRICE_UPDATE_NOTE_PREFIX)
+    typeof notes === "string" &&
+    (notes.startsWith(PRICE_UPDATE_NOTE_PREFIX) ||
+      notes.startsWith(LEGACY_PRICE_UPDATE_NOTE_PREFIX))
   );
 }

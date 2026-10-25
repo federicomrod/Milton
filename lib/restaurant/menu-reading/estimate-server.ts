@@ -40,6 +40,10 @@ import {
   isBoundSuggestion,
   parseSuggestionEvidence,
 } from "@/lib/restaurant/recipe-costing/evidence";
+import { wantsSuggestion } from "@/lib/restaurant/recipe-suggestion-server";
+import { pickDishVersions } from "@/lib/restaurant/costing/dish-state";
+import { hasRecipe } from "@/lib/restaurant/recipe-costing/has-recipe";
+import { loadVersionLineCounts } from "@/lib/restaurant/recipe-costing/has-recipe-server";
 import { loadUnitConversions } from "@/lib/restaurant/unit-conversions-server";
 import type { UnitConversion } from "@/lib/restaurant/units";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
@@ -158,6 +162,15 @@ export interface DishFact {
   evidence: Record<string, unknown>;
   /** Statuses of every recipe version of the dish. */
   version_statuses: string[];
+  /**
+   * The plato has a recipe by the one rule (has-recipe.ts): the version it is
+   * costed with has lines. An empty version row does not count.
+   */
+  has_recipe_lines: boolean;
+  /** That version is an approved one in force. */
+  approved_with_lines: boolean;
+  /** POS category, when known (a section for the AI). */
+  category: string | null;
   /** POS sales, for the ranking and the average net price. */
   net_sales: number;
   units_sold: number;
@@ -171,13 +184,13 @@ export function isMenuDraftFact(fact: DishFact): boolean {
   );
 }
 
-/** The same rules as «Leer menú»: only a menu draft or a dish with no recipe. */
+/** The same rule as «Leer menú»: a plato with no recipe, or a pending menu draft. */
 export function dishEligibility(
   fact: DishFact
 ): { ok: true } | { ok: false; reason: string } {
   const view = parseSuggestionEvidence(fact.evidence);
-  const hasRecipe =
-    fact.version_statuses.length > 0 ||
+  const hasRecipeNow =
+    fact.has_recipe_lines ||
     isBoundSuggestion(view) ||
     // A link whose evidence is neither the menu's nor empty is somebody's.
     (Object.keys(fact.evidence).length > 0 &&
@@ -185,9 +198,9 @@ export function dishEligibility(
       view.lines.length > 0);
   const verdict = canEstimate({
     link_state: fact.link_state,
-    has_recipe: hasRecipe,
+    has_recipe: hasRecipeNow,
     is_menu_draft: isMenuDraftFact(fact),
-    has_approved_version: fact.version_statuses.includes("approved"),
+    has_approved_version: fact.approved_with_lines,
   });
   return verdict.ok ? verdict : { ok: false, reason: verdict.reason };
 }
@@ -202,18 +215,46 @@ interface LinkRow {
   evidence: unknown;
 }
 
+export interface VersionRow {
+  id?: string;
+  menu_item_id: string;
+  status: string;
+  version_number?: number;
+  effective_date?: string | null;
+}
+
 export function buildDishFacts(
   links: readonly LinkRow[],
-  versions: ReadonlyArray<{ menu_item_id: string; status: string }>,
-  locationId: string | null
+  versions: readonly VersionRow[],
+  locationId: string | null,
+  lineCounts: ReadonlyMap<string, number> = new Map()
 ): DishFact[] {
   const statuses = new Map<string, string[]>();
+  const byItem = new Map<string, VersionRow[]>();
   for (const v of versions) {
     const list = statuses.get(v.menu_item_id) ?? [];
     list.push(v.status);
     statuses.set(v.menu_item_id, list);
+    const rows = byItem.get(v.menu_item_id) ?? [];
+    rows.push(v);
+    byItem.set(v.menu_item_id, rows);
   }
-  const byItem = new Map<string, DishFact>();
+  const recipeOf = (menuItemId: string) => {
+    const rows = (byItem.get(menuItemId) ?? []).map((v, i) => ({
+      id: v.id ?? `v${i}`,
+      version_number: v.version_number ?? i + 1,
+      status: v.status,
+      effective_date: v.effective_date ?? null,
+    }));
+    const has = hasRecipe({ versions: rows, lineCounts });
+    // The approved version in force is the one the plato is costed with.
+    const approved = pickDishVersions(rows).approved;
+    return {
+      has,
+      approved: Boolean(approved) && (lineCounts.get(approved!.id) ?? 0) > 0,
+    };
+  };
+  const factByItem = new Map<string, DishFact>();
   for (const link of links) {
     if (!link.menu_item_id) continue;
     if (locationId && link.location_id && link.location_id !== locationId) {
@@ -228,10 +269,13 @@ export function buildDishFacts(
       link_state: link.link_state,
       evidence: asRecord(link.evidence) ?? {},
       version_statuses: statuses.get(link.menu_item_id) ?? [],
+      has_recipe_lines: recipeOf(link.menu_item_id).has,
+      approved_with_lines: recipeOf(link.menu_item_id).approved,
+      category: null,
       net_sales: 0,
       units_sold: 0,
     };
-    const had = byItem.get(link.menu_item_id);
+    const had = factByItem.get(link.menu_item_id);
     // Prefer the link of the asked location, then a menu draft.
     const better =
       !had ||
@@ -240,9 +284,9 @@ export function buildDishFacts(
         had.location_id !== locationId) ||
       (fact.evidence.source === MENU_EVIDENCE_SOURCE &&
         had.evidence.source !== MENU_EVIDENCE_SOURCE);
-    if (better) byItem.set(link.menu_item_id, fact);
+    if (better) factByItem.set(link.menu_item_id, fact);
   }
-  return [...byItem.values()];
+  return [...factByItem.values()];
 }
 
 // ---------------------------------------------------------------------------
@@ -269,18 +313,26 @@ export async function loadDishFacts(
     return q;
   });
   if (links.error) throw new Error(links.error.message ?? "links");
-  const versions = await fetchAllRows<{ menu_item_id: string; status: string }>(
-    () => {
-      let q = supabase
-        .from("recipe_versions")
-        .select("id, menu_item_id, status")
-        .eq("company_id", companyId);
-      if (ids) q = q.in("menu_item_id", ids);
-      return q;
-    }
-  );
+  const versions = await fetchAllRows<VersionRow>(() => {
+    let q = supabase
+      .from("recipe_versions")
+      .select("id, menu_item_id, status, version_number, effective_date")
+      .eq("company_id", companyId);
+    if (ids) q = q.in("menu_item_id", ids);
+    return q;
+  });
   if (versions.error) throw new Error(versions.error.message ?? "versions");
-  return buildDishFacts(links.rows, versions.rows, opts.locationId ?? null);
+  const lineCounts = await loadVersionLineCounts(
+    supabase,
+    companyId,
+    versions.rows.map((row) => row.id ?? "").filter(Boolean)
+  );
+  return buildDishFacts(
+    links.rows,
+    versions.rows,
+    opts.locationId ?? null,
+    lineCounts
+  );
 }
 
 /** Add POS sales (for ranking and the average net price). Failure = no sales. */
@@ -306,6 +358,7 @@ async function withSales(
             ...fact,
             net_sales: product.net_sales,
             units_sold: product.units_sold,
+            category: product.category ?? null,
           }
         : fact;
     });
@@ -440,14 +493,32 @@ async function loadMenuImage(
 // GET: how many dishes can be estimated
 // ---------------------------------------------------------------------------
 
-export async function countEligibleMenuDrafts(
+/** Every plato Milton can estimate: no recipe (a Confirmado link does not matter) or a pending menu draft. */
+export async function countEstimableDishes(
   supabase: SupabaseClient,
   companyId: string
 ): Promise<number> {
   const facts = await loadDishFacts(supabase, companyId);
-  return facts.filter(
-    (fact) => isMenuDraftFact(fact) && dishEligibility(fact).ok
-  ).length;
+  return facts.filter((fact) => dishEligibility(fact).ok).length;
+}
+
+/**
+ * POS food products that have no plato yet and so cannot be estimated until
+ * somebody links them. Best effort: a failure reads as 0.
+ */
+export async function countUnlinkedWithoutPlato(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<number> {
+  try {
+    const list = await loadPosProductList(supabase, { companyId });
+    if (!list.ok) return 0;
+    return list.list.products.filter(
+      (p) => wantsSuggestion(p) && !p.menu_item_id
+    ).length;
+  } catch {
+    return 0;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -550,10 +621,11 @@ async function estimateOne(
     section:
       typeof fact.evidence.menu_section === "string"
         ? fact.evidence.menu_section
-        : null,
+        : fact.category,
     description: view.menu?.description ?? null,
     components,
     menu_price: view.menu?.price ?? null,
+    pos_price: posPriceFromSales(fact.net_sales, fact.units_sold),
     image_url: imageUrl,
   };
   const ctx: EstimateContext = {
@@ -781,12 +853,7 @@ export async function estimateDishes(
   } else {
     const done = new Set(existing.rows.map((row) => row.menu_item_id));
     pool = facts
-      .filter(
-        (f) =>
-          isMenuDraftFact(f) &&
-          dishEligibility(f).ok &&
-          !done.has(f.menu_item_id)
-      )
+      .filter((f) => dishEligibility(f).ok && !done.has(f.menu_item_id))
       .sort(
         (a, b) =>
           b.net_sales - a.net_sales ||

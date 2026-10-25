@@ -3,7 +3,9 @@
 //   → { done, remaining, results: [{ menu_item_id, name, est_cost,
 //       est_margin_pct, skipped_reason }] }
 // GET  /api/restaurant/recipes/menu/estimate
-//   → { available: boolean, eligible: number }
+//   → { available: boolean, eligible: number, needs_link: number }
+//   eligible = every plato with no recipe (a Confirmado link does not matter);
+//   needs_link = POS food products with no plato yet (they cannot be estimated).
 //
 // «Estimar con Milton» (issue #212). Each call estimates AT MOST 5 dishes
 // (3 AI calls at a time); the client loops in chunks and caps a run at 20.
@@ -19,7 +21,8 @@ import {
   ESTIMATE_MAX_RUN,
   ESTIMATE_TABLES_MISSING,
   EstimateTablesMissingError,
-  countEligibleMenuDrafts,
+  countEstimableDishes,
+  countUnlinkedWithoutPlato,
   estimateDishes,
 } from "@/lib/restaurant/menu-reading/estimate-server";
 import { loadDishEstimates } from "@/lib/restaurant/menu-reading/estimate-store";
@@ -53,13 +56,15 @@ export async function GET() {
   if (!checked.ok) return checked.response;
   const { supabase, companyId } = checked.auth;
   try {
-    const [tables, eligible] = await Promise.all([
+    const [tables, eligible, needsLink] = await Promise.all([
       loadDishEstimates(supabase, companyId),
-      countEligibleMenuDrafts(supabase, companyId),
+      countEstimableDishes(supabase, companyId),
+      countUnlinkedWithoutPlato(supabase, companyId),
     ]);
     return NextResponse.json({
       available: tables.ok,
       eligible,
+      needs_link: needsLink,
     });
   } catch {
     return NextResponse.json({ available: false, eligible: 0 });

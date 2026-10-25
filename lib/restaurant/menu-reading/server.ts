@@ -11,9 +11,11 @@ import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
 import { emptyUndoSnapshot } from "@/lib/restaurant/cost-workbook/types";
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
 import {
-  suggestPosProductLink,
   unlinkedPosProduct,
+  withMenuDraftEvidence,
 } from "@/lib/restaurant/pos-product-links";
+import { hasRecipe } from "@/lib/restaurant/recipe-costing/has-recipe";
+import { loadVersionLineCounts } from "@/lib/restaurant/recipe-costing/has-recipe-server";
 import { nextVersionNumber } from "@/lib/restaurant/recipe-versions";
 import { wantsSuggestion } from "@/lib/restaurant/recipe-suggestion-server";
 import { posPriceFromSales } from "@/lib/restaurant/recipe-costing/display";
@@ -32,9 +34,11 @@ import {
 } from "./extract";
 import {
   MENU_EVIDENCE_SOURCE,
+  decisionsByPlato,
   planMenuDrafts,
   type MenuDraftProduct,
 } from "./drafts";
+import { stripSize } from "./match";
 import {
   MenuFetchError,
   readMenuSource,
@@ -56,11 +60,24 @@ export interface MenuReadResult {
   /** True when this menu was read before and the AI was not called again. */
   cached: boolean;
   truncated: boolean;
+  /** Platos the menu lists. */
   dishes_read: number;
+  /** Counts below are PLATOS, never POS products (sizes count once). */
   drafted: number;
+  skipped_has_recipe: number;
+  skipped_no_ingredients: number;
+  skipped_draft_exists: number;
+  /** Platos sin receta that the menu does not list. */
+  not_on_menu: number;
+  failed: number;
   new_components: number;
+  /** Names of the platos in `not_on_menu` (kept for older readers). */
   not_found: string[];
-  skipped: Array<{ odoo_name: string; reason: string }>;
+  skipped: Array<{
+    odoo_name: string;
+    reason: string;
+    code?: "has_recipe" | "no_ingredients" | "draft_exists" | "failed";
+  }>;
 }
 
 function hashText(text: string): string {
@@ -199,6 +216,12 @@ export async function readMenuIntoDrafts(
     )
   );
 
+  const lineCounts = await loadVersionLineCounts(
+    supabase,
+    params.companyId,
+    [...versionsByRecipe.values()].flat().map((version) => version.id)
+  );
+
   const linkOf = (odooProductId: number) =>
     links.find(
       (link) =>
@@ -225,26 +248,37 @@ export async function readMenuIntoDrafts(
       odoo_name: product.odoo_name,
       pos_price: posPriceFromSales(product.net_sales, product.units_sold),
       link_state: link?.link_state ?? product.link_state,
-      has_recipe: versions.length > 0 || isBoundSuggestion(evidence),
+      // The same rule Menú › Platos uses for «Sin receta»: a version row with
+      // no lines, or a Confirmado link, is not a recipe.
+      has_recipe: hasRecipe({
+        versions,
+        lineCounts,
+        boundSuggestion: isBoundSuggestion(evidence),
+      }),
       menu_draft: evidence.source === MENU_EVIDENCE_SOURCE,
+      plato_key: menuItem
+        ? `item:${menuItem.id}`
+        : `name:${normalizeMatchName(stripSize(product.odoo_name))}`,
     };
   });
 
-  const decisions = planMenuDrafts({
-    products: draftProducts,
-    dishes: read.dishes,
-    catalog: {
-      ingredients: ingredients.map((row) => ({
-        id: row.id,
-        name: row.name,
-        default_unit: row.default_unit ?? null,
-      })),
-      preparations: components.map((row) => ({ id: row.id, name: row.name })),
-      aliases,
-    },
-    menuSourceId: read.id,
-    menuUrl: menu.source_ref,
-  });
+  const decisions = decisionsByPlato(
+    planMenuDrafts({
+      products: draftProducts,
+      dishes: read.dishes,
+      catalog: {
+        ingredients: ingredients.map((row) => ({
+          id: row.id,
+          name: row.name,
+          default_unit: row.default_unit ?? null,
+        })),
+        preparations: components.map((row) => ({ id: row.id, name: row.name })),
+        aliases,
+      },
+      menuSourceId: read.id,
+      menuUrl: menu.source_ref,
+    })
+  );
 
   const result: MenuReadResult = {
     ok: true,
@@ -254,6 +288,11 @@ export async function readMenuIntoDrafts(
     truncated: menu.truncated,
     dishes_read: read.dishes.length,
     drafted: 0,
+    skipped_has_recipe: 0,
+    skipped_no_ingredients: 0,
+    skipped_draft_exists: 0,
+    not_on_menu: 0,
+    failed: 0,
     new_components: 0,
     not_found: [],
     skipped: [],
@@ -261,10 +300,16 @@ export async function readMenuIntoDrafts(
   for (const decision of decisions) {
     if (decision.kind === "no_encontrado") {
       result.not_found.push(decision.product.odoo_name);
+      result.not_on_menu += 1;
     } else if (decision.kind === "omitido") {
+      if (decision.code === "has_recipe") result.skipped_has_recipe += 1;
+      else if (decision.code === "no_ingredients") {
+        result.skipped_no_ingredients += 1;
+      } else result.skipped_draft_exists += 1;
       result.skipped.push({
         odoo_name: decision.product.odoo_name,
         reason: decision.reason,
+        code: decision.code,
       });
     }
   }
@@ -344,14 +389,32 @@ export async function readMenuIntoDrafts(
             odoo_name: product.odoo_name,
             location_id: locationId,
           });
-        const suggested = suggestPosProductLink(base, {
+        const next = withMenuDraftEvidence(base, {
           menu_item_id: menuItem.id,
           evidence: { ...draft.evidence, recipe_version_id: version.id },
         });
-        const saved = await repo.upsertPosProductLink(
-          params.companyId,
-          suggested
-        );
+        if (base.link_state === "confirmado") {
+          // A Confirmado link stays exactly as it is (state, plato, who/when/
+          // how): only the draft evidence is written, and undo restores the
+          // whole row from this snapshot.
+          if (!base.id || base.menu_item_id !== menuItem.id) {
+            throw new Error("confirmed link points elsewhere");
+          }
+          const before = structuredClone(base);
+          await repo.updatePosProductLinkEvidence(
+            params.companyId,
+            base.id,
+            next.evidence
+          );
+          changes.updated_pos_product_links = [
+            ...(changes.updated_pos_product_links ?? []),
+            { id: base.id, before },
+          ];
+          result.drafted += 1;
+          result.new_components += draft.new_components;
+          continue;
+        }
+        const saved = await repo.upsertPosProductLink(params.companyId, next);
         if (saved.created) {
           changes.created_pos_product_link_ids = [
             ...(changes.created_pos_product_link_ids ?? []),
@@ -368,9 +431,11 @@ export async function readMenuIntoDrafts(
       } catch (err) {
         // One dish failing never stops the others; the reason is shown.
         console.error("[menu-reading draft]", err);
+        result.failed += 1;
         result.skipped.push({
           odoo_name: product.odoo_name,
           reason: "no pude preparar este plato",
+          code: "failed",
         });
       }
     }

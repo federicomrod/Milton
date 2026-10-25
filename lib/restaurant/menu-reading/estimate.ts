@@ -46,6 +46,8 @@ export interface EstimateDishInput {
   description: string | null;
   components: string[];
   menu_price: number | null;
+  /** Average POS price when the dish is not on a read menu. */
+  pos_price?: number | null;
   image_url: string | null;
 }
 
@@ -99,7 +101,9 @@ export function estimatePrompt(
       : null,
     dish.menu_price != null
       ? `Precio en el menú: ${dish.menu_price} ${ctx.currency}`
-      : null,
+      : dish.pos_price != null
+        ? `Precio de venta promedio en el POS: ${dish.pos_price} ${ctx.currency}`
+        : null,
     `País: ${country}. Moneda de los precios: ${ctx.currency}.`,
     catalog
       ? `Ingredientes del catálogo del restaurante (nombre y unidad): ${catalog}`
@@ -311,18 +315,20 @@ export interface DishEstimateRow {
   location_id: string | null;
 }
 
-/** Same rules as planMenuDrafts: only dishes with no real recipe. */
+/**
+ * Same rule as «Leer menú» (has-recipe.ts): only a plato with no recipe, or
+ * one with a pending menu draft. A Confirmado link only says which POS product
+ * this plato is; it does not block. An approved recipe with lines does.
+ */
 export function canEstimate(dish: {
-  link_state: string | null;
+  /** Ignored: a Confirmado link no longer blocks an estimate. */
+  link_state?: string | null;
+  /** The plato has a recipe by the one rule (not just a version row). */
   has_recipe: boolean;
   is_menu_draft: boolean;
+  /** An approved version with lines is in force. */
   has_approved_version?: boolean;
-}):
-  | { ok: true }
-  | { ok: false; reason: "confirmado" | "has_recipe" | "approved" } {
-  if (dish.link_state === "confirmado") {
-    return { ok: false, reason: "confirmado" };
-  }
+}): { ok: true } | { ok: false; reason: "has_recipe" | "approved" } {
   if (dish.has_approved_version) return { ok: false, reason: "approved" };
   if (dish.has_recipe && !dish.is_menu_draft) {
     return { ok: false, reason: "has_recipe" };

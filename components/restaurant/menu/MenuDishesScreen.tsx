@@ -14,6 +14,7 @@ import {
 } from "@/lib/restaurant/costing/rollup";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { RowActions } from "@/components/restaurant/groups/RowActions";
 import {
   useEventCallback,
@@ -40,6 +41,10 @@ import { Chip } from "@/components/restaurant/recipes-costing/ui";
 import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
 import {
   ESTIMATE_BADGE,
+  ESTIMATE_BUTTON,
+  ESTIMATE_ROW_NEEDS_LINK,
+  ESTIMATE_USE_BUTTON,
+  estimateSkipMessage,
   estimateForProducts,
   estimateText,
   overlayAllowed,
@@ -265,9 +270,11 @@ export function MenuDishesScreen({
     return sortRows(filtered, sort, dishValue);
   }, [dishes, excluded, showExcluded, statusFilter, sort]);
 
+  const canEstimateRows = canEditRecipes(data.actor);
+
   // The estimate of each dish with NO real cost (never in the real columns).
   const estimateOf = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<string, { text: string; menu_item_id: string }>();
     if (estimates.length === 0) return map;
     for (const dish of [...dishes, ...excluded]) {
       if (dish.status === "excluded") continue;
@@ -288,7 +295,10 @@ export function MenuDishesScreen({
       )
         continue;
       const avg = dish.units > 0 ? dish.net_sales / dish.units : null;
-      map.set(dish.id, estimateText(est, data.currency, avg).text);
+      map.set(dish.id, {
+        text: estimateText(est, data.currency, avg).text,
+        menu_item_id: est.menu_item_id,
+      });
     }
     return map;
   }, [estimates, dishes, excluded, data.currency]);
@@ -620,14 +630,12 @@ export function MenuDishesScreen({
                 : `Guardar agrupación (${unsaved} ${unsaved === 1 ? "producto nuevo" : "productos nuevos"})`}
             </button>
           ) : null}
-          {k.no_recipe_dishes > 0 ? (
-            <EstimateWithMilton
-              variant="link"
-              canEdit={canEditRecipes(data.actor)}
-              locationId={data.view_location_id ?? null}
-              onDone={() => onEstimated?.()}
-            />
-          ) : null}
+          <EstimateWithMilton
+            variant="link"
+            canEdit={canEditRecipes(data.actor)}
+            locationId={data.view_location_id ?? null}
+            onDone={() => onEstimated?.()}
+          />
           <UploadRecipesLink
             actor={data.actor}
             locationId={data.view_location_id ?? null}
@@ -753,6 +761,9 @@ export function MenuDishesScreen({
                     money={money}
                     canEdit={data.actor.can_submit}
                     estimate={estimateOf.get(dish.id) ?? null}
+                    canEstimate={canEstimateRows}
+                    locationId={data.view_location_id ?? null}
+                    onEstimated={onEstimated}
                     onToggle={onToggleRow}
                     onDrill={onDrillRow}
                     onOpen={onOpenRow}
@@ -828,6 +839,135 @@ function bySize(variants: readonly MenuDishVariant[]) {
     .sort((a, b) => b.sums.net_sales - a.sums.net_sales);
 }
 
+/**
+ * «Estimar con Milton» on one «Sin receta» plato: the same POST as the
+ * controls-row link, for this plato only. Disabled with its reason when the
+ * person cannot edit recipes or the product has no plato yet.
+ */
+function RowEstimate({
+  menuItemId,
+  canEdit,
+  locationId,
+  onEstimated,
+}: {
+  menuItemId: string | null;
+  canEdit: boolean;
+  locationId: string | null;
+  onEstimated?: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const reason = !canEdit
+    ? CAPABILITY_MESSAGES["recipes.edit"]
+    : !menuItemId
+      ? ESTIMATE_ROW_NEEDS_LINK
+      : null;
+
+  async function run() {
+    if (busy || !menuItemId) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/restaurant/recipes/menu/estimate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          menu_item_ids: [menuItemId],
+          location_id: locationId ?? undefined,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        results?: Array<{ skipped_reason?: string | null }>;
+      };
+      if (!res.ok) {
+        setNote(json.error ?? estimateSkipMessage(null));
+        return;
+      }
+      const skipped = json.results?.[0]?.skipped_reason;
+      if (skipped) {
+        setNote(estimateSkipMessage(skipped));
+        return;
+      }
+      onEstimated?.();
+    } catch {
+      setNote(estimateSkipMessage(null));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-1 ml-5 flex flex-wrap items-center gap-2 text-[12px]">
+      <button
+        type="button"
+        data-testid="dish-estimate-action"
+        disabled={busy || reason !== null}
+        title={reason ?? undefined}
+        onClick={() => void run()}
+        className="font-semibold text-[#3557c9] disabled:text-[#6b7280] disabled:opacity-80"
+      >
+        {busy ? "Estimando…" : ESTIMATE_BUTTON}
+      </button>
+      {reason && canEdit ? (
+        <span className="text-[#6b7280]">{reason}</span>
+      ) : null}
+      {note ? (
+        <span role="status" className="text-[#6b7280]">
+          {note}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** «Usar como borrador» for an estimate shown on a row (the existing route). */
+function RowEstimateUse({
+  menuItemId,
+  onUsed,
+}: {
+  menuItemId: string;
+  onUsed?: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  async function use() {
+    if (busy) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/restaurant/recipes/menu/estimate/use", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ menu_item_id: menuItemId }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setNote(json.error ?? "No pude usar el estimado como borrador.");
+        return;
+      }
+      onUsed?.();
+    } catch {
+      setNote("No pude usar el estimado como borrador.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void use()}
+        className="font-semibold text-[#3557c9] disabled:opacity-60"
+      >
+        {ESTIMATE_USE_BUTTON}
+      </button>
+      {note ? <span role="status">{note}</span> : null}
+    </>
+  );
+}
+
 /** ⋯ built only when first used: 100+ rows do not each carry a menu. */
 function RowMenu({
   isExcluded,
@@ -872,6 +1012,9 @@ const DishRows = memo(function DishRows({
   money,
   canEdit,
   estimate = null,
+  canEstimate = false,
+  locationId = null,
+  onEstimated,
   onToggle,
   onDrill,
   onOpen,
@@ -880,7 +1023,11 @@ const DishRows = memo(function DishRows({
 }: {
   dish: MenuDish;
   /** «≈ $4.20 costo estimado · ≈ 62% margen estimado», muted, apart from the real columns. */
-  estimate?: string | null;
+  estimate?: { text: string; menu_item_id: string } | null;
+  /** From capabilities["recipes.edit"] (canEditRecipes), the API's own gate. */
+  canEstimate?: boolean;
+  locationId?: string | null;
+  onEstimated?: () => void;
   open: boolean;
   money: (n: number) => string;
   canEdit: boolean;
@@ -943,8 +1090,22 @@ const DishRows = memo(function DishRows({
               <span className="rounded-md bg-[#f1f3f7] px-1.5 py-px text-[11px] font-semibold text-[#5b6476]">
                 {ESTIMATE_BADGE}
               </span>
-              <span>{estimate}</span>
+              <span>{estimate.text}</span>
+              {canEstimate ? (
+                <RowEstimateUse
+                  menuItemId={estimate.menu_item_id}
+                  onUsed={onEstimated}
+                />
+              ) : null}
             </div>
+          ) : null}
+          {!estimate && !isExcluded && dish.cost_status === "sin_receta" ? (
+            <RowEstimate
+              menuItemId={dish.base_menu_item_id ?? null}
+              canEdit={canEstimate}
+              locationId={locationId}
+              onEstimated={onEstimated}
+            />
           ) : null}
         </td>
         <td className="px-2 py-2 text-right tabular-nums">

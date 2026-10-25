@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { menuReadSummary } from "@/lib/restaurant/menu-reading/summary";
+import { menuReadSummaryLines } from "@/lib/restaurant/menu-reading/summary";
 import {
   EstimateWithMilton,
   NoRecipeEditNotice,
@@ -12,6 +12,11 @@ interface MenuReadResponse {
   error?: string;
   dishes_read: number;
   drafted: number;
+  skipped_has_recipe?: number;
+  skipped_no_ingredients?: number;
+  skipped_draft_exists?: number;
+  not_on_menu?: number;
+  failed?: number;
   new_components: number;
   not_found: string[];
   skipped: Array<{ odoo_name: string; reason: string }>;
@@ -56,6 +61,8 @@ export function MenuReaderPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<MenuReadResponse | null>(null);
+  const [showMissing, setShowMissing] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
 
   const value = mode === "url" ? url.trim() : text.trim();
 
@@ -63,6 +70,8 @@ export function MenuReaderPanel({
     setBusy(true);
     setError(null);
     setResult(null);
+    setShowMissing(false);
+    setShowDetail(false);
     try {
       const res = await fetch("/api/restaurant/recipes/menu", {
         method: "POST",
@@ -158,8 +167,54 @@ export function MenuReaderPanel({
       ) : null}
 
       {result ? (
-        <div className="rounded-md border border-[#cfe0ff] bg-[#f3f7ff] px-3 py-2 text-xs text-[#1b2333]">
-          {menuReadSummary(result)}
+        <div className="space-y-1 rounded-md border border-[#cfe0ff] bg-[#f3f7ff] px-3 py-2 text-xs text-[#1b2333]">
+          {menuReadSummaryLines(result).map((line) => (
+            <p key={line.key}>
+              {line.text}
+              {line.key === "not_on_menu" && result.not_found.length > 0 ? (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="font-semibold text-[#1B40C8]"
+                    aria-expanded={showMissing}
+                    onClick={() => setShowMissing((open) => !open)}
+                  >
+                    {showMissing ? "Ocultar" : "Ver cuáles"}
+                  </button>
+                </>
+              ) : null}
+              {line.key === "not_on_menu" && showMissing ? (
+                <span className="mt-1 block text-[#6b7280]">
+                  {result.not_found.join(", ")}
+                </span>
+              ) : null}
+            </p>
+          ))}
+          {result.skipped.length > 0 ? (
+            <div>
+              <button
+                type="button"
+                className="font-semibold text-[#1B40C8]"
+                aria-expanded={showDetail}
+                onClick={() => setShowDetail((open) => !open)}
+              >
+                {showDetail ? "Ocultar detalle" : "Ver detalle"}
+              </button>
+              {showDetail ? (
+                <ul className="mt-1 space-y-0.5 text-[#6b7280]">
+                  {result.skipped.map((row, index) => (
+                    <li key={`${row.odoo_name}-${index}`}>
+                      <span className="font-medium text-[#1b2333]">
+                        {row.odoo_name}
+                      </span>
+                      : {row.reason}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </Wrapper>

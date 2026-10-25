@@ -367,6 +367,12 @@ export interface CostWorkbookRepo {
     created: boolean;
     before: PosProductLinkRecord | null;
   }>;
+  /** Only the evidence column (a menu draft on a Confirmado link). */
+  updatePosProductLinkEvidence(
+    companyId: string,
+    id: string,
+    evidence: Record<string, unknown>
+  ): Promise<void>;
   deletePosProductLinks(companyId: string, ids: string[]): Promise<number>;
   restorePosProductLinks(rows: PosProductLinkRecord[]): Promise<void>;
   listComponentRecipeVersions(
@@ -2186,6 +2192,15 @@ export function createSupabaseCostWorkbookRepo(
         .in("id", ids);
       if (error) throw new Error(error.message);
       return count ?? ids.length;
+    },
+
+    async updatePosProductLinkEvidence(companyId, id, evidence) {
+      const { error } = await supabase
+        .from("pos_product_links")
+        .update({ evidence, updated_at: new Date().toISOString() })
+        .eq("company_id", companyId)
+        .eq("id", id);
+      if (error) throw new Error(error.message);
     },
 
     async restorePosProductLinks(rows) {

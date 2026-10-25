@@ -10,6 +10,15 @@ import {
   type EstimateLineRaw,
   type EstimatedLine,
 } from "@/lib/restaurant/menu-reading/estimate";
+import {
+  buildDishFacts,
+  dishEligibility,
+} from "@/lib/restaurant/menu-reading/estimate-server";
+import { hasRecipe } from "@/lib/restaurant/recipe-costing/has-recipe";
+import {
+  dishStateFrom,
+  pickDishVersions,
+} from "@/lib/restaurant/costing/dish-state";
 import { htmlToText } from "@/lib/restaurant/menu-reading/html-text";
 import { parseMenuDishes } from "@/lib/restaurant/menu-reading/extract";
 
@@ -194,11 +203,12 @@ describe("canEstimate", () => {
       canEstimate({ ...base, has_recipe: true, is_menu_draft: true })
     ).toEqual({ ok: true });
   });
-  it("refuses confirmado, approved and Excel or hand-made recipes", () => {
+  it("a Confirmado link does not block: it only says which product the plato is", () => {
     expect(canEstimate({ ...base, link_state: "confirmado" })).toEqual({
-      ok: false,
-      reason: "confirmado",
+      ok: true,
     });
+  });
+  it("refuses approved and Excel or hand-made recipes", () => {
     expect(
       canEstimate({
         ...base,
@@ -211,6 +221,157 @@ describe("canEstimate", () => {
       ok: false,
       reason: "has_recipe",
     });
+  });
+});
+
+describe("dishEligibility / buildDishFacts", () => {
+  const link = (over: Record<string, unknown> = {}) => ({
+    id: "l1",
+    odoo_product_id: 1,
+    odoo_name: "Plato Demo",
+    location_id: null,
+    menu_item_id: "m1",
+    link_state: "confirmado",
+    evidence: {},
+    ...over,
+  });
+  const facts = (
+    versions: Array<Record<string, unknown>>,
+    lineCounts: Record<string, number> = {},
+    over: Record<string, unknown> = {}
+  ) =>
+    buildDishFacts(
+      [link(over)] as never,
+      versions.map((v) => ({ menu_item_id: "m1", ...v })) as never,
+      null,
+      new Map(Object.entries(lineCounts))
+    )[0];
+
+  it("ok for a Confirmado link with no recipe at all", () => {
+    expect(dishEligibility(facts([]))).toEqual({ ok: true });
+  });
+  it("ok for an empty version; not ok once the version has lines", () => {
+    const v = [{ id: "v1", status: "in_review", version_number: 1 }];
+    expect(dishEligibility(facts(v))).toEqual({ ok: true });
+    expect(dishEligibility(facts(v, { v1: 2 }))).toEqual({
+      ok: false,
+      reason: "has_recipe",
+    });
+  });
+  it("an approved recipe with lines blocks; an approved one with none does not", () => {
+    const v = [{ id: "v1", status: "approved", version_number: 1 }];
+    expect(dishEligibility(facts(v))).toEqual({ ok: true });
+    expect(dishEligibility(facts(v, { v1: 1 }))).toEqual({
+      ok: false,
+      reason: "approved",
+    });
+  });
+});
+
+describe("hasRecipe agrees with «Sin receta» in Menú › Platos", () => {
+  const cases: Array<{
+    name: string;
+    versions: Array<{
+      id: string;
+      status: string;
+      version_number: number;
+      effective_date: string | null;
+    }>;
+    lines: Record<string, number>;
+  }> = [
+    { name: "no version", versions: [], lines: {} },
+    {
+      name: "empty version",
+      versions: [
+        {
+          id: "a",
+          status: "in_review",
+          version_number: 1,
+          effective_date: null,
+        },
+      ],
+      lines: {},
+    },
+    {
+      name: "rejected version",
+      versions: [
+        {
+          id: "a",
+          status: "rejected",
+          version_number: 1,
+          effective_date: null,
+        },
+      ],
+      lines: { a: 3 },
+    },
+    {
+      name: "approved with lines",
+      versions: [
+        {
+          id: "a",
+          status: "approved",
+          version_number: 1,
+          effective_date: null,
+        },
+      ],
+      lines: { a: 3 },
+    },
+    {
+      name: "draft with lines",
+      versions: [
+        {
+          id: "a",
+          status: "in_review",
+          version_number: 1,
+          effective_date: null,
+        },
+      ],
+      lines: { a: 2 },
+    },
+    {
+      name: "approved empty, newer draft with lines",
+      versions: [
+        {
+          id: "a",
+          status: "approved",
+          version_number: 1,
+          effective_date: null,
+        },
+        {
+          id: "b",
+          status: "in_review",
+          version_number: 2,
+          effective_date: null,
+        },
+      ],
+      lines: { b: 2 },
+    },
+  ];
+  for (const c of cases) {
+    it(c.name, () => {
+      const lineCounts = new Map(Object.entries(c.lines));
+      const mine = hasRecipe({ versions: c.versions, lineCounts });
+      // Platos: the version it is costed with, and its lines.
+      const live = c.versions.filter((v) => v.status !== "rejected");
+      const { version } = pickDishVersions(live);
+      const state = dishStateFrom({
+        has_version: version !== null,
+        line_count: version ? (lineCounts.get(version.id) ?? 0) : 0,
+        missing: 0,
+        total: 1,
+        approved: false,
+        confirmed: true,
+        treatment: "plato_preparado",
+        in_food_sales: true,
+        avg_net_price: 10,
+      });
+      expect(mine).toBe(state.status !== "sin_receta");
+    });
+  }
+  it("a bound Excel suggestion counts as a recipe", () => {
+    expect(
+      hasRecipe({ versions: [], lineCounts: new Map(), boundSuggestion: true })
+    ).toBe(true);
   });
 });
 
@@ -235,6 +396,24 @@ describe("estimatePrompt", () => {
     expect(user).toContain("Poke de salmón");
     expect(user).toContain("11.5");
     expect(system).toContain("JSON");
+  });
+  it("without menu text it gives the name, the section and the average POS price only", () => {
+    const { user } = estimatePrompt(
+      {
+        name: "Plato Demo",
+        section: null,
+        description: null,
+        components: [],
+        menu_price: null,
+        pos_price: 18.5,
+        image_url: null,
+      },
+      { country: "SV", currency: "USD", catalogNames: [] }
+    );
+    expect(user).toContain("Plato: Plato Demo");
+    expect(user).toContain("Precio de venta promedio en el POS: 18.5");
+    expect(user).not.toContain("Lleva (según el menú)");
+    expect(user).not.toContain("Precio en el menú");
   });
   it("says país desconocido when the country is unknown", () => {
     const { user } = estimatePrompt(dish, {

@@ -24,7 +24,17 @@ export class TelegramConfigError extends Error {
   }
 }
 
-export type TelegramSendResult = { ok: true } | { ok: false; error: string };
+export type TelegramSendResult =
+  | { ok: true; messageId?: number }
+  | { ok: false; error: string };
+
+export interface InlineKeyboardMarkup {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+}
+
+export interface TelegramSendOptions {
+  replyMarkup?: InlineKeyboardMarkup;
+}
 
 function getBotToken(): string {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -41,8 +51,51 @@ function getBotToken(): string {
  */
 export async function sendTelegramMessage(
   chatId: number | string,
-  text: string
+  text: string,
+  options?: TelegramSendOptions
 ): Promise<TelegramSendResult> {
+  const body: Record<string, unknown> = { chat_id: chatId, text };
+  if (options?.replyMarkup) body.reply_markup = options.replyMarkup;
+  const result = await callBotApi("sendMessage", body);
+  if (!result.ok) return result;
+  const id = (result.result as { message_id?: unknown } | null)?.message_id;
+  return typeof id === "number" ? { ok: true, messageId: id } : { ok: true };
+}
+
+/** Answers a button tap (stops the spinner). Never throws. */
+export async function answerCallbackQuery(
+  callbackQueryId: string,
+  text?: string
+): Promise<TelegramSendResult> {
+  const body: Record<string, unknown> = { callback_query_id: callbackQueryId };
+  if (text) body.text = text;
+  const result = await callBotApi("answerCallbackQuery", body);
+  return result.ok ? { ok: true } : result;
+}
+
+/**
+ * Edits a message's text. With no keyboard in `options` the inline keyboard
+ * is removed (an empty inline_keyboard). Never throws.
+ */
+export async function editMessageText(
+  chatId: number | string,
+  messageId: number,
+  text: string,
+  options?: TelegramSendOptions
+): Promise<TelegramSendResult> {
+  const result = await callBotApi("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    reply_markup: options?.replyMarkup ?? { inline_keyboard: [] },
+  });
+  return result.ok ? { ok: true } : result;
+}
+
+async function callBotApi(
+  method: string,
+  payload: Record<string, unknown>
+): Promise<{ ok: true; result: unknown } | { ok: false; error: string }> {
   let token: string;
   try {
     token = getBotToken();
@@ -55,10 +108,10 @@ export async function sendTelegramMessage(
   }
 
   try {
-    const res = await fetch(`${TELEGRAM_API_BASE}/bot${token}/sendMessage`, {
+    const res = await fetch(`${TELEGRAM_API_BASE}/bot${token}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -76,7 +129,13 @@ export async function sendTelegramMessage(
       return { ok: false, error: "Telegram could not deliver the message." };
     }
 
-    return { ok: true };
+    let result: unknown = null;
+    try {
+      result = ((await res.json()) as { result?: unknown })?.result ?? null;
+    } catch {
+      // Empty or non-JSON success body: no message id available.
+    }
+    return { ok: true, result };
   } catch (err) {
     // Deliberately logs only the error's name, never `.message` — see the
     // file-level security note above.

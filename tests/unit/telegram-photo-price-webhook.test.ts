@@ -78,6 +78,22 @@ vi.mock("openai", () => {
   }
   return { default: FakeOpenAI, OpenAI: FakeOpenAI };
 });
+vi.mock("@/lib/restaurant/telegram/kitchen-links", () => ({
+  listActiveLinks: async () =>
+    isCook
+      ? [
+          {
+            staffId: "st-1",
+            companyId: "co-1",
+            companyName: "Demo Resto",
+            locationId: "loc-1",
+            locationName: "Local Centro",
+            telegramUserId: 9,
+          },
+        ]
+      : [],
+  validateLink: async () => null,
+}));
 vi.mock("@/lib/restaurant/telegram/kitchen-reports", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -86,16 +102,6 @@ vi.mock("@/lib/restaurant/telegram/kitchen-reports", async (importOriginal) => {
   let clock = Date.now() - 60_000;
   return {
     ...actual,
-    findActiveKitchenStaff: async () =>
-      !isCook
-        ? null
-        : {
-            id: "st-1",
-            company_id: "co-1",
-            company_name: "Demo Resto",
-            location_id: "loc-1",
-            location_name: "Local Centro",
-          },
     // Same contract as the real one: false on a duplicate delivery.
     recordKitchenReport: async (input: {
       chatId: number;

@@ -16,9 +16,11 @@ import { timeCockpitStep } from "@/lib/restaurant/cockpit-timing";
 import {
   loadCostsKpiExtras,
   loadInvoicesTabData,
+  loadLatestInvoices,
   loadSuppliersTabData,
 } from "@/lib/restaurant/costs-page-data";
 import {
+  costsTabHref,
   invoiceUploadHref,
   parseCostsTab,
   pctChange,
@@ -33,6 +35,7 @@ import {
   PriceChangesTable,
 } from "@/components/restaurant/costs/CostsArea";
 import { formatMoney } from "@/lib/restaurant/costs-format";
+import { LatestInvoicesBox } from "@/components/restaurant/costs/LatestInvoicesBox";
 import { CostsSetupSection } from "@/components/restaurant/costs/CostsSetupSection";
 import { InvoicesPage } from "@/components/restaurant/InvoicesPage";
 import { SuppliersPage } from "@/components/restaurant/SuppliersPage";
@@ -90,20 +93,23 @@ export default async function CostsAreaPage({
     ReturnType<typeof loadMenuAreaModel>
   >["profitability"] = null;
   let extras: Awaited<ReturnType<typeof loadCostsKpiExtras>> = null;
+  let latestInvoices: Awaited<ReturnType<typeof loadLatestInvoices>> = null;
   try {
-    const [chrome, menu, kpiExtras] = await timeCockpitStep(
+    const [chrome, menu, kpiExtras, latest] = await timeCockpitStep(
       "costs-route",
       () =>
         Promise.all([
           loadRestaurantShellChrome(),
           loadMenuAreaModel(location),
           loadCostsKpiExtras(),
+          loadLatestInvoices(),
         ]),
       { location: location ?? null, tab }
     );
     lang = chrome.lang;
     profitability = menu.profitability;
     extras = kpiExtras;
+    latestInvoices = latest;
   } catch (err) {
     console.error(
       "[costs page] load failed:",
@@ -232,11 +238,24 @@ export default async function CostsAreaPage({
                   )
           }
           deltaTone={pendingSuppliers ? "bad" : "neutral"}
+          href={
+            pendingSuppliers ? costsTabHref("compras", shellParams) : undefined
+          }
         />
       </div>
 
+      {/* #323: invoices are daily work (now also by Telegram), so the latest ones
+          and the pending count come first, before the setup line. */}
+      {latestInvoices ? (
+        <LatestInvoicesBox
+          latest={latestInvoices}
+          uploadHref={invoiceUploadHref(shellParams)}
+          shellParams={shellParams}
+        />
+      ) : null}
+
       {/* R1-18: the cost setup (it used to be Menú › Resumen's checklist). Below
-          the KPIs and above the tabs: one compact row while incomplete. */}
+          the invoices and above the tabs: ONE slim line. */}
       <CostsSetupSection locationId={location ?? null} companyId={companyId} />
 
       {nothingYet ? (

@@ -153,12 +153,23 @@ describe("MenuReaderPanel · Estimar con Milton", () => {
     ).toBeTruthy();
   });
 
-  it("hides it when nothing is eligible, when unavailable, and without permission", async () => {
+  it("never hides silently: nothing eligible, unavailable and no permission each show a disabled button and a reason", async () => {
     const fetchMock = vi.fn(() => jsonRes({ available: true, eligible: 0 }));
     vi.stubGlobal("fetch", fetchMock);
     mount();
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(screen.queryByText("Estimar con Milton")).toBeNull();
+    expect(
+      await screen.findByText(
+        "Todos tus platos tienen receta. No hay nada que estimar."
+      )
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Estimar con Milton",
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(true);
     cleanup();
 
     vi.stubGlobal(
@@ -166,16 +177,49 @@ describe("MenuReaderPanel · Estimar con Milton", () => {
       vi.fn(() => jsonRes({ available: false, eligible: 9 }))
     );
     mount();
-    await new Promise((r) => setTimeout(r, 10));
-    expect(screen.queryByText("Estimar con Milton")).toBeNull();
+    expect(
+      await screen.findByText(
+        "Las estimaciones aún no están activas en este ambiente."
+      )
+    ).toBeTruthy();
     cleanup();
 
     const noPerm = vi.fn(() => jsonRes({ available: true, eligible: 9 }));
     vi.stubGlobal("fetch", noPerm);
     mount(false);
-    await new Promise((r) => setTimeout(r, 10));
-    expect(screen.queryByText("Estimar con Milton")).toBeNull();
+    expect(screen.getByText(/Tu rol no puede editar recetas\./)).toBeTruthy();
+    expect(
+      screen.getByText(/Pídele a la persona dueña o administradora/)
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Estimar con Milton",
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(true);
     expect(noPerm).not.toHaveBeenCalled();
+  });
+
+  it("a failed check says so and offers Reintentar", async () => {
+    let fail = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        fail
+          ? Promise.resolve({ ok: false, json: async () => ({}) } as Response)
+          : jsonRes({ available: true, eligible: 3 })
+      )
+    );
+    mount();
+    expect(
+      await screen.findByText(/No pude revisar tus platos\./)
+    ).toBeTruthy();
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+    expect(
+      await screen.findByText(/Milton estima cuánto lleva cada plato/)
+    ).toBeTruthy();
   });
 
   it("runs chunks of 5, shows progress and stops at 20; one skipped dish does not stop the loop", async () => {

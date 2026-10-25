@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import { menuReadSummary } from "@/lib/restaurant/menu-reading/summary";
-import { EstimateWithMilton } from "@/components/restaurant/menu/EstimateWithMilton";
+import {
+  EstimateWithMilton,
+  NoRecipeEditNotice,
+} from "@/components/restaurant/menu/EstimateWithMilton";
 import { Card, GhostBtn } from "./ui";
 
 interface MenuReadResponse {
@@ -27,9 +30,18 @@ export function MenuReaderPanel({
   onDone,
   onEstimated,
   embedded = false,
+  estimateVariant = "button",
+  onEstimateVisible,
+  hideReader = false,
 }: {
+  /** The card shows the inputs only after «Leer mi menú» (state is kept). */
+  hideReader?: boolean;
+  /** The run button's look (the Resumen card makes it the primary one). */
+  estimateVariant?: "button" | "primary";
+  onEstimateVisible?: (live: boolean) => void;
   /** Inside Resumen's checklist: no card or heading of its own. */
   embedded?: boolean;
+  /** From capabilities["recipes.edit"] (canEditRecipes), the API's own gate. */
   canEdit: boolean;
   busyExternal: boolean;
   locationId: string | null;
@@ -80,8 +92,8 @@ export function MenuReaderPanel({
         <h2 className="text-[15px] font-semibold">Leer menú (opcional)</h2>
       )}
 
-      {canEdit ? (
-        <>
+      {hideReader ? null : (
+        <div className="space-y-2.5">
           <div className="flex gap-3 text-[12px] font-semibold">
             <button
               type="button"
@@ -102,35 +114,39 @@ export function MenuReaderPanel({
             {mode === "url" ? (
               <input
                 value={url}
-                disabled={busy}
+                disabled={busy || !canEdit}
                 onChange={(event) => setUrl(event.target.value)}
                 placeholder="https://turestaurante.com/menu"
-                className="min-w-0 flex-1 rounded-md border border-[#d5dae3] px-2 py-1.5 text-sm"
+                className="min-w-0 flex-1 rounded-md border border-[#d5dae3] px-2 py-1.5 text-sm disabled:bg-[#f6f7f9]"
               />
             ) : (
               <textarea
                 value={text}
-                disabled={busy}
+                disabled={busy || !canEdit}
                 onChange={(event) => setText(event.target.value)}
                 placeholder="Copia el menú (de tu página o de un PDF) y pégalo aquí: nombre del plato, precio y descripción."
                 rows={5}
-                className="min-w-0 flex-1 rounded-md border border-[#d5dae3] px-2 py-1.5 text-sm"
+                className="min-w-0 flex-1 rounded-md border border-[#d5dae3] px-2 py-1.5 text-sm disabled:bg-[#f6f7f9]"
               />
             )}
             <GhostBtn
-              disabled={busy || busyExternal || !value}
+              disabled={!canEdit || busy || busyExternal || !value}
               onClick={() => void read()}
             >
               {busy ? "Leyendo tu menú…" : "Leer menú"}
             </GhostBtn>
           </div>
-        </>
-      ) : null}
+          {canEdit ? null : <NoRecipeEditNotice />}
+        </div>
+      )}
 
       <EstimateWithMilton
         canEdit={canEdit}
         locationId={locationId}
         busyExternal={busyExternal || busy}
+        variant={estimateVariant}
+        onVisibleChange={onEstimateVisible}
+        hideNoRoleNotice
         forceShow={(result?.drafted ?? 0) > 0}
         onDone={onEstimated ?? onDone}
       />

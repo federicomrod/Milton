@@ -9,6 +9,7 @@
 // missing price is «Sin precio» / «margen —», never $0 or 0%.
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
 import {
@@ -34,9 +35,12 @@ import { COSTS_HREF } from "@/lib/restaurant/navigation";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
 import {
+  canEditRecipes,
   extraEstimatedDishes,
   extraEstimatedLabel,
 } from "@/components/restaurant/menu/estimate-overlay";
+import { MenuReaderCard } from "@/components/restaurant/menu/MenuReaderCard";
+import { markTabsStale } from "@/lib/restaurant/recipe-costing/menu-tab-cache";
 import { useResumenData } from "./use-resumen-data";
 
 const BLUE = "#1b40c8";
@@ -63,6 +67,7 @@ export function ResumenScreen({
   /** «Estimado por Milton»: only counted in one separate line. */
   estimates?: DishEstimateRow[];
 }) {
+  const router = useRouter();
   const { data: days, failed, retry } = useResumenData(locationId);
   const [period, setPeriod] = useState<ResumenPeriod>("month");
   const [now] = useState(() => Date.now());
@@ -108,6 +113,17 @@ export function ResumenScreen({
       latestUpload={data.latest_upload}
       now={now}
       extraEstimated={extraEstimated}
+      menuReader={
+        <MenuReaderCard
+          canEdit={canEditRecipes(data.actor)}
+          noRecipeDishes={summary.dish_kpis?.no_recipe_dishes ?? null}
+          locationId={locationId}
+          onDone={() => {
+            markTabsStale();
+            router.refresh();
+          }}
+        />
+      }
     />
   );
 }
@@ -122,7 +138,10 @@ export function ResumenCockpit({
   latestUpload,
   now,
   extraEstimated = 0,
+  menuReader = null,
 }: {
+  /** «Lee tu menú y estima costos» card, above Top platos. */
+  menuReader?: React.ReactNode;
   /** Dishes with an approximate margin only from Milton's estimate (separate line). */
   extraEstimated?: number;
   view: ResumenView | null;
@@ -169,9 +188,12 @@ export function ResumenCockpit({
       {!view ? (
         <ResumenSkeleton />
       ) : view.empty ? (
-        <p className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-8 text-center text-[13px] text-[#6b7385]">
-          Todavía no hay ventas de platos en este rango.
-        </p>
+        <>
+          {menuReader}
+          <p className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-8 text-center text-[13px] text-[#6b7385]">
+            Todavía no hay ventas de platos en este rango.
+          </p>
+        </>
       ) : (
         <>
           <Kpis view={view} money={money} />
@@ -185,6 +207,7 @@ export function ResumenCockpit({
           ) : null}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_290px]">
             <div className="space-y-3">
+              {menuReader}
               <TopPlatos view={view} />
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <MarginCard kind="best" view={view} money={money} />

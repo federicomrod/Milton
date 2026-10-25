@@ -30,6 +30,7 @@ export function CostsKpiCard({
   delta,
   deltaTone = "neutral",
   help,
+  href,
 }: {
   label: string;
   value: string;
@@ -37,6 +38,8 @@ export function CostsKpiCard({
   deltaTone?: "neutral" | "bad" | "good";
   /** Tooltip text (no explanatory paragraphs on the page). */
   help?: string;
+  /** Makes the whole card a link (e.g. «con facturas pendientes» → Compras). */
+  href?: string;
 }) {
   const toneClass =
     deltaTone === "bad"
@@ -44,16 +47,27 @@ export function CostsKpiCard({
       : deltaTone === "good"
         ? "text-[#15803d]"
         : "text-[#6b7385]";
-  return (
-    <div
-      className="rounded-[14px] border border-[#dfe3ea] bg-white px-4 py-3.5"
-      title={help}
-    >
+  const body = (
+    <>
       <p className="text-[12px] font-medium text-[#6b7385]">{label}</p>
       <p className="mt-1 text-[28px] font-extrabold leading-tight tabular-nums text-[#151c2c]">
         {value}
       </p>
       <p className={`mt-0.5 text-[12px] ${toneClass}`}>{delta}</p>
+    </>
+  );
+  const box = "rounded-[14px] border border-[#dfe3ea] bg-white px-4 py-3.5";
+  return href ? (
+    <Link
+      href={href}
+      title={help}
+      className={`block ${box} hover:border-[#1B40C8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]`}
+    >
+      {body}
+    </Link>
+  ) : (
+    <div className={box} title={help}>
+      {body}
     </div>
   );
 }

@@ -5,6 +5,8 @@ import {
   parseUnitAnswer,
   looksLikePriceIntent,
   formatPriceUpdateItems,
+  normalizeSpokenPrices,
+  parsePriceItems,
   PRICE_UPDATE_MAX_ITEMS,
 } from "@/lib/restaurant/telegram/price-update";
 
@@ -146,17 +148,17 @@ describe("parsePriceUpdate", () => {
     expect(r).toEqual(upd([{ name: "aguacate", price: 1.5, unit: "lb" }]));
   });
 
-  it("caps the number of items", () => {
+  it("caps the number of items at 25", () => {
     const text = Array.from(
-      { length: 14 },
-      (_, i) => `item${"abcdefghijklmn"[i]} 1.50 la libra`
-    )
-      .join(", ")
-      .replace(/item/g, "prod");
+      { length: 30 },
+      (_, i) =>
+        `prod${String.fromCharCode(97 + (i % 26))}${i < 26 ? "" : "x"} 1.50 la libra`
+    ).join(", ");
     const r = parsePriceUpdate(text);
     expect(r?.kind).toBe("price_update");
     if (r?.kind === "price_update") {
       expect(r.items.length).toBe(PRICE_UPDATE_MAX_ITEMS);
+      expect(PRICE_UPDATE_MAX_ITEMS).toBe(25);
     }
   });
 
@@ -256,10 +258,13 @@ describe("parsePriceMessage (unit may be missing)", () => {
     });
   });
 
-  it("mixed with and without unit stays unclear", () => {
-    expect(parsePriceMessage("tomate 0.80 la libra y cebolla $0.45")).toEqual(
-      UNCLEAR
-    );
+  it("mixed with and without unit keeps what was read (partial)", () => {
+    expect(parsePriceMessage("tomate 0.80 la libra y cebolla $0.45")).toEqual({
+      kind: "partial",
+      items: [{ name: "tomate", price: 0.8, unit: "lb" }],
+      unitless: [{ name: "cebolla", price: 0.45 }],
+      unclearCount: 0,
+    });
   });
 
   it("quantities and reports are still not prices", () => {
@@ -303,5 +308,140 @@ describe("signals", () => {
     expect(parseUnitAnswer("unidad")).toBe("unidad");
     expect(parseUnitAnswer("gracias")).toBeNull();
     expect(parseUnitAnswer("libra de queso a 3")).toBeNull();
+  });
+});
+
+describe("spoken numbers in price position (Whisper writes them every way)", () => {
+  const one = (text: string): Item[] | null => {
+    const r = parsePriceUpdate(text);
+    return r?.kind === "price_update" ? r.items : null;
+  };
+
+  it.each([
+    ["Aguacate a uno cincuenta la onza.", 1.5, "oz"],
+    ["Aguacate a uno cincuenta (la onza)", 1.5, "oz"],
+    ["Aguacate, uno con cincuenta la libra.", 1.5, "lb"],
+    ["el aguacate a un dólar con cincuenta la onza", 1.5, "oz"],
+    ["Aguacate a 1 con 50 la onza.", 1.5, "oz"],
+    ["aguacate 1,50 la onza", 1.5, "oz"],
+    ["aguacate $1.50 la onza", 1.5, "oz"],
+    ["aguacate 1.50 dólares la onza", 1.5, "oz"],
+    ["aguacate dólar cincuenta la libra", 1.5, "lb"],
+    ["frijoles a 75 centavos la libra", 0.75, "lb"],
+    ["frijoles a setenta y cinco centavos la libra", 0.75, "lb"],
+    ["chicharrón a tres cincuenta la libra", 3.5, "lb"],
+    ["chicharrón tres cincuenta la libra", 3.5, "lb"],
+    ["queso a cuatro veinticinco la libra", 4.25, "lb"],
+    ["harina uno veinticinco la libra", 1.25, "lb"],
+    ["queso a dos dólares la libra", 2, "lb"],
+    ["queso a un dólar la libra", 1, "lb"],
+    ["queso a diez dólares y medio la libra", 10.5, "lb"],
+    ["queso a medio dólar la libra", 0.5, "lb"],
+    ["queso a dos la libra", 2, "lb"],
+  ])("%s", (text, price, unit) => {
+    expect(one(text)).toEqual([{ name: expect.any(String), price, unit }]);
+  });
+
+  it("normalizeSpokenPrices turns only price-position numbers into digits", () => {
+    expect(normalizeSpokenPrices("aguacate a uno cincuenta la onza")).toBe(
+      "aguacate a 1.50 la onza"
+    );
+    expect(normalizeSpokenPrices("a 75 centavos la libra")).toBe(
+      "a 0.75 dólares la libra"
+    );
+    expect(normalizeSpokenPrices("un dólar cinco")).toBe("un dólar cinco");
+  });
+
+  it.each([
+    "se usan dos libras de masa para las pupusas",
+    "se usan 2 libras de masa para las pupusas",
+    "necesito dos libras de masa",
+    "6 tomates",
+    "2 tazas de harina",
+    "quedan tres cincuenta porciones",
+    "llegaron cinco cajas de tomate",
+    "nos vemos a las tres cincuenta",
+  ])("quantities are never prices: %s", (text) => {
+    expect(parsePriceItems(text)?.items ?? []).toEqual([]);
+    expect(parsePriceItems(text)?.unitless ?? []).toEqual([]);
+    expect(normalizeSpokenPrices(text)).toBe(text);
+  });
+
+  it("«aguacate a 150 la onza» is ambiguous: 150 is never saved or converted", () => {
+    const r = parsePriceItems("Aguacate a 150 la onza.");
+    expect(r?.items).toEqual([]);
+    expect(r?.unclear).toEqual([
+      expect.objectContaining({ label: "aguacate", hint: "150" }),
+    ]);
+    expect(normalizeSpokenPrices("aguacate a 150 la onza")).toBe(
+      "aguacate a 150 la onza"
+    );
+    // An explicit currency removes the doubt.
+    expect(one("aguacate a 150 dólares el quintal")).toEqual([
+      { name: "aguacate", price: 150, unit: "quintal" },
+    ]);
+  });
+});
+
+describe("parsePriceItems: item by item", () => {
+  const text =
+    "Precios para las pupusas revueltas. Masa de maíz a 75 centavos la libra, chicharrón a tres cincuenta la libra, quesillo a 4.25 la libra, frijoles a 1.20, aceite a 2.50 el litro. El agua tibia no tiene precio.";
+
+  it("reads every item, asks the unit of one, skips the one without price", () => {
+    const r = parsePriceItems(text);
+    expect(r?.items).toEqual([
+      { name: "masa de maíz", price: 0.75, unit: "lb" },
+      { name: "chicharrón", price: 3.5, unit: "lb" },
+      { name: "quesillo", price: 4.25, unit: "lb" },
+      { name: "aceite", price: 2.5, unit: "litro" },
+    ]);
+    expect(r?.unitless).toEqual([{ name: "frijoles", price: 1.2 }]);
+    expect(r?.skippedNoPrice).toEqual(["agua tibia"]);
+    expect(r?.unclear).toEqual([]);
+  });
+
+  it("the same list split by periods only (no commas)", () => {
+    const r = parsePriceItems(
+      text.replace(/, /g, ". ").replace("aceite", "Aceite")
+    );
+    expect(r?.items.length).toBe(4);
+    expect(r?.unitless.length).toBe(1);
+  });
+
+  it("one unreadable item does not block the rest", () => {
+    const r = parsePriceItems(
+      "harina uno veinticinco la libra, chicharrón tres cincuenta la libra, sal (1,5) la libr, quesillo cuatro dólares la libra"
+    );
+    expect(r?.items.map((i) => i.name)).toEqual([
+      "harina",
+      "chicharrón",
+      "quesillo",
+    ]);
+    expect(r?.unclear).toHaveLength(1);
+  });
+
+  it("an intro or a filler sentence does not block", () => {
+    const r = parsePriceItems(
+      "Estos son los precios. Aguacate a 1.50 la libra."
+    );
+    expect(r?.items).toEqual([{ name: "aguacate", price: 1.5, unit: "lb" }]);
+    expect(r?.unclear).toEqual([]);
+  });
+
+  it("items run together without punctuation are still split", () => {
+    const r = parsePriceItems(
+      "masa a 0.75 la libra chicharrón a 3.50 la libra"
+    );
+    expect(r?.items).toHaveLength(2);
+  });
+
+  it("a missing price is skipped, never 0", () => {
+    const r = parsePriceItems("El agua tibia no tiene precio.");
+    expect(r).toMatchObject({
+      items: [],
+      unitless: [],
+      unclear: [],
+      skippedNoPrice: ["agua tibia"],
+    });
   });
 });

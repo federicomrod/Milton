@@ -65,7 +65,24 @@ import {
 } from "@/lib/restaurant/telegram/kitchen-media";
 import { maybeGuideOwnerChat } from "@/lib/restaurant/telegram/owner-chat-guidance";
 import { classifyKitchenPhoto } from "@/lib/restaurant/telegram/photo-classify";
-import { parsePriceUpdate } from "@/lib/restaurant/telegram/price-update";
+import {
+  looksLikePriceIntent,
+  parsePriceMessage,
+  parseUnitAnswer,
+} from "@/lib/restaurant/telegram/price-update";
+import {
+  aiStage,
+  resolvePriceText,
+  rulesStage,
+  type PriceFlowResult,
+} from "@/lib/restaurant/telegram/price-flow";
+import { askPriceAi } from "@/lib/restaurant/telegram/price-update-ai";
+import {
+  applyUnit,
+  findOpenUnitQuestion,
+  itemsOfQuestion,
+  openUnitQuestion,
+} from "@/lib/restaurant/telegram/price-unit-question";
 import {
   listActiveLinks,
   validateLink,
@@ -87,6 +104,7 @@ import {
   entriesFor,
   anchorMessageId,
   isAnchor,
+  isUnitQuestion,
   linkLabel,
   linkToActor,
   maybeCleanupPending,
@@ -94,6 +112,7 @@ import {
   PAGE_BASE,
   pageCount,
   parkItem,
+  unitQuestionMessageId,
   payloadFromMessage,
 } from "@/lib/restaurant/telegram/kitchen-routing";
 
@@ -389,6 +408,10 @@ async function handleKitchenReport(
     const hasReportWords =
       classifyKitchenReport(textContent) !== "unclassified";
 
+    // «libra» answering «¿El precio de queso es por libra, onza o unidad?».
+    // Any other message cancels the question silently and goes the normal way.
+    if (isPlainText && (await tryUnitAnswer(message, chatId, links))) return;
+
     // «factura» / «receta» answering PHOTO_ASK_KIND: reprocess that staff
     // member's latest undecided photo (last 30 min) exactly once. Nothing
     // pending -> falls through to the normal behaviour below. With several
@@ -421,7 +444,10 @@ async function handleKitchenReport(
     // A price note («el aguacate subió a 1.50 la libra») is never a portions
     // answer.
     const priceParse =
-      isPlainText && !hasReportWords ? parsePriceUpdate(textContent) : null;
+      isPlainText && !hasReportWords
+        ? (parsePriceMessage(textContent) ??
+          (looksLikePriceIntent(textContent) ? { kind: "unclear" } : null))
+        : null;
     if (isPlainText && !intent.isRecipe && !hasReportWords && !priceParse) {
       const awaiting = await findAwaitingDraftAcross(admin, links, chatId);
 
@@ -497,8 +523,6 @@ async function processReport(args: {
     !message.voice &&
     !message.document;
   const hasReportWords = classifyKitchenReport(textContent) !== "unclassified";
-  const priceParse =
-    isPlainText && !hasReportWords ? parsePriceUpdate(textContent) : null;
 
   const inserted = await recordKitchenReport({
     companyId: link.companyId,
@@ -541,39 +565,65 @@ async function processReport(args: {
     return;
   }
 
-  if (priceParse?.kind === "price_intent_unclear") {
-    await sendTelegramMessage(chatId, KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
-    return;
-  }
-  if (priceParse?.kind === "price_update") {
-    const items = priceParse.items;
-    after(() =>
-      processPriceUpdate({
-        admin,
-        staff,
+  // Text: rules -> AI fallback -> ask the unit -> save. Without a number (or
+  // with report words) none of this runs and the note is just acknowledged.
+  const priceCtx = {
+    admin,
+    staff,
+    link,
+    chatId,
+    messageId,
+    reportId,
+    dateSec: typeof message.date === "number" ? message.date : null,
+    origin: "text" as const,
+    markup,
+  };
+  const finishNote = async () => {
+    if (!intent.isRecipe && !isVoiceWithoutText) {
+      await say(
         chatId,
-        reportId,
-        dateSec: typeof message.date === "number" ? message.date : null,
-        items,
-        origin: "text",
-        replyMarkup: markup,
-      }).catch(() => {
-        console.error("[telegram-webhook] price update failed");
-      })
-    );
-    return;
+        renderKitchenCopy(KITCHEN_COPY.REPORT_ACK, {
+          nombre_local: staff.location_name,
+        }),
+        markup
+      );
+      return true;
+    }
+    return false;
+  };
+
+  if (isPlainText && !hasReportWords) {
+    const stage = rulesStage(textContent);
+    if (stage.done) {
+      if (await applyPriceResult(stage.result, priceCtx)) return;
+    } else {
+      // The AI call can take a few seconds: answer from after().
+      after(async () => {
+        try {
+          const result = await aiStage(textContent, stage.rules, askPriceAi);
+          if (await applyPriceResult(result, priceCtx)) return;
+          if (!(await finishNote())) {
+            await processRecipeDraftAsync(
+              staff,
+              chatId,
+              messageId,
+              reportId,
+              textContent,
+              null,
+              null,
+              priceCtx.dateSec,
+              { markup, forceRecipe: true }
+            );
+          }
+        } catch {
+          console.error("[telegram-webhook] price update failed");
+        }
+      });
+      return;
+    }
   }
 
-  if (!intent.isRecipe && !isVoiceWithoutText) {
-    await say(
-      chatId,
-      renderKitchenCopy(KITCHEN_COPY.REPORT_ACK, {
-        nombre_local: staff.location_name,
-      }),
-      markup
-    );
-    return;
-  }
+  if (await finishNote()) return;
 
   after(() =>
     processRecipeDraftAsync(
@@ -585,7 +635,7 @@ async function processReport(args: {
       report?.media_kind ?? null,
       report?.telegram_file_id ?? null,
       typeof message.date === "number" ? message.date : null,
-      { markup }
+      { markup, link }
     )
   );
 }
@@ -675,6 +725,8 @@ async function handleCallbackQuery(
 
     const pending = await loadPendingByNonce(parsed.nonce);
     if (!pending) return reject("no_nonce");
+    // A unit question is answered with text, never with a button.
+    if (isUnitQuestion(pending.telegramMessageId)) return reject("no_nonce");
     if (pending.telegramUserId !== fromId) return reject("wrong_user");
     if (typeof chatId !== "number" || pending.chatId !== chatId) {
       return reject("wrong_chat");
@@ -826,6 +878,141 @@ async function handleCallbackQuery(
   }
 }
 
+interface PriceCtx {
+  admin: ReturnType<typeof createAdminClient>;
+  staff: KitchenActor;
+  /** The restaurant link the unit question belongs to. */
+  link: KitchenLink | null;
+  chatId: number;
+  messageId: number;
+  reportId: string | null;
+  dateSec: number | null;
+  origin: "text" | "voice";
+  markup?: InlineKeyboardMarkup;
+}
+
+// Acts on the pipeline's verdict. true = the message was answered.
+async function applyPriceResult(
+  result: PriceFlowResult,
+  ctx: PriceCtx
+): Promise<boolean> {
+  if (result.kind === "none") return false;
+  if (result.kind === "unclear") {
+    await sendTelegramMessage(ctx.chatId, KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
+    return true;
+  }
+  if (result.kind === "update") {
+    await processPriceUpdate({
+      admin: ctx.admin,
+      staff: ctx.staff,
+      chatId: ctx.chatId,
+      reportId: ctx.reportId,
+      dateSec: ctx.dateSec,
+      items: result.items,
+      origin: ctx.origin,
+      replyMarkup: ctx.markup,
+    }).catch(() => {
+      console.error("[telegram-webhook] price update failed");
+    });
+    return true;
+  }
+  // needs_unit: nothing is saved; ask once and keep the question open.
+  const opened = ctx.link
+    ? await openUnitQuestion({
+        chatId: ctx.chatId,
+        messageId: ctx.messageId,
+        link: ctx.link,
+        items: result.items,
+      })
+    : ({ ok: false } as const);
+  if (!opened.ok) {
+    await sendTelegramMessage(ctx.chatId, KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
+    return true;
+  }
+  maybeCleanupPending();
+  if (opened.created) {
+    console.info(
+      `[telegram-webhook] price unit asked items=${result.items.length}`
+    );
+    await sendTelegramMessage(
+      ctx.chatId,
+      renderKitchenCopy(KITCHEN_COPY.PRICE_UNIT_ASK, {
+        producto: joinProducts(result.items.map((i) => i.name)),
+      })
+    );
+  }
+  return true;
+}
+
+function joinProducts(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`;
+}
+
+// The cook answered the open unit question with a unit word: save the
+// price(s) exactly as a normal price update. Any other text cancels the
+// question silently (returns false: the message is handled as usual).
+async function tryUnitAnswer(
+  message: TelegramMessage,
+  chatId: number,
+  links: KitchenLink[]
+): Promise<boolean> {
+  const question = await findOpenUnitQuestion(chatId);
+  if (!question || !isUnitQuestion(question.telegramMessageId)) return false;
+  // A retry of the very message that asked: leave the question alone.
+  if (
+    question.telegramMessageId ===
+    unitQuestionMessageId(message.message_id ?? 0)
+  ) {
+    return false;
+  }
+  const unit = parseUnitAnswer(message.text ?? "");
+  const staffId = question.optionStaffIds[0];
+  const link = links.find((l) => l.staffId === staffId);
+  const items = itemsOfQuestion(question);
+  if (!unit || !link || !items) {
+    await expirePendingItem(question.id);
+    return false;
+  }
+  // One winner: a retry or a second answer finds it resolved.
+  const resolved = await resolvePendingItem(question.id, staffId);
+  if (!resolved.ok) return resolved.reason !== "expired";
+
+  const report = extractReportFromMessage(message);
+  if (!report) return true;
+  const inserted = await recordKitchenReport({
+    companyId: link.companyId,
+    locationId: link.locationId,
+    staffId: link.staffId,
+    chatId,
+    report,
+  });
+  if (!inserted) return true;
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("kitchen_reports")
+    .select("id")
+    .eq("telegram_chat_id", chatId)
+    .eq("telegram_message_id", report.telegram_message_id)
+    .maybeSingle();
+  const staff = linkToActor(link);
+  const priced = applyUnit(items, unit);
+  after(() =>
+    processPriceUpdate({
+      admin,
+      staff,
+      chatId,
+      reportId: data?.id ?? null,
+      dateSec: typeof message.date === "number" ? message.date : null,
+      items: priced,
+      origin: "text",
+    }).catch(() => {
+      console.error("[telegram-webhook] price update failed");
+    })
+  );
+  return true;
+}
+
 async function processRecipeDraftAsync(
   staff: KitchenActor,
   chatId: number,
@@ -835,7 +1022,11 @@ async function processRecipeDraftAsync(
   mediaKind: "photo" | "voice" | null,
   telegramFileId: string | null,
   dateSec: number | null = null,
-  opts: { forceRecipe?: boolean; markup?: InlineKeyboardMarkup } = {}
+  opts: {
+    forceRecipe?: boolean;
+    markup?: InlineKeyboardMarkup;
+    link?: KitchenLink;
+  } = {}
 ) {
   try {
     const admin = createAdminClient();
@@ -907,22 +1098,25 @@ async function processRecipeDraftAsync(
         await ack();
         return;
       }
-      const price = parsePriceUpdate(finalTextContent);
-      if (price?.kind === "price_intent_unclear") {
-        await sendTelegramMessage(chatId, KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
-        return;
+      if (mediaKind === "voice") {
+        console.info(
+          `[telegram-webhook] transcript_len=${finalTextContent.length}`
+        );
       }
-      if (price?.kind === "price_update") {
-        await processPriceUpdate({
+      const price = await resolvePriceText(finalTextContent, askPriceAi);
+      if (
+        await applyPriceResult(price, {
           admin,
           staff,
+          link: opts.link ?? null,
           chatId,
+          messageId,
           reportId,
           dateSec,
-          items: price.items,
           origin: mediaKind === "voice" ? "voice" : "text",
-          replyMarkup: opts.markup,
-        });
+          markup: opts.markup,
+        })
+      ) {
         return;
       }
       if (!detectRecipeIntent(finalTextContent).isRecipe) {

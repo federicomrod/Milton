@@ -89,7 +89,13 @@ export function computeDraftCost(
       miss(line.name);
       continue;
     }
-    const price = prices.get(line.ingredient_id) ?? null;
+    const found = prices.get(line.ingredient_id) ?? null;
+    // A stored price of 0 (or null / not a number) is MISSING, never a free
+    // ingredient.
+    const price =
+      found && Number.isFinite(found.unit_cost) && found.unit_cost > 0
+        ? found
+        : null;
     if (!price) {
       out.push({
         key: line.key,

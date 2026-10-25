@@ -147,30 +147,119 @@ export interface IngredientSuggestion<T extends MatchableIngredient> {
 }
 
 /**
- * 4. A looser guess for a name nothing matched: the ingredient that shares the
- * most words. Never pre-selected; the screen shows «¿Es <X>?». Deterministic:
- * best score, then shorter name, then name, then id.
+ * Words that name a CATEGORY, not an identity ("salsa roja" is not "Salsa de
+ * soya"). Sharing only one of these is never enough for a suggestion.
+ * Kept small on purpose; matched folded and in plural.
+ */
+export const GENERIC_HEAD_WORDS: readonly string[] = [
+  "salsa",
+  "aceite",
+  "crema",
+  "queso",
+  "polvo",
+  "jugo",
+  "pasta",
+  "mezcla",
+  "caldo",
+  "harina",
+];
+
+const FILLER_WORDS = new Set([
+  "de",
+  "del",
+  "la",
+  "el",
+  "los",
+  "las",
+  "con",
+  "para",
+  "en",
+  "y",
+  "al",
+]);
+
+function isGenericWord(word: string): boolean {
+  for (const form of spanishWordForms(word)) {
+    if (GENERIC_HEAD_WORDS.includes(form)) return true;
+  }
+  return false;
+}
+
+/** Words that identify the thing: no fillers, no generic category words. */
+export function distinguishingWords(text: string): string[] {
+  return words(text).filter((w) => !FILLER_WORDS.has(w) && !isGenericWord(w));
+}
+
+function wordsMatch(a: string, b: string): number {
+  if (directWordsMatch(a, b)) return 1;
+  if (synonymWordsMatch(a, b)) return 0.9;
+  return 0;
+}
+
+function allCovered(source: string[], target: string[]): boolean {
+  return source.every((w) => target.some((t) => wordsMatch(w, t) > 0));
+}
+
+/**
+ * Do these two names point at the same thing, loosely? Needs a shared
+ * IDENTIFYING word (not just "salsa") and one name's identifying words to be
+ * contained in the other's: "tomate cherry" ~ "Tomate", "pollo" ~ "Pechuga de
+ * pollo", but not "salsa roja" ~ "Salsa de soya" nor "chile rojo" ~ "chile
+ * verde". A name made only of generic words ("queso") may match on those.
+ */
+export function looselySameName(a: string, b: string): number {
+  const wa = words(a);
+  const wb = words(b);
+  if (wa.length === 0 || wb.length === 0) return 0;
+  const da = distinguishingWords(a);
+  const db = distinguishingWords(b);
+  if (da.length > 0 && db.length > 0) {
+    if (!(allCovered(da, wb) || allCovered(db, wa))) return 0;
+  } else if (da.length > 0 || db.length > 0) {
+    // One side is only generic words: it must be covered by the other.
+    const only = da.length === 0 ? wa : wb;
+    const other = da.length === 0 ? wb : wa;
+    if (
+      !allCovered(
+        only.filter((w) => !FILLER_WORDS.has(w)),
+        other
+      )
+    )
+      return 0;
+  }
+  let shared = 0;
+  for (const w of wa) {
+    const best = Math.max(0, ...wb.map((t) => wordsMatch(w, t)));
+    shared += best;
+  }
+  if (shared === 0) return 0;
+  // Needs at least one identifying word in common when there are any.
+  if (da.length > 0 && db.length > 0) {
+    const common = da.some((w) => db.some((t) => wordsMatch(w, t) > 0));
+    if (!common) return 0;
+  }
+  return shared / Math.max(wa.length, wb.length);
+}
+
+/**
+ * 4. A looser guess for a name nothing matched. Never pre-selected; the screen
+ * shows «¿Es <X>?». Deterministic: best score, then shorter name, then name,
+ * then id. See looselySameName for what counts.
  */
 export function suggestIngredient<T extends MatchableIngredient>(
   name: string,
   ingredients: readonly T[]
 ): IngredientSuggestion<T> | null {
-  const cook = words(name);
-  if (cook.length === 0 || normalizeKitchenName(name).trim().length < 3) {
+  if (
+    words(name).length === 0 ||
+    normalizeKitchenName(name).trim().length < 3
+  ) {
     return null;
   }
   let best: IngredientSuggestion<T> | null = null;
   for (const ing of [...ingredients].sort(byNameThenId)) {
-    const theirs = words(ing.name);
-    if (theirs.length === 0) continue;
-    // A shared word counts 1, a synonym of a word 0.9 (so a direct match wins).
-    let shared = 0;
-    for (const w of cook) {
-      if (theirs.some((t) => directWordsMatch(w, t))) shared += 1;
-      else if (theirs.some((t) => synonymWordsMatch(w, t))) shared += 0.9;
-    }
-    if (shared === 0) continue;
-    const score = shared / Math.max(cook.length, theirs.length);
+    const score = looselySameName(name, ing.name);
+    if (score === 0) continue;
     if (
       !best ||
       score > best.score ||
@@ -180,4 +269,44 @@ export function suggestIngredient<T extends MatchableIngredient>(
     }
   }
   return best;
+}
+
+/** Strip «(para pupusas y pasteles)» style qualifiers before comparing. */
+export function stripParenthetical(name: string): string {
+  return name
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export interface PreparationRef {
+  id?: string;
+  name: string;
+}
+
+/** The preparation (existing or from the same upload) a name looks like. */
+export function suggestPreparation<T extends PreparationRef>(
+  name: string,
+  preparations: readonly T[]
+): T | null {
+  if (
+    words(name).length === 0 ||
+    normalizeKitchenName(name).trim().length < 3
+  ) {
+    return null;
+  }
+  let best: { prep: T; score: number } | null = null;
+  for (const prep of preparations) {
+    const clean = stripParenthetical(prep.name);
+    const score = looselySameName(stripParenthetical(name), clean);
+    if (score === 0) continue;
+    if (
+      !best ||
+      score > best.score ||
+      (score === best.score && clean.length < best.prep.name.length)
+    ) {
+      best = { prep, score };
+    }
+  }
+  return best?.prep ?? null;
 }

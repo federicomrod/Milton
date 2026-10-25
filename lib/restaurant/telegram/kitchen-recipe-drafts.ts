@@ -483,7 +483,13 @@ export function matchIngredients(
       };
 
       const cost = getLatestIngredientCost(bestMatch.id, costData);
-      if (cost.status === "complete" && cost.unit_cost !== null && cost.unit) {
+      // A price of 0 is a missing price, never a free ingredient.
+      if (
+        cost.status === "complete" &&
+        cost.unit_cost !== null &&
+        Number(cost.unit_cost) > 0 &&
+        cost.unit
+      ) {
         unitCost = cost.unit_cost;
         unitCostUnit = cost.unit;
         if (
@@ -555,12 +561,18 @@ export async function createRecipeDraft(
   try {
     const admin = client ?? createAdminClient();
 
-    const totalCost = input.lines.reduce(
-      (sum, l) => sum + (l.line_cost ?? 0),
-      0
-    );
+    // A total exists only when EVERY line has a cost (> 0); a partial sum is
+    // never stored as a total.
+    const allCosted =
+      input.lines.length > 0 &&
+      input.lines.every((l) => l.line_cost !== null && l.line_cost > 0);
+    const totalCost = allCosted
+      ? input.lines.reduce((sum, l) => sum + (l.line_cost ?? 0), 0)
+      : null;
     const perPortionCost =
-      input.portions && input.portions > 0 ? totalCost / input.portions : null;
+      totalCost !== null && input.portions && input.portions > 0
+        ? totalCost / input.portions
+        : null;
 
     const status = input.portions === null ? "awaiting_portions" : "draft";
 
@@ -605,7 +617,7 @@ export async function createRecipeDraft(
       confidence: l.confidence,
       unit_cost_snapshot: l.unit_cost_snapshot,
       unit_cost_unit: l.unit_cost_unit,
-      line_cost: l.line_cost,
+      line_cost: l.line_cost !== null && l.line_cost > 0 ? l.line_cost : null,
     }));
 
     if (lineRows.length > 0) {

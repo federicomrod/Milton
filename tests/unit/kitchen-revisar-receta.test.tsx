@@ -77,7 +77,11 @@ beforeEach(() => {
       location_name: "Centro",
       lines: [
         line({ id: "l-1", raw_name: "bacon", total_quantity: 0.4 }),
-        line({ id: "l-2", raw_name: "queso fresco", total_quantity: 0.2 }),
+        line({
+          id: "l-2",
+          raw_name: "queso mozzarella rallado",
+          total_quantity: 0.2,
+        }),
         line({
           id: "l-3",
           raw_name: "pan",
@@ -232,9 +236,9 @@ describe("matching only suggests", () => {
     expect(confirmButton(dialog).disabled).toBe(true);
   });
 
-  it("«queso fresco» with only «Queso mozzarella»: «¿Es Queso mozzarella?», NOT selected; accepting it selects it and teaches nothing yet", async () => {
+  it("«queso mozzarella rallado» with only «Queso mozzarella»: «¿Es Queso mozzarella?», NOT selected; accepting it selects it and teaches nothing yet", async () => {
     const dialog = await openModal();
-    expect(combo(dialog, 2).value).toBe("queso fresco");
+    expect(combo(dialog, 2).value).toBe("queso mozzarella rallado");
     expect(within(dialog).getByText("Queso mozzarella")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Sí, usarlo" }));
     await waitFor(() =>
@@ -245,10 +249,10 @@ describe("matching only suggests", () => {
 
   it("the pure rules: exact is picked, a shared word is only suggested", () => {
     const list = [{ id: "i-mozz", name: "Queso mozzarella" }];
-    expect(findExactIngredient("queso fresco", list)).toBeNull();
-    expect(suggestIngredient("queso fresco", list)?.ingredient.id).toBe(
-      "i-mozz"
-    );
+    expect(findExactIngredient("queso mozzarella rallado", list)).toBeNull();
+    expect(
+      suggestIngredient("queso mozzarella rallado", list)?.ingredient.id
+    ).toBe("i-mozz");
     expect(findExactIngredient("QUESO MOZZARELLA", list)?.id).toBe("i-mozz");
   });
 });
@@ -509,6 +513,46 @@ describe("the price popover", () => {
   });
 });
 
+describe("a stored price of 0 or null is «Sin precio», never $0.00", () => {
+  it("computeDraftCost treats 0, null and NaN as missing", () => {
+    const prices = new Map([
+      ["a", { unit_cost: 0, unit: "kg" }],
+      ["b", null],
+      ["c", { unit_cost: 4, unit: "kg" }],
+    ]);
+    const mk = (id: string) => ({
+      key: id,
+      ingredient_id: id,
+      name: id,
+      total_quantity: 1,
+      unit: "kg",
+    });
+    const cost = computeDraftCost([mk("a"), mk("b"), mk("c")], prices, 2, 10);
+    expect(cost.lines.map((l) => l.reason)).toEqual([
+      "no_price",
+      "no_price",
+      "ok",
+    ]);
+    expect(cost.complete).toBe(false);
+    expect(cost.total).toBeNull();
+    expect(cost.unpriced_count).toBe(2);
+  });
+
+  it("the modal shows «Sin precio» for an ingredient priced 0", async () => {
+    ingredients = [
+      {
+        id: "i-pan",
+        name: "Pan",
+        default_unit: "pza",
+        price: { unit_cost: 0, unit: "pza" },
+      },
+    ];
+    const dialog = await openModal();
+    expect(dialog.textContent).not.toContain("$0.00");
+    expect(within(dialog).getAllByText("Sin precio").length).toBeGreaterThan(0);
+  });
+});
+
 describe("the footer is one honest line", () => {
   const priced = new Map([
     ["a", { unit_cost: 4, unit: "kg" }],
@@ -615,7 +659,11 @@ describe("the footer is one honest line", () => {
 describe("names are taught only after a successful Confirmar", () => {
   beforeEach(() => {
     drafts[0].lines = [
-      line({ id: "l-2", raw_name: "queso fresco", total_quantity: 0.2 }),
+      line({
+        id: "l-2",
+        raw_name: "queso mozzarella rallado",
+        total_quantity: 0.2,
+      }),
       line({
         id: "l-3",
         raw_name: "pan",
@@ -637,7 +685,7 @@ describe("names are taught only after a successful Confirmar", () => {
     fireEvent.click(confirmButton(dialog));
     await waitFor(() => expect(aliasCalls()).toHaveLength(1));
     expect(aliasCalls()[0].body).toEqual({
-      raw_name: "queso fresco",
+      raw_name: "queso mozzarella rallado",
       ingredient_id: "i-mozz",
       draft_id: "d-1",
     });

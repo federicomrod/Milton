@@ -9,6 +9,7 @@
 // Company and location come from the caller. Writes use the admin client the
 // caller passes. Logs: counts only.
 
+import { classifyRecipeKind } from "./classify";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   loadDraftMatchingCatalog,
@@ -76,7 +77,19 @@ export async function persistRecipes(input: {
 
   let failed = 0;
   for (let i = 0; i < input.recipes.length; i++) {
-    const recipe = input.recipes[i];
+    const original = input.recipes[i];
+    // Deterministic: what is written overrides the model's kind (classify.ts).
+    const classified = classifyRecipeKind({
+      yieldText: original.yield_text,
+      tabLabel: original.tab_label ?? null,
+      modelKind: original.kind,
+      modelPortions: original.portions,
+    });
+    const recipe = {
+      ...original,
+      kind: classified.kind,
+      portions: classified.portions,
+    };
     const isPrep = recipe.kind === "preparacion";
 
     const matched = matchIngredients(

@@ -30,6 +30,7 @@ export function KitchenExplore({
   canManageDrafts,
   locations,
   focusDraftId,
+  onFocusConsumed,
 }: {
   insights: KitchenInsights;
   tab: KitchenExploreTab;
@@ -39,6 +40,7 @@ export function KitchenExplore({
   canManageDrafts?: boolean;
   locations: { id: string; name: string }[];
   focusDraftId?: string | null;
+  onFocusConsumed?: () => void;
 }) {
   const [uploadTick, setUploadTick] = useState(0);
   const chips: { id: KitchenExploreTab; label: string }[] = [
@@ -139,6 +141,7 @@ export function KitchenExplore({
             canManage={canManageDrafts ?? canManage}
             locations={locations}
             focusDraftId={focusDraftId}
+            onFocusConsumed={onFocusConsumed}
             reloadSignal={uploadTick}
           />
         </div>

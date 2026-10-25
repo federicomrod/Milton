@@ -4,7 +4,7 @@
 
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import {
@@ -51,6 +51,8 @@ export function KitchenPageLive({
   const [expanded, setExpanded] = useState(false);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [focusDraftId, setFocusDraftId] = useState<string | null>(null);
+
+  const clearFocus = useCallback(() => setFocusDraftId(null), []);
 
   const filtered = useMemo(
     () => filterFeed(insights.feed, filter),
@@ -134,6 +136,7 @@ export function KitchenPageLive({
         canManageDrafts={canManageDrafts}
         locations={locations}
         focusDraftId={focusDraftId}
+        onFocusConsumed={clearFocus}
       />
       <div
         data-testid="kitchen-legend"

@@ -127,8 +127,10 @@ async function workbookAi(chunk: RecipeChunk): Promise<unknown> {
         },
         {
           dish_name: "Pescado frito entero",
-          kind: "plato",
-          portions: 4,
+          // the real model got this wrong (preparación, no portions): the
+          // deterministic classifier fixes it from the written yield
+          kind: "preparacion",
+          portions: null,
           yield_text: "4 platos (1 pescado por plato)",
           ingredients: [
             ing("Pescado entero", 4, "unidad"),
@@ -256,6 +258,13 @@ describe("workbook → drafts", () => {
       status: "awaiting_portions",
     });
     expect(byName("Arroz con pollo")).toMatchObject({ portions: 10 });
+    expect(byName("Pescado frito entero")).toMatchObject({
+      portions: 4,
+      status: "draft",
+    });
+    expect(res.preparations.map((p) => p.dish_name)).not.toContain(
+      "Pescado frito entero"
+    );
 
     // Sal stays without quantity; no line for Tiempo or the footnote
     const lines = store.kitchen_recipe_draft_lines;

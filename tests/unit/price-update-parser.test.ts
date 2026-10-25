@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   parsePriceUpdate,
+  parsePriceMessage,
+  parseUnitAnswer,
+  looksLikePriceIntent,
   formatPriceUpdateItems,
   PRICE_UPDATE_MAX_ITEMS,
 } from "@/lib/restaurant/telegram/price-update";
@@ -184,5 +187,121 @@ describe("formatPriceUpdateItems", () => {
         { name: "tomate", price: 0.8, unit: "lb" },
       ])
     ).toBe("aguacate $1.50 la libra, tomate $0.80 la libra");
+  });
+});
+
+describe("typos, abbreviations and spoken prices", () => {
+  const one = (text: string): Item[] | null => {
+    const r = parsePriceUpdate(text);
+    return r?.kind === "price_update" ? r.items : null;
+  };
+
+  it.each([
+    ["Aguacate 1,50 la onzs", { name: "aguacate", price: 1.5, unit: "oz" }],
+    ["aguacate 1.50 la onz", { name: "aguacate", price: 1.5, unit: "oz" }],
+    ["aguacate 1.50 la onza", { name: "aguacate", price: 1.5, unit: "oz" }],
+    ["aguacate 1.50 por onzas", { name: "aguacate", price: 1.5, unit: "oz" }],
+    ["aguacate $1.50 la oz.", { name: "aguacate", price: 1.5, unit: "oz" }],
+    ["aguacate $1.50 la lbs.", { name: "aguacate", price: 1.5, unit: "lb" }],
+    ["aguacate $1.50 el kg.", { name: "aguacate", price: 1.5, unit: "kg" }],
+    ["leche 1.10 el lt", { name: "leche", price: 1.1, unit: "litro" }],
+    ["leche 1.10 el litros", { name: "leche", price: 1.1, unit: "litro" }],
+    ["sal 0.05 el gr", { name: "sal", price: 0.05, unit: "g" }],
+    ["sal 0.05 el gramo", { name: "sal", price: 0.05, unit: "g" }],
+    ["huevo 0.20 c/u", { name: "huevo", price: 0.2, unit: "unidad" }],
+    ["huevo 0.20 cada uno", { name: "huevo", price: 0.2, unit: "unidad" }],
+    ["huevo 0.20 la unidad", { name: "huevo", price: 0.2, unit: "unidad" }],
+    ["cebolla 2 dólares el kilo", { name: "cebolla", price: 2, unit: "kg" }],
+    ["cebolla 2 dolares el kilo", { name: "cebolla", price: 2, unit: "kg" }],
+    ["cebolla 2 USD el kilo", { name: "cebolla", price: 2, unit: "kg" }],
+    ["cebolla 1 dólar la libra", { name: "cebolla", price: 1, unit: "lb" }],
+    [
+      "el tomate subió a $0,80 la lb",
+      { name: "tomate", price: 0.8, unit: "lb" },
+    ],
+    ["tomate 1,5 la libra", { name: "tomate", price: 1.5, unit: "lb" }],
+  ])("%s", (text, item) => {
+    expect(one(text)).toEqual([item]);
+  });
+
+  it.each([
+    ["el aguacate ahora está a un dólar cincuenta la libra", 1.5],
+    ["el aguacate está a un dólar con cincuenta la libra", 1.5],
+    ["el aguacate está a dos dólares con veinticinco la libra", 2.25],
+    ["aguacate un dólar y medio la libra", 1.5],
+    ["aguacate un dólar con treinta y cinco la libra", 1.35],
+    ["aguacate tres dólares la libra", 3],
+  ])("spoken: %s", (text, price) => {
+    expect(one(text)).toEqual([{ name: "aguacate", price, unit: "lb" }]);
+  });
+
+  it("«un dólar cinco» is not 1.05", () => {
+    expect(one("aguacate un dólar cinco la libra")).toBeNull();
+  });
+
+  it("1,500 and 1.500 stay unclear", () => {
+    expect(parsePriceUpdate("aguacate 1,500 la onza")).toEqual(UNCLEAR);
+  });
+});
+
+describe("parsePriceMessage (unit may be missing)", () => {
+  it("a price without unit needs the unit", () => {
+    expect(parsePriceMessage("queso 3.25")).toEqual({
+      kind: "needs_unit",
+      items: [{ name: "queso", price: 3.25 }],
+    });
+    expect(parsePriceMessage("el aguacate subió a $1.50")).toEqual({
+      kind: "needs_unit",
+      items: [{ name: "aguacate", price: 1.5 }],
+    });
+  });
+
+  it("mixed with and without unit stays unclear", () => {
+    expect(parsePriceMessage("tomate 0.80 la libra y cebolla $0.45")).toEqual(
+      UNCLEAR
+    );
+  });
+
+  it("quantities and reports are still not prices", () => {
+    for (const t of negatives) expect(parsePriceMessage(t)).toBeNull();
+  });
+});
+
+describe("signals", () => {
+  it("looksLikePriceIntent", () => {
+    for (const t of [
+      "Aguacate 1,50 la onzs",
+      "aguacate 1,5 x lbra",
+      "el aguacate cuesta 1,5",
+      "cebolla $1.2 el kilgramo",
+      "queso 3.25",
+    ]) {
+      expect(looksLikePriceIntent(t), t).toBe(true);
+    }
+    for (const t of [
+      "gracias por todo",
+      "quedan 3 porciones",
+      "llegaron 5 cajas de tomate",
+      "86 el aguacate",
+      "1 hamburguesa",
+      "reunión a las 3:30",
+      "nos vemos el 12/05/2026",
+      "llámame al 7777-1234",
+      "pollo 2 lb",
+    ]) {
+      expect(looksLikePriceIntent(t), t).toBe(false);
+    }
+  });
+
+  it("parseUnitAnswer", () => {
+    expect(parseUnitAnswer("libra")).toBe("lb");
+    expect(parseUnitAnswer("Por libra.")).toBe("lb");
+    expect(parseUnitAnswer("la onza")).toBe("oz");
+    expect(parseUnitAnswer("onzs")).toBe("oz");
+    expect(parseUnitAnswer("el kilo")).toBe("kg");
+    expect(parseUnitAnswer("c/u")).toBe("unidad");
+    expect(parseUnitAnswer("unidad")).toBe("unidad");
+    expect(parseUnitAnswer("gracias")).toBeNull();
+    expect(parseUnitAnswer("libra de queso a 3")).toBeNull();
   });
 });

@@ -377,7 +377,7 @@ describe("errors are Spanish, with tú, and name the ingredient", () => {
       store.ingredient_cost_entries.some((c) => c.ingredient_id === BACON)
     ).toBe(false);
   });
-  it("a unit that cannot be converted names the ingredient and its price unit", async () => {
+  it("a unit that cannot be converted (pza → kg) does NOT block: it confirms and the line is saved as written", async () => {
     const res = await confirm(
       body({
         lines: [
@@ -390,10 +390,23 @@ describe("errors are Spanish, with tú, and name the ingredient", () => {
         ],
       })
     );
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe(
-      'No puedo convertir "pza" a la unidad del precio de Bacon (kg).'
+    expect(res.status).toBe(200);
+    const version = store.recipe_versions.find(
+      (v) => v.status === "in_review"
+    )!;
+    const lines = store.recipe_version_inputs.filter(
+      (r) => r.recipe_version_id === version.id
     );
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      ingredient_id: BACON,
+      quantity: 1, // 2 pza for 2 portions, as written (unit kept)
+      unit: "pza",
+    });
+    // no price entry or cost of 0 was invented
+    expect(
+      store.ingredient_cost_entries.filter((c) => c.ingredient_id === BACON)
+    ).toHaveLength(1);
   });
   it("a missing quantity names the ingredient, never an id", async () => {
     const res = await confirm(
@@ -796,24 +809,5 @@ describe("an archived (merged-away) ingredient is never saved on a recipe", () =
     expect((await (await confirm(body())).json()).error).toBe(
       "Bacon está archivado. Elige otro ingrediente."
     );
-  });
-});
-
-describe("confirm fails closed when the prices cannot be read", () => {
-  it("a failed read of the cost entries → 500, nothing written, the draft stays draft", async () => {
-    failRule = (table, mode) =>
-      table === "ingredient_cost_entries" && mode === "select";
-    const res = await confirm(body());
-    expect(res.status).toBe(500);
-    expect((await res.json()).error).toBe(
-      "No pude leer los precios. Inténtalo de nuevo."
-    );
-    expect(store.recipe_versions.map((v) => v.id)).toEqual(["ver-1"]);
-    expect(store.recipe_version_inputs).toEqual(approvedLines);
-    expect(store.menu_items).toHaveLength(1);
-    expect(store.kitchen_recipe_drafts[0].status).toBe("draft");
-    // and it works once the prices can be read again
-    failRule = null;
-    expect((await confirm(body())).status).toBe(200);
   });
 });

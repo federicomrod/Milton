@@ -25,6 +25,7 @@ import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/edito
 import { sentenceCase } from "@/lib/restaurant/sentence-case";
 import { kitchenManagerGuard } from "@/lib/restaurant/telegram/kitchen-manager-guard";
 import { normalizeUnit } from "@/lib/restaurant/units";
+import { loadUnitConversions } from "@/lib/restaurant/unit-conversions-server";
 import { mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +52,17 @@ export async function GET() {
     if (!archivedRes.error) {
       for (const row of archivedRes.data ?? []) archived.add(String(row.id));
     }
+    // Per-ingredient bridges (migration 056) so the review can cost
+    // «6 unidad» of an ingredient priced per oz. Tolerant: none on any error.
+    const conversionMap = await loadUnitConversions(
+      auth.supabase,
+      auth.companyId
+    );
+    const conversions = [...conversionMap.entries()].flatMap(([id, list]) =>
+      list.map((c) => ({ ingredient_id: id, ...c }))
+    );
     return NextResponse.json({
+      conversions,
       ingredients: rows
         .filter((row) => !archived.has(row.id))
         .map((row) => ({

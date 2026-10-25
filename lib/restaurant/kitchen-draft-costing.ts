@@ -13,8 +13,9 @@
 // person reviewing it.
 
 import {
-  convertToSubRecipeUnit,
+  convertWithIngredientConversions,
   isUsableLineUnit,
+  type UnitConversion,
 } from "@/lib/restaurant/units";
 
 export interface PriceInfo {
@@ -37,7 +38,9 @@ export type CostLineReason =
   | "no_ingredient"
   | "no_price"
   | "no_quantity"
-  | "unit";
+  | "unit"
+  /** A real unit that cannot be read in the price's unit (no conversion). */
+  | "conversion";
 
 export interface CostLine {
   key: string;
@@ -60,6 +63,8 @@ export interface DraftCost {
   missing: string[];
   /** Lines that only lack a price (for «Faltan precios: N»). */
   unpriced_count: number;
+  /** Lines with a price whose unit has no conversion to the price's unit. */
+  unconverted_count: number;
   /** (price − cost) / price, only with a complete cost and a price above 0. */
   margin_pct: number | null;
 }
@@ -68,11 +73,14 @@ export function computeDraftCost(
   lines: readonly CostLineInput[],
   prices: ReadonlyMap<string, PriceInfo | null>,
   portions: number | null,
-  sellingPrice: number | null
+  sellingPrice: number | null,
+  /** Per-ingredient bridges (migration 056): «1 unidad de Tomate = 5 oz». */
+  conversions?: ReadonlyMap<string, readonly UnitConversion[]>
 ): DraftCost {
   const out: CostLine[] = [];
   const missing: string[] = [];
   let unpriced = 0;
+  let unconverted = 0;
   const miss = (label: string | null) => {
     const text = (label ?? "").trim() || "un ingrediente";
     if (!missing.includes(text)) missing.push(text);
@@ -126,13 +134,17 @@ export function computeDraftCost(
       miss(line.name);
       continue;
     }
-    const converted = convertToSubRecipeUnit(
+    // Standard rules first, then this ingredient's own conversion. No
+    // conversion = the line stays uncosted (never a guess, never $0).
+    const converted = convertWithIngredientConversions(
       line.total_quantity,
       line.unit,
-      price.unit
+      price.unit,
+      conversions?.get(line.ingredient_id)
     );
     if (!converted.ok) {
-      out.push({ key: line.key, reason: "unit", price, line_cost: null });
+      out.push({ key: line.key, reason: "conversion", price, line_cost: null });
+      unconverted += 1;
       miss(line.name);
       continue;
     }
@@ -161,6 +173,7 @@ export function computeDraftCost(
     per_portion: perPortion,
     missing,
     unpriced_count: unpriced,
+    unconverted_count: unconverted,
     margin_pct: margin,
   };
 }

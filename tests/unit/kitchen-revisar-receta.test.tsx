@@ -3,6 +3,7 @@
 // popover, sentence-case names, one-line footer. Synthetic data only.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -26,6 +27,7 @@ import { PricePopover } from "@/components/restaurant/kitchen/PricePopover";
 
 type Json = Record<string, unknown>;
 let ingredients: Json[] = [];
+let conversions: Json[] = [];
 let drafts: Json[] = [];
 let calls: Array<{ url: string; method: string; body: Json | null }> = [];
 let createStatus: "ok" | "similar" = "ok";
@@ -54,6 +56,7 @@ beforeEach(() => {
   usageDishes = 3;
   confirmFails = false;
   calls = [];
+  conversions = [];
   ingredients = [
     {
       id: "i-mozz",
@@ -125,8 +128,17 @@ beforeEach(() => {
       if (url.startsWith("/api/restaurant/kitchen/recipe-drafts")) {
         return method === "GET" ? respond({ drafts }) : respond({ ok: true });
       }
+      if (url === "/api/restaurant/ingredients/unit-conversions") {
+        conversions.push({
+          ingredient_id: body?.ingredient_id,
+          from_unit: body?.from_unit,
+          to_unit: body?.to_unit,
+          factor: body?.factor,
+        });
+        return respond({ ok: true });
+      }
       if (url === "/api/restaurant/kitchen/ingredients" && method === "GET")
-        return respond({ ingredients });
+        return respond({ ingredients, conversions });
       if (url === "/api/restaurant/menu-items")
         return respond({
           menu_items: [{ id: "m-1", name: "Hamburguesa", selling_price: 10 }],
@@ -1074,5 +1086,87 @@ describe("Guardar borrador", () => {
       ).toBeNull()
     );
     expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+});
+
+describe("a unit with no conversion (6 unidad of an ingredient priced per oz)", () => {
+  beforeEach(() => {
+    ingredients.push({
+      id: "i-tomate",
+      name: "Tomate",
+      default_unit: "oz",
+      price: { unit_cost: 0.1, unit: "oz" },
+    });
+    drafts[0].lines = [
+      line({
+        id: "l-9",
+        raw_name: "tomate",
+        ingredient_id: "i-tomate",
+        ingredient_name: "Tomate",
+        total_quantity: 6,
+        unit: "unit",
+      }),
+    ];
+  });
+
+  it("shows «Falta conversión» (not «=»), keeps Confirmar enabled and the footer counts it", async () => {
+    const dialog = await openModal();
+    await within(dialog).findByText("Falta conversión");
+    expect(dialog.textContent).not.toContain("=");
+    expect(confirmButton(dialog).disabled).toBe(false);
+    expect(within(dialog).getByTestId("cost-footer").textContent).toContain(
+      "Costo parcial · falta 1 conversión"
+    );
+    // not a red error
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+  });
+
+  it("«Definir» saves «1 unidad = 5 oz» on the ingredient, closes the form and re-reads the ingredients", async () => {
+    const dialog = await openModal();
+    await within(dialog).findByText("Falta conversión");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /Definir conversión/ })
+    );
+    fireEvent.change(within(dialog).getByLabelText("Cuántos oz"), {
+      target: { value: "5" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Guardar" }));
+    await waitFor(() =>
+      expect(
+        calls.filter(
+          (c) =>
+            c.url === "/api/restaurant/kitchen/ingredients" &&
+            c.method === "GET"
+        )
+      ).toHaveLength(2)
+    );
+    expect(
+      calls.find(
+        (c) => c.url === "/api/restaurant/ingredients/unit-conversions"
+      )?.body
+    ).toMatchObject({
+      ingredient_id: "i-tomate",
+      from_unit: "unidad",
+      to_unit: "oz",
+      factor: 5,
+    });
+    expect(screen.queryByTestId("unit-conversion-form")).toBeNull();
+  });
+
+  it("with «1 unidad = 5 oz» defined the line is costed: 6 × 5 oz × $0.10 = $3.00, the recipe is complete", async () => {
+    conversions = [
+      {
+        ingredient_id: "i-tomate",
+        from_unit: "unidad",
+        to_unit: "oz",
+        factor: 5,
+      },
+    ];
+    const dialog = await openModal();
+    await within(dialog).findByText("$3.00");
+    expect(within(dialog).queryByText("Falta conversión")).toBeNull();
+    expect(within(dialog).getByTestId("cost-footer").textContent).not.toContain(
+      "Costo parcial"
+    );
   });
 });

@@ -537,10 +537,10 @@ describe("AI fallback", () => {
     expect(lastSent().text).toBe(unitAsk("aguacate"));
   });
 
-  it("an AI error is «No pude leer los precios ahora», never a thank-you", async () => {
+  it("an AI error sends PRICE_UPDATE_FAILED, never a thank-you", async () => {
     ai.mockRejectedValue(new Error("boom"));
     await msg({ text });
-    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
+    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_FAILED);
     expect(lastSent().text).toContain("No pude leer los precios ahora");
     expect(drafts()).toHaveLength(0);
   });
@@ -548,7 +548,7 @@ describe("AI fallback", () => {
   it("a timeout (null) is the same", async () => {
     ai.mockResolvedValue(null);
     await msg({ text });
-    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
+    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_FAILED);
   });
 });
 
@@ -954,17 +954,17 @@ describe("logs: ids and counts only", () => {
 });
 
 describe("AI price fallback error handling (S1)", () => {
-  it.skip("sends fallback reply when AI throws, never silence", async () => {
-    // Note: This test is skipped because the message format is tricky to get right.
-    // The S1 feature is implemented via updated KITCHEN_COPY.PRICE_UPDATE_UNCLEAR message.
+  it("sends PRICE_UPDATE_FAILED when AI throws, never silence", async () => {
     // Mock AI to throw
     ai.mockRejectedValue(new Error("timeout"));
-    // Use a message that only AI can parse (unclear format)
-    const t = "aguacate uno cincuenta"; // needs AI, no clear price format
+    // Use a message format that rules can't parse (parentheses) so AI is called
+    const t = "el aguacate (1,5) la libra";
     await msg({ text: t });
-    // The fallback message should be sent when everything is unclear
+    // Flush after jobs to ensure async error handling completes
+    await Promise.all(afterJobs.splice(0));
+    // The fallback message should be sent when AI fails
+    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_FAILED);
     expect(lastSent().text).toContain("No pude leer los precios ahora");
-    expect(lastSent().text).toContain("producto, precio y unidad");
   });
 
   it("fallback message never sent for non-price messages", async () => {

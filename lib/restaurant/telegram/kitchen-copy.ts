@@ -47,6 +47,23 @@ export const KITCHEN_COPY = {
   /** R10 — a draft is waiting for portions and the reply was not a number. */
   RECIPE_PORTIONS_UNCLEAR:
     "No entendí. ¿Para cuántas porciones salió? Responde con un número, por ejemplo: 2.",
+  // --- Invoice photos and price updates -----------------------------------
+  // Draft copy, pending Sofia's review.
+  /** Invoice read. {de_proveedor} = « de <Proveedor>» or empty; {lineas} = «3 líneas»; {sin_precio} = sentence or empty. */
+  INVOICE_RECEIVED:
+    "✅ Leí la factura{de_proveedor} ({lineas}, leídas de la foto). Queda en Costos › Compras para que el encargado la revise antes de que cambie algún precio.{sin_precio}",
+  /** Invoice could not be read (download, timeout, nothing usable). */
+  INVOICE_UNREADABLE:
+    "No pude leer la factura. Prueba con otra foto: completa, derecha y con buena luz.",
+  /** Photo that is neither obviously an invoice nor a recipe. */
+  PHOTO_ASK_KIND:
+    "✅ Recibido. ¿Es una factura o una receta? Responde «factura» o «receta».",
+  /** Price update stored as a draft. {items}, {origen} = «de tu nota de voz» / «de tu mensaje». */
+  PRICE_UPDATE_RECEIVED:
+    "✅ Anoté: {items} ({origen}). El encargado lo revisa en Costos › Compras antes de que cambie el precio.",
+  /** A price was mentioned but the item, price or unit is missing. */
+  PRICE_UPDATE_UNCLEAR:
+    "¿A cuánto y por qué unidad? Por ejemplo: «aguacate 1.50 la libra».",
 } as const;
 
 export type KitchenCopyKey = keyof typeof KITCHEN_COPY;

@@ -107,6 +107,28 @@ function parseNumberToken(token: string): number | null {
   return SPANISH_NUMBERS[token] ?? null;
 }
 
+const MULTIPLIER_MEASURE =
+  "(?:g|gr|grs|gramos?|kg|kgs|kilos?|kilogramos?|ml|mililitros?|l|lt|lts|litros?|oz|onzas?|lb|lbs|libras?)";
+/** «3x», «3 x», «3×» (not followed by another number or a measure). */
+const MULTIPLIER_SUFFIX_RE = new RegExp(
+  `(?<![\\w.,/])(\\d{1,3})\\s*x(?![a-z0-9])(?!\\s*\\d)(?!\\s*${MULTIPLIER_MEASURE}\\b)`
+);
+/** «x3», «x 3», «×3» (not after a number, not before a measure). */
+const MULTIPLIER_PREFIX_RE = new RegExp(
+  `(?<![a-z0-9])(?<!\\d\\s)x\\s*(\\d{1,3})(?![a-z0-9])(?![.,]\\d)(?!\\s*${MULTIPLIER_MEASURE}\\b)(?!\\s*x)`
+);
+
+/** Portions written as a multiplier: «3x», «x3», «×3». 1–100, else null. */
+function parseMultiplierPortions(text: string): number | null {
+  const normalized = normalize(text).replace(/\u00d7/g, "x");
+  const m =
+    normalized.match(MULTIPLIER_SUFFIX_RE) ??
+    normalized.match(MULTIPLIER_PREFIX_RE);
+  if (!m) return null;
+  const value = parseInt(m[1], 10);
+  return value >= 1 && value <= 100 ? value : null;
+}
+
 export function parsePortions(text: string): number | null {
   const normalized = normalize(text);
 
@@ -126,7 +148,7 @@ export function parsePortions(text: string): number | null {
     if (token) return parseNumberToken(token);
   }
 
-  return null;
+  return parseMultiplierPortions(text);
 }
 
 export function parseDishName(text: string | null | undefined): string | null {
@@ -187,6 +209,13 @@ export function parsePortionsFromFollowUp(text: string): number | null {
   if (hasReportKeywords(normalized)) return null;
   if (MEASURE_RE.test(normalized) || MEASURE_WORD_RE.test(normalized)) {
     return null;
+  }
+  const mult = normalized
+    .replace(/\u00d7/g, "x")
+    .match(/^(?:x\s*(\d{1,3})|(\d{1,3})\s*x)\s*[.!]*$/);
+  if (mult) {
+    const v = parseInt(mult[1] ?? mult[2], 10);
+    return v >= 1 && v <= 100 ? v : null;
   }
   const match = normalized.match(FOLLOW_UP_RE);
   if (!match) return null;
@@ -264,7 +293,7 @@ async function callOpenAIVision(
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
   const client = new OpenAIctor({
     apiKey: process.env.OPENAI_API_KEY,
-    timeout: 20000,
+    timeout: 30000,
     maxRetries: 0,
   });
 
@@ -281,7 +310,7 @@ async function callOpenAIVision(
             { type: "text", text: buildExtractionUserPrompt(caption, true) },
             {
               type: "image_url",
-              image_url: { url: imageDataUrl, detail: "low" },
+              image_url: { url: imageDataUrl, detail: "high" },
             },
           ],
         },

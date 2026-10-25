@@ -56,10 +56,21 @@ import {
   recordKitchenReport,
   type TelegramIncomingMessage,
 } from "@/lib/restaurant/telegram/kitchen-reports";
+import {
+  downloadTelegramImage,
+  findPendingPhotoReport,
+  parseKindFollowUp,
+  processInvoicePhoto,
+  processPriceUpdate,
+  routeCaption,
+} from "@/lib/restaurant/telegram/kitchen-media";
+import { classifyKitchenPhoto } from "@/lib/restaurant/telegram/photo-classify";
+import { parsePriceUpdate } from "@/lib/restaurant/telegram/price-update";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Photo flow: download + classify + vision extraction can take 20-40 s.
+export const maxDuration = 120;
 
 interface TelegramUpdate {
   message?: TelegramIncomingMessage & {
@@ -188,10 +199,44 @@ async function handleKitchenReport(
     // answered with «Recibido…». Photos, voice notes, recipes and report
     // keywords (se acabó, merma…) are NOT answers and go the normal way.
     const isPlainText =
-      Boolean(message.text) && !message.photo?.length && !message.voice;
+      Boolean(message.text) &&
+      !message.photo?.length &&
+      !message.voice &&
+      !message.document;
     const hasReportWords =
       classifyKitchenReport(textContent) !== "unclassified";
-    if (isPlainText && !intent.isRecipe && !hasReportWords) {
+
+    // «factura» / «receta» answering PHOTO_ASK_KIND: reprocess that staff
+    // member's latest undecided photo (last 30 min) exactly once. Nothing
+    // pending -> falls through to the normal behaviour below.
+    const followUpKind = isPlainText ? parseKindFollowUp(textContent) : null;
+    if (followUpKind) {
+      const pending = await findPendingPhotoReport(admin, staff, chatId);
+      if (pending) {
+        after(() =>
+          processPhotoAsync(
+            staff,
+            chatId,
+            {
+              messageId: pending.messageId,
+              reportId: pending.reportId,
+              caption: pending.caption,
+              fileId: pending.fileId,
+              mime: pending.mime,
+              dateSec: pending.dateSec,
+            },
+            followUpKind
+          )
+        );
+        return;
+      }
+    }
+
+    // A price note («el aguacate subió a 1.50 la libra») is never a portions
+    // answer.
+    const priceParse =
+      isPlainText && !hasReportWords ? parsePriceUpdate(textContent) : null;
+    if (isPlainText && !intent.isRecipe && !hasReportWords && !priceParse) {
       const twoHoursAgo = new Date(
         Date.now() - 2 * 60 * 60 * 1000
       ).toISOString();
@@ -252,6 +297,45 @@ async function handleKitchenReport(
       .maybeSingle();
     const reportId = data?.id ?? null;
 
+    // Photos (and image documents): never an immediate acknowledgement. The
+    // caption or one vision call decides invoice / recipe / ask / report.
+    if (report.media_kind === "photo" && report.telegram_file_id) {
+      const fileId = report.telegram_file_id;
+      after(() =>
+        processPhotoAsync(staff, chatId, {
+          messageId,
+          reportId,
+          caption: report.text,
+          fileId,
+          mime: report.media_mime,
+          dateSec: typeof message.date === "number" ? message.date : null,
+        })
+      );
+      return;
+    }
+
+    if (priceParse?.kind === "price_intent_unclear") {
+      await sendTelegramMessage(chatId, KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
+      return;
+    }
+    if (priceParse?.kind === "price_update") {
+      const items = priceParse.items;
+      after(() =>
+        processPriceUpdate({
+          admin,
+          staff,
+          chatId,
+          reportId,
+          dateSec: typeof message.date === "number" ? message.date : null,
+          items,
+          origin: "text",
+        }).catch(() => {
+          console.error("[telegram-webhook] price update failed");
+        })
+      );
+      return;
+    }
+
     if (!intent.isRecipe && !isVoiceWithoutText) {
       await sendTelegramMessage(
         chatId,
@@ -270,7 +354,8 @@ async function handleKitchenReport(
         reportId,
         textContent,
         report?.media_kind ?? null,
-        report?.telegram_file_id ?? null
+        report?.telegram_file_id ?? null,
+        typeof message.date === "number" ? message.date : null
       )
     );
   } catch (err) {
@@ -290,7 +375,9 @@ async function processRecipeDraftAsync(
   reportId: string | null,
   textContent: string,
   mediaKind: "photo" | "voice" | null,
-  telegramFileId: string | null
+  telegramFileId: string | null,
+  dateSec: number | null = null,
+  opts: { forceRecipe?: boolean } = {}
 ) {
   try {
     const admin = createAdminClient();
@@ -348,15 +435,40 @@ async function processRecipeDraftAsync(
     const { detectRecipeIntent, extractAndCreateRecipeDraft } =
       await import("@/lib/restaurant/telegram/kitchen-recipe-drafts");
 
-    const intent = detectRecipeIntent(finalTextContent);
-    if (!intent.isRecipe) {
-      await sendTelegramMessage(
-        chatId,
-        renderKitchenCopy(KITCHEN_COPY.REPORT_ACK, {
-          nombre_local: staff.location_name,
-        })
-      );
-      return;
+    if (!opts.forceRecipe) {
+      // Order: report words -> price update -> recipe -> plain acknowledgement.
+      const ack = () =>
+        sendTelegramMessage(
+          chatId,
+          renderKitchenCopy(KITCHEN_COPY.REPORT_ACK, {
+            nombre_local: staff.location_name,
+          })
+        );
+      if (classifyKitchenReport(finalTextContent) !== "unclassified") {
+        await ack();
+        return;
+      }
+      const price = parsePriceUpdate(finalTextContent);
+      if (price?.kind === "price_intent_unclear") {
+        await sendTelegramMessage(chatId, KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
+        return;
+      }
+      if (price?.kind === "price_update") {
+        await processPriceUpdate({
+          admin,
+          staff,
+          chatId,
+          reportId,
+          dateSec,
+          items: price.items,
+          origin: mediaKind === "voice" ? "voice" : "text",
+        });
+        return;
+      }
+      if (!detectRecipeIntent(finalTextContent).isRecipe) {
+        await ack();
+        return;
+      }
     }
 
     // Every ingredient and every cost entry, in pages: a plain select stops
@@ -465,6 +577,101 @@ async function processRecipeDraftAsync(
     }
   } catch (err) {
     console.error("[telegram-webhook] recipe draft async failed");
+  }
+}
+
+interface PhotoJob {
+  messageId: number;
+  reportId: string | null;
+  caption: string | null;
+  fileId: string;
+  mime: string | null;
+  dateSec: number | null;
+}
+
+// Photo / image document: caption shortcut, else ONE cheap vision call; when
+// unsure, ask «¿factura o receta?». Everything runs inside after().
+async function processPhotoAsync(
+  staff: {
+    company_id: string;
+    location_id: string;
+    id: string;
+    location_name: string;
+  },
+  chatId: number,
+  job: PhotoJob,
+  forced?: "invoice" | "recipe"
+) {
+  try {
+    const admin = createAdminClient();
+    let dataUrl: string | null = null;
+    let kind: "invoice" | "recipe" | "report" | null =
+      forced ?? routeCaption(job.caption);
+
+    if (!kind && job.caption) {
+      const { detectRecipeIntent } =
+        await import("@/lib/restaurant/telegram/kitchen-recipe-drafts");
+      if (detectRecipeIntent(job.caption).isRecipe) kind = "recipe";
+    }
+
+    if (!kind) {
+      dataUrl = await downloadTelegramImage(job.fileId, job.mime);
+      const verdict = dataUrl ? await classifyKitchenPhoto(dataUrl) : null;
+      if (
+        verdict?.ok &&
+        verdict.confidence !== "low" &&
+        (verdict.kind === "invoice" || verdict.kind === "recipe")
+      ) {
+        kind = verdict.kind;
+      } else {
+        await sendTelegramMessage(chatId, KITCHEN_COPY.PHOTO_ASK_KIND);
+        return;
+      }
+    }
+
+    if (kind === "report") {
+      await sendTelegramMessage(
+        chatId,
+        renderKitchenCopy(KITCHEN_COPY.REPORT_ACK, {
+          nombre_local: staff.location_name,
+        })
+      );
+      return;
+    }
+
+    if (kind === "invoice") {
+      await processInvoicePhoto({
+        admin,
+        staff,
+        chatId,
+        messageId: job.messageId,
+        reportId: job.reportId,
+        fileId: job.fileId,
+        mime: job.mime,
+        dateSec: job.dateSec,
+        dataUrl,
+      });
+      return;
+    }
+
+    await processRecipeDraftAsync(
+      staff,
+      chatId,
+      job.messageId,
+      job.reportId,
+      job.caption ?? "",
+      "photo",
+      job.fileId,
+      job.dateSec,
+      { forceRecipe: true }
+    );
+  } catch {
+    console.error("[telegram-webhook] photo processing failed");
+    try {
+      await sendTelegramMessage(chatId, KITCHEN_COPY.PHOTO_ASK_KIND);
+    } catch {
+      // nothing more to do
+    }
   }
 }
 

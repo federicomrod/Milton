@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 
 import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
+import { isPriceUpdateNote } from "@/lib/restaurant/price-update-note";
 import { INVOICE_UPLOAD_ANCHOR } from "@/lib/restaurant/costs-tabs";
 import type {
   SupplierInvoiceLine,
@@ -61,6 +62,17 @@ const SELECT_SM_CLS =
 const LABEL_CLS = "text-xs font-semibold text-[#6b7385]";
 const BADGE_CLS =
   "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold";
+
+function PriceUpdateLabel() {
+  return (
+    <span
+      data-testid="price-update-label"
+      className="inline-flex items-center rounded-full bg-[#f3f4f6] px-2 py-0.5 text-xs font-semibold text-[#6b7280]"
+    >
+      Actualización de precio
+    </span>
+  );
+}
 
 function Card({
   className = "",
@@ -148,6 +160,8 @@ export interface InvoiceListItem {
   total_amount: number | null;
   status: string;
   source_type: string;
+  /** Only used to recognise price updates sent by Telegram. */
+  notes?: string | null;
   created_at: string;
   line_counts: {
     total: number;
@@ -817,6 +831,11 @@ function InvoiceListCard({
                       (sin proveedor)
                     </span>
                   )}
+                  {isPriceUpdateNote(inv.notes) && (
+                    <span className="ml-2">
+                      <PriceUpdateLabel />
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3 font-mono text-xs">
                   {inv.invoice_number ?? "—"}
@@ -1054,6 +1073,7 @@ function ReviewDetail({
             <span className={`${BADGE_CLS} ${STATUS_STYLE[inv.status] ?? ""}`}>
               {statusLabel(inv.status)}{" "}
             </span>
+            {isPriceUpdateNote(inv.notes) && <PriceUpdateLabel />}
           </CardTitle>
           <div className="flex items-center gap-2">
             <Button

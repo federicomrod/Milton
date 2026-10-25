@@ -723,3 +723,59 @@ describe("Spanish singularisation and kitchen synonyms", () => {
     ).toBe("Maíz");
   });
 });
+
+describe("portions as a multiplier (3x, x3, ×3)", () => {
+  it("accepts 3x / 3 x / x3 / x 3 / ×3 / 3× / X3 / receta de tinga 3x", () => {
+    for (const t of [
+      "3x",
+      "3 x",
+      "x3",
+      "x 3",
+      "×3",
+      "3×",
+      "3 ×",
+      "X3",
+      "receta de tinga 3x",
+      "Receta de tinga X3",
+    ]) {
+      expect(parsePortions(t), t).toBe(3);
+    }
+  });
+  it("keeps the 1-100 range", () => {
+    expect(parsePortions("1x")).toBe(1);
+    expect(parsePortions("100x")).toBe(100);
+    expect(parsePortions("x100")).toBe(100);
+    expect(parsePortions("0x")).toBeNull();
+    expect(parsePortions("101x")).toBeNull();
+    expect(parsePortions("x101")).toBeNull();
+  });
+  it("rejects quantities and promos", () => {
+    for (const t of [
+      "3x500g",
+      "2 x 1 kg",
+      "3x2 promo",
+      "2x1",
+      "3x 500 g",
+      "3x2",
+      "tinga 3x500g",
+    ]) {
+      expect(parsePortions(t), t).toBeNull();
+    }
+  });
+  it("3x alone does not make a recipe; receta does", () => {
+    expect(detectRecipeIntent("3x").isRecipe).toBe(false);
+    expect(detectRecipeIntent("receta de tinga 3x")).toMatchObject({
+      isRecipe: true,
+      portions: 3,
+    });
+  });
+  it("follow-up accepts the multiplier alone, rejects quantities", () => {
+    for (const t of ["3x", "x3", "×3", "3 x", "X 3", "3x."]) {
+      expect(parsePortionsFromFollowUp(t), t).toBe(3);
+    }
+    for (const t of ["3x500g", "2 x 1 kg", "2x1", "3x2", "0x", "101x"]) {
+      expect(parsePortionsFromFollowUp(t), t).toBeNull();
+    }
+    expect(parsePortionsFromFollowUp("100x")).toBe(100);
+  });
+});

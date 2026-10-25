@@ -166,8 +166,8 @@ export function priceReviewLine(
 export function telegramNote(lang: PreferredLanguage): string {
   return t(
     lang,
-    "For quick questions from your phone, message Milton on Telegram.",
-    "Para preguntas rápidas desde el teléfono, escríbele a Milton por Telegram."
+    "From Telegram, your team can send recipes, invoices and price updates for you to review in Milton.",
+    "Desde Telegram, tu equipo puede mandar recetas, facturas y cambios de precio para que los revises en Milton."
   );
 }
 

@@ -258,6 +258,23 @@ async function loadDailySales(
 // Builder
 // ---------------------------------------------------------------------------
 
+/** True when the company has an active Telegram connection. Unknown => false. */
+export async function isTelegramConnected(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<boolean> {
+  try {
+    const { count } = await supabase
+      .from("restaurant_telegram_connections")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("is_active", true);
+    return (count ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * @param selected Multi-Restaurant UX v1: when set, scopes the briefing to
  *   a single restaurant (consolidated otherwise). Must already be
@@ -346,16 +363,7 @@ export async function buildBriefingContext(
     briefingTimezone,
     currency
   );
-  let telegramConnected = false;
-  try {
-    const { count } = await supabase
-      .from("restaurant_telegram_connections")
-      .select("id", { count: "exact", head: true })
-      .eq("company_id", companyId);
-    telegramConnected = (count ?? 0) > 0;
-  } catch {
-    telegramConnected = false; // unknown: the line is simply left out
-  }
+  const telegramConnected = await isTelegramConnected(supabase, companyId);
   const salesPeriods = daily
     ? computeBriefingSalesPeriods({
         daily,

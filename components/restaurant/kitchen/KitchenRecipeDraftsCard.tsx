@@ -38,6 +38,8 @@ import {
   type CreateOutcome,
 } from "./IngredientCombobox";
 import { PricePopover } from "./PricePopover";
+import { UnitConversionForm } from "@/components/restaurant/recipes-costing/UnitConversionForm";
+import type { UnitConversion } from "@/lib/restaurant/units";
 import {
   computeDraftCost,
   type CostLineInput,
@@ -233,6 +235,10 @@ export function KitchenRecipeDraftsCard({
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   // The active list is known (an empty list is a real answer, not "loading").
   const [ingredientsLoaded, setIngredientsLoaded] = useState(false);
+  // «1 unidad de Tomate = 5 oz» bridges (migration 056), by ingredient.
+  const [conversionRows, setConversionRows] = useState<
+    Array<UnitConversion & { ingredient_id: string }>
+  >([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [locationId, setLocationId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -346,6 +352,7 @@ export function KitchenRecipeDraftsCard({
     if (res.ok) {
       const data = await res.json();
       setIngredients(data.ingredients ?? []);
+      setConversionRows(data.conversions ?? []);
       setIngredientsLoaded(true);
     }
   }, []);
@@ -358,6 +365,7 @@ export function KitchenRecipeDraftsCard({
       const data = await res.json();
       if (!cancelled) {
         setIngredients(data.ingredients ?? []);
+        setConversionRows(data.conversions ?? []);
         setIngredientsLoaded(true);
       }
     })();
@@ -723,6 +731,19 @@ export function KitchenRecipeDraftsCard({
     }
     return map;
   }, [ingredients]);
+  const conversionMap = useMemo(() => {
+    const map = new Map<string, UnitConversion[]>();
+    for (const c of conversionRows) {
+      const list = map.get(c.ingredient_id) ?? [];
+      list.push({
+        from_unit: c.from_unit,
+        to_unit: c.to_unit,
+        factor: Number(c.factor),
+      });
+      map.set(c.ingredient_id, list);
+    }
+    return map;
+  }, [conversionRows]);
   const ingredientById = useMemo(
     () => new Map(ingredients.map((i) => [i.id, i])),
     [ingredients]
@@ -768,7 +789,8 @@ export function KitchenRecipeDraftsCard({
         costInputs(cleanLines),
         priceMap,
         editedDraft.portions,
-        sellingPrice
+        sellingPrice,
+        conversionMap
       )
     : null;
 
@@ -877,7 +899,8 @@ export function KitchenRecipeDraftsCard({
                         costInputs(draft.lines),
                         priceMap,
                         draft.portions,
-                        null
+                        null,
+                        conversionMap
                       )}
                       currency={currencyOf(draft)}
                       canManage={canManage}
@@ -1153,6 +1176,7 @@ export function KitchenRecipeDraftsCard({
                               unit={line.unit}
                               draftId={editedDraft.id}
                               onSaved={() => void loadIngredients()}
+                              onConversionSaved={() => void loadIngredients()}
                             />
                           </td>
                           <td className="py-1 text-right">
@@ -1266,6 +1290,7 @@ function LineCost({
   unit,
   draftId,
   onSaved,
+  onConversionSaved,
 }: {
   ingredient: Ingredient | null;
   costLine: DraftCost["lines"][number] | null;
@@ -1274,12 +1299,46 @@ function LineCost({
   unit: string | null;
   draftId: string;
   onSaved: () => void;
+  onConversionSaved: () => void;
 }) {
+  const [defining, setDefining] = useState(false);
   if (!ingredient) return <span className="text-[#aeb4c2]">—</span>;
   // A stored price of 0 or null is «Sin precio», never $0.00.
   const rawPrice = ingredient.price ?? null;
   const price = rawPrice && rawPrice.unit_cost > 0 ? rawPrice : null;
   const lineCost = price ? (costLine?.line_cost ?? null) : null;
+  // A priced ingredient whose unit has no conversion to the price's unit:
+  // «Falta conversión» (like «Sin precio»), with an optional «Definir».
+  if (price && costLine?.reason === "conversion" && unit) {
+    return (
+      <div className="text-right">
+        <span className="text-[12px] text-[#6b7385]">Falta conversión</span>{" "}
+        <button
+          type="button"
+          className="text-[12px] font-semibold text-[#1B40C8] underline"
+          aria-label={`Definir conversión de ${sentenceCase(ingredient.name)}`}
+          onClick={() => setDefining((open) => !open)}
+        >
+          Definir
+        </button>
+        {defining ? (
+          <div className="text-left">
+            <UnitConversionForm
+              ingredientId={ingredient.id}
+              ingredientName={sentenceCase(ingredient.name)}
+              unitA={unit}
+              unitB={price.unit}
+              onSaved={() => {
+                setDefining(false);
+                onConversionSaved();
+              }}
+              onCancel={() => setDefining(false)}
+            />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <PricePopover
       ingredient={{
@@ -1333,10 +1392,18 @@ export function CostFooter({
         : "Indica las porciones para ver el costo por porción"
     );
   } else {
-    const missing = cost.lines.filter((l) => l.line_cost === null).length;
-    parts.push(
-      `Costo parcial · ${missing === 1 ? "falta 1 precio" : `faltan ${missing} precios`}`
-    );
+    const prices = cost.lines.filter(
+      (l) => l.line_cost === null && l.reason !== "conversion"
+    ).length;
+    const conversions = cost.unconverted_count;
+    const bits: string[] = [];
+    if (prices > 0) bits.push(prices === 1 ? "1 precio" : `${prices} precios`);
+    if (conversions > 0)
+      bits.push(
+        conversions === 1 ? "1 conversión" : `${conversions} conversiones`
+      );
+    const verb = prices + conversions === 1 ? "falta" : "faltan";
+    parts.push(`Costo parcial · ${verb} ${bits.join(" y ")}`);
   }
   if (cost.margin_pct !== null) {
     parts.push(`Margen: ${Math.round(cost.margin_pct * 10) / 10}%`);
@@ -1403,7 +1470,8 @@ function DraftListCost({
         </p>
       ) : cost.missing.length > 0 ? (
         <p className="text-[#6b7385]">
-          Costo parcial · faltan precios de{" "}
+          Costo parcial · faltan{" "}
+          {cost.unconverted_count > 0 ? "precios o conversiones" : "precios"} de{" "}
           {cost.missing.map(sentenceCase).join(", ")}
         </p>
       ) : null}

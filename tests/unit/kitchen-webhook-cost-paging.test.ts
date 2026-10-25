@@ -30,7 +30,7 @@ describe("paged reads", () => {
     expect(res.rows).toHaveLength(2500);
   });
 
-  it("the webhook and the confirm route use it", () => {
+  it("the webhook uses it; the confirm route no longer reads prices at all", () => {
     const webhook = readFileSync(
       join(process.cwd(), "app/api/telegram/webhook/route.ts"),
       "utf8"
@@ -51,6 +51,7 @@ describe("paged reads", () => {
       ),
       "utf8"
     );
-    expect(confirm).toContain("fetchAllRows<IngredientCostEntry>");
+    // A unit mismatch no longer blocks confirming, so there is nothing to price.
+    expect(confirm).not.toContain("ingredient_cost_entries");
   });
 });

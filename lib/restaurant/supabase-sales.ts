@@ -472,13 +472,20 @@ export function computeDishSales(rawRows: PosSalesItemRow[]): DishSalesRow[] {
 export async function fetchCompanyPosSalesRows(
   supabase: SupabaseLike,
   companyId: string,
-  selectedLocationId?: string | null
+  selectedLocationId?: string | null,
+  /** Only sales on/after this sale_date (YYYY-MM-DD): bounds a morning job's read. */
+  options?: { sinceDate?: string | null }
 ) {
   // R1-17a: each line carries the business-day cutoff of its restaurant, so
   // every row walk (daily series, heatmap, shifts) uses the same business day
   // as the SQL rollups. Before migration 054 nothing is attached.
   const [result, businessDay] = await Promise.all([
-    fetchPosSalesRowsRaw(supabase, companyId, selectedLocationId),
+    fetchPosSalesRowsRaw(
+      supabase,
+      companyId,
+      selectedLocationId,
+      options?.sinceDate ?? null
+    ),
     loadBusinessDayConfig(supabase as never, companyId),
   ]);
   if (businessDay.available) {
@@ -492,7 +499,8 @@ export async function fetchCompanyPosSalesRows(
 async function fetchPosSalesRowsRaw(
   supabase: SupabaseLike,
   companyId: string,
-  selectedLocationId?: string | null
+  selectedLocationId?: string | null,
+  sinceDate?: string | null
 ) {
   return fetchAllRowsRetryingWithoutColumn<PosSalesItemRow>(
     "is_tip",
@@ -504,6 +512,7 @@ async function fetchPosSalesRowsRaw(
       if (selectedLocationId) {
         query = query.eq("location_id", selectedLocationId);
       }
+      if (sinceDate) query = query.gte("sale_date", sinceDate);
       return query;
     },
     POS_SELECT_COLS

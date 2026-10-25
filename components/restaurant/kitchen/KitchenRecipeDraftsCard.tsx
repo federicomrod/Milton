@@ -51,6 +51,11 @@ import {
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { KITCHEN_UNITS, mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
 import { sentenceCase } from "@/lib/restaurant/sentence-case";
+import {
+  isPreparationName,
+  stripPreparationMarker,
+  withPreparationMarker,
+} from "@/lib/restaurant/recipe-upload/marker";
 
 interface DraftLine {
   id: string;
@@ -78,6 +83,10 @@ interface Draft {
   created_at: string;
   staff_name: string;
   location_name: string;
+  /** An approved dish already has this name (computed by the list API). */
+  approved_exists?: boolean;
+  /** A sub-recipe from a file: the name carries a marker the UI never shows. */
+  is_preparation?: boolean;
   lines: DraftLine[];
 }
 
@@ -145,6 +154,22 @@ function withDropdownUnits(lines: DraftLine[]): DraftLine[] {
   });
 }
 
+/** The copy the editor works on: the name never shows the preparation marker. */
+function editableCopy(draft: Draft): Draft {
+  const copy = JSON.parse(JSON.stringify(draft)) as Draft;
+  copy.is_preparation =
+    copy.is_preparation === true || isPreparationName(copy.dish_name);
+  copy.dish_name = stripPreparationMarker(copy.dish_name);
+  return copy;
+}
+
+/** What goes to the server: a preparation keeps its marker on the name. */
+function nameForSave(draft: Draft, isPreparation: boolean): string {
+  return isPreparation
+    ? withPreparationMarker(draft.dish_name)
+    : draft.dish_name;
+}
+
 /** What the editor shows, as one string: used to know if there are unsaved changes. */
 function editorSnapshot(
   draft: Draft | null,
@@ -191,10 +216,13 @@ export function KitchenRecipeDraftsCard({
   canManage,
   locations,
   focusDraftId,
+  reloadSignal = 0,
 }: {
   canManage: boolean;
   locations: { id: string; name: string }[];
   focusDraftId?: string | null;
+  /** Changes when something outside (a file upload) added drafts: reload. */
+  reloadSignal?: number;
 }) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
@@ -248,7 +276,7 @@ export function KitchenRecipeDraftsCard({
           const menuId = hit.menu_item_id ?? "";
           const price = readSavedPrice(hit.id);
           setSelectedDraft(hit);
-          setEditedDraft(JSON.parse(JSON.stringify(hit)));
+          setEditedDraft(editableCopy(hit));
           setEditedLines(lines);
           setSelectedMenuItem(menuId);
           setNewSellingPrice(price);
@@ -262,7 +290,7 @@ export function KitchenRecipeDraftsCard({
     return () => {
       cancelled = true;
     };
-  }, [locationId, reloadKey, focusDraftId]);
+  }, [locationId, reloadKey, focusDraftId, reloadSignal]);
 
   const loadIngredients = useCallback(async () => {
     const res = await fetch("/api/restaurant/kitchen/ingredients");
@@ -309,7 +337,7 @@ export function KitchenRecipeDraftsCard({
     const menuId = draft.menu_item_id ?? "";
     const price = readSavedPrice(draft.id);
     setSelectedDraft(draft);
-    setEditedDraft(JSON.parse(JSON.stringify(draft)));
+    setEditedDraft(editableCopy(draft));
     setEditedLines(lines);
     setSelectedMenuItem(menuId);
     setNewSellingPrice(price);
@@ -368,7 +396,7 @@ export function KitchenRecipeDraftsCard({
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            dish_name: editedDraft.dish_name,
+            dish_name: nameForSave(editedDraft, editingPreparation),
             portions: editedDraft.portions,
             menu_item_id: menuItemId,
             lines: cleanLines.map((l) => ({
@@ -452,7 +480,7 @@ export function KitchenRecipeDraftsCard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          dish_name: editedDraft.dish_name,
+          dish_name: nameForSave(editedDraft, editingPreparation),
           portions: editedDraft.portions,
           menu_item_id: menuItemId,
           selling_price: sellingPrice,
@@ -681,7 +709,14 @@ export function KitchenRecipeDraftsCard({
       )
     : null;
 
+  const editingPreparation =
+    !!selectedDraft &&
+    (selectedDraft.is_preparation === true ||
+      isPreparationName(selectedDraft.dish_name));
+  const editingApprovedExists = selectedDraft?.approved_exists === true;
+
   const canConfirm =
+    !editingPreparation &&
     !!editedDraft?.portions &&
     Number.isInteger(editedDraft.portions) &&
     editedDraft.portions > 0 &&
@@ -703,9 +738,9 @@ export function KitchenRecipeDraftsCard({
         <CardHeader>
           <CardTitle>Recetas para revisar</CardTitle>
           <CardDescription>
-            Recetas que envían tus cocineros por foto, voz o texto. Revísalas y
-            confírmalas: pasan a Menú como borrador y no cuentan en los costos
-            hasta que alguien las apruebe.
+            Recetas que envían tus cocineros por Telegram o que subes desde un
+            archivo. Revísalas y confírmalas: pasan a Menú como borrador y no
+            cuentan en los costos hasta que alguien las apruebe.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -738,7 +773,18 @@ export function KitchenRecipeDraftsCard({
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <h3 className="font-medium">{draft.dish_name}</h3>
+                      <h3 className="font-medium">
+                        {stripPreparationMarker(draft.dish_name)}
+                      </h3>
+                      {draft.is_preparation ||
+                      isPreparationName(draft.dish_name) ? (
+                        <Badge variant="outline">Preparación</Badge>
+                      ) : null}
+                      {draft.approved_exists ? (
+                        <Badge variant="outline">
+                          Ya existe una receta aprobada
+                        </Badge>
+                      ) : null}
                       <Badge
                         className={CONFIDENCE_COLORS[draft.confidence] || ""}
                       >
@@ -813,12 +859,31 @@ export function KitchenRecipeDraftsCard({
               </DialogDescription>
             </DialogHeader>
 
+            {editingPreparation ? (
+              <p
+                role="note"
+                className="mx-5 mb-2 rounded-md border border-[#dfe3ea] bg-[#f6f8fe] px-3 py-2 text-sm text-[#151c2c]"
+              >
+                Esta es una preparación (sub-receta). Por ahora créala en Menú ›
+                Preparaciones; aquí se confirmaría como plato.
+              </p>
+            ) : null}
+            {editingApprovedExists ? (
+              <p
+                role="note"
+                className="mx-5 mb-2 rounded-md border border-[#dfe3ea] bg-[#f6f8fe] px-3 py-2 text-sm text-[#151c2c]"
+              >
+                Ya hay una receta aprobada con este nombre. Confirmar NO la
+                cambia: crea una versión nueva para revisar.
+              </p>
+            ) : null}
+
             {/* Top fields: one row on desktop. */}
             <div className="grid grid-cols-1 gap-3 px-5 pb-3 md:grid-cols-[2fr_1fr_2fr_1fr]">
               <div>
-                <Label>Nombre del platillo</Label>
+                <Label>Nombre del plato</Label>
                 <Input
-                  aria-label="Nombre del platillo"
+                  aria-label="Nombre del plato"
                   value={editedDraft.dish_name}
                   onChange={(e) => updateDishName(e.target.value)}
                 />
@@ -844,7 +909,7 @@ export function KitchenRecipeDraftsCard({
                 ) : null}
               </div>
               <div>
-                <Label>Platillo del menú</Label>
+                <Label>Plato del menú</Label>
                 <Select
                   value={selectedMenuItem}
                   onValueChange={setSelectedMenuItem}
@@ -853,7 +918,7 @@ export function KitchenRecipeDraftsCard({
                     <SelectValue placeholder="Crear uno nuevo o elegir uno" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="new">Crear platillo nuevo</SelectItem>
+                    <SelectItem value="new">Crear plato nuevo</SelectItem>
                     {menuItems.map((item) => (
                       <SelectItem key={item.id} value={item.id}>
                         {item.name}
@@ -960,6 +1025,12 @@ export function KitchenRecipeDraftsCard({
                                 )
                               }
                             />
+                            {line.total_quantity === null ||
+                            line.total_quantity <= 0 ? (
+                              <p className="mt-0.5 text-[12px] text-[#6b7280]">
+                                falta cantidad
+                              </p>
+                            ) : null}
                           </td>
                           <td className="py-1 pr-2">
                             <select

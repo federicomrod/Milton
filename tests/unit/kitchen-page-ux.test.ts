@@ -132,7 +132,10 @@ describe("Spanish completeness and copy guards for Kitchen (#148)", () => {
           (line) =>
             !line.trim().startsWith("//") && !line.trim().startsWith("*")
         )
-        .join("\n");
+        .join("\n")
+        // The one place that says where cook recipes come from (the card's
+        // description, agreed copy): «por Telegram o que subes desde un archivo».
+        .replace(/por Telegram o que subes/g, "");
       expect(visible, file).not.toMatch(/Telegram/i);
     }
   });

@@ -7,6 +7,7 @@
 // Every number comes from the shared loader; the screen only re-adds the
 // sums after a move (dishSums, the loader's own function).
 
+import { UploadRecipesLink } from "./UploadRecipesLink";
 import {
   GROUP_COVERAGE_TIP,
   groupStatusDisplay,
@@ -629,6 +630,10 @@ export function MenuDishesScreen({
               />
             ) : null
           ) : null}
+          <UploadRecipesLink
+            actor={data.actor}
+            locationId={data.view_location_id ?? null}
+          />
           {statusFilter.length > 0 ? (
             <Link href={platosHref()} className="font-semibold text-[#3557c9]">
               Ver todos

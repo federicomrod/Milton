@@ -35,8 +35,15 @@ describe("paged reads", () => {
       join(process.cwd(), "app/api/telegram/webhook/route.ts"),
       "utf8"
     );
-    expect(webhook).toMatch(/fetchAllRows<CostEntryRow>/);
+    // The webhook reads the catalog through the shared helper, which pages.
+    expect(webhook).toMatch(/loadDraftMatchingCatalog/);
     expect(webhook).not.toMatch(/\.in\("ingredient_id", ingredientIds\)/);
+    const catalog = readFileSync(
+      join(process.cwd(), "lib/restaurant/kitchen-draft-catalog.ts"),
+      "utf8"
+    );
+    expect(catalog).toMatch(/fetchAllRows<IngredientCostEntry>/);
+    expect(catalog).not.toMatch(/\.in\("ingredient_id", ingredientIds\)/);
     const confirm = readFileSync(
       join(
         process.cwd(),

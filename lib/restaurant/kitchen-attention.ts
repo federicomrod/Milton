@@ -4,6 +4,7 @@
 // (one scoped JSON payload). Falls back to RLS SELECTs when the
 // function is not on the database yet. Never returns Telegram ids.
 
+import { UPLOAD_AUTHOR_NAME } from "@/lib/restaurant/recipe-upload/constants";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeTimezone } from "@/lib/restaurant/email/preferences";
 import { getLocalMoment } from "@/lib/restaurant/email/scheduler";
@@ -149,6 +150,11 @@ function parseDraft(
   };
 }
 
+/** The «Archivo subido» author row of file uploads is not a cook. */
+function isUploadAuthor(row: { display_name: string }): boolean {
+  return row.display_name === UPLOAD_AUTHOR_NAME;
+}
+
 function parseStaff(row: Record<string, unknown>): KitchenStaffRow | null {
   const id = str(row.id);
   if (!id) return null;
@@ -183,7 +189,7 @@ export function parseKitchenAttentionPayload(
     ? row.staff.flatMap((item) => {
         if (!item || typeof item !== "object") return [];
         const parsed = parseStaff(item as Record<string, unknown>);
-        return parsed ? [parsed] : [];
+        return parsed && !isUploadAuthor(parsed) ? [parsed] : [];
       })
     : [];
   return { reports, drafts, staff };
@@ -379,5 +385,9 @@ async function fetchKitchenAttentionViaRls(
     return parsed ? [parsed] : [];
   });
 
-  return { reports: inWindowOrOpen, drafts, staff: staffRows };
+  return {
+    reports: inWindowOrOpen,
+    drafts,
+    staff: staffRows.filter((row) => !isUploadAuthor(row)),
+  };
 }

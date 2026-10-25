@@ -207,9 +207,9 @@ describe("the layout", () => {
     ]);
     expect(within(dialog).getAllByRole("row")).toHaveLength(1 + 3);
     for (const label of [
-      "Nombre del platillo",
+      "Nombre del plato",
       "Porciones",
-      "Platillo del menú",
+      "Plato del menú",
       "Precio de venta",
     ])
       expect(within(dialog).getByText(label)).toBeTruthy();

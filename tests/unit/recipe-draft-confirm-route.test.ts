@@ -415,7 +415,7 @@ describe("errors are Spanish, with tú, and name the ingredient", () => {
       /porciones/
     );
     expect((await (await confirm(body({ dish_name: " " }))).json()).error).toBe(
-      "Escribe el nombre del platillo."
+      "Escribe el nombre del plato."
     );
   });
   it("accepts newly added lines (new- id or no id)", async () => {
@@ -448,7 +448,7 @@ describe("a dish whose recipe is only in the old lines (no versions)", () => {
     const res = await confirm(body());
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe(
-      "Este platillo ya tiene una receta guardada. Para no cambiar sus costos, confirma esta receta como platillo nuevo o edita la receta desde Menú."
+      "Este plato ya tiene una receta guardada. Para no cambiar sus costos, confirma esta receta como plato nuevo o edita la receta desde Menú."
     );
     expect(store.recipe_versions).toHaveLength(0);
     expect(store.kitchen_recipe_drafts[0].status).toBe("draft");

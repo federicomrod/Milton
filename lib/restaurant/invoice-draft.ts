@@ -235,6 +235,40 @@ export interface CreateInvoiceDraftInput {
   fallbackDateNote?: string;
 }
 
+const COUNT_WORDS = [
+  "manojo",
+  "atado",
+  "unidad",
+  "pieza",
+  "docena",
+  "bolsa",
+  "caja",
+] as const;
+// Count words stored as a plain «unidad».
+const COUNT_AS_UNIT = new Set<string>(["manojo", "atado", "unidad", "docena"]);
+
+function foldWords(raw: string): string {
+  return raw
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+/** The count word in `raw` (singular), or null. */
+function countWordOf(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const f = foldWords(raw);
+  for (const w of COUNT_WORDS) {
+    if (new RegExp(`(^|[^a-z])${w}(e?s)?([^a-z]|$)`).test(f)) return w;
+  }
+  return null;
+}
+
+function stripCountWord(description: string): string {
+  const out = description.replace(/^\s*docenas?\s+(de\s+)?/i, "").trim();
+  return out === "" ? description : out;
+}
+
 export interface SkippedLine {
   description: string;
   reason: "no_price" | "no_quantity" | "no_unit";
@@ -444,7 +478,27 @@ export async function createInvoiceDraft(
       ? (ingredientCatalog.find((c) => c.id === match.ingredient_id)
           ?.default_unit ?? null)
       : null;
-    const unit = line.unit ?? catalogUnit;
+    let unit = line.unit ?? catalogUnit;
+    let plannedQty = quantity;
+    // Count words are units (manojo, docena, bolsa...). A docena is 12 units.
+    const countWord = line.unit
+      ? countWordOf(line.unit)
+      : countWordOf(description);
+    let plannedUnitCost = unitCostRead;
+    if (countWord === "docena" && readQty) {
+      plannedQty = quantity * 12;
+      unit = "unidad";
+      plannedUnitCost = unitCostRead !== null ? unitCostRead / 12 : null;
+      derivedQtyNotes.push(
+        `Docena convertida a 12 unidades: ${stripCountWord(description)}`
+      );
+    } else if (line.unit && COUNT_AS_UNIT.has(countWord ?? "")) {
+      // A written count unit (manojo, atado) is a plain unit.
+      unit = "unidad";
+    } else if (!unit && readQty) {
+      // No unit anywhere but a quantity that was really read: a count word, else a bare count.
+      unit = countWord && !COUNT_AS_UNIT.has(countWord) ? countWord : "unidad";
+    }
     if (!unit) {
       skipped.push({ description, reason: "no_unit" });
       continue;
@@ -453,9 +507,9 @@ export async function createInvoiceDraft(
       line,
       matchIngredientId: match?.ingredient_id ?? null,
       matched: !!match,
-      quantity,
+      quantity: plannedQty,
       unit,
-      unitCost: unitCostRead,
+      unitCost: plannedUnitCost,
       lineTotal,
     });
     if ((calcQty !== null || enrichedDerived) && line.unit_cost !== null) {

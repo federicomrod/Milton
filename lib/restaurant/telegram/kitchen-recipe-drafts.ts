@@ -7,7 +7,12 @@
 // SECURITY: never logs message text, file ids, transcripts, bot tokens,
 // Bot API URLs or OpenAI keys. Follows the same rules as files.ts.
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  createOpenAIClient,
+  openAiModel,
+} from "@/lib/restaurant/openai-client";
 import { mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
 import {
   findExactIngredient,
@@ -272,30 +277,10 @@ async function callOpenAIVision(
   imageDataUrl: string,
   caption: string | null
 ): Promise<{ ok: true; data: ExtractedRecipe } | { ok: false; error: string }> {
-  if (!process.env.OPENAI_API_KEY) {
-    return { ok: false, error: "OpenAI not configured" };
-  }
-
-  let OpenAIctor: typeof import("openai").OpenAI;
-  try {
-    const mod = await import("openai");
-    OpenAIctor =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-  } catch (err) {
-    console.error("[recipe-drafts] openai sdk import failed");
-    return { ok: false, error: "OpenAI SDK unavailable" };
-  }
-  if (!OpenAIctor) {
-    return { ok: false, error: "OpenAI SDK unavailable" };
-  }
-
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const client = new OpenAIctor({
-    apiKey: process.env.OPENAI_API_KEY,
-    timeout: 30000,
-    maxRetries: 0,
-  });
+  const made = await createOpenAIClient(30000);
+  if (!made.ok) return { ok: false, error: made.error };
+  const client = made.client;
+  const model = openAiModel();
 
   try {
     const completion = await client.chat.completions.create({
@@ -334,29 +319,9 @@ async function callOpenAIVision(
 async function transcribeVoice(
   audioBytes: Buffer
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-  if (!process.env.OPENAI_API_KEY) {
-    return { ok: false, error: "OpenAI not configured" };
-  }
-
-  let OpenAIctor: typeof import("openai").OpenAI;
-  try {
-    const mod = await import("openai");
-    OpenAIctor =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-  } catch (err) {
-    console.error("[recipe-drafts] openai sdk import failed");
-    return { ok: false, error: "OpenAI SDK unavailable" };
-  }
-  if (!OpenAIctor) {
-    return { ok: false, error: "OpenAI SDK unavailable" };
-  }
-
-  const client = new OpenAIctor({
-    apiKey: process.env.OPENAI_API_KEY,
-    timeout: 20000,
-    maxRetries: 0,
-  });
+  const made = await createOpenAIClient(20000);
+  if (!made.ok) return { ok: false, error: made.error };
+  const client = made.client;
 
   try {
     const uint8Array = new Uint8Array(audioBytes);
@@ -377,30 +342,10 @@ async function transcribeVoice(
 async function extractFromText(
   text: string
 ): Promise<{ ok: true; data: ExtractedRecipe } | { ok: false; error: string }> {
-  if (!process.env.OPENAI_API_KEY) {
-    return { ok: false, error: "OpenAI not configured" };
-  }
-
-  let OpenAIctor: typeof import("openai").OpenAI;
-  try {
-    const mod = await import("openai");
-    OpenAIctor =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-  } catch (err) {
-    console.error("[recipe-drafts] openai sdk import failed");
-    return { ok: false, error: "OpenAI SDK unavailable" };
-  }
-  if (!OpenAIctor) {
-    return { ok: false, error: "OpenAI SDK unavailable" };
-  }
-
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const client = new OpenAIctor({
-    apiKey: process.env.OPENAI_API_KEY,
-    timeout: 20000,
-    maxRetries: 0,
-  });
+  const made = await createOpenAIClient(20000);
+  if (!made.ok) return { ok: false, error: made.error };
+  const client = made.client;
+  const model = openAiModel();
 
   try {
     const completion = await client.chat.completions.create({
@@ -598,13 +543,17 @@ export interface CreateDraftInput {
   lines: MatchedIngredientLine[];
   overallConfidence: "high" | "medium" | "low";
   currency: string;
+  /** Only the file upload sets it: the approved dish this draft re-reads. */
+  menuItemId?: string | null;
 }
 
 export async function createRecipeDraft(
-  input: CreateDraftInput
+  input: CreateDraftInput,
+  /** The file upload passes its own admin client; Telegram uses the default. */
+  client?: SupabaseClient
 ): Promise<{ ok: true; draftId: string } | { ok: false; error: string }> {
   try {
-    const admin = createAdminClient();
+    const admin = client ?? createAdminClient();
 
     const totalCost = input.lines.reduce(
       (sum, l) => sum + (l.line_cost ?? 0),
@@ -631,6 +580,7 @@ export async function createRecipeDraft(
         total_cost: totalCost,
         per_portion_cost: perPortionCost,
         currency: input.currency,
+        ...(input.menuItemId ? { menu_item_id: input.menuItemId } : {}),
       })
       .select("id")
       .single();

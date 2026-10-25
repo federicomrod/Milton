@@ -69,7 +69,7 @@ export const KITCHEN_COPY = {
     "✅ Anoté en {empresa}: {items}. El dueño o un admin lo revisa en Costos › Compras antes de cambiar el precio.",
   /** A price was mentioned but the item, price or unit is missing (parse failures only). */
   PRICE_UPDATE_UNCLEAR:
-    "No entendí el precio. Escribe producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra».",
+    "No pude leer los precios ahora. Escribe producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra».",
   /** A price without a unit: asked once. {producto} = «queso». Nothing is saved yet. */
   PRICE_UNIT_ASK: "¿El precio de {producto} es por libra, onza o unidad?",
   /** Some items of a price message were not understood. {productos} = «sal, comino» (or «un precio»). Appended to the combined reply. */

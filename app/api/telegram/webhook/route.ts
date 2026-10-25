@@ -1037,6 +1037,20 @@ async function tryUnitAnswer(
     .maybeSingle();
   const staff = linkToActor(link);
   const priced = applyUnit(items, unit);
+
+  // M1: Keep «Cambiar restaurante» button for multi-restaurant cooks
+  const fromId = message.from?.id;
+  let markup: InlineKeyboardMarkup | undefined;
+  if (fromId && links.length > 1) {
+    const anchor = await createChangeAnchor({
+      telegramUserId: fromId,
+      chatId,
+      messageId: message.message_id ?? 0,
+      links,
+    });
+    markup = anchor ?? undefined;
+  }
+
   after(() =>
     processPriceUpdate({
       admin,
@@ -1046,6 +1060,7 @@ async function tryUnitAnswer(
       dateSec: typeof message.date === "number" ? message.date : null,
       items: priced,
       origin: "text",
+      replyMarkup: markup,
     }).catch(() => {
       console.error("[telegram-webhook] price update failed");
     })

@@ -761,7 +761,7 @@ describe("price updates", () => {
   it("unclear: asks for price and unit, no draft", async () => {
     await send({ text: "el aguacate subió" });
     expect(replies).toEqual([
-      "No entendí el precio. Escribe producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra».",
+      "No pude leer los precios ahora. Escribe producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra».",
     ]);
     expect(invoices()).toHaveLength(0);
   });
@@ -808,7 +808,7 @@ describe("price updates", () => {
 
     transcript = "subió el aguacate";
     await send(voice);
-    expect(lastReply()).toContain("No entendí el precio");
+    expect(lastReply()).toContain("No pude leer los precios ahora");
     expect(invoices()).toHaveLength(1);
   });
 });

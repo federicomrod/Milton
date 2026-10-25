@@ -155,6 +155,32 @@ export function suggestPosProductLink(
   };
 }
 
+/**
+ * A menu draft on a link. A Confirmado link keeps its state, its plato and
+ * who/when/how confirmed it: only the evidence changes (the draft is stored
+ * there). Any other link becomes a suggestion, as before. Never downgrades.
+ */
+export function withMenuDraftEvidence(
+  base: PosProductLinkRecord,
+  input: { menu_item_id: string; evidence: Record<string, unknown> }
+): PosProductLinkRecord {
+  if (
+    base.link_state !== "confirmado" ||
+    base.menu_item_id !== input.menu_item_id
+  ) {
+    return suggestPosProductLink(base, input);
+  }
+  return {
+    ...base,
+    evidence: {
+      ...input.evidence,
+      ...(base.evidence[TREATMENT_EVIDENCE_KEY]
+        ? { [TREATMENT_EVIDENCE_KEY]: base.evidence[TREATMENT_EVIDENCE_KEY] }
+        : {}),
+    },
+  };
+}
+
 export function confirmPosProductLinkError(
   confirmation: Partial<LinkConfirmation> | null | undefined
 ): string | null {

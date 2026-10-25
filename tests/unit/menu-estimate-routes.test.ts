@@ -136,6 +136,8 @@ const SALSA = {
 };
 
 interface DishOpts {
+  /** Recipe lines on these versions (by index): a version with lines is a recipe. */
+  lines_on?: number[];
   link_state?: string;
   source?: string | null;
   versions?: string[];
@@ -189,13 +191,28 @@ function addDish(store: FakeStore, n: number, opts: DishOpts = {}) {
       status,
     }))
   );
+  for (const i of opts.lines_on ?? []) giveLines(store, n, i);
   world.sales.set(100 + n, { net_sales: 1000 - n, units_sold: 100 });
+}
+
+/** A recipe line on version `v<n>-<i>`: what makes a version a real recipe. */
+function giveLines(store: FakeStore, n: number, i = 0) {
+  (store.recipe_version_inputs ??= []).push({
+    id: `in-${n}-${i}`,
+    company_id: CO,
+    recipe_version_id: `v${n}-${i}`,
+    input_type: "ingredient",
+    ingredient_id: "i-pollo",
+    quantity: 1,
+    unit: "g",
+  });
 }
 
 function baseStore(): FakeStore {
   return {
     pos_product_links: [],
     recipe_versions: [],
+    recipe_version_inputs: [],
     ingredients: [
       { id: "i-pollo", company_id: CO, name: "Pollo", default_unit: "g" },
     ],
@@ -559,11 +576,11 @@ describe("margin", () => {
 });
 
 describe("dishes Milton does not touch", () => {
-  it("refuses approved, Confirmado and Excel or hand-made dishes", async () => {
-    addDish(store, 1, { versions: ["approved"] });
+  it("refuses approved and Excel or hand-made dishes; a Confirmado link without a recipe is estimated", async () => {
+    addDish(store, 1, { versions: ["approved"], lines_on: [0] });
     addDish(store, 2, { link_state: "confirmado" });
     addDish(store, 3, { source: null, versions: ["in_review"] }); // hand-made
-    addDish(store, 4, { versions: ["in_review", "in_review"] });
+    addDish(store, 4, { versions: ["in_review", "in_review"], lines_on: [1] });
     addDish(store, 5); // the one that can
     const before = snapshot(
       store,
@@ -586,15 +603,18 @@ describe("dishes Milton does not touch", () => {
     );
     expect(by).toEqual({
       m1: "approved",
-      m2: "confirmado",
+      m2: null,
       m3: "has_recipe",
       m4: "has_recipe",
       m5: null,
     });
-    expect(world.calls.map((c) => c.dish)).toEqual(["Plato 5"]);
-    expect(store.restaurant_dish_estimates.map((r) => r.menu_item_id)).toEqual([
-      "m5",
+    expect(world.calls.map((c) => c.dish).sort()).toEqual([
+      "Plato 2",
+      "Plato 5",
     ]);
+    expect(
+      store.restaurant_dish_estimates.map((r) => r.menu_item_id).sort()
+    ).toEqual(["m2", "m5"]);
     expect(
       snapshot(
         store,
@@ -605,15 +625,55 @@ describe("dishes Milton does not touch", () => {
     ).toBe(before);
   });
 
-  it("does not pick them without ids either, and says an unknown id is unknown", async () => {
+  it("an approved or in-review version with no lines is not a recipe: the plato is estimated", async () => {
     addDish(store, 1, { versions: ["approved"] });
+    addDish(store, 2, { versions: ["in_review", "in_review"] });
+    const body = await (
+      await POST(req("estimate", { menu_item_ids: ["m1", "m2"] }))
+    ).json();
+    expect(
+      body.results.map((r: { skipped_reason: unknown }) => r.skipped_reason)
+    ).toEqual([null, null]);
+  });
+
+  it("without ids it picks every plato with no recipe, best sellers first, and skips the ones with a recipe", async () => {
+    addDish(store, 1, { versions: ["approved"], lines_on: [0] });
     addDish(store, 2, { link_state: "confirmado" });
+    // A plato with no menu draft at all: a confirmed link, no evidence, no version.
+    (store.pos_product_links ??= []).push({
+      id: "l9",
+      company_id: CO,
+      odoo_product_id: 109,
+      odoo_name: "Plato 9",
+      location_id: null,
+      menu_item_id: "m9",
+      link_state: "confirmado",
+      evidence: {},
+    });
+    world.sales.set(109, { net_sales: 5000, units_sold: 10 });
     const auto = await (await POST(req("estimate", {}))).json();
-    expect(auto).toEqual({ done: 0, remaining: 0, results: [] });
+    expect(auto.results.map((r: { name: string }) => r.name)).toEqual([
+      "Plato 9",
+      "Plato 2",
+    ]);
+    expect(world.calls.map((c) => c.dish)).toEqual(["Plato 9", "Plato 2"]);
     const unknown = await (
       await POST(req("estimate", { menu_item_ids: ["nope"] }))
     ).json();
     expect(unknown.results[0].skipped_reason).toBe("no_encontrado");
+  });
+
+  it("with menu_item_ids: [id] it estimates just that plato", async () => {
+    for (let n = 1; n <= 3; n++) addDish(store, n);
+    const body = await (
+      await POST(req("estimate", { menu_item_ids: ["m2"] }))
+    ).json();
+    expect(
+      body.results.map((r: { menu_item_id: string }) => r.menu_item_id)
+    ).toEqual(["m2"]);
+    expect(store.restaurant_dish_estimates.map((r) => r.menu_item_id)).toEqual([
+      "m2",
+    ]);
   });
 });
 
@@ -660,6 +720,7 @@ describe("migration 062 not applied", () => {
     expect(await (await GET()).json()).toEqual({
       available: false,
       eligible: 1,
+      needs_link: 0,
     });
     const use = await USE(req("estimate/use", { menu_item_id: "m1" }));
     expect(use.status).toBe(503);
@@ -676,16 +737,33 @@ describe("migration 062 not applied", () => {
 });
 
 describe("GET", () => {
-  it("counts the eligible menu drafts", async () => {
+  it("counts every plato with no recipe, Confirmado or not", async () => {
     addDish(store, 1);
     addDish(store, 2);
-    addDish(store, 3, { versions: ["approved"] });
+    addDish(store, 3, { versions: ["approved"], lines_on: [0] });
     addDish(store, 4, { link_state: "confirmado" });
     addDish(store, 5, { source: null });
     expect(await (await GET()).json()).toEqual({
       available: true,
-      eligible: 2,
+      eligible: 3,
+      needs_link: 0,
     });
+  });
+
+  it("counts a plato that is not a menu draft at all", async () => {
+    addDish(store, 1);
+    (store.pos_product_links ??= []).push({
+      id: "l9",
+      company_id: CO,
+      odoo_product_id: 109,
+      odoo_name: "Plato 9",
+      location_id: null,
+      menu_item_id: "m9",
+      link_state: "confirmado",
+      evidence: {},
+    });
+    const body = await (await GET()).json();
+    expect(body.eligible).toBe(2);
   });
 });
 
@@ -776,13 +854,29 @@ describe("«usar como borrador»", () => {
     expect(lines[1].flags).not.toContain(FLAG_MILTON_ESTIMATE);
   });
 
-  it("is refused with 409 and writes nothing once the dish is approved, Confirmado or hand-made", async () => {
+  it("works on a Confirmado link and leaves the link exactly as it was", async () => {
+    await estimated();
+    Object.assign(store.pos_product_links[0], {
+      link_state: "confirmado",
+      confirmed_by: "u-9",
+      confirmed_at: "2026-09-01T00:00:00Z",
+      confirmed_how: "manual",
+    });
+    const res = await USE(req("estimate/use", { menu_item_id: "m1" }));
+    expect(res.status).toBe(200);
+    expect(store.pos_product_links[0]).toMatchObject({
+      link_state: "confirmado",
+      confirmed_by: "u-9",
+      confirmed_how: "manual",
+      menu_item_id: "m1",
+    });
+  });
+
+  it("is refused with 409 and writes nothing once the dish is approved or hand-made", async () => {
     for (const change of [
       () => {
         store.recipe_versions[0].status = "approved";
-      },
-      () => {
-        store.pos_product_links[0].link_state = "confirmado";
+        giveLines(store, 1, 0);
       },
       () => {
         delete (store.pos_product_links[0].evidence as Row).source;

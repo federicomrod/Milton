@@ -24,6 +24,10 @@ export const ESTIMATE_UNAVAILABLE =
   "Las estimaciones aún no están activas en este ambiente.";
 export const ESTIMATE_NOTHING_TO_DO =
   "Todos tus platos tienen receta. No hay nada que estimar.";
+export const ESTIMATE_NEEDS_LINK =
+  "Tus platos sin receta aún no están vinculados a un producto del POS. Vincúlalos para poder estimarlos.";
+export const ESTIMATE_ROW_NEEDS_LINK =
+  "Primero vincula este producto a un plato.";
 export const ESTIMATE_PROBE_FAILED = "No pude revisar tus platos.";
 export const ESTIMATE_RETRY = "Reintentar";
 
@@ -42,14 +46,16 @@ export function canEditRecipes(actor: {
 export interface RealDishState {
   real_cost: number | null;
   has_approved_version?: boolean | null;
+  /** Ignored: a Confirmado link does not hide an estimate. */
   link_confirmed?: boolean | null;
   excel_total?: number | null;
 }
 
 /**
- * The overlay is only for a dish with NO real cost: an approved recipe, a
- * confirmed link, an Excel recipe or any real cost hides it (and so does a
- * draft already made from the estimate).
+ * The overlay is only for a dish with NO real cost: an approved recipe, an
+ * Excel recipe or any real cost hides it (and so does a draft already made
+ * from the estimate). A Confirmado link alone does not: it only says which
+ * POS product the plato is.
  */
 export function overlayAllowed(
   estimate: DishEstimateRow,
@@ -58,7 +64,6 @@ export function overlayAllowed(
   if (estimate.used_as_draft_at) return false;
   if (real.real_cost != null) return false;
   if (real.has_approved_version) return false;
-  if (real.link_confirmed) return false;
   if (real.excel_total != null) return false;
   return true;
 }
@@ -151,4 +156,19 @@ export function extraEstimatedDishes(
 
 export function extraEstimatedLabel(n: number): string {
   return `Con estimados de Milton: ${n} ${n === 1 ? "plato más" : "platos más"} con margen aproximado`;
+}
+
+/** What the person reads when one plato could not be estimated. */
+export function estimateSkipMessage(reason: string | null | undefined): string {
+  switch (reason) {
+    case "has_recipe":
+    case "approved":
+      return "Este plato ya tiene receta; Milton no la cambia.";
+    case "no_encontrado":
+      return "No encontré ese plato.";
+    case "error_guardado":
+      return "No pude guardar el estimado. Intenta de nuevo.";
+    default:
+      return "No pude estimar este plato. Intenta de nuevo.";
+  }
 }

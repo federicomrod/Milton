@@ -97,7 +97,7 @@ function link(
   };
 }
 
-function economics(withDraftQuantities: boolean) {
+function economics(withDraftQuantities: boolean, confirmedDraft = false) {
   const entries = [entry("i-carne", "oz", 0.5)];
   const costing = {
     ingredientsById: new Map([
@@ -126,7 +126,7 @@ function economics(withDraftQuantities: boolean) {
     link(1, { menu_item_id: "m1", evidence: { lines: [] } }),
     link(2, {
       menu_item_id: "m2",
-      link_state: "sugerido",
+      link_state: confirmedDraft ? "confirmado" : "sugerido",
       evidence: { source: "menu", lines: draftLines },
     }),
   ];
@@ -222,6 +222,34 @@ describe("dish economics are the same with or without a used estimate", () => {
     expect(draft.status).not.toBe("aprobado");
     expect(draft.covered).toBe(false);
     expect(draft.unit_cost).toBeNull();
+    expect(after.totals.covered_net_sales).toBe(200);
+  });
+});
+
+describe("a Confirmado plato with no recipe: an estimate or a menu draft moves no figure", () => {
+  const before = economics(false, true);
+  const after = economics(true, true);
+
+  it("KPIs, Cockpit rollup inputs and briefing inputs are unchanged", () => {
+    // Cockpit, briefing and the KPIs all read these three views.
+    expect(after.totals).toEqual(before.totals);
+    expect(legacyMarginRows(after)).toEqual(legacyMarginRows(before));
+    expect(periodCostKpisFromDishEconomics(after)).toEqual(
+      periodCostKpisFromDishEconomics(before)
+    );
+    expect(
+      after.dishes.map((d) => [d.odoo_product_id, d.status, d.covered])
+    ).toEqual(
+      before.dishes.map((d) => [d.odoo_product_id, d.status, d.covered])
+    );
+  });
+
+  it("the plato is never «aprobado» or covered, has no cost and is out of COGS", () => {
+    const plato = after.dishes.find((d) => d.odoo_product_id === 2)!;
+    // Its pending menu-draft lines make it «Falta precio»; never a real status.
+    expect(plato.status).toBe("falta_precio");
+    expect(plato.covered).toBe(false);
+    expect(plato.unit_cost).toBeNull();
     expect(after.totals.covered_net_sales).toBe(200);
   });
 });

@@ -493,6 +493,8 @@ function dishesWorkspace(opts: {
   cost_total?: number | null;
   source?: "excel" | "menu" | "name";
   cost_status?: string;
+  /** The plato of the base variant; null = no plato yet. */
+  menu_item_id?: string | null;
 }): RecipeCostingWorkspace {
   const dish = {
     id: "d1",
@@ -540,6 +542,8 @@ function dishesWorkspace(opts: {
     approved_count: 0,
     variant_count: 1,
     base_odoo_product_id: 1,
+    base_menu_item_id:
+      opts.menu_item_id === undefined ? "m1" : opts.menu_item_id,
     base_portion_qty: null,
     excel_total: null,
     excel_diff_flag: false,
@@ -627,11 +631,106 @@ describe("MenuDishesScreen · estimate overlay", () => {
     }
   });
 
-  it("offers «Estimar con Milton» next to dishes without recipe", async () => {
+  it("offers «Estimar con Milton» in the controls row and on the «Sin receta» row", async () => {
     mountList(dishesWorkspace({}), []);
+    const buttons = await screen.findAllByRole("button", {
+      name: "Estimar con Milton",
+    });
+    expect(buttons).toHaveLength(2);
+    const row = screen.getByTestId("dish-estimate-action");
+    expect(row.closest("tr")).toBeTruthy();
+    expect(row.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("the row action estimates just that plato, then asks the page to refresh", async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          calls.push({ url, body: JSON.parse(String(init.body)) });
+          return jsonRes({
+            done: 1,
+            remaining: 0,
+            results: [{ menu_item_id: "m1", skipped_reason: null }],
+          });
+        }
+        return jsonRes({ available: true, eligible: 1, needs_link: 0 });
+      })
+    );
+    const onEstimated = vi.fn();
+    render(
+      <MenuDishesScreen
+        data={dishesWorkspace({})}
+        onOpenDish={() => undefined}
+        estimates={[]}
+        onEstimated={onEstimated}
+      />
+    );
+    fireEvent.click(screen.getByTestId("dish-estimate-action"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].url).toBe("/api/restaurant/recipes/menu/estimate");
+    expect(calls[0].body).toEqual({ menu_item_ids: ["m1"] });
+    await waitFor(() => expect(onEstimated).toHaveBeenCalled());
+  });
+
+  it("a row whose product has no plato yet is disabled and says why", () => {
+    mountList(dishesWorkspace({ menu_item_id: null }), []);
+    const action = screen.getByTestId("dish-estimate-action");
+    expect(action.hasAttribute("disabled")).toBe(true);
     expect(
-      await screen.findByRole("button", { name: "Estimar con Milton" })
+      screen.getByText("Primero vincula este producto a un plato.")
     ).toBeTruthy();
+  });
+
+  it("the row action is disabled without recipes.edit", () => {
+    const ws = dishesWorkspace({});
+    (ws.actor as { capabilities: Record<string, boolean> }).capabilities = {
+      "recipes.edit": false,
+    };
+    mountList(ws, []);
+    expect(
+      screen.getByTestId("dish-estimate-action").hasAttribute("disabled")
+    ).toBe(true);
+  });
+
+  it("a plato with a Confirmado link still gets its estimate shown, with «Usar como borrador»", () => {
+    mountList(dishesWorkspace({}), [estimate()]);
+    expect(screen.getByTestId("dish-estimate").textContent).toContain(
+      "Estimado por Milton"
+    );
+    expect(
+      screen.getByRole("button", { name: "Usar como borrador" })
+    ).toBeTruthy();
+    expect(screen.queryByTestId("dish-estimate-action")).toBeNull();
+  });
+
+  it("no «Sin receta» rows: no row action, and the link says there is nothing to estimate", async () => {
+    mountList(dishesWorkspace({ cost_status: "aprobado" }), []);
+    expect(screen.queryByTestId("dish-estimate-action")).toBeNull();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes({ available: true, eligible: 0, needs_link: 0 }))
+    );
+    cleanup();
+    mountList(dishesWorkspace({ cost_status: "aprobado" }), []);
+    expect(
+      await screen.findByText(
+        "Todos tus platos tienen receta. No hay nada que estimar."
+      )
+    ).toBeTruthy();
+  });
+
+  it("unlinked «Sin receta» products are not called «Todos tus platos tienen receta»", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes({ available: true, eligible: 0, needs_link: 3 }))
+    );
+    mountList(dishesWorkspace({ menu_item_id: null }), []);
+    expect(
+      await screen.findByText(/aún no están vinculados a un producto del POS/)
+    ).toBeTruthy();
+    expect(screen.queryByText(/Todos tus platos tienen receta/)).toBeNull();
   });
 
   it("renders as before with no estimates", () => {
@@ -728,6 +827,14 @@ describe("pure helpers", () => {
     const e = estimate();
     expect(overlayAllowed(e, { real_cost: null })).toBe(true);
     expect(overlayAllowed(e, { real_cost: 0 })).toBe(false);
+    expect(
+      overlayAllowed(e, { real_cost: null, has_approved_version: true })
+    ).toBe(false);
+  });
+  it("a Confirmado link alone no longer hides the overlay", () => {
+    expect(
+      overlayAllowed(estimate(), { real_cost: null, link_confirmed: true })
+    ).toBe(true);
   });
 });
 

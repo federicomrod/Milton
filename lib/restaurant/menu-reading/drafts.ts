@@ -1,7 +1,9 @@
 // Decide, per POS dish, what the menu adds. Pure, so the rules live here
 // and not in React or in the route:
-// - a dish already Confirmado, or with any recipe (from the Excel or made
-//   by hand), is left alone: the Excel wins and the menu adds nothing;
+// - a dish that already HAS a recipe (see recipe-costing/has-recipe.ts: an
+//   approved or newest version with lines, or an Excel suggestion) is left
+//   alone: the Excel wins and the menu adds nothing. A Confirmado link only
+//   says «this POS product is this plato»; it does not block the draft;
 // - a dish matches a menu dish only when the match is clear, otherwise it
 //   is "No encontrado en el menú";
 // - each component suggests an existing ingredient or preparation, or is
@@ -30,7 +32,6 @@ export { FLAG_FROM_MENU, FLAG_NEW_SUGGESTED, FLAG_PENDING_QTY };
 export const NOT_FOUND_IN_MENU = "No encontrado en el menú";
 export const HAS_RECIPE_REASON =
   "ya tiene receta (de tu Excel o hecha a mano); el menú no la cambia";
-export const CONFIRMED_REASON = "este vínculo ya está Confirmado";
 export const NO_COMPONENTS_REASON = "el menú no dice qué lleva este plato";
 export const MENU_DRAFT_EXISTS_REASON = "ya tiene un borrador del menú";
 
@@ -39,8 +40,10 @@ export interface MenuDraftProduct {
   odoo_name: string;
   pos_price: number | null;
   link_state: string | null;
-  /** True when the dish already has any recipe version, or an Excel suggestion. */
+  /** The plato has a recipe by the one rule (has-recipe.ts), not just a version row. */
   has_recipe: boolean;
+  /** One plato may be several POS products (sizes): the same key counts once. */
+  plato_key?: string;
   /** True when that recipe is a draft an earlier menu reading made. */
   menu_draft?: boolean;
 }
@@ -60,7 +63,14 @@ export type MenuDraftDecision =
       new_components: number;
     }
   | { kind: "no_encontrado"; product: MenuDraftProduct }
-  | { kind: "omitido"; product: MenuDraftProduct; reason: string };
+  | {
+      kind: "omitido";
+      product: MenuDraftProduct;
+      reason: string;
+      code: OmittedCode;
+    };
+
+export type OmittedCode = "has_recipe" | "no_ingredients" | "draft_exists";
 
 export function menuDraftLines(
   components: readonly string[],
@@ -137,16 +147,20 @@ export function planMenuDrafts(input: {
   menuUrl: string | null;
 }): MenuDraftDecision[] {
   return input.products.map((product): MenuDraftDecision => {
-    if (product.link_state === "confirmado") {
-      return { kind: "omitido", product, reason: CONFIRMED_REASON };
-    }
     if (product.has_recipe) {
       return {
         kind: "omitido",
         product,
-        reason: product.menu_draft
-          ? MENU_DRAFT_EXISTS_REASON
-          : HAS_RECIPE_REASON,
+        reason: HAS_RECIPE_REASON,
+        code: "has_recipe",
+      };
+    }
+    if (product.menu_draft) {
+      return {
+        kind: "omitido",
+        product,
+        reason: MENU_DRAFT_EXISTS_REASON,
+        code: "draft_exists",
       };
     }
     const match = matchPosDishToMenu(
@@ -155,7 +169,12 @@ export function planMenuDrafts(input: {
     );
     if (!match) return { kind: "no_encontrado", product };
     if (match.dish.components.length === 0) {
-      return { kind: "omitido", product, reason: NO_COMPONENTS_REASON };
+      return {
+        kind: "omitido",
+        product,
+        reason: NO_COMPONENTS_REASON,
+        code: "no_ingredients",
+      };
     }
     const lines = menuDraftLines(match.dish.components, input.catalog);
     return {
@@ -173,4 +192,38 @@ export function planMenuDrafts(input: {
       ).length,
     };
   });
+}
+
+const OUTCOME_ORDER: Record<string, number> = {
+  draft: 0,
+  draft_exists: 1,
+  has_recipe: 2,
+  no_ingredients: 3,
+  no_encontrado: 4,
+};
+
+function outcomeRank(decision: MenuDraftDecision): number {
+  return OUTCOME_ORDER[
+    decision.kind === "omitido" ? decision.code : decision.kind
+  ];
+}
+
+/**
+ * One decision per PLATO. Several POS products of the same plato (sizes, the
+ * same menu item) count once: the best outcome wins, and only one of them
+ * drafts. Products with no `plato_key` are their own plato.
+ */
+export function decisionsByPlato(
+  decisions: readonly MenuDraftDecision[]
+): MenuDraftDecision[] {
+  const best = new Map<string, MenuDraftDecision>();
+  for (const decision of decisions) {
+    const key =
+      decision.product.plato_key ?? `pos:${decision.product.odoo_product_id}`;
+    const had = best.get(key);
+    if (!had || outcomeRank(decision) < outcomeRank(had)) {
+      best.set(key, decision);
+    }
+  }
+  return [...best.values()];
 }

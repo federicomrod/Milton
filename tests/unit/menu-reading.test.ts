@@ -22,15 +22,19 @@ import {
   stripSize,
 } from "@/lib/restaurant/menu-reading/match";
 import {
-  CONFIRMED_REASON,
+  MENU_DRAFT_EXISTS_REASON,
   FLAG_FROM_MENU,
   FLAG_NEW_SUGGESTED,
   HAS_RECIPE_REASON,
   NO_COMPONENTS_REASON,
+  decisionsByPlato,
   planMenuDrafts,
   type MenuDraftProduct,
 } from "@/lib/restaurant/menu-reading/drafts";
-import { menuReadSummary } from "@/lib/restaurant/menu-reading/summary";
+import {
+  menuReadSummary,
+  menuReadSummaryLines,
+} from "@/lib/restaurant/menu-reading/summary";
 import {
   canConfirmSuggestedLink,
   isBoundSuggestion,
@@ -385,19 +389,65 @@ describe("menu drafts", () => {
     expect(decision.evidence.menu_description).toBe(DISHES[0].description);
   });
 
-  it("the Excel wins: a dish with a recipe or a confirmed link is left alone", () => {
-    const [withRecipe, confirmed] = plan([
+  it("the Excel wins: a plato that already has a recipe is left alone, Confirmado or not", () => {
+    const [withRecipe, confirmedWithRecipe] = plan([
       product({ has_recipe: true }),
-      product({ odoo_product_id: 2, link_state: "confirmado" }),
+      product({
+        odoo_product_id: 2,
+        link_state: "confirmado",
+        has_recipe: true,
+      }),
     ]);
     expect(withRecipe).toMatchObject({
       kind: "omitido",
       reason: HAS_RECIPE_REASON,
+      code: "has_recipe",
     });
-    expect(confirmed).toMatchObject({
+    expect(confirmedWithRecipe).toMatchObject({
       kind: "omitido",
-      reason: CONFIRMED_REASON,
+      code: "has_recipe",
     });
+  });
+
+  it("a Confirmado link with no recipe (or only an empty / rejected version) still gets a draft", () => {
+    // has_recipe is false by the one rule: no version, a version with 0 lines
+    // or a rejected one all arrive here as has_recipe: false.
+    const [confirmed] = plan([
+      product({ link_state: "confirmado", has_recipe: false }),
+    ]);
+    expect(confirmed.kind).toBe("draft");
+    if (confirmed.kind !== "draft") return;
+    expect((confirmed.evidence.lines as unknown[]).length).toBe(
+      DISHES[0].components.length
+    );
+  });
+
+  it("a pending menu draft keeps its own reason", () => {
+    const [existing] = plan([product({ menu_draft: true })]);
+    expect(existing).toMatchObject({
+      kind: "omitido",
+      reason: MENU_DRAFT_EXISTS_REASON,
+      code: "draft_exists",
+    });
+  });
+
+  it("several POS products of the same plato count once", () => {
+    const decisions = plan([
+      product({ odoo_product_id: 1, plato_key: "item:m1" }),
+      product({ odoo_product_id: 2, plato_key: "item:m1" }),
+      product({ odoo_product_id: 3, plato_key: "item:m1" }),
+      product({
+        odoo_product_id: 4,
+        odoo_name: "Lomo saltado",
+        plato_key: "item:m2",
+      }),
+    ]);
+    const platos = decisionsByPlato(decisions);
+    expect(platos).toHaveLength(2);
+    expect(platos.map((d) => d.kind).sort()).toEqual([
+      "draft",
+      "no_encontrado",
+    ]);
   });
 
   it("reports dishes not on the menu and dishes with no description", () => {
@@ -429,18 +479,63 @@ describe("menu drafts", () => {
     expect(needsTypedQuantity({ flags: [], qty: 0 })).toBe(false);
   });
 
-  it("summarises the run for the person", () => {
+  it("summarises the run: one short line per non-zero count, numbers from the fields", () => {
+    const result = {
+      dishes_read: 12,
+      drafted: 3,
+      skipped_has_recipe: 4,
+      skipped_no_ingredients: 2,
+      skipped_draft_exists: 1,
+      not_on_menu: 5,
+      failed: 1,
+      new_components: 0,
+    };
+    const lines = menuReadSummaryLines(result);
+    expect(lines.map((l) => l.text)).toEqual([
+      "Leí 12 platos en tu menú.",
+      "Preparé 3 borradores de receta. Las cantidades quedan pendientes: tú las escribes.",
+      "4 platos ya tienen receta: no los cambié.",
+      "2 platos del menú no dicen qué llevan: no pude armar el borrador. Usa «Estimar con Milton».",
+      "1 plato ya tenía un borrador del menú.",
+      "5 platos sin receta no aparecen en el menú.",
+      "No pude preparar 1 plato. Intenta de nuevo.",
+    ]);
+    expect(menuReadSummary(result)).toBe(lines.map((l) => l.text).join(" "));
+  });
+
+  it("hides zero lines, but always shows the first two, with singulars", () => {
     expect(
-      menuReadSummary({
-        dishes_read: 4,
+      menuReadSummaryLines({ dishes_read: 1, drafted: 0 }).map((l) => l.text)
+    ).toEqual(["Leí 1 plato en tu menú.", "Preparé 0 borradores de receta."]);
+    expect(
+      menuReadSummaryLines({
+        dishes_read: 1,
         drafted: 1,
-        new_components: 2,
-        not_found: ["Lomo saltado"],
-        skipped: [],
-      })
-    ).toBe(
-      "Leí 4 platos en tu menú, preparé 1 borrador en Plato por plato, 1 plato del POS no aparece en el menú. Las cantidades quedan pendientes: tú las escribes. 2 componentes son nuevos (Nuevo, sugerido): créalos o elige uno de tu lista."
-    );
+        skipped_has_recipe: 1,
+        skipped_no_ingredients: 1,
+        not_on_menu: 1,
+      }).map((l) => l.text)
+    ).toEqual([
+      "Leí 1 plato en tu menú.",
+      "Preparé 1 borrador de receta. Las cantidades quedan pendientes: tú las escribes.",
+      "1 plato ya tiene receta: no lo cambié.",
+      "1 plato del menú no dice qué lleva: no pude armar el borrador. Usa «Estimar con Milton».",
+      "1 plato sin receta no aparece en el menú.",
+    ]);
+  });
+
+  it("says «plato», never «platillo», and never counts POS products as platos", () => {
+    const text = menuReadSummary({
+      dishes_read: 2,
+      drafted: 1,
+      skipped_has_recipe: 2,
+      skipped_no_ingredients: 2,
+      skipped_draft_exists: 2,
+      not_on_menu: 2,
+      failed: 2,
+    });
+    expect(text).not.toMatch(/platillo|del POS|productos/i);
+    expect(text).toContain("platos");
   });
 });
 

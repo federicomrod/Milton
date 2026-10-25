@@ -72,6 +72,14 @@ export const KITCHEN_COPY = {
     "No entendí el precio. Escribe producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra».",
   /** A price without a unit: asked once. {producto} = «queso». Nothing is saved yet. */
   PRICE_UNIT_ASK: "¿El precio de {producto} es por libra, onza o unidad?",
+  /** Some items of a price message were not understood. {productos} = «sal, comino» (or «un precio»). Appended to the combined reply. */
+  PRICE_NOT_UNDERSTOOD:
+    "No entendí: {productos}. Escríbelos como «aguacate $1.50 la libra».",
+  /** More prices than one message can hold. {n} = how many were processed, {productos} = the ones left out. */
+  PRICE_OVER_LIMIT:
+    "Procesé los primeros {n} precios. No procesé: {productos}. Mándalos en otro mensaje.",
+  /** The voice note could not be transcribed (download, key, timeout or empty). */
+  VOICE_UNREADABLE: "No pude escuchar el audio. Mándalo otra vez o escríbelo.",
   /** The price was understood but could not be saved. */
   PRICE_UPDATE_FAILED:
     "No pude guardar el precio. Vuelve a mandarlo en un momento.",

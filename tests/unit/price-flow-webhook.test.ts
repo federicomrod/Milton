@@ -38,6 +38,7 @@ const {
   ai: vi.fn(),
 }));
 let transcript = "";
+let whisperFails = false;
 let questionId = 1000;
 
 vi.mock("next/server", async (importOriginal) => {
@@ -114,7 +115,14 @@ vi.mock("@/lib/restaurant/telegram/price-update-ai", async (importOriginal) => {
 });
 vi.mock("openai", () => {
   class FakeOpenAI {
-    audio = { transcriptions: { create: async () => ({ text: transcript }) } };
+    audio = {
+      transcriptions: {
+        create: async () => {
+          if (whisperFails) throw new Error("whisper down");
+          return { text: transcript };
+        },
+      },
+    };
   }
   return { default: FakeOpenAI, OpenAI: FakeOpenAI };
 });
@@ -321,6 +329,7 @@ beforeEach(() => {
   edits.length = 0;
   consoleCalls.length = 0;
   transcript = "";
+  whisperFails = false;
   resetOwnerChatGuidance();
   resetRoutingState();
   process.env.TELEGRAM_WEBHOOK_SECRET = "s3cret";
@@ -461,7 +470,13 @@ describe("AI fallback", () => {
   it("accepted when the price is in the text", async () => {
     ai.mockResolvedValue({
       items: [
-        { product: "aguacate", price: 1.5, unit: "libra", currency: null },
+        {
+          product: "aguacate",
+          price: 1.5,
+          unit: "libra",
+          currency: null,
+          said: "(1,5) la libra",
+        },
       ],
     });
     await msg({ text });
@@ -473,7 +488,13 @@ describe("AI fallback", () => {
   it("a price that is not in the text is dropped", async () => {
     ai.mockResolvedValue({
       items: [
-        { product: "aguacate", price: 9.99, unit: "libra", currency: null },
+        {
+          product: "aguacate",
+          price: 9.99,
+          unit: "libra",
+          currency: null,
+          said: "(1,5) la libra",
+        },
       ],
     });
     await msg({ text });
@@ -483,7 +504,15 @@ describe("AI fallback", () => {
 
   it("unit null asks the unit question", async () => {
     ai.mockResolvedValue({
-      items: [{ product: "aguacate", price: 1.5, unit: null, currency: null }],
+      items: [
+        {
+          product: "aguacate",
+          price: 1.5,
+          unit: null,
+          currency: null,
+          said: "(1,5)",
+        },
+      ],
     });
     await msg({ text: "el aguacate (1,5)" });
     expect(lastSent().text).toBe(unitAsk("aguacate"));
@@ -495,7 +524,13 @@ describe("AI fallback", () => {
   it("an invented unit asks instead of saving", async () => {
     ai.mockResolvedValue({
       items: [
-        { product: "aguacate", price: 1.5, unit: "libra", currency: null },
+        {
+          product: "aguacate",
+          price: 1.5,
+          unit: "libra",
+          currency: null,
+          said: "(1,5)",
+        },
       ],
     });
     await msg({ text: "el aguacate (1,5)" });
@@ -586,5 +621,333 @@ describe("two restaurants", () => {
     expect(sent.some((s) => s.text === KITCHEN_COPY.ROUTING_EXPIRED)).toBe(
       false
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Item by item: spoken numbers, partial success, one combined reply
+// ---------------------------------------------------------------------------
+
+const voice = (t: string, id?: number) => {
+  transcript = t;
+  return msg({ voice: { file_id: "VOICE-SECRET", duration: 5 } }, id);
+};
+const lines = () => store.supplier_invoice_lines ?? [];
+const lineSummary = () =>
+  lines().map((l) => `${l.description}|${l.unit_cost}|${l.unit}`);
+const NOTHING_LOST = (m: { text: string }) =>
+  !m.text.includes("Recibido, gracias");
+
+describe("voice: spoken prices become drafts", () => {
+  it("«Aguacate a uno cincuenta la onza.» is aguacate $1.50 per oz, not «Recibido»", async () => {
+    await voice("Aguacate a uno cincuenta la onza.");
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual(["aguacate|1.5|oz"]);
+    expect(lastSent().text).toContain("aguacate $1.50 la onza");
+    expect(sent.every(NOTHING_LOST)).toBe(true);
+    expect(ai).not.toHaveBeenCalled();
+  });
+
+  it("«Aguacate a uno cincuenta.» asks the unit of aguacate", async () => {
+    await voice("Aguacate a uno cincuenta.");
+    expect(lastSent().text).toBe(unitAsk("aguacate"));
+    expect(drafts()).toHaveLength(0);
+    await msg({ text: "onza" });
+    expect(lineSummary()).toEqual(["aguacate|1.5|oz"]);
+  });
+
+  it.each([
+    ["Aguacate, uno con cincuenta la libra.", "lb"],
+    ["el aguacate a un dólar con cincuenta la onza", "oz"],
+    ["Aguacate a 1 con 50 la onza.", "oz"],
+    ["aguacate 1,50 la onza", "oz"],
+    ["Aguacate a uno cincuenta (la onza)", "oz"],
+  ])("%s -> $1.50 draft", async (t, unit) => {
+    await voice(t);
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual([`aguacate|1.5|${unit}`]);
+    expect(sent.every(NOTHING_LOST)).toBe(true);
+  });
+
+  it("«Aguacate a 150 la onza.» never saves 150: it says it did not understand, with a hint", async () => {
+    await voice("Aguacate a 150 la onza.");
+    expect(drafts()).toHaveLength(0);
+    expect(lines()).toHaveLength(0);
+    expect(lastSent().text).toContain("No entendí: aguacate");
+    expect(lastSent().text).toContain("¿$1.50 o $150?");
+    expect(sent.every(NOTHING_LOST)).toBe(true);
+  });
+
+  it("a stock report with numbers stays an acknowledgement, no AI", async () => {
+    for (const t of [
+      "quedan tres porciones",
+      "llegaron 5 cajas de tomate",
+      "Se usan 2 libras de masa para las pupusas.",
+      "1 hamburguesa",
+    ]) {
+      sent.length = 0;
+      await voice(t);
+      expect(sent).toHaveLength(1);
+      expect(sent[0].text).toContain("Recibido, gracias");
+    }
+    expect(drafts()).toHaveLength(0);
+    expect(ai).not.toHaveBeenCalled();
+  });
+
+  it("a long note: ten ingredients, one without a price, all the others saved", async () => {
+    await voice(
+      "Precios de hoy. Harina, uno veinticinco la libra. Chicharrón, tres cincuenta la libra. Quesillo, cuatro dólares la libra. Aguacate a uno con cincuenta la onza. Tomate, 80 centavos la libra. Cebolla a 75 centavos la libra. Aceite a dos cincuenta el litro. Sal a cinco centavos la onza. Queso a 4.25 la libra. El agua tibia no tiene precio."
+    );
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual([
+      "harina|1.25|lb",
+      "chicharrón|3.5|lb",
+      "quesillo|4|lb",
+      "aguacate|1.5|oz",
+      "tomate|0.8|lb",
+      "cebolla|0.75|lb",
+      "aceite|2.5|litro",
+      "sal|0.05|oz",
+      "queso|4.25|lb",
+    ]);
+    expect(sent).toHaveLength(1);
+    expect(lastSent().text).not.toContain("tibia");
+    expect(lastSent().text).not.toContain("No entendí");
+    expect(ai).not.toHaveBeenCalled();
+  });
+});
+
+describe("one message, several prices: partial success, ONE reply", () => {
+  const list =
+    "Precios para las pupusas revueltas. Masa de maíz a 75 centavos la libra, chicharrón a tres cincuenta la libra, quesillo a 4.25 la libra, frijoles a 1.20, aceite a 2.50 el litro. El agua tibia no tiene precio.";
+
+  const check = async () => {
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual([
+      "masa de maíz|0.75|lb",
+      "chicharrón|3.5|lb",
+      "quesillo|4.25|lb",
+      "aceite|2.5|litro",
+    ]);
+    expect(lines().some((l) => Number(l.unit_cost) === 0)).toBe(false);
+    expect(sent).toHaveLength(1);
+    const reply = lastSent().text;
+    expect(reply).toContain("Anoté en Demo Resto:");
+    expect(reply).toContain("masa de maíz $0.75 la libra");
+    expect(reply).toContain("aceite $2.50 el litro");
+    expect(reply).toContain(unitAsk("frijoles"));
+    expect(reply).not.toContain("tibia");
+    expect(reply).not.toContain("$0.00");
+    expect(questionRows()).toHaveLength(1);
+    // The answer saves only the item that was asked about.
+    await msg({ text: "libra" });
+    expect(drafts()).toHaveLength(2);
+    expect(lineSummary().slice(4)).toEqual(["frijoles|1.2|lb"]);
+    expect(ai).not.toHaveBeenCalled();
+  };
+
+  it("voice, with commas", async () => {
+    await voice(list);
+    await check();
+  });
+
+  it("text, with commas", async () => {
+    await msg({ text: list });
+    await check();
+  });
+
+  it("same text split by periods only", async () => {
+    await msg({ text: list.replace(/, /g, ". ") });
+    await check();
+  });
+
+  it("twelve items in one note: all twelve saved", async () => {
+    const names =
+      "ajo apio arroz azúcar café canela chile harina leche maíz nuez orégano".split(
+        " "
+      );
+    await msg({ text: names.map((n) => `${n} a 1.10 la libra`).join(", ") });
+    expect(drafts()).toHaveLength(1);
+    expect(lines()).toHaveLength(12);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("over the limit: 25 saved and the rest is named, never silently dropped", async () => {
+    const names = Array.from(
+      { length: 28 },
+      (_, i) =>
+        `prod${"abcdefghijklmnopqrstuvwxyz"[i % 26]}${i > 25 ? "z" : ""}`
+    );
+    await msg({ text: names.map((n) => `${n} a 1.10 la libra`).join(", ") });
+    expect(lines()).toHaveLength(25);
+    expect(lastSent().text).toContain("Procesé los primeros 25 precios");
+    expect(lastSent().text).toContain(names[27]);
+  });
+
+  it("mixed unit / no unit: the ones with a unit are saved, only the others are asked", async () => {
+    await msg({ text: "tomate 0.80 la libra y cebolla $0.45" });
+    expect(lineSummary()).toEqual(["tomate|0.8|lb"]);
+    expect(sent).toHaveLength(1);
+    expect(lastSent().text).toContain("tomate $0.80 la libra");
+    expect(lastSent().text).toContain(unitAsk("cebolla"));
+    await msg({ text: "kilo" });
+    expect(lineSummary()).toEqual(["tomate|0.8|lb", "cebolla|0.45|kg"]);
+  });
+
+  it("an unreadable item is named, the rest is saved", async () => {
+    await msg({
+      text: "tomate 0.80 la libra, sal (1,5) la libr, cebolla 0.45 el kilo",
+    });
+    // AI mocked to null: «sal» stays unread.
+    expect(lineSummary()).toEqual(["tomate|0.8|lb", "cebolla|0.45|kg"]);
+    expect(sent).toHaveLength(1);
+    expect(lastSent().text).toContain("No entendí: sal");
+  });
+});
+
+describe("AI fallback is per item and strict", () => {
+  const text =
+    "masa (0,75) la libra, tomate a 0.80 la libra, sal (0,10) la libra";
+
+  it("a price that cannot be traced to the text: only that item is not understood", async () => {
+    ai.mockResolvedValue({
+      items: [
+        {
+          product: "masa",
+          price: 0.75,
+          unit: "libra",
+          currency: null,
+          said: "(0,75) la libra",
+        },
+        {
+          product: "sal",
+          price: 9.99,
+          unit: "libra",
+          currency: null,
+          said: "(0,10) la libra",
+        },
+      ],
+    });
+    await msg({ text });
+    expect(ai).toHaveBeenCalledTimes(1);
+    expect(
+      lines()
+        .map((l) => l.description)
+        .sort()
+    ).toEqual(["masa", "tomate"]);
+    expect(lines()).toHaveLength(2);
+    expect(sent).toHaveLength(1);
+    expect(lastSent().text).toContain("No entendí: sal");
+    expect(lastSent().text).not.toContain("masa,");
+  });
+
+  it("«masa de maíz» from the AI is saved with the transcript's word: «masa»", async () => {
+    ai.mockResolvedValue({
+      items: [
+        {
+          product: "masa de maíz",
+          price: 0.75,
+          unit: "libra",
+          currency: null,
+          said: "(0,75) la libra",
+        },
+      ],
+    });
+    await msg({ text: "masa (0,75) la libra, tomate a 0.80 la libra" });
+    expect(
+      lines()
+        .map((l) => l.description)
+        .sort()
+    ).toEqual(["masa", "tomate"]);
+  });
+
+  it("a `said` that is not in the transcript drops the item", async () => {
+    ai.mockResolvedValue({
+      items: [
+        {
+          product: "masa",
+          price: 0.75,
+          unit: "libra",
+          currency: null,
+          said: "a setenta y cinco la libra",
+        },
+      ],
+    });
+    await msg({ text: "masa (0,75) la libra, tomate a 0.80 la libra" });
+    expect(lineSummary()).toEqual(["tomate|0.8|lb"]);
+    expect(lastSent().text).toContain("No entendí: masa");
+  });
+
+  it("the AI cannot turn a quantity into a price", async () => {
+    ai.mockResolvedValue({
+      items: [
+        {
+          product: "masa",
+          price: 2,
+          unit: "libra",
+          currency: null,
+          said: "2 libras",
+        },
+      ],
+    });
+    await msg({
+      text: "tomate a 0.80 la libra, usé 2 libras de masa (0,75) la libra",
+    });
+    expect(lines().map((l) => l.description)).not.toContain("masa");
+  });
+
+  it("the AI is not called when the rules read everything", async () => {
+    await msg({ text: "tomate 0.80 la libra, cebolla 0.45 el kilo" });
+    expect(ai).not.toHaveBeenCalled();
+  });
+});
+
+describe("voice that could not be heard", () => {
+  it("Whisper failure: «No pude escuchar el audio», never «Recibido»", async () => {
+    whisperFails = true;
+    await voice("lo que sea");
+    expect(sent).toHaveLength(1);
+    expect(lastSent().text).toBe(KITCHEN_COPY.VOICE_UNREADABLE);
+    expect(lastSent().text).toBe(
+      "No pude escuchar el audio. Mándalo otra vez o escríbelo."
+    );
+    expect(logged()).toContain("route=transcribe_failed");
+  });
+
+  it("an empty transcript is the same", async () => {
+    await voice("   ");
+    expect(lastSent().text).toBe(KITCHEN_COPY.VOICE_UNREADABLE);
+  });
+});
+
+describe("logs: ids and counts only", () => {
+  it("voice logs transcript_len, route and counts, never the words", async () => {
+    const t = "Aguacate a uno cincuenta la onza. Frijoles a 1.20.";
+    await voice(t);
+    const log = logged();
+    expect(log).toContain(`transcript_len=${t.length}`);
+    expect(log).toContain("route=price_partial");
+    expect(log).toContain("items_saved=1");
+    expect(log).toContain("items_unit_asked=1");
+    expect(log).toContain("items_unclear=0");
+    expect(log).toContain("items_skipped_no_price=0");
+    expect(log).toContain("ai_called=false");
+    expect(log).not.toMatch(/aguacate|frijoles|cincuenta|VOICE-SECRET/i);
+  });
+
+  it("text logs text_len and route", async () => {
+    const t = "tomate 0.80 la libra, sal (1,5) la libr";
+    await msg({ text: t });
+    const log = logged();
+    expect(log).toContain(`text_len=${t.length}`);
+    expect(log).toContain("route=price_partial");
+    expect(log).toContain("items_unclear=1");
+    expect(log).toContain("ai_called=true");
+    expect(log).not.toMatch(/tomate|sal \(/i);
+  });
+
+  it("an acknowledgement is logged as route=ack", async () => {
+    await msg({ text: "gracias por todo" });
+    expect(logged()).toContain("route=ack");
   });
 });

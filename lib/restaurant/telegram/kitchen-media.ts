@@ -463,6 +463,11 @@ export interface PriceUpdateInput {
   origin: "voice" | "text";
   /** «Cambiar restaurante» button on the success reply (default routing). */
   replyMarkup?: InlineKeyboardMarkup;
+  /**
+   * Extra lines of the SAME reply (a unit question, items not understood…):
+   * a message with several prices gets ONE answer.
+   */
+  replySuffix?: string;
 }
 
 /** Stores the update as a needs_review draft. Never applies a price. */
@@ -470,6 +475,8 @@ export async function processPriceUpdate(
   input: PriceUpdateInput
 ): Promise<void> {
   const { admin, staff, chatId } = input;
+  const withSuffix = (t: string) =>
+    input.replySuffix ? `${t}\n\n${input.replySuffix}` : t;
   if (
     input.reportId &&
     (await invoiceExistsForKitchenReport(
@@ -526,14 +533,20 @@ export async function processPriceUpdate(
     if (created.reason === "lines_failed") {
       await deleteOrphanHeader(admin, staff.company_id, created.invoice);
     }
-    await sendTelegramMessage(chatId, KITCHEN_COPY.PRICE_UPDATE_FAILED);
+    await sendTelegramMessage(
+      chatId,
+      withSuffix(KITCHEN_COPY.PRICE_UPDATE_FAILED)
+    );
     return;
   }
   if (!(await draftIsSaved(admin, staff.company_id, created.invoiceId))) {
     console.error(
       "[kitchen-media] price update not stored reason=reread_failed"
     );
-    await sendTelegramMessage(chatId, KITCHEN_COPY.PRICE_UPDATE_FAILED);
+    await sendTelegramMessage(
+      chatId,
+      withSuffix(KITCHEN_COPY.PRICE_UPDATE_FAILED)
+    );
     return;
   }
   console.info(
@@ -541,17 +554,20 @@ export async function processPriceUpdate(
   );
   await reply(
     chatId,
-    renderKitchenCopy(KITCHEN_COPY.PRICE_UPDATE_RECEIVED, {
-      ...destinationVars(staff),
-      items: formatPriceUpdateItems(
-        input.items,
-        currencySymbolFor(
-          await resolveCompanyCurrency(admin as never, staff.company_id).catch(
-            () => null
+    withSuffix(
+      renderKitchenCopy(KITCHEN_COPY.PRICE_UPDATE_RECEIVED, {
+        ...destinationVars(staff),
+        items: formatPriceUpdateItems(
+          input.items,
+          currencySymbolFor(
+            await resolveCompanyCurrency(
+              admin as never,
+              staff.company_id
+            ).catch(() => null)
           )
-        )
-      ),
-    }),
+        ),
+      })
+    ),
     input.replyMarkup
   );
 }

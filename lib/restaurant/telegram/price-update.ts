@@ -6,7 +6,7 @@
  * cannot invent prices. When in doubt it answers `price_intent_unclear`.
  */
 
-export const PRICE_UPDATE_MAX_ITEMS = 10;
+export const PRICE_UPDATE_MAX_ITEMS = 25;
 const MAX_PRICE = 100000;
 
 export type PriceUpdateItem = { name: string; price: number; unit: string };
@@ -22,6 +22,12 @@ export type UnitlessPrice = { name: string; price: number };
 export type PriceMessageParse =
   | { kind: "price_update"; items: PriceUpdateItem[] }
   | { kind: "needs_unit"; items: UnitlessPrice[] }
+  | {
+      kind: "partial";
+      items: PriceUpdateItem[];
+      unitless: UnitlessPrice[];
+      unclearCount: number;
+    }
   | { kind: "price_intent_unclear" }
   | null;
 
@@ -104,6 +110,7 @@ const WORD_VALUES: Record<string, number> = {
   diecinueve: 19,
   veinte: 20,
   veintiun: 21,
+  veintiún: 21,
   veintiuno: 21,
   veintiuna: 21,
   veintidos: 22,
@@ -132,9 +139,46 @@ const UP_TO_29 = Object.keys(WORD_VALUES)
   .sort((a, b) => b.length - a.length)
   .join("|");
 const NUM_WORD = `(?:(?:${TENS_W})(?:\\s+y\\s+(?:${ONES_W}))?|${UP_TO_29})`;
+// Dollars: a number word or up to 4 digits (never the «1» of «1.50»).
+const NUM_ANY = `(?:${NUM_WORD}|\\d{1,4}(?![.,]\\d))`;
+const CENT_ANY = `(?:${NUM_WORD}|\\d{1,2})`;
+const NOT_WORD_BEFORE = "(?<![a-zñáéíóúü\\d.,$])";
 const SPOKEN_DOLLARS = new RegExp(
-  `(?<![a-zñáéíóúü])(${NUM_WORD})\\s+d[oó]lar(?:es)?(?:\\s+(?:(con|y)\\s+(medio|${NUM_WORD})|(${NUM_WORD}))(?:\\s+centavos?)?(?![a-zñáéíóúü]))?`,
+  `${NOT_WORD_BEFORE}(${NUM_ANY})\\s+d[oó]lar(?:es)?(?:\\s+(?:(con|y)\\s+(medio|${CENT_ANY})|(${CENT_ANY}))(?:\\s+centavos?)?(?![a-zñáéíóúü\\d]))?`,
   "g"
+);
+const HALF_DOLLAR =
+  /(?<![a-zñáéíóúü\d])medio\s+d[oó]lar(?:es)?(?![a-zñáéíóúü])/g;
+// «dólar cincuenta» (nothing before «dólar»): one dollar and the cents.
+const BARE_DOLLAR = new RegExp(
+  `(?<![a-zñáéíóúü\\d])d[oó]lar\\s+(${NUM_WORD})(?:\\s+centavos?)?(?![a-zñáéíóúü\\d])`,
+  "g"
+);
+const CENTAVOS = new RegExp(
+  `${NOT_WORD_BEFORE}(${CENT_ANY})\\s+centavos?(?![a-zñáéíóúü])`,
+  "g"
+);
+// «uno cincuenta», «tres con cincuenta», «1 con 50»: dollars then cents.
+const PRICE_PAIR = new RegExp(
+  `${NOT_WORD_BEFORE}(${NUM_WORD}|\\d{1,2})(\\s+(?:con|y)\\s+|\\s+)(${NUM_WORD}|\\d{2})(?![a-zñáéíóúü\\d])(?![.,]\\d)`,
+  "g"
+);
+const LONE_AFTER_A = new RegExp(
+  `(?<![a-zñáéíóúü])((?:a|en)\\s+)(${NUM_WORD})(?![a-zñáéíóúü])`,
+  "g"
+);
+const PAREN_UNIT = new RegExp(
+  "\\(\\s*((?:(?:por|la|el|x|a la|al)\\s+|\\/\\s*)?" + UNIT + ")\\s*\\)",
+  "g"
+);
+// After a number: a currency / «centavos» / «c/u», or «la|el|por|x|/ + unit».
+const STRONG_SUFFIX = new RegExp(
+  "^\\s*(?:(?:dolar|dolares|usd|dlls?|dls|centavos?)(?![a-zñ])|\\$|c\\/u|cada\\s+un[oa]\\b|(?:\\/\\s*|(?:por|la|el|x)\\s+)" +
+    UNIT +
+    ")"
+);
+const UNIT_MARK_SUFFIX = new RegExp(
+  "^\\s*(?:\\/\\s*|(?:por|la|el|x)\\s+)" + UNIT
 );
 
 function wordsToNumber(words: string): number | null {
@@ -148,28 +192,116 @@ function wordsToNumber(words: string): number | null {
   return null;
 }
 
-/** Lowercase text in, the same text with spoken dollar amounts as digits. */
-export function normalizeSpokenPrices(lower: string): string {
-  return lower.replace(
-    SPOKEN_DOLLARS,
-    (
-      all: string,
-      dollars: string,
-      _connector: string | undefined,
-      withConnector: string | undefined,
-      bare: string | undefined
-    ) => {
-      const d = wordsToNumber(dollars);
-      if (d === null) return all;
-      const cents = withConnector ?? bare;
-      if (!cents) return `${d} dólares`;
-      const v = cents === "medio" ? 50 : wordsToNumber(cents);
-      // «un dólar cinco» is not 1.05: a bare number needs 10 or more cents.
-      if (v === null || v >= 100) return `${d} dólares ${cents}`;
-      if (bare && v < 10) return `${d} dólares ${cents}`;
-      return `${(d + v / 100).toFixed(2)} dólares`;
-    }
+function tokenValue(token: string): number | null {
+  return /^\d+$/.test(token) ? Number(token) : wordsToNumber(token);
+}
+
+function replaceAll(
+  str: string,
+  re: RegExp,
+  fn: (m: RegExpMatchArray, start: number, end: number) => string | null
+): string {
+  let out = "";
+  let last = 0;
+  for (const m of str.matchAll(re)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    const rep = fn(m, start, end);
+    if (rep === null) continue;
+    out += str.slice(last, start) + rep;
+    last = end;
+  }
+  return out + str.slice(last);
+}
+
+/** «strong»: currency / unit marker follows. «weak»: end or punctuation. */
+function suffixKind(rest: string): "strong" | "weak" | null {
+  const f = fold(rest);
+  if (STRONG_SUFFIX.test(f)) return "strong";
+  if (/^\s*(?:$|[.,;:!?)]|y\b|pero\b)/.test(f)) return "weak";
+  return null;
+}
+
+/** A product word comes before, and (for a weak suffix) «a/en/cuesta/vale…». */
+function pricePrefixOk(prefix: string, kind: "strong" | "weak"): boolean {
+  const sentence =
+    fold(prefix)
+      .trimEnd()
+      .split(/[.!?;]/)
+      .pop() ?? "";
+  if (!/[a-zñ]/.test(sentence)) return false;
+  if (kind === "strong") return true;
+  return /(?:\b(?:a|en|cuesta|cuestan|vale|valen|sale|salen)|[,:])\s*$/.test(
+    sentence
   );
+}
+
+function stripUnitParens(s: string): string {
+  let out = "";
+  let last = 0;
+  for (const m of fold(s).matchAll(PAREN_UNIT)) {
+    const i = m.index ?? 0;
+    out +=
+      s.slice(last, i) + " " + s.slice(i + 1, i + m[0].length - 1).trim() + " ";
+    last = i + m[0].length;
+  }
+  return out + s.slice(last);
+}
+
+/**
+ * Lowercase text in, the same text with spoken amounts as digits. Only
+ * numbers in PRICE POSITION change: «un dólar cincuenta», «dólar cincuenta»,
+ * «75 centavos», «a uno cincuenta la libra», «aguacate, uno con cincuenta»,
+ * «a 1 con 50». Quantities («dos libras de masa», «6 tomates») never do.
+ * «un dólar cinco» stays as it is: never guess.
+ */
+export function normalizeSpokenPrices(lower: string): string {
+  let s = stripUnitParens(lower).replace(/\s+/g, " ");
+  s = s.replace(HALF_DOLLAR, "0.50 dólares");
+  s = replaceAll(s, SPOKEN_DOLLARS, (m, _start, end) => {
+    const [, dollars, , withConnector, bare] = m;
+    const d = tokenValue(dollars);
+    if (d === null) return null;
+    const cents = withConnector ?? bare;
+    if (!cents) return `${d} dólares`;
+    const v = cents === "medio" ? 50 : tokenValue(cents);
+    if (v === null || v >= 100) return null;
+    // «un dólar cinco» is not 1.05: a bare number needs 10 or more cents.
+    if (bare) {
+      if (v < 10) return null;
+      if (suffixKind(s.slice(end)) === null) return null;
+    }
+    return `${(d + v / 100).toFixed(2)} dólares`;
+  });
+  s = replaceAll(s, BARE_DOLLAR, (m, _start, end) => {
+    const v = wordsToNumber(m[1]);
+    if (v === null || v < 10 || v >= 100) return null;
+    if (suffixKind(s.slice(end)) === null) return null;
+    return `${(1 + v / 100).toFixed(2)} dólares`;
+  });
+  s = replaceAll(s, CENTAVOS, (m) => {
+    const v = tokenValue(m[1]);
+    if (v === null || v < 1 || v > 99) return null;
+    return `${(v / 100).toFixed(2)} dólares`;
+  });
+  s = replaceAll(s, PRICE_PAIR, (m, start, end) => {
+    const [, a, connector, b] = m;
+    const digits = /^\d/.test(a) || /^\d/.test(b);
+    if (digits && !/(?:con|y)/.test(connector)) return null;
+    const dollars = tokenValue(a);
+    const cents = tokenValue(b);
+    if (dollars === null || cents === null) return null;
+    if (dollars < 1 || cents < 10 || cents > 99) return null;
+    const kind = suffixKind(s.slice(end));
+    if (!kind || !pricePrefixOk(s.slice(0, start), kind)) return null;
+    return (dollars + cents / 100).toFixed(2);
+  });
+  s = replaceAll(s, LONE_AFTER_A, (m, _start, end) => {
+    if (!UNIT_MARK_SUFFIX.test(fold(s.slice(end)))) return null;
+    const v = wordsToNumber(m[2]);
+    return v === null ? null : `${m[1]}${v}`;
+  });
+  return s;
 }
 
 /** Returns the number, or null when ambiguous / out of range. */
@@ -210,30 +342,43 @@ function cleanName(
     );
     right(/\s*\b(?:a|en|de|por|del)\s*:?$/);
     right(/\s*:$/);
+    right(/\s*[([¿¡"«]+$/);
   }
   const name = original.slice(lo, hi).trim();
   if (!name) return null;
   if (name.length > 40 || name.split(" ").length > 4) return null;
   if (!/^[a-zñáéíóúü]+(?: [a-zñáéíóúü]+)*$/.test(name)) return null;
+  // «dos libras de masa» is a quantity, not a product.
+  const words = fold(name).split(" ");
+  if (WORD_VALUES[words[0]] !== undefined) return null;
+  if (words.some((w) => new RegExp("^" + UNIT + "$").test(w))) return null;
   return name;
 }
 
 type SegmentResult =
   | { state: "item"; item: PriceUpdateItem }
   | { state: "unitless"; item: UnitlessPrice }
-  | { state: "unclear" }
+  | { state: "unclear"; label: string | null; hint?: string }
   | { state: "none" };
 
 type Candidate =
   | { ok: true; price: number; unit: string }
-  | { ok: false; unitless?: number };
+  | { ok: false; unitless?: number; ambiguous?: string };
+
+/**
+ * «150», «125», «350» without a decimal point or a currency: it may be 1.50,
+ * 1.25, 3.50 said fast. Never converted and never saved as 150.
+ */
+export function looksLikeCents(token: string): boolean {
+  return /^[1-9]\d{2}$/.test(token) && token.slice(1) !== "00";
+}
 
 function parseSegment(folded: string, original: string): SegmentResult {
   const hasVerb = PRICE_VERB.test(folded);
   const matches = [...folded.matchAll(NUMBER_RE)];
   const hasLoose = LOOSE_PRICE_WORD.test(folded) || /\$|dolar|usd/.test(folded);
   if (matches.length === 0) {
-    return hasLoose ? { state: "unclear" } : { state: "none" };
+    return hasLoose ? { state: "unclear", label: null } : { state: "none" };
   }
 
   const first = matches[0];
@@ -278,14 +423,24 @@ function parseSegment(folded: string, original: string): SegmentResult {
     // A decimal price with nothing after it («queso 3.25») is a price whose
     // unit is missing; a bare integer or a quantity with a unit never is.
     const bareDecimal = unit === null && atEnd && /[.,]\d{1,2}$/.test(m[2]);
+    const ambigAtEnd =
+      unit === null &&
+      atEnd &&
+      looksLikeCents(m[2]) &&
+      /\b(?:a|en)\s*\$?\s*$/.test(folded.slice(0, start));
     const relevant =
       hasVerb ||
       dollarPrefix ||
       currency ||
       (marker && unit !== null) ||
-      bareDecimal;
+      bareDecimal ||
+      ambigAtEnd;
     if (!relevant) continue;
 
+    if (!dollarPrefix && !currency && looksLikeCents(m[2])) {
+      candidates.push({ ok: false, ambiguous: m[2] });
+      continue;
+    }
     const price = parseNumber(m[2]);
     if (price === null) candidates.push({ ok: false });
     else if (unit === null) {
@@ -293,29 +448,32 @@ function parseSegment(folded: string, original: string): SegmentResult {
     } else candidates.push({ ok: true, price, unit });
   }
 
+  const label = cleanName(folded, original, 0, nameEnd);
   if (candidates.length === 0) {
-    return hasLoose ? { state: "unclear" } : { state: "none" };
+    return hasLoose ? { state: "unclear", label } : { state: "none" };
   }
   if (candidates.length > 1 && candidates.filter((c) => c.ok).length !== 1) {
-    return { state: "unclear" };
+    return { state: "unclear", label };
   }
   const good = candidates.filter((c) => c.ok);
   const pick = good.length === 1 ? good[0] : candidates[0];
   if (!pick.ok) {
     if (candidates.length === 1 && pick.unitless !== undefined) {
-      const name = cleanName(folded, original, 0, nameEnd);
-      if (!name) return { state: "unclear" };
-      return { state: "unitless", item: { name, price: pick.unitless } };
+      if (!label) return { state: "unclear", label };
+      return { state: "unitless", item: { name: label, price: pick.unitless } };
     }
-    return { state: "unclear" };
+    if (candidates.length === 1 && pick.ambiguous !== undefined) {
+      return { state: "unclear", label, hint: pick.ambiguous };
+    }
+    return { state: "unclear", label };
   }
   // More than one fully valid price in one segment: ambiguous.
   if (candidates.length > 1 && candidates.some((c) => !c.ok) && !hasVerb) {
-    return { state: "unclear" };
+    return { state: "unclear", label };
   }
 
-  const name = cleanName(folded, original, 0, nameEnd);
-  if (!name) return { state: "unclear" };
+  const name = label;
+  if (!name) return { state: "unclear", label };
   return { state: "item", item: { name, price: pick.price, unit: pick.unit } };
 }
 
@@ -327,43 +485,155 @@ function prepare(text: string): { original: string; folded: string } | null {
   return { original, folded: fold(original) };
 }
 
-type Internal = {
-  items: PriceUpdateItem[];
-  unitless: UnitlessPrice[];
-  unclear: boolean;
+/** A segment that could not be read; `segment` is internal (never shown or logged). */
+export type UnclearSegment = {
+  label: string | null;
+  /** «150»: it may be 1.50 or 150. */
+  hint?: string;
+  segment: string;
 };
 
-function parseInternal(folded: string, original: string): Internal | null {
-  if (REPORT_WORD.test(folded) && !LOOSE_PRICE_WORD.test(folded)) return null;
+/** Everything the rules read in one message, item by item. */
+export type ItemParse = {
+  items: PriceUpdateItem[];
+  unitless: UnitlessPrice[];
+  unclear: UnclearSegment[];
+  /** Products said to have no price («el agua tibia no tiene precio»). */
+  skippedNoPrice: string[];
+  /** A price word / currency was there, even if nothing could be read. */
+  priceIntent: boolean;
+};
 
-  // Split on " y ", ", " and ";" (a decimal comma has no space after it).
-  const segments: Array<[string, string]> = [];
-  const splitter = /\s+y\s+|,\s+|;\s*/g;
+const NO_PRICE_PHRASE =
+  /\b(?:no\s+(?:tiene|tienen|hay|tengo|se)\s+(?:el\s+|un\s+)?(?:precio|costo|valor)|sin\s+(?:precio|costo)|no\s+(?:tiene|tienen)\s+valor)\b/;
+const VERB_ONLY =
+  /\b(?:subio|subieron|bajo|bajaron|sube|suben|baja|bajan|cuesta|cuestan|cobran)\b/;
+const INTRO_WORD = /\b(?:precios?|costos?|lista)\b/;
+const NUMBER_START = /^(?:(?:a|en|esta a|cuesta|vale|sale)\s+)?\$?\d/;
+const SEPARATOR = /\s+y\s+|,\s+|;\s*|:\s+|\.\s+(?=\S)/g;
+
+function splitSegments(
+  folded: string,
+  original: string
+): Array<[string, string]> {
+  const raw: Array<[string, string]> = [];
   let last = 0;
-  for (const m of folded.matchAll(splitter)) {
+  for (const m of folded.matchAll(SEPARATOR)) {
     const i = m.index ?? 0;
-    segments.push([folded.slice(last, i), original.slice(last, i)]);
+    raw.push([folded.slice(last, i), original.slice(last, i)]);
     last = i + m[0].length;
   }
-  segments.push([folded.slice(last), original.slice(last)]);
+  raw.push([folded.slice(last), original.slice(last)]);
 
-  const out: Internal = { items: [], unitless: [], unclear: false };
-  for (const [f, o] of segments) {
-    const r = parseSegment(f, o);
+  // «Aguacate, uno con cincuenta la libra»: a product alone, then its price.
+  const merged: Array<[string, string]> = [];
+  for (const seg of raw) {
+    const prev = merged[merged.length - 1];
+    if (
+      prev &&
+      !/\d/.test(prev[0]) &&
+      /[a-zñ]/.test(prev[0]) &&
+      prev[0].trim().split(" ").length <= 4 &&
+      NUMBER_START.test(seg[0].trim())
+    ) {
+      merged[merged.length - 1] = [
+        `${prev[0]} ${seg[0]}`,
+        `${prev[1]} ${seg[1]}`,
+      ];
+    } else if (seg[0].trim()) {
+      merged.push(seg);
+    }
+  }
+
+  // Two items run together without punctuation: cut after a finished
+  // «la libra» when another product and number follow.
+  const out: Array<[string, string]> = [];
+  const unitEnd = new RegExp("(?:\\/\\s*|\\b(?:por|la|el|x)\\s+)" + UNIT, "g");
+  for (const [f, o] of merged) {
+    let from = 0;
+    for (const m of f.matchAll(unitEnd)) {
+      const end = (m.index ?? 0) + m[0].length;
+      const rest = f.slice(end);
+      if (/^\s+[a-zñ]/.test(rest) && /\d/.test(rest)) {
+        out.push([f.slice(from, end), o.slice(from, end)]);
+        from = end;
+      }
+    }
+    out.push([f.slice(from), o.slice(from)]);
+  }
+  return out.filter(([f]) => f.trim().length > 0);
+}
+
+/**
+ * Item by item: every segment of the message is read on its own. One that
+ * cannot be read is reported, it never blocks the others.
+ */
+export function parsePriceItems(text: string): ItemParse | null {
+  const p = prepare(text);
+  if (!p) return null;
+  const out: ItemParse = {
+    items: [],
+    unitless: [],
+    unclear: [],
+    skippedNoPrice: [],
+    priceIntent: false,
+  };
+  for (const [f, o] of splitSegments(p.folded, p.original)) {
+    // Stock / recipe talk is never a price (unless a price word is there).
+    if (REPORT_WORD.test(f) && !LOOSE_PRICE_WORD.test(f)) continue;
+
+    const noPrice = NO_PRICE_PHRASE.exec(f);
+    if (noPrice) {
+      const name = cleanName(f, o, 0, noPrice.index);
+      out.skippedNoPrice.push(name ?? "");
+      continue;
+    }
+
+    if (!/\d/.test(f)) {
+      const verb = VERB_ONLY.exec(f);
+      if (verb) {
+        out.priceIntent = true;
+        const label = cleanName(f, o, 0, verb.index);
+        if (label) out.unclear.push({ label, segment: f });
+      } else if (INTRO_WORD.test(f)) {
+        out.priceIntent = true; // «precios para las pupusas»: an intro
+      } else if (/\$|dolar|usd|centavo/.test(f)) {
+        out.priceIntent = true;
+        out.unclear.push({ label: null, segment: f });
+      }
+      continue;
+    }
+
+    let r = parseSegment(f, o);
+    // Not readable by the rules, yet it reads like a price («masa (0,75) la libra»).
+    if (r.state === "none" && looksLikePriceIntent(o)) {
+      const nameEnd = f.match(NUMBER_RE) ? f.search(/\d/) : f.length;
+      r = { state: "unclear", label: cleanName(f, o, 0, nameEnd) };
+    }
+    if (r.state === "none") continue;
+    out.priceIntent = true;
     if (r.state === "item") out.items.push(r.item);
     else if (r.state === "unitless") out.unitless.push(r.item);
-    else if (r.state === "unclear") out.unclear = true;
+    else {
+      out.unclear.push({ label: r.label, hint: r.hint, segment: f });
+    }
+  }
+  if (
+    out.items.length + out.unitless.length + out.unclear.length === 0 &&
+    out.skippedNoPrice.length === 0 &&
+    out.priceIntent
+  ) {
+    // «cuánto es el precio del aguacate?»: a price was meant, none was said.
+    out.unclear.push({ label: null, segment: "" });
   }
   return out;
 }
 
 /** Items with a unit, or «unclear». A price without a unit is «unclear» here. */
 export function parsePriceUpdate(text: string): PriceUpdateParse {
-  const p = prepare(text);
-  if (!p) return null;
-  const r = parseInternal(p.folded, p.original);
+  const r = parsePriceItems(text);
   if (!r) return null;
-  if (r.unclear || r.unitless.length > 0) {
+  if (r.unclear.length > 0 || r.unitless.length > 0) {
     return { kind: "price_intent_unclear" };
   }
   if (r.items.length > 0) {
@@ -376,30 +646,53 @@ export function parsePriceUpdate(text: string): PriceUpdateParse {
 }
 
 /**
- * Like parsePriceUpdate, but a message whose prices all lack a unit
- * («queso 3.25») comes back as `needs_unit` so the bot can ask once.
- * Mixed (some with, some without a unit) stays unclear: never guess.
+ * Like parsePriceUpdate, but a price without a unit comes back as
+ * `needs_unit` so the bot can ask once. A message that is part readable,
+ * part not («tomate 0.80 la libra y cebolla $0.45») is `partial`: what was
+ * read is kept, the rest is reported (the pipeline never drops it all).
  */
 export function parsePriceMessage(text: string): PriceMessageParse {
-  const p = prepare(text);
-  if (!p) return null;
-  const r = parseInternal(p.folded, p.original);
+  const r = parsePriceItems(text);
   if (!r) return null;
-  if (r.unclear) return { kind: "price_intent_unclear" };
+  const read = r.items.length + r.unitless.length;
+  if (read === 0) {
+    return r.unclear.length > 0 ? { kind: "price_intent_unclear" } : null;
+  }
+  if (r.unclear.length > 0 || (r.items.length > 0 && r.unitless.length > 0)) {
+    return {
+      kind: "partial",
+      items: r.items.slice(0, PRICE_UPDATE_MAX_ITEMS),
+      unitless: r.unitless.slice(0, PRICE_UPDATE_MAX_ITEMS),
+      unclearCount: r.unclear.length,
+    };
+  }
   if (r.unitless.length > 0) {
-    if (r.items.length > 0) return { kind: "price_intent_unclear" };
     return {
       kind: "needs_unit",
       items: r.unitless.slice(0, PRICE_UPDATE_MAX_ITEMS),
     };
   }
-  if (r.items.length > 0) {
-    return {
-      kind: "price_update",
-      items: r.items.slice(0, PRICE_UPDATE_MAX_ITEMS),
-    };
+  return {
+    kind: "price_update",
+    items: r.items.slice(0, PRICE_UPDATE_MAX_ITEMS),
+  };
+}
+
+/**
+ * A fragment the AI says the price came from: does it have the shape of a
+ * price (currency, «centavos», a decimal, or a per-unit marker)? Quantities
+ * («6 tomates», «2 libras de masa») do not.
+ */
+export function hasPriceShape(fragment: string): boolean {
+  const f = fold(fragment.toLowerCase());
+  if (/\$|\bdolar(?:es)?\b|\busd\b|\bcentavos?\b/.test(f)) return true;
+  for (const m of f.matchAll(NUMBER_RE)) {
+    if (/[.,]\d{1,2}$/.test(m[2])) return true;
+    const after = f.slice((m.index ?? 0) + m[0].length);
+    if (/^\s*(?:c\/u|cada\s+un[oa])(?![a-z])/.test(after)) return true;
+    if (UNIT_MARK_SUFFIX.test(after)) return true;
   }
-  return null;
+  return false;
 }
 
 // ---------------------------------------------------------------------------

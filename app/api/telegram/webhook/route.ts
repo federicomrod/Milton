@@ -72,9 +72,14 @@ import {
 } from "@/lib/restaurant/telegram/price-update";
 import {
   aiStage,
+  joinProducts,
+  overLimitLine,
   resolvePriceText,
+  routeOf,
   rulesStage,
+  unclearLine,
   type PriceFlowResult,
+  type PriceItemsResult,
 } from "@/lib/restaurant/telegram/price-flow";
 import { askPriceAi } from "@/lib/restaurant/telegram/price-update-ai";
 import {
@@ -576,10 +581,17 @@ async function processReport(args: {
     reportId,
     dateSec: typeof message.date === "number" ? message.date : null,
     origin: "text" as const,
+    len: textContent.length,
     markup,
   };
   const finishNote = async () => {
     if (!intent.isRecipe && !isVoiceWithoutText) {
+      logPriceRoute(
+        priceCtx,
+        isPlainText && hasReportWords ? "report" : "ack",
+        undefined,
+        false
+      );
       await say(
         chatId,
         renderKitchenCopy(KITCHEN_COPY.REPORT_ACK, {
@@ -600,9 +612,10 @@ async function processReport(args: {
       // The AI call can take a few seconds: answer from after().
       after(async () => {
         try {
-          const result = await aiStage(textContent, stage.rules, askPriceAi);
+          const result = await aiStage(textContent, stage.read, askPriceAi);
           if (await applyPriceResult(result, priceCtx)) return;
           if (!(await finishNote())) {
+            logPriceRoute(priceCtx, "recipe", undefined, result.aiCalled);
             await processRecipeDraftAsync(
               staff,
               chatId,
@@ -888,65 +901,92 @@ interface PriceCtx {
   reportId: string | null;
   dateSec: number | null;
   origin: "text" | "voice";
+  /** Length of the text / transcript (the only thing ever logged about it). */
+  len: number;
   markup?: InlineKeyboardMarkup;
 }
 
+// One line per message: ids and counts only, NEVER the text.
+function logPriceRoute(
+  ctx: Pick<PriceCtx, "origin" | "len">,
+  route: string,
+  r: PriceItemsResult | undefined,
+  aiCalled: boolean
+) {
+  const lenKey = ctx.origin === "voice" ? "transcript_len" : "text_len";
+  console.info(
+    `[telegram-webhook] price_flow ${lenKey}=${ctx.len} route=${route}` +
+      ` items_saved=${r?.saved.length ?? 0}` +
+      ` items_unit_asked=${r?.needUnit.length ?? 0}` +
+      ` items_unclear=${r?.unclear.length ?? 0}` +
+      ` items_skipped_no_price=${r?.skippedNoPrice.length ?? 0}` +
+      ` ai_called=${aiCalled}`
+  );
+}
+
 // Acts on the pipeline's verdict. true = the message was answered.
+// ONE reply per message: what was saved, the unit question (only for the
+// items that need it), what was not understood, what went over the limit.
 async function applyPriceResult(
   result: PriceFlowResult,
   ctx: PriceCtx
 ): Promise<boolean> {
   if (result.kind === "none") return false;
-  if (result.kind === "unclear") {
-    await sendTelegramMessage(ctx.chatId, KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
-    return true;
+  let r = result.r;
+
+  // Prices without a unit: ask once, for those items only.
+  let askLine: string | null = null;
+  if (r.needUnit.length > 0) {
+    const opened = ctx.link
+      ? await openUnitQuestion({
+          chatId: ctx.chatId,
+          messageId: ctx.messageId,
+          link: ctx.link,
+          items: r.needUnit,
+        })
+      : ({ ok: false } as const);
+    if (!opened.ok) {
+      // The question could not be kept open: say they were not understood.
+      r = {
+        ...r,
+        needUnit: [],
+        unclear: [...r.unclear, ...r.needUnit.map((i) => ({ label: i.name }))],
+      };
+    } else {
+      maybeCleanupPending();
+      if (opened.created) {
+        askLine = renderKitchenCopy(KITCHEN_COPY.PRICE_UNIT_ASK, {
+          producto: joinProducts(r.needUnit.map((i) => i.name)),
+        });
+      }
+    }
   }
-  if (result.kind === "update") {
+
+  logPriceRoute(ctx, routeOf(r), r, result.aiCalled);
+  const standalone = r.saved.length === 0 && r.needUnit.length === 0;
+  const lines = [askLine, unclearLine(r, standalone), overLimitLine(r)].filter(
+    (l): l is string => l !== null
+  );
+  const suffix = lines.join("\n\n");
+
+  if (r.saved.length > 0) {
     await processPriceUpdate({
       admin: ctx.admin,
       staff: ctx.staff,
       chatId: ctx.chatId,
       reportId: ctx.reportId,
       dateSec: ctx.dateSec,
-      items: result.items,
+      items: r.saved,
       origin: ctx.origin,
       replyMarkup: ctx.markup,
+      replySuffix: suffix || undefined,
     }).catch(() => {
       console.error("[telegram-webhook] price update failed");
     });
     return true;
   }
-  // needs_unit: nothing is saved; ask once and keep the question open.
-  const opened = ctx.link
-    ? await openUnitQuestion({
-        chatId: ctx.chatId,
-        messageId: ctx.messageId,
-        link: ctx.link,
-        items: result.items,
-      })
-    : ({ ok: false } as const);
-  if (!opened.ok) {
-    await sendTelegramMessage(ctx.chatId, KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
-    return true;
-  }
-  maybeCleanupPending();
-  if (opened.created) {
-    console.info(
-      `[telegram-webhook] price unit asked items=${result.items.length}`
-    );
-    await sendTelegramMessage(
-      ctx.chatId,
-      renderKitchenCopy(KITCHEN_COPY.PRICE_UNIT_ASK, {
-        producto: joinProducts(result.items.map((i) => i.name)),
-      })
-    );
-  }
+  if (suffix) await sendTelegramMessage(ctx.chatId, suffix);
   return true;
-}
-
-function joinProducts(names: string[]): string {
-  if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`;
 }
 
 // The cook answered the open unit question with a unit word: save the
@@ -1074,7 +1114,7 @@ async function processRecipeDraftAsync(
             model: "whisper-1",
             language: "es",
           });
-          finalTextContent = transcription.text;
+          finalTextContent = transcription.text ?? "";
         } catch (err) {
           console.error("[telegram-webhook] voice processing failed");
         }
@@ -1083,6 +1123,17 @@ async function processRecipeDraftAsync(
 
     const { detectRecipeIntent, extractAndCreateRecipeDraft } =
       await import("@/lib/restaurant/telegram/kitchen-recipe-drafts");
+
+    // A voice note that could not be heard (download, key, timeout, empty
+    // transcript) is never answered with «Recibido»: say so.
+    const origin =
+      mediaKind === "voice" ? ("voice" as const) : ("text" as const);
+    const logCtx = { origin, len: finalTextContent.length };
+    if (mediaKind === "voice" && !finalTextContent.trim()) {
+      logPriceRoute(logCtx, "transcribe_failed", undefined, false);
+      await say(chatId, KITCHEN_COPY.VOICE_UNREADABLE, opts.markup);
+      return;
+    }
 
     if (!opts.forceRecipe) {
       // Order: report words -> price update -> recipe -> plain acknowledgement.
@@ -1095,13 +1146,9 @@ async function processRecipeDraftAsync(
           opts.markup
         );
       if (classifyKitchenReport(finalTextContent) !== "unclassified") {
+        logPriceRoute(logCtx, "report", undefined, false);
         await ack();
         return;
-      }
-      if (mediaKind === "voice") {
-        console.info(
-          `[telegram-webhook] transcript_len=${finalTextContent.length}`
-        );
       }
       const price = await resolvePriceText(finalTextContent, askPriceAi);
       if (
@@ -1113,16 +1160,19 @@ async function processRecipeDraftAsync(
           messageId,
           reportId,
           dateSec,
-          origin: mediaKind === "voice" ? "voice" : "text",
+          origin,
+          len: finalTextContent.length,
           markup: opts.markup,
         })
       ) {
         return;
       }
       if (!detectRecipeIntent(finalTextContent).isRecipe) {
+        logPriceRoute(logCtx, "ack", undefined, price.aiCalled);
         await ack();
         return;
       }
+      logPriceRoute(logCtx, "recipe", undefined, price.aiCalled);
     }
 
     // Active ingredients, every cost entry (in pages), remembered names and

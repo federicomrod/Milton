@@ -70,6 +70,9 @@ export const KITCHEN_COPY = {
   /** A price was mentioned but the item, price or unit is missing (parse failures only). */
   PRICE_UPDATE_UNCLEAR:
     "No entendí el precio. Escribe producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra».",
+  /** The AI price stage threw or timed out (S1: never leave the cook without a reply). */
+  PRICE_UPDATE_FAILED:
+    "No pude leer los precios ahora. Escríbelos así: producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra».",
   /** A price without a unit: asked once. {producto} = «queso». Nothing is saved yet. */
   PRICE_UNIT_ASK: "¿El precio de {producto} es por libra, onza o unidad?",
   /** Some items of a price message were not understood. {productos} = «sal, comino» (or «un precio»). Appended to the combined reply. */
@@ -80,8 +83,8 @@ export const KITCHEN_COPY = {
     "Procesé los primeros {n} precios. No procesé: {productos}. Mándalos en otro mensaje.",
   /** The voice note could not be transcribed (download, key, timeout or empty). */
   VOICE_UNREADABLE: "No pude escuchar el audio. Mándalo otra vez o escríbelo.",
-  /** The price was understood but could not be saved. */
-  PRICE_UPDATE_FAILED:
+  /** The price was understood but could not be saved to the database. */
+  PRICE_SAVE_FAILED:
     "No pude guardar el precio. Vuelve a mandarlo en un momento.",
   /** Recipe photo/text could not be saved as a draft. */
   RECIPE_SAVE_FAILED: "No pude guardar la receta. Manda otra foto o escríbela.",

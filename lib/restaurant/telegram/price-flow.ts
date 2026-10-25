@@ -39,8 +39,13 @@ export type PriceItemsResult = {
 };
 
 export type PriceFlowResult =
-  | { kind: "none"; aiCalled: boolean }
-  | { kind: "items"; r: PriceItemsResult; aiCalled: boolean };
+  | { kind: "none"; aiCalled: boolean; aiFailed?: boolean }
+  | {
+      kind: "items";
+      r: PriceItemsResult;
+      aiCalled: boolean;
+      aiFailed?: boolean;
+    };
 
 export type PriceRoute = "price" | "price_partial" | "needs_unit" | "unclear";
 
@@ -57,7 +62,11 @@ export type RulesStage =
 
 const NONE: PriceFlowResult = { kind: "none", aiCalled: false };
 
-function finalize(read: ItemParse, aiCalled: boolean): PriceFlowResult {
+function finalize(
+  read: ItemParse,
+  aiCalled: boolean,
+  aiFailed = false
+): PriceFlowResult {
   // The limit counts every item that would be processed (saved or asked).
   let room = PRICE_UPDATE_MAX_ITEMS;
   const overLimit: string[] = [];
@@ -80,11 +89,12 @@ function finalize(read: ItemParse, aiCalled: boolean): PriceFlowResult {
     saved.length + needUnit.length + unclear.length + overLimit.length ===
     0
   ) {
-    return { kind: "none", aiCalled };
+    return { kind: "none", aiCalled, aiFailed };
   }
   return {
     kind: "items",
     aiCalled,
+    aiFailed,
     r: {
       saved,
       needUnit,
@@ -171,7 +181,9 @@ export async function aiStage(
   if (accepted > 0 && readCount === 0) {
     unclear = unclear.filter((u) => u.hint);
   }
-  return finalize({ ...read, items, unitless, unclear }, true);
+  // When AI returned null (threw or timed out), mark it as failed
+  const aiFailed = raw === null;
+  return finalize({ ...read, items, unitless, unclear }, true, aiFailed);
 }
 
 export async function resolvePriceText(

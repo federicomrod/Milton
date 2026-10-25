@@ -537,17 +537,18 @@ describe("AI fallback", () => {
     expect(lastSent().text).toBe(unitAsk("aguacate"));
   });
 
-  it("an AI error is «No entendí el precio», never a thank-you", async () => {
+  it("an AI error sends PRICE_UPDATE_FAILED, never a thank-you", async () => {
     ai.mockRejectedValue(new Error("boom"));
     await msg({ text });
-    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
+    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_FAILED);
+    expect(lastSent().text).toContain("No pude leer los precios ahora");
     expect(drafts()).toHaveLength(0);
   });
 
   it("a timeout (null) is the same", async () => {
     ai.mockResolvedValue(null);
     await msg({ text });
-    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
+    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_FAILED);
   });
 });
 
@@ -949,5 +950,63 @@ describe("logs: ids and counts only", () => {
   it("an acknowledgement is logged as route=ack", async () => {
     await msg({ text: "gracias por todo" });
     expect(logged()).toContain("route=ack");
+  });
+});
+
+describe("AI price fallback error handling (S1)", () => {
+  it("sends PRICE_UPDATE_FAILED when AI throws, never silence", async () => {
+    // Mock AI to throw
+    ai.mockRejectedValue(new Error("timeout"));
+    // Use a message format that rules can't parse (parentheses) so AI is called
+    const t = "el aguacate (1,5) la libra";
+    await msg({ text: t });
+    // Flush after jobs to ensure async error handling completes
+    await Promise.all(afterJobs.splice(0));
+    // The fallback message should be sent when AI fails
+    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_FAILED);
+    expect(lastSent().text).toContain("No pude leer los precios ahora");
+  });
+
+  it("fallback message never sent for non-price messages", async () => {
+    ai.mockRejectedValue(new Error("timeout"));
+    await msg({ text: "gracias" }); // no price intent
+    await Promise.all(afterJobs.splice(0));
+    expect(
+      sent.every((s) => !s.text.includes("No pude leer los precios"))
+    ).toBe(true);
+  });
+});
+
+describe("unit answer confirmation with markup (M1)", () => {
+  it("keeps «Cambiar restaurante» button after unit answer for multi-restaurant cooks", async () => {
+    seed(2); // Two restaurants for multi-restaurant scenario
+    await msg({ text: "queso 3.25" });
+    // Select a restaurant first (tap button 0)
+    await tap(optionData(0));
+    // Now the unit question should be asked
+    expect(lastSent().text).toBe(unitAsk("queso"));
+    // Answer the unit question
+    await msg({ text: "libra" });
+    // Check that the confirmation has markup (Cambiar restaurante button)
+    const confirmations = sent.filter((s) => s.text.includes("queso"));
+    expect(confirmations.length).toBeGreaterThan(0);
+    const confirmation = confirmations[confirmations.length - 1];
+    expect(confirmation.markup).toBeDefined();
+    expect(confirmation.markup?.inline_keyboard).toBeDefined();
+    expect(confirmation.markup?.inline_keyboard.length).toBeGreaterThan(0);
+  });
+
+  it("no markup for single-restaurant cooks", async () => {
+    seed(1); // Single restaurant
+    await msg({ text: "queso 3.25" });
+    // Should ask unit question directly (no routing for single restaurant)
+    expect(lastSent().text).toBe(unitAsk("queso"));
+    // Answer the unit question
+    await msg({ text: "libra" });
+    // Check that the confirmation has no markup
+    const confirmations = sent.filter((s) => s.text.includes("queso"));
+    expect(confirmations.length).toBeGreaterThan(0);
+    const confirmation = confirmations[confirmations.length - 1];
+    expect(confirmation.markup).toBeUndefined();
   });
 });

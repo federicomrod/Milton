@@ -535,7 +535,7 @@ export async function processPriceUpdate(
     }
     await sendTelegramMessage(
       chatId,
-      withSuffix(KITCHEN_COPY.PRICE_UPDATE_FAILED)
+      withSuffix(KITCHEN_COPY.PRICE_SAVE_FAILED)
     );
     return;
   }
@@ -545,7 +545,7 @@ export async function processPriceUpdate(
     );
     await sendTelegramMessage(
       chatId,
-      withSuffix(KITCHEN_COPY.PRICE_UPDATE_FAILED)
+      withSuffix(KITCHEN_COPY.PRICE_SAVE_FAILED)
     );
     return;
   }

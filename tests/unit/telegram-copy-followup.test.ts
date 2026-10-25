@@ -49,7 +49,7 @@ describe("the example in the «no entendí» reply is accepted by the parser", (
 
   it("the failure copy is separate from the parse-failure copy", () => {
     expect(KITCHEN_COPY.PRICE_UPDATE_FAILED).toBe(
-      "No pude guardar el precio. Vuelve a mandarlo en un momento."
+      "No pude leer los precios ahora. Escríbelos así: producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra»."
     );
     expect(KITCHEN_COPY.PRICE_UPDATE_FAILED).not.toBe(
       KITCHEN_COPY.PRICE_UPDATE_UNCLEAR

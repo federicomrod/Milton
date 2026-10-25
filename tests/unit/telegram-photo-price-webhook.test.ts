@@ -740,7 +740,7 @@ describe("price updates", () => {
     expect(replies[0]).not.toContain("Se lo pasamos");
   });
 
-  it("a failed save answers PRICE_UPDATE_FAILED, never the «no entendí» copy", async () => {
+  it("a failed save answers PRICE_SAVE_FAILED, never the «no entendí» copy", async () => {
     failInvoiceInsert = true;
     await send({ text: "el aguacate subió a 1.50 la libra" });
     expect(replies).toEqual([

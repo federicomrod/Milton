@@ -630,6 +630,16 @@ async function processReport(args: {
           }
         } catch {
           console.error("[telegram-webhook] price update failed");
+          // S1: Always send a reply when AI price parsing fails
+          try {
+            await sendTelegramMessage(
+              chatId,
+              KITCHEN_COPY.PRICE_UPDATE_FAILED,
+              markup ? { replyMarkup: markup } : undefined
+            );
+          } catch {
+            // Guard the send itself so it can't throw
+          }
         }
       });
       return;
@@ -964,9 +974,24 @@ async function applyPriceResult(
 
   logPriceRoute(ctx, routeOf(r), r, result.aiCalled);
   const standalone = r.saved.length === 0 && r.needUnit.length === 0;
-  const lines = [askLine, unclearLine(r, standalone), overLimitLine(r)].filter(
+  let lines = [askLine, unclearLine(r, standalone), overLimitLine(r)].filter(
     (l): l is string => l !== null
   );
+
+  // S1: When AI was called but failed (threw or timed out) and everything is unclear,
+  // send PRICE_UPDATE_FAILED instead of PRICE_UPDATE_UNCLEAR
+  if (
+    result.aiFailed &&
+    standalone &&
+    lines.some((l) => l === KITCHEN_COPY.PRICE_UPDATE_UNCLEAR)
+  ) {
+    lines = lines.map((l) =>
+      l === KITCHEN_COPY.PRICE_UPDATE_UNCLEAR
+        ? KITCHEN_COPY.PRICE_UPDATE_FAILED
+        : l
+    );
+  }
+
   const suffix = lines.join("\n\n");
 
   if (r.saved.length > 0) {
@@ -1037,6 +1062,20 @@ async function tryUnitAnswer(
     .maybeSingle();
   const staff = linkToActor(link);
   const priced = applyUnit(items, unit);
+
+  // M1: Keep «Cambiar restaurante» button for multi-restaurant cooks
+  const fromId = message.from?.id;
+  let markup: InlineKeyboardMarkup | undefined;
+  if (fromId && links.length > 1) {
+    const anchor = await createChangeAnchor({
+      telegramUserId: fromId,
+      chatId,
+      messageId: message.message_id ?? 0,
+      links,
+    });
+    markup = anchor ?? undefined;
+  }
+
   after(() =>
     processPriceUpdate({
       admin,
@@ -1046,6 +1085,7 @@ async function tryUnitAnswer(
       dateSec: typeof message.date === "number" ? message.date : null,
       items: priced,
       origin: "text",
+      replyMarkup: markup,
     }).catch(() => {
       console.error("[telegram-webhook] price update failed");
     })
@@ -1150,21 +1190,38 @@ async function processRecipeDraftAsync(
         await ack();
         return;
       }
-      const price = await resolvePriceText(finalTextContent, askPriceAi);
-      if (
-        await applyPriceResult(price, {
-          admin,
-          staff,
-          link: opts.link ?? null,
-          chatId,
-          messageId,
-          reportId,
-          dateSec,
-          origin,
-          len: finalTextContent.length,
-          markup: opts.markup,
-        })
-      ) {
+      // S1: Wrap AI price stage to catch exceptions and always reply
+      let price: PriceFlowResult;
+      try {
+        price = await resolvePriceText(finalTextContent, askPriceAi);
+        if (
+          await applyPriceResult(price, {
+            admin,
+            staff,
+            link: opts.link ?? null,
+            chatId,
+            messageId,
+            reportId,
+            dateSec,
+            origin,
+            len: finalTextContent.length,
+            markup: opts.markup,
+          })
+        ) {
+          return;
+        }
+      } catch {
+        console.error("[telegram-webhook] voice price AI failed");
+        // Always send a reply when AI price parsing fails
+        try {
+          await sendTelegramMessage(
+            chatId,
+            KITCHEN_COPY.PRICE_UPDATE_FAILED,
+            opts.markup ? { replyMarkup: opts.markup } : undefined
+          );
+        } catch {
+          // Guard the send itself so it can't throw
+        }
         return;
       }
       if (!detectRecipeIntent(finalTextContent).isRecipe) {

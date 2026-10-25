@@ -132,7 +132,7 @@ export async function POST(
 
   const dishName =
     typeof body.dish_name === "string" ? body.dish_name.trim() : "";
-  if (!dishName) return fail("Escribe el nombre del platillo.", 400);
+  if (!dishName) return fail("Escribe el nombre del plato.", 400);
 
   if (
     !body.portions ||
@@ -154,7 +154,7 @@ export async function POST(
       .eq("company_id", auth.companyId)
       .maybeSingle();
     if (!menuItem) {
-      return fail("Ese platillo no existe en tu empresa.", 400);
+      return fail("Ese plato no existe en tu empresa.", 400);
     }
   }
 

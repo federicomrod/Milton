@@ -6,6 +6,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { loadKitchenPageModel } from "@/lib/restaurant/kitchen-page-data";
+import { parseKitchenExploreTab } from "@/lib/restaurant/kitchen-explore";
 import { timeCockpitStep } from "@/lib/restaurant/cockpit-timing";
 import { KitchenPageLive } from "@/components/restaurant/kitchen/KitchenPageLive";
 import { KitchenPageHeader } from "@/components/restaurant/kitchen/KitchenPageChrome";
@@ -22,9 +23,13 @@ export const dynamic = "force-dynamic";
 export default async function KitchenPage({
   searchParams,
 }: {
-  searchParams: Promise<{ location?: string; period?: string }>;
+  searchParams: Promise<{
+    location?: string;
+    period?: string;
+    tab?: string;
+  }>;
 }) {
-  const { location, period } = await searchParams;
+  const { location, period, tab } = await searchParams;
   const model = await timeCockpitStep(
     "kitchen-route",
     () => loadKitchenPageModel(location, period),
@@ -52,6 +57,7 @@ export default async function KitchenPage({
           canManage={model.canManage}
           canManageDrafts={model.canManageDrafts}
           locations={model.locations}
+          initialTab={tab ? parseKitchenExploreTab(tab) : undefined}
         >
           <Suspense
             fallback={

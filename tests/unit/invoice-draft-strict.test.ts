@@ -104,8 +104,9 @@ describe("createInvoiceDraft strictPrices:true", () => {
     });
     expect(r.ok).toBe(true);
     const rows = store.supplier_invoice_lines;
-    expect(rows).toHaveLength(1);
-    expect(rows[0].description).toBe("Aguacate");
+    // "Sal" has a read quantity and price but no unit: a bare count, «unidad».
+    expect(rows.map((x) => x.description)).toEqual(["Aguacate", "Sal"]);
+    expect(rows[1].unit).toBe("unidad");
     for (const l of rows) {
       expect(l.line_total).not.toBe(0);
       expect(l.unit).not.toBe("unit");
@@ -114,7 +115,6 @@ describe("createInvoiceDraft strictPrices:true", () => {
       expect(r.linesSkipped.map((s) => s.description)).toEqual([
         "Cilantro",
         "Limón",
-        "Sal",
       ]);
   });
 
@@ -190,6 +190,48 @@ describe("createInvoiceDraft strictPrices:true", () => {
     expect(store.supplier_invoice_lines ?? []).toHaveLength(0);
     expect(store.suppliers ?? []).toHaveLength(0);
     expect(store.invoice_events ?? []).toHaveLength(0);
+  });
+
+  it("a count-word line (manojo) and a bare count are saved, not skipped as no_unit", async () => {
+    const { store, client } = db();
+    const r = await createInvoiceDraft(client, {
+      ...base,
+      extraction: inv({
+        lines: [
+          line({
+            description: "tomate",
+            quantity: 2,
+            unit: "lb",
+            unit_cost: null,
+            line_total: 1.8,
+          }),
+          line({
+            description: "cilantro",
+            quantity: 1,
+            unit: "manojo",
+            unit_cost: null,
+            line_total: 0.5,
+          }),
+          line({
+            description: "aguacate",
+            quantity: 3,
+            unit: null,
+            unit_cost: null,
+            line_total: 2.25,
+          }),
+        ],
+      }),
+      strictPrices: true,
+    });
+    expect(r.ok).toBe(true);
+    expect(store.supplier_invoice_lines.map((x) => x.unit)).toEqual([
+      "lb",
+      "unidad",
+      "unidad",
+    ]);
+    expect(String(store.supplier_invoices[0].notes ?? "")).not.toContain(
+      "Líneas sin unidad legible"
+    );
   });
 
   it("reuses an existing supplier of the same company only", async () => {

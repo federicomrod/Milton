@@ -29,6 +29,7 @@ export function KitchenPageLive({
   canManage,
   canManageDrafts,
   locations,
+  initialTab,
   children,
 }: {
   insights: KitchenInsights;
@@ -36,6 +37,8 @@ export function KitchenPageLive({
   canManage: boolean;
   canManageDrafts?: boolean;
   locations: { id: string; name: string }[];
+  /** From ?tab=… (for example Menú › Subir recetas opens «Recetas en borrador»). */
+  initialTab?: KitchenExploreTab;
   children?: ReactNode;
 }) {
   const router = useRouter();
@@ -43,7 +46,7 @@ export function KitchenPageLive({
     DEFAULT_KITCHEN_FEED_FILTER
   );
   const [tab, setTab] = useState<KitchenExploreTab>(
-    DEFAULT_KITCHEN_EXPLORE_TAB
+    initialTab ?? DEFAULT_KITCHEN_EXPLORE_TAB
   );
   const [expanded, setExpanded] = useState(false);
   const [resolvingId, setResolvingId] = useState<string | null>(null);

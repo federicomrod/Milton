@@ -88,7 +88,7 @@ export function KitchenReportsCard({
       <CardHeader>
         <CardTitle>Reportes</CardTitle>
         <CardDescription>
-          Platillos que se acaban, 86 y merma que reportan tus cocineros.
+          Platos que se acaban, 86 y merma que reportan tus cocineros.
         </CardDescription>
         <div className="flex flex-wrap gap-2 pt-2">
           <select

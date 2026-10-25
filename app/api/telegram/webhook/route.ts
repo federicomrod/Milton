@@ -33,18 +33,9 @@ import {
   sendTelegramMessage,
   type InlineKeyboardMarkup,
 } from "@/lib/restaurant/telegram/send";
-import { fetchAllRows } from "@/lib/restaurant/paginated-read";
-import {
-  isActiveIngredient,
-  loadCompanyIngredients,
-} from "@/lib/restaurant/ingredient-active";
-import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/repo";
+import { loadDraftMatchingCatalog } from "@/lib/restaurant/kitchen-draft-catalog";
 import { resolvePreferredLanguage, t } from "@/lib/restaurant/language";
 import { isValidWebhookSecret } from "@/lib/restaurant/telegram/webhook-secret";
-import {
-  resolveCompanyCurrency,
-  resolveWriteCurrency,
-} from "@/lib/restaurant/currency";
 import {
   buildDisplayName,
   consumeKitchenJoin,
@@ -940,70 +931,9 @@ async function processRecipeDraftAsync(
       }
     }
 
-    // Every ingredient and every cost entry, in pages: a plain select stops
-    // at 1,000 rows and would silently leave ingredients without a price.
-    // Only ACTIVE ingredients: a merged-away (archived) one is never matched;
-    // its old name reaches the survivor through the alias.
-    const ingredients = (await loadCompanyIngredients(admin, staff.company_id))
-      .filter(isActiveIngredient)
-      .map((row) => ({
-        id: row.id,
-        name: row.name,
-        default_unit: row.default_unit ?? "unit",
-      }));
-    const ingredientIds = ingredients.map((i) => i.id);
-
-    type CostEntryRow = {
-      ingredient_id: string;
-      normalized_unit_cost: number;
-      normalized_unit: string;
-      cost_date: string;
-      currency: string;
-      created_at: string;
-      id: string;
-      company_id: string;
-      supplier_id: string | null;
-      source_type: "manual" | "invoice_line" | "import" | "api";
-      source_id: string | null;
-      quantity: number;
-      unit: string;
-      total_cost: number;
-      unit_cost: number;
-    };
-    let costEntries: CostEntryRow[] = [];
-
-    if (ingredientIds.length > 0) {
-      const costEntriesRes = await fetchAllRows<CostEntryRow>(() =>
-        admin
-          .from("ingredient_cost_entries")
-          .select(
-            "id, company_id, ingredient_id, supplier_id, source_type, source_id, cost_date, quantity, unit, total_cost, unit_cost, normalized_unit_cost, normalized_unit, currency, created_at"
-          )
-          .eq("company_id", staff.company_id)
-      );
-      costEntries = costEntriesRes.error ? [] : costEntriesRes.rows;
-    }
-
-    // Names this company already taught Milton (ingredient_aliases).
-    const aliasKeyToId = new Map<string, string>();
-    try {
-      const aliasRepo = createSupabaseCostWorkbookRepo(admin);
-      for (const row of await aliasRepo.listIngredientAliases(
-        staff.company_id
-      )) {
-        aliasKeyToId.set(row.alias_key, row.ingredient_id);
-      }
-    } catch {
-      // no alias table yet: exact and synonym matching still work
-    }
-
-    const costMap = new Map<string, typeof costEntries>();
-    for (const entry of costEntries) {
-      if (!costMap.has(entry.ingredient_id)) {
-        costMap.set(entry.ingredient_id, []);
-      }
-      costMap.get(entry.ingredient_id)!.push(entry);
-    }
+    // Active ingredients, every cost entry (in pages), remembered names and
+    // the write currency: the same catalog the file upload matches against.
+    const catalog = await loadDraftMatchingCatalog(admin, staff.company_id);
 
     const result = await extractAndCreateRecipeDraft(
       {
@@ -1016,14 +946,11 @@ async function processRecipeDraftAsync(
         mediaKind,
         telegramFileId,
         text: finalTextContent || null,
-        currency: resolveWriteCurrency(
-          costEntries[0]?.currency,
-          await resolveCompanyCurrency(admin, staff.company_id)
-        ),
+        currency: catalog.currency,
       },
-      ingredients,
-      costMap,
-      aliasKeyToId
+      catalog.ingredients,
+      catalog.costMap,
+      catalog.aliasKeyToId
     );
 
     if (result.ok) {

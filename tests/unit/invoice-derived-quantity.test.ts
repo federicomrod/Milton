@@ -140,7 +140,7 @@ describe("createInvoiceDraft strict with a calculable quantity", () => {
       line(),
       line({ description: "limón", line_total: 28.47 }),
       line({ description: "sal", unit_cost: null, line_total: null }),
-      line({ description: "ajo", unit: null, quantity: 2 }),
+      line({ description: "ajo", unit: null }),
     ]);
     expect(r.ok).toBe(true);
     if (!r.ok) return;

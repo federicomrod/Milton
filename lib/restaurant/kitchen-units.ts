@@ -38,6 +38,10 @@ const PIECE_WORDS = new Set([
 const UNIT_WORDS = new Set([
   "unidad",
   "unidades",
+  "diente",
+  "dientes",
+  "manojo",
+  "manojos",
   "unit",
   "units",
   "und",

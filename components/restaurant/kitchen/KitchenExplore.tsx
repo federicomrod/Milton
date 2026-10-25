@@ -16,7 +16,9 @@ import {
 } from "@/lib/restaurant/kitchen-explore";
 import { KitchenQrCard } from "./KitchenQrCard";
 import { KitchenStaffCard } from "./KitchenStaffCard";
+import { useState } from "react";
 import { KitchenRecipeDraftsCard } from "./KitchenRecipeDraftsCard";
+import { RecipeUploadCard } from "./RecipeUploadCard";
 import { KitchenReportsCard } from "./KitchenReportsCard";
 
 export function KitchenExplore({
@@ -38,6 +40,7 @@ export function KitchenExplore({
   locations: { id: string; name: string }[];
   focusDraftId?: string | null;
 }) {
+  const [uploadTick, setUploadTick] = useState(0);
   const chips: { id: KitchenExploreTab; label: string }[] = [
     { id: "running_out", label: t(lang, "Running low", "Se agota") },
     { id: "waste", label: t(lang, "Waste", "Merma") },
@@ -115,6 +118,11 @@ export function KitchenExplore({
 
       {tab === "drafts" ? (
         <div className="space-y-3">
+          <RecipeUploadCard
+            canManage={canManageDrafts ?? canManage}
+            locations={locations}
+            onDone={() => setUploadTick((n) => n + 1)}
+          />
           <RankTable
             lang={lang}
             rows={insights.explore.drafts}
@@ -131,6 +139,7 @@ export function KitchenExplore({
             canManage={canManageDrafts ?? canManage}
             locations={locations}
             focusDraftId={focusDraftId}
+            reloadSignal={uploadTick}
           />
         </div>
       ) : null}

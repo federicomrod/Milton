@@ -1,5 +1,6 @@
 "use client";
 
+import { UploadRecipesLink } from "@/components/restaurant/menu/UploadRecipesLink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
@@ -295,6 +296,12 @@ export function PreparacionesScreen({
           >
             Preparaciones de tu cocina
           </h2>
+          <div className="mb-2">
+            <UploadRecipesLink
+              actor={data.actor}
+              locationId={data.view_location_id ?? null}
+            />
+          </div>
           {approveError ? (
             <p className="mb-2 rounded-md border border-[#f1c0c0] bg-[#fdecec] px-2 py-1 text-xs text-[#c03535]">
               {approveError}

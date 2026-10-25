@@ -19,3 +19,25 @@ export function isPriceUpdateNote(notes: string | null | undefined): boolean {
       notes.startsWith(LEGACY_PRICE_UPDATE_NOTE_PREFIX))
   );
 }
+
+/** First note of an invoice draft created from a photo sent by Telegram. */
+export const INVOICE_TELEGRAM_NOTE =
+  "Factura enviada por Telegram. Valores leídos de la foto: revisa antes de aprobar.";
+
+/**
+ * True for a supplier invoice that came from Telegram (a photo or a price
+ * update): the file name «telegram-…» or one of the two note prefixes. No
+ * schema change; Compras shows a small «Telegram» label for these.
+ */
+export function isTelegramInvoice(inv: {
+  original_file_name?: string | null;
+  notes?: string | null;
+}): boolean {
+  const name = inv.original_file_name ?? "";
+  const notes = inv.notes ?? "";
+  return (
+    name.startsWith("telegram-") ||
+    notes.startsWith(INVOICE_TELEGRAM_NOTE) ||
+    isPriceUpdateNote(notes)
+  );
+}

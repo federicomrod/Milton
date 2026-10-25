@@ -92,7 +92,11 @@ describe("createInvoiceDraft strictPrices:true", () => {
         lines: [
           line(),
           line({ description: "Cilantro", line_total: null, unit_cost: null }),
-          line({ description: "Limón", quantity: null }),
+          line({
+            description: "Limón",
+            quantity: null,
+            line_total: null,
+          }),
           line({ description: "Sal", unit: null }),
         ],
       }),

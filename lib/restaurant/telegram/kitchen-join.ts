@@ -175,9 +175,15 @@ export async function rotateLocationToken(
 export type ConsumeKitchenJoinResult =
   | { kind: "invalid" }
   | { kind: "rate_limited" }
-  | { kind: "already_joined"; locationName: string }
-  | { kind: "joined"; locationName: string }
-  | { kind: "moved"; locationName: string; previousLocationName: string };
+  | { kind: "already_joined"; companyName: string; locationName: string }
+  | { kind: "joined"; companyName: string; locationName: string }
+  | {
+      kind: "moved";
+      companyName: string;
+      locationName: string;
+      previousCompanyName: string;
+      previousLocationName: string;
+    };
 
 /** Handles a /start kq1_... join from a private chat. Throws on DB errors. */
 export async function consumeKitchenJoin(input: {
@@ -207,6 +213,13 @@ export async function consumeKitchenJoin(input: {
   if (locError) throw new Error("location lookup failed");
   if (!location) return { kind: "invalid" };
 
+  const { data: company } = await admin
+    .from("companies")
+    .select("name")
+    .eq("id", token.company_id)
+    .maybeSingle();
+  const companyName: string = company?.name ?? "";
+
   const { data: existing, error: staffError } = await admin
     .from("kitchen_staff")
     .select("id, location_id, is_active")
@@ -234,17 +247,27 @@ export async function consumeKitchenJoin(input: {
   if (decision.kind === "invalid") return { kind: "invalid" };
   if (decision.kind === "rate_limited") return { kind: "rate_limited" };
   if (decision.kind === "already_joined") {
-    return { kind: "already_joined", locationName: location.name };
+    return { kind: "already_joined", companyName, locationName: location.name };
   }
 
   let previousLocationName = "";
+  let previousCompanyName = "";
   if (decision.kind === "moved") {
     const { data: prev } = await admin
       .from("restaurant_locations")
-      .select("name")
+      .select("name, company_id")
       .eq("id", decision.previousLocationId)
       .maybeSingle();
     previousLocationName = prev?.name ?? "";
+    // The cook may be moving between companies: name the old one too.
+    if (prev?.company_id) {
+      const { data: prevCompany } = await admin
+        .from("companies")
+        .select("name")
+        .eq("id", prev.company_id)
+        .maybeSingle();
+      previousCompanyName = prevCompany?.name ?? "";
+    }
   }
 
   const now = new Date().toISOString();
@@ -269,10 +292,12 @@ export async function consumeKitchenJoin(input: {
   return decision.kind === "moved"
     ? {
         kind: "moved",
+        companyName,
         locationName: location.name,
+        previousCompanyName,
         previousLocationName,
       }
-    : { kind: "joined", locationName: location.name };
+    : { kind: "joined", companyName, locationName: location.name };
 }
 
 // ---------------------------------------------------------------------------

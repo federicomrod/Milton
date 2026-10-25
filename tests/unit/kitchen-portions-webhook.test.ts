@@ -32,6 +32,7 @@ vi.mock("@/lib/restaurant/telegram/kitchen-reports", async (importOriginal) => {
     findActiveKitchenStaff: async () => ({
       id: "st-1",
       company_id: "co-1",
+      company_name: "Demo Resto",
       location_id: "loc-1",
       location_name: "Local Centro",
     }),
@@ -101,7 +102,7 @@ describe("a draft is waiting for portions", () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(
       555,
-      "Listo: 1 porción. Ya está en Cocina para revisar."
+      "Listo: 1 porción. Ya está en Cocina de Demo Resto › Local Centro para revisar."
     );
     expect(record).not.toHaveBeenCalled();
   });
@@ -112,7 +113,7 @@ describe("a draft is waiting for portions", () => {
     expect(store.kitchen_recipe_drafts[0].portions).toBe(3);
     expect(send).toHaveBeenCalledWith(
       555,
-      "Listo: 3 porciones. Ya está en Cocina para revisar."
+      "Listo: 3 porciones. Ya está en Cocina de Demo Resto › Local Centro para revisar."
     );
   });
 

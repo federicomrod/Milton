@@ -15,6 +15,9 @@ const extractRecipe = vi.fn();
 const openFile = vi.fn();
 let transcript = "";
 let failInvoiceInsert = false;
+let failLinesInsert = false;
+let failReread = false;
+let isCook = true;
 
 vi.mock("next/server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("next/server")>();
@@ -36,7 +39,13 @@ vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () =>
     makeFakeDb(store, {
       fail: (table, mode) =>
-        failInvoiceInsert && table === "supplier_invoices" && mode === "insert",
+        (failInvoiceInsert &&
+          table === "supplier_invoices" &&
+          mode === "insert") ||
+        (failLinesInsert &&
+          table === "supplier_invoice_lines" &&
+          mode === "insert") ||
+        (failReread && table === "supplier_invoices" && mode === "select"),
     }),
 }));
 vi.mock("@/lib/restaurant/telegram/files", () => ({
@@ -77,12 +86,16 @@ vi.mock("@/lib/restaurant/telegram/kitchen-reports", async (importOriginal) => {
   let clock = Date.now() - 60_000;
   return {
     ...actual,
-    findActiveKitchenStaff: async () => ({
-      id: "st-1",
-      company_id: "co-1",
-      location_id: "loc-1",
-      location_name: "Local Centro",
-    }),
+    findActiveKitchenStaff: async () =>
+      !isCook
+        ? null
+        : {
+            id: "st-1",
+            company_id: "co-1",
+            company_name: "Demo Resto",
+            location_id: "loc-1",
+            location_name: "Local Centro",
+          },
     // Same contract as the real one: false on a duplicate delivery.
     recordKitchenReport: async (input: {
       chatId: number;
@@ -113,6 +126,8 @@ vi.mock("@/lib/restaurant/telegram/kitchen-reports", async (importOriginal) => {
 });
 
 import { POST } from "@/app/api/telegram/webhook/route";
+import { resetOwnerChatGuidance } from "@/lib/restaurant/telegram/owner-chat-guidance";
+import { KITCHEN_COPY } from "@/lib/restaurant/telegram/kitchen-copy";
 import { localDateKey } from "@/lib/restaurant/telegram/kitchen-media";
 
 let nextId = 500;
@@ -184,6 +199,10 @@ beforeEach(() => {
   consoleCalls.length = 0;
   transcript = "";
   failInvoiceInsert = false;
+  failLinesInsert = false;
+  failReread = false;
+  isCook = true;
+  resetOwnerChatGuidance();
   process.env.TELEGRAM_WEBHOOK_SECRET = "s3cret";
   process.env.OPENAI_API_KEY = "test-key";
   extractInvoice.mockReset().mockResolvedValue(goodExtraction());
@@ -249,7 +268,8 @@ describe("photo routing", () => {
     expect(extractInvoice).toHaveBeenCalledWith(
       expect.objectContaining({ notesLanguage: "es" })
     );
-    expect(replies[0]).toContain("Recibí la factura de Proveedor Demo");
+    expect(replies[0]).toContain("Guardé la factura de Proveedor Demo");
+    expect(replies[0]).toContain("en Demo Resto › Local Centro");
     expect(replies[0]).toContain("leí 1 línea");
   });
 
@@ -319,7 +339,7 @@ describe("«factura» / «receta» follow-up", () => {
     expect(
       (store.invoice_events as Row[])[0].metadata as Record<string, unknown>
     ).toMatchObject({ kitchen_report_id: "kr-2", source: "telegram" });
-    expect(lastReply()).toContain("Recibí la factura");
+    expect(lastReply()).toContain("Guardé la factura");
 
     // The same word again goes to the OLDER photo (the newest is decided).
     await send({ text: "factura" });
@@ -412,12 +432,17 @@ describe("invoice path (Telegram, strict)", () => {
       original_file_name: expect.stringMatching(/^telegram-\d+\.jpg$/),
     });
     expect(String(invoices()[0].notes)).toContain(
-      "Líneas sin precio (leídas de la foto): Cilantro, Limón"
+      "Líneas sin precio (leídas de la foto): Cilantro"
+    );
+    expect(String(invoices()[0].notes)).toContain(
+      "Líneas sin cantidad (leídas de la foto): Limón"
     );
     expect(String(invoices()[0].notes)).toContain(
       "Factura enviada por Telegram. Valores leídos de la foto: revisa antes de aprobar."
     );
-    expect(lastReply()).toContain("2 líneas quedaron sin precio.");
+    expect(lastReply()).toContain(
+      "1 línea quedó sin precio. 1 línea quedó sin cantidad."
+    );
     expect(store.ingredient_cost_entries ?? []).toHaveLength(0);
   });
 
@@ -499,6 +524,185 @@ describe("invoice path (Telegram, strict)", () => {
   });
 });
 
+describe("invoice destination and honest failures", () => {
+  const invoiceReq = () => send({ ...photo(), caption: "factura" });
+
+  it("saves in the cook's company and names the destination", async () => {
+    await invoiceReq();
+    expect(invoices()).toHaveLength(1);
+    expect(invoices()[0]).toMatchObject({
+      company_id: "co-1",
+      status: "needs_review",
+      source_type: "image",
+    });
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toContain("Demo Resto › Local Centro");
+    expect(replies[0]).toContain("Queda como borrador en Costos › Compras");
+    expect(store.ingredient_cost_entries ?? []).toHaveLength(0);
+    expect(
+      consoleCalls.some((c) =>
+        /^\[kitchen-media\] invoice draft saved id=\S+ company=co-1 lines=1 unpriced=0/.test(
+          c
+        )
+      )
+    ).toBe(true);
+  });
+
+  it("an unpriced line is listed in the notes and the reply says so", async () => {
+    extractInvoice.mockResolvedValue(
+      goodExtraction({
+        lines: [
+          goodExtraction().extraction.lines[0],
+          {
+            description: "Cilantro",
+            supplier_item_name: null,
+            supplier_sku: null,
+            quantity: 2,
+            unit: "atado",
+            unit_cost: null,
+            line_total: null,
+            tax_amount: null,
+          },
+        ],
+      })
+    );
+    await invoiceReq();
+    expect(store.supplier_invoice_lines).toHaveLength(1);
+    expect(String(invoices()[0].notes)).toContain("Cilantro");
+    expect(lastReply()).toContain("1 línea quedó sin precio.");
+  });
+
+  it("header insert error: INVOICE_SAVE_FAILED, never the success copy", async () => {
+    failInvoiceInsert = true;
+    await invoiceReq();
+    expect(replies).toEqual([KITCHEN_COPY.INVOICE_SAVE_FAILED]);
+    expect(invoices()).toHaveLength(0);
+    expect(
+      consoleCalls.some((c) =>
+        c.includes("[kitchen-media] invoice save failed reason=invoice_failed")
+      )
+    ).toBe(true);
+  });
+
+  it("lines insert error: the orphan header is deleted and INVOICE_SAVE_FAILED is sent", async () => {
+    failLinesInsert = true;
+    await invoiceReq();
+    expect(replies).toEqual([KITCHEN_COPY.INVOICE_SAVE_FAILED]);
+    expect(invoices()).toHaveLength(0);
+    expect(store.invoice_events ?? []).toHaveLength(0);
+    expect(
+      consoleCalls.some((c) =>
+        c.includes("[kitchen-media] invoice save failed reason=lines_failed")
+      )
+    ).toBe(true);
+  });
+
+  it("re-read finds nothing: INVOICE_SAVE_FAILED", async () => {
+    failReread = true;
+    await invoiceReq();
+    expect(replies).toEqual([KITCHEN_COPY.INVOICE_SAVE_FAILED]);
+    expect(consoleCalls.some((c) => c.includes("reason=reread_failed"))).toBe(
+      true
+    );
+  });
+
+  it("currency mismatch gets its own message", async () => {
+    extractInvoice.mockResolvedValue(goodExtraction({ currency: "EUR" }));
+    await invoiceReq();
+    expect(replies).toEqual([KITCHEN_COPY.INVOICE_CURRENCY_MISMATCH]);
+    expect(invoices()).toHaveLength(0);
+  });
+
+  it("extraction failure stays INVOICE_UNREADABLE", async () => {
+    extractInvoice.mockResolvedValue({
+      ok: false,
+      reason: "timeout",
+      message: "x",
+    });
+    await invoiceReq();
+    expect(replies).toEqual([KITCHEN_COPY.INVOICE_UNREADABLE]);
+  });
+
+  it("logs carry ids and reasons only", async () => {
+    failInvoiceInsert = true;
+    await invoiceReq();
+    const logged = consoleCalls.join("\n");
+    for (const needle of ["https://", "data:image", "test-key", "s3cret"]) {
+      expect(logged).not.toContain(needle);
+    }
+  });
+});
+
+describe("recipe and photo failures", () => {
+  it("recipe extraction failure: RECIPE_SAVE_FAILED", async () => {
+    extractRecipe.mockResolvedValue({ ok: false, error: "Create failed" });
+    await send({ ...photo(), caption: "receta" });
+    expect(replies).toEqual([KITCHEN_COPY.RECIPE_SAVE_FAILED]);
+  });
+
+  it("recipe received names the destination", async () => {
+    await send({ ...photo(), caption: "receta" });
+    expect(lastReply()).toContain("en Cocina de Demo Resto › Local Centro");
+  });
+
+  it("a thrown error while processing a photo sends the generic failure, not PHOTO_ASK_KIND", async () => {
+    classify.mockRejectedValue(new Error("boom"));
+    await send(photo());
+    expect(replies).toEqual([KITCHEN_COPY.PHOTO_PROCESS_FAILED]);
+  });
+});
+
+describe("owner-paired chat that is not a cook", () => {
+  beforeEach(() => {
+    isCook = false;
+    store.restaurant_telegram_connections = [
+      { id: "c1", company_id: "co-1", chat_id: CHAT, is_active: true },
+    ];
+    store.companies = [{ id: "co-1", name: "Demo Resto" }];
+  });
+
+  it("answers once with guidance, writes nothing, then stays quiet for 10 minutes", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      await send({ ...photo(), caption: "factura" });
+      expect(replies).toEqual([
+        "Este chat recibe el briefing de Demo Resto. Para mandar facturas, recetas o precios, escanea el QR de cocina en Milton (Cocina › Equipo de cocina) con este Telegram.",
+      ]);
+      expect(invoices()).toHaveLength(0);
+      expect(store.kitchen_reports ?? []).toHaveLength(0);
+      expect(extractInvoice).not.toHaveBeenCalled();
+
+      await send({ ...photo(), caption: "factura" });
+      expect(replies).toHaveLength(1);
+
+      vi.advanceTimersByTime(10 * 60 * 1000 + 1000);
+      await send({ ...photo(), caption: "factura" });
+      expect(replies).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an unknown sender in an unpaired chat gets silence", async () => {
+    store.restaurant_telegram_connections = [];
+    await send({ ...photo(), caption: "factura" });
+    expect(replies).toEqual([]);
+    expect(invoices()).toHaveLength(0);
+  });
+});
+
+describe("briefing pairing: chat already connected", () => {
+  it("replies in Spanish without naming any restaurant", async () => {
+    const pairing = await import("@/lib/restaurant/telegram/pairing");
+    vi.spyOn(pairing, "consumePairingCode").mockResolvedValue({
+      ok: false,
+      reason: "chat_already_connected",
+    });
+    await send({ text: "/start ABCDEFGHIJKL" });
+    expect(replies).toEqual([KITCHEN_COPY.BRIEFING_CHAT_ALREADY_CONNECTED]);
+  });
+});
+
 describe("price updates", () => {
   it("text: needs_review draft, nothing applied, no REPORT_ACK", async () => {
     await send({ text: "el aguacate subió a 1.50 la libra" });
@@ -524,7 +728,9 @@ describe("price updates", () => {
     ]);
     expect(store.ingredient_cost_entries ?? []).toHaveLength(0);
     expect(replies).toHaveLength(1);
-    expect(replies[0]).toContain("Anoté: aguacate $1.50 la libra.");
+    expect(replies[0]).toContain(
+      "Anoté en Demo Resto: aguacate $1.50 la libra."
+    );
     expect(replies[0]).not.toContain("Se lo pasamos");
   });
 

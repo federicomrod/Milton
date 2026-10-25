@@ -8,16 +8,16 @@ import {
 describe("kitchen copy", () => {
   it("R1–R6 (+R5a/R5b) and R7–R8 equal Sofia's strings exactly", () => {
     expect(KITCHEN_COPY.JOINED).toBe(
-      "✅ ¡Listo! Ya estás en Milton de {local}. Cuando algo se acabe, se tire o quieras mandar una receta, mándalo aquí: texto, nota de voz o foto."
+      "✅ ¡Listo! Ya estás en Milton de {empresa} › {local}. Cuando algo se acabe, se tire o quieras mandar una receta, mándalo aquí: texto, nota de voz o foto."
     );
     expect(KITCHEN_COPY.QR_INVALID).toBe(
       "Este QR ya no funciona. Pide al encargado el código actualizado."
     );
     expect(KITCHEN_COPY.ALREADY_JOINED).toBe(
-      "Ya estás en Milton de {local}. No tienes que hacer nada más."
+      "Ya estás en Milton de {empresa} › {local}. No tienes que hacer nada más."
     );
     expect(KITCHEN_COPY.MOVED).toBe(
-      "🔄 Ahora estás en {local nuevo}. Lo que mandes desde ya va a {local nuevo}, no a {local anterior}."
+      "🔄 Ahora estás en {empresa} › {local nuevo}. Lo que mandes desde ya va a {empresa} › {local nuevo}, no a {empresa anterior} › {local anterior}."
     );
     expect(KITCHEN_COPY.REPORT_ACK).toBe(
       "✅ Recibido, gracias. Se lo pasamos al encargado de {nombre_local}."
@@ -32,7 +32,7 @@ describe("kitchen copy", () => {
       "Ahora mismo hay muchos ingresos con este código. Prueba de nuevo en unos minutos o pide ayuda al encargado."
     );
     expect(KITCHEN_COPY.RECIPE_RECEIVED).toBe(
-      "✅ Recibida la receta de {plato}. El encargado la revisa antes de que cuente en los costos."
+      "✅ Recibida la receta de {plato} en Cocina de {empresa} › {local}. El encargado la revisa antes de que cuente en los costos."
     );
     expect(KITCHEN_COPY.RECIPE_ASK_PORTIONS).toBe(
       "¿Para cuántas porciones salió? Responde con un número, por ejemplo: 2."
@@ -45,15 +45,20 @@ describe("kitchen copy", () => {
 
   it("renders placeholders", () => {
     expect(
-      renderKitchenCopy(KITCHEN_COPY.JOINED, { local: "Roma Norte" })
-    ).toContain("Milton de Roma Norte.");
+      renderKitchenCopy(KITCHEN_COPY.JOINED, {
+        empresa: "Demo Resto",
+        local: "Roma Norte",
+      })
+    ).toContain("Milton de Demo Resto › Roma Norte.");
     expect(
       renderKitchenCopy(KITCHEN_COPY.MOVED, {
+        empresa: "Demo Resto",
+        "empresa anterior": "Otro Resto",
         "local nuevo": "Condesa",
         "local anterior": "Roma",
       })
     ).toBe(
-      "🔄 Ahora estás en Condesa. Lo que mandes desde ya va a Condesa, no a Roma."
+      "🔄 Ahora estás en Demo Resto › Condesa. Lo que mandes desde ya va a Demo Resto › Condesa, no a Otro Resto › Roma."
     );
     expect(renderKitchenCopy("hola {x}")).toBe("hola {x}");
   });

@@ -25,10 +25,12 @@ import {
   PRICE_UPDATE_NOTE_PREFIX,
 } from "@/lib/restaurant/invoice-draft";
 import type { ExtractedInvoice } from "@/lib/restaurant/invoice-extraction";
+import { INVOICE_TELEGRAM_NOTE } from "@/lib/restaurant/price-update-note";
 import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
 import { sendTelegramMessage } from "@/lib/restaurant/telegram/send";
 import { openTelegramFile } from "@/lib/restaurant/telegram/files";
 import {
+  destinationVars,
   KITCHEN_COPY,
   renderKitchenCopy,
 } from "@/lib/restaurant/telegram/kitchen-copy";
@@ -233,6 +235,7 @@ export async function downloadTelegramImage(
 export interface KitchenActor {
   id: string;
   company_id: string;
+  company_name: string;
   location_id: string;
   location_name: string;
 }
@@ -251,11 +254,87 @@ export interface InvoicePhotoInput {
   dataUrl?: string | null;
 }
 
-export const INVOICE_TELEGRAM_NOTE =
-  "Factura enviada por Telegram. Valores leídos de la foto: revisa antes de aprobar.";
+// The note text lives in price-update-note.ts (client-safe) so Compras can
+// recognize Telegram invoices; re-exported here for callers and tests.
+export { INVOICE_TELEGRAM_NOTE };
+
+/**
+ * « 1 línea quedó sin precio. 2 líneas quedaron sin cantidad.»: one phrase per
+ * reason, so a line skipped for a missing quantity is never called «sin precio».
+ */
+export function skippedSentence(
+  skipped: ReadonlyArray<{ reason: string }>
+): string {
+  const parts: string[] = [];
+  for (const [reason, what] of [
+    ["no_price", "sin precio"],
+    ["no_quantity", "sin cantidad"],
+    ["no_unit", "sin unidad legible"],
+  ] as const) {
+    const n = skipped.filter((l) => l.reason === reason).length;
+    if (n > 0) {
+      parts.push(
+        `${n === 1 ? "1 línea quedó" : `${n} líneas quedaron`} ${what}.`
+      );
+    }
+  }
+  return parts.length > 0 ? ` ${parts.join(" ")}` : "";
+}
 
 function plural(n: number, one: string, many: string): string {
   return n === 1 ? `1 ${one}` : `${n} ${many}`;
+}
+
+/**
+ * Re-reads the draft by id AND company. A reply claims success only when the
+ * row really exists as a needs_review invoice.
+ */
+async function draftIsSaved(
+  admin: Admin,
+  companyId: string,
+  invoiceId: string
+): Promise<boolean> {
+  try {
+    const { data, error } = await admin
+      .from("supplier_invoices")
+      .select("id, company_id, status")
+      .eq("id", invoiceId)
+      .eq("company_id", companyId)
+      .maybeSingle();
+    if (error || !data) return false;
+    return data.status === "needs_review";
+  } catch {
+    return false;
+  }
+}
+
+/** lines_failed leaves a header with no lines: remove it (and any events). */
+async function deleteOrphanHeader(
+  admin: Admin,
+  companyId: string,
+  invoice: Record<string, unknown> | undefined
+): Promise<void> {
+  const id = invoice && typeof invoice.id === "string" ? invoice.id : null;
+  if (!id) return;
+  try {
+    await admin
+      .from("invoice_events")
+      .delete()
+      .eq("invoice_id", id)
+      .eq("company_id", companyId);
+    await admin
+      .from("supplier_invoice_lines")
+      .delete()
+      .eq("invoice_id", id)
+      .eq("company_id", companyId);
+    await admin
+      .from("supplier_invoices")
+      .delete()
+      .eq("id", id)
+      .eq("company_id", companyId);
+  } catch {
+    console.error("[kitchen-media] orphan invoice cleanup failed");
+  }
 }
 
 export async function processInvoicePhoto(
@@ -317,24 +396,42 @@ export async function processInvoicePhoto(
     fallbackInvoiceDate: localDateKey(input.dateSec, tz),
   });
   if (!created.ok) {
-    console.error("[kitchen-media] invoice draft not created:", created.reason);
-    await unreadable();
+    console.error(
+      `[kitchen-media] invoice save failed reason=${created.reason}`
+    );
+    if (created.reason === "lines_failed") {
+      await deleteOrphanHeader(admin, staff.company_id, created.invoice);
+    }
+    if (created.reason === "currency_mismatch") {
+      await sendTelegramMessage(chatId, KITCHEN_COPY.INVOICE_CURRENCY_MISMATCH);
+    } else if (
+      created.reason === "invoice_failed" ||
+      created.reason === "supplier_failed" ||
+      created.reason === "lines_failed"
+    ) {
+      await sendTelegramMessage(chatId, KITCHEN_COPY.INVOICE_SAVE_FAILED);
+    } else {
+      await unreadable(); // missing_date / no_lines / no_usable_lines
+    }
+    return;
+  }
+  if (!(await draftIsSaved(admin, staff.company_id, created.invoiceId))) {
+    console.error("[kitchen-media] invoice save failed reason=reread_failed");
+    await sendTelegramMessage(chatId, KITCHEN_COPY.INVOICE_SAVE_FAILED);
     return;
   }
 
   const skipped = created.linesSkipped.length;
   console.info(
-    `[kitchen-media] invoice draft lines=${created.linesInserted} unpriced=${skipped} ${Date.now() - started}ms`
+    `[kitchen-media] invoice draft saved id=${created.invoiceId} company=${staff.company_id} lines=${created.linesInserted} unpriced=${skipped} ${Date.now() - started}ms`
   );
   await sendTelegramMessage(
     chatId,
     renderKitchenCopy(KITCHEN_COPY.INVOICE_RECEIVED, {
+      ...destinationVars(staff),
       de_proveedor: created.supplierName ? ` de ${created.supplierName}` : "",
       lineas: plural(created.linesInserted, "línea", "líneas"),
-      sin_precio:
-        skipped > 0
-          ? ` ${skipped === 1 ? "1 línea quedó sin precio." : `${skipped} líneas quedaron sin precio.`}`
-          : "",
+      sin_precio: skippedSentence(created.linesSkipped),
     })
   );
 }
@@ -408,7 +505,19 @@ export async function processPriceUpdate(
     strictPrices: true,
   });
   if (!created.ok) {
-    console.error("[kitchen-media] price update not stored:", created.reason);
+    console.error(
+      `[kitchen-media] price update not stored reason=${created.reason}`
+    );
+    if (created.reason === "lines_failed") {
+      await deleteOrphanHeader(admin, staff.company_id, created.invoice);
+    }
+    await sendTelegramMessage(chatId, KITCHEN_COPY.PRICE_UPDATE_FAILED);
+    return;
+  }
+  if (!(await draftIsSaved(admin, staff.company_id, created.invoiceId))) {
+    console.error(
+      "[kitchen-media] price update not stored reason=reread_failed"
+    );
     await sendTelegramMessage(chatId, KITCHEN_COPY.PRICE_UPDATE_FAILED);
     return;
   }
@@ -418,6 +527,7 @@ export async function processPriceUpdate(
   await sendTelegramMessage(
     chatId,
     renderKitchenCopy(KITCHEN_COPY.PRICE_UPDATE_RECEIVED, {
+      ...destinationVars(staff),
       items: formatPriceUpdateItems(
         input.items,
         currencySymbolFor(

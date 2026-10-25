@@ -247,12 +247,13 @@ export async function recordKitchenReport(input: {
 export interface ActiveKitchenStaff {
   id: string;
   company_id: string;
+  company_name: string;
   location_id: string;
   location_name: string;
 }
 
 /**
- * The cook's active kitchen_staff row (and their location's name), or null
+ * The cook's active kitchen_staff row (and their company's and location's names), or null
  * for unknown or removed cooks. Service role; throws on DB errors.
  */
 export async function findActiveKitchenStaff(
@@ -271,10 +272,17 @@ export async function findActiveKitchenStaff(
     .from("restaurant_locations")
     .select("name")
     .eq("id", staff.location_id)
+    .eq("company_id", staff.company_id)
+    .maybeSingle();
+  const { data: company } = await admin
+    .from("companies")
+    .select("name")
+    .eq("id", staff.company_id)
     .maybeSingle();
   return {
     id: staff.id,
     company_id: staff.company_id,
+    company_name: company?.name ?? "",
     location_id: staff.location_id,
     location_name: location?.name ?? "",
   };

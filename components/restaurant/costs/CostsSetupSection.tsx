@@ -498,6 +498,10 @@ export function CostsSetupSection({
                   busyExternal={busy}
                   locationId={locationId}
                   onDone={onResetDone}
+                  onEstimated={() => {
+                    markTabsStale();
+                    router.refresh();
+                  }}
                 />
               </div>
             </details>

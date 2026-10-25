@@ -89,12 +89,15 @@ function matches(row: Row, ops: Op[]) {
 }
 
 export interface FakeDbOptions {
-  /** Make a write fail: return true to answer with a database error. */
+  /**
+   * Make a call fail: return true to answer with a database error, or an
+   * error object (for example `{ code: "42P01", message }` for a missing table).
+   */
   fail?: (
     table: string,
     mode: "select" | "insert" | "update" | "delete",
     payload: unknown
-  ) => boolean;
+  ) => boolean | { code?: string; message: string };
 }
 
 export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
@@ -110,10 +113,18 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
     let offset = 0;
     const rows = () => (store[table] ??= []);
     const run = () => {
-      if (options.fail?.(table, mode === "upsert" ? "insert" : mode, payload)) {
+      const failure = options.fail?.(
+        table,
+        mode === "upsert" ? "insert" : mode,
+        payload
+      );
+      if (failure) {
         return {
           data: null as unknown as Row[],
-          error: { message: "forced failure" },
+          error:
+            typeof failure === "object"
+              ? failure
+              : { message: "forced failure" },
         };
       }
       if (mode === "update") {

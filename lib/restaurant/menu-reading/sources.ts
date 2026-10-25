@@ -54,6 +54,8 @@ export async function readMenuSource(
   if (source.kind === "text") return finish("text", null, source.text);
   const page = await (deps.fetchPage ?? fetchMenuPage)(source.url);
   const text =
-    page.contentType === "text/plain" ? page.body : htmlToText(page.body);
+    page.contentType === "text/plain"
+      ? page.body
+      : htmlToText(page.body, page.url);
   return finish("url", page.url, text);
 }

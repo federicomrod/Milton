@@ -5,6 +5,7 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import {
   cleanup,
   fireEvent,
@@ -165,6 +166,96 @@ describe("the check is cached per company", () => {
     mountFor("co-b");
     await screen.findByRole("button", { name: "Estimar con Milton" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("MenuReaderPanel · lo que leyó, por plato del menú", () => {
+  const RESULT = {
+    ok: true,
+    dishes_read: 4,
+    drafted: 1,
+    skipped_has_recipe: 1,
+    skipped_no_ingredients: 0,
+    skipped_draft_exists: 0,
+    no_pos_match: 2,
+    failed: 0,
+    not_on_menu: 2,
+    not_found: ["Plato Demo", "Cena Especial"],
+    new_components: 0,
+    menu_outcomes: [
+      {
+        menu_dish: "Churrasco",
+        outcome: "drafted",
+        products: [
+          { odoo_product_id: 11, odoo_name: "Churrasco 6 oz" },
+          { odoo_product_id: 12, odoo_name: "Churrasco 12 oz" },
+        ],
+      },
+      { menu_dish: "Sopa", outcome: "no_pos_match", products: [] },
+      {
+        menu_dish: "Flan",
+        outcome: "has_recipe",
+        products: [{ odoo_product_id: 21, odoo_name: "Flan Casero" }],
+      },
+      { menu_dish: "Tostones", outcome: "no_pos_match", products: [] },
+    ],
+  };
+
+  it("«Ver detalle» lists drafted platos first with working links, then the menu dishes without a POS product", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_u: string, init?: RequestInit) =>
+        init?.method === "POST"
+          ? jsonRes(RESULT)
+          : jsonRes({ available: true, eligible: 0 })
+      )
+    );
+    render(
+      <MenuReaderPanel
+        canEdit
+        busyExternal={false}
+        locationId={null}
+        onDone={() => undefined}
+      />
+    );
+    fireEvent.change(screen.getByPlaceholderText(/turestaurante/), {
+      target: { value: "https://example.com/menu" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Leer menú" }));
+    expect(
+      await screen.findByText(
+        "Leí 4 platos en tu menú: 1 con borrador nuevo, 1 ya tenía receta, 2 sin producto en tu POS."
+      )
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /2 platos con ventas este mes no tienen receta y no aparecen en el menú\./
+      )
+    ).toBeTruthy();
+    // «Ver cuáles» names the platos.
+    fireEvent.click(screen.getByRole("button", { name: "Ver cuáles" }));
+    expect(screen.getByText("Plato Demo, Cena Especial")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ver detalle" }));
+    const titles = screen
+      .getAllByText(/\(\d+\)$/)
+      .map((el) => el.textContent?.replace(/ \(\d+\)$/, ""));
+    expect(titles).toEqual([
+      "Borradores nuevos",
+      "Sin producto en tu POS",
+      "Ya tenían receta",
+    ]);
+    const link = screen.getByRole("link", { name: "Churrasco 6 oz" });
+    expect(link.getAttribute("href")).toBe(
+      "/dashboard/restaurant/menu/platos?producto=11"
+    );
+    expect(screen.getByRole("link", { name: "Churrasco 12 oz" })).toBeTruthy();
+    expect(screen.getByText("Sopa")).toBeTruthy();
+    expect(screen.getByText("Tostones")).toBeTruthy();
+    // Visible blue buttons.
+    expect(
+      screen.getByRole("button", { name: "Ocultar detalle" }).className
+    ).toContain("bg-[#1B40C8]");
   });
 });
 
@@ -776,7 +867,7 @@ describe("MenuDishesScreen · estimate overlay", () => {
             results: [{ menu_item_id: "m1", skipped_reason: null }],
           });
         }
-        return jsonRes({ available: true, eligible: 1, needs_link: 0 });
+        return jsonRes({ available: true, eligible: 1 });
       })
     );
     const onEstimated = vi.fn();
@@ -795,13 +886,32 @@ describe("MenuDishesScreen · estimate overlay", () => {
     await waitFor(() => expect(onEstimated).toHaveBeenCalled());
   });
 
-  it("a row whose product has no plato yet is disabled and says why", () => {
+  // Part C: an unlinked product is no longer blocked; the server links it.
+  it("a row whose product has no plato yet is enabled and sends the product, not a plato id", async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          calls.push({ url, body: JSON.parse(String(init.body)) });
+          return jsonRes({
+            done: 1,
+            remaining: 0,
+            results: [{ menu_item_id: "new-1", skipped_reason: null }],
+          });
+        }
+        return jsonRes({ available: true, eligible: 1 });
+      })
+    );
     mountList(dishesWorkspace({ menu_item_id: null }), []);
     const action = screen.getByTestId("dish-estimate-action");
-    expect(action.hasAttribute("disabled")).toBe(true);
-    expect(
-      screen.getByText("Primero vincula este producto a un plato.")
-    ).toBeTruthy();
+    expect(action.hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByText(/Primero vincula/)).toBeNull();
+    fireEvent.click(action);
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body).toEqual({
+      products: [{ odoo_product_id: 1, odoo_name: "Hamburguesa clásica" }],
+    });
   });
 
   it("the row action is disabled without recipes.edit", () => {
@@ -847,7 +957,7 @@ describe("MenuDishesScreen · estimate overlay", () => {
             results: [{ menu_item_id: "m1", skipped_reason: null }],
           });
         }
-        return jsonRes({ available: true, eligible: 1, needs_link: 0 });
+        return jsonRes({ available: true, eligible: 1 });
       })
     );
     const onEstimated = vi.fn();
@@ -891,13 +1001,14 @@ describe("MenuDishesScreen · estimate overlay", () => {
   });
 
   it("when button is disabled, reason text is visible next to button in ink color, not grey", () => {
-    const ws = dishesWorkspace({ menu_item_id: null });
+    const ws = dishesWorkspace({});
+    (ws.actor as { capabilities: Record<string, boolean> }).capabilities = {
+      "recipes.edit": false,
+    };
     mountList(ws, []);
     const button = screen.getByTestId("dish-estimate-action");
     expect(button.hasAttribute("disabled")).toBe(true);
-    const reason = screen.getByText(
-      "Primero vincula este producto a un plato."
-    );
+    const reason = screen.getByText(CAPABILITY_MESSAGES["recipes.edit"]);
     expect(reason.className).toContain("text-[var(--brand-ink)]");
     expect(reason.className).not.toContain("text-[var(--brand-muted)]");
   });
@@ -912,7 +1023,7 @@ describe("MenuDishesScreen · estimate overlay", () => {
             500
           );
         }
-        return jsonRes({ available: true, eligible: 1, needs_link: 0 });
+        return jsonRes({ available: true, eligible: 1 });
       })
     );
     mountList(dishesWorkspace({}), []);
@@ -929,7 +1040,7 @@ describe("MenuDishesScreen · estimate overlay", () => {
     expect(screen.queryByTestId("dish-estimate-action")).toBeNull();
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => jsonRes({ available: true, eligible: 0, needs_link: 0 }))
+      vi.fn(() => jsonRes({ available: true, eligible: 0 }))
     );
     cleanup();
     invalidateEstimateProbe(); // a new mount, a new check
@@ -941,16 +1052,18 @@ describe("MenuDishesScreen · estimate overlay", () => {
     ).toBeTruthy();
   });
 
-  it("unlinked «Sin receta» products are not called «Todos tus platos tienen receta»", async () => {
+  it("unlinked products count as work to do (the server links them), so the button is live", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => jsonRes({ available: true, eligible: 0, needs_link: 3 }))
+      vi.fn(() => jsonRes({ available: true, eligible: 3 }))
     );
     mountList(dishesWorkspace({ menu_item_id: null }), []);
-    expect(
-      await screen.findByText(/aún no están vinculados a un producto del POS/)
-    ).toBeTruthy();
     expect(screen.queryByText(/Todos tus platos tienen receta/)).toBeNull();
+    expect(screen.queryByText(/aún no están vinculados/)).toBeNull();
+    const buttons = await screen.findAllByRole("button", {
+      name: "Estimar con Milton",
+    });
+    expect(buttons.length).toBeGreaterThan(0);
   });
 
   it("renders as before with no estimates", () => {

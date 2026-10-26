@@ -47,7 +47,7 @@ describe("syncWorkspaceCopy", () => {
       })
     ).toEqual({
       targetLine:
-        "This will sync Casa Prueba — the workspace you are signed into.",
+        "Se sincronizará Casa Prueba, el espacio en el que iniciaste sesión.",
       blockedReason: null,
     });
   });
@@ -59,10 +59,10 @@ describe("syncWorkspaceCopy", () => {
       selectedCompanyName: "Demo Co",
     });
     expect(copy.targetLine).toBe(
-      "Sync now always updates Casa Prueba, not Demo Co."
+      "«Sincronizar ahora» siempre actualiza Casa Prueba, no Demo Co."
     );
     expect(copy.blockedReason).toBe(
-      "Select Casa Prueba above to enable Sync now."
+      "Elige Casa Prueba arriba para activar «Sincronizar ahora»."
     );
   });
 });
@@ -78,17 +78,17 @@ describe("formatWorkspaceLastSyncLine", () => {
       new Date("2026-10-10T12:00:00.000Z")
     );
     const line = formatWorkspaceLastSyncLine(last, "Demo Co", false);
-    expect(line.startsWith("Last synced for Demo Co · ")).toBe(true);
-    expect(line).toContain("10 orders");
-    expect(line).toContain("20 rows saved");
+    expect(line.startsWith("Última sincronización de Demo Co · ")).toBe(true);
+    expect(line).toContain("10 pedidos");
+    expect(line).toContain("20 filas guardadas");
   });
 
   it("does not invite a click when Sync now is locked", () => {
     expect(formatWorkspaceLastSyncLine(null, "Demo Co", false)).toBe(
-      "No last-sync record for Demo Co. Sync now only updates your signed-in workspace."
+      "No hay registro de sincronización de Demo Co. «Sincronizar ahora» solo actualiza tu espacio actual."
     );
     expect(formatWorkspaceLastSyncLine(null, "Casa Prueba", true)).toBe(
-      "Not synced yet for Casa Prueba. Pick a date range and click Sync now."
+      "Aún no se ha sincronizado Casa Prueba. Elige un rango de fechas y toca «Sincronizar ahora»."
     );
   });
 });

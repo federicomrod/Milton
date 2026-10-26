@@ -91,6 +91,8 @@ export interface MenuDishVariant {
   covered: boolean;
   /** Why an «Aprobado» variant is not covered (its link is not confirmed). */
   state_reason?: DishStateReason | null;
+  /** The product's own recipe (plato); null = none yet. */
+  menu_item_id?: string | null;
 }
 
 export interface MenuDish {
@@ -117,6 +119,10 @@ export interface MenuDish {
   /** 0–1: sales of covered (approved-cost) variants / dish sales. */
   coverage: number;
   cost_status: DishStatus;
+  /** Worst status among the non-approved variants (null = all approved); see problemCounts. */
+  pending_status?: DishStatus | null;
+  /** Sales of the variants that are not covered. */
+  pending_sales?: number;
   /** Variants whose own status is «Aprobado», of `variant_count` (see groupStatusDisplay). */
   approved_count?: number;
   variant_count?: number;
@@ -196,6 +202,8 @@ export function dishSums(
   | "margin_pct"
   | "coverage"
   | "cost_status"
+  | "pending_status"
+  | "pending_sales"
   | "approved_count"
   | "variant_count"
 > {
@@ -221,6 +229,8 @@ export function dishSums(
     margin_pct: r.margin_pct,
     coverage: r.coverage,
     cost_status: r.cost_status,
+    pending_status: r.pending_status,
+    pending_sales: r.pending_sales,
     approved_count: r.approved_count,
     variant_count: r.variant_count,
   };
@@ -583,6 +593,7 @@ export function buildMenuDishes(input: {
           status,
           covered,
           state_reason: reason,
+          menu_item_id: dish.menu_item_id ?? null,
         };
         byProduct.set(variant.key, { dish_id: g.id, variant });
         return variant;
@@ -671,11 +682,15 @@ export function buildMenuDishes(input: {
     approved_count: count("aprobado"),
     estimated_count: count("estimado"),
     missing_price_count: count("falta_precio"),
-    no_recipe_count: count("sin_receta"),
-    problem_count: count("falta_precio") + count("sin_receta"),
+    no_recipe_count: count("sin_receta") + count("borrador"),
+    draft_count: count("borrador"),
+    problem_count:
+      count("falta_precio") + count("sin_receta") + count("borrador"),
     with_recipe_net_sales: round2(
       dishes
-        .filter((d) => d.cost_status !== "sin_receta")
+        .filter(
+          (d) => d.cost_status !== "sin_receta" && d.cost_status !== "borrador"
+        )
         .reduce((s, d) => s + d.net_sales, 0)
     ),
     variant_count: allVariants.length,

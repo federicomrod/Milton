@@ -1,6 +1,6 @@
 // What the person reads after "Leer menú". Plain copy, no imports, so
-// the client can use it. Every number is a count of PLATOS (several POS
-// products of the same plato count once), taken from the result's own fields.
+// the client can use it. Every number is a count of PLATOS taken from the
+// result's own fields: the first line counts the dishes the MENU lists.
 
 export interface MenuReadSummaryInput {
   dishes_read: number;
@@ -8,6 +8,9 @@ export interface MenuReadSummaryInput {
   skipped_has_recipe?: number;
   skipped_no_ingredients?: number;
   skipped_draft_exists?: number;
+  /** Menu dishes no POS product matched. */
+  no_pos_match?: number;
+  /** Platos with sales this month, sin receta, that the menu does not list. */
   not_on_menu?: number;
   failed?: number;
   new_components?: number;
@@ -17,9 +20,7 @@ export interface MenuReadSummaryInput {
 export type MenuReadLineKey =
   | "read"
   | "drafted"
-  | "has_recipe"
   | "no_ingredients"
-  | "draft_exists"
   | "not_on_menu"
   | "failed"
   | "new_components"
@@ -30,7 +31,10 @@ export interface MenuReadLine {
   text: string;
 }
 
-/** One short line per non-zero count; the first two are always shown. */
+/**
+ * One short line per non-zero count; the first two are always shown. The
+ * first line splits the dishes the MENU lists, so its parts add up to N.
+ */
 export function menuReadSummaryLines(
   result: MenuReadSummaryInput
 ): MenuReadLine[] {
@@ -38,28 +42,31 @@ export function menuReadSummaryLines(
     n === 1 ? singular : plural;
   const lines: MenuReadLine[] = [];
   const n = result.dishes_read;
+  const has = result.skipped_has_recipe ?? 0;
+  const none = result.skipped_no_ingredients ?? 0;
+  const exists = result.skipped_draft_exists ?? 0;
+  const noPos = result.no_pos_match ?? 0;
+  const failed = result.failed ?? 0;
+  const d = result.drafted;
+  const parts = [
+    d > 0 && `${d} con borrador nuevo`,
+    has > 0 && `${has} ${one(has, "ya tenía", "ya tenían")} receta`,
+    exists > 0 && `${exists} ${one(exists, "ya tenía", "ya tenían")} borrador`,
+    none > 0 &&
+      `${none} ${one(none, "no dice", "no dicen")} qué ${one(none, "lleva", "llevan")}`,
+    noPos > 0 && `${noPos} sin producto en tu POS`,
+    failed > 0 && `${failed} con error`,
+  ].filter((part): part is string => typeof part === "string");
   lines.push({
     key: "read",
-    text: `Leí ${n} ${one(n, "plato", "platos")} en tu menú.`,
+    text: `Leí ${n} ${one(n, "plato", "platos")} en tu menú${parts.length > 0 ? `: ${parts.join(", ")}` : ""}.`,
   });
-  const d = result.drafted;
   lines.push({
     key: "drafted",
     text:
       `Preparé ${d} ${one(d, "borrador", "borradores")} de receta.` +
       (d > 0 ? " Las cantidades quedan pendientes: tú las escribes." : ""),
   });
-  const has = result.skipped_has_recipe ?? 0;
-  if (has > 0) {
-    lines.push({
-      key: "has_recipe",
-      text:
-        has === 1
-          ? "1 plato ya tiene receta: no lo cambié."
-          : `${has} platos ya tienen receta: no los cambié.`,
-    });
-  }
-  const none = result.skipped_no_ingredients ?? 0;
   if (none > 0) {
     lines.push({
       key: "no_ingredients",
@@ -69,27 +76,16 @@ export function menuReadSummaryLines(
           : `${none} platos del menú no dicen qué llevan: no pude armar el borrador. Usa «Estimar con Milton».`,
     });
   }
-  const exists = result.skipped_draft_exists ?? 0;
-  if (exists > 0) {
-    lines.push({
-      key: "draft_exists",
-      text:
-        exists === 1
-          ? "1 plato ya tenía un borrador del menú."
-          : `${exists} platos ya tenían un borrador del menú.`,
-    });
-  }
   const off = result.not_on_menu ?? 0;
   if (off > 0) {
     lines.push({
       key: "not_on_menu",
       text:
         off === 1
-          ? "1 plato sin receta no aparece en el menú."
-          : `${off} platos sin receta no aparecen en el menú.`,
+          ? "1 plato con ventas este mes no tiene receta y no aparece en el menú."
+          : `${off} platos con ventas este mes no tienen receta y no aparecen en el menú.`,
     });
   }
-  const failed = result.failed ?? 0;
   if (failed > 0) {
     lines.push({
       key: "failed",

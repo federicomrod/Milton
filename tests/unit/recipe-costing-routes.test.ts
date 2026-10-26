@@ -29,8 +29,14 @@ describe("recipe costing routes", () => {
     expect(plato).not.toMatch(/pos_price\s*[-*/]/);
     expect(plato).toContain("Excel:");
     expect(plato).not.toContain("Saltar por ahora");
-    // C6: once, inside the dish's "⋯" menu.
-    expect(plato.match(/Usar la receta de otro plato/g)?.length).toBe(1);
+    // Part E: a visible button defined once (RecipeSourceActions), no longer
+    // hidden in the dish's "⋯" menu.
+    expect(plato).not.toContain("Usar la receta de otro plato");
+    expect(plato).toContain("useRecipeSourceActions");
+    const source = read(
+      "components/restaurant/recipes-costing/RecipeSourceActions.tsx"
+    );
+    expect(source.match(/"Usar la receta de otro plato"/g)?.length).toBe(1);
   });
 
   it("matches the approved Menú chrome (R1-09b)", () => {

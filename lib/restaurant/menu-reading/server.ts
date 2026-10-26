@@ -1,5 +1,7 @@
 // "Leer menú (opcional)": read the restaurant's menu once, then leave a
-// Sugerido draft for every POS dish that has no recipe yet. Company comes
+// Sugerido draft for every menu dish whose POS product has no recipe yet,
+// and report per MENU dish (menu_outcomes). POS products are the current
+// month's, grouped like Menú › Platos. Company comes
 // from auth, never from the request. Every write goes into one batch, so
 // "Deshacer lote" and "Empezar de nuevo" remove it like an Excel run.
 
@@ -9,7 +11,10 @@ import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook/r
 import { pickMenuItemForLocation } from "@/lib/restaurant/cost-workbook/menu-item-pick";
 import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
 import { emptyUndoSnapshot } from "@/lib/restaurant/cost-workbook/types";
-import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
+import { loadDishEconomicsWith } from "@/lib/restaurant/costing/dish-economics-server";
+import { resumenRange } from "@/lib/restaurant/menu-resumen";
+import type { MenuDish as PlatoDish } from "@/lib/restaurant/menu-dishes/menu-dishes";
+import type { RankedPosProduct } from "@/lib/restaurant/pos-product-list";
 import {
   unlinkedPosProduct,
   withMenuDraftEvidence,
@@ -34,9 +39,13 @@ import {
 } from "./extract";
 import {
   MENU_EVIDENCE_SOURCE,
+  buildMenuOutcomes,
   decisionsByPlato,
   planMenuDrafts,
+  platoGroupsFromMenuDishes,
+  platosNotOnMenu,
   type MenuDraftProduct,
+  type MenuOutcome,
 } from "./drafts";
 import { stripSize } from "./match";
 import {
@@ -60,25 +69,75 @@ export interface MenuReadResult {
   /** True when this menu was read before and the AI was not called again. */
   cached: boolean;
   truncated: boolean;
-  /** Platos the menu lists. */
+  /** Platos the MENU lists. Σ menu_outcomes = dishes_read. */
   dishes_read: number;
-  /** Counts below are PLATOS, never POS products (sizes count once). */
+  /** One entry per menu dish: what happened to it and the Odoo products behind it. */
+  menu_outcomes: MenuOutcome[];
+  /** The counts below are menu dishes, counted from `menu_outcomes`. */
   drafted: number;
   skipped_has_recipe: number;
   skipped_no_ingredients: number;
   skipped_draft_exists: number;
-  /** Platos sin receta that the menu does not list. */
-  not_on_menu: number;
+  /** Menu dishes no POS product matched. */
+  no_pos_match: number;
   failed: number;
-  new_components: number;
-  /** Names of the platos in `not_on_menu` (kept for older readers). */
+  /** Platos with sales this month, sin receta, that no menu dish matched. */
+  not_on_menu: number;
+  /** Names of the platos in `not_on_menu` («Ver cuáles»). */
   not_found: string[];
-  skipped: Array<{
-    odoo_name: string;
-    reason: string;
-    code?: "has_recipe" | "no_ingredients" | "draft_exists" | "failed";
-  }>;
+  new_components: number;
+  /** The month the POS products and `not_on_menu` were read for. */
+  period: { from: string; to: string } | null;
 }
+
+/** The current month of sales, as Menú › Resumen reads it, by Platos group. */
+export interface PeriodPlatos {
+  range: { from: string; to: string } | null;
+  products: RankedPosProduct[];
+  menu_dishes: PlatoDish[];
+}
+
+export type LoadPeriodPlatos = (
+  supabase: SupabaseClient,
+  params: { companyId: string; locationId: string | null }
+) => Promise<PeriodPlatos>;
+
+/**
+ * Products with sales in the same period Resumen opens on (the month of the
+ * last day with sales) and the Platos groups built from them, so «Leer menú»
+ * talks about the platos the person sees, not about all-history Odoo names.
+ */
+export const loadPeriodPlatos: LoadPeriodPlatos = async (
+  supabase,
+  { companyId, locationId }
+) => {
+  let q = supabase
+    .from("pos_sales_items")
+    .select("sale_date")
+    .eq("company_id", companyId)
+    .eq("pos_source", "odoo")
+    .order("sale_date", { ascending: false })
+    .limit(1);
+  if (locationId) q = q.eq("location_id", locationId);
+  const { data, error } = await q;
+  if (error) throw new Error("No se pudieron leer las ventas del POS.");
+  const raw = (data as Array<{ sale_date?: unknown }> | null)?.[0]?.sale_date;
+  const lastDay = typeof raw === "string" ? raw.slice(0, 10) : null;
+  if (!lastDay) return { range: null, products: [], menu_dishes: [] };
+  const range = resumenRange("month", lastDay);
+  const load = await loadDishEconomicsWith(supabase, {
+    companyId,
+    from: range.from,
+    to: range.to,
+    locationId,
+  });
+  if (!load.ok) throw new Error(load.error);
+  return {
+    range,
+    products: load.list.products,
+    menu_dishes: load.result.menu_dishes,
+  };
+};
 
 function hashText(text: string): string {
   return createHash("sha256").update(text).digest("hex");
@@ -156,6 +215,7 @@ export async function readMenuIntoDrafts(
     locationId?: string | null;
     ai?: MenuAi;
     readSource?: typeof readMenuSource;
+    loadPlatos?: LoadPeriodPlatos;
   }
 ): Promise<MenuReadResult> {
   const locationId = params.locationId ?? null;
@@ -179,12 +239,18 @@ export async function readMenuIntoDrafts(
     );
   }
 
-  const list = await loadPosProductList(supabase, {
+  const period = await (params.loadPlatos ?? loadPeriodPlatos)(supabase, {
     companyId: params.companyId,
     locationId,
   });
-  if (!list.ok) throw new Error(list.error);
-  const products = list.list.products.filter(wantsSuggestion);
+  const products = period.products.filter(wantsSuggestion);
+  // Platos grouping (menu_dish_id): the product -> its Platos group.
+  const groupOfProduct = new Map<number, string>();
+  for (const plato of period.menu_dishes) {
+    for (const variant of plato.variants) {
+      groupOfProduct.set(variant.odoo_product_id, plato.id);
+    }
+  }
 
   const repo = createSupabaseCostWorkbookRepo(supabase);
   const [ingredients, components, menuItems, recipes, links] =
@@ -256,9 +322,11 @@ export async function readMenuIntoDrafts(
         boundSuggestion: isBoundSuggestion(evidence),
       }),
       menu_draft: evidence.source === MENU_EVIDENCE_SOURCE,
+      // The recipe's plato; else the Platos group (the stripped name only
+      // tells sizes apart inside it, or stands in when there is no group).
       plato_key: menuItem
         ? `item:${menuItem.id}`
-        : `name:${normalizeMatchName(stripSize(product.odoo_name))}`,
+        : `${groupOfProduct.get(product.odoo_product_id) ?? "-"}:name:${normalizeMatchName(stripSize(product.odoo_name))}`,
     };
   });
 
@@ -280,6 +348,8 @@ export async function readMenuIntoDrafts(
     })
   );
 
+  const drafts = decisions.filter((d) => d.kind === "draft");
+  const failedProductIds = new Set<number>();
   const result: MenuReadResult = {
     ok: true,
     batch_id: null,
@@ -287,34 +357,51 @@ export async function readMenuIntoDrafts(
     cached: read.cached,
     truncated: menu.truncated,
     dishes_read: read.dishes.length,
+    menu_outcomes: [],
     drafted: 0,
     skipped_has_recipe: 0,
     skipped_no_ingredients: 0,
     skipped_draft_exists: 0,
-    not_on_menu: 0,
+    no_pos_match: 0,
     failed: 0,
-    new_components: 0,
+    not_on_menu: 0,
     not_found: [],
-    skipped: [],
+    new_components: 0,
+    period: period.range,
   };
-  for (const decision of decisions) {
-    if (decision.kind === "no_encontrado") {
-      result.not_found.push(decision.product.odoo_name);
-      result.not_on_menu += 1;
-    } else if (decision.kind === "omitido") {
-      if (decision.code === "has_recipe") result.skipped_has_recipe += 1;
-      else if (decision.code === "no_ingredients") {
+  // Counts come from the per-menu-dish outcomes, so they always add up.
+  const finish = (): MenuReadResult => {
+    result.menu_outcomes = buildMenuOutcomes(
+      read.dishes,
+      decisions,
+      failedProductIds
+    );
+    for (const row of result.menu_outcomes) {
+      if (row.outcome === "drafted") result.drafted += 1;
+      else if (row.outcome === "has_recipe") result.skipped_has_recipe += 1;
+      else if (row.outcome === "draft_exists") result.skipped_draft_exists += 1;
+      else if (row.outcome === "no_ingredients") {
         result.skipped_no_ingredients += 1;
-      } else result.skipped_draft_exists += 1;
-      result.skipped.push({
-        odoo_name: decision.product.odoo_name,
-        reason: decision.reason,
-        code: decision.code,
-      });
+      } else if (row.outcome === "no_pos_match") result.no_pos_match += 1;
+      else result.failed += 1;
     }
-  }
-  const drafts = decisions.filter((d) => d.kind === "draft");
-  if (drafts.length === 0) return result;
+    const productOf = new Map(
+      period.products.map((p) => [
+        p.odoo_product_id,
+        {
+          odoo_name: p.odoo_name,
+          pos_price: posPriceFromSales(p.net_sales, p.units_sold),
+        },
+      ])
+    );
+    result.not_found = platosNotOnMenu(
+      platoGroupsFromMenuDishes(period.menu_dishes, (id) => productOf.get(id)),
+      read.dishes
+    );
+    result.not_on_menu = result.not_found.length;
+    return result;
+  };
+  if (drafts.length === 0) return finish();
 
   const batch = await repo.createBatch({
     companyId: params.companyId,
@@ -410,7 +497,6 @@ export async function readMenuIntoDrafts(
             ...(changes.updated_pos_product_links ?? []),
             { id: base.id, before },
           ];
-          result.drafted += 1;
           result.new_components += draft.new_components;
           continue;
         }
@@ -426,21 +512,15 @@ export async function readMenuIntoDrafts(
             { id: saved.id, before: saved.before },
           ];
         }
-        result.drafted += 1;
         result.new_components += draft.new_components;
       } catch (err) {
-        // One dish failing never stops the others; the reason is shown.
+        // One dish failing never stops the others; the outcome says so.
         console.error("[menu-reading draft]", err);
-        result.failed += 1;
-        result.skipped.push({
-          odoo_name: product.odoo_name,
-          reason: "no pude preparar este plato",
-          code: "failed",
-        });
+        failedProductIds.add(product.odoo_product_id);
       }
     }
   } finally {
     await repo.updateBatchSnapshot(params.companyId, batch.id, changes);
   }
-  return result;
+  return finish();
 }

@@ -19,7 +19,9 @@
 //     hid an approved recipe behind an estimate and made the detail and the
 //     ranking disagree.
 //   * Any line without a price = «Falta precio», never a partial total or $0.
-//   * No version / no lines = «Sin receta».
+//   * No version / no lines = «Sin receta». EXCEPT an `in_review` version with
+//     no lines (menu-reader drafts, an empty recipe from «Crear receta») =
+//     «Borrador»: never covered, never in COGS, never «costeado».
 //   * A draft (AI or import) with every price known is an «Estimado».
 //   * Treatments with their own rule: modificador_sin_costo (costed at zero on
 //     purpose) and combo (costed by its parts).
@@ -28,7 +30,12 @@ import { pickApprovedVersion } from "@/lib/restaurant/recipe-versions";
 import type { PosProductClassification } from "@/lib/restaurant/pos-product-links";
 import { DISH_STATUS_LABELS, type DishStatus } from "./dish-status";
 
-export type DishStateReason = "vinculo_sin_confirmar";
+export type DishStateReason = "vinculo_sin_confirmar" | "desde_el_menu";
+
+/** The notes of a draft the menu reader prepares (menu-reading/server.ts). */
+export const MENU_DRAFT_NOTE = "Borrador desde el menú";
+/** Sub-label / tooltip of a «Borrador» that came from the menu reader. */
+export const FROM_MENU_LABEL = "desde el menú";
 
 export const UNCONFIRMED_LINK_LABEL = "Aprobado · vínculo sin confirmar";
 
@@ -39,6 +46,7 @@ export interface StateVersion {
   effective_date: string | null;
   approved_at?: string | null;
   created_at?: string | null;
+  notes?: string | null;
 }
 
 /** The newest version (the draft the editor shows). */
@@ -83,6 +91,10 @@ export interface DishStateCore {
   in_food_sales: boolean;
   /** Net price per unit sold (for the food cost %). */
   avg_net_price: number | null;
+  /** The version in use is an `in_review` draft (matters only with no lines). */
+  in_review?: boolean;
+  /** …and its notes are exactly MENU_DRAFT_NOTE. */
+  from_menu?: boolean;
 }
 
 export interface DishState {
@@ -111,7 +123,12 @@ export function dishStateFrom(core: DishStateCore): DishState {
     status = core.combo_covered ? "aprobado" : "sin_receta";
     costSource = core.combo_covered ? "partes" : null;
   } else if (!core.has_version || core.line_count === 0) {
-    status = "sin_receta";
+    // An in_review version with no lines is a «Borrador»; anything else here
+    // (no version, or an empty approved/legacy one) is «Sin receta».
+    const emptyDraft =
+      core.has_version && !core.approved && core.in_review === true;
+    status = emptyDraft ? "borrador" : "sin_receta";
+    if (emptyDraft && core.from_menu) reason = "desde_el_menu";
   } else if (core.total === null || core.missing > 0) {
     status = "falta_precio";
     costSource = core.approved ? "receta_aprobada" : "borrador";
@@ -151,6 +168,16 @@ export function dishStateFrom(core: DishStateCore): DishState {
     in_cogs: covered && unitCost !== null,
     reason,
     cost_source: costSource,
+  };
+}
+
+/** The two flags dishStateFrom needs about the version a dish is costed with. */
+export function draftFlags(
+  version: { status: string; notes?: string | null } | null | undefined
+): { in_review: boolean; from_menu: boolean } {
+  return {
+    in_review: version?.status === "in_review",
+    from_menu: (version?.notes ?? "").trim() === MENU_DRAFT_NOTE,
   };
 }
 
@@ -203,6 +230,7 @@ export function resolveDishState(
     in_food_sales: input.in_food_sales ?? true,
     avg_net_price:
       input.units_sold > 0 ? input.net_sales / input.units_sold : null,
+    ...draftFlags(version),
   });
   return {
     ...state,

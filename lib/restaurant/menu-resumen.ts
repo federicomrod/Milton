@@ -11,12 +11,18 @@
 //   Costo de comida   = Σ cost of covered variants ÷ their sales
 //   Margen bruto      = their sales − their cost
 //   Ventas con costo  = sales of covered variants ÷ food sales
-//   Platos con problema = dishes whose status is Falta precio or Sin receta
+//   Platos con problema = dishes counted once in Falta precio, Borrador or Sin
+//     receta (problemCounts: a mixed dish goes in the bucket of its worst
+//     NON-approved variant, with only those variants' sales)
 // A missing price is «Sin precio»: never $0, never 0%.
 
 import { addDays } from "@/lib/restaurant/cockpit-math";
 import { rollupLeaves, type RollupLeaf } from "@/lib/restaurant/costing/rollup";
 import { countDishCoverage } from "@/lib/restaurant/costing/dish-coverage";
+import {
+  problemCounts,
+  type ProblemCounts,
+} from "@/lib/restaurant/costing/problem-counts";
 import type { DishStatus } from "@/lib/restaurant/costing/dish-status";
 import {
   LOW_MARGIN_PCT,
@@ -106,6 +112,10 @@ export interface DishRow {
   margin_pct: number | null;
   coverage: number;
   cost_status: DishStatus;
+  /** Worst status among the non-approved variants (null = all approved). */
+  pending_status: DishStatus | null;
+  /** Sales of the variants not covered (the share counted in a problem bucket). */
+  pending_sales: number;
   /** Variants (tamaños) with sales in the range, and how many are approved. */
   approved_count: number;
   variant_count: number;
@@ -138,11 +148,8 @@ export interface ResumenView {
   top: DishRow[];
   top_share: number;
   ranking: MarginRanking;
-  counts: {
-    falta_precio: { dishes: number; share: number };
-    sin_receta: { dishes: number; share: number };
-    estimado: { dishes: number; share: number };
-  };
+  /** The ONE problem count (problem-counts.ts): shared with Platos and the reader card. */
+  counts: ProblemCounts;
 }
 
 export function computeResumen(
@@ -232,6 +239,8 @@ export function computeResumen(
       margin_pct: r.margin_pct,
       coverage: r.coverage,
       cost_status: r.cost_status,
+      pending_status: r.pending_status,
+      pending_sales: r.pending_sales,
       approved_count: r.approved_count,
       variant_count: r.variant_count,
       approved_margin_pct:
@@ -244,18 +253,9 @@ export function computeResumen(
     (a, b) => b.net_sales - a.net_sales || a.name.localeCompare(b.name, "es")
   );
 
-  const of = (status: DishStatus) => {
-    const list = rows.filter((d) => d.cost_status === status);
-    return {
-      dishes: list.length,
-      share: list.reduce((a, d) => a + d.share, 0),
-    };
-  };
+  const counts = problemCounts(rows, foodSales);
   const approved = rows.filter((d) => d.cost_status === "aprobado").length;
   const cov = countDishCoverage(rows);
-  const problem = rows.filter(
-    (d) => d.cost_status === "falta_precio" || d.cost_status === "sin_receta"
-  ).length;
   const low = rows.filter(
     (d) =>
       d.cost_status === "aprobado" &&
@@ -283,7 +283,7 @@ export function computeResumen(
       covered_dishes: cov.covered,
       partial_dishes: cov.partial,
       dish_count: rows.length,
-      problem_count: problem,
+      problem_count: counts.problem_count,
       low_margin_count: low,
       all_costed: rows.length > 0 && approved === rows.length,
     },
@@ -293,11 +293,7 @@ export function computeResumen(
     ranking: marginRankings(rows, {
       includeEstimated: opts.includeEstimatedInRanking,
     }),
-    counts: {
-      falta_precio: of("falta_precio"),
-      sin_receta: of("sin_receta"),
-      estimado: of("estimado"),
-    },
+    counts,
   };
 }
 

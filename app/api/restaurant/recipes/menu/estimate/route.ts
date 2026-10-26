@@ -1,11 +1,18 @@
 // POST /api/restaurant/recipes/menu/estimate
-//   Body (JSON): { menu_item_ids?: string[], location_id?: string, limit?: number }
+//   Body (JSON): { menu_item_ids?: string[],
+//                  products?: [{ odoo_product_id, odoo_name }],
+//                  location_id?: string, limit?: number }
 //   → { done, remaining, results: [{ menu_item_id, name, est_cost,
 //       est_margin_pct, skipped_reason }] }
+//   `products`: a POS product with no plato yet gets its empty recipe + link
+//   first (the same path as «Crear receta»); one that already has a link or a
+//   recipe (approved or draft) is reused, so nothing is created twice and
+//   nothing existing is touched. A bulk call (no ids) also covers the best
+//   selling products that have no plato yet.
 // GET  /api/restaurant/recipes/menu/estimate
-//   → { available: boolean, eligible: number, needs_link: number }
-//   eligible = every plato with no recipe (a Confirmado link does not matter);
-//   needs_link = POS food products with no plato yet (they cannot be estimated).
+//   → { available: boolean, eligible: number }
+//   eligible = every plato with no recipe (a Confirmado link does not matter)
+//   plus the POS food products with no plato yet.
 //
 // «Estimar con Milton» (issue #212). Each call estimates AT MOST 5 dishes
 // (3 AI calls at a time); the client loops in chunks and caps a run at 20.
@@ -16,6 +23,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
+import { toRecipeActor } from "@/lib/restaurant/recipe-costing/approval";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
   ESTIMATE_MAX_RUN,
@@ -38,6 +46,8 @@ async function guard(): Promise<
   | {
       ok: true;
       auth: Extract<Awaited<ReturnType<typeof authAndCompany>>, { ok: true }>;
+      actor: ReturnType<typeof toRecipeActor>;
+      permission: Awaited<ReturnType<typeof resolveActor>>;
     }
   | { ok: false; response: NextResponse }
 > {
@@ -48,7 +58,7 @@ async function guard(): Promise<
   });
   const denied = requireCapability(actor, "recipes.edit", { message: DENIED });
   if (denied) return { ok: false, response: denied };
-  return { ok: true, auth };
+  return { ok: true, auth, actor: toRecipeActor(actor), permission: actor };
 }
 
 export async function GET() {
@@ -63,8 +73,7 @@ export async function GET() {
     ]);
     return NextResponse.json({
       available: tables.ok,
-      eligible,
-      needs_link: needsLink,
+      eligible: eligible + needsLink,
     });
   } catch {
     return NextResponse.json({ available: false, eligible: 0 });
@@ -75,6 +84,7 @@ export async function POST(req: NextRequest) {
   const checked = await guard();
   if (!checked.ok) return checked.response;
   const { supabase, companyId, userId } = checked.auth;
+  const { actor, permission } = checked;
 
   let body: Record<string, unknown> = {};
   try {
@@ -99,6 +109,45 @@ export async function POST(req: NextRequest) {
     }
     menuItemIds = (body.menu_item_ids as string[]).map((id) => id.trim());
   }
+  let products:
+    | Array<{ odoo_product_id: number; odoo_name: string }>
+    | undefined;
+  if (body.products !== undefined) {
+    const raw = body.products;
+    const valid =
+      Array.isArray(raw) &&
+      raw.length <= MAX_IDS &&
+      raw.every(
+        (p) =>
+          p &&
+          typeof p === "object" &&
+          Number.isInteger(
+            (p as { odoo_product_id?: unknown }).odoo_product_id
+          ) &&
+          (p as { odoo_product_id: number }).odoo_product_id > 0 &&
+          typeof (p as { odoo_name?: unknown }).odoo_name === "string" &&
+          (p as { odoo_name: string }).odoo_name.trim() !== ""
+      );
+    if (!valid) {
+      return NextResponse.json(
+        { error: "Envía los productos que quieres estimar." },
+        { status: 400 }
+      );
+    }
+    products = (
+      raw as Array<{ odoo_product_id: number; odoo_name: string }>
+    ).map((p) => ({
+      odoo_product_id: p.odoo_product_id,
+      odoo_name: p.odoo_name.trim(),
+    }));
+  }
+  // A request that can CREATE recipes and links (products given, or a bulk
+  // run that links unlinked products) needs the same permission as «Crear
+  // receta». An estimate of existing platos (menu_item_ids) does not.
+  if (products !== undefined || menuItemIds === undefined) {
+    const noLink = requireCapability(permission, "links.confirm");
+    if (noLink) return noLink;
+  }
   const locationId =
     typeof body.location_id === "string" && body.location_id.trim()
       ? body.location_id.trim()
@@ -113,6 +162,8 @@ export async function POST(req: NextRequest) {
       companyId,
       userId,
       menuItemIds,
+      products,
+      actor,
       locationId,
       limit,
     });

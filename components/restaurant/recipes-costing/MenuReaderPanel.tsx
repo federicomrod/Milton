@@ -2,6 +2,11 @@
 
 import { useState } from "react";
 import { menuReadSummaryLines } from "@/lib/restaurant/menu-reading/summary";
+import { dishHref } from "@/lib/restaurant/menu-links";
+import type {
+  MenuOutcome,
+  MenuOutcomeCode,
+} from "@/lib/restaurant/menu-reading/drafts";
 import {
   EstimateWithMilton,
   NoRecipeEditNotice,
@@ -15,13 +20,27 @@ interface MenuReadResponse {
   skipped_has_recipe?: number;
   skipped_no_ingredients?: number;
   skipped_draft_exists?: number;
+  no_pos_match?: number;
   not_on_menu?: number;
   failed?: number;
   new_components: number;
   not_found: string[];
-  skipped: Array<{ odoo_name: string; reason: string }>;
+  menu_outcomes?: MenuOutcome[];
   truncated?: boolean;
 }
+
+/** «Ver detalle»: the menu's dishes grouped by what happened, in this order. */
+const DETAIL_GROUPS: Array<{ outcome: MenuOutcomeCode; title: string }> = [
+  { outcome: "drafted", title: "Borradores nuevos" },
+  { outcome: "no_pos_match", title: "Sin producto en tu POS" },
+  { outcome: "has_recipe", title: "Ya tenían receta" },
+  { outcome: "draft_exists", title: "Ya tenían borrador" },
+  { outcome: "no_ingredients", title: "El menú no dice qué lleva" },
+  { outcome: "failed", title: "No pude preparar" },
+];
+
+const BLUE_BUTTON =
+  "rounded-md bg-[#1B40C8] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[#1533A3]";
 
 /**
  * "Leer menú (opcional)": the restaurant's menu (web page or pasted text)
@@ -180,7 +199,7 @@ export function MenuReaderPanel({
                   {" "}
                   <button
                     type="button"
-                    className="font-semibold text-[#1B40C8]"
+                    className={BLUE_BUTTON}
                     aria-expanded={showMissing}
                     onClick={() => setShowMissing((open) => !open)}
                   >
@@ -195,27 +214,57 @@ export function MenuReaderPanel({
               ) : null}
             </p>
           ))}
-          {result.skipped.length > 0 ? (
+          {(result.menu_outcomes ?? []).length > 0 ? (
             <div>
               <button
                 type="button"
-                className="font-semibold text-[#1B40C8]"
+                className={BLUE_BUTTON}
                 aria-expanded={showDetail}
                 onClick={() => setShowDetail((open) => !open)}
               >
                 {showDetail ? "Ocultar detalle" : "Ver detalle"}
               </button>
               {showDetail ? (
-                <ul className="mt-1 space-y-0.5 text-[#6b7280]">
-                  {result.skipped.map((row, index) => (
-                    <li key={`${row.odoo_name}-${index}`}>
-                      <span className="font-medium text-[#1b2333]">
-                        {row.odoo_name}
-                      </span>
-                      : {row.reason}
-                    </li>
-                  ))}
-                </ul>
+                <div className="mt-2 space-y-2">
+                  {DETAIL_GROUPS.map(({ outcome, title }) => {
+                    const rows = (result.menu_outcomes ?? []).filter(
+                      (row) => row.outcome === outcome
+                    );
+                    if (rows.length === 0) return null;
+                    return (
+                      <div key={outcome}>
+                        <p className="font-semibold">
+                          {title} ({rows.length})
+                        </p>
+                        <ul className="mt-0.5 space-y-0.5 text-[#6b7280]">
+                          {rows.map((row, index) => (
+                            <li key={`${row.menu_dish}-${index}`}>
+                              <span className="font-medium text-[#1b2333]">
+                                {row.menu_dish}
+                              </span>
+                              {row.products.length > 0 ? (
+                                <>
+                                  {" → "}
+                                  {row.products.map((product, i) => (
+                                    <span key={product.odoo_product_id}>
+                                      {i > 0 ? ", " : ""}
+                                      <a
+                                        href={dishHref(product.odoo_product_id)}
+                                        className="font-semibold text-[#1B40C8] underline"
+                                      >
+                                        {product.odoo_name}
+                                      </a>
+                                    </span>
+                                  ))}
+                                </>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : null}
             </div>
           ) : null}

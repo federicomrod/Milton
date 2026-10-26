@@ -24,7 +24,7 @@ describe("Odoo Sync now panel", () => {
       "disabled={syncing || !canSync || !startDate || !endDate}"
     );
     expect(panel).toContain("if (!canSync) return");
-    expect(panel).toContain("Sync now");
+    expect(panel).toContain("Sincronizar ahora");
     expect(panel).toContain("MAX_RANGE_DAYS");
   });
 
@@ -50,7 +50,7 @@ describe("Odoo Sync now panel", () => {
   it("renders the human summary helpers instead of raw JSON", () => {
     expect(panel).toContain("summarizeOdooSync");
     expect(panel).toContain("syncSummaryCopy");
-    expect(panel).toContain("safeSyncErrorMessage");
+    expect(panel).toContain("safeSyncErrorMessageForLang");
     expect(panel).toContain("unmatchedTillsNote");
     expect(panel).not.toContain("data.details");
     expect(panel).not.toContain("err.message");
@@ -66,5 +66,26 @@ describe("Odoo Sync now panel", () => {
     expect(adminAt).toBeGreaterThan(-1);
     expect(secretAt).toBeGreaterThan(-1);
     expect(adminAt).toBeLessThan(secretAt);
+  });
+
+  it("has no English UI string left in the panel or the sync summary", () => {
+    const strip = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const english =
+      /\b(Sync now|Syncing|Show list|Show reasons|Quick range|Start date|End date|Warnings|Sales updated|Fetched|orders|rows|were skipped|did not match|menu items?|till names?|Last synced|Yesterday|Last 7 days|This month|Last month)\b/;
+    for (const file of [
+      "components/management/odoo-sync-panel.tsx",
+      "lib/restaurant/odoo/sync-summary.ts",
+      "lib/restaurant/odoo/sync-workspace.ts",
+      "lib/restaurant/odoo/sync-control.ts",
+    ]) {
+      expect(strip(read(file)), file).not.toMatch(english);
+    }
+  });
+
+  it("«Ver lista» is a visible blue button, not a ghost link", () => {
+    expect(panel).toContain("Ver lista");
+    expect(panel).toContain("border-[#1B40C8]");
+    expect(panel).not.toContain('variant="ghost"');
   });
 });

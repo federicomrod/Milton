@@ -117,7 +117,9 @@ export function ResumenScreen({
         <MenuReaderCard
           canEdit={canEditRecipes(data.actor)}
           companyId={data.company_id}
-          noRecipeDishes={summary.dish_kpis?.no_recipe_dishes ?? null}
+          noRecipeDishes={
+            !view || view.empty ? null : view.counts.sin_receta.dishes
+          }
           locationId={locationId}
           onDone={() => {
             markTabsStale();
@@ -313,7 +315,7 @@ function Kpis({
           label: "Platos con problema",
           value: String(k.problem_count),
           sub: `de ${k.dish_count}`,
-          href: platosHref(["falta_precio", "sin_receta"]),
+          href: platosHref(["falta_precio", "borrador", "sin_receta"]),
           tone: k.problem_count > 0 ? "bad" : undefined,
         },
   ];
@@ -578,8 +580,9 @@ function Pendientes({
     items.push({
       key: "precios",
       count: missing,
-      label: missing === 1 ? "Precio por completar" : "Precios por completar",
-      sub: `${Math.round(view.counts.falta_precio.share * 100)}% de ventas afectadas`,
+      label:
+        missing === 1 ? "Ingrediente sin precio" : "Ingredientes sin precio",
+      sub: `afecta ${view.counts.falta_precio.dishes} ${view.counts.falta_precio.dishes === 1 ? "plato" : "platos"} · ${sharePct(view.counts.falta_precio.share)}`,
       href: ingredientesHref("falta_precio"),
     });
   if (view.counts.sin_receta.dishes > 0)

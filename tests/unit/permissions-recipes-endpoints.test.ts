@@ -138,6 +138,13 @@ const CASES: Case[] = [
     message: "Tu rol no puede importar recetas.",
   },
   {
+    name: "recipes/copy (recipes.edit)",
+    load: () => import("@/app/api/restaurant/recipes/copy/route"),
+    request: () =>
+      json("recipes/copy", { odoo_product_id: 1, source_menu_item_id: "m1" }),
+    message: "Tu rol no puede editar recetas.",
+  },
+  {
     name: "pos/links/create (links.confirm)",
     load: () => import("@/app/api/restaurant/pos/links/create/route"),
     request: () =>

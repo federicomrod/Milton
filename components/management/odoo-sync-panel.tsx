@@ -26,7 +26,10 @@ import {
   type OdooSyncSuccessBody,
   type OdooSyncSummaryView,
 } from "@/lib/restaurant/odoo/sync-summary";
-import { safeSyncErrorMessage } from "@/lib/restaurant/odoo/sync-error";
+import {
+  localizedRangeParseError,
+  safeSyncErrorMessageForLang,
+} from "@/lib/restaurant/odoo/sync-error";
 import {
   DEFAULT_SYNC_PRESET,
   SYNC_DATE_PRESETS,
@@ -97,7 +100,7 @@ export function OdooSyncPanel({
     const result = await guardRef.current.run(async () => {
       const parsed = parseInclusiveDateRange(startDate, endDate);
       if (!parsed.ok) {
-        setError(parsed.error);
+        setError(localizedRangeParseError("es", parsed.error));
         return;
       }
 
@@ -123,7 +126,7 @@ export function OdooSyncPanel({
 
         if (!response.ok) {
           setSummary(null);
-          setError(safeSyncErrorMessage(response.status, body));
+          setError(safeSyncErrorMessageForLang("es", response.status, body));
           return;
         }
 
@@ -131,14 +134,14 @@ export function OdooSyncPanel({
         setSummary(view);
         setStoredLastSync(compactLastSync(body as OdooSyncSuccessBody));
         toast({
-          title: "Sales updated",
+          title: "Ventas actualizadas",
           description: syncSummaryCopy(view).headline,
         });
         window.dispatchEvent(new CustomEvent("milton:pos-data-updated"));
         router.refresh();
       } catch {
         setSummary(null);
-        setError(safeSyncErrorMessage(0, {}));
+        setError(safeSyncErrorMessageForLang("es", 0, {}));
       } finally {
         setSyncing(false);
       }
@@ -157,12 +160,12 @@ export function OdooSyncPanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Sync sales from Odoo</CardTitle>
+        <CardTitle>Sincronizar ventas desde Odoo</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Pull completed POS orders into Milton. You can sync at most{" "}
-          {MAX_RANGE_DAYS} days at a time.
+          Trae los pedidos completados del POS a Milton. Puedes sincronizar
+          hasta {MAX_RANGE_DAYS} días a la vez.
         </p>
         <p className="text-sm font-medium" data-testid="odoo-sync-target">
           {workspaceCopy.targetLine}
@@ -174,7 +177,7 @@ export function OdooSyncPanel({
         )}
 
         <div>
-          <Label className="mb-2 block">Quick range</Label>
+          <Label className="mb-2 block">Rango rápido</Label>
           <div className="flex flex-wrap gap-2">
             {SYNC_DATE_PRESETS.map((item) => (
               <Button
@@ -193,7 +196,7 @@ export function OdooSyncPanel({
 
         <div className="grid max-w-xl gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="odoo-sync-start">Start date</Label>
+            <Label htmlFor="odoo-sync-start">Fecha de inicio</Label>
             <Input
               id="odoo-sync-start"
               type="date"
@@ -203,7 +206,7 @@ export function OdooSyncPanel({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="odoo-sync-end">End date</Label>
+            <Label htmlFor="odoo-sync-end">Fecha de fin</Label>
             <Input
               id="odoo-sync-end"
               type="date"
@@ -225,11 +228,11 @@ export function OdooSyncPanel({
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            {syncing ? "Syncing…" : "Sync now"}
+            {syncing ? "Sincronizando…" : "Sincronizar ahora"}
           </Button>
           {syncing && (
             <p className="text-sm text-muted-foreground">
-              Syncing sales… a full month can take a minute.
+              Sincronizando ventas… un mes completo puede tardar un minuto.
             </p>
           )}
         </div>
@@ -272,8 +275,13 @@ function OdooSyncSummaryCard({
           <p>{copy.skipped}</p>
           {view.skippedCount > 0 && (
             <CollapsibleTrigger asChild>
-              <Button type="button" variant="ghost" size="sm">
-                Show reasons
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#E7EDFD] hover:text-[#1533A3]"
+              >
+                Ver motivos
               </Button>
             </CollapsibleTrigger>
           )}
@@ -293,11 +301,16 @@ function OdooSyncSummaryCard({
 
       <Collapsible>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p>{copy.unmatchedItems}</p>
+          <p className="text-muted-foreground">{copy.unmatchedItems}</p>
           {view.unmatchedMenuItemCount > 0 && (
             <CollapsibleTrigger asChild>
-              <Button type="button" variant="ghost" size="sm">
-                Show list
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#E7EDFD] hover:text-[#1533A3]"
+              >
+                Ver lista
               </Button>
             </CollapsibleTrigger>
           )}
@@ -331,7 +344,7 @@ function OdooSyncSummaryCard({
 
       {view.warnings.length > 0 && (
         <div>
-          <p className="font-medium">Warnings</p>
+          <p className="font-medium">Avisos</p>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-muted-foreground">
             {view.warnings.map((note) => (
               <li key={note}>{note}</li>

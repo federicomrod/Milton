@@ -35,10 +35,6 @@ export const ESTIMATE_UNAVAILABLE =
   "Las estimaciones aún no están activas en este ambiente.";
 export const ESTIMATE_NOTHING_TO_DO =
   "Todos tus platos tienen receta. No hay nada que estimar.";
-export const ESTIMATE_NEEDS_LINK =
-  "Tus platos sin receta aún no están vinculados a un producto del POS. Vincúlalos para poder estimarlos.";
-export const ESTIMATE_ROW_NEEDS_LINK =
-  "Primero vincula este producto a un plato.";
 export const ESTIMATE_PROBE_FAILED = "No pude revisar tus platos.";
 export const ESTIMATE_RETRY = "Reintentar";
 

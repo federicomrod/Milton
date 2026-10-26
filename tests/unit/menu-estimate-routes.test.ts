@@ -21,7 +21,27 @@ const world = vi.hoisted(() => ({
     messages: Array<{ role: string; content: unknown }>;
   }) => unknown,
   calls: [] as Array<{ dish: string; hasImage: boolean; detail?: string }>,
+  /** A capability the actor lacks even though the role table grants it (to test one gate at a time). */
+  denyCap: null as string | null,
 }));
+
+vi.mock("@/lib/auth/permissions", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/auth/permissions")>();
+  return {
+    ...actual,
+    requireCapability: (
+      ...args: Parameters<typeof actual.requireCapability>
+    ) => {
+      if (world.denyCap && args[1] === world.denyCap) {
+        return new Response(JSON.stringify({ error: "denied" }), {
+          status: 403,
+        }) as unknown as ReturnType<typeof actual.requireCapability>;
+      }
+      return actual.requireCapability(...args);
+    },
+  };
+});
 
 vi.mock("@/lib/supabase/admin", () => {
   const chain: Record<string, unknown> = {
@@ -240,6 +260,7 @@ function setDb(options?: Parameters<typeof makeFakeDb>[1]) {
 
 beforeEach(() => {
   world.role = "owner";
+  world.denyCap = null;
   world.staff = false;
   world.sales = new Map();
   world.calls = [];
@@ -722,7 +743,6 @@ describe("migration 062 not applied", () => {
     expect(await (await GET()).json()).toEqual({
       available: false,
       eligible: 1,
-      needs_link: 0,
     });
     const use = await USE(req("estimate/use", { menu_item_id: "m1" }));
     expect(use.status).toBe(503);
@@ -748,7 +768,6 @@ describe("GET", () => {
     expect(await (await GET()).json()).toEqual({
       available: true,
       eligible: 3,
-      needs_link: 0,
     });
   });
 
@@ -1073,3 +1092,124 @@ describe("«usar como borrador»", () => {
 function nameOf(line: Row): string {
   return String(line.raw_name ?? "").toLowerCase();
 }
+
+describe("a product with no linked recipe (Part C)", () => {
+  const PRODUCT = {
+    odoo_product_id: 777,
+    odoo_name: "Parrillada Demo 6 oz Eventos",
+  };
+  const WRITES = [
+    "menu_items",
+    "recipes",
+    "recipe_versions",
+    "pos_product_links",
+    "recipe_version_inputs",
+  ];
+
+  it("creates the empty recipe and the link once (source create_recipe), then estimates it", async () => {
+    world.sales.set(777, { net_sales: 500, units_sold: 50 });
+    const res = await POST(req("estimate", { products: [PRODUCT] }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.done).toBe(1);
+    expect(body.results[0].skipped_reason).toBeNull();
+
+    expect(store.menu_items).toHaveLength(1);
+    expect(store.recipes).toHaveLength(1);
+    expect(store.recipe_versions).toHaveLength(1);
+    expect(store.recipe_versions[0].status).toBe("in_review");
+    expect(store.recipe_version_inputs).toHaveLength(0);
+    const links = store.pos_product_links;
+    expect(links).toHaveLength(1);
+    expect(links[0].odoo_product_id).toBe(777);
+    expect(links[0].menu_item_id).toBe(store.menu_items[0].id);
+    expect((links[0].evidence as Row).source).toBe("create_recipe");
+    expect(store.restaurant_dish_estimates).toHaveLength(1);
+    expect(body.results[0].menu_item_id).toBe(store.menu_items[0].id);
+  });
+
+  it("calling twice creates no duplicates", async () => {
+    world.sales.set(777, { net_sales: 500, units_sold: 50 });
+    await POST(req("estimate", { products: [PRODUCT] }));
+    const once = snapshot(
+      store,
+      "menu_items",
+      "recipes",
+      "recipe_versions",
+      "pos_product_links"
+    );
+    const res = await POST(req("estimate", { products: [PRODUCT] }));
+    expect(res.status).toBe(200);
+    expect(
+      snapshot(
+        store,
+        "menu_items",
+        "recipes",
+        "recipe_versions",
+        "pos_product_links"
+      )
+    ).toBe(once);
+    expect(store.restaurant_dish_estimates).toHaveLength(1);
+  });
+
+  it("a product that already has an approved recipe: nothing is created or changed", async () => {
+    addDish(store, 3, { versions: ["approved"], lines_on: [0] });
+    const before = snapshot(store, ...WRITES);
+    const res = await POST(
+      req("estimate", {
+        products: [{ odoo_product_id: 103, odoo_name: "Plato 3" }],
+      })
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.done).toBe(0);
+    expect(body.results[0].skipped_reason).toBeTruthy();
+    expect(snapshot(store, ...WRITES)).toBe(before);
+    expect(store.restaurant_dish_estimates).toHaveLength(0);
+    expect(world.calls).toHaveLength(0);
+  });
+
+  it("a product with a linked draft is reused, not linked again", async () => {
+    addDish(store, 4);
+    const res = await POST(
+      req("estimate", {
+        products: [{ odoo_product_id: 104, odoo_name: "Plato 4" }],
+      })
+    );
+    expect((await res.json()).done).toBe(1);
+    expect(store.menu_items).toHaveLength(0);
+    expect(store.recipes).toHaveLength(0);
+    expect(store.pos_product_links).toHaveLength(1);
+  });
+
+  it("rejects a malformed products list and still needs recipes.edit", async () => {
+    expect(
+      (await POST(req("estimate", { products: [{ odoo_name: "x" }] }))).status
+    ).toBe(400);
+    world.role = "viewer";
+    expect((await POST(req("estimate", { products: [PRODUCT] }))).status).toBe(
+      403
+    );
+    expect(store.menu_items).toHaveLength(0);
+  });
+
+  it("links.confirm is required whenever the request can create recipes and links (products, or a bulk run); a per-plato estimate needs only recipes.edit", async () => {
+    world.denyCap = "links.confirm";
+    // products given → can create recipe + link → 403, nothing created
+    const withProducts = await POST(req("estimate", { products: [PRODUCT] }));
+    expect(withProducts.status).toBe(403);
+    // a bulk run (no ids) links unlinked products → 403
+    const bulk = await POST(req("estimate", {}));
+    expect(bulk.status).toBe(403);
+    expect(store.menu_items).toHaveLength(0);
+    expect(store.recipes).toHaveLength(0);
+    // an estimate of existing platos by id does not create anything → allowed
+    const byId = await POST(req("estimate", { menu_item_ids: [] }));
+    expect(byId.status).not.toBe(403);
+    // and without recipes.edit nothing passes, links.confirm or not
+    world.denyCap = "recipes.edit";
+    expect((await POST(req("estimate", { menu_item_ids: [] }))).status).toBe(
+      403
+    );
+  });
+});

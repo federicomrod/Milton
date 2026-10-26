@@ -36,7 +36,7 @@ import {
 } from "@/lib/restaurant/menu-dishes/menu-dishes";
 import { type DishStatus } from "@/lib/restaurant/costing/dish-status";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
-import { platosHref } from "@/lib/restaurant/menu-links";
+import { dishHref, platosHref } from "@/lib/restaurant/menu-links";
 import { Chip } from "@/components/restaurant/recipes-costing/ui";
 import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
 import {
@@ -903,18 +903,17 @@ function RowEstimate({
         type="button"
         data-testid="dish-estimate-action"
         disabled={busy || reason !== null}
-        title={reason ?? undefined}
         onClick={() => void run()}
         className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--brand-blue)] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[var(--brand-blue)] hover:bg-[var(--ai-lavender)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)] focus:ring-opacity-40 focus:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <Sparkles className="h-3.5 w-3.5" />
         {busy ? "Estimando…" : ESTIMATE_BUTTON}
       </button>
-      {reason && canEdit ? (
-        <span className="text-[var(--brand-muted)]">{reason}</span>
+      {reason ? (
+        <span className="text-[var(--brand-ink)]">{reason}</span>
       ) : null}
       {note ? (
-        <span role="status" className="text-[var(--brand-muted)]">
+        <span role="status" className="text-[var(--brand-ink)]">
           {note}
         </span>
       ) : null}
@@ -1114,7 +1113,11 @@ const DishRows = memo(function DishRows({
               </span>
               <span className="text-[var(--brand-ink)]">·</span>
               <Link
-                href={platosHref() + `?dish=${dish.base_odoo_product_id}`}
+                href={
+                  dish.base_odoo_product_id
+                    ? dishHref(dish.base_odoo_product_id)
+                    : platosHref()
+                }
                 className="font-semibold text-[var(--brand-blue)] hover:underline"
               >
                 Ver estimado

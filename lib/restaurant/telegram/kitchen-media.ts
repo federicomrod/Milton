@@ -394,6 +394,10 @@ export async function processInvoicePhoto(
     await unreadable();
     return;
   }
+  const companyCurrency = await resolveCompanyCurrency(
+    admin as never,
+    staff.company_id
+  ).catch(() => null);
 
   const tz = await resolvePosTimezone(admin as never, staff.company_id);
   const created = await createInvoiceDraft(admin, {
@@ -581,6 +585,42 @@ export async function processPriceUpdateSafe(
   }
 }
 
+/**
+ * True (and the cook is told) when the currency they said is not the
+ * company's: nothing is saved in that case. `said` null = none said.
+ */
+export async function refuseForeignCurrency(args: {
+  admin: ReturnType<typeof createAdminClient>;
+  staff: KitchenActor;
+  chatId: number;
+  said: string | null;
+  suffix?: string;
+  replyMarkup?: InlineKeyboardMarkup;
+}): Promise<boolean> {
+  if (!args.said) return false;
+  const companyCurrency = await resolveCompanyCurrency(
+    args.admin as never,
+    args.staff.company_id
+  ).catch(() => null);
+  if (
+    !companyCurrency ||
+    args.said.toUpperCase() === companyCurrency.toUpperCase()
+  )
+    return false;
+  console.info("[kitchen-media] price update currency mismatch");
+  const text = renderKitchenCopy(KITCHEN_COPY.PRICE_CURRENCY_MISMATCH, {
+    ...destinationVars(args.staff),
+    moneda_dicha: currencyName(args.said),
+    moneda_empresa: currencyName(companyCurrency),
+  });
+  await sendTelegramMessage(
+    args.chatId,
+    args.suffix ? `${text}\n\n${args.suffix}` : text,
+    args.replyMarkup ? { replyMarkup: args.replyMarkup } : undefined
+  );
+  return true;
+}
+
 /** Stores the update as a needs_review draft. Never applies a price. */
 export async function processPriceUpdate(
   input: PriceUpdateInput
@@ -603,32 +643,26 @@ export async function processPriceUpdate(
 
   // The currency the cook SAID must be the company's. Never converted, never
   // saved as if it were the company's money.
+  const said = input.items
+    .map((i) => i.currency)
+    .filter((c): c is NonNullable<typeof c> => Boolean(c));
+  if (
+    await refuseForeignCurrency({
+      admin,
+      staff,
+      chatId,
+      said: said[0] ?? null,
+      suffix: input.replySuffix,
+      replyMarkup: input.replyMarkup,
+    })
+  ) {
+    return;
+  }
+
   const companyCurrency = await resolveCompanyCurrency(
     admin as never,
     staff.company_id
   ).catch(() => null);
-  const said = input.items
-    .map((i) => i.currency)
-    .filter((c): c is NonNullable<typeof c> => Boolean(c));
-  const wrong = companyCurrency
-    ? said.find((c) => c.toUpperCase() !== companyCurrency.toUpperCase())
-    : undefined;
-  if (wrong && companyCurrency) {
-    console.info("[kitchen-media] price update currency mismatch");
-    await sendTelegramMessage(
-      chatId,
-      withSuffix(
-        renderKitchenCopy(KITCHEN_COPY.PRICE_CURRENCY_MISMATCH, {
-          ...destinationVars(staff),
-          moneda_dicha: currencyName(wrong),
-          moneda_empresa: currencyName(companyCurrency),
-        })
-      ),
-      input.replyMarkup ? { replyMarkup: input.replyMarkup } : undefined
-    );
-    return;
-  }
-
   const tz = await resolvePosTimezone(admin as never, staff.company_id);
   const extraction: ExtractedInvoice = {
     supplier_name: null,

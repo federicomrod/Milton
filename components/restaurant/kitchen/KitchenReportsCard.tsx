@@ -40,13 +40,15 @@ const selectClass =
 export function KitchenReportsCard({
   canManage,
   locations,
+  initialType = "",
 }: {
   canManage: boolean;
   locations: { id: string; name: string }[];
+  initialType?: string;
 }) {
   const [reports, setReports] = useState<Report[]>([]);
   const [locationId, setLocationId] = useState("");
-  const [type, setType] = useState("");
+  const [type, setType] = useState(initialType);
   const [error, setError] = useState<string | null>(null);
 
   const [reloadKey, setReloadKey] = useState(0);

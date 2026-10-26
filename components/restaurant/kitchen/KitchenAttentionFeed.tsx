@@ -4,6 +4,7 @@
 
 "use client";
 
+import type { ReactNode } from "react";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import type {
   KitchenFeedItem,
@@ -45,6 +46,7 @@ export function KitchenAttentionFeed({
   onAction,
   resolvingId,
   lang,
+  afterList,
 }: {
   insights: KitchenInsights;
   filter: KitchenFeedFilter;
@@ -55,6 +57,7 @@ export function KitchenAttentionFeed({
   onAction: (item: KitchenFeedItem) => void;
   resolvingId: string | null;
   lang: PreferredLanguage;
+  afterList?: ReactNode;
 }) {
   const chips: { id: KitchenFeedFilter; label: string; count: number }[] = [
     {
@@ -96,7 +99,7 @@ export function KitchenAttentionFeed({
           {t(lang, "Reports from your team", "Reportes de tu equipo")}
         </span>
         <div
-          className="ml-auto flex bg-muted rounded-lg p-0.5"
+          className="ml-auto flex gap-3"
           role="tablist"
           aria-label={t(lang, "Attention filter", "Filtro de atención")}
         >
@@ -111,10 +114,10 @@ export function KitchenAttentionFeed({
                 data-testid={`kitchen-feed-filter-${chip.id}`}
                 onClick={() => onFilter(parseKitchenFeedFilter(chip.id))}
                 className={
-                  "px-2.5 py-1 rounded-md text-xs " +
+                  "border-b-2 px-0.5 py-1 text-xs " +
                   (on
-                    ? "bg-background text-[#102a85] font-semibold shadow-sm"
-                    : "text-muted-foreground")
+                    ? "border-[#1B40C8] font-semibold text-[#1B40C8]"
+                    : "border-transparent text-[#0D1117] hover:text-[#1B40C8]")
                 }
               >
                 {chip.label}
@@ -162,7 +165,7 @@ export function KitchenAttentionFeed({
                   type="button"
                   disabled={busy}
                   onClick={() => onAction(item)}
-                  className="text-xs rounded-lg border border-border px-2.5 py-1 hover:bg-muted disabled:opacity-60 whitespace-nowrap"
+                  className="text-xs rounded-md border border-[#1B40C8] bg-white px-2.5 py-1 text-[#1B40C8] hover:bg-[#f6f8fe] disabled:opacity-60 whitespace-nowrap"
                 >
                   {busy ? t(lang, "Saving…", "Guardando…") : item.action_label}
                 </button>
@@ -194,6 +197,8 @@ export function KitchenAttentionFeed({
           ) : null}
         </div>
       ) : null}
+
+      {afterList}
     </section>
   );
 }

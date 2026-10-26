@@ -62,9 +62,12 @@ import {
   type AmountQuestionItem,
 } from "./price-unit-question";
 import {
+  currencyCodeFromText,
   currencySymbolFor,
+  hasPriceNumber,
   hasPriceShape,
   parsePriceItems,
+  parsePriceMessage,
   PRICE_UPDATE_MAX_ITEMS,
   type PriceUpdateItem,
 } from "./price-update";
@@ -153,6 +156,16 @@ export async function answerWithoutAi(ctx: AiHandlerContext): Promise<void> {
       const stored =
         (ctx.origin ?? "text") === "text" || (await setReportType(ctx, type));
       reply = stored ? stockSavedReply(ctx.staff, type, [], ctx.text) : null;
+      // A mixed message («se acabó el aguacate y ahora está a 3.50 la libra»)
+      // with the AI down: the stock report is kept, the price is NOT, and the
+      // cook is told so instead of finding out later.
+      if (
+        reply &&
+        hasPriceNumber(ctx.text) &&
+        parsePriceMessage(ctx.text) !== null
+      ) {
+        reply = `${reply} ${KITCHEN_COPY.PRICE_LOST_AI_DOWN}`;
+      }
     } else {
       reply = deterministicReply(ctx.text, ctx.staff);
     }
@@ -238,7 +251,11 @@ async function handleAnswer(
     const first = result.items[0];
     if (amountItemsOfQuestion(question)) {
       if (first && first.amount > 0) {
-        answer = { kind: "amount", amount: first.amount };
+        answer = {
+          kind: "amount",
+          amount: first.amount,
+          currency: currencyCodeFromText(ctx.text),
+        };
       }
     } else if (first?.unit) {
       answer = { kind: "unit", unit: first.unit };

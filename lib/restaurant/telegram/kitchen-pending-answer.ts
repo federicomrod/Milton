@@ -22,7 +22,7 @@ import type { InlineKeyboardMarkup } from "./send";
 import { sendTelegramMessage } from "./send";
 import { KITCHEN_COPY, renderKitchenCopy } from "./kitchen-copy";
 import type { KitchenLink } from "./kitchen-links";
-import { processPriceUpdateSafe } from "./kitchen-media";
+import { processPriceUpdateSafe, refuseForeignCurrency } from "./kitchen-media";
 import { expirePendingItem, resolvePendingItem } from "./kitchen-pending";
 import type { PendingItem } from "./kitchen-pending";
 import {
@@ -31,7 +31,11 @@ import {
   maybeCleanupPending,
   unitQuestionMessageId,
 } from "./kitchen-routing";
-import { parseAmountAnswer, parseUnitAnswer } from "./price-update";
+import {
+  currencyCodeFromText,
+  parseAmountAnswer,
+  parseUnitAnswer,
+} from "./price-update";
 import { joinProducts } from "./price-flow";
 import {
   amountItemsOfQuestion,
@@ -44,7 +48,8 @@ import {
 
 export type PendingAnswer =
   | { kind: "unit"; unit: string }
-  | { kind: "amount"; amount: number };
+  /** `currency` is what the ANSWER itself names («150 pesos» → MXN), else null. */
+  | { kind: "amount"; amount: number; currency: string | null };
 
 /** What this text says to the open question, or null when it is not an answer. */
 export function answerFor(
@@ -54,7 +59,7 @@ export function answerFor(
   if (amountItemsOfQuestion(question)) {
     const amount = parseAmountAnswer(text);
     return amount !== null && amount > 0 && amount <= 100000
-      ? { kind: "amount", amount }
+      ? { kind: "amount", amount, currency: currencyCodeFromText(text) }
       : null;
   }
   if (!itemsOfQuestion(question)) return null;
@@ -118,8 +123,11 @@ export async function completePendingQuestion(args: {
 
   if (answer.kind === "amount" && amountItems) {
     const first = amountItems[0];
+    // The currency the answer names wins over the stored one, so «150 pesos»
+    // reaches processPriceUpdate's mismatch check instead of saving as USD.
+    const saidCurrency = answer.currency ?? first.currency;
     const currency =
-      first.currency as import("./price-update").PriceUpdateItem["currency"];
+      saidCurrency as import("./price-update").PriceUpdateItem["currency"];
     if (first.unit) {
       await args.run(() =>
         processPriceUpdateSafe({
@@ -136,6 +144,19 @@ export async function completePendingQuestion(args: {
       );
       return "done";
     }
+    // A currency that is not the company's is refused NOW, before asking the
+    // unit: nothing would be saved at the end anyway.
+    if (
+      await refuseForeignCurrency({
+        admin,
+        staff,
+        chatId,
+        said: saidCurrency,
+        replyMarkup: args.markup,
+      })
+    ) {
+      return "done";
+    }
     // Chain: the amount is settled, the unit is still missing.
     const opened = await openUnitQuestion({
       chatId,
@@ -145,7 +166,7 @@ export async function completePendingQuestion(args: {
         {
           name: first.product,
           price: answer.amount,
-          currency: first.currency,
+          currency: saidCurrency,
         } as { name: string; price: number },
       ],
     });

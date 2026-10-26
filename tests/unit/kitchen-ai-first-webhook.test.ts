@@ -758,3 +758,98 @@ describe("routing", () => {
     expect(log).not.toMatch(/aguacate|avocado|VOICE-SECRET/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Currency and unit come from the MESSAGE, never from the AI. The interpreter's
+// RAW answer goes through the real validator here (the mock above bypasses it).
+// ---------------------------------------------------------------------------
+
+async function aiRaw(raw: unknown) {
+  const actual = await vi.importActual<
+    typeof import("@/lib/restaurant/telegram/kitchen-intent-ai")
+  >("@/lib/restaurant/telegram/kitchen-intent-ai");
+  intentAi.mockImplementation(async (text: unknown) =>
+    actual.validateKitchenIntent(raw, String(text), {
+      conversation: [],
+      company_currency: "USD",
+      ingredient_hints: [],
+      pending_question: null,
+    })
+  );
+}
+const priceRaw = (
+  amount: number,
+  unit: string | null,
+  currency: string | null
+) => ({
+  intent: "price_update",
+  items: [{ product: "aguacate", amount, unit, currency }],
+  clarify_question: null,
+});
+
+describe.each<Mode>(["text", "voice"])(
+  "the currency is the message's, not the AI's (%s)",
+  (mode) => {
+    it.each([["USD"], [null]])(
+      "«se acabó el aguacate y ahora está a 150 pesos la libra», AI says %s: mismatch, no draft",
+      async (aiCurrency) => {
+        await aiRaw(priceRaw(150, "lb", aiCurrency));
+        await say(
+          mode,
+          "se acabó el aguacate y ahora está a 150 pesos la libra"
+        );
+        expect(drafts()).toHaveLength(0);
+        expect(lastSent().text).toContain("Dijiste pesos mexicanos (MXN)");
+        expect(lastSent().text).toContain("trabaja en dólares (USD)");
+      }
+    );
+
+    it.each([["USD"], [null]])(
+      "«el aguacate ya cuesta 40 pesos cada uno», AI says %s: mismatch, no draft",
+      async (aiCurrency) => {
+        await aiRaw(priceRaw(40, "unidad", aiCurrency));
+        await say(mode, "el aguacate ya cuesta 40 pesos cada uno");
+        expect(drafts()).toHaveLength(0);
+        expect(lastSent().text).toContain("Dijiste pesos mexicanos (MXN)");
+      }
+    );
+
+    it("a message that names no currency keeps the company's (AI saying MXN is ignored)", async () => {
+      await aiRaw(priceRaw(3.5, "lb", "MXN"));
+      await say(mode, "el aguacate ya cuesta 3.50 la libra");
+      expect(lineSummary()).toEqual(["aguacate|3.5|lb"]);
+    });
+
+    it("the amount answer «150 pesos» is a mismatch, not a USD draft", async () => {
+      await say(mode, "aguacate a 150");
+      expect(lastSent().text).toBe(AMOUNT_ASK("aguacate", "1.50", "150"));
+      await say(mode, "150 pesos");
+      expect(drafts()).toHaveLength(0);
+      expect(lastSent().text).toContain("Dijiste pesos mexicanos (MXN)");
+    });
+
+    it("the AI cannot invent a unit: «ahora está a 3.50» with AI «lb» asks the unit, saves nothing", async () => {
+      await aiRaw(priceRaw(3.5, "lb", null));
+      await say(mode, "se acabó el aguacate y ahora está a 3.50");
+      expect(drafts()).toHaveLength(0);
+      expect(lastSent().text).toContain(UNIT_ASK("aguacate"));
+    });
+  }
+);
+
+describe("a mixed message while the AI is down", () => {
+  it("keeps the stock report and says the price was NOT noted", async () => {
+    intentAi.mockResolvedValue(null);
+    await say("text", "se acabó el aguacate y ahora está a 3.50 la libra");
+    expect(drafts()).toHaveLength(0);
+    expect((store.kitchen_reports ?? [])[0].report_type).toBe("86");
+    expect(lastSent().text).toContain(
+      "El precio no lo anoté; mándalo solo, por ejemplo «aguacate $3.50 la libra»."
+    );
+  });
+  it("a plain stock report with a quantity gets no price warning", async () => {
+    intentAi.mockResolvedValue(null);
+    await say("text", "se acabó el aguacate, quedan 3 cajas");
+    expect(lastSent().text).not.toContain("El precio no lo anoté");
+  });
+});

@@ -289,3 +289,31 @@ describe("prompt layout and prompt injection", () => {
     ).toBeNull();
   });
 });
+
+describe("currency and unit come from the message, never from the AI", () => {
+  const run = (text: string, item: Record<string, unknown>) =>
+    validateKitchenIntent(reply([priceItem(3.5, item)]), text, ctx());
+
+  it("«pesos» is MXN whatever the AI says (USD, null or MXN)", () => {
+    for (const aiCurrency of ["USD", null, "MXN"]) {
+      const r = run("el aguacate está a 3.50 pesos la libra", {
+        currency: aiCurrency,
+      });
+      expect(r?.items[0].currency).toBe("MXN");
+    }
+  });
+  it("a message that names no currency gives null even if the AI says MXN", () => {
+    expect(
+      run("aguacate a 3.50 la libra", { currency: "MXN" })?.items[0].currency
+    ).toBeNull();
+  });
+  it("the AI's unit is kept only when the text names it", () => {
+    expect(run("aguacate a 3.50 la libra", { unit: "lb" })?.items[0].unit).toBe(
+      "lb"
+    );
+    expect(run("aguacate a 3.50", { unit: "lb" })?.items[0].unit).toBeNull();
+    expect(
+      run("aguacate a 3.50 la libra", { unit: "kg" })?.items[0].unit
+    ).toBeNull();
+  });
+});

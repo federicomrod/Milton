@@ -1058,6 +1058,25 @@ export function parseUnitAnswer(text: string): string | null {
   return canonicalUnit(m[1], m[1]);
 }
 
+/**
+ * The unit a message itself names next to a price («la libra», «por kilo»,
+ * «c/u»): one canonical unit, or null when it names none or several. The AI's
+ * unit is only kept when it equals this; a unit is never invented.
+ */
+export function unitSaidInText(text: string): string | null {
+  if (typeof text !== "string") return null;
+  const t = fold(text.toLowerCase());
+  const found = new Set<string>();
+  if (/(?:^|[^a-z])(?:c\/u|cada\s+un[oa])(?![a-z])/.test(t))
+    found.add("unidad");
+  const re = new RegExp(
+    "(?:^|[^a-z])(?:por|la|el|x|al|en)\\s+" + UNIT + "(?![a-z])",
+    "g"
+  );
+  for (const m of t.matchAll(re)) found.add(canonicalUnit(m[1], m[1]));
+  return found.size === 1 ? [...found][0] : null;
+}
+
 /** A numeric token as the literal amount it says, or null («1,500», «0»). */
 function literalAmount(token: string): number | null {
   return parseNumber(token);

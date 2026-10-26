@@ -76,6 +76,8 @@ export const KITCHEN_COPY = {
   /** A price without a unit: asked once. {producto} = «queso». Nothing is saved yet. */
   PRICE_UNIT_ASK: "¿El precio de {producto} es por libra, onza o unidad?",
   /** Some items of a price message were not understood. {productos} = «sal, comino» (or «un precio»). Appended to the combined reply. */
+  PRICE_LOST_AI_DOWN:
+    "El precio no lo anoté; mándalo solo, por ejemplo «aguacate $3.50 la libra».",
   PRICE_NOT_UNDERSTOOD:
     "No entendí: {productos}. Escríbelos como «aguacate $1.50 la libra».",
   /** More prices than one message can hold. {n} = how many were processed, {productos} = the ones left out. */

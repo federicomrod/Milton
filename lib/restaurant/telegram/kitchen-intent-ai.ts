@@ -30,12 +30,14 @@ import {
   openAiModel,
 } from "@/lib/restaurant/openai-client";
 import {
+  currencyCodeFromText,
   extractNumberTokens,
   hasCurrencyMention,
   looksLikeCents,
   parseAmountAnswer,
   parsePriceMessage,
   parseUnitAnswer,
+  unitSaidInText,
 } from "./price-update";
 import type { Currency } from "./price-update";
 
@@ -340,18 +342,23 @@ export function validateKitchenIntent(
     if (amount <= 0 || amount > 100000) continue;
     if (!isLiteral(amount)) continue;
 
-    // Validate unit - must be from valid list or null
+    // Validate unit - must be from valid list or null, AND the message itself
+    // must name it. A unit the AI "knows" but the cook never said is dropped
+    // (null), so the bot asks instead of guessing.
     let unit: string | null = null;
     if (item.unit !== null && item.unit !== undefined && item.unit !== "") {
       if (typeof item.unit !== "string") continue;
       const parsedUnit = parseUnitAnswer(item.unit);
+      let aiUnit: string | null = null;
       if (parsedUnit !== null && VALID_UNITS.includes(parsedUnit)) {
-        unit = parsedUnit;
+        aiUnit = parsedUnit;
       } else if (VALID_UNITS.includes(item.unit.toLowerCase())) {
-        unit = item.unit.toLowerCase();
+        aiUnit = item.unit.toLowerCase();
       } else {
         continue; // Invalid unit
       }
+      const said = unitSaidInText(text);
+      unit = said !== null && said === aiUnit ? aiUnit : null;
     }
 
     // 150 with no currency, no decimal, said in a price message: 1.50 or 150?
@@ -373,21 +380,20 @@ export function validateKitchenIntent(
       continue;
     }
 
-    // Validate currency - must be from valid list or null
-    let currency: Currency | null = null;
+    // The currency comes from the MESSAGE, never from the AI: «pesos» is MXN
+    // whatever the model answers; a message that names none is null (the
+    // company's currency). The mismatch check downstream refuses the rest.
+    // (An answer that is not even a known currency code is malformed: dropped.)
     if (
       item.currency !== null &&
       item.currency !== undefined &&
       item.currency !== ""
     ) {
       if (typeof item.currency !== "string") continue;
-      const cur = item.currency.toUpperCase();
-      if (VALID_CURRENCIES.includes(cur as Currency)) {
-        currency = cur as Currency;
-      } else {
-        continue; // Invalid currency
-      }
+      if (!VALID_CURRENCIES.includes(item.currency.toUpperCase() as Currency))
+        continue;
     }
+    const currency: Currency | null = currencyCodeFromText(text);
 
     items.push({
       product,

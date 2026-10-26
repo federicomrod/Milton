@@ -56,6 +56,10 @@ export function generateSuggestedActions(
   const m = message.toLowerCase();
   const has = (...words: string[]) => words.some((w) => m.includes(w));
 
+  if (intent === "dish_food_cost" || intent === "least_profitable_dishes") {
+    return [];
+  }
+
   const add = (a: SuggestedAction) => {
     if (actions.length < MAX_ACTIONS) actions.push(a);
   };
@@ -64,8 +68,6 @@ export function generateSuggestedActions(
   // 1. Low margin / high food cost dishes → suggest_price_change
   // -------------------------------------------------------------------------
   const wantsMarginFix =
-    intent === "least_profitable_dishes" ||
-    intent === "dish_food_cost" ||
     intent === "agent_recommendations" ||
     has(
       "margin",
@@ -331,5 +333,13 @@ export function generateSuggestedActions(
     });
   }
 
-  return actions;
+  return actions.filter((a) => !isPerItemAskMiltonChip(a));
+}
+
+/** Per-item price/recipe/supplier chips — not shown on Ask Milton answers. */
+export function isPerItemAskMiltonChip(action: {
+  creates_agent_action: boolean;
+  related_entity_id: string | null;
+}): boolean {
+  return action.creates_agent_action || Boolean(action.related_entity_id);
 }

@@ -49,6 +49,7 @@ import {
   ASK_MILTON_MAX_FOLLOWUPS,
   ASK_MILTON_MAX_RELATED_LINKS,
 } from "@/lib/restaurant/ask-milton-limits";
+import { isPerItemAskMiltonChip } from "@/lib/restaurant/ask-milton-actions";
 
 const MiltonUiLang = createContext<PreferredLanguage>("es");
 function useMiltonLang(): PreferredLanguage {
@@ -730,12 +731,16 @@ function MessageBubble({
           </div>
         )}
 
-        {a && a.suggested_actions && a.suggested_actions.length > 0 && (
-          <SuggestedActionChips
-            actions={a.suggested_actions}
-            disabled={disabled}
-          />
-        )}
+        {a &&
+          a.suggested_actions &&
+          a.suggested_actions.some((x) => !isPerItemAskMiltonChip(x)) && (
+            <SuggestedActionChips
+              actions={a.suggested_actions.filter(
+                (x) => !isPerItemAskMiltonChip(x)
+              )}
+              disabled={disabled}
+            />
+          )}
 
         {a && a.suggested_followups.length > 0 && (
           <FollowupChips

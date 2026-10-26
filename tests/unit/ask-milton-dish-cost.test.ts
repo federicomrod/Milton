@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_INGREDIENT_PRICES } from "@/lib/restaurant/ask-milton-catalog";
 import {
+  generateSuggestedActions,
+  isPerItemAskMiltonChip,
+} from "@/lib/restaurant/ask-milton-actions";
+import {
   buildDeterministicAnswer,
   detectIntent,
   type ResolvedEntities,
@@ -56,7 +60,12 @@ function briefing(): BriefingContext {
   };
 }
 
-function dish(name: string, food_cost_pct: number | null, net_sales = 100) {
+function dish(
+  name: string,
+  food_cost_pct: number | null,
+  net_sales = 100,
+  cost_status?: "aprobado" | "estimado" | "falta_precio" | "sin_receta"
+) {
   return {
     name,
     category: "Carnes",
@@ -64,12 +73,15 @@ function dish(name: string, food_cost_pct: number | null, net_sales = 100) {
     units: 10,
     food_cost_pct,
     margin_pct: food_cost_pct === null ? null : 100 - food_cost_pct,
-    cost_status: food_cost_pct === null ? "sin_receta" : "aprobado",
+    cost_status:
+      cost_status ?? (food_cost_pct === null ? "sin_receta" : "aprobado"),
   };
 }
 
 function ctxWithDishes(dishes: ReturnType<typeof dish>[]): AskMiltonContext {
-  const costed = dishes.filter((d) => d.food_cost_pct !== null);
+  const costed = dishes.filter(
+    (d) => d.cost_status === "aprobado" && d.food_cost_pct !== null
+  );
   return {
     context_scope: { mode: "consolidated", restaurant_name: "Casa Prueba" },
     briefing: briefing(),
@@ -154,6 +166,25 @@ describe("detectIntent — dish food-cost questions", () => {
     expect(detectIntent("¿Qué ingredientes salen más caros?")).toBe(
       "expensive_ingredients"
     );
+    expect(detectIntent("¿qué ingredientes son más caros?")).toBe(
+      "expensive_ingredients"
+    );
+  });
+
+  it("routes «¿Cuál es mi costo de alimentos?» to dish food-cost", () => {
+    expect(detectIntent("¿Cuál es mi costo de alimentos?")).toBe(
+      "dish_food_cost"
+    );
+  });
+
+  it("routes «¿Qué porcentaje de costo tiene la hamburguesa?» to dish food-cost", () => {
+    expect(detectIntent("¿Qué porcentaje de costo tiene la hamburguesa?")).toBe(
+      "dish_food_cost"
+    );
+  });
+
+  it("routes «¿Qué plato cuesta más?» to dish food-cost", () => {
+    expect(detectIntent("¿Qué plato cuesta más?")).toBe("dish_food_cost");
   });
 });
 
@@ -185,6 +216,57 @@ describe("buildDeterministicAnswer — dish food-cost", () => {
     expect(out.confidence_notes.join(" ")).not.toMatch(/unidades difieren/i);
   });
 
+  it("excludes estimado and falta_precio from the ranking and counts them as sin costo", () => {
+    const ctx = ctxWithDishes([
+      dish("Aprobado", 40),
+      dish("Estimado IA", 80, 100, "estimado"),
+      dish("Falta precio", 55, 100, "falta_precio"),
+    ]);
+    const out = buildDeterministicAnswer(
+      ctx,
+      "food cost más alto",
+      "dish_food_cost",
+      NO_ENTITIES
+    );
+    expect(out.answer).toMatch(/Aprobado — 40%/);
+    expect(out.answer).toMatch(/2 platos sin costo todavía/);
+    expect(out.answer).not.toMatch(/Estimado IA|Falta precio|80%|55%/);
+  });
+
+  it("does not fall back to briefing or profit lists when menu_dishes is missing", () => {
+    const ctx = ctxWithDishes([]);
+    ctx.menu_dishes = null;
+    ctx.briefing.high_food_cost_items = [
+      {
+        menu_item_id: "x",
+        name: "Briefing Fake",
+        revenue: 100,
+        gross_margin_pct: 10,
+        food_cost_pct: 90,
+      },
+    ];
+    ctx.menu.least_profitable_items = [
+      {
+        menu_item_id: "y",
+        name: "Profit Fake",
+        category: "Carnes",
+        selling_price: 20,
+        estimated_cost: 18,
+        gross_margin_pct: 10,
+        food_cost_pct: 90,
+        gross_profit_per_item: 2,
+      },
+    ];
+    const out = buildDeterministicAnswer(
+      ctx,
+      "que platos tienen el mayor costo como % de precio de venta?",
+      "dish_food_cost",
+      NO_ENTITIES
+    );
+    expect(out.answer).toMatch(/Aún no hay platos con costo/);
+    expect(out.answer).not.toMatch(/Briefing Fake|Profit Fake|90%/);
+  });
+
   it("never shows a missing cost as 0%", () => {
     const empty = ctxWithDishes([
       dish("Sin receta", null),
@@ -199,6 +281,29 @@ describe("buildDeterministicAnswer — dish food-cost", () => {
     expect(out.answer).toMatch(/2 platos sin costo todavía/);
     expect(out.answer).not.toMatch(/0%/);
     expect(out.answer).not.toMatch(/\$0/);
+  });
+
+  it("renders no per-item action chips", () => {
+    const ctx = ctxWithDishes([dish("Entraña", 48)]);
+    ctx.menu.least_profitable_items = [
+      {
+        menu_item_id: "item-1",
+        name: "Entraña",
+        category: "Carnes",
+        selling_price: 20,
+        estimated_cost: 12,
+        gross_margin_pct: 20,
+        food_cost_pct: 60,
+        gross_profit_per_item: 8,
+      },
+    ];
+    const actions = generateSuggestedActions(
+      "que platos tienen el mayor costo como % de precio de venta?",
+      ctx,
+      "dish_food_cost"
+    );
+    expect(actions).toEqual([]);
+    expect(actions.filter(isPerItemAskMiltonChip)).toEqual([]);
   });
 });
 

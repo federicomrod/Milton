@@ -10,6 +10,12 @@
 
 import type { IngredientLatestCostRow } from "@/lib/restaurant/menu-recipes-server";
 import type { DishEconomicsResult } from "@/lib/restaurant/costing/dish-economics";
+import type { DishStatus } from "@/lib/restaurant/costing/dish-status";
+import { DISH_STATUSES } from "@/lib/restaurant/costing/dish-status";
+import {
+  RANKING_INCLUDES_ESTIMATED,
+  marginRankings,
+} from "@/lib/restaurant/costing/menu-summary";
 
 export const CATALOG_CAPS = {
   ingredients: 15,
@@ -22,6 +28,12 @@ export const CATALOG_CAPS = {
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const cut = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+function asDishStatus(status: string): DishStatus {
+  return (DISH_STATUSES as readonly string[]).includes(status)
+    ? (status as DishStatus)
+    : "sin_receta";
+}
 
 export interface AskMiltonIngredientPrice {
   name: string;
@@ -170,25 +182,34 @@ export function buildMenuDishes(
         : null,
     cost_status: String(d.cost_status),
   });
-  const costed = dishes.filter(
-    (d) => d.food_cost_pct !== null && Number.isFinite(d.food_cost_pct)
+  // Same eligibility as Menú › Resumen: only «aprobado». AI estimates
+  // and falta_precio never enter the ranking (RANKING_INCLUDES_ESTIMATED).
+  const ranking = marginRankings(
+    dishes.map((d, i) => ({
+      id: String(i),
+      name: d.name,
+      net_sales: d.net_sales,
+      margin_pct: d.margin_pct,
+      cost_status: asDishStatus(d.cost_status),
+    })),
+    {
+      min: 1,
+      top: CATALOG_CAPS.foodCost,
+      includeEstimated: RANKING_INCLUDES_ESTIMATED,
+    }
   );
   return {
     currency: econ.currency,
     period: econ.period,
     dish_count: dishes.length,
-    uncosted_count: dishes.length - costed.length,
+    uncosted_count: dishes.length - ranking.costed,
     top_by_sales: [...dishes]
       .sort((a, b) => b.net_sales - a.net_sales)
       .slice(0, CATALOG_CAPS.dishes)
       .map(toRow),
-    top_by_food_cost: [...costed]
-      .sort(
-        (a, b) =>
-          (b.food_cost_pct ?? 0) - (a.food_cost_pct ?? 0) ||
-          a.name.localeCompare(b.name, "es")
-      )
-      .slice(0, CATALOG_CAPS.foodCost)
+    top_by_food_cost: ranking.worst
+      .map((w) => dishes[Number(w.id)])
+      .filter((d) => d != null)
       .map(toRow),
     sales_by_category: [...byCategory.entries()]
       .map(([category, v]) => ({

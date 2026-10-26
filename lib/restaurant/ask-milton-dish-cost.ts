@@ -41,39 +41,19 @@ export function rankDishesByFoodCost(ctx: AskMiltonContext): {
   uncosted: number;
 } {
   const block = ctx.menu_dishes;
-  if (block) {
-    const ranked = rankRows(
-      block.top_by_food_cost.filter(
-        (
-          d
-        ): d is AskMiltonMenuDish & {
-          food_cost_pct: number;
-        } => hasCost(d.food_cost_pct)
-      )
-    );
-    return { ranked, uncosted: block.uncosted_count };
+  if (!block) {
+    return { ranked: [], uncosted: 0 };
   }
-
-  const seen = new Set<string>();
-  const collected: DishFoodCostRow[] = [];
-  const add = (name: string, pct: number | null | undefined) => {
-    if (!hasCost(pct) || seen.has(name)) return;
-    seen.add(name);
-    collected.push({ name, food_cost_pct: pct });
-  };
-  for (const item of ctx.briefing.high_food_cost_items) {
-    add(item.name, item.food_cost_pct);
-  }
-  for (const item of ctx.menu.least_profitable_items) {
-    add(item.name, item.food_cost_pct);
-  }
-  for (const item of ctx.menu.most_profitable_items) {
-    add(item.name, item.food_cost_pct);
-  }
-  return {
-    ranked: rankRows(collected),
-    uncosted: ctx.briefing.data_quality.menu_items_without_recipe,
-  };
+  const ranked = rankRows(
+    block.top_by_food_cost.filter(
+      (
+        d
+      ): d is AskMiltonMenuDish & {
+        food_cost_pct: number;
+      } => d.cost_status === "aprobado" && hasCost(d.food_cost_pct)
+    )
+  );
+  return { ranked, uncosted: block.uncosted_count };
 }
 
 function uncostedSentence(count: number, lang: PreferredLanguage): string {

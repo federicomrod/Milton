@@ -125,13 +125,18 @@ export function detectIntent(message: string): AskMiltonIntent {
       "menos rentable",
       "me deja menos",
       "deja menos",
-      "food cost"
+      "food cost",
+      "costo de alimentos",
+      "costo de alimento",
+      "% de costo",
+      "porcentaje de costo"
     ) ||
     (mentionsDish(m) &&
       !mentionsIngredient(m) &&
       has(
         "costo",
         "cost",
+        "cuesta",
         "margen",
         "margin",
         "rentabil",

@@ -30,6 +30,7 @@ interface MenuReadResponse {
  */
 export function MenuReaderPanel({
   canEdit,
+  companyId,
   busyExternal,
   locationId,
   onDone,
@@ -48,6 +49,8 @@ export function MenuReaderPanel({
   embedded?: boolean;
   /** From capabilities["recipes.edit"] (canEditRecipes), the API's own gate. */
   canEdit: boolean;
+  /** The active company (keys the cached estimate check). */
+  companyId?: string | null;
   busyExternal: boolean;
   locationId: string | null;
   /** After a reading that prepared drafts: reload the workspace. */
@@ -151,6 +154,7 @@ export function MenuReaderPanel({
 
       <EstimateWithMilton
         canEdit={canEdit}
+        companyId={companyId}
         locationId={locationId}
         busyExternal={busyExternal || busy}
         variant={estimateVariant}

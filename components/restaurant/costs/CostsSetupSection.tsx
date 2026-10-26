@@ -33,8 +33,9 @@ import {
   loadTab,
   markTabsStale,
   menuTabKey,
-  putTab,
+  refreshTab,
 } from "@/lib/restaurant/recipe-costing/menu-tab-cache";
+import { ageLabel, fetchSetup } from "@/lib/restaurant/costs-setup-client";
 import {
   PrepareError,
   prepareDishesFromUpload,
@@ -52,30 +53,6 @@ import {
 } from "@/lib/restaurant/costs-picker";
 import { menuResumenHref } from "@/lib/restaurant/menu-links";
 import { ResetPanel } from "@/components/restaurant/recipes-costing/ResetPanel";
-
-async function fetchSetup(
-  locationId: string | null
-): Promise<RecipeCostingWorkspace | null> {
-  const q = new URLSearchParams({ vista: "resumen" });
-  if (locationId) q.set("location_id", locationId);
-  const res = await fetch(`/api/restaurant/recipes/costing?${q.toString()}`);
-  return res.ok ? ((await res.json()) as RecipeCostingWorkspace) : null;
-}
-
-export function ageLabel(
-  createdAt: string | null | undefined,
-  now: number
-): string | null {
-  if (!createdAt) return null;
-  const t = Date.parse(createdAt);
-  if (Number.isNaN(t)) return null;
-  const days = Math.max(0, Math.floor((now - t) / 86_400_000));
-  return days === 0
-    ? "de hoy"
-    : days === 1
-      ? "de hace 1 día"
-      : `de hace ${days} días`;
-}
 
 /** localStorage key: the detail is open or closed, per company. */
 export function setupOpenKey(companyId: string | null | undefined): string {
@@ -193,11 +170,10 @@ export function CostsSetupSection({
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    const json = await fetchSetup(locationId);
-    if (json) {
-      setData(json);
-      putTab(key, json);
-    }
+    // One shared request with the other Costos hosts that hear the refresh
+    // event; the answer is cached by refreshTab.
+    const json = await refreshTab(key, () => fetchSetup(locationId));
+    if (json) setData(json);
     return json;
   }, [locationId, key]);
 
@@ -310,8 +286,9 @@ export function CostsSetupSection({
       );
     } finally {
       markTabsStale();
-      await reload().catch(() => undefined);
+      const reloading = reload().catch(() => undefined);
       notifySetupRefresh();
+      await reloading;
       setBusy(false);
       setProgress(null);
       router.refresh();

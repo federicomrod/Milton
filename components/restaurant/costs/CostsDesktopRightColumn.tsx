@@ -21,17 +21,9 @@ import {
   getCachedTab,
   loadTab,
   menuTabKey,
-  putTab,
+  refreshTab,
 } from "@/lib/restaurant/recipe-costing/menu-tab-cache";
-
-async function fetchSetup(
-  locationId: string | null
-): Promise<RecipeCostingWorkspace | null> {
-  const q = new URLSearchParams({ vista: "resumen" });
-  if (locationId) q.set("location_id", locationId);
-  const res = await fetch(`/api/restaurant/recipes/costing?${q.toString()}`);
-  return res.ok ? ((await res.json()) as RecipeCostingWorkspace) : null;
-}
+import { fetchSetup } from "@/lib/restaurant/costs-setup-client";
 
 function useCostsSetup(locationId: string | null) {
   const key = menuTabKey("resumen", { location: locationId });
@@ -51,10 +43,11 @@ function useCostsSetup(locationId: string | null) {
     });
 
     const handleRefresh = () => {
-      void fetchSetup(locationId).then((json) => {
+      // Four hosts listen to the same event: one shared request, and the
+      // answer is cached by refreshTab.
+      void refreshTab(key, () => fetchSetup(locationId)).then((json) => {
         if (cancelled || !json) return;
         setData(json);
-        putTab(key, json);
       });
     };
     window.addEventListener(COSTS_SETUP_REFRESH_EVENT, handleRefresh);

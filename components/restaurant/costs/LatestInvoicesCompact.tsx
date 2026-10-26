@@ -7,7 +7,7 @@
 import Link from "next/link";
 import type { LatestInvoices } from "@/lib/restaurant/costs-page-data";
 import { costsTabHref, invoiceReviewHref } from "@/lib/restaurant/costs-tabs";
-import { invoiceTotalText } from "./LatestInvoicesBox";
+import { invoiceTotalText } from "@/lib/restaurant/costs-format";
 
 function dateText(iso: string): string {
   const d = new Date(iso);

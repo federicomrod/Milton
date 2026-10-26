@@ -43,3 +43,13 @@ export function formatUnitPrice(
 export function formatPct(n: number): string {
   return `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
 }
+
+/** Invoice total text: a missing (or empty) total is «Sin precio», never $0. */
+export function invoiceTotalText(
+  total: number | null | undefined,
+  currency: string
+): string {
+  if (typeof total !== "number" || !Number.isFinite(total) || total <= 0)
+    return "Sin precio";
+  return formatMoney(total, currency);
+}

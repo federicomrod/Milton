@@ -5,6 +5,7 @@
 // purpose: it never replaces the real cost, margin or status of the dish.
 // «Usar como borrador» turns it into a draft recipe the person validates.
 
+import { invalidateEstimateProbe } from "@/lib/restaurant/menu-estimate-probe-cache";
 import { useState } from "react";
 import { Sparkles } from "lucide-react";
 import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
@@ -85,6 +86,8 @@ export function EstimatePanel({
         setNote(json.error ?? "No pude usar el estimado como borrador.");
         return;
       }
+      // The counts «Estimar con Milton» shows just changed.
+      invalidateEstimateProbe();
       toast({
         title: ESTIMATE_USE_SUCCESS(
           typeof json.applied === "number"

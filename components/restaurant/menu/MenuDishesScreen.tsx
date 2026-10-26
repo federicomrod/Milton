@@ -7,6 +7,7 @@
 // Every number comes from the shared loader; the screen only re-adds the
 // sums after a move (dishSums, the loader's own function).
 
+import { invalidateEstimateProbe } from "@/lib/restaurant/menu-estimate-probe-cache";
 import { UploadRecipesLink } from "./UploadRecipesLink";
 import {
   GROUP_COVERAGE_TIP,
@@ -646,6 +647,7 @@ export function MenuDishesScreen({
           <EstimateWithMilton
             variant="link"
             canEdit={canEditRecipes(data.actor)}
+            companyId={data.company_id}
             locationId={data.view_location_id ?? null}
             onDone={() => onEstimated?.()}
           />
@@ -902,6 +904,7 @@ function RowEstimate({
         setNote(estimateSkipMessage(skipped));
         return;
       }
+      invalidateEstimateProbe();
       onEstimated?.();
     } catch {
       setNote(estimateSkipMessage(null));
@@ -965,6 +968,7 @@ function RowEstimateUse({
         setNote(json.error ?? "No pude usar el estimado como borrador.");
         return;
       }
+      invalidateEstimateProbe();
       toast({
         title: ESTIMATE_USE_SUCCESS(
           typeof json.applied === "number" ? json.applied : lineCount

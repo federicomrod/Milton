@@ -13,6 +13,10 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { createElement } from "react";
+import {
+  invalidateEstimateProbe,
+  loadEstimateProbe,
+} from "@/lib/restaurant/menu-estimate-probe-cache";
 import { renderToString } from "react-dom/server";
 
 const toastWorld = vi.hoisted(() => ({ toast: vi.fn() }));
@@ -130,7 +134,38 @@ function jsonRes(body: unknown, status = 200) {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // The check's answer is cached for a few seconds; every test starts clean.
+  invalidateEstimateProbe();
   toastWorld.toast.mockClear();
+});
+
+describe("the check is cached per company", () => {
+  const mountFor = (companyId: string | null) =>
+    render(
+      <MenuReaderPanel
+        canEdit
+        companyId={companyId}
+        busyExternal={false}
+        locationId={null}
+        onDone={() => undefined}
+        embedded
+      />
+    );
+
+  it("the same company mounted twice reads once; another company (same null location) reads again", async () => {
+    const fetchMock = vi.fn(() => jsonRes({ available: true, eligible: 7 }));
+    vi.stubGlobal("fetch", fetchMock);
+    mountFor("co-a");
+    await screen.findByRole("button", { name: "Estimar con Milton" });
+    cleanup();
+    mountFor("co-a");
+    await screen.findByRole("button", { name: "Estimar con Milton" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    cleanup();
+    mountFor("co-b");
+    await screen.findByRole("button", { name: "Estimar con Milton" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("MenuReaderPanel · Estimar con Milton", () => {
@@ -179,6 +214,7 @@ describe("MenuReaderPanel · Estimar con Milton", () => {
       ).disabled
     ).toBe(true);
     cleanup();
+    invalidateEstimateProbe(); // a new mount, a new check
 
     vi.stubGlobal(
       "fetch",
@@ -191,6 +227,7 @@ describe("MenuReaderPanel · Estimar con Milton", () => {
       )
     ).toBeTruthy();
     cleanup();
+    invalidateEstimateProbe(); // a new mount, a new check
 
     const noPerm = vi.fn(() => jsonRes({ available: true, eligible: 9 }));
     vi.stubGlobal("fetch", noPerm);
@@ -497,6 +534,46 @@ describe("PlatoScreen · estimate overlay", () => {
     );
     expect(note.className).toContain("text-[var(--brand-muted)]");
     expect(toastWorld.toast).not.toHaveBeenCalled();
+  });
+
+  it("a successful «Usar como borrador» on the dish page forgets the cached check; a refused one keeps it", async () => {
+    let reads = 0;
+    const probe = async () => {
+      reads++;
+      return { eligible: reads };
+    };
+    await loadEstimateProbe("co-x", null, probe);
+    for (const [status, forgets] of [
+      [409, false],
+      [200, true],
+    ] as const) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          jsonRes(status === 200 ? { ok: true } : { error: "x" }, status)
+        )
+      );
+      render(
+        <PlatoScreen
+          {...platoProps}
+          data={workspace({})}
+          estimates={[estimate()]}
+        />
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Usar como borrador" })
+      );
+      await waitFor(() =>
+        expect(
+          (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
+        ).toHaveLength(1)
+      );
+      await new Promise((r) => setTimeout(r, 20));
+      const before = reads;
+      await loadEstimateProbe("co-x", null, probe);
+      expect(reads).toBe(forgets ? before + 1 : before);
+      cleanup();
+    }
   });
 
   it("shows a success toast after using the estimate as a draft", async () => {
@@ -855,6 +932,7 @@ describe("MenuDishesScreen · estimate overlay", () => {
       vi.fn(() => jsonRes({ available: true, eligible: 0, needs_link: 0 }))
     );
     cleanup();
+    invalidateEstimateProbe(); // a new mount, a new check
     mountList(dishesWorkspace({ cost_status: "aprobado" }), []);
     expect(
       await screen.findByText(

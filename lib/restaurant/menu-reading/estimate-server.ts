@@ -11,8 +11,11 @@
 //   hand-made recipe is never touched.
 //
 // `applyEstimateAsDraft` is the one place that copies an estimate into a draft: it
-// fills the quantities of the EXISTING menu-draft evidence lines and marks
-// them «Estimado por Milton». The version stays in review.
+// fills quantities of EXISTING menu-draft evidence lines that still have none,
+// and APPENDS each estimated line that has no matching draft line (by
+// normalized name). New lines get the same «Estimado por Milton» mark. The
+// version stays in review. A Sin receta plato with no draft gets the same
+// empty menu-draft shell «Leer tu menú» writes, then the lines.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { latestCostEntry } from "@/lib/restaurant/costing";
@@ -32,6 +35,8 @@ import { fetchAllRowsRetryingWithoutColumns } from "@/lib/restaurant/missing-sch
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
 import {
   FLAG_MILTON_ESTIMATE,
+  FLAG_NEW_SUGGESTED,
+  FLAG_PENDING_INGREDIENT,
   FLAG_PENDING_QTY,
 } from "@/lib/restaurant/recipe-costing/editor";
 import { posPriceFromSales } from "@/lib/restaurant/recipe-costing/display";
@@ -47,7 +52,10 @@ import { loadVersionLineCounts } from "@/lib/restaurant/recipe-costing/has-recip
 import { loadUnitConversions } from "@/lib/restaurant/unit-conversions-server";
 import type { UnitConversion } from "@/lib/restaurant/units";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
-import { MENU_EVIDENCE_SOURCE } from "./drafts";
+import { loadPosProductLink } from "@/lib/restaurant/recipe-costing/link-actions-server";
+import { nextVersionNumber } from "@/lib/restaurant/recipe-versions";
+import { MENU_EVIDENCE_SOURCE, menuDraftEvidence } from "./drafts";
+import { withMenuDraftEvidence } from "@/lib/restaurant/pos-product-links";
 import { MENU_AI_MODEL, parseMenuDishes } from "./extract";
 import {
   canEstimate,
@@ -87,6 +95,10 @@ export const ESTIMATE_NOT_FOUND_MESSAGE =
   "No hay un estimado de Milton para este plato.";
 export const ESTIMATE_NO_DRAFT_MESSAGE =
   "Este plato no tiene un borrador del menú donde copiar el estimado.";
+export const ESTIMATE_DRAFT_CREATE_MESSAGE =
+  "No pude preparar el borrador del menú para este plato. Usa «Leer tu menú» y vuelve a intentar.";
+export const ESTIMATE_EMPTY_MESSAGE =
+  "El estimado no tiene ingredientes para copiar.";
 
 export class EstimateTablesMissingError extends Error {
   constructor() {
@@ -944,20 +956,82 @@ export async function estimateDishes(
 export interface ApplyEstimateResult {
   evidence: Record<string, unknown>;
   applied: number;
-  /** Estimate lines with no draft line to go into (nothing is added). */
+  /** Estimate lines that matched an existing draft line we did not fill. */
   not_copied: string[];
+}
+
+function lineNameKeys(row: Record<string, unknown>): string[] {
+  return [
+    typeof row.raw_name === "string" ? row.raw_name : "",
+    typeof row.ingredient_match === "string" ? row.ingredient_match : "",
+  ]
+    .filter(Boolean)
+    .map((n) => nameKeyOf(n));
+}
+
+function filledEstimateFlags(row: Record<string, unknown>): string[] {
+  const flags = (
+    Array.isArray(row.flags)
+      ? row.flags.filter((f): f is string => typeof f === "string")
+      : []
+  ).filter((flag) => flag !== FLAG_PENDING_QTY);
+  if (!flags.includes(FLAG_MILTON_ESTIMATE)) flags.push(FLAG_MILTON_ESTIMATE);
+  return flags;
+}
+
+function filledEstimateReasons(row: Record<string, unknown>): string[] {
+  const reasons = (
+    Array.isArray(row.reasons)
+      ? row.reasons.filter((r): r is string => typeof r === "string")
+      : []
+  ).map((reason) =>
+    reason.replace(" Confírmalo y escribe cuánto lleva.", " Confírmalo.")
+  );
+  return [
+    "Estimado por Milton: revisa la cantidad y la unidad antes de aprobar.",
+    ...reasons,
+  ];
+}
+
+/** One new evidence line from an estimate: pending, no unit cost, no input. */
+export function evidenceLineFromEstimate(
+  estimate: EstimatedLine,
+  matchName: string | null = null
+): Record<string, unknown> {
+  const matched = Boolean(matchName || estimate.ingredient_id);
+  const flags = [FLAG_PENDING_INGREDIENT];
+  if (!(estimate.qty > 0)) flags.push(FLAG_PENDING_QTY);
+  flags.push(FLAG_MILTON_ESTIMATE);
+  if (!matched) flags.push(FLAG_NEW_SUGGESTED);
+  return {
+    source_row: null,
+    raw_name: estimate.raw_name,
+    ingredient_match:
+      matchName ?? (estimate.ingredient_id ? estimate.raw_name : null),
+    sub_recipe_match: null,
+    qty: estimate.qty,
+    unit: estimate.unit,
+    unit_cost: null,
+    pending: true,
+    flags,
+    reasons: [
+      "Estimado por Milton: revisa la cantidad y la unidad antes de aprobar.",
+    ],
+  };
 }
 
 /**
  * Pure. Fill the quantity and unit of the EXISTING menu-draft evidence lines
- * that still have none (matched by name), mark them «Estimado por Milton» and
- * drop `pendiente_cantidad`. A line a person already resolved or typed is
- * left alone. `pendiente_ingrediente` / `nuevo_sugerido` stay. No unit cost,
- * no input, no ingredient is created.
+ * that still have none (matched by normalized name), mark them «Estimado por
+ * Milton» and drop `pendiente_cantidad`. A line a person already resolved or
+ * typed is left alone (not duplicated). Each estimate line with no matching
+ * draft line is APPENDED, flagged the same way. `pendiente_ingrediente` /
+ * `nuevo_sugerido` stay. No unit cost, no input, no ingredient is created.
  */
 export function applyEstimateToEvidence(
   evidence: Record<string, unknown>,
-  estimateLines: readonly EstimatedLine[]
+  estimateLines: readonly EstimatedLine[],
+  opts?: { matchNameOf?: (line: EstimatedLine) => string | null }
 ): ApplyEstimateResult {
   const rawLines = Array.isArray(evidence.lines) ? evidence.lines : [];
   const free = new Map<string, EstimatedLine>();
@@ -966,51 +1040,45 @@ export function applyEstimateToEvidence(
     if (!free.has(key)) free.set(key, line);
   }
   let applied = 0;
+  const skipped: string[] = [];
   const lines = rawLines.map((item) => {
     const row = asRecord(item);
     if (!row) return item;
+    const keys = lineNameKeys(row);
+    const hitKey = keys.find((k) => free.has(k));
     const hasQty = typeof row.qty === "number" && row.qty > 0;
     const resolved = typeof row.input_id === "string" && row.input_id !== "";
-    if (hasQty || resolved || typeof row.raw_name !== "string") return item;
-    const keys = [
-      row.raw_name,
-      typeof row.ingredient_match === "string" ? row.ingredient_match : "",
-    ]
-      .filter(Boolean)
-      .map((n) => nameKeyOf(n as string));
-    const hitKey = keys.find((k) => free.has(k));
+    if (hasQty || resolved || typeof row.raw_name !== "string") {
+      if (hitKey) {
+        skipped.push(free.get(hitKey)!.raw_name);
+        free.delete(hitKey);
+      }
+      return item;
+    }
     if (!hitKey) return item;
     const estimate = free.get(hitKey)!;
     free.delete(hitKey);
     applied += 1;
-    const flags = (
-      Array.isArray(row.flags)
-        ? row.flags.filter((f): f is string => typeof f === "string")
-        : []
-    ).filter((flag) => flag !== FLAG_PENDING_QTY);
-    if (!flags.includes(FLAG_MILTON_ESTIMATE)) flags.push(FLAG_MILTON_ESTIMATE);
-    const reasons = (
-      Array.isArray(row.reasons)
-        ? row.reasons.filter((r): r is string => typeof r === "string")
-        : []
-    ).map((reason) =>
-      reason.replace(" Confírmalo y escribe cuánto lleva.", " Confírmalo.")
-    );
     return {
       ...row,
       qty: estimate.qty,
       unit: estimate.unit,
-      flags,
-      reasons: [
-        "Estimado por Milton: revisa la cantidad y la unidad antes de aprobar.",
-        ...reasons,
-      ],
+      flags: filledEstimateFlags(row),
+      reasons: filledEstimateReasons(row),
     };
   });
-  const allHaveQty = lines.every((item) => {
-    const row = asRecord(item);
-    return row && typeof row.qty === "number" && row.qty > 0;
-  });
+  for (const estimate of free.values()) {
+    applied += 1;
+    lines.push(
+      evidenceLineFromEstimate(estimate, opts?.matchNameOf?.(estimate) ?? null)
+    );
+  }
+  const allHaveQty =
+    lines.length > 0 &&
+    lines.every((item) => {
+      const row = asRecord(item);
+      return row && typeof row.qty === "number" && row.qty > 0;
+    });
   return {
     evidence: {
       ...evidence,
@@ -1024,7 +1092,7 @@ export function applyEstimateToEvidence(
         : {}),
     },
     applied,
-    not_copied: [...free.values()].map((line) => line.raw_name),
+    not_copied: skipped,
   };
 }
 
@@ -1037,6 +1105,186 @@ export type UseEstimateOutcome =
       version_status: "in_review";
     }
   | { ok: false; status: number; error: string };
+
+function menuDraftShellEvidence(fact: DishFact): Record<string, unknown> {
+  const dishName =
+    (typeof fact.evidence.menu_dish === "string" && fact.evidence.menu_dish) ||
+    fact.name;
+  return menuDraftEvidence({
+    match: {
+      dish: {
+        name: dishName,
+        section:
+          typeof fact.evidence.menu_section === "string"
+            ? fact.evidence.menu_section
+            : fact.category,
+        price:
+          typeof fact.evidence.menu_price === "number"
+            ? fact.evidence.menu_price
+            : null,
+        description:
+          typeof fact.evidence.menu_description === "string"
+            ? fact.evidence.menu_description
+            : null,
+        variants: [],
+        components: [],
+      },
+      variant: null,
+      basis: "name",
+    } as never,
+    lines: [],
+    menuSourceId:
+      typeof fact.evidence.menu_source_id === "string"
+        ? fact.evidence.menu_source_id
+        : null,
+    menuUrl:
+      typeof fact.evidence.menu_url === "string"
+        ? fact.evidence.menu_url
+        : null,
+  });
+}
+
+/**
+ * The same writes «Leer tu menú» does for a Sin receta plato: an empty
+ * in_review version (when none exists) and a menu-draft evidence shell.
+ * Nothing is created ad hoc — recipe / version fields match server.ts.
+ */
+async function ensureMenuDraftShell(
+  supabase: SupabaseClient,
+  params: { companyId: string; fact: DishFact }
+): Promise<
+  | { ok: true; evidence: Record<string, unknown>; linkId: string }
+  | { ok: false; status: number; error: string }
+> {
+  const { companyId, fact } = params;
+  if (!fact.link_id) {
+    return { ok: false, status: 404, error: "No encontré ese plato." };
+  }
+  const existingLines = Array.isArray(fact.evidence.lines)
+    ? fact.evidence.lines
+    : [];
+  const alreadyDraft = fact.evidence.source === MENU_EVIDENCE_SOURCE;
+  let versionId: string | null =
+    typeof fact.evidence.recipe_version_id === "string"
+      ? fact.evidence.recipe_version_id
+      : null;
+
+  if (fact.version_statuses.length === 0) {
+    const created = await createMenuDraftVersion(supabase, {
+      companyId,
+      fact,
+    });
+    if (!created.ok) return created;
+    versionId = created.versionId;
+  } else if (!versionId) {
+    const versions = await fetchAllRows<{ id: string; status: string }>(() =>
+      supabase
+        .from("recipe_versions")
+        .select("id, status")
+        .eq("company_id", companyId)
+        .eq("menu_item_id", fact.menu_item_id)
+    );
+    if (versions.error) {
+      return { ok: false, status: 500, error: ESTIMATE_DRAFT_CREATE_MESSAGE };
+    }
+    versionId =
+      versions.rows.find((row) => row.status === "in_review")?.id ??
+      versions.rows[0]?.id ??
+      null;
+  }
+
+  const evidence = alreadyDraft
+    ? {
+        ...fact.evidence,
+        lines: existingLines,
+        ...(versionId && !fact.evidence.recipe_version_id
+          ? { recipe_version_id: versionId }
+          : {}),
+      }
+    : { ...menuDraftShellEvidence(fact), recipe_version_id: versionId };
+  return { ok: true, evidence, linkId: fact.link_id };
+}
+
+async function createMenuDraftVersion(
+  supabase: SupabaseClient,
+  params: { companyId: string; fact: DishFact }
+): Promise<
+  { ok: true; versionId: string } | { ok: false; status: number; error: string }
+> {
+  const { companyId, fact } = params;
+  try {
+    const existing = await supabase
+      .from("recipes")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("menu_item_id", fact.menu_item_id)
+      .maybeSingle();
+    if (existing.error) {
+      return { ok: false, status: 500, error: ESTIMATE_DRAFT_CREATE_MESSAGE };
+    }
+    let recipeId =
+      existing.data && typeof existing.data.id === "string"
+        ? existing.data.id
+        : null;
+    if (!recipeId) {
+      const inserted = await supabase
+        .from("recipes")
+        .insert({
+          company_id: companyId,
+          menu_item_id: fact.menu_item_id,
+          name: fact.name,
+          status: "active",
+          serving_quantity: 1,
+          serving_unit: "portion",
+          source_type: "import",
+          source_id:
+            typeof fact.evidence.menu_source_id === "string"
+              ? fact.evidence.menu_source_id
+              : null,
+        })
+        .select("id")
+        .single();
+      if (inserted.error || !inserted.data) {
+        return { ok: false, status: 500, error: ESTIMATE_DRAFT_CREATE_MESSAGE };
+      }
+      recipeId = String(inserted.data.id);
+    }
+    const listed = await fetchAllRows<{ version_number?: number }>(() =>
+      supabase
+        .from("recipe_versions")
+        .select("id, version_number")
+        .eq("company_id", companyId)
+        .eq("recipe_id", recipeId)
+    );
+    if (listed.error) {
+      return { ok: false, status: 500, error: ESTIMATE_DRAFT_CREATE_MESSAGE };
+    }
+    const version = await supabase
+      .from("recipe_versions")
+      .insert({
+        company_id: companyId,
+        recipe_id: recipeId,
+        menu_item_id: fact.menu_item_id,
+        version_number: nextVersionNumber(
+          listed.rows.map((row) => ({
+            version_number: Number(row.version_number ?? 0),
+          }))
+        ),
+        status: "in_review",
+        effective_date: null,
+        source_type: "import",
+        notes: "Borrador desde el menú",
+      })
+      .select("id")
+      .single();
+    if (version.error || !version.data) {
+      return { ok: false, status: 500, error: ESTIMATE_DRAFT_CREATE_MESSAGE };
+    }
+    return { ok: true, versionId: String(version.data.id) };
+  } catch {
+    return { ok: false, status: 500, error: ESTIMATE_DRAFT_CREATE_MESSAGE };
+  }
+}
 
 export async function applyEstimateAsDraft(
   supabase: SupabaseClient,
@@ -1053,6 +1301,9 @@ export async function applyEstimateAsDraft(
   );
   if (!estimate) {
     return { ok: false, status: 404, error: ESTIMATE_NOT_FOUND_MESSAGE };
+  }
+  if (estimate.lines.length === 0) {
+    return { ok: false, status: 409, error: ESTIMATE_EMPTY_MESSAGE };
   }
 
   let facts: DishFact[];
@@ -1073,30 +1324,66 @@ export async function applyEstimateAsDraft(
   if (!fact || !fact.link_id) {
     return { ok: false, status: 404, error: "No encontré ese plato." };
   }
-  // Approved, Confirmado, Excel or hand-made meanwhile: nothing is written.
+  // Approved, Confirmado with a real recipe, Excel or hand-made: nothing
+  // is written. A Confirmado link alone does not block.
   if (!dishEligibility(fact).ok) {
     return { ok: false, status: 409, error: ESTIMATE_APPROVED_MESSAGE };
   }
-  if (
-    !isMenuDraftFact(fact) ||
-    fact.version_statuses.length !== 1 ||
-    !Array.isArray(fact.evidence.lines) ||
-    fact.evidence.lines.length === 0
-  ) {
+
+  const alreadyDraft = isMenuDraftFact(fact);
+  if (!alreadyDraft && (fact.has_recipe_lines || fact.approved_with_lines)) {
     return { ok: false, status: 409, error: ESTIMATE_NO_DRAFT_MESSAGE };
   }
 
-  const applied = applyEstimateToEvidence(fact.evidence, estimate.lines);
+  const shell = await ensureMenuDraftShell(supabase, {
+    companyId: params.companyId,
+    fact,
+  });
+  if (!shell.ok) return shell;
+
+  const catalogNames = new Map<string, string>();
+  for (const line of estimate.lines) {
+    if (line.ingredient_id && line.raw_name) {
+      catalogNames.set(line.ingredient_id, line.raw_name);
+    }
+  }
+  const applied = applyEstimateToEvidence(shell.evidence, estimate.lines, {
+    matchNameOf: (line) =>
+      line.ingredient_id
+        ? (catalogNames.get(line.ingredient_id) ?? null)
+        : null,
+  });
   if (applied.applied === 0) {
     return { ok: false, status: 409, error: ESTIMATE_NO_DRAFT_MESSAGE };
   }
 
-  // Only the draft's evidence lines change: no version, link state, entry
-  // or ingredient is written.
+  let evidenceToWrite = applied.evidence;
+  try {
+    const link = fact.odoo_product_id
+      ? await loadPosProductLink(
+          supabase,
+          params.companyId,
+          fact.odoo_product_id,
+          fact.location_id
+        )
+      : null;
+    if (link?.id === fact.link_id) {
+      evidenceToWrite = withMenuDraftEvidence(link, {
+        menu_item_id: fact.menu_item_id,
+        evidence: applied.evidence,
+      }).evidence;
+    }
+  } catch {
+    // The draft lines still save on the existing link.
+  }
+
+  // Only the draft's evidence lines change: no link state, cost entry
+  // or ingredient is written. A new version is created only when the
+  // plato had none (same writes as «Leer tu menú»).
   const now = new Date().toISOString();
   const { error } = await supabase
     .from("pos_product_links")
-    .update({ evidence: applied.evidence, updated_at: now })
+    .update({ evidence: evidenceToWrite, updated_at: now })
     .eq("company_id", params.companyId)
     .eq("id", fact.link_id);
   if (error) {

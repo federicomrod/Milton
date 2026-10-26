@@ -1,11 +1,14 @@
 // POST /api/restaurant/recipes/menu/estimate/use   Body (JSON): { menu_item_id }
 //
 // «Usar como borrador»: copy Milton's estimated quantities into the dish's
-// EXISTING menu draft (the lines «Leer menú» made). No second version, no
-// ingredient, no cost entry; the version stays in review («Borrador») and
-// the dish's real status does not change. A dish that has meanwhile got an
-// approved or Confirmado recipe, or an Excel or hand-made one, is refused
-// and nothing is written. Owner, admin, manager or Milton staff.
+// menu draft. Existing lines without qty are filled; missing estimated
+// lines are appended. A Sin receta plato with no draft gets the same empty
+// menu-draft shell «Leer tu menú» writes, then the lines. No ingredient,
+// no cost entry; the version stays in review («Borrador») and the dish's
+// real status does not change. A dish that has meanwhile got an approved
+// recipe, a Confirmado link with a real recipe, or an Excel or hand-made
+// one, is refused and nothing is written. Owner, admin, manager or Milton
+// staff.
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";

@@ -15,10 +15,15 @@ import {
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 
+const toastWorld = vi.hoisted(() => ({ toast: vi.fn() }));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push() {}, refresh() {}, replace() {} }),
   usePathname: () => "/dashboard/restaurant/menu/platos",
   useSearchParams: () => new URLSearchParams(),
+}));
+vi.mock("@/components/ui/use-toast", () => ({
+  useToast: () => ({ toast: toastWorld.toast }),
 }));
 vi.mock("@/components/restaurant/recipes-costing/TreatmentPanel", () => ({
   TreatmentControl: () => <div>TREATMENT</div>,
@@ -43,6 +48,8 @@ import { PlatoScreen } from "@/components/restaurant/recipes-costing/PlatoScreen
 import { MenuDishesScreen } from "@/components/restaurant/menu/MenuDishesScreen";
 import { ResumenCockpit } from "@/components/restaurant/recipes-costing/ResumenScreen";
 import {
+  canUseEstimateAsDraft,
+  ESTIMATE_USE_SUCCESS,
   estimateText,
   extraEstimatedDishes,
   extraEstimatedLabel,
@@ -123,6 +130,7 @@ function jsonRes(body: unknown, status = 200) {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  toastWorld.toast.mockClear();
 });
 
 describe("MenuReaderPanel · Estimar con Milton", () => {
@@ -488,6 +496,40 @@ describe("PlatoScreen · estimate overlay", () => {
       "Este plato ya tiene receta aprobada; Milton no la cambia."
     );
     expect(note.className).toContain("text-[var(--brand-muted)]");
+    expect(toastWorld.toast).not.toHaveBeenCalled();
+  });
+
+  it("shows a success toast after using the estimate as a draft", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes({ ok: true, applied: 2 }))
+    );
+    render(
+      <PlatoScreen
+        {...platoProps}
+        data={workspace({})}
+        estimates={[estimate()]}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Usar como borrador" }));
+    await waitFor(() => expect(toastWorld.toast).toHaveBeenCalled());
+    expect(toastWorld.toast).toHaveBeenCalledWith({
+      title:
+        "Listo: 2 ingredientes estimados en el borrador. Revísalos y aprueba.",
+    });
+  });
+
+  it("hides «Usar como borrador» when the estimate has no lines", () => {
+    render(
+      <PlatoScreen
+        {...platoProps}
+        data={workspace({})}
+        estimates={[estimate({ lines: [] })]}
+      />
+    );
+    expect(screen.getByTestId("estimate-panel")).toBeTruthy();
+    expect(screen.getByText("Sin precio")).toBeTruthy();
+    expect(screen.queryByText("Usar como borrador")).toBeNull();
   });
 });
 
@@ -935,6 +977,20 @@ describe("pure helpers", () => {
     expect(
       overlayAllowed(estimate(), { real_cost: null, link_confirmed: true })
     ).toBe(true);
+  });
+  it("hides «Usar como borrador» when the estimate has no lines or was used", () => {
+    expect(canUseEstimateAsDraft(estimate())).toBe(true);
+    expect(canUseEstimateAsDraft(estimate({ lines: [] }))).toBe(false);
+    expect(
+      canUseEstimateAsDraft(estimate({ used_as_draft_at: "2026-07-01" }))
+    ).toBe(false);
+    expect(canUseEstimateAsDraft(null)).toBe(false);
+    expect(ESTIMATE_USE_SUCCESS(1)).toBe(
+      "Listo: 1 ingrediente estimado en el borrador. Revísalos y aprueba."
+    );
+    expect(ESTIMATE_USE_SUCCESS(3)).toBe(
+      "Listo: 3 ingredientes estimados en el borrador. Revísalos y aprueba."
+    );
   });
 });
 

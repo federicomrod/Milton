@@ -216,6 +216,8 @@ function baseStore(): FakeStore {
     ingredients: [
       { id: "i-pollo", company_id: CO, name: "Pollo", default_unit: "g" },
     ],
+    recipes: [],
+    menu_items: [],
     ingredient_cost_entries: [],
     ingredient_unit_conversions: [],
     ingredient_aliases: [],
@@ -923,4 +925,151 @@ describe("«usar como borrador»", () => {
     const res = await USE(req("estimate/use", {}));
     expect(res.status).toBe(400);
   });
+
+  it("an empty draft gets the estimate lines appended, with flags", async () => {
+    addDish(store, 1, { components: [] });
+    await POST(req("estimate", {}));
+    const guarded = [
+      "recipe_versions",
+      "ingredient_cost_entries",
+      "ingredients",
+      "recipe_version_inputs",
+    ];
+    const before = snapshot(store, ...guarded);
+    const res = await USE(req("estimate/use", { menu_item_id: "m1" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      applied: 2,
+      not_copied: [],
+      version_status: "in_review",
+    });
+    const lines = (store.pos_product_links[0].evidence as { lines: Row[] })
+      .lines;
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({
+      raw_name: "pollo",
+      qty: 200,
+      unit: "g",
+      unit_cost: null,
+    });
+    expect(lines[0].flags).toEqual(
+      expect.arrayContaining([FLAG_MILTON_ESTIMATE, "pendiente_ingrediente"])
+    );
+    expect(lines[1]).toMatchObject({
+      raw_name: "salsa",
+      qty: 2,
+      unit: "unidad",
+    });
+    expect(snapshot(store, ...guarded)).toBe(before);
+    expect(store.recipe_versions[0].status).toBe("in_review");
+  });
+
+  it("fills existing lines and does not duplicate by normalized name", async () => {
+    addDish(store, 1, { components: ["Pollo"] });
+    await POST(req("estimate", {}));
+    const body = await (
+      await USE(req("estimate/use", { menu_item_id: "m1" }))
+    ).json();
+    expect(body.applied).toBe(2);
+    const lines = (store.pos_product_links[0].evidence as { lines: Row[] })
+      .lines;
+    expect(lines.map((l) => l.raw_name)).toEqual(["Pollo", "salsa"]);
+    expect(lines[0]).toMatchObject({ qty: 200, unit: "g" });
+    expect(lines[0].flags).toContain(FLAG_MILTON_ESTIMATE);
+    expect(lines[1]).toMatchObject({ qty: 2, unit: "unidad" });
+    expect(lines.filter((l) => nameOf(l) === "pollo")).toHaveLength(1);
+  });
+
+  it("Sin receta without a draft creates the menu draft and appends the lines", async () => {
+    addDish(store, 1, { evidence: {}, versions: [] });
+    await POST(req("estimate", {}));
+    expect(store.recipe_versions).toHaveLength(0);
+    const res = await USE(req("estimate/use", { menu_item_id: "m1" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      applied: 2,
+      version_status: "in_review",
+    });
+    expect(store.recipes).toHaveLength(1);
+    expect(store.recipes[0]).toMatchObject({
+      company_id: CO,
+      menu_item_id: "m1",
+      source_type: "import",
+    });
+    expect(store.recipe_versions).toHaveLength(1);
+    expect(store.recipe_versions[0]).toMatchObject({
+      company_id: CO,
+      menu_item_id: "m1",
+      status: "in_review",
+      notes: "Borrador desde el menú",
+    });
+    expect(store.recipe_version_inputs ?? []).toHaveLength(0);
+    const evidence = store.pos_product_links[0].evidence as {
+      source: string;
+      status: string;
+      lines: Row[];
+    };
+    expect(evidence.source).toBe("menu");
+    expect(evidence.status).toBe("borrador");
+    expect(evidence.lines).toHaveLength(2);
+    expect(evidence.lines[0].flags).toContain(FLAG_MILTON_ESTIMATE);
+    expect(store.ingredients).toHaveLength(1);
+  });
+
+  it("stays inside the company: another company's draft and estimate are not touched", async () => {
+    addDish(store, 1);
+    await POST(req("estimate", {}));
+    store.pos_product_links.push({
+      id: "l-other",
+      company_id: "co-2",
+      odoo_product_id: 101,
+      odoo_name: "Plato 1",
+      location_id: null,
+      menu_item_id: "m1",
+      link_state: "sugerido",
+      evidence: { source: "menu", status: "borrador", lines: [] },
+    });
+    store.restaurant_dish_estimates.push({
+      ...store.restaurant_dish_estimates[0],
+      id: "est-other",
+      company_id: "co-2",
+      used_as_draft_at: null,
+    });
+    store.recipe_versions.push({
+      id: "v-other",
+      company_id: "co-2",
+      menu_item_id: "m1",
+      status: "in_review",
+    });
+    const otherBefore = JSON.stringify([
+      store.pos_product_links[1],
+      store.restaurant_dish_estimates[1],
+      store.recipe_versions[1],
+    ]);
+    const res = await USE(req("estimate/use", { menu_item_id: "m1" }));
+    expect(res.status).toBe(200);
+    expect(
+      JSON.stringify([
+        store.pos_product_links[1],
+        store.restaurant_dish_estimates[1],
+        store.recipe_versions[1],
+      ])
+    ).toBe(otherBefore);
+    expect(store.pos_product_links[0].company_id).toBe(CO);
+    expect(
+      (store.pos_product_links[0].evidence as { lines: Row[] }).lines.length
+    ).toBe(2);
+    expect(store.restaurant_dish_estimates[0].used_as_draft_at).toEqual(
+      expect.any(String)
+    );
+    expect(store.restaurant_dish_estimates[1].used_as_draft_at).toBeNull();
+  });
 });
+
+function nameOf(line: Row): string {
+  return String(line.raw_name ?? "").toLowerCase();
+}

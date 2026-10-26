@@ -65,6 +65,7 @@ export function generateSuggestedActions(
   // -------------------------------------------------------------------------
   const wantsMarginFix =
     intent === "least_profitable_dishes" ||
+    intent === "dish_food_cost" ||
     intent === "agent_recommendations" ||
     has(
       "margin",

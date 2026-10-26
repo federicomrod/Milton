@@ -16,6 +16,7 @@ export const CATALOG_CAPS = {
   unpricedNames: 10,
   usedIn: 4,
   dishes: 25,
+  foodCost: 5,
   groups: 20,
 } as const;
 
@@ -124,7 +125,11 @@ export interface AskMiltonMenuDishes {
   currency: string;
   period: { from: string | null; to: string | null };
   dish_count: number;
+  /** Dishes with no recipe or price — excluded from rankings, never 0%. */
+  uncosted_count: number;
   top_by_sales: AskMiltonMenuDish[];
+  /** Highest food cost % (cost / sale price), same costing as Menú › Resumen. */
+  top_by_food_cost: AskMiltonMenuDish[];
   /** Net sales by menu category (Churrascos, Bebidas…). */
   sales_by_category: Array<{
     category: string;
@@ -150,28 +155,41 @@ export function buildMenuDishes(
     c.dishes += 1;
     byCategory.set(key, c);
   }
+  const toRow = (d: (typeof dishes)[number]): AskMiltonMenuDish => ({
+    name: cut(d.name),
+    category: d.category,
+    net_sales: r2(d.net_sales),
+    units: Math.round(d.units),
+    food_cost_pct:
+      d.food_cost_pct !== null && Number.isFinite(d.food_cost_pct)
+        ? r2(d.food_cost_pct)
+        : null,
+    margin_pct:
+      d.margin_pct !== null && Number.isFinite(d.margin_pct)
+        ? r2(d.margin_pct)
+        : null,
+    cost_status: String(d.cost_status),
+  });
+  const costed = dishes.filter(
+    (d) => d.food_cost_pct !== null && Number.isFinite(d.food_cost_pct)
+  );
   return {
     currency: econ.currency,
     period: econ.period,
     dish_count: dishes.length,
+    uncosted_count: dishes.length - costed.length,
     top_by_sales: [...dishes]
       .sort((a, b) => b.net_sales - a.net_sales)
       .slice(0, CATALOG_CAPS.dishes)
-      .map((d) => ({
-        name: cut(d.name),
-        category: d.category,
-        net_sales: r2(d.net_sales),
-        units: Math.round(d.units),
-        food_cost_pct:
-          d.food_cost_pct !== null && Number.isFinite(d.food_cost_pct)
-            ? r2(d.food_cost_pct)
-            : null,
-        margin_pct:
-          d.margin_pct !== null && Number.isFinite(d.margin_pct)
-            ? r2(d.margin_pct)
-            : null,
-        cost_status: String(d.cost_status),
-      })),
+      .map(toRow),
+    top_by_food_cost: [...costed]
+      .sort(
+        (a, b) =>
+          (b.food_cost_pct ?? 0) - (a.food_cost_pct ?? 0) ||
+          a.name.localeCompare(b.name, "es")
+      )
+      .slice(0, CATALOG_CAPS.foodCost)
+      .map(toRow),
     sales_by_category: [...byCategory.entries()]
       .map(([category, v]) => ({
         category: cut(category),

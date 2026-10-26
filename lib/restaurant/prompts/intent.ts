@@ -4,6 +4,7 @@
 export type AskMiltonIntent =
   | "most_profitable_dish"
   | "least_profitable_dishes"
+  | "dish_food_cost"
   | "expensive_ingredients"
   | "ingredient_usage"
   | "supplier_risk"
@@ -15,9 +16,27 @@ export type AskMiltonIntent =
   | "best_sales_day"
   | "generic";
 
+function fold(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+function mentionsDish(m: string): boolean {
+  return (
+    m.includes("plato") ||
+    m.includes("platillo") ||
+    m.includes("dish") ||
+    m.includes("dishes") ||
+    m.includes("menu item")
+  );
+}
+
+function mentionsIngredient(m: string): boolean {
+  return m.includes("ingrediente") || m.includes("ingredient");
+}
+
 export function detectIntent(message: string): AskMiltonIntent {
-  const m = message.toLowerCase();
-  const has = (...words: string[]) => words.some((w) => m.includes(w));
+  const m = fold(message);
+  const has = (...words: string[]) => words.some((w) => m.includes(fold(w)));
 
   // ingredient_usage — must come before "recipe" and "ingredient" generics
   if (
@@ -78,21 +97,53 @@ export function detectIntent(message: string): AskMiltonIntent {
   ) {
     return "top_selling_items";
   }
-  if (has("most profitable", "highest margin", "best margin", "top margin")) {
+  if (
+    has(
+      "most profitable",
+      "highest margin",
+      "best margin",
+      "top margin",
+      "mas rentable",
+      "mayor margen",
+      "mejor margen"
+    )
+  ) {
     return "most_profitable_dish";
   }
-  if (
+
+  // Platos / dishes + food cost %, margen or rentabilidad → dish ranking
+  // (Menú › Resumen costing). Never the ingredient-price ranking.
+  const dishFoodCostSignal =
     has(
       "least profitable",
       "lowest margin",
       "worst margin",
       "low margin",
       "which dishes should i fix",
-      "fix first"
-    )
-  ) {
-    return "least_profitable_dishes";
+      "fix first",
+      "peor margen",
+      "menos rentable",
+      "me deja menos",
+      "deja menos",
+      "food cost"
+    ) ||
+    (mentionsDish(m) &&
+      !mentionsIngredient(m) &&
+      has(
+        "costo",
+        "cost",
+        "margen",
+        "margin",
+        "rentabil",
+        "profit",
+        "%",
+        "porcentaje",
+        "precio de venta"
+      ));
+  if (dishFoodCostSignal) {
+    return "dish_food_cost";
   }
+
   // Ingredient-cost intent — includes business-oriented phrasings (cost drivers,
   // margin impact, negotiation targets) as well as direct unit-cost questions.
   if (
@@ -183,10 +234,20 @@ export function detectIntent(message: string): AskMiltonIntent {
   ) {
     return "agent_recommendations";
   }
-  if (has("margin", "profit", "food cost", "gross margin")) {
-    return "least_profitable_dishes"; // generic margin question → show risks
+  if (
+    has("margin", "margen", "profit", "food cost", "gross margin", "rentabil")
+  ) {
+    return "dish_food_cost";
   }
-  // Broad ingredient/cost catch — comes after specific patterns above
+  // Broad ingredient/cost catch — comes after specific patterns above.
+  // Dish + cost % questions must not land here (handled above).
+  if (
+    mentionsDish(m) &&
+    !mentionsIngredient(m) &&
+    has("cost", "costo", "price", "precio")
+  ) {
+    return "dish_food_cost";
+  }
   if (has("cost", "expensive", "ingredient", "price")) {
     return "expensive_ingredients";
   }

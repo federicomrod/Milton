@@ -45,6 +45,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { withLocationParam } from "@/components/restaurant/RestaurantShell";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { useAskMiltonController } from "@/components/restaurant/shell/ask-milton-controller";
+import {
+  ASK_MILTON_MAX_FOLLOWUPS,
+  ASK_MILTON_MAX_RELATED_LINKS,
+} from "@/lib/restaurant/ask-milton-limits";
 
 const MiltonUiLang = createContext<PreferredLanguage>("es");
 function useMiltonLang(): PreferredLanguage {
@@ -76,7 +80,7 @@ function suggestedQuestions(lang: PreferredLanguage): string[] {
     t(
       lang,
       "Which menu items have missing recipes?",
-      "¿Qué platillos no tienen receta?"
+      "¿Qué platos no tienen receta?"
     ),
     t(
       lang,
@@ -161,25 +165,6 @@ interface ChatTurn {
   role: "user" | "assistant";
   content: string;
   answer?: AnswerPayload;
-}
-
-function sourceAreaLabel(key: string, lang: PreferredLanguage): string {
-  switch (key) {
-    case "sales":
-      return t(lang, "Sales", "Ventas");
-    case "menu":
-      return t(lang, "Menu", "Menú");
-    case "supplier":
-      return t(lang, "Supplier", "Proveedor");
-    case "invoice":
-      return t(lang, "Invoice", "Factura");
-    case "agent":
-      return t(lang, "Agent", "Agente");
-    case "data_quality":
-      return t(lang, "Data quality", "Calidad de los datos");
-    default:
-      return key;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -693,7 +678,6 @@ function MessageBubble({
   onFollowup: (q: string) => void;
   disabled: boolean;
 }) {
-  const lang = useMiltonLang();
   // Multi-Restaurant UX v1: links surfaced inside an answer (related_links,
   // suggested action chips) must carry the current selection forward too —
   // otherwise following one silently drops back to consolidated. Read
@@ -729,43 +713,20 @@ function MessageBubble({
           {turn.content}
         </div>
 
-        {a && a.supporting_facts.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {a.supporting_facts.map((f, i) => (
-              <span
-                key={i}
-                className="inline-flex items-center gap-1 text-[12px] rounded-md border border-border bg-background px-2 py-1"
-                title={sourceAreaLabel(f.source_area, lang)}
-              >
-                <span className="text-muted-foreground">{f.label}:</span>
-                <span className="font-medium">{f.value}</span>
-                <span className="text-[12px] text-muted-foreground uppercase tracking-wide ml-1">
-                  {sourceAreaLabel(f.source_area, lang)}
-                </span>
-              </span>
-            ))}
-          </div>
-        )}
-
         {a && a.related_links.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
-            {a.related_links.map((l, i) => (
-              <Link
-                key={i}
-                href={withLocationParam(l.href, locationId)}
-                className="inline-flex items-center gap-1 text-xs rounded-full border border-border bg-background px-2.5 py-1 hover:bg-muted hover:border-[#a9bcef] dark:hover:border-[#2a3f8f] transition-colors"
-              >
-                {l.label}
-                <ArrowRight className="h-3 w-3" />
-              </Link>
-            ))}
-          </div>
-        )}
-
-        {a && a.confidence_notes.length > 0 && (
-          <div className="text-[12px] text-muted-foreground italic flex items-start gap-1.5">
-            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-            <span>{a.confidence_notes[0]}</span>
+            {a.related_links
+              .slice(0, ASK_MILTON_MAX_RELATED_LINKS)
+              .map((l, i) => (
+                <Link
+                  key={i}
+                  href={withLocationParam(l.href, locationId)}
+                  className="inline-flex items-center gap-1 text-xs rounded-full border border-border bg-background px-2.5 py-1 hover:bg-muted hover:border-[#a9bcef] dark:hover:border-[#2a3f8f] transition-colors"
+                >
+                  {l.label}
+                  <ArrowRight className="h-3 w-3" />
+                </Link>
+              ))}
           </div>
         )}
 
@@ -799,7 +760,7 @@ function FollowupChips({
 }) {
   return (
     <div className="flex flex-wrap gap-1.5 pt-1">
-      {items.slice(0, 4).map((q, i) => (
+      {items.slice(0, ASK_MILTON_MAX_FOLLOWUPS).map((q, i) => (
         <button
           key={i}
           type="button"

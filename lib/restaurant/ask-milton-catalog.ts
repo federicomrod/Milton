@@ -10,17 +10,30 @@
 
 import type { IngredientLatestCostRow } from "@/lib/restaurant/menu-recipes-server";
 import type { DishEconomicsResult } from "@/lib/restaurant/costing/dish-economics";
+import type { DishStatus } from "@/lib/restaurant/costing/dish-status";
+import { DISH_STATUSES } from "@/lib/restaurant/costing/dish-status";
+import {
+  RANKING_INCLUDES_ESTIMATED,
+  marginRankings,
+} from "@/lib/restaurant/costing/menu-summary";
 
 export const CATALOG_CAPS = {
   ingredients: 15,
   unpricedNames: 10,
   usedIn: 4,
   dishes: 25,
+  foodCost: 5,
   groups: 20,
 } as const;
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const cut = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+function asDishStatus(status: string): DishStatus {
+  return (DISH_STATUSES as readonly string[]).includes(status)
+    ? (status as DishStatus)
+    : "sin_receta";
+}
 
 export interface AskMiltonIngredientPrice {
   name: string;
@@ -124,7 +137,11 @@ export interface AskMiltonMenuDishes {
   currency: string;
   period: { from: string | null; to: string | null };
   dish_count: number;
+  /** Dishes with no recipe or price — excluded from rankings, never 0%. */
+  uncosted_count: number;
   top_by_sales: AskMiltonMenuDish[];
+  /** Highest food cost % (cost / sale price), same costing as Menú › Resumen. */
+  top_by_food_cost: AskMiltonMenuDish[];
   /** Net sales by menu category (Churrascos, Bebidas…). */
   sales_by_category: Array<{
     category: string;
@@ -150,28 +167,50 @@ export function buildMenuDishes(
     c.dishes += 1;
     byCategory.set(key, c);
   }
+  const toRow = (d: (typeof dishes)[number]): AskMiltonMenuDish => ({
+    name: cut(d.name),
+    category: d.category,
+    net_sales: r2(d.net_sales),
+    units: Math.round(d.units),
+    food_cost_pct:
+      d.food_cost_pct !== null && Number.isFinite(d.food_cost_pct)
+        ? r2(d.food_cost_pct)
+        : null,
+    margin_pct:
+      d.margin_pct !== null && Number.isFinite(d.margin_pct)
+        ? r2(d.margin_pct)
+        : null,
+    cost_status: String(d.cost_status),
+  });
+  // Same eligibility as Menú › Resumen: only «aprobado». AI estimates
+  // and falta_precio never enter the ranking (RANKING_INCLUDES_ESTIMATED).
+  const ranking = marginRankings(
+    dishes.map((d, i) => ({
+      id: String(i),
+      name: d.name,
+      net_sales: d.net_sales,
+      margin_pct: d.margin_pct,
+      cost_status: asDishStatus(d.cost_status),
+    })),
+    {
+      min: 1,
+      top: CATALOG_CAPS.foodCost,
+      includeEstimated: RANKING_INCLUDES_ESTIMATED,
+    }
+  );
   return {
     currency: econ.currency,
     period: econ.period,
     dish_count: dishes.length,
+    uncosted_count: dishes.length - ranking.costed,
     top_by_sales: [...dishes]
       .sort((a, b) => b.net_sales - a.net_sales)
       .slice(0, CATALOG_CAPS.dishes)
-      .map((d) => ({
-        name: cut(d.name),
-        category: d.category,
-        net_sales: r2(d.net_sales),
-        units: Math.round(d.units),
-        food_cost_pct:
-          d.food_cost_pct !== null && Number.isFinite(d.food_cost_pct)
-            ? r2(d.food_cost_pct)
-            : null,
-        margin_pct:
-          d.margin_pct !== null && Number.isFinite(d.margin_pct)
-            ? r2(d.margin_pct)
-            : null,
-        cost_status: String(d.cost_status),
-      })),
+      .map(toRow),
+    top_by_food_cost: ranking.worst
+      .map((w) => dishes[Number(w.id)])
+      .filter((d) => d != null)
+      .map(toRow),
     sales_by_category: [...byCategory.entries()]
       .map(([category, v]) => ({
         category: cut(category),

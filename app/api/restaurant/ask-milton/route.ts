@@ -42,6 +42,7 @@ import {
 } from "@/lib/restaurant/ask-milton-prompt";
 import { resolveAskMiltonAnswer } from "@/lib/restaurant/ask-milton-ground";
 import { generateSuggestedActions } from "@/lib/restaurant/ask-milton-actions";
+import { ASK_MILTON_MAX_FOLLOWUPS } from "@/lib/restaurant/ask-milton-limits";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -139,7 +140,10 @@ async function callOpenAI(
       answer: parsed.answer,
       supporting_facts: parsed.supporting_facts.slice(0, 6),
       related_links: sanitizeRelatedLinks(parsed.related_links),
-      suggested_followups: parsed.suggested_followups.slice(0, 4),
+      suggested_followups: parsed.suggested_followups.slice(
+        0,
+        ASK_MILTON_MAX_FOLLOWUPS
+      ),
       confidence_notes: parsed.confidence_notes.slice(0, 3),
     };
   } catch (err) {

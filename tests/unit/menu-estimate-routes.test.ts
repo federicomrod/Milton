@@ -16,6 +16,10 @@ const world = vi.hoisted(() => ({
   staff: false,
   db: null as unknown,
   sales: new Map<number, { net_sales: number; units_sold: number }>(),
+  /** POS food products with no plato yet (all-history sales). */
+  unlinked: [] as Array<{ id: number; name: string; net_sales: number }>,
+  /** Net sales of the current month per product (a call with a date range). */
+  month: new Map<number, number>(),
   /** Answers one chat completion; may throw. */
   ai: null as unknown as (params: {
     messages: Array<{ role: string; content: unknown }>;
@@ -70,14 +74,28 @@ vi.mock("@/lib/restaurant/currency", () => ({
   resolveCompanyCurrency: async () => "USD",
 }));
 vi.mock("@/lib/restaurant/pos-product-list-server", () => ({
-  loadPosProductList: async () => ({
+  loadPosProductList: async (_s: unknown, params?: { startDate?: string }) => ({
     ok: true,
     links: [],
     list: {
-      products: [...world.sales.entries()].map(([id, s]) => ({
-        odoo_product_id: id,
-        ...s,
-      })),
+      products: [
+        ...[...world.sales.entries()].map(([id, s]) => ({
+          odoo_product_id: id,
+          ...s,
+          ...(params?.startDate ? { net_sales: world.month.get(id) ?? 0 } : {}),
+        })),
+        ...world.unlinked.map((u) => ({
+          odoo_product_id: u.id,
+          odoo_name: u.name,
+          treatment: "por_clasificar",
+          is_combo: false,
+          menu_item_id: null,
+          units_sold: 10,
+          net_sales: params?.startDate
+            ? (world.month.get(u.id) ?? 0)
+            : u.net_sales,
+        })),
+      ],
     },
   }),
 }));
@@ -263,6 +281,8 @@ beforeEach(() => {
   world.denyCap = null;
   world.staff = false;
   world.sales = new Map();
+  world.unlinked = [];
+  world.month = new Map();
   world.calls = [];
   world.ai = (params) => {
     const { dish, image } = inspect(params);
@@ -365,7 +385,7 @@ describe("chunks", () => {
     for (let n = 1; n <= 30; n++) addDish(store, n);
     const body = await (await POST(req("estimate", { limit: 500 }))).json();
     expect(body.results).toHaveLength(5);
-    expect(body.remaining).toBe(15); // 20 − 5
+    expect(body.remaining).toBe(25); // the whole pool (30) − this chunk (5), not capped by limit
     const small = await (
       await POST(req("estimate", { menu_item_ids: ["m10", "m11"], limit: 1 }))
     ).json();
@@ -1126,6 +1146,38 @@ describe("a product with no linked recipe (Part C)", () => {
     expect((links[0].evidence as Row).source).toBe("create_recipe");
     expect(store.restaurant_dish_estimates).toHaveLength(1);
     expect(body.results[0].menu_item_id).toBe(store.menu_items[0].id);
+  });
+
+  it("a bulk run ranks linked and unlinked together by the month: the high-selling unlinked product goes first and only chunk products are linked", async () => {
+    store.pos_sales_items = [
+      { company_id: CO, pos_source: "odoo", sale_date: "2026-07-15" },
+    ];
+    // Linked platos 1..6 with low month sales, but great all-history sales.
+    for (let n = 1; n <= 6; n++) {
+      addDish(store, n);
+      world.month.set(100 + n, 10 + n);
+    }
+    // Unlinked: a high month seller and 9 low sellers.
+    world.unlinked.push({ id: 900, name: "Producto Demo Alto", net_sales: 5 });
+    world.month.set(900, 5000);
+    for (let k = 1; k <= 9; k++)
+      world.unlinked.push({
+        id: 900 + k,
+        name: `Producto Demo ${k}`,
+        net_sales: 1,
+      });
+    const body = await (await POST(req("estimate", { limit: 20 }))).json();
+    expect(body.results).toHaveLength(5);
+    expect(body.results[0].name).toBe("Producto Demo Alto");
+    expect(body.results[0].odoo_product_id).toBe(900);
+    // 6 linked + 10 unlinked = 16 in the pool, 5 in this chunk.
+    expect(body.remaining).toBe(11);
+    // Only the products of the chunk got an empty recipe + link (here: 1).
+    const created = store.pos_product_links.filter(
+      (l) => (l.evidence as Row).source === "create_recipe"
+    );
+    expect(created.map((l) => l.odoo_product_id)).toEqual([900]);
+    expect(store.menu_items).toHaveLength(1);
   });
 
   it("calling twice creates no duplicates", async () => {

@@ -2,7 +2,7 @@
 
 // «Estimar con Milton» (issue #212): the one run flow, used by the menu
 // reader (Costos) and by Menú › Platos. It asks the server for estimates in
-// chunks (≤5 dishes per call, the best sellers first, 20 at most per run) and
+// chunks (≤5 dishes per call, the best sellers of the month first, 20 at most per run) and
 // never stops for one dish that fails. Estimates are approximations kept
 // apart from the real figures.
 
@@ -22,7 +22,18 @@ import {
   ESTIMATE_PROBE_FAILED,
   ESTIMATE_RETRY,
   ESTIMATE_UNAVAILABLE,
+  estimateSkipMessage,
 } from "./estimate-overlay";
+import Link from "next/link";
+import { dishHref } from "@/lib/restaurant/menu-links";
+import {
+  EstimateChunkError,
+  remainingNote,
+  runEstimateChunks,
+  type ChunkResponse,
+  type ChunkResult,
+  type EstimateRunOutcome,
+} from "@/lib/restaurant/menu-reading/estimate-run";
 
 import {
   invalidateEstimateProbe,
@@ -32,17 +43,6 @@ import {
 const ENDPOINT = "/api/restaurant/recipes/menu/estimate";
 export const MAX_DISHES_PER_RUN = 20;
 
-interface ChunkResult {
-  menu_item_id: string;
-  skipped_reason?: string | null;
-}
-interface ChunkResponse {
-  done?: boolean;
-  remaining?: number;
-  results?: ChunkResult[];
-  error?: string;
-}
-
 export interface EstimateRunState {
   running: boolean;
   /** Dishes handled so far (estimated or skipped). */
@@ -50,6 +50,10 @@ export interface EstimateRunState {
   total: number;
   note: string | null;
   summary: string | null;
+  /** Every plato handled by the last run, in the order the server returned. */
+  results: ChunkResult[];
+  /** Platos still without an estimate after the run (null = unknown). */
+  remaining: number | null;
 }
 
 export function estimateSummary(estimated: number, skipped: number): string {
@@ -59,7 +63,7 @@ export function estimateSummary(estimated: number, skipped: number): string {
 }
 
 export function progressText(processed: number, total: number): string {
-  return `Estimando ${Math.min(processed + 1, total)} de ${total} platos (los que más venden primero)…`;
+  return `Estimando ${Math.min(processed, total)} de ${total} platos…`;
 }
 
 /** The run loop. `onDone` runs after a run that estimated something. */
@@ -76,6 +80,8 @@ export function useEstimateRun({
     total: 0,
     note: null,
     summary: null,
+    results: [],
+    remaining: null,
   });
   const runningRef = useRef(false);
 
@@ -86,67 +92,113 @@ export function useEstimateRun({
       1,
       Math.min(MAX_DISHES_PER_RUN, eligible && eligible > 0 ? eligible : 20)
     );
-    setState({ running: true, processed: 0, total, note: null, summary: null });
-    const seen = new Set<string>();
-    let estimated = 0;
-    let skipped = 0;
-    let failedInARow = 0;
-    let note: string | null = null;
+    setState({
+      running: true,
+      processed: 0,
+      total,
+      note: null,
+      summary: null,
+      results: [],
+      remaining: null,
+    });
+    let outcome: EstimateRunOutcome = {
+      results: [],
+      estimated: 0,
+      skipped: 0,
+      remaining: null,
+      note: null,
+    };
     try {
-      while (seen.size < total) {
-        let json: ChunkResponse = {};
-        let status = 0;
-        try {
+      outcome = await runEstimateChunks({
+        total,
+        missingTableNote: ESTIMATE_MISSING_TABLE,
+        onProgress: (processed) => setState((prev) => ({ ...prev, processed })),
+        post: async (limit) => {
           const res = await fetch(ENDPOINT, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               location_id: locationId ?? undefined,
-              limit: total - seen.size,
+              limit,
             }),
           });
-          status = res.status;
-          json = (await res.json().catch(() => ({}))) as ChunkResponse;
-          if (!res.ok) throw new Error(json.error ?? "No pude estimar.");
-        } catch {
-          if (status === 503) {
-            note = ESTIMATE_MISSING_TABLE;
-            break;
-          }
-          failedInARow += 1;
-          if (failedInARow >= 2) break;
-          continue;
-        }
-        failedInARow = 0;
-        const results = json.results ?? [];
-        let fresh = 0;
-        for (const r of results) {
-          if (seen.has(r.menu_item_id)) continue;
-          seen.add(r.menu_item_id);
-          fresh += 1;
-          if (r.skipped_reason) skipped += 1;
-          else estimated += 1;
-        }
-        setState((prev) => ({ ...prev, processed: seen.size }));
-        // Nothing new (all repeated or empty): stop, never loop forever.
-        if (fresh === 0 || json.done) break;
-      }
+          const json = (await res.json().catch(() => ({}))) as ChunkResponse;
+          if (!res.ok)
+            throw new EstimateChunkError(res.status, json.error ?? undefined);
+          return json;
+        },
+      });
     } finally {
       runningRef.current = false;
       // The counts changed (or may have): the next check reads again.
       invalidateEstimateProbe();
       setState({
         running: false,
-        processed: seen.size,
+        processed: outcome.results.length,
         total,
-        note,
-        summary: note ? null : estimateSummary(estimated, skipped),
+        note: outcome.note,
+        summary: outcome.note
+          ? null
+          : estimateSummary(outcome.estimated, outcome.skipped),
+        results: outcome.results,
+        remaining: outcome.remaining,
       });
     }
-    if (estimated > 0) onDone();
+    if (outcome.estimated > 0) onDone();
   }
 
   return { state, start };
+}
+
+const LINK_CLASS =
+  "font-semibold text-[var(--brand-blue)] hover:text-[#1533A3] hover:underline";
+
+/**
+ * The plato names of a run, each linking to its plato; the skipped ones with
+ * the short reason. Compact: the first 5, then «Ver todos».
+ */
+export function EstimateRunList({ results }: { results: ChunkResult[] }) {
+  const [all, setAll] = useState(false);
+  const ordered = [
+    ...results.filter((r) => !r.skipped_reason),
+    ...results.filter((r) => r.skipped_reason),
+  ].filter((r) => r.menu_item_id || r.skipped_reason);
+  if (ordered.length === 0) return null;
+  const shown = all ? ordered : ordered.slice(0, 5);
+  return (
+    <div data-testid="estimate-run-list" className="space-y-1">
+      <ul className="space-y-0.5 text-[12px] text-[var(--brand-muted)]">
+        {shown.map((r, i) => {
+          const name = r.name?.trim() || "Plato sin nombre";
+          return (
+            <li key={`${r.menu_item_id}-${i}`}>
+              {r.odoo_product_id != null ? (
+                <Link href={dishHref(r.odoo_product_id)} className={LINK_CLASS}>
+                  {name}
+                </Link>
+              ) : (
+                <span className="font-semibold text-[var(--brand-ink)]">
+                  {name}
+                </span>
+              )}
+              {r.skipped_reason ? (
+                <span> · {estimateSkipMessage(r.skipped_reason)}</span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      {!all && ordered.length > 5 ? (
+        <button
+          type="button"
+          onClick={() => setAll(true)}
+          className={LINK_CLASS + " text-[12px]"}
+        >
+          Ver todos ({ordered.length})
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 /** Why the person cannot edit recipes: the shared message plus what to do. */
@@ -326,6 +378,14 @@ export function EstimateWithMilton({
       ) : null}
       {state.summary ? (
         <p className="text-[12px] text-[var(--brand-muted)]">{state.summary}</p>
+      ) : null}
+      {state.summary && !state.running ? (
+        <EstimateRunList results={state.results} />
+      ) : null}
+      {state.summary && !state.running && remainingNote(state.remaining) ? (
+        <p className="text-[12px] text-[var(--brand-muted)]">
+          {remainingNote(state.remaining)}
+        </p>
       ) : null}
     </div>
   );

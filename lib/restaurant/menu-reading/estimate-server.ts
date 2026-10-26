@@ -33,6 +33,7 @@ import {
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { fetchAllRowsRetryingWithoutColumns } from "@/lib/restaurant/missing-schema-column";
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
+import { resumenRange } from "@/lib/restaurant/menu-resumen";
 import {
   FLAG_MILTON_ESTIMATE,
   FLAG_NEW_SUGGESTED,
@@ -533,6 +534,8 @@ export async function countUnlinkedWithoutPlato(
 export interface UnlinkedProduct {
   odoo_product_id: number;
   odoo_name: string;
+  /** All-history net sales (ranking tie-break). Only set by the bulk list. */
+  net_sales?: number;
 }
 
 /** Unlinked POS food products, best sellers first. Failure = none. */
@@ -550,6 +553,7 @@ async function listUnlinkedProducts(
       .map((p) => ({
         odoo_product_id: p.odoo_product_id,
         odoo_name: p.odoo_name,
+        net_sales: p.net_sales,
       }));
   } catch {
     return [];
@@ -614,13 +618,20 @@ export async function ensureProductPlatos(
 export interface EstimateDishResult {
   menu_item_id: string;
   name: string;
+  /** The POS product of the plato (opens it in Platos), when known. */
+  odoo_product_id?: number | null;
   est_cost: number | null;
   est_margin_pct: number | null;
   skipped_reason: string | null;
 }
 
 export interface EstimateRunResult {
+  /** How many platos THIS call estimated (a count, never a «finished» flag). */
   done: number;
+  /**
+   * Estimable platos (and unlinked food products) still waiting AFTER this
+   * call: the whole ranked pool minus this chunk, not capped by `limit`.
+   */
   remaining: number;
   results: EstimateDishResult[];
 }
@@ -692,6 +703,7 @@ async function estimateOne(
   const result: EstimateDishResult = {
     menu_item_id: fact.menu_item_id,
     name: fact.name,
+    odoo_product_id: fact.odoo_product_id,
     est_cost: null,
     est_margin_pct: null,
     skipped_reason: null,
@@ -905,6 +917,69 @@ export interface EstimateRunParams {
   ai?: EstimateAi;
 }
 
+/** One candidate of the bulk ranking. */
+export interface RankedCandidate<T> {
+  key: string;
+  name: string;
+  /** Net sales of the current month (the period Costos › Resumen shows). */
+  month_sales: number;
+  /** All-history net sales (tie-break). */
+  all_sales: number;
+  item: T;
+}
+
+/** Month sales first, all-history sales as the tie-break, then name and key. */
+export function rankEstimatePool<T>(
+  candidates: readonly RankedCandidate<T>[]
+): Array<RankedCandidate<T>> {
+  return [...candidates].sort(
+    (a, b) =>
+      b.month_sales - a.month_sales ||
+      b.all_sales - a.all_sales ||
+      a.name.localeCompare(b.name, "es") ||
+      a.key.localeCompare(b.key)
+  );
+}
+
+/**
+ * Net sales per POS product in the month of the last sales day (the same
+ * period as Resumen: `resumenRange("month", lastDay)`). Failure or no sales =
+ * empty (the all-history sales rank alone).
+ */
+async function loadMonthSales(
+  supabase: SupabaseClient,
+  companyId: string,
+  locationId: string | null
+): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  try {
+    let q = supabase
+      .from("pos_sales_items")
+      .select("sale_date")
+      .eq("company_id", companyId)
+      .eq("pos_source", "odoo");
+    if (locationId) q = q.eq("location_id", locationId);
+    const { data, error } = await q
+      .order("sale_date", { ascending: false })
+      .limit(1);
+    if (error) return out;
+    const raw = (data as Array<{ sale_date?: unknown }> | null)?.[0]?.sale_date;
+    if (typeof raw !== "string" || raw.length < 10) return out;
+    const range = resumenRange("month", raw.slice(0, 10));
+    const list = await loadPosProductList(supabase, {
+      companyId,
+      locationId,
+      startDate: range.from,
+      endDate: range.to,
+    });
+    if (!list.ok) return out;
+    for (const p of list.list.products) out.set(p.odoo_product_id, p.net_sales);
+  } catch {
+    // no month ranking
+  }
+  return out;
+}
+
 /**
  * One call: at most ESTIMATE_CHUNK dishes, ESTIMATE_PARALLEL at a time. Throws
  * EstimateTablesMissingError when migration 062 is not applied (before any
@@ -953,40 +1028,75 @@ export async function estimateDishes(
     })
   );
 
-  let pool: Array<DishFact | { missing: string }>;
+  let batch: Array<DishFact | { missing: string }>;
+  let remaining = 0;
   if (ids) {
     const byId = new Map(facts.map((f) => [f.menu_item_id, f] as const));
-    pool = ids.slice(0, limit).map((id) => byId.get(id) ?? { missing: id });
+    const pool = ids
+      .slice(0, limit)
+      .map((id) => byId.get(id) ?? { missing: id });
+    batch = pool.slice(0, ESTIMATE_CHUNK);
+    remaining = pool.length - batch.length;
   } else {
+    // Bulk run: ONE pool (platos without a recipe + POS food products with no
+    // plato yet), best sellers of the current month first. A product only gets
+    // its empty recipe + link if it makes it into this chunk.
     const done = new Set(existing.rows.map((row) => row.menu_item_id));
-    pool = facts
-      .filter((f) => dishEligibility(f).ok && !done.has(f.menu_item_id))
-      .sort(
-        (a, b) =>
-          b.net_sales - a.net_sales ||
-          a.name.localeCompare(b.name, "es") ||
-          a.menu_item_id.localeCompare(b.menu_item_id)
-      )
-      .slice(0, limit);
-  }
-  // Bulk run: when the plato list runs out, give the best-selling products
-  // with no plato yet their empty recipe + link and estimate them too.
-  if (!ids && params.actor && pool.length < ESTIMATE_CHUNK) {
-    const unlinked = await listUnlinkedProducts(
+    const monthSales = await loadMonthSales(
       supabase,
       params.companyId,
       locationId
     );
-    if (unlinked.length > 0) {
+    const candidates: Array<RankedCandidate<DishFact | UnlinkedProduct>> = [];
+    for (const f of facts) {
+      if (!dishEligibility(f).ok || done.has(f.menu_item_id)) continue;
+      candidates.push({
+        key: f.menu_item_id,
+        name: f.name,
+        month_sales:
+          f.odoo_product_id != null
+            ? (monthSales.get(f.odoo_product_id) ?? 0)
+            : 0,
+        all_sales: f.net_sales,
+        item: f,
+      });
+    }
+    if (params.actor) {
+      const linkedProducts = new Set(
+        facts
+          .map((f) => f.odoo_product_id)
+          .filter((id): id is number => id != null)
+      );
+      for (const p of await listUnlinkedProducts(
+        supabase,
+        params.companyId,
+        locationId
+      )) {
+        if (linkedProducts.has(p.odoo_product_id)) continue;
+        candidates.push({
+          key: `p${p.odoo_product_id}`,
+          name: p.odoo_name,
+          month_sales: monthSales.get(p.odoo_product_id) ?? 0,
+          all_sales: p.net_sales ?? 0,
+          item: p,
+        });
+      }
+    }
+    const ranked = rankEstimatePool(candidates);
+    const chunk = ranked.slice(0, Math.min(ESTIMATE_CHUNK, limit));
+    remaining = ranked.length - chunk.length;
+    const toLink = chunk
+      .map((c) => c.item)
+      .filter((item): item is UnlinkedProduct => !("menu_item_id" in item));
+    const linkedNow = new Map<number, DishFact>();
+    if (toLink.length > 0 && params.actor) {
       const ensured = await ensureProductPlatos(supabase, {
         companyId: params.companyId,
         actor: params.actor,
-        products: unlinked.slice(
-          0,
-          Math.min(limit, ESTIMATE_CHUNK) - pool.length
-        ),
+        products: toLink,
         locationId,
       });
+      failedLinks += ensured.failed;
       if (ensured.menuItemIds.length > 0) {
         const added = await withSales(
           supabase,
@@ -997,12 +1107,21 @@ export async function estimateDishes(
             locationId,
           })
         );
-        pool = [...pool, ...added.filter((f) => dishEligibility(f).ok)];
+        for (const f of added) {
+          if (f.odoo_product_id != null && dishEligibility(f).ok)
+            linkedNow.set(f.odoo_product_id, f);
+        }
+      }
+    }
+    batch = [];
+    for (const c of chunk) {
+      if ("menu_item_id" in c.item) batch.push(c.item);
+      else {
+        const f = linkedNow.get(c.item.odoo_product_id);
+        if (f) batch.push(f);
       }
     }
   }
-  const batch = pool.slice(0, ESTIMATE_CHUNK);
-  const remaining = pool.length - batch.length;
 
   const needsAi = batch.some(
     (entry) => "menu_item_id" in entry && dishEligibility(entry).ok
@@ -1062,6 +1181,7 @@ export async function estimateDishes(
       return {
         menu_item_id: entry.menu_item_id,
         name: entry.name,
+        odoo_product_id: entry.odoo_product_id,
         est_cost: null,
         est_margin_pct: null,
         skipped_reason: eligible.ok ? "error_ia" : eligible.reason,

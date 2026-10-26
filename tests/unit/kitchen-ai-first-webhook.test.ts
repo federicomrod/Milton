@@ -631,11 +631,11 @@ describe("webhook cases (voice)", () => {
     await say("voice", "aguacate a 3.50 la libra");
     expect(drafts()).toHaveLength(1);
     expect(lastSent().text).toContain(
-      "No encontré el ingrediente ‘aguacate’. ¿Lo creo? Parecidos: Aguacate Hass."
+      "No encontré ‘aguacate’ en tus ingredientes. Parecidos: Aguacate Hass. Lo dejé en Compras sin ingrediente asignado para que lo revisen."
     );
     // Another company's ingredient is never suggested.
     expect(lastSent().text).not.toContain("Criollo");
-    expect(lastSent().text).toContain("Lo dejé en Compras para revisar.");
+    expect(lastSent().text).not.toContain("¿Lo creo?");
   });
 
   it("7b. without close names: no «Parecidos»", async () => {
@@ -644,7 +644,7 @@ describe("webhook cases (voice)", () => {
     ];
     await say("voice", "aguacate a 3.50 la libra");
     expect(lastSent().text).toContain(
-      "No encontré el ingrediente ‘aguacate’. ¿Lo creo? Lo dejé en Compras para revisar."
+      "No encontré ‘aguacate’ en tus ingredientes. Lo dejé en Compras sin ingrediente asignado para que lo revisen."
     );
   });
 
@@ -851,5 +851,81 @@ describe("a mixed message while the AI is down", () => {
     intentAi.mockResolvedValue(null);
     await say("text", "se acabó el aguacate, quedan 3 cajas");
     expect(lastSent().text).not.toContain("El precio no lo anoté");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A price update for an ingredient that exists with that name is MATCHED, and
+// the cook is never told «no encontré» about a name that is in the catalog.
+// ---------------------------------------------------------------------------
+
+describe("an existing ingredient is matched by exact name or synonym", () => {
+  const ing = (
+    id: string,
+    name: string,
+    over: Record<string, unknown> = {}
+  ) => ({
+    id,
+    company_id: "co-demo",
+    name,
+    archived_at: null,
+    ...over,
+  });
+  const NOT_FOUND = "No encontré";
+
+  it.each([
+    ["harina de trigo a 1.90 el kilo", "Harina de trigo"],
+    ["Harina de Trigo a 1.90 el kilo", "Harina de trigo"],
+    ["harina  de trigo a 1.90 el kilo", "Harina de trigo"],
+    ["harina de trigo a 1.90 el kilo", "Harina de trigo"],
+    ["azucar a 1.90 el kilo", "Azúcar"],
+    ["tomates a 1.90 el kilo", "Tomate"],
+    ["jitomate a 1.90 el kilo", "Tomate"],
+  ])("«%s» → auto_matched to «%s», no «No encontré»", async (said, name) => {
+    store.ingredients = [ing("ing-1", name)];
+    await say("text", said);
+    expect(drafts()).toHaveLength(1);
+    expect(lines()).toHaveLength(1);
+    expect(lines()[0].match_status).toBe("auto_matched");
+    expect(lines()[0].ingredient_id).toBe("ing-1");
+    expect(lastSent().text).not.toContain(NOT_FOUND);
+  });
+
+  it("an archived ingredient is not matched and not suggested", async () => {
+    store.ingredients = [
+      ing("ing-old", "Harina de trigo", { archived_at: "2026-01-01" }),
+    ];
+    await say("text", "harina de trigo a 1.90 el kilo");
+    expect(lines()[0].match_status).toBe("unmatched");
+    expect(lines()[0].ingredient_id).toBeNull();
+    expect(lastSent().text).toContain(
+      "No encontré ‘harina de trigo’ en tus ingredientes. Lo dejé en Compras sin ingrediente asignado para que lo revisen."
+    );
+    expect(lastSent().text).not.toContain("Parecidos");
+  });
+
+  it("another company's ingredient is never matched or suggested", async () => {
+    store.ingredients = [
+      ing("ing-other", "Harina de trigo", { company_id: "co-stage" }),
+    ];
+    await say("text", "harina de trigo a 1.90 el kilo");
+    expect(lines()[0].match_status).toBe("unmatched");
+    expect(lines()[0].ingredient_id).toBeNull();
+    expect(lastSent().text).not.toContain("Parecidos");
+  });
+
+  it("«aguacate» with only «Aguacate Hass»: still unmatched, suggests it, never «¿Lo creo?»", async () => {
+    store.ingredients = [ing("ing-h", "Aguacate Hass")];
+    await say("text", "aguacate a 1.90 el kilo");
+    expect(lines()[0].match_status).toBe("unmatched");
+    expect(lastSent().text).toContain("Parecidos: Aguacate Hass.");
+    expect(lastSent().text).not.toContain("¿Lo creo?");
+  });
+
+  it("it is still a needs_review draft: no price entry, nothing approved", async () => {
+    store.ingredients = [ing("ing-1", "Harina de trigo")];
+    await say("text", "harina de trigo a 1.90 el kilo");
+    expect(drafts()[0].status).toBe("needs_review");
+    expect(store.ingredient_cost_entries ?? []).toHaveLength(0);
   });
 });

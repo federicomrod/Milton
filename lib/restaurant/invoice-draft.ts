@@ -17,6 +17,10 @@
 // Nothing here writes ingredient_cost_entries: the invoice always lands in
 // status 'needs_review' and a human approves it in the normal flow.
 
+import {
+  findExactIngredient,
+  findSynonymIngredient,
+} from "@/lib/restaurant/kitchen-ingredient-match";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PRICE_UPDATE_NOTE_PREFIX } from "@/lib/restaurant/price-update-note";
 import {
@@ -233,6 +237,13 @@ export interface CreateInvoiceDraftInput {
   /** YYYY-MM-DD used when the photo has no date (strict mode only). */
   fallbackInvoiceDate?: string;
   fallbackDateNote?: string;
+  /**
+   * Opt-in (Telegram price updates only): when no SKU / supplier-link match
+   * exists, match the line's name to an ACTIVE ingredient of the company by
+   * EXACT name or plural/synonym (never loose). Invoice photos and web
+   * uploads never set it, so their matching is unchanged.
+   */
+  matchByIngredientName?: boolean;
 }
 
 const COUNT_WORDS = [
@@ -386,10 +397,15 @@ export async function createInvoiceDraft(
   }
 
   // ---- Ingredient catalog + supplier links (for auto-match) ----
-  const { data: catalogRows } = await supabase
+  let catalogQuery = supabase
     .from("ingredients")
     .select("id, name, default_unit")
     .eq("company_id", companyId);
+  // A name match must never land on an archived (merged / hidden) ingredient.
+  if (input.matchByIngredientName) {
+    catalogQuery = catalogQuery.is("archived_at", null);
+  }
+  const { data: catalogRows } = await catalogQuery;
   const ingredientCatalog: IngredientCatalogEntry[] = (catalogRows ??
     []) as IngredientCatalogEntry[];
 
@@ -405,7 +421,7 @@ export async function createInvoiceDraft(
   const skipped: SkippedLine[] = [];
   const derivedQtyNotes: string[] = [];
   for (const line of extraction.lines) {
-    const match = matchIngredientForLine(
+    let match = matchIngredientForLine(
       {
         ingredient_name: null, // OpenAI does not return ingredient_name; matching by item-name / sku only
         supplier_item_name: line.supplier_item_name,
@@ -415,6 +431,15 @@ export async function createInvoiceDraft(
       ingredientCatalog,
       supplierLinks
     );
+    if (!match && input.matchByIngredientName) {
+      // Exact name, then plural / synonym (the same rules as the stock-report
+      // and recipe-draft paths). Never one-shared-word or loose matches.
+      const said = line.supplier_item_name ?? line.description ?? "";
+      const hit =
+        findExactIngredient(said, ingredientCatalog) ??
+        findSynonymIngredient(said, ingredientCatalog);
+      if (hit) match = { ingredient_id: hit.id, via: "ingredient_name" };
+    }
     // Derive unit_cost if missing but quantity + line_total are present.
     const unitCostRead =
       line.unit_cost !== null && line.unit_cost >= 0

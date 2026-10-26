@@ -99,7 +99,7 @@ export const KITCHEN_COPY = {
     "Dejé sin guardar el precio de {producto}. Si quieres, mándalo otra vez con la unidad, por ejemplo «{producto} $1.50 la libra».",
   /** The ingredient mentioned was not found in the catalog. {parecidos} = optional «Parecidos: X, Y.» */
   PRICE_INGREDIENT_NOT_FOUND:
-    "No encontré el ingrediente ‘{ingrediente}’. ¿Lo creo? {parecidos}Lo dejé en Compras para revisar.",
+    "No encontré ‘{ingrediente}’ en tus ingredientes. {parecidos}Lo dejé en Compras sin ingrediente asignado para que lo revisen.",
   /** Recipe photo/text could not be saved as a draft. */
   RECIPE_SAVE_FAILED: "No pude guardar la receta. Manda otra foto o escríbela.",
   /** Stock report saved (se agota, 86, merma). {detalle} = «se agotó: tomate», {seccion} = «Se agota» / «Merma» */

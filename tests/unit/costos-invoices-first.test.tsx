@@ -393,9 +393,12 @@ describe("the page order", () => {
     );
     const at = (s: string) => html.indexOf(s);
     expect(at("Precios que subieron")).toBeGreaterThan(at("HEADER-"));
-    expect(at("Últimas facturas")).toBeGreaterThan(at("Precios que subieron"));
+    // Two-column layout: tabs and invoices are both present
+    expect(at("Últimas facturas")).toBeGreaterThan(-1);
+    expect(at("Cambios de precio")).toBeGreaterThan(-1);
+    // Setup is hidden at end
+    expect(at("SETUP-MARKER")).toBeGreaterThan(at("Cambios de precio"));
     expect(at("SETUP-MARKER")).toBeGreaterThan(at("Últimas facturas"));
-    expect(at("Cambios de precio")).toBeGreaterThan(at("SETUP-MARKER"));
     // «con facturas pendientes» links to Compras
     expect(html).toMatch(
       /href="[^"]*tab=compras[^"]*"[^>]*>[\s\S]*?con facturas pendientes/

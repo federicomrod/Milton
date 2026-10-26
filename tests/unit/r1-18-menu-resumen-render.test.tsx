@@ -233,13 +233,15 @@ describe("Resumen is the menu's cockpit", () => {
 describe("the setup moved to Costos, same components", () => {
   const costs = read("app/dashboard/restaurant/costs/page.tsx");
   const section = read("components/restaurant/costs/CostsSetupSection.tsx");
-  it("Costos mounts the section under the KPIs and above the tabs", () => {
+  it("Costos mounts the section (hidden, for the picker), tabs come after KPIs", () => {
     expect(costs).toContain("<CostsSetupSection");
+    // Two-column layout: tabs come right after KPIs
     expect(costs.indexOf("<CostsKpiCard")).toBeLessThan(
-      costs.indexOf("<CostsSetupSection")
-    );
-    expect(costs.indexOf("<CostsSetupSection")).toBeLessThan(
       costs.indexOf("<CostsAreaTabs")
+    );
+    // Setup section is mounted (for picker) but comes later
+    expect(costs.indexOf("<CostsAreaTabs")).toBeLessThan(
+      costs.indexOf("<CostsSetupSection")
     );
   });
   it("it reuses the existing panels and endpoints (upload → prepare dishes, undo batch, reset, menu reader)", () => {

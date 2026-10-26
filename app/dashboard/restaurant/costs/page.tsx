@@ -36,6 +36,7 @@ import {
 } from "@/components/restaurant/costs/CostsArea";
 import { formatMoney } from "@/lib/restaurant/costs-format";
 import { LatestInvoicesBox } from "@/components/restaurant/costs/LatestInvoicesBox";
+import { LatestInvoicesCompact } from "@/components/restaurant/costs/LatestInvoicesCompact";
 import { CostsSetupSection } from "@/components/restaurant/costs/CostsSetupSection";
 import {
   CostsPageLayout,
@@ -256,21 +257,6 @@ export default async function CostsAreaPage({
             />
           </div>
 
-          {/* Desktop: show full invoices box and setup section for tablets and below */}
-          <div className="lg:hidden space-y-5">
-            {latestInvoices ? (
-              <LatestInvoicesBox
-                latest={latestInvoices}
-                uploadHref={invoiceUploadHref(shellParams)}
-                shellParams={shellParams}
-              />
-            ) : null}
-            <CostsSetupSection
-              locationId={location ?? null}
-              companyId={companyId}
-            />
-          </div>
-
           {nothingYet ? (
             <EmptyState
               testId="costs-empty"
@@ -292,6 +278,18 @@ export default async function CostsAreaPage({
 
           <CostsAreaTabs active={tab} lang={lang} shellParams={shellParams} />
 
+          {/* Tablet: 3 compact cards in a row below tabs */}
+          <div className="hidden md:flex lg:hidden gap-3 mt-5 flex-wrap">
+            <div className="flex-1 min-w-[200px]">
+              <CostsDesktopRightColumn
+                latestInvoices={latestInvoices}
+                locationId={location ?? null}
+                shellParams={shellParams}
+                isTablet
+              />
+            </div>
+          </div>
+
           {tab === "precios" ? (
             profitability ? (
               <PriceChangesTable trends={trends} lang={lang} />
@@ -312,6 +310,24 @@ export default async function CostsAreaPage({
           ) : (
             <ProveedoresTab lang={lang} />
           )}
+
+          {/* Mobile: compact cards below tab content */}
+          <div className="md:hidden space-y-3 mt-5">
+            {latestInvoices ? (
+              <LatestInvoicesCompact
+                latest={latestInvoices}
+                shellParams={shellParams}
+              />
+            ) : null}
+          </div>
+
+          {/* Always mount CostsSetupSection for the picker, but hide it */}
+          <div className="hidden">
+            <CostsSetupSection
+              locationId={location ?? null}
+              companyId={companyId}
+            />
+          </div>
         </CostsMainColumn>
 
         {/* Desktop right column: sticky compact cards */}

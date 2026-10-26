@@ -6,7 +6,7 @@
 
 import Link from "next/link";
 import type { LatestInvoices } from "@/lib/restaurant/costs-page-data";
-import { invoiceReviewHref } from "@/lib/restaurant/costs-tabs";
+import { costsTabHref, invoiceReviewHref } from "@/lib/restaurant/costs-tabs";
 import { invoiceTotalText } from "./LatestInvoicesBox";
 
 function dateText(iso: string): string {
@@ -78,7 +78,7 @@ export function LatestInvoicesCompact({
         </Link>
       ) : displayRows.length > 0 ? (
         <Link
-          href={invoiceReviewHref(displayRows[0].id, shellParams)}
+          href={costsTabHref("compras", shellParams)}
           className="block text-center text-[12px] font-semibold text-[#1B40C8] hover:underline"
         >
           Ver todas

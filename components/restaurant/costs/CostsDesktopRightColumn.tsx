@@ -35,10 +35,12 @@ export function CostsDesktopRightColumn({
   latestInvoices,
   locationId,
   shellParams,
+  isTablet = false,
 }: {
   latestInvoices: LatestInvoices | null;
   locationId: string | null;
   shellParams: Record<string, string | string[] | undefined>;
+  isTablet?: boolean;
 }) {
   const key = menuTabKey("resumen", { location: locationId });
   const [data, setData] = useState<RecipeCostingWorkspace | null>(
@@ -73,15 +75,13 @@ export function CostsDesktopRightColumn({
     }, 100);
   }, []);
 
-  if (failed) {
-    return null; // Silently fail for the right column
-  }
-
   const setupData = data?.menu_summary?.setup ?? null;
   const latestUpload = data?.latest_upload ?? null;
+  const containerClass = isTablet ? "contents" : "";
 
   return (
-    <>
+    <div className={containerClass}>
+      {/* Always show invoices if we have them (independent of setup fetch) */}
       {latestInvoices && latestInvoices.rows.length > 0 ? (
         <LatestInvoicesCompact
           latest={latestInvoices}
@@ -89,11 +89,15 @@ export function CostsDesktopRightColumn({
         />
       ) : null}
 
-      {setupData && !setupData.complete ? (
+      {/* Show setup card always (even when complete), skip only on fetch failure */}
+      {!failed && setupData ? (
         <CostsSetupCompact setup={setupData} onFileAction={handleFileAction} />
       ) : null}
 
-      <LastFileCompact upload={latestUpload} onView={handleFileAction} />
-    </>
+      {/* Last file card: skip only on fetch failure */}
+      {!failed ? (
+        <LastFileCompact upload={latestUpload} onView={handleFileAction} />
+      ) : null}
+    </div>
   );
 }

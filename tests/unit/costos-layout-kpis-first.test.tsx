@@ -227,8 +227,8 @@ describe("helpers", () => {
   });
 });
 
-describe("the page: header, 4 KPIs, setup banner, tabs", () => {
-  it("renders the KPI cards before the setup block and the setup block before the tabs", async () => {
+describe("the page: header, 4 KPIs, tabs (setup hidden for picker)", () => {
+  it("renders KPI cards, then tabs; setup section is present but hidden", async () => {
     vi.resetModules();
     vi.doMock("@/lib/restaurant/cockpit-page-data", () => ({
       loadMenuAreaModel: async () => ({ profitability: null }),
@@ -243,6 +243,7 @@ describe("the page: header, 4 KPIs, setup banner, tabs", () => {
       loadCostsKpiExtras: async () => null,
       loadInvoicesTabData: async () => null,
       loadSuppliersTabData: async () => null,
+      loadLatestInvoices: async () => null,
     }));
     vi.doMock("@/lib/restaurant/auth-user", () => ({
       getCachedAuthUser: async () => ({ id: "u1" }),
@@ -268,9 +269,11 @@ describe("the page: header, 4 KPIs, setup banner, tabs", () => {
     const tabs = at("Cambios de precio");
     expect(header).toBeGreaterThan(-1);
     expect(kpi).toBeGreaterThan(header);
-    expect(setup).toBeGreaterThan(kpi);
-    expect(tabs).toBeGreaterThan(setup);
-    // all four KPI cards precede the setup block
+    // Two-column layout: tabs come right after KPIs
+    expect(tabs).toBeGreaterThan(kpi);
+    // Setup section is present (for picker) but comes after tabs
+    expect(setup).toBeGreaterThan(tabs);
+    // all four KPI cards precede the tabs
     for (const label of [
       "Compras",
       "Costo de comida",
@@ -278,7 +281,7 @@ describe("the page: header, 4 KPIs, setup banner, tabs", () => {
       "Proveedores",
     ]) {
       expect(at(label), label).toBeGreaterThan(-1);
-      expect(at(label), label).toBeLessThan(setup);
+      expect(at(label), label).toBeLessThan(tabs);
     }
   });
 });

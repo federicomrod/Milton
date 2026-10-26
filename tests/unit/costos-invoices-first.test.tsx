@@ -32,10 +32,8 @@ import {
   READ_MENU_HREF,
   setupDismissedKey,
 } from "@/components/restaurant/costs/CostsSetupSection";
-import {
-  LatestInvoicesBox,
-  invoiceTotalText,
-} from "@/components/restaurant/costs/LatestInvoicesBox";
+import { LatestInvoicesCompact } from "@/components/restaurant/costs/LatestInvoicesCompact";
+import { invoiceTotalText } from "@/lib/restaurant/costs-format";
 import {
   InvoicesPage,
   type InvoiceListItem,
@@ -65,64 +63,55 @@ const row = (over: Partial<LatestInvoices["rows"][number]> = {}) => ({
   ...over,
 });
 
-describe("«Últimas facturas»", () => {
-  it("shows proveedor, fecha, total, origen and estado; «N por revisar» is the pending count, not the rows shown", () => {
+describe("«Últimas facturas» (compact card)", () => {
+  it("shows proveedor, fecha and total; the badge is the pending count, not the rows shown", () => {
     render(
-      <LatestInvoicesBox
+      <LatestInvoicesCompact
         latest={{
-          rows: [
-            row(),
-            row({
-              id: "i2",
-              source_type: "csv",
-              status: "posted",
-              total_amount: null,
-            }),
-            row({ id: "i3", original_file_name: "telegram-1.jpg" }),
-          ],
+          rows: [row(), row({ id: "i2", total_amount: null })],
           pendingCount: 7,
           firstPendingId: "i1",
         }}
-        uploadHref="/x"
+        testId="latest"
       />
     );
-    expect(screen.getByTestId("latest-invoices-pending").textContent).toBe(
-      "7 por revisar"
+    const card = screen.getByTestId("latest");
+    expect(card.textContent).toContain("Últimas facturas");
+    expect(card.textContent).toContain("Proveedor Uno");
+    expect(card.textContent).toContain("7");
+    expect(card.querySelectorAll("a[href*='factura=']").length).toBeGreaterThan(
+      0
     );
-    const rows = screen.getAllByTestId("latest-invoice-row");
-    expect(rows).toHaveLength(3);
-    expect(rows[0].textContent).toContain("Proveedor Uno");
-    expect(rows[0].textContent).toContain("Foto");
-    expect(rows[0].textContent).toContain("Por revisar");
-    expect(rows[1].textContent).toContain("CSV");
-    expect(rows[1].textContent).toContain("Publicada");
-    expect(rows[2].textContent).toContain("Telegram");
   });
 
   it("a missing total reads «Sin precio», never $0", () => {
     render(
-      <LatestInvoicesBox
+      <LatestInvoicesCompact
         latest={{
           rows: [row({ total_amount: null })],
           pendingCount: 0,
           firstPendingId: null,
         }}
-        uploadHref="/x"
+        testId="latest"
       />
     );
-    const text = screen.getByTestId("latest-invoices").textContent ?? "";
+    const text = screen.getByTestId("latest").textContent ?? "";
     expect(text).toContain("Sin precio");
     expect(text).not.toMatch(/\$\s?0/);
+  });
+
+  it("invoiceTotalText: missing, 0 and negative are «Sin precio»; a real total is money", () => {
     expect(invoiceTotalText(null, "USD")).toBe("Sin precio");
+    expect(invoiceTotalText(undefined, "USD")).toBe("Sin precio");
     expect(invoiceTotalText(0, "USD")).toBe("Sin precio");
+    expect(invoiceTotalText(-5, "USD")).toBe("Sin precio");
     expect(invoiceTotalText(120, "USD")).toContain("120");
   });
 
   it("«Revisar» links to Compras with the first pending invoice", () => {
     render(
-      <LatestInvoicesBox
+      <LatestInvoicesCompact
         latest={{ rows: [row()], pendingCount: 1, firstPendingId: "abc-1" }}
-        uploadHref="/x"
         shellParams={{ location: "L1" }}
       />
     );
@@ -135,32 +124,29 @@ describe("«Últimas facturas»", () => {
     expect(href).toContain("location=L1");
   });
 
-  it("no pending: no «Revisar» button", () => {
+  it("no pending: no «Revisar», a «Ver todas» link to Compras instead", () => {
     render(
-      <LatestInvoicesBox
+      <LatestInvoicesCompact
         latest={{ rows: [row()], pendingCount: 0, firstPendingId: null }}
-        uploadHref="/x"
       />
     );
     expect(screen.queryByRole("link", { name: "Revisar" })).toBeNull();
-    expect(screen.getByTestId("latest-invoices-pending").textContent).toBe(
-      "Nada por revisar"
-    );
+    expect(
+      screen.getByRole("link", { name: "Ver todas" }).getAttribute("href")
+    ).toContain("tab=compras");
   });
 
-  it("empty state with «Subir factura»", () => {
+  it("empty state", () => {
     render(
-      <LatestInvoicesBox
+      <LatestInvoicesCompact
         latest={{ rows: [], pendingCount: 0, firstPendingId: null }}
-        uploadHref="/subir"
+        testId="latest"
       />
     );
-    expect(screen.getByTestId("latest-invoices-empty").textContent).toContain(
-      "Aún no tienes facturas. Súbelas aquí o mándalas por Telegram."
+    expect(screen.getByTestId("latest").textContent).toContain(
+      "Aún no tienes facturas"
     );
-    expect(
-      screen.getByRole("link", { name: "Subir factura" }).getAttribute("href")
-    ).toBe("/subir");
+    expect(screen.queryByRole("link", { name: "Revisar" })).toBeNull();
   });
 });
 
